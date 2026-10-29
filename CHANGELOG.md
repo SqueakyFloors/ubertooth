@@ -526,6 +526,24 @@
 
 ### Reliability fixes
 
+- `ubertooth-btle -p` discovers the access address of the connection it finds,
+  instead of inheriting one from an earlier command. A `-t` target set for
+  follow mode used to count on the board as "the host gave us an access
+  address", so promiscuous mode skipped the half of itself that discovers one
+  and synced on the advertising address `8e89bed6`, capturing nothing -- and
+  the setting stayed on the board, so every later `-p` did the same until the
+  board was reset. The board now keeps the two apart, and a connection
+  timeout during `-p` puts discovery back rather than falling to `8e89bed6`.
+  **Script-visible change:** `-t` with `-p` is now refused, `-t none`
+  included: `error: -t does not go with -p: promiscuous mode has no device
+  address to match a target against`, with exit 1 and before a board is
+  opened.
+  [#825](https://github.com/SqueakyFloors/ubertooth/issues/825)
+- `ubertooth-btle -a <address>` no longer narrows what a later `-f` or `-n`
+  run logs. Setting an access address used to switch the board's advertising
+  filter on with an empty target, which passes the six advertising packet
+  types it knows and drops every other, extended advertising included.
+  [#825](https://github.com/SqueakyFloors/ubertooth/issues/825)
 - `ubertooth-ego` captures in the mode its command line asks for, on a board
   left in another E-GO mode by a run that was interrupted without stopping it:
   `ubertooth-ego -r -c 2418` after a killed `-f` used to go on hopping across

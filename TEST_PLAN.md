@@ -398,6 +398,28 @@ nRF52840 DKs) plus one Ubertooth.*
       parameters and before the CRC init value, and matches the one the
       capture's packets carry
 
+### 3d. Promiscuous mode finds its own access address
+
+*Needs a BLE connection that stays up, and a board reset (`ubertooth-util -r`)
+before the first step so nothing is carried over.*
+
+- [ ] Run `ubertooth-btle -t <peer BD ADDR> -p`
+- [ ] Confirm: `error: -t does not go with -p: promiscuous mode has no device
+      address to match a target against`, exit status 1, nothing on standard
+      output. The same for `-t none -p`.
+- [ ] Run `ubertooth-btle -f -t <peer BD ADDR>` for half a minute, stop it,
+      then run `ubertooth-btle -p`
+- [ ] Confirm: `-p` reports the connection's own access address and the
+      CRCInit, and captures its packets. The target left on the board must not
+      send it to `8e89bed6`, where it would capture nothing.
+- [ ] Run `ubertooth-btle -a <that access address>`, then `ubertooth-btle -p`
+- [ ] Confirm: it follows that address at once, with no discovery pass, and
+      every packet it reports carries it
+- [ ] With that `-p` still running, drop the connection for a minute and
+      bring it back up
+- [ ] Confirm: it goes back to discovering and finds the new connection's
+      access address. No packet is reported on `8e89bed6`.
+
 ---
 
 ## 4. Spectrum Analyzer (tests specan_ui Python fixes)

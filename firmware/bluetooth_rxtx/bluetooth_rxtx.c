@@ -104,6 +104,7 @@ unsigned le_adv_len = 3;
 
 le_state_t le = {
 	.access_address = 0x8e89bed6,           // advertising channel access address
+	.access_address_set = 0,                // the host has not given one
 	.synch = 0x6b7d,                        // bit-reversed adv channel AA
 	.syncl = 0x9171,
 	.crc_init  = 0x555555,                  // advertising channel CRCInit
@@ -996,7 +997,12 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (data_in_len < 4)
 			return 0;
 		le_set_access_address(data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24);
-		le.target_set = 1;
+		/* The only request that gives promiscuous mode an access
+		 * address to follow. It has to be a setting of its own:
+		 * UBERTOOTH_BTLE_SET_TARGET names a device address and no
+		 * access address at all, so a target set for follow mode must
+		 * not make promiscuous mode skip its discovery half. */
+		le.access_address_set = 1;
 		break;
 
 	case UBERTOOTH_GET_CRC_VERIFY:
@@ -2315,6 +2321,12 @@ static void le_set_access_address(u32 aa) {
 /* reset le state, called by bt_generic_le and bt_follow_le() */
 void reset_le() {
 	le_set_access_address(0x8e89bed6);     // advertising channel access address
+	/* The address above is this reset's own, not one the host chose, so
+	 * the next promiscuous pass has to discover one rather than follow
+	 * it. The connection timeout resets here too, which is how an
+	 * access address the host gave stops being followed after the
+	 * connection it belonged to has gone. */
+	le.access_address_set = 0;
 	le.crc_init  = 0x555555;               // advertising channel CRCInit
 	le.crc_init_reversed = 0xAAAAAA;
 	le.crc_verify = 0;
@@ -3269,7 +3281,7 @@ void bt_promisc_le() {
 			channel = 2440;
 
 		// if the PC hasn't given us AA, determine by listening
-		if (!le.target_set) {
+		if (!le.access_address_set) {
 			// cs_threshold_req = -80;
 			cs_threshold_calc_and_set(channel);
 			data_cb = cb_le_promisc;

@@ -1062,6 +1062,49 @@ MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
 	mu_assert(strcmp(fake.calls, "rS") == 0, fake.calls);
 }
 
+/* A target names a device, and the connections promiscuous mode finds carry
+ * no device address, so there is nothing for it to match. The combination was
+ * accepted and the target request sent, and the board read "a target was set"
+ * as "the host gave us an access address": promiscuous mode then skipped
+ * discovery and synced on the advertising access address instead. */
+MU_TEST(promiscuous_mode_refuses_a_target)
+{
+	struct run_result r;
+	const char *const targets[] = { "-t22:44:66:88:aa:cc", "-tnone" };
+	const char *expected = "error: -t does not go with -p: promiscuous mode"
+	        " has no device address to match a target against\n";
+	unsigned i;
+
+	for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+		reset_fake();
+		r = RUN("-p", targets[i]);
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strcmp(r.err, expected) == 0, r.err);
+		mu_assert(r.out[0] == '\0', r.out);
+		/* refused while the command line was read, so the board kept
+		 * neither a target nor a promiscuous run */
+		mu_assert_int_eq(0, fake.connects);
+		mu_assert(fake.calls[0] == '\0', fake.calls);
+		mu_assert_int_eq(0, fake.promisc_calls);
+	}
+
+	/* the other two sniffing modes still take a target */
+	reset_fake();
+	r = RUN("-f", "-t22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "tmp") == 0, fake.calls);
+	reset_fake();
+	r = RUN("-n", "-t22:44:66:88:aa:cc");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "tmp") == 0, fake.calls);
+
+	/* and -p on its own is unchanged */
+	reset_fake();
+	r = RUN("-p");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.promisc_calls);
+}
+
 /* A mode the board will not enter must not be followed by a capture loop and
  * an exit status that reports a clean run. */
 MU_TEST(a_mode_the_board_refuses_stops_the_run)
@@ -1507,6 +1550,7 @@ int main(void)
 	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);
 	MU_RUN(the_interference_options_are_refused_without_f_or_p);
 	MU_RUN(a_sniffing_mode_refuses_the_access_address_and_slave_options);
+	MU_RUN(promiscuous_mode_refuses_a_target);
 	MU_RUN(the_usage_text_documents_the_set_and_the_read);
 	MU_RUN(the_usage_text_names_the_jam_aliases);
 	MU_RUN(the_help_option_exits_0_with_the_usage_text_on_stdout);

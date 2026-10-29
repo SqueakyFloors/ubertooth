@@ -104,12 +104,24 @@ AFTER_A_MODE = "error: -a and -s do not go with -f, -n or -p:" \
 for mode in ("-f", "-n", "-p"):
     for option in ("-a", "-a8e89bed6", "-s22:44:66:88:aa:cc"):
         reject((mode, option), AFTER_A_MODE)
-    # -t is sent before the mode starts and -k once it has started, so both
-    # still go with a sniffing mode
-    accepted_command_line((mode, "-t22:44:66:88:aa:cc"))
+    # -k runs once the mode has started, so it goes with any of them
     accepted_command_line((mode, "-k"))
     accepted_command_line((mode, "-k1"))
 print("ubertooth-btle: -a and -s are refused alongside a sniffing mode")
+
+# -t is sent before the mode starts, which is what the follow modes want. A
+# connection that is already running names no device, so a target has nothing
+# to match there, and the board read "a target was set" as "the host gave us
+# an access address" and followed the advertising one.
+NO_TARGET_WITH_PROMISC = "error: -t does not go with -p: promiscuous mode" \
+    " has no device address to match a target against"
+for mode in ("-f", "-n"):
+    accepted_command_line((mode, "-t22:44:66:88:aa:cc"))
+    accepted_command_line((mode, "-tnone"))
+for target in ("-t22:44:66:88:aa:cc", "-tnone"):
+    reject(("-p", target), NO_TARGET_WITH_PROMISC)
+    reject((target, "-p"), NO_TARGET_WITH_PROMISC)
+print("ubertooth-btle: -t is refused alongside -p")
 
 # a bare command line is the one refusal the usage text follows, on standard
 # error with it, and nothing is printed on standard output: the usage text
