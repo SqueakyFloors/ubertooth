@@ -401,6 +401,18 @@
   `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
   from the interpreter.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
+- **Script-visible change:** `ubertooth-btbr` writes its prompt and its
+  `Type ? to list commands` line to standard error, so every line of standard
+  output is a packet that can be read by the time in front of it. The prompt
+  carries no newline of its own, so on standard output the first packet after
+  each one landed on its end (`bt> 12:14:53 RX FHS: ...`). A terminal shows
+  both streams, so an interactive session reads as it always has.
+  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
+- `ubertooth-btbr` no longer reports standard output gone when the reader
+  left before any packet was printed: nothing had been written to that
+  stream, so nothing asked for was lost and the session ends as it otherwise
+  would. The prompt used to be written there, which is what noticed.
+  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
 - `-V` is the version command in every tool, and prints the same labelled
   lines whichever tool you ask: the two host lines above, then
   `Firmware version: ...` and `Firmware build: ...` for the board `-U` names,

@@ -21,9 +21,25 @@
 
 # Based heavily upon the hackrf cmake setup.
 
+# This directory is also configured on its own, to build the tools against an
+# installed libubertooth, so it needs its own version range rather than
+# inheriting the one host/CMakeLists.txt declares. The same range, so a build
+# through the top level is unchanged. Without it, CMake 4 refuses to generate
+# for a top-level project that never said which version it was written for.
+cmake_minimum_required(VERSION 3.5...3.27)
+
 project(ubertooth-tools C)
 include(CTest)
 set(PACKAGE ubertooth-tools)
+
+# The Find modules for libbtbb, libusb and libubertooth live beside this
+# directory, and host/CMakeLists.txt points at them for a build of the whole
+# tree. Configured on its own, nothing had, so the first find_package() below
+# failed and the caller had to know where they were kept.
+if(NOT ubertooth_all_SOURCE_DIR)
+	set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake/modules
+		CACHE STRING "CMake module path")
+endif()
 
 if(MSVC OR APPLE)
     set(USE_OWN_GNU_GETOPT 1)

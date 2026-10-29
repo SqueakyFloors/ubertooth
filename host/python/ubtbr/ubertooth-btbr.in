@@ -48,7 +48,16 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 		self._send_l2cap_echo_req()
 
 class BTCtlPrompt(Cmd):
-	prompt = "bt> "
+	# Standard output carries the capture: one packet to a line, each with
+	# the time it was printed in front of it. The prompt is the tool saying
+	# it is ready, which is a note and not capture data, and it carries no
+	# newline of its own, so on that stream it lands on the front of the
+	# next packet and no line can be read by its time. So Cmd is given an
+	# empty prompt and PROMPT is written to standard error instead, where
+	# the intro line goes too. A terminal shows both streams, so an
+	# interactive session reads as it always has.
+	prompt = ""
+	PROMPT = "bt> "
 	intro = "Type ? to list commands"
 
 	def __init__(self, bt):
@@ -155,8 +164,23 @@ class BTCtlPrompt(Cmd):
 			return
 		self._cmd = None
 
+	def preloop(self):
+		"""The prompt for the first command, before Cmd reads it."""
+		eprint(self.PROMPT)
+
+	def postcmd(self, stop, line):
+		"""The prompt for the next command.
+
+		Cmd reads one command per turn of its loop and calls this last, so
+		one prompt is written per command read. None after the command that
+		ends the session.
+		"""
+		if not stop:
+			eprint(self.PROMPT)
+		return stop
+
 	def cmdloop(self, intro=None):
-		print(self.intro)
+		eprint(self.intro + "\n")
 		while True:
 			try:
 				super().cmdloop(intro="")
@@ -481,11 +505,11 @@ if __name__ == '__main__':
 	except SystemExit as leaving:
 		status = leaving.code or 0
 	except BrokenPipeError:
-		# A write that was not a packet: the prompt, the intro, the usage
-		# text and what `?` prints all go to standard output too, and
-		# result() is the only one that notices the stream going away by
-		# itself. A command line the tool refuses is the reachable case,
-		# since it writes before anything else does.
+		# A write that was not a packet: the usage text and what `?` prints
+		# go to standard output too, and result() is the only one that
+		# notices the stream going away by itself. A command line the tool
+		# refuses is the reachable case, since it writes before anything
+		# else does.
 		output_lost()
 		# Out without the interpreter's own teardown, for the reason the
 		# command that would not stop takes that way out: the receive thread
@@ -500,9 +524,7 @@ if __name__ == '__main__':
 		# handler, and a flush that fails there ends the tool in status 120
 		# and a message of its own. Under `finally`, so that an exception on
 		# the way out of main() does not leave that flush to the
-		# interpreter. CPython's input() hides the same failure while
-		# printing the prompt, so a session whose reader left can get this
-		# far with the break unnoticed.
+		# interpreter.
 		try:
 			sys.stdout.flush()
 		except BrokenPipeError:

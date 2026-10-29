@@ -120,14 +120,22 @@ add_test(NAME specan-options COMMAND test-specan-options)
 # Putting a long low-energy packet back together from the records it arrives
 # in. Pure logic over the record format, so it needs neither libusb nor
 # libbtbb: only the shared interface header the state is sized from.
-add_executable(test-le-frag
-	test_le_frag.c
-	${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
-target_include_directories(test-le-frag PRIVATE ${libubertooth_SOURCE_DIR}/src)
+#
+# It compiles the library's own ubertooth_le_frag.c, which only a source tree
+# has: an installed libubertooth ships the header and the shared object, not
+# the source. So this case is built only when the tools are configured
+# alongside the library, and skipped when they are configured against an
+# installed one.
+if(libubertooth_SOURCE_DIR)
+	add_executable(test-le-frag
+		test_le_frag.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
+	target_include_directories(test-le-frag PRIVATE ${libubertooth_SOURCE_DIR}/src)
 
-add_test(NAME le-frag COMMAND test-le-frag)
-# Arithmetic and memcpy over a few hundred bytes: milliseconds.
-set_tests_properties(le-frag PROPERTIES TIMEOUT 5)
+	add_test(NAME le-frag COMMAND test-le-frag)
+	# Arithmetic and memcpy over a few hundred bytes: milliseconds.
+	set_tests_properties(le-frag PROPERTIES TIMEOUT 5)
+endif()
 
 # What a specan run does when it cannot write its samples, through the
 # callback and through its real main(). cb_specan() is static in

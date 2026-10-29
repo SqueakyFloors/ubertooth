@@ -308,6 +308,98 @@ jobs:
           cmake --build "$dir" --config $BUILD_TYPE --parallel
         done
 
+  # The tools built against an INSTALLED libubertooth, which is the other
+  # supported way to configure them: host/ubertooth-tools/src/CMakeLists.txt
+  # finds the library with FindUBERTOOTH.cmake when there is no library source
+  # tree beside it, and the test directory has a branch of its own for every
+  # target that would otherwise compile a library source. Nothing ever
+  # configured that way, so none of those branches was reached and they could
+  # rot unnoticed; this job reaches them on every pull request.
+  #
+  # Linux only. What it covers is which include directory a target is given,
+  # which is the same on every platform, and the macOS leg of the host job
+  # already builds and tests the whole tree the usual way. The macOS runners
+  # also queue for an hour or more when several pull requests are open, and
+  # this adds nothing a second platform would find.
+  host-installed-libubertooth:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
+    runs-on: ubuntu-24.04
+    # The install step below plus three builds: libbtbb, the whole host tree
+    # (which is what installs the library), and the tools on their own with
+    # their tests. Comfortably under the host job's 22, which does more.
+    timeout-minutes: 18
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/checkout@v4
+      name: Fetch libbtbb
+      with:
+        repository: ${{ env.LIBBTBB_REPO }}
+        ref: ${{ env.LIBBTBB_REF }}
+        path: 'libbtbb'
+
+    - name: Install dependencies
+      # The same packages, bound and retried the same way, as the host job.
+      timeout-minutes: 10
+      run: |
+        packages="libfftw3-dev libusb-1.0-0-dev libbluetooth-dev"
+        apt_opts="-o Acquire::http::Timeout=30 -o Acquire::Retries=2"
+        sudo tools/retry.sh 180 sh -c \
+          "apt-get $apt_opts update && apt-get $apt_opts install -y -d $packages"
+        sudo apt-get install -y $packages
+
+    - name: (libbtbb) Build and install
+      shell: bash
+      run: |
+        cmake -S "$GITHUB_WORKSPACE/libbtbb" -B "$GITHUB_WORKSPACE/libbtbb/build" \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_PYTHON=OFF
+        cmake --build "$GITHUB_WORKSPACE/libbtbb/build" --config $BUILD_TYPE
+        sudo cmake --install "$GITHUB_WORKSPACE/libbtbb/build" --config $BUILD_TYPE
+
+    - name: Install libubertooth
+      shell: bash
+      # The whole tree, built and installed the way the build guide gives, so
+      # that the step below finds a libubertooth where a user who had run
+      # `make install` would have one. ldconfig because the tools the step
+      # below builds are run by its tests and link against it.
+      #
+      # Without the tests or the Python tools: all this build is here for is
+      # the installed library, and the host job already builds and runs both.
+      run: |
+        cmake -S "$GITHUB_WORKSPACE/host" -B "$GITHUB_WORKSPACE/host/build" \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DUBERTOOTH_RELEASE=ON \
+          -DBUILD_TESTING=OFF -DENABLE_PYTHON=OFF
+        cmake --build "$GITHUB_WORKSPACE/host/build" --config $BUILD_TYPE
+        sudo cmake --install "$GITHUB_WORKSPACE/host/build" --config $BUILD_TYPE
+        sudo ldconfig
+
+    - name: Configure the tools against the installed library
+      shell: bash
+      # host/ubertooth-tools on its own, with no library source tree beside
+      # it: no path to it is passed, so a configure that found one would mean
+      # the tools had reached outside their own directory. UBERTOOTH_RELEASE
+      # for the reason the host job gives.
+      run: |
+        cmake -S "$GITHUB_WORKSPACE/host/ubertooth-tools" \
+          -B "$GITHUB_WORKSPACE/tools-build" \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DUBERTOOTH_RELEASE=ON
+
+    - name: Build the tools
+      shell: bash
+      run: cmake --build "$GITHUB_WORKSPACE/tools-build" --config $BUILD_TYPE
+
+    - name: Unit tests (tools against the installed library)
+      working-directory: ${{github.workspace}}/tools-build
+      shell: bash
+      run: ctest --output-on-failure
+
+    - name: Smoke test (binaries run)
+      working-directory: ${{github.workspace}}/tools-build
+      shell: bash
+      run: ./src/ubertooth-util -h
+
   firmware:
     needs: changes
     if: needs.changes.outputs.firmware == 'true'
