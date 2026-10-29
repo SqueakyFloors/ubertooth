@@ -494,14 +494,17 @@ MU_TEST(a_map_line_that_does_not_fit_is_truncated)
 {
 	uint8_t map[FOLLOW_AFH_MAP_BYTES];
 	char guarded[AFH_MAP_LINE_LEN + 4];
-	size_t room;
+	size_t room, byte;
 
 	memset(map, 0xff, sizeof(map));
 	for (room = 1; room < AFH_MAP_LINE_LEN; room++) {
 		memset(guarded, '#', sizeof(guarded));
 		afh_map_line(map, guarded, room);
 		mu_assert(strlen(guarded) < room, "wrote past the length given");
-		mu_assert(guarded[room] == '#', "wrote past the buffer");
+		/* The whole tail, so a write of more than one byte past the
+		 * length given is caught too. */
+		for (byte = room; byte < sizeof(guarded); byte++)
+			mu_assert(guarded[byte] == '#', "wrote past the buffer");
 		/* What did fit is the start of the whole line. */
 		mu_assert(strncmp(guarded, "AFH map: 0xffffffffffffffffffff",
 		          strlen(guarded)) == 0, guarded);

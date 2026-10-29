@@ -44,6 +44,13 @@
 #include <getopt.h>
 #include <limits.h>
 
+/* follow_afh.h repeats the map length so it needs neither libusb nor BlueZ;
+ * this file sizes its own map with the library's, and afh_map_line() walks the
+ * repeated one, so a mismatch would read past the shorter of the two. */
+#if FOLLOW_AFH_MAP_BYTES != AFH_MAP_BYTES
+#error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
+#endif
+
 static void usage()
 {
 	printf("ubertooth-scan - active(Bluez) device scan and inquiry supported by Ubertooth\n");
@@ -92,8 +99,15 @@ static void report_failure(const char* what)
 
 /* The extended report of one device, on standard output. Returns 1 when some
  * part of it could not be fetched and has been named on standard error, so the
- * run's exit status can say that what -x asked for did not all happen. */
-int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
+ * run's exit status can say that what -x asked for did not all happen.
+ *
+ * whole_address says whether the address is the device's own, as a BlueZ
+ * inquiry reports it, or one the scan put together from a sniffed piconet. The
+ * second kind has the two most significant bytes guessed as 00:00, because no
+ * packet carries them, so it reaches only a device whose address really begins
+ * that way: a connection that cannot be made to such an address is the normal
+ * case and not a failure of the command. */
+int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 {
 	uint16_t handle, offset;
 	uint8_t features[8], max_page = 0;
@@ -137,9 +151,19 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 		if (hci_create_connection(dd, bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
-			report_failure("cannot create connection");
+			if (whole_address) {
+				report_failure("cannot create connection");
+				free(cr);
+				return 1;
+			}
+			/* A guessed address, so there was never an address to
+			 * connect to: said as a note, and the run still did
+			 * what was asked. */
+			fputs("note: no extended report: a sniffed piconet "
+			      "gives no NAP, so there is no whole address to "
+			      "connect to\n", stderr);
 			free(cr);
-			return 1;
+			return 0;
 		}
 		sleep(1);
 		cc = 1;
@@ -242,9 +266,10 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 }
 
 /* For a given BD_ADDR, print address, name and class. Returns what
- * extra_info() returned, or 0 without -x. */
+ * extra_info() returned, or 0 without -x. whole_address is as it is there. */
 int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
-						  char* printable_addr, uint8_t extended)
+						  char* printable_addr, uint8_t extended,
+						  int whole_address)
 {
 	char name[248] = { 0 };
 
@@ -253,7 +278,7 @@ int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
 
 	printf("%s\t%s\n", printable_addr, name);
 	if (extended)
-		return extra_info(dev_handle, dev_id, bdaddr);
+		return extra_info(dev_handle, dev_id, bdaddr, whole_address);
 	return 0;
 }
 
@@ -447,8 +472,9 @@ int main(int argc, char *argv[])
 
 		for (i = 0; i < num_rsp; i++) {
 			ba2str(&(ii+i)->bdaddr, addr);
+			/* The inquiry reports each device's own whole address. */
 			if (print_name_and_class(dev_handle, dev_id, &(ii+i)->bdaddr,
-			                         addr, extended) != 0)
+			                         addr, extended, 1) != 0)
 				exit_status = 1;
 		}
 		free(ii);
@@ -611,8 +637,11 @@ int main(int argc, char *argv[])
 			/* Printable version showing that the NAP is unknown */
 			sprintf(addr, "??:??:%02X:%02X:%02X:%02X", uap,
 			        (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
+			/* The NAP of a sniffed piconet is not in any packet, so
+			 * the address this connects to is a guess: see
+			 * extra_info(). */
 			if (print_name_and_class(dev_handle, dev_id, &bdaddr, addr,
-			                         extended) != 0)
+			                         extended, 0) != 0)
 				exit_status = 1;
 		} else
 			printf("??:??:??:%02X:%02X:%02X\n", (lap >> 16) & 0xFF,

@@ -827,6 +827,32 @@ MU_TEST(a_connection_that_cannot_be_made_is_named)
 	mu_assert(strstr(r.out, "BD Address") == NULL, r.out);
 }
 
+/* A piconet the Ubertooth half found is given to -x by an address whose two
+ * most significant bytes are a guess, because no packet carries them, so a
+ * connection that cannot be made is the normal case rather than a failure of
+ * the command: a note, and status 0. Reported as a failure it would have made
+ * exit 1 the ordinary outcome of ubertooth-scan -x. */
+MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
+{
+	const uint8_t map[AFH_MAP_BYTES] = { 0 };
+	struct run_result r;
+
+	reset_fake();
+	one_survey_result(0x9e8b33, map);
+	fake.connect_fails = 1;
+	fake.connect_errno = EHOSTDOWN;
+	r = RUN("-x", "-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "note: no extended report: a sniffed piconet "
+	          "gives no NAP, so there is no whole address to connect to\n")
+	          != NULL, r.err);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	/* The piconet is still a result, map and all. */
+	mu_assert(strstr(r.out, "??:??:??:9E:8B:33\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "AFH map: 0x00000000000000000000\n") != NULL,
+	          r.out);
+}
+
 /* Each of the three steps that set the capture up can fail. Each exits 1 with
  * one "error: " line on standard error and nothing on standard output, and
  * each gives back both the board and the BlueZ adapter handle this tool holds
@@ -1038,6 +1064,7 @@ int main(void)
 	MU_RUN(a_remote_without_afh_is_noted_on_standard_error);
 	MU_RUN(a_failed_afh_map_read_is_named_and_prints_no_map);
 	MU_RUN(a_connection_that_cannot_be_made_is_named);
+	MU_RUN(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure);
 	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);
 	MU_RUN(a_bluez_failure_is_reported_on_standard_error);
 	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);
