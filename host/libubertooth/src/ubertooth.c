@@ -2253,34 +2253,32 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	return 0;
 }
 
-/* The image every tool that calls ubertooth_check_api() needs on the board.
- * The other image this tree builds, btbr, answers the shared requests and
- * nothing else; it is driven by ubertooth-btbr, which is a Python tool and
- * does not come through here. */
+/* The image the C tools need on the board. The other image this tree builds,
+ * btbr, answers the shared requests and nothing else; it is driven by
+ * ubertooth-btbr, which is a Python tool and does not come through here. */
 #define UBERTOOTH_TOOLS_IMAGE "bluetooth_rxtx"
 
-/* Refuses a board running another of this tree's firmware images.
+/* Refuses a board running another of this tree's firmware images; the
+ * contract is on ubertooth_check_image() in ubertooth.h.
  *
- * Both images report the same API version, so the version check above lets
- * such a board through, and the tool then fails on the first request that
- * image does not answer: btbr's request handler returns nothing for anything
- * outside the shared set, so the request stalls and the tool reports a libusb
- * error about a board that is simply carrying the wrong firmware. Naming the
- * image to flash is what the user needs instead.
+ * Both images report the same API version, so the version check lets such a
+ * board through, and the tool then fails on the first request that image does
+ * not answer: btbr's request handler returns nothing for anything outside the
+ * shared set, so the request stalls and the tool reports a libusb error about
+ * a board that is simply carrying the wrong firmware. Naming the image to
+ * flash is what the user needs instead.
  *
  * The message does not name the tool that printed it: the user typed it.
  *
- * Returns 0 if the board may be used, which includes a board that would not
- * say which image it runs: that is left to the request that needs it. Two
- * boards answer nothing here -- one too busy to take this read, and one
- * carrying firmware from before the info block existed, which a development
- * build reaches because it reports a version mismatch and runs on. Both are
- * boards somebody means to use, and neither can be told from the other, so
- * refusing them would refuse the very case a development build exists for.
- *
- * Returns -1 on a board carrying another image, which it releases first.
+ * A board that would not say which image it runs is let through: that is left
+ * to the request that needs it. Two boards answer nothing here -- one too
+ * busy to take this read, and one carrying firmware from before the info
+ * block existed, which a development build reaches because it reports a
+ * version mismatch and runs on. Both are boards somebody means to use, and
+ * neither can be told from the other, so refusing them would refuse the very
+ * case a development build exists for.
  */
-static int check_firmware_image(ubertooth_t *ut)
+int ubertooth_check_image(ubertooth_t *ut)
 {
 	struct ubertooth_fw_info info;
 
@@ -2331,5 +2329,5 @@ int ubertooth_check_api(ubertooth_t *ut) {
 	}
 	/* After the version, because firmware from another tree is the bigger
 	 * mismatch of the two and is the one to report. */
-	return check_firmware_image(ut);
+	return ubertooth_check_image(ut);
 }

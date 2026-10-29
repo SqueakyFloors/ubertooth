@@ -646,9 +646,17 @@
   tool needs bluetooth_rxtx`, with a `note:` giving the `ubertooth-dfu` line
   that flashes it. Both images report the same API version, so nothing refused
   such a board and the tool failed instead on the first request that image
-  does not answer, reported as a libusb error. `ubertooth-util`,
-  `ubertooth-dfu` and `ubertooth-debug` make neither check.
+  does not answer, reported as a libusb error. `ubertooth-util` and
+  `ubertooth-dfu` make neither check.
   [#718](https://github.com/SqueakyFloors/ubertooth/issues/718)
+- `ubertooth-debug` checks the firmware image too, so a board carrying
+  `btbr` is refused by name before a register is read, with the same
+  `note:` line that flashes `bluetooth_rxtx`. That image answers no register
+  read, so the command used to fail on the read itself and report a refused
+  request instead of the firmware. The firmware version is still not checked:
+  reading CC2400 registers is debugging work on whatever revision a board
+  carries.
+  [#808](https://github.com/SqueakyFloors/ubertooth/issues/808)
 - `ubertooth-util -r` recovers a board that answers nothing, which used to
   need a re-plug or a hub port power cycle. Such a board refuses the reset
   request like every other request, so `-r` resets its USB connection first --

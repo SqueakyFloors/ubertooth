@@ -228,6 +228,20 @@ int main(int argc, char *argv[])
 	return 1;
     }
 
+    /* The image, but not the firmware version: this tool reads CC2400
+     * registers, which is debugging work on whatever revision a board is
+     * carrying, so it drives any version as ubertooth-util does. The other
+     * image this tree builds answers no register read, and without this the
+     * read failed as a refused request instead of saying which firmware to
+     * flash. A refused board is released inside the check; closing a board
+     * already released does nothing, so one close covers both answers. */
+    if (ubertooth_check_image(ut) < 0) {
+	free(regList);
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	return 1;
+    }
+
     /* Exit 0 only if every read succeeded; this used to return the last
      * register's value (or error) as the exit status. */
     if (do_read_register >= 0)

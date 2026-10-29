@@ -48,7 +48,8 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 static struct {
 	int fail_start;   /* ubertooth_start_select() returns NULL */
 	int read_rc;      /* what cmd_read_register() returns */
-	int starts, closes, frees, reads;
+	int image_rc;     /* what ubertooth_check_image() returns */
+	int starts, closes, frees, reads, image_checks;
 	char selector[64];
 } fake;
 
@@ -78,6 +79,13 @@ void ubertooth_free(ubertooth_t* ut)
 {
 	mu_assert(ut == &fake_ut, "frees the handle it was given");
 	fake.frees++;
+}
+
+int ubertooth_check_image(ubertooth_t* ut)
+{
+	mu_assert(ut == &fake_ut, "checks the handle it was given");
+	fake.image_checks++;
+	return fake.image_rc;
 }
 
 int cmd_read_register(struct libusb_device_handle* devh, uint8_t reg)
@@ -142,6 +150,47 @@ static void reset(void)
 }
 
 /* ---- tests ------------------------------------------------------------ */
+
+/* A board carrying this tree's other firmware image is turned away before a
+ * register is read: that image answers no register read, so the command used
+ * to fail on the read itself, reported as a refused request rather than as
+ * the wrong firmware. The check names the image to flash; the tool's part is
+ * to stop there, give the handle back, and exit 1. */
+MU_TEST(the_other_firmware_image_stops_the_command)
+{
+	char* argv[] = { "ubertooth-debug", "-r", "0x02", NULL };
+	struct run r;
+
+	reset();
+	fake.image_rc = -1;
+	run_main(&r, 3, argv);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.image_checks);
+	mu_assert_int_eq(0, fake.reads);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert_int_eq(1, lists_freed);
+	/* the message is the library's; the tool adds none of its own */
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/* The image is checked once, on the board the user named, and the read goes
+ * ahead when it is the expected one. */
+MU_TEST(the_expected_image_is_checked_then_read)
+{
+	char* argv[] = { "ubertooth-debug", "-U", "1cc0", "-r", "0x02", NULL };
+	struct run r;
+
+	reset();
+	run_main(&r, 5, argv);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.image_checks);
+	mu_assert_int_eq(1, fake.reads);
+	mu_assert(strcmp(fake.selector, "1cc0") == 0, fake.selector);
+}
 
 /* The handle used to be left outstanding on this path: the registers were
  * read and main() returned without giving it back. */
@@ -318,5 +367,7 @@ int main(void)
 	MU_RUN(a_device_that_cannot_be_opened_frees_nothing);
 	MU_RUN(the_refusals_never_open_a_device);
 	MU_RUN(the_parsed_register_list_is_given_back);
+	MU_RUN(the_other_firmware_image_stops_the_command);
+	MU_RUN(the_expected_image_is_checked_then_read);
 	return mu_report();
 }

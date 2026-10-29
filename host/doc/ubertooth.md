@@ -334,8 +334,11 @@ refused request — true, but about the wrong thing. ubertooth-btbr(1) is the
 tool that drives `btbr`, and makes no such check: a board carrying
 `bluetooth_rxtx` reaches its session and is reported from the write that times
 out there. ubertooth-util(1) and ubertooth-dfu(1) check neither version nor
-image, because both have to work on whatever firmware a board is carrying, and
-ubertooth-debug(1) checks neither yet.
+image, because both have to work on whatever firmware a board is carrying.
+ubertooth-debug(1) checks the image and not the version: reading CC2400
+registers is debugging work on whatever revision a board carries, but the
+other image answers no register read, so that board is named rather than left
+to fail on the read.
 
 A board that will not say which image it runs is left to the request that
 needs it. Two boards answer nothing there: one too busy to take the read, and

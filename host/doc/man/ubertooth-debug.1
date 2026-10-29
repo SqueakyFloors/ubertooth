@@ -18,6 +18,14 @@ ubertooth\-debug \-r <number>[,<number>[,...]]
 ubertooth\-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
+.PP
+Register reads are debugging work, so this tool drives whatever firmware
+revision a board is carrying and makes no version check\. It does check which
+image the board runs: \fB\fCbtbr\fR, the other image this tree builds, answers no
+register read, so a board carrying it is refused by name before any register
+is read, with the line that flashes \fB\fCbluetooth_rxtx\fR; see
+.BR ubertooth (7),
+FIRMWARE OF ANOTHER API VERSION\&.
 
 .SH OPTIONS
 .PP
@@ -129,6 +137,16 @@ standard error, after libubertooth's own line for a USB error such as a
 timeout\. A short reply prints the single line \fB\fCerror: register 0x<reg> read
 failed: board returned <n> of 2 bytes\fR\. The remaining registers are still read
 and decoded\.
+.PP
+A board running the other firmware image exits 1 as well, with no register
+read and the two lines that name the image and flash the right one:
+.PP
+.RS
+.nf
+error: the Ubertooth is running btbr; this tool needs bluetooth_rxtx
+note: flash it with ubertooth\-dfu \-U 1d00 \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
+.fi
+.RE
 .PP
 \fB\fC\-V\fR reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see
