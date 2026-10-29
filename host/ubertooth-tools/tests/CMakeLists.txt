@@ -963,6 +963,28 @@ if(libubertooth_SOURCE_DIR)
 	# A few callback calls against a faked ring buffer: milliseconds.
 	set_tests_properties(le-decode-buffer PROPERTIES TIMEOUT 5)
 
+	# What the low-energy callback does with what the PCAPNG writer tells
+	# it: one warning when the connection parameters a capture carried
+	# could not be recorded, one when the write failed, and each said once
+	# for the whole capture.
+	#
+	# Built the same way as the test above: ubertooth_callback.c is
+	# compiled into the test, and the writer and the decoder are the
+	# test's own, so no file is written and nothing is decoded.
+	add_executable(test-le-capture-reports
+		test_le_capture_reports.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
+	target_include_directories(test-le-capture-reports PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-le-capture-reports ${LIBUSB_LIBRARIES}
+		${LIBBTBB_LIBRARIES} Threads::Threads)
+	add_test(NAME le-capture-reports COMMAND test-le-capture-reports)
+	# A handful of callback calls against a faked ring buffer: milliseconds.
+	set_tests_properties(le-capture-reports PROPERTIES TIMEOUT 5)
+
 	# The channel a record claims, where the two AFH callbacks index a
 	# 79-entry array of per-channel counters with it. Same approach: the
 	# real callbacks run, with the ring buffer, the board's requests and

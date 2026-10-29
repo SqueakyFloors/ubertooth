@@ -84,6 +84,7 @@ void cmd_fix_clock_drift(struct libusb_device_handle* devh, int16_t ppm)
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
                       int clk100ns_offset)
 { (void)devh; (void)clkn_offset; (void)clk100ns_offset; return 0; }
+int cmd_rx_syms(struct libusb_device_handle* devh) { (void)devh; return 0; }
 
 /*
  * libbtbb's access-code search. The real one is linked in, and this

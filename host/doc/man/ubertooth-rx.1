@@ -125,6 +125,15 @@ The lower address part (LAP) is the lower 24 bits, so \fB88:AA:BB\fR\. In the co
 .P
 In piconet following mode, the tool will recover LAP values from the air and attempt to calculate the UAP from those\. It will go on to follow the piconet if it can recover the clock value\. In survey mode, the tool will simply recover LAP and UAP values\.
 .P
+A clock recovered from a handful of packets is a guess, and a wrong guess shows up as packet after packet of the piconet arriving and none of them decoding\. When that happens the tool reports
+.IP "" 4
+.nf
+warning: the clock being followed was not this piconet's; searching for it again
+.fi
+.IP "" 0
+.P
+on standard error, stops following that clock and goes back to recovering one\. It keeps the LAP it has, so the search starts from what is already known, and the capture carries on throughout\.
+.P
 To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse of the above\. For example, if the tool recovers a LAP of 36A2B4 and a UAP of 98, the associated Bluetooth address is \fB??:??:98:36:A2:B4\fR\. Any value can be substituted into the ?? slots and most Bluetooth tools will still work\. For example, \fBhcitool name 00:00:98:36:A2:B4\fR will establish a connection to the device and return its name\.
 .P
 This attack works against discoverable and undiscoverable devices alike\.

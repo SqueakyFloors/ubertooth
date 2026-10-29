@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""The configure step must refuse a libbtbb that is missing what the tools call.
+"""The configure step must refuse a libbtbb that is missing what the tools use.
 
 libbtbb carries no version number a build can read, so FindBTBB.cmake asks the
-installed one for the functions this tree calls. Without that check, a libbtbb
-older than the pinned commit got as far as the compiler and failed with "call
-to undeclared function" in the middle of libubertooth, naming neither libbtbb
-nor the commit to rebuild it at.
+installed one for the functions this tree calls and the macros it reads.
+Without that check, a libbtbb older than the pinned commit got as far as the
+compiler and failed with "call to undeclared function" in the middle of
+libubertooth, naming neither libbtbb nor the commit to rebuild it at.
 
 This runs the real FindBTBB.cmake from a one-line project, against:
 
@@ -14,6 +14,8 @@ This runs the real FindBTBB.cmake from a one-line project, against:
   * a header with two of those functions renamed out of it, which is what an
     older libbtbb looks like, where it must fail naming both functions and
     the pinned commit;
+  * a header with one of those macros renamed out of it and every function
+    left in place, where it must fail naming the macro;
   * this build's own header and a library that defines none of those
     functions, at -O2 and again at -O2 -flto, where it must also fail. That
     case is the library half of the probe rather than the header half, and
@@ -69,6 +71,20 @@ def required_functions(module):
     return names
 
 
+def required_macros(module):
+    """The names in LIBBTBB_REQUIRED_MACROS, in the order they are written."""
+    with open(module, encoding="utf-8") as handle:
+        text = handle.read()
+    block = re.search(r"^set\(LIBBTBB_REQUIRED_MACROS\n(.*?)^\)$",
+                      text, re.S | re.M)
+    if not block:
+        fail("no set(LIBBTBB_REQUIRED_MACROS ...) block in %s" % module)
+    names = re.findall(r"^  ([A-Z_][A-Z0-9_]*)$", block.group(1), re.M)
+    if not names:
+        fail("%s lists no macros" % module)
+    return names
+
+
 def pinned_ref(repo_root):
     """The pinned libbtbb commit, or None where the workflow file is absent.
 
@@ -86,14 +102,14 @@ def pinned_ref(repo_root):
     return found.group(1)
 
 
-def fake_header(real_include_dir, work, hidden):
-    """A copy of btbb.h with the named functions renamed out of it.
+def fake_header(real_include_dir, work, hidden, where="old-include"):
+    """A copy of btbb.h with the named functions and macros renamed out of it.
 
-    Renaming rather than deleting the declarations: a declaration can span
-    lines, and a rename leaves a header that still compiles, which is what an
-    older libbtbb is -- a working header without these functions in it.
+    Renaming rather than deleting: a declaration can span lines, and a rename
+    leaves a header that still compiles, which is what an older libbtbb is --
+    a working header without these names in it.
     """
-    include_dir = os.path.join(work, "old-include")
+    include_dir = os.path.join(work, where)
     os.mkdir(include_dir)
     with open(os.path.join(real_include_dir, "btbb.h"),
               encoding="utf-8", errors="replace") as handle:
@@ -102,8 +118,8 @@ def fake_header(real_include_dir, work, hidden):
         header, count = re.subn(r"\b%s\b" % re.escape(name),
                                 "%s_renamed" % name, header)
         if not count:
-            fail("btbb.h in %s does not declare %s, so the libbtbb this build "
-                 "found is not the one the check is written against"
+            fail("btbb.h in %s does not have %s in it, so the libbtbb this "
+                 "build found is not the one the check is written against"
                  % (real_include_dir, name))
     with open(os.path.join(include_dir, "btbb.h"), "w",
               encoding="utf-8") as handle:
@@ -151,6 +167,7 @@ def main():
     module = os.path.join(repo_root, "host", "cmake", "modules",
                           "FindBTBB.cmake")
     functions = required_functions(module)
+    macros = required_macros(module)
     # The two ends of the list, so the test is not tied to any one function
     # and covers both prefixes it is sorted into.
     hidden = [functions[0], functions[-1]]
@@ -196,6 +213,23 @@ def main():
             fail("the refusal does not name the pinned libbtbb commit %s, "
                  "which is what the reader has to check out:\n%s"
                  % (ref, output))
+
+        # A missing macro on its own, with every function still there. The
+        # tools act on what two of libbtbb's functions report through named
+        # values, so a libbtbb without them is as unusable as one missing a
+        # function -- and the probe cannot take the address of a macro, so
+        # this is the half of it that a compile-time check has to catch.
+        macro_include = fake_header(include_dir, work, [macros[0]],
+                                    where="no-macro-include")
+        status, output = configure(cmake, source,
+                                   os.path.join(work, "no-macro"),
+                                   macro_include, library)
+        if status == 0:
+            fail("a libbtbb without %s was accepted:\n%s"
+                 % (macros[0], output))
+        if macros[0] not in output:
+            fail("the refusal does not say %s is missing:\n%s"
+                 % (macros[0], output))
 
         # The library half, under the two optimisations that can erase it. The
         # header is this build's, so every function is declared and only the

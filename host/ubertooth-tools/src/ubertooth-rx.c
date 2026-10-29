@@ -454,9 +454,18 @@ int main(int argc, char* argv[])
 				}
 			}
 			if (ut->h_pcapng_bredr) {
-				btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
-							  (((uint32_t)uap)<<24)|lap,
-							  have_uap ? 0xff : 0x00, 0);
+				/* The address being followed, recorded once so
+				 * a reader of the capture knows whose packets
+				 * these are. Reported when it cannot be
+				 * written: the capture goes on either way, but
+				 * without this the packets in it have nothing
+				 * to say which piconet they belong to. */
+				if (btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
+				        (((uint32_t)uap)<<24)|lap,
+				        have_uap ? 0xff : 0x00, 0) < 0)
+					fprintf(stderr, "warning: cannot record "
+					        "the target address in the "
+					        "capture file\n");
 			}
 		}
 	}

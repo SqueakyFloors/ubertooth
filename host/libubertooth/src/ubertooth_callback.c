@@ -1023,6 +1023,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	// u32 access_address = 0; // Build warning
 
 	static uint64_t prev_ts = 0;
+	/* Each warning below is said once for the whole capture: the condition
+	 * it reports holds for every packet that follows, and a line per packet
+	 * would bury the capture's own output. */
+	static int connect_info_warned = 0;
+	static int pcapng_le_write_warned = 0;
 	uint32_t refAA;
 	int8_t sig, noise;
 
@@ -1160,9 +1165,33 @@ void cb_btle(ubertooth_t* ut, void* args)
 		                            pkt);
 	}
 	if (ut->h_pcapng_le) {
-		lell_pcapng_append_packet(ut->h_pcapng_le, nowns,
-		                          sig, noise,
-		                          refAA, pkt);
+		/* A CONNECT_IND's parameters are recorded as an option of the
+		 * PCAPNG interface description block, and the room set aside
+		 * for them when the file was created runs out after a few
+		 * hundred connections. Past that the packets still reach the
+		 * file but their parameters do not, so Wireshark cannot follow
+		 * those connections. Said once, because every connection after
+		 * the first one is in the same position.
+		 *
+		 * Tested for "< 0" and not for non-zero: this report is
+		 * positive, because the packet was written, while a failed
+		 * write is negative. */
+		int written = lell_pcapng_append_packet(ut->h_pcapng_le, nowns,
+		                                        sig, noise,
+		                                        refAA, pkt);
+
+		if (written == LELL_PCAPNG_CONNECT_INFO_NOT_RECORDED &&
+		    !connect_info_warned) {
+			connect_info_warned = 1;
+			fprintf(stderr, "warning: the capture file has no more "
+			        "room for connection parameters; the packets "
+			        "are still recorded, but later connections "
+			        "cannot be followed in Wireshark\n");
+		} else if (written < 0 && !pcapng_le_write_warned) {
+			pcapng_le_write_warned = 1;
+			fprintf(stderr, "warning: cannot write to the PCAPNG "
+			        "capture file\n");
+		}
 	}
 
 	/* A capture on "-" owns standard output: this process's own standard
@@ -1343,6 +1372,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	static int trim_counter = 0;
 	static int calibrated = 0;
 	static uint32_t clkn_trim = 0;
+	/* Whether this capture has put the board on a clock offset of the
+	 * piconet's. Only then is there an offset to take it off again when the
+	 * library gives that clock up. */
+	static int hopping = 0;
 
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
@@ -1536,9 +1569,32 @@ void cb_rx(ubertooth_t* ut, void* args)
 		                          lap, uap, pkt);
 	}
 
-	if(infile == NULL && r < 0) {
+	if (infile == NULL && r < 0) {
+		/* The library has recovered the piconet's clock: put the board
+		 * on the offset it reports, so the capture hops with the
+		 * piconet from here on. */
 		cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
 		calibrated = 0;
+		hopping = 1;
+	} else if (infile == NULL && r == BTBB_PROCESS_LOCK_LOST && hopping) {
+		/* The clock the board was hopping on was not this piconet's.
+		 * The library has given it up and started discovery again, so
+		 * the offset the board is following is gone: take the board off
+		 * it. A plain symbol capture does that and leaves the receive
+		 * running, which is what discovery needs. The clock the library
+		 * finds next arrives through the branch above.
+		 *
+		 * One warning per lost clock, not one per packet. The library
+		 * reports a loss once -- the headers that failed are counted
+		 * inside it, and giving the clock up resets that count -- and
+		 * `hopping` keeps it that way here regardless: the board is
+		 * taken off an offset this capture put it on, once, and not
+		 * again until it has been given another. */
+		fprintf(stderr, "warning: the clock being followed was not "
+		        "this piconet's; searching for it again\n");
+		cmd_rx_syms(ut->devh);
+		calibrated = 0;
+		hopping = 0;
 	}
 
 out:

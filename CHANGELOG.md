@@ -948,6 +948,19 @@
   status register and the address of the refused access.
   [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
   [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
+- `ubertooth-rx` recovers from following the wrong clock. A clock recovered
+  from a handful of packets can be a guess, and a wrong one showed up as a
+  follow that decoded nothing and stayed that way for the rest of the run.
+  The tool now reports `warning: the clock being followed was not this
+  piconet's; searching for it again`, takes the board off that clock and
+  recovers one again, keeping the address it has already learned.
+  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- A long BLE capture says when it can no longer record connection parameters.
+  A PcapNG file has room for a few hundred connections' worth, and past that
+  Wireshark cannot follow the connections a capture still holds packets for.
+  `ubertooth-btle -r` now reports that once and carries on, so the remedy --
+  a new capture file -- is visible while the capture is running.
+  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
 - Every Classic capture finds the access codes that start at the last position
   of a bank of symbols. The search was given one position fewer than the bank
   holds, so an access code beginning 64 symbols before the bank's end -- with

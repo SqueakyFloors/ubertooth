@@ -80,6 +80,19 @@ variety of pseudoheaders. The recommended logging format is PcapNG
 (`-r`) or PCAP with LE Pseudoheader (`-q`). For compatibility with
 crackle (see [USING WITH CRACKLE][]), use PCAP with PPI (`-c`).
 
+A PcapNG capture records the parameters of each connection it sees -- the
+interval, the latency, the timeout and the channel map -- so that Wireshark
+can follow that connection. They go in a part of the file that is set aside
+when it is created, and it has room for a few hundred connections. A capture
+long enough to fill it reports
+
+    warning: the capture file has no more room for connection parameters; the
+    packets are still recorded, but later connections cannot be followed in
+    Wireshark
+
+once on standard error and carries on. Start a new capture file to record
+more.
+
 In every sniffing mode, a packet carrying a Bluetooth 4.2 Data Length
 Extension payload, up to its 251-byte maximum, is captured whole: on the
 screen, in PCAP and in PCAPNG. The board sends such a packet in several

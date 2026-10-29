@@ -60,6 +60,7 @@ static struct {
 	int drifts;
 	int16_t drift_ppm_sent;
 	int hopping_restarts;
+	int symbol_captures;
 	int afh_maps_sent;
 	int header_decodes;
 } seen;
@@ -126,6 +127,16 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
 {
 	(void)devh; (void)clkn_offset; (void)clk100ns_offset;
 	seen.hopping_restarts++;
+	return 0;
+}
+
+/* Asking the board for a plain symbol capture is how the callback takes it off
+ * a clock offset it is hopping on, so this is what the lost-clock case
+ * counts. */
+int cmd_rx_syms(struct libusb_device_handle* devh)
+{
+	(void)devh;
+	seen.symbol_captures++;
 	return 0;
 }
 
@@ -1210,6 +1221,92 @@ MU_TEST(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known)
 	btbb_piconet_unref(pn);
 }
 
+/* ---- the clock the library hands over, and takes back ------------------- */
+
+MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	/* An offset right on the tune time: the trim block has nothing to
+	 * correct, so the packet reaches the decoder, which is where the
+	 * library reports what it made of the piconet. */
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	/* How the library says it has just recovered the clock. */
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(1, seen.hopping_restarts);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_lost_clock_warns_once_and_takes_the_board_off_the_offset)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+	unsigned i;
+
+	/* The capture is following a clock, because the case above left it
+	 * hopping on one. Now the library gives that clock up: without this
+	 * the board went on hopping on an offset that was no longer the
+	 * piconet's, decoding nothing, and said nothing about it. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	for (i = 0; i < 3; i++)
+		fill_packet(&next_packets[i],
+		            clk100ns_for_clk_offset(CLK_TUNE_TIME, 2 + 100 * i),
+		            0, 10);
+	next_count = 3;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	run_callback(cb_rx, pn);
+
+	/* One plain symbol capture, which is what takes the board off the
+	 * offset and leaves discovery running, and one warning however many
+	 * packets the report arrives with. */
+	mu_assert_int_eq(1, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.hopping_restarts);
+	mu_assert_int_eq(1, stderr_lines_with("warning: "));
+
+	/* And nothing more to undo until the library hands over another
+	 * clock. */
+	reset_state();
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_replay_sends_no_request_when_the_clock_is_lost)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	/* A follow reading a capture file has no board to take off anything. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	infile = stdin;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.hopping_restarts);
+
+	btbb_piconet_unref(pn);
+}
+
 int main(void)
 {
 	MU_RUN(the_decoder_is_told_only_the_symbols_the_record_holds);
@@ -1243,6 +1340,11 @@ int main(void)
 	 * packets: they come last so nothing above is judged by them. */
 	MU_RUN(a_replay_and_a_capture_with_no_piconet_send_no_trim);
 	MU_RUN(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known);
+	/* After the case above, because these reach the decoder through the
+	 * same trim counters it leaves behind. */
+	MU_RUN(a_recovered_clock_puts_the_board_on_its_offset);
+	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
+	MU_RUN(a_replay_sends_no_request_when_the_clock_is_lost);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();
 }
