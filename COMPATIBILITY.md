@@ -231,9 +231,8 @@ firmware flashing), not radio capture.
    and the build guides), `manpages.yml` (Ubuntu 24.04, when `host/doc`
    changes), which installs the pinned ronn-ng and fails if the committed man
    pages no longer match their Markdown, and `merged-text.yml` (Ubuntu 24.04,
-   on a pull request that changes a documentation page or the check itself),
-   which fails when a branch deletes a paragraph `main` had just gained. One
-   job in `build.yml` builds the
+   on every pull request), which fails when a branch deletes a paragraph
+   `main` had just gained. One job in `build.yml` builds the
    host tools a second way: `host-installed-libubertooth` (Ubuntu 24.04, when
    the host changed) installs libubertooth and then configures, builds and
    tests `host/ubertooth-tools` on its own, which is what `FindUBERTOOTH.cmake`

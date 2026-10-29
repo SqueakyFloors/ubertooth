@@ -8,31 +8,23 @@ name: Merged text
 # branch with its merge base and reports a paragraph the branch removes that
 # main had only just gained.
 #
-# A workflow of its own rather than a job in build.yml, because build.yml
-# ignores '**.md' and 'docs/**': a documentation-only pull request runs none of
-# its jobs, and a documentation-only pull request is exactly where this loss
-# happens.
+# A workflow of its own rather than a job in build.yml, because it reads the
+# branch's own head rather than the merge commit GitHub builds for a pull
+# request -- the same checkout the api-version job needs, and part of why that
+# job stands apart too. Its name is its own, so whether it is required on main
+# is a decision about this check and nothing else.
+#
+# No path filter, for the reason build.yml gives for dropping its own: a
+# filtered-out workflow reports nothing at all, so a name that is required
+# would leave a pull request waiting forever for a check that was never going
+# to run. It is cheap enough to run on everything -- the self-test takes about
+# ten seconds, and the check answers in one when no documentation page changed.
 #
 # Pull requests only. On main there is no branch to compare, and the check says
 # so and exits 0, which would be a green that proves nothing. A manual run is
 # for the self-test, which does not care which commit it runs from.
 on:
-  # The same paths the check reads, so the job runs when there is something
-  # for it to read and not otherwise. The two exclusions are build files that
-  # end in .txt and are not prose; they come after the pattern that would
-  # otherwise take them, because a later negative pattern wins.
   pull_request:
-    paths:
-      - '**.md'
-      - '**.rst'
-      - '**.txt'
-      - '!**/CMakeLists.txt'
-      - '!**/requirements.txt'
-      - 'README'
-      - '**/README'
-      - 'tools/check-merged-text.sh'
-      - 'tools/check-merged-text-selftest.sh'
-      - '.github/workflows/merged-text.yml'
   workflow_dispatch:
 
 # Same cancellation rule as the other workflows: only an older run of the same
