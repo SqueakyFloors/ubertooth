@@ -74,26 +74,22 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_dfu_images.py
 		$<TARGET_FILE:ubertooth-dfu>)
-# About 0.3 s on an idle machine and 1.2 s on one busy with parallel builds. A
-# minute leaves the test's own twenty-second per-run deadline room to fire
-# first and name the run that timed out; a cap at or below that deadline cuts
-# the test off here with nothing said about which run was stuck.
+# About 0.3 s idle, 1.2 s loaded. A minute leaves the test's own twenty-second
+# per-run deadline room to fire first and name the run that timed out.
 set_tests_properties(dfu-images PROPERTIES TIMEOUT 60)
 
 # ubertooth-dfu's file handling against the real binary: -s, which files -d
 # and -u open or replace, and the files -d and -s refuse to read whole. Needs
 # no board, and opens none: the cases that would reach one use a serial no
-# board has, with attached boards hidden from the tool. Thirty-seven short
-# runs, so the timeout only catches a tool that waits for a device.
+# board has, with attached boards hidden from the tool. About thirty-seven
+# short runs, so the timeout only catches a tool that waits for a device.
 add_test(
 	NAME dfu-files
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_dfu_files.py
 		$<TARGET_FILE:ubertooth-dfu>)
-# About 0.6 s on an idle machine and 1.3 s on one busy with parallel builds. A
-# minute leaves the test's own twenty-second per-run deadline room to fire
-# first and name the run that timed out; a cap at or below that deadline cuts
-# the test off here with nothing said about which run was stuck.
+# About 0.6 s idle, 1.3 s loaded. A minute leaves the test's own twenty-second
+# per-run deadline room to fire first and name the run that timed out.
 set_tests_properties(dfu-files PROPERTIES TIMEOUT 60)
 
 add_test(
@@ -211,11 +207,9 @@ foreach(tool ${UBERTOOTH_TOOLS})
 		COMMAND ${Python3_EXECUTABLE}
 			${CMAKE_CURRENT_SOURCE_DIR}/test_output_streams.py
 			$<TARGET_FILE:${tool}>)
-	# About 0.2 s per tool on an idle machine and 0.3 s on one busy with
-	# parallel builds. A minute leaves the test's own twenty-second per-run
-	# deadline room to fire first and name the run that timed out; a cap at
-	# or below that deadline cuts the test off here with nothing said about
-	# which run was stuck.
+	# About 0.2 s per tool idle, 0.3 s loaded. A minute leaves the test's
+	# own twenty-second per-run deadline room to fire first and name the
+	# run that timed out.
 	set_tests_properties(output-streams-${tool} PROPERTIES TIMEOUT 60)
 	# The whole command-line contract of the tool, generated from
 	# cli_spec.json: every option alone, every bad value, every pair, and
@@ -303,10 +297,8 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_debug_cli.py
 		$<TARGET_FILE:ubertooth-debug>)
-# About 0.4 s on an idle machine and 0.5 s on one busy with parallel builds. A
-# minute leaves the test's own twenty-second per-run deadline room to fire
-# first and name the run that timed out; a cap close to that deadline cuts the
-# test off here with nothing said about which run was stuck.
+# About 0.4 s idle, 0.5 s loaded. A minute leaves the test's own twenty-second
+# per-run deadline room to fire first and name the run that timed out.
 set_tests_properties(debug-cli PROPERTIES TIMEOUT 60)
 
 # The file replay path of ubertooth-rx (-i), on fixtures the test builds

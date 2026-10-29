@@ -26,11 +26,9 @@ BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 NO_DEVICE = "error: no ubertooth devices found"
 # How long one ubertooth-debug run is given. The whole test takes about 0.4 s
-# on an idle machine and 0.5 s on one busy with parallel builds, so twenty
-# seconds is many times what any single run needs, with room for a four-core
-# machine slower again than this one. The CTest timeout on this test is larger
-# again, so this deadline is the one that fires and names the run that timed
-# out.
+# on an idle machine and 0.5 s on one busy with parallel builds. Twenty seconds
+# is the same deadline every other command-line test here uses, so there is one
+# number to reason about rather than six.
 RUN_TIMEOUT_S = 20
 
 SYNTAX = ("error: register list must be names or addresses, single or as a "

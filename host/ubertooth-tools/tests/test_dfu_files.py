@@ -33,9 +33,7 @@ MAX_IMAGE = 512 * 1024 - 16 * 1024 + SUFFIX_LENGTH
 AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
 # How long one ubertooth-dfu run is given. The whole test takes about 0.6 s on
 # an idle machine and 1.3 s on one busy with parallel builds, so twenty seconds
-# is many times what any single run needs. The CTest timeout on this test is
-# larger again, so this deadline is the one that fires and names the run that
-# timed out.
+# is many times what any single run needs.
 RUN_TIMEOUT_S = 20
 
 failures = []

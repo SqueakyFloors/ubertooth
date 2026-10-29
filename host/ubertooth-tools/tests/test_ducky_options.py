@@ -17,8 +17,7 @@ ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # on an idle machine and 0.5 s on one busy with parallel builds, over five
 # short runs, where the cost that grows is starting a process rather than the
 # work a run does. Twenty seconds is therefore many times what any one run
-# needs, with room for a four-core machine slower again than this one, and a
-# tool that hangs is still reported in tens of seconds.
+# needs, with room for a four-core machine slower again than this one.
 RUN_TIMEOUT_S = 20
 
 

@@ -41,9 +41,7 @@ TOOL = os.path.basename(BINARY)
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # How long one run of the tool is given. The whole test takes about 0.2 s per
 # tool on an idle machine and 0.3 s on one busy with parallel builds, so twenty
-# seconds is many times what any single run needs. The CTest timeout on each
-# entry is larger again, so this deadline is the one that fires and names the
-# run that timed out.
+# seconds is many times what any single run needs.
 RUN_TIMEOUT_S = 20
 
 # One option per tool that takes a required value, for the missing-value case.

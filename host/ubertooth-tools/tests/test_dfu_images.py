@@ -26,9 +26,7 @@ NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # How long one ubertooth-dfu run is given. The whole test takes about 0.3 s on
 # an idle machine and 1.2 s on one busy with parallel builds, so twenty seconds
-# is many times what any single run needs. The CTest timeout on this test is
-# larger again, so this deadline is the one that fires and names the run that
-# timed out.
+# is many times what any single run needs.
 RUN_TIMEOUT_S = 20
 
 U1_DFU_VENDORID = 0x1D50
