@@ -199,18 +199,23 @@ level:
 
 Every line of a capture can therefore be read by the time in front of it: the
 prompt carries no newline of its own, and on standard output it would land on
-the front of the next packet. A terminal shows both streams, so an
-interactive session reads as it always has. What `?` prints is on standard
-output, as is the usage text `-h` prints: each is what the user asked for.
+the front of the next packet. What `?` prints is on standard output, as is the
+usage text `-h` prints: each is what the user asked for.
+
+A session at a terminal leaves the prompt to the terminal's line editor, which
+draws it on the terminal as it always has and keeps the cursor right while a
+line is edited. Nothing is reading standard output there, so nothing is in the
+way.
 
 ## DIAGNOSTICS
 
 Standard output carries the packets a command decodes, what `?` prints, and
-the usage text `-h` prints; see OUTPUT. Everything else, the prompt and the
-intro line included, goes to standard error. A
-command line the tool will not take, a board it cannot select, open or set up,
-and anything that goes wrong during a session, are reported as the one-line
-`error: `, `warning: ` and `note: ` lines the other tools use.
+the usage text `-h` prints; see OUTPUT. Everything else, the intro line and
+the prompt of a session nobody is editing at a terminal included, goes to
+standard error. A command line the tool will not take, a board it cannot
+select, open or set up, and anything that goes wrong during a session, are
+reported as the one-line `error: `, `warning: ` and `note: ` lines the other
+tools use.
 
 An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit

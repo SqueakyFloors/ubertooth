@@ -401,12 +401,12 @@
   `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
   from the interpreter.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
-- **Script-visible change:** `ubertooth-btbr` writes its prompt and its
-  `Type ? to list commands` line to standard error, so every line of standard
-  output is a packet that can be read by the time in front of it. The prompt
-  carries no newline of its own, so on standard output the first packet after
-  each one landed on its end (`bt> 12:14:53 RX FHS: ...`). A terminal shows
-  both streams, so an interactive session reads as it always has.
+- **Script-visible change:** `ubertooth-btbr` keeps its prompt and its
+  `Type ? to list commands` line out of a capture, so every line of one can
+  be read by the time in front of it. The prompt carries no newline of its
+  own, so the first packet after each one used to land on its end
+  (`bt> 12:14:53 RX FHS: ...`). A session at a terminal is unchanged: the
+  terminal's line editor still draws the prompt.
   [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
 - `ubertooth-btbr` no longer reports standard output gone when the reader
   left before any packet was printed: nothing had been written to that

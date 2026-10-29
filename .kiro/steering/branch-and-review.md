@@ -83,7 +83,14 @@ or non-trivial operational documentation changes:
   `dfu-package` the only one that packages an image into the `.dfu` users flash
   and asks the tool whether it would accept it. `api-version` runs on pull
   requests and pushes to `main` only, because it compares a branch with `main`
-  and on the other triggers there is no branch to compare. `libbtbb-pin` is its
+  and on the other triggers there is no branch to compare.
+  `host-installed-libubertooth` runs with the host jobs, on both tiers and on
+  `ubuntu-24.04` alone: it installs libubertooth and then configures, builds
+  and tests `host/ubertooth-tools` on its own, which is the other supported
+  way to build the tools and the only run that reaches the test directory's
+  `else()` branches. What it covers is which include directory a target is
+  given, which is the same on every platform, so it has no Mac leg.
+  `libbtbb-pin` is its
   own workflow with no path filter, so it runs on every change, documentation
   included: two of the files that have to agree on the pin are
   `COMPATIBILITY.md` and the build guides. It also runs
@@ -116,7 +123,9 @@ Speed matters. Do not wait for every job.
   for `libbtbb-pin`, which takes about five seconds.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
-  failed. Changes under `firmware/` also need both firmware jobs,
+  failed. A change under `host/` also needs `host-installed-libubertooth`,
+  which is where the installed-library build is tested.
+  Changes under `firmware/` also need both firmware jobs,
   `image-revision` and `dfu-package`, which read and package the images they
   built; a change to the host's DFU code needs `dfu-package` too, since it
   builds and runs the packaging tool; changes to `install.sh` need both

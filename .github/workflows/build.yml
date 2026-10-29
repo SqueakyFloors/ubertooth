@@ -379,12 +379,17 @@ jobs:
       shell: bash
       # host/ubertooth-tools on its own, with no library source tree beside
       # it: no path to it is passed, so a configure that found one would mean
-      # the tools had reached outside their own directory. UBERTOOTH_RELEASE
-      # for the reason the host job gives.
+      # the tools had reached outside their own directory.
+      #
+      # No UBERTOOTH_RELEASE here, unlike the other host configures: whether
+      # firmware of another API version is refused is decided in
+      # libubertooth, so it is the install step above that passes it, and
+      # passing it again here would only earn CMake's warning about a
+      # variable the project never read.
       run: |
         cmake -S "$GITHUB_WORKSPACE/host/ubertooth-tools" \
           -B "$GITHUB_WORKSPACE/tools-build" \
-          -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DUBERTOOTH_RELEASE=ON
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 
     - name: Build the tools
       shell: bash

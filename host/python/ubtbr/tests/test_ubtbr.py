@@ -1167,9 +1167,9 @@ running.stdin.flush()
 assert wait_until(lambda: INQUIRY_SCAN_PACKET in writes()), writes()
 sent = writes()
 # The command below is typed only once the interrupt has been handled, which
-# is what the prompt the tool prints before each line it reads says: the
-# third one is printed by the read that takes that command, and the prompt
-# only gets there by way of the KeyboardInterrupt the signal raised. A line
+# is what the prompt the tool writes for each line it reads says: the third
+# one is written for the read that takes that command, and the prompt only
+# gets there by way of the KeyboardInterrupt the signal raised. A line
 # written straight after the signal instead races it, and can be taken off
 # the pipe by the very read the signal interrupts: the interrupt then comes
 # out of that read in place of the line, which loses it the way Ctrl-C loses
@@ -1388,6 +1388,43 @@ assert PROMPT not in output and INTRO not in output, output
 assert INTRO + "\n" in errors, errors
 assert errors.count(PROMPT) == 2, errors
 print("ubtbr: the prompt and the intro are on standard error")
+
+
+# A session at a terminal leaves the prompt to Cmd, which hands it to the
+# terminal's line editor: the editor draws it and counts its width while it
+# redraws the line being edited, so one written behind its back would put the
+# cursor four columns out on Ctrl-A. It only runs with a terminal on both
+# standard input and standard output, and then standard error is the same
+# terminal, so the user sees the prompt either way. Checked on the class
+# rather than through a pseudo-terminal, because what is being pinned is
+# which of the two writes it.
+class FakeStream:
+    def __init__(self, terminal):
+        self._terminal = terminal
+
+    def isatty(self):
+        return self._terminal
+
+
+def prompt_with_streams(stdin_is_terminal, stdout_is_terminal):
+    """The prompt Cmd is left holding for streams of the given kind."""
+    saved = sys.stdin, sys.stdout
+    sys.stdin = FakeStream(stdin_is_terminal)
+    sys.stdout = FakeStream(stdout_is_terminal)
+    try:
+        return tool_module.BTCtlPrompt(None).prompt
+    finally:
+        sys.stdin, sys.stdout = saved
+
+
+assert prompt_with_streams(True, True) == PROMPT
+# a capture on standard output, however the commands arrive, and a terminal
+# that is only being typed at: Cmd is left with no prompt, and say_prompt()
+# writes it to standard error.
+assert prompt_with_streams(True, False) == ""
+assert prompt_with_streams(False, True) == ""
+assert prompt_with_streams(False, False) == ""
+print("ubtbr: a terminal session leaves the prompt to the line editor")
 
 # a session holding a connection reports the LMP packets it decodes the same
 # way, named and in hex, so a capture of a connection reads on its own. The

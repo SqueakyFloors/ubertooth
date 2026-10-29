@@ -52,10 +52,11 @@ class BTCtlPrompt(Cmd):
 	# the time it was printed in front of it. The prompt is the tool saying
 	# it is ready, which is a note and not capture data, and it carries no
 	# newline of its own, so on that stream it lands on the front of the
-	# next packet and no line can be read by its time. So Cmd is given an
-	# empty prompt and PROMPT is written to standard error instead, where
-	# the intro line goes too. A terminal shows both streams, so an
-	# interactive session reads as it always has.
+	# next packet and no line can be read by its time.
+	#
+	# The intro line therefore always goes to standard error, and so does the
+	# prompt unless a terminal's line editor is drawing it; __init__ below
+	# decides which. Cmd's own prompt is empty until it is handed one there.
 	prompt = ""
 	PROMPT = "bt> "
 	intro = "Type ? to list commands"
@@ -66,6 +67,38 @@ class BTCtlPrompt(Cmd):
 		self._gave_up = False
 		self._abandoned = False
 		super().__init__()
+		# Who writes the prompt. Cmd hands its prompt to the terminal's line
+		# editor, which both draws it and counts its width when it redraws
+		# the line being edited: an editor that does not know the prompt is
+		# there puts the cursor four columns out when the user presses
+		# Ctrl-A, and clears it off the screen on Ctrl-L. That editor runs
+		# only when standard input and standard output are both a terminal,
+		# and then standard error is that same terminal, so the user sees
+		# the prompt wherever it was written. So there, Cmd keeps it.
+		#
+		# Otherwise standard output is a stream somebody is reading, Cmd
+		# would write the prompt into it, and no line editor is involved: the
+		# prompt goes to standard error through say_prompt() below.
+		self._editor_draws_prompt = sys.stdin.isatty() and sys.stdout.isatty()
+		if self._editor_draws_prompt:
+			self.prompt = self.PROMPT
+
+	def say(self, text):
+		"""Write a note to standard error, giving up on a stream nobody reads.
+
+		The capture is on standard output and must not be lost because
+		nobody is reading the notes: a write that raised from here would
+		leave the prompt loop and be reported as standard output going away.
+		"""
+		try:
+			eprint(text)
+		except BrokenPipeError:
+			point_at_the_bin(sys.stderr)
+
+	def say_prompt(self):
+		"""The prompt, where the line editor is not the one drawing it."""
+		if not self._editor_draws_prompt:
+			self.say(self.PROMPT)
 
 	def _parse_bdaddr(self, inp):
 		bdaddr = None
@@ -166,7 +199,7 @@ class BTCtlPrompt(Cmd):
 
 	def preloop(self):
 		"""The prompt for the first command, before Cmd reads it."""
-		eprint(self.PROMPT)
+		self.say_prompt()
 
 	def postcmd(self, stop, line):
 		"""The prompt for the next command.
@@ -176,11 +209,11 @@ class BTCtlPrompt(Cmd):
 		ends the session.
 		"""
 		if not stop:
-			eprint(self.PROMPT)
+			self.say_prompt()
 		return stop
 
 	def cmdloop(self, intro=None):
-		eprint(self.intro + "\n")
+		self.say(self.intro + "\n")
 		while True:
 			try:
 				super().cmdloop(intro="")
@@ -509,7 +542,10 @@ if __name__ == '__main__':
 		# go to standard output too, and result() is the only one that
 		# notices the stream going away by itself. A command line the tool
 		# refuses is the reachable case, since it writes before anything
-		# else does.
+		# else does. A failed write to standard error arrives here as well
+		# and is reported as this; the prompt and the intro, which every
+		# session writes, go through BTCtlPrompt.say() so that a standard
+		# error nobody reads does not cost the capture.
 		output_lost()
 		# Out without the interpreter's own teardown, for the reason the
 		# command that would not stop takes that way out: the receive thread
