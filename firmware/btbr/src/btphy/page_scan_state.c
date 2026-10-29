@@ -38,20 +38,18 @@
 struct {
 	fhs_info_t fhs_info;
 	uint32_t clkn_start;
-	/* How the page this board answered is being read while a window for
-	 * the central's response is open: 0 for the first of the two page
-	 * messages a central sends, 1 for the second. See
+	/* Has the page this board answered been re-read as the central's second
+	 * page message, with the clock moved to match? See
 	 * page_scan_fhs_missed(). */
-	uint8_t page_heard_second;
+	uint8_t second_reading_tried;
 } page_scan_state;
 
 static void page_scan_schedule(unsigned delay);
 static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset);
 
 /* Open a window for the central's page response, the FHS packet, at the next
- * start of a central transmit slot, which is the only place that packet is
- * sent (Vol 2, Part B, Section 2.4.4). The slot is also half of what decides
- * the window's frequency, the response phase being the other half. */
+ * start of a central transmit slot: that slot, and the response phase, are
+ * what its frequency is computed from. */
 static void page_scan_fhs_schedule(void)
 {
 	rx_task_schedule(3&(RX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX()),
@@ -62,30 +60,36 @@ static void page_scan_fhs_schedule(void)
 
 /* The central's page response did not arrive in the window this board opened.
  *
- * Section 2.4.4 puts that packet an exact 1250 usec after the FIRST of the two
- * page messages the central sends in a transmit slot, whichever of the two this
- * board answered, and an answer goes out 625 usec after the page message that
- * prompted it. So the response follows this board's answer by 625 usec when
- * the page it heard was the central's first message, and by only 312.5 usec
- * when it was the second. A page message says nothing about which of the two
- * it is, and the scan set this clock to the message it heard, so the second
- * reading is the same thing as "this clock is one tick behind the central's".
+ * A central sends two page messages in a transmit slot, and this board answers
+ * 625 usec after the one it heard, but the page response comes an exact
+ * 1250 usec after the FIRST of the two whichever one was answered (Vol 2,
+ * Part B, Section 2.4.4). So it follows this board's own answer by 625 usec for
+ * a page heard first and by 312.5 usec for a page heard second, and a page
+ * message says nothing about which of the two it is. The scan set this clock to
+ * the message it heard, so the second reading of that page is the same thing as
+ * "this clock is one tick behind the central's".
  *
- * An empty first window is therefore also what a page heard second looks like:
- * the response went by a tick earlier, while the radio was still turning round
- * from this board's own answer. Take that reading once -- move the clock the
- * tick it would be behind by, which is what every frequency and transmit after
- * it is computed from -- and wait for the next page response, which the
- * central repeats every 1.25 ms until pagerespTO. An empty window there ends
- * the page response and goes back to scanning. */
+ * An empty window is therefore also what a page heard second looks like: the
+ * response went by a tick earlier, while the radio was still turning round from
+ * this board's answer. Take that reading once -- move the clock the tick it
+ * would be behind by, which is what every frequency and transmit after it is
+ * computed from -- and wait for the next page response, which 8.3.3.2 has the
+ * central repeat every 1.25 ms until pagerespTO.
+ *
+ * 8.3.3.1 asks for the receiver to be on from 312.5 usec after the answer, so
+ * that one window covers both arrival times on the one frequency of that
+ * 1.25 ms. This radio cannot: a receive is tuned in the tick before it listens,
+ * and that tick is the one the answer goes out in. Hence the wait for the
+ * repeat, which costs 1.25 ms on a page heard second. The same section has the
+ * board listen until pagerespTO; it still gives up after these two windows. */
 static void page_scan_fhs_missed(void)
 {
-	if (page_scan_state.page_heard_second)
+	if (page_scan_state.second_reading_tried)
 	{
 		page_scan_schedule(0);
 		return;
 	}
-	page_scan_state.page_heard_second = 1;
+	page_scan_state.second_reading_tried = 1;
 	btphy.slave_clkn++;
 	page_scan_fhs_schedule();
 }
@@ -122,12 +126,14 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 	{
 		if (pkt->bb_hdr.type != BB_TYPE_FHS)
 		{
-			/* Somebody else's packet, so the page response this
-			 * window was for is still missing. Treat the window as
-			 * empty rather than leave the board in page scan with
-			 * nothing left to run, which would wait forever. */
+			/* Not the packet this leg waits for, so there is no
+			 * page to answer. Go back to scanning rather than
+			 * leave the board in page scan with nothing left to
+			 * run, which would wait forever. A stray multi-slot
+			 * packet also reaches here several ticks late, which
+			 * is too late to re-read the page. */
 			cprintf("(bad type %d)", pkt->bb_hdr.type);
-			page_scan_fhs_missed();
+			page_scan_schedule(0);
 			goto end;
 		}
 		// Parse fhs to get bdaddr/clkn/ltaddr
@@ -185,9 +191,9 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 			NULL, NULL,	// no tx callback
 			NULL, NULL); 	// no header / no payload
 
-		/* Schedule rx FHS, for the first of the two readings of the
-		 * page just heard (see page_scan_fhs_missed()) */
-		page_scan_state.page_heard_second = 0;
+		/* Schedule rx FHS, reading the page just heard as the first of
+		 * the central's two (see page_scan_fhs_missed()) */
+		page_scan_state.second_reading_tried = 0;
 		page_scan_fhs_schedule();
 	}
 	else

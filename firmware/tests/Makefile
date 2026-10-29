@@ -343,13 +343,12 @@ $(BINDIR)/test_btbr_page_response: test_btbr_page_response.c minunit.h \
 		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c \
 		$(FW_BTBR)/include/ubtbr/hop.h \
 		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
-# The two state machines carry unused slot-task parameters and unused locals of
-# their own, and take the address of a packed field. None of that is what this
-# tests, and none of it is this change's.
+# The slot tasks take three parameters most of them do not read, which the two
+# state machines and the fakes that stand in for them both carry. That is the
+# only warning class waived, so a mistake of the test's own still shows.
 	$(CC) $(CFLAGS) -Istubs-btbr -Istubs-btbr-rx -I$(FW_BTBR)/include \
 		$(CPPFLAGS) -DFW_BTBR_DIR='"$(FW_BTBR)"' \
-		-Wno-unused-parameter -Wno-unused-variable \
-		-Wno-unused-but-set-variable -Wno-address-of-packed-member \
+		-Wno-unused-parameter \
 		-o $@ test_btbr_page_response.c \
 		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c
 

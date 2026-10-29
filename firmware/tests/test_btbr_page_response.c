@@ -747,25 +747,11 @@ MU_TEST(paged_second_half_window_meets_the_page_response)
 	mu_assert_int_eq(1, slave_started);
 	mu_assert_int_eq(10, paged_air_tick(ack));
 	mu_assert_int_eq(ack_window->chan, ack->chan);
-}
 
-/*
- * The clock the page response leaves behind. Section 2.4.4's last rule is that
- * the paged device takes its timing from the central's page response and not
- * from the page message it received, and that is what puts the acknowledgement
- * above in the pager's window: afterwards this board's clock reads the pager's.
- */
-MU_TEST(paged_clock_follows_the_page_response)
-{
-	const struct air_event *fhs;
-
-	run_pager(2);
-	fhs = air_nth(pager_log, pager_log_count, AIR_TX, 4);
-
-	run_paged(pager_page_phase(2), 2, 2, fhs->clkn >> 2);
-
-	mu_assert_fatal(slave_started == 1,
-		"no connection came up, so there is no clock to check");
+	/* Section 2.4.4's last rule, which is what puts that acknowledgement in
+	 * the pager's window: the paged device takes its timing from the page
+	 * response and not from the page message, so this board's clock now
+	 * reads the pager's. */
 	mu_assert_int_eq(pager_clkn_t0 + (air_tick - paged_t0 + paged_half-1),
 			btphy.slave_clkn);
 }
@@ -859,7 +845,6 @@ int main(void)
 	MU_RUN(pager_page_response_timing_second_half);
 	MU_RUN(paged_first_half_window_meets_the_page_response);
 	MU_RUN(paged_second_half_window_meets_the_page_response);
-	MU_RUN(paged_clock_follows_the_page_response);
 	MU_RUN(paged_two_empty_windows_return_to_scanning);
 	MU_RUN(prepare_model_matches_the_task_files);
 	return mu_report();

@@ -706,11 +706,13 @@
   [#930](https://github.com/SqueakyFloors/ubertooth/issues/930)
 
 - A board running `ubertooth-btbr`'s `page_scan` completes the connection for
-  a page it hears in either half of the pager's transmit slot. It used to wait
-  for the pager's answering FHS packet one slot-half too late whenever the
-  page it heard was the second of the two the pager sends, so about half of
-  all pages were answered and then went nowhere, in runs lasting a whole
-  1.28-second page interval. It now also waits in the other half, which is
+  a page it hears in either half of the pager's transmit slot. A pager sends
+  two page messages per slot and its answering FHS packet comes a fixed time
+  after the first of them, so a board that answered the second one waited for
+  that packet 312.5 us too late and the page went nowhere: about half of all
+  pages were answered and then led to nothing, in runs lasting a whole
+  1.28-second page interval. An empty window is now re-read as a page heard
+  second, and the board waits for the pager's next FHS 1.25 ms later. This is
   what `page`, `page_scan` and `l2ping` between two boards needed.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
