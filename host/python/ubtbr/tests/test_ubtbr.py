@@ -1416,6 +1416,36 @@ assert "***" not in errors and "***" not in output, (output, errors)
 assert time_prefixed(errors) == [], errors
 print("ubtbr: what `?` prints is on standard error, so a capture stays readable")
 
+# a word the prompt does not know is refused there too, in the same wording.
+# It used to be taken silently: the handler that reads "x" and "q" as ways of
+# leaving returned nothing for everything else, so the user was handed the
+# next prompt as though the command had run. A command name is not a command
+# line, so the session carries on and its exit status is unchanged, and the
+# refusal is a diagnostic rather than capture data, so standard output stays
+# empty.
+status, output, errors = ran(typed="bogus\nbogus 11:22:33:44:55:66\nq\n")
+assert status == 0, (status, output, errors)
+assert output == "", output
+# the name is what does not exist, so that is what the line quotes, whatever
+# was typed after it: both lines above name the same command
+assert errors.count("error: no such command 'bogus'\n") == 2, errors
+assert "***" not in errors, errors
+assert "Traceback" not in errors, errors
+# and the prompt was read again after each refusal: one per line typed, and
+# none after the one that ended the session
+assert errors.count(PROMPT) == 3, errors
+print("ubtbr: an unknown command at the prompt is one error line, not silence")
+
+# and the two short spellings of leaving are read the same way, so `x` and
+# `q` with a word after them leave as `exit <word>` does rather than being
+# refused as commands that do not exist
+for typed in ("x\n", "q\n", "x now\n", "q now\n"):
+    status, output, errors = ran(typed=typed)
+    assert status == 0, (typed, status, output, errors)
+    assert "no such command" not in errors, (typed, errors)
+    assert "Traceback" not in errors, (typed, errors)
+print("ubtbr: `x` and `q` leave whatever follows them")
+
 
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
 # terminal's line editor: the editor draws it and counts its width while it
@@ -1561,6 +1591,66 @@ assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: -h whose usage text could not be printed exits 1")
+
+# and with that stream closed before the tool started, which is `-h >&-`:
+# there is no such stream at all rather than a reader who left, and the write
+# used to end the tool in an AttributeError traceback. The text was asked for
+# and has nowhere to go, so it is reported as the same loss, with the same
+# status.
+running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           text=True, env=ENVIRONMENT,
+                           preexec_fn=lambda: os.close(1))
+output, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: -h with no standard output at all is reported, not a traceback")
+
+
+def read_only_stdout():
+    """Give the child a standard output that cannot be written to."""
+    nowhere = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(nowhere, 1)
+    os.close(nowhere)
+
+
+# and the other face of the same closed descriptor: most interpreters leave
+# the tool without the stream, some leave the stream and a descriptor whose
+# every write fails with EBADF. The second is what `ubertooth-btbr -h 1<&0`
+# gives on any of them, which is how it is reached here. The usage text
+# reaches the buffer and the flush is where it fails, so the handler that
+# catches it is not the one above; the line and the status are the same.
+running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
+                           stderr=subprocess.PIPE, text=True, env=ENVIRONMENT,
+                           preexec_fn=read_only_stdout)
+_, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+assert "Exception ignored" not in errors, errors
+print("ubtbr: -h on a standard output that cannot be written is reported too")
+
+# and a session asked for with that stream closed before the tool started,
+# which is `ubertooth-btbr >&-`: it is refused in one line with no board
+# opened. A session needs the stream twice over, for the capture and for the
+# interpreter's own input(), which will not read a line without it; it used
+# to get as far as the first read and end in a traceback there.
+if os.path.exists(WRITES_FILE):
+    os.remove(WRITES_FILE)
+running = subprocess.Popen(
+    [sys.executable, WRAPPER], stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    env=ENVIRONMENT, preexec_fn=lambda: os.close(1))
+output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+assert INTRO not in errors, errors
+# nothing was sent to a board, so none was set up
+assert not writes(), writes()
+print("ubtbr: a session with no standard output is refused, no board opened")
 
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
 # is all that is left: the error line has nowhere to go either, and saying so
@@ -1983,6 +2073,19 @@ import sys
 
 with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
     record.write("\\n".join(sys.argv[1:]))
+# What the child was handed for standard error, where a case asks. The real
+# tool writes its diagnostics there and opens USB device nodes, so a closed
+# descriptor is one its own first open() would take.
+if os.environ.get("FAKE_UTIL_FD2"):
+    state = "gone"
+    try:
+        state = ("the bin"
+                 if os.fstat(2).st_rdev == os.stat(os.devnull).st_rdev
+                 else "something else")
+    except OSError:
+        pass
+    with open(os.environ["FAKE_UTIL_FD2"], "w") as record:
+        record.write(state)
 sys.stdout.write(os.environ["FAKE_UTIL_ANSWER"])
 sys.exit(int(os.environ["FAKE_UTIL_STATUS"]))
 """
@@ -2077,6 +2180,59 @@ assert errors == \
     "error: could not run ubertooth-util: No such file or directory\n", errors
 
 print("ubtbr: -V passes ubertooth-util's answer through")
+
+# -V with standard output closed before the tool started, which is `-V >&-`:
+# the flush that orders this tool's lines before the child's has no stream to
+# flush, where it used to end the tool in an AttributeError traceback. The
+# answer cannot be printed, so it is reported as the same loss as a reader
+# who left, and the command exits 1.
+#
+# ubertooth-util is on the PATH here and must not be run at all: started with
+# that descriptor closed, the first file it opens takes its number, and the
+# answer would be written into whatever that turned out to be -- for a tool
+# that opens USB device nodes, one of those.
+if os.path.exists(VERSION_ARGS_FILE):
+    os.remove(VERSION_ARGS_FILE)
+running = subprocess.Popen([sys.executable, WRAPPER, "-V"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           text=True,
+                           env=dict(ENVIRONMENT, PATH=FAKE_UTIL_DIR,
+                                    FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                                    FAKE_UTIL_ANSWER=VERSION_ANSWER,
+                                    FAKE_UTIL_STATUS="0"),
+                           preexec_fn=lambda: os.close(1))
+output, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert output == "", output
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
+print("ubtbr: -V with no standard output at all is reported, not a traceback")
+
+# -V with standard error closed instead, which is `-V >out 2>&-`: the answer
+# is what was asked for, so it is still printed and the child still runs. It
+# is handed the bin for its diagnostics rather than the closed descriptor,
+# whose number the first file it opened would take -- for a tool that opens
+# USB device nodes, one of those.
+FD2_FILE = os.path.join(WORK.name, "util-fd2")
+for stale in (VERSION_ARGS_FILE, FD2_FILE):
+    if os.path.exists(stale):
+        os.remove(stale)
+running = subprocess.Popen([sys.executable, WRAPPER, "-V"],
+                           stdout=subprocess.PIPE, text=True,
+                           env=dict(ENVIRONMENT, PATH=FAKE_UTIL_DIR,
+                                    FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                                    FAKE_UTIL_ANSWER=VERSION_ANSWER,
+                                    FAKE_UTIL_STATUS="0",
+                                    FAKE_UTIL_FD2=FD2_FILE),
+                           preexec_fn=lambda: os.close(2))
+output, _ = running.communicate(timeout=DEADLINE)
+assert running.returncode == 0, (running.returncode, output)
+assert output == VERSION_ANSWER, output
+assert version_arguments() == ["-V"], version_arguments()
+with open(FD2_FILE) as recorded:
+    assert recorded.read() == "the bin", recorded
+print("ubtbr: -V with standard error closed hands the child the bin for it")
 
 
 # ---- and -V and -h need no Python libusb1 package -------------------------

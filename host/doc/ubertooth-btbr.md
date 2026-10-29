@@ -151,6 +151,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `?`, `? <command>` :
    list the commands, or describe one
 
+A word that is none of these is refused, and the prompt stays up; see
+DIAGNOSTICS.
+
 One command runs at a time. Starting another while one is still running is
 refused with a `Not idle` line; `idle` or Ctrl-C stops the running one first.
 
@@ -255,7 +258,10 @@ before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
 status 1. An address the prompt will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
 prompt up; a `? <command>` naming no command is
-`error: no help on '<word>'`, and so does.
+`error: no help on '<word>'`, and so does. A word that is no command at all is
+`error: no such command '<word>'`, naming the first word of the line, and
+leaves the prompt up as well. None of the three changes the session's exit
+status.
 
 Every other command line the tool will not take is one `error: ` line on
 standard error with no usage text, and exit 1: `error: unrecognized option
@@ -279,7 +285,11 @@ Standard output going away is one line, `error: standard output has gone
 away`, said once however many writes find it gone. A capture piped into
 something that stops reading, as `ubertooth-btbr | head -5` does, therefore
 leaves the prompt up with nothing more printed, and the session ends with
-exit 1; so does a `-h` whose usage text could not be delivered. A session
+exit 1; so does a `-h` or `-V` whose answer could not be delivered, whether
+its reader left or there was no standard output to print to at all, as
+`ubertooth-btbr -h >&-` leaves. A session asked for with no standard output
+is refused in that same line, before any board is opened: the stream carries
+the capture, and the prompt cannot be read without it either. A session
 that had printed nothing when the reader left has lost nothing and ends as it
 otherwise would. If standard error has gone the same way, the exit status is
 all that is left to say it with.

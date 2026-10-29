@@ -248,6 +248,33 @@ assert result.stderr == \
 
 print("ubertooth-specan-ui: -V passes ubertooth-util's answer through")
 
+# -V with standard output closed before the tool started, which is `-V >&-`:
+# the interpreter is left without that stream, and the flush that orders this
+# tool's lines before the child's used to end the command in an AttributeError
+# traceback. The answer cannot be printed, so it is said in one line and the
+# command exits 1.
+#
+# ubertooth-util is on the PATH here and must not be run at all: started with
+# that descriptor closed, the first file it opens takes its number, and the
+# answer would be written into whatever that turned out to be -- for a tool
+# that opens USB device nodes, one of those.
+if os.path.exists(VERSION_ARGS_FILE):
+    os.remove(VERSION_ARGS_FILE)
+closed = subprocess.Popen(
+    [sys.executable, SCRIPT, "-V"], stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE, text=True,
+    env=dict(ENVIRONMENT, PATH=FAKE_DIRECTORY,
+             FAKE_UTIL_ARGS=VERSION_ARGS_FILE, FAKE_UTIL_ANSWER=ANSWER,
+             FAKE_UTIL_STATUS="0"),
+    preexec_fn=lambda: os.close(1))
+_, closed_errors = closed.communicate(timeout=60)
+assert closed.returncode == 1, (closed.returncode, closed_errors)
+assert "Traceback" not in closed_errors, closed_errors
+assert closed_errors == "error: standard output has gone away\n", closed_errors
+assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
+print("ubertooth-specan-ui: -V with no standard output at all is reported,"
+      " not a traceback")
+
 
 # ---- and none of that needs numpy or a Qt binding -------------------------
 #

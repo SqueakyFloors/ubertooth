@@ -148,9 +148,28 @@ def report_versions():
     # Nothing of this script's is waiting in the buffers here, and this keeps
     # it that way: a line written before the child starts must not land after
     # the child's.
-    sys.stdout.flush()
-    sys.stderr.flush()
-    child = run_tool(['ubertooth-util', '-V'])
+    try:
+        sys.stdout.flush()
+    except (AttributeError, ValueError):
+        # There is no standard output at all: a descriptor closed before the
+        # script started leaves the interpreter without one, so the answer
+        # cannot be printed. Said in one line, and the child is not started:
+        # with that descriptor closed, the first file the child opens takes
+        # its number, and the answer would be written into whatever that
+        # turned out to be.
+        print("error: standard output has gone away", file=sys.stderr)
+        return 1
+    child_streams = {}
+    try:
+        sys.stderr.flush()
+    except (AttributeError, ValueError):
+        # Nor any standard error. That costs the child's diagnostics and not
+        # the answer, so nothing is said about it, but the child is handed
+        # the bin for them rather than the closed descriptor: the first file
+        # it opened would otherwise take that number and its lines would be
+        # written into whatever that turned out to be.
+        child_streams["stderr"] = DEVNULL
+    child = run_tool(['ubertooth-util', '-V'], **child_streams)
     if child is None:
         return 1
     status = child.wait()

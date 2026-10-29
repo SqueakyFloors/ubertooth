@@ -649,6 +649,32 @@ assert result.stderr == \
 
 print("btle-extcap: -V passes ubertooth-util's answer through")
 
+# -V with standard output closed before the script started, which is `-V >&-`:
+# the interpreter is left without that stream, and the flush that orders this
+# script's lines before the child's used to end the call in an AttributeError
+# traceback. The answer cannot be printed, so it is said in one line and the
+# call exits 1.
+#
+# ubertooth-util is on the PATH here and must not be run at all: started with
+# that descriptor closed, the first file it opens takes its number, and the
+# answer would be written into whatever that turned out to be -- for a tool
+# that opens USB device nodes, one of those.
+if os.path.exists(ARGS_FILE):
+    os.remove(ARGS_FILE)
+closed = subprocess.Popen(
+    [sys.executable, SCRIPT, "-V"], stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE, text=True,
+    env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
+             FAKE_UTIL_ERRORS=""),
+    preexec_fn=lambda: os.close(1))
+_, closed_errors = closed.communicate(timeout=RUN_TIMEOUT_S)
+assert closed.returncode == 1, (closed.returncode, closed_errors)
+assert "Traceback" not in closed_errors, closed_errors
+assert closed_errors == "error: standard output has gone away\n", closed_errors
+assert not os.path.exists(ARGS_FILE), "ubertooth-util must not run"
+print("btle-extcap: -V with no standard output at all is reported, not a"
+      " traceback")
+
 # -h ends the call ahead of every operation, whichever order they were
 # written in: the listing used to be answered first when it came first, so -h
 # printed nothing and Wireshark's interface list was the answer instead.

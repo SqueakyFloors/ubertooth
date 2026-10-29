@@ -112,6 +112,12 @@ A failure to start `ubertooth-specan` is reported the same way, as
 `error: could not open an Ubertooth device` followed by a `note: ` naming the
 command, and whatever `ubertooth-specan` itself said on standard error.
 
+A `-V` with no standard output to print the answer to, which is what
+`ubertooth-specan-ui -V >&-` leaves, is `error: standard output has gone away`
+and exit 1. ubertooth-util(1) is not started there: with that descriptor
+closed, the first file it opened would take its number and the answer would be
+written into that.
+
 The key help `h` shows goes to standard output, as what the user asked for.
 The notes about an unknown or unsupported key are `note: ` lines on standard
 error. The usage text `-h` prints is the argument parser's: standard output,
