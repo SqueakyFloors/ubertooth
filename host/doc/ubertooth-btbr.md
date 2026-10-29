@@ -66,13 +66,15 @@ one `btbr` was flashed onto.
    ubertooth-util(1) `-V`, so that tool has to be on the `PATH`, and is
    reported as `error: could not run ubertooth-util: No such file or
    directory` when it is not. No `btbr` firmware is needed for it: the
-   version is read from whatever image the board is carrying. Like every
-   other call of this tool, it needs the Python `libusb1` package installed,
-   even though the version itself is read without it
+   version is read from whatever image the board is carrying. It needs no
+   Python `libusb1` package either: the command line is read before the
+   module that package ships is imported, so `-V` answers on a host where it
+   is not installed. See DIAGNOSTICS.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
-   an option given twice is still reported.
+   an option given twice is still reported. Like `-V`, it needs no Python
+   `libusb1` package.
 
 `-V` and `-h` both end the command, and both answer on standard output, so a
 command line with both prints both: the version first and the usage text
@@ -238,6 +240,14 @@ select, open or set up, and anything that goes wrong during a session, are
 reported as the one-line `error: `, `warning: ` and `note: ` lines the other
 tools use.
 
+A host without the Python `libusb1` package can still ask what is installed:
+`-V`, `-h` and a command line the tool will not take are all answered before
+the `usb1` module that package ships is imported. A call that opens a board
+does need it, and says so in one line rather than a traceback:
+
+    error: could not start the session: No module named 'usb1'
+    note: a session needs the Python libusb1 package, which ships the usb1 module; install it with "pip install libusb1"
+
 An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
 status 1. An address the prompt will not take is one line,
@@ -293,7 +303,8 @@ same way. See FIRMWARE.
 Ctrl-D with nothing left running and everything asked for printed. 1 for a
 command line the tool will not take, when standard output went away before
 all that was asked for had been printed,
-when no Ubertooth is found, when `-U` names no board or more than one, when
+when a session was asked for and the Python `libusb1` package is not
+installed, when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
 board refuses the requests
 that set the session up, when Ctrl-C ends the tool before the prompt is up,

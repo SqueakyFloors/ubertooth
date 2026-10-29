@@ -51,8 +51,8 @@ same words whichever tool was asked; `ubertooth-util` has to be on their
 there is reported as `error: could not run ubertooth-util: No such file or
 directory`. `btle-extcap.py` has no `-U`, so its `-V` reports every attached
 board. ubertooth-specan-ui(1) answers `-V` and `-h` without the `numpy` and
-Qt binding its window needs; ubertooth-btbr(1) still needs the Python
-`libusb1` package for any call, `-V` included. `-v` is not in every tool; the last paragraph here says what it means
+Qt binding its window needs, and ubertooth-btbr(1) answers them without the
+Python `libusb1` package a session of its own needs. `-v` is not in every tool; the last paragraph here says what it means
 where it is.
 
 `-h` prints that tool's usage text on standard output and exits 0.

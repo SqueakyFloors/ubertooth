@@ -1982,11 +1982,12 @@ os.mkdir(NO_UTIL_DIR)
 
 
 def version_ran(arguments, answer=VERSION_ANSWER, status=0,
-                path=FAKE_UTIL_DIR):
+                path=FAKE_UTIL_DIR, **fakes):
     if os.path.exists(VERSION_ARGS_FILE):
         os.remove(VERSION_ARGS_FILE)
     return ran(arguments, PATH=path, FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
-               FAKE_UTIL_ANSWER=answer, FAKE_UTIL_STATUS=str(status))
+               FAKE_UTIL_ANSWER=answer, FAKE_UTIL_STATUS=str(status),
+               **fakes)
 
 
 def version_arguments():
@@ -2048,5 +2049,77 @@ assert errors == \
     "error: could not run ubertooth-util: No such file or directory\n", errors
 
 print("ubtbr: -V passes ubertooth-util's answer through")
+
+
+# ---- and -V and -h need no Python libusb1 package -------------------------
+#
+# A session needs the usb1 module, which that package ships. -V does not: it
+# is how a user says which tools they have, and a package that is not
+# installed is exactly when they would ask. Here the module is shadowed by
+# one that raises what the interpreter raises where the package is missing,
+# and the fake usb1 is left off the path, so nothing can satisfy the import.
+
+WITHOUT_USB1 = os.path.join(WORK.name, "no-usb1")
+os.mkdir(WITHOUT_USB1)
+with open(os.path.join(WITHOUT_USB1, "usb1.py"), "w") as refused:
+    # name= is part of what the interpreter raises for a module that is not
+    # there, and the wrapper reads it to decide whether the install note
+    # applies, so the stand-in carries it too.
+    refused.write(
+        'raise ModuleNotFoundError("No module named \'usb1\'",'
+        ' name="usb1")\n')
+# The ubtbr package is still here; the fake usb1 in WORK.name is not.
+NO_USB1 = os.pathsep.join((WITHOUT_USB1, MODULE_DIR))
+
+# -V is answered, unchanged, and exits 0
+status, output, errors = version_ran(("-V",), PYTHONPATH=NO_USB1)
+assert status == 0, (status, output, errors)
+assert output == VERSION_ANSWER, output
+assert errors == "", errors
+
+# and so is -h
+status, output, errors = version_ran(("-h",), PYTHONPATH=NO_USB1)
+assert status == 0, (status, output, errors)
+assert output == tool_module.USAGE, output
+assert errors == "", errors
+
+# a command line the tool will not take is still refused there, in the one
+# line it gives anywhere else
+status, output, errors = version_ran(("-f", "bad"), PYTHONPATH=NO_USB1)
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == "error: -f must be 0-65535 (got bad)\n", errors
+
+# A call that does open a board needs the package, which is what says it was
+# really out of reach above. That is one error line naming what is missing
+# and a note saying how to install it, not a traceback.
+status, output, errors = version_ran((), PYTHONPATH=NO_USB1)
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+assert errors == (
+    "error: could not start the session: No module named 'usb1'\n"
+    "note: a session needs the Python libusb1 package, which ships the usb1 "
+    "module; install it with \"pip install libusb1\"\n"), errors
+
+# The install note belongs to the one module a user installs a package for.
+# Something else missing from the session's imports is a broken install, so
+# it is reported without being told to install libusb1.
+BROKEN_INSTALL = os.path.join(WORK.name, "broken-install")
+os.mkdir(BROKEN_INSTALL)
+with open(os.path.join(BROKEN_INSTALL, "usb1.py"), "w") as elsewhere:
+    elsewhere.write(
+        'raise ModuleNotFoundError("No module named \'nosuchthing\'",'
+        ' name="nosuchthing")\n')
+status, output, errors = version_ran(
+    (), PYTHONPATH=os.pathsep.join((BROKEN_INSTALL, MODULE_DIR)))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+assert errors == (
+    "error: could not start the session: No module named 'nosuchthing'\n"
+), errors
+
+print("ubtbr: -V and -h need no Python libusb1 package")
 
 WORK.cleanup()
