@@ -417,10 +417,10 @@ with tempfile.TemporaryDirectory() as workdir:
         # which it does not count the search as -- the same rule that keeps a
         # rejected candidate's bytes out of the file, below. So the record of
         # the packet whose CRC settled the UAP says nothing about that CRC.
-        # Whether the candidate that settles it should count as the packet's
-        # own decode is SqueakyFloors/libbtbb#78; this pins what the records
-        # hold until that is answered, and pins the pair together, so no
-        # library can claim a CRC verdict with no payload to show for it.
+        # Whether the candidate clock that settles it should count as the
+        # packet's own decode is libbtbb's to answer; this pins what the
+        # records hold meanwhile, and pins the pair together, so no library
+        # can claim a CRC verdict with no payload to show for it.
         assert not records[2].flags & BREDR_PAYLOAD_PRESENT, (name, records)
         assert records[2].payload == b"", (name, records)
         assert not records[2].flags & (BREDR_CRC_CHECKED | BREDR_CRC_VALID), (name, records)
@@ -438,10 +438,10 @@ with tempfile.TemporaryDirectory() as workdir:
         # reads as the fixture sent it: this member of the piconet, a DH1
         # carrying data. Under libbtbb's master they are a candidate clock's
         # instead, and the record says so by leaving BREDR_HEC_VALID clear.
-        # Which of the two a record should carry is
-        # SqueakyFloors/libbtbb#90; this asserts the pair stays consistent,
-        # so neither library can record a header it says passed its check
-        # without the bits to show it.
+        # Which of the two a record should carry is libbtbb's to answer, the
+        # same question as the payload's above; this asserts the pair stays
+        # consistent, so neither library can record a header it says passed
+        # its check without the bits to show it.
         if records[2].flags & BREDR_HEC_VALID:
             assert hec_recomputes(records[2].header, records[2].uap), (name, records)
             assert not hec_recomputes(records[2].header, UAP ^ 1), (name, records)

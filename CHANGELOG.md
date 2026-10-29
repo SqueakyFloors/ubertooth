@@ -542,6 +542,20 @@
   gone from `ubertooth_interface.h` with it: a program that bounded a call by
   it wants `ADV_IND_MAX_DATA`. No shipped tool sets more than 18 bytes.
   [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
+- The tools are built against a newer libbtbb
+  ([`e553a88`](https://github.com/SqueakyFloors/libbtbb/commit/e553a88086ab6066ebb963f102565eb114110065)),
+  which brings its own run of fixes to the Classic and BLE decoders and to the
+  capture file writers: a 255-octet advertising packet keeps its last three
+  octets instead of losing them to the CRC field, AUX1, DV, EV3, EV4 and EV5
+  payloads decode, a packet whose payload the decoder could not read is no
+  longer reported with the previous packet's bytes, a BLE capture records each
+  connection's parameters, and the library's own notes go to standard error
+  rather than into a capture on standard output. What that library is now
+  tested against is in its
+  [TESTING.md](https://github.com/SqueakyFloors/libbtbb/blob/master/TESTING.md).
+  `install.sh` and the build guides check out the new commit; a libbtbb
+  without what the tools use is still refused at configure time, by name.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
