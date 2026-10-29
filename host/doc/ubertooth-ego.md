@@ -198,11 +198,18 @@ capture that ends in the moment after a gap does not report that last one.
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after a capture is
-interrupted (Ctrl-C). 1 for a command line the tool will not take or with
+interrupted (Ctrl-C) having polled cleanly to that point. 1 for a command line
+the tool will not take or with
 nothing to do, when the selected Ubertooth is not found or cannot be opened,
 when the board refuses one of the requests that set the capture up, when the
 firmware does not support the requested mode, and when the capture stops short
 because a poll failed.
+
+A poll the board does not answer is tried again, up to three attempts of one
+second each. A stop (Ctrl-C, or SIGTERM, SIGHUP or SIGQUIT) drops the attempts
+still to come, so a capture interrupted while the board was not answering
+reports `error: USB poll failed` and exits 1, where a capture left to use its
+remaining attempts might have recovered.
 
 1 as well when the board refuses the request that ends the capture: it is left
 in the E-GO mode, and no other tool can open it until it is reset or

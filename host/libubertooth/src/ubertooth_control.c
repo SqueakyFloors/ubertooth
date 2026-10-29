@@ -1299,7 +1299,8 @@ int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p)
 	 * Three attempts, so the cost is bounded at about three seconds of the
 	 * one-second timeout below. A board that has gone -- the watchdog resets
 	 * one that stops answering -- fails with LIBUSB_ERROR_NO_DEVICE instead,
-	 * which is not retried and ends the capture at once.
+	 * which is not retried and ends the capture at once. So does a stop the
+	 * user has asked for, which is the other half of the loop below.
 	 *
 	 * The retry saves the capture, not the packet. The firmware takes the
 	 * packet out of its queue while it answers the request (UBERTOOTH_POLL
@@ -1310,15 +1311,31 @@ int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p)
 	for (i = 0; i < 3; ++i) {
 		r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_POLL, 0, 0,
 				(u8 *)p, sizeof(usb_pkt_rx), 1000);
-		if (r == LIBUSB_ERROR_PIPE || r == LIBUSB_ERROR_TIMEOUT)
+		if (r == LIBUSB_ERROR_PIPE || r == LIBUSB_ERROR_TIMEOUT) {
+			/* The retry is there to keep a capture running, and the
+			 * user has just asked this one to stop. A capture
+			 * spends its time in this call and reads the stop only
+			 * when it returns, so the attempts still to come are up
+			 * to two seconds the stop would wait for: give up now
+			 * and report the failure.
+			 *
+			 * The stop read here is the one the user asked for. The
+			 * -t timer has a flag of its own, which this does not
+			 * read: a timed run ending as it was told to should not
+			 * be turned into a failure by a poll that timed out at
+			 * that same moment. */
+			if (ubertooth_stop_requested())
+				break;
 			continue;
+		}
 		if (r < 0)
 			show_libusb_error(r);
 		return r;
 	}
-	/* Every attempt failed the same way, so this is not a board that was
-	 * busy for a moment. Reported here, because the retry loop swallowed the
-	 * attempts and the caller's "USB poll failed" does not say what went
+	/* The attempts are over, either because all three failed the same way --
+	 * so this is not a board that was busy for a moment -- or because the
+	 * user stopped the run. Reported here, because the retry loop swallowed
+	 * the attempts and the caller's "USB poll failed" does not say what went
 	 * wrong. */
 	show_libusb_error(r);
 	return r;

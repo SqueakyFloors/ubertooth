@@ -1674,6 +1674,14 @@
   Records written before that still carry none. See WHAT A CAPTURE RECORD
   HOLDS in ubertooth-rx(1).
   [#778](https://github.com/SqueakyFloors/ubertooth/issues/778)
+- A stop (Ctrl-C, or SIGTERM, SIGHUP or SIGQUIT) no longer waits for a
+  capture's poll retries. A stop that arrived while the board was not answering
+  a poll used to be acted on up to three seconds later; now only the attempt
+  already under way is waited for. **Script-visible change:** that attempt's
+  failure is reported (`error: USB poll failed`) and the run exits 1, where a
+  capture left to use its remaining attempts might have recovered and exited 0.
+  A capture nobody has stopped still gets all three attempts.
+  [#844](https://github.com/SqueakyFloors/ubertooth/issues/844)
 
 ### Documentation
 

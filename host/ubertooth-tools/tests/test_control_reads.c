@@ -39,6 +39,9 @@ static struct {
 	int sequence[SEQUENCE_MAX];
 	int sequence_len;
 	int calls;                /* how many calls the read made */
+	/* The user's stop arrives once this many calls have been made; 0 for a
+	 * run nobody stopped. */
+	int stop_after;
 } fake;
 
 /* ---- libusb and libbtbb fakes ------------------------------------------ */
@@ -80,6 +83,16 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *dev_handle,
 		memcpy(data, fake.reply, n);
 	}
 	return fake.rc;
+}
+
+/* The flag a stop signal would have set. The library's own copy lives in
+ * ubertooth.c, which this test does not compile, so the cases script when the
+ * stop arrives instead of raising a signal: the poll's retry is the only thing
+ * that reads it, and a signal would race with the attempt it is meant to
+ * land in. */
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_after > 0 && fake.calls >= fake.stop_after;
 }
 
 /* ubertooth_control.c references libbtbb; no syncword path runs here. */
@@ -785,6 +798,67 @@ MU_TEST(a_poll_that_keeps_failing_gives_up_and_says_why)
 }
 
 /*
+ * The retries keep a capture running, so they stop mattering the moment the
+ * user asks the run to stop: a Ctrl-C that lands while the board is not
+ * answering used to wait for the attempts still to come, up to about three
+ * seconds. The poll gives up at once instead, and the failure it already had
+ * is reported and handed to the caller, which ends the run with
+ * "error: USB poll failed" and exit 1.
+ */
+MU_TEST(a_stop_ends_the_poll_retries_at_once)
+{
+	char text[256];
+
+	/* The stop arrives during the first attempt, which timed out: no
+	 * second attempt, and the timeout is the caller's answer. */
+	script_attempts(LIBUSB_ERROR_TIMEOUT, (int)sizeof(usb_pkt_rx),
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after = 1;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, poll_rc);
+	mu_assert_int_eq(1, fake.calls);
+	mu_assert(strcmp(text, "error: the Ubertooth did not answer in time "
+	    "(libusb -7)\n") == 0, text);
+
+	/* One attempt later: the second was already under way when the stop
+	 * arrived, so the third is the one dropped. */
+	script_attempts(LIBUSB_ERROR_PIPE, LIBUSB_ERROR_PIPE,
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after = 2;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, poll_rc);
+	mu_assert_int_eq(2, fake.calls);
+	mu_assert(strstr(text, "-9") != NULL, text);
+
+	/* A stop does not throw away a poll that worked: the packet is handed
+	 * back, and the capture loop reads the stop on its next turn. The stop
+	 * belongs to the retry, not to the poll. */
+	script_attempts((int)sizeof(usb_pkt_rx), (int)sizeof(usb_pkt_rx),
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after = 1;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq((int)sizeof(usb_pkt_rx), poll_rc);
+	mu_assert_int_eq(1, fake.calls);
+	mu_assert(text[0] == '\0', text);
+
+	/* Nobody stopped this run, so the retries are exactly as they were:
+	 * three attempts for a board that keeps timing out, and the one that
+	 * recovers on its second attempt still hands back the packet. */
+	script_attempts(LIBUSB_ERROR_TIMEOUT, LIBUSB_ERROR_TIMEOUT,
+	                LIBUSB_ERROR_TIMEOUT);
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, poll_rc);
+	mu_assert_int_eq(3, fake.calls);
+
+	script_attempts(LIBUSB_ERROR_TIMEOUT, (int)sizeof(usb_pkt_rx),
+	                (int)sizeof(usb_pkt_rx));
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq((int)sizeof(usb_pkt_rx), poll_rc);
+	mu_assert_int_eq(2, fake.calls);
+	mu_assert(text[0] == '\0', text);
+}
+
+/*
  * A board that has gone -- the watchdog resets one that stops answering -- is
  * not worth three attempts: that failure ends the poll at once.
  */
@@ -821,6 +895,7 @@ int main(void)
 	MU_RUN(a_stalled_read_is_reported_as_unsupported);
 	MU_RUN(a_poll_that_timed_out_or_stalled_is_tried_again);
 	MU_RUN(a_poll_that_keeps_failing_gives_up_and_says_why);
+	MU_RUN(a_stop_ends_the_poll_retries_at_once);
 	MU_RUN(a_board_that_has_left_the_bus_ends_the_poll_at_once);
 	return mu_report();
 }

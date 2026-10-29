@@ -27,6 +27,17 @@ if(USE_OWN_GNU_GETOPT)
 endif()
 include_directories(${LIBUSB_INCLUDE_DIRS})
 
+# Given to the whole directory for the same reason as those include
+# directories. Every target that compiles ubertooth.c needs it: the host
+# version report calls dladdr(), which glibc kept in libdl until 2.34 and has
+# had in libc since, so a target that compiles the source instead of linking
+# libubertooth has to ask for it, and the targets that do not need it are
+# unharmed. The variable is empty where libc has dladdr(), which is why only
+# the older distributions failed to link, and only on their full-tier job --
+# naming them one target at a time is how the next such target would get
+# through a pull request and break that job again.
+link_libraries(${CMAKE_DL_LIBS})
+
 add_executable(test-dfu-transition
 	test_dfu_transition.c
 	../src/dfu_transition.c)
@@ -672,6 +683,7 @@ if(libubertooth_SOURCE_DIR)
 	add_test(NAME control-async COMMAND test-control-async)
 	# Every transfer is faked: a run takes milliseconds.
 	set_tests_properties(control-async PROPERTIES TIMEOUT 5)
+
 	# What ubertooth_init() does when the ring buffer cannot be allocated.
 	# ubertooth_fifo.c is left out so the test can define the fifo calls and
 	# fail the allocation on demand.
