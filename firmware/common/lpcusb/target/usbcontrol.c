@@ -41,8 +41,9 @@
 	A callback can be installed for each of these control transfers using
 	USBRegisterRequestHandler.
 	When an OUT request arrives, data is collected in the data store provided
-	with the USBRegisterRequestHandler call. When the transfer is done, the
-	callback is called.
+	with the USBRegisterRequestHandler call, up to the size registered with
+	it; a request declaring more than that is stalled. When the transfer is
+	done, the callback is called.
 	When an IN request arrives, the callback is called immediately to either
 	put the control transfer data in the data store, or to get a pointer to
 	control transfer data. The data is then packetised and sent to the host.
@@ -84,6 +85,9 @@ static BOOL				fZeroPacketOwed = FALSE;
 static TFnHandleRequest *apfnReqHandlers[4] = {NULL, NULL, NULL, NULL};
 /** Array of installed request data pointers */
 static U8				*apbDataStore[4] = {NULL, NULL, NULL, NULL};
+/** How many bytes each of those data stores holds. Zero where no handler is
+    installed, which refuses every host-to-device request of that type. */
+static int				aiDataStoreSize[4] = {0, 0, 0, 0};
 
 
 /** Internal function filtering Vendor requests to handle OS Descriptors */
@@ -307,6 +311,47 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 			iResidue = Setup.wLength;
 			iLen = Setup.wLength;
 
+			/*
+			 * A host-to-device request's data is collected in the
+			 * store its handler registered, a packet at a time, and
+			 * the collection used to be bounded only by the length
+			 * the host declared. wLength is sixteen bits and the
+			 * largest store here holds 258 bytes, so a request
+			 * declaring 65,535 wrote about 65 KiB of the host's
+			 * bytes over whatever followed that store in memory --
+			 * other globals, and eventually nothing mapped. No
+			 * shipped tool sends such a request; any program on the
+			 * bus can.
+			 *
+			 * Refuse it instead. A stall is what the host already
+			 * expects from a request the device will not carry out,
+			 * and truncating it would run a handler on a request
+			 * that is not the one the host sent.
+			 *
+			 * Only host-to-device. A device-to-host request is
+			 * answered out of whatever its handler points pbData
+			 * at, and the reply is cut to the handler's own length
+			 * below, so asking for more than the store holds is
+			 * both safe and ordinary: every host asks for 255 bytes
+			 * of a string descriptor the eight-byte standard store
+			 * never sees.
+			 */
+			if (Setup.wLength > 0 &&
+			    REQTYPE_GET_DIR(Setup.bmRequestType) == REQTYPE_DIR_TO_DEVICE &&
+			    (int)Setup.wLength > aiDataStoreSize[iType]) {
+				DBG("request data longer than the store\n");
+				/* Before the state is cleared, because the
+				 * stall dumps the setup packet: this is the
+				 * one refusal whose eight bytes are a
+				 * complete request and worth reading. */
+				StallControlPipe(bEPStat);
+				memset(&Setup, 0, sizeof(Setup));
+				pbData = NULL;
+				iResidue = 0;
+				iLen = 0;
+				return;
+			}
+
 			if ((Setup.wLength == 0) ||
 				(REQTYPE_GET_DIR(Setup.bmRequestType) == REQTYPE_DIR_TO_HOST)) {
 				// ask installed handler to process request
@@ -315,6 +360,25 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 					StallControlPipe(bEPStat);
 					return;
 				}
+				/*
+				 * The other half of the same bound. A handler
+				 * that answers out of the store, rather than
+				 * pointing pbData at a descriptor of its own,
+				 * cannot have more to send than the store
+				 * holds, so a length it reports above that is
+				 * wrong and the reply would read past the
+				 * store. No handler here does it; the clamp is
+				 * free and the alternative is sending the
+				 * firmware's memory to the host.
+				 *
+				 * A handler that redirected pbData is left
+				 * alone: that is how every descriptor is
+				 * answered, and the descriptor is nowhere near
+				 * the store.
+				 */
+				if (pbData == apbDataStore[iType] &&
+				    iLen > aiDataStoreSize[iType])
+					iLen = aiDataStoreSize[iType];
 				// send smallest of requested and offered length
 				iResidue = MIN(iLen, Setup.wLength);
 				/*
@@ -393,12 +457,18 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 	@param [in]	iType			Type of request, e.g. REQTYPE_TYPE_STANDARD
 	@param [in]	*pfnHandler		Callback function pointer
 	@param [in]	*pbDataStore	Data storage area for this type of request
+	@param [in]	iDataStoreSize	How many bytes that area holds. A
+								host-to-device request declaring more data
+								than this is stalled, so the collection
+								cannot run past the end of the area.
  */
-void USBRegisterRequestHandler(int iType, TFnHandleRequest *pfnHandler, U8 *pbDataStore)
+void USBRegisterRequestHandler(int iType, TFnHandleRequest *pfnHandler, U8 *pbDataStore, int iDataStoreSize)
 {
 	ASSERT(iType >= 0);
 	ASSERT(iType < 4);
+	ASSERT(iDataStoreSize >= 0);
 	apfnReqHandlers[iType] = pfnHandler;
 	apbDataStore[iType] = pbDataStore;
+	aiDataStoreSize[iType] = iDataStoreSize;
 }
 

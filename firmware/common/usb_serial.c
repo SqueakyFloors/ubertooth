@@ -386,7 +386,8 @@ void usb_serial_init()
 	USBRegisterDescriptors(abDescriptors);
 
 	// register class request handler
-	USBRegisterRequestHandler(REQTYPE_TYPE_CLASS, HandleClassRequest, abClassReqData);
+	USBRegisterRequestHandler(REQTYPE_TYPE_CLASS, HandleClassRequest,
+	                          abClassReqData, sizeof(abClassReqData));
 
 	// register endpoint handlers
 	USBHwRegisterEPIntHandler(INT_IN_EP, NULL);

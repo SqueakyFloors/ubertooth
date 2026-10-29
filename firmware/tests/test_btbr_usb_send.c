@@ -180,9 +180,9 @@ void USBHwRegisterEPIntHandler(U8 bEP, TFnEPIntHandler *pfnHandler)
 	(void)bEP; (void)pfnHandler;
 }
 void USBRegisterRequestHandler(int iType, TFnHandleRequest *pfnHandler,
-                               U8 *pbDataStore)
+                               U8 *pbDataStore, int iDataStoreSize)
 {
-	(void)iType; (void)pfnHandler; (void)pbDataStore;
+	(void)iType; (void)pfnHandler; (void)pbDataStore; (void)iDataStoreSize;
 }
 void USBRegisterWinusbInterface(U8 bRequest, const char *pzGuid)
 {

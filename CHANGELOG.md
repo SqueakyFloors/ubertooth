@@ -1788,6 +1788,21 @@
 
 Fixes with no visible change in normal use.
 
+- A vendor request that declares more data than the firmware's request buffer
+  holds is refused instead of writing the rest of it over whatever follows that
+  buffer. The length a request may declare is sixteen bits and the buffer holds
+  258 bytes, so the reach was about 65 KiB. No shipped tool sends such a
+  request.
+  [#391](https://github.com/SqueakyFloors/ubertooth/issues/391)
+- A generic transmit puts the radio registers it used back, so a receive
+  entered afterwards runs the mode the host asked for rather than the one the
+  transmit left set, on the channel the host chose. No shipped tool asks for
+  the mode.
+  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+- The generic receive lets the radio write the first byte of a packet before it
+  starts reading the packet out, so byte 0 of a record is the byte that
+  arrived. The same wait fixed the range test's wrong byte 0.
+  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
 - The thread that completes a capture's transfers treats a wait a signal cut
   short as a wait to take again. It used to end the thread, which left the
   capture with nobody to complete its transfers and no line to say why; the

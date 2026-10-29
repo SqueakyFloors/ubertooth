@@ -162,7 +162,8 @@ static void host_sends_a_reset_request(void)
 	setup_len = (int)sizeof(setup_bytes);
 
 	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR,
-	                          handler_asks_for_a_reset, handler_data);
+	                          handler_asks_for_a_reset, handler_data,
+	                          sizeof(handler_data));
 	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
 }
 

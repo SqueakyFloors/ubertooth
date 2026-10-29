@@ -263,7 +263,8 @@ int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler)
 	v_req_handler = vendor_req_handler;
 
 	// override standard request handler
-	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, usb_vendor_request_handler, abVendorReqData);
+	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, usb_vendor_request_handler,
+	                          abVendorReqData, sizeof(abVendorReqData));
 
 	// register endpoints
 	//USBHwRegisterEPIntHandler(BULK_IN_EP, usb_bulk_in_handler);

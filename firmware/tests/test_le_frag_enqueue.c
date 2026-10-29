@@ -43,9 +43,9 @@ U8 USBHwEPGetStatus(U8 bEP) { (void)bEP; return 0; }
 void USBHwEPStall(U8 bEP, BOOL fStall) { (void)bEP; (void)fStall; }
 void USBInit(void) {}
 void USBRegisterDescriptors(const U8 *d) { (void)d; }
-void USBRegisterRequestHandler(int t, TFnHandleRequest *h, U8 *s)
+void USBRegisterRequestHandler(int t, TFnHandleRequest *h, U8 *s, int n)
 {
-	(void)t; (void)h; (void)s;
+	(void)t; (void)h; (void)s; (void)n;
 }
 void USBRegisterWinusbInterface(U8 r, const char *g) { (void)r; (void)g; }
 void USBHwConnect(BOOL c) { (void)c; }
