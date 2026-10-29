@@ -339,9 +339,10 @@ cutting power to its hub port, starts them again; `-r` does not.
 
 `Capture transfer errors` counts the times the chip's transfer controller
 reported an error on the channel a capture receives into. Each one costs the
-packet that was arriving; the capture drains the receiver and goes on, which
-is why the count is worth reporting — a capture missing packets this way
-otherwise reads as a quiet channel. It is since power-on and stops at 65535.
+packet that was arriving. The promiscuous mode drains the receiver and carries
+on; the mode behind `-f` and `-n` does not yet, and a capture that stops that
+way looks exactly like a quiet band, which is why this count is worth reading
+after a capture that came back short. It is since power-on and stops at 65535.
 
 A board that has faulted adds one more line, above that count:
 
