@@ -216,6 +216,49 @@ function(btbb_require_functions)
 endfunction()
 
 
+# A remembered answer is only as good as the files it names. A rebuild into
+# another prefix, a package upgrade that puts each version in a directory of
+# its own, or an uninstall leaves them gone. Taking them on trust would point
+# the function check above at a header and a library that are not there, so it
+# would fail the configure over a libbtbb that is installed and fine.
+# Whichever of the two paths has gone is searched for again.
+#
+# The header and the library are checked one at a time, because a configure
+# can remember either without the other.
+#
+# Each drops the cache entry and any ordinary variable of the same name:
+# find_path() and find_library() below skip their search while either holds a
+# path, so one left behind would be reported again.
+if (LIBBTBB_INCLUDE_DIR AND NOT EXISTS "${LIBBTBB_INCLUDE_DIR}/btbb.h")
+  message(STATUS "libbtbb's header has moved since the last configure "
+    "(${LIBBTBB_INCLUDE_DIR}/btbb.h is gone); searching for it again")
+  unset(LIBBTBB_INCLUDE_DIR CACHE)
+  unset(LIBBTBB_INCLUDE_DIR)
+endif()
+
+# A library entry that is not an absolute path is left alone: a user may have
+# set it to a bare link name, which nothing here can check. Where one entry of
+# a list has gone the whole list is dropped, and find_library() answers with
+# the one libbtbb it finds.
+foreach(_libbtbb_library IN LISTS LIBBTBB_LIBRARIES)
+  if (IS_ABSOLUTE "${_libbtbb_library}" AND NOT EXISTS "${_libbtbb_library}")
+    message(STATUS "libbtbb's library has moved since the last configure "
+      "(${_libbtbb_library} is gone); searching for it again")
+    unset(LIBBTBB_LIBRARIES CACHE)
+    unset(LIBBTBB_LIBRARIES)
+    break()
+  endif()
+endforeach()
+unset(_libbtbb_library)
+
+# pkg-config's answer is remembered too, in FindPkgConfig's own marker, and
+# pkg_check_modules() below does nothing while it is set: the search would
+# take the directory that has gone as its hint instead of asking pkg-config
+# where libbtbb is now. So it goes whenever there is a search to do.
+if (NOT LIBBTBB_INCLUDE_DIR OR NOT LIBBTBB_LIBRARIES)
+  unset(__pkg_config_checked_PC_LIBBTBB CACHE)
+endif()
+
 if (LIBBTBB_INCLUDE_DIR AND LIBBTBB_LIBRARIES)
 
   # in cache already
