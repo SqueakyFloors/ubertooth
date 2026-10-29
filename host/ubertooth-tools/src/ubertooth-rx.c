@@ -535,10 +535,8 @@ int main(int argc, char* argv[])
 		ubertooth_stop(ut);
 
 		/* What the capture is missing, once the packets have scrolled
-		 * past. A gap is a stretch the board had no queue room
-		 * for and a transfer error is one the chip's transfer controller
-		 * faulted at, so the counts are of those places and not of the
-		 * packets lost at them. */
+		 * past. The counts are of the places a loss was marked, not of
+		 * the packets lost at them. */
 		ubertooth_report_capture_losses(ut);
 
 		/* A capture whose stream died stopped there, so it holds less than
@@ -561,9 +559,9 @@ int main(int argc, char* argv[])
 		fclose(infile);
 		exit_status = rx_file_report(r, infile_name);
 
-		/* A recorded capture carries the gaps and the transfer errors it
-		 * was recorded with, and the replay is where a reader of the file
-		 * finds out about them. */
+		/* A recorded capture carries the losses it was recorded with, in
+		 * the status of its own records, and the replay is where a reader
+		 * of the file finds out about them. */
 		ubertooth_report_capture_losses(ut);
 	}
 

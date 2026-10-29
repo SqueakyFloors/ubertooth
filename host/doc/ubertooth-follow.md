@@ -247,6 +247,17 @@ errors where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports
 the board's own count of them since power-on, over every capture the board has
 run.
 
+Symbols the board wrote over are reported the same way. The board receives
+into one block of symbols while its capture loop reads the one before it, and
+when a block finishes arriving before the loop has read that one, the new
+symbols go over the old ones. The block is gone before anything looked in it
+for a packet, so this loss has no packet to point at and nothing in the output
+marks where it happened. The first one warns `warning: the board fell behind
+while capturing and wrote new symbols over a block it had not read yet;
+whatever was in the air then is missing from this capture`, and when the
+capture ends it says how many there were: `warning: the capture is missing 3
+blocks of symbols the board wrote over before reading`.
+
 ## EXIT STATUS
 
 A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and

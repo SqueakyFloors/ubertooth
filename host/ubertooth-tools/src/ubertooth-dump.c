@@ -203,10 +203,9 @@ int main(int argc, char *argv[])
 	r = rx_dump(ut, bitstream);
 
 	ubertooth_stop(ut);
-	/* What the dump is missing, once the records have scrolled past. A gap is
-	 * a stretch the board had no queue room for and a transfer error is one the
-	 * chip's transfer controller faulted at, so the counts are of those places
-	 * and not of the packets lost at them. */
+	/* What the dump is missing, once the records have scrolled past. The
+	 * counts are of the places a loss was marked, not of the packets lost
+	 * at them. */
 	ubertooth_report_capture_losses(ut);
 
 	/* A teardown the board refused is read here too: that board is left

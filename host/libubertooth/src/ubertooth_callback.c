@@ -693,6 +693,22 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 			        "capture may be missing packets around it\n");
 		}
 	}
+
+	/* The board marks this when a bank of symbols finished arriving before
+	 * its capture loop had read the bank before it, so the new symbols went
+	 * over the old ones. Nothing ever looked in that bank for a packet, which
+	 * is why this loss has no packet to name: it is a stretch of the air the
+	 * capture simply does not have. Both capture engines mark it. */
+	if (rx->status & DMA_OVERFLOW) {
+		ut->overwritten_banks++;
+		if (!ut->overwritten_bank_warned) {
+			ut->overwritten_bank_warned = 1;
+			fprintf(stderr, "warning: the board fell behind while "
+			        "capturing and wrote new symbols over a block it "
+			        "had not read yet; whatever was in the air then is "
+			        "missing from this capture\n");
+		}
+	}
 }
 
 uint32_t ubertooth_queue_gaps(ubertooth_t* ut)
@@ -705,10 +721,16 @@ uint32_t ubertooth_transfer_errors(ubertooth_t* ut)
 	return ut != NULL ? ut->transfer_errors : 0;
 }
 
+uint32_t ubertooth_overwritten_banks(ubertooth_t* ut)
+{
+	return ut != NULL ? ut->overwritten_banks : 0;
+}
+
 void ubertooth_report_capture_losses(ubertooth_t* ut)
 {
 	uint32_t gaps = ubertooth_queue_gaps(ut);
 	uint32_t errors = ubertooth_transfer_errors(ut);
+	uint32_t overwritten = ubertooth_overwritten_banks(ut);
 
 	if (gaps > 0)
 		fprintf(stderr, "warning: the capture has %u gap%s where the "
@@ -719,6 +741,11 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 		fprintf(stderr, "warning: the capture has %u transfer error%s "
 		        "where a packet may be wrong or missing\n",
 		        errors, errors == 1 ? "" : "s");
+
+	if (overwritten > 0)
+		fprintf(stderr, "warning: the capture is missing %u block%s of "
+		        "symbols the board wrote over before reading\n",
+		        overwritten, overwritten == 1 ? "" : "s");
 }
 
 void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
