@@ -1351,6 +1351,70 @@ MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
  *
  * Nothing here can be run, so the sources are read as text.
  */
+/*
+ * Every processor fault handler records what the fault was, in both images.
+ *
+ * The site says which of the four handlers ran; this is the only record of
+ * where it went wrong, because none of them returns and nothing else reads the
+ * fault status registers. A handler that stopped recording it would leave
+ * ubertooth-util -w saying a fault happened in some mode and nothing more,
+ * which is where this started.
+ */
+MU_TEST(test_every_fault_handler_records_the_fault)
+{
+	static const struct {
+		const char *path;
+		const char *function;
+	} handlers[] = {
+		{ FW_RXTX_DIR "/fault.c", "HardFault_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "MemManagement_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "BusFault_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "UsageFault_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "HardFault_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "MemManagement_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "BusFault_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "UsageFault_Handler" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(handlers) / sizeof(handlers[0]); i++) {
+		char line[512], msg[512];
+		int in_block = 0, in_function = 0, found = 0, records = 0;
+		FILE *f = fopen(handlers[i].path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", handlers[i].path);
+		mu_assert(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (!in_function) {
+				if (line[0] == ' ' || line[0] == '\t' ||
+				    line[0] == '#' || strchr(line, ';') != NULL)
+					continue;
+				if (!calls_identifier(line, handlers[i].function))
+					continue;
+				in_function = found = 1;
+				continue;
+			}
+			if (strstr(line, "watchdog_fault(") != NULL)
+				records = 1;
+			if (line[0] == '}')
+				in_function = 0;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: there is no %s(), so this case read nothing",
+		         handlers[i].path, handlers[i].function);
+		mu_assert(found, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() does not record the fault, so -w says which "
+		         "fault happened and nothing about where",
+		         handlers[i].path, handlers[i].function);
+		mu_assert(records, msg);
+	}
+}
+
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 {
 	static const struct {
@@ -1567,6 +1631,7 @@ int main(void)
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
+	MU_RUN(test_every_fault_handler_records_the_fault);
 	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);
 	return mu_report();
 }

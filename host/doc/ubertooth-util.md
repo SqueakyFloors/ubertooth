@@ -335,7 +335,11 @@ report`: that image runs its own state machine rather than one of the modes
 above, so it records no mode instead of claiming to be idle.
 
 Both counters are since power-on and stop at 255. Unplugging the board, or
-cutting power to its hub port, starts them again; `-r` does not.
+cutting power to its hub port, starts them again; `-r` does not. So does
+flashing a firmware that keeps more in that corner of RAM than the one before
+it: the record says which firmware wrote it, and a firmware that does not
+recognise what it finds starts the counts over rather than reading its own
+fields out of what was there.
 
 `Capture transfer errors` counts the times the chip's transfer controller
 reported an error on the channel a capture receives into. Each one costs the
@@ -355,9 +359,9 @@ fault status register for that fault. The address is the access the processor
 refused, and is printed only when the status says the board recorded one for
 this fault — zero is a real address, so the line says so rather than leaving
 it out. There is none for a hard fault or a usage fault, nor for an
-instruction fetch refused because the region cannot be executed — which is a branch through a corrupted pointer or return address,
-and the one way a memory management fault happens on a part with no memory
-protection unit. The line is absent until a fault happens, and a power-cycle
+instruction fetch refused because the region cannot be executed — which is a
+branch through a corrupted pointer or return address, and the one way a memory
+management fault happens on a part with no memory protection unit. The line is absent until a fault happens, and a power-cycle
 clears it.
 
 The last line counts something else: the firmware's waits on the radio. Each

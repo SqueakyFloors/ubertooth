@@ -231,6 +231,7 @@ static void start_fresh(void)
 	queue_init(&packet_queue);
 	current_rxbuf = NULL;
 	le_phy_active = 0;
+	le_sync_aa = ADV_AA;
 	cancel_follow = 0;
 	reset_conn();
 	reset_conn_event();
@@ -2072,6 +2073,8 @@ MU_TEST(an_events_deadline_stops_short_of_the_next_event)
 MU_TEST(an_overdue_estimate_skips_whole_intervals_and_counts_them)
 {
 	anchored_connection(100000);
+	conn.hop_increment = 7;
+	conn.channel_idx = 3;
 	conn_event.num_packets = 0;
 	conn_event.opened = 1;
 	/* Four and a half intervals past where the next event was due. */
@@ -2086,6 +2089,11 @@ MU_TEST(an_overdue_estimate_skips_whole_intervals_and_counts_them)
 	mu_assert(fake_t1mr0 > fake_t1tc, "the next event was armed in the past");
 	/* One for the event that closed, four for the ones that went by. */
 	mu_assert_int_eq(5 + 1 + 4, conn.conn_event_counter);
+	/* And the hops of those four events, because the connection took them:
+	 * change_channel() takes one more when it opens the event this match is
+	 * for. Left behind, the receiver would be tuned where the connection
+	 * was four events ago and hear nothing from it. */
+	mu_assert_int_eq((3 + 4 * 7) % 37, conn.channel_idx);
 }
 
 /*
@@ -2162,6 +2170,106 @@ MU_TEST(a_failed_capture_transfer_is_counted)
 
 	mu_assert_int_eq(1, transfer_errors_counted);
 	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
+}
+
+/*
+ * A connection update whose instant the counter stepped over still applies.
+ *
+ * Events can go by unobserved -- an overdue estimate skips whole intervals and
+ * counts them -- so the instant may never be the counter's exact value. An
+ * equality test left the update pending for the rest of the connection, and
+ * the follow ran on the interval and supervision timeout the connection had
+ * left behind.
+ */
+MU_TEST(an_instant_the_counter_stepped_over_still_applies)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+
+	start_fresh();
+	le.do_follow = 1;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	mu_assert_fatal(conn.remapping.total_channels == 37,
+	                "the connection was not followed");
+	conn.last_anchor = 1000000;
+	conn.anchor_error = 0;
+
+	{
+		struct conn_update u = valid_conn_update();
+
+		build_conn_update(&buf, &u);
+		connection_update_handler(&buf);
+	}
+	mu_assert_int_eq(1, conn.conn_update_pending);
+
+	/* The connection is at event 9; the update's instant was 7, which went
+	 * by while nothing was being received. */
+	conn.conn_event_counter = 9;
+	le_phy_active = 1;
+	fake_t1tc = 1000000;
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+
+	mu_assert_int_eq(0, conn.conn_update_pending);
+	mu_assert_int_eq(40 * 12500, conn.conn_interval);
+}
+
+/*
+ * The access address a packet is recorded with follows the radio.
+ *
+ * It is written where the sync word is, so that it says what the radio is
+ * listening for rather than what the engine has decided to listen for next.
+ * This runs le_cc2400_init_rf(), which touches the radio, so the fakes count
+ * the accesses; what is asserted is the one value it is responsible for.
+ */
+MU_TEST(the_recorded_access_address_follows_the_radio)
+{
+	start_fresh();
+	rf_channel = ADV_CHANNEL_MHZ;
+	mu_assert_int_eq(ADV_AA, le_sync_aa);
+
+	conn.access_address = 0xdeadbeef;
+	le_cc2400_init_rf();
+
+	mu_assert_int_eq(0xdeadbeef, le_sync_aa);
+}
+
+/*
+ * A connection is followed from nothing, not from what the last one left.
+ *
+ * The mode's teardown leaves the connection state alone, so a run stopped part
+ * way through a connection leaves its event counter, hop position, channel map
+ * and any change still waiting for an instant behind. Followed with those, a
+ * new connection matches every instant thousands of events out.
+ */
+MU_TEST(a_new_connection_starts_from_nothing)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+
+	start_fresh();
+	le.do_follow = 1;
+
+	/* What a run stopped part way through a connection leaves. */
+	conn.conn_event_counter = 40000;
+	conn.channel_idx = 21;
+	conn.conn_update_pending = 1;
+	conn.conn_update_instant = 123;
+	conn.channel_map_update_pending = 1;
+
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+
+	mu_assert_int_eq(0, conn.conn_event_counter);
+	mu_assert_int_eq(0, conn.channel_idx);
+	mu_assert_int_eq(0, conn.conn_update_pending);
+	mu_assert_int_eq(0, conn.channel_map_update_pending);
+	/* ...and the connection the request named is being followed. */
+	mu_assert_int_eq(0xdeadbeef, conn.access_address);
+	mu_assert_int_eq(37, conn.remapping.total_channels);
 }
 
 /* ------------------------------------------------------------------ *
@@ -2352,6 +2460,9 @@ int main(void)
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
 	MU_RUN(the_overdue_test_holds_across_the_counters_wrap);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
+	MU_RUN(an_instant_the_counter_stepped_over_still_applies);
+	MU_RUN(the_recorded_access_address_follows_the_radio);
+	MU_RUN(a_new_connection_starts_from_nothing);
 	MU_RUN(a_failed_capture_transfer_is_counted);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);

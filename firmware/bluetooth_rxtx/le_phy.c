@@ -219,12 +219,13 @@ typedef struct _le_conn_t {
 	// transmit window it named, and every event that closes either measures
 	// it or moves it on by one connection interval.
 	//
-	// anchor_error is how much earlier than the estimate the real anchor
-	// could be, and zero once a received packet has measured it. Early is
-	// the only direction the estimate can be wrong in: neither the transmit
-	// window it starts from nor the reply that follows a packet can begin
-	// before the anchor. An event is given that much longer to run in, so
-	// the packet it is waiting for is still inside its deadline.
+	// anchor_error is how much later than the estimate the real anchor can
+	// be, and zero once a received packet has measured it. The estimate is
+	// always the earliest the anchor could be -- neither the transmit window
+	// it starts from nor the central's packet that a reply answers can begin
+	// after the anchor -- so an event opened on it is never opened late, and
+	// is given anchor_error longer to run so that the packet it is waiting
+	// for is still inside its deadline.
 	uint32_t last_anchor;
 	uint32_t anchor_error;
 	uint32_t last_packet_ts; // used to check supervision timeout
@@ -355,7 +356,7 @@ static int conn_event_reached(uint16_t instant) {
 // the moment the event opens.
 //
 // An event needs one maximum-length packet's time and the receiver's warmup,
-// plus however much earlier than the estimate its anchor could be: a whole
+// plus however much later than the estimate its anchor can be: a whole
 // transmit window under parameters no packet has been seen under, one reply's
 // distance once the estimate comes from a single packet, and nothing once a
 // packet has measured the anchor.
@@ -431,7 +432,28 @@ static void timer1_arm_conn_event(void) {
 		conn.last_anchor += skipped * conn.conn_interval;
 		conn.conn_event_counter += skipped;
 		target += skipped * conn.conn_interval;
+
+		// The connection hops once per event, and change_channel() takes
+		// one hop when it opens the event this match is for, so the hops
+		// of the events gone by have to be taken here. Without them the
+		// receiver would be tuned where the connection was `skipped`
+		// events ago and hear nothing from it until the supervision
+		// timeout ended the follow.
+		conn.channel_idx = (conn.channel_idx +
+				skipped * conn.hop_increment) % 37;
 	}
+
+	timer1_set_match(target);
+}
+
+// Arm a match that is not a connection event's: a moment the connection's
+// parameters name, with no whole intervals to skip if it has gone past. The
+// best that can be done then is to take it as soon as the counter allows,
+// because a match already passed is not reached until the counter wraps 429
+// seconds later.
+static void timer1_set_match_ahead(uint32_t target) {
+	if ((int32_t)(NOW - target) + (int32_t)CONN_EVENT_ARM_MARGIN >= 0)
+		target = NOW + CONN_EVENT_ARM_MARGIN;
 
 	timer1_set_match(target);
 }
@@ -452,7 +474,8 @@ static void timer1_arm_conn_event(void) {
 // 3) if we received one packet and the anchor was never measured, put the
 //    estimate at the earliest the anchor could be, which is one
 //    PERIPHERAL_REPLY_LATEST before that packet
-// 4) if we received nothing, move the estimate on by one connection interval
+// 4) if we received nothing, or one packet that an established anchor says
+//    was the peripheral's, move the estimate on by one connection interval
 static void finish_conn_event(void) {
 	uint32_t last_anchor = 0;
 	int last_anchor_set = 0;
@@ -494,7 +517,9 @@ static void finish_conn_event(void) {
 		conn.anchor_error = PERIPHERAL_REPLY_LATEST;
 	}
 
-	// Nothing received: move the estimate on by one interval.
+	// Nothing to put the estimate on: either the event received nothing, or
+	// its one packet was too far from an established anchor to be the
+	// central's. Move the estimate on by one interval.
 	//
 	// This is the path an empty first connection event takes, and it used
 	// to set the estimate to conn_event.anchor -- a field no packet had
@@ -716,9 +741,14 @@ static void le_dma_interrupt(uint32_t timestamp) {
 			// nothing else about it: the deadline that would have closed
 			// the connection event was cleared when the packet's first
 			// byte arrived, and the timeout for the next packet is only
-			// armed where a packet ends, so neither is left to fire.
-			// Counting it is what makes that visible at all -- a capture
-			// that stops this way reads as a quiet channel.
+			// armed where a packet ends, so neither is left to fire. No
+			// match is armed at all, so the event never closes, the
+			// supervision timeout is never checked, and this capture is
+			// over while the loop goes on servicing USB -- the board
+			// answers the host as if nothing had happened. Recovering
+			// from it is its own change; counting it is what makes a
+			// capture that stopped this way tell itself apart from a
+			// quiet channel.
 			watchdog_count_transfer_error();
 		}
 	}
@@ -1024,8 +1054,9 @@ static void timer1_interrupt(void) {
 			// on the first past through, handle the transmit window
 			// offset. if there's no offset, skip down to else block
 			if (!conn_event.opened && conn.win_offset > 0) {
-				timer1_set_match(conn.last_anchor + conn.conn_interval +
-						conn.win_offset - RX_WARMUP_TIME);
+				timer1_set_match_ahead(conn.last_anchor +
+						conn.conn_interval + conn.win_offset -
+						RX_WARMUP_TIME);
 				conn_event.opened = 1;
 			}
 

@@ -62,8 +62,11 @@ void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
-	/* As the usage fault below: no address register, and bit 7 of this
-	 * status is reserved and reads zero. */
+	/* No address register of its own, and bit 7 of this status is reserved
+	 * and reads zero, so no address is reported. A fault that escalated to
+	 * this one did leave an address in the register it belongs to, which is
+	 * lost here; the status says the fault was forced, which is as far as
+	 * this record goes. */
 	watchdog_fault(val, 0);
 
 	while (1) {

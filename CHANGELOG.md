@@ -1617,9 +1617,17 @@ Fixes with no visible change in normal use.
   run than the interval between events, so no two intervals are counted as one.
   The count is what every later parameter change is timed against, and one
   short step in it timed all of them a little early.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
 - A followed connection whose parameters change keeps its timing from the
   window the change named, rather than carrying on from where the old
   parameters had it.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- The board's record of why it last reset itself says which firmware wrote it,
+  so a firmware that keeps more there than the one before it starts the counts
+  again instead of reading its own fields out of what it finds. Flashing this
+  one over an earlier one therefore reports no resets and no boots until the
+  board has had some.
+  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 - The `*` on a version string, which says the checkout had uncommitted
   changes, is about the checkout the tools were built from. It used to be
   about whichever tree you happened to be standing in when you ran `cmake`.
