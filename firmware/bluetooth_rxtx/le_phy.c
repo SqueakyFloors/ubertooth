@@ -275,7 +275,8 @@ static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t b
 static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit);
 static void timer1_disarm_match_interrupt(uint32_t bit);
 static void timer1_set_match(uint32_t match);
-static void timer1_set_match_if_unarmed(uint32_t match);
+static void timer1_set_match_in(uint32_t delta);
+static void timer1_set_match_in_if_unarmed(uint32_t delta);
 static void timer1_clear_match(void);
 static void timer1_arm_conn_event(void);
 static void timer1_wait_fs_lock(void);
@@ -707,7 +708,7 @@ static void le_transfer_error_recover(void) {
 	// arming over it would open that event an interval early and lose its
 	// packets.
 	if (btle_channel_index(rf_channel) < 37 && conn.conn_interval != 0) {
-		timer1_set_match_if_unarmed(NOW + CONN_EVENT_ARM_MARGIN);
+		timer1_set_match_in_if_unarmed(CONN_EVENT_ARM_MARGIN);
 		return;
 	}
 
@@ -928,7 +929,7 @@ static void le_dma_interrupt(uint32_t timestamp) {
 						// it, and the buffer can be released and handed
 						// out again.
 						conn_event.anchor = packet_timestamp;
-						timer1_set_match(NOW + IFS_TIMEOUT); // set a timeout for next packet
+						timer1_set_match_in(IFS_TIMEOUT); // set a timeout for next packet
 					}
 
 					// second packet: close connection event, and set hop timer
@@ -1181,10 +1182,15 @@ static void timer1_enable_interrupt(void) {
 // The moment is written inside the same guard as the bit that arms it, so the
 // two cannot be split by an interrupt: an enable bit that lands after the
 // counter is already by the match waits out a whole period of the counter,
-// which is 429 seconds. Where the moment itself is derived from the counter,
-// the derivation has to be inside the guard as well, which is what
-// timer1_arm_match_in() below is for; the callers that pass an absolute
-// moment instead keep CONN_EVENT_ARM_MARGIN between it and the counter.
+// which is 429 seconds.
+//
+// One rule covers the whole file: a moment derived from the counter is derived
+// inside the guard. timer1_arm_match_in() below does that, and every wait and
+// timeout goes through it. This absolute form is only for a moment that does
+// not come from the counter at all -- the connection's own grid, where the
+// next event's time comes from the last anchor -- and the two callers that
+// read the counter to ask whether such a moment has gone by take a guard of
+// their own around the reading, the question and the arming.
 //
 // What these two give is that nothing is set or cleared on a value another
 // context has already moved on from. A caller that has to decide
@@ -1209,12 +1215,11 @@ static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t b
 // between spend longer than the interval, and the match would go in behind the
 // counter. So the reading and both writes happen together.
 //
-// A caller whose moment is fixed rather than relative -- the connection grid,
-// where the next event's time comes from the last anchor -- uses
-// timer1_arm_match() above and has to: re-deriving such a moment from the
-// counter would move the event. Those callers read the counter only to ask
-// whether the moment has gone by, and they do that inside a guard of their
-// own: see timer1_arm_conn_event() and timer1_set_match_ahead().
+// Every wait and timeout in the engine arms its match through this, so no
+// interval is measured from a counter reading that an interrupt has had time
+// to overtake. The shortest is the 3 microsecond synthesizer re-check and the
+// longest the 10 millisecond LED blink; the connection grid is the one thing
+// that does not come through here, and timer1_arm_match() above says why.
 static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
@@ -1245,18 +1250,24 @@ static void timer1_clear_match(void) {
 	timer1_disarm_match_interrupt(TMCR_MR0I);
 }
 
-// Arm the connection event's match, unless something has armed it already.
+// Arm the connection event's match a fixed interval from now.
+static void timer1_set_match_in(uint32_t delta) {
+	timer1_arm_match_in(&T1MR0, delta, TMCR_MR0I);
+}
+
+// The same, unless something has armed that match already.
 //
-// The test and the arm are one step. The timer interrupt preempts the byte
-// interrupt, which is where this is called from, and it arms this same match
-// for the next event: read the register, lose the processor to that, and the
-// arm that follows overwrites the time the interrupt set with one a whole
-// interval early, which is what the caller is trying not to do.
-static void timer1_set_match_if_unarmed(uint32_t match) {
+// The reading, the test and the arm are one step. The timer interrupt preempts
+// the byte interrupt, which is where this is called from, and it arms this
+// same match for the next event: read, lose the processor to that, and the arm
+// that follows overwrites the time the interrupt set with one a whole interval
+// early -- which is what the caller is trying not to do -- or with one the
+// counter has already gone past, which is worse.
+static void timer1_set_match_in_if_unarmed(uint32_t delta) {
 	uint32_t primask = irq_save_disable();
 
 	if (!(T1MCR & TMCR_MR0I))
-		timer1_set_match(match);
+		timer1_set_match_in(delta);
 	irq_restore(primask);
 }
 
@@ -1408,7 +1419,7 @@ static void timer1_interrupt(void) {
 				// the window instead, the event would run a warmup longer
 				// than the deadline says and close exactly where the next
 				// event has to be armed.
-				timer1_set_match(NOW + conn_event_deadline());
+				timer1_set_match_in(conn_event_deadline());
 				change_channel();
 			}
 			return;
@@ -1430,7 +1441,7 @@ static void timer1_interrupt(void) {
 			// packet may arrive anywhere inside it, and a deadline that
 			// expires earlier closes the event before the packet arrives.
 			// See conn_event_deadline().
-			timer1_set_match(NOW + conn_event_deadline());
+			timer1_set_match_in(conn_event_deadline());
 			change_channel();
 		}
 

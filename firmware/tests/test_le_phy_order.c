@@ -108,7 +108,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		if (strstr(line, "timer1_arm_match(") != NULL ||
 		    strstr(line, "timer1_arm_match_in(") != NULL ||
 		    strstr(line, "timer1_disarm_match_interrupt(") != NULL ||
-		    strstr(line, "timer1_set_match_if_unarmed(") != NULL) {
+		    strstr(line, "timer1_set_match_in_if_unarmed(") != NULL) {
 			if (strchr(line, ';') == NULL && strchr(line, '{') != NULL)
 				in_mask_helper = 1;
 		} else if (in_mask_helper && line[0] == '}') {

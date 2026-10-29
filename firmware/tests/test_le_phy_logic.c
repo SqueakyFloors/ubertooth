@@ -598,8 +598,9 @@ MU_TEST(a_released_buffer_comes_back_clean)
  * Three pieces of the engine's state are changed by reading a value, altering
  * it and writing it back, and all three are reached from the main loop and
  * from both interrupt handlers. The timer interrupt is the one that preempts:
- * it is installed at the highest priority and the byte interrupt at the
- * lowest, so it cuts into the byte interrupt as well as into the loop.
+ * the byte interrupt is put at the lowest priority on purpose and nothing
+ * changes the timer's, which leaves it at the highest the part starts with, so
+ * the timer cuts into the byte interrupt as well as into the loop.
  *
  * Each test below sets the hook to what one of the handlers does, so the
  * stand-in mask runs it where the hardware would -- as the guarded section
