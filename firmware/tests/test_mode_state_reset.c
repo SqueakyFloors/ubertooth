@@ -1665,14 +1665,11 @@ static int named_in(const char *const *list, size_t count, const char *name)
  * an array bound if it has one. Returns 0 for a line that declares nothing,
  * which includes the struct's own braces and its blank lines.
  */
-static int declared_field(const char *line, char *out, size_t size)
+static int declared_field(const char *line, const char *at, char *out,
+                          size_t size)
 {
-	const char *semi = strchr(line, ';');
-	const char *start, *end;
+	const char *start, *end = at;
 
-	if (semi == NULL)
-		return 0;
-	end = semi;
 	/* `u8 target[6];` names the field in front of the bound. */
 	if (end > line && end[-1] == ']') {
 		while (end > line && end[-1] != '[')
@@ -1695,7 +1692,17 @@ static int declared_field(const char *line, char *out, size_t size)
 	return 1;
 }
 
-/* Read the fields of le_state_t out of the header. */
+/*
+ * Read the fields of le_state_t out of the header.
+ *
+ * Every name in the struct has to be found, including both of `u16 a, b;`, or
+ * a field could be added in a form the scan skips and the clear below would
+ * never be asked about it. So each name is taken at its own ',' or ';', and
+ * anything inside the braces that the scan cannot read at all is counted and
+ * reported rather than passed over.
+ */
+static int unreadable_declarations;
+
 static int read_le_state_fields(const char *path)
 {
 	char line[SCAN_LINE_MAX], flat[SCAN_LINE_MAX], name[48];
@@ -1705,6 +1712,9 @@ static int read_le_state_fields(const char *path)
 	if (f == NULL)
 		return 0;
 	while (fgets(line, sizeof(line), f) != NULL) {
+		const char *at;
+		int names = 0;
+
 		strip_comments(line, &in_block);
 		strip_string_literals(line);
 		collapse_spaces(line, flat, sizeof(flat));
@@ -1716,16 +1726,27 @@ static int read_le_state_fields(const char *path)
 		}
 		if (strchr(flat, '}') != NULL)
 			break;
-		if (!declared_field(flat, name, sizeof(name)))
-			continue;
-		if (le_field_count == MAX_LE_FIELDS) {
-			fclose(f);
-			return 0;
+		for (at = flat; *at != '\0'; at++) {
+			if (*at != ',' && *at != ';')
+				continue;
+			if (!declared_field(flat, at, name, sizeof(name)))
+				continue;
+			if (le_field_count == MAX_LE_FIELDS) {
+				fclose(f);
+				le_field_count = 0;
+				return 0;
+			}
+			snprintf(le_fields[le_field_count].name,
+			         sizeof(le_fields[0].name), "%s", name);
+			le_fields[le_field_count].clears = 0;
+			le_field_count++;
+			names++;
 		}
-		snprintf(le_fields[le_field_count].name,
-		         sizeof(le_fields[0].name), "%s", name);
-		le_fields[le_field_count].clears = 0;
-		le_field_count++;
+		/* A line with something on it and no name the scan could read:
+		 * a declaration wrapped across lines, or a shape this scan was
+		 * not written for. */
+		if (names == 0 && flat[0] != '\0')
+			unreadable_declarations++;
 	}
 	fclose(f);
 	return le_field_count > 0;
@@ -1754,7 +1775,35 @@ static int clears_of(const char *text, const char *name)
 	return count;
 }
 
+/*
+ * How many times `text` names a field of the shared state at all, by any
+ * route: a clear, a read, or an address handed to something else.
+ *
+ * Counted alongside the clears because the two have to come to the same
+ * number. A mention that is not a clear is either the reset reading the state
+ * it is supposed to be putting back -- which would carry a value over -- or a
+ * field touched in a form the clear count cannot see, such as a memset of it.
+ * Either way the scan would be answering about the wrong thing.
+ */
+static int mentions_of(const char *text)
+{
+	const char *p = text;
+	int count = 0;
+
+	while ((p = strstr(p, "le.")) != NULL) {
+		char prev = (p == text) ? ' ' : p[-1];
+
+		if (!is_ident_char(prev) && is_ident_char(p[3]))
+			count++;
+		p += 3;
+	}
+	return count;
+}
+
 /* Read reset_le()'s body out of the capture firmware and count its clears. */
+static int le_reset_clears;
+static int le_reset_mentions;
+
 static int read_le_reset(const char *path)
 {
 	char line[SCAN_LINE_MAX], flat[SCAN_LINE_MAX];
@@ -1789,9 +1838,13 @@ static int read_le_reset(const char *path)
 		}
 		if (calls_identifier(flat, "le_set_access_address"))
 			le_reset_sets_the_access_address = 1;
-		for (i = 0; i < le_field_count; i++)
-			le_fields[i].clears +=
-				clears_of(flat, le_fields[i].name);
+		le_reset_mentions += mentions_of(flat);
+		for (i = 0; i < le_field_count; i++) {
+			int clears = clears_of(flat, le_fields[i].name);
+
+			le_fields[i].clears += clears;
+			le_reset_clears += clears;
+		}
 		/* Counted from the opening brace, so a declaration rather than
 		 * a definition does not end the scan before it starts. */
 		if (opened && depth == 0)
@@ -1801,20 +1854,24 @@ static int read_le_reset(const char *path)
 	return opened;
 }
 
-static void the_low_energy_reset_was_read(void)
+/* Reads both sources once, and says whether the cases below have anything to
+ * work from. Returns a value rather than asserting fatally, because a fatal
+ * assertion returns from this helper and leaves its caller running. */
+static int the_low_energy_reset_was_read(void)
 {
 	if (le_field_count > 0)
-		return;
-	mu_assert_fatal(read_le_state_fields(FW_RXTX_DIR "/bluetooth_le.h"),
-	                "no fields found in le_state_t -- has the struct in "
-	                FW_RXTX_DIR "/bluetooth_le.h been reshaped?");
-	mu_assert_fatal(read_le_reset(FW_RXTX_DIR "/bluetooth_rxtx.c"),
-	                "reset_le() not found in " FW_RXTX_DIR
-	                "/bluetooth_rxtx.c");
+		return 1;
+	mu_assert(read_le_state_fields(FW_RXTX_DIR "/bluetooth_le.h"),
+	          "no fields found in le_state_t -- has the struct in "
+	          FW_RXTX_DIR "/bluetooth_le.h been reshaped?");
+	mu_assert(read_le_reset(FW_RXTX_DIR "/bluetooth_rxtx.c"),
+	          "reset_le() not found in " FW_RXTX_DIR "/bluetooth_rxtx.c");
 	/* A floor, so a parse that read almost nothing fails here rather than
 	 * passing every case below on an empty list. */
 	mu_assert(le_field_count >= 20,
 	          "le_state_t has fewer fields than the struct is known to have");
+	mu_assert_int_eq(0, unreadable_declarations);
+	return le_field_count >= 20;
 }
 
 /*
@@ -1828,7 +1885,8 @@ MU_TEST(a_low_energy_mode_start_clears_the_state_it_owns)
 {
 	int i;
 
-	the_low_energy_reset_was_read();
+	if (!the_low_energy_reset_was_read())
+		return;
 	mu_assert(le_reset_sets_the_access_address,
 	          "reset_le() does not put the advertising access address back");
 
@@ -1857,7 +1915,14 @@ MU_TEST(it_clears_each_of_them_once)
 {
 	int i;
 
-	the_low_energy_reset_was_read();
+	if (!the_low_energy_reset_was_read())
+		return;
+
+	/* Every mention of the state in the reset is one of those clears, so
+	 * the count below is the whole of what it does to the state: nothing
+	 * is read back, and no field is touched in a form the clears cannot be
+	 * counted from, such as a memset of it. */
+	mu_assert_int_eq(le_reset_clears, le_reset_mentions);
 
 	for (i = 0; i < le_field_count; i++) {
 		char msg[160];
@@ -1879,7 +1944,8 @@ MU_TEST(it_keeps_what_the_host_set_for_this_capture)
 {
 	size_t i;
 
-	the_low_energy_reset_was_read();
+	if (!the_low_energy_reset_was_read())
+		return;
 
 	for (i = 0; i < sizeof(KEPT_FOR_THE_MODE_STARTING) /
 	                sizeof(KEPT_FOR_THE_MODE_STARTING[0]); i++) {

@@ -747,6 +747,17 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				return;
 			}
 
+			// A transfer error reported in this interrupt belongs to the
+			// packet being received, so it is marked here rather than at
+			// the end: a packet the same interrupt completes is kept -- it
+			// is whole, and the host asked for it -- but it went through a
+			// controller that reported a fault, so some of its bytes may be
+			// wrong while its length is right. The mark lets the host tell
+			// it apart from a clean one; CRC checking is off by default, so
+			// nothing else would. The capture loops in bluetooth_rxtx.c
+			// mark their own records on the same condition.
+			current_rxbuf->transfer_error |= transfer_error;
+
 			// poll RSSI
 			rssi = (int8_t)(cc2400_get(RSSI) >> 8);
 			current_rxbuf->rssi_sum += rssi;
@@ -795,16 +806,6 @@ static void le_dma_interrupt(uint32_t timestamp) {
 
 				// XXX disable DMA interrupt as a workaround
 				ICER0 = ICER0_ICE_DMA;
-
-				// A packet completed by the same interrupt that reported a
-				// transfer error is kept -- it is whole, and the host asked
-				// for it -- but it went through a controller that reported a
-				// fault, so some of its bytes may be wrong while its length
-				// is right. Mark it, so the host can tell it apart from a
-				// clean one: CRC checking is off by default, and nothing
-				// else would flag it. The capture loops in bluetooth_rxtx.c
-				// mark their own records on the same condition.
-				current_rxbuf->transfer_error = transfer_error;
 
 				// TODO error transition on queue_insert
 				queue_insert(&packet_queue, current_rxbuf);

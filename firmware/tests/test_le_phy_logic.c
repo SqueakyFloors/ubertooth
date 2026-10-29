@@ -186,6 +186,10 @@ void watchdog_usb_serviced(void) {}
 static unsigned transfer_errors_counted;
 void watchdog_count_transfer_error(void) { transfer_errors_counted++; }
 
+/* How many transfer errors the engine has acknowledged to the controller,
+ * counted where the fake controller's error flag is cleared. */
+static unsigned errors_acknowledged;
+
 /* ------------------------------------------------------------------ *
  * The code under test
  * ------------------------------------------------------------------ */
@@ -237,6 +241,10 @@ static void start_fresh(void)
 	fake_t1tc = 0;
 	fake_iser0 = 0;
 	fake_icer0 = 0;
+	fake_dmac_int_err_stat = 0;
+	fake_dmac_int_err_clr = 0;
+	transfer_errors_counted = 0;
+	errors_acknowledged = 0;
 	memset(&le, 0, sizeof(le));
 	le_packet_dropped = 0;
 	usb_queue_init();
@@ -318,14 +326,23 @@ static le_rx_t *a_packet_arrives(unsigned pdu_len, unsigned channel,
 	for (i = 0; i < total; i++) {
 		fake_dmac_int_stat = 1 << 0;
 		fake_dmac_int_tc_stat = 1 << 0;
-		fake_dmac_int_err_stat =
-			(fault_on_last && i + 1 == total) ? (1 << 0) : 0;
+		if (fault_on_last && i + 1 == total)
+			fake_dmac_int_err_stat |= 1 << 0;
 		/* The second byte is the header's length field; the rest of the
 		 * packet is any bytes at all. */
 		le_dma_dest[i & 1] = (i == 1)
 			? whitened_length_byte(channel, (uint8_t)pdu_len)
 			: 0x5a;
 		le_dma_interrupt(0x00100000 + i);
+
+		/* The controller's error flag stays set until the firmware writes
+		 * the clear register, as the real one does, so a test can tell an
+		 * error the engine acknowledged from one it left latched. */
+		if (fake_dmac_int_err_clr & (1 << 0)) {
+			fake_dmac_int_err_stat &= ~(1 << 0);
+			fake_dmac_int_err_clr &= ~(1 << 0);
+			errors_acknowledged++;
+		}
 	}
 
 	if (!queue_remove(&packet_queue, &packet))
@@ -2664,8 +2681,6 @@ MU_TEST(a_packet_completed_as_the_transfer_faulted_is_marked)
 	uint8_t status;
 
 	start_fresh();
-	transfer_errors_counted = 0;
-	fake_dmac_int_err_clr = 0;
 
 	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 1);
 	mu_assert_fatal(packet != NULL,
@@ -2674,7 +2689,8 @@ MU_TEST(a_packet_completed_as_the_transfer_faulted_is_marked)
 	/* Still counted and still acknowledged: a flag left set is read as a
 	 * fresh error the moment the interrupt is enabled again. */
 	mu_assert_int_eq(1, transfer_errors_counted);
-	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
+	mu_assert_int_eq(1, errors_acknowledged);
+	mu_assert_int_eq(0, fake_dmac_int_err_stat & (1 << 0));
 
 	status = le_status_read_for(packet);
 	mu_assert_int_eq(DMA_ERROR, status & DMA_ERROR);
@@ -2691,16 +2707,51 @@ MU_TEST(an_advertising_packet_completed_as_the_transfer_faulted_is_marked)
 	le_rx_t *packet;
 
 	start_fresh();
-	transfer_errors_counted = 0;
-	fake_dmac_int_err_clr = 0;
 
 	packet = a_packet_arrives(10, ADV_CHANNEL_MHZ, 1);
 	mu_assert_fatal(packet != NULL,
 	                "the completed packet was thrown away with the fault");
 	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1, errors_acknowledged);
 
 	mu_assert_int_eq(DMA_ERROR, le_status_read_for(packet) & DMA_ERROR);
 	buffer_release(packet);
+}
+
+/*
+ * And on the second packet of a connection event, which is the one end of
+ * packet that leaves the interrupt by a return of its own: the event is closed
+ * and the next one armed in there. The packet is marked, and the error is
+ * acknowledged and counted on the way out like any other -- an error left
+ * latched would be read as a fresh one as soon as the DMA interrupt was
+ * enabled again, which is why it is taken before the byte rather than after.
+ */
+MU_TEST(a_fault_on_the_packet_that_closes_an_event_is_marked_and_acknowledged)
+{
+	le_rx_t *first, *second;
+
+	start_fresh();
+	/* A connection whose events the engine is following, so the second
+	 * packet of an event closes it. */
+	anchored_connection(100000);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+
+	first = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+	mu_assert_fatal(first != NULL, "the first packet of the event was lost");
+	mu_assert_int_eq(1, conn_event.num_packets);
+	mu_assert_int_eq(0, le_status_read_for(first) & DMA_ERROR);
+	buffer_release(first);
+
+	second = a_packet_arrives(10, DATA_CHANNEL_MHZ, 1);
+	mu_assert_fatal(second != NULL,
+	                "the packet that closed the event was thrown away with "
+	                "the fault");
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1, errors_acknowledged);
+	mu_assert_int_eq(0, fake_dmac_int_err_stat & (1 << 0));
+	mu_assert_int_eq(DMA_ERROR, le_status_read_for(second) & DMA_ERROR);
+	buffer_release(second);
 }
 
 /*
@@ -2713,7 +2764,6 @@ MU_TEST(a_clean_packet_is_not_marked)
 	le_rx_t *packet;
 
 	start_fresh();
-	transfer_errors_counted = 0;
 
 	/* One with no fault at all. */
 	packet = a_packet_arrives(10, ADV_CHANNEL_MHZ, 0);
@@ -3063,6 +3113,7 @@ int main(void)
 	MU_RUN(a_completed_packet_does_not_get_a_second_wait_armed);
 	MU_RUN(a_packet_completed_as_the_transfer_faulted_is_marked);
 	MU_RUN(an_advertising_packet_completed_as_the_transfer_faulted_is_marked);
+	MU_RUN(a_fault_on_the_packet_that_closes_an_event_is_marked_and_acknowledged);
 	MU_RUN(a_clean_packet_is_not_marked);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);
