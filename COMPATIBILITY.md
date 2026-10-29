@@ -144,9 +144,8 @@ therefore marks the change in the tree rather than anything a host can read
 off a board sitting in DFU.
 
 The number still does not pin down a commit, since every commit that does not
-bump it shares the number before it: hence "normally"
-above, and hence the firmware revision shown by `ubertooth-util -v` beside the
-API version is what identifies a build. Host tools and firmware built from the
+bump it shares the number before it, which is why the firmware revision shown
+by `ubertooth-util -v` beside the API version is what identifies a build. Host tools and firmware built from the
 same commit always match, so after pulling, rebuild and reflash both from the
 same commit (`./install.sh --flash`).
 

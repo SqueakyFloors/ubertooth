@@ -466,6 +466,13 @@
 
 ### Build and compatibility
 
+- A reconfigure after a Homebrew upgrade finds libusb where it is now. The
+  build remembered where it found libusb, and Homebrew puts each version in a
+  directory of its own, so after an upgrade the remembered one had gone: the
+  configure reported libusb found and the build then failed on the missing
+  header. It now checks the remembered header and library are still there and
+  searches again if either has moved.
+  [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
 - `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
   on their own against an installed libubertooth, which is what
   `FindUBERTOOTH.cmake` is for. CMake 4 refused the directory outright,
@@ -1853,6 +1860,11 @@
 
 ### Documentation
 
+- `ubertooth-util(1)` says when the firmware API version moves: during
+  development only for a change that breaks older host tools, not for every
+  firmware change the host sees. It is what `COMPATIBILITY.md` already
+  describes.
+  [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
 - A one-page guide, "Using Ubertooth with Wireshark", covers the
   `btle-extcap.py` plugin end to end: what it gives you over a named pipe,
   the three install steps, the options dialog, why a capture filter is

@@ -1259,15 +1259,19 @@ set_tests_properties(btbb-check PROPERTIES TIMEOUT 60)
 # header, so a target asks libusb for it rather than depending on where
 # another library happens to be installed. Runs the real module from a
 # one-line project and compiles both spellings of the include with nothing but
-# the directories it reports.
+# the directories it reports. Then it configures against a libusb directory of
+# its own in four shapes, removing what the module remembers each time,
+# because a remembered path that a package upgrade has moved must be searched
+# for again rather than reported as found.
 add_test(
 	NAME libusb-include
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_libusb_include.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-# One configure of a two-file project and its build: 5 s here, 27 s on a
-# loaded machine, where compiler detection is most of it. The same limit as
-# btbb-check above, which does five configures, so this one has room to spare
-# and still catches a configure that hangs.
+# One configure of a two-file project and its build, then six configures of a
+# project with no languages in it, which need no compiler and take a fraction
+# of a second each: 4 s here altogether, 27 s on a loaded machine, where
+# detecting the compiler for the first project is most of it. The same limit
+# as btbb-check above, which does five configures.
 set_tests_properties(libusb-include PROPERTIES TIMEOUT 60)
