@@ -37,11 +37,17 @@ volatile uint32_t *fake_rxdata_reg(void);
 /* ---- registers whose write changes what the controller reports ---- */
 
 /*
- * Writing these three is how the firmware acknowledges an event, so a fake
- * that only stored the value could not tell an event the firmware handled
- * from one it dropped, which is the whole question here. Each write is staged
- * and applied at the next register access, which is the earliest moment the
- * firmware could observe it, so one write never overtakes another.
+ * Writing these is how the firmware acknowledges an event or asks the
+ * protocol engine to do something, so a fake that only stored the value could
+ * not tell an event the firmware handled from one it dropped, which is the
+ * whole question here. Each write is staged and applied at the next register
+ * access, which is the earliest moment the firmware could observe it, so one
+ * write never overtakes another.
+ *
+ * USBCmdCode is a function because the fake has to act on the command
+ * written: a Select Endpoint answers with that endpoint's status, and the
+ * Select Endpoint/Clear Interrupt form also takes the endpoint's event and
+ * its setup indication away.
  *
  * USBEpIntSt is a function for the same reason: it has to answer with the
  * endpoint events that are still waiting.
@@ -50,11 +56,13 @@ volatile uint32_t *fake_devintclr_reg(void);
 volatile uint32_t *fake_devintset_reg(void);
 volatile uint32_t *fake_epintclr_reg(void);
 volatile uint32_t *fake_epintst_reg(void);
+volatile uint32_t *fake_cmdcode_reg(void);
 
 #define USBDevIntClr (*fake_devintclr_reg())
 #define USBDevIntSet (*fake_devintset_reg())
 #define USBEpIntClr  (*fake_epintclr_reg())
 #define USBEpIntSt   (*fake_epintst_reg())
+#define USBCmdCode   (*fake_cmdcode_reg())
 
 /* ---- plain registers ---- */
 
@@ -67,7 +75,6 @@ extern volatile uint32_t fake_epin;
 extern volatile uint32_t fake_maxpsize;
 extern volatile uint32_t fake_txplen;
 extern volatile uint32_t fake_ctrl;
-extern volatile uint32_t fake_cmdcode;
 extern volatile uint32_t fake_cmddata;
 extern volatile uint32_t fake_epdmaen;
 extern volatile uint32_t fake_epdmadis;
@@ -88,7 +95,6 @@ extern volatile uint32_t fake_pinsel4;
 #define USBMaxPSize  fake_maxpsize
 #define USBTxPLen    fake_txplen
 #define USBCtrl      fake_ctrl
-#define USBCmdCode   fake_cmdcode
 #define USBCmdData   fake_cmddata
 #define USBEpDMAEn   fake_epdmaen
 #define USBEpDMADis  fake_epdmadis
