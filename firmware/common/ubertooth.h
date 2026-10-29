@@ -32,10 +32,8 @@ extern const IAP_ENTRY iap_entry;
 
 /*
  * Put a large buffer in the part's second RAM bank, 16 KB at 0x2007C000,
- * which nothing else on this board uses. Main SRAM is only 16 KB and the
- * stack grows down through whatever is left of it, so the biggest buffers go
- * here and leave that room to the stack (sections.ld, and stack_check.h for
- * how much is left in practice).
+ * which nothing else on this board uses, and leave main SRAM to the stack
+ * (sections.ld).
  *
  * Only for objects that start at zero: the bank is not loaded from flash, so
  * an initializer would be dropped. The transfer controller reaches it -- the
@@ -44,7 +42,7 @@ extern const IAP_ENTRY iap_entry;
  *
  * The section exists only in an image linked for the part. A host test
  * compiles some of these files into one address space with no linker script,
- * where the bank means nothing and the section name is not even valid.
+ * where the name is not even valid.
  */
 #ifdef __arm__
 #define AHB_SRAM __attribute__((section(".ahb_sram")))

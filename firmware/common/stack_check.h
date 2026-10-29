@@ -23,26 +23,19 @@
 #define __UBERTOOTH_STACK_CHECK_H
 
 /*
- * How deep the stack has ever been since the board booted.
+ * How deep the stack has ever been since the board booted, reported in the
+ * UBERTOOTH_GET_WATCHDOG reply. An overflow on this part is silent, so the
+ * only way to know there is room is to measure what has been used.
  *
- * A stack overflow on this part is silent: there is no memory protection
- * unit, so the processor allows the write, and it lands on whatever the data
- * below the stack holds. The damage turns up later as wrong capture data or a
- * processor fault somewhere else entirely. The only way to know there is room
- * is to measure how much has been used.
- *
- * So Reset_Handler fills the room below its own stack pointer with a known
- * word, and stack_used() looks for the lowest one that is no longer there.
- * The answer is in the UBERTOOTH_GET_WATCHDOG reply, which ubertooth-util -w
- * prints.
- *
- * Both live in LPC17xx_Startup.c, the file that owns the stack at boot. Every
- * image links it, so every image paints and can report.
+ * Both live in LPC17xx_Startup.c, the file that owns the stack at boot: it
+ * fills the room below its own stack pointer with a known word, and
+ * stack_used() looks for the lowest one still there. Every image links that
+ * file, so every image can answer.
  */
 
-/* Bytes of the stack region that have ever been in use. A stack that ran
- * past the bottom of the region reads as the whole of it, which is as much as
- * the paint can say. */
+/* Bytes of the stack region that have ever been in use. A stack that ran past
+ * the bottom of the region reads as the whole of it, which is as much as the
+ * word can say. */
 unsigned stack_used(void);
 
 /* How big the region is: from the lowest address the stack may reach to the
