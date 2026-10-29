@@ -898,10 +898,18 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * captures nothing the teardown's clear_afh_map() runs a moment
 		 * after that request was answered. Without the copy the map
 		 * arriving next is thrown away, and the follow hops all 79
-		 * channels instead of the piconet's. */
-		for (i = 0; i < sizeof(afh_map); i++)
-			stated_afh_map[i] = data[i];
-		stated_for_starting_mode(STATED_AFH_MAP);
+		 * channels instead of the piconet's.
+		 *
+		 * Only while a mode start is still to come, as the channel
+		 * request has it. A map sent by a capture that is already
+		 * running -- AFH detection sends one whenever it finds another
+		 * channel -- needs no copy, and keeping one would hand that
+		 * run's map to the next capture that asks for the same mode. */
+		if (requested_mode != mode) {
+			for (i = 0; i < sizeof(afh_map); i++)
+				stated_afh_map[i] = data[i];
+			stated_for_starting_mode(STATED_AFH_MAP);
+		}
 		*data_len = 10;
 		break;
 
