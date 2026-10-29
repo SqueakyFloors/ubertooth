@@ -159,7 +159,7 @@ def report_versions():
         # turned out to be.
         print("error: standard output has gone away", file=sys.stderr)
         return 1
-    streams = {}
+    child_streams = {}
     try:
         sys.stderr.flush()
     except (AttributeError, ValueError):
@@ -168,8 +168,8 @@ def report_versions():
         # the bin for them rather than the closed descriptor: the first file
         # it opened would otherwise take that number and its lines would be
         # written into whatever that turned out to be.
-        streams["stderr"] = DEVNULL
-    child = run_tool(['ubertooth-util', '-V'], **streams)
+        child_streams["stderr"] = DEVNULL
+    child = run_tool(['ubertooth-util', '-V'], **child_streams)
     if child is None:
         return 1
     status = child.wait()

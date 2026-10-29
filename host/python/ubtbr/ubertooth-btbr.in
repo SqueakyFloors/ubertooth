@@ -84,7 +84,7 @@ def report_versions(selector=None):
 		# whatever that turned out to be.
 		output_lost()
 		return 1
-	streams = {}
+	child_streams = {}
 	try:
 		sys.stderr.flush()
 	except (AttributeError, ValueError):
@@ -93,9 +93,9 @@ def report_versions(selector=None):
 		# the bin for them rather than the closed descriptor: the first file
 		# it opened would otherwise take that number and its lines would be
 		# written into whatever that turned out to be.
-		streams["stderr"] = subprocess.DEVNULL
+		child_streams["stderr"] = subprocess.DEVNULL
 	try:
-		status = subprocess.call(command, **streams)
+		status = subprocess.call(command, **child_streams)
 	except OSError as e:
 		# Not on the PATH, or there and not executable. Reported in one line
 		# like every other failure here, rather than ending the tool in a
