@@ -25,6 +25,10 @@
 #ifndef __IRQ_H
 #define __IRQ_H
 
+/* For uint32_t and NULL, as the real header does for its own types. */
+#include <stddef.h>
+#include <stdint.h>
+
 /* How many guarded sections the code under test is currently inside. */
 extern unsigned irq_mask_depth;
 

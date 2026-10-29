@@ -759,16 +759,19 @@ static void look_at_the_buffer_being_handed_out(void)
 }
 
 /*
- * Only the test and the clear of the pool's flag are guarded. Clearing the
- * buffer itself is a 260-byte memset, and the end of every packet goes through
- * it in the firmware's hottest interrupt, so it may not be done with every
- * interrupt masked: the timer drives connection-event timing and accepts a
- * measured anchor only within a few microseconds of its estimate.
+ * The pool's own guard covers the flag and nothing else: the 260-byte clear
+ * that follows is outside it.
+ *
+ * Where a caller wants the clear covered too it takes its own guard around the
+ * call, which is what the end-of-packet handover does, and the guards nest. So
+ * this is not a statement about the handover; it is that the pool adds no mask
+ * of its own around the memset, and a caller reading the pool's flag is held
+ * off for a few instructions rather than for a memset.
  *
  * The interrupt is stood in where the guard ends, so what it sees of the
  * buffer says which side of the guard the memset is on.
  */
-MU_TEST(clearing_a_buffer_is_not_done_with_interrupts_held_off)
+MU_TEST(the_pool_guards_its_flag_and_not_the_clear_that_follows)
 {
 	le_rx_t *taken;
 
@@ -3399,7 +3402,7 @@ int main(void)
 	MU_RUN(disarming_one_match_cannot_lose_another);
 	MU_RUN(each_match_is_armed_on_its_own);
 	MU_RUN(two_contexts_cannot_be_handed_the_same_buffer);
-	MU_RUN(clearing_a_buffer_is_not_done_with_interrupts_held_off);
+	MU_RUN(the_pool_guards_its_flag_and_not_the_clear_that_follows);
 	MU_RUN(a_queued_packet_is_not_reached_by_the_match_that_follows_it);
 	MU_RUN(the_length_byte_is_dewhitened_the_same_way_as_the_rest);
 	MU_RUN(a_field_is_read_least_significant_byte_first);

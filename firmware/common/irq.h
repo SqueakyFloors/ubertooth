@@ -22,6 +22,10 @@
 #ifndef __IRQ_H
 #define __IRQ_H
 
+/* For uint32_t: this header is included by code that has not necessarily
+ * pulled in the image's own types yet. */
+#include <stdint.h>
+
 /*
  * Turn interrupts off and return the mask setting that was in force, so the
  * caller can put it back with irq_restore(). Code between the two runs with no
@@ -59,9 +63,9 @@
  * the mask would leave a guard that guards nothing.
  */
 #ifdef __arm__
-static inline u32 irq_save_disable(void)
+static inline uint32_t irq_save_disable(void)
 {
-	u32 primask;
+	uint32_t primask;
 
 	asm volatile ("mrs %0, primask\n\t"
 	              "cpsid i"
@@ -69,7 +73,7 @@ static inline u32 irq_save_disable(void)
 	return primask;
 }
 
-static inline void irq_restore(u32 primask)
+static inline void irq_restore(uint32_t primask)
 {
 	asm volatile ("msr primask, %0" : : "r" (primask) : "memory");
 }

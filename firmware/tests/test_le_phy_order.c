@@ -62,10 +62,11 @@ struct le_phy_scan {
 	int unmask_writes;     /* writes of ISER0_ISE_TIMER1 to ISER0 */
 	int main_lines;        /* lines of le_phy_main() the scan read */
 	int dropped_cleared;   /* le_packet_dropped = 0 */
-	/* Changing one bit of the match-enable register: where it is done
-	 * outside the two guarded helpers, and how many are inside them. */
-	int bare_match_write;
-	int guarded_match_writes;
+	/* Reaching the match-enable register for one bit rather than the whole
+	 * of it: where it is done outside the guarded helpers, and how many
+	 * times inside them. */
+	int bare_match_use;
+	int guarded_match_uses;
 	/* In le_dma_interrupt(), where a finished packet is handed over: the
 	 * first of each of these after the function starts. */
 	int handover_take;      /* buffer_get() */
@@ -96,29 +97,26 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		    contains_identifier(line, "ISER0_ISE_TIMER1"))
 			s->unmask_writes++;
 
-		/* Every `T1MCR |=` and `T1MCR &= ~` in the file, and whether it
-		 * is one of the two in the helpers that hold interrupts off. The
-		 * check runs before the gates below, so it covers the whole file
+		/* Every mention of T1MCR in the file, and whether it is inside one
+		 * of the helpers that hold interrupts off. A write of the whole
+		 * register is not counted: it cannot be built on a stale read.
+		 * This runs before the gates below, so it covers the whole file
 		 * rather than one function. */
 		if (strstr(line, "timer1_arm_match_interrupt(") != NULL ||
-		    strstr(line, "timer1_disarm_match_interrupt(") != NULL) {
+		    strstr(line, "timer1_disarm_match_interrupt(") != NULL ||
+		    strstr(line, "timer1_set_match_if_unarmed(") != NULL) {
 			if (strchr(line, ';') == NULL && strchr(line, '{') != NULL)
 				in_mask_helper = 1;
 		} else if (in_mask_helper && line[0] == '}') {
 			in_mask_helper = 0;
 		}
 
-		{
-			char flat[SCAN_LINE_MAX];
-
-			collapse_spaces(line, flat, sizeof(flat));
-			if (strstr(flat, "T1MCR |=") != NULL ||
-			    strstr(flat, "T1MCR &=") != NULL) {
-				if (in_mask_helper)
-					s->guarded_match_writes++;
-				else if (s->bare_match_write == 0)
-					s->bare_match_write = lineno;
-			}
+		if (contains_identifier(line, "T1MCR") &&
+		    !is_assignment_of(line, "T1MCR", "0")) {
+			if (in_mask_helper)
+				s->guarded_match_uses++;
+			else if (s->bare_match_use == 0)
+				s->bare_match_use = lineno;
 		}
 
 		/* The handover of a finished packet, in the byte interrupt. */
@@ -380,8 +378,9 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
 }
 
 /*
- * Every bit of T1MCR that is set or cleared on its own goes through one of the
- * two helpers that hold interrupts off while they do it.
+ * Anything that reaches T1MCR for one match rather than the whole register
+ * goes through one of the three helpers that hold interrupts off while they do
+ * it.
  *
  * All four matches live in that one register -- the connection event, the LED
  * blink, the synthesizer-lock wait and the buffer wait -- and no single
@@ -393,6 +392,12 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
  * feeding the watchdog and answering the host, while the capture stays silent
  * until the mode is restarted.
  *
+ * Reads count as well as writes. The transfer-error recovery arms the event
+ * match only if nothing has armed it, and the interrupt that arms it for the
+ * real next event preempts the one the recovery runs in: a decision made from
+ * a read outside the guard is as wrong as a write built on one, and opens the
+ * next event an interval early.
+ *
  * This is a scan because the register is hardware. What the guard does is run
  * in test_le_phy_logic.c, which stands an interrupt in at the end of a guarded
  * section; the scan is what notices a new site added later without one.
@@ -402,17 +407,18 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: a bit of T1MCR is set or cleared here without holding "
-	         "interrupts off; use timer1_arm_match_interrupt() or "
-	         "timer1_disarm_match_interrupt(), or an interrupt landing in "
-	         "the middle loses the bit it armed", path, s.bare_match_write);
-	mu_assert(s.bare_match_write == 0, msg);
+	         "%s:%d: T1MCR is read or part-written here without holding "
+	         "interrupts off; go through timer1_arm_match_interrupt(), "
+	         "timer1_disarm_match_interrupt() or "
+	         "timer1_set_match_if_unarmed(), or an interrupt landing in the "
+	         "middle loses the bit it armed", path, s.bare_match_use);
+	mu_assert(s.bare_match_use == 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: the scan found %d guarded writes of T1MCR, expected one "
-	         "in each of the two helpers -- the scan has stopped reading "
-	         "them", path, s.guarded_match_writes);
-	mu_assert(s.guarded_match_writes == 2, msg);
+	         "%s: the scan found %d guarded uses of T1MCR, expected one in "
+	         "each of the three helpers -- the scan has stopped reading "
+	         "them", path, s.guarded_match_uses);
+	mu_assert(s.guarded_match_uses == 3, msg);
 }
 
 /*

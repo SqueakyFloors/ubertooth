@@ -274,6 +274,7 @@ static void timer1_stop(void);
 static void timer1_arm_match_interrupt(uint32_t bit);
 static void timer1_disarm_match_interrupt(uint32_t bit);
 static void timer1_set_match(uint32_t match);
+static void timer1_set_match_if_unarmed(uint32_t match);
 static void timer1_clear_match(void);
 static void timer1_arm_conn_event(void);
 static void timer1_wait_fs_lock(void);
@@ -685,8 +686,7 @@ static void le_transfer_error_recover(void) {
 	// arming over it would open that event an interval early and lose its
 	// packets.
 	if (btle_channel_index(rf_channel) < 37 && conn.conn_interval != 0) {
-		if (!(T1MCR & TMCR_MR0I))
-			timer1_set_match(NOW + CONN_EVENT_ARM_MARGIN);
+		timer1_set_match_if_unarmed(NOW + CONN_EVENT_ARM_MARGIN);
 		return;
 	}
 
@@ -1134,6 +1134,13 @@ static void timer1_enable_interrupt(void) {
 // Writes of the whole register are left as they are: timer1_start() and the
 // teardown path write 0, which cannot lose a bit that is on its way in,
 // because nothing the engine is doing at that point wants one.
+//
+// What these two give is that no single bit is set or cleared on a value
+// another context has already moved on from. A caller that has to decide
+// something from the register and then write it -- the transfer-error
+// recovery, which arms the event match only if nothing has armed it -- needs
+// the decision inside the guard as well, and takes its own: see
+// timer1_set_match_if_unarmed().
 static void timer1_arm_match_interrupt(uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
@@ -1162,6 +1169,21 @@ static void timer1_set_match(uint32_t match) {
 
 static void timer1_clear_match(void) {
 	timer1_disarm_match_interrupt(TMCR_MR0I);
+}
+
+// Arm the connection event's match, unless something has armed it already.
+//
+// The test and the arm are one step. The timer interrupt preempts the byte
+// interrupt, which is where this is called from, and it arms this same match
+// for the next event: read the register, lose the processor to that, and the
+// arm that follows overwrites the time the interrupt set with one a whole
+// interval early, which is what the caller is trying not to do.
+static void timer1_set_match_if_unarmed(uint32_t match) {
+	uint32_t primask = irq_save_disable();
+
+	if (!(T1MCR & TMCR_MR0I))
+		timer1_set_match(match);
+	irq_restore(primask);
 }
 
 // Re-checks of FS_LOCK in the wait timer1 is running now: the short ones,

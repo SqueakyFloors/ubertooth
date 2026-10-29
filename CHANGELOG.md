@@ -645,7 +645,8 @@
   longer goes silent part way through a run. The timer's match-enable register
   and the buffer pool are changed with interrupts held off, and a finished
   packet is handed to the host in one step with the buffer for the next one, so
-  neither side of a capture can lose what the other just set. A lost
+  a connection-event timer that fires in the middle of either cannot undo it. A
+  lost
   match-enable bit left nothing to arm receive again: the board went on
   answering the host while the capture produced nothing more.
   [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
