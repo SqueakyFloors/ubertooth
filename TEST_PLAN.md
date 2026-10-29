@@ -679,6 +679,29 @@ These branches exist in the repo but are NOT in master yet:
 
 ---
 
+## 10. Manual tests
+
+Checks that only a person can do: they need a graphical application, a
+judgement about what appeared on screen, or hands on the hardware, so neither
+the host test suite nor the test harness can run them. Each one is tracked as
+an issue labeled
+[`manual test`](https://github.com/SqueakyFloors/ubertooth/issues?q=label%3A%22manual+test%22),
+which carries the setup, the boxes to tick and where to report the result.
+Close the issue when every box is ticked, and file a bug for anything that
+fails.
+
+- [The Wireshark plugin in the Wireshark GUI](https://github.com/SqueakyFloors/ubertooth/issues/892)
+  (#892) — `btle-extcap.py` driven from Wireshark itself: the interface
+  appears with the board's serial, the options dialog opens, a capture runs
+  and stops cleanly, a capture filter is refused in the capture-filter box,
+  a real failure is reported, and a second capture works without restarting
+  Wireshark. The automated tests drive the plugin the way Wireshark does and
+  the harness checks it with `tshark`, but nothing exercises the GUI.
+  See [Using Ubertooth with Wireshark](docs/source/using_ubertooth_with_wireshark.rst)
+  for the install and capture steps.
+
+---
+
 ## Notes
 
 - The host `ctest` suite needs no Ubertooth, and the tests that run the tools

@@ -11,6 +11,7 @@ Ubertooth
   faq
   getting_started
   getting_help
+  using_ubertooth_with_wireshark
   capturing_BLE_Wireshark
   sniffing_BR_EDR
   bluetooth_captures_PCAP

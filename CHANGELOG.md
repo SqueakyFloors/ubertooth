@@ -1773,6 +1773,10 @@
 
 ### Documentation
 
+- A one-page guide, "Using Ubertooth with Wireshark", covers the
+  `btle-extcap.py` plugin end to end: what it gives you over a named pipe,
+  the three install steps, the options dialog, why a capture filter is
+  refused, and running it from `tshark`.
 - `btle-extcap.py` has a man page of its own, `btle-extcap(1)`, installed with
   the others: where to put the script so Wireshark finds it, every call
   Wireshark makes, what it answers a capture filter with, its two exit

@@ -8,7 +8,9 @@ Wireshark opened.
 The script's manual is `btle-extcap(1)`, from `host/doc/btle-extcap.md`:
 installing it, every call Wireshark makes, the exit statuses and the
 diagnostics. What follows here is the same ground for a reader in the source
-tree.
+tree. For the one-page user guide — installing the plugin, starting a capture,
+and using it from `tshark` — see
+[Using Ubertooth with Wireshark](../../../docs/source/using_ubertooth_with_wireshark.rst).
 
 Written by Mike Kershaw (dragorn) and Mike Ryan, and distributed under the
 terms of the GNU GPL, as is the rest of the Ubertooth project.
