@@ -71,22 +71,15 @@ mv "${relfile}.tmp" "${relfile}"
 grep -q "^set(LATEST_RELEASE \"${version}\")$" "${relfile}"
 
 ############################
-# Documentation
-############################
-# The old nanoc web site is no longer part of the tree; the documentation now
-# lives in docs/ and is built by Read the Docs. Keep the step for an older tag
-# that still carries web/.
-if test -d "${targetdir}/web" ; then
-	(cd "${targetdir}/web" && make)
-fi
-
-############################
 # Software
 ############################
+# The documentation needs no step here: it lives in docs/ and is built by Read
+# the Docs. The nanoc web site this used to compile left the tree years ago.
 export BOARD=UBERTOOTH_ONE
-mkdir "${targetdir}/ubertooth-one-firmware-bin"
+# -p so a re-run after a failure does not stop here.
+mkdir -p "${targetdir}/ubertooth-one-firmware-bin"
 cd "${targetdir}/firmware" || exit 1
-make "${stamp[@]}" clean
+make clean
 write_version_headers
 make "${stamp[@]}" bluetooth_rxtx
 cp bluetooth_rxtx/bluetooth_rxtx.hex "${targetdir}/ubertooth-one-firmware-bin/"
@@ -104,7 +97,7 @@ cp bootloader/bootloader.bin "${targetdir}/ubertooth-one-firmware-bin/"
 make "${stamp[@]}" assembly_test
 cp assembly_test/assembly_test.hex "${targetdir}/ubertooth-one-firmware-bin/"
 cp assembly_test/assembly_test.bin "${targetdir}/ubertooth-one-firmware-bin/"
-make "${stamp[@]}" clean
+make clean
 
 # Receive Only firmware
 write_version_headers
@@ -112,7 +105,11 @@ DISABLE_TX=1 make "${stamp[@]}" bluetooth_rxtx
 cp bluetooth_rxtx/bluetooth_rxtx.hex "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.hex"
 cp bluetooth_rxtx/bluetooth_rxtx.bin "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.bin"
 cp bluetooth_rxtx/bluetooth_rxtx.dfu "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.dfu"
-make "${stamp[@]}" clean
+make clean
+# Once more after the last clean: these headers are not for a build here, they
+# are what ships in the archive, so someone who builds the firmware from the
+# release gets the release version rather than "git-unknown".
+write_version_headers
 
 ############################
 # Clean up
@@ -130,5 +127,11 @@ rm -f "${targetdir}/.travis.yml"
 cd "${top}" || exit 1
 tar -cJf "${releasename}.tar.xz" "${releasename}/"
 
-sha256sum "${releasename}.tar.xz"
-sha512sum "${releasename}.tar.xz"
+# sha256sum and sha512sum are GNU; macOS ships shasum instead.
+if command -v sha256sum > /dev/null ; then
+	sha256sum "${releasename}.tar.xz"
+	sha512sum "${releasename}.tar.xz"
+else
+	shasum -a 256 "${releasename}.tar.xz"
+	shasum -a 512 "${releasename}.tar.xz"
+fi

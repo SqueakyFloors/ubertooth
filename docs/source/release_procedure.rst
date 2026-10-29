@@ -7,7 +7,7 @@ Release Procedure
 Release names
 -------------
 
-Tags keep the ``yyyy-mm-Rn`` form, with two kinds of tag before a release:
+Tags take three forms, all built on the ``yyyy-mm-Rn`` one:
 
     * ``yyyy-mm-DEVn`` is a development pre-release: a snapshot of ``main``
       published for integration testing, and it may be deleted later.
@@ -86,12 +86,15 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       number into each firmware image directory of the archive, and the build
       uses that shipped header as-is when ``.git`` is not present. If you build
       a release by hand rather than via the script, drop an equivalent
-      ``version.h`` (defining ``GIT_REVISION`` to the release number) into each
-      firmware image directory before building.
+      ``version.h`` into each firmware image directory before building. It has
+      to define ``GIT_REVISION`` (the release number), ``FW_IMAGE_NAME`` (the
+      image directory's name, which ``firmware/common/fw_info.c`` asserts the
+      length of), ``COMPILE_BY``, ``COMPILE_HOST`` and ``TIMESTAMP``; a header
+      missing any of them fails to compile.
 
-    * Build the bluetooth_rxtx firmware and rename bluetooth_rxtx.dfu to ubertooth-one-bin-firmware.dfu
-
-    * Copy built firmare hex/bin/dfu files to /ubertooth-one-firmware-bin
+    * ``make clean`` deletes that ``version.h``, so write the headers after the
+      last clean as well. They ship in the archive for whoever builds the
+      firmware from the release.
 
     * Export gerbers from KiCad (or copy from previous release if unchanged)
 

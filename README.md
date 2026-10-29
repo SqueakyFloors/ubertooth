@@ -110,8 +110,8 @@ a replacement for distro packaging (apt/dnf/brew).
 
 ## Releases
 
-Release tags keep the `YYYY-MM-Rn` form this project has always used, with two
-kinds of tag before a release:
+Release tags take three forms, all built on the `YYYY-MM-Rn` one this project
+has always used:
 
 - `YYYY-MM-DEVn` is a development pre-release: a snapshot of `main` published
   for integration testing. It may be deleted later, so do not build anything
