@@ -189,9 +189,9 @@ one stream, so `-q -` and `-d -` in one command are refused:
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the
 tool's progress. Standard output carries the decoded packets, and, with `-a`,
-the accepted channel map, which libbtbb prints itself — unless a capture has
-taken that stream, and then the map is on standard error with the progress;
-see CAPTURING TO STANDARD OUTPUT.
+the accepted channel map — unless a capture has taken that stream, and then
+the map is on standard error with the progress; see CAPTURING TO STANDARD
+OUTPUT.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every

@@ -461,6 +461,50 @@ MU_TEST(dash_a_needs_a_target_address_and_a_connection)
 	mu_assert(follow_afh_handle_refusal(1, 1) == NULL, "both present");
 }
 
+/* The line both BlueZ tools report a map on, in the words libbtbb's
+ * btbb_print_afh_map() used, so moving the printing into the tools did not
+ * change what a reader or a script sees. */
+MU_TEST(a_map_is_reported_as_one_line_of_hex)
+{
+	uint8_t map[FOLLOW_AFH_MAP_BYTES];
+	char line[AFH_MAP_LINE_LEN];
+
+	memset(map, 0xff, sizeof(map));
+	afh_map_line(map, line, sizeof(line));
+	mu_assert(strcmp("AFH map: 0xffffffffffffffffffff", line) == 0, line);
+
+	memset(map, 0, sizeof(map));
+	afh_map_line(map, line, sizeof(line));
+	mu_assert(strcmp("AFH map: 0x00000000000000000000", line) == 0, line);
+
+	/* Byte order as read: the first byte of the map is the first pair of
+	 * digits, low channels first. */
+	memset(map, 0, sizeof(map));
+	map[0] = 0x01;
+	map[9] = 0x7f;
+	afh_map_line(map, line, sizeof(line));
+	mu_assert(strcmp("AFH map: 0x0100000000000000007f", line) == 0, line);
+
+	/* The buffer length the tools use is exactly enough: a shorter one
+	 * would truncate instead of overrunning, and no map is left behind. */
+	mu_assert_int_eq((int)strlen(line) + 1, AFH_MAP_LINE_LEN);
+}
+
+MU_TEST(a_map_line_call_with_nothing_to_write_does_nothing)
+{
+	uint8_t map[FOLLOW_AFH_MAP_BYTES];
+	char line[AFH_MAP_LINE_LEN] = "keep";
+
+	memset(map, 0xff, sizeof(map));
+	afh_map_line(map, NULL, 0);
+	/* Nowhere to write is nowhere to write, whatever the length says. */
+	afh_map_line(map, NULL, sizeof(line));
+	afh_map_line(map, line, 0);
+	mu_assert(strcmp("keep", line) == 0, "zero length leaves the buffer");
+	afh_map_line(NULL, line, sizeof(line));
+	mu_assert(line[0] == '\0', "no map writes an empty string");
+}
+
 int main(void)
 {
 	MU_RUN(counts_the_79_real_channels_only);
@@ -482,5 +526,7 @@ int main(void)
 	MU_RUN(each_outcome_has_its_own_plain_line);
 	MU_RUN(a_message_call_with_nowhere_to_write_does_nothing);
 	MU_RUN(dash_a_needs_a_target_address_and_a_connection);
+	MU_RUN(a_map_is_reported_as_one_line_of_hex);
+	MU_RUN(a_map_line_call_with_nothing_to_write_does_nothing);
 	return mu_report();
 }

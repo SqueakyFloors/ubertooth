@@ -72,6 +72,29 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: maximum access code errors must be 0-5 (got 6)`.
 
+## OUTPUT
+
+Standard output carries the devices found and nothing else, so a run collected
+in a file or read by a script holds the results alone. Each device the BlueZ
+inquiry of `-s` found is its address and its name, one to a line, and each
+piconet the Ubertooth half found is its address, with the NAP unknown, and the
+channel map the scan built for it:
+
+    ??:??:??:9E:8B:33
+    AFH map: 0x0123456789abcdef1234
+
+`-x` adds the extended report of a device under its line, indented, as
+`hcitool info` shows one: its address and name, the LMP version and
+manufacturer, its features, its clock offset, and its channel map as `AFH
+Map:`. A device that reports AFH off has no map to report, which is said on
+standard error as `note: AFH disabled.`.
+
+Everything else goes to standard error: the three headings that say which half
+of the scan is running (`HCI scan`, `Ubertooth scan` and `Scan results:`), the
+`Requesting information ...` line of `-x`, and every warning and failure (see
+EXIT STATUS). Earlier releases mixed those in with the results, so a scan
+piped into another program carried them along.
+
 ## GAPS IN A CAPTURE
 
 A capture that is losing packets says so. The board holds captured packets in a
@@ -107,6 +130,14 @@ with one `error: ` line on standard error naming the adapter and why, for
 example `error: Bluetooth device hci7 not found: No such device`. Nothing is
 printed on standard output, so a caller collecting the scan results in a file
 does not find the failure among them.
+
+An inquiry asked for with `-s` that the adapter refused exits 1 as well, with
+`error: the BlueZ inquiry failed: <reason>` on standard error: half of what
+`-s` asked for did not happen. The Ubertooth half still runs — it needs no
+adapter — and its results are printed. A device that will not take the
+connection `-x` needs, or that will not report its channel map, is named the
+same way and its report stops there; the scan itself carries on and its
+status is unaffected.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that

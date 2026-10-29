@@ -768,10 +768,12 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	          "-t and -l with -u reached the board as different addresses");
 }
 
-/* The map -a read is printed either way: libbtbb prints it on standard
- * output, and a capture that has taken that stream would otherwise swallow
- * it, so the tool prints it on standard error for such a run. The map is the
- * answer to -a, so losing it is losing what the command was asked for. */
+/* The map -a read is printed either way, and by the tool: it used to come
+ * from inside libbtbb, which must not write to standard output. The wording
+ * is the one libbtbb used, so a reader and a script see the same line. A
+ * capture that has taken standard output would swallow it, so for such a run
+ * it goes to standard error instead: the map is the answer to -a, and losing
+ * it is losing what the command was asked for. */
 MU_TEST(the_afh_map_is_printed_beside_a_capture_on_standard_output)
 {
 	struct run_result r;

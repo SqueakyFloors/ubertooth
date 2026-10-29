@@ -56,6 +56,18 @@ print the usage text on standard output and exit 0\. It takes effect once the wh
 An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-t' requires a value\fR\.
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: maximum access code errors must be 0\-5 (got 6)\fR\.
+.SH "OUTPUT"
+Standard output carries the devices found and nothing else, so a run collected in a file or read by a script holds the results alone\. Each device the BlueZ inquiry of \fB\-s\fR found is its address and its name, one to a line, and each piconet the Ubertooth half found is its address, with the NAP unknown, and the channel map the scan built for it:
+.IP "" 4
+.nf
+??:??:??:9E:8B:33
+AFH map: 0x0123456789abcdef1234
+.fi
+.IP "" 0
+.P
+\fB\-x\fR adds the extended report of a device under its line, indented, as \fBhcitool info\fR shows one: its address and name, the LMP version and manufacturer, its features, its clock offset, and its channel map as \fBAFH Map:\fR\. A device that reports AFH off has no map to report, which is said on standard error as \fBnote: AFH disabled\.\fR\.
+.P
+Everything else goes to standard error: the three headings that say which half of the scan is running (\fBHCI scan\fR, \fBUbertooth scan\fR and \fBScan results:\fR), the \fBRequesting information \|\.\|\.\|\.\fR line of \fB\-x\fR, and every warning and failure (see EXIT STATUS)\. Earlier releases mixed those in with the results, so a scan piped into another program carried them along\.
 .SH "GAPS IN A CAPTURE"
 A capture that is losing packets says so\. The board holds captured packets in a queue until this tool reads them, and a queue with no room left loses the next packet\. The first time it happens the capture warns \fBwarning: the board's packet queue filled up and it dropped at least one packet; this capture has a gap\fR, and when the capture ends it says how many such gaps there were: \fBwarning: the capture has 3 gaps where the board's queue filled up and it dropped packets\fR\. The count is of gaps, not of lost packets: one full queue can swallow several packets, and the board sends no number\. Nothing says which packets are missing, so a capture with gaps is complete only between them\. The board reports a gap on the first packet that gets through after it, so a capture that ends in the moment after a gap does not report that last one\.
 .SH "EXIT STATUS"
@@ -66,6 +78,8 @@ A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubert
 A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .P
 A BlueZ adapter that is not there, or that is there but will not open, exits 1 with one \fBerror:\fR line on standard error naming the adapter and why, for example \fBerror: Bluetooth device hci7 not found: No such device\fR\. Nothing is printed on standard output, so a caller collecting the scan results in a file does not find the failure among them\.
+.P
+An inquiry asked for with \fB\-s\fR that the adapter refused exits 1 as well, with \fBerror: the BlueZ inquiry failed: <reason>\fR on standard error: half of what \fB\-s\fR asked for did not happen\. The Ubertooth half still runs \(em it needs no adapter \(em and its results are printed\. A device that will not take the connection \fB\-x\fR needs, or that will not report its channel map, is named the same way and its report stops there; the scan itself carries on and its status is unaffected\.
 .P
 A capture that could not be started at all exits 1 as well, whichever step failed: the receive transfer libusb would not take, the host thread that collects the capture, or the request that puts the board in its capture mode\. Standard output holds whatever a \fB\-s\fR inquiry printed before that and nothing else; standard error carries the one \fBerror:\fR line for the step that failed\. The capture request is named the way the sweep request below is, with the reason the board gave and the libusb code\. The status is 1 in every case, never the failing call's own return value: a negative libusb code handed to the exit status is wrapped into a byte, so \fBlibusb \-9\fR reached a script as 247\.
 .P

@@ -186,3 +186,22 @@ const char* follow_afh_handle_refusal(int have_remote_address, int have_handle)
 		       "was established";
 	return NULL;
 }
+
+void afh_map_line(const uint8_t* map, char* buf, size_t len)
+{
+	/* Two hex digits per byte of the map, and the terminator. */
+	char hex[2 * FOLLOW_AFH_MAP_BYTES + 1];
+	size_t byte;
+
+	if (buf == NULL || len == 0)
+		return;
+	buf[0] = '\0';
+	if (map == NULL)
+		return;
+
+	/* A byte at a time, so the length comes from the map and not from the
+	 * number of arguments in a format string. */
+	for (byte = 0; byte < FOLLOW_AFH_MAP_BYTES; byte++)
+		snprintf(hex + 2 * byte, 3, "%02x", map[byte]);
+	snprintf(buf, len, "AFH map: 0x%s", hex);
+}
