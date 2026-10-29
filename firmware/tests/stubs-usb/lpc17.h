@@ -51,6 +51,10 @@ volatile uint32_t *fake_rxdata_reg(void);
  *
  * USBEpIntSt is a function for the same reason: it has to answer with the
  * endpoint events that are still waiting.
+ *
+ * The four staged registers are write-only, as they are on the part. Reading
+ * one through its macro would both return the staging slot rather than any
+ * register and leave a write armed, so the code under test must not.
  */
 volatile uint32_t *fake_devintclr_reg(void);
 volatile uint32_t *fake_devintset_reg(void);

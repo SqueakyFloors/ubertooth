@@ -882,20 +882,21 @@ DEBUG_LED_OFF(8);
                  * USBEpIntSt (section 11.10.3.1, Table 202), so the loop
                  * index serves as both.
                  *
-                 * The controller would bring the firmware back here on its
-                 * own: a bit standing in USBEpIntSt is what sets EP_SLOW in
-                 * USBDevIntSt in the first place (section 11.10.3.1), and
-                 * section 11.10.2.4 asks software to clear the endpoint's bit
-                 * before clearing EP_SLOW -- advice that only makes sense if
-                 * a bit left standing puts EP_SLOW straight back. This loop
-                 * clears EP_SLOW in the other order, before it looks at the
-                 * endpoints, so that it notices an event arriving while it
-                 * runs.
+                 * The controller may well bring the firmware back here on its
+                 * own, but the manual does not promise it. What it says is
+                 * that a bit set in USBEpIntSt causes EP_SLOW in USBDevIntSt
+                 * to be set (section 11.10.3.1), and that software should
+                 * clear the endpoint's bit before clearing EP_SLOW
+                 * (section 11.10.2.4) -- advice that reads as a bit left
+                 * standing putting EP_SLOW straight back, though it is not
+                 * said outright. This loop clears EP_SLOW in the other order,
+                 * before it looks at the endpoints, so that an event arriving
+                 * while it runs is noticed.
                  *
-                 * The deferral below writes EP_SLOW into USBDevIntSet anyway,
-                 * which the manual documents plainly (section 11.10.2.5,
-                 * Table 199), so the next service pass comes back here
-                 * whichever way the controller behaves.
+                 * So the deferral below writes EP_SLOW into USBDevIntSet
+                 * itself, which the manual does document plainly
+                 * (section 11.10.2.5, Table 199), and the next service pass
+                 * comes back here whichever way the controller behaves.
                  *
                  * Marked for the breadcrumb from here to the interrupt
                  * clear: every step between the two is a handshake with the

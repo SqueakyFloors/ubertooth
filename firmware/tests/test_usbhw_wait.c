@@ -75,6 +75,9 @@ static uint32_t ep_status[32];
 /* The answer the engine has ready for the data phase of the command it just
  * ran, or -1 if that command has no answer of its own. */
 static int engine_answer;
+/* A command in the 0x40 to 0x5F range, waiting for the phase that follows to
+ * say which of the two commands sharing those codes it was, or -1 for none. */
+static int pending_ep_command;
 /* The status the controller reports from the write that clears an endpoint's
  * interrupt, when a test wants it to differ from the one Select Endpoint
  * reported: that is an event arriving between the two commands. It becomes
@@ -91,16 +94,17 @@ static unsigned clear_polls_left;
  */
 static uint32_t devint_latch;
 /*
- * Does the controller raise EP_SLOW again from an endpoint bit that is still
- * standing in USBEpIntSt? On the part it does: UM10360 section 11.10.3.1 has
- * a bit set in USBEpIntSt causing EP_SLOW (or EP_FAST) in USBDevIntSt to be
- * set, and section 11.10.2.4 asks software to clear the endpoint interrupts
- * before clearing EP_SLOW, which is advice that only makes sense if a
- * standing bit puts EP_SLOW straight back. So the fake does it by default.
+ * Does the controller raise EP_SLOW again from an endpoint bit still standing
+ * in USBEpIntSt? UM10360 reads as though it does -- section 11.10.3.1 has a
+ * bit set in USBEpIntSt causing EP_SLOW in USBDevIntSt to be set (EP_FAST for
+ * an endpoint routed there by USBEpIntPri, which this firmware leaves at
+ * zero), and section 11.10.2.4 asks software to clear the endpoint interrupts
+ * before clearing EP_SLOW, advice that makes sense if a standing bit puts it
+ * straight back -- but it does not say so outright.
  *
- * A test turns it off to show that the firmware gets back to a deferred event
- * on its own, through the EP_SLOW it writes to USBDevIntSet, without relying
- * on this.
+ * So the fake leaves it off by default, and the firmware has to come back to
+ * a deferred event on its own, through the EP_SLOW it writes to USBDevIntSet.
+ * One test turns it on, to show the firmware is right either way.
  */
 static int ep_slow_rederived;
 
@@ -137,16 +141,19 @@ static volatile uint32_t staged_value;
  * before that clearing, which is why a setup packet can be read out of it
  * exactly once.
  *
+ * @param answers whether this is the endpoint whose status is answered with
  * @return the status byte the command answers with
  */
-static uint32_t fake_select_endpoint_clear(unsigned idx)
+static uint32_t fake_select_endpoint_clear(unsigned idx, int answers)
 {
 	uint32_t reported;
 
 	/* A packet arriving between the firmware's two commands changes the
-	 * endpoint's status before this one reads it. */
-	if (ep_status_at_clear >= 0)
-		ep_status[idx] = (uint32_t)ep_status_at_clear;
+	 * endpoint's status before this one reads it. A test that describes
+	 * one arrival means one, so only the endpoint being answered for gets
+	 * it. */
+	if (answers && ep_status_at_clear >= 0)
+		ep_status[idx] = (uint32_t)ep_status_at_clear & 0xffu;
 
 	reported = ep_status[idx];
 	ep_pending &= ~(1u << idx);
@@ -158,10 +165,13 @@ static uint32_t fake_select_endpoint_clear(unsigned idx)
 /*
  * The protocol engine runs the command the firmware just wrote.
  *
- * Only the command phase is acted on; the data phase that follows a read
- * hands over the byte this left ready. A command the fake does not model
- * leaves USBCmdData alone, so a test can still put an answer there by hand --
- * that is how the device status read is driven.
+ * The commands modelled are the ones that decide whether an endpoint's event
+ * and its setup indication survive. Any other command leaves USBCmdData
+ * alone, so a test can still put an answer there by hand -- that is how the
+ * device status read is driven. Clear Buffer and Validate Buffer are not
+ * modelled either: whether a packet is there to be read is `packet_ready` and
+ * USBRxPLen, not the status byte, so reading an endpoint does not clear
+ * EPSTAT_FE here as it would on the part.
  */
 static void fake_engine_command(uint32_t code)
 {
@@ -172,21 +182,45 @@ static void fake_engine_command(uint32_t code)
 	uint8_t cmd = (uint8_t)((code >> 16) & 0xffu);
 	uint32_t phase = (code >> 8) & 0xffu;
 
-	if (phase == 0x05u) {
+	switch (phase) {
+	case 0x05u:
 		/* a command, which the engine runs now */
 		engine_answer = -1;
+		pending_ep_command = -1;
 		if (cmd <= 0x1fu) {
 			/* Select Endpoint: answers with the status and
 			 * consumes nothing (UM10360 section 11.12.10). */
 			engine_answer = (int)ep_status[cmd];
 		} else if (cmd >= 0x40u && cmd <= 0x5fu) {
-			engine_answer =
-				(int)fake_select_endpoint_clear(cmd & 0x1fu);
+			/* Select Endpoint/Clear Interrupt and Set Endpoint
+			 * Status share these command codes (UM10360
+			 * sections 11.12.11 and 11.12.12), and what tells
+			 * them apart is the phase that follows: a byte read
+			 * for the first, a byte written for the second. So
+			 * this one waits to find out, and a stall -- which is
+			 * Set Endpoint Status -- does not take an endpoint's
+			 * event away. */
+			pending_ep_command = (int)(cmd & 0x1fu);
 		}
-	} else if (phase == 0x02u && engine_answer >= 0) {
-		/* the data phase of a read: the byte is there to be read */
-		fake_cmddata = (uint32_t)engine_answer;
-		engine_answer = -1;
+		break;
+	case 0x02u:
+		/* a byte read back: it was Select Endpoint/Clear Interrupt */
+		if (pending_ep_command >= 0) {
+			engine_answer = (int)fake_select_endpoint_clear(
+				(unsigned)pending_ep_command, 1);
+			pending_ep_command = -1;
+		}
+		if (engine_answer >= 0) {
+			fake_cmddata = (uint32_t)engine_answer;
+			engine_answer = -1;
+		}
+		break;
+	case 0x01u:
+		/* a byte written: it was Set Endpoint Status */
+		pending_ep_command = -1;
+		break;
+	default:
+		break;
 	}
 }
 
@@ -194,7 +228,7 @@ static void fake_apply_writes(void)
 {
 	enum staged_reg which = staged_which;
 	uint32_t v = staged_value;
-	uint32_t status = 0;
+	uint32_t status;
 	int answered;
 	unsigned i;
 
@@ -215,13 +249,14 @@ static void fake_apply_writes(void)
 		 * endpoint whose bit was written: the event is consumed here
 		 * and nowhere else. The data register ends up with the status
 		 * of the lowest-numbered endpoint of them, which is the one
-		 * the manual says it answers with (UM10360 section 11.10.3.3);
-		 * the firmware writes one bit at a time anyway. */
+		 * the manual says will be the one available at the end of the
+		 * operation (UM10360 section 11.10.3.3); the firmware writes
+		 * one bit at a time anyway. */
 		answered = 0;
 		for (i = 0; i < 32; ++i) {
 			if ((v & (1u << i)) == 0)
 				continue;
-			status = fake_select_endpoint_clear(i);
+			status = fake_select_endpoint_clear(i, !answered);
 			if (!answered)
 				fake_cmddata = status;
 			answered = 1;
@@ -291,7 +326,7 @@ static void fake_ep_status(uint32_t bits, uint32_t status)
 	fake_apply_writes();
 	for (i = 0; i < 32; ++i)
 		if (bits & (1u << i))
-			ep_status[i] = status;
+			ep_status[i] = status & 0xffu;
 }
 
 /* A setup packet arrives on the control endpoint: an event on endpoint 0 with
@@ -372,8 +407,8 @@ volatile uint32_t *fake_devintst(void)
 	if (sie_fail_cmd >= 0
 	    && (int)((fake_cmdcode >> 16) & 0xffu) == sie_fail_cmd)
 		answers = 0;
-	/* An endpoint event still waiting raises EP_SLOW again, as it does on
-	 * the part. */
+	/* A controller that raises EP_SLOW again from an endpoint event still
+	 * waiting. */
 	if (ep_slow_rederived && ep_pending != 0)
 		devint_latch |= EP_SLOW;
 	ready = answers ? (CCEMTY | CDFULL | EP_RLZED) : 0u;
@@ -429,7 +464,8 @@ static void fake_reset(void)
 	clear_answer_withheld = 0;
 	clear_polls_left = 0;
 	devint_latch = 0;
-	ep_slow_rederived = 1;
+	ep_slow_rederived = 0;
+	pending_ep_command = -1;
 	staged_which = STAGED_NONE;
 	staged_value = 0;
 	fake_devintclr = 0;
@@ -1907,10 +1943,9 @@ MU_TEST(test_a_given_up_setup_packet_is_not_left_to_look_like_data)
 
 /*
  * A deferred event is looked at again whether or not the controller raises
- * EP_SLOW from the endpoint bit that is still standing. On the part it does
- * (UM10360 section 11.10.3.1), which is why the fake does it as well; this
- * test turns that off to show the EP_SLOW the firmware writes to USBDevIntSet
- * is enough on its own.
+ * EP_SLOW from the endpoint bit still standing. Without its help first: the
+ * EP_SLOW the firmware writes to USBDevIntSet is enough on its own, which is
+ * what the rest of these tests rely on.
  */
 MU_TEST(test_a_deferred_event_comes_back_without_the_controllers_help)
 {
@@ -1933,6 +1968,48 @@ MU_TEST(test_a_deferred_event_comes_back_without_the_controllers_help)
 	sie_answers = 1;
 	USBHwISR();
 	mu_assert_int_eq(2, (int)ep_handler_calls);
+}
+
+/* And with its help: a controller that raises EP_SLOW itself must not make
+ * the firmware do anything different -- it writes EP_SLOW back as well, and
+ * two sources for the same bit are still one bit. */
+MU_TEST(test_a_deferred_event_comes_back_when_the_controller_raises_ep_slow)
+{
+	isr_test_setup();
+	fake_ep_status(EP82_BIT, EPSTAT_FE);
+	ep_slow_rederived = 1;
+
+	fake_raise_ep_event(EP82_BIT);
+	USBHwISR();                     /* a clean pass, for the one-shot */
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	mu_assert(fake_ep_event_pending(EP82_BIT), "the event is deferred");
+
+	sie_answers = 1;
+	USBHwISR();
+	mu_assert_int_eq(2, (int)ep_handler_calls);
+	mu_assert(!fake_ep_event_pending(EP82_BIT), "and then handled");
+}
+
+/* A stall is Set Endpoint Status, which shares its command codes with Select
+ * Endpoint/Clear Interrupt. It must not take the endpoint's event or its
+ * setup indication away: a control request stalled for one reason would
+ * otherwise disappear before the endpoint loop ever saw it. */
+MU_TEST(test_stalling_an_endpoint_does_not_consume_its_event)
+{
+	ep0_isr_test_setup();
+	fake_raise_setup_event();
+
+	USBHwEPStall(0x00, TRUE);
+	USBHwEPStall(0x00, FALSE);
+
+	mu_assert(fake_ep_event_pending(EP0_BIT),
+	          "a stall must leave the endpoint's event waiting");
+	mu_assert(fake_ep_setup_pending(EP0_OUT_IDX),
+	          "and its setup indication with it");
 }
 
 /* A device status event whose read works reaches the handler. */
@@ -2246,6 +2323,8 @@ int main(void)
 	MU_RUN(test_a_deferred_setup_packet_is_still_a_setup_packet);
 	MU_RUN(test_a_given_up_setup_packet_is_not_left_to_look_like_data);
 	MU_RUN(test_a_deferred_event_comes_back_without_the_controllers_help);
+	MU_RUN(test_a_deferred_event_comes_back_when_the_controller_raises_ep_slow);
+	MU_RUN(test_stalling_an_endpoint_does_not_consume_its_event);
 	MU_RUN(test_a_device_status_event_reaches_its_handler);
 	MU_RUN(test_a_failed_device_status_read_is_retried_once);
 	MU_RUN(test_a_dropped_device_status_event_leaves_the_next_one_its_retry);
