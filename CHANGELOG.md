@@ -401,6 +401,18 @@
   `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
   from the interpreter.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
+- **Script-visible change:** `ubertooth-btbr` keeps its prompt and its
+  `Type ? to list commands` line out of a capture, so every line of one can
+  be read by the time in front of it. The prompt carries no newline of its
+  own, so the first packet after each one used to land on its end
+  (`bt> 12:14:53 RX FHS: ...`). A session at a terminal is unchanged: the
+  terminal's line editor still draws the prompt.
+  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
+- `ubertooth-btbr` no longer reports standard output gone when the reader
+  left before any packet was printed: nothing had been written to that
+  stream, so nothing asked for was lost and the session ends as it otherwise
+  would. The prompt used to be written there, which is what noticed.
+  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
 - `-V` is the version command in every tool, and prints the same labelled
   lines whichever tool you ask: the two host lines above, then
   `Firmware version: ...` and `Firmware build: ...` for the board `-U` names,
@@ -439,6 +451,15 @@
 
 ### Build and compatibility
 
+- `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
+  on their own against an installed libubertooth, which is what
+  `FindUBERTOOTH.cmake` is for. CMake 4 refused the directory outright,
+  because nothing there said which CMake versions it was written for, and
+  before that the first `find_package` failed because nothing pointed at the
+  Find modules beside it. The tools built that way now ask glibc for the
+  interfaces they use, as a build of the whole tree does, so a strict C
+  standard works there too.
+  [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead

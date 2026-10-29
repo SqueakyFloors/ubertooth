@@ -147,16 +147,21 @@ That time is the only timing a session has\. An inquiry response is the response
 .P
 A session holding a connection \-\- \fBpage\fR, \fBl2ping\fR, \fBpage_scan\fR, \fBdiscoverable\fR \-\- reports each LMP packet the same way, with the baseband header and the PDU named and in hex\. It also traces the same exchange on standard error, where the link manager adds the state it was in and the seconds since the connection came up; that trace is a diagnostic, and the capture is what standard output holds\.
 .P
-The prompt, the \fBType ? to list commands\fR line and whatever \fB?\fR prints are on standard output as well, and the prompt carries no newline of its own, so the first packet printed while the prompt is up lands on the end of it\. The progress a command makes is on standard error, as plain lines carrying neither the time nor a level:
+The prompt and the \fBType ? to list commands\fR line are on standard error, with the progress a command makes, as plain lines carrying neither the time nor a level\. The prompt has no newline of its own, so the first progress line after it lands on its end, as it does on a terminal:
 .IP "" 4
 .nf
-Starting BTCtlInquiryCmd
+Type ? to list commands
+bt> Starting BTCtlInquiryCmd
 Inquiry state Ready
 Inquiry done
 .fi
 .IP "" 0
+.P
+Every line of a capture can therefore be read by the time in front of it: the prompt carries no newline of its own, and on standard output it would land on the front of the next packet\. What \fB?\fR prints is on standard output, as is the usage text \fB\-h\fR prints: each is what the user asked for\.
+.P
+A session at a terminal leaves the prompt to the terminal's line editor, which draws it on the terminal as it always has and keeps the cursor right while a line is edited\. Nothing is reading standard output there, so nothing is in the way\.
 .SH "DIAGNOSTICS"
-Standard output carries the packets a command decodes, the prompt, and the usage text \fB\-h\fR prints; see OUTPUT\. Everything else goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong during a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
+Standard output carries the packets a command decodes, what \fB?\fR prints, and the usage text \fB\-h\fR prints; see OUTPUT\. Everything else, the intro line and the prompt of a session nobody is editing at a terminal included, goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong during a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
 .P
 An option value outside 0\-65535, or one that is not a number, is refused before the board is opened: \fBerror: \-f must be 0\-65535 (got bad)\fR, exit status 1\. An address the prompt will not take is one line, \fBerror: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)\fR, and leaves the prompt up\.
 .P
@@ -173,7 +178,7 @@ warning: BTCtlInquiryCmd: the device did not go idle, stopping anyway
 .P
 and a request that failed some other way gives \fBerror: <command> stopped: <type>: \|\.\|\.\|\.\fR\. The prompt stays up in every case, and a command that will not stop at all leaves the board claimed, which is reported on the way out (see EXIT STATUS)\.
 .P
-Standard output going away is one line, \fBerror: standard output has gone away\fR, said once however many writes find it gone\. A capture piped into something that stops reading, as \fBubertooth\-btbr | head \-5\fR does, therefore leaves the prompt up with nothing more printed, and the session ends with exit 1; so does a \fB\-h\fR whose usage text could not be delivered\. If standard error has gone the same way, the exit status is all that is left to say it with\.
+Standard output going away is one line, \fBerror: standard output has gone away\fR, said once however many writes find it gone\. A capture piped into something that stops reading, as \fBubertooth\-btbr | head \-5\fR does, therefore leaves the prompt up with nothing more printed, and the session ends with exit 1; so does a \fB\-h\fR whose usage text could not be delivered\. A session that had printed nothing when the reader left has lost nothing and ends as it otherwise would\. If standard error has gone the same way, the exit status is all that is left to say it with\.
 .P
 With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\. A selection that names no board, or more than one, is refused the same way; see SELECTING A DEVICE\. A board that cannot be opened is \fBerror: could not open Ubertooth <serial>: <reason>\fR, with a \fBnote:\fR about file permissions when the open was refused for want of them\. A board another program is using opens, and is then refused when the session claims its USB interface: \fBerror: Ubertooth <serial> is in use by another program (libusb \-6)\fR, the line every tool gives for that\. Which libusb code it carries depends on the system, \fB\-6\fR on Linux and \fB\-3\fR on macOS; see ubertooth(7), WHEN A BOARD CANNOT BE USED\. A board that takes none of the requests the session opens with gets \fBerror: could not set up Ubertooth <serial>: \|\.\|\.\|\.\fR and, when the request timed out, a \fBnote:\fR naming \fBbluetooth_rxtx\fR and the image to flash: that is nearly always what such a board is carrying, though a board already carrying \fBbtbr\fR that stopped answering times out the same way\. See FIRMWARE\.
 .SH "EXIT STATUS"

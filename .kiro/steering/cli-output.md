@@ -30,6 +30,15 @@ stream a line is on.
   test", which is the tool talking about itself, stays on standard error with
   the progress lines below. Do not read it as licence to move other progress.
 - The usage text when the user asked for it with `-h`.
+- Nothing of an interactive prompt. `ubertooth-btbr`'s `bt> ` and its intro
+  line are on standard error (#800): a prompt is the tool saying it is ready,
+  and it carries no newline, so on standard output it lands on the front of
+  the next packet. The one exception is a session at a terminal, where the
+  terminal's line editor is the thing drawing the prompt and uses its width
+  to redraw the line being edited: a prompt written behind the editor's back
+  is cleared off the screen on Ctrl-L and leaves the cursor short by its own
+  width on Ctrl-A. Nothing is reading standard output there, so the editor
+  keeps it.
 
 ### `-h` beside another option that ends the command
 

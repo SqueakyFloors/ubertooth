@@ -1071,7 +1071,7 @@ running = tool()
 output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
 assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
-assert "Type ? to list commands" in output, output
+assert "Type ? to list commands" in errors, errors
 assert IDLE_PACKET in writes(), writes()
 # and every request was given a timeout. Without one, a device that takes
 # none of them leaves the tool inside a libusb call no interrupt can reach.
@@ -1167,9 +1167,9 @@ running.stdin.flush()
 assert wait_until(lambda: INQUIRY_SCAN_PACKET in writes()), writes()
 sent = writes()
 # The command below is typed only once the interrupt has been handled, which
-# is what the prompt the tool prints before each line it reads says: the
-# third one is printed by the read that takes that command, and the prompt
-# only gets there by way of the KeyboardInterrupt the signal raised. A line
+# is what the prompt the tool writes for each line it reads says: the third
+# one is written for the read that takes that command, and the prompt only
+# gets there by way of the KeyboardInterrupt the signal raised. A line
 # written straight after the signal instead races it, and can be taken off
 # the pipe by the very read the signal interrupts: the interrupt then comes
 # out of that read in place of the line, which loses it the way Ctrl-C loses
@@ -1180,42 +1180,46 @@ seen = bytearray()
 
 
 def prompts_printed():
-    """How many lines the tool has asked for, as far as it has run."""
+    """How many lines the tool has asked for, as far as it has run.
+
+    The prompt is on standard error, so that is the stream read here; the
+    progress lines come with it, which is what the count skips past.
+    """
     try:
-        seen.extend(os.read(running.stdout.fileno(), 4096))
+        seen.extend(os.read(running.stderr.fileno(), 4096))
     except BlockingIOError:
         pass
-    return seen.count(tool_module.BTCtlPrompt.prompt.encode())
+    return seen.count(tool_module.BTCtlPrompt.PROMPT.encode())
 
 
 def what_the_tool_did():
     """What to report if a wait below runs out.
 
     Neither wait reaches communicate(), so nothing else would drain standard
-    error, and the prompts alone say almost nothing. Only called from a
-    failing assert, where consuming standard error costs nothing.
+    output. Only called from a failing assert, where consuming it costs
+    nothing.
     """
-    os.set_blocking(running.stderr.fileno(), False)
+    os.set_blocking(running.stdout.fileno(), False)
     try:
-        errors = os.read(running.stderr.fileno(), 1 << 16)
+        output = os.read(running.stdout.fileno(), 1 << 16)
     except BlockingIOError:
-        errors = b""
+        output = b""
     finally:
-        os.set_blocking(running.stderr.fileno(), True)
+        os.set_blocking(running.stdout.fileno(), True)
     return ("stdout: %r, stderr: %r, exit: %s"
-            % (bytes(seen), errors, running.poll()))
+            % (output, bytes(seen), running.poll()))
 
 
-os.set_blocking(running.stdout.fileno(), False)
+os.set_blocking(running.stderr.fileno(), False)
 assert wait_until(lambda: prompts_printed() >= 2), what_the_tool_did()
 running.send_signal(signal.SIGINT)
 assert wait_until(lambda: prompts_printed() >= 3), what_the_tool_did()
-os.set_blocking(running.stdout.fileno(), True)
+os.set_blocking(running.stderr.fileno(), True)
 output, errors = running.communicate("inquiry\nq\n", timeout=DEADLINE * 2)
 # whatever was read above to see the prompts, so a failure below still shows
 # everything the tool printed. Decoded leniently because these are raw pipe
 # bytes, and a failure must not turn into a decode error.
-output = seen.decode(errors="replace") + output
+errors = seen.decode(errors="replace") + errors
 assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
 assert "Exception in thread" not in errors, errors
@@ -1326,13 +1330,13 @@ def canned_session(typed, packets, until):
 
 
 def timed_lines(output, text):
-    """The lines of standard output holding the text, without the prompt.
+    """The lines of standard output holding the text.
 
-    The prompt shares standard output and carries no newline of its own, so
-    the first line printed while it is up lands on the end of it.
+    Nothing has to be cut off them: the prompt and the intro are on standard
+    error, so every line of this stream is a packet with the time in front
+    of it.
     """
-    return [line.split(tool_module.BTCtlPrompt.prompt)[-1]
-            for line in output.splitlines() if text in line]
+    return [line for line in output.splitlines() if text in line]
 
 
 def time_prefixed(errors):
@@ -1370,6 +1374,57 @@ assert "Starting BTCtlInquiryCmd\n" in errors, errors
 assert "| INFO |" not in errors and "| DEBUG |" not in errors, errors
 assert time_prefixed(errors) == [], errors
 print("ubtbr: a decoded packet goes to standard output, progress to standard error")
+
+# and every line of that stream is a packet, so a reader can take them by
+# their time alone. The prompt and the intro used to be there too, and the
+# prompt carries no newline of its own, so the first packet after each one
+# landed on its end ("bt> 12:14:53 RX FHS: ..."). One prompt per command the
+# session read, on standard error, and none after the command that ended it.
+PROMPT = tool_module.BTCtlPrompt.PROMPT
+INTRO = tool_module.BTCtlPrompt.intro
+assert all(re.match(r"\d\d:\d\d:\d\d ", line)
+           for line in output.splitlines()), output
+assert PROMPT not in output and INTRO not in output, output
+assert INTRO + "\n" in errors, errors
+assert errors.count(PROMPT) == 2, errors
+print("ubtbr: the prompt and the intro are on standard error")
+
+
+# A session at a terminal leaves the prompt to Cmd, which hands it to the
+# terminal's line editor: the editor draws it and counts its width while it
+# redraws the line being edited, so one written behind its back would put the
+# cursor four columns out on Ctrl-A. It only runs with a terminal on both
+# standard input and standard output, and then standard error is the same
+# terminal, so the user sees the prompt either way. Checked on the class
+# rather than through a pseudo-terminal, because what is being pinned is
+# which of the two writes it.
+class FakeStream:
+    def __init__(self, terminal):
+        self._terminal = terminal
+
+    def isatty(self):
+        return self._terminal
+
+
+def prompt_with_streams(stdin_is_terminal, stdout_is_terminal):
+    """The prompt Cmd is left holding for streams of the given kind."""
+    saved = sys.stdin, sys.stdout
+    sys.stdin = FakeStream(stdin_is_terminal)
+    sys.stdout = FakeStream(stdout_is_terminal)
+    try:
+        return tool_module.BTCtlPrompt(None).prompt
+    finally:
+        sys.stdin, sys.stdout = saved
+
+
+assert prompt_with_streams(True, True) == PROMPT
+# a capture on standard output, however the commands arrive, and a terminal
+# that is only being typed at: Cmd is left with no prompt, and say_prompt()
+# writes it to standard error.
+assert prompt_with_streams(True, False) == ""
+assert prompt_with_streams(False, True) == ""
+assert prompt_with_streams(False, False) == ""
+print("ubtbr: a terminal session leaves the prompt to the line editor")
 
 # a session holding a connection reports the LMP packets it decodes the same
 # way, named and in hex, so a capture of a connection reads on its own. The
@@ -1437,22 +1492,36 @@ assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a capture whose reader went away is reported, and exits 1")
 
-# and the same when the reader leaves with no packet left to print, which is
-# `ubertooth-btbr | head -1`: the prompt and the intro are on that stream
-# too, and the write that finds it gone is then the session's last flush.
-# CPython's input() hides the failure while printing the prompt, so nothing
-# on the way noticed it.
+# a reader that leaves before any packet is printed costs the session
+# nothing, because the prompt and the intro are not on that stream: nothing
+# was written to it, so nothing asked for was lost and the session ends
+# cleanly. It used to report the stream gone and exit 1, the prompt having
+# been written into it.
 running = tool()
 running.stdout.close()
 running.stdin.write("q\n")
 running.stdin.flush()
 running.stdin.close()
 errors = running.stderr.read()
-assert running.wait(timeout=DEADLINE) == 1, (running.returncode, errors)
-assert errors.count(OUTPUT_GONE) == 1, errors
+assert running.wait(timeout=DEADLINE) == 0, (running.returncode, errors)
+assert OUTPUT_GONE not in errors, errors
 assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
-print("ubtbr: a reader that leaves before any packet is reported the same way")
+print("ubtbr: a reader that leaves before any packet costs the session nothing")
+
+# standard error closed before the tool started, which is `2>&-`: nothing
+# can be said, and the session fails. That is the interpreter's own rule and
+# not this tool's -- input() wants all three streams and raises "lost
+# sys.stderr" without one -- so the prompt never gets as far as being read.
+# Nothing on standard output and exit 1, which is all that is left to say it
+# with.
+running = subprocess.Popen([sys.executable, WRAPPER], stdin=subprocess.PIPE,
+                           stdout=subprocess.PIPE, text=True,
+                           env=ENVIRONMENT, preexec_fn=lambda: os.close(2))
+output, _ = running.communicate("q\n", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output)
+assert output == "", output
+print("ubtbr: a session with standard error closed fails, saying nothing")
 
 # the usage text has nowhere to go either: one line, and the 0 that -h would
 # have exited with becomes 1, because what was asked for was not printed

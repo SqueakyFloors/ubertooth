@@ -189,23 +189,35 @@ standard error, where the link manager adds the state it was in and the
 seconds since the connection came up; that trace is a diagnostic, and the
 capture is what standard output holds.
 
-The prompt, the `Type ? to list commands` line and whatever `?` prints are on
-standard output as well, and the prompt carries no newline of its own, so the
-first packet printed while the prompt is up lands on the end of it. The
-progress a command makes is on standard error, as plain lines carrying
-neither the time nor a level:
+The prompt and the `Type ? to list commands` line are on standard error, with
+the progress a command makes, as plain lines carrying neither the time nor a
+level. The prompt has no newline of its own, so the first progress line after
+it lands on its end, as it does on a terminal:
 
-    Starting BTCtlInquiryCmd
+    Type ? to list commands
+    bt> Starting BTCtlInquiryCmd
     Inquiry state Ready
     Inquiry done
 
+Every line of a capture can therefore be read by the time in front of it: the
+prompt carries no newline of its own, and on standard output it would land on
+the front of the next packet. What `?` prints is on standard output, as is the
+usage text `-h` prints: each is what the user asked for.
+
+A session at a terminal leaves the prompt to the terminal's line editor, which
+draws it on the terminal as it always has and keeps the cursor right while a
+line is edited. Nothing is reading standard output there, so nothing is in the
+way.
+
 ## DIAGNOSTICS
 
-Standard output carries the packets a command decodes, the prompt, and the
-usage text `-h` prints; see OUTPUT. Everything else goes to standard error. A
-command line the tool will not take, a board it cannot select, open or set up,
-and anything that goes wrong during a session, are reported as the one-line
-`error: `, `warning: ` and `note: ` lines the other tools use.
+Standard output carries the packets a command decodes, what `?` prints, and
+the usage text `-h` prints; see OUTPUT. Everything else, the intro line and
+the prompt of a session nobody is editing at a terminal included, goes to
+standard error. A command line the tool will not take, a board it cannot
+select, open or set up, and anything that goes wrong during a session, are
+reported as the one-line `error: `, `warning: ` and `note: ` lines the other
+tools use.
 
 An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
@@ -235,9 +247,10 @@ Standard output going away is one line, `error: standard output has gone
 away`, said once however many writes find it gone. A capture piped into
 something that stops reading, as `ubertooth-btbr | head -5` does, therefore
 leaves the prompt up with nothing more printed, and the session ends with
-exit 1; so does a `-h` whose usage text could not be delivered. If standard
-error has gone the same way, the exit status is all that is left to say it
-with.
+exit 1; so does a `-h` whose usage text could not be delivered. A session
+that had printed nothing when the reader left has lost nothing and ends as it
+otherwise would. If standard error has gone the same way, the exit status is
+all that is left to say it with.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused

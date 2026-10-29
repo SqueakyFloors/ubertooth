@@ -2168,6 +2168,16 @@ int ubertooth_device_gone(const void* board)
 #define STALLED_STATE ""
 #endif
 
+/* How many lines that report puts on standard error for one stalled request:
+ * one when the library's own report is compiled in, none when it is the stub
+ * above. The counting cases below add it up rather than naming a total, so
+ * they hold in both configurations. */
+#ifdef TEST_REAL_API_REPORTS
+#define STALLED_REQUEST_LINES 1
+#else
+#define STALLED_REQUEST_LINES 0
+#endif
+
 /* A programming transfer that fails: both attempts, the control-request
  * failure under them and the line that gives up are all on standard error,
  * each starting "error: ", and nothing is left on standard output. */
@@ -2256,7 +2266,7 @@ MU_TEST(a_flash_failing_part_way_finishes_its_row_of_dots_first)
 	mu_assert(strstr(r.err, ".error:") == NULL,
 	          "an error line started in the middle of the row of dots");
 	/* One stalled block write per attempt, and the line that gives up. */
-	mu_assert_int_eq(3, error_lines(r.err));
+	mu_assert_int_eq(1 + 2 * STALLED_REQUEST_LINES, error_lines(r.err));
 }
 
 /* The status read after a block is the other failure that can land mid-row. */
@@ -2274,7 +2284,7 @@ MU_TEST(a_status_read_failing_part_way_finishes_its_row_of_dots_first)
 	          "the row of dots was not finished");
 	mu_assert(strstr(r.err, ".error:") == NULL,
 	          "an error line started in the middle of the row of dots");
-	mu_assert_int_eq(3, error_lines(r.err));
+	mu_assert_int_eq(1 + 2 * STALLED_REQUEST_LINES, error_lines(r.err));
 }
 
 /* A read-back failing part way has the same rows of dots to finish. */

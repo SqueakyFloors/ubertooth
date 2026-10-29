@@ -284,9 +284,9 @@ def result(msg):
 	"""
 	now = strftime("%H:%M:%S")
 	try:
-		# Written in one go, because the prompt is on this stream too and
-		# runs on another thread: a message of several lines would otherwise
-		# be broken apart by a prompt landing between them.
+		# Written in one go, so that a message of several lines reaches the
+		# reader whole: an inquiry response and the EIR fields under it are
+		# one message, and nothing should land between their lines.
 		sys.stdout.write("".join("%s %s\n"%(now, line)
 			for line in msg.splitlines() if line))
 		sys.stdout.flush()
