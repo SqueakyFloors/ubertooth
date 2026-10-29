@@ -120,9 +120,11 @@ static void dirty_the_stack(void)
 	sink = scratch[0];
 }
 
-/* What the run left on the handle and on standard error: how many gaps the
- * callback counted, and the warnings it printed. */
+/* What the run left on the handle and on standard error: how many gaps and
+ * how many capture transfer errors the callback counted, and the warnings it
+ * printed. */
 static uint32_t gaps;
+static uint32_t transfer_errors;
 static char errors[1024];
 
 /* Runs the queued records through the real callback, one call each. The
@@ -186,8 +188,10 @@ static void run_capture(void)
 		fclose(err);
 	}
 
-	/* What ubertooth_queue_gaps() hands a tool at the end of a capture. */
+	/* What ubertooth_queue_gaps() and ubertooth_transfer_errors() hand a
+	 * tool at the end of a capture. */
 	gaps = ut.queue_gaps;
+	transfer_errors = ut.transfer_errors;
 	free(ut.fifo);
 }
 
@@ -373,6 +377,77 @@ MU_TEST(a_discarded_record_still_reports_its_gap)
 	mu_assert_int_eq(1, times_said(GAP_WARNING));
 }
 
+/* ---- the packets a faulted transfer leaves behind ---------------------- */
+
+#define TRANSFER_WARNING "transfer error while capturing"
+
+/*
+ * The board marks DMA_ERROR on a packet it finished receiving as the chip's
+ * transfer controller reported an error. That packet is whole, which is why it
+ * was kept, but a packet the same fault cut short is gone with nothing else to
+ * show for it, so each mark is a place the capture may be missing packets. The
+ * host counted neither engine's mark before this, so such a capture looked
+ * exactly like a clean one.
+ */
+MU_TEST(each_packet_marked_by_a_transfer_error_is_counted_and_warned_once)
+{
+	fill_packet(&next_packets[0]);
+	fill_packet(&next_packets[1]);
+	fill_packet(&next_packets[2]);
+	next_packets[0].status = DMA_ERROR;
+	next_packets[2].status = DMA_ERROR;
+	next_count = 3;
+	run_capture();
+
+	mu_assert_int_eq(2, (int)transfer_errors);
+	mu_assert_int_eq(1, times_said(TRANSFER_WARNING));
+
+	/* The two counts are separate: a faulted transfer is not a full queue,
+	 * and a capture should not be told it has gaps it does not have. */
+	mu_assert_int_eq(0, (int)gaps);
+	mu_assert_int_eq(0, times_said(GAP_WARNING));
+}
+
+MU_TEST(a_capture_with_no_transfer_error_says_nothing)
+{
+	fill_packet(&next_packets[0]);
+	next_count = 1;
+	run_capture();
+
+	mu_assert_int_eq(0, (int)transfer_errors);
+	mu_assert_int_eq(0, times_said(TRANSFER_WARNING));
+}
+
+/*
+ * A long packet arrives as a chain of records that all carry the first one's
+ * readings, this mark among them. One transfer error, counted once.
+ */
+MU_TEST(a_long_packet_marked_by_a_transfer_error_counts_one)
+{
+	const uint16_t total = 120;
+	unsigned i;
+
+	for (i = 0; i * DMA_SIZE < total; i++) {
+		usb_pkt_rx* f = &next_packets[i];
+		uint16_t offset = (uint16_t)(i * DMA_SIZE);
+
+		memset(f, 0, sizeof(*f));
+		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
+		f->status = DMA_ERROR;
+		f->channel = 4;
+		f->clk100ns = htole32(1234);
+		f->reserved[0] = total & 0xff;
+		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		                           (i << LE_FRAG_INDEX_SHIFT));
+	}
+	next_count = i;
+	mu_assert(next_count > 1, "the test packet took one record");
+	run_capture();
+
+	mu_assert_int_eq(1, (int)transfer_errors);
+	mu_assert_int_eq(1, times_said(TRANSFER_WARNING));
+}
+
 int main(void)
 {
 	MU_RUN(a_single_record_decodes_only_the_bytes_it_holds);
@@ -382,5 +457,8 @@ int main(void)
 	MU_RUN(each_dropped_packet_is_counted_and_the_warning_said_once);
 	MU_RUN(a_long_packet_after_a_gap_counts_one_gap);
 	MU_RUN(a_discarded_record_still_reports_its_gap);
+	MU_RUN(each_packet_marked_by_a_transfer_error_is_counted_and_warned_once);
+	MU_RUN(a_capture_with_no_transfer_error_says_nothing);
+	MU_RUN(a_long_packet_marked_by_a_transfer_error_counts_one);
 	return mu_report();
 }

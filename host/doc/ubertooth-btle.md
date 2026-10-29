@@ -411,6 +411,17 @@ only between them. The board reports a gap on the first packet that gets
 through after it, so a capture that ends in the moment after a gap does not
 report that last one.
 
+A capture transfer error is reported the same way. The chip's transfer
+controller can report an error on the channel a capture receives into: a
+packet that was already whole when it happened is kept and marked, and a
+packet the fault cut short is lost. The first mark warns `warning: the board
+had a transfer error while capturing; the packet it is marked on is whole and
+was kept, but this capture may be missing packets around it`, and when the
+capture ends it says how many there were: `warning: the capture has 3 transfer
+errors where the board may have lost a packet`. ubertooth-util(1) `-w` reports
+the board's own count of them since power-on, over every capture the board has
+run.
+
 A poll the board does not answer is tried again, up to three attempts, before
 the capture gives up: a board busy elsewhere for a moment no longer ends a
 capture that has been running for hours. A board that has left the bus ends it

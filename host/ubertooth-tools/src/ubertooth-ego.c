@@ -322,7 +322,7 @@ int main(int argc, char *argv[])
 		/* What the capture is missing, once the packets have scrolled
 		 * past. A gap is a stretch the board had no queue room for, so
 		 * the count is of gaps and not of the packets lost in them. */
-		ubertooth_report_queue_gaps(ut);
+		ubertooth_report_capture_losses(ut);
 
 		/* A teardown the board refused left it running the E-GO mode
 		 * this tool started, and no other tool can open it until it is

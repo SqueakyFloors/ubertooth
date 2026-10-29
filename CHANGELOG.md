@@ -630,6 +630,14 @@
   no number. A capture read back from a file with `ubertooth-rx -i` gives the
   same total, since the gaps are recorded in the packets.
   [#786](https://github.com/SqueakyFloors/ubertooth/issues/786)
+- A capture now also says when the board reported a transfer error while it
+  was receiving: `warning: the board had a transfer error while capturing; the
+  packet it is marked on is whole and was kept, but this capture may be
+  missing packets around it`, and `warning: the capture has 3 transfer errors
+  where the board may have lost a packet` when the capture ends. The board has
+  marked such a packet all along in the Basic Rate modes, and now does in the
+  low-energy ones too, but nothing on the host read the mark.
+  [#849](https://github.com/SqueakyFloors/ubertooth/issues/849)
 - **Script-visible change:** every tool that ends a capture mode exits 1 when
   the board refused the request that ends it. Such a board is left running
   that mode and no other tool can open it until it is reset or re-plugged, so
