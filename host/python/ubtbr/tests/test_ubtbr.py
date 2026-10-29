@@ -1395,19 +1395,22 @@ print("ubtbr: the prompt and the intro are on standard error")
 # time: typed during a piped capture they used to put untimed lines into it,
 # which is what made the stream no longer readable by time alone. A command
 # there is no help for is a request the tool cannot answer, so it reads like
-# the prompt's other refusals rather than Cmd's "*** No help on".
+# the prompt's other refusals rather than Cmd's "*** No help on". Both
+# spellings of asking about one command are typed, the `? page` the man page
+# gives and the `help page` Cmd's own text points at.
 output, errors = canned_session("inquiry", [
     state_message(btctl.BTCTL_STATE_INQUIRY),
     fhs_message(FAKE_BDADDR),
-], until="RX FHS", then="?\nhelp page\nhelp nosuch\n")
+], until="RX FHS", then="?\n? page\n? nosuch\nhelp page\n")
 assert all(re.match(r"\d\d:\d\d:\d\d ", line)
            for line in output.splitlines()), output
 assert "Documented commands" not in output, output
 assert "inquiry_scan" not in output and "BD_ADDR" not in output, output
 assert "Documented commands (type help <topic>):" in errors, errors
 assert "inquiry_scan" in errors, errors
-assert "page <BD_ADDR>: Establish connection with given device\n" in errors, \
-    errors
+# both spellings of the one command, which Cmd takes to the same method
+assert errors.count("page <BD_ADDR>: Establish connection with given"
+                    " device\n") == 2, errors
 assert "error: no help on 'nosuch'\n" in errors, errors
 assert "***" not in errors and "***" not in output, (output, errors)
 assert time_prefixed(errors) == [], errors

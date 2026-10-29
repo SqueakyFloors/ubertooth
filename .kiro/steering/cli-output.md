@@ -40,7 +40,8 @@ stream a line is on.
   to redraw the line being edited: a prompt written behind the editor's back
   is cleared off the screen on Ctrl-L and leaves the cursor short by its own
   width on Ctrl-A. Nothing is reading standard output there, so the editor
-  keeps it.
+  keeps the prompt. The exception is the prompt alone: the intro line and
+  what `?` prints are on standard error at a terminal too.
 
 ### `-h` beside another option that ends the command
 

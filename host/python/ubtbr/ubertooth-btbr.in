@@ -310,11 +310,16 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 class PromptNotes:
 	"""Standard error, as a stream for Cmd to write the prompt's own text to.
 
-	Cmd writes what `?` and `help <command>` print through its `stdout`
+	Cmd writes what `?` and `? <command>` print through its `stdout`
 	attribute. That text is the tool describing itself, not capture data, so
 	it belongs with the prompt on standard error. Writes go through
 	BTCtlPrompt.say(), so a standard error nobody reads costs a note and not
 	the capture.
+
+	Cmd writes a command list in several pieces, so a progress line from a
+	running command can land in the middle of one. The prompt and the
+	progress lines already interleave on this stream the same way, and no
+	line of a capture is at stake: the capture is on standard output.
 	"""
 
 	def __init__(self, prompt):
@@ -346,8 +351,11 @@ class BTCtlPrompt(Cmd):
 	PROMPT = "bt> "
 	intro = "Type ? to list commands"
 	# A topic there is no help for is a request the tool cannot answer, so it
-	# reads like every other refusal the prompt gives. Cmd's own wording is
-	# "*** No help on <topic>".
+	# reads like every other refusal the prompt gives, in place of Cmd's own
+	# "*** No help on <topic>". Cmd interpolates this and writes it itself,
+	# which is why the `error: ` of btctl's error() is spelled out here; the
+	# write goes through say() with the rest of what the prompt says, so a
+	# standard error nobody reads costs the line and not the capture.
 	nohelp = "error: no help on '%s'"
 
 	def __init__(self, bt):
@@ -557,6 +565,11 @@ class BTCtlPrompt(Cmd):
 		"""Whether the session ended with the device still claimed."""
 		return self._abandoned
 
+	# What `? <command>` prints for each command, in the form Cmd looks for.
+	# Cmd gives these no argument and collects nothing from them: each writes
+	# its own line, through the `stdout` attribute __init__ pointed at
+	# standard error, so `?` and `? <command>` leave by the one way out.
+
 	def help_exit(self):
 		self.stdout.write("Exit the application\n")
 
@@ -590,7 +603,8 @@ class BTCtlPrompt(Cmd):
 		self.start_cmd(BTCtlDiscoverableCmd)
 
 	def help_discoverable(self):
-		self.stdout.write("discoverable: Become visible and connectable to nearby devices\n")
+		self.stdout.write("discoverable: Become visible and connectable"
+			" to nearby devices\n")
 
 	def do_idle(self, inp=None):
 		self.stop_cmd()
@@ -620,7 +634,8 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlMonitorCmd, slave_bdaddr)
 		
 	def help_monitor(self):
-		self.stdout.write("monitor <SLAVE_BD_ADDR>: Sniff connection establishment to given device\n")
+		self.stdout.write("monitor <SLAVE_BD_ADDR>: Sniff connection"
+			" establishment to given device\n")
 
 	def emptyline(self):
 		pass
