@@ -641,6 +641,37 @@ MU_TEST(a_whole_packet_is_published_whatever_status_came_with_it)
 	}
 }
 
+/* A capture that is stopping keeps the packets it already has rather than
+ * reading into another slot of a ring buffer nobody is draining, so a whole
+ * packet arriving after the teardown has cancelled its transfer is not
+ * published. The transfer is not put back in flight either: the teardown is
+ * waiting for it. */
+MU_TEST(a_whole_packet_is_not_published_once_a_teardown_wants_the_transfer)
+{
+	ubertooth_t* ut;
+	char err[256] = "";
+	char out[256] = "";
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	/* As the capture's own thread does when it sees the stop. */
+	ut->stop_ubertooth = 1;
+	deliver_bytes(LIBUSB_TRANSFER_TIMED_OUT, PKT_LEN, 0);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	mu_assert_int_eq(0, fake.published);
+	mu_assert_int_eq(1, fake.submits);  /* only the one that started it */
+	mu_assert(err[0] == '\0', err);
+	mu_assert(out[0] == '\0', out);
+	mu_assert(!ubertooth_stream_failed(ut), "the stop is not a failure");
+
+	release_handle(ut);
+}
+
 /* Short of a packet is still not a packet, and the keep-alive is still the
  * one short transfer that says nothing: the status it arrives with does not
  * change either. */
@@ -1107,6 +1138,7 @@ int main(void)
 	MU_RUN(a_failed_transfer_is_reported_and_recorded);
 	MU_RUN(a_bulk_timeout_is_not_a_failure);
 	MU_RUN(a_whole_packet_is_published_whatever_status_came_with_it);
+	MU_RUN(a_whole_packet_is_not_published_once_a_teardown_wants_the_transfer);
 	MU_RUN(a_short_transfer_is_not_published_whatever_status_came_with_it);
 	MU_RUN(a_cancellation_is_not_a_failure);
 	MU_RUN(a_refused_re_arm_ends_the_capture);

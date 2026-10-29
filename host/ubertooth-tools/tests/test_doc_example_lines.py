@@ -36,14 +36,16 @@ A diagnostic also counts as covered when a test pins it without its
 `error: ` / `warning: ` / `note: ` prefix, because several of these messages
 are built by a library that leaves the prefix to the tool that prints them.
 
-What this does not catch: where a test pins only part of a line, the rest of
-that line is not tied to anything, so a reworded tail can still slip through.
-Pinning the whole line in the test closes that, which is what the three
-strengthened assertions in this change did.
+What this does not catch. Where a test pins only part of a line, the rest of
+that line is tied to nothing, so a reworded tail can still get through;
+pinning the whole line in the test closes that. And every number is a
+wildcard, so a figure a page shows is never checked, even one that does not
+vary.
 
 NOT_PINNED below holds the lines no test pins today. It is checked for being
 exact -- an entry that no longer appears on its page, or that a test has since
-pinned, fails here -- so it is a list that can only shrink.
+pinned, fails here -- so it is a list that can only shrink, and editing a line
+it names means saying so here.
 """
 
 import glob
@@ -58,8 +60,11 @@ WILD = "\x00"
 # A C or Python token: a string literal, an identifier, or one character.
 TOKEN = re.compile(r'"(?:[^"\\\n]|\\.)*"|[A-Za-z_][A-Za-z_0-9]*|.', re.S)
 
-# A printf conversion, filled in when the line is printed.
-CONVERSION = re.compile(r'%[-+ 0-9#.*lhzjt]*[diouxXeEfgGaAcspn%]')
+# A printf conversion, filled in when the line is printed. `r` is Python's,
+# for a value written as its repr. The flag characters are spelled with the
+# digits before the hash, because a hash followed by a digit reads as an
+# issue number to tools/check-issue-references.sh.
+CONVERSION = re.compile(r'%[-+ 0-9#.*lhzjt]*[diouxXeEfgGaAcrspn%]')
 
 # What a line does not promise: a placeholder, a board serial, a firmware
 # revision, an address, a number.
@@ -76,12 +81,28 @@ VOLATILE = re.compile(
 DIAGNOSTIC = re.compile(r'^(?:error|warning|note|' + WILD + r'): ')
 DOCUMENTED = re.compile(r"^(?:error|warning|note): |^[A-Z][A-Za-z0-9 '/()-]{2,40}: \S")
 
-# An indented example block line.
+# An indented example block line, and the list item whose prose is indented
+# the same way.
 INDENTED = re.compile(r'^ {4,}\S')
+LIST_ITEM = re.compile(r'^ *[-*] \S')
 
 # A pinned pattern needs a run of fixed text this long to say anything: ": "
 # with a wildcard each side would otherwise match any labelled line.
 LEAST_FIXED_RUN = 6
+
+
+def usable(pattern):
+    """Whether a pinned pattern says enough to tie a line to.
+
+    Open at both ends, a pattern only asks for its fixed text to appear
+    somewhere in the line, which a phrase common to many lines would satisfy;
+    `"%s requires %s"` would cover any line with " requires " in it. So one
+    end has to be fixed text, which is where a line's label or its full stop
+    is, and some run of that text has to be long enough to mean something.
+    """
+    if pattern[:1] == WILD and pattern[-1:] == WILD:
+        return False
+    return any(len(run) >= LEAST_FIXED_RUN for run in pattern.split(WILD))
 
 # A floor on how many example lines this finds, so a change to the patterns
 # above cannot leave the check passing having looked at nothing.
@@ -110,6 +131,22 @@ NOT_PINNED = [
      "error: not-an-image.dfu: Unknown DFU suffix length: 115; firmware will "
      "not be updated"),
     ("ubertooth-dfu.md",
+     "error: too-big.dfu needs 114944 bytes of flash; part 0x25011722 "
+     "(LPC1754) has 114688 above the bootloader; firmware will not be "
+     "updated"),
+    # The API version mismatch report. The page writes the version as one
+    # placeholder; the test builds it from its two halves with the dot
+    # between them spelled out, so the two do not line up field for field.
+    ("ubertooth.md",
+     "error: Ubertooth firmware API version <version> found, libubertooth "
+     "1.1 requires <version>."),
+    ("ubertooth.md",
+     "warning: Ubertooth firmware API version <version> found, libubertooth "
+     "1.1 requires <version>."),
+    ("ubertooth.md",
+     "note: the board reports firmware API version <version>, libubertooth "
+     "1.1 requires <version>"),
+    ("ubertooth-dfu.md",
      "warning: older.dfu: this image reports API version 1.07 in its "
      "firmware info block, and these tools report <version>; the tools and "
      "the board have to report the same one"),
@@ -121,12 +158,6 @@ NOT_PINNED = [
      "Image: bluetooth_rxtx git-ed30131d (API:<version>)"),
     ("ubertooth-dfu.md",
      "DFU expected revision: git-ed30131d"),
-    # ubertooth-scan's usage text. Its main() needs the BlueZ headers, so it
-    # is built and tested only where libbluetooth is installed.
-    ("ubertooth-scan.md",
-     "Maximum Access Code Errors (default: 2)"),
-    ("ubertooth-scan.md",
-     "Bluetooth device (default: hci0)"),
     # ubertooth-specan's write failures: the tests pin the line up to the
     # reason the C library gave, which the page shows as a placeholder.
     ("ubertooth-specan.md",
@@ -170,7 +201,23 @@ def unescape(text):
                 .replace('\\\\', '\\'))
 
 
-def pinned_patterns(text):
+def without_prose(text, python):
+    """The source with its comments gone, so prose is not read as a literal.
+
+    A Python docstring matters most: its own quotes tokenize as an empty
+    literal, and the sentences inside it would then be read as lines a test
+    pins. A sentence about output is not output.
+    """
+    text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.S)
+    text = re.sub(r'(?m)//.*$', ' ', text)
+    if python:
+        text = re.sub(r'"""(?:.|\n)*?"""', ' ', text)
+        text = re.sub(r"'''(?:.|\n)*?'''", ' ', text)
+        text = re.sub(r'(?m)#.*$', ' ', text)
+    return text
+
+
+def pinned_patterns(text, python=False):
     """What a test source pins, one pattern per run of adjacent literals.
 
     The compiler joins literals that sit side by side, so `"a: " NAME "\\n"`
@@ -178,7 +225,7 @@ def pinned_patterns(text):
     here, since this reads the source and not the macro. A token that is
     neither a literal nor an identifier ends the run.
     """
-    text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.S)   # C comments
+    text = without_prose(text, python)
     text = text.replace('\\\n', ' ')                     # continued lines
     patterns = []
     run = []
@@ -240,22 +287,33 @@ def pinned_lines(host_src):
     lines = []
     for path in sources:
         with open(path, encoding="utf-8", errors="replace") as handle:
-            for pattern in pinned_patterns(handle.read()):
-                for line in pattern.split("\n"):
-                    for form in forms_of(line):
-                        if any(len(run) >= LEAST_FIXED_RUN
-                               for run in form.split(WILD)):
-                            lines.append(form)
+            text = handle.read()
+        for pattern in pinned_patterns(text, path.endswith(".py")):
+            for line in pattern.split("\n"):
+                for form in forms_of(line):
+                    if usable(form):
+                        lines.append(form)
     return list(dict.fromkeys(lines))
 
 
 def documented_lines(doc):
-    """The example output lines the man pages show, with their place."""
+    """The example output lines the man pages show, with their place.
+
+    An indented run of lines is an example block unless the line above it
+    starts a list item, in which case the indented lines are that item's
+    prose -- the description of an option, which no tool prints. A couple of
+    those descriptions are indented four spaces where their neighbours use
+    three, so indentation alone does not tell them apart.
+    """
     found = []
     for path in sorted(glob.glob(os.path.join(doc, "*.md"))):
-        with open(path, encoding="utf-8") as handle:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            in_list_item = False
             for number, raw in enumerate(handle, 1):
                 if not INDENTED.match(raw):
+                    in_list_item = LIST_ITEM.match(raw) is not None
+                    continue
+                if in_list_item:
                     continue
                 line = raw.strip()
                 if DOCUMENTED.match(line):
@@ -293,17 +351,22 @@ def main():
     if len(sys.argv) != 2:
         fail("usage: test_doc_example_lines.py <host source dir>")
     host_src = sys.argv[1]
-    # A long line needs about one frame per character on each side.
-    sys.setrecursionlimit(20000)
+    # The match below recurses once per character it gets through, over the
+    # two patterns together, and the longest line on a page is about 250
+    # characters. The default limit of 1000 is close enough to that to be
+    # worth raising, and this is still far below where the C stack runs out.
+    sys.setrecursionlimit(4000)
 
     pinned = pinned_lines(host_src)
     documented = documented_lines(os.path.join(host_src, "doc"))
     if len(documented) < AT_LEAST:
         fail("found only %d example output lines in the man pages, expected "
-             "at least %d: the patterns in this test no longer recognise them"
+             "at least %d: the patterns in this test no longer recognize them"
              % (len(documented), AT_LEAST))
 
     known = set(NOT_PINNED)
+    if len(known) != len(NOT_PINNED):
+        fail("NOT_PINNED names the same line of the same page twice")
     stale = []
     pinned_after_all = []
     for page, number, line in documented:
