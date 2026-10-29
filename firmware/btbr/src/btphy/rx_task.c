@@ -199,11 +199,10 @@ static int rx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 	uint32_t rx_clkn = btphy_cur_clkn()+1;
 	btctl_rx_pkt_t *pkt;
 
-	/* In inquiry/paging, hop.x must be incremented before each tx
-	 * of the master / RX of the slave
-	 * (Actually, rx_task in not used in mode INQUIRY_SCAN)
-	 */
-	if (btphy.mode == BT_MODE_PAGE_SCAN)
+	/* A paged device advances its response phase once per central transmit
+	 * slot, and this window, where it waits for the FHS, is the first such
+	 * slot after the one it answered the page in. */
+	if (btphy.mode == BT_MODE_PERIPH_PAGE_RESPONSE)
 		hop_increment();
 	chan = hop_channel(rx_clkn);
 

@@ -608,6 +608,15 @@
   only requests, so two repeaters cannot answer each other. A reply that is
   this board's but arrived corrupted is still reported as a mismatch.
   [#784](https://github.com/SqueakyFloors/ubertooth/issues/784)
+- A board in `btbr`'s `page_scan` or `inquiry_scan` now listens on the one
+  frequency the specification gives a scanning device, and holds it for the
+  1.28 seconds that frequency lasts, instead of moving every few slots. A
+  pager or inquirer sweeps all 32 possible frequencies in 20 ms, so it now
+  meets a scanning board quickly and repeatedly, where before both ends were
+  moving and had to coincide. The legs that answer a page or an inquiry hop on
+  their own rules, as the specification separates them.
+  [#811](https://github.com/SqueakyFloors/ubertooth/issues/811)
+
 - A firmware download that stops part way through -- a cable pulled, a board
   that leaves the bus, a host that dies -- no longer leaves an image a board
   will start. `ubertooth-dfu -d` writes the vector table last, leaving erased
@@ -1905,6 +1914,10 @@
 
 Fixes with no visible change in normal use.
 
+- A board scanning for a page goes back to scanning when the packet it was
+  waiting for turns out to be something else, instead of waiting forever with
+  nothing left to run. The same in `btbr`'s monitor mode.
+  [#811](https://github.com/SqueakyFloors/ubertooth/issues/811)
 - A request that carries more data to the board than the buffer its handler
   registered is refused, instead of having the rest of it written over whatever
   follows that buffer. The length a request may declare is sixteen bits and the

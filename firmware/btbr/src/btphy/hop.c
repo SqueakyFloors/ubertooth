@@ -79,16 +79,16 @@ static uint8_t hop_selection_kernel(uint8_t x, uint8_t y1, uint8_t y2,
 	return (perm5((a+x)^b, y1^c, d) + e + y2);
 }
 
-static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
+/*
+ * The channel for every substate outside the connection state: the kernel with
+ * the given X, Y1 and Y2, and F = 0, mapped through the basic table.
+ */
+static uint8_t hop_kernel_chan(uint8_t x, uint8_t y1, uint8_t y2)
 {
-	uint8_t clk1, sel;
-
-	clk1 = 1&(clk>>1);
-
-	sel = hop_selection_kernel(
-			x,		// X = the x
-			clk1,			// Y1 = clk1
-			clk1<<5,		// Y2 = 32*clk1
+	uint8_t sel = hop_selection_kernel(
+			x,			// X
+			y1,			// Y1
+			y2,			// Y2
 			hop_state.a27_23,	// A = A27_23
 			hop_state.a22_19,	// B = A22_19
 			hop_state.C,		// C = A8,6,4,2,0
@@ -99,9 +99,43 @@ static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
 	return hop_state.basic_bank[sel];
 }
 
+/*
+ * The substates whose half-slot selects between transmit and receive: page,
+ * inquiry, and the two page response substates.  Table 2.2 gives them
+ * Y1 = CLK1 and Y2 = 32 * CLK1, and an X the state machine holds.
+ */
+static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
+{
+	uint8_t clk1 = 1&(clk>>1);
+
+	return hop_kernel_chan(x, clk1, clk1<<5);
+}
+
 uint8_t hop_inquiry(uint32_t clk)
 {
 	return hop_inquiry_with_phase(clk, hop_state.x);
+}
+
+/*
+ * Page scan and inquiry scan.  Table 2.2 gives these two substates Y1 = 0 and
+ * Y2 = 0, so a scanning device stays on one frequency whichever half-slot it
+ * is in, and X = CLKN16-12 of its own clock, which changes once every 1.28
+ * seconds.  The clock of the slot being tuned does not come into it, which is
+ * why this takes the native clock rather than a leg's clock.
+ */
+uint8_t hop_scan(uint32_t clkn)
+{
+	return hop_kernel_chan(hop_scan_phase(clkn), 0, 0);
+}
+
+/*
+ * The inquiry response.  Table 2.2 fixes Y1 = 1 and Y2 = 32 here, whatever the
+ * half-slot: the answer to an inquiry always goes out on the frequency that
+ * pairs with the one the inquiry arrived on.  X is the response phase.
+ */
+static uint8_t hop_inquiry_response(void)
+{
+	return hop_kernel_chan(hop_state.x, 1, 32);
 }
 
 static uint8_t hop_paging(uint32_t clk)
@@ -205,9 +239,15 @@ uint8_t hop_channel(uint32_t clk)
 	{
 	case BT_MODE_INQUIRY:
 	case BT_MODE_PAGING_RESPONSE:
+	case BT_MODE_PERIPH_PAGE_RESPONSE:
+		return hop_inquiry(clk);
 	case BT_MODE_INQUIRY_SCAN:
 	case BT_MODE_PAGE_SCAN:
-		return hop_inquiry(clk);
+		/* A scan hops on this device's own clock, so the clock of the
+		 * slot being tuned is not the input here. */
+		return hop_scan(btphy.master_clkn);
+	case BT_MODE_INQUIRY_RESPONSE:
+		return hop_inquiry_response();
 	case BT_MODE_MASTER:
 	case BT_MODE_SLAVE:
 		return hop_basic(clk);

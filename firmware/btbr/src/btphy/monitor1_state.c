@@ -28,6 +28,7 @@
 #include <ubtbr/scan_task.h>
 #include <ubtbr/rx_task.h>
 #include <ubtbr/tx_task.h>
+#include <ubtbr/hop.h>
 #include <ubtbr/monitor_state.h>
 
 #define PAGE_SCAN_MAX_TICKS (CLKN_RATE*60)
@@ -72,7 +73,12 @@ static int monitor1_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 	{
 		if (pkt->bb_hdr.type != BB_TYPE_FHS)
 		{
+			/* Not the packet this leg waits for. Go back to
+			 * watching for a page rather than leave the board
+			 * with nothing left to run, which would wait
+			 * forever. */
 			cprintf("(bad type %d)", pkt->bb_hdr.type);
+			monitor1_schedule(0);
 			goto end;
 		}
 		// Parse fhs to get bdaddr/clkn/ltaddr
@@ -114,6 +120,12 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 	{
 		/* we should be at slave_clk = 0, prepare in one slot*/
 		console_putc('!');
+
+		/* Answering the page is a substate of its own, with its own
+		 * hop inputs, the same as a real paged device uses. */
+		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
+		hop_start_response(btphy.master_clkn);
+
 		/* Schedule TX ID(2) */
 		delay = 3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
 		tx_task_schedule(delay,
@@ -140,6 +152,9 @@ static void monitor1_schedule(unsigned delay)
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 		return;
 	}
+	/* Back to the scan substate: an answer that led nowhere leaves the
+	 * response substate behind. */
+	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
 	scan_task_schedule(delay, monitor1_rx_id_cb, NULL);
 }
 

@@ -22,15 +22,20 @@
  *    mechanism of 2.6.1.  Both images compute this sequence.
  *
  *  - the page scan and inquiry scan tables, 64 clock values each.  In those
- *    substates Table 2.2 gives the kernel's X input as CLKN16-12 and its F
- *    input as 0, which is all that is needed to reproduce the table, so these
- *    drive the btbr image's hop_inquiry() with that X.  They pin the kernel
- *    behind it, not where the X comes from: that is the scan task's, and btbr
- *    sweeps it rather than reading it off CLKN.  The bluetooth_rxtx image has
- *    no page or inquiry hopping.
+ *    substates Table 2.2 gives the kernel's X input as CLKN16-12 and its Y1,
+ *    Y2 and F inputs as 0, which is the whole control word, so these are the
+ *    sequence a btbr board scanning for a page or an inquiry listens on, and
+ *    they drive its hop_scan().  The bluetooth_rxtx image has no page or
+ *    inquiry hopping.
+ *
+ *    Part G prints them only at clock values that are multiples of 0x1000,
+ *    where CLK1 is 0, so they cannot on their own tell Y1 = 0 apart from
+ *    Y1 = CLK1.  The test derives the missing half-slots from them: with
+ *    Y1 = Y2 = 0 the published channel must hold across the whole 1.28 seconds
+ *    one CLKN16-12 value lasts.
  *
  * Not transcribed: the page and inquiry substate tables and the two page
- * response tables.  Those are indexed by the paging phase (Xp, and Xprm/Xprs
+ * response tables.  Those are indexed by the paging phase (Xp, and Xprc/Xprp
  * with the response count N), which is state the paging state machine holds
  * rather than anything hop.c derives from the clock -- and btbr's paging
  * sweeps X its own way on purpose, to search for a peripheral whose clock it

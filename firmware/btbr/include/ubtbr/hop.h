@@ -28,6 +28,7 @@ typedef struct hop_state_s {
 void hop_init(uint32_t address);
 uint8_t hop_basic(uint32_t clk);
 uint8_t hop_inquiry(uint32_t clk);
+uint8_t hop_scan(uint32_t clkn);
 uint8_t hop_channel(uint32_t clk);
 void hop_cfg_afh(uint8_t* buf);
 
@@ -87,6 +88,32 @@ we freeze this value and use a frozen value of this +N (see Master Page Response
 static inline void hop_freeze_clock(uint32_t clk)
 {
 	hop_state.x = calc_iterate_slave_page_scan_phase(clk);
+}
+
+/* The X input of the page scan and inquiry scan substates: CLKN16-12 of the
+ * scanning device's own clock (Vol 2, Part B, Table 2.2).  Those five bits
+ * change once every 1.28 seconds, so a scanning device holds one frequency for
+ * that long, and a pager or inquirer sweeping all 32 phases is sure to meet
+ * it. */
+static inline uint8_t hop_scan_phase(uint32_t clkn)
+{
+	return (clkn >> 12) & 0x1f;
+}
+
+/* Start the response substate that follows a scan: the peripheral page
+ * response (2.6.4.3) or the inquiry response (2.6.4.6).  Both take X = the
+ * scanning CLKN16-12 of the slot the access code arrived in, plus a counter N
+ * that starts at zero, so the first answer goes out on the frequency the page
+ * or inquiry arrived on.  hop_increment() carries N from there.
+ *
+ * 2.6.4.3 freezes those clock bits for the page response, because the pager
+ * works from an estimate of this clock that must not drift apart from it;
+ * 2.6.4.6 leaves them live for the inquiry response.  Reading them once here
+ * serves both: a response lasts a few slots, and these bits change once every
+ * 1.28 seconds. */
+static inline void hop_start_response(uint32_t clkn)
+{
+	hop_state.x = hop_scan_phase(clkn);
 }
 
 /* This function increment the x variable of for paging/inquiry hopping.
