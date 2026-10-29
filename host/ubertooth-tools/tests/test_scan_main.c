@@ -45,8 +45,13 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 static struct {
 	int start_fails;     /* no board answers the -U selection */
 	/* The stop a signal recorded while the board was being opened, which
-	 * the tool reads before it asks anything of the board. */
+	 * the tool reads before it asks anything of the board. The tool reads
+	 * it more than once, so stop_after_reads says from which read the stop
+	 * is seen: 0 for the first, which is a stop while the board was being
+	 * opened, 1 for one that arrived during the inquiry. */
 	int stop_requested;
+	int stop_after_reads;
+	int stop_reads;
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
@@ -408,7 +413,7 @@ void ubertooth_catch_stop_signals(void)
 
 int ubertooth_stop_requested(void)
 {
-	return fake.stop_requested;
+	return fake.stop_requested && fake.stop_reads++ >= fake.stop_after_reads;
 }
 
 /* The fake open always finds the board, so it never gives up on a stop. */
@@ -679,12 +684,15 @@ MU_TEST(an_inquiry_that_failed_is_named_and_exits_1)
 	          "\nUbertooth scan\n\nScan results:\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
-	/* An inquiry a stop cut short is not the adapter's failure: the user
-	 * asked for it, so nothing is named and the run ends with status 0. */
+	/* An inquiry a stop cut short is not the adapter's failure: BlueZ ends
+	 * the inquiry on the signal, but the user asked for that, so nothing is
+	 * named and the run ends with status 0. The stop arrives after the
+	 * board has been opened, so the earlier check lets the inquiry start. */
 	reset_fake();
 	fake.inquiry_fails = 1;
 	fake.inquiry_errno = EINTR;
 	fake.stop_requested = 1;
+	fake.stop_after_reads = 1;
 	r = RUN("-s", "-t", "5");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.err, "HCI scan\n") == 0, r.err);
