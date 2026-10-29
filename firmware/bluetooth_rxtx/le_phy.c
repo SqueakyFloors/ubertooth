@@ -166,6 +166,7 @@ typedef struct _le_rx_t {
 	int available;              // 1 if available, 0 in use
 	int8_t rssi_min, rssi_max;  // min and max RSSI observed values
 	int rssi_sum;               // running sum of all RSSI values
+	int transfer_error;         // 1 if a capture transfer faulted during it
 } le_rx_t;
 
 // pool of all buffers
@@ -302,6 +303,7 @@ static void buffer_clear(le_rx_t *buf) {
 	buf->rssi_min = INT8_MAX;
 	buf->rssi_max = INT8_MIN;
 	buf->rssi_sum = 0;
+	buf->transfer_error = 0;
 }
 
 // get a packet buffer
@@ -704,6 +706,13 @@ static void le_dma_interrupt(uint32_t timestamp) {
 		// taken as a fresh error the moment the DMA interrupt is enabled
 		// again. What to do about the error is decided at the end, once it is
 		// known whether a packet arrived with it.
+		//
+		// The mark the host reads goes on the receive buffer as the byte is
+		// taken, below, for the same reason: a packet this interrupt
+		// completes is handed over in there. An error reported with no byte
+		// alongside it marks nothing, because the packet it interrupted will
+		// never be finished -- the recovery drops what was received and takes
+		// a fresh buffer.
 		if (DMACIntErrStat & (1 << 0)) {
 			DMACIntErrClr = (1 << 0);
 			transfer_error = 1;
@@ -744,6 +753,22 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				timer1_wait_buffer();
 				return;
 			}
+
+			// A transfer error reported in this interrupt belongs to the
+			// packet being received, and is marked on its buffer. A packet
+			// the same interrupt completes is kept -- it is whole, and the
+			// host asked for it -- but it went through a controller that
+			// reported a fault, so some of its bytes may be wrong while its
+			// length is right. The mark lets the host tell it apart from a
+			// clean one; CRC checking is off by default, so nothing else
+			// would. The capture loops in bluetooth_rxtx.c mark their own
+			// records on the same condition.
+			//
+			// A fault that does not complete a packet takes the mark away
+			// with the packet, because the recovery clears the buffer it
+			// keeps. So nothing carries a fault to a packet it did not
+			// happen to.
+			current_rxbuf->transfer_error |= transfer_error;
 
 			// poll RSSI
 			rssi = (int8_t)(cc2400_get(RSSI) >> 8);
@@ -1354,6 +1379,11 @@ static int usb_enqueue_le(le_rx_t *packet)
 	int queued;
 
 	meta.status = le_packet_dropped ? FIFO_OVERFLOW : 0;
+	/* A capture transfer that faulted as this packet completed. The packet is
+	 * whole and is sent, but the host is told rather than left to read it as
+	 * a clean one. */
+	if (packet->transfer_error)
+		meta.status |= DMA_ERROR;
 	meta.channel = ubertooth_channel_byte(packet->channel);
 	meta.clkn_high = 0;
 	meta.clk100ns = packet->timestamp;

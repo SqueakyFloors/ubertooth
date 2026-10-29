@@ -2063,6 +2063,17 @@ Fixes with no visible change in normal use.
   them bite. No shipped tool behaves differently; what moved
   is what a board does with values no tool sends.
   [#656](https://github.com/SqueakyFloors/ubertooth/issues/656)
+- Every field of the low-energy capture state is accounted for where a mode
+  start clears it. One of them was cleared twice over, which read as a line
+  meant for another field; none was in fact left behind, and a test now fails
+  if a field is added to the state and left out of the clear.
+  [#820](https://github.com/SqueakyFloors/ubertooth/issues/820)
+- A low-energy packet the board finished receiving as a capture transfer
+  faulted reaches the host with the fault marked on it, as the board's other
+  capture loops have always marked their own. The packet is kept either way,
+  and no shipped tool reads the mark yet, so nothing in a capture looks
+  different today.
+  [#849](https://github.com/SqueakyFloors/ubertooth/issues/849)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
