@@ -1,0 +1,76 @@
+name: Merged text
+
+# A rebase is how a branch gets on top of what merged while it was being
+# written, and a resolution that keeps the branch's side of a file deletes the
+# other side's work. A build and a test suite catch that in code; nothing reads
+# prose, so a rebase that drops a paragraph of a man page merges green and the
+# page is simply shorter afterwards. tools/check-merged-text.sh compares a
+# branch with its merge base and reports a paragraph the branch removes that
+# main had only just gained.
+#
+# A workflow of its own rather than a job in build.yml, because build.yml
+# ignores '**.md' and 'docs/**': a documentation-only pull request runs none of
+# its jobs, and a documentation-only pull request is exactly where this loss
+# happens.
+#
+# Pull requests only. On main there is no branch to compare, and the check says
+# so and exits 0, which would be a green that proves nothing. A manual run is
+# for the self-test, which does not care which commit it runs from.
+on:
+  pull_request:
+    paths:
+      - '**.md'
+      - '**.rst'
+      - '**.txt'
+      - 'tools/check-merged-text.sh'
+      - 'tools/check-merged-text-selftest.sh'
+      - '.github/workflows/merged-text.yml'
+  workflow_dispatch:
+
+# Same cancellation rule as the other workflows: only an older run of the same
+# pull request is canceled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  merged-text:
+    runs-on: ubuntu-24.04
+    # Both steps together take about ten seconds. Nothing is built and nothing
+    # is installed, so the only slow part is the fetch, which is bounded and
+    # retried below.
+    timeout-minutes: 5
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # The branch's own tip, not the merge commit GitHub builds for a pull
+        # request. That commit already carries main, so its merge base with
+        # main is main's tip and the branch's diff against it holds nothing of
+        # what the branch did. refs/pull/<number>/head rather than the head
+        # commit's hash, because a pull request from a fork has that hash only
+        # in the fork.
+        ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.sha }}
+        # The check needs the merge base and main's history behind it, so a
+        # shallow checkout is not enough.
+        fetch-depth: 0
+
+    - name: Fetch main
+      # By name, because the comparison is with main as it is now, not as the
+      # checkout above happened to leave it. Bounded and retried like every
+      # other network fetch here: 60 seconds an attempt, 2 minutes 30 at worst.
+      if: github.event_name == 'pull_request'
+      run: tools/retry.sh 60 git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+    - name: Check that the comparison holds each way
+      # First, so that a red check below is read against a check that was just
+      # shown to pass the shapes it must pass -- a paragraph rewritten in
+      # place, one moved to another page, a rename, a revert, a regenerated
+      # roff page -- and to fail the one it must fail. About ten seconds; three
+      # minutes is room for a slow runner.
+      timeout-minutes: 3
+      run: tools/check-merged-text-selftest.sh
+
+    - name: Check this branch against main
+      timeout-minutes: 3
+      run: tools/check-merged-text.sh --main origin/main
