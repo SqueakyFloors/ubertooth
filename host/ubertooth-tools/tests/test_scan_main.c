@@ -88,6 +88,12 @@ static struct {
 	int afh_errno;
 	uint8_t afh_mode;
 	uint8_t afh_map[AFH_MAP_BYTES];
+	/* The reads of the report that can each fail on their own, and the
+	 * errno they all leave behind. */
+	int name_fails;
+	int version_fails;
+	int features_fail;
+	int read_errno;
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
 	int dev_fd_closed;   /* whether the run gave it back */
@@ -218,17 +224,21 @@ int hci_create_connection(int dd, const bdaddr_t* ba, uint16_t ptype,
 	return 0;
 }
 
-/* No name comes back, so the report reads "[unknown]" as it does for a device
- * that will not answer. */
+/* The name is reported by default. The first line of a device's results reads
+ * "[unknown]" when this fails, which is the only place a failed read is
+ * reported as a value rather than left out. */
 int hci_read_remote_name(int dd, const bdaddr_t* ba, int len, char* name,
                          int to)
 {
 	(void)dd;
 	(void)ba;
-	(void)len;
-	(void)name;
 	(void)to;
-	return -1;
+	if (fake.name_fails) {
+		errno = fake.read_errno;
+		return -1;
+	}
+	snprintf(name, len, "a nearby device");
+	return 0;
 }
 
 int hci_read_remote_version(int dd, uint16_t handle, struct hci_version* ver,
@@ -236,9 +246,13 @@ int hci_read_remote_version(int dd, uint16_t handle, struct hci_version* ver,
 {
 	(void)dd;
 	(void)handle;
-	(void)ver;
 	(void)to;
-	return -1;
+	if (fake.version_fails) {
+		errno = fake.read_errno;
+		return -1;
+	}
+	memset(ver, 0, sizeof(*ver));
+	return 0;
 }
 
 int hci_read_remote_features(int dd, uint16_t handle, uint8_t* features, int to)
@@ -246,6 +260,10 @@ int hci_read_remote_features(int dd, uint16_t handle, uint8_t* features, int to)
 	(void)dd;
 	(void)handle;
 	(void)to;
+	if (fake.features_fail) {
+		errno = fake.read_errno;
+		return -1;
+	}
 	memset(features, 0, 8);
 	return 0;
 }
@@ -742,11 +760,15 @@ MU_TEST(the_extended_report_of_a_device_is_on_standard_output)
 	memset(fake.afh_map, 0xff, sizeof(fake.afh_map));
 	r = RUN("-s", "-x", "-t", "5");
 	mu_assert_int_eq(0, r.rc);
-	/* The device the inquiry found, with no name to report, then the report
-	 * -x asked for. */
-	mu_assert(strstr(r.out, "11:11:11:11:11:11\t[unknown]\n") != NULL, r.out);
+	/* The device the inquiry found, then the report -x asked for. */
+	mu_assert(strstr(r.out, "11:11:11:11:11:11\ta nearby device\n") != NULL,
+	          r.out);
 	mu_assert(strstr(r.out, "\tBD Address:  11:11:11:11:11:11\n") != NULL,
 	          r.out);
+	mu_assert(strstr(r.out, "\tDevice Name: a nearby device\n") != NULL,
+	          r.out);
+	mu_assert(strstr(r.out, "\tLMP Version: ") != NULL, r.out);
+	mu_assert(strstr(r.out, "\tFeatures: 0x00 ") != NULL, r.out);
 	mu_assert(strstr(r.out, "\tClock offset: 0x0000\n") != NULL, r.out);
 	mu_assert(strstr(r.out, "\tAFH Map: 0xffffffffffffffffffff\n") != NULL,
 	          r.out);
@@ -754,6 +776,46 @@ MU_TEST(the_extended_report_of_a_device_is_on_standard_output)
 	mu_assert(strstr(r.err, "Requesting information ...\n") != NULL, r.err);
 	mu_assert(strstr(r.out, "Requesting information") == NULL, r.out);
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+}
+
+/* Each read of the report can fail on its own. The line it would have filled
+ * in is left out, the read is named on standard error, and the run exits 1:
+ * the report is not what -x asked for. They used to be left out in silence,
+ * and a failed features read had its zeroed buffer printed as the device's
+ * own features. */
+MU_TEST(each_read_of_the_report_that_fails_is_named)
+{
+	struct {
+		int* flag;
+		const char* message;
+		const char* missing;
+	} cases[] = {
+		{ &fake.name_fails, "error: reading the device name failed",
+		  "Device Name" },
+		{ &fake.version_fails, "error: reading the LMP version failed",
+		  "LMP Version" },
+		{ &fake.features_fail, "error: reading the features failed",
+		  "Features" },
+	};
+	char expected[128];
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		reset_fake();
+		fake.inquiry_responses = 1;
+		fake.afh_mode = FOLLOW_AFH_MODE_ON;
+		fake.read_errno = EIO;
+		*cases[i].flag = 1;
+		r = RUN("-s", "-x", "-t", "5");
+		snprintf(expected, sizeof(expected), "%s: %s\n",
+		         cases[i].message, strerror(EIO));
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err, expected) != NULL, r.err);
+		mu_assert(strstr(r.out, cases[i].missing) == NULL, r.out);
+		/* The rest of the report is still there. */
+		mu_assert(strstr(r.out, "\tBD Address:  ") != NULL, r.out);
+	}
 }
 
 /* A remote that is not using AFH has no map to report, which is a note about
@@ -828,7 +890,7 @@ MU_TEST(a_connection_that_cannot_be_made_is_named)
 	mu_assert(strstr(r.err, expected) != NULL, r.err);
 	/* The address the inquiry found is still reported; nothing of the
 	 * report that needed the connection is. */
-	mu_assert(strstr(r.out, "11:11:11:11:11:11\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "11:11:11:11:11:11\ta nearby device\n") != NULL, r.out);
 	mu_assert(strstr(r.out, "BD Address") == NULL, r.out);
 }
 
@@ -855,7 +917,7 @@ MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
 	          != NULL, r.err);
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	/* The piconet is still a result, map and all. */
-	mu_assert(strstr(r.out, "??:??:44:9E:8B:33\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "??:??:44:9E:8B:33\ta nearby device\n") != NULL, r.out);
 	mu_assert(strstr(r.out, "AFH map: 0x00000000000000000000\n") != NULL,
 	          r.out);
 }
@@ -1072,6 +1134,7 @@ int main(void)
 	MU_RUN(a_failed_afh_map_read_is_named_and_prints_no_map);
 	MU_RUN(a_connection_that_cannot_be_made_is_named);
 	MU_RUN(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure);
+	MU_RUN(each_read_of_the_report_that_fails_is_named);
 	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);
 	MU_RUN(a_bluez_failure_is_reported_on_standard_error);
 	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);

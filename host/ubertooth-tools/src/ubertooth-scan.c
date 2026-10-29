@@ -176,9 +176,18 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	ba2str(bdaddr, addr);
 	printf("\tBD Address:  %s\n", addr);
 
-	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name, 25000) == 0)
+	/* Every read below leaves its line out when it fails, and says so: a
+	 * line missing from the report with nothing on standard error used to
+	 * look like a device that has no name or no version. */
+	errno = 0;
+	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name, 25000) == 0) {
 		printf("\tDevice Name: %s\n", name);
+	} else {
+		report_failure("reading the device name failed");
+		failed = 1;
+	}
 
+	errno = 0;
 	if (hci_read_remote_version(dd, handle, &version, 20000) == 0) {
 		char *ver = lmp_vertostr(version.lmp_ver);
 		printf("\tLMP Version: %s (0x%x) LMP Subversion: 0x%x\n"
@@ -190,29 +199,52 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 			version.manufacturer);
 		if (ver)
 			bt_free(ver);
+	} else {
+		report_failure("reading the LMP version failed");
+		failed = 1;
 	}
 
+	/* The result of this read was ignored outright, so a device that would
+	 * not answer had the zeroed buffer printed as its features. */
 	memset(features, 0, sizeof(features));
-	hci_read_remote_features(dd, handle, features, 20000);
+	errno = 0;
+	if (hci_read_remote_features(dd, handle, features, 20000) < 0) {
+		report_failure("reading the features failed");
+		failed = 1;
+	} else {
+		if ((di.features[7] & LMP_EXT_FEAT) && (features[7] & LMP_EXT_FEAT)) {
+			errno = 0;
+			if (hci_read_remote_ext_features(dd, handle, 0, &max_page,
+							features, 20000) < 0) {
+				report_failure("reading the extended features "
+				               "failed");
+				failed = 1;
+			}
+		}
 
-	if ((di.features[7] & LMP_EXT_FEAT) && (features[7] & LMP_EXT_FEAT))
-		hci_read_remote_ext_features(dd, handle, 0, &max_page,
-							features, 20000);
+		printf("\tFeatures%s: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
+					"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n",
+			(max_page > 0) ? " page 0" : "",
+			features[0], features[1], features[2], features[3],
+			features[4], features[5], features[6], features[7]);
 
-	printf("\tFeatures%s: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
-				"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n",
-		(max_page > 0) ? " page 0" : "",
-		features[0], features[1], features[2], features[3],
-		features[4], features[5], features[6], features[7]);
-
-	tmp = lmp_featurestostr(features, "\t\t", 63);
-	printf("%s\n", tmp);
-	bt_free(tmp);
+		tmp = lmp_featurestostr(features, "\t\t", 63);
+		printf("%s\n", tmp);
+		bt_free(tmp);
+	}
 
 	for (i = 1; i <= max_page; i++) {
+		char what[48];
+
+		errno = 0;
 		if (hci_read_remote_ext_features(dd, handle, i, NULL,
-							features, 20000) < 0)
+							features, 20000) < 0) {
+			snprintf(what, sizeof(what),
+			         "reading features page %d failed", i);
+			report_failure(what);
+			failed = 1;
 			continue;
+		}
 
 		printf("\tFeatures page %d: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
 					"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n", i,

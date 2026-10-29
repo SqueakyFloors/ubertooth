@@ -94,9 +94,11 @@ off has no map to report, and standard error carries a `note:` line saying so.
 A survey result's map is the `AFH map:` line above, the spelling it has always
 had.
 
-A device that does not answer one of those reads simply has no line for it:
-the name, the LMP version and the feature pages are each left out rather than
-reported as unknown.
+A device that does not answer one of those reads has no line for it, and the
+read that failed is named on standard error: the name, the LMP version, the
+features and each feature page are left out rather than reported as unknown or,
+in the features' case, as zero. Earlier releases left the line out in silence,
+and printed zeroed features as the device's own.
 
 Everything else goes to standard error: the three headings that say which half
 of the scan is running (`HCI scan`, `Ubertooth scan` and `Scan results:`), the
