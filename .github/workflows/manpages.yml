@@ -33,7 +33,7 @@ env:
   # workflow cannot read another's. The libbtbb-pin workflow reads both and
   # fails until they agree, so this copy cannot quietly drift.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
-  LIBBTBB_REF: e553a88086ab6066ebb963f102565eb114110065
+  LIBBTBB_REF: df77ac2623016787ae7daf5eabc6a0205a74e44a
 
 jobs:
   refresh:

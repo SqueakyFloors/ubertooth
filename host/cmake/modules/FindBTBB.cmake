@@ -15,7 +15,7 @@
 # it. It is repeated here so the failure below can name the commit to rebuild
 # at, which is the one thing a reader needs and cannot guess.
 set(LIBBTBB_PINNED_REPO "SqueakyFloors/libbtbb")
-set(LIBBTBB_PINNED_REF "e553a88086ab6066ebb963f102565eb114110065")
+set(LIBBTBB_PINNED_REF "df77ac2623016787ae7daf5eabc6a0205a74e44a")
 
 # Every libbtbb function this tree calls. libbtbb carries no version macro, so
 # "new enough" is decided by asking the installed one for the declarations the
@@ -33,12 +33,10 @@ set(LIBBTBB_PINNED_REF "e553a88086ab6066ebb963f102565eb114110065")
 # machine would mean a libbtbb that satisfies a macOS build and fails a Linux
 # one later.
 set(LIBBTBB_REQUIRED_FUNCTIONS
-  btbb_decode_header
   btbb_find_ac
   btbb_gen_syncword
   btbb_get_release
   btbb_get_version
-  btbb_header_present
   btbb_init
   btbb_init_piconet
   btbb_init_survey
@@ -48,10 +46,8 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_packet_get_clkn
   btbb_packet_get_lap
   btbb_packet_set_data
-  btbb_packet_set_flag
   btbb_packet_set_modulation
   btbb_packet_set_transport
-  btbb_packet_set_uap
   btbb_packet_unref
   btbb_pcap_append_packet
   btbb_pcap_close

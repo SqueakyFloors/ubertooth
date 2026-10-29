@@ -86,9 +86,7 @@ can follow that connection. They go in a part of the file that is set aside
 when it is created, and it has room for a few hundred connections. A capture
 long enough to fill it reports
 
-    warning: the capture file has no more room for connection parameters; the
-    packets are still recorded, but later connections cannot be followed in
-    Wireshark
+    warning: the capture file has no more room for connection parameters; the packets are still recorded, but later connections cannot be followed in Wireshark
 
 once on standard error and carries on. Start a new capture file to record
 more.

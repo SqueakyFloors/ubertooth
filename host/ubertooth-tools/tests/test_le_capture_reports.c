@@ -168,6 +168,14 @@ static void run_capture(int result, unsigned count)
 	free(ut.fifo);
 }
 
+/* The two lines the callback can write, in full: the man page promises these
+ * words, and a test that pinned a fragment of one would let the page drift. */
+#define NO_ROOM_WARNING \
+	"warning: the capture file has no more room for connection " \
+	"parameters; the packets are still recorded, but later connections " \
+	"cannot be followed in Wireshark\n"
+#define WRITE_WARNING "warning: cannot write to the PCAPNG capture file\n"
+
 /* How many lines of what the callback wrote contain `text`. */
 static int lines_with(const char* text)
 {
@@ -199,7 +207,7 @@ MU_TEST(unrecorded_connection_parameters_warn_once)
 	 * not, and that is what the warning has to name. */
 	mu_assert_int_eq(3, appends);
 	mu_assert_int_eq(1, lines_with("warning: "));
-	mu_assert_int_eq(1, lines_with("connection parameters"));
+	mu_assert_int_eq(1, lines_with(NO_ROOM_WARNING));
 	/* A positive report is not a failed write. Taking it for one would
 	 * tell the user a capture that is still being written is broken. */
 	mu_assert_int_eq(0, lines_with("cannot write"));
@@ -219,7 +227,7 @@ MU_TEST(a_failed_write_warns_once)
 
 	mu_assert_int_eq(3, appends);
 	mu_assert_int_eq(1, lines_with("warning: "));
-	mu_assert_int_eq(1, lines_with("cannot write"));
+	mu_assert_int_eq(1, lines_with(WRITE_WARNING));
 }
 
 MU_TEST(a_failed_write_does_not_warn_again)

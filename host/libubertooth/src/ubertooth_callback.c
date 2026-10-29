@@ -1517,54 +1517,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
 		uap = btbb_piconet_get_uap(pn);
 
-	/* The packet's own 18-bit header, for the capture record below. Nothing
-	 * else reads it while the decoder is still working the piconet's clock
-	 * out: the UAP search unwhitens the header into a scratch buffer, takes
-	 * the UAP out of its check bits and throws the header away. Such a
-	 * record carried 18 zero bits, which a reader cannot tell from a header
-	 * of zeros that was really sent.
-	 *
-	 * Reading it needs the piconet's clock rather than the Ubertooth's. The
-	 * two differ by the offset the UAP search worked out, which counts in
-	 * 625 us slots and so in two clock ticks each, until the whole clock is
-	 * known. From then on libbtbb reads the header itself and the offset
-	 * the piconet reports counts in clock ticks, hence the guard: those
-	 * packets are the decoder's.
-	 *
-	 * A header the error correction could decode but whose check bits do
-	 * not match this piconet's UAP -- a packet of another piconet whose
-	 * access code matched, say -- is written into the packet before the
-	 * decoder compares them, and goes into the record. A reader finds that
-	 * out the way it checks any recorded header, by recomputing the check
-	 * bits from the reference UAP in the same record. */
-	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)
-	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
-	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)
-	       && btbb_header_present(pkt)) {
-		/* Setting the data again is what carries that clock into the
-		 * packet, and leaves it there: the capture writers below do not
-		 * read it, and the Ubertooth's own reading has already been
-		 * printed. The UAP goes in as well, so that the decoder's
-		 * comparison is against the piconet's UAP rather than against
-		 * nothing; the record carries the header bits either way. */
-		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
-		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
-
-		btbb_packet_set_uap(pkt, uap);
-		btbb_packet_set_flag(pkt, BTBB_CLK6_VALID, 1);
-		btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
-		                     rx->channel, piconet_clkn);
-		btbb_decode_header(pkt);
-	}
-
-	/* Dump to PCAP/PCAPNG if specified. The noise figure is the unmeasured
-	 * one: the level printed above is derived from the packet's own power,
-	 * which is not what a record's noise field means.
-	 *
-	 * Each writer says once per capture when it cannot be written: the
-	 * condition holds for every packet after the first, and a capture
-	 * nobody could write to otherwise looks exactly like one that is being
-	 * written. */
+	/* Dump to PCAP/PCAPNG if specified. Each said once per capture if it
+	 * cannot be written: the condition holds for every packet after it,
+	 * and a capture nobody could write to otherwise looks exactly like one
+	 * that is being written. */
 	if (ut->h_pcap_bredr) {
 		if (btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
 		                            signal_level, NOISE_NOT_MEASURED,

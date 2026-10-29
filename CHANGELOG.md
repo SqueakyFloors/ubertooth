@@ -543,15 +543,18 @@
   it wants `ADV_IND_MAX_DATA`. No shipped tool sets more than 18 bytes.
   [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
 - The tools are built against a newer libbtbb
-  ([`e553a88`](https://github.com/SqueakyFloors/libbtbb/commit/e553a88086ab6066ebb963f102565eb114110065)),
+  ([`df77ac2`](https://github.com/SqueakyFloors/libbtbb/commit/df77ac2623016787ae7daf5eabc6a0205a74e44a)),
   which brings its own run of fixes to the Classic and BLE decoders and to the
   capture file writers: a 255-octet advertising packet keeps its last three
   octets instead of losing them to the CRC field, AUX1, DV, EV3, EV4 and EV5
   payloads decode, a packet whose payload the decoder could not read is no
   longer reported with the previous packet's bytes, a BLE capture records each
   connection's parameters, and the library's own notes go to standard error
-  rather than into a capture on standard output. What that library is now
-  tested against is in its
+  rather than into a capture on standard output. A Classic capture record also
+  carries more of the packet that settled the piconet's address: its header
+  and its payload, both checked and both recomputable from the reference
+  address in the same record, where that record used to carry one of them at
+  best. What that library is now tested against is in its
   [TESTING.md](https://github.com/SqueakyFloors/libbtbb/blob/master/TESTING.md).
   `install.sh` and the build guides check out the new commit; a libbtbb
   without what the tools use is still refused at configure time, by name.
