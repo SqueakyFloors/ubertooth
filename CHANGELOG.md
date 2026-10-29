@@ -1872,6 +1872,10 @@
   firmware change the host sees. It is what `COMPATIBILITY.md` already
   describes.
   [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
+- The README and the release procedure say what a release tag means:
+  `yyyy-mm-DEVn` is a development pre-release, `yyyy-mm-RCn` a release
+  candidate and `yyyy-mm-Rn` the release, the first two published as GitHub
+  pre-releases, and host tools and firmware from one tag belong together.
 - A one-page guide, "Using Ubertooth with Wireshark", covers the
   `btle-extcap.py` plugin end to end: what it gives you over a named pipe,
   the three install steps, the options dialog, why a capture filter is

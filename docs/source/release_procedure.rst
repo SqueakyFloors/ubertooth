@@ -4,6 +4,26 @@ Release Procedure
 
 
 
+Release names
+-------------
+
+Tags keep the ``yyyy-mm-Rn`` form, with two kinds of tag before a release:
+
+    * ``yyyy-mm-DEVn`` is a development pre-release: a snapshot of ``main``
+      published for integration testing, and it may be deleted later.
+
+    * ``yyyy-mm-RCn`` is a release candidate.
+
+    * ``yyyy-mm-Rn`` is the release.
+
+Publish the development and release-candidate tags as GitHub pre-releases, so
+the release page's "Latest" link stays on a release. Host tools and firmware
+from one tag belong together: tools built from a tagged commit refuse a board
+carrying a different firmware API version.
+
+Procedure
+---------
+
 An Ubertooth release is not as simple as a standard GitHub release, there are a few extra tasks, as listed below.
 
     * Tag both libbtbb and ubertooth with the release version. Use an annotated tag. e.g.
@@ -12,9 +32,11 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Create a release directory using git archive
 
-    * Update the following files to set RELEASE to yyyy-mm-Rx:
+    * Set the release version in these files, which is what a build with no
+      git history reports:
 
-    	* ubertooth/libubertooth/src/CMakeLists.txt
+    	* ``ubertooth/host/cmake/set_release.cmake`` (``LATEST_RELEASE``),
+    	  which ``tools/ubertooth-release.sh`` sets in the archive
 
     	* libbtbb/lib/src/CMakeLists.txt
 
@@ -43,7 +65,15 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Build binary firmware images for all board revs and all common firmware images.
 
-    * At time of writing, these are only bluetooth_rxtx and bootloader for Ubertooth One.
+    * For Ubertooth One these are bluetooth_rxtx (full and receive-only),
+      btbr, the bootloader and assembly_test, which is what
+      ``tools/ubertooth-release.sh`` builds and copies into
+      ``ubertooth-one-firmware-bin``.
+
+    * The script pins the firmware build stamp to
+      ``VERSION_BY=ubertooth VERSION_HOST=release``, so a published image does
+      not carry the name of the user or machine that built it. A release built
+      by hand should pass the same.
 
     * Build the bootloader with ``make -C firmware bootloader``, which is what
       ``tools/ubertooth-release.sh`` and CI do. It is not part of ``make -C

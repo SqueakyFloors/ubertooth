@@ -108,6 +108,27 @@ Python. Run `./install.sh --help` for all options, including `--prefix`,
 fork commit (`--help` prints the pin). This is the from-source path; it is not
 a replacement for distro packaging (apt/dnf/brew).
 
+## Releases
+
+Release tags keep the `YYYY-MM-Rn` form this project has always used, with two
+kinds of tag before a release:
+
+- `YYYY-MM-DEVn` is a development pre-release: a snapshot of `main` published
+  for integration testing. It may be deleted later, so do not build anything
+  long-lived on one.
+- `YYYY-MM-RCn` is a release candidate.
+- `YYYY-MM-Rn` is the release.
+
+Development and release-candidate tags are published as GitHub pre-releases, so
+the release page's "Latest" link always points at a release.
+
+Host tools and firmware from the same tag belong together. Tools built from a
+tagged commit refuse a board carrying a different firmware API version, so
+flash the firmware from the same tag as the tools you installed.
+
+The current pre-release is
+[2026-10-DEV1](https://github.com/SqueakyFloors/ubertooth/releases/tag/2026-10-DEV1).
+
 --------------------
 
 # Tools
