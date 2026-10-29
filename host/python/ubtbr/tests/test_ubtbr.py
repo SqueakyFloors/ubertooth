@@ -1598,6 +1598,30 @@ assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: -h with no standard output at all is reported, not a traceback")
 
+
+def read_only_stdout():
+    """Give the child a standard output that cannot be written to."""
+    nowhere = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(nowhere, 1)
+    os.close(nowhere)
+
+
+# and the other face of the same closed descriptor: most interpreters leave
+# the tool without the stream, some leave the stream and a descriptor whose
+# every write fails with EBADF. The second is what `ubertooth-btbr -h 1<&0`
+# gives on any of them, which is how it is reached here. The usage text
+# reaches the buffer and the flush is where it fails, so the handler that
+# catches it is not the one above; the line and the status are the same.
+running = subprocess.Popen([sys.executable, WRAPPER, "-h"],
+                           stderr=subprocess.PIPE, text=True, env=ENVIRONMENT,
+                           preexec_fn=read_only_stdout)
+_, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+assert "Exception ignored" not in errors, errors
+print("ubtbr: -h on a standard output that cannot be written is reported too")
+
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
 # is all that is left: the error line has nowhere to go either, and saying so
 # must not become an unhandled failure of its own.

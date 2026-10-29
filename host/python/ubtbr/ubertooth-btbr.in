@@ -1,4 +1,5 @@
 #!@Python3_EXECUTABLE@
+import errno
 import os
 import signal
 import subprocess
@@ -254,6 +255,19 @@ def through(stage):
 		# it was headed.
 		sys.stderr.flush()
 		os._exit(1)
+	except OSError as problem:
+		# The other face of a descriptor closed before the tool started.
+		# Most interpreters leave the stream itself behind, which the writes
+		# above catch as AttributeError; some hand the tool a stream whose
+		# every write fails with EBADF instead. Either way nothing asked for
+		# was printed, so it is the same loss as the reader who left, and it
+		# leaves by the same door. Any other OSError is a failure of its own
+		# and is left to be raised.
+		if problem.errno != errno.EBADF:
+			raise
+		output_lost()
+		sys.stderr.flush()
+		os._exit(1)
 	finally:
 		# The last word on that stream, while a handler can still reach the
 		# failure: the interpreter flushes it as it exits, outside any
@@ -269,6 +283,13 @@ def through(stage):
 			# There is no standard output to flush: a descriptor closed
 			# before the tool started leaves the interpreter without one.
 			pass
+		except OSError as problem:
+			# Or the stream is there and its descriptor is not, which is
+			# what the handler above describes: the usage text reaches the
+			# buffer and this flush is where it fails.
+			if problem.errno != errno.EBADF:
+				raise
+			output_lost()
 	# A standard output that went away means what was asked for was not all
 	# printed, whatever the stage made of the rest.
 	sys.exit(1 if output_gone() else status)
