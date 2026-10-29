@@ -24,7 +24,8 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
   tool.
 - ``btle-extcap.py`` — An external capture program that lets Wireshark capture
   BLE advertising from an Ubertooth directly, by running ``ubertooth-btle`` for
-  it; see ``host/python/extcap/README.md``. (Needs: Wireshark.)
+  it; see ``btle-extcap(1)`` (``host/doc/btle-extcap.md``). (Needs:
+  Wireshark.)
 
 **Classic Bluetooth (BR/EDR)**
 

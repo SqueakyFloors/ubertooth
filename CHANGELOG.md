@@ -1773,6 +1773,11 @@
 
 ### Documentation
 
+- `btle-extcap.py` has a man page of its own, `btle-extcap(1)`, installed with
+  the others: where to put the script so Wireshark finds it, every call
+  Wireshark makes, what it answers a capture filter with, its two exit
+  statuses and its diagnostics. It was the one tool in the README catalog with
+  no page.
 - Every man page lists `-h` in its OPTIONS section, where a reader looks for
   it: eleven of them only mentioned it elsewhere. ubertooth-specan(1) no
   longer promises the usage text after a bad option, which no tool prints.

@@ -835,13 +835,13 @@
     },
 
     "btle-extcap.py": {
-      "man": "none; the extcap protocol defines the command line",
+      "man": "btle-extcap.md",
       "kind": "python",
       "usage_marker": "--extcap-interfaces",
       "_shape": [
         "All long options, defined by the extcap protocol Wireshark calls the",
-        "script with, so there is no short-option table to generate a matrix",
-        "from. The cases below are the whole contract that needs no device:",
+        "script with, so its man page has no short-option table to generate a",
+        "matrix from. The cases below are the whole contract that needs no device:",
         "everything else it does shells out to ubertooth-util and",
         "ubertooth-btle, which its own test",
         "(host/python/extcap/tests/test_btle_extcap.py) covers against fakes."

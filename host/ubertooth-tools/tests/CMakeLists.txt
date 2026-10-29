@@ -223,8 +223,8 @@ foreach(tool ${UBERTOOTH_TOOLS})
 	set_tests_properties(cli-matrix-${tool} PROPERTIES TIMEOUT 180)
 endforeach()
 
-# The same contract for btle-extcap.py, which has a command line of its own
-# (the extcap protocol Wireshark calls it with) and no man page. The script
+# The same contract for btle-extcap.py, which has a command line of its own:
+# the extcap protocol Wireshark calls it with, all long options. The script
 # sits outside this directory, so it is named by a relative path and the entry
 # is registered only when it is there: host/ubertooth-tools can be configured
 # on its own.

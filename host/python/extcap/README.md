@@ -5,6 +5,11 @@ packets from an Ubertooth directly, with no capture file in between. Wireshark
 calls it; it runs `ubertooth-btle` and lets it write PCAP data into the fifo
 Wireshark opened.
 
+The script's manual is `btle-extcap(1)`, from `host/doc/btle-extcap.md`:
+installing it, every call Wireshark makes, the exit statuses and the
+diagnostics. What follows here is the same ground for a reader in the source
+tree.
+
 Written by Mike Kershaw (dragorn) and Mike Ryan, and distributed under the
 terms of the GNU GPL, as is the rest of the Ubertooth project.
 
