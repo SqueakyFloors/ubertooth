@@ -314,8 +314,19 @@ assert result.returncode == 0, result
 assert result.stdout == ANSWER, result
 assert "ImportError" not in result.stderr, result
 
-result = run([], no_qt)
-assert result.returncode != 0, result
-assert "no Qt binding is installed here" in result.stderr, result
+# The window still needs the Qt binding, which is what says it was really out
+# of reach above. Only where numpy is installed: without it the window case
+# stops at numpy, which is imported first, and this half would fail for a
+# reason that has nothing to do with Qt.
+numpy_installed = subprocess.run(
+    [sys.executable, "-c", "import numpy"], env=ENVIRONMENT,
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+if numpy_installed:
+    result = run([], no_qt)
+    assert result.returncode != 0, result
+    assert "no Qt binding is installed here" in result.stderr, result
+else:
+    print("ubertooth-specan-ui: numpy is not installed, so the window's own "
+          "need for a Qt binding is not checked")
 
 print("ubertooth-specan-ui: -V, -h and the refusals need no Qt binding")
