@@ -98,6 +98,7 @@ static struct {
 	int devinfo_fails;
 	int clock_fails;
 	int read_errno;
+	unsigned int slept;  /* seconds the run would have waited */
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
 	int dev_fd_closed;   /* whether the run gave it back */
@@ -312,6 +313,15 @@ int hci_disconnect(int dd, uint16_t handle, uint8_t reason, int to)
 	(void)handle;
 	(void)reason;
 	(void)to;
+	return 0;
+}
+
+/* The tool waits a second after making a connection, for the link to settle.
+ * No case here depends on real time, and a dozen of them would otherwise pay
+ * that wait each, so the wait is recorded rather than taken. */
+unsigned int sleep(unsigned int seconds)
+{
+	fake.slept += seconds;
 	return 0;
 }
 
@@ -788,6 +798,8 @@ MU_TEST(the_extended_report_of_a_device_is_on_standard_output)
 	mu_assert(strstr(r.err, "Requesting information ...\n") != NULL, r.err);
 	mu_assert(strstr(r.out, "Requesting information") == NULL, r.out);
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	/* The report waits for the connection it just made to settle. */
+	mu_assert_int_eq(1, (int)fake.slept);
 }
 
 /* Each read of the report can fail on its own. The line it would have filled
