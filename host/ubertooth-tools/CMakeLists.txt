@@ -47,10 +47,10 @@ if(NOT ubertooth_all_SOURCE_DIR)
 		CACHE STRING "CMake module path")
 	# Ask glibc for the interfaces these sources use: usleep(), which POSIX
 	# dropped in 2008, and the byte-order helpers in <endian.h>. Without it a
-	# strict standard (-std=c17) hides both and the build fails, which is
-	# what #648 fixed for the whole tree; the reason it is not noticed is
-	# that compilers default to a GNU standard, which sets the macro for us.
-	# host/CMakeLists.txt says more about the choice of macro.
+	# strict standard (-std=c17) hides both and the build fails, as it did
+	# for the whole tree until host/CMakeLists.txt asked for the macro by
+	# name; it goes unnoticed because compilers default to a GNU standard,
+	# which sets the macro for us. That file says more about the choice.
 	add_definitions( -D_DEFAULT_SOURCE )
 endif()
 
