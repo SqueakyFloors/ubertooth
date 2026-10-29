@@ -678,18 +678,19 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 		}
 	}
 
-	/* The board marks this on a packet it finished receiving as the chip's
-	 * transfer controller reported an error. That packet is whole, which is
-	 * why it was kept, but a packet the same fault cut short is lost with
-	 * nothing else to show for it. Both capture engines mark it. */
+	/* The board marks this on the record it was filling when the chip's
+	 * transfer controller reported an error. The record's transfer had
+	 * finished, which is why it was kept, but some of its bytes may be wrong,
+	 * and what the fault cut short before it is lost with nothing else to
+	 * show for it. Both capture engines mark it. */
 	if (rx->status & DMA_ERROR) {
 		ut->transfer_errors++;
 		if (!ut->transfer_error_warned) {
 			ut->transfer_error_warned = 1;
 			fprintf(stderr, "warning: the board had a transfer error "
-			        "while capturing; the packet it is marked on is "
-			        "whole and was kept, but this capture may be "
-			        "missing packets around it\n");
+			        "while capturing; what it was receiving was kept, "
+			        "but some of those bytes may be wrong and the "
+			        "capture may be missing packets around it\n");
 		}
 	}
 }
@@ -716,7 +717,7 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 
 	if (errors > 0)
 		fprintf(stderr, "warning: the capture has %u transfer error%s "
-		        "where the board may have lost a packet\n",
+		        "where a packet may be wrong or missing\n",
 		        errors, errors == 1 ? "" : "s");
 }
 
