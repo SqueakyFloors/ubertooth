@@ -108,7 +108,7 @@ $(BINDIR)/test_cc2400_wait: test_cc2400_wait.c minunit.h source_scan.h \
 # test_mode_dispatch does. FW_COMMON_DIR points it at the source.
 $(BINDIR)/test_cc2400_spi_atomic: test_cc2400_spi_atomic.c minunit.h \
 		source_scan.h $(FW_COMMON)/ubertooth.c $(FW_COMMON)/ubertooth.h \
-		| $(BINDIR)
+		$(FW_COMMON)/irq.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-o $@ test_cc2400_spi_atomic.c
 
@@ -164,13 +164,14 @@ $(BINDIR)/test_le_frag_shape: test_le_frag_shape.c minunit.h source_scan.h \
 # packet makes the whole round trip -- firmware fragments it, host puts it
 # back -- the way test_compile_info links the host's revision extractor.
 $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
-		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h stubs-usbq/usbapi.h \
+		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h stubs-lephy/irq.h \
+		stubs-usbq/usbapi.h \
 		stubs-usbq/watchdog.h \
 		$(FW_RXTX)/le_phy.c $(FW_RXTX)/ubertooth_usb.c \
 		$(FW_RXTX)/ubertooth_usb.h $(FW_RXTX)/queue.c \
 		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
 		$(FW_COMMON)/lpc17.h $(FW_COMMON)/ubertooth.h \
-		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h \
+		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h $(FW_COMMON)/irq.h \
 		$(FW_RXTX)/ubertooth_clock.h $(FW_RXTX)/ubertooth_dma.h \
 		$(HOST_LIB)/ubertooth_le_frag.c $(HOST_LIB)/ubertooth_le_frag.h \
 		| $(BINDIR)

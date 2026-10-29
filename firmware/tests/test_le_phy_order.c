@@ -62,12 +62,30 @@ struct le_phy_scan {
 	int unmask_writes;     /* writes of ISER0_ISE_TIMER1 to ISER0 */
 	int main_lines;        /* lines of le_phy_main() the scan read */
 	int dropped_cleared;   /* le_packet_dropped = 0 */
+	/* Reaching the match-enable register for one bit rather than the whole
+	 * of it: where it is done outside the guarded helpers, and how many
+	 * times inside them. */
+	int bare_match_use;
+	int guarded_match_uses;
+	/* Writing the moment a match fires at anywhere but inside the helper
+	 * that arms it in the same breath. */
+	int bare_moment_write;
+	/* Handing a match a moment worked out from the counter, from outside the
+	 * guard that arms it. */
+	int bare_moment_from_counter;
+	/* In le_dma_interrupt(), where a finished packet is handed over: the
+	 * first of each of these after the function starts. */
+	int handover_take;      /* buffer_get() */
+	int handover_mask;      /* irq_save_disable() */
+	int handover_queue;     /* queue_insert() */
+	int handover_restore;   /* irq_restore() */
 };
 
 static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
+	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -84,6 +102,82 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		if (is_assignment_to(line, "ISER0") &&
 		    contains_identifier(line, "ISER0_ISE_TIMER1"))
 			s->unmask_writes++;
+
+		/* Every mention of T1MCR in the file, and whether it is inside one
+		 * of the helpers that hold interrupts off. A write of the whole
+		 * register is not counted: it cannot be built on a stale read.
+		 * This runs before the gates below, so it covers the whole file
+		 * rather than one function. */
+		if (strstr(line, "timer1_arm_match(") != NULL ||
+		    strstr(line, "timer1_arm_match_in(") != NULL ||
+		    strstr(line, "timer1_disarm_match_interrupt(") != NULL ||
+		    strstr(line, "timer1_set_match_in_if_unarmed(") != NULL) {
+			if (strchr(line, ';') == NULL && strchr(line, '{') != NULL)
+				in_mask_helper = 1;
+		} else if (in_mask_helper && line[0] == '}') {
+			in_mask_helper = 0;
+		}
+
+		if (contains_identifier(line, "T1MCR") &&
+		    !is_assignment_of(line, "T1MCR", "0")) {
+			if (in_mask_helper)
+				s->guarded_match_uses++;
+			else if (s->bare_match_use == 0)
+				s->bare_match_use = lineno;
+		}
+
+		/* The moment itself, in whichever of the four registers. Written
+		 * outside the helper it is a separate write from the one that arms
+		 * it, which is the hazard above in the other order. */
+		if (!in_mask_helper && s->bare_moment_write == 0 &&
+		    (is_assignment_to(line, "T1MR0") ||
+		     is_assignment_to(line, "T1MR1") ||
+		     is_assignment_to(line, "T1MR2") ||
+		     is_assignment_to(line, "T1MR3")))
+			s->bare_moment_write = lineno;
+
+		/* A moment worked out from the counter and then handed to one of
+		 * the arming calls. Reading the counter for anything else -- a
+		 * packet's timestamp, how long since the last packet -- is not
+		 * this, so the test is the two together on one line. */
+		if (!in_mask_helper && !in_grid_caller &&
+		    s->bare_moment_from_counter == 0 &&
+		    contains_identifier(line, "NOW") &&
+		    (calls_identifier(line, "timer1_set_match") ||
+		     calls_identifier(line, "timer1_arm_match")))
+			s->bare_moment_from_counter = lineno;
+
+		/* The two callers whose moment comes from the connection's grid
+		 * rather than the counter: they read it only to ask whether that
+		 * moment has gone by, and they do it inside a guard of their own. */
+		if (strstr(line, "void timer1_arm_conn_event(") != NULL ||
+		    strstr(line, "void timer1_set_match_ahead(") != NULL) {
+			if (strchr(line, ';') == NULL)
+				in_grid_caller = 1;
+		} else if (in_grid_caller && line[0] == '}') {
+			in_grid_caller = 0;
+		}
+
+		/* The handover of a finished packet, in the byte interrupt. */
+		if (strstr(line, "void le_dma_interrupt(") != NULL &&
+		    strchr(line, ';') == NULL)
+			in_dma = 1;
+		if (in_dma) {
+			if (calls_identifier(line, "buffer_get") &&
+			    s->handover_take == 0)
+				s->handover_take = lineno;
+			if (calls_identifier(line, "irq_save_disable") &&
+			    s->handover_mask == 0)
+				s->handover_mask = lineno;
+			if (calls_identifier(line, "queue_insert") &&
+			    s->handover_queue == 0)
+				s->handover_queue = lineno;
+			if (calls_identifier(line, "irq_restore") &&
+			    s->handover_restore == 0)
+				s->handover_restore = lineno;
+			if (line[0] == '}')
+				in_dma = 0;
+		}
 
 		if (in_timer1_start) {
 			if (is_assignment_of(line, "T1MCR", "0") &&
@@ -322,6 +416,112 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
 	mu_assert(s.active_cleared < s.timer1_stop, msg);
 }
 
+/*
+ * Anything that reaches T1MCR for one match rather than the whole register
+ * goes through one of the three helpers that hold interrupts off while they do
+ * it.
+ *
+ * All four matches live in that one register -- the connection event, the LED
+ * blink, the synthesizer-lock wait and the buffer wait -- and no single
+ * context owns them: the main loop arms the blink and, while a connection is
+ * being followed, the event and the lock wait, and both interrupt handlers arm
+ * and disarm the waits. Setting a bit is a read-modify-write, so an interrupt
+ * landing between the read and the write costs the interrupt its bit. When the
+ * bit lost is the lock wait's, nothing arms receive again: the loop runs on,
+ * feeding the watchdog and answering the host, while the capture stays silent
+ * until the mode is restarted.
+ *
+ * Reads count as well as writes. The transfer-error recovery arms the event
+ * match only if nothing has armed it, and the interrupt that arms it for the
+ * real next event preempts the one the recovery runs in: a decision made from
+ * a read outside the guard is as wrong as a write built on one, and opens the
+ * next event an interval early.
+ *
+ * This is a scan because the register is hardware. What the guard does is run
+ * in test_le_phy_logic.c, which stands an interrupt in at the end of a guarded
+ * section; the scan is what notices a new site added later without one.
+ */
+MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: T1MCR is read or part-written here without holding "
+	         "interrupts off; go through timer1_arm_match(), "
+	         "timer1_arm_match_in(), "
+	         "timer1_disarm_match_interrupt() or "
+	         "timer1_set_match_in_if_unarmed(), or an interrupt landing in "
+	         "middle loses the bit it armed", path, s.bare_match_use);
+	mu_assert(s.bare_match_use == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found %d guarded uses of T1MCR, expected one in "
+	         "each of the four helpers -- the scan has stopped reading "
+	         "them", path, s.guarded_match_uses);
+	mu_assert(s.guarded_match_uses == 4, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the moment a match fires at is written here, apart from "
+	         "the bit that arms it; pass it to timer1_arm_match() or "
+	         "timer1_arm_match_in() instead, "
+	         "or an interrupt between the two leaves the match armed against "
+	         "a time the counter has gone past", path, s.bare_moment_write);
+	mu_assert(s.bare_moment_write == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: this works a match's moment out from the counter before "
+	         "the guard that arms it; give the interval to one of the _in "
+	         "forms and let it read the counter, or an interrupt taken in "
+	         "between can outlast the interval and the match goes in behind "
+	         "the counter", path, s.bare_moment_from_counter);
+	mu_assert(s.bare_moment_from_counter == 0, msg);
+}
+
+/*
+ * A finished packet is handed to the host under one guard, together with
+ * taking the buffer for the next packet, and the new buffer is taken before
+ * the finished one is queued.
+ *
+ * The order is the point. current_rxbuf is what the timer interrupt acts on --
+ * the channel change clears the buffer it names, the waits receive into it --
+ * so while the pointer still named a finished packet, a match reached it and
+ * the host was given zeroes, or bytes from a later moment in the air. Both
+ * steps have to be inside the guard: with the buffer taken outside it, the
+ * pointer still names the finished packet while the new one is cleared, which
+ * is the same window a few instructions narrower.
+ *
+ * What the guard does is run in test_le_phy_logic.c. This is the part a scan
+ * can see: that nothing in the handover sits outside the mask.
+ */
+MU_TEST(test_a_finished_packet_is_handed_over_in_one_guarded_step)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not read the handover in le_dma_interrupt(): "
+	         "buffer_get %d, irq_save_disable %d, queue_insert %d, "
+	         "irq_restore %d", path, s.handover_take, s.handover_mask,
+	         s.handover_queue, s.handover_restore);
+	mu_assert_fatal(s.handover_take != 0 && s.handover_mask != 0 &&
+	                s.handover_queue != 0 && s.handover_restore != 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the handover is not all inside the guard: mask at line %d, "
+	         "buffer taken at %d, packet queued at %d, mask off at %d -- a "
+	         "timer match taken outside it finds current_rxbuf naming a "
+	         "packet that is on its way to the host", path, s.handover_mask,
+	         s.handover_take, s.handover_queue, s.handover_restore);
+	mu_assert(s.handover_mask < s.handover_take &&
+	          s.handover_take < s.handover_queue &&
+	          s.handover_queue < s.handover_restore, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the buffer is taken before the finished packet is "
+	         "queued (line %d), or the pointer would name a queued buffer",
+	         path, s.handover_take, s.handover_queue);
+	mu_assert(s.handover_take < s.handover_queue, msg);
+}
+
 int main(void)
 {
 	printf("le_phy bring-up and teardown order tests\n");
@@ -332,5 +532,7 @@ int main(void)
 	MU_RUN(test_active_is_set_after_the_setup);
 	MU_RUN(test_the_interrupt_is_unmasked_last);
 	MU_RUN(test_active_is_cleared_before_the_teardown);
+	MU_RUN(test_every_match_bit_is_changed_with_interrupts_held_off);
+	MU_RUN(test_a_finished_packet_is_handed_over_in_one_guarded_step);
 	return mu_report();
 }

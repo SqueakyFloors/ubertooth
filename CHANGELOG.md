@@ -2006,6 +2006,13 @@
 
 Fixes with no visible change in normal use.
 
+- The low-energy capture engine changes its timer's match-enable register, its
+  buffer pool and the buffer a finished packet is handed over from with
+  interrupts held off, so the connection-event timer can no longer cut into any
+  of the three. Each was read, altered and written back in steps the timer
+  could land between, which could lose a buffer or a timer match.
+  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - A request that carries more data to the board than the buffer its handler
   registered is refused, instead of having the rest of it written over whatever
   follows that buffer. The length a request may declare is sixteen bits and the

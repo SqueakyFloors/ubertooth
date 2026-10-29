@@ -20,6 +20,7 @@
  */
 
 #include "ubertooth.h"
+#include "irq.h"
 
 #define IAP_LOCATION 0x1FFF1FF1
 const IAP_ENTRY iap_entry = (IAP_ENTRY)IAP_LOCATION;
@@ -275,50 +276,6 @@ void cc2400_init()
 	 * starts, MANAND included, and cc2400_idle() puts MANAND back when a
 	 * mode ends.
 	 */
-}
-
-/*
- * Turn interrupts off and return the mask setting that was in force, so the
- * caller can put it back with irq_restore(). Code between the two runs with no
- * interrupt handler able to cut in.
- *
- * PRIMASK is the Cortex-M3 register that blocks every interrupt bar the two
- * faults that cannot be masked. `cpsid i` sets it; writing the saved value
- * back clears it only if it was clear to begin with. Restoring the old
- * setting, rather than simply enabling interrupts at the end, is what makes
- * the pair safe to nest and safe to use inside an interrupt handler -- a
- * handler that called irq_save_disable() must still return with interrupts
- * masked.
- *
- * No barrier is needed either side. Writing PRIMASK takes effect on the next
- * instruction, unlike a write to one of the interrupt controller's enable
- * registers, which is why the code that disables an interrupt through ICER0
- * follows it with a barrier and this does not.
- *
- * Keep the span between them short. Interrupts raised while masked are not
- * lost: the controller latches them and they run as soon as the mask comes
- * off. But a periodic interrupt whose period is shorter than the span loses a
- * tick, and the clkn timer interrupt in the bluetooth_rxtx image fires every
- * 312.5 microseconds.
- *
- * The btbr image has its own pair, with the same names and the same meaning,
- * in firmware/btbr/include/ubtbr/system.h. Keeping this copy file-local is
- * what lets both exist side by side; the price is that the two can drift
- * apart.
- */
-static inline u32 irq_save_disable(void)
-{
-	u32 primask;
-
-	asm volatile ("mrs %0, primask\n\t"
-	              "cpsid i"
-	              : "=r" (primask) : : "memory");
-	return primask;
-}
-
-static inline void irq_restore(u32 primask)
-{
-	asm volatile ("msr primask, %0" : : "r" (primask) : "memory");
 }
 
 /*

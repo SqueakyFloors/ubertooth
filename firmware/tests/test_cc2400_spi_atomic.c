@@ -26,6 +26,11 @@
 
 #define UBERTOOTH_C FW_COMMON_DIR "/ubertooth.c"
 
+/* The mask helpers the transfer is guarded with. They are shared: the
+ * low-energy capture engine uses them too, for the timer register both
+ * its handlers and the main loop write. */
+#define IRQ_H FW_COMMON_DIR "/irq.h"
+
 /*
  * The body of one top-level function, comments stripped, as a single string
  * with the newlines kept. Ordered checks ("the mask goes on before CSN drops")
@@ -437,7 +442,7 @@ MU_TEST(test_the_list_of_bus_functions_is_pinned)
  */
 MU_TEST(test_primask_is_read_before_it_is_set)
 {
-	char *body = read_function(UBERTOOTH_C, "irq_save_disable");
+	char *body = read_function(IRQ_H, "irq_save_disable");
 	int read, set;
 
 	mu_assert_fatal(body != NULL, "cannot read irq_save_disable() from the firmware source");
@@ -456,7 +461,7 @@ MU_TEST(test_primask_is_read_before_it_is_set)
  * outright with `cpsie i`. */
 MU_TEST(test_restore_writes_primask_back)
 {
-	char *body = read_function(UBERTOOTH_C, "irq_restore");
+	char *body = read_function(IRQ_H, "irq_restore");
 
 	mu_assert_fatal(body != NULL, "cannot read irq_restore() from the firmware source");
 
@@ -477,8 +482,8 @@ MU_TEST(test_restore_writes_primask_back)
  */
 MU_TEST(test_the_helpers_clobber_memory)
 {
-	char *disable = read_function(UBERTOOTH_C, "irq_save_disable");
-	char *restore = read_function(UBERTOOTH_C, "irq_restore");
+	char *disable = read_function(IRQ_H, "irq_save_disable");
+	char *restore = read_function(IRQ_H, "irq_restore");
 
 	mu_assert_fatal(disable != NULL && restore != NULL,
 	                "cannot read the mask helpers from the firmware source");
