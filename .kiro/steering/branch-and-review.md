@@ -116,11 +116,25 @@ or non-trivial operational documentation changes:
 
 Speed matters. Do not wait for every job.
 
-- **No CI wait** for changes limited to documentation or agent rules
-  (`*.md`, `.kiro/steering/`): merge as soon as the PR is ready. Two
-  exceptions: a change under `host/doc` waits for `Man pages`, since it is
-  what catches a page left unrefreshed, and any documentation change waits
-  for `libbtbb-pin`, which takes about five seconds.
+- **Almost no CI wait** for changes limited to documentation or agent rules
+  (`*.md`, `.kiro/steering/`). The required checks still have to report,
+  because they are required on `main`, but a documentation-only branch builds
+  nothing: the three build jobs are skipped and their names come from stand-in
+  jobs that take seconds on Linux. The whole set is green about a minute after
+  the run starts. A change under `host/doc` also waits for `Man pages`, which
+  is what catches a page left unrefreshed; that one is not required, but it is
+  the check such a change exists to satisfy.
+- **Eleven of them are required on `main`** and GitHub will refuse the merge
+  until each has reported green or skipped: both `host` legs, both `firmware`
+  legs, both `scripts` legs, `issue-references`, `image-revision`,
+  `api-version`, `dfu-package`, `libbtbb-pin`. The rule does not apply to the
+  repository owner, which is there for the one case where the maintainer has
+  looked at a red check and decided to merge anyway. **Never use `--admin`**:
+  a check the maintainer has allowed to be red is the maintainer's merge, not
+  yours. Say on the PR why you think it should not block, and leave it.
+  A PR whose last run predates the stand-in jobs reports a skipped matrix job
+  under its bare name and sits blocked on the leg names; a rebase onto `main`
+  and a fresh run clears it.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. A change under `host/` also needs `host-installed-libubertooth`,

@@ -79,16 +79,34 @@ job it skips either. On any one pull request each check name is reported by
 exactly one job, which is what keeps a stand-in from ever masking a real
 failure.
 
-### Nothing enforces them
+### They are required
 
-`main` has no branch-protection rule, so a red pull request can still be
-merged, and GitHub reads workflow files from the branch under review, so a
-branch can weaken an `if:` condition, drop a step or delete a job and its own
-run will not complain. The `api-version` job fetches `main`'s copy of its
-script for that reason, but the job definitions themselves cannot defend
-themselves this way.
+`main` carries a branch-protection rule, and eleven of the names above are
+required status checks on it: both `host` legs, both `firmware` legs, both
+`scripts` legs, `issue-references`, `image-revision`, `api-version`,
+`dfu-package` and `libbtbb-pin`. A pull request with one of them red, or with
+one still to report, cannot be merged. `install-sh` and `refresh` are not
+required, because each runs only when its own paths change and a required
+check that does not run leaves a pull request pending forever.
 
-So a reviewer reads `.github/workflows/` and `tools/check-*.sh` in a diff as
-carefully as the code: a change there is a change to the gate, not a change to
-a test. Requiring these checks on `main` is a repository-settings decision
-that has not been made.
+The rule is not strict, so a branch need not be up to date with `main` to
+merge, and it requires no reviews: the project's own rules say who reviews
+what and who may merge. It does not apply to the repository owner
+(`enforce_admins` is off), which exists for the one case where the maintainer
+has looked at a red check and decided to merge anyway. **That is the
+maintainer's call and the maintainer's merge. Never reach for `--admin`**: if
+a required check is red and you believe it should not block, say so on the
+pull request and leave it.
+
+What the rule does not fix is that GitHub reads workflow files from the branch
+under review, so a branch can still weaken an `if:` condition, drop a step or
+delete a job, and its own run will not complain. The `api-version` job fetches
+`main`'s copy of its script for that reason; the job definitions cannot defend
+themselves the same way. So a reviewer reads `.github/workflows/` and
+`tools/check-*.sh` in a diff as carefully as the code: a change there is a
+change to the gate, not a change to a test.
+
+One practical consequence. A pull request whose last run skipped a matrix job
+before the stand-ins existed reports that job under its bare name, and the leg
+names the rule asks for have nothing to report them, so it sits blocked. A
+rebase onto `main` and a fresh run clears it.
