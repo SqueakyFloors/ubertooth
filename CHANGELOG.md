@@ -436,13 +436,10 @@
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
   of leaving it to the compiler's default GNU standard.
   [#648](https://github.com/SqueakyFloors/ubertooth/issues/648)
-- `install.sh --uninstall` takes the install back off again: the tools, the
-  libraries, the man pages and the udev rule, from the list the install
-  recorded, and nothing else. The `apt` or Homebrew packages, the Python
-  packages and a `--venv` directory stay, and so does the libbtbb it installed
-  unless you ask for that with `--remove-libbtbb`, because anything else built
-  against that libbtbb stops building until it is put back. Running it twice is
-  not an error.
+- `install.sh --uninstall` takes the install back off again: the files the
+  install recorded under the prefix, the udev rule with them, and nothing else.
+  The libbtbb it installed is kept unless you ask for it with
+  `--remove-libbtbb`, because other builds on the machine link against it.
   [#337](https://github.com/SqueakyFloors/ubertooth/issues/337)
 - `install.sh` says it is checking Homebrew, and that it is working out which
   Ubertooth to flash, before those slow steps run; on macOS its first line

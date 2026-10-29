@@ -180,9 +180,41 @@ jobs:
       run: |
         ./install.sh --uninstall --remove-libbtbb $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
           < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall3.log"
-        test -z "$(ls -A "$RUNNER_TEMP/prefix")"
+        # Not one file or symlink of the install is left. Empty directories
+        # are, on purpose: which of bin, lib and share an install created
+        # cannot be told from a manifest of files, and on a real prefix some
+        # of them were there first.
+        test -z "$(find "$RUNNER_TEMP/prefix" \( -type f -o -type l \) -print -quit)"
+        test ! -d "$RUNNER_TEMP/prefix/share/ubertooth"
         # Nothing of this install is left, so a fourth run has no record to
         # read and still succeeds.
         ./install.sh --uninstall $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
           < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall4.log"
         grep -q 'Nothing to remove: no record of an install.sh install' "$RUNNER_TEMP/uninstall4.log"
+
+    - name: Refuse a recorded path the script does not install
+      shell: bash
+      # A record that was damaged or edited by hand must not aim the removal
+      # at the rest of the system: the paths outside the prefix are left, the
+      # record is kept so there is still a list, and the run fails. The last
+      # two entries also cover --remove-libbtbb where no libbtbb was recorded.
+      run: |
+        mkdir -p "$RUNNER_TEMP/fake"
+        # Resolved the way install.sh resolves its prefix, so the recorded
+        # paths below are the ones it compares against.
+        fake="$(cd "$RUNNER_TEMP/fake" && pwd -P)"
+        record="$fake/share/ubertooth/install-record"
+        mkdir -p "$record" "$fake/bin"
+        touch "$fake/bin/ours" "$RUNNER_TEMP/not-ours"
+        printf '%s\n' "$fake/bin/ours" "$RUNNER_TEMP/not-ours" \
+          "$fake/../not-ours" > "$record/host-files"
+        if ./install.sh --uninstall --remove-libbtbb $NO_SUDO --prefix "$fake" \
+             < /dev/null 2>&1 | tee "$RUNNER_TEMP/fake.log"; then
+          echo "the uninstall should have failed on the paths it refused"
+          exit 1
+        fi
+        grep -q "left $RUNNER_TEMP/not-ours: not a path this script installs" "$RUNNER_TEMP/fake.log"
+        grep -q '^error: left 2 recorded path' "$RUNNER_TEMP/fake.log"
+        test -f "$RUNNER_TEMP/not-ours"
+        test -f "$record/host-files"
+        test ! -e "$fake/bin/ours"
