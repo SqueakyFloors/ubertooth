@@ -147,10 +147,11 @@ That time is the only timing a session has\. An inquiry response is the response
 .P
 A session holding a connection \-\- \fBpage\fR, \fBl2ping\fR, \fBpage_scan\fR, \fBdiscoverable\fR \-\- reports each LMP packet the same way, with the baseband header and the PDU named and in hex\. It also traces the same exchange on standard error, where the link manager adds the state it was in and the seconds since the connection came up; that trace is a diagnostic, and the capture is what standard output holds\.
 .P
-The prompt and the \fBType ? to list commands\fR line are on standard error, with the progress a command makes, as plain lines carrying neither the time nor a level:
+The prompt and the \fBType ? to list commands\fR line are on standard error, with the progress a command makes, as plain lines carrying neither the time nor a level\. The prompt has no newline of its own, so the first progress line after it lands on its end, as it does on a terminal:
 .IP "" 4
 .nf
-Starting BTCtlInquiryCmd
+Type ? to list commands
+bt> Starting BTCtlInquiryCmd
 Inquiry state Ready
 Inquiry done
 .fi
