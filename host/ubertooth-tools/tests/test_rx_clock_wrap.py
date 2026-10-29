@@ -43,6 +43,15 @@ STEP_TICKS = 1_000_000_000          # 100 s of device clock between records
 FIRST_TICKS = 100_000_000           # the first record's clock, away from the wrap
 RECORDS = 8                         # 700 s of clock: two wraps
 AGE_S = 7200                        # the first record was written this long ago
+# How long one ubertooth-rx replay is given. The whole test takes about 3.4 s
+# on an idle machine, over several replays, so a minute is roughly twenty
+# times its own run time and many times what any one replay needs. On a
+# machine busy with parallel builds the cost that grows is starting a process
+# and reading the fixture back, not the replay itself, and a deadline a few
+# seconds over an idle run was what a loaded machine blew past. The CTest
+# timeout on this test is larger again, so this deadline is the one that fires
+# and says the replay timed out.
+RUN_TIMEOUT_S = 60
 
 # The 64-bit scrambling sequence applied to the sync word, the (64,30)
 # expurgated BCH generator (octal 260534236651), and the Barker sequence
@@ -259,7 +268,8 @@ def replay(data, work, records=RECORDS):
         (work / name).unlink(missing_ok=True)
     result = subprocess.run(
         [BINARY, "-i", "wrap.bin", "-q", "wrap.pcap", "-r", "wrap.pcapng"],
-        capture_output=True, text=True, timeout=30, check=False, cwd=work,
+        capture_output=True, text=True, timeout=RUN_TIMEOUT_S, check=False,
+        cwd=work,
         # A replay opens no device; the switch keeps it that way if this run
         # ever reaches device selection.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"))

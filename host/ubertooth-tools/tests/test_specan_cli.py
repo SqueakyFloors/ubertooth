@@ -24,6 +24,14 @@ ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C")
 # A serial no board has, so a run gets past the -d value and stops at device
 # selection without touching a board.
 NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
+# How long one ubertooth-specan run is given. The whole test takes about 0.5 s
+# on an idle machine and 1.8 s on one busy with parallel builds, where the cost
+# that grows is starting a process rather than the work these runs do. The
+# four-core host this test went red on is slower again, so the twenty seconds
+# here is about ten to twenty times an idle run there rather than here. A tool
+# that hangs is still reported in tens of seconds rather than stalling the
+# suite.
+RUN_TIMEOUT_S = 20
 
 
 def run(arguments, directory=None):
@@ -31,7 +39,7 @@ def run(arguments, directory=None):
         [BINARY, *arguments],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
         cwd=directory,
@@ -89,7 +97,7 @@ def run_with_tty_stdout(arguments):
             stdout=slave_fd,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=5,
+            timeout=RUN_TIMEOUT_S,
             check=False,
             env=ENVIRONMENT,
         )

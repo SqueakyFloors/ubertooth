@@ -13,6 +13,14 @@ import sys
 
 BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# How long one ubertooth-ego run is given. The whole test takes about 0.55 s on
+# an idle machine and 1.4 s on one busy with parallel builds, where the cost
+# that grows is starting a process rather than the work these runs do. The
+# four-core host this test went red on is slower again, so the twenty seconds
+# here is about ten to twenty times an idle run there rather than here. A tool
+# that hangs is still reported in tens of seconds rather than stalling the
+# suite.
+RUN_TIMEOUT_S = 20
 
 
 def reject(value):
@@ -20,7 +28,7 @@ def reject(value):
         [BINARY, "-l", value],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )
@@ -37,7 +45,7 @@ missing = subprocess.run(
     [BINARY, "-l"],
     capture_output=True,
     text=True,
-    timeout=5,
+    timeout=RUN_TIMEOUT_S,
     check=False,
     env=ENVIRONMENT,
 )
@@ -50,7 +58,7 @@ help_run = subprocess.run(
     [BINARY, "-h"],
     capture_output=True,
     text=True,
-    timeout=5,
+    timeout=RUN_TIMEOUT_S,
     check=False,
     env=ENVIRONMENT,
 )
@@ -72,7 +80,7 @@ for mode in ("-f", "-i", "-j"):
         [BINARY, mode, "-c", "2408"],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )
@@ -91,7 +99,7 @@ for mode in ("-i", "-j"):
         [BINARY, "-U", "no-such-board", mode],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )

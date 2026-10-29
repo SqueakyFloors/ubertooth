@@ -51,6 +51,14 @@ BR_PACKET = 0
 LAP = 0x5A3C96                  # the LAP every record here carries
 UAP = 0x5B                      # the UAP the DH1 below settles
 AGE_S = 3600                    # the records were written this long ago
+# How long one ubertooth-rx replay is given. The whole test takes about 0.7 s
+# on an idle machine, over three replays, and 1 s on one busy with parallel
+# builds, where the cost that grows is starting a process rather than the
+# replay itself. The four-core host this test went red on is slower again, so
+# the twenty seconds here is about ten to twenty times an idle run there rather
+# than here. The CTest timeout on this test is larger again, so this deadline
+# is the one that fires and says the replay timed out.
+RUN_TIMEOUT_S = 20
 
 # The 64-bit scrambling sequence applied to the sync word, the (64,30)
 # expurgated BCH generator (octal 260534236651), and the Barker sequence
@@ -350,7 +358,8 @@ def replay(work, prefix, *options):
     result = subprocess.run(
         [BINARY, "-i", "piconet.bin", *options,
          "-q", prefix + ".pcap", "-r", prefix + ".pcapng"],
-        capture_output=True, text=True, timeout=10, check=False, cwd=work,
+        capture_output=True, text=True, timeout=RUN_TIMEOUT_S, check=False,
+        cwd=work,
         # A replay opens no device; the switch keeps it that way if this run
         # ever reaches device selection.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"),

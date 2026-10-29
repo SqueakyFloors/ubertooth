@@ -301,7 +301,11 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_replay.py
 		$<TARGET_FILE:ubertooth-rx>)
-set_tests_properties(rx-replay PROPERTIES TIMEOUT 30)
+# About 0.4 s on an idle machine and 1 s on one busy with parallel builds. The
+# old thirty seconds matched the test's own per-replay deadline, so a loaded
+# machine was cut off here with nothing said and a hang was never reported by
+# the test. Ninety leaves that deadline room to fire first and say so.
+set_tests_properties(rx-replay PROPERTIES TIMEOUT 90)
 
 # What the capture records of a replay say about the piconet they came from:
 # the reference UAP, the packet's own header, and which LAP is recorded where.
@@ -314,7 +318,11 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_uap_record.py
 		$<TARGET_FILE:ubertooth-rx>)
-set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 10)
+# About 0.7 s on an idle machine and 1 s on one busy with parallel builds. The
+# old ten seconds was below the test's own per-replay deadline, so a loaded
+# machine was cut off here with nothing said and a hang was never reported by
+# the test. A minute leaves that deadline room to fire first and say so.
+set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 60)
 
 add_executable(test-btle-options
 	test_btle_options.c
@@ -1056,7 +1064,11 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_clock_wrap.py
 		$<TARGET_FILE:ubertooth-rx>)
-set_tests_properties(rx-clock-wrap PROPERTIES TIMEOUT 30)
+# About 3.4 s on an idle machine and 7 s on one busy with parallel builds. The
+# old thirty seconds matched the test's own per-replay deadline, so a loaded
+# machine was cut off here with nothing said and a hang was never reported by
+# the test. Two minutes leaves that deadline room to fire first and say so.
+set_tests_properties(rx-clock-wrap PROPERTIES TIMEOUT 120)
 
 # host/doc/man: a build must leave the committed man pages alone, and the
 # refresh-manpages target must rewrite them, keeping the .TH fields ronn
