@@ -34,6 +34,9 @@ struct fake_dev {
 	uint16_t bcd;       /* the firmware API version the board reports */
 	uint8_t serial[16]; /* the 16 bytes -s prints as 32 hex digits */
 	int serial_fails;   /* set to fail this device's serial read */
+	/* The firmware image this board reports in its info block. NULL stalls
+	 * the read, which is how firmware built before the block answers. */
+	const char *image;
 	int handle; /* opaque body for the handle the fake libusb_open() hands out */
 };
 
@@ -48,6 +51,7 @@ static struct {
 	int opens;              /* libusb_open() calls */
 	int closes;             /* libusb_close() calls */
 	int lists;              /* outstanding libusb_get_device_list() lists */
+	int stops;              /* STOP requests sent to any board */
 	int list_calls;         /* libusb_get_device_list() calls, not freed again */
 	int usb_sessions;       /* libusb_init() minus libusb_exit() */
 	int usb_inits;          /* libusb_init() calls */
@@ -70,6 +74,7 @@ static void bus_with_ubertooths(int n)
 		/* One version behind this tree, the state a development build
 		 * exists for. */
 		fake.devs[1 + i].bcd = UBERTOOTH_API_VERSION - 1;
+		fake.devs[1 + i].image = "bluetooth_rxtx";
 	}
 	fake.n = n + 1;
 	fake.list_rc = fake.n;
@@ -269,6 +274,13 @@ static struct fake_dev *dev_of_handle(libusb_device_handle *devh)
 	return NULL;
 }
 
+/* The device a handle was opened from, which is how ubertooth_get_api() finds
+ * the descriptor libusb read while it enumerated. */
+libusb_device * LIBUSB_CALL libusb_get_device(libusb_device_handle *devh)
+{
+	return (libusb_device *)dev_of_handle(devh);
+}
+
 /* Answers the serial-number read with the selected device's serial; every
  * other request succeeds with a zeroed reply, which is all selection needs. */
 int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
@@ -286,6 +298,23 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		if (fd->serial_fails)
 			return LIBUSB_ERROR_TIMEOUT; /* a board that does not answer */
 		memcpy(data + 1, fd->serial, sizeof(fd->serial)); /* data[0] is the status */
+	}
+	if (bRequest == UBERTOOTH_STOP)
+		fake.stops++;
+	if (bRequest == UBERTOOTH_GET_FW_INFO && fd != NULL) {
+		if (fd->image == NULL)
+			return LIBUSB_ERROR_PIPE; /* firmware without the block */
+		/* The 64 bytes the firmware returns, built by offset as
+		 * ubertooth_interface.h lays them out. */
+		memcpy(data + UBERTOOTH_FW_INFO_OFF_MAGIC,
+		       UBERTOOTH_FW_INFO_MAGIC, UBERTOOTH_FW_INFO_MAGIC_LEN);
+		data[UBERTOOTH_FW_INFO_OFF_FORMAT] = UBERTOOTH_FW_INFO_FORMAT;
+		data[UBERTOOTH_FW_INFO_OFF_API] = fd->bcd & 0xff;
+		data[UBERTOOTH_FW_INFO_OFF_API + 1] = (fd->bcd >> 8) & 0xff;
+		snprintf((char *)data + UBERTOOTH_FW_INFO_OFF_IMAGE,
+		         UBERTOOTH_FW_INFO_IMAGE_LEN, "%s", fd->image);
+		snprintf((char *)data + UBERTOOTH_FW_INFO_OFF_REVISION,
+		         UBERTOOTH_FW_INFO_REVISION_LEN, "git-test");
 	}
 	return wLength;
 }
@@ -408,6 +437,109 @@ MU_TEST(an_open_keeps_the_boards_api_version_for_later_reports)
 	report_capturing(msg, sizeof(msg));
 	mu_assert(strstr(msg, "firmware API version") == NULL,
 	          "the released board's version is still being quoted");
+}
+
+/* Runs ubertooth_check_api(ut) with stderr captured into msg. */
+static int check_api_capturing(ubertooth_t *ut, char *msg, size_t len)
+{
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+	int result;
+
+	msg[0] = '\0';
+	if (capture == NULL || saved < 0) {
+		mu_assert(0, "capture stderr");
+		return 0;
+	}
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	result = ubertooth_check_api(ut);
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, len - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+	return result;
+}
+
+/* A board running this tree's other firmware image is refused by name.
+ *
+ * Both images report the same API version, so the version check lets such a
+ * board through; the tool then failed on the first request btbr does not
+ * answer, and reported a libusb error about a board that was simply carrying
+ * the wrong firmware. */
+MU_TEST(a_board_running_the_other_image_is_refused_by_name)
+{
+	char msg[512];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(1);
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION;
+	fake.devs[1].image = "btbr";
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+
+	mu_assert_int_eq(-1, check_api_capturing(ut, msg, sizeof(msg)));
+	mu_assert(strcmp(msg,
+	                 "error: the Ubertooth is running btbr; this tool needs "
+	                 "bluetooth_rxtx\n"
+	                 "note: flash it with ubertooth-dfu -d "
+	                 "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r\n")
+	          == 0, msg);
+	/* released here, so a tool that returns next does not leave it claimed */
+	mu_assert_int_eq(1, fake.closes);
+	/* and released without a STOP: no mode has been started, and btbr is
+	 * one of the images that does not answer STOP, so sending it would add
+	 * a second failure -- about the teardown -- to this report */
+	mu_assert_int_eq(0, fake.stops);
+	ubertooth_free(ut);
+
+	/* The note reflashes the board the user named and no other. */
+	bus_with_two_serials();
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION;
+	fake.devs[2].bcd = UBERTOOTH_API_VERSION;
+	fake.devs[1].image = "btbr";
+	ut = select_capturing(SERIAL_A, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the named board opens");
+	mu_assert_int_eq(-1, check_api_capturing(ut, msg, sizeof(msg)));
+	mu_assert(strstr(msg, "note: flash it with ubertooth-dfu -U "
+	                 SERIAL_A " -d "
+	                 "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r\n")
+	          != NULL, msg);
+	ubertooth_free(ut);
+}
+
+/* The image every tool here needs passes, silently, and so does a board that
+ * will not say which image it runs: firmware without the block is older than
+ * this tree, which the version check refuses anyway, and what is left is a
+ * board too busy to answer this read. Refusing that would turn a working
+ * board away. */
+MU_TEST(the_expected_image_and_an_unreadable_one_both_pass)
+{
+	char msg[512];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(1);
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION;
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(0, check_api_capturing(ut, msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	bus_with_ubertooths(1);
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION;
+	fake.devs[1].image = NULL; /* the read stalls */
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(0, check_api_capturing(ut, msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
 }
 
 MU_TEST(an_index_in_range_opens_that_device)
@@ -1546,6 +1678,8 @@ MU_TEST(a_selection_ends_every_session_it_starts)
 
 int main(void)
 {
+	MU_RUN(a_board_running_the_other_image_is_refused_by_name);
+	MU_RUN(the_expected_image_and_an_unreadable_one_both_pass);
 	MU_RUN(an_index_in_range_opens_that_device);
 	MU_RUN(an_index_past_several_devices_opens_nothing);
 	MU_RUN(an_index_too_large_for_an_int_opens_nothing);

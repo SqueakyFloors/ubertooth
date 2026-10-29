@@ -608,6 +608,21 @@
   up to three attempts. A board that has gone still ends the capture at once.
   `ubertooth-ego` reads packets the same way and gets the same.
   [#710](https://github.com/SqueakyFloors/ubertooth/issues/710)
+- **Script-visible change:** `ubertooth-util -n` interrupted with Ctrl-C stops
+  the range test, like every other ending of the wait, and exits 1 with
+  `error: interrupted before the range test finished; the range test has been
+  stopped`. A signal used to leave the board listening for a reply forever,
+  until someone ran `-S`.
+  [#694](https://github.com/SqueakyFloors/ubertooth/issues/694)
+- A tool that checks the firmware API version now checks the firmware image
+  too, and one run against a board carrying this tree's other image is refused
+  by name as the board is opened: `error: the Ubertooth is running btbr; this
+  tool needs bluetooth_rxtx`, with a `note:` giving the `ubertooth-dfu` line
+  that flashes it. Both images report the same API version, so nothing refused
+  such a board and the tool failed instead on the first request that image
+  does not answer, reported as a libusb error. `ubertooth-util`,
+  `ubertooth-dfu` and `ubertooth-debug` make neither check.
+  [#718](https://github.com/SqueakyFloors/ubertooth/issues/718)
 - `ubertooth-util -r` recovers a board that answers nothing, which used to
   need a re-plug or a hub port power cycle. Such a board refuses the reset
   request like every other request, so `-r` resets its USB connection first --

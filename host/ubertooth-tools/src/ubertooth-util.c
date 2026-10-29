@@ -531,6 +531,20 @@ static int range_test_read_failed(ubertooth_t *ut, const char *what)
 	return 1;
 }
 
+/* The end of a wait the user stopped: Ctrl-C, or any of the other signals the
+ * library's handler takes. Nobody is waiting for the repeater's reply now, so
+ * the board is left as the wait's own endings leave it -- idle -- rather than
+ * listening until someone runs -S. Returns 1, the status the wait fails
+ * with. */
+static int range_test_interrupted(ubertooth_t *ut)
+{
+	const char *left = range_test_stop(ut);
+
+	fprintf(stderr, "error: interrupted before the range test finished; %s\n",
+	        left);
+	return 1;
+}
+
 /*
  * Follows the range test the board has just been started on, and reports it.
  *
@@ -542,8 +556,9 @@ static int range_test_read_failed(ubertooth_t *ut, const char *what)
  * result block -m prints.
  *
  * With no repeater in range the board listens forever, so the wait has a
- * deadline; timeout_s of 0 waits forever. Returns 0 when the test finished
- * and its result was printed, 1 otherwise.
+ * deadline; timeout_s of 0 waits forever. A signal ends the wait too, which
+ * is why the caller installs the library's handler first. Returns 0 when the
+ * test finished and its result was printed, 1 otherwise.
  */
 static int range_test_wait(ubertooth_t *ut, int timeout_s)
 {
@@ -558,6 +573,8 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		watchdog_info info;
 		uint64_t elapsed = util_clock_now_ms() - start;
 
+		if (ubertooth_stopping(ut))
+			return range_test_interrupted(ut);
 		if (timeout_s > 0 && elapsed >= (uint64_t)timeout_s * 1000u) {
 			const char *left = range_test_stop(ut);
 
@@ -592,6 +609,11 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		 * to stall.
 		 */
 		util_clock_sleep_ms(RANGE_TEST_POLL_MS);
+		/* Again after the sleep, which is where a signal arrives: the two
+		 * reads below would otherwise go to a board that is about to be
+		 * stopped anyway. */
+		if (ubertooth_stopping(ut))
+			return range_test_interrupted(ut);
 		if (cmd_get_rangeresult_quiet(ut->devh, &rr) != 0) {
 			/* A poll that learned nothing; see RANGE_TEST_READ_FAILURES.
 			 * Giving up stops the test as the deadline does: nobody is
@@ -1310,6 +1332,13 @@ int main(int argc, char *argv[])
 	if(do_range_test == 0) {
 		int started;
 
+		/* -n is the one thing this tool waits for, so it is the one that
+		 * can be interrupted half way. The handler only raises a flag,
+		 * which the wait below reads: the board is stopped there, on the
+		 * tool's own thread, as every other ending of the wait stops it.
+		 * Installed before the test is started, so a signal arriving while
+		 * the start request is in flight is caught as well. */
+		register_cleanup_handler(ut, 0);
 		fprintf(stderr, "Starting range test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		started = cmd_range_test(ut->devh);

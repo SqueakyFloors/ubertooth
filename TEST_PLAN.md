@@ -86,8 +86,11 @@ A second Ubertooth One for the range test (2i).
 - [ ] Flash the `btbr` image, which this tree builds, then run
       `ubertooth-util -v`, `ubertooth-util -I` and `ubertooth-specan`
 - [ ] Confirm: `-v` names `btbr` at this tree's API version, so the version
-      check passes; the other two fail on a request that image does not
-      answer, each on stderr with exit 1, and nothing blinks
+      check passes; `ubertooth-specan` is refused by image instead, with
+      `error: the Ubertooth is running btbr; this tool needs bluetooth_rxtx`
+      and the `note:` that flashes it; `-I` still fails on a request that
+      image does not answer, because `ubertooth-util` makes no such check.
+      Both on stderr with exit 1, and nothing blinks
 - [ ] Flash `bluetooth_rxtx` again before the rest of the plan
 
 ### 2c-i. Firmware of another API version
@@ -295,9 +298,9 @@ the same revision. The exchange completes within a couple of seconds.*
 - [ ] Confirm: the same, after three seconds, with `within 3 s` in the message
 - [ ] Run `ubertooth-util -U <sender> -n 0` with nothing answering, let it
       print a few waiting lines, and stop it with Ctrl+C
-- [ ] Confirm: `-n 0` waits with no deadline, and an interrupted run leaves
-      the test going — `-w` reads `Now in range test mode` — until
-      `ubertooth-util -U <sender> -S`, after which `-w` reads
+- [ ] Confirm: `-n 0` waits with no deadline, and the interrupt ends the run
+      with `error: interrupted before the range test finished; the range test
+      has been stopped` and exit 1, leaving the board idle: `-w` reads
       `Now in idle mode`
 - [ ] Swap the two roles — `-e` on the board that was the sender, `-n` on the
       other — and confirm the first two results again, so each board is seen

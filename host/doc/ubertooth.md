@@ -320,6 +320,30 @@ mode runs on is covered.
 Which answer a build gives can be set either way with
 `UBERTOOTH_ALLOW_API_MISMATCH` (see ENVIRONMENT below).
 
+The version is only half of it: this tree builds two run-time images, and they
+report the same version. So the tools that check the version check the image
+as well, as the board is opened, and one carrying the other image is refused
+by name with the line that flashes it:
+
+    error: the Ubertooth is running btbr; this tool needs bluetooth_rxtx
+    note: flash it with ubertooth-dfu -U 1cc0 -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r
+
+`btbr` answers the requests both images share and nothing else, so without
+that the command failed on the first request it does not answer, reported as a
+refused request — true, but about the wrong thing. ubertooth-btbr(1) is the
+tool that drives `btbr`, and makes no such check: a board carrying
+`bluetooth_rxtx` reaches its session and is reported from the write that times
+out there. ubertooth-util(1) and ubertooth-dfu(1) check neither version nor
+image, because both have to work on whatever firmware a board is carrying, and
+ubertooth-debug(1) checks neither yet.
+
+A board that will not say which image it runs is left to the request that
+needs it. Two boards answer nothing there: one too busy to take the read, and
+one running firmware older than the info block, which a development build
+reaches because it reports the version mismatch and runs on. Both are boards
+somebody means to use, and neither can be told from the other, so neither is
+refused.
+
 ## OUTPUT AND DIAGNOSTICS
 
 This is the split the tools are being brought to, tool by tool. Each tool's

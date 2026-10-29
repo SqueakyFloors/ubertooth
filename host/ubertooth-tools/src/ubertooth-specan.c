@@ -474,9 +474,10 @@ int main(int argc, char *argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
-		/* A refused version was released inside ubertooth_check_api(); one
-		 * it could not read at all leaves the board open. Closing covers
-		 * both, because closing a board already released does nothing. */
+		/* ubertooth_check_api() releases the board itself when it refuses
+		 * the firmware, and leaves it open when it could not read it.
+		 * Closing covers both, because closing a board already released
+		 * does nothing. */
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;

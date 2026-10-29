@@ -34,10 +34,10 @@ u16 btle_next_hop(le_state_t *le)
 }
 
 // calculate channel index from physical channel
-// channel is in range [2402, 2480]
+// channel is in range [BT_FREQ_MIN, BT_FREQ_MAX]
 uint8_t btle_channel_index(uint16_t channel) {
 	uint8_t idx;
-	channel = (channel - 2402) / 2;
+	channel = (channel - BT_FREQ_MIN) / 2;
 	if (channel == 0)
 		idx = 37;
 	else if (channel < 12)
@@ -58,11 +58,11 @@ u16 btle_channel_index_to_phys(u8 idx) {
 	else if (idx < 37)
 		phys = 2428 + 2 * (idx - 11);
 	else if (idx == 37)
-		phys = 2402;
+		phys = BTLE_ADV_CHANNEL_37_MHZ;
 	else if (idx == 38)
-		phys = 2426;
+		phys = BTLE_ADV_CHANNEL_38_MHZ;
 	else
-		phys = 2480;
+		phys = BTLE_ADV_CHANNEL_39_MHZ;
 	return phys;
 }
 
@@ -186,7 +186,7 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
  * `offset` bytes into it. A caller that has already dewhitened the front of a
  * packet some other way carries on from where it stopped.
  *
- * Channel is a physical channel in the range [2402, 2480].
+ * Channel is a physical channel in the range [BT_FREQ_MIN, BT_FREQ_MAX].
  * TODO convert this to use whitening word
  */
 void le_dewhiten_from(uint8_t *data, unsigned size, unsigned channel,

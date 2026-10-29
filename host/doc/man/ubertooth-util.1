@@ -423,13 +423,18 @@ error: no reply from the repeater within 10 s: start one in range with ubertooth
 .fi
 .IP "" 0
 .P
-\fB\-n <seconds>\fR chooses the wait, and \fB\-n 0\fR waits forever, for a repeater being set up by hand at the other end\. Interrupting \fB\-n\fR with Ctrl\-C is the one ending that leaves the test running, and \fBubertooth\-util \-S\fR stops it afterwards\. (It has to be afterwards: \fB\-n\fR holds the board for as long as it is watching, as every tool holds the board it is using, so another command cannot reach it meanwhile\.)
+\fB\-n <seconds>\fR chooses the wait, and \fB\-n 0\fR waits forever, for a repeater being set up by hand at the other end\. Interrupting \fB\-n\fR with Ctrl\-C stops the test like the other endings do, and says so, with exit status 1:
+.IP "" 4
+.nf
+error: interrupted before the range test finished; the range test has been stopped
+.fi
+.IP "" 0
 .P
 A board that leaves the test without a reply ends the wait at once rather than waiting out the deadline: \fBerror: the range test was stopped before the repeater replied\fR, exit status 1\. A board that never entered the test says so instead of naming the repeater: \fBerror: the board did not start the range test within <n> s\fR\.
 .P
 \fB\-n\fR reads the board twice a poll, ten polls a second, to follow all that\. Three polls in a row that cannot read it end the wait, as \fBerror: range test result read failed; <what became of the test>\fR or \fBerror: board mode read failed; \|\.\|\.\|\.\fR; one or two do not, since a board part\-way through a mode stalls the odd control request and the next poll answers\. A board that has stopped answering altogether therefore ends the command on those reads rather than on the deadline, which can take a few seconds longer than the wait asked for: each read has a timeout of its own, and libubertooth reports the transfer itself on the line before\.
 .P
-Every ending but a signal leaves the board out of the test, so the next command finds it idle: the ones above stop it, and a board that left the test by itself is already out of it\. Each of those messages ends by saying so, and says instead that \fB\-S\fR stops it if the stop itself was refused\.
+Every ending leaves the board out of the test, so the next command finds it idle: the ones above stop it, and a board that left the test by itself is already out of it\. Each of those messages ends by saying so, and says instead that \fB\-S\fR stops it if the stop itself was refused\.
 .SS "\-m, the last result"
 The result also stays on the board until the next test, so it can be read again at any time, and that is all \fB\-m\fR does:
 .IP "" 4
@@ -483,7 +488,7 @@ A mode that tunes once reads a late setting a moment later than one that tunes o
 .SH "EXIT STATUS"
 \fBubertooth\-util\fR exits with 0 when every requested operation succeeds, including queries that report a nonzero value such as \fB\-b\fR (board ID), \fB\-c\fR (channel), or \fB\-a\fR (power amplifier level)\. \fB\-m\fR with no range test result yet also exits 0 (see \fIRANGE TEST\fR); \fB\-m\fR on a result whose packets came back corrupted exits 1\. It exits with a nonzero status if any requested operation fails, even when a later operation in the same command succeeds\.
 .P
-\fB\-n\fR exits 0 when the range test finished and its result was printed\. It exits 1 when nothing replied within the wait, when the test ended or never started, and when the reply came back corrupted (see \fIRANGE TEST\fR)\. It also exits 1 when three polls in a row cannot read the board, as \fBerror: range test result read failed; <what became of the test>\fR or \fBerror: board mode read failed; \|\.\|\.\|\.\fR\.
+\fB\-n\fR exits 0 when the range test finished and its result was printed\. It exits 1 when nothing replied within the wait, when the test ended or never started, when the reply came back corrupted, and when the wait was interrupted with Ctrl\-C (see \fIRANGE TEST\fR)\. It also exits 1 when three polls in a row cannot read the board, as \fBerror: range test result read failed; <what became of the test>\fR or \fBerror: board mode read failed; \|\.\|\.\|\.\fR\.
 .P
 A command line that asks for no operation at all is refused before any device is opened, rather than opening the selected board, doing nothing with it and exiting 0:
 .IP "" 4

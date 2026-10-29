@@ -358,6 +358,13 @@ hands the transfer back at all exits 1 too, reported by the `warning:` line
 ubertooth(7) describes rather than that error. A `-z` survey still prints the
 results it did get.
 
+A capture whose teardown the board refuses exits 1 too, even though the
+capture body itself ran to its timeout: the board is left in the mode this run
+started, and no other tool can open it until it is reset or re-plugged.
+Standard error carries the `error: could not stop the running mode` line
+libubertooth prints, and whatever was captured is still written out — those
+packets are real.
+
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that
 collects the capture, or the request that puts the board in its capture mode.

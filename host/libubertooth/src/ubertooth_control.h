@@ -211,6 +211,12 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
  * call leaves unreported, for the caller to handle or describe. */
 int cmd_get_firmware_info(struct libusb_device_handle* devh,
                           struct ubertooth_fw_info *info);
+/* The same read with every failure left unreported, for a caller that asks
+ * out of interest rather than need: the image check every tool makes while it
+ * opens a board (ubertooth_check_api()) carries on without the block rather
+ * than printing a line about a board that may be perfectly fine. */
+int cmd_get_firmware_info_quiet(struct libusb_device_handle* devh,
+                                struct ubertooth_fw_info *info);
 /* As above, but report a failure only as the text "error: <code>" in the
  * buffer; prefer the int-returning forms. */
 void cmd_get_rev_num(struct libusb_device_handle* devh, char *version, u8 len);

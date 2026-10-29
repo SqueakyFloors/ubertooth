@@ -937,8 +937,10 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle* devh,
 	                         compile_info, size);
 }
 
-int cmd_get_firmware_info(struct libusb_device_handle* devh,
-                          struct ubertooth_fw_info *info)
+/* The firmware info block read, in both forms; see
+ * cmd_get_firmware_info_quiet(). */
+static int firmware_info(struct libusb_device_handle* devh,
+                         struct ubertooth_fw_info *info, int quiet)
 {
 	u8 result[UBERTOOTH_FW_INFO_LENGTH];
 	int r, parsed;
@@ -956,21 +958,36 @@ int cmd_get_firmware_info(struct libusb_device_handle* devh,
 	if (r == LIBUSB_ERROR_PIPE)
 		return r;
 	if (r < 0) {
-		show_libusb_error(r);
+		if (!quiet)
+			show_libusb_error(r);
 		return r;
 	}
 	if (r < UBERTOOTH_FW_INFO_LENGTH)
-		return short_reply("firmware info", r, UBERTOOTH_FW_INFO_LENGTH,
-		                   "bytes");
+		return quiet ? UBERTOOTH_ERROR_SHORT_REPLY
+		             : short_reply("firmware info", r,
+		                           UBERTOOTH_FW_INFO_LENGTH, "bytes");
 	/* A reply of the right length that is not a block means the firmware and
 	 * this host disagree about the format, which no length check can catch. */
 	parsed = ubertooth_fw_info_parse(result, (size_t)r, info);
 	if (parsed != UBERTOOTH_FW_INFO_OK) {
-		fprintf(stderr, "error: %s\n",
-		        ubertooth_fw_info_result_string(parsed));
+		if (!quiet)
+			fprintf(stderr, "error: %s\n",
+			        ubertooth_fw_info_result_string(parsed));
 		return LIBUSB_ERROR_IO;
 	}
 	return 0;
+}
+
+int cmd_get_firmware_info(struct libusb_device_handle* devh,
+                          struct ubertooth_fw_info *info)
+{
+	return firmware_info(devh, info, 0);
+}
+
+int cmd_get_firmware_info_quiet(struct libusb_device_handle* devh,
+                                struct ubertooth_fw_info *info)
+{
+	return firmware_info(devh, info, 1);
 }
 
 /* The void forms keep their old contract: on failure the buffer holds

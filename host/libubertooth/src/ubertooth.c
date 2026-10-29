@@ -2253,6 +2253,64 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	return 0;
 }
 
+/* The image every tool that calls ubertooth_check_api() needs on the board.
+ * The other image this tree builds, btbr, answers the shared requests and
+ * nothing else; it is driven by ubertooth-btbr, which is a Python tool and
+ * does not come through here. */
+#define UBERTOOTH_TOOLS_IMAGE "bluetooth_rxtx"
+
+/* Refuses a board running another of this tree's firmware images.
+ *
+ * Both images report the same API version, so the version check above lets
+ * such a board through, and the tool then fails on the first request that
+ * image does not answer: btbr's request handler returns nothing for anything
+ * outside the shared set, so the request stalls and the tool reports a libusb
+ * error about a board that is simply carrying the wrong firmware. Naming the
+ * image to flash is what the user needs instead.
+ *
+ * The message does not name the tool that printed it: the user typed it.
+ *
+ * Returns 0 if the board may be used, which includes a board that would not
+ * say which image it runs: that is left to the request that needs it. Two
+ * boards answer nothing here -- one too busy to take this read, and one
+ * carrying firmware from before the info block existed, which a development
+ * build reaches because it reports a version mismatch and runs on. Both are
+ * boards somebody means to use, and neither can be told from the other, so
+ * refusing them would refuse the very case a development build exists for.
+ *
+ * Returns -1 on a board carrying another image, which it releases first.
+ */
+static int check_firmware_image(ubertooth_t *ut)
+{
+	struct ubertooth_fw_info info;
+
+	if (cmd_get_firmware_info_quiet(ut->devh, &info) < 0)
+		return 0;
+	if (strcmp(info.image, UBERTOOTH_TOOLS_IMAGE) == 0)
+		return 0;
+
+	fprintf(stderr, "error: the Ubertooth is running %s; this tool needs "
+	        "%s\n", info.image, UBERTOOTH_TOOLS_IMAGE);
+	/* The board this message is about and no other, as the version
+	 * mismatch's note does: -U takes the same index or serial the tool
+	 * took, and without one ubertooth-dfu takes the board that is attached
+	 * and refuses when there is more than one. */
+	if (ut->selector != NULL && ut->selector[0] != '\0')
+		fprintf(stderr, "note: flash it with ubertooth-dfu -U %s -d "
+		        "firmware/" UBERTOOTH_TOOLS_IMAGE "/"
+		        UBERTOOTH_TOOLS_IMAGE ".dfu -r\n", ut->selector);
+	else
+		fprintf(stderr, "note: flash it with ubertooth-dfu -d "
+		        "firmware/" UBERTOOTH_TOOLS_IMAGE "/"
+		        UBERTOOTH_TOOLS_IMAGE ".dfu -r\n");
+	/* Closed without a STOP, unlike the version mismatch above: nothing has
+	 * started a mode on this board yet, and btbr is one of the images that
+	 * does not answer STOP, so sending it would add a second failure --
+	 * about the teardown -- to a report that has already said everything. */
+	ubertooth_close(ut);
+	return -1;
+}
+
 int ubertooth_check_api(ubertooth_t *ut) {
 	uint16_t version;
 	int result;
@@ -2271,5 +2329,7 @@ int ubertooth_check_api(ubertooth_t *ut) {
 		ubertooth_stop(ut);
 		return -1;
 	}
-	return 0;
+	/* After the version, because firmware from another tree is the bigger
+	 * mismatch of the two and is the one to report. */
+	return check_firmware_image(ut);
 }
