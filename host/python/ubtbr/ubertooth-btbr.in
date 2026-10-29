@@ -214,14 +214,15 @@ def through(stage):
 	except SystemExit as leaving:
 		status = leaving.code or 0
 	except BrokenPipeError:
-		# A write that was not a packet: the usage text and what `?` prints
-		# go to standard output too, and result() is the only one that
-		# notices the stream going away by itself. A command line the tool
-		# refuses is the reachable case, since it writes before anything
-		# else does. A failed write to standard error from either stage
-		# arrives here as well and is reported as this; the prompt and the
-		# intro, which every session writes, go through BTCtlPrompt.say() so
-		# that a standard error nobody reads does not cost the capture.
+		# A write that was not a packet: the usage text goes to standard
+		# output too, and result() is the only one that notices the stream
+		# going away by itself. A command line the tool refuses is the
+		# reachable case, since it writes before anything else does. A
+		# failed write to standard error from either stage arrives here as
+		# well and is reported as this; everything the prompt writes -- the
+		# intro, the prompt itself, and what `?` prints -- goes through
+		# BTCtlPrompt.say(), so a standard error nobody reads does not cost
+		# the capture.
 		output_lost()
 		# Out without the interpreter's own teardown, for the reason the
 		# command that would not stop takes that way out: once a session is
