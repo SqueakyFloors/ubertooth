@@ -47,10 +47,13 @@ $(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h spec_hop_vectors.h 
 # so what a mode start resets is modelled (see the test's header comment) and
 # the model's shape is scanned in test_mode_dispatch. bluetooth.c is linked in,
 # so the AFH map and the hop sequence the model asks about are the firmware's.
+# The low-energy state struct and the reset that clears it are read as text
+# from the sources FW_RXTX_DIR points at, for the same reason.
 $(BINDIR)/test_mode_state_reset: test_mode_state_reset.c minunit.h \
 		source_scan.h stubs/ubertooth.h \
 		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h \
-		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c | $(BINDIR)
+		$(FW_RXTX)/bluetooth_le.h $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/le_phy.c | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_mode_state_reset.c $(FW_RXTX)/bluetooth.c
 

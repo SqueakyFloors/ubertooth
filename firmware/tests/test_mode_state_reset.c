@@ -31,8 +31,11 @@
  * their own setup, and that setting a channel resets nothing.
  *
  * The last part of this file is the same question for low-energy state: what
- * one ubertooth-btle run leaves behind for the next. Its own scan of
- * bluetooth_rxtx.c is at the end.
+ * one ubertooth-btle run leaves behind for the next. Its own scans of
+ * bluetooth_rxtx.c are at the end. The last of them reads the fields of
+ * le_state_t out of bluetooth_le.h and the clears out of reset_le(), so a
+ * field added to the struct and forgotten in the reset fails here; reset_le()
+ * cannot be run, because the file it lives in is hardware code.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -1610,6 +1613,295 @@ MU_TEST(the_firmware_keeps_the_two_settings_apart)
 	          "bt_promisc_le() still asks whether a target was set");
 }
 
+/* ------------------------------------------------------------------------
+ * What a low-energy mode start clears, read from the firmware source
+ * ------------------------------------------------------------------------ */
+
+/* Room for every field of le_state_t, with a wide margin. */
+#define MAX_LE_FIELDS 64
+
+struct le_field {
+	char name[48];
+	/* How many lines of reset_le() assign it. */
+	int clears;
+};
+
+static struct le_field le_fields[MAX_LE_FIELDS];
+static int le_field_count;
+/* Whether reset_le() calls le_set_access_address(). */
+static int le_reset_sets_the_access_address;
+
+/*
+ * The three fields that call sets, so they have no line of their own: the
+ * access address the radio listens for and the two halves of it the radio
+ * takes.
+ */
+static const char *const SET_BY_THE_ACCESS_ADDRESS_CALL[] = {
+	"access_address", "synch", "syncl"
+};
+
+/*
+ * The four the host states before it asks for the mode: whether to follow
+ * connections, and the address filter. Clearing them would throw away the
+ * command line the capture was started with -- `ubertooth-btle -n` would
+ * follow connections anyway, and a `-t` target would stop filtering.
+ */
+static const char *const KEPT_FOR_THE_MODE_STARTING[] = {
+	"do_follow", "target", "target_mask", "target_set"
+};
+
+static int named_in(const char *const *list, size_t count, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < count; i++)
+		if (strcmp(list[i], name) == 0)
+			return 1;
+	return 0;
+}
+
+/*
+ * The field a declaration declares: the identifier in front of the ';', past
+ * an array bound if it has one. Returns 0 for a line that declares nothing,
+ * which includes the struct's own braces and its blank lines.
+ */
+static int declared_field(const char *line, char *out, size_t size)
+{
+	const char *semi = strchr(line, ';');
+	const char *start, *end;
+
+	if (semi == NULL)
+		return 0;
+	end = semi;
+	/* `u8 target[6];` names the field in front of the bound. */
+	if (end > line && end[-1] == ']') {
+		while (end > line && end[-1] != '[')
+			end--;
+		if (end == line)
+			return 0;
+		end--;
+	}
+	start = end;
+	while (start > line && is_ident_char(start[-1]))
+		start--;
+	/* A declaration has a type in front of the name, so a line whose
+	 * identifier starts it declares nothing. */
+	if (start == end || start == line)
+		return 0;
+	if ((size_t)(end - start) >= size)
+		return 0;
+	memcpy(out, start, (size_t)(end - start));
+	out[end - start] = '\0';
+	return 1;
+}
+
+/* Read the fields of le_state_t out of the header. */
+static int read_le_state_fields(const char *path)
+{
+	char line[SCAN_LINE_MAX], flat[SCAN_LINE_MAX], name[48];
+	FILE *f = fopen(path, "r");
+	int in_block = 0, in_struct = 0;
+
+	if (f == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		collapse_spaces(line, flat, sizeof(flat));
+		if (!in_struct) {
+			if (contains_identifier(flat, "_le_state_t") &&
+			    strchr(flat, '{') != NULL)
+				in_struct = 1;
+			continue;
+		}
+		if (strchr(flat, '}') != NULL)
+			break;
+		if (!declared_field(flat, name, sizeof(name)))
+			continue;
+		if (le_field_count == MAX_LE_FIELDS) {
+			fclose(f);
+			return 0;
+		}
+		snprintf(le_fields[le_field_count].name,
+		         sizeof(le_fields[0].name), "%s", name);
+		le_fields[le_field_count].clears = 0;
+		le_field_count++;
+	}
+	fclose(f);
+	return le_field_count > 0;
+}
+
+/* How many times `text` assigns le.<name>. */
+static int clears_of(const char *text, const char *name)
+{
+	char needle[64];
+	size_t len;
+	int count = 0;
+	const char *p = text;
+
+	if ((size_t)snprintf(needle, sizeof(needle), "le.%s =", name) >=
+	    sizeof(needle))
+		return 0;
+	len = strlen(needle);
+	while ((p = strstr(p, needle)) != NULL) {
+		char prev = (p == text) ? ' ' : p[-1];
+
+		/* "==" is a comparison, not a clear. */
+		if (!is_ident_char(prev) && p[len] != '=')
+			count++;
+		p += len;
+	}
+	return count;
+}
+
+/* Read reset_le()'s body out of the capture firmware and count its clears. */
+static int read_le_reset(const char *path)
+{
+	char line[SCAN_LINE_MAX], flat[SCAN_LINE_MAX];
+	FILE *f = fopen(path, "r");
+	int in_block = 0, in_body = 0, depth = 0, opened = 0, i;
+
+	if (f == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *c;
+
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		collapse_spaces(line, flat, sizeof(flat));
+		if (!in_body) {
+			/* The definition, not a declaration of it: the brace
+			 * shares the signature's line throughout this
+			 * firmware. */
+			if (!calls_identifier(flat, "reset_le") ||
+			    !contains_identifier(flat, "void") ||
+			    strchr(flat, '{') == NULL)
+				continue;
+			in_body = 1;
+		}
+		for (c = flat; *c != '\0'; c++) {
+			if (*c == '{') {
+				depth++;
+				opened = 1;
+			} else if (*c == '}') {
+				depth--;
+			}
+		}
+		if (calls_identifier(flat, "le_set_access_address"))
+			le_reset_sets_the_access_address = 1;
+		for (i = 0; i < le_field_count; i++)
+			le_fields[i].clears +=
+				clears_of(flat, le_fields[i].name);
+		/* Counted from the opening brace, so a declaration rather than
+		 * a definition does not end the scan before it starts. */
+		if (opened && depth == 0)
+			break;
+	}
+	fclose(f);
+	return opened;
+}
+
+static void the_low_energy_reset_was_read(void)
+{
+	if (le_field_count > 0)
+		return;
+	mu_assert_fatal(read_le_state_fields(FW_RXTX_DIR "/bluetooth_le.h"),
+	                "no fields found in le_state_t -- has the struct in "
+	                FW_RXTX_DIR "/bluetooth_le.h been reshaped?");
+	mu_assert_fatal(read_le_reset(FW_RXTX_DIR "/bluetooth_rxtx.c"),
+	                "reset_le() not found in " FW_RXTX_DIR
+	                "/bluetooth_rxtx.c");
+	/* A floor, so a parse that read almost nothing fails here rather than
+	 * passing every case below on an empty list. */
+	mu_assert(le_field_count >= 20,
+	          "le_state_t has fewer fields than the struct is known to have");
+}
+
+/*
+ * A low-energy mode start clears the whole of its state. A field left behind
+ * is read by the next capture as if the connection it came from were still
+ * there: a stale hop interval, window or update instant puts the receiver on
+ * the wrong channel at the wrong moment, and the capture comes back empty for
+ * reasons nothing reports.
+ */
+MU_TEST(a_low_energy_mode_start_clears_the_state_it_owns)
+{
+	int i;
+
+	the_low_energy_reset_was_read();
+	mu_assert(le_reset_sets_the_access_address,
+	          "reset_le() does not put the advertising access address back");
+
+	for (i = 0; i < le_field_count; i++) {
+		const char *name = le_fields[i].name;
+		char msg[160];
+
+		if (named_in(SET_BY_THE_ACCESS_ADDRESS_CALL,
+		             sizeof(SET_BY_THE_ACCESS_ADDRESS_CALL) /
+		             sizeof(SET_BY_THE_ACCESS_ADDRESS_CALL[0]), name) ||
+		    named_in(KEPT_FOR_THE_MODE_STARTING,
+		             sizeof(KEPT_FOR_THE_MODE_STARTING) /
+		             sizeof(KEPT_FOR_THE_MODE_STARTING[0]), name))
+			continue;
+
+		snprintf(msg, sizeof(msg),
+		         "reset_le() leaves le.%s for the next capture to "
+		         "inherit; clear it, or say here why it is kept", name);
+		mu_assert(le_fields[i].clears >= 1, msg);
+	}
+}
+
+/* And once each: a field cleared twice is a line that was meant for another
+ * field, which is how one came to be missed. */
+MU_TEST(it_clears_each_of_them_once)
+{
+	int i;
+
+	the_low_energy_reset_was_read();
+
+	for (i = 0; i < le_field_count; i++) {
+		char msg[160];
+
+		snprintf(msg, sizeof(msg),
+		         "reset_le() clears le.%s %d times",
+		         le_fields[i].name, le_fields[i].clears);
+		mu_assert(le_fields[i].clears <= 1, msg);
+	}
+}
+
+/*
+ * The host's own settings survive it. They arrive before the mode request, so
+ * a reset that cleared them would undo the command line: the three the access
+ * address call sets are the exception, because the mode has to start listening
+ * on the advertising channel whatever the last capture tuned to.
+ */
+MU_TEST(it_keeps_what_the_host_set_for_this_capture)
+{
+	size_t i;
+
+	the_low_energy_reset_was_read();
+
+	for (i = 0; i < sizeof(KEPT_FOR_THE_MODE_STARTING) /
+	                sizeof(KEPT_FOR_THE_MODE_STARTING[0]); i++) {
+		const char *name = KEPT_FOR_THE_MODE_STARTING[i];
+		char msg[160];
+		int j, found = 0;
+
+		for (j = 0; j < le_field_count; j++) {
+			if (strcmp(le_fields[j].name, name) != 0)
+				continue;
+			found = 1;
+			snprintf(msg, sizeof(msg),
+			         "reset_le() clears le.%s, which the host set "
+			         "for the capture it is starting", name);
+			mu_assert(le_fields[j].clears == 0, msg);
+		}
+		snprintf(msg, sizeof(msg),
+		         "le_state_t no longer has a %s field", name);
+		mu_assert(found, msg);
+	}
+}
+
 int main(void)
 {
 	printf("mode state carry-over tests\n");
@@ -1651,5 +1943,8 @@ int main(void)
 	MU_RUN(a_connection_timeout_puts_discovery_back);
 	MU_RUN(clearing_the_target_keeps_the_given_access_address);
 	MU_RUN(the_firmware_keeps_the_two_settings_apart);
+	MU_RUN(a_low_energy_mode_start_clears_the_state_it_owns);
+	MU_RUN(it_clears_each_of_them_once);
+	MU_RUN(it_keeps_what_the_host_set_for_this_capture);
 	return mu_report();
 }
