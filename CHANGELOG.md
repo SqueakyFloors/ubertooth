@@ -543,7 +543,7 @@
   it wants `ADV_IND_MAX_DATA`. No shipped tool sets more than 18 bytes.
   [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
 - The tools are built against a newer libbtbb
-  ([`df77ac2`](https://github.com/SqueakyFloors/libbtbb/commit/df77ac2623016787ae7daf5eabc6a0205a74e44a)),
+  ([`bf878df`](https://github.com/SqueakyFloors/libbtbb/commit/bf878df27e131dd8ab56bb3497918eb9a83f607b)),
   which brings its own run of fixes to the Classic and BLE decoders and to the
   capture file writers: a 255-octet advertising packet keeps its last three
   octets instead of losing them to the CRC field, AUX1, DV, EV3, EV4 and EV5
