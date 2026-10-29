@@ -664,6 +664,10 @@ int main(int argc, char *argv[])
 		 * captured stays written out. */
 		if (ubertooth_stop_failed(ut))
 			status = 1;
+
+		/* What the capture is missing, once, where the user will see it
+		 * after the packets have scrolled past. */
+		ubertooth_report_queue_gaps(ut);
 	}
 
 	if (do_get_aa) {

@@ -61,6 +61,7 @@ struct le_phy_scan {
 	/* anywhere in the file */
 	int unmask_writes;     /* writes of ISER0_ISE_TIMER1 to ISER0 */
 	int main_lines;        /* lines of le_phy_main() the scan read */
+	int dropped_cleared;   /* le_packet_dropped = 0 */
 };
 
 static int scan_le_phy(const char *path, struct le_phy_scan *s)
@@ -127,6 +128,9 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 			if (strcmp(name, "timer1_stop") == 0 && s->timer1_stop == 0)
 				s->timer1_stop = lineno;
 		}
+		if (is_assignment_of(line, "le_packet_dropped", "0") &&
+		    s->dropped_cleared == 0)
+			s->dropped_cleared = lineno;
 		if (is_assignment_of(line, "le_phy_active", "1") && s->active_set == 0)
 			s->active_set = lineno;
 		if (is_assignment_of(line, "le_phy_active", "0") &&
@@ -190,6 +194,31 @@ MU_TEST(test_source_was_scanned)
 	         s.counter_enable);
 	mu_assert(s.clear_matches > 0 && s.clear_flags > 0 &&
 	          s.clear_pending > 0 && s.counter_enable > 0, msg);
+}
+
+/*
+ * A capture starts with no dropped packet to report. The engine marks the next
+ * packet that gets through after it had to drop one, so a mark left over from
+ * the run before would tell the host that this capture's first packet follows
+ * a gap -- a gap that belongs to someone else's capture. Scanned rather than
+ * run, because le_phy_main() drives the radio and cannot run here;
+ * test_le_phy_logic.c runs what the mark itself does.
+ */
+MU_TEST(test_a_run_starts_with_no_dropped_packet_to_report)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_phy_main() does not clear le_packet_dropped, so a drop "
+	         "from the run before marks this capture's first packet", path);
+	mu_assert_fatal(s.dropped_cleared > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: le_packet_dropped is cleared at line %d, after the "
+	         "engine is live (le_phy_active = 1 at line %d), so a packet "
+	         "received in between can still carry the old mark",
+	         path, s.dropped_cleared, s.dropped_cleared, s.active_set);
+	mu_assert(s.dropped_cleared < s.active_set, msg);
 }
 
 /*
@@ -298,6 +327,7 @@ int main(void)
 	printf("le_phy bring-up and teardown order tests\n");
 	scanned = scan_le_phy(path, &s);
 	MU_RUN(test_source_was_scanned);
+	MU_RUN(test_a_run_starts_with_no_dropped_packet_to_report);
 	MU_RUN(test_the_run_starts_with_nothing_pending);
 	MU_RUN(test_active_is_set_after_the_setup);
 	MU_RUN(test_the_interrupt_is_unmasked_last);

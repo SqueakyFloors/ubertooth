@@ -294,7 +294,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.51, last moved by the
+- **Reflash required:** the firmware API version is now 1.52, last moved by the
+  board reporting a low-energy packet it had to drop for want of queue room and
+  by a channel set reaching the board while it follows a connection, before
+  that by the
   E-GO mode request starting the mode it names on a board already running one,
   before that by the AFH map a mode start keeps, the bound on the clock drift
   the board accumulates and the generic receive's FIFO flush, before that by
@@ -331,6 +334,8 @@
   [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
   [#757](https://github.com/SqueakyFloors/ubertooth/issues/757)
+  [#440](https://github.com/SqueakyFloors/ubertooth/issues/440)
+  [#547](https://github.com/SqueakyFloors/ubertooth/issues/547)
 - Every firmware image now carries a block naming the image and the revision
   it was built from, read the same way off a board and out of a file.
   `ubertooth-dfu -d` says which image a file holds before it writes it
@@ -556,6 +561,20 @@
   channel 78. Both went into the printed map and into the map sent to the
   board.
   [#756](https://github.com/SqueakyFloors/ubertooth/issues/756)
+- A low-energy capture is one of the captures that says what it lost. The
+  board had no way to report a low-energy packet it dropped for want of queue
+  room, and `ubertooth-btle` did not ask, so such a capture looked like a quiet
+  channel; the board now marks the next packet through and the tool reports the
+  gaps when the capture ends. It matters most for long packets, which take
+  several of the queue's slots and are dropped whole, so a busy capture could
+  lose exactly the packets that were wanted.
+  [#547](https://github.com/SqueakyFloors/ubertooth/issues/547)
+- A low-energy capture survives a poll the board did not answer in time. One
+  unlucky poll used to end the capture with `error: USB poll failed`, however
+  long it had been running; it is now retried, as a stalled poll already was,
+  up to three attempts. A board that has gone still ends the capture at once.
+  `ubertooth-ego` reads packets the same way and gets the same.
+  [#710](https://github.com/SqueakyFloors/ubertooth/issues/710)
 - `ubertooth-util -r` recovers a board that answers nothing, which used to
   need a re-plug or a hub port power cycle. Such a board refuses the reset
   request like every other request, so `-r` resets its USB connection first --
@@ -1578,6 +1597,14 @@ Fixes with no visible change in normal use.
   it off the error output leaves room there for the reason a failed capture
   gives.
   [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
+- A channel set on a board that is following a low-energy connection is kept
+  instead of being accepted and thrown away. The board went on reporting its
+  old channel and tuned the next mode to it, so a tool that set a channel on a
+  board left in that mode by a capture that did not stop cleanly then received
+  on whichever channel was there before, with nothing to say so. The connection
+  being followed is unaffected either way: that mode hops on the connection's
+  own channel map.
+  [#440](https://github.com/SqueakyFloors/ubertooth/issues/440)
 - `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
   board that did not come back, a board that is back and will not open, and a
   host USB bus that could not be read at all. The last two both read as a

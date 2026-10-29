@@ -381,14 +381,24 @@ static void set_channel_request(uint16_t requested)
 	}
 
 	le_adv_channel = requested_channel;
-	if (mode != MODE_BT_FOLLOW_LE) {
-		channel = requested_channel;
-		requested_channel = 0;
+	channel = requested_channel;
+	requested_channel = 0;
 
-		/* CS threshold is mode-dependent. Update it after
-		 * possible mode change. TODO - kludgy. */
+	/* The carrier-sense threshold is worked out from the channel, so it is
+	 * set here, for whichever mode is running. Except in LE follow mode: the
+	 * low-energy engine (firmware/bluetooth_rxtx/le_phy.c) owns the radio
+	 * while it runs and reaches it over the same serial bus a write from
+	 * here would use, and it does not use carrier sense at all. Whatever
+	 * mode starts next sets the threshold from `channel` as it brings the
+	 * radio up (cc2400_rx()), so nothing is lost by leaving it.
+	 *
+	 * `channel` itself is written in every mode. In LE follow mode it used
+	 * to be left alone, because the mode loop of the day picked up
+	 * `requested_channel` and retuned from there; that loop went when
+	 * le_phy.c took the mode over, which left the host told its channel had
+	 * been set while the board kept the old one. */
+	if (mode != MODE_BT_FOLLOW_LE)
 		cs_threshold_calc_and_set(channel);
-	}
 }
 
 /*

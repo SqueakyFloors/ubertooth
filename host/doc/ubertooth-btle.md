@@ -335,6 +335,28 @@ dropped and reported once per run: `warning: a poll reply arrived with 32 of a
 packet's 64 bytes and was dropped; the capture is losing packets`. The capture
 runs on and ends as it otherwise would, so the warning is the only sign.
 
+Packets the board had to throw away are reported too. It holds captured
+packets in a queue until this tool reads them, and a queue with no room left
+loses the next packet; a packet longer than 50 bytes takes several of the
+queue's slots and is lost whole, so a busy capture can lose the long packets
+while the short ones still arrive. The first time it happens the capture warns
+`warning: the board's packet queue filled up and it dropped at least one
+packet; this capture has a gap`, and when the capture ends it says how many
+such gaps there were: `warning: the capture has 3 gaps where the board's queue
+filled up and it dropped packets`. The count is of gaps, not of lost packets:
+one full queue can swallow several packets, and the board sends no number.
+Nothing says which packets are missing, so a capture with gaps is complete
+only between them. The board reports a gap on the first packet that gets
+through after it, so a capture that ends in the moment after a gap does not
+report that last one.
+
+A poll the board does not answer is tried again, up to three attempts, before
+the capture gives up: a board busy elsewhere for a moment no longer ends a
+capture that has been running for hours. A board that has left the bus ends it
+at once. The retry saves the capture, not the packet: the board takes a packet
+out of its queue as it answers the poll, so the one a timed-out poll was
+carrying is gone.
+
 Each request that sets a mode up is named on its own, so the line says which
 one the board refused: `error: could not set the advertising channel`,
 `error: could not set the advertising data`, `error: could not start

@@ -454,9 +454,9 @@ int ubertooth_stream_failed(ubertooth_t* ut);
  * Every mode's callback calls this for the records it is handed, including the
  * ones it goes on to discard: the board's word that packets were lost before
  * this record does not depend on what the host makes of the record itself.
- * Records that carry no readings of their own -- a keep-alive, or the
- * continuation of a packet already counted -- are the exception, and each
- * callback leaves those out.
+ * Records that carry no readings of their own are left out here rather than by
+ * the callers: a keep-alive, and the continuation records of a long low-energy
+ * packet, which repeat the readings of the record that started it.
  */
 void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx);
 

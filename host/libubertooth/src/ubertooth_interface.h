@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0151
+#define UBERTOOTH_API_VERSION 0x0152
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version

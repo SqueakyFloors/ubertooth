@@ -220,6 +220,7 @@ static void start_fresh(void)
 	fake_iser0 = 0;
 	fake_icer0 = 0;
 	memset(&le, 0, sizeof(le));
+	le_packet_dropped = 0;
 	usb_queue_init();
 	buffers_init();
 	queue_init(&packet_queue);
@@ -710,6 +711,109 @@ MU_TEST(a_packet_too_long_for_a_chain_is_refused)
 	mu_assert_int_eq(0, usb_enqueue_le(&buf));
 	mu_assert(dequeue() == NULL,
 	          "a packet too long to send left records in the ring");
+}
+
+/*
+ * A packet the ring had no room for leaves a mark on the next one that gets
+ * through, so a capture with a gap in it can be told from a quiet channel.
+ *
+ * It matters most for long packets. One of those takes several of the ring's
+ * records and is refused all or nothing, so a nearly full ring drops long
+ * packets while short ones still go through -- which is how a capture can
+ * lose exactly the packets that were wanted and look complete.
+ */
+MU_TEST(a_dropped_packet_marks_the_next_one_that_gets_through)
+{
+	le_rx_t one_record, long_packet, after;
+	usb_pkt_rx *record;
+	int filled = 0;
+
+	start_fresh();
+
+	/* A packet of exactly 50 bytes, so each one takes a single record... */
+	fill_packet(&one_record, 41, DATA_CHANNEL_MHZ);
+	mu_assert_int_eq(DMA_SIZE, 4 + one_record.size);
+	/* ...and one of 260, the longest there is, which takes six. */
+	fill_packet(&long_packet, 255, DATA_CHANNEL_MHZ);
+	mu_assert_int_eq(LE_MAX_USB_PACKET_SIZE, 4 + long_packet.size);
+
+	/* Leave the ring with room for one more record and no more, so a short
+	 * packet still fits and the long one cannot. */
+	while (usb_queue_space() > 1) {
+		mu_assert_fatal(usb_enqueue_le(&one_record) == 1,
+		                "the ring would not take a 50-byte packet");
+		filled++;
+	}
+
+	mu_assert_int_eq(0, usb_enqueue_le(&long_packet));
+
+	/* Nothing already in the ring is marked: the drop happened after them,
+	 * and a mark on a packet that arrived before the gap would put the gap
+	 * in the wrong place. */
+	while ((record = dequeue()) != NULL) {
+		mu_assert_int_eq(0, record->status & FIFO_OVERFLOW);
+		filled--;
+	}
+	mu_assert_int_eq(0, filled);
+
+	/* The next packet to get through carries the news. */
+	fill_packet(&after, 10, DATA_CHANNEL_MHZ);
+	mu_assert_int_eq(1, usb_enqueue_le(&after));
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "the packet after the gap was not sent");
+	mu_assert_int_eq(FIFO_OVERFLOW, record->status & FIFO_OVERFLOW);
+
+	/* ...and only that one: the gap is reported once, not on every packet
+	 * for the rest of the capture. */
+	mu_assert_int_eq(1, usb_enqueue_le(&after));
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "the second packet after the gap was "
+	                                "not sent");
+	mu_assert_int_eq(0, record->status & FIFO_OVERFLOW);
+
+	/* Every fragment of a long packet carries the same readings, so the
+	 * host sees the mark on the record that starts the chain. Fill the ring
+	 * again, drop a long packet, then empty it so the next one fits. */
+	while (usb_queue_space() > 1)
+		mu_assert_fatal(usb_enqueue_le(&one_record) == 1,
+		                "the ring would not fill up again");
+	mu_assert_int_eq(0, usb_enqueue_le(&long_packet));
+	while (dequeue() != NULL)
+		;
+	mu_assert_int_eq(1, usb_enqueue_le(&long_packet));
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "the long packet after the gap was not "
+	                                "sent");
+	mu_assert_int_eq(LE_PACKET_START, record->pkt_type);
+	mu_assert_int_eq(FIFO_OVERFLOW, record->status & FIFO_OVERFLOW);
+}
+
+/*
+ * A capture starts with no gap to report, whatever the run before it left
+ * behind: the flag belongs to the capture, not to the board.
+ */
+MU_TEST(a_drop_does_not_carry_into_the_next_capture)
+{
+	le_rx_t packet;
+	usb_pkt_rx *record;
+
+	start_fresh();
+	fill_packet(&packet, 255, DATA_CHANNEL_MHZ);
+	while (usb_queue_space() >= 6)
+		mu_assert_fatal(usb_enqueue_le(&packet) == 1,
+		                "the ring would not take a long packet");
+	mu_assert_int_eq(0, usb_enqueue_le(&packet));
+
+	/* What le_phy_main() does on the way in. */
+	usb_queue_init();
+	le_packet_dropped = 0;
+
+	fill_packet(&packet, 10, DATA_CHANNEL_MHZ);
+	mu_assert_int_eq(1, usb_enqueue_le(&packet));
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "the first packet of the new capture "
+	                                "was not sent");
+	mu_assert_int_eq(0, record->status & FIFO_OVERFLOW);
 }
 
 /*
@@ -1954,6 +2058,8 @@ int main(void)
 	MU_RUN(a_field_is_read_least_significant_byte_first);
 	MU_RUN(every_packet_length_survives_the_round_trip);
 	MU_RUN(a_packet_too_long_for_a_chain_is_refused);
+	MU_RUN(a_dropped_packet_marks_the_next_one_that_gets_through);
+	MU_RUN(a_drop_does_not_carry_into_the_next_capture);
 	MU_RUN(a_chain_that_does_not_fit_is_not_started);
 	MU_RUN(the_average_rssi_is_the_mean_of_the_samples);
 	MU_RUN(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble);
