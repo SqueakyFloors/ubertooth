@@ -22,7 +22,6 @@
  */
 #include "minunit.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 /* The fake register file, then the code under test. type.h and usbhw_lpc.h
@@ -1422,49 +1421,13 @@ MU_TEST(test_a_stalled_over_long_request_stores_nothing)
  * from the start of the store, so the overrun is the difference. Named here
  * because nothing can run the old loop -- the bound is in the only copy of it.
  */
-/* The value of a plain decimal `#define <name> <n>` in a file, or -1. */
-static int read_define(const char *file, const char *name)
-{
-	char line[512];
-	FILE *f = fopen(file, "r");
-	int value = -1;
-
-	if (f == NULL)
-		return -1;
-	while (fgets(line, sizeof(line), f) != NULL) {
-		char *p;
-
-		if (strstr(line, "#define") == NULL)
-			continue;
-		p = strstr(line, name);
-		if (p == NULL)
-			continue;
-		value = (int)strtol(p + strlen(name), NULL, 10);
-		break;
-	}
-	fclose(f);
-	return value;
-}
-
-MU_TEST(test_the_old_collection_reached_tens_of_kilobytes_past_the_store)
-{
-	/* VENDOR_REQ_DATA_LEN, read out of the firmware's own header rather
-	 * than written here, so the figure cannot drift from the store. */
-	int store = read_define(FW_RXTX_DIR "/ubertooth_usb.h",
-	                        "VENDOR_REQ_DATA_LEN");
-	char msg[512];
-
-	snprintf(msg, sizeof(msg),
-	         "%s/ubertooth_usb.h: no VENDOR_REQ_DATA_LEN to read (got %d)",
-	         FW_RXTX_DIR, store);
-	mu_assert(store > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "the vendor store holds %d bytes and a request may declare "
-	         "65,535, so the collection reached %d bytes past it",
-	         store, 0xffff - store);
-	mu_assert(0xffff - store > 60000, msg);
-}
+/*
+ * How far the collection used to reach is not something a test can run: the
+ * bound is in the only copy of the loop. For the record, the vendor store
+ * holds 258 bytes (VENDOR_REQ_DATA_LEN) and a request may declare 65,535, so
+ * it wrote about 65 KiB over whatever followed the store. What the cases above
+ * do pin is that nothing is written past the store now.
+ */
 
 /*
  * The bound must not touch a device-to-host request. Those are answered out of
@@ -2714,7 +2677,6 @@ int main(void)
 	MU_RUN(test_an_out_request_one_byte_over_the_store_is_stalled);
 	MU_RUN(test_the_longest_possible_out_request_is_stalled);
 	MU_RUN(test_a_stalled_over_long_request_stores_nothing);
-	MU_RUN(test_the_old_collection_reached_tens_of_kilobytes_past_the_store);
 	MU_RUN(test_a_request_asking_for_more_than_the_store_is_answered);
 	MU_RUN(test_an_out_request_to_a_type_with_no_store_is_stalled);
 	MU_RUN(test_a_reply_out_of_the_store_is_cut_to_the_store);

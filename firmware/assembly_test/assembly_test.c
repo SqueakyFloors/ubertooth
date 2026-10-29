@@ -278,6 +278,7 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 	u32 command[5];
 	u32 result[5];
 	u8 length; // string length
+	size_t len; // the same, before it is bounded by the store
 
 	switch (pSetup->bRequest) {
 
@@ -491,9 +492,10 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 		 * than the store. Without the clamp a revision string longer
 		 * than fourteen characters, which a build with a suffix has,
 		 * is copied past the end of it. */
-		length = (u8)strlen(GIT_REVISION);
-		if (length > sizeof(abVendorReqData) - 3)
-			length = sizeof(abVendorReqData) - 3;
+		len = strlen(GIT_REVISION);
+		if (len > sizeof(abVendorReqData) - 3)
+			len = sizeof(abVendorReqData) - 3;
+		length = (u8)len;
 		pbData[2] = length;
 
 		memcpy(&pbData[3], GIT_REVISION, length);

@@ -3482,11 +3482,13 @@ _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
  * One byte on the air at 1 Mbit/s, in timer 0's 100 ns ticks: 8 us.
  *
  * The capture does not set the modem up, so the rate is whatever the host
- * wrote to MDMCTRL, and the radio also has a 250 kbit/s mode where a byte is
- * 32 us. This is the fastest of them, which makes it the shortest byte time,
- * so the lead below is at least one byte at any rate the host can choose --
- * and that one byte is what the wait is for. At a slower rate it is the
- * minimum rather than the generous figure the next comment describes.
+ * wrote to MDMCTRL, and the radio also has a 250 kbit/s mode. This is sized
+ * for 1 Mbit/s, which is what the generic transmit uses and what the mode is
+ * for. At 250 kbit/s a byte is 32 us, so the lead below is one byte rather
+ * than four -- still the byte the wait exists for, but with nothing to spare.
+ * The record is wrong for other reasons at that rate anyway: the read below
+ * takes about 14 us a byte, so it would outrun a 32 us byte on the air for
+ * the whole record rather than only at byte 0.
  */
 #define RX_GENERIC_BYTE_100NS 80
 
@@ -3538,9 +3540,9 @@ _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
  * comparing against a deadline the reset would carry it past. Each step is
  * taken modulo that period, which is what makes a step across the reset come
  * out as the time it was: `now - last` alone would be a huge unsigned number
- * there and end the wait at once. The modulo also bounds the step if the
- * period is not the usual one, which it briefly is not after the low-energy
- * modes' clock drift correction moves the timer's match value for one tick.
+ * there and end the wait at once. A step that comes out longer than the whole
+ * lead is discarded rather than counted, which is what covers the one period
+ * whose length is not CLK100NS_PER_CLKN; see the loop.
  *
  * rx_generic_sync() starts the timer with clkn_start() before it receives. A
  * counter that is not advancing is caught by the poll cap above rather than
@@ -3559,9 +3561,23 @@ static void rx_generic_wait_for_fifo(void)
 
 	while (waited < RX_GENERIC_LEAD_100NS && polls-- > 0) {
 		u32 now = T0TC;
+		u32 step = (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 
-		waited += (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 		last = now;
+		/*
+		 * A step longer than the whole lead is not a step this loop
+		 * took. One turn of it is a register read and a division, a
+		 * handful of ticks, and the longest a turn can really be is an
+		 * interrupt in the middle of it -- still well under the lead.
+		 * So a larger figure means the modulo above was taken against
+		 * the wrong period, which happens for one timer period after
+		 * the low-energy modes' clock drift correction moves the
+		 * timer's match value. Counting it would end the wait early,
+		 * which is the wrong byte 0 all this is for; dropping it waits
+		 * a little longer, and the poll cap still ends the loop.
+		 */
+		if (step <= RX_GENERIC_LEAD_100NS)
+			waited += step;
 	}
 }
 

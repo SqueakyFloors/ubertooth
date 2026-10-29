@@ -328,6 +328,16 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 			 * and truncating it would run a handler on a request
 			 * that is not the one the host sent.
 			 *
+			 * Only the reply endpoint is stalled, as everywhere
+			 * else in this file, so the host still sends the data
+			 * stage it announced and the branch below absorbs it a
+			 * packet at a time -- about a thousand of them for a
+			 * request of 65,535 bytes -- before the status stage
+			 * tells the host it was refused. The bytes go nowhere,
+			 * which is the point; the cost is a few milliseconds of
+			 * USB service that a program on the bus can ask for
+			 * repeatedly.
+			 *
 			 * Only host-to-device. A device-to-host request is
 			 * answered out of whatever its handler points pbData
 			 * at, and the reply is cut to the handler's own length

@@ -25,6 +25,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "cc2400.h"
@@ -111,6 +112,7 @@ struct scan {
 	int wait_modulo;       /* and adds up steps modulo the reset period */
 	int wait_length;       /* its length is RX_GENERIC_LEAD_100NS */
 	int wait_cap;          /* and it gives up after RX_GENERIC_LEAD_POLLS */
+	int wait_step_guard;   /* and drops a step longer than the lead */
 	long lead_bytes;       /* RX_GENERIC_LEAD_BYTES */
 	long byte_100ns;       /* RX_GENERIC_BYTE_100NS */
 	char lead_text[SCAN_LINE_MAX];  /* RX_GENERIC_LEAD_100NS as written */
@@ -321,6 +323,9 @@ static void scan_source(struct scan *s)
 				s->wait_length = lineno;
 			if (contains_identifier(line, "RX_GENERIC_LEAD_POLLS"))
 				s->wait_cap = lineno;
+			if (contains_identifier(line, "step") &&
+			    strstr(line, "<=") != NULL)
+				s->wait_step_guard = lineno;
 			if (line[0] == '}')
 				in_wait = 0;
 			continue;
@@ -562,6 +567,16 @@ MU_TEST(test_the_wait_is_a_bounded_wait_on_the_counter)
 	         "cap, so a timer that is not running leaves it spinning and "
 	         "the board answers nothing", path, s.wait_def);
 	mu_assert(s.wait_cap > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_wait_for_fifo() counts every step the "
+	         "modulo returns. The timer's period is not CLK100NS_PER_CLKN "
+	         "for one period after the clock drift correction moves its "
+	         "match value, and a step across that period's reset comes out "
+	         "of the fixed modulus as an arbitrary number: counting it ends "
+	         "the wait early, which is the wrong byte 0 the wait is for",
+	         path, s.wait_def);
+	mu_assert(s.wait_step_guard > 0, msg);
 }
 
 /*
@@ -607,20 +622,31 @@ MU_TEST(test_the_lead_is_a_few_byte_times)
  * it, and this says what it has to come to. The range test has the same
  * accumulation in cc2400_rangetest.c.
  */
-#define CLKN_PERIOD 3125  /* CLK100NS_PER_CLKN: 312.5 us in 100 ns ticks */
+#define CLKN_PERIOD 3125u  /* CLK100NS_PER_CLKN: 312.5 us in 100 ns ticks */
 
-static unsigned long accumulate(const unsigned long *counter, unsigned n,
-                                unsigned long target, unsigned long cap)
+/*
+ * The firmware's loop, with the counter supplied instead of read. uint32_t
+ * throughout, as T0TC and the firmware's own variables are: the wraparound of
+ * that width is what the modulo is there to turn back into a time, and a
+ * 64-bit model of it would give different numbers.
+ */
+static uint32_t accumulate(const uint32_t *counter, unsigned n,
+                           uint32_t target, uint32_t cap)
 {
-	unsigned long last = counter[0], waited = 0, polls = cap;
+	uint32_t last = counter[0], waited = 0, polls = cap;
 	unsigned i = 1;
 
 	while (waited < target && polls-- > 0) {
-		unsigned long now = counter[i < n ? i : n - 1];
+		uint32_t now = counter[i < n ? i : n - 1];
+		uint32_t step = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
 
 		i++;
-		waited += (now + CLKN_PERIOD - last) % CLKN_PERIOD;
 		last = now;
+		/* The firmware's own guard: a step longer than the whole lead
+		 * is not a step this loop took, so the modulo was taken against
+		 * the wrong period. */
+		if (step <= target)
+			waited += step;
 	}
 	return waited;
 }
@@ -628,11 +654,11 @@ static unsigned long accumulate(const unsigned long *counter, unsigned n,
 MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 {
 	/* A counter advancing 100 ticks a turn reaches 320 on the fourth. */
-	static const unsigned long plain[] = { 0, 100, 200, 300, 400, 500 };
-	/* And one that resets partway: 3000, 3100, then 25 (3125 and 3225
-	 * modulo the period), which is 100 + 50 = 150 ticks of real time. */
-	static const unsigned long wraps[] = { 3000, 3100, 25, 125, 225, 325 };
-	unsigned long got;
+	static const uint32_t plain[] = { 0, 100, 200, 300, 400, 500 };
+	/* And one that resets partway: 3000, 3100, then 25 and on. The step
+	 * from 3100 to 25 is 50 ticks of real time, not a huge number. */
+	static const uint32_t wraps[] = { 3000, 3100, 25, 125, 225, 325 };
+	uint32_t got;
 
 	got = accumulate(plain, 6, 320, 1000);
 	mu_assert(got >= 320 && got < 420, "a plain count must reach the lead");
@@ -644,14 +670,36 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 
 	/* The subtraction the modulo replaces: `now - last` across the reset is
 	 * a huge unsigned number, which is the bug the modulo is there for. */
-	mu_assert((unsigned long)(25 - 3100) > 320,
+	mu_assert((uint32_t)(25u - 3100u) > 320u,
 	          "a bare subtraction across the reset must be the large number "
 	          "this guards against");
 
-	/* A counter that is not advancing is ended by the cap, not by the
-	 * target, and the cap is what it is ended after. */
+	/*
+	 * The period is not always CLK100NS_PER_CLKN: the low-energy modes'
+	 * clock drift correction moves the timer's match value for one period,
+	 * which can make it three times as long. A step across the reset of
+	 * such a period comes out of the fixed modulus as an arbitrary number
+	 * -- 2,056 for the pair below -- and counting it would end the wait
+	 * before the radio has written byte 0, which is what the wait is for.
+	 * The guard drops it, so the wait carries on and ends on honest steps.
+	 */
 	{
-		static const unsigned long stuck[] = { 7, 7 };
+		static const uint32_t extended[] = {
+			9000, 10, 110, 210, 310, 410, 510
+		};
+
+		mu_assert_int_eq(2056, (int)((10u + CLKN_PERIOD - 9000u) %
+		                             CLKN_PERIOD));
+		got = accumulate(extended, 7, 320, 1000);
+		mu_assert(got >= 320 && got < 420,
+		          "a step out of a period that was not the usual length "
+		          "must be dropped, not counted");
+	}
+
+	/* A counter that is not advancing is ended by the cap, not by the
+	 * target. */
+	{
+		static const uint32_t stuck[] = { 7, 7 };
 
 		got = accumulate(stuck, 2, 320, 50);
 		mu_assert(got < 320, "a stopped counter must give up short");
