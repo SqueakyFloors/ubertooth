@@ -34,15 +34,33 @@ volatile uint32_t *fake_rxdata_reg(void);
 #define USBTxData    (*fake_txdata())
 #define USBRxData    (*fake_rxdata_reg())
 
+/* ---- registers whose write changes what the controller reports ---- */
+
+/*
+ * Writing these three is how the firmware acknowledges an event, so a fake
+ * that only stored the value could not tell an event the firmware handled
+ * from one it dropped, which is the whole question here. Each write is staged
+ * and applied at the next register access, which is the earliest moment the
+ * firmware could observe it, so one write never overtakes another.
+ *
+ * USBEpIntSt is a function for the same reason: it has to answer with the
+ * endpoint events that are still waiting.
+ */
+volatile uint32_t *fake_devintclr_reg(void);
+volatile uint32_t *fake_devintset_reg(void);
+volatile uint32_t *fake_epintclr_reg(void);
+volatile uint32_t *fake_epintst_reg(void);
+
+#define USBDevIntClr (*fake_devintclr_reg())
+#define USBDevIntSet (*fake_devintset_reg())
+#define USBEpIntClr  (*fake_epintclr_reg())
+#define USBEpIntSt   (*fake_epintst_reg())
+
 /* ---- plain registers ---- */
 
-extern volatile uint32_t fake_devintclr;
-extern volatile uint32_t fake_devintset;
 extern volatile uint32_t fake_devinten;
 extern volatile uint32_t fake_devintpri;
-extern volatile uint32_t fake_epintst;
 extern volatile uint32_t fake_epinten;
-extern volatile uint32_t fake_epintclr;
 extern volatile uint32_t fake_epintpri;
 extern volatile uint32_t fake_reep;
 extern volatile uint32_t fake_epin;
@@ -61,13 +79,9 @@ extern volatile uint32_t fake_pinsel1;
 extern volatile uint32_t fake_pinsel3;
 extern volatile uint32_t fake_pinsel4;
 
-#define USBDevIntClr fake_devintclr
-#define USBDevIntSet fake_devintset
 #define USBDevIntEn  fake_devinten
 #define USBDevIntPri fake_devintpri
-#define USBEpIntSt   fake_epintst
 #define USBEpIntEn   fake_epinten
-#define USBEpIntClr  fake_epintclr
 #define USBEpIntPri  fake_epintpri
 #define USBReEp      fake_reep
 #define USBEpIn      fake_epin

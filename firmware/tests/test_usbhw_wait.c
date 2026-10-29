@@ -34,8 +34,8 @@
 
 /* ---- the fake controller ---- */
 
-volatile uint32_t fake_devintclr, fake_devintset, fake_devinten, fake_devintpri;
-volatile uint32_t fake_epintst, fake_epinten, fake_epintclr, fake_epintpri;
+volatile uint32_t fake_devinten, fake_devintpri;
+volatile uint32_t fake_epinten, fake_epintpri;
 volatile uint32_t fake_reep, fake_epin, fake_maxpsize;
 volatile uint32_t fake_txplen, fake_ctrl;
 volatile uint32_t fake_cmdcode, fake_cmddata;
@@ -43,10 +43,155 @@ volatile uint32_t fake_epdmaen, fake_epdmadis, fake_udcah;
 volatile uint32_t fake_clkctrl, fake_clkst, fake_pconp;
 volatile uint32_t fake_pinsel1, fake_pinsel3, fake_pinsel4;
 
+/* The last value written to each of the acknowledge registers, for a test
+ * that wants to see what the firmware asked for rather than its effect. */
+static uint32_t fake_devintclr, fake_devintset, fake_epintclr;
+
 /* Does the protocol engine answer commands? */
 static int sie_answers;
-/* Event bits the interrupt handler should see (FRAME, DEV_STAT, EP_SLOW). */
+/* One command the engine will not answer, as its command byte, or -1 for
+ * none. This is how a test reaches a failure in the middle of a sequence --
+ * the select or the buffer validation that follows a packet write, the buffer
+ * release that follows a read -- rather than only the first handshake. The
+ * byte is taken from the command register, so it matches the data phase of a
+ * command whose data happens to equal it; none of the commands used here has
+ * a data phase. */
+static int sie_fail_cmd;
+/* Event bits the interrupt handler should see (FRAME, DEV_STAT). */
 static uint32_t devintst_events;
+/* Endpoint events waiting, by their bit in USBEpIntSt. */
+static uint32_t ep_pending;
+/* The status the controller reports from the write that clears an endpoint's
+ * interrupt, when a test wants it to differ from the one Select Endpoint
+ * reported: that is an event arriving between the two commands. -1 for no
+ * change. */
+static int ep_status_at_clear;
+/* When set, the write that clears an endpoint's interrupt never reports its
+ * answer: the hardware still takes the event away, but the firmware's wait
+ * for the status gives up. */
+static int clear_answer_withheld;
+static unsigned clear_polls_left;
+/*
+ * EP_SLOW as the controller latches it: set when an endpoint event arrives or
+ * the firmware writes USBDevIntSet, cleared by a write to USBDevIntClr. The
+ * part may also re-derive it from USBEpIntSt; this fake does not, so a test
+ * shows whether the firmware gets back to a deferred event on its own.
+ */
+static uint32_t devint_latch;
+
+/*
+ * One-deep staging for the registers whose write changes the controller's
+ * state. The write lands in `staged_value`, and the next register access
+ * applies it -- so a second write applies the first, and the firmware never
+ * sees a stale answer.
+ */
+enum staged_reg {
+	STAGED_NONE = 0,
+	STAGED_DEVINTCLR,
+	STAGED_DEVINTSET,
+	STAGED_EPINTCLR,
+};
+static enum staged_reg staged_which;
+static volatile uint32_t staged_value;
+
+static void fake_apply_writes(void)
+{
+	enum staged_reg which = staged_which;
+	uint32_t v = staged_value;
+
+	staged_which = STAGED_NONE;
+	staged_value = 0;
+	switch (which) {
+	case STAGED_DEVINTCLR:
+		fake_devintclr = v;
+		devint_latch &= ~v;
+		break;
+	case STAGED_DEVINTSET:
+		fake_devintset |= v;
+		devint_latch |= v;
+		break;
+	case STAGED_EPINTCLR:
+		fake_epintclr = v;
+		/* The hardware's Select Endpoint/Clear Interrupt: the event is
+		 * consumed here and nowhere else, and it answers with the
+		 * endpoint's state as it is now. */
+		ep_pending &= ~v;
+		if (ep_status_at_clear >= 0)
+			fake_cmddata = (uint32_t)ep_status_at_clear;
+		if (clear_answer_withheld)
+			clear_polls_left = USBHW_POLLS + 1;
+		break;
+	case STAGED_NONE:
+		break;
+	}
+}
+
+volatile uint32_t *fake_devintclr_reg(void)
+{
+	fake_apply_writes();
+	staged_which = STAGED_DEVINTCLR;
+	return &staged_value;
+}
+
+volatile uint32_t *fake_devintset_reg(void)
+{
+	fake_apply_writes();
+	staged_which = STAGED_DEVINTSET;
+	return &staged_value;
+}
+
+volatile uint32_t *fake_epintclr_reg(void)
+{
+	fake_apply_writes();
+	staged_which = STAGED_EPINTCLR;
+	return &staged_value;
+}
+
+static volatile uint32_t epintst_value;
+
+volatile uint32_t *fake_epintst_reg(void)
+{
+	fake_apply_writes();
+	epintst_value = ep_pending;
+	return &epintst_value;
+}
+
+/* An endpoint event arrives: its bit goes up and EP_SLOW with it. */
+static void fake_raise_ep_event(uint32_t bit)
+{
+	fake_apply_writes();
+	ep_pending |= bit;
+	devint_latch |= EP_SLOW;
+}
+
+/* Is this endpoint's event still waiting to be handled? */
+static int fake_ep_event_pending(uint32_t bit)
+{
+	fake_apply_writes();
+	return (ep_pending & bit) != 0;
+}
+
+/* Would the controller bring the firmware back into the endpoint loop? */
+static int fake_ep_slow_set(void)
+{
+	fake_apply_writes();
+	return (devint_latch & EP_SLOW) != 0;
+}
+
+/* What the firmware has written to USBDevIntSet since this was last cleared.
+ * A write the firmware made last is still staged, so it has to be applied
+ * before the answer means anything. */
+static uint32_t fake_devintset_written(void)
+{
+	fake_apply_writes();
+	return fake_devintset;
+}
+
+static void fake_forget_devintset(void)
+{
+	fake_apply_writes();
+	fake_devintset = 0;
+}
 /* Is a received packet reported as readable, is it valid, how long is it? */
 static int packet_ready;
 static int packet_valid;
@@ -74,8 +219,21 @@ volatile uint32_t *fake_devintst(void)
 	 * one that has stopped answering never raises them. The event bits the
 	 * interrupt handler dispatches on are separate, so a test can ask for an
 	 * endpoint or device-status event without pretending the engine answers. */
-	devintst_value = devintst_events
-	               | (sie_answers ? (CCEMTY | CDFULL | EP_RLZED) : 0u);
+	int answers = sie_answers;
+
+	uint32_t ready;
+
+	fake_apply_writes();
+	if (sie_fail_cmd >= 0
+	    && (int)((fake_cmdcode >> 16) & 0xffu) == sie_fail_cmd)
+		answers = 0;
+	ready = answers ? (CCEMTY | CDFULL | EP_RLZED) : 0u;
+	/* The interrupt clear's own answer, withheld for one whole wait. */
+	if (clear_polls_left > 0) {
+		--clear_polls_left;
+		ready &= ~(uint32_t)CDFULL;
+	}
+	devintst_value = devintst_events | devint_latch | ready;
 	return &devintst_value;
 }
 
@@ -113,8 +271,17 @@ volatile uint32_t *fake_txdata(void)
 static void fake_reset(void)
 {
 	sie_answers = 1;
+	sie_fail_cmd = -1;
 	devintst_events = 0;
-	fake_epintst = 0;
+	ep_pending = 0;
+	ep_status_at_clear = -1;
+	clear_answer_withheld = 0;
+	clear_polls_left = 0;
+	devint_latch = 0;
+	staged_which = STAGED_NONE;
+	staged_value = 0;
+	fake_devintclr = 0;
+	fake_epintclr = 0;
 	fake_devintset = 0;
 	packet_ready = 1;
 	packet_valid = 1;
@@ -271,6 +438,44 @@ MU_TEST(test_ep_read_clears_the_control_register_when_it_gives_up)
 	mu_assert_int_eq(0, (int)fake_ctrl);
 }
 
+/*
+ * The handshakes that come *after* the bytes have been copied: selecting the
+ * endpoint and releasing its buffer, which is what tells the controller it
+ * may receive into that buffer again.
+ *
+ * Either can give up on a controller that has stopped answering, and the
+ * bytes are in the caller's buffer by then -- so this used to be reported as
+ * a complete read while the hardware still held the packet and could present
+ * it again. For a control transfer that is the stale-request hazard
+ * USBHandleControlTransfer() exists to avoid; on a bulk OUT endpoint it is a
+ * message the firmware acts on twice. Report no packet instead.
+ */
+MU_TEST(test_ep_read_reports_no_packet_when_the_select_gives_up)
+{
+	U8 buf[16];
+
+	fake_reset();
+	packet_len = 4;
+	fake_rx_word = 0x44332211;
+	sie_fail_cmd = CMD_EP_SELECT | 0;   /* endpoint 0 OUT is index 0 */
+
+	mu_assert_int_eq(-1, USBHwEPRead(0x00, buf, sizeof(buf)));
+	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
+}
+
+MU_TEST(test_ep_read_reports_no_packet_when_the_buffer_release_gives_up)
+{
+	U8 buf[16];
+
+	fake_reset();
+	packet_len = 4;
+	fake_rx_word = 0x44332211;
+	sie_fail_cmd = CMD_EP_CLEAR_BUFFER;
+
+	mu_assert_int_eq(-1, USBHwEPRead(0x00, buf, sizeof(buf)));
+	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
+}
+
 /* The same for a packet the controller reports as invalid: that path used to
  * return without clearing the register either. */
 MU_TEST(test_ep_read_clears_the_control_register_on_an_invalid_packet)
@@ -364,6 +569,22 @@ MU_TEST(test_ep_write_of_one_byte_writes_one_word)
 	mu_assert_int_eq(1, (int)tx_words);
 }
 
+/* A packet of no bytes that went through answers zero, and a write that could
+ * not commit answers less than that: a control transfer's status stage is a
+ * packet of no bytes, so a caller comparing the answer with the length it
+ * asked for has to be able to tell the two apart. */
+MU_TEST(test_a_zero_length_packet_that_went_through_is_not_a_failure)
+{
+	U8 buf[4] = { 0, 0, 0, 0 };
+
+	fake_reset();
+	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, 0));
+
+	fake_reset();
+	sie_fail_cmd = CMD_EP_VALIDATE_BUFFER;
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, 0));
+}
+
 /* A zero-length packet writes no data at all. */
 MU_TEST(test_ep_write_of_zero_bytes_writes_nothing)
 {
@@ -379,7 +600,8 @@ MU_TEST(test_ep_write_of_zero_bytes_writes_nothing)
 
 /*
  * A write whose handshake stops answering still returns, and says nothing was
- * taken.
+ * taken -- as less than nothing, so a packet of no bytes that did go
+ * through can still answer zero.
  *
  * Selecting the endpoint and validating its buffer is the step that offers the
  * packet to the host, and both are protocol engine commands that can give up.
@@ -397,7 +619,43 @@ MU_TEST(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering)
 	tx_wr_en_words = 16;
 	sie_answers = 0;
 
-	mu_assert_int_eq(0, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
+}
+
+/*
+ * And each of those two handshakes on its own, with the engine answering
+ * everything else: the packet reached the controller, and then the step that
+ * would have offered it to the host gave up. The caller has to be told
+ * nothing was taken, whichever of the two it was.
+ */
+MU_TEST(test_ep_write_reports_nothing_taken_when_the_select_gives_up)
+{
+	U8 buf[64];
+
+	fake_reset();
+	memset(buf, 0xA5, sizeof(buf));
+	fake_ctrl = WR_EN;
+	tx_wr_en_words = 16;
+	sie_fail_cmd = CMD_EP_SELECT | 5;   /* endpoint 0x82 is index 5 */
+
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(16, (int)tx_words);
+	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
+}
+
+MU_TEST(test_ep_write_reports_nothing_taken_when_the_validation_gives_up)
+{
+	U8 buf[64];
+
+	fake_reset();
+	memset(buf, 0xA5, sizeof(buf));
+	fake_ctrl = WR_EN;
+	tx_wr_en_words = 16;
+	sie_fail_cmd = CMD_EP_VALIDATE_BUFFER;
+
+	mu_assert_int_eq(-1, USBHwEPWrite(0x82, buf, sizeof(buf)));
+	mu_assert_int_eq(16, (int)tx_words);
 	mu_assert(usbhw_timeouts > 0, "a wait that gave up must be counted");
 }
 
@@ -509,6 +767,27 @@ MU_TEST(test_an_unreadable_setup_packet_runs_nothing)
 	mu_assert(last_command_stalled_ep0(), "a setup packet that could not be read must stall endpoint 0");
 }
 
+/* And the same for a setup packet the controller would not release: the eight
+ * bytes arrived, but the hardware still holds the buffer and may present them
+ * again, so running the request now could run it twice. */
+MU_TEST(test_a_setup_packet_whose_buffer_release_gives_up_runs_nothing)
+{
+	control_test_setup();
+	queue_setup_packet(0x21);
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(1, (int)handler_calls);
+
+	queue_setup_packet(0x23);
+	sie_fail_cmd = CMD_EP_CLEAR_BUFFER;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(1, (int)handler_calls);
+	mu_assert(last_command_stalled_ep0(),
+	          "a setup packet the controller would not release must stall "
+	          "endpoint 0");
+}
+
 /* The same for a short read: eight bytes or it is not a request. */
 MU_TEST(test_a_short_setup_packet_runs_nothing)
 {
@@ -566,6 +845,175 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
 	mu_assert_int_eq(0x22, handler_last_request);
 }
 
+/* ---- how a reply's data stage ends ---- */
+
+/*
+ * What the endpoint 0 IN interrupt must and must not send.
+ *
+ * It used to send a packet every time, so every reply was followed by a
+ * zero-length packet that was validated and left on the endpoint. The host of
+ * that transfer never asks for it -- a reply shorter than the endpoint's
+ * maximum has already ended its own data stage -- so it waited there until
+ * some later request's IN token collected it, and that request came back with
+ * no data, no stall and no error. It was measured on a Mac at two reads in
+ * 2,350 during a mode.
+ *
+ * A zero-length packet is still needed where it means something: a reply
+ * shorter than the host asked for whose bytes filled whole packets has
+ * nothing in it to say the data ended, and a request with no data stage is
+ * answered with one.
+ */
+
+#define VALIDATE_BUFFER_CMD (0x00000500u | ((uint32_t)CMD_EP_VALIDATE_BUFFER << 16))
+
+static int last_command_validated_a_buffer(void)
+{
+	return fake_cmdcode == VALIDATE_BUFFER_CMD;
+}
+
+/* Did the firmware offer the host a packet of this many bytes? USBTxPLen
+ * carries the length of the packet the controller was given. */
+static int validated_a_packet_of(unsigned bytes)
+{
+	return last_command_validated_a_buffer() && fake_txplen == bytes;
+}
+
+/* A two-byte reply to a two-byte request: the shape of
+ * UBERTOOTH_GET_CHANNEL, the request the zero-byte reply was measured with. */
+MU_TEST(test_a_complete_reply_leaves_nothing_on_the_endpoint)
+{
+	control_test_setup();
+	handler_reply_len = 2;
+	queue_setup_packet_len(0x40, 2);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(2), "the two-byte reply must go to the host");
+
+	/* the host collects it, which is the endpoint 0 IN event */
+	tx_words = 0;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+
+	mu_assert_int_eq(0, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a reply the host already has must not leave a packet on the "
+	          "endpoint for a later request's IN token to collect");
+}
+
+/* A reply as long as the host asked for ends when the host has counted its
+ * bytes, so it needs no terminating packet either. This is the shape of
+ * UBERTOOTH_POLL, which `ubertooth-btle` sends for every captured packet. */
+MU_TEST(test_a_reply_as_long_as_asked_for_leaves_nothing_on_the_endpoint)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x41, 64);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(64), "the reply must go to the host");
+
+	tx_words = 0;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+
+	mu_assert_int_eq(0, (int)tx_words);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a reply as long as the host asked for needs no terminating "
+	          "packet");
+}
+
+/* But a reply shorter than the host asked for, whose bytes filled whole
+ * packets, does need one: nothing in it says the data has ended. */
+MU_TEST(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one)
+{
+	control_test_setup();
+	handler_reply_len = 64;
+	queue_setup_packet_len(0x42, 128);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(64), "the reply must go to the host");
+
+	tx_words = 0;
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(validated_a_packet_of(0),
+	          "a reply that filled whole packets must be ended with a "
+	          "zero-length one, or the host waits for more");
+
+	/* once, though */
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "the terminating packet must be sent once");
+}
+
+/* A handler that offers nothing while the host asked for something: the
+ * reply is empty, which is shorter than the host asked for and a multiple of
+ * the endpoint's maximum, so the zero-length packet that ends the data stage
+ * is the only packet of the transfer -- and it comes from the setup branch,
+ * not the interrupt. */
+MU_TEST(test_a_reply_of_nothing_to_a_host_that_asked_for_some)
+{
+	control_test_setup();
+	handler_reply_len = 0;
+	queue_setup_packet_len(0x44, 8);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(0),
+	          "an empty reply must still end its data stage");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "and the transfer owes nothing after that");
+}
+
+/* A reply longer than one packet: each packet goes as the host collects the
+ * one before it, and the last one is short, so nothing follows it. */
+MU_TEST(test_a_reply_longer_than_one_packet_ends_with_its_short_packet)
+{
+	control_test_setup();
+	handler_reply_len = 100;
+	queue_setup_packet_len(0x45, 100);
+	tx_wr_en_words = 64;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(64), "the first packet is a full one");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(validated_a_packet_of(36), "the rest follows");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "a short last packet ends the data stage on its own");
+}
+
+/* A request with no data stage is answered with one zero-length packet: that
+ * packet is its status stage, and the host does collect it. */
+MU_TEST(test_a_request_with_no_data_stage_is_answered_once)
+{
+	control_test_setup();
+	handler_reply_len = 0;
+	queue_setup_packet_len(0x43, 0);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert(validated_a_packet_of(0),
+	          "a request with no data stage is answered with a zero-length "
+	          "packet");
+
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(!last_command_validated_a_buffer(),
+	          "and with only one");
+}
+
 /* ---- a control reply the controller would not take ---- */
 
 /*
@@ -584,13 +1032,6 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
  * packet; the protocol engine command register holding a buffer validation is
  * what says the host can have it.
  */
-
-#define VALIDATE_BUFFER_CMD (0x00000500u | ((uint32_t)CMD_EP_VALIDATE_BUFFER << 16))
-
-static int last_command_validated_a_buffer(void)
-{
-	return fake_cmdcode == VALIDATE_BUFFER_CMD;
-}
 
 /* Ask for a 64-byte reply with the controller refusing after four words. */
 static void refused_control_in(U8 request)
@@ -648,23 +1089,25 @@ MU_TEST(test_a_refused_control_reply_is_offered_again)
 /* The same when the packet was written but the handshake that offers it to
  * the host gave up: the host has nothing to collect, so the reply is still
  * owed. */
-MU_TEST(test_a_reply_the_engine_would_not_validate_is_offered_again)
+MU_TEST(test_a_reply_the_engine_would_not_offer_is_offered_again)
 {
 	control_test_setup();
 	handler_reply_len = 64;
 	queue_setup_packet_len(0x3a, 64);
 	tx_wr_en_words = 16;
-	/* the controller takes the words but will not answer the command that
-	 * offers the packet to the host */
-	sie_answers = 0;
+	/* The controller takes the words but will not answer the command that
+	 * selects endpoint 0 IN -- the first half of offering the packet to the
+	 * host. Only that command: an engine that answered nothing would not
+	 * get as far as reading the setup packet. */
+	sie_fail_cmd = CMD_EP_SELECT | 1;   /* endpoint 0x80 is index 1 */
 
 	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
 	mu_assert_int_eq(16, (int)tx_words);
 	mu_assert(!last_command_validated_a_buffer(),
-	          "a packet the engine would not validate is not the host's yet");
+	          "a packet the engine would not select for is not the host's yet");
 
 	/* and once it answers again the host gets the reply */
-	sie_answers = 1;
+	sie_fail_cmd = -1;
 	tx_words = 0;
 	USBHwISR();
 	mu_assert_int_eq(16, (int)tx_words);
@@ -788,28 +1231,48 @@ MU_TEST(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply)
 	mu_assert_int_eq(0, (int)tx_words);
 }
 
-/* And so does an endpoint event the firmware had to skip. Only endpoint 0's
- * interrupts are enabled, so the event lost is one of its own -- a setup
+/* And so does an endpoint event the firmware had to give up on. Only endpoint
+ * 0's interrupts are enabled, so the event lost is one of its own -- a setup
  * packet, most likely -- and the host would collect the owed reply as the data
- * stage of the request whose setup packet was dropped. */
-MU_TEST(test_a_skipped_endpoint_event_voids_a_refused_control_reply)
+ * stage of the request whose setup packet was dropped.
+ *
+ * On the deferral that comes first the event is still waiting, so there is
+ * nothing to void yet; that is the test below this one. */
+MU_TEST(test_a_given_up_endpoint_event_voids_a_refused_control_reply)
 {
 	refused_control_in(0x38);
 
-	/* a pass in which the engine will not report an endpoint's status */
-	devintst_events = EP_SLOW;
-	fake_epintst = 1 << 0;
+	/* two passes in which the engine will not report the endpoint's status:
+	 * the first defers the event, the second gives it up */
+	fake_raise_ep_event(1 << 0);
 	sie_answers = 0;
+	USBHwISR();
 	USBHwISR();
 
 	/* the engine answers again, and the owed packet must be gone */
 	sie_answers = 1;
-	devintst_events = 0;
-	fake_epintst = 0;
 	tx_words = 0;
 	tx_wr_en_words = 16;
 	USBHwISR();
 	mu_assert_int_eq(0, (int)tx_words);
+}
+
+/* A deferred event is not a lost one, so the reply still owed is still owed:
+ * voiding it there would throw away a reply the host is waiting for every
+ * time the status read is merely late. */
+MU_TEST(test_a_deferred_endpoint_event_keeps_a_refused_control_reply)
+{
+	refused_control_in(0x39);
+
+	fake_raise_ep_event(1 << 0);
+	sie_answers = 0;
+	USBHwISR();
+
+	sie_answers = 1;
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
 }
 
 /* And so does a stall, which is how the firmware ends a transfer it cannot
@@ -866,13 +1329,77 @@ static void isr_test_setup(void)
 	fake_reset();
 }
 
+/* Endpoint 0x82 is index 5; endpoint 0 OUT, the one that carries control
+ * requests, is index 0. */
+#define EP82_BIT (1u << 5)
+#define EP0_BIT  (1u << 0)
+
 /* The normal path, so the tests below mean something. */
 MU_TEST(test_an_endpoint_event_reaches_its_handler)
 {
 	isr_test_setup();
-	devintst_events = EP_SLOW;
-	fake_epintst = 1 << 5;          /* endpoint 0x82 */
+	fake_raise_ep_event(EP82_BIT);
 	fake_cmddata = EPSTAT_FE;
+
+	USBHwISR();
+
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert_int_eq(EP_STATUS_DATA, ep_handler_last_status);
+}
+
+/* An event the firmware handled is consumed, so the next pass does not
+ * dispatch it a second time. This is what the fake has to get right for the
+ * tests below to mean anything: a fake that kept the interrupt bit set could
+ * not tell a recovered event from a lost one. */
+MU_TEST(test_a_handled_endpoint_event_is_consumed)
+{
+	isr_test_setup();
+	fake_raise_ep_event(EP82_BIT);
+	fake_cmddata = EPSTAT_FE;
+
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert(!fake_ep_event_pending(EP82_BIT),
+	          "a handled event must be cleared from USBEpIntSt");
+
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+}
+
+/*
+ * An event that arrives between the two commands must not be dropped in
+ * favour of the older one.
+ *
+ * The status is read first so that a read which gives up loses nothing, but
+ * the write that clears the interrupt consumes every event waiting on that
+ * endpoint -- including one that arrived since the read. So the status that
+ * write reports is the one to dispatch: on endpoint 0 the later event is a
+ * fresh setup packet, and handling the earlier event's status instead would
+ * feed those eight bytes to whatever transfer was in progress.
+ */
+MU_TEST(test_an_event_arriving_before_the_interrupt_is_cleared_is_the_one_handled)
+{
+	isr_test_setup();
+	fake_raise_ep_event(EP82_BIT);
+	fake_cmddata = EPSTAT_FE;       /* the first event: data available */
+	ep_status_at_clear = EPSTAT_STP; /* a setup packet arrives in between */
+
+	USBHwISR();
+
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert_int_eq(EP_STATUS_SETUP, ep_handler_last_status);
+}
+
+/* And when that write's answer does not arrive, the status read before it is
+ * dispatched rather than nothing: an older status for a real event beats an
+ * event thrown away. */
+MU_TEST(test_a_late_answer_from_the_clear_falls_back_to_the_status_read)
+{
+	isr_test_setup();
+	fake_raise_ep_event(EP82_BIT);
+	fake_cmddata = EPSTAT_FE;
+	clear_answer_withheld = 1;
+	ep_status_at_clear = EPSTAT_STP;  /* never read, because it is late */
 
 	USBHwISR();
 
@@ -888,8 +1415,7 @@ MU_TEST(test_an_endpoint_event_reaches_its_handler)
 MU_TEST(test_an_endpoint_whose_status_cannot_be_read_is_skipped)
 {
 	isr_test_setup();
-	devintst_events = EP_SLOW;
-	fake_epintst = 1 << 5;
+	fake_raise_ep_event(EP82_BIT);
 	fake_cmddata = EPSTAT_STP;      /* would decode as a setup packet */
 	sie_answers = 0;
 
@@ -900,15 +1426,63 @@ MU_TEST(test_an_endpoint_whose_status_cannot_be_read_is_skipped)
 }
 
 /*
- * And it must not leave the answer behind. The engine stops answering for one
- * endpoint and recovers; the bits the failed wait was watching have been
- * cleared, so the next endpoint's status is its own and not the first one's.
+ * The regression this file was extended for: skipping the endpoint must not
+ * throw the event away.
+ *
+ * The status used to be read by writing USBEpIntClr, which clears the
+ * interrupt and returns the answer in one step -- so a read that gave up left
+ * no status to act on and no event either. On endpoint 0 the event is a setup
+ * packet and nothing else says a control request is waiting, so the request
+ * went unanswered until the host's own timeout: a second for the Ubertooth
+ * tools, and the end of a `ubertooth-btle` capture, which reads every packet
+ * with a control request.
+ *
+ * The status is now read with plain Select Endpoint, which leaves the
+ * interrupt alone, so the event is still waiting on the next pass.
+ */
+MU_TEST(test_an_endpoint_event_whose_status_read_gives_up_is_not_lost)
+{
+	isr_test_setup();
+	fake_cmddata = EPSTAT_STP;
+
+	/* A clean pass first: the one-shot that limits the deferral to one is a
+	 * static in the file under test, so this starts the test from a known
+	 * state whatever ran before. */
+	fake_raise_ep_event(EP82_BIT);
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	ep_handler_calls = 0;
+
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+
+	USBHwISR();
+	mu_assert_int_eq(0, (int)ep_handler_calls);
+	mu_assert(fake_ep_event_pending(EP82_BIT),
+	          "the event must still be waiting, not consumed by the failed read");
+	mu_assert(fake_ep_slow_set(),
+	          "EP_SLOW must be set, or no later pass looks at the endpoints");
+
+	/* the engine answers again: the event arrives, with its own status */
+	sie_answers = 1;
+	USBHwISR();
+
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert_int_eq(EP_STATUS_SETUP, ep_handler_last_status);
+	mu_assert(!fake_ep_event_pending(EP82_BIT),
+	          "the event must be consumed once it has been handled");
+}
+
+/*
+ * And the event it recovers is its own. An engine that stops answering for
+ * one endpoint and then recovers must not dispatch whatever answer was left
+ * in the shared register: the bits the failed wait was watching are cleared
+ * on the way out, so the next read is a read.
  */
 MU_TEST(test_a_failed_status_read_does_not_answer_the_next_one)
 {
 	isr_test_setup();
-	devintst_events = EP_SLOW;
-	fake_epintst = 1 << 5;
+	fake_raise_ep_event(EP82_BIT);
 	fake_cmddata = EPSTAT_STP;
 	sie_answers = 0;
 	USBHwISR();
@@ -921,6 +1495,139 @@ MU_TEST(test_a_failed_status_read_does_not_answer_the_next_one)
 
 	mu_assert_int_eq(1, (int)ep_handler_calls);
 	mu_assert_int_eq(EP_STATUS_DATA, ep_handler_last_status);
+}
+
+/*
+ * The deferral is one pass, not forever. In the six modes that service USB
+ * from the USB interrupt, putting EP_SLOW back re-enters this handler at
+ * once, so an engine that has stopped answering for good would loop in here
+ * rather than run the mode. The second failure gives the event up, which
+ * leaves the firmware where it was before this change -- one unanswered
+ * request -- instead of a board that does nothing.
+ */
+MU_TEST(test_an_endpoint_event_is_given_up_after_one_retry)
+{
+	isr_test_setup();
+	fake_raise_ep_event(EP82_BIT);
+	fake_cmddata = EPSTAT_FE;
+	/* A clean pass first: the one-shot is a static in the file under test,
+	 * so this starts the test from a known state whatever ran before. */
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	mu_assert(fake_ep_event_pending(EP82_BIT), "the first failure defers");
+
+	USBHwISR();
+	mu_assert(!fake_ep_event_pending(EP82_BIT),
+	          "the second failure must consume the event, or the endpoint "
+	          "loop never ends");
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+
+	/* and the engine recovering after that is an ordinary pass */
+	sie_answers = 1;
+	fake_raise_ep_event(EP82_BIT);
+	USBHwISR();
+	mu_assert_int_eq(2, (int)ep_handler_calls);
+}
+
+/*
+ * The one-shot is one retry per event, not one for the life of the firmware:
+ * the same point as the device status test further down. An event the engine
+ * never answers uses its retry up, and the next event must still get one --
+ * on endpoint 0 that next event is a control request.
+ */
+MU_TEST(test_a_given_up_endpoint_event_leaves_the_next_one_its_retry)
+{
+	isr_test_setup();
+	fake_cmddata = EPSTAT_FE;
+
+	/* an event the engine never answers: deferred once, then given up */
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	USBHwISR();
+	mu_assert(!fake_ep_event_pending(EP82_BIT), "the event must be given up");
+
+	/* the next event's read fails once. It must still be deferred. */
+	fake_raise_ep_event(EP82_BIT);
+	USBHwISR();
+	mu_assert(fake_ep_event_pending(EP82_BIT),
+	          "an event after a given-up one got no retry, so its control "
+	          "request was lost");
+
+	sie_answers = 1;
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+}
+
+/* A bus reset ends every transfer, so it arms every endpoint's deferral
+ * again: an event deferred when the reset arrived is gone with it, and the
+ * next event on that endpoint -- a control request, on endpoint 0 -- must
+ * still get its second chance. */
+MU_TEST(test_a_bus_reset_arms_every_endpoints_deferral_again)
+{
+	isr_test_setup();
+	fake_cmddata = EPSTAT_FE;
+
+	/* an event the engine never answers: deferred once, then given up */
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	USBHwISR();
+	mu_assert(!fake_ep_event_pending(EP82_BIT), "the event must be given up");
+
+	/* a bus reset, read cleanly */
+	sie_answers = 1;
+	devintst_events = DEV_STAT;
+	fake_cmddata = RST | CON;
+	USBHwISR();
+	mu_assert_int_eq(1, (int)dev_handler_calls);
+	devintst_events = 0;
+	fake_cmddata = EPSTAT_FE;
+
+	/* the next event's read fails once, and must be deferred */
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	mu_assert(fake_ep_event_pending(EP82_BIT),
+	          "a bus reset must leave the next event its deferral");
+
+	sie_answers = 1;
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+}
+
+/*
+ * Several endpoints, one failing. btbr enables interrupts on its bulk OUT
+ * endpoint as well as endpoint 0, so the one-shot has to be per endpoint: a
+ * flag shared between them would spend endpoint 0's retry on the other one's
+ * failure and lose a control request.
+ */
+MU_TEST(test_each_endpoints_event_has_its_own_retry)
+{
+	isr_test_setup();
+	fake_cmddata = EPSTAT_FE;
+
+	/* a clean pass on each, to start from a known one-shot */
+	fake_raise_ep_event(EP0_BIT | EP82_BIT);
+	USBHwISR();
+
+	/* both events, and an engine that answers neither */
+	fake_raise_ep_event(EP0_BIT | EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	mu_assert(fake_ep_event_pending(EP0_BIT), "endpoint 0's event is deferred");
+	mu_assert(fake_ep_event_pending(EP82_BIT), "the other one's too");
+
+	/* the engine answers again: both events arrive */
+	sie_answers = 1;
+	USBHwISR();
+	mu_assert(!fake_ep_event_pending(EP0_BIT), "endpoint 0's event arrived");
+	mu_assert(!fake_ep_event_pending(EP82_BIT), "the other one's too");
+	mu_assert_int_eq(2, (int)ep_handler_calls);
 }
 
 /* A device status event whose read works reaches the handler. */
@@ -950,14 +1657,14 @@ MU_TEST(test_a_failed_device_status_read_is_retried_once)
 
 	USBHwISR();
 	mu_assert_int_eq(0, (int)dev_handler_calls);
-	mu_assert_int_eq(DEV_STAT, (int)fake_devintset);
+	mu_assert_int_eq(DEV_STAT, (int)fake_devintset_written());
 
 	/* second pass, still no answer: the event is dropped rather than
 	 * re-armed again */
-	fake_devintset = 0;
+	fake_forget_devintset();
 	USBHwISR();
 	mu_assert_int_eq(0, (int)dev_handler_calls);
-	mu_assert_int_eq(0, (int)fake_devintset);
+	mu_assert_int_eq(0, (int)fake_devintset_written());
 
 	/* and once the engine answers, a later event is handled normally */
 	sie_answers = 1;
@@ -991,20 +1698,20 @@ MU_TEST(test_a_dropped_device_status_event_leaves_the_next_one_its_retry)
 	/* An event the engine never answers: one retry, then dropped. */
 	sie_answers = 0;
 	USBHwISR();
-	mu_assert_int_eq(DEV_STAT, (int)fake_devintset);
-	fake_devintset = 0;
+	mu_assert_int_eq(DEV_STAT, (int)fake_devintset_written());
+	fake_forget_devintset();
 	USBHwISR();
-	mu_assert_int_eq(0, (int)fake_devintset);
+	mu_assert_int_eq(0, (int)fake_devintset_written());
 	mu_assert_int_eq(1, (int)dev_handler_calls);
 
 	/* The next event's read fails once. It must still be put back. */
 	USBHwISR();
-	mu_assert(fake_devintset == (uint32_t)DEV_STAT,
+	mu_assert(fake_devintset_written() == (uint32_t)DEV_STAT,
 	          "a device status event after a dropped one got no retry, so "
 	          "its bus reset was lost");
 
 	/* And the retried read reaches the handler. */
-	fake_devintset = 0;
+	fake_forget_devintset();
 	sie_answers = 1;
 	USBHwISR();
 	mu_assert_int_eq(2, (int)dev_handler_calls);
@@ -1184,31 +1891,52 @@ int main(void)
 	MU_RUN(test_ep_read_returns_the_packet);
 	MU_RUN(test_ep_read_gives_up_when_no_packet_arrives);
 	MU_RUN(test_ep_read_clears_the_control_register_when_it_gives_up);
+	MU_RUN(test_ep_read_reports_no_packet_when_the_select_gives_up);
+	MU_RUN(test_ep_read_reports_no_packet_when_the_buffer_release_gives_up);
 	MU_RUN(test_ep_read_clears_the_control_register_on_an_invalid_packet);
 	MU_RUN(test_ep_write_writes_the_whole_packet);
 	MU_RUN(test_ep_write_stops_at_the_packet_length_with_wr_en_stuck);
 	MU_RUN(test_ep_write_reports_a_short_write_and_does_not_validate_it);
 	MU_RUN(test_ep_write_of_one_byte_writes_one_word);
 	MU_RUN(test_ep_write_of_zero_bytes_writes_nothing);
+	MU_RUN(test_a_zero_length_packet_that_went_through_is_not_a_failure);
 	MU_RUN(test_ep_write_reports_nothing_taken_when_the_engine_stops_answering);
+	MU_RUN(test_ep_write_reports_nothing_taken_when_the_select_gives_up);
+	MU_RUN(test_ep_write_reports_nothing_taken_when_the_validation_gives_up);
 	MU_RUN(test_a_readable_setup_packet_reaches_the_handler);
 	MU_RUN(test_an_unreadable_setup_packet_runs_nothing);
+	MU_RUN(test_a_setup_packet_whose_buffer_release_gives_up_runs_nothing);
 	MU_RUN(test_a_short_setup_packet_runs_nothing);
 	MU_RUN(test_a_failed_setup_leaves_no_transfer_to_resume);
 	MU_RUN(test_a_control_transfer_works_after_a_failed_setup_read);
+	MU_RUN(test_a_complete_reply_leaves_nothing_on_the_endpoint);
+	MU_RUN(test_a_reply_as_long_as_asked_for_leaves_nothing_on_the_endpoint);
+	MU_RUN(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one);
+	MU_RUN(test_a_reply_of_nothing_to_a_host_that_asked_for_some);
+	MU_RUN(test_a_reply_longer_than_one_packet_ends_with_its_short_packet);
+	MU_RUN(test_a_request_with_no_data_stage_is_answered_once);
 	MU_RUN(test_a_control_reply_the_controller_takes_is_sent_once);
 	MU_RUN(test_a_refused_control_reply_is_offered_again);
-	MU_RUN(test_a_reply_the_engine_would_not_validate_is_offered_again);
+	MU_RUN(test_a_reply_the_engine_would_not_offer_is_offered_again);
 	MU_RUN(test_a_refused_control_reply_is_retried_on_every_pass);
 	MU_RUN(test_a_refused_control_reply_resumes_at_the_same_offset);
 	MU_RUN(test_a_new_setup_packet_voids_a_refused_control_reply);
 	MU_RUN(test_a_bus_reset_voids_a_refused_control_reply);
 	MU_RUN(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply);
-	MU_RUN(test_a_skipped_endpoint_event_voids_a_refused_control_reply);
+	MU_RUN(test_a_given_up_endpoint_event_voids_a_refused_control_reply);
+	MU_RUN(test_a_deferred_endpoint_event_keeps_a_refused_control_reply);
 	MU_RUN(test_a_stall_voids_a_refused_control_reply);
 	MU_RUN(test_an_endpoint_event_reaches_its_handler);
+	MU_RUN(test_a_handled_endpoint_event_is_consumed);
+	MU_RUN(test_an_event_arriving_before_the_interrupt_is_cleared_is_the_one_handled);
+	MU_RUN(test_a_late_answer_from_the_clear_falls_back_to_the_status_read);
 	MU_RUN(test_an_endpoint_whose_status_cannot_be_read_is_skipped);
+	MU_RUN(test_an_endpoint_event_whose_status_read_gives_up_is_not_lost);
 	MU_RUN(test_a_failed_status_read_does_not_answer_the_next_one);
+	MU_RUN(test_an_endpoint_event_is_given_up_after_one_retry);
+	MU_RUN(test_a_given_up_endpoint_event_leaves_the_next_one_its_retry);
+	MU_RUN(test_a_bus_reset_arms_every_endpoints_deferral_again);
+	MU_RUN(test_each_endpoints_event_has_its_own_retry);
 	MU_RUN(test_a_device_status_event_reaches_its_handler);
 	MU_RUN(test_a_failed_device_status_read_is_retried_once);
 	MU_RUN(test_a_dropped_device_status_event_leaves_the_next_one_its_retry);

@@ -74,6 +74,12 @@ static int				iLen;		/**< total length of control transfer */
     transfer still owes the host that packet. See USBControlInRetry(). */
 static BOOL				fDataInOwed = FALSE;
 
+/** Set when the reply still needs one zero-length packet to end its data
+    stage: the host asked for more bytes than the device has, and what the
+    device sent filled whole packets, so nothing in it told the host the data
+    had ended. See DataIn(). */
+static BOOL				fZeroPacketOwed = FALSE;
+
 /** Array of installed request handler callbacks */
 static TFnHandleRequest *apfnReqHandlers[4] = {NULL, NULL, NULL, NULL};
 /** Array of installed request data pointers */
@@ -143,8 +149,10 @@ static void StallControlPipe(U8 bEPStat)
 
 	/* The stall ends this transfer, so nothing is owed to the host any
 	 * more: a retry after it would offer a packet of a transfer the host
-	 * has been told to abandon. */
+	 * has been told to abandon, and a packet that was to end its data
+	 * stage has no data stage left to end. */
 	fDataInOwed = FALSE;
+	fZeroPacketOwed = FALSE;
 
 	USBHwEPStall(0x80, TRUE);
 
@@ -204,6 +212,10 @@ static void DataIn(void)
 	fDataInOwed = FALSE;
 	pbData += iChunk;
 	iResidue -= iChunk;
+	/* A zero-length packet is the one that ends the data stage, and it ends
+	 * it once. */
+	if (iChunk == 0)
+		fZeroPacketOwed = FALSE;
 }
 
 
@@ -242,6 +254,7 @@ void USBControlInRetry(void)
 void USBControlInRetryCancel(void)
 {
 	fDataInOwed = FALSE;
+	fZeroPacketOwed = FALSE;
 }
 
 
@@ -263,6 +276,7 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 			 * moved on, and offering it now would answer this request
 			 * with the last one's data. */
 			fDataInOwed = FALSE;
+			fZeroPacketOwed = FALSE;
 
 			// setup packet, reset request message state machine
 			/*
@@ -303,6 +317,24 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 				}
 				// send smallest of requested and offered length
 				iResidue = MIN(iLen, Setup.wLength);
+				/*
+				 * Does the reply need a zero-length packet after it to
+				 * end its data stage? Only when the host asked for more
+				 * than there is to send and what there is fills whole
+				 * packets -- a packet shorter than the endpoint's
+				 * maximum is itself the end, and a reply as long as the
+				 * host asked for ends when the host has counted its
+				 * bytes.
+				 *
+				 * Sending one anyway, which is what this used to do on
+				 * the endpoint 0 interrupt below, leaves a validated
+				 * zero-length packet on endpoint 0 IN that this
+				 * transfer's host never collects. The next request's
+				 * IN token then collects it instead, and that request
+				 * comes back with no data and no error.
+				 */
+				fZeroPacketOwed = iResidue < Setup.wLength &&
+				                  iResidue % MAX_PACKET_SIZE0 == 0;
 				// send first part (possibly a zero-length status message)
 				DataIn();
 			}
@@ -338,9 +370,16 @@ void USBHandleControlTransfer(U8 bEP, U8 bEPStat)
 		}
 	}
 	else if (bEP == 0x80) {
-		// IN transfer
-		// send more data if available (possibly a 0-length packet)
-		DataIn();
+		/*
+		 * IN transfer: the host has collected the last packet, so send
+		 * the next one -- but only if the transfer has one left to send.
+		 * A reply that is already complete owes the host nothing, and
+		 * the zero-length packet this used to write regardless stayed
+		 * validated on the endpoint until some later request's IN token
+		 * collected it, which is that request answered with no data.
+		 */
+		if (iResidue > 0 || fZeroPacketOwed)
+			DataIn();
 	}
 	else {
 		ASSERT(FALSE);

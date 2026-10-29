@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS   := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -223,6 +223,18 @@ $(BINDIR)/test_tx_generic_bounds: test_tx_generic_bounds.c minunit.h \
 		| $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_tx_generic_bounds.c
+
+# The e-go receive is hardware code as well -- do_rx() reads the SSP's data
+# register -- so the bounds on a capture are exercised through fakes and the
+# firmware's own shape is scanned, as the generic transmit test above does.
+# The host tool's capture-length range is scanned too, so the two cannot
+# disagree about what a board accepts.
+$(BINDIR)/test_ego_rx_bounds: test_ego_rx_bounds.c minunit.h \
+		source_scan.h $(FW_RXTX)/ego.c $(HOST_DFU)/ego_options.h \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-DHOST_EGO_OPTIONS='"$(HOST_DFU)/ego_options.h"' \
+		-o $@ test_ego_rx_bounds.c
 
 # The multi-register write's handler is hardware code too -- it writes radio
 # registers -- so the bound on its register count is exercised through a fake
