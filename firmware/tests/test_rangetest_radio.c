@@ -38,6 +38,26 @@
 #define FW_DIR ".."
 #endif
 
+/*
+ * rangetest_wait_for_fifo(), every code line of it with the spacing flattened
+ * and the comments left out. The wait cannot be run here, and each line of it
+ * can be left standing while the wait is taken apart around it, so the whole
+ * function is pinned as written and not only its pieces.
+ */
+#define FIFO_WAIT_BODY \
+	"{ " \
+	"u32 last = T0TC; " \
+	"u32 waited = 0; " \
+	"u32 polls = RANGETEST_LEAD_POLLS; " \
+	"while (waited < RANGETEST_LEAD_100NS && polls-- > 0) { " \
+	"u32 now = T0TC; " \
+	"u32 step = (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN; " \
+	"last = now; " \
+	"if (step <= RANGETEST_LEAD_100NS) " \
+	"waited += step; " \
+	"} " \
+	"}"
+
 struct scan {
 	int rangetest_manand;   /* cc2400_set(MANAND, ...) in the range test */
 	int repeater_manand;    /* and in the repeater */
@@ -77,6 +97,7 @@ struct scan {
 	int fifo_wait_adds;      /* how many statements add to the total */
 	int fifo_wait_add_ok;    /* where the one that adds the step is */
 	char fifo_wait_add[256]; /* as written */
+	char fifo_wait_body[1024]; /* every code line of it, flattened */
 	int fifo_wait_length;    /* its length is RANGETEST_LEAD_100NS */
 	int fifo_wait_cap;       /* and it gives up after RANGETEST_LEAD_POLLS */
 	int byte_100ns;          /* RANGETEST_BYTE_100NS as written */
@@ -210,6 +231,7 @@ static int scan_source(const char *path, struct scan *s)
 	int lineno = 0, in_block = 0;
 	int in_rangetest = 0, in_repeater = 0, in_turnaround = 0;
 	int in_fifo_wait = 0, in_filter = 0;
+	int fifo_wait_comment = 0, fifo_wait_ended = 0;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -309,22 +331,70 @@ static int scan_source(const char *path, struct scan *s)
 				s->lead_from_byte = 1;
 		}
 
-		if (in_fifo_wait) {
+		if (in_fifo_wait && !fifo_wait_ended) {
+			char flat[SCAN_LINE_MAX];
+
+			collapse_spaces(line, flat, sizeof(flat));
+
+			/*
+			 * Comments are left out of everything below, so they can
+			 * be rewritten without touching this test, and so no
+			 * check is satisfied by a sentence that only talks about
+			 * the code.
+			 */
+			if (fifo_wait_comment) {
+				if (strstr(flat, "*/") != NULL)
+					fifo_wait_comment = 0;
+				continue;
+			}
+			if (strncmp(flat, "/*", 2) == 0) {
+				if (strstr(flat + 2, "*/") == NULL)
+					fifo_wait_comment = 1;
+				continue;
+			}
+			if (flat[0] == '\0')
+				continue;
+
+			/*
+			 * Every code line of the function, flattened into one
+			 * string. The checks after it say what each line is for;
+			 * this says that those lines are the whole of it. Each
+			 * check on its own can be satisfied while the wait is
+			 * taken apart around it -- `waited = waited + step;`
+			 * above the guard, a second write to `step` below the
+			 * pinned one -- and none of that survives this.
+			 */
+			if (s->fifo_wait_body[0] != '\0')
+				strncat(s->fifo_wait_body, " ",
+				        sizeof(s->fifo_wait_body) -
+				        strlen(s->fifo_wait_body) - 1);
+			strncat(s->fifo_wait_body, flat,
+			        sizeof(s->fifo_wait_body) -
+			        strlen(s->fifo_wait_body) - 1);
+
 			if (contains_identifier(line, "T0TC"))
 				s->fifo_wait_timer = 1;
-			if (contains_identifier(line, "RANGETEST_LEAD_100NS"))
-				s->fifo_wait_length = 1;
 			if (contains_identifier(line, "RANGETEST_LEAD_POLLS"))
 				s->fifo_wait_cap = 1;
+			/*
+			 * The loop's own condition, pinned as written. The guard
+			 * below names RANGETEST_LEAD_100NS too, so a check for
+			 * the name alone would no longer say that the wait runs
+			 * the whole lead.
+			 */
+			if (strncmp(flat, "while (", 7) == 0 &&
+			    strcmp(flat, "while (waited < RANGETEST_LEAD_100NS && "
+			                 "polls-- > 0) {") == 0)
+				s->fifo_wait_length = 1;
 			/*
 			 * The one piece of arithmetic in the change, pinned as
 			 * written: nothing here could run it, and its operands the
 			 * other way round still compiles, still looks like a
 			 * wrap-around step, and ends the wait early.
 			 */
-			if (strstr(line, "step =") != NULL) {
-				collapse_spaces(line, s->fifo_wait_text,
-				                sizeof(s->fifo_wait_text));
+			if (strstr(flat, "step =") != NULL) {
+				snprintf(s->fifo_wait_text,
+				         sizeof(s->fifo_wait_text), "%s", flat);
 				if (strcmp(s->fifo_wait_text,
 				           "u32 step = (now + CLK100NS_PER_CLKN - last) % "
 				           "CLK100NS_PER_CLKN;") == 0)
@@ -336,15 +406,8 @@ static int scan_source(const char *path, struct scan *s)
 			 * guard, and keeps only the steps that should be
 			 * dropped.
 			 */
-			if (contains_identifier(line, "step") &&
-			    strstr(line, "<=") != NULL) {
-				char flat[256];
-
-				collapse_spaces(line, flat, sizeof(flat));
-				if (strcmp(flat,
-				           "if (step <= RANGETEST_LEAD_100NS)") == 0)
-					s->fifo_wait_guard = lineno;
-			}
+			if (strcmp(flat, "if (step <= RANGETEST_LEAD_100NS)") == 0)
+				s->fifo_wait_guard = lineno;
 			/*
 			 * And the one statement the guard stands in front of,
 			 * with its line, so that an addition of something other
@@ -352,13 +415,16 @@ static int scan_source(const char *path, struct scan *s)
 			 * guard does not reach -- an empty guard body leaves the
 			 * guard itself intact -- is not silently allowed.
 			 */
-			if (strstr(line, "waited +=") != NULL) {
-				collapse_spaces(line, s->fifo_wait_add,
-				                sizeof(s->fifo_wait_add));
+			if (strstr(flat, "waited +=") != NULL) {
+				snprintf(s->fifo_wait_add,
+				         sizeof(s->fifo_wait_add), "%s", flat);
 				s->fifo_wait_adds++;
 				if (strcmp(s->fifo_wait_add, "waited += step;") == 0)
 					s->fifo_wait_add_ok = lineno;
 			}
+			/* The function's closing brace ends the body. */
+			if (line[0] == '}')
+				fifo_wait_ended = 1;
 		}
 
 		/*
@@ -1178,6 +1244,20 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	         path, s.fifo_wait_guard, s.fifo_wait_add_ok);
 	mu_assert(s.fifo_wait_add_ok == s.fifo_wait_guard + 1, msg);
 
+	/*
+	 * And the whole function, so that nothing can be added between the
+	 * lines the checks above name. Each of them can be satisfied while the
+	 * wait is taken apart around it.
+	 */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() reads\n  %s\nand it has to "
+	         "read\n  %s\nComments are not compared, so only the code has "
+	         "changed. Anything added between these lines -- another write to "
+	         "`waited` or to `step`, a second guard -- waits for a length no "
+	         "test here knows, and the wait exists to be exactly this long",
+	         path, s.fifo_wait_fn, s.fifo_wait_body, FIFO_WAIT_BODY);
+	mu_assert(strcmp(s.fifo_wait_body, FIFO_WAIT_BODY) == 0, msg);
+
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
 	         "RANGETEST_LEAD_100NS", path, s.fifo_wait_fn);
@@ -1677,9 +1757,11 @@ MU_TEST(test_the_range_test_has_one_copy)
 
 /*
  * The two period lengths a clock drift fix produces, in the same ticks. The
- * fix writes 3124 plus its offset to the timer's match register, 1 for a clock
- * running fast and 6249 for one running slow, and a period is one tick longer
- * than the match value.
+ * clock interrupt in bluetooth_rxtx.c writes 3124 plus its offset to the
+ * timer's match register, and the fix sets that offset to 1 for a clock
+ * running fast and 6249 for one running slow; a period is one tick longer than
+ * the match value. Nothing scans those two numbers, so a change to them wants
+ * these changed with it.
  */
 #define FAST_FIX_PERIOD 3126u
 #define SLOW_FIX_PERIOD 9374u
@@ -1780,10 +1862,14 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
  * Every pair of readings taken across the reset of a period `length` ticks
  * long is tried. `real` is the time that actually passed between the two
  * readings, which the firmware cannot know; `step` is what the fixed modulus
- * makes of them. Two numbers come out: how many pairs end the wait before the
- * lead has really passed, and the most any counted step over-states the time
- * it stands for, which is how an accumulation of them could end the wait early
- * without any single step reaching the lead.
+ * makes of them.
+ *
+ * Two numbers come out. The first is how many single steps end the wait on
+ * their own with less than the lead behind them, which is what the fault looks
+ * like. The second is the most any counted step over-states the time it stands
+ * for, and it is the one that settles the question: while no counted step
+ * over-states its time, the running total can never be ahead of the clock, so
+ * no number of them can end the wait early either.
  */
 struct period_sweep {
 	long ends_the_wait_early;  /* with the guard in place */

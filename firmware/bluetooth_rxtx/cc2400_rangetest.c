@@ -172,8 +172,9 @@ rangetest_result rr;
  * taken modulo that period, which is what makes a step across the reset come
  * out as the time it was: `now - last` alone would be a huge unsigned number
  * there and end the wait at once. A step that comes out longer than the whole
- * lead is discarded rather than counted, which is what covers the one period
- * whose length is not CLK100NS_PER_CLKN; see the loop.
+ * lead is discarded rather than counted, which is what covers a period a clock
+ * drift fix has lengthened; see the loop, which also says what it does not
+ * cover.
  *
  * Both callers start the timer with clkn_start() before they receive. A
  * counter that is not advancing is caught by the poll cap above rather than
