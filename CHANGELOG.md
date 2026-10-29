@@ -952,7 +952,6 @@
   back wrong -- and only byte 0, because the read trails the air from there on.
   Each now waits for the radio to have the start of the packet.
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
-
 - A Classic packet longer than one 400 µs bank is reported as what was
   captured, and a piconet follow runs to the end instead of dying partway.
   `ubertooth-rx` told the decoder it had 4000 symbols where 400 had

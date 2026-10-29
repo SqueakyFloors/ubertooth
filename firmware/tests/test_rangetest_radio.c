@@ -98,7 +98,10 @@ struct scan {
 	int fifo_wait_polls;     /* RANGETEST_LEAD_POLLS as written */
 	int wait_defines;        /* how often the wait's four numbers are defined */
 	int wait_undef;          /* where one of them is undefined again */
-	int compiled_out;        /* where an `#if 0` starts */
+	int rangetest_wait_depth; /* how deep in #if/#ifdef the call to the wait */
+	int rangetest_read_depth; /* sits, and the FIFO read it comes before */
+	int repeater_wait_depth;  /* the same two in the repeater */
+	int repeater_read_depth;
 	int fifo_wait_adds;      /* how many statements add to the total */
 	int fifo_wait_add_ok;    /* where the one that adds the step is */
 	char fifo_wait_add[256]; /* as written */
@@ -276,7 +279,7 @@ static int joined_line_in_function(const char *path, int start)
 static int scan_source(const char *path, struct scan *s)
 {
 	char line[512];
-	int lineno = 0, in_block = 0;
+	int lineno = 0, in_block = 0, cond_depth = 0;
 	int in_rangetest = 0, in_repeater = 0, in_turnaround = 0;
 	int in_fifo_wait = 0, in_filter = 0;
 	int fifo_wait_comment = 0, fifo_wait_ended = 0;
@@ -391,13 +394,24 @@ static int scan_source(const char *path, struct scan *s)
 		    strstr(line, "RANGETEST_") != NULL)
 			s->wait_undef = lineno;
 		/*
-		 * And nothing in this file is compiled out. `#if 0` around the
-		 * call to the wait takes the wait away with every check on it
-		 * still passing, because those checks read the order of the
-		 * lines and not whether they are built.
+		 * How deep in #if/#ifdef this line is. The checks on the two
+		 * calls to the wait read the order of the lines, not whether
+		 * they are built, so a conditional that is never true -- `#if
+		 * 0`, `#ifdef NEVER` -- would take the wait away with all of
+		 * them passing. The file's own `#ifdef TX_ENABLE` and
+		 * `#ifdef UBERTOOTH_ONE` are why this counts depth instead of
+		 * refusing conditionals outright.
 		 */
-		if (strncmp(line, "#if 0", 5) == 0)
-			s->compiled_out = lineno;
+		{
+			const char *p = line;
+
+			while (*p == ' ' || *p == '\t')
+				p++;
+			if (strncmp(p, "#if", 3) == 0)
+				cond_depth++;
+			else if (strncmp(p, "#endif", 6) == 0 && cond_depth > 0)
+				cond_depth--;
+		}
 		/*
 		 * The wait's length has to be a number of byte times, not a tick
 		 * count of its own: a plain number here is how a wait for one byte
@@ -405,8 +419,15 @@ static int scan_source(const char *path, struct scan *s)
 		 */
 		if (strstr(line, "define RANGETEST_LEAD_100NS") != NULL) {
 			collapse_spaces(line, s->lead_text, sizeof(s->lead_text));
-			if (contains_identifier(s->lead_text, "RANGETEST_LEAD_BYTES") &&
-			    contains_identifier(s->lead_text, "RANGETEST_BYTE_100NS"))
+			/*
+			 * Pinned as written, not merely as a line mentioning the
+			 * two names: `... * 10` reads as a number of byte times
+			 * and still sets a lead no step can exceed, which leaves
+			 * the guard in the wait with nothing to drop.
+			 */
+			if (strcmp(s->lead_text,
+			           "#define RANGETEST_LEAD_100NS "
+			           "(RANGETEST_LEAD_BYTES * RANGETEST_BYTE_100NS)") == 0)
 				s->lead_from_byte = 1;
 		}
 
@@ -591,10 +612,14 @@ static int scan_source(const char *path, struct scan *s)
 				s->repeater_fifo_write = lineno;
 		}
 		if (contains_identifier(line, "cc2400_fifo_read")) {
-			if (in_rangetest && s->rangetest_fifo_read == 0)
+			if (in_rangetest && s->rangetest_fifo_read == 0) {
 				s->rangetest_fifo_read = lineno;
-			if (in_repeater && s->repeater_fifo_read == 0)
+				s->rangetest_read_depth = cond_depth;
+			}
+			if (in_repeater && s->repeater_fifo_read == 0) {
 				s->repeater_fifo_read = lineno;
+				s->repeater_read_depth = cond_depth;
+			}
 		}
 
 		/* Where each mode notices a sync word, where it waits for the
@@ -607,10 +632,14 @@ static int scan_source(const char *path, struct scan *s)
 				s->repeater_sync_poll = lineno;
 		}
 		if (calls_identifier(line, "rangetest_wait_for_fifo")) {
-			if (in_rangetest && s->rangetest_wait == 0)
+			if (in_rangetest && s->rangetest_wait == 0) {
 				s->rangetest_wait = lineno;
-			if (in_repeater && s->repeater_wait == 0)
+				s->rangetest_wait_depth = cond_depth;
+			}
+			if (in_repeater && s->repeater_wait == 0) {
 				s->repeater_wait = lineno;
+				s->repeater_wait_depth = cond_depth;
+			}
 		}
 		if (calls_identifier(line, "clkn_start")) {
 			if (in_rangetest && s->rangetest_clkn == 0)
@@ -1366,12 +1395,23 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	         "first", path, s.wait_defines, s.wait_undef);
 	mu_assert(s.wait_defines == 4 && s.wait_undef == 0, msg);
 
+	/*
+	 * The wait has to be built wherever the read it comes before is built.
+	 * Both sit inside the file's `#ifdef TX_ENABLE`, so what this compares
+	 * is their depth against each other rather than against zero: a
+	 * conditional that is never true -- `#if 0`, `#ifdef NEVER` -- around
+	 * the wait alone would leave every check above it passing and take the
+	 * wait out of the build.
+	 */
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: an `#if 0` compiles part of this file out. The checks "
-	         "here read the order of the lines, not whether they are built, "
-	         "so an `#if 0` around the call to the wait takes the wait away "
-	         "with all of them passing", path, s.compiled_out);
-	mu_assert(s.compiled_out == 0, msg);
+	         "%s: in the range test the wait is %d deep in #if/#ifdef and the "
+	         "read it comes before is %d deep; in the repeater, %d and %d. A "
+	         "wait built under a condition the read is not is a wait that can "
+	         "be left out of the firmware with every check here passing",
+	         path, s.rangetest_wait_depth, s.rangetest_read_depth,
+	         s.repeater_wait_depth, s.repeater_read_depth);
+	mu_assert(s.rangetest_wait_depth == s.rangetest_read_depth &&
+	          s.repeater_wait_depth == s.repeater_read_depth, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: a line of rangetest_wait_for_fifo() ends in a backslash, "
@@ -1455,6 +1495,20 @@ MU_TEST(test_the_wait_is_a_few_bytes_of_air_time)
 	         "count is wrong by a factor of tens and nothing else here would "
 	         "notice", path, s.lead_text);
 	mu_assert(s.lead_from_byte, msg);
+
+	/*
+	 * And the lead has to be shorter than the counter's own period, or the
+	 * guard in the wait has nothing left to drop: a step out of the fixed
+	 * modulus is always under CLK100NS_PER_CLKN, so a lead at or above it
+	 * admits every step, however wrong.
+	 */
+	snprintf(msg, sizeof(msg),
+	         "%s: the lead is %d ticks and the counter resets every %d. A "
+	         "step the modulo returns is always under that, so a lead this "
+	         "long is a lead no step can exceed, and the wait counts a step "
+	         "taken in a period the drift correction lengthened as if it were "
+	         "real", path, s.lead_bytes * s.byte_100ns, CLK100NS_PER_CLKN);
+	mu_assert(s.lead_bytes * s.byte_100ns < CLK100NS_PER_CLKN, msg);
 }
 
 /*
