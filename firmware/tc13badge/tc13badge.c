@@ -783,7 +783,7 @@ void uart_init(void)
 	u0mr.b = 0x01; // activate synchronous serial mode
 	u0c0.b = 0x80; // transfer MSB first
 	u0c1.b = 0x00;
-	u0brg = 3;     // fast clock rate
+	u0brg = SPI_BRG_FAST; // fast clock rate
 	u0c1.te = 1;   // enable transmit
 	u0c1.re = 1;   // enable receive
 }

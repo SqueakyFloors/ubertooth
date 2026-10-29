@@ -369,61 +369,78 @@ static void getopt_restart(void)
  * wrong word on a command line that holds both: "-v- -Ufoo-" blamed
  * "-Ufoo-", where the dash is part of -U's value and nothing is wrong.
  *
- * Telling them apart needs the option letters, so this takes them and asks
- * getopt again, one word longer each time. The shortest command line whose
- * first refusal is the dash ends in the word that holds it. A refusal of
- * another kind on the way -- an option whose value the next word would have
- * supplied -- is not the one being reported, so the search carries on past
- * it.
+ * Telling them apart needs the option letters, so this takes them and parses
+ * the command line again, one word at a time: the first word whose arrival
+ * makes getopt refuse a dash is the word that holds it.
+ *
+ * A word that makes getopt refuse something else is left out of the passes
+ * that follow. That is how a separate option value is got past: an optional
+ * value may be written as its own word ("ubertooth-util -z -90"), which
+ * getopt does not read -- the tool picks it up with opt_separate_value()
+ * afterwards -- and which getopt refuses on its own ('9' is not an option).
+ * Leaving it out is safe, because the one refusal the tool stopped on was the
+ * dash: anything getopt will not read here, the tool's own loop did read.
  *
  * getopt is left part-way through a command line of its own afterwards, so
  * this may only be called where the tool is giving up: every caller of
  * opt_report_bad_option() returns as soon as it has printed.
  *
- * Returns NULL when no prefix of the command line refuses a dash, which
- * leaves the caller to name the dash on its own.
+ * Returns NULL when no word refuses a dash, which leaves the caller to name
+ * the dash on its own.
  */
 static const char *dash_word(int argc, char *argv[], const char *options)
 {
 	const char *word = NULL;
-	char **prefix;
-	int words;
+	char **block, **taken, **pass;
+	int count, i;
 
 	if (options == NULL || argv == NULL || argc < 2)
 		return NULL;
 
-	/* getopt is allowed to reorder the words it is given -- the GNU one
-	 * moves operands to the end -- so it is handed a copy. The caller's
-	 * argv then keeps the order the user wrote, and so does every pass
-	 * below, which is what makes "the word just added" mean anything. */
-	prefix = malloc((size_t)argc * sizeof(*prefix));
-	if (prefix == NULL)
+	/* Two lists, each of at most argc words and a null terminator: the
+	 * words taken so far, in the order the user wrote them, and the copy
+	 * getopt gets, which the GNU getopt is free to reorder. Keeping the
+	 * two apart is what makes "the word just added" mean anything, and
+	 * leaves the caller's argv as the user wrote it. */
+	block = malloc(2 * ((size_t)argc + 1) * sizeof(*block));
+	if (block == NULL)
 		return NULL;
+	taken = block;
+	pass = block + argc + 1;
 
-	/* From two words up: argv[0] is the program's own path, which a
-	 * diagnostic about what the user typed never names. */
-	for (words = 2; words <= argc && word == NULL; words++) {
-		int opt;
+	/* argv[0] is the program's own path: part of every pass, and never
+	 * named in a diagnostic about what the user typed. */
+	taken[0] = argv[0];
+	count = 1;
 
-		memcpy(prefix, argv, (size_t)words * sizeof(*prefix));
+	for (i = 1; i < argc && word == NULL; i++) {
+		int refused = 0, opt, k;
+
+		for (k = 0; k < count; k++)
+			pass[k] = taken[k];
+		pass[count] = argv[i];
+		pass[count + 1] = NULL;
+
 		getopt_restart();
-		while ((opt = getopt(words, prefix, options)) != -1) {
+		while ((opt = getopt(count + 1, pass, options)) != -1) {
 			/* getopt returns '?' for an option it does not know and
 			 * ':' for one whose value is missing; anything else is
 			 * an option it took. No tool has either as a letter. */
-			if (opt != '?' && opt != ':')
-				continue;
-			/* The first thing this prefix refuses. A dash means the
-			 * word just added is the one holding it; anything else
-			 * is a different mistake, and a longer prefix may still
-			 * reach the dash. */
-			if (optopt == '-')
-				word = argv[words - 1];
-			break;
+			if (opt == '?' || opt == ':') {
+				refused = 1;
+				break;
+			}
 		}
+
+		if (!refused)
+			taken[count++] = argv[i];
+		else if (optopt == '-')
+			word = argv[i];
+		/* else: a word getopt will not read but the tool's own loop
+		 * did, so it is left out of the passes that follow. */
 	}
 
-	free(prefix);
+	free(block);
 	return word;
 }
 
@@ -447,9 +464,11 @@ void opt_report_bad_option(int opt, int argc, char *argv[], const char *options)
 	if (letter == '-') {
 		word = dash_word(argc, argv, options);
 		if (word == NULL)
-			/* Neither word holds a dash, which the search above leaves
-			 * no way to reach. The dash alone, rather than the "--"
-			 * that naming it as an option would print. */
+			/* The search found no word to blame, which leaves the
+			 * dash on its own -- rather than the "--" that naming it
+			 * as an option would print. A caller that passed no
+			 * option string lands here, and so would a command line
+			 * the search cannot follow. */
 			fputs("error: unrecognized option '-'\n", stderr);
 		else if (strncmp(word, "--", 2) == 0 && word[2] != '\0')
 			fprintf(stderr, "error: unrecognized option '%s': the tools take "
@@ -458,8 +477,8 @@ void opt_report_bad_option(int opt, int argc, char *argv[], const char *options)
 			fprintf(stderr, "error: unrecognized option '-' in '%s'\n", word);
 		return;
 	}
-	if (optopt != 0 && isprint((unsigned char)optopt))
-		fprintf(stderr, "error: unrecognized option '-%c'\n", optopt);
+	if (letter != 0 && isprint((unsigned char)letter))
+		fprintf(stderr, "error: unrecognized option '-%c'\n", letter);
 	else
 		fputs("error: unrecognized option\n", stderr);
 }

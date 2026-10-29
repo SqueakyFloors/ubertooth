@@ -270,6 +270,16 @@ CASES = {
         # Another mistake first: that one is reported, and the dash behind it
         # is never reached.
         (("-x", "-Z", "-v-"), "error: unrecognized option '-z'"),
+        # An optional value written as its own word. getopt does not read
+        # "-90" -- the tool takes it afterwards -- and refuses it on its own,
+        # since '9' is not an option, so the search for the dash has to get
+        # past that word to reach the one behind it.
+        (("-z", "-90", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-z", "-90", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        # A required value as its own word, and the same optional value
+        # attached to its option.
+        (("-U", "foo", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        (("-z-90", "-v-"), "error: unrecognized option '-' in '-v-'"),
     ),
 }
 

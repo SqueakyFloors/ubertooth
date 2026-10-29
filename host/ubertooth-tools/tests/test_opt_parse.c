@@ -366,6 +366,10 @@ static void test_check_once(void)
 	CHECK(opt_check_once(NULL, 'l', "446688") == 0);
 }
 
+/* How many words a command line below may have. Longer is a mistake in the
+ * test rather than a case worth running, so split_line() says so. */
+#define OPT_TEST_WORDS_MAX 8
+
 /* A command line split into words, the way a shell hands one over. The words
  * point into a buffer that the next call reuses, so each line is used before
  * the next is split. */
@@ -377,37 +381,59 @@ static int split_line(const char *line, char **argv, int max)
 
 	snprintf(buffer, sizeof(buffer), "%s", line);
 	for (word = strtok_r(buffer, " ", &rest);
-	     word != NULL && argc < max;
-	     word = strtok_r(NULL, " ", &rest))
+	     word != NULL;
+	     word = strtok_r(NULL, " ", &rest)) {
+		if (argc == max) {
+			checks++;
+			failures++;
+			fprintf(stderr, "FAIL %s: more than %d words\n", line, max);
+			break;
+		}
 		argv[argc++] = word;
+	}
 	return argc;
 }
 
 /* What a command line is refused with, captured from standard error.
  *
- * The loop here is the one every tool runs: getopt's own message off, an
- * option string starting with ':', and opt_report_bad_option() called on the
- * first thing getopt will not take.
+ * The loop here is the one ubertooth-util runs: getopt's own message off, an
+ * option string starting with ':', an optional value taken from the next word
+ * where getopt left none, and opt_report_bad_option() called on the first
+ * thing getopt will not take. The separate-value step belongs here because it
+ * is a word the reporter's own search has to get past.
  */
 static void refusal_for(const char *options, const char *reported_with,
                         const char *line, char *out, size_t size)
 {
-	char *argv[8];
-	int argc = split_line(line, argv, 8);
+	char *argv[OPT_TEST_WORDS_MAX];
+	int argc = split_line(line, argv, OPT_TEST_WORDS_MAX);
 	FILE *capture = tmpfile();
 	int saved = dup(fileno(stderr));
 	long length;
 	int opt;
 
 	out[0] = '\0';
-	if (capture == NULL || saved < 0)
+	if (capture == NULL || saved < 0) {
+		if (capture != NULL)
+			fclose(capture);
+		if (saved >= 0)
+			close(saved);
 		return;
+	}
 
 	optind = 0;
 	opterr = 0;
-	while ((opt = getopt(argc, argv, options)) != -1)
+	while ((opt = getopt(argc, argv, options)) != -1) {
 		if (opt == '?' || opt == ':')
 			break;
+		/* The letters whose value ubertooth-util also takes as its own
+		 * word, as its getopt loop does. */
+		if (optarg == NULL && strchr("lacCdqzn", opt) != NULL)
+			optarg = opt_separate_value(argc, argv,
+			                            opt == 'z' ?
+			                            opt_value_signed_decimal :
+			                            opt_value_decimal);
+	}
 
 	fflush(stderr);
 	dup2(fileno(capture), fileno(stderr));
@@ -479,6 +505,22 @@ static void test_bad_option_word(void)
 		/* A missing value is not the dash branch at all. */
 		{ "ubertooth-util -U",
 		  "error: option '-U' requires a value\n" },
+		/* An optional value written as its own word. getopt does not
+		 * read "-90" -- the tool takes it with opt_separate_value() --
+		 * and refuses it on its own, since '9' is not an option. The
+		 * search has to get past it to reach the dash behind it. */
+		{ "ubertooth-util -z -90 -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		{ "ubertooth-util -z -90 -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* The same value attached, which getopt does read. */
+		{ "ubertooth-util -z-90 -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* A required value as its own word, and an optional one. */
+		{ "ubertooth-util -U foo -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		{ "ubertooth-util -n 5 -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
 	};
 	char line[256];
 	size_t i;

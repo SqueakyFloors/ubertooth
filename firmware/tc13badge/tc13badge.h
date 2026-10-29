@@ -171,8 +171,9 @@
  * runs at it. The exception is reading the radio's FIFO, which comes back as
  * wrong bytes at a register read's clock however the transfer is framed. The
  * Ubertooth firmware, whose range test had the same fault, reads its FIFO at
- * about 555 kbit/s and gets the bytes right, so SPI_BRG_FIFO_READ is the
- * divisor that comes nearest to that here: 20 MHz / (2 * 18) is 556 kbit/s.
+ * about 14 us a byte and gets the bytes right -- some 570 kbit/s, measured on
+ * a pair of boards -- so SPI_BRG_FIFO_READ is the divisor that comes nearest
+ * to that here: 20 MHz / (2 * 18) is 556 kbit/s.
  *
  * Worked out from that measurement and this part's clock, not measured on a
  * badge: see the note on the range test in README.
