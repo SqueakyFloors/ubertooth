@@ -1256,6 +1256,44 @@ MU_TEST(test_the_badge_waits_for_the_radio_to_have_the_packet)
 	         "%s: no FIFO_LEAD_POLLS for the badge to wait", badge_path);
 	mu_assert(badge.lead_polls > 0, msg);
 
+	/*
+	 * And it has to be the right length, for the same two reasons the
+	 * Ubertooth's RANGETEST_LEAD_BYTES does: at least the one byte the
+	 * radio has not written when it reports the sync word, and no more
+	 * than a quarter of its 32-byte FIFO, which is holding the repeater's
+	 * burst while the packet is read out of it.
+	 *
+	 * The badge counts nops rather than ticks, so the bound is in turns of
+	 * that loop. One turn is a nop and the loop's decrement and branch,
+	 * between 2 and 10 of this part's 50 ns cycles, so the wait is between
+	 * polls/10 and polls/2 microseconds. Both ends have to land in the
+	 * 8 to 64 us the two reasons leave.
+	 */
+	snprintf(msg, sizeof(msg),
+	         "%s: FIFO_LEAD_POLLS is %d, so the wait is %d to %d us. It has "
+	         "to be at least the 8 us of one byte at its fastest, and no "
+	         "more than the 64 us of a quarter FIFO at its slowest",
+	         badge_path, badge.lead_polls, badge.lead_polls / 10,
+	         badge.lead_polls / 2);
+	mu_assert(badge.lead_polls / 10 >= 8 && badge.lead_polls / 2 <= 64, msg);
+
+	/*
+	 * The read's clock, against the rate it is derived from rather than
+	 * only against the fast one: in clock synchronous serial mode the bit
+	 * rate is f1 / (2 * (u0brg + 1)), f1 is 20 MHz, and the Ubertooth's
+	 * working FIFO read clocks at about 570 kbit/s.
+	 */
+	if (badge.brg_fifo_read > 0) {
+		int kbit = 20000 / (2 * (badge.brg_fifo_read + 1));
+
+		snprintf(msg, sizeof(msg),
+		         "%s: SPI_BRG_FIFO_READ is %d, which clocks the read at "
+		         "%d kbit/s. The Ubertooth reads its FIFO at about 570 "
+		         "and gets the bytes right; 500 to 600 is the band "
+		         "around that", badge_path, badge.brg_fifo_read, kbit);
+		mu_assert(kbit >= 500 && kbit <= 600, msg);
+	}
+
 	snprintf(msg, sizeof(msg),
 	         "%s: cc2400_range_test() does not wait after the sync word, "
 	         "so byte 0 of a reply is whatever the FIFO holds",

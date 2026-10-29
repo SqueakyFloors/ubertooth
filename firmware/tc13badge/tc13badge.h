@@ -190,16 +190,22 @@
  * written. One byte time covers it: these packets go out at 1 Mbit/s, so a
  * byte is 8 us.
  *
+ * The ceiling is the radio's 32-byte FIFO. The peer answering this range test
+ * is an Ubertooth running cc2400_repeater(), which sends its replies as a
+ * burst of 128, so the burst keeps arriving into that FIFO while the packet is
+ * read out of it, and every byte waited for is another byte sitting there. The
+ * Ubertooth's own range test keeps its wait to a quarter of the FIFO, 8 bytes
+ * or 64 us, and the same bound holds here.
+ *
  * This is a loop of this many nops rather than a timed wait, because the badge
  * starts no timer. One turn of that loop is a nop and the loop's own decrement
  * and branch, so somewhere between two and ten of this part's 50 ns cycles,
- * which puts 200 turns between 20 and 100 us. Anywhere in that range does the
- * job: the floor is the one byte above, and the ceiling is loose because the
- * only thing that answers this range test sends one 22-byte reply into a
- * 32-byte FIFO -- so the FIFO cannot overflow while the wait runs, whatever
- * the real figure turns out to be.
+ * which puts 100 turns between 10 and 50 us. That is above the one byte at the
+ * bottom of the range and inside the 64 us at the top of it for any
+ * per-turn cost in that bracket, which is what the figure has to be: nobody
+ * has counted the cycles on a badge.
  */
-#define FIFO_LEAD_POLLS 200
+#define FIFO_LEAD_POLLS 100
 
 /*
  * Waiting for a packet is the one wait that is not about the radio being late:

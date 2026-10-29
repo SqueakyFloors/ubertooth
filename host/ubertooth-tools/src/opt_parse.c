@@ -353,7 +353,10 @@ int opt_no_arguments(int argc)
  * optreset instead; assigning to that variable on macOS does nothing at all,
  * because the bundled getopt is what the tools there call. A platform with a
  * BSD getopt and no bundled copy would need optreset as well, and the
- * COMPATIBILITY.md matrix has none.
+ * COMPATIBILITY.md matrix has none. It would not lose the diagnostic quietly
+ * either: every dash case in test_opt_parse.c fails where this reset does not
+ * work, so such a platform fails its own test run rather than shipping a
+ * reporter that names nothing.
  */
 static void getopt_restart(void)
 {
@@ -404,16 +407,20 @@ static const char *dash_word(int argc, char *argv[], const char *options)
 {
 	const char *word = NULL;
 	char **block, **taken, **pass;
-	int count, i;
+	int count, i, saved_opterr;
 
 	if (options == NULL || argv == NULL || argc < 2)
 		return NULL;
 
 	/* Two lists, each of at most argc words and a null terminator: the
-	 * words taken so far, in the order the user wrote them, and the copy
+	 * words taken so far, in the order they are read here, and the copy
 	 * getopt gets, which the GNU getopt is free to reorder. Keeping the
 	 * two apart is what makes "the word just added" mean anything, and
-	 * leaves the caller's argv as the user wrote it. */
+	 * leaves the caller's argv alone -- in whatever order the tool's own
+	 * getopt loop left it, which for a command line holding an operand is
+	 * not the order the user typed, the GNU getopt having moved the
+	 * operand to the end. Reading a moved operand late is harmless: it is
+	 * no option, so it refuses nothing and names nothing. */
 	block = malloc(2 * ((size_t)argc + 1) * sizeof(*block));
 	if (block == NULL)
 		return NULL;
@@ -426,7 +433,9 @@ static const char *dash_word(int argc, char *argv[], const char *options)
 	count = 1;
 
 	/* getopt's own messages off, as the caller's loop has them: these
-	 * passes refuse things on purpose and must stay silent. */
+	 * passes refuse things on purpose and must stay silent. Put back
+	 * below, so this leaves nothing behind but getopt's position. */
+	saved_opterr = opterr;
 	opterr = 0;
 
 	for (i = 1; i < argc && word == NULL; i++) {
@@ -456,6 +465,7 @@ static const char *dash_word(int argc, char *argv[], const char *options)
 		 * loop read another way, so it is left out of what follows. */
 	}
 
+	opterr = saved_opterr;
 	free(block);
 	return word;
 }
