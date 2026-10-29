@@ -12,12 +12,18 @@ Not built, and not tested on hardware
 This image is in no build: it needs an m32c-elf toolchain that nobody working
 on this repository has, and nobody here has a badge to run it on.
 
-What it does get is a syntax check. `make -C firmware test` compiles
-tc13badge.c and toorcon.c with the host compiler and -fsyntax-only, against the
-register header mkports generates from r8c2l.io, so a change that no longer
-parses, or that names a register the part does not have, fails the firmware
-tests. That is all it says: the code the real toolchain would generate is still
-untested, and nothing here is run.
+What it does get is a syntax check. Running the firmware tests, with
+"make -C firmware test", compiles tc13badge.c and toorcon.c with the host
+compiler and -fsyntax-only, against the register header mkports generates from
+r8c2l.io, so a change that no longer parses, or that names a register the part
+does not have, fails the tests. That is all it says. The code the real
+toolchain would generate is still untested, nothing here is run, and the check
+is C only: init.S and ivects.S are not read, and the asm() statements in the C
+are not assembled.
+
+If you have built the image with the real toolchain, mkports will have left an
+r8c2l.h here. The compiler would pick that one up instead of the generated one,
+so the check refuses to run until "make clean" in this directory clears it.
 
 Past that, its sources are kept in step with the rest of the firmware by review
 and by the source scans in firmware/tests, which read them as text. So every
