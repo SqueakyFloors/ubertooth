@@ -25,6 +25,7 @@
  * source as text, the way test_mode_dispatch.c scans main()'s dispatch.
  */
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -69,8 +70,9 @@ struct scan {
 
 	int fifo_wait_fn;        /* rangetest_wait_for_fifo() definition */
 	int fifo_wait_timer;     /* it reads timer 0's 100 ns counter */
-	int fifo_wait_step;      /* the step it adds up, as written */
+	int fifo_wait_step;      /* the step it computes, as written */
 	char fifo_wait_text[256];
+	int fifo_wait_guard;     /* it drops a step longer than the lead */
 	int fifo_wait_length;    /* its length is RANGETEST_LEAD_100NS */
 	int fifo_wait_cap;       /* and it gives up after RANGETEST_LEAD_POLLS */
 	int byte_100ns;          /* RANGETEST_BYTE_100NS as written */
@@ -316,14 +318,17 @@ static int scan_source(const char *path, struct scan *s)
 			 * other way round still compiles, still looks like a
 			 * wrap-around step, and ends the wait early.
 			 */
-			if (strstr(line, "waited +=") != NULL) {
+			if (strstr(line, "step =") != NULL) {
 				collapse_spaces(line, s->fifo_wait_text,
 				                sizeof(s->fifo_wait_text));
 				if (strcmp(s->fifo_wait_text,
-				           "waited += (now + CLK100NS_PER_CLKN - last) % "
+				           "u32 step = (now + CLK100NS_PER_CLKN - last) % "
 				           "CLK100NS_PER_CLKN;") == 0)
 					s->fifo_wait_step = 1;
 			}
+			if (contains_identifier(line, "step") &&
+			    strstr(line, "<=") != NULL)
+				s->fifo_wait_guard = 1;
 		}
 
 		/*
@@ -1109,14 +1114,24 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	mu_assert(s.fifo_wait_timer, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: rangetest_wait_for_fifo() adds up `%s`. It has to be "
-	         "`waited += (now + CLK100NS_PER_CLKN - last) %% "
+	         "%s:%d: rangetest_wait_for_fifo() takes its step as `%s`. It has "
+	         "to be `u32 step = (now + CLK100NS_PER_CLKN - last) %% "
 	         "CLK100NS_PER_CLKN;`, which is what makes a step across T0TC's "
 	         "reset come out as the time it was: those operands the other way "
 	         "round over-count the step and end the wait early, which is the "
 	         "bug this wait is here to fix",
 	         path, s.fifo_wait_fn, s.fifo_wait_text);
 	mu_assert(s.fifo_wait_step, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rangetest_wait_for_fifo() counts every step the modulo "
+	         "returns. The timer's period is not CLK100NS_PER_CLKN for one "
+	         "period after the low-energy modes' clock drift correction moves "
+	         "its match value, and a step across that period's reset comes "
+	         "out of the fixed modulus as an arbitrary number: counting it "
+	         "ends the wait at once, which is the wrong byte 0 the wait is for",
+	         path, s.fifo_wait_fn);
+	mu_assert(s.fifo_wait_guard, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
@@ -1598,6 +1613,104 @@ MU_TEST(test_the_range_test_has_one_copy)
 	mu_assert_int_eq(0, copies);
 }
 
+/* ---- the arithmetic the wait before the FIFO read is built on ---------- */
+
+/*
+ * Run here because the firmware's own copy reads a hardware register this
+ * cannot.
+ *
+ * Timer 0 resets every CLK100NS_PER_CLKN ticks, so the wait adds up the steps
+ * it sees instead of comparing against a deadline the reset would carry it
+ * past. `(now + period - last) % period` is what makes a step across the reset
+ * come out as the time it was; the scan above pins that the firmware writes
+ * it, and this says what it has to come to. The generic receive has the same
+ * accumulation, with its own runnable model, in test_grmdm_rx_generic.c.
+ */
+#define CLKN_PERIOD 3125u  /* CLK100NS_PER_CLKN: 312.5 us in 100 ns ticks */
+
+/*
+ * The firmware's loop, with the counter supplied instead of read. uint32_t
+ * throughout, as T0TC and the firmware's own variables are: the wraparound of
+ * that width is what the modulo is there to turn back into a time, and a
+ * 64-bit model of it would give different numbers.
+ */
+static uint32_t accumulate(const uint32_t *counter, unsigned n,
+                           uint32_t target, uint32_t cap)
+{
+	uint32_t last = counter[0], waited = 0, polls = cap;
+	unsigned i = 1;
+
+	while (waited < target && polls-- > 0) {
+		uint32_t now = counter[i < n ? i : n - 1];
+		uint32_t step = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
+
+		i++;
+		last = now;
+		/* The firmware's own guard: a step longer than the whole lead
+		 * is not a step this loop took, so the modulo was taken against
+		 * the wrong period. */
+		if (step <= target)
+			waited += step;
+	}
+	return waited;
+}
+
+MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
+{
+	/* A counter advancing 100 ticks a turn reaches 320 on the fourth. */
+	static const uint32_t plain[] = { 0, 100, 200, 300, 400, 500 };
+	/* And one that resets partway: 3000, 3100, then 25 and on. The step
+	 * from 3100 to 25 is 50 ticks of real time, not a huge number. */
+	static const uint32_t wraps[] = { 3000, 3100, 25, 125, 225, 325 };
+	uint32_t got;
+
+	got = accumulate(plain, 6, 320, 1000);
+	mu_assert(got >= 320 && got < 420, "a plain count must reach the lead");
+
+	got = accumulate(wraps, 6, 320, 1000);
+	mu_assert(got >= 320 && got < 420,
+	          "a count that crosses the counter's reset must still add up "
+	          "to the lead, not end the wait at once");
+
+	/* The subtraction the modulo replaces: `now - last` across the reset is
+	 * a huge unsigned number, which is the bug the modulo is there for. */
+	mu_assert((uint32_t)(25u - 3100u) > 320u,
+	          "a bare subtraction across the reset must be the large number "
+	          "this guards against");
+
+	/*
+	 * The period is not always CLK100NS_PER_CLKN: the low-energy modes'
+	 * clock drift correction moves the timer's match value for one period,
+	 * which can make it about three times as long. A step across the reset
+	 * of such a period comes out of the fixed modulus as an arbitrary
+	 * number -- 2,056 for the pair below -- and counting it would end the
+	 * wait before the radio has written byte 0, which is the `mismatch on
+	 * byte 0` the wait is for. The guard drops it, so the wait carries on
+	 * and ends on honest steps.
+	 */
+	{
+		static const uint32_t extended[] = {
+			9000, 10, 110, 210, 310, 410, 510
+		};
+
+		mu_assert_int_eq(2056, (int)((10u + CLKN_PERIOD - 9000u) %
+		                             CLKN_PERIOD));
+		got = accumulate(extended, 7, 320, 1000);
+		mu_assert(got >= 320 && got < 420,
+		          "a step out of a period that was not the usual length "
+		          "must be dropped, not counted");
+	}
+
+	/* A counter that is not advancing is ended by the cap, not by the
+	 * target. */
+	{
+		static const uint32_t stuck[] = { 7, 7 };
+
+		got = accumulate(stuck, 2, 320, 50);
+		mu_assert(got < 320, "a stopped counter must give up short");
+	}
+}
+
 int main(void)
 {
 	printf("range test radio setup tests\n");
@@ -1636,5 +1749,6 @@ int main(void)
 	MU_RUN(test_the_badges_fifo_transfers_keep_their_shape);
 	MU_RUN(test_the_badge_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_range_test_has_one_copy);
+	MU_RUN(test_the_wait_adds_up_steps_across_the_counters_reset);
 	return mu_report();
 }

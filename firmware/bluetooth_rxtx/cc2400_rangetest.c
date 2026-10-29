@@ -171,9 +171,9 @@ rangetest_result rr;
  * comparing against a deadline the reset would carry it past. Each step is
  * taken modulo that period, which is what makes a step across the reset come
  * out as the time it was: `now - last` alone would be a huge unsigned number
- * there and end the wait at once. The modulo also bounds the step if the
- * period is not the usual one, which it briefly is not after the low-energy
- * modes' clock drift correction moves the timer's match value for one tick.
+ * there and end the wait at once. A step that comes out longer than the whole
+ * lead is discarded rather than counted, which is what covers the one period
+ * whose length is not CLK100NS_PER_CLKN; see the loop.
  *
  * Both callers start the timer with clkn_start() before they receive. A
  * counter that is not advancing is caught by the poll cap above rather than
@@ -190,9 +190,23 @@ static void rangetest_wait_for_fifo(void)
 
 	while (waited < RANGETEST_LEAD_100NS && polls-- > 0) {
 		u32 now = T0TC;
+		u32 step = (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 
-		waited += (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 		last = now;
+		/*
+		 * A step longer than the whole lead is not a step this loop
+		 * took. One turn of it is a register read and a division, a
+		 * handful of ticks, and the longest a turn can really be is an
+		 * interrupt in the middle of it -- still well under the lead.
+		 * So a larger figure means the modulo above was taken against
+		 * the wrong period, which happens for one timer period after
+		 * the low-energy modes' clock drift correction moves the
+		 * timer's match value. Counting it would end the wait early,
+		 * which is the wrong byte 0 all this is for; dropping it waits
+		 * a little longer, and the poll cap still ends the loop.
+		 */
+		if (step <= RANGETEST_LEAD_100NS)
+			waited += step;
 	}
 }
 

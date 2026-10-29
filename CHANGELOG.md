@@ -1963,6 +1963,10 @@ Fixes with no visible change in normal use.
   starts reading the packet out, so byte 0 of a record is the byte that
   arrived. The same wait fixed the range test's wrong byte 0.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+- The range test's wait for that first byte measures the one clock period the
+  low-energy modes' drift correction lengthens as the time it was, so the wait
+  is not cut short and byte 0 of a reply is still the byte that arrived.
+  [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
 - A capture keeps a packet whose transfer brought all 64 bytes and came back
   with the timed-out status rather than the completed one. It used to be
   dropped, and the warning about a transfer cut short passes over a full one,
