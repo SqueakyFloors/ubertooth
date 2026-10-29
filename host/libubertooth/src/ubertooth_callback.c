@@ -86,9 +86,9 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  *
  * libbtbb sets the noise-power-valid flag of a record only when the noise
  * figure it is given is below that record's signal figure, so a figure no
- * signal can reach leaves the flag clear and a reader shows the field as
- * absent rather than as a measurement. +127 dBm is such a figure: the signal
- * field is derived from the board's RSSI and tops out at 0 dBm.
+ * signal can reach leaves the flag clear and a reader marks the field invalid
+ * rather than showing it as a measurement. +127 dBm is such a figure: the
+ * signal field is derived from the board's RSSI and tops out at 0 dBm.
  *
  * The board sends an RSSI average taken over the packet itself, which is
  * mostly the packet's own power rather than the background around it, so it is
@@ -1338,8 +1338,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx, arrival_ns );
 
-	int8_t signal_level = rx->rssi_max;
-	int8_t noise_level = rx->rssi_min;
+	int8_t signal_level, noise_level;
 	determine_signal_and_noise( rx, &signal_level, &noise_level );
 	int8_t snr = signal_level - noise_level;
 

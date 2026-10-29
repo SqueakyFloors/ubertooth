@@ -3,9 +3,9 @@
  *
  * Every record of both capture formats carries a signal figure, a noise
  * figure, and a flag for each saying whether that figure is a measurement. A
- * reader that finds the noise flag clear shows the field as absent; a reader
- * that finds it set shows the figure, and computes a signal-to-noise ratio
- * from the pair.
+ * reader that finds the noise flag clear marks the field invalid, the way
+ * Wireshark shows `Invalid Noise Power`; a reader that finds it set shows the
+ * figure as a reading, and computes a signal-to-noise ratio from the pair.
  *
  * Nothing measures the background between packets. The board sends the maximum,
  * minimum and average of the RSSI it read while the packet itself was
@@ -59,8 +59,7 @@
 #define BREDR_NOISEPOWER_VALID 0x0004
 
 /* Where a pcap file's first record body begins: a 24-byte file header and a
- * 16-byte record header. libbtbb writes both as structs, so the file is in
- * this machine's own byte order and the fields read back without swapping. */
+ * 16-byte record header, both of which libbtbb writes as structs. */
 #define PCAP_FIRST_RECORD_AT 40
 
 /* A pcapng enhanced packet block and where its captured bytes begin: the
@@ -223,8 +222,11 @@ static void basic_rate_record(usb_pkt_rx* rx)
 
 /* ---- reading the files back --------------------------------------------- */
 
-/* What one record says about its own signal and noise. */
+/* What one record says about its own signal and noise, and whether there was a
+ * record to read at all: a capture that wrote none leaves `read` clear, so a
+ * run that captured nothing cannot pass by default. */
 struct record_powers {
+	int read;
 	int8_t signal;
 	int8_t noise;
 	uint16_t flags;
@@ -272,17 +274,17 @@ static size_t slurp(const char* path, uint8_t** out)
 	return (size_t) length;
 }
 
-/* What the first record of a pcap says. Fails the case where the file holds
- * no whole record, so a run that captured nothing cannot pass by default. */
+/* What the first record of a pcap says. The case decides what to make of a
+ * file that holds none, once it has tidied its files away. */
 static void first_pcap_record(const char* path, int flags_at,
                               struct record_powers* out)
 {
 	uint8_t* data;
 	size_t length = slurp(path, &data);
 
-	mu_assert_fatal(length >= PCAP_FIRST_RECORD_AT + (size_t) flags_at + 2,
-	                "the pcap holds no record to read");
-	read_powers(data + PCAP_FIRST_RECORD_AT, flags_at, out);
+	out->read = length >= PCAP_FIRST_RECORD_AT + (size_t) flags_at + 2;
+	if (out->read)
+		read_powers(data + PCAP_FIRST_RECORD_AT, flags_at, out);
 	free(data);
 }
 
@@ -295,7 +297,6 @@ static void first_pcapng_record(const char* path, int flags_at,
 	size_t offset = 0;
 	int found = 0;
 
-	mu_assert_fatal(length > 12, "the pcapng holds no block to read");
 	while (offset + 12 <= length) {
 		uint32_t block, block_length;
 
@@ -316,7 +317,7 @@ static void first_pcapng_record(const char* path, int flags_at,
 		offset += block_length;
 	}
 	free(data);
-	mu_assert_fatal(found, "the pcapng holds no packet block to read");
+	out->read = found;
 }
 
 /* ---- running a capture -------------------------------------------------- */
@@ -477,7 +478,7 @@ static void check_noise_is_absent(const char* name,
 	mu_assert_int_eq(RECORDED_SIGNAL_DBM, record->signal);
 
 	/* The noise figure is not, and now says so too. A reader that finds
-	 * this flag clear shows the field as absent and computes no
+	 * this flag clear marks the field invalid and computes no
 	 * signal-to-noise ratio from it. */
 	mu_assert(!(record->flags & noise_valid),
 	          "the noise power is recorded as measured");
@@ -500,7 +501,11 @@ MU_TEST(a_low_energy_record_claims_no_measured_noise)
 {
 	struct record_powers pcap_record, pcapng_record;
 
+	memset(&pcap_record, 0, sizeof(pcap_record));
+	memset(&pcapng_record, 0, sizeof(pcapng_record));
 	capture_le_packet(&pcap_record, &pcapng_record);
+	mu_assert_fatal(pcap_record.read && pcapng_record.read,
+	                "the capture holds no low-energy record to read");
 	check_noise_is_absent("low-energy pcap", &pcap_record,
 	                      LE_SIGPOWER_VALID, LE_NOISEPOWER_VALID);
 	check_noise_is_absent("low-energy pcapng", &pcapng_record,
@@ -511,7 +516,11 @@ MU_TEST(a_basic_rate_record_claims_no_measured_noise)
 {
 	struct record_powers pcap_record, pcapng_record;
 
+	memset(&pcap_record, 0, sizeof(pcap_record));
+	memset(&pcapng_record, 0, sizeof(pcapng_record));
 	capture_bredr_packet(&pcap_record, &pcapng_record);
+	mu_assert_fatal(pcap_record.read && pcapng_record.read,
+	                "the capture holds no basic-rate record to read");
 	check_noise_is_absent("basic-rate pcap", &pcap_record,
 	                      BREDR_SIGPOWER_VALID, BREDR_NOISEPOWER_VALID);
 	check_noise_is_absent("basic-rate pcapng", &pcapng_record,

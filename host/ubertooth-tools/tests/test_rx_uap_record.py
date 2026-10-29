@@ -442,7 +442,7 @@ with tempfile.TemporaryDirectory() as workdir:
         # No record claims a measured noise power, because nothing measures
         # the background between packets: the board sends an RSSI average
         # taken over the packet itself. A reader that finds this flag clear
-        # shows the field as absent instead of computing a signal-to-noise
+        # marks the field invalid instead of computing a signal-to-noise
         # ratio from a figure that is mostly the packet's own power.
         for rec in records:
             assert not rec.flags & BREDR_NOISEPOWER_VALID, (name, records)

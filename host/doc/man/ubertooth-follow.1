@@ -66,7 +66,7 @@ USB delay in 625us timeslots (default: 5)\.
 \fB\-h\fR
 show help\.
 .P
-A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no noise power: nothing measures the background between packets, so the record's noise field is marked absent and a reader shows it as absent rather than computing a signal\-to\-noise ratio from it\.
+A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no measured noise power: nothing measures the background between packets, so the record's noise\-power\-valid flag stays clear\. Wireshark then shows the field as \fBInvalid Noise Power\fR and derives no signal\-to\-noise ratio from it\.
 .SH "AFH"
 \fB\-a\fR is experimental\. It makes the local BlueZ device connect to the target and asks the local controller for the AFH channel map of \fIthat\fR link, then follows the piconet keyed on the target's LAP/UAP\. The two are the same hop sequence only when the target is master of the piconet you want to follow, which \fBubertooth\-follow\fR cannot check\. Treat a capture made with \fB\-a\fR accordingly\.
 .P

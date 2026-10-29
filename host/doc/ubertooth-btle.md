@@ -251,10 +251,11 @@ packet times are behind the host clock by more than half the capture clock's
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
-A capture record carries the signal power of its packet and no noise power:
-nothing measures the background between packets, so the record's noise field
-is marked absent and a reader shows it as absent rather than computing a
-signal-to-noise ratio from it.
+A `-q` or `-r` capture record carries the signal power of its packet and no
+measured noise power: nothing measures the background between packets, so the
+record's noise-power-valid flag stays clear. Wireshark then shows the field as
+`Invalid Noise Power` and derives no signal-to-noise ratio from it. A `-c` PPI
+record carries the board's own RSSI readings instead, as described below.
 
 Miscellaneous:
 

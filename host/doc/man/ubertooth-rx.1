@@ -93,7 +93,7 @@ Capture packets to PCAP\. \fB\-q \-\fR writes the capture to standard output; se
 \fB\-d <file\.bin>\fR
 Capture packets to binary file suitable for use with \fB\-i\fR\. \fB\-d \-\fR writes the records to standard output; see CAPTURING TO STANDARD OUTPUT
 .P
-A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no noise power: nothing measures the background between packets, so the record's noise field is marked absent and a reader shows it as absent rather than computing a signal\-to\-noise ratio from it\. The \fBn=\fR and \fBsnr=\fR columns on the screen come from the RSSI average the board took over the packet itself, which is mostly the packet's own power\.
+A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no measured noise power: nothing measures the background between packets, so the record's noise\-power\-valid flag stays clear\. Wireshark then shows the field as \fBInvalid Noise Power\fR and derives no signal\-to\-noise ratio from it\. The \fBn=\fR column on the screen is the RSSI average the board took over the packet itself, which is mostly the packet's own power, and \fBsnr=\fR is the signal beside it less that average\.
 .P
 Miscellaneous:
 .TP

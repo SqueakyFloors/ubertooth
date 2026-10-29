@@ -83,9 +83,9 @@ Requires BlueZ (Linux only).
    show help.
 
 A record of a `-q` or `-r` capture carries the signal power of its packet and
-no noise power: nothing measures the background between packets, so the
-record's noise field is marked absent and a reader shows it as absent rather
-than computing a signal-to-noise ratio from it.
+no measured noise power: nothing measures the background between packets, so
+the record's noise-power-valid flag stays clear. Wireshark then shows the
+field as `Invalid Noise Power` and derives no signal-to-noise ratio from it.
 
 ## AFH
 
