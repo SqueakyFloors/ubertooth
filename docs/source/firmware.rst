@@ -23,6 +23,10 @@ Switch a board from one to the other by flashing it:
 		ubertooth-dfu -d firmware/btbr/btbr.dfu -r                      # for ubertooth-btbr
 		ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r  # for everything else
 
+A release archive carries both images already built, in
+``ubertooth-one-firmware-bin/``, so flashing one does not need the firmware
+toolchain.
+
 Add ``-U <index|serial>`` to either command to pick one board of several; it
 works from both images. A tool run against the wrong image fails rather than
 waiting: ``ubertooth-btbr`` says it could not set the Ubertooth up, naming
