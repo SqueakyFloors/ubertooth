@@ -1834,6 +1834,11 @@ Fixes with no visible change in normal use.
   starts reading the packet out, so byte 0 of a record is the byte that
   arrived. The same wait fixed the range test's wrong byte 0.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+- A capture keeps a packet whose transfer brought all 64 bytes and came back
+  with the timed-out status rather than the completed one. It used to be
+  dropped, and the warning about a transfer cut short passes over a full one,
+  so a packet the host already held was lost with nothing said.
+  [#638](https://github.com/SqueakyFloors/ubertooth/issues/638)
 - The thread that completes a capture's transfers treats a wait a signal cut
   short as a wait to take again. It used to end the thread, which left the
   capture with nobody to complete its transfers and no line to say why; the

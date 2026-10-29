@@ -486,17 +486,15 @@ MU_TEST(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open)
 	mu_assert_int_eq(0, report.operation_error);
 	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
 	                            message, sizeof(message));
-	mu_assert(strstr(message, "the firmware was written") != NULL,
-	          "the line does not say the image reached the board");
-	mu_assert(strstr(message, "USB bus could not be read") != NULL,
-	          "the line does not say the bus could not be read");
-	mu_assert(strstr(message, "would not open") == NULL,
-	          "the line blames a board that was never looked at");
-	mu_assert(strstr(message, "did not come back on USB") == NULL,
-	          "the line calls a board that was never looked for missing");
-	mu_assert(strstr(message, "ubertooth-util -V") != NULL,
-	          "the line does not say how to read the board's revision");
-	mu_assert(strchr(message, '\n') == NULL, "the line is more than one line");
+	/* The whole line, so a reworded one fails here and in the check that
+	 * the man page shows the same text (test_doc_example_lines.py). It says
+	 * the image reached the board, that the bus and not the board is what
+	 * could not be read, and how to read the revision -- and it neither
+	 * blames a board that was never looked at nor calls it missing. */
+	mu_assert(strcmp(message,
+	                 "the firmware was written, but the host's USB bus could"
+	                 " not be read, so the flash was not checked: read the "
+	                 "board's revision with ubertooth-util -V") == 0, message);
 }
 
 /* A bus that could not be read on one poll and read on the next is not
@@ -649,10 +647,13 @@ MU_TEST(test_a_device_on_another_path_is_described_as_unchecked)
 	                                        &config, &report));
 	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
 	                            message, sizeof(message));
-	mu_assert(strstr(message, "not on the flashed board's USB path") != NULL,
-	          "the line does not say which device answered");
-	mu_assert(strstr(message, "the flash was not checked") != NULL,
-	          "the line does not say the flash is unverified");
+	/* The whole line, for the same reason as above: it has to say which
+	 * device answered and that the flash is unverified, and the man page
+	 * has to show the same text. */
+	mu_assert(strcmp(message,
+	                 "the device that came back is not on the flashed board's"
+	                 " USB path, so the flash was not checked: read the "
+	                 "board's revision with ubertooth-util -V") == 0, message);
 }
 
 /* Nothing a caller can pass leaves the message unwritten or overruns it. */
