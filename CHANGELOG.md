@@ -870,8 +870,8 @@
 - Three modes that could only be ended by unplugging the board now stop when
   asked: generic receive (`ubertooth-debug` after `UBERTOOTH_RX_GENERIC`), the
   range test and the repeater. Each waited for a packet without answering the
-  host, so on a quiet channel the board was unreachable; the repeater never
-  looked at the requested mode at all.
+  host, so on a quiet channel the board was unreachable; the repeater did not
+  look at the requested mode.
   [#223](https://github.com/SqueakyFloors/ubertooth/issues/223)
 - `ubertooth-util -r` no longer reports an older range test's numbers as the
   current test's. A test that found no reply, or that the host stopped, now
@@ -1437,7 +1437,7 @@
   [#195](https://github.com/SqueakyFloors/ubertooth/issues/195)
 - Every tool now describes its device selector as `-U <index|serial>`, in its
   help text and its man page, and points at ubertooth(7), SELECTING A DEVICE,
-  for the rules. The old `-U<0-7>` was wrong twice over: the index is a
+  for the rules. The earlier `-U<0-7>` described neither half: the index is a
   position in the list of attached boards and is not capped at 7, and `-U`
   also takes a serial number.
   [#206](https://github.com/SqueakyFloors/ubertooth/issues/206)
@@ -1569,7 +1569,7 @@ Fixes with no visible change in normal use.
   failure is reported as a positive number and was tested for a negative one,
   in every tool that starts a capture, in libubertooth, which is every
   `ubertooth-dump` and `ubertooth-afh` capture, and in the Kismet plugins,
-  which did not look at it at all. A teardown that follows such a failure no
+  which did not check it. A teardown that follows such a failure no
   longer waits on a thread that was never created.
   [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
   [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
@@ -1582,7 +1582,7 @@ Fixes with no visible change in normal use.
   to carry one stray byte on the end, from eight clock pulses sent after the
   data. A receiver ignores the tail, so the modes that transmit with the
   radio's checksum turned off still got their data across; the range test,
-  which has it on, could not work at all. The BLE transmit path fills the
+  which has it on, did not get a result. The BLE transmit path fills the
   buffer in chunks, and there the stray byte also cost it one byte of room per
   chunk.
   [#483](https://github.com/SqueakyFloors/ubertooth/issues/483)
@@ -1718,9 +1718,9 @@ Fixes with no visible change in normal use.
   the end of the FIFO. How the radio frames a packet that long is a separate
   question, still open.
   [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
-- Sixteen buffers, bounds, timeouts and byte-order conversions that were wrong
-  but that nothing could reach are now right on their own, so a later change
-  cannot make one of them bite. No shipped tool behaves differently; what moved
+- Sixteen buffers, bounds, timeouts and byte-order conversions that no shipped
+  tool can reach now hold on their own, so a later change cannot make one of
+  them bite. No shipped tool behaves differently; what moved
   is what a board does with values no tool sends.
   [#656](https://github.com/SqueakyFloors/ubertooth/issues/656)
 
