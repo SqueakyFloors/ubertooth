@@ -35,11 +35,12 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/specan
 install(PROGRAMS ${SPECAN_WRAPPER} DESTINATION ${INSTALL_DEFAULT_BINDIR})
 
 # Which stream a refused range lands on, the exit status, and the frequency
-# each Wi-Fi channel converts to. All three are in
-# specan/limits.py, which imports nothing but sys, so they run everywhere; the
-# same cases are then run through the script itself, which needs its Qt binding
-# and numpy and is skipped where those are missing. No window opens and no
-# board is looked for either way.
+# each Wi-Fi channel converts to. All three are in specan/limits.py, which
+# imports nothing but sys, so they run everywhere; the same cases are then run
+# through the script itself, along with -h and -V. The script reads its whole
+# command line before the window's own imports, so those runs need neither
+# numpy nor a Qt binding, and two of them shadow those modules with ones that
+# refuse to import to show it. No window opens and no board is looked for.
 add_test(NAME specan-ui-streams
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/test_specan_ui_streams.py

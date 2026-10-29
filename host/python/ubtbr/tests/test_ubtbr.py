@@ -1941,4 +1941,112 @@ assert running.returncode == 0, (running.returncode, output, errors)
 assert "Traceback" not in errors, errors
 print("ubtbr: Ctrl-C with a command running returns to the prompt")
 
+# ---- -V, which the tool answers by running ubertooth-util -----------------
+#
+# A fake ubertooth-util stands in for the real one: it records the arguments
+# it was called with, prints the answer the test gives it and exits with the
+# status the test gives it. So no board is involved, and what is checked is
+# that the tool passes ubertooth-util's answer through rather than writing a
+# version of its own.
+
+FAKE_UTIL = """#!%s
+import os
+import sys
+
+with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
+    record.write("\\n".join(sys.argv[1:]))
+sys.stdout.write(os.environ["FAKE_UTIL_ANSWER"])
+sys.exit(int(os.environ["FAKE_UTIL_STATUS"]))
+"""
+
+# What the fake answers with. Deliberately not the real lines, which
+# ubertooth(7), COMMON OPTIONS, describes: those are the C side's words, held
+# to the C tests by host/ubertooth-tools/tests/test_doc_example_lines.py, and
+# a copy of them here would let that check pass against this fake instead.
+# What this pins is that every line arrives unchanged, whatever it says.
+VERSION_ANSWER = ("the first line ubertooth-util printed\n"
+                  "the second line ubertooth-util printed\n"
+                  "the third line ubertooth-util printed\n")
+
+FAKE_UTIL_DIR = os.path.join(WORK.name, "bin")
+os.mkdir(FAKE_UTIL_DIR)
+FAKE_UTIL_PATH = os.path.join(FAKE_UTIL_DIR, "ubertooth-util")
+with open(FAKE_UTIL_PATH, "w") as fake:
+    fake.write(FAKE_UTIL % sys.executable)
+os.chmod(FAKE_UTIL_PATH, 0o755)
+VERSION_ARGS_FILE = os.path.join(WORK.name, "util-args")
+# An empty directory, so a run given this PATH can run no ubertooth-util at
+# all. The tool itself is started by path, so that costs it nothing.
+NO_UTIL_DIR = os.path.join(WORK.name, "empty")
+os.mkdir(NO_UTIL_DIR)
+
+
+def version_ran(arguments, answer=VERSION_ANSWER, status=0,
+                path=FAKE_UTIL_DIR):
+    if os.path.exists(VERSION_ARGS_FILE):
+        os.remove(VERSION_ARGS_FILE)
+    return ran(arguments, PATH=path, FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+               FAKE_UTIL_ANSWER=answer, FAKE_UTIL_STATUS=str(status))
+
+
+def version_arguments():
+    with open(VERSION_ARGS_FILE) as record:
+        return record.read().split("\n")
+
+
+# -V on its own: the answer, unchanged, on standard output, and exit 0. It
+# asks ubertooth-util for the version and nothing else, and opens no board of
+# its own, so it answers whatever firmware the board is carrying.
+status, output, errors = version_ran(("-V",))
+assert status == 0, (status, output, errors)
+assert output == VERSION_ANSWER, output
+assert errors == "", errors
+assert version_arguments() == ["-V"], version_arguments()
+assert not writes(), writes()
+
+# -U names the board, and is passed on as ubertooth-util's own -U
+status, output, errors = version_ran(("-V", "-U", "05f"))
+assert status == 0, (status, output, errors)
+assert version_arguments() == ["-V", "-U", "05f"], version_arguments()
+
+# a board that is attached and could not be read exits 1 there, and so here:
+# its line says why, and the answer is still printed
+status, output, errors = version_ran(
+    ("-V",), answer="Firmware version: read failed\n", status=1)
+assert status == 1, (status, output, errors)
+assert output == "Firmware version: read failed\n", output
+
+# -V beside -h prints both, the version first, and exits 0
+status, output, errors = version_ran(("-h", "-V"))
+assert status == 0, (status, output, errors)
+assert output.startswith(VERSION_ANSWER), output
+assert "Usage: ubertooth-btbr" in output, output
+assert errors == "", errors
+
+# a bad option value is still reported beside -V, and no version is printed:
+# the command failed before it got that far
+status, output, errors = version_ran(("-V", "-f", "bad"))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == "error: -f must be 0-65535 (got bad)\n", errors
+
+# ubertooth-util not on the PATH: one error line, not a traceback
+status, output, errors = version_ran(("-V",), path=NO_UTIL_DIR)
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+assert errors == \
+    "error: could not run ubertooth-util: No such file or directory\n", errors
+
+# and the usage text beside it is still printed, since -h was asked for too:
+# a version that could not be read does not take the rest of the answer with
+# it. The status is the version's.
+status, output, errors = version_ran(("-h", "-V"), path=NO_UTIL_DIR)
+assert status == 1, (status, output, errors)
+assert output.startswith("Usage: ubertooth-btbr"), output
+assert errors == \
+    "error: could not run ubertooth-util: No such file or directory\n", errors
+
+print("ubtbr: -V passes ubertooth-util's answer through")
+
 WORK.cleanup()

@@ -575,6 +575,74 @@ assert result.stderr.startswith("error: could not run ubertooth-util: "), \
 
 print("btle-extcap: a tool that is not on PATH is reported, not a traceback")
 
+# ---- -V, which the script answers by running ubertooth-util ----------------
+#
+# The same fake stands in for it, printing the answer the test gives it, so
+# no board is involved. What is checked is that the script passes
+# ubertooth-util's answer through rather than writing a version of its own.
+
+# What the fake answers with. Deliberately not the real lines, which
+# ubertooth(7), COMMON OPTIONS, describes: those are the C side's words, held
+# to the C tests by host/ubertooth-tools/tests/test_doc_example_lines.py, and
+# a copy of them here would let that check pass against this fake instead.
+# What this pins is that every line arrives unchanged, whatever it says.
+VERSION_ANSWER = ("the first line ubertooth-util printed\n"
+                  "the second line ubertooth-util printed\n"
+                  "the third line ubertooth-util printed\n")
+
+# -V on its own: the answer, unchanged, on standard output, and exit 0. It
+# asks ubertooth-util for the version and nothing else; the script has no -U,
+# so no board is named and every attached board is reported.
+result = run(("-V",), listing=VERSION_ANSWER)
+assert result.returncode == 0, result
+assert result.stdout == VERSION_ANSWER, result
+assert result.stderr == "", result
+with open(ARGS_FILE) as record:
+    assert record.read().split("\n") == ["-V"], result
+
+# a board that is attached and could not be read exits 1 there, and so here:
+# its line says why, and the answer is still printed
+result = run(("-V",), listing="Firmware version: read failed\n", status=1)
+assert result.returncode == 1, result
+assert result.stdout == "Firmware version: read failed\n", result
+
+# -V beside -h prints both, the version first, and exits 0
+result = run(("-h", "-V"), listing=VERSION_ANSWER)
+assert result.returncode == 0, result
+assert result.stdout.startswith(VERSION_ANSWER), result
+assert result.stdout.rstrip("\n").endswith("-V | -h"), result
+assert result.stderr == "", result
+
+# ubertooth-util not on the PATH: one error line, not a traceback
+result = run(("-V",), listing=VERSION_ANSWER, path=EMPTY)
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert "Traceback" not in result.stderr, result
+assert result.stderr == \
+    "error: could not run ubertooth-util: No such file or directory\n", result
+
+# and the usage line beside it is still printed, since -h was asked for too:
+# a version that could not be read does not take the rest of the answer with
+# it. The status is the version's.
+result = run(("-h", "-V"), listing=VERSION_ANSWER, path=EMPTY)
+assert result.returncode == 1, result
+assert result.stdout.startswith("Usage:"), result
+assert result.stderr == \
+    "error: could not run ubertooth-util: No such file or directory\n", result
+
+print("btle-extcap: -V passes ubertooth-util's answer through")
+
+# -h ends the call ahead of every operation, whichever order they were
+# written in: the listing used to be answered first when it came first, so -h
+# printed nothing and Wireshark's interface list was the answer instead.
+result = run(("--extcap-interfaces", "-h"), listing=LISTING_ONE % SERIALS[0])
+assert result.returncode == 0, result
+assert result.stdout.startswith("Usage:"), result
+assert interfaces(result) == [], result
+assert not os.path.exists(ARGS_FILE), "ubertooth-util was run anyway"
+
+print("btle-extcap: -h ends the call ahead of the interface listing")
+
 # ---- --capture --------------------------------------------------------------
 
 # The fake ubertooth-btle on PATH records its arguments instead of opening a

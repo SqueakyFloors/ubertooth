@@ -110,20 +110,55 @@ def with_optional_values(argv):
 
 
 def run_tool(command, **options):
-    """Start one of the Ubertooth tools, or end with an error: line.
+    """Start one of the Ubertooth tools, or report why it could not run.
 
-    A tool that is not on the PATH Wireshark started this script with, or
-    that cannot be executed, would otherwise end the script in a Python
-    traceback. The reason has to arrive in the same one-line form as every
-    other error here, since for a capture that is what Wireshark shows for
-    the interface.
+    Returns None when it could not, having written the reason. A tool that is
+    not on the PATH Wireshark started this script with, or that cannot be
+    executed, would otherwise end the script in a Python traceback. The
+    reason has to arrive in the same one-line form as every other error here,
+    since for a capture that is what Wireshark shows for the interface.
+
+    The caller is left to end the call, rather than this ending it: a -V
+    beside -h still has the usage line to print afterwards.
     """
     try:
         return Popen(command, **options)
     except OSError as err:
         print("error: could not run %s: %s"
               % (command[0], err.strerror or err), file=sys.stderr)
-        sys.exit(1)
+        return None
+
+
+def report_versions():
+    """Print the -V answer, and return the exit status it leaves behind.
+
+    One function in libubertooth builds that answer and ubertooth-util prints
+    it, so running it here passes the same lines on rather than writing a
+    second version of them in Python, which would then have to be kept in
+    step by hand. ubertooth-util is on the PATH this script is started with,
+    as it is for the interface listing. ubertooth(7), COMMON OPTIONS, has the
+    lines.
+
+    The child writes to this script's own streams, so each line lands on the
+    stream it belongs on and in the order the child wrote them, and a board
+    it could not read is reported there exactly as the C tools report it.
+    Every attached board is reported: -V ends the call before the interface
+    is read, as it does before every other option.
+    """
+    # Nothing of this script's is waiting in the buffers here, and this keeps
+    # it that way: a line written before the child starts must not land after
+    # the child's.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    child = run_tool(['ubertooth-util', '-V'])
+    if child is None:
+        return 1
+    status = child.wait()
+    # ubertooth-util exits 0 with the whole answer and 1 when part of it could
+    # not be read; a child killed by a signal (a negative status here)
+    # answered nothing at all. Nothing finer is reported, as for every other
+    # call here.
+    return 0 if status == 0 else 1
 
 
 def report_bad_option(refusal):
@@ -153,8 +188,8 @@ def report_bad_option(refusal):
     # message calls it long: "-c" and "--c" arrive here as the same name.
     name = refusal.opt
     if not (refusal.msg.startswith("option --") or len(name) > 1):
-        # The only short option here takes no value, so anything wrong with
-        # one is an option this script does not have.
+        # The short options here take no value, so anything wrong with one is
+        # an option this script does not have.
         print("error: unrecognized option '-%s'" % name, file=sys.stderr)
         sys.exit(1)
 
@@ -222,7 +257,7 @@ def main():
     try:
         opts, args = getopt.getopt(
             with_optional_values(sys.argv[1:]),
-            "h",
+            "hV",
             list(LONG_OPTIONS))
     except getopt.GetoptError as err:
         # A usage error: the message goes to standard error and the exit
@@ -248,16 +283,23 @@ def main():
     # beside it is Wireshark's verification call, which an empty filter makes
     # too, so whether it was given has to be told from what it carried.
     capture_filter = None
+    do_help = False
+    do_version = False
+    do_list_interfaces = False
     do_list_dlts = False
     do_config = False
     do_capture = False
 
     for o, a in opts:
         if o in ("-h", "--help"):
-            usage()
-            sys.exit(0)
+            # Both of these end the call, and both are answered below rather
+            # than here, so whatever else the line asks for is answered in
+            # the one order (see below) and not in the order it was typed.
+            do_help = True
+        elif o == "-V":
+            do_version = True
         elif o == "--extcap-interfaces":
-            sys.exit(list_interfaces())
+            do_list_interfaces = True
         elif o == "--extcap-dlts":
             do_list_dlts = True
         elif o == "--extcap-config":
@@ -277,6 +319,24 @@ def main():
             capture_filter = a
         else:
             assert False, "unhandled option"
+
+    # -V and -h both end the call, and both answer on standard output, so a
+    # call with both prints both: the version first and the usage line last,
+    # so the shorter answer is not scrolled off the screen by it, whichever
+    # order they were written in. The status is the version's: -h has none of
+    # its own. Both come after the whole command line has parsed, so a stray
+    # word or an option this script does not take is still reported.
+    if do_version or do_help:
+        status = report_versions() if do_version else 0
+        if do_help:
+            usage()
+        sys.exit(status)
+
+    # The listing needs no interface, so it is answered before the interface
+    # is read, and after -V and -h, which end the call ahead of every
+    # operation.
+    if do_list_interfaces:
+        sys.exit(list_interfaces())
 
     # every operation down here depends on having an interface. Its value is
     # "ubertooth<serial>", as --extcap-interfaces lists it; an older
@@ -332,7 +392,8 @@ def usage(out=sys.stdout):
     print("Usage: %s --extcap-interfaces |"
           " --extcap-interface=ubertooth<serial>"
           " (--extcap-dlts | --extcap-config |"
-          " --capture --fifo=PATH [--channel=37|38|39])" % sys.argv[0],
+          " --capture --fifo=PATH [--channel=37|38|39]) |"
+          " -V | -h" % sys.argv[0],
           file=out)
 
 
@@ -370,6 +431,9 @@ def list_interfaces():
     # no serial to offer, so it is left out.
     proc = run_tool(['ubertooth-util', '-U', 'all', '-s'],
                     stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    if proc is None:
+        # It said why; with nothing to list the call failed.
+        return 1
     out, errors = proc.communicate()
 
     serials = [m.group(2) for m in
@@ -481,6 +545,10 @@ def capture(interface, fifo, channel):
         "-q", fifo,
         "-A", channel,
     ], stdout=None if fifo == "-" else DEVNULL)
+    if child is None:
+        # It said why; no capture started, which Wireshark reads as a failed
+        # capture and shows the reason for.
+        return 1
     if stop_signal is not None:
         # the signal arrived while the child was starting, so the handler
         # may have run before this name held the child: pass it on here

@@ -121,7 +121,10 @@ if(EXISTS "${UBERTOOTH_CLI_MATRIX}" AND EXISTS "${UBERTOOTH_CLI_SPEC}")
 		COMMAND ${Python3_EXECUTABLE}
 			${UBERTOOTH_CLI_MATRIX}
 			${UBERTOOTH_CLI_SPEC}
-			${UBTBR_WRAPPER})
+			${UBTBR_WRAPPER}
+			# The tool answers -V by running ubertooth-util, so the one from
+			# this build goes first on the PATH of every run.
+			$<TARGET_FILE:ubertooth-util>)
 	set_tests_properties(cli-matrix-ubertooth-btbr PROPERTIES TIMEOUT 60)
 endif()
 

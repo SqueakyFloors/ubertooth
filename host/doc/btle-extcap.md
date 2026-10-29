@@ -7,6 +7,7 @@
     btle-extcap.py --extcap-interface=ubertooth<serial> --extcap-config
     btle-extcap.py --extcap-interface=ubertooth<serial> --capture --fifo=PATH
     [--channel=37|38|39]
+    btle-extcap.py -V
     btle-extcap.py -h
 
 ## DESCRIPTION
@@ -74,10 +75,26 @@ worth running by hand when a board does not appear in Wireshark.
    a capture filter the user typed. ubertooth-btle(1) captures every
    advertising packet it sees and cannot apply one, so a non-empty filter is
    reported invalid; see CAPTURE FILTERS
+ - `-V` :
+   print the version and end the call: the host tools, then the firmware
+   version and build of each attached board. The same answer every other tool
+   gives, including with no board attached; see ubertooth(7), COMMON OPTIONS.
+   The script answers it by running ubertooth-util(1) `-V`, which it needs on
+   the `PATH` as it does for the listing, and reports one that is not there as
+   `error: could not run ubertooth-util: No such file or directory`. The
+   script has no `-U`, so every attached board is reported, and the call ends
+   before `--extcap-interface` is read. Wireshark never makes this call
  - `-h`, `--help` :
    print the usage line on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a stray word or an unknown option is
    still reported
+
+`-V` and `-h` both end the call, and both answer on standard output, so a
+call with both prints both: the version first and the usage line last,
+whichever order they were written in. The status is then `-V`'s, so a board
+that could not be read makes a call carrying `-h` exit 1, with the usage line
+printed all the same. Either option ends the call ahead of every other one,
+so `--extcap-interfaces -h` prints the usage line and lists nothing.
 
 Everything else Wireshark can pass, it passes only to a program whose listing
 advertised the feature behind it: `--extcap-reload-option` to one with a

@@ -4,6 +4,20 @@
 
 ### New features
 
+- The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
+  `ubertooth-specan-ui` — answer `-V` with the same lines as every other tool:
+  the host tools' version, then the firmware version and build of the board
+  `-U` names, or of each attached board, and `Firmware version: no Ubertooth
+  attached` with exit 0 where nothing is attached. They run `ubertooth-util
+  -V` for it, so the words cannot drift from the C tools'; it has to be on
+  their `PATH`. `ubertooth-specan-ui` reads its whole command line before the
+  window's own modules, so `-V`, `-h` and a refused range are answered on a
+  machine with no `numpy` and no Qt binding; its `-h` is now the tool's own
+  rather than the argument parser's, so a range it will not take is reported
+  even beside `-h`. `btle-extcap.py -h` ends the call ahead of
+  `--extcap-interfaces` instead of being answered in whichever order the two
+  were written.
+  [#812](https://github.com/SqueakyFloors/ubertooth/issues/812)
 - **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
   address, so `-s A -t B` advertises from A and follows B, which is what it
   reads like. They shared one address, so whichever option was written last
