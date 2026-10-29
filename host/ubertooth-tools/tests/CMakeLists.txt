@@ -27,6 +27,17 @@ if(USE_OWN_GNU_GETOPT)
 endif()
 include_directories(${LIBUSB_INCLUDE_DIRS})
 
+# Given to the whole directory for the same reason as those include
+# directories. Every target that compiles ubertooth.c needs it: the host
+# version report calls dladdr(), which glibc kept in libdl until 2.34 and has
+# had in libc since, so a target that compiles the source instead of linking
+# libubertooth has to ask for it, and the targets that do not need it are
+# unharmed. The variable is empty where libc has dladdr(), which is why only
+# the older distributions failed to link, and only on their full-tier job --
+# naming them one target at a time is how the next such target would get
+# through a pull request and break that job again.
+link_libraries(${CMAKE_DL_LIBS})
+
 add_executable(test-dfu-transition
 	test_dfu_transition.c
 	../src/dfu_transition.c)
@@ -672,12 +683,6 @@ if(libubertooth_SOURCE_DIR)
 	add_test(NAME control-async COMMAND test-control-async)
 	# Every transfer is faked: a run takes milliseconds.
 	set_tests_properties(control-async PROPERTIES TIMEOUT 5)
-	# ${CMAKE_DL_LIBS} on every target below that compiles ubertooth.c: its
-	# host version report calls dladdr(), which glibc kept in libdl until
-	# 2.34 and has had in libc since, so a target that compiles the source
-	# rather than linking libubertooth has to ask for it. The variable is
-	# empty where libc has it, which is why only the older distributions
-	# failed to link.
 
 	# What ubertooth_init() does when the ring buffer cannot be allocated.
 	# ubertooth_fifo.c is left out so the test can define the fifo calls and
@@ -692,7 +697,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-init-failure PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-init-failure ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME init-failure COMMAND test-init-failure)
 	# Nothing here waits on a device; a regression that reaches USB should
 	# fail instead of hanging the suite.
@@ -724,7 +729,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-device-select PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-device-select ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME device-select COMMAND test-device-select)
 	# Nothing here waits on hardware; a regression that blocks on a real USB
 	# call should fail instead of hanging the suite.
@@ -744,7 +749,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-select-quiet PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-select-quiet ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME select-quiet COMMAND test-select-quiet)
 	# Every USB call is faked; a regression that reaches a real bus should
 	# fail instead of hanging the suite.
@@ -765,7 +770,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-afh-requests PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-afh-requests ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME afh-requests COMMAND test-afh-requests)
 	# The loops are stopped from the faked fifo after a few turns and every
 	# transfer is faked, so a run takes milliseconds. A regression that leaves
@@ -785,7 +790,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-clk100ns-wrap PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-clk100ns-wrap ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	# One case reads ubertooth-btle's source, which starts the mode whose
 	# packets come from the other clock (like test_mode_dispatch does).
 	target_compile_definitions(test-clk100ns-wrap PRIVATE
@@ -925,7 +930,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-le-decode-buffer PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-le-decode-buffer ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME le-decode-buffer COMMAND test-le-decode-buffer)
 	# A few callback calls against a faked ring buffer: milliseconds.
 	set_tests_properties(le-decode-buffer PROPERTIES TIMEOUT 5)
@@ -985,7 +990,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-keep-alive PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-keep-alive ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME keep-alive COMMAND test-keep-alive)
 	# A handful of callback calls and one short capture: milliseconds. A
 	# capture that no longer stops would hang here; fail it instead.
@@ -1006,7 +1011,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-btle-dump-streams PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-btle-dump-streams ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME btle-dump-streams COMMAND test-btle-dump-streams)
 	# Two callback calls over one packet each: milliseconds.
 	set_tests_properties(btle-dump-streams PROPERTIES TIMEOUT 5)
@@ -1025,7 +1030,7 @@ if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-stop-on-signal PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
 	target_link_libraries(test-stop-on-signal ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
-		Threads::Threads ${CMAKE_DL_LIBS})
+		Threads::Threads)
 	add_test(NAME stop-on-signal COMMAND test-stop-on-signal)
 	# Raising a signal and reading a flag: milliseconds. A wait that no
 	# longer notices the stop would hang here; fail it instead.

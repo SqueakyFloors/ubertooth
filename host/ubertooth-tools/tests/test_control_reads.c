@@ -830,6 +830,17 @@ MU_TEST(a_stop_ends_the_poll_retries_at_once)
 	mu_assert_int_eq(2, fake.calls);
 	mu_assert(strstr(text, "-9") != NULL, text);
 
+	/* A stop does not throw away a poll that worked: the packet is handed
+	 * back, and the capture loop reads the stop on its next turn. The stop
+	 * belongs to the retry, not to the poll. */
+	script_attempts((int)sizeof(usb_pkt_rx), (int)sizeof(usb_pkt_rx),
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after = 1;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq((int)sizeof(usb_pkt_rx), poll_rc);
+	mu_assert_int_eq(1, fake.calls);
+	mu_assert(text[0] == '\0', text);
+
 	/* Nobody stopped this run, so the retries are exactly as they were:
 	 * three attempts for a board that keeps timing out, and the one that
 	 * recovers on its second attempt still hands back the packet. */

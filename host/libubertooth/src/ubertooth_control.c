@@ -1319,10 +1319,11 @@ int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p)
 			 * to two seconds the stop would wait for: give up now
 			 * and report the failure.
 			 *
-			 * The -t timer is deliberately not a stop here. It is
-			 * how a timed run ends normally, and dropping the
-			 * retries for it would turn a poll that timed out at
-			 * that same moment into a failed run. */
+			 * The stop read here is the one the user asked for. The
+			 * -t timer has a flag of its own, which this does not
+			 * read: a timed run ending as it was told to should not
+			 * be turned into a failure by a poll that timed out at
+			 * that same moment. */
 			if (ubertooth_stop_requested())
 				break;
 			continue;

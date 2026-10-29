@@ -206,9 +206,10 @@ firmware does not support the requested mode, and when the capture stops short
 because a poll failed.
 
 A poll the board does not answer is tried again, up to three attempts of one
-second each. Ctrl-C ends that waiting at once, so a capture interrupted while
-the board was not answering reports `error: USB poll failed` and exits 1 where
-an uninterrupted capture would have recovered.
+second each. A stop (Ctrl-C, or SIGTERM, SIGHUP or SIGQUIT) drops the attempts
+still to come, so a capture interrupted while the board was not answering
+reports `error: USB poll failed` and exits 1, where a capture left to use its
+remaining attempts might have recovered.
 
 1 as well when the board refuses the request that ends the capture: it is left
 in the E-GO mode, and no other tool can open it until it is reset or
