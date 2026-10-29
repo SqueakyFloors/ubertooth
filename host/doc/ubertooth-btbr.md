@@ -210,11 +210,11 @@ standard error, where the link manager adds the state it was in and the
 seconds since the connection came up; that trace is a diagnostic, and the
 capture is what standard output holds.
 
-The prompt, the `Type ? to list commands` line and what `?` and
-`help <command>` print are on standard error, with the progress a command
-makes, as plain lines carrying neither the time nor a level. The prompt has no
-newline of its own, so the first progress line after it lands on its end, as
-it does on a terminal:
+The prompt, the `Type ? to list commands` line and what `?` and `? <command>`
+print are on standard error, with the progress a command makes, as plain lines
+carrying neither the time nor a level. The prompt has no newline of its own,
+so the first progress line after it lands on its end, as it does on a
+terminal:
 
     Type ? to list commands
     bt> Starting BTCtlInquiryCmd
@@ -235,13 +235,12 @@ way.
 
 ## DIAGNOSTICS
 
-Standard output carries the packets a command decodes, and the usage text `-h`
+Standard output carries the packets a command decodes and the usage text `-h`
 prints; see OUTPUT. Everything else, the intro line, what `?` prints and the
 prompt of a session nobody is editing at a terminal included, goes to standard
-error. A command line the tool will not take, a board it cannot
-select, open or set up, and anything that goes wrong during a session, are
-reported as the one-line `error: `, `warning: ` and `note: ` lines the other
-tools use.
+error. A command line the tool will not take, a board it cannot select, open
+or set up, and anything that goes wrong during a session, are reported as the
+one-line `error: `, `warning: ` and `note: ` lines the other tools use.
 
 A host without the Python `libusb1` package can still ask what is installed:
 `-V`, `-h` and a command line the tool will not take are all answered before
@@ -255,7 +254,8 @@ An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
 status 1. An address the prompt will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
-prompt up.
+prompt up; a `? <command>` naming no command is
+`error: no help on '<word>'`, and so does.
 
 Every other command line the tool will not take is one `error: ` line on
 standard error with no usage text, and exit 1: `error: unrecognized option

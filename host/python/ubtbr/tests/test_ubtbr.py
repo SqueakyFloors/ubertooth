@@ -1390,11 +1390,12 @@ assert INTRO + "\n" in errors, errors
 assert errors.count(PROMPT) == 2, errors
 print("ubtbr: the prompt and the intro are on standard error")
 
-# and so is what `?` and `help <command>` print. Those are the tool
-# describing itself, not the capture data a command was asked for, and they
-# carry no time: typed during a piped capture they used to put untimed lines
-# into it, which is what made the stream no longer readable by time alone.
-# A topic there is none gets Cmd's own line, on the same stream.
+# and so is what `?` and `? <command>` print. Those are the tool describing
+# itself, not the capture data a command was asked for, and they carry no
+# time: typed during a piped capture they used to put untimed lines into it,
+# which is what made the stream no longer readable by time alone. A command
+# there is no help for is a request the tool cannot answer, so it reads like
+# the prompt's other refusals rather than Cmd's "*** No help on".
 output, errors = canned_session("inquiry", [
     state_message(btctl.BTCTL_STATE_INQUIRY),
     fhs_message(FAKE_BDADDR),
@@ -1407,7 +1408,8 @@ assert "Documented commands (type help <topic>):" in errors, errors
 assert "inquiry_scan" in errors, errors
 assert "page <BD_ADDR>: Establish connection with given device\n" in errors, \
     errors
-assert "No help on nosuch" in errors, errors
+assert "error: no help on 'nosuch'\n" in errors, errors
+assert "***" not in errors and "***" not in output, (output, errors)
 assert time_prefixed(errors) == [], errors
 print("ubtbr: what `?` prints is on standard error, so a capture stays readable")
 

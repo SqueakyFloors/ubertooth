@@ -429,9 +429,11 @@
   would. The prompt used to be written there, which is what noticed.
   [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
 - **Script-visible change:** `ubertooth-btbr` prints what `?` and
-  `help <command>` list on standard error, with the prompt, so a capture
-  holds packets alone whatever the user types during it. Typing `?` with the
-  capture piped somewhere used to put untimed lines into it.
+  `? <command>` list on standard error, with the prompt, so a capture holds
+  packets alone whatever the user types during it. Typing `?` with the capture
+  piped somewhere used to put untimed lines into it. A `? <command>` naming no
+  command is now the `error: no help on '<word>'` line the prompt's other
+  refusals read like, in place of `*** No help on <word>`.
   [#874](https://github.com/SqueakyFloors/ubertooth/issues/874)
 - `-V` is the version command in every tool, and prints the same labelled
   lines whichever tool you ask: the two host lines above, then

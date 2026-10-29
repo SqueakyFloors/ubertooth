@@ -324,8 +324,9 @@ class PromptNotes:
 		self._prompt.say(text)
 
 	def flush(self):
-		# say() has already flushed; Cmd calls this after writing a topic
-		# list, and a stream it is given has to offer it.
+		# Nothing to do: say() flushes each write as it makes it. A stream
+		# handed to Cmd has to offer this, which is the only reason it is
+		# here.
 		pass
 
 class BTCtlPrompt(Cmd):
@@ -344,6 +345,10 @@ class BTCtlPrompt(Cmd):
 	prompt = ""
 	PROMPT = "bt> "
 	intro = "Type ? to list commands"
+	# A topic there is no help for is a request the tool cannot answer, so it
+	# reads like every other refusal the prompt gives. Cmd's own wording is
+	# "*** No help on <topic>".
+	nohelp = "error: no help on '%s'"
 
 	def __init__(self, bt):
 		self._bt = bt
@@ -553,7 +558,7 @@ class BTCtlPrompt(Cmd):
 		return self._abandoned
 
 	def help_exit(self):
-		self.say("Exit the application\n")
+		self.stdout.write("Exit the application\n")
 
 	def do_page(self, inp):
 		bdaddr = self._parse_bdaddr(inp)
@@ -561,37 +566,37 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlPagingCmd, bdaddr)
 		
 	def help_page(self):
-		self.say("page <BD_ADDR>: Establish connection with given device\n")
+		self.stdout.write("page <BD_ADDR>: Establish connection with given device\n")
 
 	def do_inquiry(self, inp):
 		self.start_cmd(BTCtlInquiryCmd)
 
 	def help_inquiry(self):
-		self.say("inquiry: Discover nearby devices\n")
+		self.stdout.write("inquiry: Discover nearby devices\n")
 
 	def do_inquiry_scan(self, inp):
 		self.start_cmd(BTCtlInquiryScanCmd)
 
 	def help_inquiry_scan(self):
-		self.say("inquiry_scan: Become visible to nearby devices\n")
+		self.stdout.write("inquiry_scan: Become visible to nearby devices\n")
 
 	def do_page_scan(self, inp):
 		self.start_cmd(BTCtlPageScanCmd)
 
 	def help_page_scan(self):
-		self.say("page_scan: Become connectable to nearby devices\n")
+		self.stdout.write("page_scan: Become connectable to nearby devices\n")
 
 	def do_discoverable(self, inp):
 		self.start_cmd(BTCtlDiscoverableCmd)
 
 	def help_discoverable(self):
-		self.say("discoverable: Become visible and connectable to nearby devices\n")
+		self.stdout.write("discoverable: Become visible and connectable to nearby devices\n")
 
 	def do_idle(self, inp=None):
 		self.stop_cmd()
 
 	def help_idle(self):
-		self.say("idle: Stop current operation and go standby\n")
+		self.stdout.write("idle: Stop current operation and go standby\n")
 
 	def do_bdaddr(self, inp):
 		bdaddr = self._parse_bdaddr(inp)
@@ -599,7 +604,7 @@ class BTCtlPrompt(Cmd):
 			self._bt.send_set_bdaddr_cmd(bdaddr)
 
 	def help_bdaddr(self):
-		self.say("bdaddr <BD_ADDR>: Set device bluetooth address\n")
+		self.stdout.write("bdaddr <BD_ADDR>: Set device bluetooth address\n")
 
 	def do_l2ping(self, inp):
 		bdaddr = self._parse_bdaddr(inp)
@@ -607,7 +612,7 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlL2Ping, bdaddr)
 
 	def help_l2ping(self):
-		self.say("l2ping <BD_ADDR>: Page given device and perform l2ping\n")
+		self.stdout.write("l2ping <BD_ADDR>: Page given device and perform l2ping\n")
 
 	def do_monitor(self, inp):
 		slave_bdaddr = self._parse_bdaddr(inp)
@@ -615,7 +620,7 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlMonitorCmd, slave_bdaddr)
 		
 	def help_monitor(self):
-		self.say("monitor <SLAVE_BD_ADDR>: Sniff connection establishment to given device\n")
+		self.stdout.write("monitor <SLAVE_BD_ADDR>: Sniff connection establishment to given device\n")
 
 	def emptyline(self):
 		pass
