@@ -355,11 +355,15 @@ static int conn_event_reached(uint16_t instant) {
 // How long a connection event is given to produce its packets, counted from
 // the moment the event opens.
 //
-// An event needs one maximum-length packet's time and the receiver's warmup,
-// plus however much later than the estimate its anchor can be: a whole
-// transmit window under parameters no packet has been seen under, one reply's
-// distance once the estimate comes from a single packet, and nothing once a
-// packet has measured the anchor.
+// It has to stay open until the latest a packet of the event could start, and
+// no longer: the first byte of a packet cancels this deadline and the
+// inter-frame timeout takes over, so the packet's own length is not this
+// deadline's business. The latest start is the peripheral's reply, one
+// PERIPHERAL_REPLY_LATEST after the anchor, plus however much later than the
+// estimate the anchor can be -- a whole transmit window under parameters no
+// packet has been seen under, one reply's distance once the estimate comes
+// from a single packet, and nothing once a packet has measured the anchor --
+// and the receiver's warmup, because the event opens one before its anchor.
 //
 // Never long enough to run into the next event's own arming, which is one
 // warmup before that event is due. At the shortest interval the specification
@@ -375,7 +379,8 @@ static int conn_event_reached(uint16_t instant) {
 // in that last stretch is missed. Listening through the whole window and being
 // armed for the next event cannot both be done at those parameters.
 static uint32_t conn_event_deadline(void) {
-	uint32_t deadline = LONGEST_PACKET + RX_WARMUP_TIME + conn.anchor_error;
+	uint32_t deadline = PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME +
+			conn.anchor_error;
 
 	// Nothing to clamp against when no connection is being followed. That
 	// takes a match armed for something which is not a connection event,
@@ -1055,8 +1060,8 @@ static void timer1_interrupt(void) {
 			// offset. if there's no offset, skip down to else block
 			if (!conn_event.opened && conn.win_offset > 0) {
 				timer1_set_match_ahead(conn.last_anchor +
-						conn.conn_interval + conn.win_offset -
-						RX_WARMUP_TIME);
+						conn.conn_interval + conn.win_offset +
+						USEC(1250) - RX_WARMUP_TIME);
 				conn_event.opened = 1;
 			}
 
@@ -1069,12 +1074,12 @@ static void timer1_interrupt(void) {
 				conn_event.opened = 1;
 
 				// The first transmit window under the new parameters
-				// opens a window offset after the event that was next due
-				// on the old interval -- the same point the branch above
-				// waits out when there is an offset. Taken before the new
-				// interval is, so the step is the old one.
+				// opens 1.25 ms plus the window offset after the event
+				// that was next due on the old interval, as a connection
+				// request's first window does after the request. Taken
+				// before the new interval is, so the step is the old one.
 				window_opens = conn.last_anchor + conn.conn_interval +
-						conn.win_offset;
+						conn.win_offset + USEC(1250);
 
 				// this is like a new connection, so set all values
 				// accordingly

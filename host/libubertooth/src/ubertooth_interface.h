@@ -583,10 +583,17 @@ enum watchdog_site {
 #define UBERTOOTH_WATCHDOG_INFO_LEN 18
 
 /* In watchdog_info.fault_status: the part's "the fault address register holds
- * this fault's address" bit. It is bit 7 of the memory management and bus
- * fault status registers, and reserved, reading zero, in the hard fault and
- * usage fault ones, which have no address register. */
-#define UBERTOOTH_FAULT_ADDR_VALID 0x80
+ * this fault's address" bits. One of the two is set when fault_addr means
+ * something.
+ *
+ * Which one depends on the register the board recorded. A memory management
+ * or bus fault records its own eight-bit status, where bit 7 is that bit; a
+ * hard fault that one of them escalated into records the whole configurable
+ * fault status, where the memory management byte is the low one and the bus
+ * fault byte the next, so that bit lands at 7 or at 15. Neither is set in the
+ * hard fault and usage fault statuses, which have no address register. */
+#define UBERTOOTH_FAULT_ADDR_VALID     0x0080
+#define UBERTOOTH_FAULT_BUS_ADDR_VALID 0x8000
 
 /*
  * UBERTOOTH_GET_RADIO_TIMEOUTS's reply: how many times each shape of wait on

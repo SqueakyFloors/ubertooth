@@ -581,6 +581,10 @@
 #define SCB_BFSR    LPC17_REG8(0xE000ED29) /* Bus Fault Status Register (CFSR sub-register) */
 #define SCB_UFSR    LPC17_REG16(0xE000ED2A) /* Usage Fault Status Register (CFSR sub-register) */
 #define SCB_HFSR    LPC17_REG(0xE000ED2C) /* Hard Fault Status Register */
+/* In SCB_HFSR: this hard fault is one of the configurable faults escalated,
+ * because it was taken where that fault's own handler could not preempt what
+ * was running. */
+#define SCB_HFSR_FORCED (1 << 30)
 #define SCB_MMFAR   LPC17_REG(0xE000ED34) /* Memory Management Fault Address Register */
 #define SCB_BFAR    LPC17_REG(0xE000ED38) /* Bus Fault Address Register */
 

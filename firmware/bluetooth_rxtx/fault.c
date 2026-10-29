@@ -62,12 +62,31 @@ void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
-	/* No address register of its own, and bit 7 of this status is reserved
-	 * and reads zero, so no address is reported. A fault that escalated to
-	 * this one did leave an address in the register it belongs to, which is
-	 * lost here; the status says the fault was forced, which is as far as
-	 * this record goes. */
-	watchdog_fault(val, 0);
+	/* A forced hard fault is one of the other three escalated: it was taken
+	 * where its own handler could not preempt what was running, which is
+	 * anywhere inside an interrupt handler, since those run at the same
+	 * priority. The hard fault status says only "forced", so what gets
+	 * recorded is the configurable fault status, which says which of the
+	 * three it was, and the address register of whichever of them has one
+	 * worth reading.
+	 *
+	 * A board on the bench recorded exactly this during a BLE follow soak,
+	 * and the status alone -- forced, with no address -- is as far as the
+	 * record went. */
+	if (val & SCB_HFSR_FORCED) {
+		uint32_t cfsr = SCB_CFSR;
+		uint32_t addr = 0;
+
+		if (cfsr & UBERTOOTH_FAULT_ADDR_VALID)
+			addr = SCB_MMFAR;
+		else if (cfsr & UBERTOOTH_FAULT_BUS_ADDR_VALID)
+			addr = SCB_BFAR;
+		watchdog_fault(cfsr, addr);
+	} else {
+		/* No address register of its own, and neither address-valid bit
+		 * is set in this status, so no address is reported. */
+		watchdog_fault(val, 0);
+	}
 
 	while (1) {
 		flash_leds(2);

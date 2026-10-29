@@ -338,7 +338,7 @@ Both counters are since power-on and stop at 255. Unplugging the board, or
 cutting power to its hub port, starts them again; `-r` does not. So does
 flashing a firmware that keeps more in that corner of RAM than the one before
 it: the record says which firmware wrote it, and a firmware that does not
-recognise what it finds starts the counts over rather than reading its own
+recognize what it finds starts the counts over rather than reading its own
 fields out of what was there.
 
 `Capture transfer errors` counts the times the chip's transfer controller

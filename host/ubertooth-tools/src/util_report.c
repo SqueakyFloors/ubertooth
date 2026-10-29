@@ -375,13 +375,13 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 		uint32_t fault_addr = util_le32(info + 14);
 
 		fprintf(out, "Last processor fault: status 0x%08x, ", fault_status);
-		/* Bit 7 of the status is the board's "the address register holds
-		 * this fault's address" bit, in both of the two status registers
-		 * that have one; it is reserved and reads zero in the other two,
-		 * which have no address register at all. Read rather than
-		 * comparing the address against zero, because zero is a real
-		 * address -- a null pointer dereference records it. */
-		if (fault_status & UBERTOOTH_FAULT_ADDR_VALID)
+		/* The board's own "the address register holds this fault's
+		 * address" bit; see UBERTOOTH_FAULT_ADDR_VALID for why there are
+		 * two of them. Read rather than comparing the address against
+		 * zero, because zero is a real address -- a null pointer
+		 * dereference records it. */
+		if (fault_status & (UBERTOOTH_FAULT_ADDR_VALID |
+		                    UBERTOOTH_FAULT_BUS_ADDR_VALID))
 			fprintf(out, "the access was at 0x%08x\n", fault_addr);
 		else
 			fputs("no address recorded\n", out);

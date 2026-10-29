@@ -545,6 +545,37 @@ MU_TEST(test_the_reply_is_the_documented_bytes)
  * reset count is: a board that has been losing packets this way says so even
  * after it has been reset.
  */
+/*
+ * A breadcrumb this firmware does not recognise is started again, fields and
+ * all. That is the case the magic exists for: a reflash leaves the region
+ * alone, so a firmware that keeps more there than the one before it finds the
+ * older layout with RAM otherwise intact. Reading its own fields out of that
+ * is how a board reported a processor fault that never happened.
+ */
+MU_TEST(test_an_older_breadcrumb_layout_starts_every_field_again)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	/* Not a power-on: RAM holds what the firmware before this one left,
+	 * under a magic this one does not know. */
+	boot_with(RSID_WDTR);
+	crumb_left_by_a_run(MODE_BT_FOLLOW_LE, WATCHDOG_SITE_XOSC,
+	                    WATCHDOG_INTENT_RUNNING, 9, 37);
+	watchdog_crumb.magic = 0x57443031; /* "WD01", the layout before this */
+	watchdog_crumb.transfer_errors = 54756;
+	watchdog_crumb.fault_status = 0x0c0911c8;
+	watchdog_crumb.fault_addr = 0xa99832ae;
+
+	watchdog_boot();
+	watchdog_report(data);
+
+	mu_assert_int_eq(0, data[2]);                 /* resets */
+	mu_assert_int_eq(1, data[3]);                 /* this boot is the first */
+	mu_assert_int_eq(0, data[8] | data[9]);       /* transfer errors */
+	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
+	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
+}
+
 MU_TEST(test_a_transfer_error_is_counted_and_kept_across_a_reset)
 {
 	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
@@ -1617,6 +1648,7 @@ int main(void)
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_every_inner_mark_is_given_back);
 	MU_RUN(test_the_reply_is_the_documented_bytes);
+	MU_RUN(test_an_older_breadcrumb_layout_starts_every_field_again);
 	MU_RUN(test_a_transfer_error_is_counted_and_kept_across_a_reset);
 	MU_RUN(test_the_transfer_error_count_stops_at_its_largest_value);
 	MU_RUN(test_a_fault_records_its_status_and_address);

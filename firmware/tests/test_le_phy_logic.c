@@ -1407,7 +1407,8 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	 * interval, with the radio left alone. */
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
-	expected_match = 1000000 + 24 * 12500 + 3 * 12500 - RX_WARMUP_TIME;
+	expected_match = 1000000 + 24 * 12500 + 3 * 12500 + USEC(1250) -
+	                 RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 
 	/* Then the event itself, on the new interval, with the whole window and
@@ -1417,7 +1418,7 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	fake_t1tc = expected_match;
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
-	expected_match = fake_t1tc + 2 * 12500 + USEC(2120) + RX_WARMUP_TIME;
+	expected_match = fake_t1tc + 2 * 12500 + PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 	mu_assert_int_eq(40 * 12500, conn.conn_interval);
 	mu_assert_int_eq(0, conn.conn_update_pending);
@@ -1426,8 +1427,8 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	 * which is what finish_conn_event() advances from. Without moving it
 	 * here, the estimate would carry on from the last event under the old
 	 * interval, which the new window is offset from. */
-	mu_assert_int_eq(1000000 + 24 * 12500 + 3 * 12500 - 40 * 12500,
-	                 conn.last_anchor);
+	mu_assert_int_eq(1000000 + 24 * 12500 + 3 * 12500 + USEC(1250) -
+	                 40 * 12500, conn.last_anchor);
 
 	/* Once an event measures the anchor, the window is no longer added: an
 	 * anchored event gets the longest packet alone, and a window-long
@@ -1437,7 +1438,7 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	reset_conn_event();
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
-	expected_match = fake_t1tc + USEC(2120) + RX_WARMUP_TIME;
+	expected_match = fake_t1tc + PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 }
 
@@ -1482,7 +1483,7 @@ MU_TEST(the_first_event_of_a_connection_waits_out_the_whole_window)
 	le_phy_active = 1;
 	TIMER1_IRQHandler();
 
-	expected_match = fake_t1tc + 4 * 12500 + USEC(2120) + RX_WARMUP_TIME;
+	expected_match = fake_t1tc + 4 * 12500 + PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 	mu_assert_int_eq(1, conn_event.opened);
 
@@ -1494,7 +1495,7 @@ MU_TEST(the_first_event_of_a_connection_waits_out_the_whole_window)
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
 
-	expected_match = fake_t1tc + USEC(2120) + RX_WARMUP_TIME;
+	expected_match = fake_t1tc + PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 }
 
@@ -2199,6 +2200,32 @@ MU_TEST(a_failed_capture_transfer_is_counted)
 }
 
 /*
+ * A moment the connection's parameters name, which the counter has already
+ * gone past, is taken as soon as the counter allows rather than armed behind
+ * it. There are no whole intervals to skip for this one -- it is a window
+ * offset inside one event -- so the best that can be done is now.
+ */
+MU_TEST(a_moment_already_past_is_armed_just_ahead_of_the_counter)
+{
+	start_fresh();
+	fake_t1tc = 500000;
+
+	/* Ahead of the counter: armed where asked. */
+	timer1_set_match_ahead(600000);
+	mu_assert_int_eq(600000, fake_t1mr0);
+
+	/* Gone past: armed a margin ahead instead, not behind the counter,
+	 * where it would wait for the counter to wrap. */
+	timer1_set_match_ahead(400000);
+	mu_assert_int_eq(500000 + CONN_EVENT_ARM_MARGIN, fake_t1mr0);
+
+	/* Within the margin counts as past, because arming takes longer than
+	 * that. */
+	timer1_set_match_ahead(500000 + CONN_EVENT_ARM_MARGIN / 2);
+	mu_assert_int_eq(500000 + CONN_EVENT_ARM_MARGIN, fake_t1mr0);
+}
+
+/*
  * A connection update whose instant the counter stepped over still applies.
  *
  * Events can go by unobserved -- an overdue estimate skips whole intervals and
@@ -2486,6 +2513,7 @@ int main(void)
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
 	MU_RUN(the_overdue_test_holds_across_the_counters_wrap);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
+	MU_RUN(a_moment_already_past_is_armed_just_ahead_of_the_counter);
 	MU_RUN(an_instant_the_counter_stepped_over_still_applies);
 	MU_RUN(the_recorded_access_address_follows_the_radio);
 	MU_RUN(a_new_connection_starts_from_nothing);
