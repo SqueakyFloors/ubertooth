@@ -1877,8 +1877,8 @@ static void chained_records(usb_pkt_rx chain[CHAINED_RECORDS])
 		rx->clk100ns = htole32((uint32_t) FIRST_TICKS);
 		/* Every record of a chain says how long the whole packet is and
 		 * where it sits in the chain. */
-		rx->reserved[0] = CHAINED_PACKET_LEN & 0xff;
-		rx->reserved[1] = ((CHAINED_PACKET_LEN >> 8) &
+		LE_FRAG_TOTAL_LOW(rx) = CHAINED_PACKET_LEN & 0xff;
+		LE_FRAG_FLAGS(rx) = ((CHAINED_PACKET_LEN >> 8) &
 		                   LE_FRAG_TOTAL_HIGH_MASK) |
 		                  (uint8_t) (position << LE_FRAG_INDEX_SHIFT);
 		memcpy(rx->data, packet + offset,

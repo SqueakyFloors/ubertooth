@@ -81,8 +81,8 @@ static void fill_record(usb_pkt_rx* record, uint32_t sequence)
 	record->rssi_min = (int8_t)sequence_byte(sequence, 9);
 	record->rssi_avg = (int8_t)sequence_byte(sequence, 10);
 	record->rssi_count = sequence_byte(sequence, 11);
-	record->reserved[0] = sequence_byte(sequence, 12);
-	record->reserved[1] = sequence_byte(sequence, 13);
+	record->rssi_noise = sequence_byte(sequence, 12);
+	record->reserved = sequence_byte(sequence, 13);
 	for (i = 0; i < DMA_SIZE; i++)
 		record->data[i] = sequence_byte(sequence, 14 + i);
 }
@@ -102,8 +102,8 @@ static int record_is_whole(const usb_pkt_rx* record)
 	    || record->rssi_min != (int8_t)sequence_byte(sequence, 9)
 	    || record->rssi_avg != (int8_t)sequence_byte(sequence, 10)
 	    || record->rssi_count != sequence_byte(sequence, 11)
-	    || record->reserved[0] != sequence_byte(sequence, 12)
-	    || record->reserved[1] != sequence_byte(sequence, 13))
+	    || record->rssi_noise != sequence_byte(sequence, 12)
+	    || record->reserved != sequence_byte(sequence, 13))
 		return 0;
 	for (i = 0; i < DMA_SIZE; i++)
 		if (record->data[i] != sequence_byte(sequence, 14 + i))

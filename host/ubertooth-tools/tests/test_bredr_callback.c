@@ -385,13 +385,11 @@ static int stderr_lines_with(const char* needle)
 }
 
 /* The state the callbacks keep between packets, back to what a fresh process
- * has: the RSSI table, and the record queue and recordings. The clock trim's
- * own counters are only reachable through cb_rx() itself, so the follow case
- * below is the last to run. */
+ * has: the record queue and the recordings. The clock trim's own counters are
+ * only reachable through cb_rx() itself, so the follow case below is the last
+ * to run. */
 static void reset_state(void)
 {
-	memset(rssi_history, 0, sizeof(rssi_history));
-	rssi_history_filled = 0;
 	memset(&seen, 0, sizeof(seen));
 	memset(next_packets, 0, sizeof(next_packets));
 	next_count = 0;
@@ -573,64 +571,69 @@ MU_TEST(the_callbacks_hand_the_decoder_that_clkn)
 
 /* ---- the signal level a channel's first packets report ------------------ */
 
-MU_TEST(the_first_packet_on_a_channel_reports_its_own_signal)
+MU_TEST(a_packets_signal_is_its_own_and_comes_from_the_record)
 {
 	usb_pkt_rx rx;
 	int8_t sig, noise;
 
-	reset_state();
-	/* Raw -40 is -91 dBm. The table used to start zeroed except for its
-	 * very first entry, and the level is the largest of a channel's ten,
-	 * so raw 0 - about -55 dBm - won for the first ten packets on every
-	 * channel. The signal field of the record written to a capture file,
-	 * and the signal-to-noise ratio printed beside it, were out by the
-	 * same 36 dB. */
-	fill_packet(&rx, 40000, 0, 0);
+	/* Raw -40 is -91 dBm. The level used to be the loudest reading in the
+	 * last ten records of the channel, so a quiet packet arriving after a
+	 * loud one read as loud as the loud one -- in the capture file as well
+	 * as on screen. Each record now answers for itself. */
+	fill_packet(&rx, 40000, 0, 3);
+	rx.rssi_avg = -40;
 	determine_signal_and_noise(&rx, &sig, &noise);
 	mu_assert_int_eq(-91, sig);
-	mu_assert_int_eq(-55, noise);
 
-	/* Every channel, not just the first: the old initialiser reached one
-	 * entry of one channel. */
+	rx.rssi_avg = 0;
+	determine_signal_and_noise(&rx, &sig, &noise);
+	mu_assert_int_eq(-55, sig);
+
+	rx.rssi_avg = -40;
+	determine_signal_and_noise(&rx, &sig, &noise);
+	mu_assert_int_eq(-91, sig);
+
+	/* And no channel's records affect another's. */
 	fill_packet(&rx, 40000, 0, NUM_BREDR_CHANNELS - 1);
+	rx.rssi_avg = -40;
 	determine_signal_and_noise(&rx, &sig, &noise);
 	mu_assert_int_eq(-91, sig);
-
-	/* A channel whose only packet is as weak as the table's empty value
-	 * reports that, rather than being hidden by it. */
-	reset_state();
-	fill_packet(&rx, 40000, 0, 40);
-	rx.rssi_max = INT8_MIN;
-	determine_signal_and_noise(&rx, &sig, &noise);
-	mu_assert_int_eq(-120, sig);
 }
 
-MU_TEST(the_level_is_the_strongest_of_a_channels_last_ten_packets)
+MU_TEST(a_noise_figure_is_reported_only_where_the_board_measured_one)
 {
 	usb_pkt_rx rx;
 	int8_t sig, noise;
-	int i;
 
-	reset_state();
+	/* Without the flag the byte says nothing, whatever is in it: a board or
+	 * a capture file from before the measurement leaves it at zero, which
+	 * would otherwise read as a background of -55 dBm. */
 	fill_packet(&rx, 40000, 0, 3);
-
-	/* Ten packets getting weaker: the level stays at the strongest of
-	 * them, and the eleventh drops the first out of the history. */
-	for (i = 0; i < RSSI_HISTORY_LEN; i++) {
-		rx.rssi_max = (int8_t)(-40 - i);
-		determine_signal_and_noise(&rx, &sig, &noise);
-		mu_assert_int_eq(-91, sig);
-	}
-	rx.rssi_max = (int8_t)(-40 - RSSI_HISTORY_LEN);
+	rx.rssi_noise = 0;
 	determine_signal_and_noise(&rx, &sig, &noise);
-	/* Raw -41, the strongest still in the history, is -92 dBm. */
-	mu_assert_int_eq(-92, sig);
+	mu_assert_int_eq(INT8_MAX, noise);
 
-	/* One channel's history is its own. */
-	fill_packet(&rx, 40000, 0, 4);
-	rx.rssi_max = -30;
+	rx.rssi_noise = (uint8_t)(int8_t) -40;
 	determine_signal_and_noise(&rx, &sig, &noise);
-	mu_assert_int_eq(-82, sig);
+	mu_assert_int_eq(INT8_MAX, noise);
+
+	/* With it, the record's own figure. */
+	rx.status |= NOISE_VALID;
+	determine_signal_and_noise(&rx, &sig, &noise);
+	mu_assert_int_eq(-91, noise);
+}
+
+MU_TEST(the_noise_and_snr_columns_are_absent_where_nothing_was_measured)
+{
+	char n[RSSI_FIELD_LEN], snr[RSSI_FIELD_LEN];
+
+	format_noise_and_snr(-50, -90, n, snr);
+	mu_assert(strcmp(n, "-90") == 0, "the noise column is the figure");
+	mu_assert(strcmp(snr, "40") == 0, "the ratio is the difference");
+
+	format_noise_and_snr(-50, INT8_MAX, n, snr);
+	mu_assert(strcmp(n, "none") == 0, "an unmeasured background is absent");
+	mu_assert(strcmp(snr, "none") == 0, "and so is the ratio from it");
 }
 
 /* ---- which channels AFH detection marks used ---------------------------- */
@@ -1556,8 +1559,9 @@ int main(void)
 	MU_RUN(a_timestamp_inside_the_first_bank_does_not_jump_the_clock_forwards);
 	MU_RUN(the_clkn_counts_from_the_access_code_not_the_bank);
 	MU_RUN(the_callbacks_hand_the_decoder_that_clkn);
-	MU_RUN(the_first_packet_on_a_channel_reports_its_own_signal);
-	MU_RUN(the_level_is_the_strongest_of_a_channels_last_ten_packets);
+	MU_RUN(a_packets_signal_is_its_own_and_comes_from_the_record);
+	MU_RUN(a_noise_figure_is_reported_only_where_the_board_measured_one);
+	MU_RUN(the_noise_and_snr_columns_are_absent_where_nothing_was_measured);
 	MU_RUN(a_lone_unused_channel_between_used_ones_is_marked_used);
 	MU_RUN(the_channels_at_the_edges_of_the_band_need_a_packet_of_their_own);
 	MU_RUN(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less);

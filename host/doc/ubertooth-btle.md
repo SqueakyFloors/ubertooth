@@ -266,11 +266,20 @@ packet times are behind the host clock by more than half the capture clock's
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
-A `-q` or `-r` capture record carries the signal power of its packet and no
-measured noise power: nothing measures the background between packets, so the
-record's noise-power-valid flag stays clear and the byte beside it is not a
-reading. Wireshark shows it as `Unused signed byte`. A `-c` PPI record carries
-the board's own RSSI readings instead, as described below.
+A `-q` or `-r` capture record carries the packet's own power, averaged in power
+rather than in dBm over the readings the board took while the packet was on the
+air. That is the figure printed as `rssi=` as well.
+
+Whether it also carries a background measurement depends on the mode.
+Promiscuous capture (`-p`) reads the channel while the radio has synchronized
+on nothing, so its records carry the background with the noise-power-valid flag
+set, and a reader shows a signal-to-noise ratio. Follow and advertising capture
+(`-f`, `-n`) read the radio only while a packet is arriving, so those records
+carry no background: the flag stays clear and Wireshark shows the field as
+`Unused signed byte`.
+
+A `-c` PPI record carries the board's own RSSI readings instead, as described
+below.
 
 Miscellaneous:
 

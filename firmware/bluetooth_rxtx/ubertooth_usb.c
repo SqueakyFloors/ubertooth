@@ -409,16 +409,16 @@ int usb_enqueue_le_packet(const le_pkt_meta *meta, const uint8_t *aa,
 		if (f == NULL)
 			return 0;
 		fill_le_metadata(f, meta, LE_PACKET);
-		f->reserved[0] = 0;
-		f->reserved[1] = 0;
+		f->rssi_noise = meta->rssi_noise;
+		f->reserved = 0;
 		fill_le_chunk(f, aa, rest, 0, total);
 		return 1;
 	}
 
 	/* Each fragment is one record carrying 50 bytes of the packet. The first
-	 * and continuation record types mark the chain; reserved[0] and bit 0 of
-	 * reserved[1] carry the total length, and bits 7..1 of reserved[1] a
-	 * fragment index that counts up from zero. */
+	 * and continuation record types mark the chain, and the two bytes a
+	 * single-record packet would carry its noise figure in state the whole
+	 * packet's length and this fragment's position in the chain. */
 	fragments = (total + DMA_SIZE - 1) / DMA_SIZE;
 	if (usb_queue_space() < fragments)
 		return 0; /* all or nothing: half a packet is worse than none */
@@ -434,9 +434,13 @@ int usb_enqueue_le_packet(const le_pkt_meta *meta, const uint8_t *aa,
 			return 0;
 		fill_le_metadata(f, meta,
 			(offset == 0) ? LE_PACKET_START : LE_PACKET_CONT);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		/* The two bytes a single-record packet carries its noise figure in,
+		 * which is why the status bit that would make one readable is
+		 * cleared below. */
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 			((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT);
+		f->status &= (uint8_t) ~NOISE_VALID;
 		fill_le_chunk(f, aa, rest, offset, chunk);
 	}
 

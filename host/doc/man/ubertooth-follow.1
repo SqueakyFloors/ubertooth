@@ -66,7 +66,11 @@ USB delay in 625us timeslots (default: 5)\.
 \fB\-h\fR
 show help\.
 .P
-A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no measured noise power: nothing measures the background between packets, so the record's noise\-power\-valid flag stays clear and the byte beside it is not a reading\. Wireshark shows it as \fBInvalid Noise Power\fR\. The \fBn=\fR column on the screen is the RSSI average the board took over the packet itself, which is mostly the packet's own power, and \fBsnr=\fR is the signal beside it less that average\.
+A record of a \fB\-q\fR or \fB\-r\fR capture carries two measurements the board made on the packet's channel: the packet's own power, and the background around it\. The background is the level the board read between packets, which it tells from a packet's own readings by level \-\- a packet is tens of dB above the clear air\. Both are averaged in power rather than in dBm, so a quiet stretch inside a receive window does not drag the packet's figure down\.
+.P
+The screen shows the two as \fBs=\fR and \fBn=\fR, in dBm, with \fBsnr=\fR the difference\. A capture record carries them as its signal power and noise power, with the noise\-power\-valid flag set, and a reader shows a signal\-to\-noise ratio\.
+.P
+A channel the board never heard clear \-\- traffic from the first reading after every hop, or a packet barely above the air around it \-\- gives no background\. Such a record leaves the flag clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\.
 .SH "AFH"
 \fB\-a\fR is experimental\. It makes the local BlueZ device connect to the target and asks the local controller for the AFH channel map of \fIthat\fR link, then follows the piconet keyed on the target's LAP/UAP\. The two are the same hop sequence only when the target is master of the piconet you want to follow, which \fBubertooth\-follow\fR cannot check\. Treat a capture made with \fB\-a\fR accordingly\.
 .P

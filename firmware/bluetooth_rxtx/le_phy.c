@@ -11,6 +11,7 @@
 #include "ubertooth.h"
 #include "ubertooth_clock.h"
 #include "ubertooth_dma.h"
+#include "ubertooth_rssi.h"
 #include "ubertooth_usb.h"
 #include "bluetooth_le.h"
 #include "cc2400_wait.h"
@@ -169,7 +170,7 @@ typedef struct _le_rx_t {
 	uint32_t access_address;    // access address
 	int available;              // 1 if available, 0 in use
 	int8_t rssi_min, rssi_max;  // min and max RSSI observed values
-	int rssi_sum;               // running sum of all RSSI values
+	rssi_power_t power;         // the packet's own power, averaged in power
 	int transfer_error;         // 1 if a capture transfer faulted during it
 
 	// Which connection event this packet started in, noted as its first
@@ -322,7 +323,7 @@ static void buffer_clear(le_rx_t *buf) {
 	memset(buf->data, 0, sizeof(buf->data));
 	buf->rssi_min = INT8_MAX;
 	buf->rssi_max = INT8_MIN;
-	buf->rssi_sum = 0;
+	rssi_power_init(&buf->power, RSSI_SIGNAL_SPAN);
 	buf->transfer_error = 0;
 	buf->in_open_event = 0;
 	buf->event_counter = 0;
@@ -831,7 +832,7 @@ static void le_dma_interrupt(uint32_t timestamp) {
 
 			// poll RSSI
 			rssi = (int8_t)(cc2400_get(RSSI) >> 8);
-			current_rxbuf->rssi_sum += rssi;
+			rssi_power_add(&current_rxbuf->power, rssi);
 			if (rssi < current_rxbuf->rssi_min) current_rxbuf->rssi_min = rssi;
 			if (rssi > current_rxbuf->rssi_max) current_rxbuf->rssi_max = rssi;
 
@@ -1729,13 +1730,15 @@ static int usb_enqueue_le(le_rx_t *packet)
 	meta.channel = ubertooth_channel_byte(packet->channel);
 	meta.clkn_high = 0;
 	meta.clk100ns = packet->timestamp;
-	/* The radio reports RSSI as a negative number, so the sum is negative and
-	 * the division has to be a signed one. Without the cast the unsigned size
-	 * would convert the sum to a huge positive value first. */
-	meta.rssi_avg = packet->rssi_sum / (int) packet->size;
+	/* The packet's own power: one reading was taken per byte received, all of
+	 * them while the packet was on the air. */
+	meta.rssi_avg = rssi_power_mean(&packet->power);
 	meta.rssi_min = packet->rssi_min;
 	meta.rssi_max = packet->rssi_max;
 	meta.rssi_count = 0;
+	/* This engine takes a reading only while a packet is arriving, so it
+	 * measures no background and the records say so. */
+	meta.rssi_noise = 0;
 
 	/* The access address is what the board synchronized on, so it is held
 	 * apart from the bytes that were received. */

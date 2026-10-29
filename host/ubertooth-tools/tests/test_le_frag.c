@@ -55,8 +55,8 @@ static void make_fragment(usb_pkt_rx *f, uint16_t total, const uint8_t *packet,
 	f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
 	f->channel = 4;
 	f->clk100ns = 1234;
-	f->reserved[0] = total & 0xff;
-	f->reserved[1] = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+	LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+	LE_FRAG_FLAGS(f) = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 	                 ((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT);
 	memcpy(f->data, packet + offset, chunk);
 }
@@ -200,8 +200,8 @@ MU_TEST(a_record_that_cannot_belong_to_a_packet_is_refused)
 	                 reassemble(&state, &frame, &data, &length,
 	                            &metadata));
 	make_fragment(&frame, 100, packet, 0);
-	frame.reserved[0] = (LE_MAX_USB_PACKET_SIZE + 1) & 0xff;
-	frame.reserved[1] = (((LE_MAX_USB_PACKET_SIZE + 1) >> 8) &
+	LE_FRAG_TOTAL_LOW(&frame) = (LE_MAX_USB_PACKET_SIZE + 1) & 0xff;
+	LE_FRAG_FLAGS(&frame) = (((LE_MAX_USB_PACKET_SIZE + 1) >> 8) &
 	                     LE_FRAG_TOTAL_HIGH_MASK);
 	mu_assert_int_eq(LE_REASSEMBLY_ERROR,
 	                 reassemble(&state, &frame, &data, &length,

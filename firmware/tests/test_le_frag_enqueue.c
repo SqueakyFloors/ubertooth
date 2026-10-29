@@ -147,8 +147,8 @@ MU_TEST(a_packet_that_fills_one_record_is_sent_as_one)
 	r = dequeue();
 	mu_assert(r != NULL, "the record was not queued");
 	mu_assert_int_eq(LE_PACKET, r->pkt_type);
-	mu_assert_int_eq(0, r->reserved[0]);
-	mu_assert_int_eq(0, r->reserved[1]);
+	mu_assert_int_eq(0, LE_FRAG_TOTAL_LOW(r));
+	mu_assert_int_eq(0, LE_FRAG_FLAGS(r));
 	mu_assert(memcmp(r->data, whole, DMA_SIZE) == 0,
 	          "the record does not carry the packet");
 }
@@ -164,15 +164,15 @@ MU_TEST(a_packet_one_byte_too_long_is_sent_as_two_records)
 
 	r = dequeue();
 	mu_assert_int_eq(LE_PACKET_START, r->pkt_type);
-	mu_assert_int_eq(DMA_SIZE + 1, (int)r->reserved[0]);
-	mu_assert_int_eq(0, r->reserved[1] >> LE_FRAG_INDEX_SHIFT);
+	mu_assert_int_eq(DMA_SIZE + 1, (int)LE_FRAG_TOTAL_LOW(r));
+	mu_assert_int_eq(0, LE_FRAG_FLAGS(r) >> LE_FRAG_INDEX_SHIFT);
 	mu_assert(memcmp(r->data, whole, DMA_SIZE) == 0,
 	          "the first record does not carry the front of the packet");
 
 	r = dequeue();
 	mu_assert_int_eq(LE_PACKET_CONT, r->pkt_type);
-	mu_assert_int_eq(DMA_SIZE + 1, (int)r->reserved[0]);
-	mu_assert_int_eq(1, r->reserved[1] >> LE_FRAG_INDEX_SHIFT);
+	mu_assert_int_eq(DMA_SIZE + 1, (int)LE_FRAG_TOTAL_LOW(r));
+	mu_assert_int_eq(1, LE_FRAG_FLAGS(r) >> LE_FRAG_INDEX_SHIFT);
 	mu_assert_int_eq(whole[DMA_SIZE], r->data[0]);
 }
 
@@ -217,7 +217,7 @@ MU_TEST(the_longest_packet_is_split_across_every_record_it_needs)
 			chunk = DMA_SIZE;
 		mu_assert_int_eq(i == 0 ? LE_PACKET_START : LE_PACKET_CONT,
 		                 r->pkt_type);
-		mu_assert_int_eq((int)i, r->reserved[1] >> LE_FRAG_INDEX_SHIFT);
+		mu_assert_int_eq((int)i, LE_FRAG_FLAGS(r) >> LE_FRAG_INDEX_SHIFT);
 		mu_assert(memcmp(r->data, whole + offset, chunk) == 0,
 		          "a record carries the wrong part of the packet");
 	}
