@@ -68,4 +68,3 @@ Ubertooth
   to_do
   release_procedure   
   ubertooth_two_wishlist
-  ubertooth_zero
