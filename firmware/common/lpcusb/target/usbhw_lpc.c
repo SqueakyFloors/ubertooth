@@ -882,17 +882,21 @@ DEBUG_LED_OFF(8);
                  * USBEpIntSt (section 11.10.3.1, Table 202), so the loop
                  * index serves as both.
                  *
-                 * EP_SLOW is put back by hand rather than trusted to
-                 * re-appear from that standing bit. The manual does not
-                 * promise it would: section 11.11, "Interrupt handling",
-                 * describes slow endpoint events as ORed into EP_SLOW without
-                 * saying whether a bit already set in USBEpIntSt raises it a
-                 * second time, and section 11.10.2.4 asks software to clear
-                 * the endpoint's bit before clearing EP_SLOW, which is the
-                 * opposite order to this loop's. Writing EP_SLOW into
-                 * USBDevIntSet is documented plainly (section 11.10.2.5,
-                 * Table 199), so that is what the deferral below does, and
-                 * the next service pass comes back here either way.
+                 * The controller may well bring the firmware back here on its
+                 * own, but the manual does not promise it. What it says is
+                 * that a bit set in USBEpIntSt causes EP_SLOW in USBDevIntSt
+                 * to be set (section 11.10.3.1), and that software should
+                 * clear the endpoint's bit before clearing EP_SLOW
+                 * (section 11.10.2.4) -- advice that reads as a bit left
+                 * standing putting EP_SLOW straight back, though it is not
+                 * said outright. This loop clears EP_SLOW in the other order,
+                 * before it looks at the endpoints, so that an event arriving
+                 * while it runs is noticed.
+                 *
+                 * So the deferral below writes EP_SLOW into USBDevIntSet
+                 * itself, which the manual does document plainly
+                 * (section 11.10.2.5, Table 199), and the next service pass
+                 * comes back here whichever way the controller behaves.
                  *
                  * Marked for the breadcrumb from here to the interrupt
                  * clear: every step between the two is a handshake with the
