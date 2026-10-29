@@ -59,6 +59,30 @@ static inline void bbcodec_init(bbcodec_t *codec,
 #define CODEC_RX_CHUNK_SIZE 10
 /* Encode 80 host bytes at the time */
 #define CODEC_TX_CHUNK_SIZE 80
+
+/* How many air bits 2/3 FEC puts out for nbytes host bytes.
+ *
+ * The encoder takes 10 input bits at a time and writes 15 air bits, and a
+ * payload that is not a whole number of 10-bit groups is padded with zeros to
+ * the next group before encoding (Bluetooth Core, Vol 2 Part B 7.4). So the
+ * last group of a byte count that is not a multiple of 5 occupies a whole 15
+ * air bits, not the 12 bits its 8 input bits would suggest. Transmit, receive
+ * and the packet's total air size all have to count it the same way, or one of
+ * them cuts the last group short.
+ */
+#define BBCODEC_FEC23_AIR_BITS(nbytes)	((((nbytes)*8u + 9u) / 10u) * 15u)
+
+/* Both chunk sizes above have to be whole numbers of 10-bit groups, which for
+ * a byte count means a multiple of 5. Two things rest on that: only the last
+ * chunk of a payload can end in a part group, so the chunked air size adds up
+ * to the whole payload's; and the transmit side zeroes the pad byte above a
+ * part chunk, which is inside its chunk-sized buffer only while a chunk that
+ * needs padding is shorter than the buffer. */
+_Static_assert(CODEC_TX_CHUNK_SIZE % 5 == 0,
+	"a transmit chunk must be a whole number of 10-bit groups");
+_Static_assert(CODEC_RX_CHUNK_SIZE % 5 == 0,
+	"a receive chunk must be a whole number of 10-bit groups");
+
 #define BBCODEC_DONE  1
 #define BBCODEC_SHORT 2
 

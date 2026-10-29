@@ -30,7 +30,8 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
    UAP of target piconet (1 byte / 2 hex digits)
  - `-m <int>` :
    threshold for channel removal: a channel is marked unused once this many packets
-   arrive without it being seen; 1 or more (default: 5)
+   arrive without it being seen; 1 or more (default: 5). It counts packets, not
+   seconds, and the default of 5 is at the low end; see THE REMOVAL THRESHOLD
  - `-r` :
    print AFH channel map once every second (default: print on update)
 
@@ -114,6 +115,33 @@ that gives up when nothing is heard in time.
 
 `-r` has its own loop, which prints the map once a second from the start and
 ignores `-t`.
+
+## THE REMOVAL THRESHOLD
+
+`-m` counts packets, not seconds: a channel leaves the map once that many
+packets from the piconet have arrived with none of them on that channel. So
+what the threshold means depends on how many channels the piconet is using, not
+on how long the run has been going.
+
+That is a trade-off, and both ends of it cost something. A small threshold
+notices quickly when the piconet really does stop using a channel, and reports
+channels it is still using as dropped. A large one settles into a map that
+stops changing, and is slow to notice a channel the piconet has given up.
+
+The default of 5 is at the small end, far enough that the map does not settle
+at all for a piconet on the whole band. A piconet hops to a different channel
+each slot, so with 79 channels in use a given channel carries about one packet
+in 79: five packets almost never include it, and the monitor output is a stream
+of `+ channel N is used now` and `- channel N is not used any more` lines
+rather than a map that holds still. A threshold has to be a good few times the
+number of channels in use before a used channel is reliably seen again within
+it, which puts a settling value for the whole band in the hundreds.
+
+That arithmetic is the shape of it, not a measurement. The default is still 5
+because no measured value has replaced it: choosing one means running against a
+real piconet whose map is known, and seeing both how long a map takes to settle
+and how quickly a channel the piconet drops is noticed. Until then, raise `-m`
+yourself if the map matters more than the reaction time.
 
 ## ARGUMENTS
 
