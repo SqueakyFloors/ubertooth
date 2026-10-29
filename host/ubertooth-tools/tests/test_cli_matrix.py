@@ -1011,7 +1011,8 @@ def listed_cases():
     """The cases the spec writes out, for a tool with no short-option table.
 
     btle-extcap.py is the one: its command line is the extcap protocol's, all
-    long options, with no man page to generate a table from.
+    long options, so its man page has no short-option table to generate a
+    matrix from.
     """
     cases = [Case([], "usage", error=CONTRACT["nothing_to_do"])]
     for entry in CONTRACT.get("cases", []):
