@@ -30,7 +30,7 @@ touches code:
 | --- | --- |
 | `Build` / `host` | Builds the host tools and runs the host test suite, a strict-C-standard build, and a smoke test of each binary |
 | `Build` / `firmware` | Builds the ARM firmware images and the bootloader, runs the firmware test suite, and checks that a flag or linker-script change rebuilds the images. The ToorCon 13 badge (`firmware/tc13badge`, a Renesas R8C part) is not among the images built: nothing here has that toolchain, so the test suite compiles its C for syntax only and the rest of a change to it is checked by reading the source |
-| `Build` / `scripts` | shellcheck, plus a self-test of each `tools/check-*.sh` that proves the check still catches what it is for |
+| `Build` / `scripts` | shellcheck over every tracked `*.sh`, plus a self-test of each `tools/check-*.sh` it runs that proves the check still catches what it is for (`check-merged-text.sh`'s self-test runs in `Merged text`, beside the check itself) |
 | `Build` / `issue-references` | No issue or pull request number in source, tests or build files: the reason for a line belongs in its comment, the link in the commit message or the pull request |
 | `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
 | `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
@@ -38,6 +38,7 @@ touches code:
 | `install.sh` / `install-sh` | Runs the installer end to end (on a pull request, only when `install.sh` or its own workflow file changes) |
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
+| `Merged text` / `merged-text` | The branch does not delete a paragraph `main` gained while the branch was being written -- what a rebase resolution that keeps the wrong side does, and nothing else here reads prose. Runs its own self-test first, and takes about ten seconds in all |
 
 On a pull request, `host`, `firmware`, `scripts` and `install-sh` run on one
 Ubuntu and one macOS runner and report once per runner: `host (ubuntu-24.04)`,
@@ -54,7 +55,9 @@ under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
 firmware job they read. The cheap Linux checks (`issue-references`,
 `api-version` and `libbtbb-pin`) run as they always do, and `Man pages` runs
 whenever `host/doc/` changes, which is where the man page sources live.
-`install.sh` asks for its own two paths and is not reached.
+`Merged text` runs on every pull request, like `Build`, and answers in a
+second when no documentation page changed. `install.sh` asks for its own
+two paths and is not reached.
 
 `libbtbb pin` has no path filter at all, because the commit it checks is
 written down in `COMPATIBILITY.md` and the build guides as well as in the
