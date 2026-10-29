@@ -14,8 +14,8 @@ This runs the real FindBTBB.cmake from a one-line project, against:
   * a header with two of those functions renamed out of it, which is what an
     older libbtbb looks like, where it must fail naming both functions and
     the pinned commit;
-  * a header with one of those macros renamed out of it and every function
-    left in place, where it must fail naming the macro;
+  * a header with those macros renamed out of it and every function left in
+    place, where it must fail naming each of them;
   * this build's own header and a library that defines none of those
     functions, at -O2 and again at -O2 -flto, where it must also fail. That
     case is the library half of the probe rather than the header half, and
@@ -219,17 +219,19 @@ def main():
         # values, so a libbtbb without them is as unusable as one missing a
         # function -- and the probe cannot take the address of a macro, so
         # this is the half of it that a compile-time check has to catch.
-        macro_include = fake_header(include_dir, work, [macros[0]],
+        hidden_macros = [macros[0], macros[-1]]
+        macro_include = fake_header(include_dir, work, hidden_macros,
                                     where="no-macro-include")
         status, output = configure(cmake, source,
                                    os.path.join(work, "no-macro"),
                                    macro_include, library)
         if status == 0:
             fail("a libbtbb without %s was accepted:\n%s"
-                 % (macros[0], output))
-        if macros[0] not in output:
-            fail("the refusal does not say %s is missing:\n%s"
-                 % (macros[0], output))
+                 % (" and ".join(hidden_macros), output))
+        for name in hidden_macros:
+            if name not in output:
+                fail("the refusal does not say %s is missing:\n%s"
+                     % (name, output))
 
         # The library half, under the two optimisations that can erase it. The
         # header is this build's, so every function is declared and only the

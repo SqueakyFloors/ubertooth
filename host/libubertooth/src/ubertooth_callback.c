@@ -1372,10 +1372,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 	static int trim_counter = 0;
 	static int calibrated = 0;
 	static uint32_t clkn_trim = 0;
-	/* Whether this capture has put the board on a clock offset of the
-	 * piconet's. Only then is there an offset to take it off again when the
-	 * library gives that clock up. */
-	static int hopping = 0;
+	/* Whether the library has handed this capture a clock of the piconet's
+	 * that it has not since given up. Only then is there a clock to be
+	 * told about losing, and a board to take off its offset. */
+	static int following = 0;
+	static int pcap_bredr_warned = 0;
+	static int pcapng_bredr_warned = 0;
 
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
@@ -1557,44 +1559,85 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	/* Dump to PCAP/PCAPNG if specified. The noise figure is the unmeasured
 	 * one: the level printed above is derived from the packet's own power,
-	 * which is not what a record's noise field means. */
+	 * which is not what a record's noise field means.
+	 *
+	 * Each writer says once per capture when it cannot be written: the
+	 * condition holds for every packet after the first, and a capture
+	 * nobody could write to otherwise looks exactly like one that is being
+	 * written. */
 	if (ut->h_pcap_bredr) {
-		btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
-		                        signal_level, NOISE_NOT_MEASURED,
-		                        lap, uap, pkt);
+		if (btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
+		                            signal_level, NOISE_NOT_MEASURED,
+		                            lap, uap, pkt) < 0 &&
+		    !pcap_bredr_warned) {
+			pcap_bredr_warned = 1;
+			fprintf(stderr, "warning: cannot write to the PCAP "
+			        "capture file\n");
+		}
 	}
 	if (ut->h_pcapng_bredr) {
-		btbb_pcapng_append_packet(ut->h_pcapng_bredr, nowns,
-		                          signal_level, NOISE_NOT_MEASURED,
-		                          lap, uap, pkt);
+		if (btbb_pcapng_append_packet(ut->h_pcapng_bredr, nowns,
+		                              signal_level, NOISE_NOT_MEASURED,
+		                              lap, uap, pkt) < 0 &&
+		    !pcapng_bredr_warned) {
+			pcapng_bredr_warned = 1;
+			fprintf(stderr, "warning: cannot write to the PCAPNG "
+			        "capture file\n");
+		}
 	}
 
-	if (infile == NULL && r < 0) {
-		/* The library has recovered the piconet's clock: put the board
-		 * on the offset it reports, so the capture hops with the
-		 * piconet from here on. */
-		cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
+	if (r < 0) {
+		/* The library has recovered the piconet's clock. A live capture
+		 * puts the board on the offset it reports, so it hops with the
+		 * piconet from here on; a replay has no board to put anywhere,
+		 * but the library is following either way. */
+		if (infile == NULL)
+			cmd_start_hopping(ut->devh,
+			                  btbb_piconet_get_clk_offset(pn), 0);
 		calibrated = 0;
-		hopping = 1;
-	} else if (infile == NULL && r == BTBB_PROCESS_LOCK_LOST && hopping) {
-		/* The clock the board was hopping on was not this piconet's.
-		 * The library has given it up and started discovery again, so
-		 * the offset the board is following is gone: take the board off
-		 * it. A plain symbol capture does that and leaves the receive
-		 * running, which is what discovery needs. The clock the library
+		following = 1;
+	} else if (r == BTBB_PROCESS_LOCK_LOST && following) {
+		/* The clock being followed was not this piconet's. The library
+		 * has given it up and started discovery again, so a board put
+		 * on that offset has to come off it. The clock the library
 		 * finds next arrives through the branch above.
 		 *
 		 * One warning per lost clock, not one per packet. The library
 		 * reports a loss once -- the headers that failed are counted
 		 * inside it, and giving the clock up resets that count -- and
-		 * `hopping` keeps it that way here regardless: the board is
-		 * taken off an offset this capture put it on, once, and not
-		 * again until it has been given another. */
+		 * `following` keeps it that way here regardless: one warning
+		 * per clock the library handed over, and none until it hands
+		 * over another. A replay warns too; it is the same silence for
+		 * the reader of a capture file as for the user of a board. */
 		fprintf(stderr, "warning: the clock being followed was not "
 		        "this piconet's; searching for it again\n");
-		cmd_rx_syms(ut->devh);
 		calibrated = 0;
-		hopping = 0;
+
+		if (infile != NULL) {
+			following = 0;
+		} else if (cmd_rx_syms(ut->devh) >= 0 &&
+		           cmd_set_channel_quiet(ut->devh,
+		                                 ut->capture_channel) >= 0) {
+			/* A plain symbol capture takes the board off the
+			 * offset and leaves the receive running, which is what
+			 * discovery needs. It is a mode start, though, so the
+			 * board forgets its hop state with it and would sit on
+			 * the channel the last piconet hop chose: the channel
+			 * or sweep this capture asked for has to be stated
+			 * again, exactly as the tool states it after its own
+			 * mode start, or discovery looks for a piconet on one
+			 * channel in 79. */
+			following = 0;
+		} else {
+			/* A board that refused either request is still on the
+			 * clock that is gone -- the request itself has already
+			 * said why -- so `following` stays set and the next
+			 * report tries again rather than being read as a
+			 * repeat of one already dealt with. */
+			fprintf(stderr, "warning: the board is still following "
+			        "that clock; this capture may decode nothing "
+			        "from here on\n");
+		}
 	}
 
 out:

@@ -967,7 +967,7 @@
   follow that decoded nothing and stayed that way for the rest of the run.
   The tool now reports `warning: the clock being followed was not this
   piconet's; searching for it again`, takes the board off that clock and
-  recovers one again, keeping the address it has already learned.
+  recovers one again, keeping the lower address part it has already found.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
 - A long BLE capture says when it can no longer record connection parameters.
   A PcapNG file has room for a few hundred connections' worth, and past that

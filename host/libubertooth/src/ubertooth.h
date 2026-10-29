@@ -97,6 +97,18 @@ typedef struct {
 	 * the real gap was. */
 	uint64_t last_arrival_ns;
 
+	/* The channel or the sweep this capture asked for, as the request that
+	 * set it carried. A mode start makes the board forget its hop state,
+	 * so a callback that starts a mode again has to say this once more or
+	 * the board stops sweeping and stays on whatever channel the last hop
+	 * chose. cb_rx() needs it when the library gives up a clock: the
+	 * capture goes back to looking for a piconet across the band, and
+	 * looking on one channel in 79 would hardly ever find one.
+	 *
+	 * Set by the tool beside the request itself. Zero where no capture has
+	 * set one, which is also what a replay leaves it as. */
+	uint16_t capture_channel;
+
 	le_usb_reassembly le_reassembly;
 
 	btbb_pcap_handle* h_pcap_bredr;

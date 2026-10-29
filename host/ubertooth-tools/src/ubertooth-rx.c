@@ -533,6 +533,9 @@ int main(int argc, char* argv[])
 		if (r < 0)
 			return capture_failed(ut, have_channel ? "set the channel"
 			                                       : "set sweep mode", r);
+		/* Kept for the callback, which starts a mode again when the
+		 * library gives up a clock and has to restate this. */
+		ut->capture_channel = channel;
 
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {

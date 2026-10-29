@@ -432,23 +432,22 @@ with tempfile.TemporaryDirectory() as workdir:
         assert records[2].header != 0, (name, records)
         assert records[2].flags & BREDR_HEC_CHECKED, (name, records)
 
-        # Under the libbtbb this tree pins the bits are the packet's own and
-        # recompute their check from the recorded UAP -- from that one and no
-        # other, the same way as a payload's CRC -- and the whole header
-        # reads as the fixture sent it: this member of the piconet, a DH1
-        # carrying data. Under libbtbb's master they are a candidate clock's
-        # instead, and the record says so by leaving BREDR_HEC_VALID clear.
-        # Which of the two a record should carry is libbtbb's to answer, the
-        # same question as the payload's above; this asserts the pair stays
-        # consistent, so neither library can record a header it says passed
-        # its check without the bits to show it.
-        if records[2].flags & BREDR_HEC_VALID:
-            assert hec_recomputes(records[2].header, records[2].uap), (name, records)
-            assert not hec_recomputes(records[2].header, UAP ^ 1), (name, records)
-            assert records[2].header & 0x7 == LT_ADDR, (name, records)
-            assert (records[2].header >> 3) & 0xF == DH1, (name, records)
-        else:
-            assert not hec_recomputes(records[2].header, records[2].uap), (name, records)
+        # The bits are a candidate clock's rather than the packet's, and the
+        # record says so by leaving BREDR_HEC_VALID clear: they do not
+        # recompute their check from the recorded UAP, and the type field
+        # reads as something the fixture never sent. The libbtbb this tree
+        # pinned before recorded the packet's own header here -- LT_ADDR 3, a
+        # DH1 carrying data, its check recomputing from that UAP and no other
+        # -- so this is a loss, and which of the two a record should carry is
+        # libbtbb's to answer, the same question as the payload's above.
+        #
+        # Asserted the way it behaves rather than either way round, so
+        # answering that question fails this and brings whoever answers it
+        # here. The pair is pinned together as well: a record that claims a
+        # valid check has to have the bits to show for it.
+        assert not records[2].flags & BREDR_HEC_VALID, (name, records)
+        assert not hec_recomputes(records[2].header, records[2].uap), (name, records)
+        assert (records[2].header >> 3) & 0xF != DH1, (name, records)
 
         # The other three records carry no header. The DH1 at index 1 was
         # written while the clock was still unknown, and a header is
