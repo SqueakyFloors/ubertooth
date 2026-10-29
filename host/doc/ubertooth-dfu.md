@@ -96,9 +96,11 @@ program a sector the part does not have, which fails. Either way everything
 sent before that point is already written, and all this tool sees of the
 refusal is the stall, which it reports as
 `error: could not write block 164: the board's firmware does not support it
-(stalled, libusb -9)`: the board is left running an application missing its
-tail, after a message that says nothing about flash sizes. It is the same
-cause as the read-back bound: asking for flash the part has not got.
+(stalled, libusb -9)`, a message that says nothing about flash sizes. Blocks
+below that point are already written, so the board holds part of an image: the
+order described below means it holds no vector table either, so there is
+nothing for it to start. It is the same cause as the read-back bound: asking
+for flash the part has not got.
 
 A `-d` that stops part way through -- a cable pulled, a board that leaves the
 bus, a host that dies -- leaves a board with no application to start rather

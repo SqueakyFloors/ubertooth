@@ -67,8 +67,9 @@ MU_TEST(the_blank_block_the_host_writes_first_is_not_startable)
 	          "the blank first block was taken for an application");
 }
 
-/* A region that was erased and never written reads as zeros on some parts and
- * is what a cleared sector looks like to a reader that sees it as code. */
+/* Flash erases to 0xFF rather than to zero, so a region of zeros is not an
+ * erased one: it is what a region reads as once something has written zeros
+ * over it. Nothing may be started from that either. */
 MU_TEST(a_region_of_zeros_is_not_startable)
 {
 	mu_assert(!app_image_startable(0, 0, FLASH_TOP),
@@ -198,14 +199,23 @@ MU_TEST(a_reset_vector_outside_the_application_region_is_not_startable)
 	          "a reset vector in RAM was accepted");
 }
 
-/* An image for a larger part than the one it is on: the host refuses to write
- * one, but a board that was flashed by an older host can be carrying it. The
- * reset vector may be inside the flash this part has not got, and jumping to
- * it is the bus fault the bound exists to avoid. */
-MU_TEST(a_reset_vector_past_this_parts_flash_is_not_startable)
+/* A caller that knows the part's own flash gets a check bounded by it. */
+MU_TEST(a_reset_vector_past_the_given_bound_is_not_startable)
 {
 	mu_assert(!app_image_startable(REAL_STACK_POINTER, 0x30001u, 0x20000u),
-	          "a reset vector past a 128 KiB part's flash was accepted");
+	          "a reset vector past a 128 KiB bound was accepted");
+}
+
+/* The bootloader is not that caller: it passes the largest part in the
+ * family, so on a 128 KiB part a reset vector at 0x30000 is accepted and
+ * jumped into, which faults. That is deliberate, and app_image.h says why --
+ * reading the part's own bound means ROM calls on every power-up in code this
+ * tree cannot exercise on hardware. Pinned here so the next reader finds it
+ * stated rather than has to work it out. */
+MU_TEST(the_bootloaders_own_bound_is_the_familys_not_the_parts)
+{
+	mu_assert(app_image_startable(REAL_STACK_POINTER, 0x30001u, FLASH_TOP),
+	          "the family-wide bound no longer accepts this");
 }
 
 /* ---- the guard in front of the jump ------------------------------------- */
@@ -219,8 +229,13 @@ static void read_bootloader_source(char *out, size_t size)
 	int in_block = 0;
 	size_t used = 0;
 
-	mu_assert(file != NULL, "cannot read bootloader.cpp");
 	out[0] = '\0';
+	if (file == NULL) {
+		/* The scans below then find nothing and fail with their own
+		 * messages. Reading on from here would be a read through NULL. */
+		mu_assert(0, "cannot read bootloader.cpp");
+		return;
+	}
 	while (fgets(line, sizeof(line), file) != NULL) {
 		size_t length;
 
@@ -246,15 +261,17 @@ MU_TEST(run_application_checks_before_it_jumps)
 	const char *function, *check, *jump;
 
 	read_bootloader_source(source, sizeof(source));
-	function = strstr(source, "run_application()");
-	mu_assert(function != NULL, "run_application() is not in bootloader.cpp");
-	/* The definition, not the forward uses: the one followed by a body. */
-	function = strstr(function, "run_application() {");
-	mu_assert(function != NULL, "run_application()'s body was not found");
+	/* Fatal, not plain: every line below reads what the one before it
+	 * found, so a miss here has to end the test rather than be recorded and
+	 * walked past. */
+	function = strstr(source, "run_application() {");
+	mu_assert_fatal(function != NULL,
+	                "run_application()'s body is not in bootloader.cpp");
 	check = strstr(function, "application_startable");
 	jump = strstr(function, "asm");
-	mu_assert(jump != NULL, "run_application() no longer jumps");
-	mu_assert(check != NULL, "run_application() does not check the image");
+	mu_assert_fatal(jump != NULL, "run_application() no longer jumps");
+	mu_assert_fatal(check != NULL,
+	                "run_application() does not check the image");
 	mu_assert(check < jump, "run_application() jumps before it checks");
 }
 
@@ -292,7 +309,8 @@ int main(void)
 	MU_RUN(an_unaligned_stack_pointer_is_not_startable);
 	MU_RUN(a_reset_vector_without_the_thumb_bit_is_not_startable);
 	MU_RUN(a_reset_vector_outside_the_application_region_is_not_startable);
-	MU_RUN(a_reset_vector_past_this_parts_flash_is_not_startable);
+	MU_RUN(a_reset_vector_past_the_given_bound_is_not_startable);
+	MU_RUN(the_bootloaders_own_bound_is_the_familys_not_the_parts);
 	MU_RUN(run_application_checks_before_it_jumps);
 	MU_RUN(main_runs_the_bootloader_when_there_is_nothing_to_start);
 	return mu_report();

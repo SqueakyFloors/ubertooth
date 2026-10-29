@@ -33,14 +33,16 @@
 
 /*
  * Where an initial stack pointer may point: the local SRAM of this family,
- * 0x10000000 upwards, which is 8 to 64 KiB depending on the part (NXP
- * LPC176x/5x user manual UM10360, "Memory map"). The images in this tree are
- * linked for 16 KiB of it and put the stack at the top, a little under
- * 0x10004000 (firmware/common/sections.ld, _StackTop).
+ * 0x10000000 upwards. The largest part has 32 KiB of it and the smallest
+ * 8 KiB (NXP LPC176x/5x user manual UM10360, "Memory map"); the images in
+ * this tree are linked for 16 KiB and put the stack at the top, a little
+ * under 0x10004000 (firmware/common/sections.ld, _StackTop).
  *
- * The limit is the largest part in the family rather than the part this is
- * running on, because nothing here reads the part: see the comment on
- * app_image_startable() for why this check is deliberately a loose one.
+ * The limit here is 64 KiB, looser than any part in the family has, on
+ * purpose. A stack pointer this refuses leaves a board waiting in DFU, so
+ * every address a real image might use has to be inside it: a part or a
+ * linker script this code does not know about must not be refused. What the
+ * check is for is erased flash and zeros, and both are far outside even this.
  */
 #define APP_RAM_BASE  0x10000000u
 #define APP_RAM_LIMIT 0x10010000u
@@ -69,6 +71,18 @@
  *   - the reset vector is a Thumb address -- the low bit set, as every
  *     function pointer in a Cortex-M vector table has -- inside the flash
  *     above the bootloader.
+ *
+ * flash_top is a parameter so that a caller may be as strict as it can
+ * afford. The bootloader passes the largest part in the family, not the flash
+ * the part in front of it has, so a reset vector pointing into flash this
+ * part has not got is accepted and jumped into. Reading the part's own bound
+ * means In-Application Programming calls into the ROM on every power-up,
+ * before any clock is set up, in code that cannot be exercised on hardware
+ * from this tree -- a bootloader is installed with ISP or JTAG, not over USB
+ * -- and a check that hung there would take the board with it. The looser
+ * bound costs nothing against what this is for: a reset vector above the
+ * part's flash cannot come from a host and a bootloader from this tree, since
+ * both already bound a download by the part's flash.
  *
  * The LPC vector checksum at offset 0x1c is not asked for. The boot ROM reads
  * it over the image at address 0, which is the bootloader itself; the

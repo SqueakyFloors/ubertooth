@@ -404,24 +404,24 @@ $(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
 # scans dfu.cpp for it, as test_tx_generic_bounds does. It also puts the
 # host's copy of the part table against the bootloader's, so the paths to both
 # sources are passed in.
-# app_image.h reads no hardware, so the check the bootloader starts an
-# application on compiles here as it is. The jump it guards is two
-# instructions of assembly, so the test also reads bootloader.cpp as text to
-# show the check is in front of them: that source is a prerequisite, or
-# editing it would leave the scan unrun.
-$(BINDIR)/test_bootloader_app_image: test_bootloader_app_image.cpp \
-		minunit.h source_scan.h $(FW_BOOT)/app_image.h \
-		$(FW_BOOT)/bootloader.cpp | $(BINDIR)
-	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
-		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
-		-o $@ test_bootloader_app_image.cpp
-
 $(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
 		minunit.h source_scan.h $(FW_BOOT)/flash.h $(FW_BOOT)/iap.h \
 		$(FW_BOOT)/dfu.cpp $(HOST_DFU)/dfu_recovery.c | $(BINDIR)
 	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -DHOST_DFU_DIR='"$(HOST_DFU)"' \
 		-o $@ test_bootloader_flash_bounds.cpp
+
+# app_image.h reads no hardware, so the check that decides whether the
+# bootloader starts an application compiles here as it is. The jump it guards
+# is two instructions of assembly, so the test also reads bootloader.cpp as
+# text to show the check is in front of them: that source is a prerequisite,
+# or editing it would leave the scan unrun.
+$(BINDIR)/test_bootloader_app_image: test_bootloader_app_image.cpp \
+		minunit.h source_scan.h $(FW_BOOT)/app_image.h \
+		$(FW_BOOT)/bootloader.cpp | $(BINDIR)
+	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
+		-o $@ test_bootloader_app_image.cpp
 # Seven pieces of arithmetic that are wrong but that nothing in the tree can
 # reach. Every one of them lives in a translation unit that talks to hardware,
 # so this test links no firmware source: it checks each contract on its own and

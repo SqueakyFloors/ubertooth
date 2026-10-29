@@ -1098,11 +1098,12 @@ int dfu_get_status(libusb_device_handle* devh) {
 	return 0;
 }
 
-/* One block of the image, index counted from its start, padded out to a whole
- * block with 0xFF -- what flash reads as once it is erased, so the padding
- * programs nothing. Returns 0 when the file would not give a whole block's
- * worth of bytes or fewer, which the caller treats as a read that failed:
- * how many blocks the image has is settled before any of this is sent. */
+/* One block of the image, index counted from its start. A block the file ends
+ * part way through is padded out with 0xFF -- what flash reads as once it is
+ * erased, so the padding programs nothing. Returns 0 when the file would not
+ * seek there or gave no bytes at all, which the caller treats as a read that
+ * failed: how many blocks the image has is settled before any of this is
+ * sent, so every index asked for here is one the file has. */
 static int read_image_block(FILE* downfile, int index, uint8_t* buffer)
 {
 	size_t got;

@@ -83,9 +83,11 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 
 /* ---- the faked device --------------------------------------------------- */
 
-/* How many block writes the order of are kept. The application region of the
- * largest part in the family is 496 blocks, and a download sends one more
- * than the image has, so this holds any download there is. */
+/* How many block writes the order of are kept. Enough for the images the
+ * tests below write, which is 451 writes at most; a download of the whole
+ * application region of the largest part in the family would send 1985, and
+ * the recorder and assert_write_order() both stop at this bound rather than
+ * run past the record. */
 #define DNLOAD_RECORD_MAX 512
 
 static struct {
@@ -1760,7 +1762,10 @@ static void assert_write_order(const int *expected, int count)
 	int i;
 
 	mu_assert_int_eq(count, fake.dnload_calls);
-	for (i = 0; i < count && i < fake.dnload_calls; i++) {
+	mu_assert(count <= DNLOAD_RECORD_MAX,
+	          "more writes were expected than the record holds");
+	for (i = 0; i < count && i < fake.dnload_calls &&
+	     i < DNLOAD_RECORD_MAX; i++) {
 		char message[96];
 
 		snprintf(message, sizeof(message),
