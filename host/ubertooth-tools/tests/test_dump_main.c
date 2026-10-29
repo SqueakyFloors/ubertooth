@@ -35,6 +35,9 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 
 static struct {
 	int fail_start;  /* ubertooth_start_select() returns NULL */
+	/* The stop a signal recorded while the board was being opened, which
+	 * the tool reads before it asks anything of the board. */
+	int stop_requested;
 	int api_rc;      /* what ubertooth_check_api() returns */
 	/* a refused version is closed inside ubertooth_check_api(); a version
 	 * that could not be read is not */
@@ -98,16 +101,21 @@ void ubertooth_free(ubertooth_t* ut)
 	fake.frees++;
 }
 
-/* Reached only once the capture is about to start, which no test here does.
- * Only a case that sets fake.reach_capture may reach them; the rest fail
- * loudly if they get that far, which is how a reordering that opens the
- * device too early shows up. */
-void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+/* Installed before the board is opened, so every case here reaches it. */
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	fake.registrations++;
-	mu_assert(fake.reach_capture, "no test should reach the capture");
+}
+
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_requested;
+}
+
+/* The fake open always finds the board, so it never gives up on a stop. */
+int ubertooth_open_stopped(void)
+{
+	return 0;
 }
 
 int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
@@ -216,6 +224,25 @@ static void reset(void)
 /* A refused firmware version: the library has already closed the device. The
  * tool closes and frees the handle on both of the check's failure paths,
  * because closing a device that is already closed does nothing. */
+/* A stop that arrived while the board was being opened ends the run before
+ * anything is asked of the board and before the dump file is opened. */
+MU_TEST(a_stop_while_the_board_was_opened_dumps_nothing)
+{
+	char* argv[] = { "ubertooth-dump", "-d", "/dev/null", NULL };
+	struct run r;
+
+	reset();
+	fake.api_rc = 0;
+	fake.stop_requested = 1;
+	run_main(&r, 3, argv);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.modulations);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert(dumpfile == NULL, "a stopped run opened no dump file");
+}
+
 MU_TEST(a_refused_firmware_version_is_closed_and_freed)
 {
 	char* argv[] = { "ubertooth-dump", NULL };
@@ -230,7 +257,9 @@ MU_TEST(a_refused_firmware_version_is_closed_and_freed)
 	mu_assert_int_eq(1, fake.library_closes);
 	mu_assert_int_eq(1, fake.closes); /* harmless: already released */
 	mu_assert_int_eq(1, fake.frees);
-	mu_assert_int_eq(0, fake.registrations);
+	/* The stop handlers go in before the board is opened, so a run that
+	 * ends on the firmware check has them. */
+	mu_assert_int_eq(1, fake.registrations);
 }
 
 /* A version that could not be read at all: the library left the device open,
@@ -389,6 +418,7 @@ int main(void)
 	/* This binary does not link libubertooth: the fakes above are the
 	 * whole device, so any library call the tool grows becomes a link
 	 * error rather than a silently real one. */
+	MU_RUN(a_stop_while_the_board_was_opened_dumps_nothing);
 	MU_RUN(a_refused_firmware_version_is_closed_and_freed);
 	MU_RUN(a_version_that_cannot_be_read_closes_and_frees);
 	MU_RUN(a_device_that_cannot_be_opened_frees_nothing);

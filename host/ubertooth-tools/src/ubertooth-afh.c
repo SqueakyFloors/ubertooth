@@ -175,12 +175,16 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	/* NULL when no board matches -U or it cannot be opened; the library
 	 * has already said why. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
 		btbb_piconet_unref(pn);
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 
 	r = ubertooth_check_api(ut);
@@ -195,8 +199,14 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	/* Clean up on exit. */
-	register_cleanup_handler(ut, 0);
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back, rather than starting a mode and stopping it again. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		btbb_piconet_unref(pn);
+		return 0;
+	}
 
 	if (use_r_format) {
 		r = rx_afh_r(ut, pn, timeout);

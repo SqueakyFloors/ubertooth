@@ -44,6 +44,9 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 
 static struct {
 	int start_fails;     /* no board answers the -U selection */
+	/* The stop a signal recorded while the board was being opened, which
+	 * the tool reads before it asks anything of the board. */
+	int stop_requested;
 	int api_rc;          /* returned by ubertooth_check_api() */
 	int api_released;    /* whether that call released the board itself */
 	int closes;          /* ubertooth_close() */
@@ -52,7 +55,7 @@ static struct {
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout;         /* seconds passed to ubertooth_set_timeout() */
 	int stops;
-	int registrations;   /* register_cleanup_handler() */
+	int registrations;   /* ubertooth_catch_stop_signals() */
 	int receives;        /* turns of the capture loop */
 	int inquiries;       /* BlueZ inquiries the run ran */
 	/* Returned by the three calls that set the capture up, so that each
@@ -230,11 +233,20 @@ int ubertooth_stopping(ubertooth_t* ut)
 	return ut->stop_ubertooth;
 }
 
-void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	fake.registrations++;
+}
+
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_requested;
+}
+
+/* The fake open always finds the board, so it never gives up on a stop. */
+int ubertooth_open_stopped(void)
+{
+	return 0;
 }
 
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
@@ -586,6 +598,23 @@ MU_TEST(a_bluez_failure_is_reported_on_standard_error)
 
 /* A board that cannot be opened, and a firmware the host will not drive, each
  * end the command before the sweep request. */
+/* A stop that arrived while the board was being opened ends the run before
+ * any capture starts, with the board and the adapter handle given back. */
+MU_TEST(a_stop_while_the_board_was_opened_captures_nothing)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_requested = 1;
+	r = RUN("-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
 MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 {
 	struct run_result r;
@@ -647,6 +676,7 @@ int main(void)
 	MU_RUN(a_refused_sweep_keeps_the_bluez_results);
 	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);
 	MU_RUN(a_bluez_failure_is_reported_on_standard_error);
+	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);
 	MU_RUN(a_board_or_firmware_the_tool_cannot_use_exits_1);
 	MU_RUN(help_exits_0_on_standard_output);
 	return mu_report();

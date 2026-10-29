@@ -305,6 +305,14 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 	}
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded.
+	 * A replay gets the handlers as well, so an interrupted one ends where
+	 * it was asked to and exits 0 with what it had decoded, instead of
+	 * being killed by the signal -- or, started as a background job by a
+	 * script, reading on to the end of the file. */
+	ubertooth_catch_stop_signals();
+
 	if (infile == NULL) {
 		r = ubertooth_connect_select(ut, ubertooth_device);
 		if (r < 0) {
@@ -312,7 +320,7 @@ int main(int argc, char* argv[])
 			 * here is what ends the libusb session it started. */
 			ubertooth_close(ut);
 			ubertooth_free(ut);
-			return 1;
+			return ubertooth_open_stopped() ? 0 : 1;
 		}
 
 		r = ubertooth_check_api(ut);
@@ -326,6 +334,16 @@ int main(int argc, char* argv[])
 			ubertooth_close(ut);
 			ubertooth_free(ut);
 			return 1;
+		}
+
+		/* Stopped while the board was being opened: the run ends
+		 * here, with the board given back and no capture file left
+		 * behind, rather than starting a mode and stopping it
+		 * again. */
+		if (ubertooth_stop_requested()) {
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 0;
 		}
 	}
 
@@ -444,9 +462,6 @@ int main(int argc, char* argv[])
 	}
 
 	if (infile == NULL) {
-		/* Clean up on exit. */
-		register_cleanup_handler(ut, 0);
-
 		if (timeout)
 			ubertooth_set_timeout(ut, timeout);
 

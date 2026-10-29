@@ -152,10 +152,14 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	ut = ubertooth_start_select(ubertooth_device);
 
 	if (ut == NULL) {
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 
 	r = ubertooth_check_api(ut);
@@ -166,6 +170,14 @@ int main(int argc, char *argv[])
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
+	}
+
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back, rather than starting a mode and stopping it again. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 0;
 	}
 
 	/* The board is open and usable, so the dump file can be opened: a run
@@ -181,9 +193,6 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
-
-	/* Clean up on exit. */
-	register_cleanup_handler(ut, 0);
 
 	cmd_set_modulation(ut->devh, modulation);
 	/* A dump that could not start, or whose stream died part-way, holds

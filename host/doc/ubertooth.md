@@ -180,6 +180,23 @@ those serials opens each board briefly, and none is kept open.
 
 With none attached, every tool says `error: no Ubertooth devices found`.
 
+Selecting by serial number is the slower form, because every attached board is
+opened and asked for its serial, and a board that does not answer costs a
+second. A Ctrl-C during that search ends the run: the search gives up where it
+is, no board is selected, and the tool exits 0 without a message of its own,
+because the user stopped a run that had not yet asked anything of a board. A
+Ctrl-C between the board being opened and the first request made of it ends the
+run the same way. A search that did finish and matched nothing still says so
+and exits 1, whether or not a signal arrived while it ran: the answer is true
+either way, and a script reading the status to learn whether its board is there
+must not be told that it is.
+
+SIGTERM, SIGHUP, SIGQUIT and an alarm (SIGALRM, as `timeout` and `kill` send
+them) end a run the same way Ctrl-C does, which means exit 0 rather than death
+by the signal. SIGHUP is caught even when it was inherited ignored, so a
+capture run under `nohup` stops when the terminal closes instead of carrying on
+with its mode left running on the board.
+
 A serial may be shortened to its first few characters, in either case, so
 `-U 1cc0` and `-U 1CC0` select the same board. If those characters start more
 than one attached board's serial, the tool lists the matching serials and

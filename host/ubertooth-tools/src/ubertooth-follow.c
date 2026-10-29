@@ -620,8 +620,17 @@ int main(int argc, char *argv[])
 		fputs("Not use AFH\n", stderr);
 	}
 
-	/* Clean up on exit. */
-	register_cleanup_handler(ut, 0);
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded.
+	 *
+	 * Not before the adapter work above. BlueZ takes its own time there --
+	 * the page waits up to 25 seconds -- and retries its calls itself when
+	 * a signal cuts them short, so a handler installed earlier would catch
+	 * a Ctrl-C that nothing could act on until the page returned, where
+	 * today the signal ends the tool at once. Which of the two a user wants
+	 * is a question for the maintainer, so the behavior is left as it
+	 * was. */
+	ubertooth_catch_stop_signals();
 
 	/* Fails when no board matches -U or it cannot be opened; the library
 	 * has already said why, and has left nothing of its own open. Every
@@ -630,7 +639,9 @@ int main(int argc, char *argv[])
 	 * receive thread is not running yet, so there is nothing else to undo. */
 	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
 		follow_release_board(ut, sock, handle, cc);
-		return 1;
+		/* A selection the user stopped opened no board, which is not a
+		 * failure to find one. */
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 
 	/* A firmware this host will not drive. The library has reported it. */
@@ -638,6 +649,14 @@ int main(int argc, char *argv[])
 	if (r < 0) {
 		follow_release_board(ut, sock, handle, cc);
 		return 1;
+	}
+
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board and the adapter given back, rather than starting a mode and
+	 * stopping it again. */
+	if (ubertooth_stop_requested()) {
+		follow_release_board(ut, sock, handle, cc);
+		return 0;
 	}
 
 	/* The board is open and usable, so the files this run writes can be

@@ -293,10 +293,17 @@ int main(int argc, char *argv[])
 	if (ut == NULL)
 		return 1;
 
+	/* A handler for Ctrl-C and the rest, so the wait below is cut short and
+	 * the board is taken out of advertising on the way out rather than left
+	 * in it. The library's handlers, as every other tool uses, installed
+	 * before the board is opened: a signal that arrives while one is being
+	 * found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
 		ubertooth_free(ut);
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 
 	r = ubertooth_check_api(ut);
@@ -311,10 +318,13 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* A handler for Ctrl-C and the rest, so the wait below is cut short and
-	 * the board is taken out of advertising on the way out rather than left
-	 * in it. The library's handlers, as every other tool uses. */
-	register_cleanup_handler(ut, 0);
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back and nothing transmitted. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 0;
+	}
 
 	if (do_quack) {
 		uint16_t channel;

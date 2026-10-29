@@ -78,6 +78,12 @@ static struct {
 	int blocks;          /* blocks handed to the callback */
 	int blocks_to_end;   /* ...before the fake ends the capture */
 	int connect_fails;
+	/* The open failed because the user stopped the run, rather than
+	 * because no board could be found. */
+	int open_stopped;
+	/* ubertooth_connect_select() raises SIGINT, as a signal landing while
+	 * the board is being found does. */
+	int interrupt_the_open;
 	int stream_failed;
 	enum capture_end end;
 	char selector[64];
@@ -101,9 +107,15 @@ static void record(char call)
 	}
 }
 
+/* 1 once a signal has asked the run to stop, as the library's own flag does:
+ * the tool reads it through ubertooth_stop_requested() before it has a board
+ * open. */
+static int stop_requested;
+
 static void reset_device(void)
 {
 	memset(&device, 0, sizeof(device));
+	stop_requested = 0;
 	device.blocks_to_end = 3;
 	device.ut.devh = (struct libusb_device_handle*)&device;
 	/* Not a real ring buffer: the fake receive below never fills one, and
@@ -129,6 +141,12 @@ int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 	device.connect_calls++;
 	snprintf(device.selector, sizeof(device.selector), "%s",
 	         u_arg ? u_arg : "");
+	/* Opening a board takes a moment -- selecting one by serial number
+	 * reads the serial of every attached board -- and a signal can land in
+	 * it. The real one is also where that signal is acted on: it gives up
+	 * the search. This fake has no bus to search, so it only raises. */
+	if (device.interrupt_the_open)
+		raise(SIGINT);
 	return device.connect_fails ? -1 : 0;
 }
 
@@ -168,6 +186,7 @@ void ubertooth_close(ubertooth_t* ut)
 static void fake_cleanup(int sig)
 {
 	(void)sig;
+	stop_requested = 1;
 	device.ut.stop_ubertooth = 1;
 }
 
@@ -178,12 +197,22 @@ int ubertooth_stopping(ubertooth_t* ut)
 	return ut->stop_ubertooth;
 }
 
-void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	device.cleanup_handlers++;
 	signal(SIGINT, fake_cleanup);
+}
+
+int ubertooth_stop_requested(void)
+{
+	return stop_requested;
+}
+
+/* Whether the fake open gave up because the run was stopped, which is what
+ * decides the exit status of a run that opened no board. */
+int ubertooth_open_stopped(void)
+{
+	return device.open_stopped;
 }
 
 /* Recorded rather than armed: a real alarm would have to expire for the case
@@ -544,6 +573,63 @@ MU_TEST(an_interrupted_capture_still_exits_zero)
 	mu_assert(strcmp(device.selector, "0") == 0, device.selector);
 }
 
+/* And a Ctrl-C that arrives while the board is still being opened ends the run
+ * too, on that one signal.
+ *
+ * It used to be discarded. The handlers went in after the board was open, and
+ * a tool started as a background job by a script is started with SIGINT
+ * ignored, so a signal arriving before that did nothing at all: the user's
+ * first Ctrl-C was lost and a second one was needed. The disposition is set to
+ * SIG_IGN here to put the tool in exactly that position.
+ *
+ * The run ends between the board being opened and anything being asked of it,
+ * so no mode is started on the board and nothing is captured. */
+MU_TEST(an_interrupt_while_the_board_is_opened_ends_the_run)
+{
+	struct run_result r;
+
+	reset_device();
+	device.interrupt_the_open = 1;
+	signal(SIGINT, SIG_IGN);
+
+	r = RUN_RX("-U", "0");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(0, device.blocks);
+	/* No capture is set up at all: the run ends between the board being
+	 * opened and anything being asked of it. */
+	mu_assert_int_eq(0, device.bulk_inits);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.channels_set);
+	/* The board is given back, and without a STOP: no mode had started. */
+	mu_assert_int_eq(1, device.closes);
+	mu_assert_int_eq(0, device.stops);
+	mu_assert_int_eq(1, device.frees);
+}
+
+/* And a stop that lands while the board is still being looked for ends the run
+ * at exit 0 with nothing printed: the board selection gave up because the user
+ * stopped it, which is not a failure to find a board. A selection that failed
+ * for any other reason still exits 1. */
+MU_TEST(a_selection_the_user_stopped_exits_zero)
+{
+	struct run_result r;
+
+	reset_device();
+	device.connect_fails = 1;
+	device.open_stopped = 1;
+	r = RUN_RX("-U", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+
+	reset_device();
+	device.connect_fails = 1;
+	r = RUN_RX("-U", "0");
+	mu_assert_int_eq(1, r.rc);
+}
+
 /* Survey mode prints what it found whatever ended the capture: the results
  * are what arrived, and the exit status is what says they are incomplete. */
 MU_TEST(a_survey_whose_stream_died_still_prints_its_results)
@@ -756,7 +842,10 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 			 * refused address. */
 			mu_assert_int_eq(0, device.rx_syms_calls);
 			mu_assert_int_eq(0, device.bulk_inits);
-			mu_assert_int_eq(0, device.cleanup_handlers);
+			/* The stop handlers are in all the same: they go in
+			 * before the board is opened, so a Ctrl-C during the
+			 * opening is not discarded. */
+			mu_assert_int_eq(1, device.cleanup_handlers);
 			/* Given back, and without a STOP: no mode had started,
 			 * and a STOP to a board that is not answering would add
 			 * a second failure to the report. */
@@ -827,7 +916,8 @@ MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, device.channels_set);
 	mu_assert_int_eq(0, device.rx_syms_calls);
-	mu_assert_int_eq(0, device.cleanup_handlers);
+	/* As above: the handlers precede the open. */
+	mu_assert_int_eq(1, device.cleanup_handlers);
 	mu_assert_int_eq(1, device.stops);
 	mu_assert_int_eq(1, device.closes); /* harmless: it is already released */
 
@@ -837,7 +927,7 @@ MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, device.channels_set);
 	mu_assert_int_eq(0, device.rx_syms_calls);
-	mu_assert_int_eq(0, device.cleanup_handlers);
+	mu_assert_int_eq(1, device.cleanup_handlers);
 	mu_assert_int_eq(0, device.stops);
 	mu_assert_int_eq(1, device.closes); /* the board is not left claimed */
 }
@@ -1002,6 +1092,8 @@ int main(void)
 	MU_RUN(a_run_refused_for_its_firmware_creates_no_file);
 	MU_RUN(a_bounded_capture_still_exits_zero);
 	MU_RUN(an_interrupted_capture_still_exits_zero);
+	MU_RUN(an_interrupt_while_the_board_is_opened_ends_the_run);
+	MU_RUN(a_selection_the_user_stopped_exits_zero);
 	MU_RUN(a_survey_whose_stream_died_still_prints_its_results);
 	MU_RUN(a_refused_command_line_opens_no_device);
 	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);

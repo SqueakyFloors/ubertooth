@@ -169,6 +169,58 @@ MU_TEST(a_sending_board_is_stopped_and_its_block_kept)
 	release_handle(ut);
 }
 
+/* Puts this process where a tool is while it is still opening a board: the
+ * handlers are installed, no handle exists yet, and SIGINT was inherited
+ * ignored -- which is what a tool started as a background job by a script
+ * inherits. A signal arriving before the handlers went in was discarded
+ * outright, so the user's first Ctrl-C did nothing and a second was needed.
+ * Opening a board is long enough for one to land there: selecting by serial
+ * number reads the serial of every attached board, and one that does not
+ * answer costs a second. */
+static void interrupt_before_the_board_is_open(void)
+{
+	signal(SIGINT, SIG_IGN);
+	ubertooth_catch_stop_signals();
+	raise(SIGINT);
+}
+
+/* A board that sends nothing: the wait is the whole capture, and it returns on
+ * a signal that arrived before the handle existed. */
+MU_TEST(a_signal_from_before_the_board_was_open_ends_a_quiet_capture)
+{
+	ubertooth_t* ut;
+
+	interrupt_before_the_board_is_open();
+	mu_assert_int_eq(1, ubertooth_stop_requested());
+
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "a handle");
+	ubertooth_bulk_wait(ut);
+
+	mu_assert_int_eq(1, ubertooth_stopping(ut));
+	release_handle(ut);
+}
+
+/* And a board that is in the middle of sending: the block in hand is handed
+ * over and the loop is told the run is over, on that same signal. */
+MU_TEST(a_signal_from_before_the_board_was_open_ends_a_sending_capture)
+{
+	ubertooth_t* ut;
+	int blocks = 0;
+
+	interrupt_before_the_board_is_open();
+
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "a handle");
+	blocks_queued = 1;
+	mu_assert_int_eq(1, ubertooth_bulk_receive(ut, count_blocks, &blocks));
+	mu_assert_int_eq(1, blocks);
+
+	release_handle(ut);
+	/* And nothing is left asking the next run to stop. */
+	mu_assert_int_eq(0, ubertooth_stop_requested());
+}
+
 /* A handle that runs two captures in turn (ubertooth-afh detects a map, then
  * monitors it): the -t timer that ends the first phase must not end the second
  * before it starts, so that stop is forgotten between them. */
@@ -370,6 +422,8 @@ int main(void)
 	MU_RUN(every_caught_signal_stops_the_run);
 	MU_RUN(the_wait_for_a_packet_ends_on_a_signal);
 	MU_RUN(a_sending_board_is_stopped_and_its_block_kept);
+	MU_RUN(a_signal_from_before_the_board_was_open_ends_a_quiet_capture);
+	MU_RUN(a_signal_from_before_the_board_was_open_ends_a_sending_capture);
 	MU_RUN(a_cleared_timeout_lets_a_second_capture_run);
 	MU_RUN(a_cleared_timeout_keeps_an_interrupt);
 	MU_RUN(a_replay_reads_the_whole_file);

@@ -329,13 +329,17 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	/* Every way out from here gives the adapter handle back, as the end of
 	 * a successful scan does: opening the board, checking its firmware, and
 	 * the capture requests further down. */
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
 		close(dev_handle);
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 	rv = ubertooth_check_api(ut);
 	if (rv < 0) {
@@ -350,8 +354,15 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Clean up on exit. */
-	register_cleanup_handler(ut, 0);
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board and the adapter given back, rather than running an inquiry the
+	 * user has already asked to stop. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		close(dev_handle);
+		return 0;
+	}
 
 	if (scan) {
 		/* Equivalent to "hcitool scan" */
@@ -362,7 +373,10 @@ int main(int argc, char *argv[])
 		ii = (inquiry_info*)malloc(max_rsp * sizeof(inquiry_info));
 
 		num_rsp = hci_inquiry(dev_id, len, max_rsp, NULL, &ii, flags);
-		if( num_rsp < 0 )
+		/* A stop is what cut the inquiry short, so it is not reported as
+		 * a failure of the adapter: the user asked for it, and the run
+		 * ends below. */
+		if (num_rsp < 0 && !ubertooth_stop_requested())
 			perror("hci_inquiry");
 
 		for (i = 0; i < num_rsp; i++) {
@@ -371,6 +385,17 @@ int main(int argc, char *argv[])
 			                     extended);
 		}
 		free(ii);
+	}
+
+	/* Stopped during the inquiry above, which takes up to ten seconds and
+	 * which BlueZ ends on a signal: the run gives the board and the adapter
+	 * back rather than starting a capture the user has asked to stop. What
+	 * the inquiry did find has already been printed. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		close(dev_handle);
+		return 0;
 	}
 
 	/* libbtbb refuses only a -e out of its own range, which the check on -e

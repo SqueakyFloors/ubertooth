@@ -399,6 +399,9 @@ does follow, on standard error with the `error: ` line.
 0 when the command did what was asked, including `-h`, and after a capture is
 interrupted (Ctrl-C) having polled cleanly to that point.
 
+0 as well for a run stopped by Ctrl-C before it had opened a board: see
+ubertooth(7), SELECTING A DEVICE.
+
 1 for a command line the tool will not take or with nothing to do, for a
 capture file that cannot be created, when the selected Ubertooth is not found
 or cannot be opened, when the board refuses the jam mode, a `-t` target, a

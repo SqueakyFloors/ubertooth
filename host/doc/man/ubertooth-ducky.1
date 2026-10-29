@@ -65,6 +65,8 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 1 as well when the board refuses the request that stops the advertisement at the end of the two seconds: the board is left advertising, and no other tool can open it until it is reset or re\-plugged\. libubertooth names the refused request on standard error\.
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
+.P
+A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubertooth(7), SELECTING A DEVICE\.
 .SH "SEE ALSO"
 ubertooth\-btle(1)
 .P

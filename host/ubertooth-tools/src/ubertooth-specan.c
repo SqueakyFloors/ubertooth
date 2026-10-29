@@ -453,10 +453,22 @@ int main(int argc, char *argv[])
 		dumpfile = stdout;
 	}
 
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	ut = ubertooth_start_select(ubertooth_device);
 
 	if (ut == NULL) {
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
+	}
+
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back, before anything is asked of it or said about it. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 0;
 	}
 
 	/* Which board, before the firmware check below, so a -v run that ends
@@ -515,9 +527,6 @@ int main(int argc, char *argv[])
 		        per_sweep, per_sweep == 1 ? "" : "s");
 		report_output_target(output_mode, dump_name);
 	}
-
-	/* Clean up on exit. */
-	register_cleanup_handler(ut, 0);
 
 	uint8_t specan_args[] = {
 		(uint8_t)(upper & 0xff),

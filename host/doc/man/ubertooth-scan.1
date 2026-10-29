@@ -61,6 +61,8 @@ A capture that is losing packets says so\. The board holds captured packets in a
 .SH "EXIT STATUS"
 A scan that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exits 0 with whatever it found, and so does \fB\-h\fR\. A refused command line exits 1 (see ARGUMENTS)\.
 .P
+A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubertooth(7), SELECTING A DEVICE\.
+.P
 A scan whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the Ubertooth half of the scan stops there\. The results it did get are still printed, and the failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .P
 A BlueZ adapter that is not there, or that is there but will not open, exits 1 with one \fBerror:\fR line on standard error naming the adapter and why, for example \fBerror: Bluetooth device hci7 not found: No such device\fR\. Nothing is printed on standard output, so a caller collecting the scan results in a file does not find the failure among them\.

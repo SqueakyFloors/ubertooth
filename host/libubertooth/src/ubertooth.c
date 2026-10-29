@@ -209,6 +209,11 @@ int ubertooth_stopping(ubertooth_t* ut)
 	return ut->stop_ubertooth;
 }
 
+int ubertooth_stop_requested(void)
+{
+	return stop_requested != 0;
+}
+
 void ubertooth_clear_timeout_stop(ubertooth_t* ut)
 {
 	timeout_expired = 0;
@@ -236,27 +241,42 @@ static void cleanup_exit(int sig __attribute__((unused)))
 	exit(0);
 }
 
+/* Documented with the declaration in ubertooth.h.
+ *
+ * SIGHUP (terminal closed) and SIGALRM (a timeout wrapper such as
+ * `perl -e 'alarm N; exec ...'`) stop the device cleanly as Ctrl-C does;
+ * killed by them, a tool left its mode running on the board. A tool that
+ * calls ubertooth_set_timeout() later installs its own SIGALRM handler.
+ *
+ * Installed with signal(), which on every system this fork builds for leaves
+ * the handler in place after it has run, and which replaces an inherited
+ * SIG_IGN rather than keeping it. Keeping it is the usual idiom for a tool
+ * that must respect a parent's "ignore this"; here it would reinstate the very
+ * window this closes, because a shell gives a background job SIGINT and
+ * SIGQUIT set to SIG_IGN. The same override means a capture run under nohup
+ * stops cleanly when the terminal closes rather than carrying on with its mode
+ * left running on the board, which is what the SIGHUP handler is for. */
+void ubertooth_catch_stop_signals(void)
+{
+	signal(SIGINT, cleanup);
+	signal(SIGQUIT, cleanup);
+	signal(SIGTERM, cleanup);
+	signal(SIGHUP, cleanup);
+	signal(SIGALRM, cleanup);
+}
+
 void register_cleanup_handler(ubertooth_t* ut, int do_exit) {
 	cleanup_devh = ut;
 
-	/* Clean up on ctrl-C. */
-	/* SIGHUP (terminal closed) and SIGALRM (a timeout wrapper such as
-	 * `perl -e 'alarm N; exec ...'`) also stop the device cleanly; killed
-	 * by them, a tool left its mode running on the board. A tool that calls
-	 * ubertooth_set_timeout() later installs its own SIGALRM handler. */
 	if (do_exit) {
 		signal(SIGINT, cleanup_exit);
 		signal(SIGQUIT, cleanup_exit);
 		signal(SIGTERM, cleanup_exit);
 		signal(SIGHUP, cleanup_exit);
 		signal(SIGALRM, cleanup_exit);
-	} else {
-		signal(SIGINT, cleanup);
-		signal(SIGQUIT, cleanup);
-		signal(SIGTERM, cleanup);
-		signal(SIGHUP, cleanup);
-		signal(SIGALRM, cleanup);
+		return;
 	}
+	ubertooth_catch_stop_signals();
 }
 
 /* The -t timer, which is a phase of the run ending rather than the user
@@ -361,9 +381,26 @@ static int pick_ubertooth_device(int ubertooth_device, int ut_ct)
  */
 static const char* open_failure_reason = NULL;
 
+/* Set when the last open gave up because the user asked the run to stop,
+ * rather than because it could not find or open a board. Kept apart from the
+ * reason string above so a caller can test it without comparing words: the
+ * two outcomes need different exit statuses. */
+static int open_stopped;
+
 static void note_open_failure(const char* reason)
 {
 	open_failure_reason = reason;
+	/* Any reason recorded here replaces a stop recorded earlier, so the
+	 * flag always describes the last thing that happened to an open rather
+	 * than something an earlier one left. The stopped path sets it again
+	 * straight after its own call. */
+	open_stopped = 0;
+}
+
+/* Documented with the declaration in ubertooth.h. */
+int ubertooth_open_stopped(void)
+{
+	return open_stopped;
 }
 
 /* Documented with the declaration in ubertooth.h. */
@@ -765,6 +802,8 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	char (*matched_serials)[UBERTOOTH_SERIAL_STR_LEN] = NULL;
 	int *matched_devs = NULL;
 	int usb_devs, i, r, ret, matches = 0, unread = 0, unopened = 0, open_err = 0;
+	/* Set once the scan gave up because the user asked the run to stop. */
+	int stopped = 0;
 
 	/* Hidden devices: nothing to match, so no board is opened and no serial
 	 * is read; the "no Ubertooth found" report below is unchanged. */
@@ -804,6 +843,17 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 	for (i = 0; i < usb_devs; ++i) {
 		char serial_c[UBERTOOTH_SERIAL_STR_LEN] = {0};
 
+		/* The user has asked the run to stop, so stop looking for a board.
+		 * This is the slow part of starting a tool: every attached board is
+		 * opened and asked for its serial, and one that does not answer
+		 * costs a second. Working through the rest of the bus would hold
+		 * the stop up for as long as that took. No board is chosen either:
+		 * one opened here would only be stopped again. */
+		if (ubertooth_stop_requested()) {
+			stopped = 1;
+			break;
+		}
+
 		r = libusb_get_device_descriptor(usb_list[i], &desc);
 		if (r < 0)
 			continue; /* desc was not filled in: skip this device */
@@ -841,6 +891,28 @@ static struct libusb_device_handle* find_ubertooth_device_serial_opt(
 			memcpy(matched_serials[matches], serial_c, sizeof(serial_c));
 			matches++;
 		}
+	}
+
+	/* Nothing is reported for a scan the user stopped: it found no board
+	 * because it was not allowed to finish, which is not a failure. The
+	 * caller reads ubertooth_open_stopped() and ends the run quietly.
+	 *
+	 * A scan that did finish is treated the same way only when it matched a
+	 * board, because the flag is read again here and not only at the top of
+	 * each turn above: a signal that arrived during the last board's serial
+	 * read would otherwise open and claim a board the caller is about to
+	 * stop, and a tool that transmits would have started before its loop
+	 * looked at the flag. A finished scan that matched nothing still reports
+	 * that, and the caller still exits 1: the answer is true whether or not
+	 * the user interrupted the run, and a script that reads the status to
+	 * learn whether its board is there must not be told it is. */
+	if (stopped || (matches > 0 && ubertooth_stop_requested())) {
+		note_open_failure("the run was stopped");
+		open_stopped = 1;
+		free(matched_devs);
+		free(matched_serials);
+		libusb_free_device_list(usb_list, 1);
+		return NULL;
 	}
 
 	if (matches == 1) {
@@ -1215,7 +1287,14 @@ static void* poll_thread_main(void* arg __attribute__((unused)))
 	while (!do_exit) {
 		struct timeval tv = { 1, 0 };
 		r = libusb_handle_events_timeout(NULL, &tv);
-		if (r < 0) {
+		/* A signal that arrived while this was waiting is not a failure:
+		 * the wait was cut short, so it is taken again. Ending the thread
+		 * here left the capture with nobody to complete its transfers, so
+		 * nothing more arrived and the loop waited with no line to say
+		 * why. Ctrl-C does hit this -- the handlers catch it on whichever
+		 * thread the system picks. The short sleep below still runs, so a
+		 * signal arriving over and over cannot spin this thread. */
+		if (r < 0 && r != LIBUSB_ERROR_INTERRUPTED) {
 			do_exit = 1;
 			break;
 		}
@@ -1292,7 +1371,7 @@ static void ubertooth_bulk_stop(ubertooth_t* ut)
 {
 	struct libusb_transfer* xfer;
 	uint8_t state;
-	int i;
+	int i, r;
 
 	xfer = rx_xfer_peek(ut, &state);
 	if (xfer == NULL)
@@ -1308,7 +1387,16 @@ static void ubertooth_bulk_stop(ubertooth_t* ut)
 			break;
 		/* Outside the lock: this is where the cancellation completes, so
 		 * it can run the callback on this very thread. */
-		if (libusb_handle_events_timeout(NULL, &tv) < 0)
+		r = libusb_handle_events_timeout(NULL, &tv);
+		/* A signal that cut the wait short is not a failure. This runs
+		 * just after a Ctrl-C, so it is the likeliest place for a second
+		 * signal to land, and giving up here leaves the transfer
+		 * allocated and the next capture on this handle refusing to
+		 * start. The turns are counted, so taking the wait again is
+		 * still bounded. */
+		if (r == LIBUSB_ERROR_INTERRUPTED)
+			continue;
+		if (r < 0)
 			break;
 	}
 

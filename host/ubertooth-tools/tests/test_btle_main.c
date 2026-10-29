@@ -45,6 +45,13 @@ static struct {
 	FILE *callback_report_stream;
 	int interrupt_the_capture; /* cmd_poll() raises SIGINT instead of
 	                            * writing the handle */
+	/* The open failed because the user stopped the run, rather than
+	 * because no board could be found. */
+	int open_stopped;
+	int connect_rc;            /* returned by ubertooth_connect_select() */
+	int interrupt_the_open;    /* ubertooth_connect_select() raises SIGINT,
+	                            * as a signal landing while the board is
+	                            * being found does */
 	int stops;
 	int closes;       /* ubertooth_close() calls */
 	int frees;        /* ubertooth_free() calls */
@@ -118,11 +125,21 @@ int ubertooth_stopping(ubertooth_t *ut)
 	return ut->stop_ubertooth;
 }
 
-void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	signal(SIGINT, fake_cleanup);
+}
+
+int ubertooth_stop_requested(void)
+{
+	return stop_requested;
+}
+
+/* Whether the fake open gave up because the run was stopped, which is what
+ * decides the exit status of a run that opened no board. */
+int ubertooth_open_stopped(void)
+{
+	return fake.open_stopped;
 }
 
 static void record(char call)
@@ -161,7 +178,13 @@ int ubertooth_connect_select(ubertooth_t *ut, const char *u_arg)
 	(void)ut;
 	(void)u_arg;
 	fake.connects++;
-	return 0;
+	/* Opening a board takes a moment -- selecting one by serial number
+	 * reads the serial of every attached board -- and a signal can land in
+	 * it. The real one is also where that signal is acted on: it gives up
+	 * the search. This fake has no bus to search, so it only raises. */
+	if (fake.interrupt_the_open)
+		raise(SIGINT);
+	return fake.connect_rc;
 }
 
 /* The capture files, so a "-q -" run does not write a PCAP header into the
@@ -872,6 +895,57 @@ MU_TEST(an_interrupted_capture_stops_and_exits_zero)
 	mu_assert(r.out[0] == '\0', r.out);
 }
 
+/* And a Ctrl-C that arrives while the board is still being opened ends the run
+ * too, on that one signal.
+ *
+ * It used to be discarded. The handlers went in after the board was open, and
+ * a tool started as a background job by a script is started with SIGINT
+ * ignored, so a signal arriving before that did nothing at all: the user's
+ * first Ctrl-C was lost and a second one was needed. The disposition is set to
+ * SIG_IGN here to put the tool in exactly that position.
+ *
+ * The run ends between the board being opened and anything being asked of it,
+ * so no mode is started on the board and nothing is polled for. */
+MU_TEST(an_interrupt_while_the_board_is_opened_ends_the_run)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.interrupt_the_open = 1;
+	signal(SIGINT, SIG_IGN);
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	/* No request at all, so no mode to stop: the board is closed. */
+	mu_assert_int_eq(0, fake.polls);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/* And a stop that lands while the board is still being looked for ends the run
+ * at exit 0 with nothing printed: the board selection gave up because the user
+ * stopped it, which is not a failure to find a board. A selection that failed
+ * for any other reason still exits 1. */
+MU_TEST(a_selection_the_user_stopped_exits_zero)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.connect_rc = -1;
+	fake.open_stopped = 1;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	reset_fake();
+	fake.connect_rc = -1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+}
+
 /* A poll that fails ends the capture short, so it is an error on standard
  * error and exit 1, not "USB error" on standard output and exit 0. */
 /* A capture the board would not stop leaves that board running the mode, and
@@ -1502,6 +1576,8 @@ int main(void)
 	MU_RUN(the_callback_reports_on_the_same_stream_as_the_tool);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_capture_whose_teardown_was_refused_exits_1);
+	MU_RUN(an_interrupt_while_the_board_is_opened_ends_the_run);
+	MU_RUN(a_selection_the_user_stopped_exits_zero);
 	MU_RUN(a_failed_poll_is_reported_on_stderr_and_exits_1);
 	MU_RUN(a_short_poll_reply_is_reported);
 	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);

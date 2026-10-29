@@ -226,9 +226,14 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded.
+	 * The capture loop below then ends the way every other tool's does. */
+	ubertooth_catch_stop_signals();
+
 	ut = ubertooth_start_select(ubertooth_device);
 	if (ut == NULL) {
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 
 	r = ubertooth_check_api(ut);
@@ -243,10 +248,14 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Stop on Ctrl-C, and on the other signals that mean the run is over
-	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
-	 * capture loop below ends the way every other tool's does. */
-	register_cleanup_handler(ut, 0);
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back, rather than starting a mode -- jamming among them --
+	 * and stopping it again. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 0;
+	}
 
 	if (do_mode >= 0) {
 		usb_pkt_rx rx;

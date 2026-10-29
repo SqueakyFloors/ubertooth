@@ -491,9 +491,18 @@ int main(int argc, char *argv[])
 	if (ut == NULL)
 		return 1;
 
+	/* Stop on Ctrl-C, and on the other signals that mean the run is over
+	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
+	 * capture loop below ends the way every other tool's does. Installed
+	 * before the board is opened, because a signal that arrives while one
+	 * is being found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
-		return release_handle(ut, 1);
+		/* A selection the user stopped opened no board, which is not a
+		 * failure to find one. */
+		return release_handle(ut, ubertooth_open_stopped() ? 0 : 1);
 	}
 
 	r = ubertooth_check_api(ut);
@@ -503,6 +512,12 @@ int main(int argc, char *argv[])
 		 * version it could not read at all leaves the board open. */
 		return release_handle(ut, 1);
 	}
+
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back and no capture file left behind, rather than
+	 * starting a mode and stopping it again. */
+	if (ubertooth_stop_requested())
+		return release_handle(ut, 0);
 
 	/* The board is open and usable, so the capture files can be opened. Not
 	 * before: a run refused for its firmware used to leave an empty capture
@@ -552,11 +567,6 @@ int main(int argc, char *argv[])
 			return release_handle(ut, 1);
 		}
 	}
-
-	/* Stop on Ctrl-C, and on the other signals that mean the run is over
-	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
-	 * capture loop below ends the way every other tool's does. */
-	register_cleanup_handler(ut, 0);
 
 	// cancel following on USR1
 	signal(SIGUSR1, cancel_follow_handler);

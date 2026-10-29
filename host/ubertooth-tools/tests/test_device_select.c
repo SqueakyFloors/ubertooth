@@ -13,6 +13,7 @@
  * case segfault on the NULL handle, which reports a crash instead of the
  * assertion that failed.
  */
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1320,6 +1321,46 @@ MU_TEST(a_board_that_does_not_answer_is_skipped_quietly)
 	mu_assert_int_eq(fake.opens, fake.closes);
 }
 
+/* A Ctrl-C while the bus is being read for serials ends the search. Reading
+ * them is the slow part of starting a tool -- every attached board is opened
+ * and asked, and one that does not answer costs a second -- so a search that
+ * worked through the rest of the bus would hold the stop up for that long.
+ *
+ * No board is opened, nothing is printed, and the reason says the run was
+ * stopped rather than that no board matched: that is what lets a tool exit 0
+ * instead of reporting a failure to find a board the user never waited for.
+ *
+ * The handlers are installed first because that is where a tool has them
+ * from: before it opens anything. */
+MU_TEST(a_serial_search_the_user_stopped_opens_nothing)
+{
+	char msg[256];
+	ubertooth_t *ut;
+
+	bus_with_two_serials();
+	ubertooth_catch_stop_signals();
+	raise(SIGINT);
+
+	mu_assert(select_capturing(SERIAL_A, msg, sizeof(msg)) == NULL,
+	          "a search the user stopped selects no board");
+	mu_assert(msg[0] == '\0', msg);
+	mu_assert_int_eq(1, ubertooth_open_stopped());
+	/* Not even to read a serial: the board the user named is on this bus. */
+	mu_assert_int_eq(0, fake.opens);
+
+	signal(SIGINT, SIG_DFL);
+	ubertooth_reset_stop_signals();
+
+	/* And the next search is an ordinary one, which is what makes the case
+	 * above mean something. */
+	bus_with_two_serials();
+	ut = select_capturing(SERIAL_A, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the same serial, with nothing interrupting");
+	mu_assert_int_eq(0, ubertooth_open_stopped());
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
 /* Two boards reporting the same serial cannot be told apart by this selector,
  * so the refusal does not advise a longer string. */
 MU_TEST(two_boards_with_one_serial_are_refused_without_bad_advice)
@@ -1765,6 +1806,7 @@ int main(void)
 	MU_RUN(a_serial_that_matches_nothing_is_refused);
 	MU_RUN(an_all_digits_string_is_still_an_index);
 	MU_RUN(a_board_that_does_not_answer_is_skipped_quietly);
+	MU_RUN(a_serial_search_the_user_stopped_opens_nothing);
 	MU_RUN(two_boards_with_one_serial_are_refused_without_bad_advice);
 	MU_RUN(boards_that_cannot_be_opened_are_reported);
 	MU_RUN(a_failed_open_says_why_in_a_phrase_a_report_can_use);

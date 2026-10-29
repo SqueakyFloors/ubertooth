@@ -91,6 +91,9 @@ interrupted (Ctrl-C). 1 for a command line the tool will not take, for a `-d`
 file that cannot be opened, and when the selected Ubertooth is not found or
 cannot be opened.
 
+A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
+ubertooth(7), SELECTING A DEVICE.
+
 Also 1 when the dump's USB stream fails part-way: the board stopped answering
 or dropped off the bus, so the dump stops there and holds only what arrived
 before it. The failure is reported on standard error as it happens. A board

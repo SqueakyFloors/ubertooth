@@ -101,6 +101,8 @@ A capture that is losing packets says so\. The board holds captured packets in a
 .SH "EXIT STATUS"
 \fBubertooth\-afh\fR does not stop on its own, so it normally exits 0 after being interrupted (Ctrl\-C)\. \fB\-h\fR also exits 0\.
 .P
+A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubertooth(7), SELECTING A DEVICE\.
+.P
 It exits 2 when the \fB\-t\fR detection phase received no packet from the piconet (see DETECTION AND MONITORING)\. The number of seconds in that message is the \fB\-t\fR value, not the time actually spent listening, which is shorter if the tool was interrupted during the phase\.
 .P
 It exits 1 without opening a device for a bad command line (a missing UAP or LAP, an option value out of range, or a word that is not an option) or when the piconet it tracks cannot be allocated (\fBerror: out of memory\fR), and when the selected Ubertooth is not found\. It also exits 1, with or without \fB\-r\fR, when the receive could not be started at all: a setup request the board refused, or a USB transfer that could not be set up\. One of those is the band sweep the whole band is watched through, without which the board stays on the channel it was left on and the map would hold that channel alone\.

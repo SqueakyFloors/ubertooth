@@ -191,6 +191,9 @@ behind; that is also why the message for a `-d` file that cannot be opened
 comes after the board has been selected. A terminal on standard output is
 still refused while the command line is read.
 
+A run stopped by Ctrl-C before it had opened a board exits 0, with nothing on
+standard error: see ubertooth(7), SELECTING A DEVICE.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
