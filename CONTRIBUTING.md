@@ -47,12 +47,37 @@ those jobs cover more runners, and three more jobs
 oldest supported Ubuntu and on Fedora. None of the extra tier gates a pull
 request.
 
-A change to documentation only runs two of them. `Build` ignores `**.md`,
-`docs/` and `.kiro/`, and `install.sh` asks for its own two paths and so is
-not reached either. `libbtbb pin` has no path filter at all, because the
-commit it checks is written down in `COMPATIBILITY.md` and the build guides as
-well as in the build files; `Man pages` runs whenever `host/doc/` changes,
-which is where the man page sources live.
+A change to documentation only builds nothing, but every `Build` name still
+reports. The `changes` job sees that each changed file is a Markdown file,
+under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
+`firmware` and `scripts`; `image-revision` and `dfu-package` skip with the
+firmware job they read. The cheap Linux checks (`issue-references`,
+`api-version` and `libbtbb-pin`) run as they always do, and `Man pages` runs
+whenever `host/doc/` changes, which is where the man page sources live.
+`install.sh` asks for its own two paths and is not reached.
+
+`libbtbb pin` has no path filter at all, because the commit it checks is
+written down in `COMPATIBILITY.md` and the build guides as well as in the
+build files.
+
+The skipped names are reported by stand-in jobs (`host-skipped`,
+`firmware-skipped`, `scripts-skipped`), one per leg of the pull-request
+matrix, each carrying the same check name as the leg it stands in for and
+running on the opposite condition. They exist because GitHub does not expand
+the matrix of a job it skips: a skipped `host` would report once, as `host`,
+and the rule on `main` requires `host (ubuntu-24.04)` and `host (macos-26)`,
+which nothing would then report. Adding or renaming a runner in
+the pull-request matrix therefore means editing the stand-in's matrix, the
+protection rule on `main`, and the names above, together.
+
+That same rule explains two sets of odd-looking entries in `gh pr checks`,
+neither of which is required and neither of which means anything went wrong.
+A skipped real job reports under its bare name (`host`, `firmware`,
+`scripts`), and a skipped stand-in reports under its unevaluated one
+(`host (${{ matrix.os }})`), because GitHub does not evaluate the name of a
+job it skips either. On any one pull request each check name is reported by
+exactly one job, which is what keeps a stand-in from ever masking a real
+failure.
 
 ### Nothing enforces them
 
