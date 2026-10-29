@@ -39,6 +39,10 @@ static struct {
 	int sequence[SEQUENCE_MAX];
 	int sequence_len;
 	int calls;                /* how many calls the read made */
+	/* 0 for a run nobody stops. Otherwise the user asks the run to stop
+	 * once this many calls have been made, which is how a Ctrl-C arriving
+	 * part-way through the poll's attempts is scripted. */
+	int stop_after_call;
 } fake;
 
 /* ---- libusb and libbtbb fakes ------------------------------------------ */
@@ -50,6 +54,13 @@ int ubertooth_device_gone(const void* board)
 {
 	(void)board;
 	return 0;
+}
+
+/* The real one reads the flag the signal handlers set; here the stop arrives
+ * after the number of calls the test scripted. */
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_after_call > 0 && fake.calls >= fake.stop_after_call;
 }
 
 /* Defined here, so it takes precedence over the libusb library symbol. */
@@ -800,6 +811,50 @@ MU_TEST(a_board_that_has_left_the_bus_ends_the_poll_at_once)
 	mu_assert(text[0] != '\0', text);
 }
 
+/*
+ * Once the user has asked the run to stop there is no capture left to save, so
+ * the attempts stop with it: a capture waits in this call and reads the stop
+ * only when it returns, so each further attempt would hold a Ctrl-C for
+ * another second. The failure is still reported and still returned, so the run
+ * ends with a non-zero status rather than looking like a clean stop.
+ */
+MU_TEST(a_stop_ends_the_attempts_at_once)
+{
+	char text[256];
+
+	/* The stop is already in when the first attempt times out: no second
+	 * attempt, and the reason is named. */
+	script_attempts(LIBUSB_ERROR_TIMEOUT, (int)sizeof(usb_pkt_rx),
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after_call = 1;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq(LIBUSB_ERROR_TIMEOUT, poll_rc);
+	mu_assert_int_eq(1, fake.calls);
+	mu_assert(strcmp(text, "error: the Ubertooth did not answer in time "
+	    "(libusb -7)\n") == 0, text);
+
+	/* The stop lands during the retries: the attempt already in flight
+	 * finishes and the third is never made. */
+	script_attempts(LIBUSB_ERROR_PIPE, LIBUSB_ERROR_PIPE,
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after_call = 2;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, poll_rc);
+	mu_assert_int_eq(2, fake.calls);
+	mu_assert(strstr(text, "-9") != NULL, text);
+
+	/* A poll the board did answer hands the packet over whether a stop is
+	 * in or not: the caller's loop reads the stop on its next turn, and
+	 * nothing is reported, because nothing failed. */
+	script_attempts((int)sizeof(usb_pkt_rx), (int)sizeof(usb_pkt_rx),
+	                (int)sizeof(usb_pkt_rx));
+	fake.stop_after_call = 1;
+	run_captured(poll_once, text, sizeof(text));
+	mu_assert_int_eq((int)sizeof(usb_pkt_rx), poll_rc);
+	mu_assert_int_eq(1, fake.calls);
+	mu_assert(text[0] == '\0', text);
+}
+
 int main(void)
 {
 	MU_RUN(one_byte_reads_return_the_byte_for_a_full_reply);
@@ -822,5 +877,6 @@ int main(void)
 	MU_RUN(a_poll_that_timed_out_or_stalled_is_tried_again);
 	MU_RUN(a_poll_that_keeps_failing_gives_up_and_says_why);
 	MU_RUN(a_board_that_has_left_the_bus_ends_the_poll_at_once);
+	MU_RUN(a_stop_ends_the_attempts_at_once);
 	return mu_report();
 }

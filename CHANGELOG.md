@@ -666,6 +666,12 @@
   up to three attempts. A board that has gone still ends the capture at once.
   `ubertooth-ego` reads packets the same way and gets the same.
   [#710](https://github.com/SqueakyFloors/ubertooth/issues/710)
+- Ctrl-C ends a low-energy capture at once, even when it lands on a poll the
+  board is not answering: those attempts used to run to the end first, holding
+  the stop for up to three seconds. **Script-visible change:** a stop that
+  lands on a failed poll now reports the reason and exits 1, where it used to
+  recover and exit 0. `ubertooth-ego` gets the same.
+  [#844](https://github.com/SqueakyFloors/ubertooth/issues/844)
 - **Script-visible change:** `ubertooth-util -n` interrupted with Ctrl-C stops
   the range test, like every other ending of the wait, and exits 1 with
   `error: interrupted before the range test finished; the range test has been

@@ -162,6 +162,11 @@ at once. The retry saves the capture, not the packet: the board takes a packet
 out of its queue as it answers the poll, so the one a timed-out poll was
 carrying is gone.
 
+Ctrl-C is not made to wait for those attempts. Once you have asked the run to
+stop, a poll that fails is not tried again: the capture ends there, and the
+reason the poll failed is reported, so a stop that lands on a board which was
+not answering exits 1 rather than 0.
+
 A request that sets the capture up and is refused by the board ends the
 command there, named in one line, for example
 `error: could not set the channel`; libubertooth has already said why. A
@@ -198,7 +203,10 @@ capture that ends in the moment after a gap does not report that last one.
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after a capture is
-interrupted (Ctrl-C). 1 for a command line the tool will not take or with
+interrupted (Ctrl-C) having polled cleanly to that point. A Ctrl-C that lands
+on a poll the board did not answer is the exception: the attempts stop with it,
+the reason is reported, and the run exits 1, because the board had stopped
+answering. 1 for a command line the tool will not take or with
 nothing to do, when the selected Ubertooth is not found or cannot be opened,
 when the board refuses one of the requests that set the capture up, when the
 firmware does not support the requested mode, and when the capture stops short

@@ -63,6 +63,13 @@ int ubertooth_device_gone(const void* board)
 	return 0;
 }
 
+/* The poll stops retrying once the user has asked the run to stop. Nothing
+ * here polls, and no signal arrives. */
+int ubertooth_stop_requested(void)
+{
+	return 0;
+}
+
 /* Defined here, so they take precedence over the libusb library symbols. */
 struct libusb_transfer* LIBUSB_CALL libusb_alloc_transfer(int iso_packets)
 {

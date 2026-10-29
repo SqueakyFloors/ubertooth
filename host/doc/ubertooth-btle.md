@@ -404,6 +404,11 @@ at once. The retry saves the capture, not the packet: the board takes a packet
 out of its queue as it answers the poll, so the one a timed-out poll was
 carrying is gone.
 
+Ctrl-C is not made to wait for those attempts. Once you have asked the run to
+stop, a poll that fails is not tried again: the capture ends there, and the
+reason the poll failed is reported, so a stop that lands on a board which was
+not answering exits 1 rather than 0.
+
 Each request that sets a mode up is named on its own, so the line says which
 one the board refused: `error: could not set the advertising channel`,
 `error: could not set the advertising data`, `error: could not start
@@ -430,7 +435,10 @@ does follow, on standard error with the `error: ` line.
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after a capture is
-interrupted (Ctrl-C) having polled cleanly to that point.
+interrupted (Ctrl-C) having polled cleanly to that point. A Ctrl-C that lands
+on a poll the board did not answer is the exception: the attempts stop with it,
+the reason is reported, and the run exits 1, because the board had stopped
+answering.
 
 0 as well for a run stopped by Ctrl-C before it had opened a board: see
 ubertooth(7), SELECTING A DEVICE.

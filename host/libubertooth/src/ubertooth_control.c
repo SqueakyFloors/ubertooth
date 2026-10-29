@@ -1306,20 +1306,31 @@ int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p)
 	 * in firmware/bluetooth_rxtx/bluetooth_rxtx.c), so a transfer that timed
 	 * out after that has lost it, and the next attempt gets whatever arrived
 	 * next. One packet is a far better loss than the rest of the capture.
+	 *
+	 * Once the user has asked the run to stop, there is no capture left to
+	 * save, so the attempts stop too: a capture spends its time in this
+	 * call, and its loop reads the stop only when the call returns, so
+	 * further attempts would keep a Ctrl-C waiting a second each. The
+	 * failure is still reported and still returned, which ends the run with
+	 * a non-zero status: a board that was not answering is worth saying so
+	 * about, even when a stop arrived at the same moment.
 	 */
 	for (i = 0; i < 3; ++i) {
 		r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_POLL, 0, 0,
 				(u8 *)p, sizeof(usb_pkt_rx), 1000);
-		if (r == LIBUSB_ERROR_PIPE || r == LIBUSB_ERROR_TIMEOUT)
+		if (r == LIBUSB_ERROR_PIPE || r == LIBUSB_ERROR_TIMEOUT) {
+			if (ubertooth_stop_requested())
+				break;
 			continue;
+		}
 		if (r < 0)
 			show_libusb_error(r);
 		return r;
 	}
-	/* Every attempt failed the same way, so this is not a board that was
-	 * busy for a moment. Reported here, because the retry loop swallowed the
-	 * attempts and the caller's "USB poll failed" does not say what went
-	 * wrong. */
+	/* The attempts ran out, or a stop ended them: either way the last one
+	 * failed and nothing here will try again. Reported here, because the
+	 * loop above swallowed the attempts and the caller's "USB poll failed"
+	 * does not say what went wrong. */
 	show_libusb_error(r);
 	return r;
 }
