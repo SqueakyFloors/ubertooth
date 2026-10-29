@@ -1230,8 +1230,9 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * every byte asked for as completed, and it can also report the
 		 * timeout expiring on that same transfer, and the packet in the
 		 * buffer is a packet either way. How many bytes arrived is this
-		 * transfer's own count, because libusb_submit_transfer() starts
-		 * it at zero, so a slot nothing filled in cannot read as full.
+		 * transfer's own count and not the last one's: libusb writes
+		 * actual_length as it completes a transfer, every time, before
+		 * it calls this, so a slot nothing filled in cannot read full.
 		 *
 		 * Short of 64 bytes is not a packet. When a capture goes quiet
 		 * the firmware answers the bulk endpoint with a one-byte

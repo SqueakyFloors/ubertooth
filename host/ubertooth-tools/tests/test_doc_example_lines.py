@@ -36,16 +36,32 @@ A diagnostic also counts as covered when a test pins it without its
 `error: ` / `warning: ` / `note: ` prefix, because several of these messages
 are built by a library that leaves the prefix to the tool that prints them.
 
-What this does not catch. Where a test pins only part of a line, the rest of
-that line is tied to nothing, so a reworded tail can still get through;
-pinning the whole line in the test closes that. And every number is a
-wildcard, so a figure a page shows is never checked, even one that does not
-vary.
+One pattern has to do the whole job. A test that pins part of a line, or
+leaves a field of it to a macro, does not hold that line down, and it is no
+help that some other literal elsewhere happens to reject the near-miss: the
+loose pattern would still cover a reworded page. So such a line counts as
+pinned by nothing, and the way to tie it down is to pin the whole of it in
+the test.
 
-NOT_PINNED below holds the lines no test pins today. It is checked for being
-exact -- an entry that no longer appears on its page, or that a test has since
-pinned, fails here -- so it is a list that can only shrink, and editing a line
-it names means saying so here.
+What this does not catch:
+
+  * every number is a wildcard, so a figure a page shows is never checked,
+    even one that does not vary;
+  * a message a library builds, which a test pins without its prefix, is
+    covered whichever of `error:`, `warning:` and `note:` the page shows it
+    with;
+  * a literal in a test source counts whatever the assertion does with it,
+    so a line a test asserts is *absent*, or a fixture's input, can hold a
+    page line down;
+  * a pin is not tied to the tool whose page shows it, so a page can promise
+    a line that another tool prints.
+
+NOT_PINNED below holds the lines no test pins today, with the reason for each.
+It is checked for being exact -- an entry that no longer appears on its page,
+or that a test has since pinned, fails here -- so an entry cannot quietly rot,
+and editing a line it names means saying so here. A new example line that no
+test pins does have to be added to it, which is the moment to ask whether the
+test should pin the line instead.
 """
 
 import glob
@@ -104,9 +120,8 @@ LIST_ITEM = re.compile(r'^ *[-*] \S')
 # with a wildcard each side would otherwise match any labelled line.
 LEAST_FIXED_RUN = 6
 
-# And it has to account for this much of the line it covers, so that a short
-# head such as `error: -` does not stand in for the whole of a long line.
-LEAST_SHARE = 0.6
+# How far apart the near-misses below are placed along a line.
+EVERY = 6
 
 # A floor on how many example lines this finds, so a change to the patterns
 # above cannot leave the check passing having looked at nothing.
@@ -162,13 +177,46 @@ NOT_PINNED = [
      "Image: bluetooth_rxtx git-ed30131d (API:<version>)"),
     ("ubertooth-dfu.md",
      "DFU expected revision: git-ed30131d"),
+    # The note that says which image to flash and onto which board. The
+    # tests leave the board and the image path to the run, and those are
+    # most of the line, so its wording is not checked.
+    ("ubertooth-debug.md",
+     "note: flash it with ubertooth-dfu -U 1cc0 -d "
+     "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r"),
+    ("ubertooth.md",
+     "note: flash it with ubertooth-dfu -U 1cc0 -d "
+     "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r"),
+    # A board that came back running another image. The test leaves the
+    # image's name open, and the page spells it out twice.
+    ("ubertooth-dfu.md",
+     "error: the board came back running the btbr firmware, not the "
+     "bluetooth_rxtx image that was written: the firmware was not written, "
+     "so flash it again"),
+    # A connection to the target that failed. The test leaves the address
+    # and the reason the system gave to the run.
+    ("ubertooth-follow.md",
+     "error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and "
+     "-u give four of the six bytes of the target address, so 00:00 is a "
+     "guess: give the whole target address with -t xx:xx:xx:xx:xx:xx"),
     # The refusal of two options that cannot be combined. The tool builds it
     # from the options it was given and the list it allows, and the test
-    # leaves both to the run, so the page's own spelling of them is not
-    # checked either way.
+    # leaves both to the run.
     ("ubertooth-util.md",
      "error: options -q -n cannot be combined; give only one of -q -n -e -t "
      "-x -I -i"),
+    # A setup request the board did not answer. The tests build these lines
+    # through a macro that leaves the request's name open, so the page's
+    # wording of the name is not checked, only the rest of the line.
+    ("ubertooth-follow.md",
+     "error: could not zero the board's clock: the board did not answer in "
+     "time (libusb -7)"),
+    ("ubertooth-rx.md",
+     "error: could not set the channel: the board did not answer in time "
+     "(libusb -7)"),
+    # The version an old release reports, which has no image name in it. The
+    # tests report a version the way the firmware in this tree does.
+    ("ubertooth-util.md",
+     "Firmware version: 2020-12-R1 (API:1.07)"),
     # The reason libusb gave for a board that could not be opened. The only
     # test that pins this text pins it as an error line of another tool, and
     # which of the three levels a line is said with is part of what a page
@@ -351,7 +399,10 @@ def documented_lines(doc):
             in_list_item = False
             for number, raw in enumerate(handle, 1):
                 if not INDENTED.match(raw):
-                    in_list_item = LIST_ITEM.match(raw) is not None
+                    # A blank line inside a list item does not end it: the
+                    # paragraph after it belongs to the same item.
+                    if raw.strip():
+                        in_list_item = LIST_ITEM.match(raw) is not None
                     continue
                 if in_list_item:
                     continue
@@ -384,41 +435,48 @@ def can_produce(pinned, documented):
     return match(0, 0)
 
 
-def covered_by(pinned, line):
-    """The pinned pattern that ties this documented line down, if any.
+def tied_down_by(pinned, line):
+    """The pinned pattern that holds this documented line down, if any.
 
-    As well as being able to produce the line, the pattern has to account for
-    most of it. Without that, a pinned `error: -` -- the head of a line a
-    test asserted the start of -- would stand in for every long `error: -U
-    ...` line a page shows, tail and all.
+    One pattern has to do the whole job: produce the line, and produce none
+    of the near-misses in variants(). A pattern that produces a near-miss as
+    happily is matching what the line has in common with other lines rather
+    than the line, and it is no use that some other pattern rejects the
+    near-miss -- the loose one would still cover a reworded page.
     """
-    for form in documented_forms(line):
-        needed = LEAST_SHARE * fixed_length(form)
-        for candidate in pinned:
-            if (fixed_length(candidate) >= needed
-                    and can_produce(candidate, form)):
-                return candidate
+    forms = documented_forms(line)
+    changed = [documented_forms(one) for one in variants(line)]
+    if not changed:
+        return None
+    for candidate in pinned:
+        if not any(can_produce(candidate, form) for form in forms):
+            continue
+        if any(can_produce(candidate, form)
+               for one in changed for form in one):
+            continue
+        return candidate
     return None
 
 
 def variants(line):
-    """The line with two letters pushed into it, in a few places.
+    """Near-misses of the line: two letters pushed into one of its words.
 
-    The places are inside the runs the page does promise, the three longest
-    of them, a quarter and three quarters of the way along each, so a change
-    lands on text rather than inside a placeholder. A pinned pattern that
-    covers one of these as happily as the line itself is matching something
-    the line has in common with other lines rather than the line. One of them
-    breaking is enough to tell, because another may land in a field the test
-    leaves open: there the page spells out what the test does not promise,
-    and the page's words are nobody's to check.
+    Every few characters of every run of text the page promises, so a change
+    lands on text rather than inside a placeholder, and no stretch of the
+    line is far enough from a change to go unexamined. These stand for the
+    reworded page this check exists to fail on, and a pattern has to reject
+    all of them to count as holding the line down.
     """
-    runs = [run for run in pattern_of(line).split(WILD) if len(run) >= 4]
     made = []
-    for run in sorted(runs, key=len, reverse=True)[:3]:
-        for share in (0.25, 0.75):
-            at = line.find(run) + int(len(run) * share)
-            made.append(line[:at] + "zq" + line[at:])
+    at = 0
+    for run in pattern_of(line).split(WILD):
+        at = line.find(run, at)
+        if at < 0:
+            break
+        for offset in range(2, len(run) - 1, EVERY):
+            into = at + offset
+            made.append(line[:into] + "zq" + line[into:])
+        at += len(run)
     return made
 
 
@@ -446,13 +504,7 @@ def main():
     pinned_after_all = []
     held = 0
     for page, number, line in documented:
-        # Tied down only if a pattern covers the line and stops covering it
-        # once a word of the line changes. A pattern that covers both is
-        # matching something the line has in common with other lines.
-        tied = covered_by(pinned, line) is not None
-        if tied:
-            changed = variants(line)
-            tied = any(covered_by(pinned, one) is None for one in changed)
+        tied = tied_down_by(pinned, line) is not None
         if tied and (page, line) in known:
             pinned_after_all.append((page, number, line))
         elif not tied and (page, line) not in known:

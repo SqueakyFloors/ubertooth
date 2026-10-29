@@ -316,13 +316,6 @@ int LIBUSB_CALL libusb_submit_transfer(struct libusb_transfer* xfer)
 {
 	int refused;
 
-	/* As libusb does: the count of bytes received starts at zero, so a
-	 * transfer put back in flight cannot carry the last packet's count
-	 * forward. The callback reads that count to decide whether a packet
-	 * arrived, so a backend that left it alone would publish the slot
-	 * again. */
-	if (xfer != NULL)
-		xfer->actual_length = 0;
 	pthread_mutex_lock(&fake_lock);
 	fake.submits++;
 	refused = fake.refuse_submit
@@ -496,27 +489,32 @@ static void release_output(char* out_text, size_t out_len,
 /* Hands the transfer in flight back to libubertooth's callback with the
  * status given, from the test's own thread: no poll thread is running in the
  * callback cases, so this is the whole of the event delivery. */
+static void deliver_bytes(enum libusb_transfer_status status, int length,
+                          uint8_t first_byte);
+
 static void deliver(enum libusb_transfer_status status)
+{
+	/* Nothing arrived, which is what a quiet board's transfer carries. */
+	deliver_bytes(status, 0, 0);
+}
+
+/* As libusb completes a transfer: it writes how many bytes this transfer
+ * received, every time, before it calls the callback. That is what decides
+ * whether a packet arrived, so the fake sets it on every delivery rather
+ * than leaving the last one's count in place. */
+static void deliver_bytes(enum libusb_transfer_status status, int length,
+                          uint8_t first_byte)
 {
 	struct libusb_transfer* xfer = fake.in_flight;
 
 	mu_assert_fatal(xfer != NULL, "a transfer was in flight");
+	if (length > 0 && xfer->buffer != NULL)
+		xfer->buffer[0] = first_byte;
+	xfer->actual_length = length;
 	if (status != LIBUSB_TRANSFER_TIMED_OUT)
 		fake.in_flight = NULL;
 	xfer->status = status;
 	xfer->callback(xfer);
-}
-
-/* The same, for a transfer that brought bytes: libusb fills in how many it
- * received, which is what decides whether this is a packet. */
-static void deliver_bytes(enum libusb_transfer_status status, int length,
-                          uint8_t first_byte)
-{
-	mu_assert_fatal(fake.in_flight != NULL, "a transfer was in flight");
-	if (length > 0 && fake.in_flight->buffer != NULL)
-		fake.in_flight->buffer[0] = first_byte;
-	fake.in_flight->actual_length = length;
-	deliver(status);
 }
 
 static btbb_piconet* new_piconet(void)
