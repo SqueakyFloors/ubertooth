@@ -191,9 +191,11 @@ capture is what standard output holds.
 
 The prompt and the `Type ? to list commands` line are on standard error, with
 the progress a command makes, as plain lines carrying neither the time nor a
-level:
+level. The prompt has no newline of its own, so the first progress line after
+it lands on its end, as it does on a terminal:
 
-    Starting BTCtlInquiryCmd
+    Type ? to list commands
+    bt> Starting BTCtlInquiryCmd
     Inquiry state Ready
     Inquiry done
 

@@ -391,6 +391,26 @@ jobs:
           -B "$GITHUB_WORKSPACE/tools-build" \
           -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 
+    - name: Check that it is the installed library that was found
+      working-directory: ${{github.workspace}}/tools-build
+      shell: bash
+      # The whole job rests on this, and nothing else asserts it:
+      # FindUBERTOOTH.cmake lists the source tree beside the tools among the
+      # places it looks, which in this configuration is the very
+      # host/libubertooth/src this is meant to be doing without. The system
+      # prefix is searched first, so it finds the installed library -- but a
+      # reordering, or an install step that silently did nothing, would leave
+      # the job building against the source tree and reporting a pass.
+      run: |
+        found=$(sed -n 's/^LIBUBERTOOTH_INCLUDE_DIR:[^=]*=//p' CMakeCache.txt)
+        echo "libubertooth header found at: $found"
+        case "$found" in
+          "") echo "error: no libubertooth header was found at all" >&2; exit 1 ;;
+          "$GITHUB_WORKSPACE"/*)
+            echo "error: that is this checkout, not an installed library" >&2
+            exit 1 ;;
+        esac
+
     - name: Build the tools
       shell: bash
       run: cmake --build "$GITHUB_WORKSPACE/tools-build" --config $BUILD_TYPE
