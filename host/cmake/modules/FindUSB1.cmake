@@ -13,6 +13,41 @@
 # For details see the accompanying COPYING-CMAKE-SCRIPTS file.
 
 
+# A remembered answer is only as good as the files it names. A package upgrade
+# moves them: Homebrew installs libusb under
+# /opt/homebrew/Cellar/libusb/<version>, so the next version is a different
+# directory and the remembered one has gone. Taking it on trust would report
+# libusb found and leave the build to fail on the missing header, so whichever
+# of the two paths has gone is searched for again.
+#
+# The header and the library are checked one at a time, because a configure
+# can remember either without the other.
+#
+# Each drops the cache entry and any ordinary variable of the same name:
+# find_path() and find_library() below skip their search while either holds a
+# path, so one left behind would be reported again.
+if (LIBUSB_INCLUDE_DIR AND NOT EXISTS "${LIBUSB_INCLUDE_DIR}/libusb.h")
+  message(STATUS "libusb's header has moved since the last configure "
+    "(${LIBUSB_INCLUDE_DIR}/libusb.h is gone); searching for it again")
+  unset(LIBUSB_INCLUDE_DIR CACHE)
+  unset(LIBUSB_INCLUDE_DIR)
+endif()
+
+# A library entry that is not an absolute path is left alone: a user may have
+# set it to a bare link name, which nothing here can check. Where one entry of
+# a list has gone the whole list is dropped, and find_library() answers with
+# the one libusb it finds.
+foreach(_libusb_library IN LISTS LIBUSB_LIBRARIES)
+  if (IS_ABSOLUTE "${_libusb_library}" AND NOT EXISTS "${_libusb_library}")
+    message(STATUS "libusb's library has moved since the last configure "
+      "(${_libusb_library} is gone); searching for it again")
+    unset(LIBUSB_LIBRARIES CACHE)
+    unset(LIBUSB_LIBRARIES)
+    break()
+  endif()
+endforeach()
+unset(_libusb_library)
+
 if (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
 
   # in cache already. USB1_FOUND as well as LIBUSB_FOUND: USB1 is the name

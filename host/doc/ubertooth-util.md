@@ -108,13 +108,19 @@ value this tree requires. Both images report it, so a `btbr` board is not
 refused over its version; the other tools still cannot drive that image, and
 fail on the first request it does not answer.
 
-The API version is bumped whenever a firmware change affects the host, so a
-release build normally refuses a board flashed from an earlier commit rather
-than using it, and a development build warns about it. It
-still does not pin down a commit, since several commits share one number: the
-firmware revision shown by `-v` beside the API version is what identifies the
-build. Flash the firmware from the commit the tools were built from
-(`./install.sh --flash`).
+During development the API version stays where it is through an ordinary
+firmware change, because host tools and firmware are built and flashed
+together, and moves for a change that breaks older host tools: a request
+removed or renumbered, or a reply layout an older host would misread. A
+release takes a version of its own, to mark that its tools and firmware work
+only with each other; `COMPATIBILITY.md` has the whole rule. Where the two
+numbers do disagree, a release build refuses the
+board rather than using it and a development build warns about it, unless
+`UBERTOOTH_ALLOW_API_MISMATCH` says otherwise (see ubertooth(7),
+ENVIRONMENT). So the number does not pin down a commit, and many commits
+share one: the firmware revision shown by `-v` beside the API version is what
+identifies the build. Flash the firmware from the commit the tools were built
+from (`./install.sh --flash`).
 
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
 `-I` and `-i` (In-System Programming, ISP) each end the command, so a command
