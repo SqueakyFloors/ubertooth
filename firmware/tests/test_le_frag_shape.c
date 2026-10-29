@@ -46,8 +46,6 @@
 static char le_phy[400000];
 static char rxtx[600000];
 static char dma[60000];
-/* Only the declarations near the top; the whitening tables below them are
- * long and nothing here reads them. */
 static char le_h[20000];
 
 static void load(const char *name, char *out, size_t size)
@@ -173,10 +171,16 @@ MU_TEST(a_long_promiscuous_packet_is_dewhitened_to_its_end)
 	                 " pdu_bytes - LE_DMA_HEAD, channel, LE_DMA_HEAD);")
 	          != NULL,
 	          "the rest of the packet is not dewhitened");
-	/* Nothing dewhitens by a per-channel table of words any more, which is
-	 * what a second path would look like. */
+	/* Nothing here dewhitens a packet any other way, which is what a second
+	 * path would look like: no table of words for a channel, and no helper
+	 * of its own that took one. */
 	mu_assert(strstr(rxtx, "whitening_word[") == NULL,
 	          "the promiscuous follow half still has a whitening table path");
+	mu_assert(strstr(rxtx, "dewhiten_word(") == NULL,
+	          "the promiscuous follow half still has a dewhitening helper "
+	          "of its own");
+	mu_assert(strstr(le_h, "[40][") == NULL,
+	          "a per-channel table came back to the low-energy header");
 }
 
 /* ------------------------------------------------------------------ *

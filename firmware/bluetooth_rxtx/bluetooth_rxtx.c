@@ -3128,7 +3128,15 @@ int cb_follow_le() {
 			 * neither a CRC of it to check -- reading one would
 			 * read past the buffer -- nor a record of it to send,
 			 * because what the host would get is a record claiming
-			 * bytes that were never decoded. */
+			 * bytes that were never decoded.
+			 *
+			 * This is the buffer's own bound, not the judgement
+			 * le_length_is_possible() makes for the other capture
+			 * loop: that one asks whether a length could belong to
+			 * a packet at all, and allows a Data Length Extension
+			 * payload, which does not fit here. The arithmetic
+			 * works out to 37 payload bytes, which is the legacy
+			 * maximum, but it is the buffer that says so. */
 			if (4 + len + 3 > FOLLOW_LE_BYTES)
 				break;
 
@@ -3199,7 +3207,11 @@ void connection_follow_cb(u8 *packet) {
 			le.update_pending = 0;
 		}
 
-		if (llid == 0x03 && data[0] == 0x00) {
+		/* A connection update carries twelve bytes: the opcode and the
+		 * eleven fields read below. A shorter control packet claiming to
+		 * be one would have those fields read from whatever the buffer
+		 * held before it, and the connection followed from there. */
+		if (llid == 0x03 && *data_len >= 12 && data[0] == 0x00) {
 			// This is a CONNECTION_UPDATE_REQ.
 			// The host is changing the connection parameters.
 			le.win_size_update = packet[7];

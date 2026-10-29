@@ -189,8 +189,9 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
  *
  * It is built from whitening[] on first use rather than written out as a
  * second copy of the sequence: a copy in the source could disagree with the
- * one above it, and a table of ready-made words for all 40 channels would
- * cost more flash than the whole low-energy capture path.
+ * one above it, and the 20 bytes this takes do the work of a 1920-byte table
+ * of ready-made words for 40 channels, which only reached 48 bytes into a
+ * packet anyway.
  *
  * On first use rather than at a mode start because the callers are in two
  * different capture engines, so there is no one place a mode start passes
@@ -199,14 +200,15 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
  * buffer behind it. Both callers run from a mode loop, never from an
  * interrupt, so neither can find it half built.
  */
-#define WHITENING_WORD_COUNT ((sizeof(whitening) + 31 + 31) / 32)
+#define WHITENING_PACKED_BITS (sizeof(whitening) + 31)
+#define WHITENING_WORD_COUNT ((WHITENING_PACKED_BITS + 31) / 32)
 static u32 whitening_packed[WHITENING_WORD_COUNT];
 static int whitening_packed_ready;
 
 static void pack_whitening(void) {
 	unsigned i;
 
-	for (i = 0; i < sizeof(whitening) + 31; ++i)
+	for (i = 0; i < WHITENING_PACKED_BITS; ++i)
 		whitening_packed[i / 32] |=
 			(u32)whitening[i % sizeof(whitening)] << (i % 32);
 	whitening_packed_ready = 1;
