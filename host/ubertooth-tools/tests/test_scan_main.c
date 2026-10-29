@@ -312,13 +312,18 @@ btbb_piconet* btbb_next_survey_result(void)
 	return survey_result;
 }
 
-/* One piconet with the given LAP and AFH map, and no valid UAP, so the
- * results line is the "??:??:??" form. */
-static void one_survey_result(uint32_t lap, const uint8_t* map)
+/* One piconet with the given LAP and AFH map. uap is the piconet's UAP, or -1
+ * for one the scan never recovered: the results line is then the "??:??:??"
+ * form and the scan has no address to ask anything of. */
+static void one_survey_result(uint32_t lap, int uap, const uint8_t* map)
 {
 	survey_result = btbb_piconet_new();
 	mu_assert(survey_result != NULL, "btbb_piconet_new failed");
 	btbb_init_piconet(survey_result, lap);
+	if (uap >= 0) {
+		btbb_piconet_set_uap(survey_result, (uint8_t)uap);
+		btbb_piconet_set_flag(survey_result, BTBB_UAP_VALID, 1);
+	}
 	btbb_piconet_set_afh_map(survey_result, (uint8_t*)map);
 	survey_handed_out = 0;
 }
@@ -712,7 +717,7 @@ MU_TEST(the_survey_results_are_the_whole_of_standard_output)
 	struct run_result r;
 
 	reset_fake();
-	one_survey_result(0x9e8b33, map);
+	one_survey_result(0x9e8b33, -1, map);
 	r = RUN("-t", "5");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, "??:??:??:9E:8B:33\n"
@@ -838,7 +843,9 @@ MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
 	struct run_result r;
 
 	reset_fake();
-	one_survey_result(0x9e8b33, map);
+	/* A piconet whose UAP the scan recovered, which is the only kind -x is
+	 * given: the NAP is still guessed. */
+	one_survey_result(0x9e8b33, 0x44, map);
 	fake.connect_fails = 1;
 	fake.connect_errno = EHOSTDOWN;
 	r = RUN("-x", "-t", "5");
@@ -848,7 +855,7 @@ MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
 	          != NULL, r.err);
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	/* The piconet is still a result, map and all. */
-	mu_assert(strstr(r.out, "??:??:??:9E:8B:33\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "??:??:44:9E:8B:33\t[unknown]\n") != NULL, r.out);
 	mu_assert(strstr(r.out, "AFH map: 0x00000000000000000000\n") != NULL,
 	          r.out);
 }
