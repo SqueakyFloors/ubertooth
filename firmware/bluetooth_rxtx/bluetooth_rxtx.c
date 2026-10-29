@@ -900,11 +900,17 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * arriving next is thrown away, and the follow hops all 79
 		 * channels instead of the piconet's.
 		 *
-		 * Only while a mode start is still to come, as the channel
-		 * request has it. A map sent by a capture that is already
-		 * running -- AFH detection sends one whenever it finds another
-		 * channel -- needs no copy, and keeping one would hand that
-		 * run's map to the next capture that asks for the same mode. */
+		 * Only when the mode the host asked for is not the one running,
+		 * which is the test the channel request makes. A map sent by a
+		 * capture already in that mode -- AFH detection sends one
+		 * whenever it finds another channel -- needs no copy, and
+		 * keeping one would hand that run's map to the next capture
+		 * asking for the same mode.
+		 *
+		 * `mode` is the mode the dispatch last entered, so a request
+		 * absorbed into a streaming run still takes the copy. Nothing
+		 * reads it there: the next dispatched mode start drops a copy
+		 * that is not its own. */
 		if (requested_mode != mode) {
 			for (i = 0; i < sizeof(afh_map); i++)
 				stated_afh_map[i] = data[i];

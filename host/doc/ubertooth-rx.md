@@ -350,6 +350,10 @@ packets are missing, so a capture with gaps is complete only between them. The
 board reports a gap on the first packet that gets through after it, so a
 capture that ends in the moment after a gap does not report that last one.
 
+A capture read back from a file with `-i` reports the same way: the gaps are
+recorded in the packets, so replaying one warns as it reads them and gives the
+same total at the end.
+
 ## EXIT STATUS
 
 A capture that ran to its `-t` timeout, or that was interrupted (Ctrl-C),

@@ -580,7 +580,8 @@
   request, as it already kept a channel: on a board left in a mode that
   captures no packets -- a killed `ubertooth-specan`, `-btle` or `-ego` -- the
   map that arrived next used to be thrown away by the mode start's reset, and
-  the follow hopped all 79 channels instead.
+  the follow hopped all 79 channels instead. Clearing the map drops one kept
+  that way as well, so a tool that asks for the whole band gets it.
   [#788](https://github.com/SqueakyFloors/ubertooth/issues/788)
 - A capture that is losing packets says so, in every mode that captures:
   `warning: the board's packet queue filled up and it dropped at least one
@@ -588,7 +589,8 @@
   3 gaps where the board's queue filled up and it dropped packets` when the
   capture ends. A capture the board could not keep up with used to look exactly
   like a quiet band. The count is of gaps, not of lost packets: the board sends
-  no number.
+  no number. A capture read back from a file with `ubertooth-rx -i` gives the
+  same total, since the gaps are recorded in the packets.
   [#786](https://github.com/SqueakyFloors/ubertooth/issues/786)
 - **Script-visible change:** every tool that ends a capture mode exits 1 when
   the board refused the request that ends it. Such a board is left running
