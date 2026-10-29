@@ -70,6 +70,15 @@ which nothing would then report. Adding or renaming a runner in
 the pull-request matrix therefore means editing the stand-in's matrix, the
 protection rule on `main`, and the names above, together.
 
+That same rule explains two sets of odd-looking entries in `gh pr checks`,
+neither of which is required and neither of which means anything went wrong.
+A skipped real job reports under its bare name (`host`, `firmware`,
+`scripts`), and a skipped stand-in reports under its unevaluated one
+(`host (${{ matrix.os }})`), because GitHub does not evaluate the name of a
+job it skips either. On any one pull request each check name is reported by
+exactly one job, which is what keeps a stand-in from ever masking a real
+failure.
+
 ### Nothing enforces them
 
 `main` has no branch-protection rule, so a red pull request can still be

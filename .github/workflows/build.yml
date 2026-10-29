@@ -915,6 +915,15 @@ jobs:
   # including the ones named for a macOS runner, because a stand-in has
   # nothing platform-specific to do and a macOS runner can queue for an hour.
   #
+  # The matrix is also what keeps a stand-in from ever masking a real failure.
+  # GitHub does not evaluate the name of a job it skips any more than it
+  # expands its matrix, so a skipped stand-in reports under the unevaluated
+  # `host (${{ matrix.os }})` rather than under a leg's name. That entry is
+  # cosmetic and nothing requires it; what matters is that no pull request can
+  # ever have two check runs of the same name, one of them a stand-in's pass.
+  # Three jobs named for one leg each would report that pair, and a protection
+  # rule reading whichever arrived last would be a hole rather than a gate.
+  #
   # The matrix in each is the minimal tier's, spelled out: a stand-in can only
   # run on a pull request, since `changes` reports every side as changed for
   # every other event, and a pull request is always the minimal tier. A
