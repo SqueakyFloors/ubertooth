@@ -33,10 +33,12 @@ set(LIBBTBB_PINNED_REF "2fd0d391d99e9b0620146f63f439c1ec74f79861")
 # machine would mean a libbtbb that satisfies a macOS build and fails a Linux
 # one later.
 set(LIBBTBB_REQUIRED_FUNCTIONS
+  btbb_decode_header
   btbb_find_ac
   btbb_gen_syncword
   btbb_get_release
   btbb_get_version
+  btbb_header_present
   btbb_init
   btbb_init_piconet
   btbb_init_survey
@@ -46,8 +48,10 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_packet_get_clkn
   btbb_packet_get_lap
   btbb_packet_set_data
+  btbb_packet_set_flag
   btbb_packet_set_modulation
   btbb_packet_set_transport
+  btbb_packet_set_uap
   btbb_packet_unref
   btbb_pcap_append_packet
   btbb_pcap_close

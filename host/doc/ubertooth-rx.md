@@ -288,6 +288,30 @@ that starts with `-`: `-q -x` writes the file `-x`. Standard output carries
 one stream, so `-q -` and `-d -` in one command are refused:
 `error: -q and -d cannot both write to standard output`.
 
+## WHAT A CAPTURE RECORD HOLDS
+
+Every record of a `-q` or `-r` capture carries the LAP recovered from the
+packet's own access code, in every mode, including a survey (`-z`). The
+reference LAP and reference UAP beside it are a different thing: the address
+this tool was told to look for. A run given none records no reference address,
+and says so with the flags, which is what a reader checks before using it.
+
+The packet's own 18-bit header joins them once a followed piconet's clock bits
+are known, which is what the UAP search works out along with the UAP. A reader
+checks a recorded header by recomputing its check bits from the reference UAP
+in the same record. That is also how it tells a header this tool could not
+place from one that was really sent: a packet of another piconet whose access
+code matched is recorded with the bits the error correction made of its
+header, and those bits fail the check.
+
+A record written before those clock bits are known carries no header at all.
+The header is whitened at the piconet's clock, so until the decoder has worked
+that clock out there is nothing to unwhiten it with, and the record holds 18
+zero bits instead. So do the records of a survey, which follows no piconet,
+and the one packet that completes the piconet's clock. A piconet whose UAP is
+`ff` records no reference UAP either: the decoder uses that value for "none",
+so a real one cannot be told from it.
+
 ## CAPTURING TO STANDARD OUTPUT
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw records,
