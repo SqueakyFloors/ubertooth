@@ -3849,12 +3849,12 @@ _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
  * that is not running would otherwise leave the wait spinning, answering no
  * control request, until the watchdog reset the board.
  *
- * Reaching it costs real time: 100,000 turns of a register read and a division
- * is on the order of 25 milliseconds, with USB unserviced, once per packet. By
- * then the radio has refilled the 32-byte FIFO several times over, so that
- * record is wrong throughout rather than only at byte 0. Both are worse than
- * the wait working, and both are far better than a loop that never ends: the
- * board goes on answering between packets, so the host can stop the mode.
+ * Reaching it costs real time: 100,000 turns of a register read and a compare,
+ * with USB unserviced, once per packet. By then the radio has refilled the
+ * 32-byte FIFO several times over, so that record is wrong throughout rather
+ * than only at byte 0. That is worse than the wait working and far better than
+ * a loop that never ends: the board goes on answering between packets, so the
+ * host can stop the mode.
  */
 #define RX_GENERIC_LEAD_POLLS 100000
 

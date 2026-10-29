@@ -160,12 +160,10 @@ rangetest_result rr;
  * that is not running would otherwise leave the wait spinning, answering no
  * control request, until the watchdog reset the board.
  *
- * Reaching it means the wait did not measure the lead, either way round. A
- * counter that is not advancing reads the packet as early as the firmware used
- * to, which is a wrong byte 0 at worst; a wait whose steps were all dropped
- * reads it late instead, by the 25 milliseconds this many turns take, and the
- * FIFO note above says what a long wait costs. Both beat a loop that never
- * ends: the board goes on answering between packets.
+ * Reaching it means the wait did not measure the lead, which happens when the
+ * counter is not advancing: the packet is then read as early as it was before
+ * the wait existed, a wrong byte 0 at worst. That beats a loop that never
+ * ends, and the board goes on answering between packets.
  */
 #define RANGETEST_LEAD_POLLS 100000
 

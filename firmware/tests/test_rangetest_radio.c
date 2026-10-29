@@ -240,8 +240,8 @@ static int defined_number(const char *line, const char *name)
  * The scan below reads the file a physical line at a time, and the compiler
  * does not: a backslash at the end of a line joins it to the next one. A line
  * of `// \` therefore takes the line below it into its comment, and the scan
- * still reads that line as code -- so the guard can be commented out with
- * every check on it satisfied. This reads the file again because the scan
+ * still reads that line as code -- so a line of the wait can be commented out
+ * with every check on it satisfied. This reads the file again because the scan
  * strips comments as it goes, which takes the backslash with them.
  */
 static int joined_line_in_function(const char *path, int start)
@@ -381,8 +381,8 @@ static int scan_source(const char *path, struct scan *s)
 		 * whether any of them is undefined again. Everything else here
 		 * reads the text of the first definition; the compiler reads the
 		 * last one, so `#undef RANGETEST_LEAD_100NS` and a smaller value
-		 * would leave every check satisfied and the guard with nothing
-		 * left to drop.
+		 * would leave every check satisfied and the wait shorter than
+		 * the lead it is written for.
 		 */
 		if (strstr(line, "define RANGETEST_LEAD_100NS") != NULL ||
 		    strstr(line, "define RANGETEST_LEAD_POLLS") != NULL ||
@@ -450,9 +450,9 @@ static int scan_source(const char *path, struct scan *s)
 			 * string. The checks after it say what each line is for;
 			 * this says that those lines are the whole of it. Each
 			 * check on its own can be satisfied while the wait is
-			 * taken apart around it -- `waited = waited + step;`
-			 * above the guard, a second write to `step` below the
-			 * pinned one -- and none of that survives this.
+			 * taken apart around it -- a `waited = 0;` below the
+			 * addition, a `break;` before the lead has passed --
+			 * and none of that survives this.
 			 */
 			if (s->fifo_wait_body[0] != '\0')
 				strncat(s->fifo_wait_body, " ",
@@ -467,10 +467,9 @@ static int scan_source(const char *path, struct scan *s)
 			if (contains_identifier(line, "RANGETEST_LEAD_POLLS"))
 				s->fifo_wait_cap = 1;
 			/*
-			 * The loop's own condition, pinned as written. The guard
-			 * below names RANGETEST_LEAD_100NS too, so a check for
-			 * the name alone would no longer say that the wait runs
-			 * the whole lead.
+			 * The loop's own condition, pinned as written, so
+			 * `waited < 1` is not read as the wait running the
+			 * whole lead.
 			 */
 			if (strncmp(flat, "while (", 7) == 0 &&
 			    strcmp(flat, "while (waited < RANGETEST_LEAD_100NS && "
@@ -1485,7 +1484,6 @@ MU_TEST(test_the_wait_is_a_few_bytes_of_air_time)
 	         "count is wrong by a factor of tens and nothing else here would "
 	         "notice", path, s.lead_text);
 	mu_assert(s.lead_from_byte, msg);
-
 }
 
 /*
@@ -1953,9 +1951,9 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 	 * of a longer one cannot be known in full -- nothing in the wait knows
 	 * how long that period was -- so the helper counts only how far into
 	 * the new period the second reading is. For the pair below that is 10
-	 * ticks where 384 really passed, and a fixed modulus would have made
-	 * 2,056 of it: counting that would end the wait before the radio had
-	 * written byte 0, which is the `mismatch on byte 0` the wait is for.
+	 * ticks where 384 really passed. Undercounting is the safe direction:
+	 * over-counting is what ends the wait before the radio has written
+	 * byte 0, which is the `mismatch on byte 0` the wait is for.
 	 */
 	{
 		static const uint32_t extended[] = {
@@ -1963,8 +1961,6 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 		};
 
 		mu_assert_int_eq(10, (int)clk100ns_step(9000, 10));
-		mu_assert_int_eq(2056, (int)((10u + CLKN_PERIOD - 9000u) %
-		                             CLKN_PERIOD));
 		got = accumulate(extended, 7, 320, 1000);
 		mu_assert(got >= 320 && got < 420,
 		          "a step out of a period that was not the usual length "
@@ -1992,29 +1988,21 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
  * the two readings, which the wait cannot know. `step` is what the shared
  * helper makes of them, and `mod` what a fixed modulus made of them before.
  *
- * Two numbers settle the helper. The first is how many single readings end the
- * wait on their own with less than the lead behind them, which is what the
- * fault looks like. The second is the most any counted step over-states the
- * time it stands for, and it is the one that settles the question for good:
+ * Two numbers come out. The first is how many single readings end the wait on
+ * their own with less than the lead behind them, which is what the fault looks
+ * like. The second is the most any counted step over-states the time it stands
+ * for, and it is the one that settles the question for every wait however long:
  * while no step over-states its time, the running total can never be ahead of
  * the clock, so no number of them can end the wait early either.
- *
- * The last three are the fixed modulus, kept so the sweep says why the helper
- * replaced it: how many readings it ends the wait on with every step counted,
- * how many it still ends the wait on when a step longer than the lead is
- * dropped, and the most a step it keeps over-states its time.
  */
 struct period_sweep {
-	long ends_the_wait_early;   /* the shared helper */
+	long ends_the_wait_early;
 	uint32_t worst_over_count;  /* counted step minus the time it stood for */
-	long modulus_every_step;    /* a fixed modulus, every step counted */
-	long modulus_guarded;       /* and with a step longer than the lead dropped */
-	uint32_t modulus_over_count;
 };
 
 static struct period_sweep sweep_period(uint32_t length)
 {
-	struct period_sweep r = { 0, 0, 0, 0, 0 };
+	struct period_sweep r = { 0, 0 };
 	uint32_t last, now;
 
 	for (last = 0; last < length; last++) {
@@ -2022,21 +2010,11 @@ static struct period_sweep sweep_period(uint32_t length)
 			uint32_t real = now < last ? now + length - last
 			                           : now - last;
 			uint32_t step = clk100ns_step(last, now);
-			uint32_t mod = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
 
 			if (step >= MODEL_LEAD && real < MODEL_LEAD)
 				r.ends_the_wait_early++;
 			if (step > real && step - real > r.worst_over_count)
 				r.worst_over_count = step - real;
-
-			if (mod >= MODEL_LEAD && real < MODEL_LEAD)
-				r.modulus_every_step++;
-			if (mod > MODEL_LEAD)
-				continue;        /* the dropped step */
-			if (mod >= MODEL_LEAD && real < MODEL_LEAD)
-				r.modulus_guarded++;
-			if (mod > real && mod - real > r.modulus_over_count)
-				r.modulus_over_count = mod - real;
 		}
 	}
 	return r;
@@ -2047,34 +2025,30 @@ static struct period_sweep sweep_period(uint32_t length)
  * lead has really passed.
  *
  * The timer's period is whatever is in its match register plus one. The clock
- * interrupt in bluetooth_rxtx.c writes 3124 plus a 16-bit offset there, so
- * every length from 3125 up is reachable: the drift fix sets that offset to 1
+ * interrupt in bluetooth_rxtx.c writes 3124 plus a 16-bit offset there, so the
+ * period runs from 3,125 ticks to 68,660: the drift fix sets that offset to 1
  * for a clock running fast and 6249 for one running slow, and
  * UBERTOOTH_TRIM_CLOCK and UBERTOOTH_START_HOPPING pass an offset from the
  * host straight through. Nothing scans those numbers, so a change to the clock
  * interrupt wants the lengths below changed with it.
  *
- * The four are the ones that tell the two ways of measuring a step apart. A
- * fixed modulus reads 51,040 pairs of readings of a long period as the lead or
- * more where almost no time passed; dropping a step longer than the lead
- * covers three of the four, and for 4,477 it leaves one reading that ends the
- * wait at once and lets a counted step over-state its time by 319 ticks. The
- * helper over-states nothing, at any of the four.
+ * The four below are the lengths that used to tell the fixed modulus the wait
+ * was built on apart from the helper: for three of them a step across the
+ * reset came out of that modulus as the lead or more where almost no time had
+ * passed, and 4,477 is the length where dropping a step longer than the lead
+ * did not cover it either. The generic receive's wait shares this helper and
+ * this lead, so its own test leaves the sweep here.
  */
 MU_TEST(test_no_reading_of_any_timer_period_ends_the_wait_early)
 {
-	/* length, where it comes from, and the three fixed-modulus counts. */
 	static const struct {
 		uint32_t length;
 		const char *source;
-		long modulus_every_step;
-		long modulus_guarded;
-		uint32_t modulus_over_count;
 	} periods[] = {
-		{ 3126u, "a drift fix for a clock running fast",     0, 0,   0 },
-		{ 9374u, "a drift fix for a clock running slow", 51040, 0,   0 },
-		{ 6250u, "a host offset of 3125",                51040, 0,   0 },
-		{ 4477u, "a host offset of 1352",                51040, 1, 319 },
+		{ 3126u, "a drift fix for a clock running fast" },
+		{ 9374u, "a drift fix for a clock running slow" },
+		{ 6250u, "a host offset of 3125" },
+		{ 4477u, "a host offset of 1352" },
 	};
 	char msg[384];
 	size_t i;
@@ -2103,23 +2077,6 @@ MU_TEST(test_no_reading_of_any_timer_period_ends_the_wait_early)
 		         "passed", periods[i].length, periods[i].source,
 		         r.worst_over_count);
 		mu_assert(r.worst_over_count == 0, msg);
-
-		/* And what the fixed modulus did with the same period, which
-		 * is why the helper measures the step instead. */
-		snprintf(msg, sizeof(msg),
-		         "period %u: a fixed modulus ends the wait early on "
-		         "%ld readings counting every step and %ld with a step "
-		         "longer than the lead dropped, over-counting by %u. "
-		         "The sweep is written for %ld, %ld and %u",
-		         periods[i].length, r.modulus_every_step,
-		         r.modulus_guarded, r.modulus_over_count,
-		         periods[i].modulus_every_step,
-		         periods[i].modulus_guarded,
-		         periods[i].modulus_over_count);
-		mu_assert(r.modulus_every_step == periods[i].modulus_every_step &&
-		          r.modulus_guarded == periods[i].modulus_guarded &&
-		          r.modulus_over_count == periods[i].modulus_over_count,
-		          msg);
 	}
 }
 

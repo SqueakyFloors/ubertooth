@@ -175,25 +175,57 @@ MU_TEST(a_gap_longer_than_the_timer_period_is_undercounted)
 	          "a multi-period gap was counted as more than a period");
 }
 
-/* And a step never says more time passed than really did, whatever the two
- * readings are: a deadline built on it cannot end a wait early. */
+/*
+ * And a step never says more time passed than really did, whatever the two
+ * readings are and whatever length the timer's period has: a deadline built on
+ * it cannot end a wait early. Every wait timed by timer 0 rests on this, so it
+ * is checked here, against the time that really passed.
+ *
+ * The clock interrupt writes 3124 plus a 16-bit offset to the timer's match
+ * register and the period is one tick longer, so the period runs from
+ * CLK100NS_PER_CLKN ticks to 68,660. Four lengths are swept whole: the usual
+ * one, the two a clock drift fix produces, and one the host can set that a
+ * fixed modulus used to read as a whole lead of waiting that had not happened.
+ */
 MU_TEST(a_step_never_overcounts)
 {
-	uint32_t last, now;
+	static const uint32_t lengths[] = { 3125u, 3126u, 4477u, 6250u, 9374u,
+	                                    68660u };
+	size_t i;
 
-	for (last = 0; last < 2 * CLK100NS_PER_CLKN; last += 37)
-		for (now = 0; now < CLK100NS_PER_CLKN; now += 41) {
-			uint32_t step = clk100ns_step(last, now);
+	for (i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+		uint32_t length = lengths[i], last, now;
+		/* Every reading of the shorter periods; a coarse grid of the
+		 * longest, which is 68,660 ticks each way. */
+		uint32_t stride = length > 10000 ? 97 : 1;
+		uint32_t worst = 0, worst_last = 0, worst_now = 0;
+		char msg[192];
 
-			mu_assert(step <= 2 * CLK100NS_PER_CLKN,
-			          "a step claimed more than two timer periods");
-			if (now >= last)
-				mu_assert_int_eq((int)(now - last), (int)step);
-			else
-				mu_assert(step <= CLK100NS_PER_CLKN,
-				          "a step across a reset claimed more than"
-				          " a period");
-		}
+		for (last = 0; last < length; last += stride)
+			for (now = 0; now < length; now += stride) {
+				uint32_t real = now < last
+				                ? now + length - last
+				                : now - last;
+				uint32_t step = clk100ns_step(last, now);
+
+				if (step > real && step - real > worst) {
+					worst = step - real;
+					worst_last = last;
+					worst_now = now;
+				}
+			}
+
+		snprintf(msg, sizeof(msg),
+		         "with the timer period %u ticks long, a step from %u "
+		         "to %u says %u ticks more passed than really did",
+		         length, worst_last, worst_now, worst);
+		mu_assert(worst == 0, msg);
+	}
+
+	/* Within one period the difference is the whole truth, not merely a
+	 * bound on it. */
+	mu_assert_int_eq(0, (int)clk100ns_step(0, 0));
+	mu_assert_int_eq(1234, (int)clk100ns_step(1000, 2234));
 }
 
 /* ------------------------------------------------------------------ *
