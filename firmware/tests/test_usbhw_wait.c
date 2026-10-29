@@ -75,6 +75,13 @@ static uint32_t ep_status[32];
 /* The answer the engine has ready for the data phase of the command it just
  * ran, or -1 if that command has no answer of its own. */
 static int engine_answer;
+/* What a command in the 0x40 to 0x5F range took from an endpoint, so that it
+ * can be given back if the phase that follows shows the command was Set
+ * Endpoint Status rather than Select Endpoint/Clear Interrupt. The endpoint is
+ * -1 when there is nothing to give back. See fake_engine_command(). */
+static int ep_clear_undo_idx;
+static uint32_t ep_clear_undo_pending;
+static uint32_t ep_clear_undo_status;
 
 /* The status the controller reports from the write that clears an endpoint's
  * interrupt, when a test wants it to differ from the one Select Endpoint
@@ -164,10 +171,10 @@ static uint32_t fake_select_endpoint_clear(unsigned idx, int answers)
  * alone, so a test can still put an answer there by hand -- that is how the
  * device status read is driven.
  *
- * Two gaps worth knowing. Clear Buffer and Validate Buffer are not modelled:
+ * One gap worth knowing. Clear Buffer and Validate Buffer are not modelled:
  * whether a packet is there to be read is `packet_ready` and USBRxPLen, not
  * the status byte, so reading an endpoint does not clear EPSTAT_FE here as it
- * would on the part. Nor does Set Endpoint Status set EPSTAT_ST, so an
+ * would on the part. Set Endpoint Status does not set EPSTAT_ST either, so an
  * endpoint reads as unstalled after a stall; a test that wants to see a stall
  * looks at the command the firmware sent, with last_command_stalled_ep0().
  */
@@ -191,35 +198,58 @@ static void fake_engine_command(uint32_t code)
 		} else if (cmd >= 0x40u && cmd <= 0x5fu) {
 			/*
 			 * Select Endpoint/Clear Interrupt, which takes the
-			 * event (section 11.12.11).
+			 * endpoint's event and, on the control OUT endpoint,
+			 * its setup indication (section 11.12.11).
 			 *
 			 * Set Endpoint Status shares these command codes
-			 * (section 11.12.12), and the manual leaves it open
-			 * whether writing one of them takes an endpoint's
-			 * event before the engine can know which command was
-			 * meant: the two are written the same way and differ
-			 * only in the phase that follows. Table 249 says
-			 * unstalling an endpoint leaves its interrupt status
-			 * alone, which reads as the engine waiting, but it is
-			 * said of the re-initialization rather than of the
-			 * command.
+			 * (section 11.12.12). The two are written the same
+			 * way and differ only in the phase that follows -- a
+			 * byte read for the first, a byte written for the
+			 * second -- so what the engine does with an endpoint
+			 * before it knows which was meant is not documented.
+			 * Table 249 says unstalling an endpoint leaves its
+			 * interrupt status alone, but says it of the
+			 * re-initialization rather than of the command.
 			 *
-			 * So the fake takes the costly reading -- the event
-			 * goes now -- and no test can pass by assuming a
-			 * stall is free. Writing a command here and giving up
-			 * on its answer is the case this whole file is about,
-			 * and it has to cost the event, exactly as a write to
-			 * USBEpIntClr does.
+			 * The fake takes the costly reading and then undoes
+			 * it: the event goes when the command is written, and
+			 * comes back if the next phase shows the command was
+			 * Set Endpoint Status. So a command whose answer
+			 * never arrives -- the case this whole file is about
+			 * -- costs the event, exactly as a write to
+			 * USBEpIntClr does, and a stall that completes costs
+			 * nothing. Neither reading of the manual can let a
+			 * test pass that should fail.
 			 */
+			ep_clear_undo_idx = (int)(cmd & 0x1fu);
+			ep_clear_undo_pending = ep_pending;
+			ep_clear_undo_status = ep_status[cmd & 0x1fu];
+			/* Not the endpoint `ep_status_at_clear` speaks for:
+			 * that knob describes a packet arriving between the
+			 * firmware's two commands, and the firmware runs this
+			 * one nowhere. */
 			engine_answer = (int)fake_select_endpoint_clear(
-				cmd & 0x1fu, 1);
+				cmd & 0x1fu, 0);
+		} else {
+			ep_clear_undo_idx = -1;
 		}
 		break;
 	case 0x02u:
-		/* the data phase of a read: the byte is there to be read */
+		/* a byte read back: the command was the clearing one, so what
+		 * it took stays taken */
+		ep_clear_undo_idx = -1;
 		if (engine_answer >= 0) {
 			fake_cmddata = (uint32_t)engine_answer;
 			engine_answer = -1;
+		}
+		break;
+	case 0x01u:
+		/* a byte written: the command was Set Endpoint Status after
+		 * all, so give the endpoint its event back */
+		if (ep_clear_undo_idx >= 0) {
+			ep_pending = ep_clear_undo_pending;
+			ep_status[ep_clear_undo_idx] = ep_clear_undo_status;
+			ep_clear_undo_idx = -1;
 		}
 		break;
 	default:
@@ -472,6 +502,7 @@ static void fake_reset(void)
 	clear_polls_left = 0;
 	devint_latch = 0;
 	ep_slow_rederived = 0;
+	ep_clear_undo_idx = -1;
 	staged_which = STAGED_NONE;
 	staged_value = 0;
 	fake_devintclr = 0;
@@ -500,10 +531,17 @@ static void fake_reset(void)
  * that value in the command register is the stall, and unstalling or any other
  * command leaves something else there.
  */
-static int last_command_stalled_ep0(void)
+/* The last command the firmware wrote. A write the firmware made last is
+ * still staged, so it has to be applied before the answer means anything. */
+static uint32_t last_command(void)
 {
 	fake_apply_writes();
-	return fake_cmdcode == (0x00000100u | ((uint32_t)EP_ST << 16));
+	return fake_cmdcode;
+}
+
+static int last_command_stalled_ep0(void)
+{
+	return last_command() == (0x00000100u | ((uint32_t)EP_ST << 16));
 }
 
 /* ---- the protocol engine handshake ---- */
@@ -745,7 +783,7 @@ MU_TEST(test_ep_write_reports_a_short_write_and_does_not_validate_it)
 
 	mu_assert_int_eq(16, USBHwEPWrite(0x82, buf, sizeof(buf)));
 	mu_assert_int_eq(4, (int)tx_words);
-	mu_assert(fake_cmdcode == 0,
+	mu_assert(last_command() == 0,
 	          "a packet the controller would not take whole must not be validated");
 	mu_assert(usbhw_timeouts > 0, "a short write must be counted");
 }
@@ -1063,8 +1101,7 @@ MU_TEST(test_a_control_transfer_works_after_a_failed_setup_read)
 
 static int last_command_validated_a_buffer(void)
 {
-	fake_apply_writes();
-	return fake_cmdcode == VALIDATE_BUFFER_CMD;
+	return last_command() == VALIDATE_BUFFER_CMD;
 }
 
 /* Did the firmware offer the host a packet of this many bytes? USBTxPLen
@@ -1259,7 +1296,7 @@ MU_TEST(test_a_control_reply_the_controller_takes_is_sent_once)
 	fake_cmdcode = 0;
 	USBHwISR();
 	mu_assert_int_eq(16, (int)tx_words);
-	mu_assert(fake_cmdcode == 0, "a reply already sent must not be sent again");
+	mu_assert(last_command() == 0, "a reply already sent must not be sent again");
 }
 
 /* The regression: a refused packet is offered again on the next service pass,
@@ -1463,6 +1500,27 @@ MU_TEST(test_a_deferred_endpoint_event_keeps_a_refused_control_reply)
 	fake_raise_ep_event(1 << 0);
 	sie_answers = 0;
 	USBHwISR();
+
+	sie_answers = 1;
+	tx_words = 0;
+	tx_wr_en_words = 16;
+	USBHwISR();
+	mu_assert_int_eq(16, (int)tx_words);
+}
+
+/* An event given up on another endpoint keeps it too. btbr enables interrupts
+ * on its bulk OUT endpoint and the serial stack on more, and losing one of
+ * those says nothing about a control transfer: voiding the reply then would
+ * throw away one the host is still waiting for. */
+MU_TEST(test_a_given_up_event_on_another_endpoint_keeps_a_refused_reply)
+{
+	refused_control_in(0x3a);
+
+	fake_raise_ep_event(EP82_BIT);
+	sie_answers = 0;
+	USBHwISR();
+	USBHwISR();
+	mu_assert(!fake_ep_event_pending(EP82_BIT), "the event must be given up");
 
 	sie_answers = 1;
 	tx_words = 0;
@@ -2000,6 +2058,30 @@ MU_TEST(test_a_deferred_event_comes_back_when_the_controller_raises_ep_slow)
 	mu_assert(!fake_ep_event_pending(EP82_BIT), "and then handled");
 }
 
+/* Stalling an endpoint is Set Endpoint Status, which shares its command codes
+ * with Select Endpoint/Clear Interrupt. A stall that goes through must leave
+ * the endpoint's event alone: the firmware stalls endpoint 0 when it cannot
+ * read a setup packet, and a control request waiting behind that must still
+ * reach the endpoint loop. */
+MU_TEST(test_a_stall_that_goes_through_leaves_the_event_alone)
+{
+	ep0_isr_test_setup();
+	fake_raise_setup_event();
+
+	USBHwEPStall(0x00, TRUE);
+	USBHwEPStall(0x00, FALSE);
+
+	mu_assert(fake_ep_event_pending(EP0_BIT),
+	          "a stall must leave the endpoint's event waiting");
+	mu_assert(fake_ep_setup_pending(EP0_OUT_IDX),
+	          "and its setup indication with it");
+
+	USBHwISR();
+	mu_assert_int_eq(1, (int)ep_handler_calls);
+	mu_assert(ep_handler_last_status & EP_STATUS_SETUP,
+	          "the request must still arrive as a setup packet");
+}
+
 /* A device status event whose read works reaches the handler. */
 MU_TEST(test_a_device_status_event_reaches_its_handler)
 {
@@ -2295,6 +2377,7 @@ int main(void)
 	MU_RUN(test_a_setup_packet_with_an_out_data_stage_voids_a_refused_reply);
 	MU_RUN(test_a_given_up_endpoint_event_voids_a_refused_control_reply);
 	MU_RUN(test_a_deferred_endpoint_event_keeps_a_refused_control_reply);
+	MU_RUN(test_a_given_up_event_on_another_endpoint_keeps_a_refused_reply);
 	MU_RUN(test_a_stall_voids_a_refused_control_reply);
 	MU_RUN(test_an_endpoint_event_reaches_its_handler);
 	MU_RUN(test_a_handled_endpoint_event_is_consumed);
@@ -2312,6 +2395,7 @@ int main(void)
 	MU_RUN(test_a_given_up_setup_packet_is_not_left_to_look_like_data);
 	MU_RUN(test_a_deferred_event_comes_back_without_the_controllers_help);
 	MU_RUN(test_a_deferred_event_comes_back_when_the_controller_raises_ep_slow);
+	MU_RUN(test_a_stall_that_goes_through_leaves_the_event_alone);
 	MU_RUN(test_a_device_status_event_reaches_its_handler);
 	MU_RUN(test_a_failed_device_status_read_is_retried_once);
 	MU_RUN(test_a_dropped_device_status_event_leaves_the_next_one_its_retry);
