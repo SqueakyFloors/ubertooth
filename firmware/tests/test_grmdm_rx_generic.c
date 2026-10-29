@@ -32,6 +32,8 @@
 #include "minunit.h"
 #include "source_scan.h"
 #include "ubertooth_interface.h"
+/* clk100ns_step(), the firmware's own, for the runnable model at the end. */
+#include "ubertooth_clock.h"
 
 /* The values the firmware writes to GRMDM, from the cc2400_set(GRMDM, ...)
  * calls in firmware/bluetooth_rxtx. Whether each is packet mode is read from
@@ -45,6 +47,26 @@
 /* Buffering (bit 11) and packet mode (bit 10) are separate choices: the eGo
  * mode is un-buffered and in packet mode. */
 #define GRMDM_EGO_2FSK        0x04c0
+
+/*
+ * rx_generic_wait_for_fifo(), every code line of it with the spacing
+ * flattened and the comments left out. Each line of it can be left standing
+ * while the wait is taken apart around it -- a `waited = 0;` below the
+ * addition, a `break;` before the lead has passed -- so the whole function is
+ * pinned as written and not only its pieces. The range test's copy of the
+ * wait is pinned the same way in test_rangetest_radio.c.
+ */
+#define WAIT_BODY \
+	"{ " \
+	"u32 last = T0TC; " \
+	"u32 waited = 0; " \
+	"u32 polls = RX_GENERIC_LEAD_POLLS; " \
+	"while (waited < RX_GENERIC_LEAD_100NS && polls-- > 0) { " \
+	"u32 now = T0TC; " \
+	"waited += clk100ns_step(last, now); " \
+	"last = now; " \
+	"} " \
+	"}"
 
 MU_TEST(test_the_packet_mode_bit_is_bit_ten)
 {
@@ -111,10 +133,11 @@ struct scan {
 	int wait_call;         /* its call inside the capture loop */
 	int wait_def;          /* rx_generic_wait_for_fifo()'s definition */
 	int wait_counter;      /* it reads the 100 ns counter */
-	int wait_modulo;       /* and adds up steps modulo the reset period */
+	int wait_helper;       /* and measures each step with clk100ns_step() */
+	int wait_modulo;       /* or modulo a fixed period, which it must not */
 	int wait_length;       /* its length is RX_GENERIC_LEAD_100NS */
 	int wait_cap;          /* and it gives up after RX_GENERIC_LEAD_POLLS */
-	int wait_step_guard;   /* and drops a step longer than the lead */
+	char wait_body[1024];  /* every code line of it, flattened */
 	long lead_bytes;       /* RX_GENERIC_LEAD_BYTES */
 	long byte_100ns;       /* RX_GENERIC_BYTE_100NS */
 	char lead_text[SCAN_LINE_MAX];  /* RX_GENERIC_LEAD_100NS as written */
@@ -346,18 +369,31 @@ static void scan_source(struct scan *s)
 		}
 
 		if (in_wait) {
+			char flat[SCAN_LINE_MAX];
+
+			/* strip_comments() has already run, so what is left of
+			 * a comment is an empty line: comments are out of the
+			 * body below, which leaves them free to be rewritten. */
+			collapse_spaces(line, flat, sizeof(flat));
+			if (flat[0] != '\0') {
+				if (s->wait_body[0] != '\0')
+					strncat(s->wait_body, " ",
+					        sizeof(s->wait_body) -
+					        strlen(s->wait_body) - 1);
+				strncat(s->wait_body, flat,
+				        sizeof(s->wait_body) -
+				        strlen(s->wait_body) - 1);
+			}
 			if (contains_identifier(line, "T0TC"))
 				s->wait_counter = lineno;
-			if (contains_identifier(line, "CLK100NS_PER_CLKN") &&
-			    strchr(line, '%') != NULL)
+			if (contains_identifier(line, "clk100ns_step"))
+				s->wait_helper = lineno;
+			if (strchr(line, '%') != NULL)
 				s->wait_modulo = lineno;
 			if (contains_identifier(line, "RX_GENERIC_LEAD_100NS"))
 				s->wait_length = lineno;
 			if (contains_identifier(line, "RX_GENERIC_LEAD_POLLS"))
 				s->wait_cap = lineno;
-			if (contains_identifier(line, "step") &&
-			    strstr(line, "<=") != NULL)
-				s->wait_step_guard = lineno;
 			if (line[0] == '}')
 				in_wait = 0;
 			continue;
@@ -563,11 +599,11 @@ MU_TEST(test_the_capture_waits_for_the_first_byte_before_it_reads)
 }
 
 /*
- * The wait itself. It has to read the 100 ns counter, add its steps up modulo
- * the counter's reset period -- `now - last` across the reset is a huge
- * unsigned number and would end the wait at once -- and give up after a bound,
- * so a counter that is not advancing cannot leave the board answering no
- * control request until the watchdog resets it.
+ * The wait itself. It has to read the 100 ns counter, measure each step with
+ * the shared clk100ns_step() -- `now - last` across the counter's reset is a
+ * huge unsigned number and would end the wait at once -- and give up after a
+ * bound, so a counter that is not advancing cannot leave the board answering
+ * no control request until the watchdog resets it.
  */
 MU_TEST(test_the_wait_is_a_bounded_wait_on_the_counter)
 {
@@ -583,11 +619,23 @@ MU_TEST(test_the_wait_is_a_bounded_wait_on_the_counter)
 	mu_assert(s.wait_counter > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() does not take its steps "
-	         "modulo CLK100NS_PER_CLKN. A step across the counter's reset "
-	         "is then a huge unsigned number, which ends the wait at once",
+	         "%s:%d: rx_generic_wait_for_fifo() does not measure its steps "
+	         "with clk100ns_step(), the shared helper in ubertooth_clock.h. "
+	         "A step taken as `now - last` across the counter's reset is a "
+	         "huge unsigned number, which ends the wait at once",
 	         path, s.wait_def);
-	mu_assert(s.wait_modulo > 0, msg);
+	mu_assert(s.wait_helper > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_wait_for_fifo() takes a step modulo a fixed "
+	         "period. The timer's period is whatever is in its "
+	         "match register: a clock drift fix lengthens it, and the host "
+	         "can set a length of its own through UBERTOOTH_TRIM_CLOCK or "
+	         "UBERTOOTH_START_HOPPING. For some of those lengths a fixed "
+	         "modulus returns a figure far larger than the step took, and "
+	         "counting it ends the wait before the radio has written byte 0",
+	         path, s.wait_modulo);
+	mu_assert(s.wait_modulo == 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rx_generic_wait_for_fifo() does not wait "
@@ -600,15 +648,25 @@ MU_TEST(test_the_wait_is_a_bounded_wait_on_the_counter)
 	         "the board answers nothing", path, s.wait_def);
 	mu_assert(s.wait_cap > 0, msg);
 
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() counts every step the "
-	         "modulo returns. The timer's period is not CLK100NS_PER_CLKN "
-	         "for one period after the clock drift correction moves its "
-	         "match value, and a step across that period's reset comes out "
-	         "of the fixed modulus as an arbitrary number: counting it ends "
-	         "the wait early, which is the wrong byte 0 the wait is for",
-	         path, s.wait_def);
-	mu_assert(s.wait_step_guard > 0, msg);
+	/*
+	 * And the whole function, so that nothing can be added between the
+	 * lines the checks above name.
+	 */
+	{
+		/* Its own buffer: this message carries the function twice. */
+		static char body_msg[4096];
+
+		snprintf(body_msg, sizeof(body_msg),
+		         "%s:%d: rx_generic_wait_for_fifo() reads\n  %s\nand it "
+		         "has to read\n  %s\nComments are not compared, so only "
+		         "the code has changed. Anything added between these "
+		         "lines -- another write to `waited`, a guard that drops "
+		         "a step, an exit before the lead has passed -- waits "
+		         "for a length no test here knows, and the wait exists "
+		         "to be exactly this long",
+		         path, s.wait_def, s.wait_body, WAIT_BODY);
+		mu_assert(strcmp(s.wait_body, WAIT_BODY) == 0, body_msg);
+	}
 }
 
 /*
@@ -647,19 +705,19 @@ MU_TEST(test_the_lead_is_a_few_byte_times)
  * The arithmetic the wait is built on, run here because the firmware's own
  * copy of it reads a hardware register this cannot.
  *
- * Timer 0 resets every CLK100NS_PER_CLKN ticks, so the wait adds up the steps
- * it sees instead of comparing against a deadline the reset would carry it
- * past. `(now + period - last) % period` is what makes a step across the reset
- * come out as the time it was; the scan above pins that the firmware writes
- * it, and this says what it has to come to. The range test has the same
- * accumulation in cc2400_rangetest.c.
+ * Timer 0 resets at the end of each period, so the wait adds up the steps it
+ * sees instead of comparing against a deadline the reset would carry it past,
+ * and clk100ns_step() -- the firmware's own, from ubertooth_clock.h -- turns
+ * each pair of readings into a time. The scan above pins that the firmware
+ * uses that helper, and this says what it has to come to. The range test has
+ * the same accumulation in cc2400_rangetest.c.
  */
-#define CLKN_PERIOD 3125u  /* CLK100NS_PER_CLKN: 312.5 us in 100 ns ticks */
+#define CLKN_PERIOD ((uint32_t)CLK100NS_PER_CLKN)  /* 312.5 us in 100 ns ticks */
 
 /*
  * The firmware's loop, with the counter supplied instead of read. uint32_t
  * throughout, as T0TC and the firmware's own variables are: the wraparound of
- * that width is what the modulo is there to turn back into a time, and a
+ * that width is what the step helper has to turn back into a time, and a
  * 64-bit model of it would give different numbers.
  */
 static uint32_t accumulate(const uint32_t *counter, unsigned n,
@@ -670,15 +728,10 @@ static uint32_t accumulate(const uint32_t *counter, unsigned n,
 
 	while (waited < target && polls-- > 0) {
 		uint32_t now = counter[i < n ? i : n - 1];
-		uint32_t step = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
 
+		waited += clk100ns_step(last, now);
 		i++;
 		last = now;
-		/* The firmware's own guard: a step longer than the whole lead
-		 * is not a step this loop took, so the modulo was taken against
-		 * the wrong period. */
-		if (step <= target)
-			waited += step;
 	}
 	return waited;
 }
@@ -700,32 +753,33 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 	          "a count that crosses the counter's reset must still add up "
 	          "to the lead, not end the wait at once");
 
-	/* The subtraction the modulo replaces: `now - last` across the reset is
-	 * a huge unsigned number, which is the bug the modulo is there for. */
+	/* The subtraction the helper replaces: `now - last` across the reset is
+	 * a huge unsigned number, which is the bug it is there for. */
 	mu_assert((uint32_t)(25u - 3100u) > 320u,
 	          "a bare subtraction across the reset must be the large number "
 	          "this guards against");
 
 	/*
-	 * The period is not always CLK100NS_PER_CLKN: the low-energy modes'
-	 * clock drift correction moves the timer's match value for one period,
-	 * which can make it three times as long. A step across the reset of
-	 * such a period comes out of the fixed modulus as an arbitrary number
-	 * -- 2,056 for the pair below -- and counting it would end the wait
-	 * before the radio has written byte 0, which is what the wait is for.
-	 * The guard drops it, so the wait carries on and ends on honest steps.
+	 * The period is not always CLK100NS_PER_CLKN. A step across the reset
+	 * of a longer one cannot be known in full -- nothing in the wait knows
+	 * how long that period was -- so the helper counts only how far into
+	 * the new period the second reading is. For the pair below that is 10
+	 * ticks where 384 really passed. Undercounting is the safe direction:
+	 * over-counting is what ends the wait before the radio has written
+	 * byte 0, which is what the wait is for. The sweep of every reading of
+	 * every period length the timer can hold is in test_rangetest_radio.c,
+	 * whose wait shares this helper and this lead.
 	 */
 	{
 		static const uint32_t extended[] = {
 			9000, 10, 110, 210, 310, 410, 510
 		};
 
-		mu_assert_int_eq(2056, (int)((10u + CLKN_PERIOD - 9000u) %
-		                             CLKN_PERIOD));
+		mu_assert_int_eq(10, (int)clk100ns_step(9000, 10));
 		got = accumulate(extended, 7, 320, 1000);
 		mu_assert(got >= 320 && got < 420,
 		          "a step out of a period that was not the usual length "
-		          "must be dropped, not counted");
+		          "must be undercounted, never over-counted");
 	}
 
 	/* A counter that is not advancing is ended by the cap, not by the

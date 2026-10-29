@@ -2001,6 +2001,13 @@ Fixes with no visible change in normal use.
   happened, which left byte 0 of that reply read before the radio had written
   it.
   [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
+- Both of those waits now take the time that has passed from the direction the
+  clock counter moved, so neither can be cut short by a clock period of any
+  length. Measuring against a period of 312.5 us covered the two lengths the
+  drift correction produces, but a period the host had set to a length of its
+  own could still be read as a whole lead of waiting that had not happened.
+  The host has to have moved the period, and the wait has to fall inside it.
+  [#887](https://github.com/SqueakyFloors/ubertooth/issues/887)
 - A capture keeps a packet whose transfer brought all 64 bytes and came back
   with the timed-out status rather than the completed one. It used to be
   dropped, and the warning about a transfer cut short passes over a full one,

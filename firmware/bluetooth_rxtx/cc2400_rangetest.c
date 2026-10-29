@@ -160,27 +160,21 @@ rangetest_result rr;
  * that is not running would otherwise leave the wait spinning, answering no
  * control request, until the watchdog reset the board.
  *
- * Reaching it means the wait did not measure the lead, either way round. A
- * counter that is not advancing reads the packet as early as the firmware used
- * to, which is a wrong byte 0 at worst; a wait whose steps were all dropped
- * reads it late instead, by the 25 milliseconds this many turns take, and the
- * FIFO note above says what a long wait costs. Both beat a loop that never
- * ends: the board goes on answering between packets.
+ * Reaching it means the wait did not measure the lead, which happens when the
+ * counter is not advancing: the packet is then read as early as it was before
+ * the wait existed, a wrong byte 0 at worst. That beats a loop that never
+ * ends, and the board goes on answering between packets.
  */
 #define RANGETEST_LEAD_POLLS 100000
 
 /*
  * Let the radio get the start of the packet into its FIFO, then return.
  *
- * Timer 0 counts 100 ns ticks and resets every CLK100NS_PER_CLKN of them --
- * 312.5 us, one clkn tick -- so this adds up the steps it sees rather than
- * comparing against a deadline the reset would carry it past. Each step is
- * taken modulo that period, which is what makes a step across the reset come
- * out as the time it was: `now - last` alone would be a huge unsigned number
- * there and end the wait at once. A step that comes out longer than the whole
- * lead is discarded rather than counted, which is what covers a period a clock
- * drift fix has lengthened; see the loop, which also says what it does not
- * cover.
+ * Timer 0 counts 100 ns ticks and resets at the end of each period, so this
+ * adds up the steps it sees rather than comparing against a deadline the reset
+ * would carry it past. clk100ns_step() measures each step and says why it is
+ * measured the way it is; the short of it is that the period is not always the
+ * usual 312.5 us, so a step cannot be taken modulo a fixed length.
  *
  * Both callers start the timer with clkn_start() before they receive. A
  * counter that is not advancing is caught by the poll cap above rather than
@@ -197,47 +191,9 @@ static void rangetest_wait_for_fifo(void)
 
 	while (waited < RANGETEST_LEAD_100NS && polls-- > 0) {
 		u32 now = T0TC;
-		u32 step = (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 
+		waited += clk100ns_step(last, now);
 		last = now;
-		/*
-		 * A step longer than the whole lead is almost never a step this
-		 * loop took: one turn of it is a register read and a division,
-		 * a handful of ticks, so a larger figure usually means the
-		 * modulo above was taken against the wrong period. An
-		 * interrupt between the two counter reads can stretch a real
-		 * step past the lead as well, and dropping that one costs
-		 * nothing: it makes the wait longer, never shorter.
-		 *
-		 * The timer's match value is not fixed. The clock interrupt
-		 * corrects for clock drift by moving it for one period, and a
-		 * correction for a clock running slow makes that period about
-		 * three times as long; a step taken one tick after the end of
-		 * such a period comes out of the fixed modulus as 1,673 ticks
-		 * against a lead of 320, which would end the wait before the
-		 * radio had written byte 0.
-		 *
-		 * The host arms that correction with a drift figure while
-		 * following Classic traffic, and ending a mode stops the clock
-		 * and clears the figure -- but not the match value itself,
-		 * which the timer keeps. So the period this mode starts in can
-		 * be the long one left behind by the mode before it, until the
-		 * first clock interrupt writes the usual value back.
-		 *
-		 * Dropping the step is the safe direction: the wait runs
-		 * another turn, and the poll cap still ends the loop.
-		 *
-		 * This covers the two period lengths a drift fix produces. The
-		 * host can set the match value to a length of its own, through
-		 * UBERTOOTH_TRIM_CLOCK and UBERTOOTH_START_HOPPING, and for
-		 * some of those a step out of the wrong period is small enough
-		 * to pass this guard. Taking the step from the sign of the
-		 * difference rather than a fixed modulus, as le_clk100ns_step()
-		 * does, is what would cover every length, and the generic
-		 * receive's copy of this wait would move with it.
-		 */
-		if (step <= RANGETEST_LEAD_100NS)
-			waited += step;
 	}
 }
 

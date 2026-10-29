@@ -2903,7 +2903,7 @@ void bt_le_sync(u8 active_mode)
 		 *
 		 * The time is added up step by step rather than compared against
 		 * a deadline, because the capture clock briefly runs backwards:
-		 * le_clk100ns_step() says why. */
+		 * clk100ns_step() says why. */
 		unsigned want = 4 * ((pdu_bytes + 3) / 4);
 		uint32_t wait_budget = le_rx_byte_wait_clk100ns(want);
 		uint32_t waited = 0;
@@ -2914,7 +2914,7 @@ void bt_le_sync(u8 active_mode)
 		       && requested_mode == active_mode) {
 			uint32_t now_tick = T0TC;
 
-			waited += le_clk100ns_step(last_tick, now_tick);
+			waited += clk100ns_step(last_tick, now_tick);
 			last_tick = now_tick;
 			if (waited > wait_budget) {
 				overdue = 1;
@@ -3849,26 +3849,23 @@ _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
  * that is not running would otherwise leave the wait spinning, answering no
  * control request, until the watchdog reset the board.
  *
- * Reaching it costs real time: 100,000 turns of a register read and a division
- * is on the order of 25 milliseconds, with USB unserviced, once per packet. By
- * then the radio has refilled the 32-byte FIFO several times over, so that
- * record is wrong throughout rather than only at byte 0. Both are worse than
- * the wait working, and both are far better than a loop that never ends: the
- * board goes on answering between packets, so the host can stop the mode.
+ * Reaching it costs real time: 100,000 turns of a register read and a compare,
+ * with USB unserviced, once per packet. By then the radio has refilled the
+ * 32-byte FIFO several times over, so that record is wrong throughout rather
+ * than only at byte 0. That is worse than the wait working and far better than
+ * a loop that never ends: the board goes on answering between packets, so the
+ * host can stop the mode.
  */
 #define RX_GENERIC_LEAD_POLLS 100000
 
 /*
  * Let the radio get the start of the packet into its FIFO, then return.
  *
- * Timer 0 counts 100 ns ticks and resets every CLK100NS_PER_CLKN of them --
- * 312.5 us, one clkn tick -- so this adds up the steps it sees rather than
- * comparing against a deadline the reset would carry it past. Each step is
- * taken modulo that period, which is what makes a step across the reset come
- * out as the time it was: `now - last` alone would be a huge unsigned number
- * there and end the wait at once. A step that comes out longer than the whole
- * lead is discarded rather than counted, which is what covers the one period
- * whose length is not CLK100NS_PER_CLKN; see the loop.
+ * Timer 0 counts 100 ns ticks and resets at the end of each period, so this
+ * adds up the steps it sees rather than comparing against a deadline the reset
+ * would carry it past. clk100ns_step() measures each step and says why it is
+ * measured the way it is; the short of it is that the period is not always the
+ * usual 312.5 us, so a step cannot be taken modulo a fixed length.
  *
  * rx_generic_sync() starts the timer with clkn_start() before it receives. A
  * counter that is not advancing is caught by the poll cap above rather than
@@ -3887,23 +3884,9 @@ static void rx_generic_wait_for_fifo(void)
 
 	while (waited < RX_GENERIC_LEAD_100NS && polls-- > 0) {
 		u32 now = T0TC;
-		u32 step = (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
 
+		waited += clk100ns_step(last, now);
 		last = now;
-		/*
-		 * A step longer than the whole lead is not a step this loop
-		 * took. One turn of it is a register read and a division, a
-		 * handful of ticks, and the longest a turn can really be is an
-		 * interrupt in the middle of it -- still well under the lead.
-		 * So a larger figure means the modulo above was taken against
-		 * the wrong period, which happens for one timer period after
-		 * the low-energy modes' clock drift correction moves the
-		 * timer's match value. Counting it would end the wait early,
-		 * which is the wrong byte 0 all this is for; dropping it waits
-		 * a little longer, and the poll cap still ends the loop.
-		 */
-		if (step <= RX_GENERIC_LEAD_100NS)
-			waited += step;
 	}
 }
 

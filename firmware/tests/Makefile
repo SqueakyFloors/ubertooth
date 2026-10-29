@@ -191,7 +191,8 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 # includes, as it does for test_le_frag_shape. The wait itself is hardware
 # code and is scanned there.
 $(BINDIR)/test_le_rx_byte_wait: test_le_rx_byte_wait.c minunit.h \
-		stubs/ubertooth.h $(FW_RXTX)/bluetooth_le.h | $(BINDIR)
+		stubs/ubertooth.h $(FW_RXTX)/bluetooth_le.h \
+		$(FW_RXTX)/ubertooth_clock.h | $(BINDIR)
 	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_le_rx_byte_wait.c
 
 # What reset_le() clears, field by field. It is in a hardware file, so this
@@ -245,6 +246,7 @@ $(BINDIR)/test_le_frag_enqueue: test_le_frag_enqueue.c minunit.h \
 # bluetooth_rxtx.c for the shape.
 $(BINDIR)/test_grmdm_rx_generic: test_grmdm_rx_generic.c minunit.h \
 		source_scan.h $(FW_COMMON)/cc2400.h $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/ubertooth_clock.h \
 		$(HOST_LIB)/ubertooth_interface.h | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_grmdm_rx_generic.c
@@ -541,7 +543,8 @@ $(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
 # It also walks the firmware tree for a second copy of the range test, so
 # FW_DIR points at firmware/ as well.
 $(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
-		$(FW_RXTX)/cc2400_rangetest.c $(FW_COMMON)/ubertooth.c \
+		$(FW_RXTX)/cc2400_rangetest.c $(FW_RXTX)/ubertooth_clock.h \
+		$(FW_COMMON)/ubertooth.c \
 		$(FW_DIR)/assembly_test/assembly_test.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='"$(FW_DIR)"' \

@@ -16,9 +16,9 @@
  * code -- it reads the DMA controller's registers and the board's timer -- so
  * this test does two things:
  *
- *  - runs the arithmetic the budget is built from, which is pure logic in
- *    bluetooth_le.h: the air time of n bytes, and one step of a wait timed by
- *    a counter that resets every 312.5 us;
+ *  - runs the arithmetic the budget is built from, which is pure logic: the
+ *    air time of n bytes, from bluetooth_le.h, and one step of a wait timed by
+ *    timer 0, from ubertooth_clock.h, which every such wait shares;
  *  - models the loop around a fake timer and a fake transfer, and drives it
  *    through each way it can end, so what a timeout does to the capture is
  *    checked rather than assumed. The fake timer resets like the real one, and
@@ -26,17 +26,19 @@
  *    a deadline on CLK100NS would have tripped over.
  *
  * test_le_frag_shape.c pins the firmware's own wait against this: that it
- * takes its budget from le_rx_byte_wait_clk100ns(), adds up
- * le_clk100ns_step(), breaks when the total passes the budget, and marks the
- * next record.
+ * takes its budget from le_rx_byte_wait_clk100ns(), adds up clk100ns_step(),
+ * breaks when the total passes the budget, and marks the next record.
  */
 #include <stdio.h>
 #include <string.h>
 
 #include "minunit.h"
-/* bluetooth_le.h holds the two helpers under test; stubs/ubertooth.h stands in
- * for the hardware header it includes, and brings CLK100NS_PER_CLKN with it. */
+/* bluetooth_le.h holds the budget helper under test; stubs/ubertooth.h stands
+ * in for the hardware header it includes, and brings CLK100NS_PER_CLKN with
+ * it. The step helper is every timer 0 wait's, not only this one's, so it
+ * lives in the clock header. */
 #include "bluetooth_le.h"
+#include "ubertooth_clock.h"
 
 /* ------------------------------------------------------------------ *
  * The air time of the bytes a wait is owed
@@ -88,9 +90,9 @@ MU_TEST(the_longest_packet_fits_the_budget_with_room_to_spare)
 
 MU_TEST(a_step_is_the_difference_within_one_timer_period)
 {
-	mu_assert_int_eq(0, (int)le_clk100ns_step(0, 0));
-	mu_assert_int_eq(5, (int)le_clk100ns_step(10, 15));
-	mu_assert_int_eq(1000, (int)le_clk100ns_step(2000, 3000));
+	mu_assert_int_eq(0, (int)clk100ns_step(0, 0));
+	mu_assert_int_eq(5, (int)clk100ns_step(10, 15));
+	mu_assert_int_eq(1000, (int)clk100ns_step(2000, 3000));
 }
 
 /* Timer 0 resets every CLK100NS_PER_CLKN ticks, so a step across the reset
@@ -100,8 +102,8 @@ MU_TEST(a_step_across_the_timer_reset_is_the_time_it_was)
 	uint32_t last = CLK100NS_PER_CLKN - 10;
 
 	mu_assert_int_eq(3125, CLK100NS_PER_CLKN);
-	mu_assert_int_eq(14, (int)le_clk100ns_step(last, 4));
-	mu_assert_int_eq(10, (int)le_clk100ns_step(last, 0));
+	mu_assert_int_eq(14, (int)clk100ns_step(last, 4));
+	mu_assert_int_eq(10, (int)clk100ns_step(last, 0));
 }
 
 /*
@@ -135,7 +137,7 @@ MU_TEST(readings_that_run_backwards_do_not_end_the_wait)
 	/* What the step helper says, fed the timer readings those composites
 	 * were built from. */
 	for (i = 1; i < sizeof(composite) / sizeof(composite[0]); i++)
-		waited += le_clk100ns_step(composite[i - 1] % CLK100NS_PER_CLKN,
+		waited += clk100ns_step(composite[i - 1] % CLK100NS_PER_CLKN,
 		                           composite[i] % CLK100NS_PER_CLKN);
 	mu_assert_int_eq(24 + 3 + 18, (int)waited);
 	mu_assert(waited <= budget, "a 4.5 us wait reads as overdue");
@@ -152,11 +154,11 @@ MU_TEST(a_step_out_of_a_lengthened_period_counts_what_it_knows)
 {
 	/* 9374 ticks in that period, so 9300 -> 5 really took 79. The step
 	 * counts the 5 it is sure of. */
-	mu_assert_int_eq(5, (int)le_clk100ns_step(9300, 5));
-	mu_assert(le_clk100ns_step(9300, 5) <= 79,
+	mu_assert_int_eq(5, (int)clk100ns_step(9300, 5));
+	mu_assert(clk100ns_step(9300, 5) <= 79,
 	          "the step counted more time than really passed");
 	/* Within such a period the difference is the whole truth. */
-	mu_assert_int_eq(200, (int)le_clk100ns_step(9000, 9200));
+	mu_assert_int_eq(200, (int)clk100ns_step(9000, 9200));
 }
 
 /* A gap longer than one timer period cannot be told from a short one, so it is
@@ -166,32 +168,64 @@ MU_TEST(a_step_out_of_a_lengthened_period_counts_what_it_knows)
 MU_TEST(a_gap_longer_than_the_timer_period_is_undercounted)
 {
 	/* Exactly one period: the two readings are equal. */
-	mu_assert_int_eq(0, (int)le_clk100ns_step(100, 100));
+	mu_assert_int_eq(0, (int)clk100ns_step(100, 100));
 	/* Three periods and 50 ticks reads as 50. */
-	mu_assert_int_eq(50, (int)le_clk100ns_step(100, 150));
-	mu_assert(le_clk100ns_step(100, 150) < CLK100NS_PER_CLKN,
+	mu_assert_int_eq(50, (int)clk100ns_step(100, 150));
+	mu_assert(clk100ns_step(100, 150) < CLK100NS_PER_CLKN,
 	          "a multi-period gap was counted as more than a period");
 }
 
-/* And a step never says more time passed than really did, whatever the two
- * readings are: a deadline built on it cannot end a wait early. */
+/*
+ * And a step never says more time passed than really did, whatever the two
+ * readings are and whatever length the timer's period has: a deadline built on
+ * it cannot end a wait early. Every wait timed by timer 0 rests on this, so it
+ * is checked here, against the time that really passed.
+ *
+ * The clock interrupt writes 3124 plus a 16-bit offset to the timer's match
+ * register and the period is one tick longer, so the period runs from
+ * CLK100NS_PER_CLKN ticks to 68,660. Four lengths are swept whole: the usual
+ * one, the two a clock drift fix produces, and one the host can set that a
+ * fixed modulus used to read as a whole lead of waiting that had not happened.
+ */
 MU_TEST(a_step_never_overcounts)
 {
-	uint32_t last, now;
+	static const uint32_t lengths[] = { 3125u, 3126u, 4477u, 6250u, 9374u,
+	                                    68660u };
+	size_t i;
 
-	for (last = 0; last < 2 * CLK100NS_PER_CLKN; last += 37)
-		for (now = 0; now < CLK100NS_PER_CLKN; now += 41) {
-			uint32_t step = le_clk100ns_step(last, now);
+	for (i = 0; i < sizeof(lengths) / sizeof(lengths[0]); i++) {
+		uint32_t length = lengths[i], last, now;
+		/* Every reading of the shorter periods; a coarse grid of the
+		 * longest, which is 68,660 ticks each way. */
+		uint32_t stride = length > 10000 ? 97 : 1;
+		uint32_t worst = 0, worst_last = 0, worst_now = 0;
+		char msg[192];
 
-			mu_assert(step <= 2 * CLK100NS_PER_CLKN,
-			          "a step claimed more than two timer periods");
-			if (now >= last)
-				mu_assert_int_eq((int)(now - last), (int)step);
-			else
-				mu_assert(step <= CLK100NS_PER_CLKN,
-				          "a step across a reset claimed more than"
-				          " a period");
-		}
+		for (last = 0; last < length; last += stride)
+			for (now = 0; now < length; now += stride) {
+				uint32_t real = now < last
+				                ? now + length - last
+				                : now - last;
+				uint32_t step = clk100ns_step(last, now);
+
+				if (step > real && step - real > worst) {
+					worst = step - real;
+					worst_last = last;
+					worst_now = now;
+				}
+			}
+
+		snprintf(msg, sizeof(msg),
+		         "with the timer period %u ticks long, a step from %u "
+		         "to %u says %u ticks more passed than really did",
+		         length, worst_last, worst_now, worst);
+		mu_assert(worst == 0, msg);
+	}
+
+	/* Within one period the difference is the whole truth, not merely a
+	 * bound on it. */
+	mu_assert_int_eq(0, (int)clk100ns_step(0, 0));
+	mu_assert_int_eq(1234, (int)clk100ns_step(1000, 2234));
 }
 
 /* ------------------------------------------------------------------ *
@@ -259,7 +293,7 @@ static wait_result run_wait(unsigned want)
 	       && !mode_changed) {
 		uint32_t now_tick = timer;
 
-		waited += le_clk100ns_step(last_tick, now_tick);
+		waited += clk100ns_step(last_tick, now_tick);
 		last_tick = now_tick;
 		if (waited > wait_budget) {
 			overdue = 1;
