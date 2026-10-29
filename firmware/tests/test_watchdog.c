@@ -501,9 +501,9 @@ MU_TEST(test_the_usb_interrupt_still_names_what_it_interrupted)
 
 /* ---- the reply ---- */
 
-/* The eight bytes, in the order ubertooth_interface.h gives them: the host
- * reads them as a byte string, so the order is the interface. */
-MU_TEST(test_the_reply_is_the_documented_eight_bytes)
+/* Every byte, in the order ubertooth_interface.h gives them: the host reads
+ * them as a byte string, so the order is the interface. */
+MU_TEST(test_the_reply_is_the_documented_bytes)
 {
 	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
 
@@ -529,6 +529,142 @@ MU_TEST(test_the_reply_is_the_documented_eight_bytes)
 	mu_assert_int_eq(WATCHDOG_SITE_XOSC, data[5]);/* wait at the reset */
 	mu_assert_int_eq(MODE_SPECAN, data[6]);       /* mode now */
 	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, data[7]); /* wait now */
+
+	/* The wider fields, low byte first. Nothing in this run counted a
+	 * transfer error or faulted, so all three read as zero -- which is
+	 * what the host prints nothing for. */
+	mu_assert_int_eq(0, data[8]);
+	mu_assert_int_eq(0, data[9]);
+	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
+	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
+}
+
+/*
+ * A capture transfer error is counted, reported low byte first, and kept
+ * across a reset -- the count is in the breadcrumb for the same reason the
+ * reset count is: a board that has been losing packets this way says so even
+ * after it has been reset.
+ */
+/*
+ * A breadcrumb this firmware does not recognise is started again, fields and
+ * all. That is the case the magic exists for: a reflash leaves the region
+ * alone, so a firmware that keeps more there than the one before it finds the
+ * older layout with RAM otherwise intact. Reading its own fields out of that
+ * is how a board reported a processor fault that never happened.
+ */
+MU_TEST(test_an_older_breadcrumb_layout_starts_every_field_again)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	/* Not a power-on: RAM holds what the firmware before this one left,
+	 * under a magic this one does not know. */
+	boot_with(RSID_WDTR);
+	crumb_left_by_a_run(MODE_BT_FOLLOW_LE, WATCHDOG_SITE_XOSC,
+	                    WATCHDOG_INTENT_RUNNING, 9, 37);
+	watchdog_crumb.magic = 0x57443031; /* "WD01", the layout before this */
+	watchdog_crumb.transfer_errors = 54756;
+	watchdog_crumb.fault_status = 0x0c0911c8;
+	watchdog_crumb.fault_addr = 0xa99832ae;
+
+	watchdog_boot();
+	watchdog_report(data);
+
+	mu_assert_int_eq(0, data[2]);                 /* resets */
+	mu_assert_int_eq(1, data[3]);                 /* this boot is the first */
+	mu_assert_int_eq(0, data[8] | data[9]);       /* transfer errors */
+	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
+	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
+}
+
+MU_TEST(test_a_transfer_error_is_counted_and_kept_across_a_reset)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+	int i;
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	for (i = 0; i < 300; ++i)
+		watchdog_count_transfer_error();
+
+	watchdog_report(data);
+	mu_assert_int_eq(300 & 0xff, data[8]);
+	mu_assert_int_eq(300 >> 8, data[9]);
+
+	/* A watchdog reset leaves RAM alone, so the count carries over. */
+	boot_with(RSID_WDTR);
+	watchdog_boot();
+	watchdog_report(data);
+	mu_assert_int_eq(300 & 0xff, data[8]);
+	mu_assert_int_eq(300 >> 8, data[9]);
+
+	/* Power-on says nothing in RAM can be trusted. */
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_report(data);
+	mu_assert_int_eq(0, data[8]);
+	mu_assert_int_eq(0, data[9]);
+}
+
+/* ...and it stops at the largest value the two bytes hold rather than
+ * wrapping, as the reset count does. */
+MU_TEST(test_the_transfer_error_count_stops_at_its_largest_value)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_crumb.transfer_errors = 65534;
+
+	watchdog_count_transfer_error();
+	watchdog_count_transfer_error();
+	watchdog_count_transfer_error();
+
+	watchdog_report(data);
+	mu_assert_int_eq(0xff, data[8]);
+	mu_assert_int_eq(0xff, data[9]);
+}
+
+/*
+ * A processor fault's status register and address reach the host.
+ *
+ * The four fault handlers never return -- they blink a code until the
+ * watchdog resets the board -- so this record is all there is to go on
+ * afterwards. Which of the four it was is the site; this says where it went
+ * wrong, which is the difference between "a fault happened in this mode" and
+ * an address to look for.
+ */
+MU_TEST(test_a_fault_records_its_status_and_address)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	/* A memory management fault whose address register was valid. */
+	watchdog_fault(0x82, 0x4000c008);
+
+	/* The board then stops feeding, and the watchdog resets it. */
+	boot_with(RSID_WDTR);
+	watchdog_boot();
+	watchdog_report(data);
+
+	mu_assert_int_eq(0x82, data[10]);
+	mu_assert_int_eq(0x00, data[11]);
+	mu_assert_int_eq(0x00, data[12]);
+	mu_assert_int_eq(0x00, data[13]);
+	mu_assert_int_eq(0x08, data[14]);
+	mu_assert_int_eq(0xc0, data[15]);
+	mu_assert_int_eq(0x00, data[16]);
+	mu_assert_int_eq(0x40, data[17]);
+
+	/* Power-on clears it, so an old fault is not reported against a board
+	 * that has been power-cycled since. */
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_report(data);
+	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
+	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
 }
 
 /*
@@ -1246,6 +1382,70 @@ MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
  *
  * Nothing here can be run, so the sources are read as text.
  */
+/*
+ * Every processor fault handler records what the fault was, in both images.
+ *
+ * The site says which of the four handlers ran; this is the only record of
+ * where it went wrong, because none of them returns and nothing else reads the
+ * fault status registers. A handler that stopped recording it would leave
+ * ubertooth-util -w saying a fault happened in some mode and nothing more,
+ * which is where this started.
+ */
+MU_TEST(test_every_fault_handler_records_the_fault)
+{
+	static const struct {
+		const char *path;
+		const char *function;
+	} handlers[] = {
+		{ FW_RXTX_DIR "/fault.c", "HardFault_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "MemManagement_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "BusFault_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "UsageFault_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "HardFault_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "MemManagement_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "BusFault_Handler" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "UsageFault_Handler" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(handlers) / sizeof(handlers[0]); i++) {
+		char line[512], msg[512];
+		int in_block = 0, in_function = 0, found = 0, records = 0;
+		FILE *f = fopen(handlers[i].path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", handlers[i].path);
+		mu_assert(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (!in_function) {
+				if (line[0] == ' ' || line[0] == '\t' ||
+				    line[0] == '#' || strchr(line, ';') != NULL)
+					continue;
+				if (!calls_identifier(line, handlers[i].function))
+					continue;
+				in_function = found = 1;
+				continue;
+			}
+			if (strstr(line, "watchdog_fault(") != NULL)
+				records = 1;
+			if (line[0] == '}')
+				in_function = 0;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: there is no %s(), so this case read nothing",
+		         handlers[i].path, handlers[i].function);
+		mu_assert(found, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s: %s() does not record the fault, so -w says which "
+		         "fault happened and nothing about where",
+		         handlers[i].path, handlers[i].function);
+		mu_assert(records, msg);
+	}
+}
+
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 {
 	static const struct {
@@ -1447,7 +1647,11 @@ int main(void)
 	MU_RUN(test_a_wait_inside_a_handler_claims_no_outer_site);
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_every_inner_mark_is_given_back);
-	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
+	MU_RUN(test_the_reply_is_the_documented_bytes);
+	MU_RUN(test_an_older_breadcrumb_layout_starts_every_field_again);
+	MU_RUN(test_a_transfer_error_is_counted_and_kept_across_a_reset);
+	MU_RUN(test_the_transfer_error_count_stops_at_its_largest_value);
+	MU_RUN(test_a_fault_records_its_status_and_address);
 	MU_RUN(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path);
 	MU_RUN(test_the_reply_says_when_the_watchdog_is_not_armed);
 	MU_RUN(test_every_usb_service_path_feeds);
@@ -1459,6 +1663,7 @@ int main(void)
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
+	MU_RUN(test_every_fault_handler_records_the_fault);
 	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);
 	return mu_report();
 }

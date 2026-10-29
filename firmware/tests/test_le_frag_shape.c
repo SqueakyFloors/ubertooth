@@ -259,6 +259,35 @@ MU_TEST(a_packet_whose_bytes_did_not_all_arrive_is_dropped)
 	          "a transfer error during a packet is not reported");
 }
 
+/*
+ * A wait that ends with no packet goes where the transfer is armed again.
+ *
+ * A transfer error is the only thing that can end that wait without a packet:
+ * a mode change and a hop are both handled before this point. The error flag
+ * is cleared in one place, dma_init_le(), which the loop reaches at its tail
+ * past rx_flush -- so a `continue` here left the flag set, and every later
+ * pass left the wait at once and arrived back here. Nothing was received, the
+ * receive path was never armed again, and the loop went on feeding the
+ * watchdog, so the board answered the host throughout.
+ *
+ * rx_flush is also where the symbols the error left in the receiver are
+ * drained, which is the other half of recovering from one.
+ */
+MU_TEST(a_wait_that_ends_with_no_packet_arms_the_transfer_again)
+{
+	mu_assert(strstr(rxtx, "if (!rx_tc) goto rx_flush;") != NULL,
+	          "a wait that ended with no packet does not reach the arming");
+	mu_assert(strstr(rxtx, "if (!rx_tc) continue;") == NULL,
+	          "a wait that ended with no packet goes round with the "
+	          "transfer error still set");
+	/* The count the host reads back, raised where the controller reports
+	 * the error rather than where a mode notices it, so one error is
+	 * counted once however many modes look at the flag. */
+	mu_assert(strstr(rxtx, "++rx_err; watchdog_count_transfer_error();")
+	          != NULL,
+	          "a transfer error the controller reported is not counted");
+}
+
 /* Waiting for a long packet costs time the mode could spend on the next
  * connection event, and the radio synchronizes on 32 bits, so noise does look
  * like a packet sometimes. A length the specification does not allow, and any
@@ -367,6 +396,7 @@ int main(void)
 	MU_RUN(the_shared_buffer_is_cleared_before_symbols_are_searched);
 	MU_RUN(the_loop_waits_for_the_length_byte_and_then_for_the_packet);
 	MU_RUN(a_packet_whose_bytes_did_not_all_arrive_is_dropped);
+	MU_RUN(a_wait_that_ends_with_no_packet_arms_the_transfer_again);
 	MU_RUN(an_impossible_length_is_not_waited_for);
 	MU_RUN(only_the_first_dma_item_interrupts);
 	MU_RUN(reads_of_the_receive_buffer_are_kept_after_the_waits);

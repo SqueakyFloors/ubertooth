@@ -244,9 +244,22 @@ void util_watchdog_cause_text(unsigned cause, char *text, size_t size)
 	text[size - 1] = '\0';
 }
 
+/* The reply's wider fields, low byte first. */
+static unsigned util_le16(const uint8_t *at)
+{
+	return (unsigned)at[0] | ((unsigned)at[1] << 8);
+}
+
+static uint32_t util_le32(const uint8_t *at)
+{
+	return (uint32_t)at[0] | ((uint32_t)at[1] << 8) |
+	       ((uint32_t)at[2] << 16) | ((uint32_t)at[3] << 24);
+}
+
 int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 {
 	char cause[64];
+	uint32_t fault_status;
 
 	/* Unreachable from ubertooth-util, which passes a fixed-size array that
 	 * libubertooth has already refused if the board sent fewer bytes. It is
@@ -274,6 +287,30 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 	fputs("Now ", out);
 	print_watchdog_mode(out, info[6]);
 	fprintf(out, ", %s\n", util_watchdog_site_text(info[7]));
+
+	/* The last processor fault, on its own line rather than under the reset
+	 * above: a fault always resets the board, so it is one of the resets
+	 * counted, but not necessarily the last of them. Nothing is printed
+	 * until a fault has happened, which on most boards is never. */
+	fault_status = util_le32(info + 10);
+	if (fault_status != 0) {
+		uint32_t fault_addr = util_le32(info + 14);
+
+		fprintf(out, "Last processor fault: status 0x%08x, ", fault_status);
+		/* The board's own "the address register holds this fault's
+		 * address" bit; see UBERTOOTH_FAULT_ADDR_VALID for why there are
+		 * two of them. Read rather than comparing the address against
+		 * zero, because zero is a real address -- a null pointer
+		 * dereference records it. */
+		if (fault_status & (UBERTOOTH_FAULT_ADDR_VALID |
+		                    UBERTOOTH_FAULT_BUS_ADDR_VALID))
+			fprintf(out, "the access was at 0x%08x\n", fault_addr);
+		else
+			fputs("no address recorded\n", out);
+	}
+
+	fprintf(out, "Capture transfer errors since power-on: %u\n",
+	        util_le16(info + 8));
 	return 0;
 }
 

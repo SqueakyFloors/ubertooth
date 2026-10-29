@@ -18,4 +18,7 @@ uint8_t watchdog_mark_inner(uint8_t site);
 void watchdog_unmark(uint8_t site);
 void watchdog_usb_serviced(void);
 
+/* The low-energy engine counts a failed capture transfer here. */
+void watchdog_count_transfer_error(void);
+
 #endif /* UBERTOOTH_FW_TESTS_STUB_USBQ_WATCHDOG_H */

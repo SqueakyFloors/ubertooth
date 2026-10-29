@@ -49,6 +49,11 @@ static void flash_leds(int count) {
  * which counting blinks never gave you. A site each rather than one shared
  * "a fault" site, so -w says which of the four it was.
  *
+ * Each handler also records the part's fault status register and, where the
+ * part keeps one for that fault, the address the processor refused. Nothing
+ * else survives: these never return, so there is no stacked frame to read
+ * afterwards, and the site alone says only which fault happened in which mode.
+ *
  * These run at a priority the USB interrupt cannot preempt -- HardFault above
  * everything, the other three at the same 0 as USB -- so the USB handler's feed
  * cannot keep a faulted board alive by accident.
@@ -57,6 +62,31 @@ void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
+	/* A forced hard fault is one of the other three escalated: it was taken
+	 * where its own handler could not preempt what was running, which is
+	 * anywhere inside an interrupt handler, since those run at the same
+	 * priority. The hard fault status says only "forced", so what gets
+	 * recorded is the configurable fault status, which says which of the
+	 * three it was, and the address register of whichever of them has one
+	 * worth reading.
+	 *
+	 * A board on the bench recorded exactly this during a BLE follow soak,
+	 * and the status alone -- forced, with no address -- is as far as the
+	 * record went. */
+	if (val & SCB_HFSR_FORCED) {
+		uint32_t cfsr = SCB_CFSR;
+		uint32_t addr = 0;
+
+		if (cfsr & UBERTOOTH_FAULT_ADDR_VALID)
+			addr = SCB_MMFAR;
+		else if (cfsr & UBERTOOTH_FAULT_BUS_ADDR_VALID)
+			addr = SCB_BFAR;
+		watchdog_fault(cfsr, addr);
+	} else {
+		/* No address register of its own, and neither address-valid bit
+		 * is set in this status, so no address is reported. */
+		watchdog_fault(val, 0);
+	}
 
 	while (1) {
 		flash_leds(2);
@@ -79,6 +109,15 @@ void MemManagement_Handler(void) {
 	uint8_t mmsr = SCB_MMSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
+	/* The address register as it stands: bit 7 of the status, which goes
+	 * with it, is what says whether it holds this fault's address. It does
+	 * not for an instruction fetch refused because the region is not
+	 * executable, which is the one way this part faults here without a
+	 * memory protection unit: a branch through a corrupted pointer or
+	 * return address. Passed rather than zeroed when that bit is clear,
+	 * because zero is also a real address -- a null pointer dereference,
+	 * which is what a fault in a capture mode is most likely to be. */
+	watchdog_fault(mmsr, SCB_MMFAR);
 
 	while (1) {
 		flash_leds(3);
@@ -102,6 +141,10 @@ void BusFault_Handler(void) {
 	uint8_t bfsr = SCB_BFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
+	/* As above: bit 7 of the status says whether the address register holds
+	 * this fault's address. It does not for an imprecise fault, where the
+	 * processor had moved on before the bus reported the error. */
+	watchdog_fault(bfsr, SCB_BFAR);
 
 	while (1) {
 		flash_leds(4);
@@ -125,6 +168,9 @@ void UsageFault_Handler(void) {
 	uint16_t ufsr = SCB_UFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
+	/* The part keeps no address register for this fault, and bit 7 of its
+	 * status is reserved and reads zero, so the host prints no address. */
+	watchdog_fault(ufsr, 0);
 
 	while (1) {
 		flash_leds(5);

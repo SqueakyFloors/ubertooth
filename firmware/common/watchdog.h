@@ -164,6 +164,33 @@ enum watchdog_intent {
 void watchdog_intent(uint8_t intent);
 
 /*
+ * Count one capture transfer error: the DMA controller reported an error on
+ * the channel a capture receives into, so the packet being received is lost.
+ * What the mode does about it is the mode's own: the promiscuous path drains
+ * the receiver and arms the transfer again, and the low-energy engine does
+ * not yet, which leaves that capture stopped.
+ *
+ * Reported by UBERTOOTH_GET_WATCHDOG, for the reason the radio wait counts
+ * exist (firmware/common/cc2400_wait.h): carrying on is right, and silent.
+ * A capture that is missing packets this way reads as a quiet channel, and
+ * this count is what tells the two apart. It stops at 65535 rather than
+ * wrapping, and is kept across a reset like the reset count.
+ */
+void watchdog_count_transfer_error(void);
+
+/*
+ * Record a processor fault for the breadcrumb: the fault status register the
+ * handler read, and the address the access was to, or zero where the part
+ * records none.
+ *
+ * The four fault handlers never return -- they blink a code until the
+ * watchdog resets the board -- so this is the only record of what the access
+ * was. Which of the four it was is the site the handler marks; this says
+ * where it went wrong. Kept until the next power-on, like the reset count.
+ */
+void watchdog_fault(uint32_t status, uint32_t addr);
+
+/*
  * Read the reset source register, clear it, and turn what the last run left in
  * the breadcrumb into a record of why the board restarted. Call this first,
  * before anything that could mark a site.
@@ -193,7 +220,7 @@ void watchdog_usb_ready(void);
 void watchdog_stretch(void);
 void watchdog_unstretch(void);
 
-/* Fill UBERTOOTH_GET_WATCHDOG's eight-byte reply. */
+/* Fill UBERTOOTH_GET_WATCHDOG's reply, UBERTOOTH_WATCHDOG_INFO_LEN bytes. */
 void watchdog_report(uint8_t *data);
 
 #endif /* __UBERTOOTH_WATCHDOG_H */

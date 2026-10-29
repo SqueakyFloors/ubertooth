@@ -571,15 +571,29 @@ enum watchdog_site {
 };
 
 /*
- * UBERTOOTH_GET_WATCHDOG's reply: eight bytes in this order, which is why
- * every field is a byte -- no padding to agree about between the board and the
- * host.
+ * UBERTOOTH_GET_WATCHDOG's reply: eighteen bytes, in the order the fields are
+ * listed in watchdog_info below. The first eight are single bytes; the three
+ * after them are a two-byte and two four-byte values, each with its low byte
+ * first, so there is no padding to agree about between the board and the host.
  *
  * A watchdog reset the firmware asked for (a reset or a flash request) is not
  * counted and does not overwrite reset_mode/reset_site, so those describe the
  * last time the board stopped servicing USB on its own.
  */
-#define UBERTOOTH_WATCHDOG_INFO_LEN 8
+#define UBERTOOTH_WATCHDOG_INFO_LEN 18
+
+/* In watchdog_info.fault_status: the part's "the fault address register holds
+ * this fault's address" bits. One of the two is set when fault_addr means
+ * something.
+ *
+ * Which one depends on the register the board recorded. A memory management
+ * or bus fault records its own eight-bit status, where bit 7 is that bit; a
+ * hard fault that one of them escalated into records the whole configurable
+ * fault status, where the memory management byte is the low one and the bus
+ * fault byte the next, so that bit lands at 7 or at 15. Neither is set in the
+ * hard fault and usage fault statuses, which have no address register. */
+#define UBERTOOTH_FAULT_ADDR_VALID     0x0080
+#define UBERTOOTH_FAULT_BUS_ADDR_VALID 0x8000
 
 /*
  * UBERTOOTH_GET_RADIO_TIMEOUTS's reply: how many times each shape of wait on
@@ -612,6 +626,20 @@ typedef struct {
 	uint8_t reset_site;  /* and the wait it was in: watchdog_site */
 	uint8_t mode;        /* the mode it is in now */
 	uint8_t site;        /* and the wait it is in now */
+	/* Capture transfers the DMA controller reported an error on since
+	 * power-on, stopping at 65535. Each one costs the packet that was
+	 * arriving; the capture carries on, which is why the count is worth
+	 * reporting. */
+	uint16_t transfer_errors;
+	/* The last processor fault, which reset_site names: the fault status
+	 * register the handler read, and the part's fault address register.
+	 * Both zero until a fault happens. The address means something only
+	 * when the status has UBERTOOTH_FAULT_ADDR_VALID set: two of the four
+	 * faults keep no address register, and the two that do say in that bit
+	 * whether it holds this fault's address. Zero is a real address, so
+	 * that bit and not the address is what has to be read. */
+	uint32_t fault_status;
+	uint32_t fault_addr;
 } watchdog_info;
 
 enum rfcat24_subcommands {

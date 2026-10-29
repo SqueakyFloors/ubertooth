@@ -579,6 +579,32 @@
   stall a request on its way out, which sent the reader off to reflash a board
   that was never the problem.
   [#805](https://github.com/SqueakyFloors/ubertooth/issues/805)
+- `ubertooth-btle -f` keeps up with the connection it is following instead of
+  parking on one data channel. A first connection event that received nothing
+  left the next one armed at a moment the board's clock had gone past, which it
+  only reaches when that clock wraps 429 seconds later; and a connection that
+  then stopped delivering was chased forever rather than letting the capture go
+  back to the advertising channel for the next one. Against a bench peer
+  opening a connection every 4 seconds, the same 240 seconds now captures 20647
+  packets across 16 connections where it captured 8038 across 11.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- A packet in a low-energy capture carries the access address it was received
+  with. A connection request set the connection's address as soon as it was
+  read, while the radio went on listening for the advertising one until the
+  next hop, so packets received in between were recorded under the
+  connection's: other devices' advertising packets turned up in the capture as
+  the opening packets of the connection just followed.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- `ubertooth-btle -p` keeps capturing after a failed capture transfer. One such
+  error used to end the capture: the board went on answering the host and
+  recording nothing until the tool was killed.
+  [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
+- `ubertooth-util -w` reports how many capture transfers have failed since
+  power-on, so a capture losing packets to the hardware tells itself apart from
+  a quiet channel, and what the board's last processor fault was: the fault
+  status register and the address of the refused access.
+  [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
+  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 - Every Classic capture finds the access codes that start at the last position
   of a bank of symbols. The search was given one position fewer than the bank
   holds, so an access code beginning 64 symbols before the bank's end -- with
@@ -1663,6 +1689,22 @@ Fixes with no visible change in normal use.
   back with the other sign, which would run the clock the opposite way to the
   one that was asked for.
   [#768](https://github.com/SqueakyFloors/ubertooth/issues/768)
+- A followed connection's events keep their place in the count the connection
+  keeps, whatever the connection asked for: an event is never given longer to
+  run than the interval between events, so no two intervals are counted as one.
+  The count is what every later parameter change is timed against, and one
+  short step in it timed all of them a little early.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- A followed connection whose parameters change keeps its timing from the
+  window the change named, rather than carrying on from where the old
+  parameters had it.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- The board's record of why it last reset itself says which firmware wrote it,
+  so a firmware that keeps more there than the one before it starts the counts
+  again instead of reading its own fields out of what it finds. Flashing this
+  one over an earlier one therefore reports no unrequested resets, and this
+  boot as the board's first.
+  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 - The `*` on a version string, which says the checkout had uncommitted
   changes, is about the checkout the tools were built from. It used to be
   about whichever tree you happened to be standing in when you ran `cmake`.
