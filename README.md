@@ -68,7 +68,11 @@ a board left on older firmware; tools built from a clone, which is what
 from the commit you built the tools from before trusting what they report.
 
 Instructions for building libbtbb by hand, with the pin, are in this tree's
-[build guide](docs/source/build_guide.rst); the published
+[build guide](docs/source/build_guide.rst). libbtbb installs its library to the
+directory the system keeps libraries in — `lib`, or `lib64` and
+`lib/<triplet>` on the systems that use those — and the host build and
+`install.sh` ask pkg-config and CMake where it is rather than assuming `lib`.
+The published
 [readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html)
 documents upstream, not this fork.
 
