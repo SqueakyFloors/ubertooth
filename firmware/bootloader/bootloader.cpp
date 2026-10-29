@@ -54,6 +54,7 @@ extern "C" {
 #include "usbhw_lpc.h"
 }
 
+#include "app_image.h"
 #include "dfu.h"
 
 #define DFU_TIMEOUT 1572864
@@ -270,7 +271,31 @@ static void run_bootloader()
 	leds_off();
 }
 
+/* Is there an application in flash to start? The two words the processor
+ * would load are read out of the application region and put to the check in
+ * app_image.h, which says what it does and does not ask.
+ *
+ * The bound is the largest part in the family rather than the flash this part
+ * has, because the part has to be asked over In-Application Programming and
+ * this runs on every power-up, before anything else is set up. The check only
+ * has to tell an image from no image, and 512 KiB does that. */
+static bool application_startable() {
+	const uint32_t* const vectors =
+		reinterpret_cast<const uint32_t*>(APP_IMAGE_BASE);
+
+	return app_image_startable(vectors[0], vectors[1],
+	                           LPC_FLASH_SIZE_FALLBACK);
+}
+
 static void run_application() {
+
+	/* Nothing to start: return instead, so a board whose application is
+	 * missing or was left half-written by an interrupted download stays in
+	 * the bootloader's hands rather than faulting on the first instruction.
+	 * main() runs the bootloader for it, so the next image can be written
+	 * over USB instead of at the bench with the entry pin bridged. */
+	if (!application_startable())
+		return;
 
 // disable interrupts, or perhaps do it on entry to the bootloader, since we're not using interrupts?
     asm(
@@ -298,11 +323,23 @@ int main(void)
 			run_bootloader();
 			wait(1);
 			reset();
+		} else if (!application_startable()) {
+			/* No application to start, and a host that can send one: wait in
+			 * DFU for it. No timeout here, unlike the entry-pin case above:
+			 * there is nothing to time out into. */
+			ubertooth_init();
+			run_bootloader();
+			wait(1);
+			reset();
 		}
 	}
 
 	run_application();
 
-	return 0;
+	/* Only reached with nothing to start and no host to send one -- no USB
+	 * power, so no DFU either. Waiting for a power cycle is all there is to
+	 * do, and it is better than jumping into whatever is at the application's
+	 * address. */
+	while (1) {}
 }
 

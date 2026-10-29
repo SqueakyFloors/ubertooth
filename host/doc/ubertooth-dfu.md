@@ -100,6 +100,25 @@ refusal is the stall, which it reports as
 tail, after a message that says nothing about flash sizes. It is the same
 cause as the read-back bound: asking for flash the part has not got.
 
+A `-d` that stops part way through -- a cable pulled, a board that leaves the
+bus, a host that dies -- leaves a board with no application to start rather
+than a broken one. The first 256 bytes of the application region hold the
+vector table the board starts from, and they are written twice: blank at the
+start of the transfer, so there is nothing to start while the image goes in,
+and with the real vector table at the end of it. A bootloader built from this
+tree finds the blank table, refuses to jump, and waits in DFU for another
+image, so a flash that failed is followed by another `ubertooth-dfu -d`. A
+board carrying an earlier bootloader jumps into the blank table instead and
+stops there, so it needs the same trip to the bench it always did; a
+bootloader is installed with ISP or JTAG rather than over USB, so this part of
+the fix reaches a board only when someone puts it there.
+
+One window remains, in the last 4 KiB. The bootloader erases a flash sector
+when the first block of it is written, so the sector holding the vector table
+has to be written as a whole, vector table first, and an interruption inside
+it still leaves a board that starts a partly written image. That board has to
+be recovered at the bench, as MANUALLY ENTERING BOOTLOADER below describes.
+
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the
 request is still in flight, which on macOS is what every reset that worked

@@ -83,6 +83,11 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 
 /* ---- the faked device --------------------------------------------------- */
 
+/* How many block writes the order of are kept. The application region of the
+ * largest part in the family is 496 blocks, and a download sends one more
+ * than the image has, so this holds any download there is. */
+#define DNLOAD_RECORD_MAX 512
+
 static struct {
 	int present;            /* the DFU device is on the bus */
 	uint16_t vid, pid;
@@ -102,6 +107,15 @@ static struct {
 	int dnload_calls;
 	int dnload_rc;          /* < 0: block writes fail with this */
 	int dnload_fail_after;  /* ...from this many blocks written on */
+	/* Every block write in the order it was sent, so the order an image is
+	 * written in can be read back: the block number, and whether what was
+	 * sent was a whole block of 0xFF, which is how the blank vector table a
+	 * download starts with is told from the real one it ends with. Every
+	 * write is recorded, whether or not this fake then refuses it, so a test
+	 * can say what the tool sent rather than what reached flash. Writes past
+	 * the end of the record are counted but not kept. */
+	int dnload_blocks[DNLOAD_RECORD_MAX];
+	int dnload_blank[DNLOAD_RECORD_MAX];
 	int getstatus_rc;       /* < 0: the status read fails with this */
 	int getstatus_fail_after; /* ...from this many blocks written on */
 	int detach_calls;
@@ -339,6 +353,13 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		mu_assert(length == BLOCK_SIZE, "DNLOAD sent the wrong length");
 		mu_assert(value >= FIRST_BLOCK,
 		          "DNLOAD wrote a block inside the bootloader");
+		if (fake.dnload_calls < DNLOAD_RECORD_MAX) {
+			fake.dnload_blocks[fake.dnload_calls] = value;
+			fake.dnload_blank[fake.dnload_calls] = 1;
+			for (i = 0; i < length; i++)
+				if (data[i] != 0xff)
+					fake.dnload_blank[fake.dnload_calls] = 0;
+		}
 		fake.dnload_calls++;
 		/* The failure starts once that many blocks have gone through, so a
 		 * test can let a row of dots build up before it. */
@@ -593,6 +614,13 @@ static void remove_dump(void)
  * falls into a fourth. */
 #define IMAGE_PAYLOAD (3 * BLOCK_SIZE)
 #define IMAGE_BLOCKS 4
+
+/* How many block writes a download of an image of this many blocks sends: one
+ * more than the image has, because the region's first block is written twice.
+ * It goes out blank at the start of the transfer, so that nothing is startable
+ * while the image is going in, and carries the real vector table at the end of
+ * it. download() in ubertooth-dfu.c says why. */
+#define DNLOADS_FOR_BLOCKS(blocks) ((blocks) + 1)
 
 /* A signed DFU file for this device, laid out like a real image: the build
  * string at the start, and the firmware info block at
@@ -906,7 +934,7 @@ static const char *expected_image_line(void)
 static void assert_flash_passed(struct run_result *r)
 {
 	mu_assert_int_eq(0, r->rc);
-	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS(IMAGE_BLOCKS), fake.dnload_calls);
 	mu_assert(strstr(r->err, "Detached\n") != NULL,
 	          "the detach was not reported");
 	mu_assert(strstr(r->out, "Verified firmware revision: " IMAGE_REVISION)
@@ -1084,7 +1112,7 @@ MU_TEST(a_detach_that_is_accepted_and_ignored_fails_before_verification)
 	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS(IMAGE_BLOCKS), fake.dnload_calls);
 	mu_assert(strstr(r.err, "error: detach failed: the board is still in DFU") != NULL,
 	          "a board left in DFU was not reported");
 	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
@@ -1214,7 +1242,7 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_before_verification)
 	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS(IMAGE_BLOCKS), fake.dnload_calls);
 	mu_assert(strstr(r.err, "came back in the bootloader") != NULL,
 	          "the board back in the bootloader was not reported");
 	/* The image is in the flash, so the line that would otherwise send the
@@ -1351,7 +1379,7 @@ MU_TEST(an_image_for_another_api_version_is_warned_about_and_written)
 	mu_assert(strstr(r.err, "will refuse") == NULL,
 	          "the warning promises what the other tools will do");
 	/* A warning, not a refusal: the image is written and verified. */
-	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS(IMAGE_BLOCKS), fake.dnload_calls);
 	mu_assert(strstr(r.out, "Verified firmware revision: " IMAGE_REVISION)
 	          != NULL, "the image was not written after the warning");
 	mu_assert(strstr(r.err, "error: ") == NULL,
@@ -1709,6 +1737,115 @@ MU_TEST(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash)
 	remove_dump();
 }
 
+/* ---- the order an image is written in ---------------------------------- */
+
+/* The region's first block holds the vector table the board starts from, so
+ * it goes out blank first and real last: in between a board has nothing its
+ * bootloader will start, and a download that stops part way through leaves it
+ * that way. download() in ubertooth-dfu.c says why the whole first sector
+ * rather than that one block has to be what is written last. */
+
+#define SECTOR_BLOCKS (SECTOR_SIZE / BLOCK_SIZE)
+
+/* An image with five blocks above the region's first sector, so the order has
+ * all three of its parts to get right. */
+#define ORDER_IMAGE_BLOCKS (SECTOR_BLOCKS + 5)
+#define ORDER_IMAGE_PAYLOAD \
+	(ORDER_IMAGE_BLOCKS * BLOCK_SIZE - DFU_SUFFIX_LENGTH)
+
+/* The blocks that were written, against the blocks that should have been, as
+ * offsets from the start of the application region. */
+static void assert_write_order(const int *expected, int count)
+{
+	int i;
+
+	mu_assert_int_eq(count, fake.dnload_calls);
+	for (i = 0; i < count && i < fake.dnload_calls; i++) {
+		char message[96];
+
+		snprintf(message, sizeof(message),
+		         "write %d went to block %d, not to block %d", i,
+		         fake.dnload_blocks[i] - FIRST_BLOCK, expected[i]);
+		mu_assert(fake.dnload_blocks[i] == FIRST_BLOCK + expected[i],
+		          message);
+	}
+}
+
+MU_TEST(a_download_writes_the_first_sector_last)
+{
+	int expected[DNLOADS_FOR_BLOCKS(ORDER_IMAGE_BLOCKS)];
+	struct run_result r;
+	int i, count = 0;
+
+	/* The blank vector table, then everything above the first sector, then
+	 * the first sector. */
+	expected[count++] = 0;
+	for (i = SECTOR_BLOCKS; i < ORDER_IMAGE_BLOCKS; i++)
+		expected[count++] = i;
+	for (i = 0; i < SECTOR_BLOCKS; i++)
+		expected[count++] = i;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	assert_write_order(expected, count);
+	/* The first write leaves erased flash where the vector table goes, and
+	 * the one that starts the last sector puts the real one there. */
+	mu_assert(fake.dnload_blank[0], "the vector table was not blanked first");
+	mu_assert(!fake.dnload_blank[count - SECTOR_BLOCKS],
+	          "the vector table written last was blank");
+	mu_assert(strstr(r.out, "Verified firmware revision: " IMAGE_REVISION)
+	          != NULL, "the flashed revision was not verified");
+}
+
+/* An image that does not reach past the first sector has nothing for the
+ * middle step, and is written in the same two others. */
+MU_TEST(an_image_inside_the_first_sector_is_written_in_the_same_order)
+{
+	int expected[DNLOADS_FOR_BLOCKS(IMAGE_BLOCKS)];
+	struct run_result r;
+	int i, count = 0;
+
+	expected[count++] = 0;
+	for (i = 0; i < IMAGE_BLOCKS; i++)
+		expected[count++] = i;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	assert_write_order(expected, count);
+	mu_assert(fake.dnload_blank[0], "the vector table was not blanked first");
+	mu_assert(!fake.dnload_blank[1], "the vector table written last was blank");
+}
+
+/* What the order is for: a download that stops part way through has sent no
+ * vector table at all, so the board's bootloader finds nothing to start and
+ * waits in DFU for another image, instead of starting one that is missing
+ * most of itself. */
+MU_TEST(a_download_that_stops_part_way_sends_no_vector_table)
+{
+	struct run_result r;
+	int i;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	fake.dnload_rc = LIBUSB_ERROR_IO;
+	/* Four blocks through: past the blanking and into the blocks above the
+	 * first sector. */
+	fake.dnload_fail_after = 4;
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(fake.dnload_calls > 4, "the download stopped before it started");
+	for (i = 0; i < fake.dnload_calls && i < DNLOAD_RECORD_MAX; i++)
+		mu_assert(fake.dnload_blocks[i] != FIRST_BLOCK ||
+		          fake.dnload_blank[i],
+		          "a download that stopped part way sent a vector table");
+}
+
 /* ---- writing only into the flash the part has -------------------------- */
 
 /* The application region of a 128 KiB part: all the flash a -d write has to
@@ -1727,7 +1864,8 @@ MU_TEST(an_image_that_fills_the_part_is_written)
 	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
 	r = RUN("-U", "0", "-d", sized_image_path, "-r");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(REGION_128K / BLOCK_SIZE, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS(REGION_128K / BLOCK_SIZE),
+	                 fake.dnload_calls);
 	mu_assert_int_eq(1, fake.part_id_calls);
 	mu_assert(strstr(r.err,
 	                 "The image needs 114688 bytes, 0x4000-0x1ffff: part "
@@ -1828,7 +1966,8 @@ MU_TEST(an_unknown_part_warns_and_writes_the_image)
 	          != NULL, "the unknown part was not reported");
 	mu_assert(strstr(r.err, "is not checked against this board's flash")
 	          != NULL, "the unchecked image was not reported");
-	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS((REGION_128K / BLOCK_SIZE) + 1),
+	                 fake.dnload_calls);
 }
 
 /* The bound follows the part, not a figure: the image the 128 KiB part has no
@@ -1843,7 +1982,8 @@ MU_TEST(an_image_too_large_for_one_part_fits_a_bigger_one)
 	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
 	r = RUN("-U", "0", "-d", sized_image_path, "-r");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS((REGION_128K / BLOCK_SIZE) + 1),
+	                 fake.dnload_calls);
 	mu_assert(strstr(r.err,
 	                 "The image needs 114944 bytes, 0x4000-0x200ff: part "
 	                 "0x25011723 (LPC1756) has 256 KiB of flash") != NULL,
@@ -1884,7 +2024,8 @@ MU_TEST(a_part_that_cannot_be_read_warns_and_writes_the_image)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.err, "warning: the part could not be read, so ")
 	          != NULL, "the unreadable part was not reported");
-	mu_assert_int_eq((REGION_128K / BLOCK_SIZE) + 1, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS((REGION_128K / BLOCK_SIZE) + 1),
+	                 fake.dnload_calls);
 }
 
 /* A board adopted in the bootloader has no application to ask, so it takes
@@ -1900,7 +2041,7 @@ MU_TEST(a_board_already_in_dfu_warns_that_the_image_is_not_checked)
 	mu_assert_int_eq(0, fake.part_id_calls);
 	mu_assert(strstr(r.err, "warning: the part could not be read, so ")
 	          != NULL, "the unchecked image was not reported");
-	mu_assert_int_eq(IMAGE_BLOCKS, fake.dnload_calls);
+	mu_assert_int_eq(DNLOADS_FOR_BLOCKS(IMAGE_BLOCKS), fake.dnload_calls);
 }
 
 /* The part ID is wanted for the transfers, which are both bounded by the
@@ -2219,6 +2360,9 @@ int main(void)
 	MU_RUN(a_256_kib_part_is_read_in_full);
 	MU_RUN(an_unknown_part_id_falls_back_to_the_assumed_flash);
 	MU_RUN(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash);
+	MU_RUN(a_download_writes_the_first_sector_last);
+	MU_RUN(an_image_inside_the_first_sector_is_written_in_the_same_order);
+	MU_RUN(a_download_that_stops_part_way_sends_no_vector_table);
 	MU_RUN(an_image_that_fills_the_part_is_written);
 	MU_RUN(an_image_one_byte_past_the_part_is_refused);
 	MU_RUN(an_image_with_no_info_block_is_refused);

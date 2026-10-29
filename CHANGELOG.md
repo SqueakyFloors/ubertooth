@@ -538,6 +538,18 @@
 
 ### Reliability fixes
 
+- A firmware download that stops part way through -- a cable pulled, a board
+  that leaves the bus, a host that dies -- no longer leaves an image a board
+  will start. `ubertooth-dfu -d` writes the vector table last, leaving erased
+  flash in its place until then, and the bootloader refuses to start an
+  application that is not there: it waits in DFU instead, so the next
+  `ubertooth-dfu -d` recovers the board rather than someone at the bench with
+  the entry pin bridged. The bootloader half takes effect only on a board
+  carrying a bootloader built from this tree, which is installed with ISP or
+  JTAG; a download interrupted inside its last 4 KiB is still one for the
+  bench either way.
+  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
+
 - `ubertooth-btle -p` discovers the access address of the connection it finds,
   instead of inheriting one from an earlier command. A `-t` target set for
   follow mode used to count on the board as "the host gave us an access
