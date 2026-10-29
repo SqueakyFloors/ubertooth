@@ -1034,6 +1034,135 @@ MU_TEST(a_leftover_first_record_is_found_on_a_live_capture)
 	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
 }
 
+/* A live capture whose first record reads below the records after it rather
+ * than above them: a record left over from a mode whose clock had not run as
+ * far as this one's. Anchored on it, every later time came out up to a period
+ * in the future, and nothing said so - the report below only looks for times
+ * behind the host clock. The records arrived a millisecond apart, so the 290 s
+ * between the first two readings never passed, whichever way round they are,
+ * and the capture is anchored on its own first record. */
+MU_TEST(a_first_record_reading_below_the_capture_moves_the_anchor)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[3] = { 10 * ONE_SECOND_TICKS,
+	                           300 * ONE_SECOND_TICKS,
+	                           301 * ONE_SECOND_TICKS };
+	const uint64_t arrived_ns[3] = { 0, 1000000ull, 1001000000ull };
+	uint64_t times[3];
+
+	capture_records(&ut, CLK100NS_PERIOD, 3, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[1]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[2] - times[1]);
+}
+
+/* ---- a live capture quiet for longer than a period --------------------- */
+
+/* A live capture of three records carrying no count: two a second apart from
+ * `start` ticks into the board's clock, then one after a quiet gap of `gap`
+ * ticks. Every record is pushed before any is popped, so the host reaches
+ * them microseconds apart however long the gap really was, and the readings
+ * they arrived with are the whole of the evidence for it.
+ *
+ * The time between the last two records has to be the gap, however many times
+ * the clock started over in it and whether it came back reading higher or
+ * lower than it did. */
+static void a_live_gap_of(uint64_t period, uint64_t start, uint64_t gap)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[3] = { start, start + ONE_SECOND_TICKS,
+	                            start + ONE_SECOND_TICKS + gap };
+	const uint64_t arrived_ns[3] = { 0, 100 * ONE_SECOND_TICKS,
+	                                 100 * (ONE_SECOND_TICKS + gap) };
+	uint64_t times[3];
+
+	capture_records(&ut, period, 3, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(ticks[2] / period - ticks[0] / period,
+	                 ut.clk100ns_upper);
+	mu_assert_int_eq(100 * gap, times[2] - times[1]);
+	mu_assert_int_eq(100 * (ticks[2] - ticks[0]), times[2] - times[0]);
+}
+
+/* Quiet gaps of every shape against the clock's period, each tried from three
+ * points in the period so that it comes back reading both higher and lower
+ * than it did. A gap of more than a period that comes back reading higher is
+ * the case nothing in the capture shows at all: the clock simply reads on
+ * from where it was, with whole periods missing. The gap the records arrived
+ * apart is what counts those periods, so all of these keep their time. */
+MU_TEST(a_quiet_live_gap_keeps_its_time_however_long_it_was)
+{
+	/* 0.4, 0.6, 1.5 and 3 periods, in tenths of one. */
+	static const uint64_t tenths[] = { 4, 6, 15, 30 };
+	static const uint64_t starts[] = { 0, 3, 8 };
+	size_t gap, start;
+
+	for (gap = 0; gap < sizeof(tenths) / sizeof(tenths[0]); gap++)
+		for (start = 0; start < sizeof(starts) / sizeof(starts[0]);
+		     start++)
+			/* A second in from each point, so the first two
+			 * records are never split by a wrap of their own. */
+			a_live_gap_of(CLK100NS_PERIOD,
+			              starts[start] * (CLK100NS_PERIOD / 10)
+			              + ONE_SECOND_TICKS,
+			              tenths[gap] * (CLK100NS_PERIOD / 10));
+
+	/* The low-energy engine's clock has its own, longer period, and the
+	 * modes that stamp with it send no count at all, so a quiet gap there
+	 * is this fix and nothing else. One and a half of its periods. */
+	a_live_gap_of(CLK100NS_TIMER1_PERIOD, ONE_SECOND_TICKS,
+	              3 * (CLK100NS_TIMER1_PERIOD / 2));
+}
+
+/* A wrap further into a live capture, with 10 s between the two records and
+ * no processing gap at all: the host had both of them waiting by the time it
+ * read either. Measured where the loop reaches a record the gap would be
+ * microseconds, so a test of the wrap against it would refuse the wrap and
+ * take a period off every time after it. */
+MU_TEST(a_wrap_a_backlog_hid_still_counts)
+{
+	a_live_gap_of(CLK100NS_PERIOD,
+	              CLK100NS_PERIOD - 6 * ONE_SECOND_TICKS,
+	              10 * ONE_SECOND_TICKS);
+}
+
+/* A live capture's times are where it was anchored plus the board's own clock
+ * from there, and the wraps of that clock are counted on the monotonic
+ * reading each record arrived with. So the host time a record carries - the
+ * reading a step of the host clock moves, and what a replay goes by - takes
+ * no part in them. The same records come out the same here with that reading
+ * stepped two hours back between the two captures, gap and all. */
+MU_TEST(a_host_clock_that_steps_does_not_move_live_times)
+{
+	ubertooth_t ut;
+	/* A gap of one and a half periods, which the clock comes back from
+	 * reading half a period higher than it did. */
+	const uint64_t gap = 3 * ((uint64_t) CLK100NS_PERIOD / 2);
+	const uint64_t ticks[3] = { ONE_SECOND_TICKS, 2 * ONE_SECOND_TICKS,
+	                            2 * ONE_SECOND_TICKS + gap };
+	const uint64_t arrived_ns[3] = { 0, 100 * ONE_SECOND_TICKS,
+	                                 100 * (ONE_SECOND_TICKS + gap) };
+	uint64_t ahead[3], stepped[3];
+	uint64_t upper;
+
+	systime = 1700000000;
+	capture_records(&ut, CLK100NS_PERIOD, 3, ticks, arrived_ns, NULL, ahead);
+	upper = ut.clk100ns_upper;
+
+	systime = 1700000000 - 7200;
+	capture_records(&ut, CLK100NS_PERIOD, 3, ticks, arrived_ns, NULL,
+	                stepped);
+
+	mu_assert_int_eq(1, upper);
+	mu_assert_int_eq(upper, ut.clk100ns_upper);
+	/* Every time is the board's clock from the first record, in both. */
+	mu_assert_int_eq(100 * (ticks[1] - ticks[0]), ahead[1] - ahead[0]);
+	mu_assert_int_eq(100 * (ticks[2] - ticks[0]), ahead[2] - ahead[0]);
+	mu_assert_int_eq(ahead[1] - ahead[0], stepped[1] - stepped[0]);
+	mu_assert_int_eq(ahead[2] - ahead[0], stepped[2] - stepped[0]);
+}
+
 /* Captures one live record whose arrival reading the case gives outright, and
  * reports the host time read either side of the loop taking it. Where the
  * capture ended up anchored, ut.abs_start_ns, is then checked against those
@@ -1893,6 +2022,10 @@ int main(void)
 	MU_RUN(a_wrap_the_host_was_not_reading_through_still_counts);
 	MU_RUN(a_stall_does_not_reject_a_counted_gap_at_the_start);
 	MU_RUN(a_leftover_first_record_is_found_on_a_live_capture);
+	MU_RUN(a_first_record_reading_below_the_capture_moves_the_anchor);
+	MU_RUN(a_quiet_live_gap_keeps_its_time_however_long_it_was);
+	MU_RUN(a_wrap_a_backlog_hid_still_counts);
+	MU_RUN(a_host_clock_that_steps_does_not_move_live_times);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);
 	MU_RUN(a_record_with_no_arrival_reading_is_anchored_where_it_is_read);

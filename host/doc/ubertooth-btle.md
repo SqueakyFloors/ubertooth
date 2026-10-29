@@ -213,12 +213,17 @@ Logging:
 
 The times in a logged capture follow the board's capture clock, which starts
 over every 429.50 s in the `-f` and `-n` modes and every 327.68 s in
-promiscuous mode. A promiscuous packet carries a count of how often it has,
-which covers a quiet gap; the packets of the other two modes carry none, so a
-gap longer than one period leaves every later time short by a period. That
-cannot be recovered, but it is reported, on standard error: `warning: packet
-times are behind the host clock by more than half the capture clock's 429.50 s
-period: a quiet gap lost a clock wrap, or the host clock was stepped
+promiscuous mode. A promiscuous packet carries a count of how often it has;
+the packets of the other two modes carry none, so how often it started over is
+worked out from the host's own clock instead: the time the host saw pass
+between two packets says how many periods lie between their clock readings, so
+a quiet gap keeps its time however long it was. Before, a gap longer than one
+period left every later time short by a period, since the clock then reads
+higher than it did and nothing in the capture shows it started over at all.
+
+Times that still come out short are reported, on standard error: `warning:
+packet times are behind the host clock by more than half the capture clock's
+429.50 s period: a quiet gap lost a clock wrap, or the host clock was stepped
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
