@@ -387,13 +387,13 @@ static int captured_level(const char* path, unsigned channel)
 
 /* The dump and the capture describe the same packet, so the level they report
  * for it is the same number: the strongest RSSI reading the board reports for
- * the packet, converted to dBm the way the datasheet's curve says.
+ * the packet, through the model of the radio's RSSI curve.
  *
- * The record's two readings are far apart on purpose. The weakest one used to
- * be what the dump printed, and through a cruder conversion, so it sat far
- * below the packet's own level: the two figures disagreed by tens of dB, and
- * anyone comparing a dump against a capture of the same run read that as a
- * receiver fault.
+ * The record's two readings are far apart on purpose, as a real packet's
+ * often are. The weakest one used to be what the dump printed, and through a
+ * cruder conversion, so it sat far below the packet's own level: the two
+ * figures disagreed by tens of dB, and anyone comparing a dump against a
+ * capture of the same run read that as a receiver fault.
  */
 MU_TEST(the_dump_reports_the_level_the_capture_records)
 {
@@ -412,11 +412,8 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
 	                "a capture file");
 
-	/* 70 raw counts apart, which the datasheet's curve puts 63 dB apart:
-	 * -28 dBm for the strongest reading of the packet, -91 dBm for the
-	 * weakest. A real packet's readings spread like this, because the
-	 * radio's reading has not caught up with the packet when its first
-	 * bytes arrive. */
+	/* 70 raw counts apart, which the model puts 63 dB apart: -28 dBm for
+	 * the strongest reading of the packet, -91 dBm for the weakest. */
 	rx.rssi_max = 30;
 	rx.rssi_min = -40;
 	/* 2480 MHz, advertising channel 39, so the channel byte the check
@@ -431,7 +428,7 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	ut->h_pcap_le = NULL;
 
 	level = printed_level(out);
-	mu_assert(level != INT_MIN, out);
+	mu_assert(level != INT_MIN, "the dump prints a level");
 	recorded = captured_level(capture, 39);
 	mu_assert(recorded != INT_MIN,
 	          "the capture holds a record to read a level from");
