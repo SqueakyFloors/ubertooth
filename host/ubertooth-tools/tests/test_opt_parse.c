@@ -391,6 +391,7 @@ static int split_line(const char *line, char **argv, int max)
 		}
 		argv[argc++] = word;
 	}
+	argv[argc] = NULL;   /* as exec() leaves argv[argc] */
 	return argc;
 }
 
@@ -405,7 +406,7 @@ static int split_line(const char *line, char **argv, int max)
 static void refusal_for(const char *options, const char *reported_with,
                         const char *line, char *out, size_t size)
 {
-	char *argv[OPT_TEST_WORDS_MAX];
+	char *argv[OPT_TEST_WORDS_MAX + 1];
 	int argc = split_line(line, argv, OPT_TEST_WORDS_MAX);
 	FILE *capture = tmpfile();
 	int saved = dup(fileno(stderr));

@@ -20,9 +20,18 @@ of that kind: the range test they are part of now frames its FIFO transfers the
 way the radio's datasheet asks for, as the Ubertooth firmware does, but neither
 figure has been on a scope.
 
-What that means for the range test's result: a pass can now be believed as far
-as the code goes, where before it could not be believed at all -- the FIFO was
-never written, the read came back as zeros, and the radio's checksum flag is
-set by reading zeros out of an empty FIFO, so the test reported a pass without
-either side having exchanged anything. Confirming a pass on a real badge still
+What that means for the range test's result: it can now pass, where before it
+could not. The FIFO was never written and the read came back as zeros, so the
+radio's checksum flag was set -- that flag only says the next two bytes in the
+FIFO match the CRC16 over the bytes already read, which reading zeros out of an
+empty FIFO satisfies -- and then the comparison against what had been sent
+failed at the first byte. So the badge reported a failure whatever the two
+boards did, however close they were. Confirming a pass on a real badge still
 needs a badge.
+
+Two things the new FIFO transfers take on trust, both on this part rather than
+on the radio. cc2400_spi_byte() returns zero when the UART's flag does not
+come, so a FIFO read of a part whose UART has stopped is a buffer of zeros and
+says nothing about it. And spi_clock(), which changes the SPI clock for a FIFO
+read, switches both halves of the UART off and on around the change, trusting
+the part to raise its transmit-ready flag again afterwards.

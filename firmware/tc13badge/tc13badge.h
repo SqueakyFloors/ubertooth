@@ -194,8 +194,8 @@
  * is an Ubertooth running cc2400_repeater(), which sends its replies as a
  * burst of 128, so the burst keeps arriving into that FIFO while the packet is
  * read out of it, and every byte waited for is another byte sitting there. The
- * Ubertooth's own range test keeps its wait to a quarter of the FIFO, 8 bytes
- * or 64 us, and the same bound holds here.
+ * Ubertooth's own range test waits 4 bytes and holds itself to 8, a quarter of
+ * the FIFO; 8 bytes, or 64 us, is the ceiling here too.
  *
  * This is a loop of this many nops rather than a timed wait, because the badge
  * starts no timer. One turn of that loop is a nop and the loop's own decrement

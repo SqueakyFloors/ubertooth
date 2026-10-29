@@ -588,11 +588,18 @@ static int scan_badge_source(const char *badge_source, struct badge_source_scan 
 			snprintf(current, sizeof(current), "%s", name);
 
 		/* The fault this is here for: one SPI transaction per byte,
-		 * which writes nothing into the FIFO and reads nothing out. */
-		if (contains_identifier(line, "FIFOREG") &&
-		    (contains_identifier(line, "cc2400_get8") ||
-		     contains_identifier(line, "cc2400_set8")) &&
-		    b->perbyte_fifo == 0) {
+		 * which writes nothing into the FIFO and reads nothing out.
+		 * Named on one line, as it was written; and because that is a
+		 * shape rather than a rule, a single-register transfer anywhere
+		 * in the range test counts too -- it has no other use for one,
+		 * and this scan is the only check this image gets. */
+		if (b->perbyte_fifo == 0 &&
+		    ((contains_identifier(line, "FIFOREG") &&
+		      (contains_identifier(line, "cc2400_get8") ||
+		       contains_identifier(line, "cc2400_set8"))) ||
+		     (strcmp(current, "cc2400_range_test") == 0 &&
+		      (calls_identifier(line, "cc2400_get8") ||
+		       calls_identifier(line, "cc2400_set8"))))) {
 			b->perbyte_fifo = lineno;
 			collapse_spaces(line, b->perbyte_text,
 			                sizeof(b->perbyte_text));
@@ -1156,9 +1163,11 @@ MU_TEST(test_the_badge_listens_past_the_repeaters_turnaround)
 
 /*
  * The badge's half of the same fault. Its range test reached the radio's FIFO
- * a byte at a time, so it wrote an empty FIFO and read zeros out of one, and
- * the radio's checksum flag is set by exactly that -- which is how the test
- * reported passes nothing had earned.
+ * a byte at a time, so it wrote an empty FIFO and read zeros out of one. The
+ * radio's checksum flag is set by exactly that, so the badge got as far as
+ * believing a packet had arrived, and then the comparison against what it had
+ * sent failed at the first byte -- which is why its range test could not pass
+ * however close the two boards were.
  */
 MU_TEST(test_the_badge_reaches_the_fifo_through_its_own_helpers)
 {

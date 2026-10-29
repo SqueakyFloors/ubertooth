@@ -1734,12 +1734,11 @@ Fixes with no visible change in normal use.
   here has a badge.
   [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
 - The ToorCon 13 badge's range test puts its packets in the radio and reads
-  them back, so a pass means something. It reached the radio's buffer a byte
-  at a time, which the radio does not take as data at all: it transmitted
-  empty packets and read zeros back, and the radio's checksum flag is set by
-  reading zeros, so the test reported a pass without either side having
-  exchanged anything. Untested: nobody here has a badge, and no build makes
-  this image.
+  them back, so it can pass. It reached the radio's buffer a byte at a time,
+  which the radio does not take as data at all: it transmitted empty packets
+  and read zeros back, so the reply never matched what was sent and the test
+  could not pass however close the two boards were. Untested: nobody here has
+  a badge, and no build makes this image.
   [#705](https://github.com/SqueakyFloors/ubertooth/issues/705)
 - A board selection that ran out of memory exited 1 with no line at all,
   whether it was asked for by index or by serial.

@@ -441,6 +441,11 @@ static const char *dash_word(int argc, char *argv[], const char *options)
 	for (i = 1; i < argc && word == NULL; i++) {
 		int refused = 0, opt, k;
 
+		/* exec() gives no NULL before argv[argc], but a caller in this
+		 * process could, and getopt would read through it. */
+		if (argv[i] == NULL)
+			break;
+
 		for (k = 0; k < count; k++)
 			pass[k] = taken[k];
 		pass[count] = argv[i];
