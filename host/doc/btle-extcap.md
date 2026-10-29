@@ -116,7 +116,10 @@ standard output, and Wireshark shows that sentence in the filter box in red.
 An empty filter, which is what Wireshark verifies when the box is empty, is
 good: the answer is an empty standard output. Either way the call exits 0,
 because a non-zero exit would make Wireshark discard the answer and report
-"Unable to check capture filter" instead of showing it.
+"Unable to check capture filter" instead of showing it. The one exception is a
+verdict that could not be printed at all, which is `error: standard output has
+gone away` and exit 1: there is nothing left for Wireshark to discard. See
+DIAGNOSTICS.
 
 A filter given alongside `--capture` does not stop the capture: it starts
 anyway, with a `warning: ` line repeating the same sentence.
@@ -192,18 +195,28 @@ A `-V` with no standard output to print the answer to, which is what
 `btle-extcap.py -V >&-` leaves, is `error: standard output has gone away` and
 exit 1. ubertooth-util(1) is not started there: with that descriptor closed,
 the first file it opened would take its number and the answer would be
-written into that.
+written into that. A descriptor open for reading only
+(`btle-extcap.py -V 1<&0`) is the same line and status, and starts no
+ubertooth-util(1) either: the answer is the child's to print, and nothing but
+the child's own exit status would say it was refused.
 
-A `-h` whose usage line has nowhere to go is that same line and exit 1, for
-both descriptors a shell can leave: one closed before the script started
-(`btle-extcap.py -h >&-`) and one open for reading only (`btle-extcap.py -h
-1<&0`), where the line reaches the buffer and the flush is what fails. A `-V
--h` that loses both halves of its answer says it once.
+An answer whose standard output has gone is that same line and exit 1,
+whichever call was answering: the usage line `-h` prints, the interface
+listing, the DLT, the configuration, and a capture filter's verdict. It
+covers both descriptors a shell can leave, one closed before the script
+started (`btle-extcap.py -h >&-`) and one open for reading only
+(`btle-extcap.py -h 1<&0`), where the line reaches the buffer and the flush
+is what fails. A `-V -h` that loses both halves of its answer says it once.
+An answer with nothing in it loses nothing and is not reported: an interface
+listing with no board to name, and the empty answer that says a capture
+filter is good, still exit 0 with that stream gone.
 
-With standard error closed, the `error: ` lines above are lost rather than
+With standard error gone, the `error: ` lines above are lost rather than
 moved: none of them falls back to standard output, which Wireshark reads as
-the answer to the call. The exit status is then all that is left to say what
-happened.
+the answer to the call. A standard error open for reading only
+(`btle-extcap.py --bogus 2<&0`) goes the same way as a closed one
+(`btle-extcap.py --bogus 2>&-`). The exit status is then all that is left to
+say what happened, and it is the script's own.
 
 ## EXIT STATUS
 
@@ -218,7 +231,8 @@ report the signal that killed it.
    script asks ubertooth-btle(1) to stop with a SIGTERM, or ubertooth-btle(1)
    dies of SIGPIPE because nothing is reading the fifo any more. It also
    includes the capture-filter verification call, whose answer is its standard
-   output and not its status; see CAPTURE FILTERS
+   output and not its status, unless that answer could not be printed; see
+   CAPTURE FILTERS
  - `1` :
    a usage error, a board that could not be opened, a tool that could not be
    run, a ubertooth-btle(1) that failed or was killed, or any other failure.

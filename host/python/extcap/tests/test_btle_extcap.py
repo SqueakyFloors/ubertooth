@@ -716,11 +716,15 @@ print("btle-extcap: -h ends the call ahead of the interface listing")
 OUTPUT_GONE = "error: standard output has gone away\n"
 
 
-def unwritable_stdout():
-    """Leave standard output open for reading only, which is `1<&0`."""
-    nowhere = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(nowhere, 1)
-    os.close(nowhere)
+def read_only(*numbers):
+    """Leave each of these descriptors open for reading only, which is `1<&0`
+    or `2<&0`. Returns what Popen runs between fork and exec."""
+    def prepare():
+        for number in numbers:
+            nowhere = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(nowhere, number)
+            os.close(nowhere)
+    return prepare
 
 
 def close_both():
@@ -731,12 +735,15 @@ def close_both():
 
 def ran_with(arguments, prepare, **environment):
     """Run the script with one of its streams as a shell could have left it."""
+    settings = dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
+                    FAKE_UTIL_ERRORS="")
+    # A case that asks for one of those is given it, rather than both being
+    # passed to dict() at once, which is an error for a repeated name.
+    settings.update(environment)
     running = subprocess.Popen(
         [sys.executable, SCRIPT, *arguments],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
-                 FAKE_UTIL_ERRORS="", **environment),
-        preexec_fn=prepare)
+        env=settings, preexec_fn=prepare)
     output, errors = running.communicate(timeout=RUN_TIMEOUT_S)
     return running.returncode, output, errors
 
@@ -754,7 +761,7 @@ assert "Traceback" not in errors, errors
 # handler catches it; the line and the status are the same. The descriptor is
 # pointed at the bin, so the flush the interpreter does as it exits -- which
 # no handler can reach -- does not end the script in status 120 instead.
-status, output, errors = ran_with(("-h",), unwritable_stdout)
+status, output, errors = ran_with(("-h",), read_only(1))
 assert status == 1, (status, output, errors)
 assert output == "", output
 assert errors == OUTPUT_GONE, errors
@@ -809,6 +816,104 @@ with open(FD1_FILE) as record:
 
 print("btle-extcap: a standard stream the shell closed is reported, not a"
       " traceback")
+
+# ---- the four calls Wireshark makes, over a standard output that has gone ---
+#
+# Each of them answers on standard output, as -h does, so each reports an
+# answer it could not print rather than exiting 0 as though it had. They used
+# to print with a bare print(): with no stream at all that is silently a
+# no-op, and over a descriptor open for reading only it ended the call in the
+# interpreter's own message and status 120.
+
+ANSWERING = (
+    ("--extcap-interfaces",),
+    ("--extcap-interface=ubertooth" + SERIALS[0], "--extcap-dlts"),
+    ("--extcap-interface=ubertooth" + SERIALS[0], "--extcap-config"),
+    # Wireshark verifying a capture filter the user typed: the verdict on this
+    # interface is that none can be applied, which is an answer like any other
+    ("--extcap-interface=ubertooth" + SERIALS[0],
+     "--extcap-capture-filter=type mgt"),
+)
+
+with open(OUTPUT_FILE, "w") as listing_file:
+    listing_file.write(LISTING_ONE % SERIALS[0])
+
+for arguments in ANSWERING:
+    for prepare in (lambda: os.close(1), read_only(1)):
+        status, output, errors = ran_with(arguments, prepare)
+        assert status == 1, (arguments, status, output, errors)
+        assert output == "", (arguments, output)
+        assert errors == OUTPUT_GONE, (arguments, errors)
+        assert "Traceback" not in errors, (arguments, errors)
+        assert "Exception ignored" not in errors, (arguments, errors)
+
+# An answer with nothing in it loses nothing, so neither of those calls is
+# reported: an interface listing with no board to name, and the empty answer
+# that says a capture filter is good, both still exit 0 with that stream gone.
+# The listing is the state a user reaches, which ubertooth-util reports by
+# failing with that one line, and this script answers with an empty listing
+# and exit 0.
+with open(OUTPUT_FILE, "w") as listing_file:
+    listing_file.write("")
+
+for arguments, extra in ((("--extcap-interfaces",),
+                          dict(FAKE_UTIL_STATUS="1",
+                               FAKE_UTIL_ERRORS=NO_DEVICES + "\n")),
+                         (("--extcap-interface=ubertooth" + SERIALS[0],
+                           "--extcap-capture-filter="), {})):
+    for prepare in (lambda: os.close(1), read_only(1)):
+        status, output, errors = ran_with(arguments, prepare, **extra)
+        assert status == 0, (arguments, status, output, errors)
+        assert output == "" and errors == "", (arguments, output, errors)
+
+# -V on a standard output that cannot be written, which is `-V 1<&0`: the
+# answer is the child's to print, and the flush that orders this script's
+# lines before the child's has an empty buffer, so it succeeds and used to
+# leave the loss to the child -- whose only trace of it is an exit status
+# ubertooth-util does not fail for. So the descriptor is asked here, the loss
+# is reported, and no child is started.
+if os.path.exists(ARGS_FILE):
+    os.remove(ARGS_FILE)
+status, output, errors = ran_with(("-V",), read_only(1))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == OUTPUT_GONE, errors
+assert not os.path.exists(ARGS_FILE), "ubertooth-util must not run"
+
+print("btle-extcap: every answer reports a standard output that has gone")
+
+# ---- a standard error open for reading only --------------------------------
+#
+# The other state a redirection can leave that stream in: the stream is there
+# and every write to it fails, including the flush the interpreter does as it
+# exits, where no handler can reach it. The call used to end in status 120
+# and a message printed nowhere. Its own line goes to the bin, as a closed
+# stream's does, and the status is its own. Standard error is no longer this
+# test's pipe in these cases, so the status is what each one pins; what
+# matters beside it is that standard output is left alone.
+
+status, output, errors = ran_with(("--bogus",), read_only(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+
+# a bare call, whose usage line goes to standard error as well
+status, output, errors = ran_with((), read_only(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+
+# and that stream going does not cost the answer: -h still prints the usage
+# text, on standard output, and exits 0
+status, output, errors = ran_with(("-h",), read_only(2))
+assert status == 0, (status, output, errors)
+assert output.startswith("Usage:"), output
+
+# with neither stream writable at once, which is `-h 1<&0 2<&0`, the status
+# is all that is left
+status, output, errors = ran_with(("-h",), read_only(1, 2))
+assert status == 1, (status, output, errors)
+
+print("btle-extcap: a standard error that cannot be written costs the call"
+      " neither its status nor its answer")
 
 # ---- --capture --------------------------------------------------------------
 

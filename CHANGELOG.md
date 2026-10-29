@@ -635,6 +635,14 @@
 
 ### Reliability fixes
 
+- Every answer `btle-extcap.py` gives reports a standard output that is not
+  there, not only `-h`: the interface listing, the DLT, the configuration and
+  a filter verdict that could not be printed are one `error: ` line and exit
+  1, where they used to exit 0 or, over a descriptor open for reading only,
+  120. A standard error in that state costs neither Python tool its own exit
+  status either.
+  [#926](https://github.com/SqueakyFloors/ubertooth/issues/926)
+
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
   package is not installed, instead of ending in a `ModuleNotFoundError`
   traceback: the command line is now read before the `usb1` module is

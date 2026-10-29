@@ -78,6 +78,21 @@ def point_at_the_bin(stream):
         pass
 
 
+def can_be_written(stream):
+    """Say whether a stream's descriptor would take a write.
+
+    An empty write asks the descriptor the question without putting anything
+    on it: one opened for reading only refuses it, as does a pipe whose
+    reader has left. A flush cannot ask, because an empty buffer flushes
+    whichever state the descriptor is in.
+    """
+    try:
+        os.write(stream.fileno(), b"")
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def output_lost():
     """Report that standard output has gone away, and end the command.
 
@@ -112,8 +127,8 @@ def answer(text):
         output_lost()
 
 
-def bin_a_missing_standard_error():
-    """Keep this tool's diagnostics out of the answer.
+def bin_an_unusable_standard_error():
+    """Keep this tool's diagnostics out of the answer and out of its status.
 
     With no such stream, print(..., file=sys.stderr) writes to standard output
     instead, where a reader or a script is entitled to find only what it
@@ -124,14 +139,20 @@ def bin_a_missing_standard_error():
     Taking a lower descriptor would be worse still: standard output may be
     closed too, and a child handed a writable bin for it would throw away
     what it was asked to write.
+
+    A descriptor opened for reading only leaves a stream whose every write
+    fails, including the flush the interpreter does as it exits, where no
+    handler can reach it: the bin takes those lines too, so the command ends
+    with its own exit status rather than status 120.
     """
-    if sys.stderr is not None:
-        return
-    nowhere = os.open(os.devnull, os.O_WRONLY)
-    if nowhere != 2:
-        os.dup2(nowhere, 2)
-        os.close(nowhere)
-    sys.stderr = open(2, "w", closefd=False)
+    if sys.stderr is None:
+        nowhere = os.open(os.devnull, os.O_WRONLY)
+        if nowhere != 2:
+            os.dup2(nowhere, 2)
+            os.close(nowhere)
+        sys.stderr = open(2, "w", closefd=False)
+    elif not can_be_written(sys.stderr):
+        point_at_the_bin(sys.stderr)
 
 
 def report_versions(selector=None):
@@ -160,6 +181,11 @@ def report_versions(selector=None):
         # with that descriptor closed, the first file the child opens takes
         # its number, and the answer would be written into whatever that
         # turned out to be.
+        output_lost()
+    if not can_be_written(sys.stdout):
+        # The answer is the child's to print, so a descriptor that refuses it
+        # is asked about here: the loss would otherwise show up only in the
+        # child's exit status, and ubertooth-util does not fail for it.
         output_lost()
     sys.stderr.flush()
     try:
@@ -255,7 +281,7 @@ def read_command_line():
 if __name__ == '__main__':
     # Before anything is printed, since what this does is decide where the
     # diagnostics go -- including specan/limits.py's refusals.
-    bin_a_missing_standard_error()
+    bin_an_unusable_standard_error()
 
     # Read here, ahead of the imports below, so that -V, -h and a refused
     # range are answered on a machine with no numpy and no Qt binding. The

@@ -130,6 +130,21 @@ def point_at_the_bin(stream):
         pass
 
 
+def can_be_written(stream):
+    """Say whether a stream's descriptor would take what is written to it.
+
+    A write of nothing asks the descriptor that question and puts no text on
+    it: one opened for reading only refuses it, whatever the length. A flush
+    cannot ask, because an empty buffer flushes whichever state the
+    descriptor is in.
+    """
+    try:
+        os.write(stream.fileno(), b"")
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def output_lost():
     """Report that standard output has gone away, and end the call.
 
@@ -163,8 +178,8 @@ def answer(text):
         output_lost()
 
 
-def bin_a_missing_standard_error():
-    """Keep this script's diagnostics out of the answer.
+def bin_an_unusable_standard_error():
+    """Keep this script's diagnostics out of the answer and out of its status.
 
     With no such stream, print(..., file=sys.stderr) writes to standard output
     instead, which for an extcap program is the worst place for it: Wireshark
@@ -176,14 +191,20 @@ def bin_a_missing_standard_error():
     Taking a lower descriptor would be worse still: standard output may be
     closed too, and a child handed a writable bin for it would throw away
     what it was asked to write.
+
+    A descriptor opened for reading only leaves a stream whose every write
+    fails, including the flush the interpreter does as it exits, where no
+    handler can reach it: the bin takes those lines too, so the call ends
+    with its own exit status rather than status 120.
     """
-    if sys.stderr is not None:
-        return
-    nowhere = os.open(os.devnull, os.O_WRONLY)
-    if nowhere != 2:
-        os.dup2(nowhere, 2)
-        os.close(nowhere)
-    sys.stderr = open(2, "w", closefd=False)
+    if sys.stderr is None:
+        nowhere = os.open(os.devnull, os.O_WRONLY)
+        if nowhere != 2:
+            os.dup2(nowhere, 2)
+            os.close(nowhere)
+        sys.stderr = open(2, "w", closefd=False)
+    elif not can_be_written(sys.stderr):
+        point_at_the_bin(sys.stderr)
 
 
 def run_tool(command, **options):
@@ -235,6 +256,11 @@ def report_versions():
         # with that descriptor closed, the first file the child opens takes
         # its number, and the answer would be written into whatever that
         # turned out to be.
+        output_lost()
+    if not can_be_written(sys.stdout):
+        # The answer is the child's to print, so a descriptor that refuses it
+        # is asked about here: the loss would otherwise show up only in the
+        # child's exit status, and ubertooth-util does not fail for it.
         output_lost()
     sys.stderr.flush()
     child = run_tool(['ubertooth-util', '-V'])
@@ -309,12 +335,14 @@ def verify_capture_filter(capture_filter):
     filter is good (extcap.c, cb_verify_filter). The exit status is not part
     of the answer: a non-zero one makes Wireshark discard the output and say
     "Unable to check capture filter" instead, so this exits 0 whichever way
-    it answers. No filter can be applied here, so any filter the user typed
-    is reported, and the empty filter Wireshark verifies when the box is
-    empty is good.
+    it answers. The exception is a verdict that could not be printed at all,
+    which answer() reports and ends the call with: there is nothing left for
+    Wireshark to discard. No filter can be applied here, so any filter the
+    user typed is reported, and the empty filter Wireshark verifies when the
+    box is empty is good.
     """
     if capture_filter:
-        print(NO_CAPTURE_FILTER)
+        answer(NO_CAPTURE_FILTER + "\n")
     return 0
 
 
@@ -334,7 +362,7 @@ def sig_handler(sig, frame):
 def main():
     # Before anything is printed, since what this does is decide where the
     # diagnostics below go.
-    bin_a_missing_standard_error()
+    bin_an_unusable_standard_error()
 
     # A bare call has said nothing for a message about the command line to
     # answer, so the usage line is the answer, on standard error since it was
@@ -562,8 +590,8 @@ def list_interfaces():
     # listing. Where that listing goes with a non-zero status below, whoever
     # runs this call by hand still sees it, and Wireshark does not.
     for serial in serials:
-        print("interface {value=ubertooth%s}{display=Ubertooth One %s}"
-              % (serial, serial))
+        answer("interface {value=ubertooth%s}{display=Ubertooth One %s}\n"
+               % (serial, serial))
 
     # A partial failure is a failure, as it is for every other tool here: a
     # board that could not be opened exits 1 even though some were listed.
@@ -591,7 +619,8 @@ def list_interfaces():
 
 
 def list_dlts():
-    print("dlt {number=256}{name=DLT_BLUETOOTH_LE_LL_WITH_PHDR}{display=Bluetooth LE}\n")
+    answer("dlt {number=256}{name=DLT_BLUETOOTH_LE_LL_WITH_PHDR}"
+           "{display=Bluetooth LE}\n\n")
 
 
 def config():
@@ -604,10 +633,10 @@ def config():
               for ch in ADVERTISING_CHANNELS]
 
     for arg in args:
-        print("arg {number=%d}{call=%s}{display=%s}{type=%s}" % arg)
+        answer("arg {number=%d}{call=%s}{display=%s}{type=%s}\n" % arg)
 
     for value in values:
-        print("value {arg=%d}{value=%s}{display=%s}{default=%s}" % value)
+        answer("value {arg=%d}{value=%s}{display=%s}{default=%s}\n" % value)
 
 
 def capture(interface, fifo, channel):
