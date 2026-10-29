@@ -138,8 +138,8 @@ static void usage(FILE *out)
 	fprintf(out, "\t       -t is for -f and -n; any -t, \"none\" included, is refused with -p\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Interference (only with -f or -p):\n");
-	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle\n");
-	fprintf(out, "\t-I, -J  interfere continuously\n");
+	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle (inert; see man page)\n");
+	fprintf(out, "\t-I, -J  interfere continuously (inert; see man page)\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Data source:\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, out);
@@ -500,6 +500,16 @@ int main(int argc, char *argv[])
 	if (crc_option == 'v')
 		fprintf(stderr, "warning: -v for the CRC verify setting is deprecated "
 		        "and will be removed; use -k\n");
+
+	/* Interference is accepted but no capture mode acts on it yet, so an
+	 * honest run says so once rather than reporting a clean capture for
+	 * something it did not do. Said here, beside the -v warning and after
+	 * every refusal, so a command that will not run gets its error line
+	 * alone. The man page's KNOWN BROKEN FEATURES section has the detail. */
+	if (jam_mode != JAM_NONE)
+		fprintf(stderr, "warning: interference (-i, -I, -j, -J) is accepted"
+		        " but no capture mode acts on it yet; see KNOWN BROKEN"
+		        " FEATURES in ubertooth-btle(1)\n");
 
 	/* Every check has passed, so the handle and its 72 MB fifo can be
 	 * allocated: the capture files further down are kept on it. */

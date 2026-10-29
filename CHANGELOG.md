@@ -580,6 +580,13 @@
 
 ### Reliability fixes
 
+- `ubertooth-btle` prints one `warning:` line when interference (`-i`, `-I`,
+  `-j`, `-J`) is given: the option is accepted but no capture mode acts on it
+  yet, so the board transmits nothing. It used to follow or listen as usual and
+  say nothing, so a run looked like it had interfered when it had not. The man
+  page records this under KNOWN BROKEN FEATURES.
+  [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
+
 - A firmware download that stops part way through -- a cable pulled, a board
   that leaves the bus, a host that dies -- no longer leaves an image a board
   will start. `ubertooth-dfu -d` writes the vector table last, leaving erased

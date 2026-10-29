@@ -94,6 +94,8 @@ with new connections or `-p` to interfere with long-lived connections.
 `-i` or `-I` (or their older spellings `-j` and `-J`) with neither `-f` nor
 `-p` is refused before any device is opened: there is no connection to
 interfere with.
+This describes the feature as it is meant to work; no capture mode acts on it
+at the moment (see KNOWN BROKEN FEATURES).
 Note that causing intentional interference may be illegal in your
 jurisdiction. Check your local laws before using this feature.
 
@@ -182,9 +184,11 @@ Major modes:
 Interference (only with `-f` or `-p`):
 
  - `-i` :
-   Interfere with one connection and return to idle
+   Interfere with one connection and return to idle. Accepted but inert at the
+   moment; see KNOWN BROKEN FEATURES
  - `-I` :
-   Interfere continuously with many connections
+   Interfere continuously with many connections. Accepted but inert at the
+   moment; see KNOWN BROKEN FEATURES
  - `-j` :
    Original "jam" spelling of `-i`; does exactly what `-i` does
  - `-J` :
@@ -300,6 +304,16 @@ Data source:
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
 
+## KNOWN BROKEN FEATURES
+
+Interference (`-i`, `-I`, and their original jam spellings `-j` and `-J`) is
+accepted, but no capture mode acts on it yet: the board follows or listens to
+the connection as usual and transmits nothing, so a run with one of these
+options is no different from a run without it. The tool prints one `warning:`
+line saying so when any of them is given. The DESCRIPTION and OPTIONS below
+describe the feature as it is meant to work; making it work again is tracked in
+[issue #871](https://github.com/SqueakyFloors/ubertooth/issues/871).
+
 ## USING WITH CRACKLE
 
 `crackle` is a tool for cracking the BLE key exchange and decrypting
@@ -313,10 +327,12 @@ Refer to `crackle` documentation for further details.
 
 ## TRANSMIT POWER
 
-Injecting advertising packets (`-s`) and interference (`-i`, `-I`, `-j`, `-J`)
-transmit at the CC2400 power level set with `ubertooth-util -a` and leave it
-unchanged. A board that has not been given a level transmits at 7 (0 dBm), the
-CC2400's reset value. Sniffing does not transmit and does not change the level.
+Injecting advertising packets (`-s`) transmits at the CC2400 power level set
+with `ubertooth-util -a` and leaves it unchanged. A board that has not been
+given a level transmits at 7 (0 dBm), the CC2400's reset value. Sniffing does
+not transmit and does not change the level. Interference (`-i`, `-I`, `-j`,
+`-J`) would transmit at the same level, but no capture mode acts on it at the
+moment (see KNOWN BROKEN FEATURES), so it transmits nothing.
 These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
 the actual output after that.
 
