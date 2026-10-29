@@ -195,10 +195,13 @@ run instead, with the board still open in whatever mode it was in.
 
 A piconet the Ubertooth half found is different: a sniffed piconet gives no
 NAP, so the address `-x` connects to has its two most significant bytes guessed
-as `00:00` and reaches only a device whose address really begins that way. A
-connection that cannot be made to such an address is the normal case, so it is
-a `note:` and the run still exits 0. Give such a device to `ubertooth-scan -s
--x`, or to `ubertooth-follow -t`, by its whole address.
+as `00:00`. Whether that guess stops the connection to a device whose address
+begins otherwise is unverified: it has not been measured on a bench, and these
+documents have claimed it both ways
+([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). Either
+way, a connection that cannot be made to such an address is a `note:` and the
+run still exits 0. Give such a device to `ubertooth-scan -s -x`, or to
+`ubertooth-follow -t`, by its whole address.
 
 A device that reports AFH off is not such a failure: it answered, and `note:
 AFH disabled` is the answer. A device that reports an AFH mode byte which is

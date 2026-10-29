@@ -16,14 +16,14 @@ Name the target one of two ways:
  - `-t` is its whole address, `xx:xx:xx:xx:xx:xx`, in either case of hex
    digit. That is what the tool connects to, and it gives the LAP and UAP the
    board follows, so `-t` needs neither `-l` nor `-u`. Use `-t` for a real
-   target: it is the only form `-a` works with, and the only one that reaches
-   an address not beginning `00:00` (see AFH below).
+   target: it is the only form `-a` works with, and the only one that connects
+   to the target's address rather than a partly guessed one (see AFH below).
  - `-l` and `-u` together are the lower and upper address parts, which is what
    `ubertooth-rx` reports for a piconet it has seen. They are four of the six
    bytes of an address; the two missing ones are the non-significant address
-   part, which a sniffer never sees, and the tool fills them in as zero. So
-   the connection it makes to collect the clock offset only reaches a target
-   whose address begins `00:00`.
+   part (NAP), which a sniffer never sees, and the tool fills them in as zero.
+   Whether that guessed NAP stops the page this form makes to collect the
+   clock offset is unverified (see AFH below).
 
 One of `-l` and `-u` without the other names no piconet, so it is refused and
 the missing half is named: `error: -l <LAP> requires -u <UAP>`. It used to be
@@ -104,9 +104,12 @@ created or device opened, with
 `error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give -t xx:xx:xx:xx:xx:xx`.
 
 A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
-the two most significant bytes zero, because a sniffer cannot see them. That
-reaches only a target whose address begins `00:00`; for any other target the
-connection fails and the command stops, saying what to do about it:
+the two most significant bytes zero, because a sniffer cannot see them.
+Whether that guess stops the page to a target whose address begins otherwise
+is unverified: it has not been measured on a bench, and these documents have
+claimed it both ways
+([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). When
+the page does fail, the command stops, saying what to do about it:
 
     error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and -u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with -t xx:xx:xx:xx:xx:xx
 
@@ -147,9 +150,9 @@ Follow the same target with an AFH map (see AFH above):
     ubertooth-follow -t 11:22:33:44:55:66 -a
 
 Follow a piconet by the LAP and UAP `ubertooth-rx` reported for it. This
-connects to `00:00:33:44:55:66`, so it works only against a target whose
-address really does begin `00:00`; against any other it stops and asks for the
-whole address (see AFH above). Use `-t` for a real target:
+connects to `00:00:33:44:55:66`, whose two most significant bytes are a guess.
+If that page fails the command stops and asks for the whole address (see AFH
+above). Use `-t` for a real target:
 
     ubertooth-follow -l 445566 -u 33 -q capture.pcap
 
