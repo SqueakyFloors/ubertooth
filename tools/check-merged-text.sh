@@ -43,7 +43,8 @@
 # between five hours and a day old. With the window at its default the same run
 # reports the three and nothing else.
 #
-# Scope: *.md, *.rst and *.txt. host/doc/man/*.1 is generated from the matching
+# Scope: *.md, *.rst, *.txt and the plain READMEs, less the build files that
+# happen to end in .txt. host/doc/man/*.1 is generated from the matching
 # host/doc/*.md and follows it, so the roff pages are not read -- a loss shows
 # in the source page. Code is not read either, and that is a decision rather
 # than an omission: the same tests over the C, header, test and build files of
@@ -67,6 +68,9 @@
 #     .kiro/steering is to rebase.)
 #   - A paragraph main gained longer ago than the window, and a single removed
 #     sentence under the word floor.
+#   - A paragraph whose wording no commit on main can be found for: if the
+#     search comes back empty there is no telling whether it is recent, so it
+#     is counted in the note on standard output rather than reported.
 #
 # And what it reports that is not a loss: a paragraph main gained inside the
 # window that this branch deliberately rewrites somewhere else in the file, or
@@ -215,17 +219,24 @@ git_diff() {
         --src-prefix=a/ --dst-prefix=b/ "$@"
 }
 
-# The prose pathspecs, in one place. host/doc/man is left out by extension: it
-# holds only the generated roff pages.
+# The prose pathspecs, in one place, and the same list is the workflow's path
+# filter. host/doc/man is left out by extension: it holds only the generated
+# roff pages. The two exclusions are build files that end in .txt and are not
+# prose at all: a removed CMake block is code, and code is out of scope for the
+# reason at the top. The plain READMEs under firmware/ carry no extension, so
+# they are named.
 diff_prose() {
-    git_diff "$1" "$base" "$head" -- '*.md' '*.rst' '*.txt'
+    git_diff "$1" "$base" "$head" -- '*.md' '*.rst' '*.txt' 'README' '*/README' \
+        ':(exclude)*CMakeLists.txt' ':(exclude)*requirements.txt'
 }
 
-changed=$(git_diff --name-only "$base" "$head" -- '*.md' '*.rst' '*.txt') ||
+changed=$(git_diff --name-only "$base" "$head" -- \
+    '*.md' '*.rst' '*.txt' 'README' '*/README' \
+    ':(exclude)*CMakeLists.txt' ':(exclude)*requirements.txt') ||
     { echo "error: git diff failed" >&2; exit 1; }
 compared=$(printf '%s\n' "$changed" | grep -c .)
 if [ "$compared" -eq 0 ]; then
-    echo "$self: no .md, .rst or .txt file changed since $short_base."
+    echo "$self: no documentation page changed since $short_base."
     exit 0
 fi
 
@@ -271,12 +282,15 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
         [ -n "$file" ] || continue
         if git cat-file -e "$head:$file" 2> /dev/null; then
             printf '%s%s\n' "$esc" "$file"
-            git show "$head:$file"
+            # The escape is the marker, so a file that contains one must not
+            # be able to open a bucket of its own. Nothing is compared on
+            # punctuation, so dropping it costs nothing.
+            git show "$head:$file" | LC_ALL=C tr -d '\033'
         fi
     done
     printf '%s+added\n' "$esc"
     git_diff -U0 "$base" "$head" |
-        awk '/^\+\+\+/ { next } /^\+/ { print substr($0, 2) }'
+        awk '/^\+\+\+ (b\/|\/)/ { next } /^\+/ { print substr($0, 2) }'
 } > "$work/kept"
 
 present=$(printf '%s\n' "$changed" | while IFS= read -r file; do
@@ -327,7 +341,15 @@ function trim(s) {
 # block ends here.
 function starts_item(s,   t) {
     t = trim(s)
-    if (t ~ /^([-*+]|[0-9]+[.)]|#|\||>|=+$|-+$)([ \t]|$)/)
+    if (t ~ /^#/)                               # a heading of any level
+        return 1
+    if (t ~ /^([-*+]|[0-9]+[.)])([ \t]|$)/)     # a list item
+        return 1
+    if (t ~ /^[|>]/)                            # a table row, a quote
+        return 1
+    if (t ~ /^(```|~~~)/)                       # a code fence
+        return 1
+    if (t ~ /^(=+|-+|~+|\^+)$/)                 # an rst underline
         return 1
     return 0
 }
@@ -447,6 +469,7 @@ FNR == NR {
         qn = 0
         next
     }
+    keptlines++
     feed(bucket, $0)
     next
 }
@@ -479,7 +502,7 @@ substr($0, 1, 6) == "--- a/" {
     oldfile = substr($0, 7)
     next
 }
-substr($0, 1, 4) == "--- /" {
+substr($0, 1, 5) == "--- /" {
     oldfile = ""
     next
 }
@@ -489,7 +512,7 @@ substr($0, 1, 6) == "+++ b/" {
         oldfile = file
     next
 }
-substr($0, 1, 4) == "+++ /" {
+substr($0, 1, 5) == "+++ /" {
     # +++ /dev/null: the file is deleted, and its text belongs to the path it
     # had.
     file = oldfile
@@ -508,14 +531,14 @@ substr($0, 1, 2) == "@@" {
 
 END {
     endhunk()
-    printf "%d %d %d\n", shingles + 0, blocks + 0, reported + 0 > (OUT "/summary")
+    printf "%d %d %d\n", keptlines + 0, blocks + 0, reported + 0 > (OUT "/summary")
 }
 ' "$work/kept" "$work/diff" || {
     echo "error: the comparison itself failed" >&2
     exit 1
 }
 
-read -r shingles examined candidates < "$work/summary" || {
+read -r keptlines examined candidates < "$work/summary" || {
     echo "error: the comparison wrote no summary" >&2
     exit 1
 }
@@ -524,7 +547,7 @@ read -r shingles examined candidates < "$work/summary" || {
 # matching cannot turn this into a comparison of nothing that passes: changed
 # files that exist at HEAD must have given the comparison text to match
 # against, and a diff that removes prose must have given it blocks to read.
-if [ "$present" -gt 0 ] && [ "$shingles" -eq 0 ]; then
+if [ "$present" -gt 0 ] && [ "$keptlines" -eq 0 ]; then
     echo "error: $present changed file(s) are in the tree but the comparison" >&2
     echo "       read no text out of them, which cannot be right: this script" >&2
     echo "       has stopped reaching the files." >&2
@@ -553,11 +576,22 @@ if [ "$candidates" -gt 0 ]; then
         # Several lines of the paragraph are asked, and the oldest answer
         # wins: an edit to one line since -- a typo, a re-wrap -- must not
         # date the whole paragraph from that edit.
+        case "$line" in
+        ''|*[!0-9]*)
+            echo "error: the comparison wrote an index line this script" >&2
+            echo "       cannot read, so it has a bug: '$n $file $line'" >&2
+            exit 1
+            ;;
+        esac
         adder=
         merges=
         while IFS= read -r key; do
             [ -n "$key" ] || continue
-            was=$(git log -1 --format=%H -S"$key" "$base" -- "$oldfile")
+            # --follow, so a rename on main does not date the whole page from
+            # the rename; :(literal), so a bracket or an asterisk in the path
+            # is a character rather than a pattern that matches nothing.
+            was=$(git log -1 --format=%H --follow -S"$key" "$base" \
+                -- ":(literal)$oldfile")
             [ -n "$was" ] || continue
             back=$(git rev-list --count --first-parent "$was..$base") || exit 1
             if [ -z "$merges" ] || [ "$back" -gt "$merges" ]; then
@@ -605,7 +639,12 @@ if [ "$candidates" -gt 0 ]; then
             printf '    %s%% of its wording is left in that file or' \
                 "$(printf '%s' "$coverage" | awk '{ printf "%d", $1 * 100 }')"
             printf ' anywhere this branch adds:\n\n'
-            sed 's/^/      /' "$work/cand-$n.txt"
+            # The escape is dropped so that a page carrying terminal control
+            # sequences cannot write them into this report.
+            LC_ALL=C tr -d '\033' < "$work/cand-$n.txt" | sed 's/^/      /'
+            printf '\n    The file as main has it:\n\n'
+            printf '        git show %s -- %s\n' \
+                "$(git rev-parse --short "$adder")" "$oldfile"
         } >> "$report"
     done < "$work/index"
 fi
@@ -642,12 +681,8 @@ fi
 
 A rebase resolution that keeps the branch's side of a file takes the other
 side's work out with it, and nothing here reads prose, so the loss merges
-green. Keep main's text and put your change on top of it: read what main added
-to the file, then rebase again and take BOTH sides in every conflict -- main's
-paragraphs and your change.
-
-    git log -p $short_base..$main_ref -- <the file>
-    git rebase $main_ref
+green. Read the paragraph out of the commit named above, put it back where it
+was, and keep your own change: in a conflict, both sides go in.
 
 If a removal is deliberate -- the paragraph is being rewritten elsewhere, or
 the change it describes is being reverted -- put a trailer in the commit
@@ -655,8 +690,8 @@ message that removes it, and say why in the pull request:
 
     Drops-merged-text: <path of the file>
 
-That excuses every removal from that file on this branch, so it names the path
-and no line number.
+Any commit on the branch will do, and it excuses every removal from that file,
+so it names the path and no line number.
 
 What is read, and what is not, is in the comment at the top of $self.
 --window changes how recently main must have gained the text to be reported.

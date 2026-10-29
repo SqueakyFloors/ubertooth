@@ -39,6 +39,7 @@ work=$(mktemp -d) || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 tab=$(printf '\t')
+esc=$(printf '\033')
 
 failures=0
 case_name=
@@ -95,10 +96,13 @@ para_bullets="\
   than one phase no longer leaves one transfer outstanding for every phase
   after the first."
 
+# The same two entries said shorter. Each keeps runs of six or seven words of
+# the entry it replaces and nothing longer, which is what a condensed entry
+# looks like: recognizable in short runs, nothing left in long ones.
 para_bullets_condensed="\
-- The capture tools give the board back when they cannot start a capture.
-- A capture gives its receive transfer back when it ends, so a run with more
-  than one phase leaves nothing outstanding."
+- The capture tools give the board back, and a second run finds a free board.
+- A capture gives its receive transfer back when it ends, so nothing is left
+  outstanding after a run of several phases."
 
 para_examples="\
 The example below writes a capture to a file and prints nothing else, which is
@@ -322,6 +326,86 @@ grep -q "host/doc/renamed.md:" "$err" || fail "the renamed page is not named"
 grep -q "the level beside a packet" "$err" ||
     fail "the commit that gave main the paragraph is not named"
 
+# A deleted page is where the diff reads differently: its text is removed
+# against /dev/null, and the path it belongs to is the one it had. A branch
+# that deletes a page main had just added text to has lost that text, and the
+# report has to name that page and not whichever one it read last.
+case_name="a page deleted with its text is reported"
+new_repo
+write_page "$repo/host/doc/zzz.md" \
+    TIMEOUT "$para_timeout"
+commit "a page of its own"
+{
+    printf '\n## LEVEL\n\n%s\n' "$para_level"
+} >> "$repo/host/doc/zzz.md"
+commit "the level beside a packet is the packet's own reading"
+branch_off
+git_in rm -q host/doc/zzz.md || exit 1
+commit "drop that page"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "host/doc/zzz.md:" "$err" || fail "the deleted page is not named"
+
+case_name="a page deleted beside an edited one is named correctly"
+new_repo
+write_page "$repo/host/doc/zzz.md" \
+    TIMEOUT "$para_timeout"
+commit "a page of its own"
+{
+    printf '\n## LEVEL\n\n%s\n' "$para_level"
+} >> "$repo/host/doc/zzz.md"
+commit "the level beside a packet is the packet's own reading"
+branch_off
+git_in rm -q host/doc/zzz.md || exit 1
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples" \
+    TIMEOUT "$para_timeout"
+commit "drop that page, say the timeout part on the main one"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "host/doc/zzz.md:" "$err" || fail "the deleted page is not named"
+grep -q "host/doc/page.md:" "$err" &&
+    fail "the loss was attributed to the page that was only edited"
+
+case_name="a plain README is read, extension or not"
+new_repo
+mkdir -p "$repo/firmware/image" || exit 1
+write_page "$repo/firmware/image/README" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options"
+commit "a README for the image"
+{
+    printf '\n## LEVEL\n\n%s\n' "$para_level"
+} >> "$repo/firmware/image/README"
+commit "the level beside a packet is the packet's own reading"
+branch_off
+write_page "$repo/firmware/image/README" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options"
+commit "say the hopping part in the README"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "firmware/image/README:" "$err" || fail "the README is not named"
+
+case_name="a build file that ends in .txt is not prose"
+new_repo
+printf 'add_library(one STATIC one.c)\n' > "$repo/CMakeLists.txt"
+{
+    printf '# %s\n' "$para_hopping"
+    printf 'add_library(two STATIC two.c)\n'
+} >> "$repo/CMakeLists.txt"
+commit "a build file with a long comment in it"
+branch_off
+printf 'add_library(one STATIC one.c)\n' > "$repo/CMakeLists.txt"
+commit "take the second library back out"
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+grep -q "no documentation page changed" "$out" ||
+    fail "a CMake file was read as a documentation page"
+
 case_name="a condensed list is not reported item by item"
 # Two list items taken out of one section and said again, shorter, in another.
 # Read as one block their wording dilutes and the pair reads as a loss; read
@@ -334,12 +418,76 @@ commit "two entries for the capture tools"
 branch_off
 write_page "$repo/host/doc/page.md" \
     HOPPING "$para_hopping" \
+    "UNDER THE HOOD" "$para_bullets_condensed" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "move the entries under the hood, shorter"
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+# Three blocks: the two items, judged one at a time, and the heading above
+# them. Judged as one block the pair would read as a loss, so the count is
+# what says the splitter is still there.
+grep -q "3 removed block(s) read" "$out" ||
+    fail "the removed list was not read as three blocks"
+
+case_name="a removal under the word floor is not reported"
+new_repo
+{
+    printf '\n## NOTE\n\nThe board keeps its own count of these.\n'
+} >> "$repo/host/doc/page.md"
+commit "say that the board counts them"
+branch_off
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "say what a board that stops answering does"
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+
+# Attribution has to follow a rename on main, or the rename looks like the
+# commit that wrote every line of the page and dates the whole page from it.
+case_name="a rename on main does not date the page from the rename"
+new_repo
+add_level_paragraph
+pad_main 7
+git_in mv host/doc/page.md host/doc/moved.md || exit 1
+commit "move the page"
+branch_off
+write_page "$repo/host/doc/moved.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "say what a board that stops answering does"
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+grep -q "^note:" "$err" ||
+    fail "the removal was not counted as one from outside the window"
+
+# A page can carry the character that marks the start of a file's text in the
+# comparison's own input. The paragraph is in the page twice here, because
+# what the marker would break is the file's own text after it, and a paragraph
+# the branch moved would count as kept through what the branch adds instead.
+case_name="an escape in a page does not break what counts as kept"
+new_repo
+{
+    printf '\n## LEVEL\n\n%s\n' "$para_level"
+    printf '\n## NOTE\n\n%s[1mbold%s[0m\n' "$esc" "$esc"
+    printf '\n## LEVEL AGAIN\n\n%s\n' "$para_level"
+} >> "$repo/host/doc/page.md"
+commit "the level beside a packet is the packet's own reading"
+branch_off
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
     OPTIONS "$para_options" \
     EXAMPLES "$para_examples"
 {
-    printf '\n## UNDER THE HOOD\n\n%s\n' "$para_bullets_condensed"
+    printf '\n## NOTE\n\n%s[1mbold%s[0m\n' "$esc" "$esc"
+    printf '\n## LEVEL AGAIN\n\n%s\n' "$para_level"
 } >> "$repo/host/doc/page.md"
-commit "move the entries under the hood, shorter"
+commit "say the level once instead of twice"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
 assert_read 1
@@ -440,7 +588,7 @@ printf '.TH UBERTOOTH\\-PAGE 1\n' > "$repo/host/doc/man/page.1"
 commit "regenerate the roff page"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
-grep -q "no .md, .rst or .txt file changed" "$out" ||
+grep -q "no documentation page changed" "$out" ||
     fail "the roff page was read as prose"
 
 case_name="the source page losing text a copy still has is reported"
@@ -486,7 +634,7 @@ printf 'int added(void) { return 1; }\n' > "$repo/src/added.c"
 commit "a source change"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
-grep -q "no .md, .rst or .txt file changed" "$out" ||
+grep -q "no documentation page changed" "$out" ||
     fail "a branch with no prose change is not reported as such"
 
 case_name="a checkout sitting on main has no branch to read"
