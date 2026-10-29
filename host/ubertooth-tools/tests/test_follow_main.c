@@ -445,7 +445,7 @@ void ubertooth_free(ubertooth_t* ut)
 
 /* The end-of-capture gap report, which the tool calls and no case here reads:
  * a capture whose records never carried FIFO_OVERFLOW has nothing to say. */
-void ubertooth_report_queue_gaps(ubertooth_t* ut)
+void ubertooth_report_capture_losses(ubertooth_t* ut)
 {
 	(void)ut;
 }

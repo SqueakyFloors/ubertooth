@@ -162,7 +162,7 @@ int rx_afh_r(ubertooth_t *ut, btbb_piconet *pn, int timeout)
 
 /* The end-of-capture gap report, which the tool calls and no case here reads:
  * a capture whose records never carried FIFO_OVERFLOW has nothing to say. */
-void ubertooth_report_queue_gaps(ubertooth_t *ut)
+void ubertooth_report_capture_losses(ubertooth_t *ut)
 {
 	(void)ut;
 }

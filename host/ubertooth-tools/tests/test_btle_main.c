@@ -437,7 +437,7 @@ void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
 
 /* The end-of-capture gap report. The library owns the message and the count;
  * what matters here is that a capture asks for it, once, after it ends. */
-void ubertooth_report_queue_gaps(ubertooth_t *ut)
+void ubertooth_report_capture_losses(ubertooth_t *ut)
 {
 	(void)ut;
 	fake.gap_reports++;

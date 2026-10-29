@@ -198,6 +198,22 @@ typedef struct {
 	uint32_t queue_gaps;
 	uint8_t queue_gap_warned;
 
+	/* How many records arrived carrying DMA_ERROR, which the board sets when
+	 * the chip's transfer controller reported an error on the channel a
+	 * capture receives into. The record it is marked on was kept, because its
+	 * transfer had finished, but some of its bytes may be wrong and what the
+	 * fault cut short before it is lost, so this counts places where the
+	 * capture may be wrong or missing packets.
+	 *
+	 * The same pair as the gap counters above: the warned flag keeps the
+	 * running warning to one line per capture, and the count is what a tool
+	 * reports when the capture ends. Read it with
+	 * ubertooth_transfer_errors(). This is the board's own fault count, not
+	 * a failed USB transfer on the host, which ubertooth_stream_failed()
+	 * carries. */
+	uint32_t transfer_errors;
+	uint8_t transfer_error_warned;
+
 	/* What the teardown's STOP request came back with, 0 while none has
 	 * failed. A board that would not take it is left running the mode the
 	 * capture started, and no other tool can open it until it is reset or
@@ -568,17 +584,19 @@ int ubertooth_read_serial_string(struct libusb_device_handle* devh, char* out,
 int ubertooth_stream_failed(ubertooth_t* ut);
 
 /*
- * Counts a record that says the board had to throw a packet away because its
- * queue was full, and warns the first time in a capture.
+ * Counts what a record's status says the capture may have lost -- the board
+ * threw a packet away because its queue was full (FIFO_OVERFLOW), or the
+ * chip's transfer controller reported an error while a packet was being
+ * received (DMA_ERROR) -- and warns the first time a capture sees each.
  *
  * Every mode's callback calls this for the records it is handed, including the
- * ones it goes on to discard: the board's word that packets were lost before
- * this record does not depend on what the host makes of the record itself.
+ * ones it goes on to discard: the board's word about what was lost before this
+ * record does not depend on what the host makes of the record itself.
  * Records that carry no readings of their own are left out here rather than by
  * the callers: a keep-alive, and the continuation records of a long low-energy
  * packet, which repeat the readings of the record that started it.
  */
-void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx);
+void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
 
 /*
  * How many gaps a capture on this handle has: times the board had to drop a
@@ -591,12 +609,22 @@ void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx);
 uint32_t ubertooth_queue_gaps(ubertooth_t* ut);
 
 /*
+ * How many capture transfer errors a capture on this handle saw: times the
+ * board said the chip's transfer controller reported an error on the channel a
+ * capture receives into. The record the board marked was kept, so each one is a
+ * place the capture may be wrong, or missing what the fault cut short.
+ * ubertooth-util(1) -w reports the board's own count of these since power-on;
+ * this one counts only what reached this capture.
+ */
+uint32_t ubertooth_transfer_errors(ubertooth_t* ut);
+
+/*
  * Says what a capture is missing, once, where the user sees it after the
  * packets have scrolled past: a tool calls this when its capture ends. A
- * capture with no gap prints nothing. The count is of gaps, not of the packets
- * lost in them.
+ * capture that lost nothing prints nothing. The counts are of gaps and of
+ * transfer errors, not of the packets lost at them.
  */
-void ubertooth_report_queue_gaps(ubertooth_t* ut);
+void ubertooth_report_capture_losses(ubertooth_t* ut);
 
 /* Whether the STOP request that ends a capture was refused on this handle.
  * Such a board is left running the mode the capture started, and no other

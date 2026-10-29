@@ -307,7 +307,7 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 /* The end-of-run gap report. Counted rather than ignored, because both ways
  * out of the tool have to make it: a live capture and a replay of a recorded
  * one, whose records carry the gaps they were recorded with. */
-void ubertooth_report_queue_gaps(ubertooth_t* ut)
+void ubertooth_report_capture_losses(ubertooth_t* ut)
 {
 	(void)ut;
 	device.gap_reports++;

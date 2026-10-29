@@ -15,7 +15,6 @@
  * read fields back out of it; only the entry points whose arguments are what
  * this test is about are replaced.
  */
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -219,51 +218,79 @@ static void fill_packet(usb_pkt_rx* rx, uint32_t clk100ns, uint8_t periods,
 }
 
 /* The handle the last run_callback() used, so a case can read what the
- * callbacks recorded on it, and what they wrote to standard error. */
+ * callbacks recorded on it, and what they wrote to each stream. */
 static ubertooth_t last_ut;
 static char last_stderr[4096];
+static char last_stdout[4096];
 
-/* Runs the queued records through one callback. Standard output goes to
- * /dev/null -- the callbacks print a line per packet and the follow prints its
- * notes, and neither belongs in a test's output -- and standard error is kept,
- * so a case can pin a warning and how often it was printed. */
+/* Both streams are collected rather than printed: the callbacks print a line
+ * per packet and the follow prints its notes, and neither belongs in a test's
+ * output. Keeping standard output lets a case pin that a warning is not on it,
+ * which is what a capture written to standard output depends on. */
+static int saved_out_fd, saved_err_fd;
+static FILE* captured_errors;
+static FILE* captured_output;
+
+static void capture_streams(void)
+{
+	memset(last_stderr, 0, sizeof(last_stderr));
+	memset(last_stdout, 0, sizeof(last_stdout));
+	captured_errors = tmpfile();
+	captured_output = tmpfile();
+
+	fflush(NULL);
+	saved_out_fd = dup(fileno(stdout));
+	saved_err_fd = dup(fileno(stderr));
+	if (captured_output != NULL)
+		dup2(fileno(captured_output), fileno(stdout));
+	if (captured_errors != NULL)
+		dup2(fileno(captured_errors), fileno(stderr));
+}
+
+static void collect_one(FILE** from, char* into, size_t size)
+{
+	size_t read_bytes;
+
+	if (*from == NULL)
+		return;
+	rewind(*from);
+	read_bytes = fread(into, 1, size - 1, *from);
+	into[read_bytes] = '\0';
+	fclose(*from);
+	*from = NULL;
+}
+
+static void collect_streams(void)
+{
+	fflush(NULL);
+	dup2(saved_out_fd, fileno(stdout));
+	dup2(saved_err_fd, fileno(stderr));
+	close(saved_out_fd);
+	close(saved_err_fd);
+
+	collect_one(&captured_errors, last_stderr, sizeof(last_stderr));
+	collect_one(&captured_output, last_stdout, sizeof(last_stdout));
+}
+
 static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
 {
-	int saved_out, saved_err, devnull;
-	FILE* errors = tmpfile();
-	size_t read_bytes = 0;
-
 	memset(&last_ut, 0, sizeof(last_ut));
-	memset(last_stderr, 0, sizeof(last_stderr));
 	last_ut.clk100ns_period = CLK100NS_PERIOD;
 	next_index = 0;
 
-	fflush(NULL);
-	saved_out = dup(fileno(stdout));
-	saved_err = dup(fileno(stderr));
-	devnull = open("/dev/null", O_WRONLY);
-	if (devnull >= 0) {
-		dup2(devnull, fileno(stdout));
-		close(devnull);
-	}
-	if (errors != NULL)
-		dup2(fileno(errors), fileno(stderr));
-
+	capture_streams();
 	while (next_index < next_count)
 		cb(&last_ut, args);
+	collect_streams();
+}
 
-	fflush(NULL);
-	dup2(saved_out, fileno(stdout));
-	dup2(saved_err, fileno(stderr));
-	close(saved_out);
-	close(saved_err);
-
-	if (errors != NULL) {
-		rewind(errors);
-		read_bytes = fread(last_stderr, 1, sizeof(last_stderr) - 1, errors);
-		last_stderr[read_bytes] = '\0';
-		fclose(errors);
-	}
+/* The summary a tool prints when its capture ends, read off the handle the
+ * last run_callback() left behind, with both streams collected the same way. */
+static void run_report(void)
+{
+	capture_streams();
+	ubertooth_report_capture_losses(&last_ut);
+	collect_streams();
 }
 
 /* How many times `needle` appears in what the last run wrote to standard
@@ -924,6 +951,116 @@ MU_TEST(every_mode_counts_the_gaps_in_its_own_capture)
 	btbb_piconet_unref(pn);
 }
 
+/* ---- the packets a faulted transfer leaves behind ---------------------- */
+
+/*
+ * The board marks DMA_ERROR on a record when the chip's transfer controller
+ * reported an error on the channel a capture receives into. The packet the
+ * mark arrives on got through whole, but a packet the same fault cut short is
+ * gone with nothing else to show for it. The Basic Rate loops have marked it
+ * all along and the low-energy engine marks it now; neither mark reached the
+ * user before this, so such a capture looked exactly like a clean one.
+ */
+#define TRANSFER_WARNING "transfer error while capturing"
+
+MU_TEST(a_record_marked_by_a_transfer_error_is_counted_and_warned)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	fill_packet(&next_packets[1], 40000, 0, 11);
+	next_packets[0].status |= DMA_ERROR;
+	next_packets[1].status |= DMA_ERROR;
+	next_count = 2;
+
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(2, (int)last_ut.transfer_errors);
+	mu_assert_int_eq(2, (int)ubertooth_transfer_errors(&last_ut));
+
+	/* Warned once, however many follow. */
+	mu_assert_int_eq(1, stderr_lines_with(TRANSFER_WARNING));
+
+	/* On standard error, not on standard output: a capture written there
+	 * would be corrupted by a line of English in the middle of it. */
+	mu_assert(strstr(last_stdout, TRANSFER_WARNING) == NULL,
+	          "the warning went to standard output");
+
+	/* A faulted transfer is not a full queue: a capture must not be told it
+	 * has gaps it does not have. */
+	mu_assert_int_eq(0, (int)last_ut.queue_gaps);
+	mu_assert_int_eq(0, stderr_lines_with(GAP_WARNING));
+}
+
+MU_TEST(a_capture_with_no_transfer_error_says_nothing)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(0, (int)last_ut.transfer_errors);
+	mu_assert_int_eq(0, stderr_lines_with(TRANSFER_WARNING));
+}
+
+/* A keep-alive is one byte on the wire, so its other fields hold whatever the
+ * record before left in the buffer, this mark among them. */
+MU_TEST(a_keep_alive_does_not_count_as_a_transfer_error)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_packets[0].pkt_type = KEEP_ALIVE;
+	next_packets[0].status |= DMA_ERROR;
+	next_count = 1;
+
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(0, (int)last_ut.transfer_errors);
+	mu_assert_int_eq(0, stderr_lines_with(TRANSFER_WARNING));
+}
+
+/* What a tool prints when its capture ends, where the user sees it after the
+ * packets have scrolled past: one line for each kind of loss the capture had,
+ * and nothing at all for a capture that lost nothing. */
+MU_TEST(the_end_of_a_capture_counts_both_kinds_of_loss)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	fill_packet(&next_packets[1], 40000, 0, 11);
+	next_packets[0].status |= FIFO_OVERFLOW;
+	next_packets[1].status |= DMA_ERROR | FIFO_OVERFLOW;
+	next_count = 2;
+
+	run_callback(cb_rx, NULL);
+	run_report();
+
+	mu_assert_int_eq(1, stderr_lines_with("the capture has 2 gaps where the "
+	                                      "board's queue filled up"));
+	mu_assert_int_eq(1, stderr_lines_with("the capture has 1 transfer error "
+	                                      "where a packet may be wrong"));
+
+	/* Singular and plural each read as themselves. */
+	mu_assert_int_eq(0, stderr_lines_with("1 transfer errors"));
+	mu_assert_int_eq(0, stderr_lines_with("2 gap where"));
+
+	/* The summary is a report about the capture, not part of it: nothing of
+	 * it reaches standard output, which a capture can own. */
+	mu_assert_int_eq(0, (int)strlen(last_stdout));
+}
+
+MU_TEST(a_capture_that_lost_nothing_reports_nothing)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+
+	run_callback(cb_rx, NULL);
+	run_report();
+
+	mu_assert_int_eq(0, (int)strlen(last_stderr));
+	mu_assert_int_eq(0, (int)strlen(last_stdout));
+}
+
 MU_TEST(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known)
 {
 	btbb_piconet* pn = btbb_piconet_new();
@@ -1013,6 +1150,11 @@ int main(void)
 	MU_RUN(a_keep_alive_does_not_count_as_a_gap);
 	MU_RUN(a_discarded_record_still_counts_its_gap);
 	MU_RUN(every_mode_counts_the_gaps_in_its_own_capture);
+	MU_RUN(a_record_marked_by_a_transfer_error_is_counted_and_warned);
+	MU_RUN(a_capture_with_no_transfer_error_says_nothing);
+	MU_RUN(a_keep_alive_does_not_count_as_a_transfer_error);
+	MU_RUN(the_end_of_a_capture_counts_both_kinds_of_loss);
+	MU_RUN(a_capture_that_lost_nothing_reports_nothing);
 	/* These two run cb_rx() with a piconet, which keeps counters between
 	 * packets: they come last so nothing above is judged by them. */
 	MU_RUN(a_replay_and_a_capture_with_no_piconet_send_no_trim);

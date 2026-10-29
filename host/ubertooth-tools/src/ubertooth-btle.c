@@ -733,7 +733,7 @@ int main(int argc, char *argv[])
 
 		/* What the capture is missing, once, where the user will see it
 		 * after the packets have scrolled past. */
-		ubertooth_report_queue_gaps(ut);
+		ubertooth_report_capture_losses(ut);
 	}
 
 	if (do_get_aa) {

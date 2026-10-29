@@ -204,9 +204,10 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 	/* What the dump is missing, once the records have scrolled past. A gap is
-	 * a stretch the board had no queue room for, so the count is of gaps and
-	 * not of the packets lost in them. */
-	ubertooth_report_queue_gaps(ut);
+	 * a stretch the board had no queue room for and a transfer error is one the
+	 * chip's transfer controller faulted at, so the counts are of those places
+	 * and not of the packets lost at them. */
+	ubertooth_report_capture_losses(ut);
 
 	/* A teardown the board refused is read here too: that board is left
 	 * running the mode this dump started, and no other tool can open it

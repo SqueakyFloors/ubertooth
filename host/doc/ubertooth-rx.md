@@ -350,9 +350,21 @@ packets are missing, so a capture with gaps is complete only between them. The
 board reports a gap on the first packet that gets through after it, so a
 capture that ends in the moment after a gap does not report that last one.
 
-A capture read back from a file with `-i` reports the same way: the gaps are
-recorded in the packets, so replaying one warns as it reads them and gives the
-same total at the end.
+A capture transfer error is reported the same way. The chip's transfer
+controller can report an error on the channel a capture receives into: what
+the board was receiving at the time had arrived, so it is kept and marked,
+while some of its bytes may be wrong and whatever the fault cut short before
+it is lost. The first mark warns `warning: the board had a transfer error
+while capturing; what it was receiving was kept, but some of those bytes may
+be wrong and the capture may be missing packets around it`, and when the
+capture ends it says how many there were: `warning: the capture has 3 transfer
+errors where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports
+the board's own count of them since power-on, over every capture the board has
+run.
+
+A capture read back from a file with `-i` reports the same way: the gaps and
+the transfer errors are recorded in the packets, so replaying one warns as it
+reads them and gives the same totals at the end.
 
 ## EXIT STATUS
 

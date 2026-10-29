@@ -531,13 +531,13 @@ int ubertooth_open_stopped(void)
 
 /* The end-of-capture gap report, which the tool calls and no case here reads:
  * a capture whose records never carried FIFO_OVERFLOW has nothing to say. */
-void ubertooth_report_queue_gaps(ubertooth_t* ut)
+void ubertooth_report_capture_losses(ubertooth_t* ut)
 {
 	(void)ut;
 }
 
 /* The gap count the specan callback keeps, which belongs to libubertooth. */
-void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx)
+void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 {
 	(void)ut; (void)rx;
 }
