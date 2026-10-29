@@ -39,6 +39,10 @@ except ImportError:  # no pty module on this platform
 BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# How long one run of the tool is given. The whole test takes about 0.2 s per
+# tool on an idle machine and 0.3 s on one busy with parallel builds, so twenty
+# seconds is many times what any single run needs.
+RUN_TIMEOUT_S = 20
 
 # One option per tool that takes a required value, for the missing-value case.
 # ubertooth-ducky is left out because test_ducky_options.py already covers its
@@ -107,7 +111,7 @@ DEVICE_ACCESS = (
 def run(arguments):
     return subprocess.run([BINARY] + list(arguments), env=ENVIRONMENT,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          universal_newlines=True, timeout=20)
+                          universal_newlines=True, timeout=RUN_TIMEOUT_S)
 
 
 def usage_text(text):
@@ -323,7 +327,8 @@ for arguments, what in CAPTURE_TO_STDOUT.get(TOOL, ()):
         result = subprocess.run([BINARY] + arguments, env=ENVIRONMENT,
                                 stdin=subprocess.DEVNULL, stdout=slave_fd,
                                 stderr=subprocess.PIPE,
-                                universal_newlines=True, timeout=20)
+                                universal_newlines=True,
+                                timeout=RUN_TIMEOUT_S)
     finally:
         os.close(slave_fd)
         os.close(master_fd)

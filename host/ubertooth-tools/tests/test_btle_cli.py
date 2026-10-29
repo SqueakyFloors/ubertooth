@@ -19,6 +19,12 @@ except ImportError:  # no pty module on this platform
 
 BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# How long one ubertooth-btle run is given. The whole test takes about 1.3 s on
+# an idle machine and 2.2 s on one busy with parallel builds, over some eighty
+# short runs, where the cost that grows is starting a process rather than the
+# work a run does. Twenty seconds is therefore many times what any one run
+# needs, with room for a four-core machine slower again than this one.
+RUN_TIMEOUT_S = 20
 
 
 def reject(arguments, expected):
@@ -26,7 +32,7 @@ def reject(arguments, expected):
         [BINARY, "-U", "no-such-board", *arguments],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )
@@ -46,7 +52,7 @@ def accepted_command_line(arguments):
         capture_output=True,
         text=True,
         errors="replace",
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )
@@ -130,7 +136,7 @@ result = subprocess.run(
     [BINARY],
     capture_output=True,
     text=True,
-    timeout=5,
+    timeout=RUN_TIMEOUT_S,
     check=False,
     env=ENVIRONMENT,
 )
@@ -145,7 +151,7 @@ result = subprocess.run(
     [BINARY, "-A", "39"],
     capture_output=True,
     text=True,
-    timeout=5,
+    timeout=RUN_TIMEOUT_S,
     check=False,
     env=ENVIRONMENT,
 )
@@ -162,7 +168,7 @@ for arguments in (("-f",), ("-n",), ("-p",), ("-a",), ("-a8e89bed6",),
         capture_output=True,
         text=True,
         errors="replace",
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )
@@ -194,7 +200,7 @@ else:
             stdout=slave_fd,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=5,
+            timeout=RUN_TIMEOUT_S,
             check=False,
             env=ENVIRONMENT,
         )
@@ -228,7 +234,7 @@ for arguments, expected in (
          "error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)\n"),
 ):
     result = subprocess.run([BINARY, *arguments], capture_output=True,
-                            text=True, timeout=5, check=False,
+                            text=True, timeout=RUN_TIMEOUT_S, check=False,
                             env=ENVIRONMENT)
     assert result.returncode == 1, (arguments, result)
     assert result.stdout == "", (arguments, result)
@@ -239,14 +245,14 @@ print("ubertooth-btle: the bad-address lines are on standard error")
 # to standard output and the command succeeds. An unknown option is reported
 # on standard error and no usage text follows it.
 result = subprocess.run([BINARY, "-h"], capture_output=True, text=True,
-                        timeout=5, check=False, env=ENVIRONMENT)
+                        timeout=RUN_TIMEOUT_S, check=False, env=ENVIRONMENT)
 # -h did what was asked, so the status says so: it used to be 1, which a
 # script checking "ubertooth-btle -h" read as a failure.
 assert result.returncode == 0, result
 assert "Usage:" in result.stdout, result
 assert result.stderr == "", result
 result = subprocess.run([BINARY, "-Z"], capture_output=True, text=True,
-                        timeout=5, check=False, env=ENVIRONMENT)
+                        timeout=RUN_TIMEOUT_S, check=False, env=ENVIRONMENT)
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == "error: unrecognized option '-Z'\n", result

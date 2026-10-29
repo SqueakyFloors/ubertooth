@@ -31,6 +31,10 @@ SUFFIX_LENGTH = 16
 # from its part table; the cases below only need the same number.
 MAX_IMAGE = 512 * 1024 - 16 * 1024 + SUFFIX_LENGTH
 AS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
+# How long one ubertooth-dfu run is given. The whole test takes about 0.6 s on
+# an idle machine and 1.3 s on one busy with parallel builds, so twenty seconds
+# is many times what any single run needs.
+RUN_TIMEOUT_S = 20
 
 failures = []
 skipped = []
@@ -44,7 +48,8 @@ def check(condition, message):
 def run(*arguments):
     command = [BINARY, *arguments]
     result = subprocess.run(command, capture_output=True, text=True,
-                            timeout=20, check=False, env=ENVIRONMENT)
+                            timeout=RUN_TIMEOUT_S, check=False,
+                            env=ENVIRONMENT)
     output = result.stdout + result.stderr
     print("$", " ".join(command))
     if output:
@@ -144,7 +149,7 @@ with tempfile.TemporaryDirectory() as directory:
     not_bin = os.path.join(directory, "firmware.img")
     write(not_bin, FIRMWARE)
     result = subprocess.run([BINARY, "-s", not_bin], capture_output=True,
-                            text=True, timeout=20, check=False,
+                            text=True, timeout=RUN_TIMEOUT_S, check=False,
                             env=ENVIRONMENT)
     print("$", BINARY, "-s", not_bin)
     check(result.returncode == 1,
@@ -161,7 +166,7 @@ with tempfile.TemporaryDirectory() as directory:
     missing = os.path.join(directory, "missing.bin")
     for option in ("-s", "-d"):
         result = subprocess.run([BINARY, option, missing], capture_output=True,
-                                text=True, timeout=20, check=False,
+                                text=True, timeout=RUN_TIMEOUT_S, check=False,
                                 env=ENVIRONMENT)
         print("$", BINARY, option, missing)
         check(result.returncode == 1,
