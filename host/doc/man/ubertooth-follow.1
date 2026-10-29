@@ -13,9 +13,9 @@ Follows a classic Bluetooth (BR/EDR) piconet for a given target address\. It use
 .P
 Name the target one of two ways:
 .IP "\(bu" 4
-\fB\-t\fR is its whole address, \fBxx:xx:xx:xx:xx:xx\fR, in either case of hex digit\. That is what the tool connects to, and it gives the LAP and UAP the board follows, so \fB\-t\fR needs neither \fB\-l\fR nor \fB\-u\fR\. Use \fB\-t\fR for a real target: it is the only form \fB\-a\fR works with, and the only one that reaches an address not beginning \fB00:00\fR (see AFH below)\.
+\fB\-t\fR is its whole address, \fBxx:xx:xx:xx:xx:xx\fR, in either case of hex digit\. That is what the tool connects to, and it gives the LAP and UAP the board follows, so \fB\-t\fR needs neither \fB\-l\fR nor \fB\-u\fR\. Use \fB\-t\fR for a real target: it is the only form \fB\-a\fR works with, and the only one that connects to the target's address rather than a partly guessed one (see AFH below)\.
 .IP "\(bu" 4
-\fB\-l\fR and \fB\-u\fR together are the lower and upper address parts, which is what \fBubertooth\-rx\fR reports for a piconet it has seen\. They are four of the six bytes of an address; the two missing ones are the non\-significant address part, which a sniffer never sees, and the tool fills them in as zero\. So the connection it makes to collect the clock offset only reaches a target whose address begins \fB00:00\fR\.
+\fB\-l\fR and \fB\-u\fR together are the lower and upper address parts, which is what \fBubertooth\-rx\fR reports for a piconet it has seen\. They are four of the six bytes of an address; the two missing ones are the non\-significant address part (NAP), which a sniffer never sees, and the tool fills them in as zero\. Whether that guessed NAP stops the page this form makes to collect the clock offset is unverified (see AFH below)\.
 .IP "" 0
 .P
 One of \fB\-l\fR and \fB\-u\fR without the other names no piconet, so it is refused and the missing half is named: \fBerror: \-l <LAP> requires \-u <UAP>\fR\. It used to be taken as no target at all, which read the address from the local Bluetooth device and followed that instead of what was asked for\.
@@ -72,7 +72,7 @@ A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its pac
 .P
 Because the map is read over a connection to the target, \fB\-a\fR needs the whole address, which only \fB\-t\fR gives\. \fB\-a\fR without \fB\-t\fR is refused before any file is created or device opened, with \fBerror: \-a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give \-t xx:xx:xx:xx:xx:xx\fR\.
 .P
-A follow keyed on \fB\-l\fR and \fB\-u\fR instead connects to \fB00:00:<UAP>:<LAP>\fR, with the two most significant bytes zero, because a sniffer cannot see them\. That reaches only a target whose address begins \fB00:00\fR; for any other target the connection fails and the command stops, saying what to do about it:
+A follow keyed on \fB\-l\fR and \fB\-u\fR instead connects to \fB00:00:<UAP>:<LAP>\fR, with the two most significant bytes zero, because a sniffer cannot see them\. Whether that guess stops the page to a target whose address begins otherwise is unverified: it has not been measured on a bench, and these documents have claimed it both ways (issue #699 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/699\fR)\. When the page does fail, the command stops, saying what to do about it:
 .IP "" 4
 .nf
 error: connecting to 00:00:33:44:55:66 failed: Host is down; \-l and \-u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with \-t xx:xx:xx:xx:xx:xx
@@ -108,7 +108,7 @@ ubertooth\-follow \-t 11:22:33:44:55:66 \-a
 .fi
 .IP "" 0
 .P
-Follow a piconet by the LAP and UAP \fBubertooth\-rx\fR reported for it\. This connects to \fB00:00:33:44:55:66\fR, so it works only against a target whose address really does begin \fB00:00\fR; against any other it stops and asks for the whole address (see AFH above)\. Use \fB\-t\fR for a real target:
+Follow a piconet by the LAP and UAP \fBubertooth\-rx\fR reported for it\. This connects to \fB00:00:33:44:55:66\fR, whose two most significant bytes are a guess\. If that page fails the command stops and asks for the whole address (see AFH above)\. Use \fB\-t\fR for a real target:
 .IP "" 4
 .nf
 ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
