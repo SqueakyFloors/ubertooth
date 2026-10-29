@@ -17,6 +17,7 @@ FW_BTBR := ../btbr
 FW_COMMON := ../common
 FW_LPCUSB := ../common/lpcusb/target
 FW_BOOT := ../bootloader
+FW_BADGE := ../tc13badge
 FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
@@ -24,6 +25,9 @@ CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
 TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
+# Where the ToorCon badge's generated register header is written; see the
+# tc13badge_syntax rule at the end of this file.
+TC13_GEN := $(BINDIR)/tc13badge
 
 .PHONY: all test clean
 all: test
@@ -590,11 +594,56 @@ $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
 		-o $@ test_watchdog.c
 
+# Does the ToorCon 13 badge image still compile?
+#
+# That image is in no build. It is a Renesas R8C part, so building it needs an
+# m32c-elf toolchain that nobody working on this repository has, and the other
+# tests here can only read its sources as text. This compiles them for syntax
+# only, with the host compiler, which is enough to catch a change that no
+# longer parses or that names something nothing declares. It says nothing
+# about the code the real toolchain would generate, and it runs nothing.
+#
+# r8c2l.h is the part's register header, written by the badge's own mkports
+# from r8c2l.io, so the names the sources use are the real ones. It is
+# generated into $(TC13_GEN) rather than into the badge's directory, so that
+# running the tests leaves the source tree as it was and `make test_clean`
+# takes the generated files with it. -I$(TC13_GEN) therefore comes before
+# -I$(FW_BADGE); CPPFLAGS is left out, because the badge includes only its own
+# headers and one of them is a cc2400.h of its own, which must not be shadowed
+# by firmware/common's.
+#
+# Two things about this part have to be put aside to use a host compiler at
+# all, and neither is about the code being checked:
+#
+#   - __attribute__ is defined away. The three interrupt handlers are marked
+#     __attribute__((interrupt)), meaning the R8C's interrupt frame; a host
+#     compiler either ignores the name or, on x86, rejects a handler that
+#     takes no arguments.
+#   - main is renamed. The badge's entry point returns void, as a freestanding
+#     one may, and a host compiler holds main to returning int.
+#
+# No -Wall or -Wextra: the badge's C carries warnings of long standing in code
+# nobody here can test, and which warnings appear depends on the host
+# compiler, while whether the sources still parse does not.
+$(BINDIR)/tc13badge_syntax.stamp: $(FW_BADGE)/tc13badge.c $(FW_BADGE)/toorcon.c \
+		$(FW_BADGE)/tc13badge.h $(FW_BADGE)/cc2400.h \
+		$(FW_BADGE)/bitmaps.h $(FW_BADGE)/r8c2l.io $(FW_BADGE)/mkports \
+		| $(BINDIR)
+	mkdir -p $(TC13_GEN)
+	$(FW_BADGE)/mkports $(FW_BADGE)/r8c2l.io \
+		$(TC13_GEN)/r8c2l.h $(TC13_GEN)/r8c2l.inc
+	$(CC) -fsyntax-only '-D__attribute__(x)=' -Dmain=tc13badge_main \
+		-I$(TC13_GEN) -I$(FW_BADGE) \
+		$(FW_BADGE)/tc13badge.c $(FW_BADGE)/toorcon.c
+	touch $@
+
 $(BINDIR):
 	mkdir -p $(BINDIR)
 
-# Build and run every test; stop on the first failure.
-test: $(addprefix $(BINDIR)/,$(TESTS))
+# Build and run every test; stop on the first failure. The badge's syntax
+# check is a prerequisite rather than one of TESTS, because it is a compile
+# with nothing to run afterwards.
+test: $(addprefix $(BINDIR)/,$(TESTS)) $(BINDIR)/tc13badge_syntax.stamp
 	@fail=0; for t in $(addprefix $(BINDIR)/,$(TESTS)); do \
 		echo "== running $$t =="; \
 		$$t || fail=1; \
