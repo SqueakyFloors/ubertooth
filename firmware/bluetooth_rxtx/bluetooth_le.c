@@ -190,9 +190,14 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
  * It is built from whitening[] on first use rather than written out as a
  * second copy of the sequence: a copy in the source could disagree with the
  * one above it, and a table of ready-made words for all 40 channels would
- * cost more flash than the whole low-energy capture path. Both callers run
- * from a mode loop, never from an interrupt, so one of them cannot find it
- * half built.
+ * cost more flash than the whole low-energy capture path.
+ *
+ * On first use rather than at a mode start because the callers are in two
+ * different capture engines, so there is no one place a mode start passes
+ * through. It costs one pass of 158 iterations per boot, on the first packet
+ * of the first low-energy capture, while the receive DMA goes on filling the
+ * buffer behind it. Both callers run from a mode loop, never from an
+ * interrupt, so neither can find it half built.
  */
 #define WHITENING_WORD_COUNT ((sizeof(whitening) + 31 + 31) / 32)
 static u32 whitening_packed[WHITENING_WORD_COUNT];
@@ -207,17 +212,18 @@ static void pack_whitening(void) {
 	whitening_packed_ready = 1;
 }
 
-/* The 32 bits of the sequence that start at `idx`, packed the same way. */
+/* The 32 bits of the sequence that start at `idx`, packed the same way.
+ *
+ * The window can start anywhere in a word, so it is taken out of the pair of
+ * words holding it. Shifting the 64-bit pair, rather than the two words
+ * separately, is what makes a window that starts exactly on a word boundary
+ * no special case: shifting a 32-bit word by 32 places is undefined. */
 static u32 whitening_word(unsigned idx) {
 	unsigned word = idx / 32;
-	unsigned bit = idx % 32;
-	u32 w = whitening_packed[word] >> bit;
+	u64 pair = (u64)whitening_packed[word]
+	         | (u64)whitening_packed[word + 1] << 32;
 
-	/* A shift of 32 places is not defined, and a window that starts on a
-	 * word boundary has nothing to take from the next word anyway. */
-	if (bit != 0)
-		w |= whitening_packed[word + 1] << (32 - bit);
-	return w;
+	return (u32)(pair >> (idx % 32));
 }
 
 /*

@@ -212,6 +212,13 @@ MU_TEST(the_connection_follow_callback_reads_a_whole_length_byte)
 	mu_assert(strstr(rxtx, "if (4 + len + 3 > FOLLOW_LE_BYTES) break;")
 	          != NULL,
 	          "a CRC past the decoded bytes is still read");
+	/* The bound is ahead of the CRC check, not inside it, so a packet that
+	 * claims more than was decoded is skipped whether or not the
+	 * connection's CRC is being verified: a record of it would claim bytes
+	 * that were never decoded. */
+	mu_assert(strstr(rxtx, "if (4 + len + 3 > FOLLOW_LE_BYTES) break;"
+	                 " if (le.crc_verify)") != NULL,
+	          "the bound on the claimed length is only applied when the CRC is");
 }
 
 /* ------------------------------------------------------------------ *

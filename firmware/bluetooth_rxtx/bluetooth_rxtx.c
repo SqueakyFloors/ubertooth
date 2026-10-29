@@ -3078,9 +3078,10 @@ cleanup:
 
 
 /* How much of a packet the callback below decodes out of the symbol buffer:
- * the four bytes of the access address and as much PDU as the receive buffer
- * it writes into has room for. A packet whose header claims more than this
- * arrives cut short, so there is nothing past here to read. */
+ * the four bytes of the access address and 42 bytes of PDU, which is the count
+ * it has always decoded. The buffer it writes into is DMA_SIZE (50) bytes, so
+ * the last four are left as they were; what matters here is that nothing may
+ * be read past the bytes this number covers. */
 #define FOLLOW_LE_BYTES 46
 
 _Static_assert(FOLLOW_LE_BYTES <= DMA_SIZE,
@@ -3117,26 +3118,26 @@ int cb_follow_le() {
 				idle_rxbuf[j] = byte;
 			}
 
+			/* The length field is a whole byte in a low-energy
+			 * header: the six-bit field belongs to the Basic Rate
+			 * packets elsewhere in this file. */
+			int len = idle_rxbuf[5] + 2;
+
+			/* A header claiming more than the bytes decoded above
+			 * belongs to a packet that arrived cut short. There is
+			 * neither a CRC of it to check -- reading one would
+			 * read past the buffer -- nor a record of it to send,
+			 * because what the host would get is a record claiming
+			 * bytes that were never decoded. */
+			if (4 + len + 3 > FOLLOW_LE_BYTES)
+				break;
+
 			// verify CRC
 			if (le.crc_verify) {
-				/* The length field is a whole byte in a low-energy
-				 * header: the six-bit field belongs to the Basic
-				 * Rate packets elsewhere in this file. */
-				int len = idle_rxbuf[5] + 2;
-				u32 calc_crc, wire_crc;
-
-				/* The CRC comes after the PDU, so it is only there
-				 * to compare against if the whole packet is among
-				 * the bytes decoded above. A longer one was cut
-				 * short, and reading its CRC would read past the
-				 * buffer. */
-				if (4 + len + 3 > FOLLOW_LE_BYTES)
-					break;
-
-				calc_crc = btle_crcgen_lut(le.crc_init_reversed, (uint8_t*)idle_rxbuf + 4, len);
-				wire_crc = (idle_rxbuf[4+len+2] << 16)
-				         | (idle_rxbuf[4+len+1] << 8)
-				         |  idle_rxbuf[4+len+0];
+				u32 calc_crc = btle_crcgen_lut(le.crc_init_reversed, (uint8_t*)idle_rxbuf + 4, len);
+				u32 wire_crc = (idle_rxbuf[4+len+2] << 16)
+				             | (idle_rxbuf[4+len+1] << 8)
+				             |  idle_rxbuf[4+len+0];
 				if (calc_crc != wire_crc) // skip packets with a bad CRC
 					break;
 			}

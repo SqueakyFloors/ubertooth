@@ -196,23 +196,20 @@ MU_TEST(the_computed_words_are_the_words_the_table_held)
 			uint8_t word[4] = { 0, 0, 0, 0 };
 			u32 got;
 
+			char msg[192];
+
 			le_dewhiten_from(word, sizeof(word), channel, 4 * n);
 			got = (u32)word[0]
 			    | (u32)word[1] <<  8
 			    | (u32)word[2] << 16
 			    | (u32)word[3] << 24;
 			compared++;
-			if (got != shipped_whitening_word[idx][n]) {
-				char msg[192];
-
-				snprintf(msg, sizeof(msg),
-				         "channel index %u (%u MHz), word %u: the "
-				         "sequence reads 0x%08x where the table that "
-				         "shipped had 0x%08x", idx, channel, n,
-				         (unsigned)got,
-				         (unsigned)shipped_whitening_word[idx][n]);
-				mu_assert(0, msg);
-			}
+			snprintf(msg, sizeof(msg),
+			         "channel index %u (%u MHz), word %u: the sequence "
+			         "reads 0x%08x where the table that shipped had "
+			         "0x%08x", idx, channel, n, (unsigned)got,
+			         (unsigned)shipped_whitening_word[idx][n]);
+			mu_assert(got == shipped_whitening_word[idx][n], msg);
 		}
 	}
 
@@ -241,17 +238,15 @@ MU_TEST(a_longest_packet_is_dewhitened_as_it_was_before)
 		reference_dewhiten(want, sizeof(want), channel, 0);
 		compared++;
 
-		for (i = 0; i < sizeof(got); i++)
-			if (got[i] != want[i]) {
-				char msg[192];
+		for (i = 0; i < sizeof(got); i++) {
+			char msg[192];
 
-				snprintf(msg, sizeof(msg),
-				         "channel index %u (%u MHz), byte %u of %u: "
-				         "0x%02x where the bit-at-a-time loop gave "
-				         "0x%02x", idx, channel, i,
-				         (unsigned)sizeof(got), got[i], want[i]);
-				mu_assert(0, msg);
-			}
+			snprintf(msg, sizeof(msg),
+			         "channel index %u (%u MHz), byte %u of %u: 0x%02x "
+			         "where the bit-at-a-time loop gave 0x%02x", idx,
+			         channel, i, (unsigned)sizeof(got), got[i], want[i]);
+			mu_assert(got[i] == want[i], msg);
+		}
 	}
 
 	mu_assert_int_eq(BTLE_CHANNELS, compared);
@@ -268,34 +263,31 @@ MU_TEST(every_length_and_offset_matches_the_bit_at_a_time_loop)
 	uint8_t idx;
 	int compared = 0;
 
-	for (idx = 0; idx < BTLE_CHANNELS; idx += 7) {
+	for (idx = 0; idx < BTLE_CHANNELS; idx++) {
 		unsigned channel = btle_channel_index_to_phys(idx);
 		unsigned size, offset;
 
 		for (size = 1; size <= 40; size++) {
 			for (offset = 0; offset <= 9; offset++) {
 				uint8_t got[40], want[40];
+				char msg[192];
 
 				fill_pattern(got, size, size + offset);
 				memcpy(want, got, size);
 				le_dewhiten_from(got, size, channel, offset);
 				reference_dewhiten(want, size, channel, offset);
 				compared++;
-				if (memcmp(got, want, size) != 0) {
-					char msg[192];
-
-					snprintf(msg, sizeof(msg),
-					         "channel index %u, %u bytes from offset "
-					         "%u: dewhitened differently from the "
-					         "bit-at-a-time loop", idx, size, offset);
-					mu_assert(0, msg);
-				}
+				snprintf(msg, sizeof(msg),
+				         "channel index %u, %u bytes from offset %u: "
+				         "dewhitened differently from the bit-at-a-time "
+				         "loop", idx, size, offset);
+				mu_assert(memcmp(got, want, size) == 0, msg);
 			}
 		}
 	}
 
-	/* Six channel indices, forty lengths, ten offsets. */
-	mu_assert_int_eq(6 * 40 * 10, compared);
+	/* Every channel index, forty lengths, ten offsets. */
+	mu_assert_int_eq(BTLE_CHANNELS * 40 * 10, compared);
 }
 
 /*
@@ -315,6 +307,7 @@ MU_TEST(dewhitening_in_two_parts_matches_doing_it_at_once)
 
 		for (split = 1; split < 20; split++) {
 			uint8_t got[LONGEST_PDU], want[LONGEST_PDU];
+			char msg[192];
 
 			fill_pattern(got, sizeof(got), split);
 			memcpy(want, got, sizeof(want));
@@ -324,16 +317,11 @@ MU_TEST(dewhitening_in_two_parts_matches_doing_it_at_once)
 			le_dewhiten_from(got + split, sizeof(got) - split, channel,
 			                 split);
 			compared++;
-
-			if (memcmp(got, want, sizeof(got)) != 0) {
-				char msg[192];
-
-				snprintf(msg, sizeof(msg),
-				         "channel index %u: a packet dewhitened in two "
-				         "parts, split at %u bytes, differs from the "
-				         "same packet done at once", idx, split);
-				mu_assert(0, msg);
-			}
+			snprintf(msg, sizeof(msg),
+			         "channel index %u: a packet dewhitened in two parts, "
+			         "split at %u bytes, differs from the same packet done "
+			         "at once", idx, split);
+			mu_assert(memcmp(got, want, sizeof(got)) == 0, msg);
 		}
 	}
 

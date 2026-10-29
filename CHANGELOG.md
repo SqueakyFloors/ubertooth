@@ -489,6 +489,11 @@
   interfaces they use, as a build of the whole tree does, so a strict C
   standard works there too.
   [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
+- `LE_ADV_MAX_LEN` is gone from `ubertooth_interface.h`. It said 255 bytes,
+  the limit for extended advertising, which no mode on the board transmits.
+  A program that bounded a `cmd_le_set_adv_data()` call by it wants
+  `ADV_IND_MAX_DATA` (31), which is what the request now accepts.
+  [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
