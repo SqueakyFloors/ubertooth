@@ -84,14 +84,18 @@ def report_versions(selector=None):
 		# whatever that turned out to be.
 		output_lost()
 		return 1
+	streams = {}
 	try:
 		sys.stderr.flush()
 	except (AttributeError, ValueError):
-		# Nor any standard error, which costs the diagnostics and not the
-		# answer, so nothing is said about it.
-		pass
+		# Nor any standard error. That costs the child's diagnostics and not
+		# the answer, so nothing is said about it, but the child is handed
+		# the bin for them rather than the closed descriptor: the first file
+		# it opened would otherwise take that number and its lines would be
+		# written into whatever that turned out to be.
+		streams["stderr"] = subprocess.DEVNULL
 	try:
-		status = subprocess.call(command)
+		status = subprocess.call(command, **streams)
 	except OSError as e:
 		# Not on the PATH, or there and not executable. Reported in one line
 		# like every other failure here, rather than ending the tool in a
@@ -258,19 +262,6 @@ def through(stage):
 		# it was headed.
 		sys.stderr.flush()
 		os._exit(1)
-	except OSError as problem:
-		# The other face of a descriptor closed before the tool started.
-		# Most interpreters leave the stream itself behind, which the writes
-		# above catch as AttributeError; some hand the tool a stream whose
-		# every write fails with EBADF instead. Either way nothing asked for
-		# was printed, so it is the same loss as the reader who left, and it
-		# leaves by the same door. Any other OSError is a failure of its own
-		# and is left to be raised.
-		if problem.errno != errno.EBADF:
-			raise
-		output_lost()
-		sys.stderr.flush()
-		os._exit(1)
 	finally:
 		# The last word on that stream, while a handler can still reach the
 		# failure: the interpreter flushes it as it exits, outside any
@@ -287,9 +278,13 @@ def through(stage):
 			# before the tool started leaves the interpreter without one.
 			pass
 		except OSError as problem:
-			# Or the stream is there and its descriptor is not, which is
-			# what the handler above describes: the usage text reaches the
-			# buffer and this flush is where it fails.
+			# The other face of a descriptor closed before the tool
+			# started: most interpreters leave the tool without the stream,
+			# which the handler above catches, and some leave the stream and
+			# a descriptor whose every write fails with EBADF. The usage
+			# text reaches the buffer either way, so this flush is where
+			# that one shows up. Any other OSError is a failure of its own
+			# and is left to be raised.
 			if problem.errno != errno.EBADF:
 				raise
 			output_lost()
@@ -719,6 +714,16 @@ def main(selector, settings):
 	`settings` are the (option, value) pairs read from the command line that
 	are sent to the board once it is open.
 	"""
+	if sys.stdout is None:
+		# A session needs this stream twice over: the capture is printed to
+		# it, and the interpreter's own input() refuses to read a line
+		# without it. A descriptor closed before the tool started leaves it
+		# missing, so the session is refused here, before any board is
+		# opened, rather than ending in a traceback once the prompt first
+		# reads. Standard error closed is the same rule of the
+		# interpreter's, and there not even the line can be said.
+		output_lost()
+		return
 	bt = None
 	try:
 		bt = BTCtl.find(selector)

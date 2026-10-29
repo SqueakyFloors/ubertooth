@@ -441,8 +441,12 @@
   with standard output closed before the tool started, as `ubertooth-btbr -h
   >&-` leaves it, report the answer as lost and exit 1 rather than ending in a
   traceback. `btle-extcap.py -V` and `ubertooth-specan-ui -V` say the same
-  line and exit 1 there, in place of their own traceback, and neither starts
-  `ubertooth-util` with that descriptor closed.
+  line and exit 1 there, in place of their own traceback. None of the three
+  hands `ubertooth-util` a closed descriptor any more, for either stream: the
+  first file it opened would have taken that number and the answer, or the
+  diagnostics, would have been written into whatever that turned out to be. A
+  `ubertooth-btbr` session asked for with no standard output is refused in
+  the same line, before a board is opened.
   [#908](https://github.com/SqueakyFloors/ubertooth/issues/908)
   [#911](https://github.com/SqueakyFloors/ubertooth/issues/911)
 - `-V` is the version command in every tool, and prints the same labelled

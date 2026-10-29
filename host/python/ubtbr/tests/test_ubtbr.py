@@ -1632,6 +1632,26 @@ assert "Traceback" not in errors, errors
 assert "Exception ignored" not in errors, errors
 print("ubtbr: -h on a standard output that cannot be written is reported too")
 
+# and a session asked for with that stream closed before the tool started,
+# which is `ubertooth-btbr >&-`: it is refused in one line with no board
+# opened. A session needs the stream twice over, for the capture and for the
+# interpreter's own input(), which will not read a line without it; it used
+# to get as far as the first read and end in a traceback there.
+if os.path.exists(WRITES_FILE):
+    os.remove(WRITES_FILE)
+running = subprocess.Popen(
+    [sys.executable, WRAPPER], stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    env=ENVIRONMENT, preexec_fn=lambda: os.close(1))
+output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+assert INTRO not in errors, errors
+# nothing was sent to a board, so none was set up
+assert not writes(), writes()
+print("ubtbr: a session with no standard output is refused, no board opened")
+
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
 # is all that is left: the error line has nowhere to go either, and saying so
 # must not become an unhandled failure of its own.
@@ -2053,6 +2073,19 @@ import sys
 
 with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
     record.write("\\n".join(sys.argv[1:]))
+# What the child was handed for standard error, where a case asks. The real
+# tool writes its diagnostics there and opens USB device nodes, so a closed
+# descriptor is one its own first open() would take.
+if os.environ.get("FAKE_UTIL_FD2"):
+    state = "gone"
+    try:
+        state = ("the bin"
+                 if os.fstat(2).st_rdev == os.stat(os.devnull).st_rdev
+                 else "something else")
+    except OSError:
+        pass
+    with open(os.environ["FAKE_UTIL_FD2"], "w") as record:
+        record.write(state)
 sys.stdout.write(os.environ["FAKE_UTIL_ANSWER"])
 sys.exit(int(os.environ["FAKE_UTIL_STATUS"]))
 """
@@ -2175,6 +2208,31 @@ assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Traceback" not in errors, errors
 assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
 print("ubtbr: -V with no standard output at all is reported, not a traceback")
+
+# -V with standard error closed instead, which is `-V >out 2>&-`: the answer
+# is what was asked for, so it is still printed and the child still runs. It
+# is handed the bin for its diagnostics rather than the closed descriptor,
+# whose number the first file it opened would take -- for a tool that opens
+# USB device nodes, one of those.
+FD2_FILE = os.path.join(WORK.name, "util-fd2")
+for stale in (VERSION_ARGS_FILE, FD2_FILE):
+    if os.path.exists(stale):
+        os.remove(stale)
+running = subprocess.Popen([sys.executable, WRAPPER, "-V"],
+                           stdout=subprocess.PIPE, text=True,
+                           env=dict(ENVIRONMENT, PATH=FAKE_UTIL_DIR,
+                                    FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                                    FAKE_UTIL_ANSWER=VERSION_ANSWER,
+                                    FAKE_UTIL_STATUS="0",
+                                    FAKE_UTIL_FD2=FD2_FILE),
+                           preexec_fn=lambda: os.close(2))
+output, _ = running.communicate(timeout=DEADLINE)
+assert running.returncode == 0, (running.returncode, output)
+assert output == VERSION_ANSWER, output
+assert version_arguments() == ["-V"], version_arguments()
+with open(FD2_FILE) as recorded:
+    assert recorded.read() == "the bin", recorded
+print("ubtbr: -V with standard error closed hands the child the bin for it")
 
 
 # ---- and -V and -h need no Python libusb1 package -------------------------

@@ -85,14 +85,18 @@ def report_versions(selector=None):
         # turned out to be.
         print("error: standard output has gone away", file=sys.stderr)
         return 1
+    streams = {}
     try:
         sys.stderr.flush()
     except (AttributeError, ValueError):
-        # Nor any standard error, which costs the diagnostics and not the
-        # answer, so nothing is said about it.
-        pass
+        # Nor any standard error. That costs the child's diagnostics and not
+        # the answer, so nothing is said about it, but the child is handed
+        # the bin for them rather than the closed descriptor: the first file
+        # it opened would otherwise take that number and its lines would be
+        # written into whatever that turned out to be.
+        streams["stderr"] = subprocess.DEVNULL
     try:
-        status = subprocess.call(command)
+        status = subprocess.call(command, **streams)
     except OSError as err:
         # Not on the PATH, or there and not executable. Reported in one line
         # like every other failure here, rather than in a traceback.
