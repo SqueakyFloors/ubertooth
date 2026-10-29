@@ -1019,18 +1019,18 @@ MU_TEST(a_keep_alive_does_not_count_as_a_transfer_error)
 	mu_assert_int_eq(0, stderr_lines_with(TRANSFER_WARNING));
 }
 
-/* ---- the banks of symbols the board wrote over ------------------------- */
+/* ---- the symbols the board wrote over ---------------------------------- */
 
 /*
- * The board marks DMA_OVERFLOW when a bank of symbols finished arriving before
- * its capture loop had read the bank before it, so the new symbols went over
- * the old ones. Nothing ever looked in that bank for a packet, so this loss
+ * The board marks DMA_OVERFLOW when a block of symbols finished arriving before
+ * its capture loop had read the block before it, so the new symbols went over
+ * the old ones. Nothing ever looked in that block for a packet, so this loss
  * has no packet to name: it is a stretch of the air the capture does not have,
  * and until the host read the mark it looked exactly like a quiet band.
  */
 #define OVERWRITE_WARNING "wrote new symbols over a block"
 
-MU_TEST(a_record_that_says_a_bank_was_written_over_is_counted_and_warned)
+MU_TEST(a_record_that_says_symbols_were_written_over_is_counted_and_warned)
 {
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
@@ -1041,8 +1041,8 @@ MU_TEST(a_record_that_says_a_bank_was_written_over_is_counted_and_warned)
 
 	run_callback(cb_rx, NULL);
 
-	mu_assert_int_eq(2, (int)last_ut.overwritten_banks);
-	mu_assert_int_eq(2, (int)ubertooth_overwritten_banks(&last_ut));
+	mu_assert_int_eq(2, (int)last_ut.symbol_overwrites);
+	mu_assert_int_eq(2, (int)ubertooth_symbol_overwrites(&last_ut));
 
 	/* Warned once, however many follow. */
 	mu_assert_int_eq(1, stderr_lines_with(OVERWRITE_WARNING));
@@ -1058,9 +1058,15 @@ MU_TEST(a_record_that_says_a_bank_was_written_over_is_counted_and_warned)
 	mu_assert_int_eq(0, stderr_lines_with(GAP_WARNING));
 	mu_assert_int_eq(0, (int)last_ut.transfer_errors);
 	mu_assert_int_eq(0, stderr_lines_with(TRANSFER_WARNING));
+
+	/* The end of the capture counts the places, in the plural. */
+	run_report();
+	mu_assert_int_eq(1, stderr_lines_with("the capture has 2 places where "
+	                                      "the board wrote new symbols over "
+	                                      "a block it had not read"));
 }
 
-MU_TEST(a_capture_with_no_bank_written_over_says_nothing)
+MU_TEST(a_capture_with_nothing_written_over_says_nothing)
 {
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
@@ -1068,13 +1074,13 @@ MU_TEST(a_capture_with_no_bank_written_over_says_nothing)
 
 	run_callback(cb_rx, NULL);
 
-	mu_assert_int_eq(0, (int)last_ut.overwritten_banks);
+	mu_assert_int_eq(0, (int)last_ut.symbol_overwrites);
 	mu_assert_int_eq(0, stderr_lines_with(OVERWRITE_WARNING));
 }
 
 /* A keep-alive is one byte on the wire, so its other fields hold whatever the
  * record before left in the buffer, this mark among them. */
-MU_TEST(a_keep_alive_does_not_count_as_a_bank_written_over)
+MU_TEST(a_keep_alive_does_not_count_as_symbols_written_over)
 {
 	reset_state();
 	fill_packet(&next_packets[0], 40000, 0, 10);
@@ -1084,7 +1090,7 @@ MU_TEST(a_keep_alive_does_not_count_as_a_bank_written_over)
 
 	run_callback(cb_rx, NULL);
 
-	mu_assert_int_eq(0, (int)last_ut.overwritten_banks);
+	mu_assert_int_eq(0, (int)last_ut.symbol_overwrites);
 	mu_assert_int_eq(0, stderr_lines_with(OVERWRITE_WARNING));
 }
 
@@ -1109,13 +1115,14 @@ MU_TEST(the_end_of_a_capture_counts_every_kind_of_loss)
 	                                      "board's queue filled up"));
 	mu_assert_int_eq(1, stderr_lines_with("the capture has 1 transfer error "
 	                                      "where a packet may be wrong"));
-	mu_assert_int_eq(1, stderr_lines_with("the capture is missing 1 block of "
-	                                      "symbols the board wrote over"));
+	mu_assert_int_eq(1, stderr_lines_with("the capture has 1 place where the "
+	                                      "board wrote new symbols over a "
+	                                      "block it had not read"));
 
 	/* Singular and plural each read as themselves. */
 	mu_assert_int_eq(0, stderr_lines_with("1 transfer errors"));
 	mu_assert_int_eq(0, stderr_lines_with("2 gap where"));
-	mu_assert_int_eq(0, stderr_lines_with("1 blocks of symbols"));
+	mu_assert_int_eq(0, stderr_lines_with("1 places where"));
 
 	/* The summary is a report about the capture, not part of it: nothing of
 	 * it reaches standard output, which a capture can own. */
@@ -1227,9 +1234,9 @@ int main(void)
 	MU_RUN(a_record_marked_by_a_transfer_error_is_counted_and_warned);
 	MU_RUN(a_capture_with_no_transfer_error_says_nothing);
 	MU_RUN(a_keep_alive_does_not_count_as_a_transfer_error);
-	MU_RUN(a_record_that_says_a_bank_was_written_over_is_counted_and_warned);
-	MU_RUN(a_capture_with_no_bank_written_over_says_nothing);
-	MU_RUN(a_keep_alive_does_not_count_as_a_bank_written_over);
+	MU_RUN(a_record_that_says_symbols_were_written_over_is_counted_and_warned);
+	MU_RUN(a_capture_with_nothing_written_over_says_nothing);
+	MU_RUN(a_keep_alive_does_not_count_as_symbols_written_over);
 	MU_RUN(the_end_of_a_capture_counts_every_kind_of_loss);
 	MU_RUN(a_capture_that_lost_nothing_reports_nothing);
 	/* These two run cb_rx() with a piconet, which keeps counters between

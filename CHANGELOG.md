@@ -695,10 +695,11 @@
   mark.
   [#849](https://github.com/SqueakyFloors/ubertooth/issues/849)
 - A capture now also says when the board fell behind and wrote new symbols
-  over a block it had not read yet, which loses that whole block of the air:
-  a warning the first time, and `warning: the capture is missing 3 blocks of
-  symbols the board wrote over before reading` when the capture ends. The
-  board has marked these all along; nothing on the host read the mark.
+  over a block it had not read yet, which loses that whole block of the air
+  with no packet to point at: a warning the first time, and `warning: the
+  capture has 3 places where the board wrote new symbols over a block it had
+  not read` when the capture ends. The board has marked these all along;
+  nothing on the host read the mark.
   [#869](https://github.com/SqueakyFloors/ubertooth/issues/869)
 - **Script-visible change:** every tool that ends a capture mode exits 1 when
   the board refused the request that ends it. Such a board is left running

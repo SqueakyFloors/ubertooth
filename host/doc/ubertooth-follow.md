@@ -255,8 +255,11 @@ for a packet, so this loss has no packet to point at and nothing in the output
 marks where it happened. The first one warns `warning: the board fell behind
 while capturing and wrote new symbols over a block it had not read yet;
 whatever was in the air then is missing from this capture`, and when the
-capture ends it says how many there were: `warning: the capture is missing 3
-blocks of symbols the board wrote over before reading`.
+capture ends it says how many such places there were: `warning: the capture has
+3 places where the board wrote new symbols over a block it had not read`. The
+count is of those places, not of the blocks lost at them: the board has one
+flag for this and no field to send a number in, so one place can stand for
+several blocks.
 
 ## EXIT STATUS
 

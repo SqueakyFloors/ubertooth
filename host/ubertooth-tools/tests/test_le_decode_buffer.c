@@ -120,11 +120,11 @@ static void dirty_the_stack(void)
 }
 
 /* What the run left on the handle and on standard error: how many gaps, how
- * many capture transfer errors and how many overwritten banks of symbols the
+ * many capture transfer errors and how many places symbols were written over that the
  * callback counted, and the warnings it printed. */
 static uint32_t gaps;
 static uint32_t transfer_errors;
-static uint32_t overwritten_banks;
+static uint32_t symbol_overwrites;
 static char errors[1024];
 static char output[4096];
 
@@ -199,10 +199,10 @@ static void run_capture(void)
 	collect(out, output, sizeof(output));
 
 	/* What ubertooth_queue_gaps(), ubertooth_transfer_errors() and
-	 * ubertooth_overwritten_banks() hand a tool at the end of a capture. */
+	 * ubertooth_symbol_overwrites() hand a tool at the end of a capture. */
 	gaps = ut.queue_gaps;
 	transfer_errors = ut.transfer_errors;
-	overwritten_banks = ut.overwritten_banks;
+	symbol_overwrites = ut.symbol_overwrites;
 	free(ut.fifo);
 }
 
@@ -463,28 +463,28 @@ MU_TEST(a_long_packet_marked_by_a_transfer_error_counts_one)
 	mu_assert_int_eq(1, times_said(TRANSFER_WARNING));
 }
 
-/* ---- the banks of symbols the board wrote over ------------------------- */
+/* ---- the symbols the board wrote over ---------------------------------- */
 
 #define OVERWRITE_WARNING "wrote new symbols over a block"
 
 /*
- * The board marks DMA_OVERFLOW when a bank of symbols finished arriving before
- * its capture loop had read the bank before it, so the new symbols went over
- * the old ones. Nothing looked in that bank for a packet, so this loss has no
+ * The board marks DMA_OVERFLOW when a block of symbols finished arriving before
+ * its capture loop had read the block before it, so the new symbols went over
+ * the old ones. Nothing looked in that block for a packet, so this loss has no
  * packet to name: it is a stretch of the air the capture does not have, and
  * until the host read the mark it looked exactly like a quiet band.
  */
-MU_TEST(each_overwritten_bank_is_counted_and_warned_once)
+MU_TEST(each_place_symbols_were_written_over_is_counted_and_warned_once)
 {
 	fill_packet(&next_packets[0]);
 	fill_packet(&next_packets[1]);
 	fill_packet(&next_packets[2]);
-	next_packets[0].status = DMA_OVERFLOW;
-	next_packets[2].status = DMA_OVERFLOW;
+	next_packets[0].status |= DMA_OVERFLOW;
+	next_packets[2].status |= DMA_OVERFLOW;
 	next_count = 3;
 	run_capture();
 
-	mu_assert_int_eq(2, (int)overwritten_banks);
+	mu_assert_int_eq(2, (int)symbol_overwrites);
 	mu_assert_int_eq(1, times_said(OVERWRITE_WARNING));
 
 	/* On standard error, not on standard output, which a capture can own. */
@@ -499,21 +499,21 @@ MU_TEST(each_overwritten_bank_is_counted_and_warned_once)
 	mu_assert_int_eq(0, times_said(TRANSFER_WARNING));
 }
 
-MU_TEST(a_capture_with_no_overwritten_bank_says_nothing)
+MU_TEST(a_capture_with_nothing_written_over_says_nothing)
 {
 	fill_packet(&next_packets[0]);
 	next_count = 1;
 	run_capture();
 
-	mu_assert_int_eq(0, (int)overwritten_banks);
+	mu_assert_int_eq(0, (int)symbol_overwrites);
 	mu_assert_int_eq(0, times_said(OVERWRITE_WARNING));
 }
 
 /*
  * A long packet arrives as a chain of records that all carry the first one's
- * readings, this mark among them. One bank written over, counted once.
+ * readings, this mark among them. One block written over, counted once.
  */
-MU_TEST(a_long_packet_marked_by_an_overwritten_bank_counts_one)
+MU_TEST(a_long_packet_marked_by_symbols_written_over_counts_one)
 {
 	const uint16_t total = 120;
 	unsigned i;
@@ -524,7 +524,7 @@ MU_TEST(a_long_packet_marked_by_an_overwritten_bank_counts_one)
 
 		memset(f, 0, sizeof(*f));
 		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
-		f->status = DMA_OVERFLOW;
+		f->status |= DMA_OVERFLOW;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
 		f->reserved[0] = total & 0xff;
@@ -535,7 +535,7 @@ MU_TEST(a_long_packet_marked_by_an_overwritten_bank_counts_one)
 	mu_assert(next_count > 1, "the test packet took one record");
 	run_capture();
 
-	mu_assert_int_eq(1, (int)overwritten_banks);
+	mu_assert_int_eq(1, (int)symbol_overwrites);
 	mu_assert_int_eq(1, times_said(OVERWRITE_WARNING));
 }
 
@@ -551,8 +551,8 @@ int main(void)
 	MU_RUN(each_packet_marked_by_a_transfer_error_is_counted_and_warned_once);
 	MU_RUN(a_capture_with_no_transfer_error_says_nothing);
 	MU_RUN(a_long_packet_marked_by_a_transfer_error_counts_one);
-	MU_RUN(each_overwritten_bank_is_counted_and_warned_once);
-	MU_RUN(a_capture_with_no_overwritten_bank_says_nothing);
-	MU_RUN(a_long_packet_marked_by_an_overwritten_bank_counts_one);
+	MU_RUN(each_place_symbols_were_written_over_is_counted_and_warned_once);
+	MU_RUN(a_capture_with_nothing_written_over_says_nothing);
+	MU_RUN(a_long_packet_marked_by_symbols_written_over_counts_one);
 	return mu_report();
 }

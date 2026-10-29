@@ -215,17 +215,22 @@ typedef struct {
 	uint8_t transfer_error_warned;
 
 	/* How many records arrived carrying DMA_OVERFLOW, which the board sets
-	 * when a second bank of symbols -- the block of symbols one record
-	 * carries -- finished arriving before the capture loop had read the one
-	 * before it. The new symbols went over the old ones, so a whole bank is
-	 * gone before anything looked in it for a packet: the capture is missing
-	 * whatever was in the air then, and there is no packet to name for it.
+	 * when a block of symbols finished arriving before its capture loop had
+	 * read the block before it. The new symbols went over the old ones, so
+	 * that block is gone before anything looked in it for a packet: the
+	 * capture is missing whatever was in the air then, with no packet to name
+	 * for it.
+	 *
+	 * So this counts the places a capture was marked, not the blocks lost at
+	 * them: the board has one flag and clears it when a record is queued, so
+	 * one mark can stand for several blocks, and there is no field for a
+	 * number.
 	 *
 	 * The same pair as the counters above: the warned flag keeps the running
 	 * warning to one line per capture, and the count is what a tool reports
-	 * when the capture ends. Read it with ubertooth_overwritten_banks(). */
-	uint32_t overwritten_banks;
-	uint8_t overwritten_bank_warned;
+	 * when the capture ends. Read it with ubertooth_symbol_overwrites(). */
+	uint32_t symbol_overwrites;
+	uint8_t symbol_overwrite_warned;
 
 	/* What the teardown's STOP request came back with, 0 while none has
 	 * failed. A board that would not take it is left running the mode the
@@ -600,7 +605,7 @@ int ubertooth_stream_failed(ubertooth_t* ut);
  * Counts what a record's status says the capture may have lost -- the board
  * threw a packet away because its queue was full (FIFO_OVERFLOW), the chip's
  * transfer controller reported an error while a packet was being received
- * (DMA_ERROR), or a bank of symbols was overwritten before the capture loop
+ * (DMA_ERROR), or a block of symbols was written over before the capture loop
  * read it (DMA_OVERFLOW) -- and warns the first time a capture sees each.
  *
  * Every mode's callback calls this for the records it is handed, including the
@@ -633,13 +638,13 @@ uint32_t ubertooth_queue_gaps(ubertooth_t* ut);
 uint32_t ubertooth_transfer_errors(ubertooth_t* ut);
 
 /*
- * How many banks of symbols a capture on this handle lost: times the board
- * said a bank finished arriving before the capture loop had read the bank
- * before it, so the new symbols went over the old ones. Each one is a block
- * of symbols nothing ever looked in, which is why there is no packet to name
- * for it.
+ * How many times the board told this capture that a block of symbols was
+ * written over before its capture loop read it. Nothing ever looked in that
+ * block for a packet, which is why this loss has no packet to name. The count
+ * is of the places the board marked, not of the blocks lost at them: one mark
+ * can stand for several.
  */
-uint32_t ubertooth_overwritten_banks(ubertooth_t* ut);
+uint32_t ubertooth_symbol_overwrites(ubertooth_t* ut);
 
 /*
  * Says what a capture is missing, once, where the user sees it after the
