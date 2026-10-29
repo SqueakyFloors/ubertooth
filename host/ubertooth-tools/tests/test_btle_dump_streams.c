@@ -452,6 +452,7 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	rx.rssi_avg = 30;
 	rx.rssi_max = 30;
 	rx.rssi_min = -40;
+	rx.status |= SIGNAL_VALID;
 	/* 2480 MHz, advertising channel 39, so the channel byte the check
 	 * below reads is a value nothing else in the record could be. */
 	rx.channel = 78;

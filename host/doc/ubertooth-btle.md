@@ -271,12 +271,11 @@ rather than in dBm over the readings the board took while the packet was on the
 air. That is the figure printed as `rssi=` as well.
 
 Whether it also carries a background measurement depends on the mode.
-Promiscuous capture (`-p`) reads the channel while the radio has synchronized
-on nothing, so its records carry the background with the noise-power-valid flag
-set, and a reader shows a signal-to-noise ratio. Follow and advertising capture
-(`-f`, `-n`) read the radio only while a packet is arriving, so those records
-carry no background: the flag stays clear and Wireshark shows the field as
-`Unused signed byte`.
+Promiscuous capture (`-p`) reads the channel between packets, so its records
+can carry the background, and a reader then shows a signal-to-noise ratio.
+Follow and advertising capture (`-f`, `-n`) read the radio only while a packet
+is arriving, so those records carry no background at all: the noise-power-valid
+flag stays clear and Wireshark shows the field as `Unused signed byte`.
 
 A `-c` PPI record carries the board's own RSSI readings instead, as described
 below.

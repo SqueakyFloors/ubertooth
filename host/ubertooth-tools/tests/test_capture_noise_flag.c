@@ -157,6 +157,7 @@ static void advertising_record(usb_pkt_rx* rx)
 	rx->rssi_avg = RECORD_RSSI_AVG;
 	rx->rssi_count = 1;
 	rx->rssi_noise = record_noise_raw;
+	rx->status |= SIGNAL_VALID;
 	if (record_noise_valid)
 		rx->status |= NOISE_VALID;
 	rx->data[0] = 0xd6;
@@ -218,6 +219,7 @@ static void basic_rate_record(usb_pkt_rx* rx)
 	rx->rssi_avg = RECORD_RSSI_AVG;
 	rx->rssi_count = 1;
 	rx->rssi_noise = record_noise_raw;
+	rx->status |= SIGNAL_VALID;
 	if (record_noise_valid)
 		rx->status |= NOISE_VALID;
 

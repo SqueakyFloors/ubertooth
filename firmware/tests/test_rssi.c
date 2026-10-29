@@ -412,7 +412,7 @@ MU_TEST(test_a_mean_of_equal_readings_is_that_reading)
 	rssi_power_t p;
 	int i;
 
-	rssi_power_init(&p, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&p);
 	mu_assert_int_eq(0, rssi_power_measured(&p));
 	mu_assert_int_eq(INT8_MIN, rssi_power_mean(&p));
 
@@ -435,7 +435,7 @@ MU_TEST(test_the_mean_is_of_the_power_not_of_the_dbm_figures)
 	rssi_power_t p;
 	int i;
 
-	rssi_power_init(&p, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&p);
 	rssi_power_add(&p, -40);
 	rssi_power_add(&p, -50);
 	mu_assert_int_eq(-43, rssi_power_mean(&p));
@@ -443,14 +443,14 @@ MU_TEST(test_the_mean_is_of_the_power_not_of_the_dbm_figures)
 	/* Four quiet readings and one loud one, 10 dB apart: a fifth of the loud
 	 * one's power plus four fifths of a tenth of it, which is 5.5 dB below
 	 * the loud one. The dBm average would say 8 dB below. */
-	rssi_power_init(&p, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&p);
 	for (i = 0; i < 4; i++)
 		rssi_power_add(&p, -50);
 	rssi_power_add(&p, -40);
 	mu_assert_int_eq(-46, rssi_power_mean(&p));
 
 	/* And the other way round, which is the same set of readings. */
-	rssi_power_init(&p, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&p);
 	rssi_power_add(&p, -40);
 	for (i = 0; i < 4; i++)
 		rssi_power_add(&p, -50);
@@ -464,8 +464,8 @@ MU_TEST(test_the_order_of_the_readings_does_not_matter)
 	rssi_power_t up, down;
 	int i;
 
-	rssi_power_init(&up, RSSI_SIGNAL_SPAN);
-	rssi_power_init(&down, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&up);
+	rssi_power_reset(&down);
 	for (i = 0; i < 8; i++) {
 		rssi_power_add(&up, (int8_t)(-50 + i));
 		rssi_power_add(&down, (int8_t)(-43 - i));
@@ -486,7 +486,7 @@ MU_TEST(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down)
 	int i;
 
 	/* A packet 30 dB above the background, filling a third of the window. */
-	rssi_power_init(&p, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&p);
 	for (i = 0; i < 10; i++)
 		rssi_power_add(&p, -40);
 	for (i = 0; i < 20; i++)
@@ -495,7 +495,7 @@ MU_TEST(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down)
 
 	/* The quiet first, so the packet's readings arrive after the background
 	 * has been counted and have to displace it. */
-	rssi_power_init(&p, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&p);
 	for (i = 0; i < 20; i++)
 		rssi_power_add(&p, -70);
 	for (i = 0; i < 10; i++)
@@ -503,20 +503,24 @@ MU_TEST(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down)
 	mu_assert_int_eq(-40, rssi_power_mean(&p));
 }
 
-/* A wide window counts them all, which is what the background measurement
- * wants: every reading there belongs to it. */
-MU_TEST(test_a_wide_window_counts_every_reading)
+/*
+ * A reading that a later, stronger one leaves outside the window stops
+ * counting, however many steps the reference climbed in. A thousand readings
+ * at the floor, then two 10 dB apart above it: the mean is of the two, not
+ * dragged down by the thousand that are now 20 dB below the strongest.
+ */
+MU_TEST(test_a_reading_the_window_has_left_behind_stops_counting)
 {
 	rssi_power_t p;
 	int i;
 
-	rssi_power_init(&p, RSSI_NOISE_SPAN);
-	for (i = 0; i < 10; i++)
-		rssi_power_add(&p, -40);
-	for (i = 0; i < 20; i++)
-		rssi_power_add(&p, -70);
-	/* A third of the loud power, 4.8 dB down. */
-	mu_assert_int_eq(-45, rssi_power_mean(&p));
+	rssi_power_reset(&p);
+	for (i = 0; i < 1000; i++)
+		rssi_power_add(&p, -100);
+	rssi_power_add(&p, -90);
+	rssi_power_add(&p, -80);
+	/* The mean power of -90 and -80 is 2.6 dB below the stronger. */
+	mu_assert_int_eq(-83, rssi_power_mean(&p));
 }
 
 /* However many readings arrive, the mean stays the mean: a capture on a quiet
@@ -526,12 +530,12 @@ MU_TEST(test_the_mean_survives_any_number_of_readings)
 	rssi_power_t p;
 	int i;
 
-	rssi_power_init(&p, RSSI_NOISE_SPAN);
+	rssi_power_reset(&p);
 	for (i = 0; i < 2000000; i++)
 		rssi_power_add(&p, -45);
 	mu_assert_int_eq(-45, rssi_power_mean(&p));
 
-	rssi_power_init(&p, RSSI_NOISE_SPAN);
+	rssi_power_reset(&p);
 	for (i = 0; i < 2000000; i++)
 		rssi_power_add(&p, (int8_t)((i & 1) ? -40 : -50));
 	mu_assert_int_eq(-43, rssi_power_mean(&p));
@@ -642,7 +646,7 @@ int main(void)
 	MU_RUN(test_the_mean_is_of_the_power_not_of_the_dbm_figures);
 	MU_RUN(test_the_order_of_the_readings_does_not_matter);
 	MU_RUN(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down);
-	MU_RUN(test_a_wide_window_counts_every_reading);
+	MU_RUN(test_a_reading_the_window_has_left_behind_stops_counting);
 	MU_RUN(test_the_mean_survives_any_number_of_readings);
 	MU_RUN(test_the_signal_figure_is_this_packets_readings);
 	MU_RUN(test_a_window_with_a_packet_in_it_gives_both_figures);

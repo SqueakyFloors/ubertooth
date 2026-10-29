@@ -35,41 +35,30 @@
  * the readings are spread: four readings of -90 dBm and one of -40 dBm average
  * to -80 dBm that way, where their mean power is -47 dBm.
  *
- * Power is carried relative to the strongest reading added so far, in units of
- * RSSI_POWER_ONE for a reading at that level, which keeps the arithmetic to
- * 32-bit integers and one small table however loud the signal is.
+ * What is kept is the strongest reading and how many readings sat each whole
+ * dB below it, which is the whole of the arithmetic: 32-bit integers and one
+ * table of eleven entries, however loud the signal is.
  *
- * A reading more than `span` dB below the strongest is left out, and so is its
- * share of the count. That is what makes the mean describe one thing rather
- * than a mixture: the readings of a receive window span the packet and the
- * quiet either side of it, and with the quiet counted in, a packet filling a
- * third of the window would read 5 dB below its real level.
+ * A reading more than RSSI_POWER_SPAN dB below the strongest is left out, and
+ * so is one that a later, stronger reading leaves that far below. That is what
+ * makes the mean describe one thing rather than a mixture: the readings of a
+ * receive window span the packet and the quiet either side of it, and with the
+ * quiet counted in, a packet filling a third of the window would read 5 dB
+ * below its real level.
  */
 #define RSSI_POWER_ONE 32768u
 
-/* The widest window the table covers. */
-#define RSSI_POWER_MAX_SPAN 30
-
-/* Within how many dB of the strongest reading a reading still belongs to the
- * packet. Wide enough for the fading across one packet, narrow enough to leave
- * out the quiet around it. */
-#define RSSI_SIGNAL_SPAN 10
-
-/* The background is measured with nothing on the channel, so every reading
- * belongs to it and the window only has to cover their spread. */
-#define RSSI_NOISE_SPAN RSSI_POWER_MAX_SPAN
+/* Within how many dB of the strongest reading a reading still belongs with it.
+ * Wide enough for the fading across one packet, narrow enough to leave out the
+ * quiet around it. */
+#define RSSI_POWER_SPAN 10
 
 typedef struct {
-	int8_t   ref;    /* the strongest reading added so far */
-	uint8_t  span;   /* how far below it a reading still counts, in dB */
-	uint32_t sum;    /* the readings' power, relative to ref */
-	uint32_t count;  /* how many counted, RSSI_POWER_ONE each */
+	int8_t   ref;                        /* the strongest reading so far */
+	uint16_t at[RSSI_POWER_SPAN + 1];    /* how many sat each dB below it */
 } rssi_power_t;
 
-/* Empty the accumulator and set its window. */
-void rssi_power_init(rssi_power_t* p, uint8_t span);
-
-/* Empty it again, keeping the window. */
+/* Forget every reading. */
 void rssi_power_reset(rssi_power_t* p);
 
 void rssi_power_add(rssi_power_t* p, int8_t v);
@@ -90,7 +79,7 @@ extern uint8_t rssi_count;
 void rssi_reset(void);
 
 /* The packet's own power: the mean of the readings taken while it was on the
- * air, in power, over the readings within RSSI_SIGNAL_SPAN dB of the
+ * air, in power, over the readings within RSSI_POWER_SPAN dB of the
  * strongest. INT8_MIN if the mode took no reading. */
 int8_t rssi_get_signal(void);
 

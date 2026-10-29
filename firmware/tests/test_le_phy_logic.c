@@ -310,7 +310,7 @@ static void start_fresh(void)
  * that wants a particular figure in the record puts the readings in. */
 static void prime_power(le_rx_t *buf, int8_t v, unsigned n)
 {
-	rssi_power_init(&buf->power, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&buf->power);
 	while (n--)
 		rssi_power_add(&buf->power, v);
 }
@@ -1229,7 +1229,9 @@ MU_TEST(every_packet_length_survives_the_round_trip)
 		mu_assert_int_eq(buf.rssi_min, metadata->rssi_min);
 		mu_assert_int_eq(buf.rssi_max, metadata->rssi_max);
 		mu_assert_int_eq(0, metadata->rssi_count);
-		mu_assert_int_eq(0, metadata->status);
+		/* Nothing went wrong, and the record says its average is the
+		 * packet's own power. */
+		mu_assert_int_eq(SIGNAL_VALID, metadata->status);
 		mu_assert_int_eq(0, radio_touched);
 	}
 }
@@ -1417,7 +1419,7 @@ MU_TEST(the_signal_figure_is_the_mean_power_of_the_samples)
 	 * 5 dB that averaging the two dBm figures would give. */
 	start_fresh();
 	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
-	rssi_power_init(&buf.power, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&buf.power);
 	rssi_power_add(&buf.power, -40);
 	rssi_power_add(&buf.power, -50);
 	buf.rssi_min = -50;

@@ -105,7 +105,13 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
                                         int8_t *noise )
 {
-	*sig = cc2400_rssi_to_dbm( rx->rssi_avg );
+	/* A record that does not say its average is this packet's power is one
+	 * from a board or a `.dump` file older than the measurement, where the
+	 * field held the board's running average for the channel. Its strongest
+	 * reading of the packet is the nearest thing to the packet's own level
+	 * that such a record carries. */
+	*sig = cc2400_rssi_to_dbm( (rx->status & SIGNAL_VALID) ? rx->rssi_avg
+	                                                       : rx->rssi_max );
 	*noise = (rx->status & NOISE_VALID)
 	       ? cc2400_rssi_to_dbm( (int8_t) rx->rssi_noise )
 	       : NOISE_NOT_MEASURED;

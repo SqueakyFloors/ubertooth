@@ -285,6 +285,9 @@ static void fill_packet(usb_pkt_rx* rx, uint32_t clk100ns, uint8_t periods,
 	rx->rssi_min = -60;
 	rx->rssi_avg = 0;
 	rx->rssi_count = 8;
+	/* Every record a board of this version sends says its average is the
+	 * packet's own power. */
+	rx->status |= SIGNAL_VALID;
 }
 
 /* The handle the last run_callback() used, so a case can read what the
@@ -598,6 +601,16 @@ MU_TEST(a_packets_signal_is_its_own_and_comes_from_the_record)
 	rx.rssi_avg = -40;
 	determine_signal_and_noise(&rx, &sig, &noise);
 	mu_assert_int_eq(-91, sig);
+
+	/* A record from a board or a `.dump` file older than the measurement
+	 * does not say its average is the packet's power, and the average there
+	 * was the board's running figure for the channel. Its strongest reading
+	 * of the packet stands in; raw -30 is -82 dBm. */
+	rx.status &= (uint8_t) ~SIGNAL_VALID;
+	rx.rssi_avg = -40;
+	rx.rssi_max = -30;
+	determine_signal_and_noise(&rx, &sig, &noise);
+	mu_assert_int_eq(-82, sig);
 }
 
 MU_TEST(a_noise_figure_is_reported_only_where_the_board_measured_one)

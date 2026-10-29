@@ -121,13 +121,20 @@ Both are averaged in power rather than in dBm, so a quiet stretch inside a
 receive window does not drag the packet's figure down.
 
 The screen shows the two as `s=` and `n=`, in dBm, with `snr=` the difference.
-A capture record carries them as its signal power and noise power, with the
-noise-power-valid flag set, and a reader shows a signal-to-noise ratio.
+A capture record carries them as its signal power and noise power; the
+noise-power-valid flag follows the measurement and the figure, so a reader
+shows a signal-to-noise ratio where the board measured a background below the
+packet.
 
 A channel the board never heard clear -- traffic from the first reading after
 every hop, or a packet barely above the air around it -- gives no background.
 Such a record leaves the flag clear, Wireshark shows the field as `Invalid
 Noise Power`, and the screen prints `n=none snr=none`.
+
+The board has one reading of the channel to work from, so both figures are of
+whatever is on it. A transmitter louder than the packet, on the same channel at
+the same moment, is what the signal figure describes, and the packet is then
+part of the background.
 
 Miscellaneous:
 

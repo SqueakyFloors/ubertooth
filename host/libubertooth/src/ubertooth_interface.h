@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0154
+#define UBERTOOTH_API_VERSION 0x0155
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -740,11 +740,19 @@ enum usb_pkt_status {
 	CS_TRIGGER    = 0x08,
 	RSSI_TRIGGER  = 0x10,
 	DISCARD       = 0x20,
-	/* The board measured the background on this record's channel and put it
-	 * in rssi_noise. Without this the field says nothing: the mode took no
-	 * reading with the channel clear, or the record came from a board or a
-	 * capture file older than the measurement, which left the byte at zero. */
+	/*
+	 * The two power figures, each set only where the board measured that one.
+	 *
+	 * Without NOISE_VALID the rssi_noise byte says nothing: the mode took no
+	 * reading with the channel clear. Without SIGNAL_VALID the rssi_avg byte
+	 * is not this packet's power: it is either a record that carries no
+	 * packet, or one from a board or a `.dump` file older than the
+	 * measurement, where the field held the board's running average for the
+	 * channel instead. A reader of such a record falls back to rssi_max,
+	 * which is the nearest thing to a packet's own level it carries.
+	 */
 	NOISE_VALID   = 0x40,
+	SIGNAL_VALID  = 0x80,
 };
 
 /*

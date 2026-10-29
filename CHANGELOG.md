@@ -24,20 +24,18 @@
   [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
 
 - Capture records carry two measurements of the packet's channel: the packet's
-  own power, and the background around it. The signal is that one packet's,
-  where the host used to report the loudest of the channel's last ten packets;
-  the background is what the board read between packets, which it tells from a
-  packet by level. Both are averaged in power rather than in dBm, which is what
-  the average of a set of dBm readings means. A record that has a background
-  measurement carries the noise-power-valid flag, so Wireshark shows the figure
-  and a signal-to-noise ratio instead of `Invalid Noise Power`, and
-  `ubertooth-rx` and `ubertooth-scan` print it as `n=` with `snr=` beside it.
-  A mode that cannot measure it — `ubertooth-btle -f` and `-n` read the radio
-  only while a packet is arriving — leaves the flag clear and prints `n=none
-  snr=none` rather than a figure taken from the packet itself.
+  own power, and the background the board read between packets. The signal is
+  that one packet's, where the host used to report the loudest of the channel's
+  last ten packets; both are averaged in power rather than in dBm, which is
+  what the average of a set of dBm readings means. Wireshark now shows a noise
+  power and a signal-to-noise ratio instead of `Invalid Noise Power`, and
+  `ubertooth-rx` and `ubertooth-scan` print `n=` with `snr=` beside it. A mode
+  that cannot measure the background — `ubertooth-btle -f` and `-n` read the
+  radio only while a packet is arriving — prints `n=none snr=none` rather than
+  a figure taken from the packet itself. Firmware API 1.55.
   Credit: Hannes Ellinger ([@el-han](https://github.com/el-han)) for the
-  per-packet signal figure, and [@orgua](https://github.com/orgua) for pointing
-  out that dBm readings have to be averaged in power.
+  per-packet signal figure, and [@orgua](https://github.com/orgua) for
+  pointing out that dBm readings have to be averaged in power.
   [#77](https://github.com/SqueakyFloors/ubertooth/issues/77)
   [upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and

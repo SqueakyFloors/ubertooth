@@ -246,6 +246,11 @@ static int enqueue(uint8_t type, uint8_t* buf)
 	}
 
 	f->pkt_type = type;
+	/* No power figures unless the branch below puts them in, and the status
+	 * bits that would make them readable stay clear: a record comes off the
+	 * ring with whatever the last one left in it. */
+	f->rssi_noise = 0;
+	f->reserved = 0;
 	if(type == SPECAN) {
 		f->clkn_high = (clkn >> 20) & 0xff;
 		f->clk100ns = CLK100NS;
@@ -257,13 +262,16 @@ static int enqueue(uint8_t type, uint8_t* buf)
 		f->rssi_max = rssi_max;
 		f->rssi_avg = rssi_get_signal();
 		f->rssi_count = rssi_count;
-	}
-
-	f->rssi_noise = 0;
-	f->reserved = 0;
-	if (rssi_noise_measured()) {
-		f->rssi_noise = (uint8_t) rssi_get_noise();
-		status |= NOISE_VALID;
+		/* Only a record that carries a packet gets the power figures. The
+		 * others this builds -- a state change, a message -- carry no
+		 * packet for a signal figure to belong to. */
+		if (type == BR_PACKET && rssi_count != 0) {
+			status |= SIGNAL_VALID;
+			if (rssi_noise_measured()) {
+				f->rssi_noise = (uint8_t) rssi_get_noise();
+				status |= NOISE_VALID;
+			}
+		}
 	}
 
 	memcpy(f->data, buf, DMA_SIZE);
@@ -2837,15 +2845,8 @@ void bt_le_sync(u8 active_mode)
 		 * in bt_generic_le() does -- it is the mode loop running, below
 		 * every interrupt handler. */
 		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
-		while ((rx_tc == 0) && (rx_err == 0) && (do_hop == 0) && requested_mode == active_mode) {
+		while ((rx_tc == 0) && (rx_err == 0) && (do_hop == 0) && requested_mode == active_mode)
 			watchdog_usb_ready();
-			/* The background on this channel. The radio only hands bytes to
-			 * the DMA once it has synchronized on the access address, so
-			 * while the transfer's destination has not moved there is no
-			 * packet to measure and the reading is of the channel itself. */
-			if (DMACC0DestAddr == (uint32_t)(le_rx.packet + 4))
-				rssi_noise_add((int8_t)(cc2400_get(RSSI) >> 8));
-		}
 		watchdog_mark(site);
 
 		/* One reading for the whole packet, taken as it ends: this mode has
@@ -3003,9 +3004,12 @@ void bt_le_sync(u8 active_mode)
 		meta.rssi_avg = rssi_get_signal();
 		meta.rssi_count = rssi_count;
 		meta.rssi_noise = 0;
-		if (rssi_noise_measured()) {
-			meta.rssi_noise = (uint8_t) rssi_get_noise();
-			meta.status |= NOISE_VALID;
+		if (rssi_count != 0) {
+			meta.status |= SIGNAL_VALID;
+			if (rssi_noise_measured()) {
+				meta.rssi_noise = (uint8_t) rssi_get_noise();
+				meta.status |= NOISE_VALID;
+			}
 		}
 
 		// hold the USB interrupt off while we touch USB data structures:

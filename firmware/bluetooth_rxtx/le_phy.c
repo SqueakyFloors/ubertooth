@@ -323,7 +323,7 @@ static void buffer_clear(le_rx_t *buf) {
 	memset(buf->data, 0, sizeof(buf->data));
 	buf->rssi_min = INT8_MAX;
 	buf->rssi_max = INT8_MIN;
-	rssi_power_init(&buf->power, RSSI_SIGNAL_SPAN);
+	rssi_power_reset(&buf->power);
 	buf->transfer_error = 0;
 	buf->in_open_event = 0;
 	buf->event_counter = 0;
@@ -1736,6 +1736,7 @@ static int usb_enqueue_le(le_rx_t *packet)
 	meta.rssi_min = packet->rssi_min;
 	meta.rssi_max = packet->rssi_max;
 	meta.rssi_count = 0;
+	meta.status |= SIGNAL_VALID;
 	/* This engine takes a reading only while a packet is arriving, so it
 	 * measures no background and the records say so. */
 	meta.rssi_noise = 0;
