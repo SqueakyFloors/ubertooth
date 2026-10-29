@@ -30,6 +30,11 @@
     USB hardware layer
  */
 
+/* Where a comment below says what the USB controller does, it cites UM10360,
+ * NXP's LPC17xx user manual. The section and table numbers are revision 2's.
+ * Each table is named as well, because a later revision may number it
+ * differently. */
+
 #include "type.h"
 #include "debug.h"
 
@@ -194,10 +199,17 @@ static void USBHwCmdWrite(U8 bCmd, U16 bData)
 
 /**
     Local function to send a command to the USB protocol engine and read data
-        
-    @param [in] bCmd        Command to send
 
-    @return the data
+    A read is two handshakes, not one. The command phase is acknowledged by
+    CCEMTY, and then the data phase is acknowledged by CDFULL, which means the
+    byte is waiting in USBCmdData (UM10360 section 11.12, "Serial interface
+    engine command description", which gives the sequence as worked examples).
+    Either acknowledgement can fail to arrive, so both are checked.
+
+    @param [in] bCmd        Command to send
+    @param [out] pbData     Where to put the byte read
+
+    @return TRUE if the byte was read, FALSE if either handshake gave up
  */
 static BOOL USBHwCmdReadChecked(U8 bCmd, U8 *pbData)
 {
@@ -526,7 +538,14 @@ int USBHwEPWrite(U8 bEP, U8 *pbBuf, U32 iLen)
      * is the packet that ends a data stage early, and a caller comparing the
      * answer with the length it asked for could not tell those from a
      * failure. The short-write path above still answers with the count,
-     * which cannot be zero for a packet of no bytes. */
+     * which cannot be zero for a packet of no bytes.
+     *
+     * Validate Buffer is the step that offers the packet: the controller
+     * sends the buffer's contents at the next IN token and not before, so a
+     * buffer left unvalidated is a packet the host never sees (UM10360
+     * section 11.12.14, the Validate Buffer command). Select Endpoint's
+     * command code is the physical endpoint number (section 11.12.10, so
+     * CMD_EP_SELECT is zero and the number is simply ORed in). */
     if (!USBHwCmd(CMD_EP_SELECT | idx) || !USBHwCmd(CMD_EP_VALIDATE_BUFFER))
         return -1;
 
@@ -616,7 +635,14 @@ int USBHwEPRead(U8 bEP, U8 *pbBuf, U32 iMaxLen)
      * present again: for a control transfer that is the stale-request hazard
      * USBHandleControlTransfer() exists to avoid, and on a bulk OUT endpoint
      * it is a message the firmware acts on twice. Report no packet instead.
-     * Every caller already drops a negative result, so the host retries. */
+     * Every caller already drops a negative result, so the host retries.
+     *
+     * The packet really is still the hardware's until Clear Buffer runs: the
+     * controller's buffer-full flag stays set, it answers further OUT packets
+     * with a NAK, and the data stays in the buffer to be read from the
+     * beginning the next time RD_EN is set for this endpoint (UM10360 section
+     * 11.12.13 and Table 250, the Clear Buffer command, and section 11.14.2,
+     * which gives the read sequence for OUT endpoints). */
     if (!USBHwCmd(CMD_EP_SELECT | idx) || !USBHwCmd(CMD_EP_CLEAR_BUFFER))
         return -1;
 
@@ -795,7 +821,12 @@ DEBUG_LED_ON(9);
         /* A bus reset ends every transfer, so no endpoint event is waiting
          * for a second chance any more. Leaving a one-shot used up would cost
          * the next event on that endpoint its deferral, and on endpoint 0
-         * that event is a control request. */
+         * that event is a control request.
+         *
+         * This is the only pass that will see the reset: the controller
+         * clears the bus-reset bit as the status read takes it (UM10360
+         * Table 245, bit 4, the device status byte that Get Device Status
+         * returns, section 11.12.7). */
         if (bDevStat & RST)
             ep_stat_retried = 0;
         if (bDevStat & (CON_CH | SUS_CH | RST)) {
@@ -826,22 +857,42 @@ DEBUG_LED_OFF(8);
                  *
                  * The usual way round -- write USBEpIntClr, which makes the
                  * hardware run Select Endpoint/Clear Interrupt and leave the
-                 * status in USBCmdData -- clears the interrupt first and reads
-                 * second. A read that gave up then left nothing to act on and
-                 * no event either: the interrupt was gone, and on endpoint 0
-                 * the event is a setup packet, so a control request went
-                 * unanswered until the host's own timeout. For
-                 * `ubertooth-btle`, which reads every captured packet with a
-                 * control request, that is a second and the end of the
-                 * capture.
+                 * status in USBCmdData (UM10360 section 11.10.3.3 and
+                 * Table 206, the USBEpIntClr register) -- clears the
+                 * interrupt first and reads second. A read that gave up then
+                 * left nothing to act on and no event either: the interrupt
+                 * was gone, and on endpoint 0 the event is a setup packet, so
+                 * a control request went unanswered until the host's own
+                 * timeout. For `ubertooth-btle`, which reads every captured
+                 * packet with a control request, that is a second and the end
+                 * of the capture.
                  *
                  * Plain Select Endpoint (CMD_EP_SELECT) returns the same
-                 * status byte and leaves the interrupt alone, so a read that
+                 * status byte and leaves the interrupt alone. UM10360
+                 * section 11.12.11 lists everything the clearing form does
+                 * beyond the plain one: it clears the endpoint's bit in
+                 * USBEpIntSt and, on a control OUT endpoint, the SETUP and
+                 * packet-overwritten bits. The plain form does none of that,
+                 * and its status byte is the one in section 11.12.10,
+                 * Table 248, the Select Endpoint command. So a read that
                  * gives up here has consumed nothing: the endpoint's bit is
                  * still set in USBEpIntSt and the event can be read on a
-                 * later pass. EP_SLOW is put back by hand rather than trusted
-                 * to re-appear from that bit, so the next service pass comes
-                 * back here either way.
+                 * later pass. The command code is the endpoint number
+                 * itself, which is also that endpoint's bit position in
+                 * USBEpIntSt (section 11.10.3.1, Table 202), so the loop
+                 * index serves as both.
+                 *
+                 * EP_SLOW is put back by hand rather than trusted to
+                 * re-appear from that standing bit. The manual does not
+                 * promise it would: section 11.11, "Interrupt handling",
+                 * describes slow endpoint events as ORed into EP_SLOW without
+                 * saying whether a bit already set in USBEpIntSt raises it a
+                 * second time, and section 11.10.2.4 asks software to clear
+                 * the endpoint's bit before clearing EP_SLOW, which is the
+                 * opposite order to this loop's. Writing EP_SLOW into
+                 * USBDevIntSet is documented plainly (section 11.10.2.5,
+                 * Table 199), so that is what the deferral below does, and
+                 * the next service pass comes back here either way.
                  *
                  * Marked for the breadcrumb from here to the interrupt
                  * clear: every step between the two is a handshake with the
@@ -869,16 +920,29 @@ DEBUG_LED_OFF(8);
                     /* The event is consumed either way now: its status is in
                      * hand, or it has been given up twice and this endpoint
                      * must not hold the loop. The write is what runs Select
-                     * Endpoint and Clear Interrupt in the hardware, and
-                     * CDFULL is cleared first, the way USBHwCmd() does before
-                     * a command.
+                     * Endpoint and Clear Interrupt in the hardware, which
+                     * also leaves that endpoint's status in USBCmdData and
+                     * sets CDFULL once it is there; the same section asks
+                     * software to wait for CDFULL before treating the
+                     * interrupt as cleared (UM10360 section 11.10.3.3). The
+                     * controller clears CDFULL itself before running the
+                     * command, so clearing it here as well, the way
+                     * USBHwCmd() does before a command, only makes sure an
+                     * answer left over from somewhere else cannot be read as
+                     * this one's.
                      *
                      * On a read that worked, take the status this clear
                      * reports in preference to the one read above: it is the
                      * endpoint's state at the moment the event was taken
                      * away, so an event that arrived in between -- a fresh
                      * setup packet on endpoint 0, say, which the clear
-                     * consumes along with the first -- is in it. The earlier
+                     * consumes along with the first -- is in it. It is also
+                     * the last status that can still name a setup packet at
+                     * all: the SETUP bit is updated on every packet the
+                     * endpoint receives successfully and is cleared by this
+                     * very command (UM10360 Table 248, bit 2, and section
+                     * 11.12.11), so a plain Select Endpoint read taken
+                     * afterwards would report no setup packet. The earlier
                      * read is the fallback for an answer that does not
                      * arrive, which is what keeps a late one from costing the
                      * event. After a give-up there is no status worth having,
@@ -909,9 +973,14 @@ DEBUG_LED_OFF(8);
                      *
                      * Those three -- a later successful read, a clear that
                      * took, and the bus reset above -- are the only ways the
-                     * bit is cleared, and nothing else takes an endpoint's
-                     * interrupt away, so a deferral cannot leave the one-shot
-                     * spent with the event gone. */
+                     * bit is cleared. Nothing else takes an endpoint's
+                     * interrupt away either: the one way UM10360 gives for
+                     * clearing a bit of USBEpIntSt is the Select
+                     * Endpoint/Clear Interrupt command, whether it is run
+                     * through USBEpIntClr or written as a protocol engine
+                     * command (sections 11.10.3.3 and 11.12.11). So a
+                     * deferral cannot leave the one-shot spent with the event
+                     * gone. */
                     if ((USBEpIntSt & dwIntBit) == 0)
                         ep_stat_retried &= ~dwIntBit;
 
@@ -923,7 +992,9 @@ DEBUG_LED_OFF(8);
                      * request whose setup packet was dropped. Same reasoning
                      * as the bus reset in usbinit.c.
                      *
-                     * Endpoint 0 only. The other images enable interrupts on
+                     * Endpoint 0 only, which is bits 0 and 1 of USBEpIntSt --
+                     * its OUT and IN halves (UM10360 section 11.10.3.1,
+                     * Table 202). The other images enable interrupts on
                      * endpoints of their own -- btbr on its bulk OUT, the
                      * serial stack on more -- and losing one of those says
                      * nothing about a control transfer, so cancelling then
