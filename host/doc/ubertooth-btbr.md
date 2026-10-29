@@ -258,10 +258,10 @@ before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
 status 1. An address the prompt will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
 prompt up; a `? <command>` naming no command is
-`error: no help on '<word>'`, and so does. A word the prompt does not know at
-all is `error: no such command '<word>'`, which names the command and not
-whatever was typed after it, and leaves the prompt up as well. None of the
-three changes the session's exit status.
+`error: no help on '<word>'`, and so does. A word that is no command at all is
+`error: no such command '<word>'`, naming the first word of the line, and
+leaves the prompt up as well. None of the three changes the session's exit
+status.
 
 Every other command line the tool will not take is one `error: ` line on
 standard error with no usage text, and exit 1: `error: unrecognized option

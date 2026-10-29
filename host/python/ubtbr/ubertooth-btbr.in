@@ -78,9 +78,12 @@ def report_versions(selector=None):
 	except (AttributeError, ValueError):
 		# There is no standard output at all: a descriptor closed before the
 		# tool started leaves the interpreter without one, so the answer
-		# cannot be printed. Reported as the loss it is, which leaves the
-		# command exit 1.
+		# cannot be printed. Reported as the loss it is, and the child is
+		# not started: with that descriptor closed, the first file the child
+		# opens takes its number, and the answer would be written into
+		# whatever that turned out to be.
 		output_lost()
+		return 1
 	try:
 		sys.stderr.flush()
 	except (AttributeError, ValueError):
@@ -585,17 +588,20 @@ class BTCtlPrompt(Cmd):
 			error("%s: %s"%(line, e))
 
 	def default(self, inp):
-		if inp in ('x','q'):
+		# The command name, which is all that names a command: `exit` has a
+		# handler of its own and Cmd hands it whatever followed, so these
+		# two short spellings of leaving read the line the same way.
+		command = inp.split(None, 1)[0]
+		if command in ('x','q'):
 			return self.do_exit(inp)
 		# A word the prompt does not know is a request it cannot answer, so
 		# it reads like the prompt's other refusals rather than being taken
-		# silently, and rather than Cmd's own "*** Unknown syntax". The name
-		# is what does not exist, so that is what the line quotes, however
-		# much was typed after it. A command name is not a command line: the
-		# session carries on at the prompt and its exit status is unchanged.
-		# Written through say() with the rest of what the prompt says, so a
-		# standard error nobody reads costs the line and not the capture.
-		self.say("error: no such command '%s'\n"%inp.split(None, 1)[0])
+		# silently, and rather than Cmd's own "*** Unknown syntax". A
+		# command name is not a command line: the session carries on at the
+		# prompt and its exit status is unchanged. Written through say()
+		# with the rest of what the prompt says, so a standard error nobody
+		# reads costs the line and not the capture.
+		self.say("error: no such command '%s'\n"%command)
 
 	def do_exit(self, inp):
 		# Stopped first: a command still running would be left writing to a

@@ -1436,6 +1436,16 @@ assert "Traceback" not in errors, errors
 assert errors.count(PROMPT) == 3, errors
 print("ubtbr: an unknown command at the prompt is one error line, not silence")
 
+# and the two short spellings of leaving are read the same way, so `x` and
+# `q` with a word after them leave as `exit <word>` does rather than being
+# refused as commands that do not exist
+for typed in ("x\n", "q\n", "x now\n", "q now\n"):
+    status, output, errors = ran(typed=typed)
+    assert status == 0, (typed, status, output, errors)
+    assert "no such command" not in errors, (typed, errors)
+    assert "Traceback" not in errors, (typed, errors)
+print("ubtbr: `x` and `q` leave whatever follows them")
+
 
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
 # terminal's line editor: the editor draws it and counts its width while it
@@ -2142,17 +2152,28 @@ print("ubtbr: -V passes ubertooth-util's answer through")
 # the flush that orders this tool's lines before the child's has no stream to
 # flush, where it used to end the tool in an AttributeError traceback. The
 # answer cannot be printed, so it is reported as the same loss as a reader
-# who left, and the command exits 1. ubertooth-util is kept off the PATH
-# here, so the only lines are this tool's own.
+# who left, and the command exits 1.
+#
+# ubertooth-util is on the PATH here and must not be run at all: started with
+# that descriptor closed, the first file it opens takes its number, and the
+# answer would be written into whatever that turned out to be -- for a tool
+# that opens USB device nodes, one of those.
+if os.path.exists(VERSION_ARGS_FILE):
+    os.remove(VERSION_ARGS_FILE)
 running = subprocess.Popen([sys.executable, WRAPPER, "-V"],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           text=True, env=dict(ENVIRONMENT, PATH=NO_UTIL_DIR),
+                           text=True,
+                           env=dict(ENVIRONMENT, PATH=FAKE_UTIL_DIR,
+                                    FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                                    FAKE_UTIL_ANSWER=VERSION_ANSWER,
+                                    FAKE_UTIL_STATUS="0"),
                            preexec_fn=lambda: os.close(1))
 output, errors = running.communicate(timeout=DEADLINE)
 assert running.returncode == 1, (running.returncode, output, errors)
 assert output == "", output
 assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Traceback" not in errors, errors
+assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
 print("ubtbr: -V with no standard output at all is reported, not a traceback")
 
 

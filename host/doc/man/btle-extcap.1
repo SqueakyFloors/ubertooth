@@ -96,6 +96,8 @@ Whatever ubertooth\-util(1) and ubertooth\-btle(1) write to standard error is pa
 The one line held back is ubertooth\-util(1)'s \fBerror: no Ubertooth devices found\fR, and only when it is the sole error it reported about an empty listing, since the empty listing says the same thing\. Alongside any other \fBerror:\fR line it is passed on with the rest\.
 .P
 A tool that is not on the \fBPATH\fR Wireshark started the script with is reported as \fBerror: could not run ubertooth\-util: No such file or directory\fR, and one that is there but cannot be executed names that reason instead (\fBPermission denied\fR)\. A ubertooth\-util(1) that failed without saying why is reported as \fBerror: ubertooth\-util failed (exit status 3)\fR, since a failure the user is told about has to name itself\.
+.P
+A \fB\-V\fR with no standard output to print the answer to, which is what \fBbtle\-extcap\.py \-V >&\-\fR leaves, is \fBerror: standard output has gone away\fR and exit 1\. ubertooth\-util(1) is not started there: with that descriptor closed, the first file it opened would take its number and the answer would be written into that\.
 .SH "EXIT STATUS"
 The call either did what was asked, which is 0, or it did not, which is 1\. Nothing else is reported: Wireshark needs no more than non\-zero for a failed capture, so the script does not pass ubertooth\-btle(1)'s own status through or report the signal that killed it\.
 .TP

@@ -440,8 +440,9 @@
   prompt still up, where such a word used to be taken silently. `-h` and `-V`
   with standard output closed before the tool started, as `ubertooth-btbr -h
   >&-` leaves it, report the answer as lost and exit 1 rather than ending in a
-  traceback; `btle-extcap.py -V` and `ubertooth-specan-ui -V` no longer end in
-  one there either.
+  traceback. `btle-extcap.py -V` and `ubertooth-specan-ui -V` say the same
+  line and exit 1 there, in place of their own traceback, and neither starts
+  `ubertooth-util` with that descriptor closed.
   [#908](https://github.com/SqueakyFloors/ubertooth/issues/908)
   [#911](https://github.com/SqueakyFloors/ubertooth/issues/911)
 - `-V` is the version command in every tool, and prints the same labelled

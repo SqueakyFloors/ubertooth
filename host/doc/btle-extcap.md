@@ -188,6 +188,12 @@ denied`). A ubertooth-util(1) that failed without saying why is reported as
 `error: ubertooth-util failed (exit status 3)`, since a failure the user is
 told about has to name itself.
 
+A `-V` with no standard output to print the answer to, which is what
+`btle-extcap.py -V >&-` leaves, is `error: standard output has gone away` and
+exit 1. ubertooth-util(1) is not started there: with that descriptor closed,
+the first file it opened would take its number and the answer would be
+written into that.
+
 ## EXIT STATUS
 
 The call either did what was asked, which is 0, or it did not, which is 1.

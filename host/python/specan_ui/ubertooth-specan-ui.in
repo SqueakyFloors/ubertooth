@@ -74,14 +74,23 @@ def report_versions(selector=None):
     # Nothing of this tool's is waiting in the buffers here, and this keeps
     # it that way: a line written before the child starts must not land after
     # the child's.
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.flush()
-        except (AttributeError, ValueError):
-            # There is no such stream: a descriptor closed before the tool
-            # started leaves the interpreter without one, and nothing is
-            # buffered for it either way.
-            pass
+    try:
+        sys.stdout.flush()
+    except (AttributeError, ValueError):
+        # There is no standard output at all: a descriptor closed before the
+        # tool started leaves the interpreter without one, so the answer
+        # cannot be printed. Said in one line, and the child is not started:
+        # with that descriptor closed, the first file the child opens takes
+        # its number, and the answer would be written into whatever that
+        # turned out to be.
+        print("error: standard output has gone away", file=sys.stderr)
+        return 1
+    try:
+        sys.stderr.flush()
+    except (AttributeError, ValueError):
+        # Nor any standard error, which costs the diagnostics and not the
+        # answer, so nothing is said about it.
+        pass
     try:
         status = subprocess.call(command)
     except OSError as err:
