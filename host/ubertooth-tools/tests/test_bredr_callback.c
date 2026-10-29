@@ -64,6 +64,13 @@ static struct {
 	int channels_set;
 	int pcap_writes;
 	int pcapng_writes;
+	/* The reference address the last record was written with, which is
+	 * what a reader checks a recorded header or payload against. */
+	uint32_t pcap_reflap;
+	uint8_t pcap_refuap;
+	uint8_t pcapng_refuap;
+	/* How often the survey was asked for a piconet. */
+	int survey_lookups;
 	uint16_t channel_set;
 	int afh_maps_sent;
 } seen;
@@ -91,6 +98,10 @@ static int capture_files;
 /* What the faked decoder makes of the packet. A negative result is how the
  * real one says it could not place the packet in the piconet. */
 static int process_packet_result;
+
+/* What the faked survey lookup hands back: the piconet the survey holds for
+ * the packet's LAP, or NULL for a LAP it has not heard. */
+static btbb_piconet* survey_piconet;
 
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
@@ -167,9 +178,10 @@ int btbb_pcap_append_packet(btbb_pcap_handle* h, const uint64_t ns,
                             const uint32_t reflap, const uint8_t refuap,
                             const btbb_packet* pkt)
 {
-	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
-	(void)refuap; (void)pkt;
+	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)pkt;
 	seen.pcap_writes++;
+	seen.pcap_reflap = reflap;
+	seen.pcap_refuap = refuap;
 	return pcap_write_result;
 }
 
@@ -179,8 +191,9 @@ int btbb_pcapng_append_packet(btbb_pcapng_handle* h, const uint64_t ns,
                               const btbb_packet* pkt)
 {
 	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
-	(void)refuap; (void)pkt;
+	(void)pkt;
 	seen.pcapng_writes++;
+	seen.pcapng_refuap = refuap;
 	return pcapng_write_result;
 }
 
@@ -244,6 +257,16 @@ int btbb_process_packet(btbb_packet* pkt, btbb_piconet* pn)
 {
 	(void)pkt; (void)pn;
 	return process_packet_result;
+}
+
+/* Stands in for reading the survey's piconet for a LAP. The decoder is faked
+ * above, so the real survey is never filled; this hands back the piconet the
+ * case prepared, or NULL for a LAP the survey has not heard. */
+btbb_piconet* btbb_survey_piconet(uint32_t lap)
+{
+	(void)lap;
+	seen.survey_lookups++;
+	return survey_piconet;
 }
 
 /* ---- helpers ------------------------------------------------------------ */
@@ -374,6 +397,7 @@ static void reset_state(void)
 	next_index = 0;
 	find_ac_offset = 0;
 	process_packet_result = 0;
+	survey_piconet = NULL;
 	rx_syms_result = 0;
 	set_channel_result = 0;
 	capture_channel = 0;
@@ -1246,6 +1270,99 @@ MU_TEST(a_capture_that_cannot_be_written_says_so_once)
 	mu_assert_int_eq(0, stderr_lines_with("warning: "));
 }
 
+/* ---- the reference UAP a record carries --------------------------------- */
+
+MU_TEST(a_survey_record_carries_the_uap_the_survey_has_settled)
+{
+	btbb_piconet* pn = fresh_piconet();
+
+	/* A survey is given no piconet of its own, so every record it wrote
+	 * used to carry the decoder's "none" and left a reader with nothing to
+	 * check the recorded header or payload against. */
+	reset_state();
+	capture_files = 1;
+	btbb_piconet_set_uap(pn, 0x22);
+	survey_piconet = pn;
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(1, seen.pcap_writes);
+	mu_assert_int_eq(0x22, seen.pcap_refuap);
+	mu_assert_int_eq(0x22, seen.pcapng_refuap);
+	/* One lookup, for the packet that was just decoded. */
+	mu_assert_int_eq(1, seen.survey_lookups);
+	/* The reference LAP stays "none": it is the address the tool was told
+	 * to look for, and a survey is told none. The LAP the survey found is
+	 * in the record's own LAP field. */
+	mu_assert(seen.pcap_reflap == LAP_ANY,
+	          "a survey records no reference LAP");
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_survey_records_no_reference_uap_until_one_is_settled)
+{
+	btbb_piconet* pn = fresh_piconet();
+
+	/* A LAP the survey has not heard yet, where the lookup answers NULL. */
+	reset_state();
+	capture_files = 1;
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(1, seen.pcap_writes);
+	mu_assert_int_eq(UAP_ANY, seen.pcap_refuap);
+	mu_assert_int_eq(UAP_ANY, seen.pcapng_refuap);
+
+	/* A LAP it has heard, whose UAP the search has not settled: the
+	 * piconet is there but says nothing about the UAP, and a value read
+	 * from it anyway would be a guess a reader could not tell from a
+	 * recovered one. */
+	reset_state();
+	capture_files = 1;
+	survey_piconet = pn;
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(1, seen.pcap_writes);
+	mu_assert_int_eq(UAP_ANY, seen.pcap_refuap);
+	mu_assert_int_eq(UAP_ANY, seen.pcapng_refuap);
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_follow_records_its_own_piconets_uap_and_asks_no_survey)
+{
+	btbb_piconet* pn = fresh_piconet();
+	btbb_piconet* other = fresh_piconet();
+
+	/* A capture told which piconet to follow has its UAP already; the
+	 * survey is not consulted, so a stale survey entry for the same LAP
+	 * cannot reach the record. */
+	reset_state();
+	capture_files = 1;
+	btbb_piconet_set_uap(pn, 0x5a);
+	btbb_piconet_set_uap(other, 0x77);
+	survey_piconet = other;
+	/* A replay, so the clock trim sends nothing and the packet reaches the
+	 * writers whatever the trim counters were left at. */
+	infile = stdin;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(2100, 2), 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(1, seen.pcap_writes);
+	mu_assert_int_eq(0x5a, seen.pcap_refuap);
+	mu_assert_int_eq(0x5a, seen.pcapng_refuap);
+	mu_assert_int_eq(0, seen.survey_lookups);
+
+	btbb_piconet_unref(pn);
+	btbb_piconet_unref(other);
+}
+
 MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 {
 	btbb_piconet* pn = btbb_piconet_new();
@@ -1466,6 +1583,9 @@ int main(void)
 	/* After the case above, because these reach the decoder through the
 	 * same trim counters it leaves behind. */
 	MU_RUN(a_capture_that_cannot_be_written_says_so_once);
+	MU_RUN(a_survey_record_carries_the_uap_the_survey_has_settled);
+	MU_RUN(a_survey_records_no_reference_uap_until_one_is_settled);
+	MU_RUN(a_follow_records_its_own_piconets_uap_and_asks_no_survey);
 	MU_RUN(a_recovered_clock_puts_the_board_on_its_offset);
 	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
 	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);

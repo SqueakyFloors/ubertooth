@@ -7,11 +7,14 @@ unwhitens a packet into a payload whose CRC is correct, and that packet is
 what settles the UAP. (It also settles one by elimination, when only one
 clock candidate is left; the fixture here settles on a CRC, and the run's own
 report is checked to make sure of it.) ubertooth-rx writes the UAP into every
-capture record
-as the reference UAP, which is what a reader checks that record's CRC
-against. The settling packet's own record used to go out with no reference
-UAP at all -- the one record a reader most needs it on, because it is the
-first evidence the UAP was derived from.
+capture record as the reference UAP, which is what a reader checks that
+record's CRC against. The settling packet's own record used to go out with no
+reference UAP at all -- the one record a reader most needs it on, because it
+is the first evidence the UAP was derived from.
+
+A survey (`-z`) recovers UAPs the same way, one piconet per LAP it hears, and
+its records carry them too: the decoder hands out the piconet for a LAP
+without taking it out of the survey.
 
 Three things each record is checked for here:
 
@@ -486,8 +489,9 @@ with tempfile.TemporaryDirectory() as workdir:
 
     # The same fixture surveyed instead of followed. A survey is told no
     # address to look for and discovers them itself, which is what its
-    # records say: the LAP of every packet it found, and no reference
-    # address, because there was none to configure.
+    # records say: the LAP of every packet it found, no reference LAP,
+    # because there was none to configure, and the reference UAP from the
+    # packet that settles it on.
     result, captures = replay(work, "survey", "-z")
     # On standard error, as in the follow above: that is where libbtbb
     # reports its own notes, and standard output belongs to the survey
@@ -517,18 +521,26 @@ with tempfile.TemporaryDirectory() as workdir:
             assert rec.lap == LAP_ANY, (name, records)
             assert not rec.flags & BREDR_REFLAP_VALID, (name, records)
 
-        # The UAP a survey settles is missing from the records all the same.
-        # The piconets a survey keeps are the decoder's own, one per LAP, and
-        # it hands out no way to read one without destroying the survey.
-        # Pinned here so that whoever gives it one sees this line fail.
-        for rec in records:
-            assert rec.uap == UAP_ANY, (name, records)
+        # The UAP is a different matter: a survey recovers it, so from the
+        # packet that settles it on, every record carries it. The piconets a
+        # survey keeps are the decoder's own, one per LAP, and the tool reads
+        # the one for each packet's LAP without taking it out of the survey.
+        # Until it is settled there is nothing to record, and the records say
+        # so rather than carrying a guess.
+        for index in (0, 1):
+            assert records[index].uap == UAP_ANY, (name, records)
+            assert not records[index].flags & BREDR_REFUAP_VALID, (name, records)
+        for index in (2, 3):
+            assert records[index].uap == UAP, (name, records)
+            assert records[index].flags & BREDR_REFUAP_VALID, (name, records)
 
-        # The settling packet's own header and payload do reach the record,
+        # The settling packet's own header and payload reach the record,
         # because the decoder writes them onto the packet itself when a
-        # candidate clock's CRC comes out. They cannot be checked by a reader
-        # without the UAP above, which is why that line matters: these are
-        # the bits a reader would check it against.
+        # candidate clock's CRC comes out. The reference UAP above is what a
+        # reader checks them against, and it is in the same record: the UAP
+        # is settled inside the call that decodes this packet, and read back
+        # afterwards, so the first record that carries the bits carries the
+        # address to check them with.
         assert records[2].header != 0, (name, records)
         assert records[2].header & 0x7 == LT_ADDR, (name, records)
         assert (records[2].header >> 3) & 0xF == DH1, (name, records)

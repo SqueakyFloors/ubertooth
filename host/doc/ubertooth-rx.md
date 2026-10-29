@@ -316,9 +316,15 @@ one stream, so `-q -` and `-d -` in one command are refused:
 
 Every record of a `-q` or `-r` capture carries the LAP recovered from the
 packet's own access code, in every mode, including a survey (`-z`). The
-reference LAP and reference UAP beside it are a different thing: the address
-this tool was told to look for. A run given none records no reference address,
-and says so with the flags, which is what a reader checks before using it.
+reference LAP beside it is a different thing: the address this tool was told
+to look for, and a run given none records no reference LAP. The reference UAP
+is the UAP this tool knows for that piconet, whether `-u` gave it one or it
+worked the UAP out from the packets. Either field says with the flags when it
+holds nothing, which is what a reader checks before using it.
+
+A survey keeps a piconet for each LAP it hears and recovers its UAP from that
+piconet's own packets, so a survey's records carry a reference UAP from the
+packet that settles one onwards, beside a reference LAP that stays empty.
 
 The packet's own 18-bit header joins them once a followed piconet's clock bits
 are known, which is what the UAP search works out along with the UAP. A reader
@@ -331,10 +337,12 @@ header, and those bits fail the check.
 A record written before those clock bits are known carries no header at all.
 The header is whitened at the piconet's clock, so until the decoder has worked
 that clock out there is nothing to unwhiten it with, and the record holds 18
-zero bits instead. So do the records of a survey, which follows no piconet,
-and the one packet that completes the piconet's clock. A piconet whose UAP is
-`ff` records no reference UAP either: the decoder uses that value for "none",
-so a real one cannot be told from it.
+zero bits instead. So do the records of a survey, which follows no piconet.
+The packet that settles the UAP is the exception in either mode: the decoder
+reads that packet's header and payload to settle the UAP in the first place,
+so both reach its record, with the UAP they settled beside them. A piconet
+whose UAP is `ff` records no reference UAP either: the decoder uses that value
+for "none", so a real one cannot be told from it.
 
 ## CAPTURING TO STANDARD OUTPUT
 
