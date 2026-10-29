@@ -1293,14 +1293,15 @@ def lmp_message(opcode):
     return acl_message(btctl.LLID_LMP, bytes((opcode << 1,)) + bytes(16))
 
 
-def canned_session(typed, packets, until):
+def canned_session(typed, packets, until, then=""):
     """Drive one session that is handed packets, and return the two streams.
 
     The packets are held back until the four writes a session opens with and
     the command typed here have gone out, so they arrive while that command
     is running and holds the message handler, as those from a real board do.
     "q" is typed only once `until` has been printed, so the stop cannot race
-    the last of them.
+    the last of them; `then` is typed just before it, for commands that are
+    about what the session has already printed.
     """
     with open(READS_FILE, "w") as canned:
         canned.write("".join(packet + "\n" for packet in packets))
@@ -1320,7 +1321,7 @@ def canned_session(typed, packets, until):
     os.set_blocking(running.stdout.fileno(), False)
     waited = wait_until(arrived)
     os.set_blocking(running.stdout.fileno(), True)
-    output, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+    output, errors = running.communicate(then + "q\n", timeout=DEADLINE * 2)
     # Decoded leniently because the part read above is raw pipe bytes, and a
     # failure must not turn into a decode error.
     output = printed.decode(errors="replace") + output
@@ -1388,6 +1389,27 @@ assert PROMPT not in output and INTRO not in output, output
 assert INTRO + "\n" in errors, errors
 assert errors.count(PROMPT) == 2, errors
 print("ubtbr: the prompt and the intro are on standard error")
+
+# and so is what `?` and `help <command>` print. Those are the tool
+# describing itself, not the capture data a command was asked for, and they
+# carry no time: typed during a piped capture they used to put untimed lines
+# into it, which is what made the stream no longer readable by time alone.
+# A topic there is none gets Cmd's own line, on the same stream.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(FAKE_BDADDR),
+], until="RX FHS", then="?\nhelp page\nhelp nosuch\n")
+assert all(re.match(r"\d\d:\d\d:\d\d ", line)
+           for line in output.splitlines()), output
+assert "Documented commands" not in output, output
+assert "inquiry_scan" not in output and "BD_ADDR" not in output, output
+assert "Documented commands (type help <topic>):" in errors, errors
+assert "inquiry_scan" in errors, errors
+assert "page <BD_ADDR>: Establish connection with given device\n" in errors, \
+    errors
+assert "No help on nosuch" in errors, errors
+assert time_prefixed(errors) == [], errors
+print("ubtbr: what `?` prints is on standard error, so a capture stays readable")
 
 
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
@@ -1493,13 +1515,14 @@ assert "Traceback" not in errors, errors
 print("ubtbr: a capture whose reader went away is reported, and exits 1")
 
 # a reader that leaves before any packet is printed costs the session
-# nothing, because the prompt and the intro are not on that stream: nothing
-# was written to it, so nothing asked for was lost and the session ends
-# cleanly. It used to report the stream gone and exit 1, the prompt having
-# been written into it.
+# nothing, because nothing the prompt writes is on that stream: not the
+# intro, not the prompt, and not what `?` prints, which is typed here to
+# cover it. Nothing asked for was lost, so the session ends cleanly. It used
+# to report the stream gone and exit 1, the prompt having been written into
+# it.
 running = tool()
 running.stdout.close()
-running.stdin.write("q\n")
+running.stdin.write("?\nq\n")
 running.stdin.flush()
 running.stdin.close()
 errors = running.stderr.read()

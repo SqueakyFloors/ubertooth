@@ -428,6 +428,11 @@
   stream, so nothing asked for was lost and the session ends as it otherwise
   would. The prompt used to be written there, which is what noticed.
   [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
+- **Script-visible change:** `ubertooth-btbr` prints what `?` and
+  `help <command>` list on standard error, with the prompt, so a capture
+  holds packets alone whatever the user types during it. Typing `?` with the
+  capture piped somewhere used to put untimed lines into it.
+  [#874](https://github.com/SqueakyFloors/ubertooth/issues/874)
 - `-V` is the version command in every tool, and prints the same labelled
   lines whichever tool you ask: the two host lines above, then
   `Firmware version: ...` and `Firmware build: ...` for the board `-U` names,

@@ -307,6 +307,27 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 		result("RX L2CAP: %s"%acl)
 		self._send_l2cap_echo_req()
 
+class PromptNotes:
+	"""Standard error, as a stream for Cmd to write the prompt's own text to.
+
+	Cmd writes what `?` and `help <command>` print through its `stdout`
+	attribute. That text is the tool describing itself, not capture data, so
+	it belongs with the prompt on standard error. Writes go through
+	BTCtlPrompt.say(), so a standard error nobody reads costs a note and not
+	the capture.
+	"""
+
+	def __init__(self, prompt):
+		self._prompt = prompt
+
+	def write(self, text):
+		self._prompt.say(text)
+
+	def flush(self):
+		# say() has already flushed; Cmd calls this after writing a topic
+		# list, and a stream it is given has to offer it.
+		pass
+
 class BTCtlPrompt(Cmd):
 	# Standard output carries the capture: one packet to a line, each with
 	# the time it was printed in front of it. The prompt is the tool saying
@@ -317,6 +338,9 @@ class BTCtlPrompt(Cmd):
 	# The intro line therefore always goes to standard error, and so does the
 	# prompt unless a terminal's line editor is drawing it; __init__ below
 	# decides which. Cmd's own prompt is empty until it is handed one there.
+	# What `?` prints goes to standard error as well, through the stream
+	# __init__ hands Cmd: every line of standard output is then a packet,
+	# whatever the user types during a capture.
 	prompt = ""
 	PROMPT = "bt> "
 	intro = "Type ? to list commands"
@@ -326,7 +350,7 @@ class BTCtlPrompt(Cmd):
 		self._cmd = None
 		self._gave_up = False
 		self._abandoned = False
-		super().__init__()
+		super().__init__(stdout=PromptNotes(self))
 		# Who writes the prompt. Cmd hands its prompt to the terminal's line
 		# editor, which both draws it and counts its width when it redraws
 		# the line being edited: an editor that does not know the prompt is
@@ -529,7 +553,7 @@ class BTCtlPrompt(Cmd):
 		return self._abandoned
 
 	def help_exit(self):
-		print("Exit the application")
+		self.say("Exit the application\n")
 
 	def do_page(self, inp):
 		bdaddr = self._parse_bdaddr(inp)
@@ -537,37 +561,37 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlPagingCmd, bdaddr)
 		
 	def help_page(self):
-		print ("page <BD_ADDR>: Establish connection with given device")
+		self.say("page <BD_ADDR>: Establish connection with given device\n")
 
 	def do_inquiry(self, inp):
 		self.start_cmd(BTCtlInquiryCmd)
 
 	def help_inquiry(self):
-		print("inquiry: Discover nearby devices")
+		self.say("inquiry: Discover nearby devices\n")
 
 	def do_inquiry_scan(self, inp):
 		self.start_cmd(BTCtlInquiryScanCmd)
 
 	def help_inquiry_scan(self):
-		print("inquiry_scan: Become visible to nearby devices")
+		self.say("inquiry_scan: Become visible to nearby devices\n")
 
 	def do_page_scan(self, inp):
 		self.start_cmd(BTCtlPageScanCmd)
 
 	def help_page_scan(self):
-		print("page_scan: Become connectable to nearby devices")
+		self.say("page_scan: Become connectable to nearby devices\n")
 
 	def do_discoverable(self, inp):
 		self.start_cmd(BTCtlDiscoverableCmd)
 
 	def help_discoverable(self):
-		print("discoverable: Become visible and connectable to nearby devices")
+		self.say("discoverable: Become visible and connectable to nearby devices\n")
 
 	def do_idle(self, inp=None):
 		self.stop_cmd()
 
 	def help_idle(self):
-		print ("idle: Stop current operation and go standby")
+		self.say("idle: Stop current operation and go standby\n")
 
 	def do_bdaddr(self, inp):
 		bdaddr = self._parse_bdaddr(inp)
@@ -575,7 +599,7 @@ class BTCtlPrompt(Cmd):
 			self._bt.send_set_bdaddr_cmd(bdaddr)
 
 	def help_bdaddr(self):
-		print("bdaddr <BD_ADDR>: Set device bluetooth address")
+		self.say("bdaddr <BD_ADDR>: Set device bluetooth address\n")
 
 	def do_l2ping(self, inp):
 		bdaddr = self._parse_bdaddr(inp)
@@ -583,7 +607,7 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlL2Ping, bdaddr)
 
 	def help_l2ping(self):
-		print("l2ping <BD_ADDR>: Page given device and perform l2ping")
+		self.say("l2ping <BD_ADDR>: Page given device and perform l2ping\n")
 
 	def do_monitor(self, inp):
 		slave_bdaddr = self._parse_bdaddr(inp)
@@ -591,7 +615,7 @@ class BTCtlPrompt(Cmd):
 			self.start_cmd(BTCtlMonitorCmd, slave_bdaddr)
 		
 	def help_monitor(self):
-		print ("monitor <SLAVE_BD_ADDR>: Sniff connection establishment to given device")
+		self.say("monitor <SLAVE_BD_ADDR>: Sniff connection establishment to given device\n")
 
 	def emptyline(self):
 		pass
