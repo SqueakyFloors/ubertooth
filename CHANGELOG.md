@@ -18,6 +18,15 @@
   `--extcap-interfaces` instead of being answered in whichever order the two
   were written.
   [#812](https://github.com/SqueakyFloors/ubertooth/issues/812)
+- `btle-extcap.py` and `ubertooth-specan-ui` report a standard output that is
+  not there: a `-h` with that stream closed, or over a descriptor that cannot
+  be written, is `error: standard output has gone away` and exit 1. Such a
+  `-h` used to exit 0 with the usage text nowhere (`btle-extcap.py`) or on
+  standard error (`ubertooth-specan-ui`), and on an unusable descriptor both
+  ended in the interpreter's own message and status 120. With standard error
+  closed, their `error: ` lines are lost rather than moved to standard output,
+  which Wireshark reads as the answer.
+  [#920](https://github.com/SqueakyFloors/ubertooth/issues/920)
 - **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
   address, so `-s A -t B` advertises from A and follows B, which is what it
   reads like. They shared one address, so whichever option was written last

@@ -150,6 +150,19 @@ import time
 
 with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
     record.write("\\n".join(sys.argv[1:]))
+# What the child was handed for standard output, where a case asks. A capture
+# on "--fifo=-" writes its data there, so a descriptor the shell closed must
+# not have been reopened on something that swallows it.
+if os.environ.get("FAKE_UTIL_FD1"):
+    state = "closed"
+    try:
+        state = ("the bin"
+                 if os.fstat(1).st_rdev == os.stat(os.devnull).st_rdev
+                 else "something else")
+    except OSError:
+        pass
+    with open(os.environ["FAKE_UTIL_FD1"], "w") as record:
+        record.write(state)
 with open(os.environ["FAKE_UTIL_OUTPUT"]) as listing:
     sys.stdout.write(listing.read())
 sys.stdout.flush()
@@ -685,6 +698,117 @@ assert interfaces(result) == [], result
 assert not os.path.exists(ARGS_FILE), "ubertooth-util was run anyway"
 
 print("btle-extcap: -h ends the call ahead of the interface listing")
+
+# ---- a standard stream the shell closed before the script started ----------
+#
+# Wireshark gives the script both streams, so these are what a user at a shell
+# can hand it. The three states a redirection leaves are each a different
+# thing to the interpreter: no stream at all, where print() is silently a
+# no-op; a stream over a descriptor that cannot be written, which takes the
+# text into the buffer and fails at the flush, where the interpreter meets it
+# as it exits and ends the script in status 120; and no standard error, where
+# print(..., file=sys.stderr) writes to standard output instead -- the worst
+# of the three here, since Wireshark reads standard output as the answer.
+#
+# The state has to be arranged between fork and exec, since it is about the
+# descriptors the script is started with.
+
+OUTPUT_GONE = "error: standard output has gone away\n"
+
+
+def unwritable_stdout():
+    """Leave standard output open for reading only, which is `1<&0`."""
+    nowhere = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(nowhere, 1)
+    os.close(nowhere)
+
+
+def close_both():
+    """Leave neither stream, which is `>&- 2>&-`."""
+    os.close(1)
+    os.close(2)
+
+
+def ran_with(arguments, prepare, **environment):
+    """Run the script with one of its streams as a shell could have left it."""
+    running = subprocess.Popen(
+        [sys.executable, SCRIPT, *arguments],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
+                 FAKE_UTIL_ERRORS="", **environment),
+        preexec_fn=prepare)
+    output, errors = running.communicate(timeout=RUN_TIMEOUT_S)
+    return running.returncode, output, errors
+
+# -h with no standard output, which is `-h >&-`: the usage text was asked for
+# and cannot be printed, so the loss is reported and the call fails. It used
+# to print nothing and exit 0, which says the usage text was delivered.
+status, output, errors = ran_with(("-h",), lambda: os.close(1))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == OUTPUT_GONE, errors
+assert "Traceback" not in errors, errors
+
+# -h on a standard output that cannot be written, which is `-h 1<&0`: the
+# text reaches the buffer and the flush is where it fails, so a different
+# handler catches it; the line and the status are the same. The descriptor is
+# pointed at the bin, so the flush the interpreter does as it exits -- which
+# no handler can reach -- does not end the script in status 120 instead.
+status, output, errors = ran_with(("-h",), unwritable_stdout)
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == OUTPUT_GONE, errors
+assert "Traceback" not in errors, errors
+assert "Exception ignored" not in errors, errors
+
+# -V and -h together, where both halves of the answer are lost: the line is
+# said once, by whichever found the stream gone first, since there is nothing
+# left to print after it. ubertooth-util is on the PATH here and must not be
+# run, for the reason -V alone does not run it.
+if os.path.exists(ARGS_FILE):
+    os.remove(ARGS_FILE)
+status, output, errors = ran_with(("-V", "-h"), lambda: os.close(1))
+assert status == 1, (status, output, errors)
+assert errors == OUTPUT_GONE, errors
+assert not os.path.exists(ARGS_FILE), "ubertooth-util must not run"
+
+# an error with no standard error, which is `--bogus 2>&-`: the line is lost,
+# and what matters is where it does not go. It used to land on standard
+# output, which Wireshark reads as the interface list, the DLT list or a
+# capture filter's verdict, depending on the call.
+status, output, errors = ran_with(("--bogus",), lambda: os.close(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == "", errors
+
+# and that stream going does not cost the answer: -h still prints the usage
+# text, on standard output, and exits 0
+status, output, errors = ran_with(("-h",), lambda: os.close(2))
+assert status == 0, (status, output, errors)
+assert output.startswith("Usage:"), output
+
+# with neither stream, which is `-h >&- 2>&-`, the status is all that is left
+status, output, errors = ran_with(("-h",), close_both)
+assert status == 1, (status, output, errors)
+assert output == "" and errors == "", (output, errors)
+
+# and in that state a child gets no standard output either. A capture on
+# "--fifo=-" writes its data there, so one handed a writable descriptor the
+# user never asked for -- the bin this script opens for its own diagnostics
+# is the one at hand -- would throw the capture away and read as a capture
+# that worked.
+FD1_FILE = os.path.join(directory, "child-fd1")
+if os.path.exists(FD1_FILE):
+    os.remove(FD1_FILE)
+status, output, errors = ran_with(
+    ("--capture", "--extcap-interface=ubertooth" + SERIALS[0], "--fifo=-"),
+    close_both, FAKE_UTIL_FD1=FD1_FILE)
+assert status == 1, (status, output, errors)
+with open(FD1_FILE) as record:
+    assert record.read() == "closed", record
+
+print("btle-extcap: a standard stream the shell closed is reported, not a"
+      " traceback")
 
 # ---- --capture --------------------------------------------------------------
 

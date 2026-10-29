@@ -58,6 +58,82 @@ DEFAULT_UPPER_FREQ = 2480
 VERSION_TOOL = "ubertooth-util"
 
 
+def point_at_the_bin(stream):
+    """Send a stream that cannot be written to the bin, so writing it is safe.
+
+    The interpreter flushes both streams as it exits, where no handler can
+    reach a failure: a write that fails there ends the tool in status 120
+    and a message of its own. ubtbr/streams.py does the same for
+    ubertooth-btbr, and has the longer note.
+    """
+    try:
+        nowhere = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(nowhere, stream.fileno())
+        finally:
+            os.close(nowhere)
+    except (OSError, ValueError, AttributeError):
+        # There is no such stream to point anywhere: it was closed before the
+        # tool started. Nothing is written to it either way.
+        pass
+
+
+def output_lost():
+    """Report that standard output has gone away, and end the command.
+
+    The one line ubertooth-btbr gives for the same loss, said once because
+    this ends the command where it is called: an answer that was not printed is
+    not a command that did what was asked (.kiro/steering/cli-output.md).
+    """
+    point_at_the_bin(sys.stdout)
+    try:
+        print("error: standard output has gone away", file=sys.stderr)
+    except (OSError, ValueError, AttributeError):
+        # Standard error went the same way, which is what `2>&1` into a reader
+        # that left leaves. The exit status is all there is to say it with.
+        point_at_the_bin(sys.stderr)
+    sys.exit(1)
+
+
+def answer(text):
+    """Print what the user asked for, or report that it could not be printed.
+
+    Standard output carries the answer (.kiro/steering/cli-output.md), and two
+    states a shell can leave it in used to pass for a command that worked:
+    with no stream at all (`-h >&-`), where the argument parser writes the
+    usage text to standard error instead, and with a descriptor that was
+    opened for reading only, where the text reaches the buffer and the flush
+    is what fails.
+    """
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except (AttributeError, ValueError, OSError):
+        output_lost()
+
+
+def bin_a_missing_standard_error():
+    """Keep this tool's diagnostics out of the answer.
+
+    With no such stream, print(..., file=sys.stderr) writes to standard output
+    instead, where a reader or a script is entitled to find only what it
+    asked for -- including specan/limits.py's refusals. The bin takes them.
+
+    Descriptor 2 is pointed there as well, so that a child inherits the bin
+    rather than a closed descriptor whose number its next open() would take.
+    Taking a lower descriptor would be worse still: standard output may be
+    closed too, and a child handed a writable bin for it would throw away
+    what it was asked to write.
+    """
+    if sys.stderr is not None:
+        return
+    nowhere = os.open(os.devnull, os.O_WRONLY)
+    if nowhere != 2:
+        os.dup2(nowhere, 2)
+        os.close(nowhere)
+    sys.stderr = open(2, "w", closefd=False)
+
+
 def report_versions(selector=None):
     """Print the -V answer, and return the exit status it leaves behind.
 
@@ -79,24 +155,15 @@ def report_versions(selector=None):
     except (AttributeError, ValueError):
         # There is no standard output at all: a descriptor closed before the
         # tool started leaves the interpreter without one, so the answer
-        # cannot be printed. Said in one line, and the child is not started:
+        # cannot be printed. Reported there, in the one line that says it
+        # however much of the answer was lost, and the child is not started:
         # with that descriptor closed, the first file the child opens takes
         # its number, and the answer would be written into whatever that
         # turned out to be.
-        print("error: standard output has gone away", file=sys.stderr)
-        return 1
-    child_streams = {}
+        output_lost()
+    sys.stderr.flush()
     try:
-        sys.stderr.flush()
-    except (AttributeError, ValueError):
-        # Nor any standard error. That costs the child's diagnostics and not
-        # the answer, so nothing is said about it, but the child is handed
-        # the bin for them rather than the closed descriptor: the first file
-        # it opened would otherwise take that number and its lines would be
-        # written into whatever that turned out to be.
-        child_streams["stderr"] = subprocess.DEVNULL
-    try:
-        status = subprocess.call(command, **child_streams)
+        status = subprocess.call(command)
     except OSError as err:
         # Not on the PATH, or there and not executable. Reported in one line
         # like every other failure here, rather than in a traceback.
@@ -176,13 +243,20 @@ def read_command_line():
     if options.version or options.help:
         status = report_versions(options.device) if options.version else 0
         if options.help:
-            parser.print_help()
+            # Formatted by the parser and printed here: print_help() falls
+            # back to standard error when there is no standard output, and
+            # the usage text is the answer, so it goes nowhere else.
+            answer(parser.format_help())
         sys.exit(status)
 
     return ubertooth_device, lower_freq, upper_freq
 
 
 if __name__ == '__main__':
+    # Before anything is printed, since what this does is decide where the
+    # diagnostics go -- including specan/limits.py's refusals.
+    bin_a_missing_standard_error()
+
     # Read here, ahead of the imports below, so that -V, -h and a refused
     # range are answered on a machine with no numpy and no Qt binding. The
     # default signal handling is still in place, so a Ctrl-C during the -V
