@@ -750,6 +750,46 @@ MU_TEST(two_contexts_cannot_be_handed_the_same_buffer)
 	mu_assert_int_eq(0, (int)irq_mask_depth);
 }
 
+/* What the buffer the pool is about to hand out still held when the interrupt
+ * got in. */
+static uint8_t the_buffer_still_held_when_the_interrupt_ran;
+static void look_at_the_buffer_being_handed_out(void)
+{
+	the_buffer_still_held_when_the_interrupt_ran = le_buffer_pool[0].data[0];
+}
+
+/*
+ * Only the test and the clear of the pool's flag are guarded. Clearing the
+ * buffer itself is a 260-byte memset, and the end of every packet goes through
+ * it in the firmware's hottest interrupt, so it may not be done with every
+ * interrupt masked: the timer drives connection-event timing and accepts a
+ * measured anchor only within a few microseconds of its estimate.
+ *
+ * The interrupt is stood in where the guard ends, so what it sees of the
+ * buffer says which side of the guard the memset is on.
+ */
+MU_TEST(clearing_a_buffer_is_not_done_with_interrupts_held_off)
+{
+	le_rx_t *taken;
+
+	start_fresh();
+
+	/* Leave the first buffer looking like a packet that has been sent. */
+	memset(le_buffer_pool[0].data, 0xa5, sizeof(le_buffer_pool[0].data));
+
+	the_buffer_still_held_when_the_interrupt_ran = 0;
+	irq_pending_hook = look_at_the_buffer_being_handed_out;
+	taken = buffer_get();
+
+	mu_assert_fatal(taken == &le_buffer_pool[0],
+	                "the pool did not hand out the first buffer");
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the pool's flag is tested and "
+	          "cleared without holding interrupts off");
+	mu_assert_int_eq(0xa5, the_buffer_still_held_when_the_interrupt_ran);
+	mu_assert_int_eq(0, (int)taken->data[0]);
+}
+
 /*
  * A finished packet is handed to the host and the buffer for the next one
  * taken in one step, so current_rxbuf never names a buffer that is on its way
@@ -3359,6 +3399,7 @@ int main(void)
 	MU_RUN(disarming_one_match_cannot_lose_another);
 	MU_RUN(each_match_is_armed_on_its_own);
 	MU_RUN(two_contexts_cannot_be_handed_the_same_buffer);
+	MU_RUN(clearing_a_buffer_is_not_done_with_interrupts_held_off);
 	MU_RUN(a_queued_packet_is_not_reached_by_the_match_that_follows_it);
 	MU_RUN(the_length_byte_is_dewhitened_the_same_way_as_the_rest);
 	MU_RUN(a_field_is_read_least_significant_byte_first);

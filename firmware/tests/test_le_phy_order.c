@@ -66,13 +66,19 @@ struct le_phy_scan {
 	 * outside the two guarded helpers, and how many are inside them. */
 	int bare_match_write;
 	int guarded_match_writes;
+	/* In le_dma_interrupt(), where a finished packet is handed over: the
+	 * first of each of these after the function starts. */
+	int handover_take;      /* buffer_get() */
+	int handover_mask;      /* irq_save_disable() */
+	int handover_queue;     /* queue_insert() */
+	int handover_restore;   /* irq_restore() */
 };
 
 static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
-	int in_mask_helper = 0;
+	int in_mask_helper = 0, in_dma = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -113,6 +119,27 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 				else if (s->bare_match_write == 0)
 					s->bare_match_write = lineno;
 			}
+		}
+
+		/* The handover of a finished packet, in the byte interrupt. */
+		if (strstr(line, "void le_dma_interrupt(") != NULL &&
+		    strchr(line, ';') == NULL)
+			in_dma = 1;
+		if (in_dma) {
+			if (calls_identifier(line, "buffer_get") &&
+			    s->handover_take == 0)
+				s->handover_take = lineno;
+			if (calls_identifier(line, "irq_save_disable") &&
+			    s->handover_mask == 0)
+				s->handover_mask = lineno;
+			if (calls_identifier(line, "queue_insert") &&
+			    s->handover_queue == 0)
+				s->handover_queue = lineno;
+			if (calls_identifier(line, "irq_restore") &&
+			    s->handover_restore == 0)
+				s->handover_restore = lineno;
+			if (line[0] == '}')
+				in_dma = 0;
 		}
 
 		if (in_timer1_start) {
@@ -388,6 +415,51 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	mu_assert(s.guarded_match_writes == 2, msg);
 }
 
+/*
+ * A finished packet is handed to the host under one guard, together with
+ * taking the buffer for the next packet, and the new buffer is taken before
+ * the finished one is queued.
+ *
+ * The order is the point. current_rxbuf is what the timer interrupt acts on --
+ * the channel change clears the buffer it names, the waits receive into it --
+ * so while the pointer still named a finished packet, a match reached it and
+ * the host was given zeroes, or bytes from a later moment in the air. Both
+ * steps have to be inside the guard: with the buffer taken outside it, the
+ * pointer still names the finished packet while the new one is cleared, which
+ * is the same window a few instructions narrower.
+ *
+ * What the guard does is run in test_le_phy_logic.c. This is the part a scan
+ * can see: that nothing in the handover sits outside the mask.
+ */
+MU_TEST(test_a_finished_packet_is_handed_over_in_one_guarded_step)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not read the handover in le_dma_interrupt(): "
+	         "buffer_get %d, irq_save_disable %d, queue_insert %d, "
+	         "irq_restore %d", path, s.handover_take, s.handover_mask,
+	         s.handover_queue, s.handover_restore);
+	mu_assert_fatal(s.handover_take != 0 && s.handover_mask != 0 &&
+	                s.handover_queue != 0 && s.handover_restore != 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the handover is not all inside the guard: mask at line %d, "
+	         "buffer taken at %d, packet queued at %d, mask off at %d -- a "
+	         "timer match taken outside it finds current_rxbuf naming a "
+	         "packet that is on its way to the host", path, s.handover_mask,
+	         s.handover_take, s.handover_queue, s.handover_restore);
+	mu_assert(s.handover_mask < s.handover_take &&
+	          s.handover_take < s.handover_queue &&
+	          s.handover_queue < s.handover_restore, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the buffer is taken before the finished packet is "
+	         "queued (line %d), or the pointer would name a queued buffer",
+	         path, s.handover_take, s.handover_queue);
+	mu_assert(s.handover_take < s.handover_queue, msg);
+}
+
 int main(void)
 {
 	printf("le_phy bring-up and teardown order tests\n");
@@ -399,5 +471,6 @@ int main(void)
 	MU_RUN(test_the_interrupt_is_unmasked_last);
 	MU_RUN(test_active_is_cleared_before_the_teardown);
 	MU_RUN(test_every_match_bit_is_changed_with_interrupts_held_off);
+	MU_RUN(test_a_finished_packet_is_handed_over_in_one_guarded_step);
 	return mu_report();
 }
