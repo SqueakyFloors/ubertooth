@@ -94,6 +94,17 @@ MU_TEST(a_real_image_is_startable)
 	          "an image this tree builds was refused");
 }
 
+/* The same two words read back off a board's flash with ubertooth-dfu -u
+ * after a flash, so what the check accepts is not only what an image file
+ * says but what the board holds. The reset vector differs from the one above
+ * because it came from a different build; the word at 0x1c read zero there
+ * too. */
+MU_TEST(an_image_read_back_off_a_board_is_startable)
+{
+	mu_assert(app_image_startable(0x10003fe0u, 0x00009eedu, FLASH_TOP),
+	          "an image read back off a board was refused");
+}
+
 /* The check must not depend on the part: the same image has to start on the
  * 128 KiB part the Ubertooth One schematic specifies and on the larger parts
  * other boards carry. */
@@ -273,6 +284,7 @@ int main(void)
 	MU_RUN(a_region_of_zeros_is_not_startable);
 	MU_RUN(code_with_no_vector_table_is_not_startable);
 	MU_RUN(a_real_image_is_startable);
+	MU_RUN(an_image_read_back_off_a_board_is_startable);
 	MU_RUN(a_real_image_is_startable_whatever_the_part);
 	MU_RUN(the_ends_of_the_application_region_are_startable);
 	MU_RUN(a_stack_pointer_outside_ram_is_not_startable);
