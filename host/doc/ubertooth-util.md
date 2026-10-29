@@ -322,7 +322,7 @@ was stuck:
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
     Capture transfer errors since power-on: 0
-    Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
+    Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
 `reset pin`, `brown-out`, or several of those joined with `+`. A reset the
@@ -372,12 +372,15 @@ The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio
 that never reports the state it was asked for from holding the board — but
 carrying on is silent, so a half-working radio reads as a quiet channel. The
-four counts are the times each shape of wait ran out: the synthesizer never
-locking, never going back off, the 16 MHz crystal never reporting stable, and
-the radio's state machine never reaching a state. All zero is what a working
-board shows; a count that climbs during a capture says the samples or packets
-that came out of it are not to be trusted, whatever they look like. They are
-since the board started (a `-r` reset included) and stop at 65535.
+counts are the times each shape of wait ran out: the synthesizer never
+locking, never going back off, the 16 MHz crystal never reporting stable, the
+radio's state machine never reaching a state, and the radio stopping partway
+through delivering a packet's bytes. The last of those is only ever above zero
+after a `ubertooth-btle -p` capture, the one mode that waits for them. All zero
+is what a working board shows; a count that climbs during a capture says the
+samples or packets that came out of it are not to be trusted, whatever they
+look like. They are since the board started (a `-r` reset included) and stop
+at 65535.
 
 `-i` (In-System Programming) is the one hand-over the watchdog cannot be
 switched off for: it keeps the chip running, so the timeout is stretched to

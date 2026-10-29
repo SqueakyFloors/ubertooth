@@ -607,14 +607,18 @@ enum watchdog_site {
  * than wrapping.
  *
  * Both images answer the request, since both wait on the radio the same way.
+ * The last count is the exception: only the bluetooth_rxtx image's promiscuous
+ * low-energy capture waits for a packet's bytes, so btbr always reports 0 for
+ * it.
  */
-#define UBERTOOTH_RADIO_TIMEOUTS_LEN 8
+#define UBERTOOTH_RADIO_TIMEOUTS_LEN 10
 
 typedef struct {
 	uint16_t fs_lock;   /* the synthesizer never locked */
 	uint16_t fs_unlock; /* it never went back off */
 	uint16_t xosc;      /* the 16 MHz crystal never reported stable */
 	uint16_t fsm;       /* the state machine never reached a state */
+	uint16_t rx_bytes;  /* it stopped delivering a packet's bytes */
 } radio_timeouts;
 
 typedef struct {

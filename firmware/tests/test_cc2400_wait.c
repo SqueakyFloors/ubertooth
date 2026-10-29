@@ -632,8 +632,8 @@ MU_TEST(test_a_servicing_wait_keeps_its_site_between_passes)
 
 /* ---- the give-up counts ---- */
 
-/* One count out of UBERTOOTH_GET_RADIO_TIMEOUTS's reply, which is four 16-bit
- * counts with the low byte of each first. */
+/* One count out of UBERTOOTH_GET_RADIO_TIMEOUTS's reply, which is one 16-bit
+ * count per shape of wait, with the low byte of each first. */
 static unsigned reported_count(enum cc2400_wait_shape shape)
 {
 	uint8_t reply[UBERTOOTH_RADIO_TIMEOUTS_LEN];

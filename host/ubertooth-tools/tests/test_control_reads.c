@@ -512,7 +512,7 @@ MU_TEST(watchdog_state_needs_the_whole_reply)
 }
 
 /*
- * The radio wait give-up counts: four 16-bit counts, low byte first, in the
+ * The radio wait give-up counts: one 16-bit count per shape, low byte first, in the
  * order the interface gives. A short reply leaves the caller's struct alone,
  * as the watchdog read does.
  */
@@ -525,12 +525,14 @@ MU_TEST(radio_timeouts_are_read_little_endian)
 	fake.reply[2] = 0x34; fake.reply[3] = 0x12; /* fs_unlock = 0x1234 */
 	fake.reply[4] = 0xff; fake.reply[5] = 0xff; /* xosc      = 65535 */
 	fake.reply[6] = 0x00; fake.reply[7] = 0x01; /* fsm       = 256 */
+	fake.reply[8] = 0x07; fake.reply[9] = 0x00; /* rx_bytes  = 7 */
 	mu_assert_int_eq(0, cmd_get_radio_timeouts(NULL, &t));
 	mu_assert_int_eq(UBERTOOTH_GET_RADIO_TIMEOUTS, fake.last_request);
 	mu_assert_int_eq(1, t.fs_lock);
 	mu_assert_int_eq(0x1234, t.fs_unlock);
 	mu_assert_int_eq(65535, t.xosc);
 	mu_assert_int_eq(256, t.fsm);
+	mu_assert_int_eq(7, t.rx_bytes);
 
 	memset(&t, 0x5a, sizeof(t));
 	script(UBERTOOTH_RADIO_TIMEOUTS_LEN - 1, 0x11);

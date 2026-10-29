@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -180,6 +180,23 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		-Wno-unused-variable -Wno-pointer-to-int-cast \
 		-o $@ test_le_phy_logic.c $(FW_RXTX)/queue.c \
 		$(FW_RXTX)/bluetooth_le.c $(HOST_LIB)/ubertooth_le_frag.c
+
+# How long a low-energy capture waits for the rest of a packet. The two
+# helpers the deadline is built from are pure logic in bluetooth_le.h, so they
+# run here; stubs/ubertooth.h stands in for the hardware header that file
+# includes, as it does for test_le_frag_shape. The wait itself is hardware
+# code and is scanned there.
+$(BINDIR)/test_le_rx_byte_wait: test_le_rx_byte_wait.c minunit.h \
+		stubs/ubertooth.h $(FW_RXTX)/bluetooth_le.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_le_rx_byte_wait.c
+
+# What reset_le() clears, field by field. It is in a hardware file, so this
+# reads le_state_t out of bluetooth_le.h and the function out of
+# bluetooth_rxtx.c and compares the two; FW_RXTX_DIR points at both.
+$(BINDIR)/test_le_state_reset: test_le_state_reset.c minunit.h source_scan.h \
+		$(FW_RXTX)/bluetooth_le.h $(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_le_state_reset.c
 
 # How long a capture the target filter needs before it compares the address in
 # it. The filter runs inside the capture loop, so it is modelled here and
@@ -422,6 +439,16 @@ $(BINDIR)/test_vendor_request_bounds: test_vendor_request_bounds.c minunit.h \
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-o $@ test_vendor_request_bounds.c
+
+# Which values the modulation and channel requests accept. Both cases write
+# radio state, so they are modelled and the firmware's own shape is scanned,
+# as test_vendor_request_bounds does for the bounds. -I../common is for
+# cc2400.h, which holds the synthesizer's range.
+$(BINDIR)/test_vendor_request_values: test_vendor_request_values.c minunit.h \
+		source_scan.h $(FW_COMMON)/cc2400.h $(FW_RXTX)/bluetooth_rxtx.c \
+		| $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_vendor_request_values.c
 
 # The btbr image's USB shim reaches the controller only through the vendored
 # stack's USBHw* calls and the NVIC enable registers, so this links the real

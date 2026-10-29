@@ -148,8 +148,8 @@ JTAG.
 - [ ] Confirm: the last line names a wait of the running mode, not "servicing
       USB" — a reply is always written from the USB path, so that line would
       say nothing
-- [ ] Confirm: `Radio waits that gave up since boot:` reads 0 for all four
-      counts on a board whose radio is working, before and after a capture
+- [ ] Confirm: `Radio waits that gave up since boot:` reads 0 for every count
+      on a board whose radio is working, before and after a capture
 - [ ] Confirm: `Capture transfer errors since power-on:` reads 0 on a board
       whose radio is working, before and after a capture, and that no
       `Last processor fault:` line is printed — a board that has faulted

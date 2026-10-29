@@ -236,11 +236,45 @@ MU_TEST(the_loop_waits_for_the_length_byte_and_then_for_the_packet)
 	/* A length field corrupted by noise can ask for the longest packet
 	 * there is, so the wait has to end on a mode change rather than hold
 	 * the mode open for bytes the radio has stopped sending. */
-	mu_assert(strstr(rxtx, "&& requested_mode == active_mode) ; ") != NULL,
+	mu_assert(strstr(rxtx, "&& requested_mode == active_mode) { ") != NULL,
 	          "a stopped mode does not end the wait for a packet's bytes");
 	mu_assert(strstr(rxtx, "if (requested_mode != active_mode) goto cleanup;")
 	          != NULL,
 	          "a stopped mode does not end the mode after the wait");
+}
+
+/* The wait also has a deadline, which is the only thing that ends it when the
+ * radio stops delivering bytes while the transfer stays armed. Without it the
+ * loop spun until the host changed mode, and a host that was waiting for
+ * capture data never did: the board answered nothing from then on.
+ * test_le_rx_byte_wait.c runs the arithmetic the deadline is built from. */
+MU_TEST(the_wait_for_a_packets_bytes_has_a_deadline)
+{
+	mu_assert(strstr(rxtx,
+	                 "uint32_t wait_budget = le_rx_byte_wait_clk100ns(want);")
+	          != NULL,
+	          "the wait's budget does not come from the bytes it is owed");
+	/* The time is added up from the timer, not taken as the difference of
+	 * two CLK100NS readings: those run backwards once per timer period, and
+	 * a deadline on them would drop a packet that was arriving. */
+	mu_assert(strstr(rxtx, "uint32_t last_tick = T0TC;") != NULL,
+	          "the wait does not read the timer directly");
+	mu_assert(strstr(rxtx,
+	                 "waited += le_clk100ns_step(last_tick, now_tick);")
+	          != NULL,
+	          "the wait does not add up the time it has waited");
+	mu_assert(strstr(rxtx, "le_clk100ns_elapsed") == NULL,
+	          "the wait is timed by a difference of two capture-clock reads");
+	mu_assert(strstr(rxtx,
+	                 "if (waited > wait_budget) { overdue = 1; break; }")
+	          != NULL,
+	          "the wait does not give up when the bytes are overdue");
+	/* And it is counted where every other radio wait that gives up is, so
+	 * `ubertooth-util -w` reads it back. */
+	mu_assert(strstr(rxtx, "if (overdue)"
+	                       " cc2400_wait_count_timeout(CC2400_WAIT_RX_BYTES);")
+	          != NULL,
+	          "a wait that gave up is not counted");
 }
 
 /* The receive buffer is reused, so a packet whose bytes did not all arrive
@@ -249,7 +283,7 @@ MU_TEST(the_loop_waits_for_the_length_byte_and_then_for_the_packet)
 MU_TEST(a_packet_whose_bytes_did_not_all_arrive_is_dropped)
 {
 	mu_assert(strstr(rxtx,
-	                 "int whole = rx_err == 0 && DMACC0DestAddr >="
+	                 "int whole = rx_err == 0 && !overdue && DMACC0DestAddr >="
 	                 " (uint32_t)(p + 4) + want;") != NULL,
 	          "whether the whole packet arrived is not worked out");
 	mu_assert(strstr(rxtx, "if (!whole) goto rx_flush;") != NULL,
@@ -395,6 +429,7 @@ int main(void)
 	MU_RUN(only_one_half_of_the_mode_reads_symbols);
 	MU_RUN(the_shared_buffer_is_cleared_before_symbols_are_searched);
 	MU_RUN(the_loop_waits_for_the_length_byte_and_then_for_the_packet);
+	MU_RUN(the_wait_for_a_packets_bytes_has_a_deadline);
 	MU_RUN(a_packet_whose_bytes_did_not_all_arrive_is_dropped);
 	MU_RUN(a_wait_that_ends_with_no_packet_arms_the_transfer_again);
 	MU_RUN(an_impossible_length_is_not_waited_for);
