@@ -67,6 +67,9 @@ struct le_phy_scan {
 	 * times inside them. */
 	int bare_match_use;
 	int guarded_match_uses;
+	/* Writing the moment a match fires at anywhere but inside the helper
+	 * that arms it in the same breath. */
+	int bare_moment_write;
 	/* In le_dma_interrupt(), where a finished packet is handed over: the
 	 * first of each of these after the function starts. */
 	int handover_take;      /* buffer_get() */
@@ -102,7 +105,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		 * register is not counted: it cannot be built on a stale read.
 		 * This runs before the gates below, so it covers the whole file
 		 * rather than one function. */
-		if (strstr(line, "timer1_arm_match_interrupt(") != NULL ||
+		if (strstr(line, "timer1_arm_match(") != NULL ||
 		    strstr(line, "timer1_disarm_match_interrupt(") != NULL ||
 		    strstr(line, "timer1_set_match_if_unarmed(") != NULL) {
 			if (strchr(line, ';') == NULL && strchr(line, '{') != NULL)
@@ -118,6 +121,16 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 			else if (s->bare_match_use == 0)
 				s->bare_match_use = lineno;
 		}
+
+		/* The moment itself, in whichever of the four registers. Written
+		 * outside the helper it is a separate write from the one that arms
+		 * it, which is the hazard above in the other order. */
+		if (!in_mask_helper && s->bare_moment_write == 0 &&
+		    (is_assignment_to(line, "T1MR0") ||
+		     is_assignment_to(line, "T1MR1") ||
+		     is_assignment_to(line, "T1MR2") ||
+		     is_assignment_to(line, "T1MR3")))
+			s->bare_moment_write = lineno;
 
 		/* The handover of a finished packet, in the byte interrupt. */
 		if (strstr(line, "void le_dma_interrupt(") != NULL &&
@@ -408,7 +421,7 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: T1MCR is read or part-written here without holding "
-	         "interrupts off; go through timer1_arm_match_interrupt(), "
+	         "interrupts off; go through timer1_arm_match(), "
 	         "timer1_disarm_match_interrupt() or "
 	         "timer1_set_match_if_unarmed(), or an interrupt landing in the "
 	         "middle loses the bit it armed", path, s.bare_match_use);
@@ -419,6 +432,13 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	         "each of the three helpers -- the scan has stopped reading "
 	         "them", path, s.guarded_match_uses);
 	mu_assert(s.guarded_match_uses == 3, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the moment a match fires at is written here, apart from "
+	         "the bit that arms it; pass it to timer1_arm_match() instead, "
+	         "or an interrupt between the two leaves the match armed against "
+	         "a time the counter has gone past", path, s.bare_moment_write);
+	mu_assert(s.bare_moment_write == 0, msg);
 }
 
 /*

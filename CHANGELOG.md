@@ -1993,9 +1993,7 @@ Fixes with no visible change in normal use.
   buffer pool and the buffer a finished packet is handed over from with
   interrupts held off, so the connection-event timer can no longer cut into any
   of the three. Each was read, altered and written back in steps the timer
-  could land between, which could lose a buffer or a timer match. A capture
-  before and after on the bench produced the same counts, so these close
-  windows rather than change what a capture does at the rates reached there.
+  could land between, which could lose a buffer or a timer match.
   [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - A request that carries more data to the board than the buffer its handler
