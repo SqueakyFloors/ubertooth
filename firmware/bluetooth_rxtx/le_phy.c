@@ -607,6 +607,62 @@ void le_DMA_IRQHandler(void) {
 	watchdog_unmark(site);
 }
 
+// Give up on the packet a failed capture transfer interrupted, and put the
+// receiver back.
+//
+// A transfer error ends the capture of a packet part way along it, and on its
+// own leaves nothing armed to carry on from. On a data channel the connection
+// event's deadline was cleared when the packet's first byte arrived, and the
+// timeout that waits for the next packet of the event is only armed where a
+// packet ends, which this one never will. The synthesizer-lock and buffer
+// waits were both disarmed when receive was armed. So no match is armed and no
+// interrupt is due: the event never closes, the supervision timeout -- which is
+// only checked when an event closes -- is never reached, and the capture is
+// over, while the mode's loop goes on servicing USB so the board answers the
+// host as if nothing had happened.
+static void le_transfer_error_recover(void) {
+	// Stop receiving and take the DMA channel and the SSP down, as the
+	// end-of-packet path does: the receiver keeps clocking bytes into the FIFO
+	// until SFSON takes effect, and they would otherwise be read as the head
+	// of the next packet. SFSON rather than SRFOFF leaves the synthesizer
+	// running, which is what the waits below expect.
+	cc2400_strobe(SFSON);
+	DMACC0Config = 0;
+	DMACIntTCClear = (1 << 0);
+	DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+	le_ssp_drain();
+	ICER0 = ICER0_ICE_DMA;
+
+	// Drop what was received of the packet, so the next one does not start
+	// part way along the buffer. The buffer is kept rather than released:
+	// nothing was handed to the host, so the pool's accounting is unchanged.
+	if (current_rxbuf != NULL)
+		buffer_clear(current_rxbuf);
+
+	if (btle_channel_index(rf_channel) < 37) {
+		// Close the connection event. finish_conn_event() counts the event,
+		// checks the supervision timeout and arms the next one, whose
+		// change_channel() puts the DMA channel and the SSP back. The match
+		// is a margin ahead of the counter, which is the shortest wait that
+		// cannot be passed before it is armed.
+		//
+		// The event is open whenever receive is armed inside one, so the
+		// match is taken as a timeout; were it somehow not, the handler opens
+		// an event instead, which also re-arms receive.
+		timer1_set_match(NOW + CONN_EVENT_ARM_MARGIN);
+	} else {
+		// An advertising channel has no event to close, and the engine stays
+		// on it until the host or a connection request moves it. Waiting for
+		// the synthesizer arms both the DMA channel and receive again when it
+		// locks.
+		//
+		// A connection-event match can be armed here, for the first event of
+		// a connection whose request the mode's loop has just read, so this
+		// path leaves MR0 alone.
+		timer1_wait_fs_lock();
+	}
+}
+
 static void le_dma_interrupt(uint32_t timestamp) {
 	unsigned pos;
 	int8_t rssi;
@@ -621,6 +677,22 @@ static void le_dma_interrupt(uint32_t timestamp) {
 
 	// channel 0
 	if (DMACIntStat & (1 << 0)) {
+		int transfer_error = 0;
+
+		// Acknowledge a transfer error before the byte below is dealt with,
+		// not after: that work has paths which return, and a flag left set is
+		// taken as a fresh error the moment the DMA interrupt is enabled
+		// again. What to do about the error is decided at the end, once it is
+		// known whether a packet arrived with it.
+		if (DMACIntErrStat & (1 << 0)) {
+			DMACIntErrClr = (1 << 0);
+			transfer_error = 1;
+
+			// Counted so that a capture losing packets to the hardware tells
+			// itself apart from a quiet channel: ubertooth-util -w reports it.
+			watchdog_count_transfer_error();
+		}
+
 		// terminal count - byte received
 		if (DMACIntTCStat & (1 << 0)) {
 			DMACIntTCClear = (1 << 0);
@@ -735,27 +807,22 @@ static void le_dma_interrupt(uint32_t timestamp) {
 					// wait for FS_LOCK in background
 					timer1_wait_fs_lock();
 				}
+
+				// The controller can report an error in the same interrupt
+				// as the byte that completed a packet. That packet is on its
+				// way to the host and receive has just been armed for the
+				// next one, so the error has nothing left to recover: it has
+				// been acknowledged and counted, and the recovery below
+				// would undo the arming.
+				return;
 			}
 		}
 
-		// error - transition to error state
-		if (DMACIntErrStat & (1 << 0)) {
-			// TODO error state transition
-			DMACIntErrClr = (1 << 0);
-			// The packet being received is lost, and this engine does
-			// nothing else about it: the deadline that would have closed
-			// the connection event was cleared when the packet's first
-			// byte arrived, and the timeout for the next packet is only
-			// armed where a packet ends, so neither is left to fire. No
-			// match is armed at all, so the event never closes, the
-			// supervision timeout is never checked, and this capture is
-			// over while the loop goes on servicing USB -- the board
-			// answers the host as if nothing had happened. Recovering
-			// from it is its own change; counting it is what makes a
-			// capture that stopped this way tell itself apart from a
-			// quiet channel.
-			watchdog_count_transfer_error();
-		}
+		// A transfer error with no packet to show for it: the half-received
+		// packet is dropped and the receiver put back, because nothing else
+		// is left armed to carry the capture on.
+		if (transfer_error)
+			le_transfer_error_recover();
 	}
 }
 

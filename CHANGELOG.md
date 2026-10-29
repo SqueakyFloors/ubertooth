@@ -639,6 +639,11 @@
   error used to end the capture: the board went on answering the host and
   recording nothing until the tool was killed.
   [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
+- `ubertooth-btle -f` and `-n` keep capturing after a failed capture transfer.
+  An error part way through a packet used to end the capture the same way: the
+  board answered the host as if nothing had happened and recorded nothing more.
+  The part-received packet is now dropped and the receiver put back.
+  [#838](https://github.com/SqueakyFloors/ubertooth/issues/838)
 - `ubertooth-util -w` reports how many capture transfers have failed since
   power-on, so a capture losing packets to the hardware tells itself apart from
   a quiet channel, and what the board's last processor fault was: the fault

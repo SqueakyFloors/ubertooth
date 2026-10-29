@@ -2184,6 +2184,7 @@ MU_TEST(a_failed_capture_transfer_is_counted)
 {
 	start_fresh();
 	le_phy_active = 1;
+	rf_channel = ADV_CHANNEL_MHZ;
 	transfer_errors_counted = 0;
 
 	/* The controller reports an error on the channel the capture receives
@@ -2197,6 +2198,203 @@ MU_TEST(a_failed_capture_transfer_is_counted)
 
 	mu_assert_int_eq(1, transfer_errors_counted);
 	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
+}
+
+/* Report one byte of a packet, and a transfer error with it if `error` says
+ * so. The value is what the DMA controller left in the buffer it alternates
+ * between, which is the byte the engine reads. */
+static void rx_byte(uint8_t value, uint32_t at, int error)
+{
+	fake_dmac_int_stat = 1 << 0;
+	fake_dmac_int_tc_stat = 1 << 0;
+	fake_dmac_int_err_stat = error ? (1 << 0) : 0;
+	le_dma_dest[0] = value;
+	le_dma_dest[1] = value;
+	le_dma_interrupt(at);
+}
+
+/* Report a transfer error on its own, with no byte. */
+static void rx_transfer_error(uint32_t at)
+{
+	fake_dmac_int_stat = 1 << 0;
+	fake_dmac_int_tc_stat = 0;
+	fake_dmac_int_err_stat = 1 << 0;
+	fake_dmac_int_err_clr = 0;
+	le_dma_interrupt(at);
+}
+
+/*
+ * A capture transfer that fails part way through a packet on a data channel
+ * closes the connection event, instead of leaving the capture with nothing
+ * armed.
+ *
+ * The event's own deadline was cleared when the packet's first byte arrived,
+ * so that the inter-frame timeout could take over, and that timeout is only
+ * armed where a packet ends -- which this packet never will. The synthesizer
+ * and buffer waits were disarmed when receive was armed. So without this the
+ * engine holds nothing it will act on: the event never closes, the supervision
+ * timeout is only checked when one does, and the capture is over while the
+ * mode's loop goes on servicing USB, so the board answers the host as if
+ * nothing had happened.
+ *
+ * This drives the receive interrupt, which reaches the radio, so the fakes
+ * count those accesses; what is asserted is which match the engine armed and
+ * what it did with the packet, not anything the radio would have replied.
+ */
+MU_TEST(a_failed_transfer_on_a_data_channel_closes_the_connection_event)
+{
+	le_rx_t *buf;
+	uint16_t event_before;
+
+	anchored_connection(1000000);
+	le_phy_active = 1;
+	rf_channel = DATA_CHANNEL_MHZ;
+	/* An event is open, which is the only state receive is armed in. */
+	conn_event.opened = 1;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	buf = current_rxbuf;
+	transfer_errors_counted = 0;
+	fake_t1tc = 1000000;
+	event_before = conn.conn_event_counter;
+
+	/* The packet's first byte arrives and clears the event's deadline. */
+	rx_byte(0x9c, fake_t1tc, 0);
+	mu_assert_int_eq(1, buf->pos);
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "the first byte did not clear the event's deadline");
+
+	/* The transfer then fails, with no further byte. */
+	rx_transfer_error(fake_t1tc);
+
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
+	/* The half-received packet is dropped, so the next one starts at the
+	 * head of the buffer rather than part way along it. */
+	mu_assert_int_eq(0, buf->pos);
+	mu_assert_int_eq(0, buf->size);
+	mu_assert(queue_remove(&packet_queue, (void **)&buf) == 0,
+	          "half a packet was handed to the host");
+	/* A match is armed again, a margin ahead of the counter: the shortest
+	 * wait that cannot be passed before it is armed. */
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "no match was armed, so no interrupt is due and the capture "
+	          "has stopped");
+	mu_assert_int_eq(fake_t1tc + CONN_EVENT_ARM_MARGIN, fake_t1mr0);
+
+	/* Taking it closes the event and arms the next one, whose own
+	 * change_channel() puts the DMA channel and the SSP back. */
+	fake_t1tc = fake_t1mr0;
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+
+	mu_assert_int_eq(event_before + 1, conn.conn_event_counter);
+	mu_assert(fake_t1mcr & TMCR_MR0I, "the next connection event was not armed");
+	mu_assert((int32_t)(fake_t1mr0 - fake_t1tc) > 0,
+	          "the next event was armed behind the counter");
+}
+
+/*
+ * On an advertising channel a failed transfer arms receive again. There is no
+ * connection event to close there, and the engine stays on the channel until
+ * the host or a connection request moves it, so the wait for the synthesizer
+ * is what puts the DMA channel and receive back.
+ *
+ * A connection-event match can be armed on an advertising channel, for the
+ * first event of a connection whose request the mode's loop has just read, so
+ * this path has to leave MR0 alone.
+ */
+MU_TEST(a_failed_transfer_on_an_advertising_channel_arms_receive_again)
+{
+	le_rx_t *buf;
+	const uint32_t first_event = 0x00300000;
+
+	start_fresh();
+	le_phy_active = 1;
+	rf_channel = ADV_CHANNEL_MHZ;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	buf = current_rxbuf;
+	transfer_errors_counted = 0;
+	fake_t1tc = 0x00200000;
+
+	/* Two bytes of an advertising packet have arrived: its header, and the
+	 * length the engine reads the packet's size from. */
+	rx_byte(0x42, fake_t1tc, 0);
+	rx_byte(0x08, fake_t1tc + USEC(8), 0);
+	mu_assert_int_eq(2, buf->pos);
+	mu_assert(buf->size > 2, "the engine read no size from the header");
+
+	/* A connection request has just been followed, so the first connection
+	 * event is armed while this receive runs. */
+	timer1_set_match(first_event);
+
+	rx_transfer_error(fake_t1tc + USEC(16));
+
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
+	mu_assert_int_eq(0, buf->pos);
+	mu_assert_int_eq(0, buf->size);
+	mu_assert(fake_t1mcr & TMCR_MR2I,
+	          "receive was not armed again, so the next packet never arrives");
+	/* The connection event the mode's loop armed is untouched. */
+	mu_assert(fake_t1mcr & TMCR_MR0I, "the first connection event was disarmed");
+	mu_assert_int_eq(first_event, fake_t1mr0);
+}
+
+/*
+ * The controller can report an error in the same interrupt as the byte that
+ * completed a packet. That packet is kept: it is whole, it goes to the host,
+ * and the arming the end-of-packet path did for the next one stands.
+ *
+ * The error is still acknowledged, because a flag left set is taken as a fresh
+ * error the moment the DMA interrupt is enabled again.
+ */
+MU_TEST(a_packet_that_completed_survives_an_error_in_the_same_interrupt)
+{
+	le_rx_t *buf;
+	le_rx_t *queued = NULL;
+	unsigned length_byte;
+	unsigned guard;
+
+	start_fresh();
+	le_phy_active = 1;
+	rf_channel = ADV_CHANNEL_MHZ;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	buf = current_rxbuf;
+	transfer_errors_counted = 0;
+	fake_dmac_int_err_clr = 0;
+	fake_t1tc = 0x00200000;
+
+	/* The length byte is whitened on the air, so take the byte that reads
+	 * as a PDU of no bytes: five in all, with the header and the CRC. */
+	for (length_byte = 0; length_byte < 256; length_byte++)
+		if (dewhiten_length(ADV_CHANNEL_MHZ, (uint8_t)length_byte) == 0)
+			break;
+	mu_assert_fatal(length_byte < 256, "no byte reads as a length of zero");
+
+	rx_byte(0x42, fake_t1tc, 0);
+	rx_byte((uint8_t)length_byte, fake_t1tc + USEC(8), 0);
+	mu_assert_int_eq(2 + 3, buf->size);
+
+	/* The rest of the packet, with the controller reporting an error
+	 * alongside its last byte. */
+	for (guard = 0; buf->pos + 1 < buf->size && guard < sizeof(buf->data); guard++)
+		rx_byte(0x00, fake_t1tc + USEC(16), 0);
+	rx_byte(0x00, fake_t1tc + USEC(24), 1);
+
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
+	mu_assert(queue_remove(&packet_queue, (void **)&queued) == 1,
+	          "the completed packet was thrown away with the error");
+	mu_assert(queued == buf, "a different buffer reached the host");
+	mu_assert_int_eq(2 + 3, queued->pos);
+	/* The end-of-packet path took a fresh buffer and waited for the
+	 * synthesizer; the error did not undo either. */
+	mu_assert(current_rxbuf != NULL && current_rxbuf != buf,
+	          "no buffer was taken for the next packet");
+	mu_assert(fake_t1mcr & TMCR_MR2I, "receive was not armed for the next packet");
 }
 
 /*
@@ -2518,6 +2716,9 @@ int main(void)
 	MU_RUN(the_recorded_access_address_follows_the_radio);
 	MU_RUN(a_new_connection_starts_from_nothing);
 	MU_RUN(a_failed_capture_transfer_is_counted);
+	MU_RUN(a_failed_transfer_on_a_data_channel_closes_the_connection_event);
+	MU_RUN(a_failed_transfer_on_an_advertising_channel_arms_receive_again);
+	MU_RUN(a_packet_that_completed_survives_an_error_in_the_same_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);
 	MU_RUN(emptying_the_symbol_buffer_gives_up_rather_than_spinning);
