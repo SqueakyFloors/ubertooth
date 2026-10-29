@@ -89,13 +89,13 @@ A range \fBubertooth\-specan\-ui\fR will not take is refused before the window o
 .P
 A failure to start \fBubertooth\-specan\fR is reported the same way, as \fBerror: could not open an Ubertooth device\fR followed by a \fBnote:\fR naming the command, and whatever \fBubertooth\-specan\fR itself said on standard error\.
 .P
-A \fB\-V\fR with no standard output to print the answer to, which is what \fBubertooth\-specan\-ui \-V >&\-\fR leaves, is \fBerror: standard output has gone away\fR and exit 1\. ubertooth\-util(1) is not started there: with that descriptor closed, the first file it opened would take its number and the answer would be written into that\.
+A \fB\-V\fR with no standard output to print the answer to, which is what \fBubertooth\-specan\-ui \-V >&\-\fR leaves, is \fBerror: standard output has gone away\fR and exit 1\. ubertooth\-util(1) is not started there: with that descriptor closed, the first file it opened would take its number and the answer would be written into that\. A descriptor open for reading only (\fBubertooth\-specan\-ui \-V 1<&0\fR) is the same line and status, and starts no ubertooth\-util(1) either: the answer is the child's to print, and nothing but the child's own exit status would say it was refused\.
 .P
 The key help \fBh\fR shows goes to standard output, as what the user asked for\. The notes about an unknown or unsupported key are \fBnote:\fR lines on standard error\. The usage text \fB\-h\fR prints is the argument parser's, printed by the tool: standard output, exit 0\. The option itself is the tool's own, so that a range the tool will not take is reported even beside it, as it is in every other tool here\.
 .P
 A \fB\-h\fR with nowhere to print that text is \fBerror: standard output has gone away\fR and exit 1: a command that printed nothing did not do what was asked\. That covers both descriptors a shell can leave, one closed before the tool started (\fBubertooth\-specan\-ui \-h >&\-\fR) and one open for reading only (\fBubertooth\-specan\-ui \-h 1<&0\fR)\. Left to the argument parser, the first of those writes the text to standard error instead\. A \fB\-V \-h\fR that loses both halves of its answer says the line once\.
 .P
-With standard error closed, the \fBerror:\fR lines above are lost rather than moved: none of them falls back to standard output, where a reader or a script is entitled to find only what it asked for\. The exit status is then all that is left to say what happened\.
+With standard error gone, the \fBerror:\fR lines above are lost rather than moved: none of them falls back to standard output, where a reader or a script is entitled to find only what it asked for\. That covers both descriptors a shell can leave there, one closed (\fBubertooth\-specan\-ui \-l 2000 2>&\-\fR) and one open for reading only (\fBubertooth\-specan\-ui \-l 2000 2<&0\fR)\. The exit status is then all that is left to say what happened, and it is the tool's own\.
 .SH "SEE ALSO"
 ubertooth\-specan(1), ubertooth\-util(1)
 .P

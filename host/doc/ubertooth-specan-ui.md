@@ -116,7 +116,10 @@ A `-V` with no standard output to print the answer to, which is what
 `ubertooth-specan-ui -V >&-` leaves, is `error: standard output has gone away`
 and exit 1. ubertooth-util(1) is not started there: with that descriptor
 closed, the first file it opened would take its number and the answer would be
-written into that.
+written into that. A descriptor open for reading only
+(`ubertooth-specan-ui -V 1<&0`) is the same line and status, and starts no
+ubertooth-util(1) either: the answer is the child's to print, and nothing but
+the child's own exit status would say it was refused.
 
 The key help `h` shows goes to standard output, as what the user asked for.
 The notes about an unknown or unsupported key are `note: ` lines on standard
@@ -133,10 +136,12 @@ started (`ubertooth-specan-ui -h >&-`) and one open for reading only
 those writes the text to standard error instead. A `-V -h` that loses both
 halves of its answer says the line once.
 
-With standard error closed, the `error: ` lines above are lost rather than
+With standard error gone, the `error: ` lines above are lost rather than
 moved: none of them falls back to standard output, where a reader or a script
-is entitled to find only what it asked for. The exit status is then all that
-is left to say what happened.
+is entitled to find only what it asked for. That covers both descriptors a
+shell can leave there, one closed (`ubertooth-specan-ui -l 2000 2>&-`) and one
+open for reading only (`ubertooth-specan-ui -l 2000 2<&0`). The exit status is
+then all that is left to say what happened, and it is the tool's own.
 
 ## SEE ALSO
 

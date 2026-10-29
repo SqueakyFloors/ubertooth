@@ -293,11 +293,15 @@ print("ubertooth-specan-ui: -V with no standard output at all is reported,"
 OUTPUT_GONE = "error: standard output has gone away\n"
 
 
-def unwritable_stdout():
-    """Leave standard output open for reading only, which is `1<&0`."""
-    nowhere = os.open(os.devnull, os.O_RDONLY)
-    os.dup2(nowhere, 1)
-    os.close(nowhere)
+def read_only(*numbers):
+    """Leave each of these descriptors open for reading only, which is `1<&0`
+    or `2<&0`. Returns what Popen runs between fork and exec."""
+    def prepare():
+        for number in numbers:
+            nowhere = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(nowhere, number)
+            os.close(nowhere)
+    return prepare
 
 
 def ran_with(arguments, prepare, environment=None):
@@ -328,7 +332,7 @@ assert "Traceback" not in errors, errors
 # handler catches it; the line and the status are the same. The descriptor is
 # pointed at the bin, so the flush the interpreter does as it exits -- which
 # no handler can reach -- does not end the tool in status 120 instead.
-status, output, errors = ran_with(("-h",), unwritable_stdout)
+status, output, errors = ran_with(("-h",), read_only(1))
 assert status == 1, (status, output, errors)
 assert output == "", output
 assert errors == OUTPUT_GONE, errors
@@ -381,6 +385,56 @@ assert output == "" and errors == "", (output, errors)
 
 print("ubertooth-specan-ui: a standard stream the shell closed is reported,"
       " not a traceback")
+
+
+# ---- and a descriptor the shell left open for reading only ----------------
+#
+# A stream is there and every write to it fails, including the flush the
+# interpreter does as it exits, where no handler can reach it: the command
+# used to end in status 120 and a message printed nowhere.
+
+VERSION_ENVIRONMENT = dict(ENVIRONMENT, PATH=FAKE_DIRECTORY,
+                           FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                           FAKE_UTIL_ANSWER=ANSWER,
+                           FAKE_UTIL_STATUS="0")
+
+# -V on a standard output that cannot be written, which is `-V 1<&0`: the
+# answer is the child's to print, and the flush that orders this tool's lines
+# before the child's has an empty buffer, so it succeeds and used to leave the
+# loss to the child -- whose only trace of it is an exit status ubertooth-util
+# does not fail for. So the descriptor is asked here, the loss is reported,
+# and no child is started.
+if os.path.exists(VERSION_ARGS_FILE):
+    os.remove(VERSION_ARGS_FILE)
+status, output, errors = ran_with(("-V",), read_only(1),
+                                 environment=VERSION_ENVIRONMENT)
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == OUTPUT_GONE, errors
+assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
+
+# a refused range with a standard error that cannot be written, which is
+# `-l 2000 2<&0`: the line is lost as a closed stream's is, and the status is
+# the tool's own
+status, output, errors = ran_with(("-l", "2000"), read_only(2))
+assert status == 1, (status, output, errors)
+assert output == "" and errors == "", (output, errors)
+
+# and that stream going does not cost the answer: -h still prints the usage
+# text, on standard output, and exits 0
+status, output, errors = ran_with(("-h",), read_only(2))
+assert status == 0, (status, output, errors)
+assert output.startswith("usage:"), output
+assert errors == "", errors
+
+# with neither stream writable at once, which is `-h 1<&0 2<&0`, the status
+# is all that is left
+status, output, errors = ran_with(("-h",), read_only(1, 2))
+assert status == 1, (status, output, errors)
+assert output == "" and errors == "", (output, errors)
+
+print("ubertooth-specan-ui: a descriptor open for reading only costs the"
+      " command neither its status nor its answer")
 
 
 # ---- and none of that needs numpy or a Qt binding -------------------------
