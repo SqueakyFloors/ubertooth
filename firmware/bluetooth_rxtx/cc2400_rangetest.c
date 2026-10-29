@@ -208,11 +208,12 @@ static void rangetest_wait_for_fifo(void)
 		 * against a lead of 320, which would end the wait before the
 		 * radio had written byte 0.
 		 *
-		 * That correction is armed by the host, which sends a drift
-		 * figure while following Classic traffic, and nothing disarms
-		 * it when the mode ends. So the range test runs with it armed,
-		 * and a lengthened period comes round every few clkn ticks --
-		 * every tick, for a clock drifting enough.
+		 * The host arms that correction with a drift figure while
+		 * following Classic traffic, and ending a mode stops the clock
+		 * and clears the figure -- but not the match value itself,
+		 * which the timer keeps. So the period this mode starts in can
+		 * be the long one left behind by the mode before it, until the
+		 * first clock interrupt writes the usual value back.
 		 *
 		 * Dropping the step is the safe direction: the wait runs
 		 * another turn, and the poll cap still ends the loop.

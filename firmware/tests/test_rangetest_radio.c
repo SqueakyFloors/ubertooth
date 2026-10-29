@@ -96,6 +96,9 @@ struct scan {
 	int fifo_wait_guard;     /* where it drops a step longer than the lead */
 	int fifo_wait_joined;    /* a line of it joined to the next by a `\` */
 	int fifo_wait_polls;     /* RANGETEST_LEAD_POLLS as written */
+	int wait_defines;        /* how often the wait's four numbers are defined */
+	int wait_undef;          /* where one of them is undefined again */
+	int compiled_out;        /* where an `#if 0` starts */
 	int fifo_wait_adds;      /* how many statements add to the total */
 	int fifo_wait_add_ok;    /* where the one that adds the step is */
 	char fifo_wait_add[256]; /* as written */
@@ -371,6 +374,30 @@ static int scan_source(const char *path, struct scan *s)
 			if (n > 0)
 				s->fifo_wait_polls = n;
 		}
+		/*
+		 * How many times each of the wait's four numbers is defined, and
+		 * whether any of them is undefined again. Everything else here
+		 * reads the text of the first definition; the compiler reads the
+		 * last one, so `#undef RANGETEST_LEAD_100NS` and a smaller value
+		 * would leave every check satisfied and the guard with nothing
+		 * left to drop.
+		 */
+		if (strstr(line, "define RANGETEST_LEAD_100NS") != NULL ||
+		    strstr(line, "define RANGETEST_LEAD_POLLS") != NULL ||
+		    strstr(line, "define RANGETEST_LEAD_BYTES") != NULL ||
+		    strstr(line, "define RANGETEST_BYTE_100NS") != NULL)
+			s->wait_defines++;
+		if (strstr(line, "#undef") != NULL &&
+		    strstr(line, "RANGETEST_") != NULL)
+			s->wait_undef = lineno;
+		/*
+		 * And nothing in this file is compiled out. `#if 0` around the
+		 * call to the wait takes the wait away with every check on it
+		 * still passing, because those checks read the order of the
+		 * lines and not whether they are built.
+		 */
+		if (strncmp(line, "#if 0", 5) == 0)
+			s->compiled_out = lineno;
 		/*
 		 * The wait's length has to be a number of byte times, not a tick
 		 * count of its own: a plain number here is how a wait for one byte
@@ -1326,6 +1353,25 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	         "that is not running", path, s.fifo_wait_polls,
 	         s.lead_bytes * s.byte_100ns);
 	mu_assert(s.fifo_wait_polls >= 10000, msg);
+
+	/*
+	 * Everything above reads the text of the first definition of each of the
+	 * wait's numbers. The compiler reads the last one.
+	 */
+	snprintf(msg, sizeof(msg),
+	         "%s: the wait's four numbers are defined %d times between them, "
+	         "and one of them is undefined again at line %d. Each is defined "
+	         "once and stays defined: a second definition is the value the "
+	         "wait is built with, and every check here would still read the "
+	         "first", path, s.wait_defines, s.wait_undef);
+	mu_assert(s.wait_defines == 4 && s.wait_undef == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: an `#if 0` compiles part of this file out. The checks "
+	         "here read the order of the lines, not whether they are built, "
+	         "so an `#if 0` around the call to the wait takes the wait away "
+	         "with all of them passing", path, s.compiled_out);
+	mu_assert(s.compiled_out == 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: a line of rangetest_wait_for_fifo() ends in a backslash, "
