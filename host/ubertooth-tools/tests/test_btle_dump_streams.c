@@ -17,6 +17,7 @@
  * gets the packet.
  */
 #include <fcntl.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -343,6 +344,93 @@ MU_TEST(the_promiscuous_report_follows_the_tools_report_stream)
 	ubertooth_free(ut);
 }
 
+/* ---- the level printed beside a packet ---------------------------------- */
+
+/* Where the signal level sits in a PCAP file holding one low-energy packet:
+ * past the 24-byte file header and the 16-byte record header, the pseudo-
+ * header's channel byte comes first and the signal level second. */
+#define CAPTURED_LEVEL_AT (24 + 16 + 1)
+
+/* The dBm figure on a `systime=` line, or INT_MIN if there is none. */
+static int printed_level(const char* text)
+{
+	const char* at = strstr(text, "rssi=");
+	int level;
+
+	if (at == NULL || sscanf(at, "rssi=%d", &level) != 1)
+		return INT_MIN;
+	return level;
+}
+
+/* The signal level the one record of a capture file carries, or INT_MIN if
+ * the file is too short to hold one. */
+static int captured_level(const char* path)
+{
+	unsigned char bytes[CAPTURED_LEVEL_AT + 1];
+	FILE* file = fopen(path, "rb");
+	size_t n;
+
+	if (file == NULL)
+		return INT_MIN;
+	n = fread(bytes, 1, sizeof(bytes), file);
+	fclose(file);
+	if (n < sizeof(bytes))
+		return INT_MIN;
+	return (signed char) bytes[CAPTURED_LEVEL_AT];
+}
+
+/* The dump and the capture describe the same packet, so the level they report
+ * for it is the same number: the strongest reading taken while the packet's
+ * symbols were collected, converted to dBm the way the datasheet's curve
+ * says.
+ *
+ * The readings here are far apart on purpose, as a packet's are whenever the
+ * receiver is open for a while around it: the weakest reading is the quiet air
+ * between packets, and reporting that beside a packet described the silence
+ * rather than the packet. The two figures then disagreed by tens of dB, and
+ * anyone comparing a dump against a capture of the same run read it as a
+ * receiver fault.
+ */
+MU_TEST(the_dump_reports_the_level_the_capture_records)
+{
+	ubertooth_t* ut = ubertooth_init();
+	btle_options opts = { .allowed_access_address_errors = 32 };
+	usb_pkt_rx rx = advertisement_with_an_unreadable_field();
+	char dir[] = "/tmp/ubertooth-btle-level-XXXXXX";
+	char capture[sizeof(dir) + 16];
+	char out[8192] = "";
+	char err[2048] = "";
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	mu_assert_fatal(mkdtemp(dir) != NULL, "a directory to write in");
+	snprintf(capture, sizeof(capture), "%s/capture.pcap", dir);
+	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
+	                "a capture file");
+
+	/* A loud packet in a quiet window: the strongest reading saturates the
+	 * receiver, the weakest is 40 raw counts below it. */
+	rx.rssi_max = 30;
+	rx.rssi_min = -40;
+	rx.rssi_avg = -20;
+
+	fifo_push(ut->fifo, &rx, 0);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	lell_pcap_close(ut->h_pcap_le);
+	ut->h_pcap_le = NULL;
+
+	mu_assert(printed_level(out) != INT_MIN, out);
+	mu_assert_int_eq(captured_level(capture), printed_level(out));
+	/* And it is the packet's own level, not the floor of the window: the
+	 * weakest reading through the old approximation would read -94. */
+	mu_assert_int_eq(-28, printed_level(out));
+
+	unlink(capture);
+	rmdir(dir);
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -351,5 +439,6 @@ int main(void)
 	MU_RUN(a_dump_prints_the_packet_and_the_complaint_on_standard_error);
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
+	MU_RUN(the_dump_reports_the_level_the_capture_records);
 	return mu_report();
 }

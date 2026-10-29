@@ -356,6 +356,14 @@ their file while the command line is read, and it is opened only once every
 check has passed. The board is opened and its firmware is checked before that,
 so a run refused for either reason leaves no empty file behind either.
 
+The `rssi=` figure on each packet's `systime=` line is that packet's own level
+in dBm: the strongest reading taken while its symbols were collected, through
+the CC2400 datasheet's conversion. It is the same number the capture's signal
+field carries for the same packet, so a dump and a capture of one run agree.
+Earlier releases printed the weakest reading of the window instead, through a
+rougher approximation, which described the quiet air between packets rather
+than the packet and could differ from the capture by tens of dB.
+
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: either the decoded packets or

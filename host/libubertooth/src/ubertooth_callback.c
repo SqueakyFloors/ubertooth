@@ -1108,9 +1108,15 @@ void cb_btle(ubertooth_t* ut, void* args)
 		rx_ts += ut->clk100ns_period;
 	uint64_t ts_diff = rx_ts - prev_ts;
 	prev_ts = le32toh( rx->clk100ns );
+	/* The same level the capture records for this packet, `sig` above: the
+	 * strongest reading taken while the packet's symbols were collected,
+	 * through the datasheet's conversion to dBm. What a reader wants beside
+	 * a packet is how loud that packet was, and a figure here that
+	 * disagreed with the capture of the same packet would send anyone
+	 * comparing the two down a wrong path. */
 	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
 	       systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
-	       ts_diff / 10000.0, rx->rssi_min - 54);
+	       ts_diff / 10000.0, sig);
 
 	/* The bytes of the packet itself: the PDU header, the payload the
 	 * decoder found and the CRC, after the four-byte access address. Never
