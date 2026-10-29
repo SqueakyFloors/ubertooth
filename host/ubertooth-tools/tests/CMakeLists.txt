@@ -1275,3 +1275,27 @@ add_test(
 # detecting the compiler for the first project is most of it. The same limit
 # as btbb-check above, which does five configures.
 set_tests_properties(libusb-include PROPERTIES TIMEOUT 60)
+
+# FindBTBB.cmake, FindUBERTOOTH.cmake and FindBLUETOOTH.cmake must check that
+# a header directory and a library they remember are still there, because a
+# package upgrade moves them: a remembered path taken on trust reported the
+# library found and left the build to fail on the missing header. Runs each
+# real module from a one-line project against an install of its own in three
+# shapes, removing what the module remembers each time.
+# LIBBTBB_LIBRARIES is quoted for the same reason as btbb-check above: the
+# test copies that library, and two of them, or a path with a space in it,
+# would arrive as extra arguments.
+add_test(
+	NAME find-stale-paths
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_find_stale_paths.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..
+		${LIBBTBB_INCLUDE_DIR}
+		"${LIBBTBB_LIBRARIES}")
+# Fifteen configures, five of them of a project with C in it for FindBTBB's
+# function check and the rest of a project with no languages, which need no
+# compiler: 13 s here. The same limit as btbb-check and libusb-include above,
+# which leaves room for a cold CI runner where compiler detection is most of
+# the time.
+set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 60)

@@ -473,6 +473,12 @@
 
 ### Build and compatibility
 
+- A reconfigure after libbtbb, libubertooth or libbluetooth moves finds it
+  where it is now, the check libusb already had. A moved libbtbb was the worst
+  of the three: the configure failed with instructions to rebuild a libbtbb
+  that was installed and fine, because the check for the functions the tools
+  call ran against the header that had gone.
+  [#913](https://github.com/SqueakyFloors/ubertooth/issues/913)
 - A reconfigure after a Homebrew upgrade finds libusb where it is now. The
   build remembered where it found libusb, and Homebrew puts each version in a
   directory of its own, so after an upgrade the remembered one had gone: the

@@ -12,6 +12,42 @@
 # For details see the accompanying COPYING-CMAKE-SCRIPTS file.
 
 
+# A remembered answer is only as good as the files it names. A package upgrade
+# or an uninstall leaves the remembered header and library gone, and taking
+# them on trust would report libbluetooth found and leave the build to fail on
+# the missing header, so whichever of the two paths has gone is searched for
+# again.
+#
+# The header and the library are checked one at a time, because a configure
+# can remember either without the other.
+#
+# Each drops the cache entry and any ordinary variable of the same name:
+# find_path() and find_library() below skip their search while either holds a
+# path, so one left behind would be reported again.
+if (LIBBLUETOOTH_INCLUDE_DIR AND
+    NOT EXISTS "${LIBBLUETOOTH_INCLUDE_DIR}/hci.h")
+  message(STATUS "libbluetooth's header has moved since the last configure "
+    "(${LIBBLUETOOTH_INCLUDE_DIR}/hci.h is gone); searching for it again")
+  unset(LIBBLUETOOTH_INCLUDE_DIR CACHE)
+  unset(LIBBLUETOOTH_INCLUDE_DIR)
+endif()
+
+# A library entry that is not an absolute path is left alone: a user may have
+# set it to a bare link name, which nothing here can check. Where one entry of
+# a list has gone the whole list is dropped, and find_library() answers with
+# the one libbluetooth it finds.
+foreach(_libbluetooth_library IN LISTS LIBBLUETOOTH_LIBRARIES)
+  if (IS_ABSOLUTE "${_libbluetooth_library}" AND
+      NOT EXISTS "${_libbluetooth_library}")
+    message(STATUS "libbluetooth's library has moved since the last configure "
+      "(${_libbluetooth_library} is gone); searching for it again")
+    unset(LIBBLUETOOTH_LIBRARIES CACHE)
+    unset(LIBBLUETOOTH_LIBRARIES)
+    break()
+  endif()
+endforeach()
+unset(_libbluetooth_library)
+
 if (LIBBLUETOOTH_INCLUDE_DIR AND LIBBLUETOOTH_LIBRARIES)
 
   # in cache already
