@@ -55,7 +55,7 @@
 
 typedef struct {
 	int8_t   ref;                        /* the strongest reading so far */
-	uint16_t at[RSSI_POWER_SPAN + 1];    /* how many sat each dB below it */
+	uint32_t at[RSSI_POWER_SPAN + 1];    /* how many sat each dB below it */
 } rssi_power_t;
 
 /* Forget every reading. */

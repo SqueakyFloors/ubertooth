@@ -38,6 +38,7 @@
   pointing out that dBm readings have to be averaged in power.
   [#77](https://github.com/SqueakyFloors/ubertooth/issues/77)
   [upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)
+
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
   `ubertooth-specan-ui` — answer `-V` with the same lines as every other tool:
   the host tools' version, then the firmware version and build of the board
@@ -362,7 +363,11 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.54, last moved by the
+- **Reflash required:** the firmware API version is now 1.55, last moved by
+  the packet's own power and the background in every capture record, which a
+  host tool of an earlier version would read the way the fields used to mean
+  ([#77](https://github.com/SqueakyFloors/ubertooth/issues/77)), before that by
+  the
   range test reporting a packet it discarded, before that by
   promiscuous mode reporting the access address of the connection it follows,
   before that by the

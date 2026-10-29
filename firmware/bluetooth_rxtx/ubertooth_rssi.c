@@ -47,10 +47,12 @@ static const uint16_t rssi_power_down[RSSI_POWER_SPAN + 1] = {
 	 8231,  6538,  5193,  4125,  3277,
 };
 
-/* The most readings one step of the window holds before every step is halved,
- * which leaves their proportions and so the mean alone. It is well below where
- * the whole window could overflow the 32-bit sum in rssi_power_mean(). */
-#define RSSI_POWER_STEP_MAX 4096
+/* The most readings one step of the window holds before every step is halved.
+ * Halving keeps their proportions, and so the mean, to within the one reading
+ * each step can lose -- a part in 134 million, far below the dB the readings
+ * themselves are quantized to. A capture reaches it after 268 million readings
+ * on one channel without a hop, which is hours of a quiet channel. */
+#define RSSI_POWER_STEP_MAX (1u << 28)
 
 void rssi_power_reset(rssi_power_t* p)
 {
@@ -105,18 +107,20 @@ int rssi_power_measured(const rssi_power_t* p)
 
 int8_t rssi_power_mean(const rssi_power_t* p)
 {
-	uint32_t sum = 0, count = 0, mean;
+	uint64_t sum = 0, count = 0;
+	uint32_t mean;
 	unsigned d;
 
 	for (d = 0; d <= RSSI_POWER_SPAN; d++) {
-		sum += (uint32_t) p->at[d] * rssi_power_down[d];
+		sum += (uint64_t) p->at[d] * rssi_power_down[d];
 		count += p->at[d];
 	}
 	if (count == 0)
 		return INT8_MIN;
 
-	/* The mean power of the readings, relative to the strongest of them. */
-	mean = sum / count;
+	/* The mean power of the readings, relative to the strongest of them. It
+	 * cannot exceed RSSI_POWER_ONE, the weight of a reading at that level. */
+	mean = (uint32_t)(sum / count);
 
 	/* How far below the strongest reading that is. Every counted reading is
 	 * inside the window, so their mean is too, and the search ends inside the
