@@ -40,28 +40,6 @@ static int report_get_board_id(void *context)
 	return cmd_get_board_id(((ubertooth_t*)context)->devh);
 }
 
-static int report_get_firmware_info(void *context, struct ubertooth_fw_info *info)
-{
-	return cmd_get_firmware_info(((ubertooth_t*)context)->devh, info);
-}
-
-static int report_get_firmware_revision(void *context, char *revision,
-                                        size_t size)
-{
-	return cmd_get_firmware_revision(((ubertooth_t*)context)->devh, revision,
-	                                 size);
-}
-
-static int report_get_api_version(void *context, uint16_t *version)
-{
-	return ubertooth_get_api((ubertooth_t*)context, version);
-}
-
-static int report_get_compile_info(void *context, char *info, size_t size)
-{
-	return cmd_get_firmware_compile_info(((ubertooth_t*)context)->devh, info, size);
-}
-
 static int report_get_part_id(void *context, uint32_t *part_id)
 {
 	return cmd_get_part_id(((ubertooth_t*)context)->devh, part_id);
@@ -74,32 +52,47 @@ static int report_get_serial(void *context, uint8_t serial[UTIL_SERIAL_BUFFER_LE
 
 static const struct util_report_ops report_ops = {
 	report_get_board_id,
-	report_get_firmware_info,
-	report_get_firmware_revision,
-	report_get_api_version,
-	report_get_compile_info,
 	report_get_part_id,
 	report_get_serial,
 };
+
+/*
+ * The firmware version line -v prints. The reading is the library's, the one
+ * -V gives in every tool (ubertooth_firmware_version_text()), so the two
+ * cannot drift apart.
+ *
+ * Nothing is printed when nothing could be read: the library has already put
+ * the reason on standard error, and a line carrying no version would be worse
+ * than no line for a script parsing this. Returns 0, or 1 when part of it
+ * could not be read.
+ */
+static int report_firmware(ubertooth_t *ut, FILE *out)
+{
+	char text[UBERTOOTH_VERSION_TEXT_LEN];
+	int status = ubertooth_firmware_version_text(ut, text, sizeof(text));
+
+	if (text[0] == '\0')
+		return 1;
+	fprintf(out, UBERTOOTH_VERSION_LABEL_FIRMWARE ": %s\n", text);
+	return status;
+}
 
 /* Read-only identity queries that can be reported for every attached device. */
 enum identity_query {
 	QUERY_BOARD_ID,
 	QUERY_FIRMWARE,
-	QUERY_COMPILE_INFO,
 	QUERY_PART_ID,
 	QUERY_SERIAL,
 	QUERY_COUNT
 };
 
 static const struct {
-	const char *name;  /* names the query where no label does */
+	const char *name;  /* the query, for the line that reports a failed read */
 	const char *label; /* the label the single-device report prints, without
-	                    * its ": "; "" for a report that has none */
+	                    * its ": " */
 } identity_query_text[QUERY_COUNT] = {
 	{ UTIL_QUERY_BOARD_ID, "Board ID Number" },
-	{ "firmware", "Firmware version" },
-	{ "compile info", "" },
+	{ "firmware", UBERTOOTH_VERSION_LABEL_FIRMWARE },
 	{ UTIL_QUERY_PART_ID, "Part ID" },
 	{ UTIL_QUERY_SERIAL, "Serial No" },
 };
@@ -109,16 +102,10 @@ static const struct {
  * it, "Firmware version (0): ", so a line read on its own says both what it
  * is and which board it came from, and says it the same way whether one board
  * or several were read.
- *
- * The build string -V reports has no label of its own -- the image name it
- * starts with stands in for one -- so it keeps the bare "0: " prefix instead.
  */
 static void print_listing_label(const char *label, int index)
 {
-	if (label[0] != '\0')
-		fprintf(stdout, "%s (%d): ", label, index);
-	else
-		fprintf(stdout, "%d: ", index);
+	fprintf(stdout, "%s (%d): ", label, index);
 }
 
 /* Runs one identity report into buffers so its lines can be prefixed. */
@@ -145,10 +132,7 @@ static int capture_identity_report(enum identity_query query, ubertooth_t *ut,
 		status = util_report_board_id(&report_ops, ut, out, err);
 		break;
 	case QUERY_FIRMWARE:
-		status = util_report_firmware(&report_ops, ut, out);
-		break;
-	case QUERY_COMPILE_INFO:
-		status = util_report_compile_info(&report_ops, ut, out);
+		status = report_firmware(ut, out);
 		break;
 	case QUERY_PART_ID:
 		status = util_report_part_id(&report_ops, ut, out, err);
@@ -217,11 +201,8 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 				            identity_query_text[q].name)) {
 					error[strcspn(error, "\n")] = '\0';
 					fprintf(stdout, "%s\n", util_strip_error_prefix(error));
-				} else if (label_len > 0) {
-					fprintf(stdout, "read failed\n");
 				} else {
-					fprintf(stdout, "%s read failed\n",
-					        identity_query_text[q].name);
+					fprintf(stdout, "read failed\n");
 				}
 				status = 1;
 				free(text);
@@ -239,7 +220,7 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
 				 * carries the index. A line that does not start with the
 				 * label keeps the bare index prefix, so nothing is ever
 				 * labelled as something it is not. */
-				if (label_len > 0 && strncmp(line, label, label_len) == 0 &&
+				if (strncmp(line, label, label_len) == 0 &&
 				    strncmp(line + label_len, ": ", 2) == 0) {
 					print_listing_label(label, i);
 					fprintf(stdout, "%s\n", line + label_len + 2);
@@ -262,8 +243,6 @@ static int list_identity_queries(const int requested[QUERY_COUNT], int count)
  */
 _Static_assert(UTIL_ERROR_SHORT_REPLY == UBERTOOTH_ERROR_SHORT_REPLY,
                "util_report.h must match libubertooth's short-reply code");
-_Static_assert(UTIL_ERROR_NO_FW_INFO == LIBUSB_ERROR_PIPE,
-               "util_report.h must match libusb's stall code");
 
 /* "error: <what> read failed" for a failed read, unless code is a short
  * reply, whose whole line libubertooth already printed. Returns 1. */
@@ -695,16 +674,16 @@ static void usage(FILE *output)
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
 	fprintf(output, "\n");
 	fprintf(output, "Common options:\n");
-	fprintf(output, "\t-v get firmware image and revision\n");
-	fprintf(output, "\t-V get compile info\n");
-	fprintf(output, "\t-H, --host-version get host tools version and the libbtbb in use\n");
+	fprintf(output, "\t-V print version information: the host tools, and the\n");
+	fprintf(output, "\t   firmware version and build of each attached board\n");
+	fprintf(output, "\t-v get firmware image and revision (deprecated: use -V)\n");
 	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");
 	fprintf(output, "\t-d [0-1] get/set all LEDs\n");
 	fprintf(output, "\t-l [0-1] get/set USR LED\n");
 	fprintf(output, "\t-S stop current operation\n");
 	fprintf(output, "\t-r full reset\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, output);
-	fprintf(output, "\t-U all list -b/-v/-V/-p/-s for every Ubertooth (queries only)\n");
+	fprintf(output, "\t-U all list -b/-v/-p/-s for every Ubertooth (queries only)\n");
 	fprintf(output, "\t-N print the number of attached Ubertooths, then run the rest of the command\n");
 	fprintf(output, "\n");
 	fprintf(output, "Radio options:\n");
@@ -739,9 +718,9 @@ static void usage(FILE *output)
 int main(int argc, char *argv[])
 {
 	int opt;
-	int other_operations = 0;   /* an option other than -s -v -V -p -b -U -N was given */
+	int other_operations = 0;   /* an option other than -s -v -p -b -U -N was given */
 	/* An option other than -N and the -U selector was given. Where it is
-	 * read, -h and -H have already ended the command, so what is left needs
+	 * read, -h and -V have already ended the command, so what is left needs
 	 * a device. */
 	int operations_besides_count = 0;
 	int status = 0; /* 0 on success, 1 if any operation failed; never a device value */
@@ -758,10 +737,10 @@ int main(int argc, char *argv[])
 	 * silently. */
 	int do_get_leds, do_get_all_leds, do_get_channel, do_get_palevel;
 	int do_set_squelch, do_get_squelch, squelch_level;
-	int do_compile_info;
-	/* -h, and -H / --host-version: both end the command, and a command
-	 * line with both prints both (see below). */
-	int do_help, do_host_version;
+	/* -h and -V: both end the command, and a command line with both prints
+	 * both (see below). -V reads the board, so it has a result of its own
+	 * where -h cannot fail. */
+	int do_help, do_version, version_status;
 	/* -c or -C, whichever named the channel: they are the same setting
 	 * written two ways, so a command line may give only one of them. */
 	int channel_option = 0;
@@ -785,25 +764,14 @@ int main(int argc, char *argv[])
 	do_range_result= do_all_leds= do_identify= -1;
 	do_get_leds= do_get_all_leds= do_get_channel= do_get_palevel= 0;
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
-	do_compile_info= -1;
 	do_number= 0; do_xmas= 0; do_watchdog= -1;
-	do_help= 0; do_host_version= 0;
-
-	/* Host-tools version: printed before touching the device, so it works
-	 * with no Ubertooth attached. -H or --host-version. Distinct from -v
-	 * (firmware revision) and -V (firmware compile info from the device).
-	 * getopt only knows the short form, so treat the long one as -H (but
-	 * not after "--", where it is an operand and is reported as typed). */
-	for (int ai = 1; ai < argc && strcmp(argv[ai], "--") != 0; ai++) {
-		if (strcmp(argv[ai], "--host-version") == 0)
-			argv[ai] = (char *)"-H";
-	}
+	do_help= 0; do_version= 0; version_status= 0;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNxH")) != EOF) {
+	while ((opt=getopt(argc,argv,":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx")) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). Resolved
 		 * before the check below, which only counts an option that came
@@ -817,7 +785,7 @@ int main(int argc, char *argv[])
 			return 1;
 		/* Anything but an identity query, -U or -N needs a single selected
 		 * device. -N opens none: it counts boards on the USB bus. */
-		if (strchr("svVpbUN", opt) == NULL)
+		if (strchr("svpbUN", opt) == NULL)
 			other_operations = 1;
 		/* Whether anything beyond the count was asked for. -N counts the
 		 * boards on the USB bus and -U only says which board the rest of the
@@ -948,10 +916,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'V':
-			do_compile_info = 0;
-			break;
-		case 'H':
-			do_host_version = 1;
+			do_version = 1;
 			break;
 		case 'N':
 			do_number = 1;
@@ -977,18 +942,23 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h and -H (or --host-version) end the command before anything else,
-	 * but only once the whole command line has parsed: an invalid option
-	 * value or a stray word is reported even alongside them. A command
-	 * line with both prints both, and the usage text comes last so the
-	 * version is not scrolled off the screen by it; the order they were
-	 * written in does not matter. */
-	if (do_host_version)
-		print_version();
+	/* -h and -V end the command before anything else, but only once the
+	 * whole command line has parsed: an invalid option value or a stray
+	 * word is reported even alongside them. A command line with both prints
+	 * both, and the usage text comes last so the version is not scrolled
+	 * off the screen by it; the order they were written in does not matter.
+	 *
+	 * -V reads the board named with -U, or every board for "-U all", which
+	 * is what it does with no -U anyway. */
+	if (do_version)
+		version_status = ubertooth_print_versions(stdout,
+		        (ubertooth_device != NULL &&
+		         strcmp(ubertooth_device, "all") == 0) ? NULL
+		                                              : ubertooth_device);
 	if (do_help)
 		usage(stdout);
-	if (do_host_version || do_help)
-		return 0;
+	if (do_version || do_help)
+		return version_status;
 
 	/* Only one mode can run: each one ends the command. Refuse a combination
 	 * before any device is opened, instead of running whichever mode comes
@@ -1018,12 +988,10 @@ int main(int argc, char *argv[])
 
 	requested[QUERY_BOARD_ID] = (do_board_id == 0);
 	requested[QUERY_FIRMWARE] = (do_firmware == 0);
-	requested[QUERY_COMPILE_INFO] = (do_compile_info == 0);
 	requested[QUERY_PART_ID] = (do_part == 0);
 	requested[QUERY_SERIAL] = (do_serial == 0);
 	any_query = requested[QUERY_BOARD_ID] || requested[QUERY_FIRMWARE] ||
-	            requested[QUERY_COMPILE_INFO] || requested[QUERY_PART_ID] ||
-	            requested[QUERY_SERIAL];
+	            requested[QUERY_PART_ID] || requested[QUERY_SERIAL];
 
 	/* -U all lists the read-only identity queries for every attached device,
 	 * so it is refused for anything that acts on one device: setters, modes
@@ -1037,20 +1005,20 @@ int main(int argc, char *argv[])
 	if (list_all && (other_operations || !any_query)) {
 		if (other_operations)
 			fprintf(stderr, "error: -U all only supports the read-only queries "
-			        "-b, -v, -V, -p and -s; select one device with "
+			        "-b, -v, -p and -s; select one device with "
 			        "-U<index|serial> for other options\n");
 		else
 			/* Say what the listing is missing: naming the options -U all does
 			 * not support describes a command line the user did not type. */
 			fprintf(stderr, "error: -U all needs one of the read-only queries "
-			        "-b, -v, -V, -p or -s to list\n");
+			        "-b, -v, -p or -s to list\n");
 		return 1;
 	}
 
 	/* A command line that asks for nothing is a mistake, not a no-op:
 	 * without this it would open the selected device, do nothing with it and
-	 * exit 0. -N is an operation in its own right, and -h, -H and
-	 * --host-version have already ended the command above.
+	 * exit 0. -N is an operation in its own right, and -h and -V have
+	 * already ended the command above.
 	 *
 	 * -N counts the boards on the USB bus and asks nothing of any one of
 	 * them, so a -U selector beside it still selects a device that nothing
@@ -1103,7 +1071,7 @@ int main(int argc, char *argv[])
 		        list_identity_queries(requested, count));
 	}
 
-	/* Read-only identity queries (-b, -v, -V, -p, -s) with no -U and several
+	/* Read-only identity queries (-b, -v, -p, -s) with no -U and several
 	 * devices: report every device instead of refusing to pick one. Any other
 	 * operation in the same command still needs -U. */
 	if (ubertooth_device == NULL && !other_operations && any_query) {
@@ -1222,11 +1190,7 @@ int main(int argc, char *argv[])
 			fprintf(stdout, "Current frequency: %d MHz (Bluetooth channel %d)\n", mhz, mhz - BT_FREQ_MIN);
 	}
 	if(do_firmware == 0)
-		status = util_status_merge(status,
-		        util_report_firmware(&report_ops, ut, stdout));
-	if(do_compile_info == 0)
-		status = util_status_merge(status,
-		        util_report_compile_info(&report_ops, ut, stdout));
+		status = util_status_merge(status, report_firmware(ut, stdout));
 	if(do_get_leds) {
 		int led = cmd_get_usrled(ut->devh);
 		if (led < 0)

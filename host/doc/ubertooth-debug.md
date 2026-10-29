@@ -29,6 +29,9 @@ Options:
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-V` :
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -67,15 +70,21 @@ timeout. A short reply prints the single line `error: register 0x<reg> read
 failed: board returned <n> of 2 bytes`. The remaining registers are still read
 and decoded.
 
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
+
 ## ARGUMENTS
 
 `ubertooth-debug` takes options only. A word that is not an option, including a
 bare `-`, is refused before any device is opened and named:
 `error: unexpected argument '<word>'`, with exit status 1.
 
-`-h` ends the command only once the whole command line has
+`-h` and `-V` end the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
-alongside it.
+alongside them. Both answer on standard output, so a command line with both
+prints both, the usage text last; the order they were written in makes no
+difference.
 
 An option the tool does not know is refused the same way, as one line on
 standard error with no usage text after it: `error: unrecognized option '-Z'`.

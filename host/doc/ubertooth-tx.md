@@ -25,9 +25,8 @@ entry point for that work; do not rely on it to transmit.
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
  - `-V` :
-   print the host tools version, as `Host tools version: libubertooth
-   <version> (<revision>), libbtbb <version> (<revision>)`, followed by
-   `libbtbb loaded from: <path>` naming the file this run reads libbtbb from.
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -93,6 +92,10 @@ the board sends. libubertooth reports the refusal.
 1 as well when the board refuses the request that ends the transmit: it is
 left sending, and no other tool can open it until it is reset or re-plugged.
 libubertooth names the refused request on standard error.
+
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
 
 ## SEE ALSO
 

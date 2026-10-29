@@ -47,6 +47,12 @@ select an Ubertooth by enumeration index or serial number; see
 .BR ubertooth (7),
 SELECTING A DEVICE
 .IP \(bu 2
+\fB\fC\-V\fR :
+print the version: the host tools, then the firmware version and build of each
+attached board; see
+.BR ubertooth (7),
+COMMON OPTIONS
+.IP \(bu 2
 \fB\fC\-h\fR :
 print the usage text on standard output and exit 0\&. It takes effect once the
 whole command line has parsed, so a bad option value, a stray word or an
@@ -123,6 +129,11 @@ standard error, after libubertooth's own line for a USB error such as a
 timeout\. A short reply prints the single line \fB\fCerror: register 0x<reg> read
 failed: board returned <n> of 2 bytes\fR\. The remaining registers are still read
 and decoded\.
+.PP
+\fB\fC\-V\fR reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see
+.BR ubertooth (7),
+COMMON OPTIONS\&.
 
 .SH ARGUMENTS
 .PP
@@ -130,9 +141,10 @@ and decoded\.
 a bare \fB\fC\-\fR, is refused before any device is opened and named:
 \fB\fCerror: unexpected argument '<word>'\fR, with exit status 1.
 .PP
-\fB\fC\-h\fR ends the command only once the whole command line has
-parsed, so a stray word or a bad option value is reported even
-alongside it.
+\fB\fC\-h\fR and \fB\fC\-V\fR end the command only once the whole command line
+has parsed, so a stray word or a bad option value is reported even alongside
+them. Both answer on standard output, so a command line with both prints both,
+the usage text last; the order they were written in makes no difference.
 .PP
 An option the tool does not know is refused the same way, as one line on
 standard error with no usage text after it: \fB\fCerror: unrecognized option '\-Z'\fR\&.

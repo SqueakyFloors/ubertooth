@@ -31,6 +31,9 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-V` :
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -42,9 +45,11 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
 bare `-`, is refused before any device is opened and named:
 `error: unexpected argument '<word>'`, with exit status 1.
 
-`-h` ends the command only once the whole command line has
+`-h` and `-V` end the command only once the whole command line has
 parsed, so a stray word or a bad option value is reported even
-alongside it.
+alongside them. Both answer on standard output, so a command line with both
+prints both, the usage text last; the order they were written in makes no
+difference.
 
 The board demodulates one modulation at a time, so `-c` and `-l` in one
 command are refused before any device is opened:
@@ -102,6 +107,10 @@ accepted, not before, so a run refused for either reason leaves no empty file
 behind. A terminal on standard output is still refused while the command line
 is read, with or without `-d -`, because that is a problem with the command
 rather than with the board.
+
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
 
 ## SEE ALSO
 

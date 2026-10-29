@@ -294,6 +294,7 @@ static void usage(FILE *file)
 	fprintf(file, "\n");
 	fprintf(file, "Usage:\n");
 	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-V print version information\n");
 	fprintf(file, "\t-v report the board, the sweep and a summary of it "
 	        "once a second, to stderr\n");
 	fprintf(file, "\t-g write the samples as text for feedgnuplot\n");
@@ -315,6 +316,9 @@ int main(int argc, char *argv[])
 	 * the samples are incomplete. */
 	int stream_failed = 0;
 	int do_help = 0;
+	/* -V ends the command as -h does, and reads the board, so it has a
+	 * result of its own. */
+	int do_version = 0, version_status = 0;
 	opt_once once = {0};
 	/* -g or -G, whichever asked for a text format; 0 for the default one. */
 	int format_option = 0;
@@ -328,7 +332,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":vhgGd:l:u:U:")) != EOF) {
+	while ((opt=getopt(argc,argv,":vhVgGd:l:u:U:")) != EOF) {
 		/* No option may be given a value twice: see opt_check_once().
 		 * -v takes none, so its own check below refuses a second one. */
 		if (opt_check_once(&once, opt, optarg) < 0)
@@ -386,6 +390,9 @@ int main(int argc, char *argv[])
 		case 'U':
 			ubertooth_device = optarg;
 			break;
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			do_help = 1;
 			break;
@@ -400,12 +407,16 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has parsed:
-	 * a bad option value or a stray word is reported even alongside it. */
-	if (do_help) {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(stdout, ubertooth_device);
+	if (do_help)
 		usage(stdout);
-		return 0;
-	}
+	if (do_version || do_help)
+		return version_status;
 
 	if (specan_validate_frequency_range(lower, upper) < 0) {
 		fprintf(stderr,

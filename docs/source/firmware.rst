@@ -30,14 +30,19 @@ waiting: ``ubertooth-btbr`` says it could not set the Ubertooth up, naming
 first request the ``btbr`` image does not answer. Neither is refused over its
 firmware API version, because both images report this tree's.
 
-``ubertooth-util -v`` names the image a board is carrying, so it is how you
-check which one is on there now, or that a switch worked:
+``ubertooth-util -V`` names the image a board is carrying, so it is how you
+check which one is on there now, or that a switch worked. Its ``Firmware
+version:`` line is the one to read; the host line above it says which tools
+you are running, and the build line below it when that image was built:
 
 	.. code-block:: sh
 
-		$ ubertooth-util -U <serial> -v
+		$ ubertooth-util -U <serial> -V
+		Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
+		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
 		Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
-		$ ubertooth-util -U <serial> -v     # the same board, flashed with btbr
+		Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
+		$ ubertooth-util -U <serial> -V | grep '^Firmware version:'   # flashed with btbr
 		Firmware version: btbr git-26d4c11 (API:<version>)
 
 ``ubertooth-dfu`` names what is in a firmware file before it writes anything,
@@ -135,7 +140,7 @@ If your Ubertooth One has no firmware or broken firmware and doesn't show up whe
 
 	.. image:: ../images/u1_roadmap.png
 
-Wait for the distinctive LED sequence or USB ID ``1d50:6003``, then remove the bridge and immediately run ``ubertooth-dfu``. The entry pin is sampled only during reset, so removing the bridge after DFU starts does not exit the bootloader. Remove it before the final reset; otherwise the next boot returns to DFU and ``-r`` fails with ``error: detach failed: the board reset and came back in the bootloader``, with the image written and the board in DFU rather than running it. If removing the live bridge is inconvenient, finish flashing, unplug the device, remove the bridge, and reconnect it; ``ubertooth-util -v`` then reports the new firmware.
+Wait for the distinctive LED sequence or USB ID ``1d50:6003``, then remove the bridge and immediately run ``ubertooth-dfu``. The entry pin is sampled only during reset, so removing the bridge after DFU starts does not exit the bootloader. Remove it before the final reset; otherwise the next boot returns to DFU and ``-r`` fails with ``error: detach failed: the board reset and came back in the bootloader``, with the image written and the board in DFU rather than running it. If removing the live bridge is inconvenient, finish flashing, unplug the device, remove the bridge, and reconnect it; ``ubertooth-util -V`` then reports the new firmware.
 
 On Linux, verify the bootloader USB ID before flashing:
 
@@ -153,22 +158,26 @@ Then run the DFU command immediately.
 What Version Am I Running? 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In non-DFU mode, you can obtain firmware information with ``ubertooth-util -v``. Note that the version shown should match the one you just installed:
+In non-DFU mode, you can obtain firmware information with ``ubertooth-util -V``. Note that the version shown should match the one you just installed:
 
 	.. code-block:: sh
 
-		$ ubertooth-util -v
-		Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
 		$ ubertooth-util -V
-		bluetooth_rxtx: ubertooth git-ed30131d* (builder@host) Tue Aug  7 15:33:06 PDT 2018
+		Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)
+		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
+		Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
+		Firmware build: ubertooth git-ed30131d* (builder@host) Tue Aug  7 15:33:06 PDT 2018
 
-Both lines start with the image the board is running, read from its firmware
-info block; a board running firmware from before the block shows the revision
-alone. A firmware built from a git checkout reports its git revision as
-above, with a trailing ``*`` if the working tree had uncommitted changes; a
+The ``Firmware version:`` line starts with the image the board is running,
+read from its firmware info block; a board running firmware from before the
+block shows the revision alone. The ``Firmware build:`` line is the build
+string the firmware reports, which both images spell ``ubertooth``.
+
+A firmware built from a git checkout reports its git revision as above, with
+a trailing ``*`` if the working tree had uncommitted changes; a
 release build reports the release name instead. The version is
 generated into a ``version.h`` at build time and tracks the exact source it was
-built from, so ``-v`` always reflects the firmware actually running.
+built from, so ``-V`` always reflects the firmware actually running.
 
 
 

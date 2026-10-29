@@ -243,6 +243,16 @@ void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
 	fake.last_short_reply_len = len;
 }
 
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(FILE *out, const char *selector)
+{
+	(void)selector;
+	fprintf(out, "version (test)\n");
+	return 0;
+}
+
 /* ---- running the tool --------------------------------------------------- */
 
 static struct run_result run_ego(const char *const *args)

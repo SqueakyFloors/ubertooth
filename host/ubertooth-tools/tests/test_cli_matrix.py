@@ -491,7 +491,7 @@ def check(case, result, created):
                          % (expected_file, created))
 
     elif case.verdict == "report_then_help":
-        # -h beside -V or -H: both end the command and both answer on
+        # -h beside -V: both end the command and both answer on
         # standard output, so both are printed, and the usage text comes last
         # so the shorter answer is not scrolled off the screen by it.
         if status != 0:
@@ -892,7 +892,7 @@ def verdict_for_line(arguments):
     """The verdict for a command line, from the tool's own shape.
 
     Three shapes cover every tool here: one that ends the command on its own
-    (-h, -V, -H), one that needs a set of options before anything can run
+    (-h, -V), one that needs a set of options before anything can run
     (requires_all), and one that needs at least one option that is work of its
     own (work_options). Anything else the tool accepts, so the run goes on to
     look for a device.

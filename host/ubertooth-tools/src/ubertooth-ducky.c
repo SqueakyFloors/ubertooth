@@ -133,6 +133,7 @@ static void usage(FILE *file) {
 	fprintf(file, "\t-a <BD ADDR> Bluetooth address, xx:xx:xx:xx:xx:xx (default: random)\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-V print version information\n");
 	fprintf(file, "\n");
 	fprintf(file, "For more information on Uberducky, visit:\n");
 	fprintf(file, "https://github.com/mikeryan/uberducky\n");
@@ -142,8 +143,11 @@ int main(int argc, char *argv[])
 {
 	int opt;
 	opt_once once = {0};
-	/* -h ends the command once the whole command line has parsed (see below). */
+	/* -h ends the command once the whole command line has parsed (see below),
+	 * and so does -V, whose own result is version_status: it reads the board,
+	 * so it can fail where -h cannot. */
 	int first_exit_option = 0;
+	int do_version = 0, version_status = 0;
 	int do_quack, do_adv_index;
 	int addr_set, be_sarcastic;
 	/* Either a word of argv or one of the UUID constants: nothing is copied,
@@ -169,7 +173,7 @@ int main(int argc, char *argv[])
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":q::bA:a:hsU:")) != EOF) {
+	while ((opt=getopt(argc,argv,":q::bA:a:hVsU:")) != EOF) {
 		/* getopt only attaches an optional value (-q<uuid>); take a
 		 * following word that is not an option as the value too, so
 		 * "-q <uuid>" quacks that UUID rather than the default and
@@ -213,6 +217,9 @@ int main(int argc, char *argv[])
 			be_sarcastic = 1;
 			break;
 
+		case 'V':
+			do_version = 1;
+			break;
 		case 'h':
 			if (!first_exit_option)
 				first_exit_option = 'h';
@@ -228,13 +235,16 @@ int main(int argc, char *argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
-	/* -h ends the command, but only once the whole command line has
-	 * parsed: a bad option value or a stray word is reported even
-	 * alongside it. */
-	if (first_exit_option == 'h') {
+	/* -h and -V end the command, but only once the whole command line has
+	 * parsed: a bad option value or a stray word is reported even alongside
+	 * them. A command line with both prints both, and the usage text comes
+	 * last so the version is not scrolled off the screen by it. */
+	if (do_version)
+		version_status = ubertooth_print_versions(stdout, ubertooth_device);
+	if (first_exit_option == 'h')
 		usage(stdout);
-		return 0;
-	}
+	if (do_version || first_exit_option == 'h')
+		return version_status;
 
 	/* -q or -b is the work. Without either the tool used to open the
 	 * selected board, check its firmware, quack nothing and exit 0. */

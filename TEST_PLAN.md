@@ -66,9 +66,13 @@ A second Ubertooth One for the range test (2i).
 - [ ] Unplug every board and run `ubertooth-util -s`
 - [ ] Confirm: `error: no Ubertooth devices found`, exit 1
 
-### 2b. Compile info
+### 2b. The version answer
 - [ ] Run `ubertooth-util -V`
-- [ ] Confirm: returns compile info without crashing
+- [ ] Confirm: four lines -- `Host tools version:`, `libbtbb loaded from:`,
+      `Firmware version:` and `Firmware build:` -- and exit 0
+- [ ] Run `ubertooth-util -V` with no board attached
+- [ ] Confirm: the two host lines, then
+      `Firmware version: no Ubertooth attached`, and exit 0
 
 ### 2c. LED test (identify)
 - [ ] Run `ubertooth-util -I` (flash all LEDs)
@@ -339,15 +343,15 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 - [ ] Confirm: no hangs or crashes
 
 ### 3b. CRC verification mode (the PR #550 fix)
-- [ ] Run `ubertooth-btle -v1 -f` for 10 seconds
-- [ ] Confirm: fewer packets than without `-v1` (bad-CRC packets are now filtered)
+- [ ] Run `ubertooth-btle -k1 -f` for 10 seconds
+- [ ] Confirm: fewer packets than without `-k1` (bad-CRC packets are now filtered)
 - [ ] Confirm: no crash
-- [ ] Compare packet count with and without `-v1` — `-v1` should be equal or fewer
+- [ ] Compare packet count with and without `-k1` — `-k1` should be equal or fewer
 
 ### 3b-2. CRC verification on a followed connection
 *Requires: a BLE central and peripheral that connect and keep exchanging data
 (two scripted nRF52840 DKs, or a phone and any peripheral it talks to)*
-- [ ] Run `ubertooth-btle -f -v1 -c follow.pcap` and let the pair connect while
+- [ ] Run `ubertooth-btle -f -k1 -c follow.pcap` and let the pair connect while
       it listens
 - [ ] Confirm: the capture shows the CONNECT_REQ and then data-channel packets
       for as long as the connection lasts

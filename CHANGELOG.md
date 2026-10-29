@@ -114,8 +114,8 @@
 - `ubertooth-btle` refuses two major modes with `error: choose one of -f, -n
   or -p`; the line no longer addresses the reader.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- `-h` beside `-V`, `-H` or `--host-version` prints both answers, the usage
-  text last, instead of only whichever was written first.
+- `-h` beside `-V` prints both answers, the usage text last, instead of only
+  whichever was written first.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - `ubertooth-btle -i` on its own says `error: -i needs -f or -p`, the message
   its man page promises, rather than listing every major mode.
@@ -159,11 +159,10 @@
   then runs the rest of the command, instead of dropping it.
   [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
 - **Script-visible change:** every version line now says what it is. The host
-  tools version (`ubertooth-util -H`, `-V` in `ubertooth-rx`, `-tx` and `-afh`)
-  reads `Host tools version: libubertooth ...`, and the multi-board listing
-  keeps each report's label with the board's index in it
-  (`Firmware version (0): ...`) instead of a bare `0: ...`. A board that cannot
-  be read says why where its value would be
+  tools version (`-V`) reads `Host tools version: libubertooth ...`, and the
+  multi-board listing keeps each report's label with the board's index in it
+  (`Firmware version (0): ...`) instead of a bare `0: ...`. A board that
+  cannot be read says why where its value would be
   (`Firmware version (1): unavailable, in use by another program`).
   [#610](https://github.com/SqueakyFloors/ubertooth/issues/610)
 - `ubertooth-btle` and `ubertooth-ego` list their `-j`/`-J` jam aliases in `-h`.
@@ -271,8 +270,6 @@
   names `python3-pyqt5` (Ubuntu has no `python3-pyside6` before 24.10).
   [#152](https://github.com/SqueakyFloors/ubertooth/issues/152)
   [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
-- `ubertooth-util -H`/`--host-version` reports the installed host-tools
-  version without a device.
 - `ubertooth-util -w` reports whether the board last came up from a watchdog
   reset, how many it has done since power-on, and which mode and which wait it
   was in when it stopped answering.
@@ -370,13 +367,12 @@
   one `warning: ` or `error: ` line on standard error, as the other tools do,
   instead of a `HH:MM:SS | WARNING | ...` log line.
   [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
-- The host tools version (`ubertooth-util -H`, and `-V` in `ubertooth-rx`,
-  `ubertooth-tx` and `ubertooth-afh`) says which libbtbb the run loaded, on a
-  second line: `libbtbb loaded from: /usr/local/lib/libbtbb.so.1`. A machine
+- The host tools version (`-V`) says which libbtbb the run loaded, on a second
+  line: `libbtbb loaded from: /usr/local/lib/libbtbb.so.1`. A machine
   with a distribution or Homebrew libbtbb beside this fork's reports two
   versions that may be the same number, and the path is what tells them apart.
-  `install.sh` ends by printing the same two lines, and warns if the tools it
-  installed load a libbtbb from somewhere else.
+  `install.sh` ends by printing the host lines the tools it installed report,
+  and warns if they load a libbtbb from somewhere else.
   [#337](https://github.com/SqueakyFloors/ubertooth/issues/337)
 - **Script-visible change:** `ubertooth-btbr` prints the packets a command
   decodes, and the inquiry responses with their EIR, on standard output, one
@@ -397,6 +393,41 @@
   `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
   from the interpreter.
   [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
+- `-V` is the version command in every tool, and prints the same labelled
+  lines whichever tool you ask: the two host lines above, then
+  `Firmware version: ...` and `Firmware build: ...` for the board `-U` names,
+  or for each attached board, indexed as the other per-board lines are. With
+  no Ubertooth attached it prints the host lines and `Firmware version: no
+  Ubertooth attached` and still exits 0, so it answers "which tools am I
+  running?" on its own; a board that is attached but cannot be read says why
+  on its line and the command exits 1. It was only in `ubertooth-rx`,
+  `ubertooth-afh` and `ubertooth-tx`, where it printed the host line alone.
+  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
+- **Script-visible change:** `ubertooth-util -V` now prints that same
+  three-line answer. It used to print the firmware build string alone, which
+  is the third line of it now, and `-U all -V` no longer lists that string per
+  board: `-V` reports every attached board itself. The build string is no
+  longer prefixed with the image name it came from (`bluetooth_rxtx: ubertooth
+  git-...`): the line above it names the image, and the `Firmware build: `
+  label names the line. `-V` also ends the command, as `-h` does, so
+  `ubertooth-util -V -r` prints the version and does not reset the board; it
+  used to be a query that ran alongside the rest of the command line.
+  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
+- **Script-visible change:** `ubertooth-util -H` and `--host-version` are
+  removed. `-V` prints the host lines, with no board needed, so nothing is
+  lost; they were added in this fork and have never been in a release.
+  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
+- `ubertooth-util -v` is deprecated in favour of `-V`. It keeps printing the
+  `Firmware version:` line alone, unchanged and with no warning, so scripts
+  that parse it are undisturbed.
+  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
+- **Script-visible change:** `ubertooth-btle`'s CRC verify setting moves from
+  `-v` to `-k`: `-k` reads it, `-k0` and `-k1` set it. `-v`, `-v0` and `-v1`
+  keep working for this release and print `warning: -v for the CRC verify
+  setting is deprecated and will be removed; use -k`; after it, `-v` means
+  verbose there as in every other tool. Giving both spellings in one command
+  is refused.
+  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 
 ### Build and compatibility
 
@@ -1222,7 +1253,7 @@
   upper address part (UAP) of 2, an access address of 1 to 8, and a Bluetooth
   address as `xx:xx:xx:xx:xx:xx`. Values that used to be read as 0 or
   truncated, such as `ubertooth-rx -c abc` or `-l zz3344`, are refused before
-  the device is opened. `ubertooth-btle -v` and `ubertooth-ducky -q` also take
+  the device is opened. `ubertooth-btle -k` and `ubertooth-ducky -q` also take
   their value as the next word.
   [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
 - Firmware no longer stops answering USB control

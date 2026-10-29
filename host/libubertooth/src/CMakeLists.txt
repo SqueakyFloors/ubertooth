@@ -29,6 +29,7 @@ set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_control.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_fifo.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_le_frag.c
+              ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_version.c
 			  CACHE INTERNAL "List of C sources")
 set(c_headers ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.h
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_callback.h

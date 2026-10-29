@@ -134,7 +134,7 @@ does which step.
 ### Device administration & firmware
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-v`/`-V`/`-H`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
 | [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
 
 ### Special-purpose
@@ -143,6 +143,35 @@ does which step.
 | [ubertooth-ducky](host/doc/ubertooth-ducky.md) | Drive an Uberducky BLE HID-injection gadget | Uberducky hardware |
 | [ubertooth-ego](host/doc/ubertooth-ego.md) | Sniff a Yuneec E-GO skateboard (niche) | Yuneec E-GO |
 | [ubertooth-tx](host/doc/ubertooth-tx.md) | Retransmit dumped symbols — **currently non-functional** | — |
+
+### Options every tool has
+
+`-h` prints a tool's usage text. `-V` prints the version, in the same words
+whichever tool you ask: the host tools' version and the libbtbb this run
+loaded, then the firmware version and build of the board `-U` names, or of
+each attached board. Both are in every tool written in C; the three written in
+Python — `ubertooth-btbr`, `btle-extcap.py` and `ubertooth-specan-ui` — have
+`-h` and no `-V`. `-v` is not in every tool: see below.
+
+```sh
+$ ubertooth-util -V
+Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
+libbtbb loaded from: /usr/local/lib/libbtbb.so.1
+Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
+Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
+```
+
+With no board attached it prints the host lines and `Firmware version: no
+Ubertooth attached`, and still exits 0, so it answers "which tools am I
+running?" on its own. Reading the version does not stop a mode the board is
+running, and works on whatever firmware the board is carrying.
+
+`-v` means verbose where a tool has verbose output (`ubertooth-specan -v`,
+`ubertooth-debug -v <0-2>`). Two older spellings are kept for existing
+scripts: `ubertooth-util -v` prints the firmware version line alone
+(deprecated: use `-V`), and `ubertooth-btle -v` is the older spelling of `-k`,
+its CRC verify setting, which warns and will be removed. See the
+[Ubertooth overview man page](host/doc/ubertooth.md), COMMON OPTIONS.
 
 ### Which firmware a tool needs
 
@@ -163,12 +192,15 @@ waiting: `ubertooth-btbr` says it could not set the Ubertooth up, naming
 request the `btbr` image does not answer. Neither is refused over its firmware
 API version, because both images report this tree's.
 
-To see which image a board is carrying, ask it — `-v` names the image as well
+To see which image a board is carrying, ask it — `-V` names the image as well
 as the revision, and answers whichever image is running:
 
 ```sh
-$ ubertooth-util -U <serial> -v
+$ ubertooth-util -U <serial> -V
+Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
+libbtbb loaded from: /usr/local/lib/libbtbb.so.1
 Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
+Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
 ```
 
 `ubertooth-dfu` names what is in a firmware file before it writes anything

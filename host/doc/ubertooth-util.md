@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
 
-    ubertooth-util [-v] [-V] [-H] [--host-version] [-I] [-d [0-1]] [-l [0-1]]
+    ubertooth-util [-V] [-v] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
     [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n [seconds]] [-i] [-b]
     [-p] [-s]
@@ -11,10 +11,10 @@
 ## DESCRIPTION
 
 ubertooth-util(1) is a catch-all tool for doing generally useful things
-with, to, and about Ubertooth. To get firmware revision and compile
-information, run:
+with, to, and about Ubertooth. To get the host tools' version and the
+firmware version and build of each attached board, run:
 
-    ubertooth-util -vV
+    ubertooth-util -V
 
 To fully reset Ubertooth, run:
 
@@ -75,21 +75,25 @@ other options are not gated on the API version, and ubertooth-dfu(1) reflashes
 a board whatever firmware it is running, so a board is always recoverable with
 an image from this tree.
 
-`-v` and `-V` read the firmware info block described below, so they name the
-image the board is running:
+`-V` is the version command, and gives the same answer in every tool built
+from C here (ubertooth(7), COMMON OPTIONS, says which those are). Its firmware lines, and `-v`, read the firmware info block described
+below, so they name the image the board is running:
 
+    $ ubertooth-util -V
+    Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)
+    libbtbb loaded from: /usr/local/lib/libbtbb.so.1
+    Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
+    Firmware build: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
     $ ubertooth-util -v
     Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
-    $ ubertooth-util -V
-    bluetooth_rxtx: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
 
 Every image built from this tree carries that block at a fixed offset, which
 is also where ubertooth-dfu(1) reads it out of a firmware file, so a board and
 the file it was flashed from are named in the same terms. Firmware built before
 the block existed has none to read, and both options then report what it does
 answer: the revision alone, with no image name in front of it. Identifying an
-unknown board is what these two options are for, so neither needs firmware
-from this tree.
+unknown board is what these options are for, so neither needs firmware from
+this tree.
 
     $ ubertooth-util -v        # a board running 2020-12-R1
     Firmware version: 2020-12-R1 (API:1.07)
@@ -131,20 +135,17 @@ ENTERING BOOTLOADER).
 
 Common options:
 
- - `-v` :
-   get the image and revision the firmware was built from; exits non-zero if
-   the read fails
  - `-V` :
-   get compile info, named with the image it came from; exits non-zero if the
-   read fails
- - `-H`, `--host-version` :
-   get host tools (libubertooth and libbtbb) version, as
-   `Host tools version: libubertooth <version> (<revision>), libbtbb <version>
-   (<revision>)`, followed by `libbtbb loaded from: <path>` naming the file
-   this run reads libbtbb from, which answers "which libbtbb am I running?" on
-   a machine that has more than one. It is the tool's own path when libbtbb was
-   linked into it, and `unknown` if the loader cannot say; works without a
-   device
+   print the version and end the command: the host tools, then the firmware
+   version and build of the board `-U` names, or of each attached board. The
+   same answer the other C tools give, including with no board attached; see
+   ubertooth(7), COMMON OPTIONS
+ - `-v` :
+   get the image and revision the firmware was built from, as the
+   `Firmware version:` line alone; exits non-zero if the read fails.
+   **Deprecated**: use `-V`, which prints that line among the others. `-v`
+   keeps working, and prints no warning, so scripts that parse it are left
+   alone
  - `-I` :
    identify ubertooth device by flashing the USR, RX, and TX LEDs on the board;
    the command returns at once and the blink runs until `-S` or any mode option
@@ -180,10 +181,11 @@ Common options:
    select which Ubertooth to use, either by USB enumeration index or by its
    serial number string. See SELECTING A DEVICE.
  - `-U all` :
-   report the read-only queries `-b`, `-v`, `-V`, `-p` and `-s` for every
+   report the read-only queries `-b`, `-v`, `-p` and `-s` for every
    attached Ubertooth; refused with any other option, `-N` excepted, and
    refused with no query to list, `-N` included: a count is not something the
-   listing can show. See SELECTING A DEVICE.
+   listing can show. `-h` and `-V` end the command before any of that, as
+   they do before every other option. See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from
@@ -201,8 +203,8 @@ Common options:
    command line refused
    before anything runs (two modes, `-z` with a mode, `-U all` with an option
    it does not support, a bad option value, an unknown option or a stray word)
-   prints no count, and `-h`, `-H` and `--host-version` end the command before
-   it, as they do before every other option.
+   prints no count, and `-h` and `-V` end the command before it, as they do
+   before every other option.
 
 Radio options:
 
@@ -443,8 +445,7 @@ match a serial: `-U 05` asks for index 5, not for the board whose serial starts
 (`-U 05f`), or by its full serial.
 
 With several Ubertooths attached and no `-U`, the read-only identity queries
-`-s` (serial), `-v` (firmware image and revision), `-V` (compile info), `-p`
-(part ID) and
+`-s` (serial), `-v` (firmware image and revision), `-p` (part ID) and
 `-b` (board ID) report every device, in enumeration order, instead of refusing
 to pick one. Each line is the label the single-device report prints, with the
 device's index in it, so a line read on its own says both what it is and which
@@ -457,9 +458,11 @@ board it came from:
     Firmware version (0): bluetooth_rxtx git-747484c (API:<version>)
     Firmware version (1): bluetooth_rxtx git-747484c (API:<version>)
 
-The build string `-V` reports has no label of its own -- it starts with the
-image name -- so it keeps a bare `<index>: ` prefix instead. Several queries
-together (for example `-vVspb`) print the same lines, grouped by device.
+Several queries together (for example `-vspb`) print the same lines, grouped
+by device. `-V` is not one of them: it is the version command, and reports
+every attached board itself, indexed the same way where there is more than
+one. With a single board it prints the unindexed form, which the listing here
+does not.
 
 A device that cannot be opened is shown as `unavailable, ` and the reason, for
 example `Firmware version (1): unavailable, in use by another program`, with a
@@ -467,9 +470,7 @@ line per query asked for and libubertooth's own `error: ` line on standard
 error. A failed read is shown as `read failed`
 (`Firmware version (0): read failed`), and a query that reports an error as
 that error without its `error: ` prefix (`Board ID Number (0): unknown board
-ID 7`). `-V`, having no label to name it, says which read failed in the line
-instead (`1: compile info read failed`, `1: unavailable, in use by another
-program`). The other devices are still reported, and the command exits
+ID 7`). The other devices are still reported, and the command exits
 non-zero if any device failed. A firmware version whose API version cannot be
 read is shown without it and also makes the command fail. Listing does not
 stop a mode a device is running. Any other option in the same command still
@@ -482,16 +483,16 @@ found` when none is attached:
     $ ubertooth-util -U all -s
     Serial No (0): 1cc001038088cb956c43ad61c52000f5
 
-`-U all` only applies to the read-only queries `-b`, `-v`, `-V`, `-p` and `-s`.
+`-U all` only applies to the read-only queries `-b`, `-v`, `-p` and `-s`.
 Combined with any other option (a setter, a mode such as `-x` or `-q`, `-r`,
 `-S`, or another read such as `-c`) it is refused before any device is opened:
 
-    error: -U all only supports the read-only queries -b, -v, -V, -p and -s; select one device with -U<index|serial> for other options
+    error: -U all only supports the read-only queries -b, -v, -p and -s; select one device with -U<index|serial> for other options
 
 Given with no query at all there is nothing to list, and the refusal says so:
 
     $ ubertooth-util -U all
-    error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list
+    error: -U all needs one of the read-only queries -b, -v, -p or -s to list
 
 `-N` is the one option that is not refused: it asks about the USB bus rather
 than about a device, so it prints the count and the listing follows it, from
@@ -502,12 +503,15 @@ the same enumeration:
     Serial No (0): 1cc001038088cb956c43ad61c52000f5
     Serial No (1): 05f00014e380df95f4436562c32000f5
 
+`-h` and `-V` are not refused either, because they end the command before the
+listing is reached; `-V` then reports every attached board itself.
+
 `-U all -N` with no query has nothing to list, so it is refused like `-U all`
 on its own: the count is not a per-device query, and a listing is what `-U all`
 asks for.
 
     $ ubertooth-util -U all -N
-    error: -U all needs one of the read-only queries -b, -v, -V, -p or -s to list
+    error: -U all needs one of the read-only queries -b, -v, -p or -s to list
 
 A selector that names one board is refused for the same reason, in the words
 `-U` on its own gets: `-N` asks nothing of the board it selects.
@@ -772,11 +776,11 @@ exiting 0:
     error: nothing to do: -U '0' selects a device but no option asks anything of it
 
 `-U` only says which board the rest of the command line acts on, so it is not
-an operation of its own; `-N`, `-h`, `-H` and `--host-version` are, and each
-works on its own. The usage text follows the `error: ` line on standard error,
-and the exit status is 1.
+an operation of its own; `-N`, `-h` and `-V` are, and each works on its own.
+The usage text follows the `error: ` line on standard error, and the exit
+status is 1.
 
-`-h` and `-H` both end the command and both answer on standard output, so a
+`-h` and `-V` both end the command and both answer on standard output, so a
 command line with both prints both, the version first and the usage text
 last; the order they were written in makes no difference. The first one used
 to win and the other was dropped.
@@ -824,6 +828,10 @@ a value; the other requested queries are still reported. A failed `-b`, `-c`,
 libubertooth. When the board returns fewer bytes than the read needs, that is
 the only line, with the counts added, for example
 `error: channel read failed: board returned 0 of 2 bytes`.
+
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
 
 ## DIAGNOSTICS
 

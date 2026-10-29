@@ -87,7 +87,6 @@ static struct {
 	int board_fail_index;  /* the board ID read fails on this device */
 	int board_fail_rc;     /* ...with this code (0: -1) */
 	int revision_fail_index;     /* the firmware revision read fails here */
-	int compile_info_fail_index; /* the compile info read fails here */
 	int indexed_starts, closes, frees;
 	/* -r: the handle opened before the reset (the first select) */
 	int first_closes, first_frees, first_stops; /* STOP sent to that handle */
@@ -151,7 +150,6 @@ static void reset_fake(void)
 	fake.unavailable_index = -1;
 	fake.board_fail_index = -1;
 	fake.revision_fail_index = -1;
-	fake.compile_info_fail_index = -1;
 	fake.now_ms = 1000;
 	fake.leaves_at_ms = 1050;  /* soon after the reset... */
 	fake.returns_at_ms = 1600; /* ...and back after about half a second */
@@ -182,6 +180,19 @@ static int fake_reset_device_absent(void)
 {
 	return fake_board_was_reset() &&
 	       fake.now_ms >= fake.leaves_at_ms && fake.now_ms < fake.returns_at_ms;
+}
+
+void ubertooth_note_dfu_bootloader(void)
+{
+	/* The library's note for a bus with no Ubertooth on it but a board in the
+	 * bootloader; this test scripts no bootloader board. */
+}
+
+int ubertooth_devices_hidden(void)
+{
+	/* The switch the project's tests set is not what this test scripts:
+	 * fake.device_count below says how many boards are attached. */
+	return 0;
 }
 
 int ubertooth_count(void)
@@ -355,7 +366,9 @@ int ubertooth_report_api_mismatch(uint16_t version, const char *selector)
 }
 #endif
 
-void print_version(void) { printf("libubertooth fake\n"); }
+/* The host line of the version answer: faked, so the cases pin the shape of
+ * the answer rather than the versions this build was configured with. */
+void ubertooth_print_host_version(FILE *out) { fprintf(out, "libubertooth fake\n"); }
 
 int cmd_get_board_id(struct libusb_device_handle *h)
 {
@@ -483,7 +496,7 @@ int cmd_get_firmware_compile_info(struct libusb_device_handle *h, char *info,
                                   size_t size)
 {
 	return fake_text_read(h, info, size, fake.compile_info,
-	                      fake.compile_info_rc, fake.compile_info_fail_index);
+	                      fake.compile_info_rc, -1);
 }
 
 /*
@@ -695,7 +708,12 @@ static struct run_result run_util(const char *const *args)
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
 #define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.53)\n"
-#define COMPILE_LINE "bluetooth_rxtx: compile-test\n"
+#define BUILD_LINE "Firmware build: compile-test\n"
+/* The host line is faked above, so it is this. */
+#define HOST_LINE "libubertooth fake\n"
+/* The whole -V answer for the scripted board, which is libubertooth's and the
+ * same in every tool (test_version_report.c has its own cases). */
+#define VERSION_ANSWER HOST_LINE FIRMWARE_LINE BUILD_LINE
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
 #define PART_LINE "Part ID: 25011723\n"
@@ -705,11 +723,9 @@ static struct run_result run_util(const char *const *args)
 #define SERIAL_LINE "Serial No: " FAKE_SERIAL "\n"
 
 /* The same lines as the multi-device listing prints them: the report's own
- * label with the board's index in it. i is the index, as a string. -V's build
- * string has no label, so it keeps the bare index prefix. */
+ * label with the board's index in it. i is the index, as a string. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
 #define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.53)\n"
-#define LISTED_COMPILE(i)  i ": bluetooth_rxtx: compile-test\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
@@ -802,18 +818,18 @@ MU_TEST(composed_queries_print_in_the_documented_order_and_exit_zero)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-b", "-c", "-v", "-V", "-l", "-a", "-p", "-s");
+	r = RUN("-b", "-c", "-v", "-l", "-a", "-p", "-s");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 BOARD_LINE CHANNEL_LINE FIRMWARE_LINE COMPILE_LINE
+	                 BOARD_LINE CHANNEL_LINE FIRMWARE_LINE
 	                 USRLED_LINE PALEVEL_LINE PART_LINE SERIAL_LINE) == 0,
 	          "composed output order");
 
 	/* The identity readback used by the hardware checks. */
-	r = RUN("-vVspb");
+	r = RUN("-vspb");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 BOARD_LINE FIRMWARE_LINE COMPILE_LINE PART_LINE SERIAL_LINE) == 0,
+	                 BOARD_LINE FIRMWARE_LINE PART_LINE SERIAL_LINE) == 0,
 	          "identity readback order");
 }
 
@@ -831,7 +847,7 @@ MU_TEST(an_earlier_failure_is_not_masked_by_later_successes)
 
 	reset_fake();
 	fake.board_id = 255; /* the first report fails */
-	r = RUN("-b", "-v", "-V", "-p", "-s");
+	r = RUN("-b", "-v", "-p", "-s");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.out, FIRMWARE_LINE) != NULL, "firmware still reported");
 	mu_assert(strstr(r.out, SERIAL_LINE) != NULL, "serial still reported");
@@ -852,8 +868,7 @@ MU_TEST(part_id_with_bit_31_set_is_reported_in_full)
 /*
  * Firmware built before the info block stalls the request for it, and this is
  * the one tool that has to name a board whatever it is running. -v then
- * prints the revision alone, the line it always printed, and -V the build
- * string with no image name in front of it.
+ * prints the revision alone, the line it always printed.
  */
 MU_TEST(a_board_without_an_info_block_is_still_identified)
 {
@@ -861,10 +876,10 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 
 	reset_fake();
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
-	r = RUN("-v", "-V");
+	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.53)\n"
-	                        "compile-test\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.53)\n") == 0,
+	          r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	/* With nothing to fall back on it is still a failure, with no line. */
@@ -912,18 +927,14 @@ MU_TEST(each_failing_report_makes_the_command_fail)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, PART_LINE) == 0, "part ID still reported");
 
-	reset_fake();
-	fake.compile_info_rc = LIBUSB_ERROR_PIPE;
-	r = RUN("-V");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(0, (long)strlen(r.out));
-
+	/* -V is the version answer, so a build string it could not read is a
+	 * line of its own saying so, and the command fails. */
 	reset_fake();
 	fake.compile_info_rc = LIBUSB_ERROR_IO;
-	r = RUN("-v", "-V", "-s");
+	r = RUN("-V");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, FIRMWARE_LINE SERIAL_LINE) == 0,
-	          "other reports still printed around a failed compile info");
+	mu_assert(strcmp(r.out, HOST_LINE FIRMWARE_LINE
+	                 "Firmware build: read failed\n") == 0, r.out);
 
 	reset_fake();
 	fake.palevel = -1;
@@ -1958,20 +1969,16 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	r = RUN("-N", "oops");
 	assert_refused_untouched(r, "error: unexpected argument 'oops'\n");
 
-	/* -h, -H and --host-version are checked too, not exempted by returning
-	 * early */
+	/* -h and -V are checked too, not exempted by returning early */
 	reset_fake();
-	r = RUN("-H", "stray");
-	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
-	reset_fake();
-	r = RUN("--host-version", "stray");
+	r = RUN("-V", "stray");
 	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
 	reset_fake();
 	r = RUN("-h", "stray");
 	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
 	mu_assert(strstr(r.out, "command line utility") == NULL, "no usage printed");
 
-	/* -h still wins over other options, and -H still needs no device */
+	/* -h still wins over other options, and -V ends the command too */
 	reset_fake();
 	r = RUN("-x", "-h");
 	mu_assert_int_eq(0, r.rc);
@@ -1979,43 +1986,33 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert_int_eq(0, fake.start_calls);
 	mu_assert_int_eq(0, fake.xmas_calls);
 	reset_fake();
-	r = RUN("-b", "--host-version");
+	r = RUN("-b", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "version only");
-	mu_assert_int_eq(0, fake.start_calls);
+	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, "the version answer only");
+	mu_assert(strstr(r.out, BOARD_LINE) == NULL, "and nothing -b asked for");
 
-	/* -h beside -H prints both, the version first and the usage text last,
+	/* -h beside -V prints both, the version first and the usage text last,
 	 * whichever order they were written in. The first one used to win and
 	 * the other was dropped. */
 	reset_fake();
-	r = RUN("-H", "-h");
+	r = RUN("-V", "-h");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strncmp(r.out, "libubertooth fake\n",
-	                  strlen("libubertooth fake\n")) == 0,
-	          "-H -h: the version first");
+	mu_assert(strncmp(r.out, VERSION_ANSWER, strlen(VERSION_ANSWER)) == 0,
+	          "-V -h: the version first");
 	mu_assert(strstr(r.out, "command line utility") != NULL,
-	          "-H -h: the usage text after it");
+	          "-V -h: the usage text after it");
 	reset_fake();
-	r = RUN("-h", "-H");
+	r = RUN("-h", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strncmp(r.out, "libubertooth fake\n",
-	                  strlen("libubertooth fake\n")) == 0,
-	          "-h -H: the version first here too");
+	mu_assert(strncmp(r.out, VERSION_ANSWER, strlen(VERSION_ANSWER)) == 0,
+	          "-h -V: the version first here too");
 	mu_assert(strstr(r.out, "command line utility") != NULL,
-	          "-h -H: the usage text after it");
-	reset_fake();
-	r = RUN("-h", "--host-version");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strncmp(r.out, "libubertooth fake\n",
-	                  strlen("libubertooth fake\n")) == 0,
-	          "--host-version is -H: the version first");
-	mu_assert(strstr(r.out, "command line utility") != NULL,
-	          "and the usage text after it");
+	          "-h -V: the usage text after it");
 
-	/* after "--", --host-version is an operand, reported as typed */
+	/* after "--", a long option is an operand, reported as typed */
 	reset_fake();
-	r = RUN("--", "--host-version");
-	assert_refused_untouched(r, "error: unexpected argument '--host-version'\n");
+	r = RUN("--", "--version");
+	assert_refused_untouched(r, "error: unexpected argument '--version'\n");
 
 	/* -U takes its value as the next word; that is not a stray argument */
 	reset_fake();
@@ -2393,13 +2390,11 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "ubertooth-util - command line utility") != NULL, "usage on stdout");
 
-	r = RUN("-H");
+	r = RUN("-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, "version");
+	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, "the version answer");
 
-	r = RUN("--host-version");
-	mu_assert_int_eq(0, r.rc);
-
+	reset_fake();
 	fake.device_count = 3;
 	r = RUN("-N");
 	mu_assert_int_eq(0, r.rc);
@@ -2414,7 +2409,7 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert(strcmp(r.out, "3\n") == 0, "device count, once");
 	mu_assert_int_eq(0, fake.start_calls);
 
-	/* -h, -H and --host-version end the command before the count */
+	/* -h and -V end the command before the count */
 	reset_fake();
 	fake.device_count = 3;
 	r = RUN("-N", "-h");
@@ -2423,19 +2418,13 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert(strstr(r.out, "3\n") == NULL, "no count");
 	mu_assert_int_eq(0, fake.count_calls);
 
+	/* -V counts the boards itself, to report each one, so it prints its own
+	 * answer and no count line. */
 	reset_fake();
-	fake.device_count = 3;
-	r = RUN("-N", "-H");
+	fake.device_count = 1;
+	r = RUN("-N", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
-	mu_assert_int_eq(0, fake.count_calls);
-
-	reset_fake();
-	fake.device_count = 3;
-	r = RUN("-N", "--host-version");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
-	mu_assert_int_eq(0, fake.count_calls);
+	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, r.out);
 }
 
 /* ---- -N combines with the rest of the command line -------------------- */
@@ -2753,7 +2742,7 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	mu_assert_int_eq(1, fake.start_calls);
 	mu_assert(strcmp(fake.selector, "0") == 0, fake.selector);
 
-	/* so are -h, -H and --host-version, alongside a selector or not */
+	/* so are -h and -V, alongside a selector or not */
 	reset_fake();
 	r = RUN("-U", "0", "-h");
 	mu_assert_int_eq(0, r.rc);
@@ -2762,14 +2751,9 @@ MU_TEST(a_command_line_with_nothing_to_do_is_refused)
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
 	reset_fake();
-	r = RUN("-U", "0", "-H");
+	r = RUN("-U", "0", "-V");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
-
-	reset_fake();
-	r = RUN("-U", "0", "--host-version");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "libubertooth fake\n") == 0, r.out);
+	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, r.out);
 
 	/* -U all with nothing to list keeps its own, more specific refusal */
 	reset_fake();
@@ -2812,7 +2796,6 @@ MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 	struct { const char *option; const char *expected; } cases[] = {
 		{ "-b", LISTED_BOARD("0") LISTED_BOARD("1") },
 		{ "-v", LISTED_FIRMWARE("0") LISTED_FIRMWARE("1") },
-		{ "-V", LISTED_COMPILE("0") LISTED_COMPILE("1") },
 		{ "-p", LISTED_PART("0") LISTED_PART("1") },
 		{ "-s", LISTED_SERIAL("0") LISTED_SERIAL("1") },
 	};
@@ -2840,12 +2823,12 @@ MU_TEST(combined_identity_queries_list_every_line_for_every_device)
 
 	reset_fake();
 	fake.device_count = 2;
-	r = RUN("-vVspb");
+	r = RUN("-vspb");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 LISTED_BOARD("0") LISTED_FIRMWARE("0") LISTED_COMPILE("0")
+	                 LISTED_BOARD("0") LISTED_FIRMWARE("0")
 	                 LISTED_PART("0") LISTED_SERIAL("0")
-	                 LISTED_BOARD("1") LISTED_FIRMWARE("1") LISTED_COMPILE("1")
+	                 LISTED_BOARD("1") LISTED_FIRMWARE("1")
 	                 LISTED_PART("1") LISTED_SERIAL("1")) == 0,
 	          "per-device report lines in report order");
 }
@@ -2914,18 +2897,6 @@ MU_TEST(the_firmware_version_is_labelled_whether_one_board_or_several)
 	                 "Firmware version (0): unavailable, in use by another program\n"
 	                 "Serial No (0): unavailable, in use by another program\n"
 	                 LISTED_FIRMWARE("1") LISTED_SERIAL("1")) == 0, r.out);
-
-	/* -V's build string has no label of its own, so it keeps the index
-	 * prefix, there and in the unavailable line. */
-	reset_fake();
-	fake.device_count = 2;
-	fake.unavailable_index = 1;
-	fake.open_failure_reason = "in use by another program";
-	r = RUN("-V");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out,
-	                 LISTED_COMPILE("0")
-	                 "1: unavailable, in use by another program\n") == 0, r.out);
 }
 
 MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
@@ -3016,25 +2987,13 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 
 	reset_fake();
 	fake.device_count = 2;
-	fake.compile_info_fail_index = 1;
-	r = RUN("-V");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out,
-	                 LISTED_COMPILE("0")
-	                 "1: compile info read failed\n") == 0,
-	          "failed compile info read shown per device");
-
-	reset_fake();
-	fake.device_count = 2;
 	fake.revision_fail_index = 1;
-	fake.compile_info_fail_index = 1;
-	r = RUN("-U", "all", "-vV");
+	r = RUN("-U", "all", "-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 LISTED_FIRMWARE("0") LISTED_COMPILE("0")
-	                 "Firmware version (1): read failed\n"
-	                 "1: compile info read failed\n") == 0,
-	          "-U all shows both failed reads and keeps the good device");
+	                 LISTED_FIRMWARE("0")
+	                 "Firmware version (1): read failed\n") == 0,
+	          "-U all shows the failed read and keeps the good device");
 }
 
 MU_TEST(listing_is_not_used_with_a_selector_one_device_or_other_operations)
@@ -3106,12 +3065,12 @@ MU_TEST(u_all_lists_every_device_even_when_only_one_is_attached)
 
 	reset_fake();
 	fake.device_count = 2;
-	r = RUN("-Uall", "-vVspb");
+	r = RUN("-Uall", "-vspb");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 LISTED_BOARD("0") LISTED_FIRMWARE("0") LISTED_COMPILE("0")
+	                 LISTED_BOARD("0") LISTED_FIRMWARE("0")
 	                 LISTED_PART("0") LISTED_SERIAL("0")
-	                 LISTED_BOARD("1") LISTED_FIRMWARE("1") LISTED_COMPILE("1")
+	                 LISTED_BOARD("1") LISTED_FIRMWARE("1")
 	                 LISTED_PART("1") LISTED_SERIAL("1")) == 0,
 	          "same listing as the implicit multi-device form");
 	mu_assert_int_eq(0, fake.start_calls);
@@ -3208,7 +3167,7 @@ MU_TEST(u_all_is_rejected_before_opening_a_device_for_any_other_option)
 		r = RUN("-U", "all");
 		mu_assert_int_eq(1, r.rc);
 		mu_assert(strcmp(r.err, "error: -U all needs one of the read-only "
-		                 "queries -b, -v, -V, -p or -s to list\n") == 0, r.err);
+		                 "queries -b, -v, -p or -s to list\n") == 0, r.err);
 		mu_assert_int_eq(0, (long)strlen(r.out));
 		mu_assert_int_eq(0, fake.count_calls);
 		mu_assert_int_eq(0, fake.start_calls);
@@ -3228,7 +3187,7 @@ MU_TEST(u_all_with_only_the_count_beside_it_has_nothing_to_list)
 	r = RUN("-U", "all", "-N");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: -U all needs one of the read-only "
-	                 "queries -b, -v, -V, -p or -s to list\n") == 0, r.err);
+	                 "queries -b, -v, -p or -s to list\n") == 0, r.err);
 	mu_assert_int_eq(0, (long)strlen(r.out));
 	mu_assert_int_eq(0, fake.count_calls);
 	mu_assert_int_eq(0, fake.start_calls);

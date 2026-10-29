@@ -310,30 +310,30 @@ void dfu_verify_describe_failure(const struct dfu_verify_report *report,
 			snprintf(message, message_size,
 			         "the firmware was written, but the host's USB bus could "
 			         "not be read, so the flash was not checked: read the "
-			         "board's revision with ubertooth-util -v");
+			         "board's revision with ubertooth-util -V");
 		else if (report->operation_error == 0)
 			snprintf(message, message_size,
 			         "the firmware was written, but the board did not come "
 			         "back on USB: power-cycle it and read its revision with "
-			         "ubertooth-util -v before flashing it again");
+			         "ubertooth-util -V before flashing it again");
 		else
 			snprintf(message, message_size,
 			         "the firmware was written, but the board came back and "
 			         "would not open, so the flash was not checked: read its "
-			         "revision with ubertooth-util -v once nothing else is "
+			         "revision with ubertooth-util -V once nothing else is "
 			         "using it");
 		break;
 	case DFU_VERIFY_IDENTITY_MISMATCH:
 		snprintf(message, message_size,
 		         "the device that came back is not on the flashed board's USB "
 		         "path, so the flash was not checked: read the board's "
-		         "revision with ubertooth-util -v");
+		         "revision with ubertooth-util -V");
 		break;
 	case DFU_VERIFY_REVISION_FAILED:
 		snprintf(message, message_size,
 		         "the board came back but would not report its firmware "
 		         "revision, so the flash was not checked: read it with "
-		         "ubertooth-util -v");
+		         "ubertooth-util -V");
 		break;
 	case DFU_VERIFY_REVISION_MISMATCH:
 		snprintf(message, message_size,
@@ -345,7 +345,7 @@ void dfu_verify_describe_failure(const struct dfu_verify_report *report,
 		/* The revision was read off the board and matched, so the write took
 		 * and the line must not say otherwise. What is missing is only which
 		 * of this tree's images answered, and no command can read that back
-		 * either: ubertooth-util -v falls back to the revision on a board
+		 * either: ubertooth-util -V falls back to the revision on a board
 		 * that will not answer the block. So the line says exactly what was
 		 * and was not established, and sends the reader nowhere. */
 		snprintf(message, message_size,

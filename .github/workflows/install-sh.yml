@@ -91,10 +91,18 @@ jobs:
         if [ "${{ runner.os }}" = "macOS" ]; then
           NO_SUDO="--no-sudo"
         fi
-        ./install.sh --skip-deps $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv"
+        ./install.sh --skip-deps $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv" \
+          2>&1 | tee "$RUNNER_TEMP/install.log"
 
     - name: Verify install
       shell: bash
       run: |
         test -x "$RUNNER_TEMP/prefix/bin/ubertooth-util"
         "$RUNNER_TEMP/prefix/bin/ubertooth-util" -h
+        # The install ends by asking the tool it installed which libbtbb it
+        # loaded. That section reports rather than fails, so an option it asks
+        # for that no longer exists would leave the smoke run above green and
+        # the check silently skipped. These two lines are what tell the
+        # difference.
+        grep -q 'What the installed tools report:' "$RUNNER_TEMP/install.log"
+        ! grep -q 'the installed ubertooth-util would not run' "$RUNNER_TEMP/install.log"

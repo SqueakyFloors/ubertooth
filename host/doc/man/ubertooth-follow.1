@@ -39,6 +39,9 @@ target UAP (1 byte / 2 hex digits), given once, and with \fB\-l\fR\. Not with \f
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .TP
+\fB\-V\fR
+print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
+.TP
 \fB\-r <filename>\fR
 capture packets to a PCAPNG file\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so \fB\-r \-\fR is refused: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR
 .TP
@@ -112,7 +115,7 @@ ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
 .SH "ARGUMENTS"
 \fBubertooth\-follow\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
-\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\.
 .P
 An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
 .P
@@ -166,6 +169,8 @@ The \fB\-q\fR, \fB\-r\fR and \fB\-d\fR files are created once the board has been
 A capture that could not be started at all exits 1 as well, whichever step failed: the receive transfer libusb would not take, the host thread that collects the capture, or the request that starts hopping\. Standard error carries the one \fBerror:\fR line for that step, for example \fBerror: could not start the thread that collects the capture: Resource temporarily unavailable\fR\. The status is 1 in every case, never the failing call's own return value: a negative libusb code handed to the exit status is wrapped into a byte, so \fBlibusb \-9\fR reached a script as 247\.
 .P
 An adapter \fB\-b\fR names that does not exist, or that cannot be opened, exits 1 with one \fBerror:\fR line naming it, the same wording ubertooth\-scan(1) uses: \fBerror: Bluetooth device hci7 not found: No such device\fR\.
+.P
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts, and CARRY\-OVER BETWEEN RUNS what else a board keeps from one command to the next
 .P

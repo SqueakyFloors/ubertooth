@@ -34,6 +34,9 @@ Bluetooth address to use, \fBxx:xx:xx:xx:xx:xx\fR (default: random)\.
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .TP
+\fB\-V\fR
+print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
+.TP
 \fB\-h\fR
 show help\.
 .SH "TRANSMIT POWER"
@@ -41,7 +44,7 @@ Injection advertises at the CC2400 power level set with \fBubertooth\-util \-a\f
 .SH "ARGUMENTS"
 \fBubertooth\-ducky\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
-\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\.
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: advertising channel index must be 37\-39 (got 40)\fR\.
 .P
@@ -60,6 +63,8 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 0 when the command did what was asked, including \fB\-h\fR: for \fB\-q\fR and \fB\-b\fR, when the board took every request the advertisement needs\. 1 for a command line the tool will not take or with nothing to do, for a UUID it cannot read, when the selected Ubertooth is not found or cannot be opened, and when the board refuses one of those requests\.
 .P
 1 as well when the board refuses the request that stops the advertisement at the end of the two seconds: the board is left advertising, and no other tool can open it until it is reset or re\-plugged\. libubertooth names the refused request on standard error\.
+.P
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"
 ubertooth\-btle(1)
 .P

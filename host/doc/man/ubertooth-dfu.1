@@ -27,7 +27,7 @@ Image: bluetooth_rxtx git\-ed30131d* (API:<version>)
 .fi
 .IP "" 0
 .P
-The API version on that line comes from the block, and the USB \fBbcdDevice\fR \fBubertooth\-util \-v\fR reads off a running board carries the same value, for either image\. This tree's version moves with the firmware, so the samples here write it as \fB<version>\fR; \fBCOMPATIBILITY\.md\fR names the value this tree requires\.
+The API version on that line comes from the block, and the USB \fBbcdDevice\fR \fBubertooth\-util \-V\fR reads off a running board carries the same value, for either image\. This tree's version moves with the firmware, so the samples here write it as \fB<version>\fR; \fBCOMPATIBILITY\.md\fR names the value this tree requires\.
 .P
 A properly signed DFU file with no readable block there is not an image from this tree, so it is refused rather than written:
 .IP "" 4
@@ -118,6 +118,9 @@ Add DFU suffix to binary firmware file
 \fB\-U <index|serial>\fR
 select the application\-mode Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .TP
+\fB\-V\fR
+print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
+.TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "READING FLASH BACK"
@@ -161,11 +164,11 @@ PIN #1, marked X, is square\.
 .P
 With Ubertooth unplugged, bridge pins 1 and 3, then plug the device in while keeping the bridge in place\. Wait for the distinctive LED sequence or confirm that USB ID \fB1d50:6003\fR is present\. The bootloader samples the entry pin only during reset, so once DFU is active you may remove the bridge without exiting DFU\. Run \fBubertooth\-dfu\fR promptly because pin\-entry DFU times out after a few seconds if no DFU request begins; the board then resets, and with the bridge still fitted that reset lands in the bootloader again\.
 .P
-Remove the bridge before the final reset if you want the application firmware to boot\. If it remains installed, the next reset will sample the entry pin again and return to the bootloader, and \fB\-r\fR fails with \fBerror: detach failed: the board reset and came back in the bootloader\fR: the image is written, and the board is in DFU rather than running it\. If removing a live bridge is inconvenient, finish the flash, unplug the device, remove the bridge, and reconnect it; \fBubertooth\-util \-v\fR then reports the new firmware\.
+Remove the bridge before the final reset if you want the application firmware to boot\. If it remains installed, the next reset will sample the entry pin again and return to the bootloader, and \fB\-r\fR fails with \fBerror: detach failed: the board reset and came back in the bootloader\fR: the image is written, and the board is in DFU rather than running it\. If removing a live bridge is inconvenient, finish the flash, unplug the device, remove the bridge, and reconnect it; \fBubertooth\-util \-V\fR then reports the new firmware\.
 .SH "ARGUMENTS"
 \fBubertooth\-dfu\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
-\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\. \fB\-h\fR is what the user asked for, so its usage text goes to standard output and it exits 0\.
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\. \fB\-h\fR is what the user asked for, so its usage text goes to standard output and it exits 0\.
 .P
 An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR\. An option whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P
@@ -178,6 +181,8 @@ A refused command line creates and truncates nothing, and leaves no temporary fi
 0 when the command did what was asked, including \fB\-h\fR: the image written and, with \fB\-r\fR, verified on the board that came back; the dump complete and in place; the signed \fB<file>\.dfu\fR written; the board out of the bootloader\.
 .P
 1 for everything else, and there is no other status\. That covers a command line the tool will not take or that has nothing to do, a file it cannot read or create, an image it refuses, a selected board that is missing or that something else is using, a bootloader that will not answer or will not become idle, a transfer that failed both its attempts, a reset that left the board in DFU or brought it straight back into the bootloader, and a verification after the reset that did not end in the image's own name and revision\. That last one includes a board that did not come back on USB at all: the write had completed by then, but the command cannot say the board runs what was written, so it is not reported as a success\. The line it prints says which of those happened\.
+.P
+\fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "DIAGNOSTICS"
 Standard output carries the usage text for \fB\-h\fR, and otherwise one line, from \fB\-d <image> \-r\fR alone:
 .IP "" 4
@@ -208,18 +213,18 @@ The errors this tool prints itself are one line each beginning \fBerror:\fR, for
 The \fB\-d \|\.\|\.\|\. \-r\fR verification has more than one way not to pass, and they do not mean the same thing, so each has its own line:
 .IP "" 4
 .nf
-error: the firmware was written, but the board did not come back on USB: power\-cycle it and read its revision with ubertooth\-util \-v before flashing it again
-error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth\-util \-v once nothing else is using it
-error: the firmware was written, but the host's USB bus could not be read, so the flash was not checked: read the board's revision with ubertooth\-util \-v
+error: the firmware was written, but the board did not come back on USB: power\-cycle it and read its revision with ubertooth\-util \-V before flashing it again
+error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth\-util \-V once nothing else is using it
+error: the firmware was written, but the host's USB bus could not be read, so the flash was not checked: read the board's revision with ubertooth\-util \-V
 error: the board came back running git\-0000000, not git\-ed30131d: the firmware was not written, so flash it again
 error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
-error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth\-util \-v
+error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth\-util \-V
 error: the board came back running git\-ed30131d, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
-error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth\-util \-v
+error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth\-util \-V
 .fi
 .IP "" 0
 .P
-Two of those say the write did not take and ask for another flash: the one that names another revision, and the one that names the other image\. The first three lines are boards whose flash already holds the new firmware: the whole image went in and the board was reset before it stopped answering, so what they need is a \fBubertooth\-util \-v\fR, not another flash\. The second of them is a board that is on the bus and will not open, usually because something else is using it or this user has no permission to it, so a power cycle is not what it is waiting for; the third is a board that was never looked at, because the host's own USB bus could not be listed\. The rest leave the flash unchecked rather than failed\. Whichever line is printed, the stage trace carries the raw codes behind it on its \fBpost\-reset application verification failed: \|\.\|\.\|\.\fR line\.
+Two of those say the write did not take and ask for another flash: the one that names another revision, and the one that names the other image\. The first three lines are boards whose flash already holds the new firmware: the whole image went in and the board was reset before it stopped answering, so what they need is a \fBubertooth\-util \-V\fR, not another flash\. The second of them is a board that is on the bus and will not open, usually because something else is using it or this user has no permission to it, so a power cycle is not what it is waiting for; the third is a board that was never looked at, because the host's own USB bus could not be listed\. The rest leave the flash unchecked rather than failed\. Whichever line is printed, the stage trace carries the raw codes behind it on its \fBpost\-reset application verification failed: \|\.\|\.\|\.\fR line\.
 .P
 An image whose firmware info block reports an API version other than these tools' own is not refused for that, only warned about: the tools and the board have to report the same one, and this command is the way back from a board that does not\. It is a warning rather than a refusal for that reason\.
 .IP "" 4

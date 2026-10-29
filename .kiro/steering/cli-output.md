@@ -33,9 +33,9 @@ stream a line is on.
 
 ### `-h` beside another option that ends the command
 
-`-h` and the options that answer from the host and then end the command
-(`-V`, `-H`) all answer on standard output, so a command line with two of them
-prints both, and the usage text comes last: it is the long one, and printing
+`-h` and `-V`, the two options that answer and then end the command, both
+answer on standard output, so a command line with both prints both, and the
+usage text comes last: it is the long one, and printing
 it first would scroll the short answer off the screen. The order they were
 written in makes no difference.
 
@@ -44,8 +44,12 @@ from the host too, but it prints its count and then runs the rest of the
 command line, so `-h` beside it still ends the command and the count is not
 printed.
 
-    $ ubertooth-util -h -H      # the version, then the usage text, status 0
-    $ ubertooth-util -H -h      # the same two, in the same order
+    $ ubertooth-util -h -V      # the version, then the usage text, status 0
+    $ ubertooth-util -V -h      # the same two, in the same order
+
+`-V` reads the attached board, so unlike `-h` it can fail: a board that is
+attached and cannot be read, or a USB bus that cannot be listed, is exit 1
+with the reason on the line where that board's version would have been.
 
 ## Standard error carries everything else
 

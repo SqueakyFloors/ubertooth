@@ -71,6 +71,16 @@ static uint8_t flash_byte(uint32_t address)
 	return (uint8_t)((address * 7u + 0x5au) & 0xff);
 }
 
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(FILE *out, const char *selector)
+{
+	(void)selector;
+	fprintf(out, "version (test)\n");
+	return 0;
+}
+
 /* ---- the faked device --------------------------------------------------- */
 
 static struct {
@@ -1414,7 +1424,7 @@ MU_TEST(a_board_that_does_not_come_back_says_the_firmware_was_written)
 	          "the board was not reported as having left the bootloader");
 	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
 	                 "did not come back on USB: power-cycle it and read its "
-	                 "revision with ubertooth-util -v before flashing it "
+	                 "revision with ubertooth-util -V before flashing it "
 	                 "again\n") != NULL,
 	          "the board that stayed away was reported as a failed write");
 	/* The raw codes are still there for anyone debugging the tool, in the
@@ -1499,7 +1509,7 @@ MU_TEST(a_board_that_goes_between_the_listing_and_the_open_is_reported_as_absent
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
 	                 "did not come back on USB: power-cycle it and read its "
-	                 "revision with ubertooth-util -v before flashing it "
+	                 "revision with ubertooth-util -V before flashing it "
 	                 "again\n") != NULL,
 	          "a board that was gone by the open was not reported as absent");
 	mu_assert(strstr(r.err, "would not open") == NULL,
@@ -1522,7 +1532,7 @@ MU_TEST(a_board_that_will_not_be_claimed_is_not_reported_as_missing)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the firmware was written, but the board "
 	                 "came back and would not open, so the flash was not "
-	                 "checked: read its revision with ubertooth-util -v once "
+	                 "checked: read its revision with ubertooth-util -V once "
 	                 "nothing else is using it\n")
 	          != NULL,
 	          "the board that refused to open was not reported as such");
@@ -1552,7 +1562,7 @@ MU_TEST(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: the board came back but would not report "
 	                 "its firmware revision, so the flash was not checked: "
-	                 "read it with ubertooth-util -v\n") != NULL,
+	                 "read it with ubertooth-util -V\n") != NULL,
 	          "the board that would not answer was not reported as such");
 	mu_assert(strstr(r.err, "post-reset application verification failed: "
 	                 "result=-4 polls=1") != NULL,

@@ -35,6 +35,9 @@ report the sweep on standard error; see VERBOSE OUTPUT\. Give it at most once: a
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
 .TP
+\fB\-V\fR
+print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
+.TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "EXAMPLES"
@@ -48,7 +51,7 @@ ubertooth\-specan \-l 2440
 .SH "ARGUMENTS"
 \fBubertooth\-specan\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
-\fB\-h\fR ends the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside it\.
+\fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\.
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: lower frequency must be 2402\-2480 MHz (got bad)\fR\.
 .P

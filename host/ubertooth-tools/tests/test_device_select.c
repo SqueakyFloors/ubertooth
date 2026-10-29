@@ -50,6 +50,7 @@ static struct {
 	int lists;              /* outstanding libusb_get_device_list() lists */
 	int list_calls;         /* libusb_get_device_list() calls, not freed again */
 	int usb_sessions;       /* libusb_init() minus libusb_exit() */
+	int usb_inits;          /* libusb_init() calls */
 	int usb_exits;          /* libusb_exit() calls */
 } fake;
 
@@ -165,6 +166,7 @@ int LIBUSB_CALL libusb_init(libusb_context **ctx)
 {
 	(void)ctx;
 	fake.usb_sessions++;
+	fake.usb_inits++;
 	return 0;
 }
 
@@ -869,6 +871,43 @@ MU_TEST(the_test_switch_hides_every_device)
 	ubertooth_free(ut);
 }
 
+/*
+ * The bootloader note runs where no board was found, and -V asks for it after
+ * the count has given its libusb session back, so the note has to open one of
+ * its own: listing devices with no session open is undefined, and crashed
+ * every tool's -V with no board attached.
+ */
+MU_TEST(the_bootloader_note_opens_a_session_of_its_own)
+{
+	char msg[256];
+	FILE *capture;
+	int saved;
+	size_t n;
+
+	/* One board in the DFU bootloader, and no Ubertooth to work with. */
+	bus_with_ubertooths(0);
+	bus_with_bootloaders(1);
+	capture = tmpfile();
+	saved = dup(fileno(stderr));
+	msg[0] = '\0';
+	mu_assert_fatal(capture != NULL && saved >= 0, "capture stderr");
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	ubertooth_note_dfu_bootloader();
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, sizeof(msg) - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+
+	mu_assert(strstr(msg, "in the DFU bootloader") != NULL, msg);
+	mu_assert_int_eq(1, fake.usb_inits);    /* it opened a session */
+	mu_assert_int_eq(0, fake.usb_sessions); /* ...and gave it back */
+	mu_assert(fake.list_calls > 0, "the bus was listed");
+}
+
 /* ---- selecting by serial number ----------------------------------------- */
 
 MU_TEST(a_full_serial_opens_that_board)
@@ -1521,6 +1560,7 @@ int main(void)
 	MU_RUN(an_empty_or_failing_bus_is_refused);
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
+	MU_RUN(the_bootloader_note_opens_a_session_of_its_own);
 	MU_RUN(a_full_serial_opens_that_board);
 	MU_RUN(a_prefix_of_a_serial_opens_that_board);
 	MU_RUN(a_serial_matches_in_upper_case);

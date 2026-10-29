@@ -176,6 +176,16 @@ unsigned int sleep(unsigned int seconds)
 	return 0;
 }
 
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(FILE *out, const char *selector)
+{
+	(void)selector;
+	fprintf(out, "version (test)\n");
+	return 0;
+}
+
 /* ---- running the tool --------------------------------------------------- */
 
 static struct run_result run_ducky(const char *const *args)

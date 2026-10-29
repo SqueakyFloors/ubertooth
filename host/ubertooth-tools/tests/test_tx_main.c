@@ -152,9 +152,14 @@ int cmd_tx_syms(struct libusb_device_handle* devh)
 	return fake.tx_syms_rc;
 }
 
-void print_version(void)
+/* The -V answer, which libubertooth gives in every tool: faked here, so this
+ * test stays about the tool's own command-line handling. The answer's own
+ * cases are in test_version_report.c. */
+int ubertooth_print_versions(FILE *out, const char *selector)
 {
-	printf("ubertooth-tx (test)\n");
+	(void)selector;
+	fprintf(out, "version (test)\n");
+	return 0;
 }
 
 /* ---- running main() --------------------------------------------------- */

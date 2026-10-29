@@ -10,8 +10,6 @@
  * it is armed with: all from the interface the firmware shares with the host. */
 #include "ubertooth_interface.h"
 
-#define UTIL_TEXT_LEN 255
-
 static const char *const board_names[] = {
 	"Ubertooth Zero",
 	"Ubertooth One",
@@ -95,82 +93,6 @@ int util_report_board_id(const struct util_report_ops *ops, void *context,
 		return 1;
 	}
 	fprintf(out, "Board ID Number: %d (%s)\n", board_id, name);
-	return 0;
-}
-
-/*
- * The image and the revision come from the firmware info block, which is also
- * what ubertooth-dfu reads out of a firmware file, so a board and the file it
- * was flashed from are named the same way.
- *
- * Firmware older than the block stalls the request. This is the one report
- * that has to work on any firmware a board might be running, so the revision
- * alone is read instead, and the line is the one this tool always printed.
- *
- * The API version comes from neither: it is the USB bcdDevice, which is the
- * number the other tools check a board against. The block carries its own
- * copy, and the two can differ -- firmware older than this tree reported a
- * fixed bcdDevice for the btbr image, whatever the block said -- so showing
- * the descriptor's is what explains why the other tools accept or refuse a
- * board.
- */
-int util_report_firmware(const struct util_report_ops *ops, void *context,
-                         FILE *out)
-{
-	struct ubertooth_fw_info info;
-	char revision[UTIL_TEXT_LEN];
-	uint16_t api_version = 0;
-	int status = 0, r;
-
-	/* A failed read prints no line; the library already reported the error. */
-	r = ops->get_firmware_info(context, &info);
-	if (r < 0 && r != UTIL_ERROR_NO_FW_INFO)
-		return 1;
-	if (r == 0)
-		fprintf(out, "Firmware version: %s %s", info.image, info.revision);
-	else {
-		revision[0] = '\0';
-		if (ops->get_firmware_revision(context, revision,
-		                               sizeof(revision)) < 0)
-			return 1;
-		revision[sizeof(revision) - 1] = '\0';
-		fprintf(out, "Firmware version: %s", revision);
-	}
-	if (ops->get_api_version(context, &api_version) >= 0)
-		fprintf(out, " (API:%x.%02x)\n", (api_version >> 8) & 0xFF,
-		        api_version & 0xFF);
-	else {
-		fprintf(out, "\n");
-		status = 1;
-	}
-	return status;
-}
-
-/*
- * The build string the board reports, named with the image it came from so
- * that it can be told apart from the other image's. Firmware older than the
- * info block cannot say which image it is, so the build string goes out on its
- * own, as it always did.
- */
-int util_report_compile_info(const struct util_report_ops *ops, void *context,
-                             FILE *out)
-{
-	struct ubertooth_fw_info block;
-	char info[UTIL_TEXT_LEN];
-	int r;
-
-	info[0] = '\0';
-	/* A failed read prints no line; the library already reported the error. */
-	r = ops->get_firmware_info(context, &block);
-	if (r < 0 && r != UTIL_ERROR_NO_FW_INFO)
-		return 1;
-	if (ops->get_compile_info(context, info, sizeof(info)) < 0)
-		return 1;
-	info[sizeof(info) - 1] = '\0';
-	if (r == 0)
-		fprintf(out, "%s: %s\n", block.image, info);
-	else
-		fprintf(out, "%s\n", info);
 	return 0;
 }
 

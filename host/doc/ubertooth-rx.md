@@ -116,9 +116,8 @@ Output options:
 Miscellaneous:
 
  - `-V` :
-   print the host tools version, as `Host tools version: libubertooth
-   <version> (<revision>), libbtbb <version> (<revision>)`, followed by
-   `libbtbb loaded from: <path>` naming the file this run reads libbtbb from
+   print the version: the host tools, then the firmware version and build of
+   each attached board; see ubertooth(7), COMMON OPTIONS
 
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
@@ -410,6 +409,10 @@ its firmware accepted, not before, so a run refused for either reason leaves
 no empty capture behind. A replay (`-i`) creates them once its input file has
 been opened, since it needs no board. A terminal on standard output is still
 refused while the command line is read.
+
+`-V` reads the attached board, so it exits 1 when a board is attached and
+cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
+COMMON OPTIONS.
 
 ## SEE ALSO
 
