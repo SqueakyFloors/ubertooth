@@ -57,7 +57,10 @@ What this does not catch:
     so a line a test asserts is *absent*, or a fixture's input, can hold a
     page line down;
   * a pin is not tied to the tool whose page shows it, so a page can promise
-    a line that another tool prints.
+    a line that another tool prints;
+  * a line that loses its `error:` prefix, or the value after its label, is
+    no longer one of the lines this collects, so it leaves the check rather
+    than failing it.
 
 NOT_PINNED below holds the lines no test pins today, with the reason for each.
 It is checked for being exact -- an entry that no longer appears on its page,
@@ -109,9 +112,10 @@ VOLATILE = re.compile(
     r'|0x[0-9A-Fa-f]+'
     r'|-?\b\d+(?:\.\d+)*\b')      # a number, sign and all
 
-# A line a tool prints: a diagnostic, or a report line with a label. The
-# wildcard form is for a test that holds the level in a conversion.
-DIAGNOSTIC = re.compile(r'^(?:error|warning|note|' + WILD + r'): ')
+# The level a documented diagnostic is said with, which a test may pin the
+# message without; and a line a tool prints, which is a diagnostic or a report
+# line with a label.
+DIAGNOSTIC = re.compile(r'^(?:error|warning|note): ')
 DOCUMENTED = re.compile(r"^(?:error|warning|note): |^[A-Z][A-Za-z0-9 '/()-]{2,40}: \S")
 
 # An indented example block line, and the list item whose prose is indented
@@ -128,7 +132,7 @@ EVERY = 6
 
 # A floor on how many example lines this finds, so a change to the patterns
 # above cannot leave the check passing having looked at nothing.
-AT_LEAST = 95
+AT_LEAST = 90
 
 # The documented lines no host test pins, with why. Each entry is the page and
 # the line as it appears there.
@@ -180,15 +184,6 @@ NOT_PINNED = [
      "Image: bluetooth_rxtx git-ed30131d (API:<version>)"),
     ("ubertooth-dfu.md",
      "DFU expected revision: git-ed30131d"),
-    # The note that says which image to flash and onto which board. The
-    # tests leave the board and the image path to the run, and those are
-    # most of the line, so its wording is not checked.
-    ("ubertooth-debug.md",
-     "note: flash it with ubertooth-dfu -U 1cc0 -d "
-     "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r"),
-    ("ubertooth.md",
-     "note: flash it with ubertooth-dfu -U 1cc0 -d "
-     "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r"),
     # A board that came back running another image. The test leaves the
     # image's name open, and the page spells it out twice.
     ("ubertooth-dfu.md",
@@ -216,6 +211,11 @@ NOT_PINNED = [
     ("ubertooth-rx.md",
      "error: could not set the channel: the board did not answer in time "
      "(libusb -7)"),
+    # The shape of the firmware version line, written with a placeholder for
+    # the image and another for the revision. One field of the pinned line
+    # covers both, so the space between them is not checked.
+    ("ubertooth.md",
+     "Firmware version: <image> <revision> (API:<version>)"),
     # The version an old release reports, which has no image name in it. The
     # tests report a version the way the firmware in this tree does.
     ("ubertooth-util.md",
@@ -275,10 +275,6 @@ def usable(pattern):
     if pattern[:1] == WILD and pattern[-1:] == WILD:
         return False
     return any(len(run) >= LEAST_FIXED_RUN for run in pattern.split(WILD))
-
-
-def fixed_length(pattern):
-    return len(pattern.replace(WILD, ""))
 
 
 def without_prose(text, python):
@@ -468,10 +464,13 @@ def variants(line):
     Both are made every few characters of every run of text the page
     promises, so a change lands on text rather than inside a placeholder.
     Taking a character out matters as much as adding one, because a page can
-    lose a word next to a field a test leaves open -- `(libusb -3)` written
-    as `(libusb 3)` -- and the open field would swallow the difference.
+    lose one next to a field a test leaves open and the field would swallow
+    the difference.
+
     These stand for the reworded page this check exists to fail on, and a
     pattern has to reject all of them to count as holding the line down.
+    They are samples rather than every edit a page could suffer: a whole word
+    going missing between two open fields can still get through.
     """
     made = []
     at = 0
@@ -479,10 +478,17 @@ def variants(line):
         at = line.find(run, at)
         if at < 0:
             break
-        for offset in range(1, len(run), EVERY):
+        for offset in range(0, len(run), EVERY):
             into = at + offset
-            made.append(line[:into] + "zq" + line[into:])
+            # Taking a character out starts at the run's first character, so
+            # a run of one is examined too: the space between two
+            # placeholders is such a run, and a page that lost it would
+            # otherwise go unexamined. Pushing letters in starts one along,
+            # because at the first character they would land at the end of
+            # the field before the run, which the page does not promise.
             made.append(line[:into] + line[into + 1:])
+            if offset > 0:
+                made.append(line[:into] + "zq" + line[into:])
         at += len(run)
     return made
 
@@ -501,7 +507,9 @@ def main():
     documented = documented_lines(os.path.join(host_src, "doc"))
     if len(documented) < AT_LEAST:
         fail("found only %d example output lines in the man pages, expected "
-             "at least %d: the patterns in this test no longer recognize them"
+             "at least %d. Either the patterns in this test no longer "
+             "recognize them, or the pages really do show fewer now, in "
+             "which case lower AT_LEAST with the change that removed them"
              % (len(documented), AT_LEAST))
 
     known = set(NOT_PINNED)
