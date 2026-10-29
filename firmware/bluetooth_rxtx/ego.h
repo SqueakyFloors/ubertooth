@@ -40,7 +40,9 @@ typedef enum _ego_mode_t {
 extern volatile uint32_t access_code;
 extern volatile int access_code_len;
 
-void ego_main(ego_mode_t mode);
+/* Runs the E-GO mode named by `ego_mode`, and starts the state machine over
+ * when a request names another: see ego_main(). */
+void ego_main(void);
 int rfcat_subcommand(uint16_t cmd, uint8_t *body, int body_len);
 void ego_access_code_reset(void);
 

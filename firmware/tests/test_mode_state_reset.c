@@ -10,6 +10,9 @@
  *
  *   - the mode dispatch in main(), which leaves the running mode first and so
  *     runs the idle reset; and
+ *   - a second E-GO request, which ego_main()'s loop absorbs the same way,
+ *     because that loop runs while MODE_EGO is the mode asked for. There the
+ *     loop starts its state machine over, on a flag the request handler sets.
  *   - a request for one of the three modes bt_stream_rx() streams, arriving
  *     while another of them runs. That one is absorbed by the running loop --
  *     deliberately, it is how a hop mode is switched under a running stream --
@@ -63,6 +66,18 @@ static u16 channel;
 /* The channel low-energy follow mode tunes to, which UBERTOOTH_SET_CHANNEL
  * sets alongside the channel. */
 static u16 le_adv_channel;
+/* ego.h's modes, which cannot be included here: it is hardware code. */
+#define EGO_FOLLOW 0
+#define EGO_CONTINUOUS_RX 1
+#define EGO_JAM 2
+/* An E-GO mode value the firmware has no state machine for. */
+#define EGO_NO_SUCH_MODE 7
+
+/* The first of the E-GO channel list. Following and interference hop along
+ * that list, so they start there whatever channel the host stated; continuous
+ * receive stays on the channel it was given. */
+#define EGO_FIRST_CHANNEL 2408
+
 /* The E-GO sync word, in ego.c. */
 static u32 access_code;
 
@@ -79,6 +94,19 @@ static u8 stated_for_mode;
 static u16 stated_channel;
 static u32 stated_access_code;
 static u8 stated_afh_map[10];
+
+/* The E-GO mode asked for, and the request handler's word to ego_main()'s loop
+ * that a request has asked for one while it was running. */
+static u8 ego_mode;
+static u8 ego_restart;
+/* Whether that loop is running, which mode its state machine is running (-1
+ * for none), and what its rf_on() told the radio: the channel it tuned to, 0
+ * while the radio is off, and the sync word it programmed. */
+static int ego_looping;
+static int ego_fsm_mode;
+static u16 ego_radio_channel;
+static u32 ego_radio_access_code;
+
 /* Whether bt_stream_rx()'s loop is running, which is what absorbs a request. */
 static int streaming;
 /* Each channel's running average of what the radio heard there, the figure a
@@ -199,6 +227,14 @@ static int the_filter_holds_something(void)
 	return 0;
 }
 
+/* forget_hop_state(): what a mode start that never reaches the dispatch has
+ * to reset for itself. */
+static void forget_hop_state(void)
+{
+	hop_mode = HOP_NONE;
+	clear_afh_map();
+}
+
 /* reset_absorbed_mode_state(): note it does not touch the channel averages. */
 static void reset_absorbed_mode_state(u8 requested)
 {
@@ -206,8 +242,63 @@ static void reset_absorbed_mode_state(u8 requested)
 	    !streams_symbols(requested))
 		return;
 
-	hop_mode = HOP_NONE;
-	clear_afh_map();
+	forget_hop_state();
+}
+
+/*
+ * One pass of ego_main()'s loop, and the state machine's way into the radio.
+ *
+ * The loop runs while MODE_EGO is the mode asked for, so a second E-GO request
+ * never reaches the dispatch: it sets ego_restart, and the loop starts the
+ * state machine over here.
+ */
+static void ego_pass(void)
+{
+	if (requested_mode != MODE_EGO) {
+		/* ego_deinit(): the loop returns and the radio stops. */
+		ego_looping = 0;
+		ego_fsm_mode = -1;
+		ego_radio_channel = 0;
+		return;
+	}
+
+	if (ego_restart) {
+		ego_restart = 0;
+		ego_fsm_mode = ego_mode;
+		/* ego_fsm_start(): the radio stopped, and a state machine
+		 * holding nothing of the run before it. */
+		ego_radio_channel = 0;
+	}
+
+	if (ego_radio_channel == 0) {
+		/* rf_on(), from the state machine's first state: following and
+		 * interference start on the first of the E-GO channels,
+		 * continuous receive on the channel the host stated. */
+		if (ego_fsm_mode != EGO_CONTINUOUS_RX)
+			channel = EGO_FIRST_CHANNEL;
+		ego_radio_channel = channel;
+		ego_radio_access_code = access_code;
+		return;
+	}
+
+	/*
+	 * continuous_cap_state(): the only E-GO mode that tunes once, so it is
+	 * the one that has to notice a channel or access code stated after it
+	 * started. The other two run rf_on() again on every hop.
+	 */
+	if (ego_fsm_mode == EGO_CONTINUOUS_RX &&
+	    (channel != ego_radio_channel ||
+	     access_code != ego_radio_access_code))
+		ego_radio_channel = 0;
+}
+
+/* ego_main(), from entry to its first pass: it picks the state machine for the
+ * mode the request named, and the loop below picks it again on a restart. */
+static void ego_main(void)
+{
+	ego_looping = 1;
+	ego_fsm_mode = ego_mode;
+	ego_pass();
 }
 
 /*
@@ -240,6 +331,9 @@ static void dispatch_with(u8 next_mode)
 	case MODE_BT_FOLLOW:
 		hop_mode = HOP_BLUETOOTH;
 		break;
+	case MODE_EGO:
+		ego_main();
+		break;
 	default:
 		break;
 	}
@@ -271,7 +365,24 @@ static void board_poll(void)
 		return;
 	if (streaming && streams_symbols(mode) && streams_symbols(requested_mode))
 		return;
+	if (ego_looping) {
+		ego_pass();
+		/* The loop ends by returning, and main() reaches the dispatch
+		 * on its next turn. */
+		if (ego_looping)
+			return;
+	}
 	dispatch();
+}
+
+/* Passes of whichever loop is running, for a test that has stated something
+ * and wants the mode to have acted on it. */
+static void the_board_runs(void)
+{
+	int i;
+
+	for (i = 0; i < 4; i++)
+		board_poll();
 }
 
 static void the_old_mode_loop_returns(void)
@@ -354,14 +465,31 @@ static void request_set_access_code(u32 code)
 	board_poll();
 }
 
-/* UBERTOOTH_EGO: a mode that captures no symbols, and whose own loop absorbs a
- * second request for it, so that request resets the access code itself. */
-static void request_ego(void)
+/*
+ * UBERTOOTH_EGO, which carries the E-GO mode to run. A mode the firmware has
+ * no state machine for is refused before anything is stored, so it leaves
+ * nothing behind; returns 0 for that, as the handler does.
+ *
+ * This mode captures no symbols, and its own loop absorbs a second request for
+ * it, so the request does that mode start's work itself: the access code, the
+ * hopping, and the restart the loop acts on.
+ */
+static int request_ego(u8 ego)
 {
-	if (mode == MODE_EGO && requested_mode == MODE_EGO)
+	if (ego != EGO_FOLLOW && ego != EGO_CONTINUOUS_RX && ego != EGO_JAM)
+		return 0;
+
+	/* Stored before the restart is asked for, because the loop reads the
+	 * mode only once it has seen the flag. */
+	ego_mode = ego;
+	if (mode == MODE_EGO && requested_mode == MODE_EGO) {
 		ego_access_code_reset();
+		forget_hop_state();
+		ego_restart = 1;
+	}
 	requested_mode = MODE_EGO;
 	board_poll();
+	return 1;
 }
 
 /* UBERTOOTH_BTLE_PROMISC: another mode that captures no symbols, and asks for
@@ -465,6 +593,12 @@ static void board_reset(void)
 	mode = MODE_IDLE;
 	requested_mode = MODE_IDLE;
 	streaming = 0;
+	ego_mode = EGO_FOLLOW;
+	ego_restart = 0;
+	ego_looping = 0;
+	ego_fsm_mode = -1;
+	ego_radio_channel = 0;
+	ego_radio_access_code = 0;
 	dispatch_held = 0;
 	stated_what = 0;
 	stated_for_mode = MODE_IDLE;
@@ -857,7 +991,7 @@ MU_TEST(an_access_code_set_with_no_mode_running_is_kept)
 	board_reset();
 
 	request_set_access_code(0x11223344);
-	request_ego();
+	request_ego(EGO_FOLLOW);
 	mu_assert_int_eq(MODE_EGO, mode);
 	mu_assert_int_eq(0x11223344, access_code);
 
@@ -870,7 +1004,7 @@ MU_TEST(an_access_code_set_with_no_mode_running_is_kept)
 /* What the second tool in the test below asks the board for. */
 static void an_ego_run_with_an_access_code(void)
 {
-	request_ego();
+	request_ego(EGO_FOLLOW);
 	request_set_access_code(0x11223344);
 }
 
@@ -910,13 +1044,13 @@ MU_TEST(a_mode_start_puts_the_access_code_back)
 	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
 
 	/* A run with -a, which states its code after the mode request. */
-	request_ego();
+	request_ego(EGO_FOLLOW);
 	request_set_access_code(0x11223344);
 	mu_assert_int_eq(0x11223344, access_code);
 
 	/* The run ends, and the next one sends no code of its own. */
 	request_stop();
-	request_ego();
+	request_ego(EGO_FOLLOW);
 	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
 }
 
@@ -928,7 +1062,7 @@ MU_TEST(an_access_code_stated_after_the_mode_request_survives)
 	request_specan();
 
 	dispatch_held = 1;
-	request_ego();
+	request_ego(EGO_FOLLOW);
 	request_set_access_code(0x11223344);
 	the_old_mode_loop_returns();
 
@@ -945,11 +1079,11 @@ MU_TEST(an_access_code_stated_after_the_mode_request_survives)
 MU_TEST(an_absorbed_ego_request_resets_the_access_code)
 {
 	board_reset();
-	request_ego();
+	request_ego(EGO_FOLLOW);
 	request_set_access_code(0x11223344);
 
 	/* No stop: the next run asks for E-GO again. */
-	request_ego();
+	request_ego(EGO_FOLLOW);
 
 	mu_assert_int_eq(MODE_EGO, mode);
 	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
@@ -1003,6 +1137,123 @@ MU_TEST(an_afh_map_stated_for_a_mode_that_never_started_is_dropped)
 	mu_assert_int_eq(0, used_channels);
 }
 
+/* ------------------------------------------------------------------------
+ * E-GO: a second run started while the first is still running
+ * ------------------------------------------------------------------------ */
+
+/* An E-GO run left running on the board, which is what a killed
+ * ubertooth-ego leaves. A run states its channel after its mode request. */
+static void a_killed_ego_run(u8 ego, u16 mhz)
+{
+	board_reset();
+	mu_assert_int_eq(1, request_ego(ego));
+	if (ego == EGO_CONTINUOUS_RX)
+		request_channel(mhz);
+	the_board_runs();
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert(ego_looping, "the E-GO loop is running");
+	mu_assert_int_eq(ego, ego_fsm_mode);
+}
+
+/*
+ * The case from the field. A killed `ubertooth-ego -f` leaves the loop
+ * running, so the next run's request is absorbed: the state machine used to
+ * carry on, and an `ubertooth-ego -r -c 2418` hopped across the E-GO channel
+ * list in follow mode while its capture looked like a continuous receive that
+ * found nothing.
+ */
+MU_TEST(an_ego_run_after_a_killed_one_runs_the_mode_it_asked_for)
+{
+	a_killed_ego_run(EGO_FOLLOW, 0);
+	mu_assert_int_eq(EGO_FIRST_CHANNEL, ego_radio_channel);
+
+	mu_assert_int_eq(1, request_ego(EGO_CONTINUOUS_RX));
+	request_channel(2418);
+	the_board_runs();
+
+	mu_assert_int_eq(EGO_CONTINUOUS_RX, ego_fsm_mode);
+	mu_assert_int_eq(2418, ego_radio_channel);
+}
+
+/*
+ * The other way round, and the same rule: a follow run started while a
+ * continuous receive is still running hops the E-GO channel list, rather than
+ * staying on the channel the run before it was given.
+ */
+MU_TEST(an_absorbed_ego_follow_hops_the_ego_channel_list)
+{
+	a_killed_ego_run(EGO_CONTINUOUS_RX, 2469);
+	mu_assert_int_eq(2469, ego_radio_channel);
+
+	mu_assert_int_eq(1, request_ego(EGO_FOLLOW));
+	the_board_runs();
+
+	mu_assert_int_eq(EGO_FOLLOW, ego_fsm_mode);
+	mu_assert_int_eq(EGO_FIRST_CHANNEL, ego_radio_channel);
+}
+
+/*
+ * Asking for the same mode again is a mode start too, so it receives on the
+ * channel it was given rather than the one the run before it was tuned to.
+ * Nothing re-sends the request mid-run, so there is no re-send to protect the
+ * way a follow that re-syncs its clock is protected.
+ */
+MU_TEST(a_second_run_of_the_same_ego_mode_retunes_the_radio)
+{
+	a_killed_ego_run(EGO_CONTINUOUS_RX, 2418);
+	mu_assert_int_eq(2418, ego_radio_channel);
+
+	mu_assert_int_eq(1, request_ego(EGO_CONTINUOUS_RX));
+	request_channel(2423);
+	the_board_runs();
+
+	mu_assert_int_eq(2423, ego_radio_channel);
+}
+
+/*
+ * Which E-GO mode to run is part of the request that starts the mode, so the
+ * teardown of the mode it replaces must not reset it. That teardown runs
+ * between the request and the dispatch that reads the mode, and it used to put
+ * the mode back to following: after a killed ubertooth-specan, `ubertooth-ego
+ * -r` hopped the channel list and `-i` did not interfere.
+ */
+MU_TEST(an_ego_request_keeps_its_mode_across_the_teardown)
+{
+	board_reset();
+	/* A killed ubertooth-specan: no stop, so a mode is still running. */
+	request_specan();
+	mu_assert_int_eq(MODE_SPECAN, mode);
+
+	dispatch_held = 1;
+	mu_assert_int_eq(1, request_ego(EGO_CONTINUOUS_RX));
+	request_channel(2423);
+	the_old_mode_loop_returns();
+	the_board_runs();
+
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(EGO_CONTINUOUS_RX, ego_fsm_mode);
+	/* ...and the channel it stated for that mode reaches it. */
+	mu_assert_int_eq(2423, ego_radio_channel);
+}
+
+/*
+ * An absorbed E-GO request is a mode start, so it forgets the hopping as any
+ * other does: a map a program driving the board by hand set while the run was
+ * going cannot be left for whatever starts next.
+ */
+MU_TEST(an_absorbed_ego_request_forgets_the_hopping)
+{
+	a_killed_ego_run(EGO_FOLLOW, 0);
+	request_set_afh_map(AFH_MAP_20);
+	mu_assert_int_eq(1, afh_enabled);
+
+	mu_assert_int_eq(1, request_ego(EGO_CONTINUOUS_RX));
+
+	mu_assert_int_eq(HOP_NONE, hop_mode);
+	mu_assert_int_eq(0, afh_enabled);
+	mu_assert_int_eq(0, used_channels);
+}
+
 /* A map set with no mode running is kept for the capture that follows, which
  * is the rule a channel follows: nothing is reset as a mode starts on an idle
  * board. */
@@ -1016,6 +1267,38 @@ MU_TEST(an_afh_map_set_with_no_mode_running_is_kept)
 	mu_assert_int_eq(MODE_BT_FOLLOW, mode);
 	mu_assert_int_eq(1, afh_enabled);
 	mu_assert_int_eq(20, used_channels);
+}
+
+/*
+ * A mode the firmware has no state machine for is refused, and refused before
+ * anything is stored: the run that is going keeps going, and nothing is left
+ * behind for the next mode start to pick up. A firmware built without transmit
+ * refuses interference the same way.
+ */
+MU_TEST(a_refused_ego_request_leaves_the_run_alone)
+{
+	a_killed_ego_run(EGO_FOLLOW, 0);
+
+	mu_assert_int_eq(0, request_ego(EGO_NO_SUCH_MODE));
+	the_board_runs();
+
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(EGO_FOLLOW, ego_fsm_mode);
+	mu_assert_int_eq(EGO_FOLLOW, ego_mode);
+	mu_assert_int_eq(EGO_FIRST_CHANNEL, ego_radio_channel);
+}
+
+/* And a stop ends the run: the loop returns, and the dispatch then leaves the
+ * mode as it does for any other. */
+MU_TEST(a_stop_ends_an_ego_run)
+{
+	a_killed_ego_run(EGO_CONTINUOUS_RX, 2418);
+
+	request_stop();
+
+	mu_assert_int_eq(MODE_IDLE, mode);
+	mu_assert(!ego_looping, "the E-GO loop has ended");
+	mu_assert_int_eq(IDLE_CHANNEL, channel);
 }
 
 int main(void)
@@ -1046,5 +1329,12 @@ int main(void)
 	MU_RUN(an_afh_map_stated_after_the_hopping_request_survives_a_slow_mode_exit);
 	MU_RUN(an_afh_map_stated_for_a_mode_that_never_started_is_dropped);
 	MU_RUN(an_afh_map_set_with_no_mode_running_is_kept);
+	MU_RUN(an_ego_run_after_a_killed_one_runs_the_mode_it_asked_for);
+	MU_RUN(an_absorbed_ego_follow_hops_the_ego_channel_list);
+	MU_RUN(a_second_run_of_the_same_ego_mode_retunes_the_radio);
+	MU_RUN(an_ego_request_keeps_its_mode_across_the_teardown);
+	MU_RUN(an_absorbed_ego_request_forgets_the_hopping);
+	MU_RUN(a_refused_ego_request_leaves_the_run_alone);
+	MU_RUN(a_stop_ends_an_ego_run);
 	return mu_report();
 }

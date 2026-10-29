@@ -19,10 +19,13 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <string.h>
+
 #include "ego.h"
 #include "watchdog.h"
 #include "cc2400_wait.h"
 #include "ubertooth_clock.h"
+#include "ubertooth_usb.h"
 
 /*
  * This code performs several functions related to the Yuneec E-GO electric
@@ -38,6 +41,10 @@ int enqueue_with_ts(u8 type, u8 *buf, u32 ts);
 extern volatile u32 clkn; // TODO: replace with timer1
 /* requested_mode comes from ubertooth.h, with the mode values. */
 extern volatile u16 channel;
+/* Which E-GO mode to run, and the request handler's word that a new
+ * UBERTOOTH_EGO request has arrived. Both live in bluetooth_rxtx.c. */
+extern volatile uint8_t ego_mode;
+extern volatile uint8_t ego_restart;
 
 static const uint16_t channels[4] = { 2408, 2418, 2423, 2469 };
 
@@ -120,9 +127,26 @@ static void ego_init(void) {
 	dio_ssp_init();
 }
 
-static void ego_deinit(void) {
+/*
+ * Stop the radio and put the front end back to where a state machine starts
+ * from: the mode ending comes through here, and so does a restart under the
+ * same mode, which has to configure the radio from a stopped state rather than
+ * while it receives or transmits. The amplifier and the transmit LED are for
+ * the restart -- interference leaves both on, and only the dispatch's teardown
+ * would otherwise clear them.
+ */
+static void ego_radio_off(void) {
 	cc2400_strobe(SRFOFF);
 	ssp_stop(); // TODO disable SSP
+#ifdef UBERTOOTH_ONE
+	PAEN_CLR;
+#endif
+	RXLED_CLR;
+	TXLED_CLR;
+}
+
+static void ego_deinit(void) {
+	ego_radio_off();
 	ICER0 = ICER0_ICE_USB;
 }
 
@@ -411,65 +435,92 @@ static void jam_sleep_state(ego_fsm_state_t *state) {
 }
 #endif
 
-void ego_main(ego_mode_t mode) {
-	const ego_st_handler *handler; // set depending on mode
-	ego_fsm_state_t state = {
-		.state = EGO_ST_INIT,
-		.channel_index = 0,
-		.timer_active = 0,
-	};
+// hopping connection following
+static const ego_st_handler follow_handler[] = {
+	init_state,
+	start_rf_state,
+	cap_state,
+	sleep_state,
+	nop_state,
+	nop_state,
+	nop_state,
+};
 
-	// hopping connection following
-	static const ego_st_handler follow_handler[] = {
-		init_state,
-		start_rf_state,
-		cap_state,
-		sleep_state,
-		nop_state,
-		nop_state,
-		nop_state,
-	};
-
-	// continuous rx on a single channel
-	static const ego_st_handler continuous_rx_handler[] = {
-		continuous_init_state, // do not override user channel
-		start_rf_state,
-		continuous_cap_state,
-		nop_state,
-		nop_state,
-		nop_state,
-	};
+// continuous rx on a single channel
+static const ego_st_handler continuous_rx_handler[] = {
+	continuous_init_state, // do not override user channel
+	start_rf_state,
+	continuous_cap_state,
+	nop_state,
+	nop_state,
+	nop_state,
+};
 
 #ifdef TX_ENABLE
-	// jamming
-	static const ego_st_handler jam_handler[] = {
-		init_state,
-		start_rf_state,
-		jam_cap_state,
-		jam_sleep_state,
-		start_jamming_state,
-		jamming_state,
-	};
+// jamming
+static const ego_st_handler jam_handler[] = {
+	init_state,
+	start_rf_state,
+	jam_cap_state,
+	jam_sleep_state,
+	start_jamming_state,
+	jamming_state,
+};
 #endif
 
-	clkn_start(); // FIXME replace with a different timer
-
+/* The state machine for an E-GO mode, or NULL for a mode this firmware does
+ * not have -- which the request handler refuses, so only a hand-driven board
+ * could ask for one. */
+static const ego_st_handler *ego_handler_for(uint8_t mode) {
 	switch (mode) {
 		case EGO_FOLLOW:
-			handler = follow_handler;
-			break;
+			return follow_handler;
 		case EGO_CONTINUOUS_RX:
-			handler = continuous_rx_handler;
-			break;
+			return continuous_rx_handler;
 #ifdef TX_ENABLE
 		case EGO_JAM:
-			handler = jam_handler;
-			break;
+			return jam_handler;
 #endif
-		default: // should never happen
-			requested_mode = MODE_IDLE;
-			return;
 	}
+	return NULL;
+}
+
+/* Start a state machine from nothing, with the radio stopped: what a mode
+ * start leaves for it. */
+static void ego_fsm_start(ego_fsm_state_t *state) {
+	u32 usb_irq;
+
+	ego_radio_off();
+
+	/*
+	 * Drop what the run that is ending had queued and the host never
+	 * collected. Those packets were captured in that run's mode, and the
+	 * next poll of the queue comes from the next run, which would read them
+	 * as its own. The mode dispatch does this for every mode start it sees;
+	 * a restart it does not see.
+	 *
+	 * Held against the USB interrupt, because the queue is read from there,
+	 * by the poll request: this mode services USB from that interrupt while
+	 * its loop runs.
+	 */
+	usb_irq = usb_irq_hold();
+	usb_queue_init();
+	usb_irq_release(usb_irq);
+
+	memset(state, 0, sizeof(*state));
+	state->state = EGO_ST_INIT;
+}
+
+void ego_main(void) {
+	const ego_st_handler *handler = ego_handler_for(ego_mode);
+	ego_fsm_state_t state = { .state = EGO_ST_INIT };
+
+	if (handler == NULL) {
+		requested_mode = MODE_IDLE;
+		return;
+	}
+
+	clkn_start(); // FIXME replace with a different timer
 
 	ego_init();
 
@@ -477,6 +528,38 @@ void ego_main(ego_mode_t mode) {
 		watchdog_usb_ready();
 		if (requested_mode != MODE_EGO)
 			break;
+
+		/*
+		 * A second UBERTOOTH_EGO request, which asks for the mode this
+		 * loop is already running and so never reaches the mode
+		 * dispatch. A killed ubertooth-ego leaves the board here, so
+		 * that is the request the next run sends: without this, the
+		 * state machine the first run entered carried on and the mode
+		 * the request stored was never read, and an `ubertooth-ego -r`
+		 * after a killed `-f` captured in follow mode.
+		 */
+		if (ego_restart) {
+			const ego_st_handler *restarted;
+
+			/*
+			 * Cleared before the mode is read, and the request
+			 * handler stores the mode before setting this: a
+			 * request arriving in between is then served by one
+			 * more restart rather than lost.
+			 */
+			ego_restart = 0;
+
+			restarted = ego_handler_for(ego_mode);
+			if (restarted == NULL) {
+				/* Going idle leaves the board in the state it
+				 * is actually in. */
+				requested_mode = MODE_IDLE;
+				continue;
+			}
+			handler = restarted;
+			ego_fsm_start(&state);
+		}
+
 		handler[state.state](&state);
 	}
 

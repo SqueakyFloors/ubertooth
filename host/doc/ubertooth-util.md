@@ -733,11 +733,12 @@ wants a clean map after a restart says what it wants of the map once its mode
 is running, rather than before it starts. The channel a capture needs goes the
 same way round, and for the same reason it is stated after the mode request.
 
-One re-send does reset something: a second `ubertooth-ego` run against a board
-still capturing from a killed first run gets the default access code back,
-because that request puts it back itself rather than waiting for a mode start
-that is not coming. It does not change which E-GO mode is running, so stop the
-board first if the run that was killed used another one.
+One re-send is a mode start: a second `ubertooth-ego` request against a board
+still capturing from a killed first run starts the E-GO mode it names, with the
+default access code back and the hopping forgotten, because that request does a
+mode start's work itself rather than waiting for a dispatch that is not coming.
+So `ubertooth-ego -r` after a killed `-f` receives on the one channel it asked
+for, rather than carrying on across the E-GO channel list.
 
 A mode that tunes once reads a late setting a moment later than one that tunes
 on every hop: `ubertooth-ego -r` re-tunes when its channel or access code

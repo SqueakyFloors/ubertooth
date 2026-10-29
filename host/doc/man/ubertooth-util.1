@@ -475,7 +475,7 @@ What is set on an idle board is for the capture that follows, as the squelch is:
 .P
 Re\-sending the mode a board is already running is not a mode start, and resets nothing\. That is what lets a tool restate its mode mid\-session without losing what it is capturing on, as \fBubertooth\-follow\fR does each time it re\-syncs its clock\. A tool cannot tell the board which of the two it is doing, so one that wants a clean map after a restart says what it wants of the map once its mode is running, rather than before it starts\. The channel a capture needs goes the same way round, and for the same reason it is stated after the mode request\.
 .P
-One re\-send does reset something: a second \fBubertooth\-ego\fR run against a board still capturing from a killed first run gets the default access code back, because that request puts it back itself rather than waiting for a mode start that is not coming\. It does not change which E\-GO mode is running, so stop the board first if the run that was killed used another one\.
+One re\-send is a mode start: a second \fBubertooth\-ego\fR request against a board still capturing from a killed first run starts the E\-GO mode it names, with the default access code back and the hopping forgotten, because that request does a mode start's work itself rather than waiting for a dispatch that is not coming\. So \fBubertooth\-ego \-r\fR after a killed \fB\-f\fR receives on the one channel it asked for, rather than carrying on across the E\-GO channel list\.
 .P
 A mode that tunes once reads a late setting a moment later than one that tunes on every hop: \fBubertooth\-ego \-r\fR re\-tunes when its channel or access code arrives after the capture has started, which costs the first millisecond of it\.
 .SH "EXIT STATUS"

@@ -77,6 +77,9 @@ struct request_case {
 	int reset;         /* reset_absorbed_mode_state() in the case, else 0 */
 	char reset_mode[32]; /* the mode it passes */
 	int setup;         /* its first `hop_mode =` or `requested_mode =` */
+	int forget;        /* forget_hop_state() in the case, else 0 */
+	int ego_mode_set;  /* its `ego_mode =` */
+	int restart;       /* its `ego_restart =` */
 };
 
 /* Where each thing the scan looks for was found, 0 if it was not. */
@@ -99,6 +102,7 @@ struct scan {
 	int idle_fn_mode;     /* `mode = ...` inside cc2400_idle() */
 	int idle_fn_request;  /* `requested_mode = ...` inside cc2400_idle() */
 	int idle_fn_clear;    /* usb_queue_init() inside cc2400_idle() */
+	int idle_fn_ego_mode; /* `ego_mode = ...` inside cc2400_idle() */
 	int iir_call;         /* rssi_iir_reset() in the dispatch */
 	int iir_calls;        /* how many */
 	int idle_fn_iir;      /* rssi_iir_reset() inside cc2400_idle() */
@@ -153,7 +157,8 @@ struct scan {
  * one. The handler has far more cases than that. */
 static void keep_request_case(struct scan *s, const struct request_case *rc)
 {
-	if (rc->line == 0 || (rc->mode[0] == '\0' && rc->reset == 0))
+	if (rc->line == 0 || (rc->mode[0] == '\0' && rc->reset == 0 &&
+	                      rc->forget == 0))
 		return;
 	if (s->request_count == MAX_REQUEST_CASES)
 		return;
@@ -413,6 +418,15 @@ static int scan_source(const char *path, struct scan *s)
 					mode_on_line(line, current.reset_mode,
 					             sizeof(current.reset_mode));
 				}
+				if (strstr(line, "forget_hop_state(") != NULL &&
+				    current.forget == 0)
+					current.forget = lineno;
+				if (is_assignment_to(line, "ego_mode") &&
+				    current.ego_mode_set == 0)
+					current.ego_mode_set = lineno;
+				if (is_assignment_to(line, "ego_restart") &&
+				    current.restart == 0)
+					current.restart = lineno;
 				if ((is_assignment_to(line, "hop_mode") ||
 				     is_assignment_to(line, "requested_mode")) &&
 				    current.setup == 0)
@@ -442,6 +456,9 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "usb_queue_init(") != NULL &&
 			    s->idle_fn_clear == 0)
 				s->idle_fn_clear = lineno;
+			if (is_assignment_to(line, "ego_mode") &&
+			    s->idle_fn_ego_mode == 0)
+				s->idle_fn_ego_mode = lineno;
 			if (strstr(line, "rssi_iir_reset(") != NULL &&
 			    s->idle_fn_iir == 0)
 				s->idle_fn_iir = lineno;
@@ -883,6 +900,146 @@ MU_TEST(test_an_absorbed_mode_start_keeps_the_channel_averages)
 }
 
 /*
+ * The E-GO mode request is a mode start the dispatch never sees: ego_main()'s
+ * loop runs while MODE_EGO is the mode asked for, so a second request for it
+ * is absorbed there, the way a running symbol stream absorbs one of its three.
+ * The handler's part is to store the mode, forget the hopping as any mode start
+ * does, and set the flag the loop starts the state machine over on.
+ *
+ * The order matters twice over: the loop reads the mode only after it has seen
+ * the flag, and a reset after the request's own setup would discard what the
+ * request just asked for.
+ */
+MU_TEST(test_the_ego_request_restarts_the_running_mode)
+{
+	char msg[1024];
+	const struct request_case *ego = NULL;
+	int i;
+
+	for (i = 0; i < s.request_count; i++)
+		if (strcmp(s.requests[i].mode, "MODE_EGO") == 0)
+			ego = &s.requests[i];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found no vendor request case asking for MODE_EGO, "
+	         "so the checks below would pass without reading anything", path);
+	mu_assert_fatal(ego != NULL, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: %s does not set ego_restart, so ego_main()'s loop goes "
+	         "on running the state machine the last run entered: an "
+	         "`ubertooth-ego -r` after a killed `-f` captures in follow mode",
+	         path, ego->line, ego->request);
+	mu_assert(ego->restart > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: %s sets ego_restart (line %d) before storing the mode "
+	         "(line %d), so the loop can see the flag and read the mode the "
+	         "run before it asked for", path, ego->line, ego->request,
+	         ego->restart, ego->ego_mode_set);
+	mu_assert(ego->ego_mode_set > 0 && ego->ego_mode_set < ego->restart, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: %s does not call forget_hop_state(), so this mode start "
+	         "-- which never reaches the dispatch -- leaves the hop mode and "
+	         "AFH map of whatever ran before it", path, ego->line,
+	         ego->request);
+	mu_assert(ego->forget > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: %s forgets the hopping at line %d, after its own setup "
+	         "at line %d, so the reset discards what the request just asked "
+	         "for", path, ego->line, ego->request, ego->forget, ego->setup);
+	mu_assert(ego->setup > 0 && ego->forget < ego->setup, msg);
+}
+
+/*
+ * ...and the mode it stored has to survive the teardown of the mode it
+ * replaces. cc2400_idle() used to put ego_mode back to following, and it runs
+ * between the request and the dispatch that reads the mode: after a killed
+ * ubertooth-specan, `ubertooth-ego -r` hopped the E-GO channel list and `-i`
+ * did not interfere. Which E-GO mode to run is part of the request that starts
+ * the mode, not state the mode that is ending left behind.
+ */
+MU_TEST(test_cc2400_idle_does_not_choose_the_ego_mode)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_idle() assigns `ego_mode`, so it overwrites the "
+	         "mode the UBERTOOTH_EGO request that is starting stored",
+	         path, s.idle_fn_ego_mode);
+	mu_assert(s.idle_fn_ego_mode == 0, msg);
+}
+
+/*
+ * The other half of the restart: ego_main()'s loop reads the E-GO mode and the
+ * restart flag inside the loop. The mode used to be read once, on the way in,
+ * which is what made the second request a no-op -- the loop carried on, and
+ * the mode that request stored was never read.
+ */
+MU_TEST(test_the_ego_loop_reads_the_mode_inside_its_loop)
+{
+	const char *ego_path = FW_RXTX_DIR "/ego.c";
+	char line[SCAN_LINE_MAX], msg[640];
+	int lineno = 0, in_block = 0, in_ego_main = 0;
+	int loop_line = 0, mode_read = 0, restart_read = 0, queue_clear = 0;
+	FILE *f = fopen(ego_path, "r");
+
+	snprintf(msg, sizeof(msg), "cannot open %s to scan", ego_path);
+	mu_assert_fatal(f != NULL, msg);
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (strstr(line, "usb_queue_init(") != NULL && queue_clear == 0)
+			queue_clear = lineno;
+		if (!in_ego_main) {
+			if (strstr(line, "void ego_main(") != NULL)
+				in_ego_main = 1;
+			continue;
+		}
+		if (strstr(line, "while (1)") != NULL && loop_line == 0) {
+			loop_line = lineno;
+			continue;
+		}
+		if (loop_line == 0)
+			continue;
+		if (contains_identifier(line, "ego_mode") && mode_read == 0)
+			mode_read = lineno;
+		if (contains_identifier(line, "ego_restart") && restart_read == 0)
+			restart_read = lineno;
+	}
+	fclose(f);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find ego_main()'s `while (1)`, so the "
+	         "checks below would pass without reading anything", ego_path);
+	mu_assert(loop_line > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: ego_main() does not read ego_restart inside its loop (loop "
+	         "at line %d), so a second E-GO request -- which the loop "
+	         "absorbs, because it asks for the mode the loop is already "
+	         "running -- starts nothing", ego_path, loop_line);
+	mu_assert(restart_read > loop_line, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: ego_main() does not read ego_mode inside its loop (loop at "
+	         "line %d), so the state machine is the one the run that entered "
+	         "the loop asked for, whatever a later request stored",
+	         ego_path, loop_line);
+	mu_assert(mode_read > loop_line, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: nothing in ego.c drops what the ending run had queued "
+	         "(usb_queue_init()), so a restart hands the next run packets "
+	         "captured in the mode it replaced -- the drop the dispatch runs "
+	         "for a mode start it sees", ego_path);
+	mu_assert(queue_clear > 0, msg);
+}
+
+/*
  * cc2400_idle() resets the board and decides nothing. It used to end with
  * `mode = MODE_IDLE; requested_mode = MODE_IDLE;`, which dropped a mode
  * request that arrived while the teardown ran -- the host's vendor request had
@@ -1185,12 +1342,13 @@ MU_TEST(test_setting_a_channel_resets_nothing)
 	for (i = 0; i < s.request_count; i++) {
 		const struct request_case *rc = &s.requests[i];
 
-		if (rc->mode[0] != '\0' || rc->reset == 0)
+		if (rc->mode[0] != '\0' || (rc->reset == 0 && rc->forget == 0))
 			continue;
 		snprintf(msg, sizeof(msg),
-		         "%s:%d: %s asks for no mode but calls "
-		         "reset_absorbed_mode_state() at line %d",
-		         path, rc->line, rc->request, rc->reset);
+		         "%s:%d: %s asks for no mode but resets what a mode start "
+		         "resets (reset_absorbed_mode_state() at line %d, "
+		         "forget_hop_state() at line %d)",
+		         path, rc->line, rc->request, rc->reset, rc->forget);
 		mu_assert(0, msg);
 	}
 }
@@ -1247,5 +1405,8 @@ int main(void)
 	MU_RUN(test_the_absorbed_modes_are_the_streamed_modes);
 	MU_RUN(test_an_absorbable_request_resets_before_its_own_setup);
 	MU_RUN(test_setting_a_channel_resets_nothing);
+	MU_RUN(test_the_ego_request_restarts_the_running_mode);
+	MU_RUN(test_cc2400_idle_does_not_choose_the_ego_mode);
+	MU_RUN(test_the_ego_loop_reads_the_mode_inside_its_loop);
 	return mu_report();
 }
