@@ -929,6 +929,41 @@ MU_TEST(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble)
 	mu_assert_int_eq(interrupt_at - USEC(48), buf->timestamp);
 }
 
+/*
+ * A packet carries the access address it was received with, not the one the
+ * engine is about to listen for.
+ *
+ * A connection request is read in the mode's loop, which sets the connection's
+ * access address there and then; the radio goes on listening for the
+ * advertising one until the next hop writes the new sync word. A packet
+ * received in between used to be recorded under the connection's address,
+ * which put advertising packets from other devices into the capture as the
+ * first packets of that connection, before its transmit window had opened.
+ */
+MU_TEST(a_packet_carries_the_access_address_it_was_received_with)
+{
+	le_rx_t *buf;
+
+	start_fresh();
+	le_phy_active = 1;
+	rf_channel = ADV_CHANNEL_MHZ;
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+	buf = current_rxbuf;
+
+	/* A connection request has just been read: the engine holds the
+	 * connection's address, and the radio is still on the advertising one
+	 * because no hop has happened yet. */
+	conn.access_address = 0xdeadbeef;
+
+	fake_dmac_int_stat = 1 << 0;
+	fake_dmac_int_tc_stat = 1 << 0;
+	le_dma_dest[0] = 0x9c;
+	le_dma_interrupt(0x00200000);
+
+	mu_assert_int_eq(ADV_AA, buf->access_address);
+}
+
 /* A queue with no room left loses the packet rather than overwriting one the
  * host has not collected, and says so, which is what the engine's caller
  * would act on if it ever did. */
@@ -2256,6 +2291,7 @@ int main(void)
 	MU_RUN(a_chain_that_does_not_fit_is_not_started);
 	MU_RUN(the_average_rssi_is_the_mean_of_the_samples);
 	MU_RUN(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble);
+	MU_RUN(a_packet_carries_the_access_address_it_was_received_with);
 	MU_RUN(a_full_ring_refuses_the_packet);
 	MU_RUN(a_connection_request_is_accepted_and_scheduled);
 	MU_RUN(a_connections_crc_init_is_reversed_as_a_24_bit_field);

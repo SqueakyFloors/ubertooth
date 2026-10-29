@@ -116,6 +116,19 @@
 
 extern le_state_t le; // FIXME - refactor this struct
 volatile uint16_t rf_channel;
+
+// The access address the radio is synchronized on, which is what the record of
+// a received packet carries.
+//
+// Held apart from conn.access_address because that one changes as soon as a
+// connection request has been read, which happens in the mode's loop, while
+// the radio goes on listening for the old sync word until the next hop writes
+// the new one. A packet received in between was recorded under an access
+// address it had not been received with: advertising packets from other
+// devices turned up in the capture as the first packets of the connection
+// that had just been opened, hundreds of microseconds before its transmit
+// window had even opened.
+static volatile uint32_t le_sync_aa = ADVERTISING_AA;
 uint8_t le_dma_dest[2];
 
 extern volatile uint8_t mode;
@@ -589,7 +602,7 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// header have gone past: 48 us at 1 symbol per microsecond.
 				current_rxbuf->timestamp = timestamp - USEC(8 + 32 + 8);
 				current_rxbuf->channel = rf_channel;
-				current_rxbuf->access_address = conn.access_address;
+				current_rxbuf->access_address = le_sync_aa;
 
 				// data packet received: cancel timeout
 				// new timeout or hop timer will be set at end of packet RX
@@ -721,6 +734,10 @@ static void le_sys_init(void) {
 static void le_cc2400_init_rf(void) {
 	u16 grmdm, mdmctrl;
 	uint32_t sync = rbit(conn.access_address);
+
+	// From here the radio listens for this access address, so this is what
+	// the packets it receives were received with.
+	le_sync_aa = conn.access_address;
 
 	mdmctrl = 0x0040; // 250 kHz frequency deviation
 	grmdm = 0x44E1; // un-buffered mode, packet w/ sync word detection
