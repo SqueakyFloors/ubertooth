@@ -547,11 +547,11 @@
 
 - **Script-visible change:** the `rssi=` figure `ubertooth-btle` prints beside
   a packet is that packet's own level in dBm, the same number the signal field
-  of a `-q` or `-r` capture carries for it. It used to be the weakest of the
-  packet's readings through a rougher approximation, which ran far below the
-  packet's own level: on the bench that reached -96 dBm where the quietest
-  captured packet was -78, so a dump and a capture of one run disagreed by up
-  to 55 dB.
+  of a `-q` or `-r` capture carries for it. It used to be the weakest reading
+  the board reports for the packet, through a rougher approximation, which ran
+  far below the packet's own level: on the bench that reached -96 dBm where the
+  quietest captured packet was -78, so a dump and a capture of one run
+  disagreed by up to 55 dB.
   [#859](https://github.com/SqueakyFloors/ubertooth/issues/859)
 - `ubertooth-btle -p` discovers the access address of the connection it finds,
   instead of inheriting one from an earlier command. A `-t` target set for

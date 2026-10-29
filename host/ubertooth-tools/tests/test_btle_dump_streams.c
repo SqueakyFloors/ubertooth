@@ -386,15 +386,14 @@ static int captured_level(const char* path, unsigned channel)
 }
 
 /* The dump and the capture describe the same packet, so the level they report
- * for it is the same number: the strongest of the readings taken while the
- * packet's symbols were collected, converted to dBm the way the datasheet's
- * curve says.
+ * for it is the same number: the strongest RSSI reading the board reports for
+ * the packet, converted to dBm the way the datasheet's curve says.
  *
- * The readings here are far apart on purpose. The weakest one used to be what
- * the dump printed, and through a cruder conversion, so it sat far below the
- * packet's own level: the two figures disagreed by tens of dB, and anyone
- * comparing a dump against a capture of the same run read that as a receiver
- * fault.
+ * The record's two readings are far apart on purpose. The weakest one used to
+ * be what the dump printed, and through a cruder conversion, so it sat far
+ * below the packet's own level: the two figures disagreed by tens of dB, and
+ * anyone comparing a dump against a capture of the same run read that as a
+ * receiver fault.
  */
 MU_TEST(the_dump_reports_the_level_the_capture_records)
 {
@@ -405,7 +404,7 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	char capture[sizeof(dir) + 16];
 	char out[8192] = "";
 	char err[2048] = "";
-	int level;
+	int level, recorded;
 
 	mu_assert_fatal(ut != NULL, "a handle");
 	mu_assert_fatal(mkdtemp(dir) != NULL, "a directory to write in");
@@ -433,9 +432,10 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 
 	level = printed_level(out);
 	mu_assert(level != INT_MIN, out);
-	mu_assert(captured_level(capture, 39) != INT_MIN,
+	recorded = captured_level(capture, 39);
+	mu_assert(recorded != INT_MIN,
 	          "the capture holds a record to read a level from");
-	mu_assert_int_eq(captured_level(capture, 39), level);
+	mu_assert_int_eq(recorded, level);
 	/* And it is the packet's own level, not the floor of the window: the
 	 * weakest reading through the old approximation would read -94. */
 	mu_assert_int_eq(-28, level);
