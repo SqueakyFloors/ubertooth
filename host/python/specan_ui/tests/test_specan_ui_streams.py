@@ -295,4 +295,27 @@ result = run([], no_gui)
 assert result.returncode != 0, result
 assert "numpy is not installed here" in result.stderr, result
 
+# The same with numpy left alone and only the Qt binding shadowed, which is
+# the case the design is for: a Qt binding that is missing or broken is what
+# a user would be asking -V about. numpy is imported first, so the case
+# above never reaches the Qt binding at all.
+WITHOUT_QT = os.path.join(VERSION_WORK.name, "no-qt")
+os.mkdir(WITHOUT_QT)
+os.mkdir(os.path.join(WITHOUT_QT, "qtpy"))
+with open(os.path.join(WITHOUT_QT, "qtpy", "__init__.py"), "w") as refused:
+    refused.write('raise ImportError("no Qt binding is installed here")\n')
+
+no_qt = dict(no_gui,
+             PYTHONPATH=os.pathsep.join([WITHOUT_QT,
+                                         ENVIRONMENT["PYTHONPATH"]]))
+
+result = run(["-V"], no_qt)
+assert result.returncode == 0, result
+assert result.stdout == ANSWER, result
+assert "ImportError" not in result.stderr, result
+
+result = run([], no_qt)
+assert result.returncode != 0, result
+assert "no Qt binding is installed here" in result.stderr, result
+
 print("ubertooth-specan-ui: -V, -h and the refusals need no Qt binding")

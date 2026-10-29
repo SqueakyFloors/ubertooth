@@ -47,7 +47,7 @@ frequency offset, written to the radio's \fBMOD_OFFSET\fR register\. Sent to the
 how many bit errors a received access code may have and still count as a match\. A higher value finds more packets and more noise\.
 .TP
 \fB\-V\fR
-print the version and end the command: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. This tool answers it by running ubertooth\-util(1) \fB\-V\fR, so that tool has to be on the \fBPATH\fR, and is reported as \fBerror: could not run ubertooth\-util: No such file or directory\fR when it is not\. No \fBbtbr\fR firmware is needed for it: the version is read from whatever image the board is carrying\.
+print the version and end the command: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. This tool answers it by running ubertooth\-util(1) \fB\-V\fR, so that tool has to be on the \fBPATH\fR, and is reported as \fBerror: could not run ubertooth\-util: No such file or directory\fR when it is not\. No \fBbtbr\fR firmware is needed for it: the version is read from whatever image the board is carrying\. Like every other call of this tool, it needs the Python \fBlibusb1\fR package installed, even though the version itself is read without it
 .TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.

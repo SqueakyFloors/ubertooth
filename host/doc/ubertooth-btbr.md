@@ -66,7 +66,9 @@ one `btbr` was flashed onto.
    ubertooth-util(1) `-V`, so that tool has to be on the `PATH`, and is
    reported as `error: could not run ubertooth-util: No such file or
    directory` when it is not. No `btbr` firmware is needed for it: the
-   version is read from whatever image the board is carrying.
+   version is read from whatever image the board is carrying. Like every
+   other call of this tool, it needs the Python `libusb1` package installed,
+   even though the version itself is read without it
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
