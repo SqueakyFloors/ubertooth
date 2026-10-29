@@ -389,21 +389,29 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	mu_assert(text[0] == '\0', text);
 }
 
-MU_TEST(range_result_needs_all_5_bytes)
+MU_TEST(range_result_needs_all_6_bytes)
 {
 	rangetest_result rr;
 
-	script(5, 0);
+	/* A distinct value per field, so a read that took them from the wrong
+	 * offsets does not pass. */
+	script(6, 0);
 	fake.reply[0] = 1;
 	fake.reply[1] = 7;
+	fake.reply[2] = 9;
+	fake.reply[3] = 4;
 	fake.reply[4] = 3;
+	fake.reply[5] = 11;
 	mu_assert_int_eq(0, cmd_get_rangeresult(NULL, &rr));
 	mu_assert_int_eq(1, rr.valid);
 	mu_assert_int_eq(7, rr.request_pa);
+	mu_assert_int_eq(9, rr.request_num);
+	mu_assert_int_eq(4, rr.reply_pa);
 	mu_assert_int_eq(3, rr.reply_num);
+	mu_assert_int_eq(11, rr.discarded);
 
 	memset(&rr, 0x5a, sizeof(rr));
-	script(4, 0x11);
+	script(5, 0x11);
 	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_get_rangeresult(NULL, &rr));
 	mu_assert_int_eq(0x5a, rr.valid); /* left untouched */
 }
@@ -419,7 +427,7 @@ MU_TEST(the_polled_reads_report_nothing)
 	watchdog_info info;
 	char text[512];
 
-	script(5, 0);
+	script(6, 0);
 	fake.reply[0] = 1;
 	fake.reply[2] = 9;
 	mu_assert_int_eq(0, cmd_get_rangeresult_quiet(NULL, &rr));
@@ -630,7 +638,7 @@ MU_TEST(no_read_writes_to_standard_output)
 	(void)cmd_get_squelch(NULL);
 	script(17, 0);
 	(void)cmd_get_serial(NULL, serial);
-	script(5, 0);
+	script(6, 0);
 	(void)cmd_get_rangeresult(NULL, &rr);
 	/* and the same reads when the reply is too short to use */
 	script(0, 0);
@@ -883,7 +891,7 @@ int main(void)
 	MU_RUN(one_byte_reads_pass_libusb_errors_through);
 	MU_RUN(channel_needs_both_bytes);
 	MU_RUN(serial_needs_all_17_bytes);
-	MU_RUN(range_result_needs_all_5_bytes);
+	MU_RUN(range_result_needs_all_6_bytes);
 	MU_RUN(watchdog_state_needs_the_whole_reply);
 	MU_RUN(radio_timeouts_are_read_little_endian);
 	MU_RUN(the_polled_reads_report_nothing);

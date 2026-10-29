@@ -592,8 +592,22 @@ During the range test the sender transmits 16 packets at each of the power
 amplifier levels 0 to 7, from the lowest, and then listens for the repeater to
 send the same packet back the same way. The repeater answers the first request
 it decodes, so each direction is measured by the weakest transmission that got
-through it. Both ends take only a packet whose CRC is good, and the sender also
-checks that the payload it gets back is the one it sent.
+through it.
+
+Both ends take only a packet whose CRC is good, and both then check that it
+belongs to this exchange. The repeater answers requests and not replies, so
+two repeaters in range of each other cannot answer each other. The sender
+takes only a reply carrying its own serial number -- bytes 2 to 17 of the
+payload -- and ignores anything else on the channel — a second pair running a range test, or a stray packet the
+radio's CRC happened to accept — rather than ending the run on it. The first
+packet it ignores is named once per run on standard error, and the test goes
+on:
+
+    warning: range test: a packet that is not this board's reply was ignored (first difference at byte 2)
+
+The run still finishes and reports its result, and the warning does not change
+the exit status. `-m` does not report it: only `-n`, which follows the run, can
+tell which run a discarded packet belongs to.
 
 `-n` follows the test to its end. While it runs it prints a line about once a
 second, so a test that is waiting looks different from one that has finished:
@@ -692,8 +706,9 @@ yet, which is not a failure. A test that ran but whose packets came back
 corrupted has no result to report either, so it is a diagnostic rather than a
 value, from `-n` as from `-m`: `error: invalid range test: mismatch on byte
 <n>` on standard error, with exit status 1 and no result line on standard
-output. That means a reply arrived whose payload is not the one that was sent,
-so the levels it carries cannot be trusted. (`-m` writes nothing at all to
+output. That means this board's own reply came back corrupted, so the levels
+it carries cannot be trusted; somebody else's packet is discarded with the
+warning above instead. (`-m` writes nothing at all to
 standard output there; `-n` has already printed the progress lines of the test
 it was watching.)
 

@@ -237,6 +237,37 @@ static void rangetest_radio_off(void)
 	USRLED_CLR;
 }
 
+/*
+ * Whether a packet the radio's CRC accepted came from another board, and if it
+ * did, which byte says so.
+ *
+ * Bytes 2 to 17 of the payload are the sender's 16-byte serial number, and the
+ * repeater copies them into its reply, so they are what says a packet belongs
+ * to this exchange. A packet carrying someone else's serial number is a second
+ * pair's range test on the same channel, or a stray packet the CRC happened to
+ * accept: the radio's CRC_OK flag says the payload is self consistent, not
+ * that it came from the repeater this test is talking to.
+ *
+ * Nothing else is part of this. The length and type bytes before the serial
+ * number, and the levels after it, are checked once the packet has been taken
+ * as the reply -- a packet with this board's serial number is this test's
+ * answer, and a wrong byte in it means that answer arrived corrupted, which is
+ * reported as a mismatch rather than discarded. That is the diagnosis a FIFO
+ * read that started a byte early was found with.
+ *
+ * Returns -1 when the packet is this board's, otherwise the index of the first
+ * serial-number byte that is not.
+ */
+static int rangetest_foreign_packet(const u8 *rxbuf, const u8 *expected)
+{
+	int i;
+
+	for (i = 2; i < 18; i++)
+		if (rxbuf[i] != expected[i])
+			return i;
+	return -1;
+}
+
 void cc2400_rangetest(volatile u16 *chan_ptr)
 {
 	u32 command[5];
@@ -256,6 +287,8 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	 * serial-number read below failing and returning early.
 	 */
 	rr.valid = 0;
+	/* What this run discarded, for the same reason: it describes this run. */
+	rr.discarded = 0;
 
 	txbuf[0] = len - 1; // length of data (rest of payload)
 	txbuf[1] = 0; // request
@@ -336,6 +369,10 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, service_usb);
 	RXLED_SET;
+	/* txbuf becomes the reply this test is listening for: the same payload
+	 * with the type byte the repeater sends back. Bytes 18 to 21 carry the
+	 * levels and numbers each side fills in, and are not compared. */
+	txbuf[1] = 1;
 	/* A time base for the wait before each FIFO read, as the repeater starts
 	 * one for its turnaround delay. Started here rather than on the way into
 	 * the mode, so the timer's interrupt does not run through the transmit
@@ -365,10 +402,26 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 		 * ends returns a byte 0 the radio has not written yet. */
 		rangetest_wait_for_fifo();
 		cc2400_fifo_read(len, rxbuf);
-		if (cc2400_status() & STATUS_CRC_OK)
-			got_reply = 1;
-		else
+		if (cc2400_status() & STATUS_CRC_OK) {
+			int differs = rangetest_foreign_packet(rxbuf, txbuf);
+
+			if (differs < 0) {
+				got_reply = 1;
+			} else {
+				/*
+				 * Somebody else's packet. Keep listening rather
+				 * than end the run on it: another pair's range
+				 * test on this channel is not a fault in this
+				 * one. The first such packet is recorded for
+				 * the host to mention once.
+				 */
+				if (rr.discarded == 0)
+					rr.discarded = 2 + differs;
+				USRLED_CLR;
+			}
+		} else {
 			USRLED_CLR;
+		}
 	}
 
 	// done
@@ -383,6 +436,12 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	 * otherwise report an older test's answer as this one's.
 	 */
 	if (!got_reply) {
+		/* What it discarded goes first, because an empty result is what
+		 * tells the host its record now describes the run it is
+		 * watching: a read landing between the two stores would take
+		 * this run's discarded packet for that one's. The host has
+		 * already had this one from its polls. */
+		rr.discarded = 0;
 		rr.valid = 0;
 		return;
 	}
@@ -394,8 +453,14 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	rr.reply_pa    = rxbuf[20];
 	rr.reply_num   = rxbuf[21];
 
-	// make sure rx packet is as expected
-	txbuf[1] = 1; // expected value in rxbuf
+	/*
+	 * Make sure the reply is as expected. The serial number matched already
+	 * -- that is how this packet was taken as the reply -- so what is left
+	 * for this to catch is a wrong length or type byte, which says this
+	 * board's own reply arrived corrupted. The whole range is still
+	 * compared, so the check does not depend on which bytes the filter
+	 * above happens to cover.
+	 */
 	for (i = 0; i < 18; i++)
 		if (rxbuf[i] != txbuf[i])
 			rr.valid = 2 + i;
@@ -479,7 +544,14 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 			 * serial number, which this read copies into that reply. */
 			rangetest_wait_for_fifo();
 			cc2400_fifo_read(len, buf);
-			if (cc2400_status() & STATUS_CRC_OK)
+			/*
+			 * Only a request is answered. Byte 1 is the packet type,
+			 * 0 for a request and 1 for a reply, and a repeater that
+			 * answered a reply would answer another repeater -- and
+			 * that one would answer back, the two of them repeating
+			 * each other on the channel the sender is listening on.
+			 */
+			if ((cc2400_status() & STATUS_CRC_OK) && buf[1] == 0)
 				got_request = 1;
 		}
 		if (!got_request)

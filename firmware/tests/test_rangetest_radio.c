@@ -84,6 +84,27 @@ struct scan {
 	int repeater_sync_poll;  /* the same three in the repeater */
 	int repeater_wait;
 	int repeater_clkn;
+
+	/* What each side does with a packet its CRC accepted: the sender asks
+	 * whether the packet is its own reply, and the repeater whether the
+	 * packet is a request. */
+	int filter_fn;           /* rangetest_foreign_packet() definition */
+	int filter_fn_first;     /* the first payload byte it compares */
+	int filter_fn_last;      /* and one past the last */
+	int rangetest_crc;       /* the sender's CRC_OK check */
+	int rangetest_filter;    /* its call to the filter */
+	int rangetest_test;      /* where it reads the filter's answer */
+	int rangetest_accept;    /* and where it takes the packet as the reply */
+	int rangetest_discard;   /* where it records the discarded packet */
+	int rangetest_type_flip; /* `txbuf[1] = 1`, the reply's type byte */
+	int filter_fn_return;    /* the filter returns the byte index it found */
+	int rangetest_first_only; /* only the first discarded packet is recorded */
+	/* The exit that reports no result: where it clears the result, and where
+	 * it clears the record of what was discarded. */
+	int rangetest_valid_clear_late;
+	int rangetest_discard_clear_late;
+	int repeater_crc;        /* the repeater's CRC_OK check */
+	int repeater_type;       /* the type byte on the same line */
 };
 
 /* What the scan of firmware/common/ubertooth.c records. */
@@ -182,7 +203,7 @@ static int scan_source(const char *path, struct scan *s)
 	char line[512];
 	int lineno = 0, in_block = 0;
 	int in_rangetest = 0, in_repeater = 0, in_turnaround = 0;
-	int in_fifo_wait = 0;
+	int in_fifo_wait = 0, in_filter = 0;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -201,7 +222,8 @@ static int scan_source(const char *path, struct scan *s)
 		 * checks on the turnaround wait by accident.
 		 */
 		if (is_function_definition(line))
-			in_rangetest = in_repeater = in_turnaround = in_fifo_wait = 0;
+			in_rangetest = in_repeater = in_turnaround = in_fifo_wait =
+			    in_filter = 0;
 
 		if (strstr(line, "repeater_turnaround(void)") != NULL) {
 			s->turnaround_fn = lineno;
@@ -211,6 +233,12 @@ static int scan_source(const char *path, struct scan *s)
 		if (strstr(line, "rangetest_wait_for_fifo(void)") != NULL) {
 			s->fifo_wait_fn = lineno;
 			in_fifo_wait = 1;
+			continue;
+		}
+		if (strstr(line, "rangetest_foreign_packet(") != NULL &&
+		    strchr(line, ';') == NULL && s->filter_fn == 0) {
+			s->filter_fn = lineno;
+			in_filter = 1;
 			continue;
 		}
 		if (strstr(line, "void cc2400_rangetest(") != NULL) {
@@ -298,6 +326,29 @@ static int scan_source(const char *path, struct scan *s)
 			}
 		}
 
+		/*
+		 * The range the filter compares, as two numbers. It must start
+		 * at byte 1 and not at 0: byte 0 is the length, and a reply that
+		 * is this board's but whose length byte is wrong is this test's
+		 * answer arriving corrupted, which the caller reports rather
+		 * than discards.
+		 */
+		/* The index it returns, pinned as written: nothing here runs the
+		 * function, and `return 1;` compiles, still looks like a byte
+		 * number, and makes every warning name the same byte. */
+		if (in_filter && strstr(line, "return i;") != NULL &&
+		    s->filter_fn_return == 0)
+			s->filter_fn_return = lineno;
+		if (in_filter && strstr(line, "for (i =") != NULL &&
+		    s->filter_fn_first == 0) {
+			int first = -1, last = -1;
+
+			if (sscanf(line, " for (i = %d; i < %d", &first, &last) == 2) {
+				s->filter_fn_first = first;
+				s->filter_fn_last = last;
+			}
+		}
+
 		if (in_turnaround) {
 			if (contains_identifier(line, "clkn"))
 				s->turnaround_clkn = 1;
@@ -336,6 +387,14 @@ static int scan_source(const char *path, struct scan *s)
 			if (is_assignment_of(line, "rr.valid", "0") && s->iap_read == 0 &&
 			    s->rr_cleared_early == 0)
 				s->rr_cleared_early = lineno;
+			/* The same two writes on the exit that reports no result,
+			 * which is the one after the serial-number read. */
+			if (is_assignment_of(line, "rr.valid", "0") && s->iap_read > 0 &&
+			    s->rangetest_valid_clear_late == 0)
+				s->rangetest_valid_clear_late = lineno;
+			if (is_assignment_of(line, "rr.discarded", "0") &&
+			    s->iap_read > 0 && s->rangetest_discard_clear_late == 0)
+				s->rangetest_discard_clear_late = lineno;
 		}
 
 		if (in_repeater && contains_identifier(line, "repeater_turnaround") &&
@@ -389,6 +448,55 @@ static int scan_source(const char *path, struct scan *s)
 			if (in_repeater && s->repeater_clkn == 0)
 				s->repeater_clkn = lineno;
 		}
+
+		/*
+		 * Where each side decides that a packet its CRC accepted is one
+		 * of its own. Without this, the sender took any such packet as
+		 * the repeater's reply and ended the run as a mismatch, and the
+		 * repeater answered a reply as readily as a request -- so two
+		 * repeaters in range answered each other.
+		 */
+		if (contains_identifier(line, "STATUS_CRC_OK")) {
+			if (in_rangetest && s->rangetest_crc == 0)
+				s->rangetest_crc = lineno;
+			if (in_repeater && s->repeater_crc == 0) {
+				s->repeater_crc = lineno;
+				/* The type byte has to be read on the same line:
+				 * it is the condition for taking the packet, not
+				 * a check made after taking it. */
+				if (strstr(line, "buf[1]") != NULL)
+					s->repeater_type = lineno;
+			}
+		}
+		if (in_rangetest && calls_identifier(line, "rangetest_foreign_packet") &&
+		    s->rangetest_filter == 0)
+			s->rangetest_filter = lineno;
+		/* Its answer, and the one place the packet is taken as the
+		 * reply: a receive loop that called the filter, recorded a
+		 * discard and took the packet anyway would satisfy the two
+		 * above on their own. */
+		if (in_rangetest && contains_identifier(line, "differs") &&
+		    !is_assignment_to(line, "differs") && s->rangetest_test == 0)
+			s->rangetest_test = lineno;
+		if (in_rangetest && is_assignment_of(line, "got_reply", "1") &&
+		    s->rangetest_accept == 0)
+			s->rangetest_accept = lineno;
+		/* Where the expected payload becomes the reply rather than the
+		 * request, which the filter compares against. */
+		if (in_rangetest && is_assignment_of(line, "txbuf[1]", "1") &&
+		    s->rangetest_type_flip == 0)
+			s->rangetest_type_flip = lineno;
+		/* Only the first discarded packet of a run is kept, which is what
+		 * the host reports: without the guard the warning would name the
+		 * last one instead, and the header says the first. */
+		if (in_rangetest && strstr(line, "rr.discarded == 0") != NULL &&
+		    s->rangetest_first_only == 0)
+			s->rangetest_first_only = lineno;
+		/* Where it records one, not the clear on the way in. */
+		if (in_rangetest && is_assignment_to(line, "rr.discarded") &&
+		    !is_assignment_of(line, "rr.discarded", "0") &&
+		    s->rangetest_discard == 0)
+			s->rangetest_discard = lineno;
 
 		/* The SRFOFF that ends the repeater's receive, which has to come
 		 * before the delay rather than after it. */
@@ -786,6 +894,163 @@ MU_TEST(test_the_result_is_cleared_before_the_test_can_return_early)
  * nothing in the FIFO, and a read at that clock speed returns the wrong
  * bytes.
  */
+/*
+ * Each side takes only a packet of its own exchange.
+ *
+ * The radio's CRC_OK flag says a packet is self consistent, not that it came
+ * from the other end of this test. Taking any packet it accepted cost both
+ * sides something: the sender reported another pair's range test, or a stray
+ * packet, as `invalid range test: mismatch on byte <n>` and ended the run,
+ * and the repeater answered a reply as readily as a request, so two repeaters
+ * in range of each other could answer each other.
+ */
+MU_TEST(test_each_side_takes_only_its_own_packets)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the sender's CRC check, so the "
+	         "checks below would pass without reading anything", path);
+	mu_assert_fatal(s.rangetest_crc > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the sender does not call rangetest_foreign_packet(), so "
+	         "any packet its CRC accepted is taken as the repeater's reply",
+	         path, s.rangetest_crc);
+	mu_assert_fatal(s.rangetest_filter > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the sender does not record what it discarded in "
+	         "rr.discarded, so a run that ignored somebody else's packet "
+	         "says nothing about it",
+	         path, s.rangetest_filter);
+	mu_assert(s.rangetest_discard > s.rangetest_filter, msg);
+
+	/* And the answer decides. A loop that called the filter, recorded the
+	 * discard and then took the packet anyway would pass the two checks
+	 * above and change nothing on the air. */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the filter's answer is not read between the call at "
+	         "line %d and `got_reply = 1` at line %d, so nothing says the "
+	         "answer decides whether the packet is taken",
+	         path, s.rangetest_filter, s.rangetest_filter, s.rangetest_accept);
+	mu_assert(s.rangetest_test > s.rangetest_filter &&
+	          s.rangetest_accept > s.rangetest_test, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the repeater's CRC check", path);
+	mu_assert_fatal(s.repeater_crc > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the repeater takes a packet without reading its type "
+	         "byte on the same line, so it can answer another repeater's "
+	         "reply", path, s.repeater_crc);
+	mu_assert(s.repeater_type == s.repeater_crc, msg);
+}
+
+/*
+ * And the sender's filter asks one question: is this packet's serial number
+ * mine?
+ *
+ * Bytes 2 to 17 are the serial number. The bytes around it -- the length and
+ * type before it, the levels after it -- are not part of the question: a
+ * packet carrying this board's serial number is this test's own answer, and a
+ * wrong byte in it says that answer arrived corrupted, which the full
+ * comparison afterwards reports as a mismatch. A filter that took those bytes
+ * in as well would discard a corrupted reply instead, and leave the run
+ * waiting with nothing said.
+ *
+ * The expected payload has to carry the reply's type byte by the time the
+ * filter runs, which is why the last check is about where that byte is
+ * written: after the request burst has gone out with the request's type, and
+ * before the receive loop reads the answer.
+ */
+MU_TEST(test_the_filter_asks_only_about_the_serial_number)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find rangetest_foreign_packet()'s "
+	         "definition", path);
+	mu_assert_fatal(s.filter_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the filter compares from byte %d, not from byte 2: the "
+	         "serial number starts there, and a corrupted length or type in "
+	         "this board's own reply has to be reported and not discarded",
+	         path, s.filter_fn, s.filter_fn_first);
+	mu_assert(s.filter_fn_first == 2, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the filter compares up to byte %d; the 16-byte serial "
+	         "number ends at 18, and bytes 18 to 21 carry the levels each "
+	         "side fills in",
+	         path, s.filter_fn, s.filter_fn_last);
+	mu_assert(s.filter_fn_last == 18, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the filter does not return the index it found, so every "
+	         "warning would name the same byte whichever one differed",
+	         path, s.filter_fn);
+	mu_assert(s.filter_fn_return > s.filter_fn, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the discard is recorded without asking whether one is "
+	         "recorded already, so a run would report the last packet it "
+	         "ignored where the host reports the first",
+	         path, s.rangetest_discard);
+	mu_assert(s.rangetest_first_only > 0 &&
+	          s.rangetest_first_only < s.rangetest_discard, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find `txbuf[1] = 1`, which turns the "
+	         "request that was sent into the reply the filter looks for",
+	         path);
+	mu_assert_fatal(s.rangetest_type_flip > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the reply's type byte is written at line %d, which is "
+	         "not between the request burst's FIFO write at line %d and the "
+	         "filter at line %d: written earlier the burst goes out as a "
+	         "reply, which the repeater now ignores, and written later the "
+	         "filter compares against the request's type byte",
+	         path, s.rangetest_type_flip, s.rangetest_type_flip,
+	         s.rangetest_fifo_write, s.rangetest_filter);
+	mu_assert(s.rangetest_type_flip > s.rangetest_fifo_write &&
+	          s.rangetest_type_flip < s.rangetest_filter, msg);
+}
+
+/*
+ * A run that ends without a reply reports neither a result nor a discard, and
+ * clears them in that order.
+ *
+ * `ubertooth-util -n` tells this run's discard from the run before it by
+ * waiting for an empty result first, so the two have to be cleared together --
+ * a run stopped after it had discarded somebody else's packet would otherwise
+ * leave that record for a poll of the next run to read as its own. The
+ * discard goes first for the same reason: an empty result is what tells the
+ * host the record describes the run it is watching, so a read landing between
+ * the two stores would take this run's discard for that one's.
+ */
+MU_TEST(test_a_run_without_a_reply_clears_what_it_discarded_first)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the `rr.valid = 0` on the exit that "
+	         "reports no result", path);
+	mu_assert_fatal(s.rangetest_valid_clear_late > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: that exit does not clear `rr.discarded` before the "
+	         "result at line %d, so a read in between takes this run's "
+	         "discarded packet for the next run's",
+	         path, s.rangetest_discard_clear_late, s.rangetest_valid_clear_late);
+	mu_assert(s.rangetest_discard_clear_late > 0 &&
+	          s.rangetest_discard_clear_late < s.rangetest_valid_clear_late,
+	          msg);
+}
+
 MU_TEST(test_the_fifo_is_reached_through_the_helpers)
 {
 	char msg[768];
@@ -1360,6 +1625,9 @@ int main(void)
 	MU_RUN(test_the_repeater_stops_receiving_before_it_waits);
 	MU_RUN(test_the_result_is_cleared_before_the_test_can_return_early);
 	MU_RUN(test_the_fifo_is_reached_through_the_helpers);
+	MU_RUN(test_each_side_takes_only_its_own_packets);
+	MU_RUN(test_a_run_without_a_reply_clears_what_it_discarded_first);
+	MU_RUN(test_the_filter_asks_only_about_the_serial_number);
 	MU_RUN(test_the_read_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_wait_is_a_few_bytes_of_air_time);
 	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);

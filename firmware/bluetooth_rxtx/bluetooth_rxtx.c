@@ -403,6 +403,10 @@ static void reset_absorbed_mode_state(uint8_t requested)
 	forget_hop_state();
 }
 
+/* Declared here because the request handler calls it; defined with the rest of
+ * the copy below, where what it drops is explained. */
+static void drop_kept_settings(uint8_t requested);
+
 /*
  * Tune to a channel, or sweep the band, as UBERTOOTH_SET_CHANNEL asks.
  *
@@ -564,6 +568,99 @@ static void apply_stated_settings(uint8_t starting_mode)
 }
 
 /*
+ * What the host stated *before* its mode request, kept for the mode that
+ * request starts.
+ *
+ * Two settings are sent in that order rather than after the request: the jam
+ * mode, which ubertooth-btle sends for -j, and the modulation, which
+ * ubertooth-dump sends for -l. A mode start puts both back to their defaults,
+ * no jamming and Basic Rate, so on a board left in a mode by a killed tool
+ * they were thrown away -- after the request carrying them had been answered.
+ * `ubertooth-btle -f -j` then followed the connection and never jammed, and
+ * `ubertooth-dump -l` wrote Basic Rate records, neither of them saying so.
+ *
+ * So each of the two requests leaves a copy, and the dispatch applies it again
+ * after the reset: the shape the settings stated after a mode request use
+ * above, with the difference that these name no mode, because the request that
+ * names one has not arrived yet.
+ *
+ * The mode request that follows is as far as a copy reaches, and it is dropped
+ * there whether it was used or not, so a run that stated a setting cannot
+ * reach a later run -- the carry-over the reset exists to prevent.
+ *
+ * Which mode that is, the copy cannot say, because the request that names one
+ * has not arrived yet, so the drop happens in both places a mode request can
+ * end up. One that starts a mode reaches the dispatch, which applies the copy
+ * after the reset and clears it (apply_kept_settings()). One the running loop
+ * absorbs never gets there, and needs no copy either -- no reset runs, so the
+ * value the host set is already in force -- so each of the requests that can
+ * be absorbed drops it instead (drop_kept_settings()).
+ *
+ * What is left is a tool killed between the setting and its own mode request,
+ * which leaves a copy for the next mode start; closing that would need the
+ * tools to state these after their mode request, as they do the channel.
+ *
+ * Nothing is kept while the board is idle: a mode starting from idle runs no
+ * teardown, so the value the host just set already survives.
+ */
+#define KEEP_JAM_MODE   (1 << 0)
+#define KEEP_MODULATION (1 << 1)
+
+static volatile uint8_t keep_what;        /* KEEP_* bits, 0 for nothing */
+static volatile uint8_t keep_jam_mode;
+static volatile uint8_t keep_modulation;
+
+/* Keep what the request has just set, for the mode start it comes before. */
+static void keep_for_next_mode_start(uint8_t what)
+{
+	if (mode == MODE_IDLE)
+		return;
+	if (what & KEEP_JAM_MODE)
+		keep_jam_mode = jam_mode;
+	if (what & KEEP_MODULATION)
+		keep_modulation = modulation;
+	keep_what |= what;
+}
+
+/*
+ * Drop a copy for a mode request the running loop absorbs.
+ *
+ * No mode start follows such a request, so the reset that would have thrown
+ * the setting away does not run and the live value stands on its own. Keeping
+ * the copy would leave it waiting for whatever mode starts next, which is a
+ * run the host has moved on from.
+ */
+static void drop_kept_settings(uint8_t requested)
+{
+	if (requested == mode)
+		keep_what = 0;
+}
+
+/*
+ * Put back what was stated before the mode request, and forget it.
+ *
+ * Called from the dispatch after the reset and before the mode's own setup,
+ * which still wins: the two low-energy modes set their own modulation there.
+ *
+ * A stop keeps nothing. It ends the run the setting was stated for, and a
+ * value left on an idle board would reach the next mode whatever that mode
+ * asked for, because a mode starting from idle runs no reset of its own.
+ */
+static void apply_kept_settings(uint8_t starting_mode)
+{
+	uint8_t what = keep_what;
+
+	keep_what = 0;
+
+	if (starting_mode == MODE_IDLE)
+		return;
+	if (what & KEEP_JAM_MODE)
+		jam_mode = keep_jam_mode;
+	if (what & KEEP_MODULATION)
+		modulation = keep_modulation;
+}
+
+/*
  * Returning 0 stalls the request. `data` is the buffer the USB stack filled
  * from the request's data stage and `data_in_len` how many bytes the host
  * actually sent with it, so a case that reads `data` refuses a request
@@ -594,6 +691,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		/* A plain symbol capture sets nothing up of its own, so this is
 		 * all that keeps it from inheriting a running stream's hopping. */
 		reset_absorbed_mode_state(MODE_RX_SYMBOLS);
+		drop_kept_settings(MODE_RX_SYMBOLS);
 		requested_mode = MODE_RX_SYMBOLS;
 		*data_len = 0;
 		break;
@@ -725,7 +823,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		data[2] = rr.request_num;
 		data[3] = rr.reply_pa;
 		data[4] = rr.reply_num;
-		*data_len = 5;
+		data[5] = rr.discarded;
+		*data_len = UBERTOOTH_RANGE_RESULT_LEN;
 		break;
 
 	case UBERTOOTH_STOP:
@@ -753,6 +852,10 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		    request_params[0] != MOD_BT_LOW_ENERGY)
 			return 0;
 		modulation = request_params[0];
+		/* ubertooth-dump sends this before its mode request, so the
+		 * mode start would otherwise reset it; see
+		 * keep_for_next_mode_start(). */
+		keep_for_next_mode_start(KEEP_MODULATION);
 		break;
 
 	case UBERTOOTH_GET_CHANNEL:
@@ -1062,6 +1165,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 
 		do_hop = 0;
 		hop_mode = HOP_BTLE;
+		drop_kept_settings(MODE_BT_FOLLOW_LE);
 		requested_mode = MODE_BT_FOLLOW_LE;
 
 		usb_queue_init();
@@ -1111,6 +1215,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		*data_len = 0;
 
 		hop_mode = HOP_NONE;
+		drop_kept_settings(MODE_BT_PROMISC_LE);
 		requested_mode = MODE_BT_PROMISC_LE;
 
 		usb_queue_init();
@@ -1178,6 +1283,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (data_in_len < 6)
 			return 0;
 		memcpy(slave_mac_address, data, 6);
+		drop_kept_settings(MODE_BT_SLAVE_LE);
 		requested_mode = MODE_BT_SLAVE_LE;
 		break;
 #endif
@@ -1243,6 +1349,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #ifdef TX_ENABLE
 	case UBERTOOTH_JAM_MODE:
 		jam_mode = request_params[0];
+		/* ubertooth-btle sends this before its mode request too. */
+		keep_for_next_mode_start(KEEP_JAM_MODE);
 		break;
 #endif
 
@@ -4268,10 +4376,10 @@ int main()
 		 * and no reset ran at all; and an unknown request kept `mode`
 		 * unchanged forever, spinning this loop at full rate.
 		 *
-		 * Put back what the host stated after this mode's request too, which
-		 * the reset above would otherwise have thrown away. After `mode`,
-		 * because a channel request reads it, and before the cases below,
-		 * whose own setup wins.
+		 * Put back what the host stated for this mode -- before its request
+		 * or after it -- which the reset above would otherwise have thrown
+		 * away. After `mode`, because a channel request reads it, and
+		 * before the cases below, whose own setup wins.
 		 *
 		 * Both with the USB interrupt held off, as the queue clear above is,
 		 * and against the same kind of race: the two requests that state a
@@ -4284,6 +4392,7 @@ int main()
 		 */
 		usb_irq = usb_irq_hold();
 		mode = next_mode;
+		apply_kept_settings(next_mode);
 		apply_stated_settings(next_mode);
 		usb_irq_release(usb_irq);
 
