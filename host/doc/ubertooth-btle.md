@@ -388,6 +388,20 @@ the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-k` and
 standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.
 
+The `rssi=` figure on each packet's `systime=` line is that packet's own level
+in dBm: the strongest RSSI reading the board reports for the packet, through a
+piecewise-linear model of the CC2400 datasheet's RSSI curve. It is the same
+number the signal field of a `-q` or `-r` capture carries for that packet, so a
+dump and a capture of one run agree. A `-c` PPI capture carries the board's raw
+counts instead, which are not dBm. The model has ends, so `rssi=0` means "at
+least this loud" and `rssi=-120` means "no louder than this".
+
+Earlier releases printed the weakest reading the board reports for the packet
+instead, through a rougher approximation. That figure ran far below the
+packet's own level: on the bench it reached -96 dBm where the quietest packet
+the capture recorded was -78, and a dump and a capture of the same run
+disagreed by as much as 90 dB on an individual packet.
+
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
 answering during a capture, `error: jamming not supported by this firmware`,
@@ -420,6 +434,18 @@ Nothing says which packets are missing, so a capture with gaps is complete
 only between them. The board reports a gap on the first packet that gets
 through after it, so a capture that ends in the moment after a gap does not
 report that last one.
+
+A capture transfer error is reported the same way. The chip's transfer
+controller can report an error on the channel a capture receives into: what
+the board was receiving at the time had arrived, so it is kept and marked,
+while some of its bytes may be wrong and whatever the fault cut short before
+it is lost. The first mark warns `warning: the board had a transfer error
+while capturing; what it was receiving was kept, but some of those bytes may
+be wrong and the capture may be missing packets around it`, and when the
+capture ends it says how many there were: `warning: the capture has 3 transfer
+errors where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports
+the board's own count of them since power-on, over every capture the board has
+run.
 
 A poll the board does not answer is tried again, up to three attempts, before
 the capture gives up: a board busy elsewhere for a moment no longer ends a
