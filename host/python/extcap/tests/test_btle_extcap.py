@@ -192,9 +192,9 @@ ENVIRONMENT = dict(
 
 
 def wait_for_fake():
-    """Wait until the fake tool has written its arguments, which is how a case
-    knows the script has a child to pass a signal on to. True if it started,
-    False if the deadline passed first."""
+    """Wait until the fake tool has started, which it signals by creating its
+    arguments file. That is how a case knows the script has a child to pass a
+    signal on to. True if it started, False if the deadline passed first."""
     deadline = time.monotonic() + RUN_TIMEOUT_S
     while time.monotonic() < deadline:
         if os.path.exists(ARGS_FILE):

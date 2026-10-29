@@ -14,12 +14,13 @@ import sys
 BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
 # How long one ubertooth-ego run is given. The whole test takes about 0.55 s on
-# an idle machine, so this is roughly twenty times its own run time. On a
-# machine busy with parallel builds the cost that grows is starting a process,
-# not the work these runs do, and a deadline a few seconds over an idle run was
-# what a loaded machine blew past. A tool that hangs is still reported here in
-# ten seconds rather than stalling the suite.
-RUN_TIMEOUT_S = 10
+# an idle machine and 1.4 s on one busy with parallel builds, where the cost
+# that grows is starting a process rather than the work these runs do. The
+# four-core host this test went red on is slower again, so the twenty seconds
+# here is about ten to twenty times an idle run there rather than here. A tool
+# that hangs is still reported in tens of seconds rather than stalling the
+# suite.
+RUN_TIMEOUT_S = 20
 
 
 def reject(value):

@@ -61,7 +61,7 @@ add_test(NAME btle-extcap
 		${CMAKE_CURRENT_SOURCE_DIR}/../doc/ubertooth-util.md)
 # Under ten seconds on an idle machine, dominated by interpreter start-up for
 # each of some eighty runs, and 25 to 35 seconds on a machine busy with
-# parallel builds, which is what the old thirty-second limit tripped over. The
+# parallel builds, which is what sixty seconds left too little room for. The
 # test gives each of those runs twenty seconds of its own, and two minutes
 # leaves a loaded run and one hung run inside it together, so a run that hangs
 # is reported by the test rather than cut off here with nothing said.

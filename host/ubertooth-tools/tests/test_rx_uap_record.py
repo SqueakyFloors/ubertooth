@@ -52,13 +52,13 @@ LAP = 0x5A3C96                  # the LAP every record here carries
 UAP = 0x5B                      # the UAP the DH1 below settles
 AGE_S = 3600                    # the records were written this long ago
 # How long one ubertooth-rx replay is given. The whole test takes about 0.7 s
-# on an idle machine, over three replays, so this is roughly fifteen times its
-# own run time. On a machine busy with parallel builds the cost that grows is
-# starting a process, not the replay itself, and a deadline a few seconds over
-# an idle run was what a loaded machine blew past. The CTest timeout on this
-# test is larger again, so this deadline is the one that fires and says the
-# replay timed out.
-RUN_TIMEOUT_S = 10
+# on an idle machine, over three replays, and 1 s on one busy with parallel
+# builds, where the cost that grows is starting a process rather than the
+# replay itself. The four-core host this test went red on is slower again, so
+# the twenty seconds here is about ten to twenty times an idle run there rather
+# than here. The CTest timeout on this test is larger again, so this deadline
+# is the one that fires and says the replay timed out.
+RUN_TIMEOUT_S = 20
 
 # The 64-bit scrambling sequence applied to the sync word, the (64,30)
 # expurgated BCH generator (octal 260534236651), and the Barker sequence
