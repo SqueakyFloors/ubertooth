@@ -5,16 +5,20 @@ on:
   # not run everything twice. Every push to main still runs.
   push:
     branches: [main]
-    # Documentation and agent-rule changes do not need a build.
+    # Documentation and agent-rule changes do not need a build. The filter
+    # stays here, unlike on a pull request below, because nothing is gated on
+    # a push: the commit was already built as a pull request head.
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.kiro/**'
+  # No path filter on a pull request, on purpose. A filtered-out workflow
+  # reports nothing at all, and the names below are required checks on main,
+  # so a documentation-only pull request would wait forever for a check that
+  # was never going to run. It runs instead, and the `changes` job decides
+  # which jobs do any work: a documentation-only branch gets the cheap Linux
+  # checks and a stand-in for each build job.
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.kiro/**'
 
   # Full tier: weekly, on a published release, or on demand.
   schedule:
@@ -64,18 +68,23 @@ env:
     libstdc++-arm-none-eabi-newlib
 
 jobs:
-  # What a pull request touches, so the host and firmware jobs run only when
-  # their side changed. Every other event (main, schedule, release, manual)
-  # runs both. Conservative on purpose: the host jobs are skipped only when
-  # every changed file is under firmware/, and the firmware jobs only when no
-  # file under firmware/, no workflow and not the shared USB interface header
-  # changed. A skipped job counts as passed for a merge.
+  # What a pull request touches, so the host, firmware and scripts jobs run
+  # only when their side changed. Every other event (main, schedule, release,
+  # manual) runs all three. Conservative on purpose: the host jobs are skipped
+  # only when every changed file is under firmware/, and the firmware jobs
+  # only when no file under firmware/, no workflow and not the shared USB
+  # interface header changed. A skipped job counts as passed for a merge.
+  #
+  # All three are skipped for a documentation-only branch, where there is
+  # nothing to build and no script to lint. Each skipped name is still
+  # reported, by the stand-in jobs further down; see the comment there.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       host: ${{ steps.diff.outputs.host }}
       firmware: ${{ steps.diff.outputs.firmware }}
+      scripts: ${{ steps.diff.outputs.scripts }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,17 +95,37 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
+          decide() {
+            echo "host=$1" >> "$GITHUB_OUTPUT"
+            echo "firmware=$2" >> "$GITHUB_OUTPUT"
+            echo "scripts=$3" >> "$GITHUB_OUTPUT"
+            echo "host jobs: $1, firmware jobs: $2, scripts job: $3"
+          }
           if [ "$EVENT" != pull_request ]; then
-            echo "host=true" >> "$GITHUB_OUTPUT"; echo "firmware=true" >> "$GITHUB_OUTPUT"
-            echo "not a pull request: running everything"; exit 0
+            echo "not a pull request: running everything"
+            decide true true true; exit 0
           fi
           files=$(git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
           echo "$files"
+          # An empty diff means the comparison did not find the branch's
+          # changes rather than that there are none, so build everything
+          # rather than wave it through.
+          if [ -z "$files" ]; then
+            echo "no changed files found: running everything"
+            decide true true true; exit 0
+          fi
+          # Documentation only: every changed file is a Markdown file, under
+          # docs/ or .kiro/, or a generated man page. Workflows and tools/
+          # are deliberately not on this list -- a change there is a change
+          # to the checks themselves and runs the lot.
+          if ! echo "$files" | grep -qvE '\.md$|^docs/|^\.kiro/|^host/doc/man/'; then
+            echo "documentation only: nothing to build or lint"
+            decide false false false; exit 0
+          fi
           host=false; firmware=false
           if echo "$files" | grep -qv '^firmware/'; then host=true; fi
           if echo "$files" | grep -qE '^firmware/|^\.github/|^host/libubertooth/src/ubertooth_interface\.h$'; then firmware=true; fi
-          echo "host=$host" >> "$GITHUB_OUTPUT"; echo "firmware=$firmware" >> "$GITHUB_OUTPUT"
-          echo "host jobs: $host, firmware jobs: $firmware"
+          decide "$host" "$firmware" true
 
   host:
     needs: changes
@@ -107,6 +136,11 @@ jobs:
         # Full tier: the pinned supported matrix plus the ubuntu-latest canary
         # (early warning for OS/toolchain breaks). Minimal tier: one Linux and
         # one macOS runner.
+        #
+        # A runner added to or renamed in the minimal tier renames a required
+        # check on main, so it has to be carried to three other places: the
+        # host-skipped stand-in below, the protection rule on main, and the
+        # table in CONTRIBUTING.md.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     # Above the bounded install step below plus the build and the tests, so a
@@ -431,7 +465,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Same tiers as the host job.
+        # Same tiers as the host job, and the same four places to keep in
+        # step when the minimal tier changes.
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     # Above the install step below plus the build, as in the host job. The
@@ -640,7 +675,11 @@ jobs:
   # job happened to run it. Runs on both tiers, and on both platforms because
   # retry.sh takes an unbounded fallback wherever there is no timeout command,
   # which is every macOS runner and the one path nothing had ever run.
+  # A documentation-only branch changes none of them, and is the one case
+  # this job is skipped for.
   scripts:
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -856,6 +895,76 @@ jobs:
           exit 1
         }
         echo "The check catches a function dropped from the list and one added to it."
+
+  # Stand-ins for the three jobs above, so each name a pull request is gated
+  # on reports even on a branch that gives those jobs nothing to do.
+  #
+  # A job skipped by its own `if:` does report a check, and a protection rule
+  # counts a skipped check as passed -- but GitHub does not expand the matrix
+  # of a job it skips. A skipped `host` reports once, as `host`, and not as
+  # `host (ubuntu-24.04)` and `host (macos-26)`, which are the names the rule
+  # on main requires. Without the stand-ins, a firmware-only branch would wait
+  # forever for two host names nothing was going to report, and a
+  # documentation-only branch for six.
+  #
+  # So each stand-in carries the same `name:` as a leg of the job it stands in
+  # for and runs on the opposite condition: exactly one of the pair reports
+  # each name, the real job when that side changed and the stand-in when it
+  # did not. A stand-in builds nothing and claims nothing about the code; it
+  # says in its log which job did not run and why. All of them run on Linux,
+  # including the ones named for a macOS runner, because a stand-in has
+  # nothing platform-specific to do and a macOS runner can queue for an hour.
+  #
+  # The matrix in each is the minimal tier's, spelled out: a stand-in can only
+  # run on a pull request, since `changes` reports every side as changed for
+  # every other event, and a pull request is always the minimal tier. A
+  # workflow cannot share one list between two `strategy` blocks, so these
+  # repeat the lists above -- see the note at the host job's matrix.
+  host-skipped:
+    name: host (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.host != 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - name: Nothing to build
+      run: |
+        echo "Every file this pull request changes is under firmware/ or is"
+        echo "documentation, so the host build did not run on ${{ matrix.os }}."
+
+  firmware-skipped:
+    name: firmware (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.firmware != 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - name: Nothing to build
+      run: |
+        echo "This pull request changes no firmware, no workflow and not the"
+        echo "shared USB interface header, so the firmware build did not run"
+        echo "on ${{ matrix.os }}."
+
+  scripts-skipped:
+    name: scripts (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.scripts != 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - name: Nothing to lint
+      run: |
+        echo "This pull request changes only documentation, so the shell"
+        echo "scripts were not linted or self-tested on ${{ matrix.os }}."
 
   # Issue and pull request numbers must not appear in source, tests or build
   # files (.kiro/steering/branch-and-review.md). A reviewer who happens to know
