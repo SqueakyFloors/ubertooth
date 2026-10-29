@@ -17,7 +17,8 @@
 
 /* On the board this puts a buffer in the part's second RAM bank. A host test
  * has one address space and no linker script to say so, so it means nothing
- * here. */
+ * here. (stubs-lephy/ubertooth.h, which includes the real header, has to undo
+ * the real one instead.) */
 #define AHB_SRAM
 
 #endif /* __UBERTOOTH_H */

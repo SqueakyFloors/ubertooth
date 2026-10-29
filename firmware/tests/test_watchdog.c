@@ -96,10 +96,10 @@ static void boot_with(uint32_t cause)
 	 * this itself. */
 	fake_scb_icsr = 0;
 	fake_wdfeed_count = 0;
-	/* What the bluetooth_rxtx image measures on a board, so the reply test
-	 * reads the numbers a real one would carry. */
-	fake_stack_used = 1976;
-	fake_stack_size = 10904;
+	/* What a board read after a five-minute connection capture, so the
+	 * reply test carries the numbers a real one would. */
+	fake_stack_used = 432;
+	fake_stack_size = 11128;
 	/* .bss is zeroed on every boot, armed flag included. */
 	watchdog_armed = 0;
 }
@@ -558,11 +558,11 @@ MU_TEST(test_the_reply_is_the_documented_bytes)
 	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
 	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
 
-	/* The stack high-water pair, also low byte first. */
-	mu_assert_int_eq(0xb8, data[18]);
-	mu_assert_int_eq(0x07, data[19]);
-	mu_assert_int_eq(0x98, data[20]);
-	mu_assert_int_eq(0x2a, data[21]);
+	/* The stack high-water pair, also low byte first: 432 of 11128. */
+	mu_assert_int_eq(0xb0, data[18]);
+	mu_assert_int_eq(0x01, data[19]);
+	mu_assert_int_eq(0x78, data[20]);
+	mu_assert_int_eq(0x2b, data[21]);
 }
 
 /*

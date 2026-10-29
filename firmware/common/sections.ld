@@ -211,7 +211,12 @@ SECTIONS
 /* Up to four interrupt handlers can nest on the stack -- the two timers, the
  * capture transfer and USB -- and an overflow would be silent: it writes over
  * whatever .bss ends with and shows up later as wrong data or a processor
- * fault. So the link fails rather than shipping an image with no room. */
+ * fault. So the link fails rather than shipping an image with no room.
+ *
+ * This is a floor on what the link leaves, not a safe depth. The deepest any
+ * mode has been measured using is under 500 bytes, so 2 KB is several times
+ * the worst case seen; ubertooth-util -w is what says whether an image still
+ * has room. */
 ASSERT(_StackTop - _stack_limit >= 2048,
 	"less than 2 KB of main SRAM is left for the stack: move a large buffer into AHB SRAM with the AHB_SRAM macro")
 

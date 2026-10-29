@@ -341,10 +341,13 @@ void watchdog_report(uint8_t *data)
 
 	/*
 	 * How deep the stack has ever been, and how much room it has. Read
-	 * here and not kept in the breadcrumb: the answer is a scan of the
-	 * paint still in RAM, so it is as good at any moment -- and it goes
-	 * with the record of a fault, which is one of the things too little
-	 * stack would cause.
+	 * here rather than kept in the breadcrumb, because the answer is a
+	 * scan of the word still in RAM.
+	 *
+	 * So this one field is since the last boot, where everything above it
+	 * is since power-on: a reset rewrites the word and the measurement
+	 * starts again. A fault recorded above therefore says nothing about
+	 * how deep the stack was when it happened.
 	 */
 	{
 		unsigned used = stack_used();

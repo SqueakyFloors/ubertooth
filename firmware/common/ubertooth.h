@@ -40,15 +40,8 @@ extern const IAP_ENTRY iap_entry;
  * bank is on the same bus matrix, and the part's user manual UM10360 names
  * DMA among what these banks are for -- so a capture can receive into one.
  *
- * The section exists only in an image linked for the part. A host test
- * compiles some of these files into one address space with no linker script,
- * where the name is not even valid.
  */
-#ifdef __arm__
 #define AHB_SRAM __attribute__((section(".ahb_sram")))
-#else
-#define AHB_SRAM
-#endif
 
 /* The operating modes are enum operating_modes in ubertooth_interface.h,
  * included above: the host reads the mode back out of the watchdog

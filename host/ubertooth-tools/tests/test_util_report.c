@@ -479,15 +479,15 @@ MU_TEST(the_report_says_how_much_stack_has_been_used)
 	int status = -1;
 	char *text;
 
-	info[18] = 1976 & 0xff;
-	info[19] = 1976 >> 8;
-	info[20] = 10904 & 0xff;
-	info[21] = 10904 >> 8;
+	info[18] = 432 & 0xff;
+	info[19] = 432 >> 8;
+	info[20] = 11128 & 0xff;
+	info[21] = 11128 >> 8;
 
 	text = watchdog_text(info, sizeof(info), &status);
 	mu_assert(text != NULL, "no report");
 	mu_assert_int_eq(0, status);
-	mu_assert(strstr(text, "Most stack ever used since boot: 1976 of 10904 bytes\n")
+	mu_assert(strstr(text, "Most stack ever used since boot: 432 of 11128 bytes\n")
 	          != NULL, text);
 	free(text);
 }

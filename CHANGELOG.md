@@ -5,7 +5,7 @@
 ### New features
 
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
-  stack ever used since boot: 1976 of 10904 bytes`. The firmware writes a
+  stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
   known word over the unused stack at startup and counts how much of it has
   gone, so a capture or a mode that comes close to running out of room can be
   spotted before it writes over something.
@@ -694,9 +694,9 @@
 
 - The firmware has room for its stack. The largest capture and packet buffers
   now sit in the microcontroller's second RAM bank, which nothing else used,
-  so the `bluetooth_rxtx` image leaves 10904 bytes for the stack where it left
-  about 730. The part has no memory protection unit, so a stack that ran out
-  of room would have written over the data below it and shown up later as
+  so the `bluetooth_rxtx` image leaves its stack about 11 KB where it left
+  about 730 bytes. The part has no memory protection unit, so a stack that ran
+  out of room would have written over the data below it and shown up later as
   wrong capture data or a fault somewhere else. The link now fails if an image
   leaves the stack less than 2 KB.
   [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)

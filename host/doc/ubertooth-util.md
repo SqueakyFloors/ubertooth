@@ -330,7 +330,7 @@ was stuck:
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
     Capture transfer errors since power-on: 0
-    Most stack ever used since boot: 1976 of 10904 bytes
+    Most stack ever used since boot: 432 of 11128 bytes
     Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
@@ -362,16 +362,11 @@ band, which is why this count is worth reading after a capture that came back
 short. It is since power-on and stops at 65535.
 
 `Most stack ever used` is how deep the board's stack has been, out of the room
-the firmware leaves it. The microcontroller has no memory protection unit, so
-a stack that ran out of room would not fault where it happened: it would write
-over the data below it, and the damage would turn up later as wrong capture
-data or a fault somewhere else. The firmware writes a known word over the
-unused stack when it starts and counts how much of it has gone, so this line
-is a measurement and not an estimate. It is worth reading after a long capture
-or after a mode that is rarely exercised. The second number is the room the
-link reserves, and the build fails if that falls below 2 KB. Unlike the
-counters above it is since the last boot, because the word is written again
-every time the board starts.
+the link leaves it, and it is worth reading after a long capture or a mode
+that is rarely exercised. The firmware writes a known word over the unused
+stack when it starts and counts how much of it has gone, so the number is
+measured and not estimated. Unlike the counters above it is since the last
+boot, because a reset writes that word again.
 
 A board that has faulted adds one more line, above that count:
 

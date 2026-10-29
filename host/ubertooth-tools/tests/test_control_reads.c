@@ -493,10 +493,10 @@ MU_TEST(watchdog_state_needs_the_whole_reply)
 	fake.reply[14] = 0x08;
 	fake.reply[15] = 0xc0;
 	fake.reply[17] = 0x40;
-	fake.reply[18] = 1976 & 0xff;
-	fake.reply[19] = 1976 >> 8;
-	fake.reply[20] = 10904 & 0xff;
-	fake.reply[21] = 10904 >> 8;
+	fake.reply[18] = 432 & 0xff;
+	fake.reply[19] = 432 >> 8;
+	fake.reply[20] = 11128 & 0xff;
+	fake.reply[21] = 11128 >> 8;
 	mu_assert_int_eq(0, cmd_get_watchdog(NULL, &info));
 	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.last_request);
 	mu_assert_int_eq(WATCHDOG_RESET_WATCHDOG, info.reset_cause);
@@ -516,8 +516,8 @@ MU_TEST(watchdog_state_needs_the_whole_reply)
 	          "the status does not say the address was recorded");
 	mu_assert_int_eq(0x4000c008, info.fault_addr);
 	/* How deep the stack has ever been, out of the room it has. */
-	mu_assert_int_eq(1976, info.stack_used);
-	mu_assert_int_eq(10904, info.stack_size);
+	mu_assert_int_eq(432, info.stack_used);
+	mu_assert_int_eq(11128, info.stack_size);
 
 	memset(&info, 0x5a, sizeof(info));
 	script(UBERTOOTH_WATCHDOG_INFO_LEN - 1, 0x11);
