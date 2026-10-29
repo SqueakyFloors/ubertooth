@@ -202,7 +202,7 @@ Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0,
 .P
 A board running the \fBbtbr\fR image reads \fBNow in a mode the board does not report\fR: that image runs its own state machine rather than one of the modes above, so it records no mode instead of claiming to be idle\.
 .P
-Both counters are since power\-on and stop at 255\. Unplugging the board, or cutting power to its hub port, starts them again; \fB\-r\fR does not\. So does flashing a firmware that keeps more in that corner of RAM than the one before it: the record says which firmware wrote it, and a firmware that does not recognise what it finds starts the counts over rather than reading its own fields out of what was there\.
+Both counters are since power\-on and stop at 255\. Unplugging the board, or cutting power to its hub port, starts them again; \fB\-r\fR does not\. So does flashing a firmware that keeps more in that corner of RAM than the one before it: the record says which firmware wrote it, and a firmware that does not recognize what it finds starts the counts over rather than reading its own fields out of what was there\.
 .P
 \fBCapture transfer errors\fR counts the times the chip's transfer controller reported an error on the channel a capture receives into\. Each one costs the packet that was arriving\. The promiscuous mode drains the receiver and carries on; the mode behind \fB\-f\fR and \fB\-n\fR does not yet, and a capture that stops that way looks exactly like a quiet band, which is why this count is worth reading after a capture that came back short\. It is since power\-on and stops at 65535\.
 .P
