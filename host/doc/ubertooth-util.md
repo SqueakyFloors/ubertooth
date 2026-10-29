@@ -361,8 +361,8 @@ this fault — zero is a real address, so the line says so rather than leaving
 it out. There is none for a hard fault or a usage fault, nor for an
 instruction fetch refused because the region cannot be executed — which is a
 branch through a corrupted pointer or return address, and the one way a memory
-management fault happens on a part with no memory protection unit. The line is absent until a fault happens, and a power-cycle
-clears it.
+management fault happens on a part with no memory protection unit. The line is
+absent until a fault happens, and a power-cycle clears it.
 
 The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio
