@@ -134,10 +134,13 @@ does not find the failure among them.
 An inquiry asked for with `-s` that the adapter refused exits 1 as well, with
 `error: the BlueZ inquiry failed: <reason>` on standard error: half of what
 `-s` asked for did not happen. The Ubertooth half still runs — it needs no
-adapter — and its results are printed. A device that will not take the
-connection `-x` needs, or that will not report its channel map, is named the
-same way and its report stops there; the scan itself carries on and its
-status is unaffected.
+adapter — and its results are printed.
+
+A device that will not take the connection `-x` needs, or that will not report
+its channel map, is named the same way and its report stops there. The scan
+carries on and prints the rest, and exits 1 because part of what `-x` asked for
+did not happen. A device that reports AFH off is not such a failure: it
+answered, and `note: AFH disabled.` is the answer.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that

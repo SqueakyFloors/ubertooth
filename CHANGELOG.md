@@ -179,8 +179,9 @@
 - **Script-visible change:** a `ubertooth-scan` run collected in a file or
   piped into another program holds the devices it found and nothing else: its
   three headings, the progress of `-x` and every failure are on standard
-  error. An inquiry the adapter refused is named and exits 1, where it printed
-  the name of a BlueZ function and exited 0.
+  error. An inquiry the adapter refused, or a device that would not complete
+  the report `-x` asks for, is named and exits 1; the inquiry used to print the
+  name of a BlueZ function and exit 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** the lines every tool prints while choosing a
   board now read like the rest. With none attached they say `error: no

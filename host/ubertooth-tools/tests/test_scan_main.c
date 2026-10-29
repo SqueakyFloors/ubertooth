@@ -678,6 +678,18 @@ MU_TEST(an_inquiry_that_failed_is_named_and_exits_1)
 	mu_assert(strcmp(r.err, "HCI scan\nerror: the BlueZ inquiry failed\n"
 	          "\nUbertooth scan\n\nScan results:\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
+
+	/* An inquiry a stop cut short is not the adapter's failure: the user
+	 * asked for it, so nothing is named and the run ends with status 0. */
+	reset_fake();
+	fake.inquiry_fails = 1;
+	fake.inquiry_errno = EINTR;
+	fake.stop_requested = 1;
+	r = RUN("-s", "-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.err, "HCI scan\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.receives);
 }
 
 /* The piconets the Ubertooth half found are the result, so they and their AFH
