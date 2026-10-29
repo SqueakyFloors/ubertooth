@@ -57,6 +57,8 @@ enum capture_end {
 };
 
 static struct {
+	/* How many times the end-of-run gap report was made. */
+	int gap_reports;
 	int connect_calls, check_api_calls, cleanup_handlers;
 	int bulk_inits, thread_starts, thread_stops, rx_syms_calls, stops;
 	int channels_set;
@@ -302,11 +304,13 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 }
 
 
-/* The end-of-capture gap report, which the tool calls and no case here reads:
- * a capture whose records never carried FIFO_OVERFLOW has nothing to say. */
+/* The end-of-run gap report. Counted rather than ignored, because both ways
+ * out of the tool have to make it: a live capture and a replay of a recorded
+ * one, whose records carry the gaps they were recorded with. */
 void ubertooth_report_queue_gaps(ubertooth_t* ut)
 {
 	(void)ut;
+	device.gap_reports++;
 }
 
 int ubertooth_stream_failed(ubertooth_t* ut)
@@ -1079,6 +1083,27 @@ MU_TEST(every_exit_path_gives_the_handle_back)
 	mu_assert_int_eq(0, device.frees);
 }
 
+/*
+ * Both ways out report what the capture is missing: a live capture after its
+ * teardown, and a replay after the file has been read. The replay path had the
+ * call missing, so a recorded capture's gaps were warned about record by
+ * record and then never totalled.
+ */
+MU_TEST(a_live_capture_and_a_replay_both_report_their_gaps)
+{
+	struct run_result r;
+
+	reset_device();
+	r = RUN_RX("-t", "1");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.gap_reports);
+
+	reset_device();
+	r = RUN_RX("-i", "/dev/null");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.gap_reports);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -1104,5 +1129,6 @@ int main(void)
 	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);
+	MU_RUN(a_live_capture_and_a_replay_both_report_their_gaps);
 	return mu_report();
 }
