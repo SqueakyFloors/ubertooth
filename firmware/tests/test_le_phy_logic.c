@@ -2048,6 +2048,31 @@ MU_TEST(an_overdue_estimate_skips_whole_intervals_and_counts_them)
 }
 
 /*
+ * A connection that ends at its supervision timeout leaves no connection-event
+ * match armed.
+ *
+ * The match that has just been taken is behind the counter, and connection
+ * events are the only thing it is armed for. Left enabled it would be taken
+ * again when the counter wrapped, 429 seconds later, and retune the radio
+ * under whatever the mode was doing by then.
+ */
+MU_TEST(a_connection_that_times_out_leaves_no_match_armed)
+{
+	anchored_connection(100000);
+	conn.supervision_timeout = MSEC(100);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+	/* Nothing received for longer than the supervision timeout. */
+	fake_t1tc = conn.last_packet_ts + MSEC(200);
+
+	finish_conn_event();
+
+	mu_assert(connection_was_reset(), "the connection was not dropped");
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "a connection-event match is still armed with no connection");
+}
+
+/*
  * A capture transfer that fails is counted, so that a capture losing packets
  * to the hardware tells itself apart from a quiet channel.
  */
@@ -2255,6 +2280,7 @@ int main(void)
 	MU_RUN(an_empty_first_event_arms_the_next_one_ahead_of_the_counter);
 	MU_RUN(an_events_deadline_stops_at_one_connection_interval);
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
+	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_failed_capture_transfer_is_counted);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);

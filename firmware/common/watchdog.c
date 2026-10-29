@@ -52,8 +52,17 @@ typedef struct {
 } watchdog_crumb_t;
 
 /* Says the fields below mean something. Any other value, and the region holds
- * whatever RAM came up with. */
-#define WATCHDOG_CRUMB_MAGIC 0x57443031 /* "WD01" */
+ * whatever RAM came up with.
+ *
+ * It changes whenever the fields do. A reflash leaves the region alone, so a
+ * board coming up on this firmware finds what the firmware before it wrote;
+ * with the same magic over a different set of fields, the fields this
+ * firmware added would be read out of whatever was in that RAM. The counts
+ * start again once per layout change, which is the price of them starting
+ * right: a board flashed from an earlier firmware reported a processor fault
+ * that had never happened, at an address that was never accessed, and tens of
+ * thousands of transfer errors. */
+#define WATCHDOG_CRUMB_MAGIC 0x57443032 /* "WD02" */
 
 extern volatile watchdog_crumb_t watchdog_crumb;
 

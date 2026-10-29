@@ -342,7 +342,11 @@ static uint32_t conn_event_deadline(void) {
 		deadline += early;
 	}
 
-	if (deadline > conn.conn_interval)
+	// Nothing to clamp against when no connection is being followed. That
+	// takes a match armed for something which is not a connection event,
+	// which the disarming in finish_conn_event() is there to prevent;
+	// clamping to zero would arm the next one at the moment it is read.
+	if (conn.conn_interval > 0 && deadline > conn.conn_interval)
 		deadline = conn.conn_interval;
 
 	return deadline;
@@ -466,8 +470,16 @@ static void finish_conn_event(void) {
 	++conn.conn_event_counter;
 
 	// supervision timeout reached - switch back to advertising
+	//
+	// Both paths that stop following disarm the match as well. Connection
+	// events are the only thing it is armed for, and the one left in it has
+	// just been taken, so it is behind the counter: left armed, it would be
+	// taken again when the counter wrapped 429 seconds later, in the middle
+	// of whatever the mode was doing by then -- retuning the radio under an
+	// advertising capture, or under another connection.
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout) {
 		reset_conn();
+		timer1_clear_match();
 		change_channel();
 	}
 
@@ -475,6 +487,7 @@ static void finish_conn_event(void) {
 	else if (cancel_follow) {
 		cancel_follow = 0;
 		reset_conn();
+		timer1_clear_match();
 		change_channel();
 	}
 
