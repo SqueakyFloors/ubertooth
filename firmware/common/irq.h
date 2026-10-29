@@ -51,9 +51,13 @@
  * 312.5 microseconds.
  *
  * The btbr image has its own pair, with the same names and the same meaning,
- * in firmware/btbr/include/ubtbr/system.h. That image's sources include that
- * header instead of this one, which is what lets the two exist side by side;
- * the price is that they can drift apart.
+ * in firmware/btbr/include/ubtbr/system.h. That image builds
+ * firmware/common/ubertooth.c, so it compiles both headers -- but in different
+ * translation units, which is what lets the two exist side by side. They
+ * define the same two functions under different include guards, so a single
+ * file that saw both would not compile: do not pull this header into
+ * ubertooth.h, which btbr's own sources include alongside their system.h. The
+ * price of the arrangement is that the two copies can drift apart.
  *
  * This is ARM assembly, and the host unit tests compile code that uses it. A
  * stand-in header earlier on their include path stands in for the mask there

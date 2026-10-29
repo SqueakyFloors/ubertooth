@@ -444,6 +444,7 @@ static uint32_t conn_event_deadline(void) {
 // armed, and that is the same 429-second stall.
 static void timer1_arm_conn_event(void) {
 	uint32_t target;
+	uint32_t primask;
 	int32_t behind;
 
 	// Only ever zero when no connection is being followed, which leaves
@@ -452,6 +453,13 @@ static void timer1_arm_conn_event(void) {
 		return;
 
 	target = conn.last_anchor + conn.conn_interval - RX_WARMUP_TIME;
+
+	// From here to the arming the counter must not move under a handler: the
+	// reading below is what decides whether the target has gone by, and the
+	// margin it is compared against is 10 microseconds, which an interrupt
+	// can outlast. The events skipped are counted here too, so a handler
+	// cannot see the grid half advanced.
+	primask = irq_save_disable();
 
 	// Signed, so this reads as "how far the counter is past the target"
 	// however either of them has wrapped. The margin is added to it rather
@@ -478,6 +486,7 @@ static void timer1_arm_conn_event(void) {
 	}
 
 	timer1_set_match(target);
+	irq_restore(primask);
 }
 
 // Arm a match that is not a connection event's: a moment the connection's
@@ -486,10 +495,17 @@ static void timer1_arm_conn_event(void) {
 // because a match already passed is not reached until the counter wraps 429
 // seconds later.
 static void timer1_set_match_ahead(uint32_t target) {
+	// One guard over the reading, the decision and the arming, for the
+	// reason timer1_arm_conn_event() gives: the margin is 10 microseconds
+	// and an interrupt taken in between can outlast it, which would arm the
+	// match behind the counter -- the stall this function exists to avoid.
+	uint32_t primask = irq_save_disable();
+
 	if ((int32_t)(NOW - target) + (int32_t)CONN_EVENT_ARM_MARGIN >= 0)
 		target = NOW + CONN_EVENT_ARM_MARGIN;
 
 	timer1_set_match(target);
+	irq_restore(primask);
 }
 
 // finish a connection event
@@ -1162,10 +1178,13 @@ static void timer1_enable_interrupt(void) {
 // teardown path write 0, which cannot lose a bit that is on its way in,
 // because nothing the engine is doing at that point wants one.
 //
-// The moment is written inside the same guard as the bit that arms it, so a
-// match is never enabled against a time the counter has already gone past
-// while an interrupt held the processor: an enable bit that lands late waits
-// out a whole period of the counter, which is 429 seconds.
+// The moment is written inside the same guard as the bit that arms it, so the
+// two cannot be split by an interrupt: an enable bit that lands after the
+// counter is already by the match waits out a whole period of the counter,
+// which is 429 seconds. Where the moment itself is derived from the counter,
+// the derivation has to be inside the guard as well, which is what
+// timer1_arm_match_in() below is for; the callers that pass an absolute
+// moment instead keep CONN_EVENT_ARM_MARGIN between it and the counter.
 //
 // What these two give is that nothing is set or cleared on a value another
 // context has already moved on from. A caller that has to decide
@@ -1192,8 +1211,10 @@ static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t b
 //
 // A caller whose moment is fixed rather than relative -- the connection grid,
 // where the next event's time comes from the last anchor -- uses
-// timer1_arm_match() above and must: re-deriving such a moment from the
-// counter would move the event.
+// timer1_arm_match() above and has to: re-deriving such a moment from the
+// counter would move the event. Those callers read the counter only to ask
+// whether the moment has gone by, and they do that inside a guard of their
+// own: see timer1_arm_conn_event() and timer1_set_match_ahead().
 static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
