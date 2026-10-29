@@ -629,9 +629,10 @@ static void le_transfer_error_recover(void) {
 	// path through a connection event instead reaches change_channel(), which
 	// strobes SRFOFF itself.
 	//
-	// The terminal count is cleared once here, not twice as at the end of a
-	// packet: there the next byte goes into a channel left running, and here
-	// the channel is torn down and built again before any byte is kept.
+	// The terminal count is cleared here as the end-of-packet path clears it
+	// after taking the channel down, for the same reason: a count raised by a
+	// byte the receiver clocked out while SFSON took effect would otherwise be
+	// waiting, and the next transfer would start on it.
 	cc2400_strobe(SFSON);
 	DMACC0Config = 0;
 	DMACIntTCClear = (1 << 0);
@@ -1060,9 +1061,13 @@ static void timer1_clear_match(void) {
 // Written wherever a wait starts -- the mode's entry, the byte interrupt and
 // the timer interrupt -- and from the timer interrupt as a wait runs. The two
 // are reset together, which is not atomic, and the byte interrupt sits at the
-// lowest interrupt priority so the timer interrupt can preempt it. Harmless
-// as the code stands, because MR2 is disarmed on every path that starts a
-// wait, so no re-check can fire part way through the reset.
+// lowest interrupt priority so the timer interrupt can preempt it. Harmless as
+// the code stands: every path that starts a wait from the byte interrupt runs
+// with MR2 disarmed, because arming receive disarms it, so no re-check can fire
+// part way through the reset. The one way a wait starts with MR2 already armed
+// is the timer interrupt preempting the byte interrupt and arming a wait of its
+// own in between, which leaves a spare re-check armed rather than a reset read
+// half-written.
 static volatile unsigned fs_lock_rechecks;
 static volatile unsigned fs_lock_slow_rechecks;
 

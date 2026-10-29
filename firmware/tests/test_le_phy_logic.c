@@ -20,26 +20,31 @@
  * static. The host's reassembly (ubertooth_le_frag.c) is linked in too, so a
  * long packet makes the whole round trip with real code at both ends.
  *
- * What is NOT run here, and why:
+ * What is and is not asserted here, and why:
  *
- *   le_phy_main(), le_cc2400_init_rf(), change_channel(),
- *   le_cc2400_strobe_rx(), le_dma_init() and le_sys_init() all drive the
- *   radio, the DMA controller and the SSP. A fake register file lets them
- *   compile, not work: what a packet holds depends on what a radio put there,
- *   and a test that fed itself those bytes would be asserting what the test
- *   wrote, not what the board does. What they decode stays covered by
- *   test_le_phy_order.c's scan and by hardware testing.
+ *   What a packet holds depends on what a radio put there, so nothing here
+ *   asserts a decoded value that a real transfer would have produced: a test
+ *   that fed itself those bytes would be asserting what the test wrote. The
+ *   radio's own settings -- the registers le_cc2400_init_rf() writes, the
+ *   strobes it and le_cc2400_strobe_rx() send, the channel change_channel()
+ *   tunes -- are not asserted either, because a fake register file lets that
+ *   code compile, not work. Those stay covered by test_le_phy_order.c's scan
+ *   and by hardware testing. le_phy_main() and le_sys_init() are not run at
+ *   all.
  *
- *   What the receive and timer interrupts do run here is the engine's own
+ *   What the receive and timer interrupts do run here, including the paths
+ *   that reach change_channel() and le_cc2400_init_rf(), is the engine's own
  *   bookkeeping: the timestamp a packet's first byte is dated by, which match
- *   each path arms, and what becomes of a packet when a transfer fails. Those
- *   are decisions made from numbers the test supplies, so running them asserts
- *   the engine's arithmetic and its state machine rather than the test's own
- *   bytes. Where that reaches the radio, the fakes count the accesses and the
- *   test says which value it holds the code responsible for.
+ *   each path arms, which interrupts and transfers it enables, and what
+ *   becomes of a packet when a transfer fails. Those are decisions made from
+ *   numbers the test supplies, so running them asserts the engine's
+ *   arithmetic and its state machine rather than the test's own bytes. Where
+ *   a path reaches the radio, the fakes count the accesses and the test says
+ *   how many it expects, so radio work the engine should not be doing shows
+ *   up.
  *
- * The one part of the interrupt handlers that does run here is their first
- * line: once the PHY has been torn down they must do nothing but acknowledge.
+ * Both interrupt handlers' first line is run here too: once the PHY has been
+ * torn down they must do nothing but acknowledge.
  * That is checked by asserting the radio is not touched -- the fakes below
  * count every access -- rather than by modelling one.
  */
@@ -2378,6 +2383,8 @@ MU_TEST(a_failed_transfer_leaves_a_match_already_armed_alone)
 	/* One strobe stops the receiver, and the recovery reaches the radio for
 	 * nothing else: the event's own match is what carries on from here. */
 	radio_touched = 0;
+	fake_dmac_int_tc_clear = 0;
+	fake_ssp1dmacr = SSPDMACR_RXDMAE;
 	rx_transfer_error(fake_t1tc);
 
 	mu_assert(fake_t1mcr & TMCR_MR0I, "the event's deadline was disarmed");
@@ -2385,6 +2392,12 @@ MU_TEST(a_failed_transfer_leaves_a_match_already_armed_alone)
 	mu_assert_int_eq(1, radio_touched);
 	mu_assert(fake_icer0 & ICER0_ICE_DMA,
 	          "the DMA interrupt was left enabled over a torn-down channel");
+	/* The transfer is taken down as the end-of-packet path takes it down. The
+	 * receiver keeps clocking bytes out until the strobe takes effect, and
+	 * those would be read as the head of the next packet. */
+	mu_assert_int_eq(0, (int)fake_dmacc0_config);
+	mu_assert_int_eq(1 << 0, (int)fake_dmac_int_tc_clear);
+	mu_assert_int_eq(0, (int)(fake_ssp1dmacr & SSPDMACR_RXDMAE));
 }
 
 /*
@@ -2449,8 +2462,12 @@ MU_TEST(a_failed_transfer_on_an_advertising_channel_arms_receive_again)
 	mu_assert_int_eq(2, buf->pos);
 	mu_assert(buf->size > 2, "the engine read no size from the header");
 
-	/* A connection request has just been followed, so the first connection
-	 * event is armed while this receive runs. */
+	/* A connection request has just been followed: the engine holds the
+	 * connection's parameters and its first event is armed, while the radio is
+	 * still on the advertising channel because no hop has happened yet. So it
+	 * is the channel, not the absence of a connection, that decides what the
+	 * recovery does here. */
+	conn.conn_interval = MSEC(10);
 	timer1_set_match(first_event);
 
 	/* One strobe stops the receiver; the wait for the lock reaches the radio
