@@ -553,6 +553,14 @@
   connection's hopping came back round to it: against a bench peer, most
   connections lost their first 4 to 26 events, which is where the feature
   exchange, the data length and PHY updates and the pairing are.
+- `ubertooth-btle -f` keeps up with the connection it is following instead of
+  parking on one data channel. A first connection event that received nothing
+  left the next one armed at a moment the board's clock had gone past, which it
+  only reaches when that clock wraps 429 seconds later; and a connection that
+  then stopped delivering was chased forever rather than letting the capture go
+  back to the advertising channel for the next one. Against a bench peer
+  opening a connection every 4 seconds, the same 240 seconds now captures 20647
+  packets across 16 connections where it captured 8038 across 11.
   [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
 - A packet in a low-energy capture carries the access address it was received
   with. A connection request set the connection's address as soon as it was
