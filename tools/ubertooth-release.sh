@@ -23,9 +23,21 @@ top="$(pwd)/../release"
 # built it. firmware/common.mk otherwise takes those from `whoami` and
 # `hostname -s`, so pin both to a neutral stamp. Variables given on the make
 # command line override the makefile's own values and reach every sub-make.
+#
+# HAVE_GIT=false goes with them: the makefile asks git whether the archive is
+# in a work tree, and answers yes if ${top} happens to sit inside one, which
+# would overwrite the shipped version.h with that tree's revision. Saying so
+# on the command line makes the shipped header govern whatever ${top} is.
 version_by="ubertooth"
 version_host="release"
-stamp=(VERSION_BY="${version_by}" VERSION_HOST="${version_host}")
+stamp=(HAVE_GIT=false VERSION_BY="${version_by}" VERSION_HOST="${version_host}")
+
+case "${version}" in
+	*[!A-Za-z0-9._-]*|"")
+		echo "error: release version '${version}' has characters outside A-Za-z0-9._-" >&2
+		exit 1
+		;;
+esac
 
 releasename="ubertooth-${version}"
 targetdir="${top}/${releasename}"
@@ -42,7 +54,9 @@ git archive --format=tar  HEAD | (cd "${targetdir}" && tar xf -)
 # this runs after every clean below rather than once here. Without that the
 # images report "git-unknown" instead of the release.
 write_version_headers() {
-	for imgdir in bluetooth_rxtx btbr assembly_test bootloader; do
+	# Not the bootloader: it includes no version.h and carries no firmware
+	# info block.
+	for imgdir in bluetooth_rxtx btbr assembly_test; do
 		d="${targetdir}/firmware/${imgdir}"
 		test -d "${d}" || continue
 		cat > "${d}/version.h" <<EOF
@@ -68,7 +82,10 @@ relfile="${targetdir}/host/cmake/set_release.cmake"
 sed -e "s/^set(LATEST_RELEASE .*/set(LATEST_RELEASE \"${version}\")/" \
 	"${relfile}" > "${relfile}.tmp"
 mv "${relfile}.tmp" "${relfile}"
-grep -q "^set(LATEST_RELEASE \"${version}\")$" "${relfile}"
+if ! grep -q "^set(LATEST_RELEASE \"${version}\")$" "${relfile}" ; then
+	echo "error: LATEST_RELEASE not set in ${relfile}" >&2
+	exit 1
+fi
 
 ############################
 # Software
@@ -76,7 +93,9 @@ grep -q "^set(LATEST_RELEASE \"${version}\")$" "${relfile}"
 # The documentation needs no step here: it lives in docs/ and is built by Read
 # the Docs. The nanoc web site this used to compile left the tree years ago.
 export BOARD=UBERTOOTH_ONE
-# -p so a re-run after a failure does not stop here.
+# Emptied and recreated, so a re-run after a failure neither stops here nor
+# packs an image left by the run before.
+rm -rf "${targetdir}/ubertooth-one-firmware-bin"
 mkdir -p "${targetdir}/ubertooth-one-firmware-bin"
 cd "${targetdir}/firmware" || exit 1
 make clean

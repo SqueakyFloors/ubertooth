@@ -46,8 +46,10 @@ traffic.
 To sniff Bluetooth 5 traffic, use a sniffer built on a Bluetooth 5 radio,
 for example Nordic's nRF Sniffer for Bluetooth LE on an nRF52840 dongle.
 
-The latest release is [2020-12-R1](https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1).
-The latest firmware build can be found on the release page.
+The most recent upstream release is
+[2020-12-R1](https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1),
+whose firmware build is on that release page. This fork's own tags are under
+[Releases](#releases) below.
 
 That release is paired with [libbtbb 2020-12-R1](https://github.com/greatscottgadgets/libbtbb/releases/tag/2020-12-R1).
 The current tree instead builds against this project's

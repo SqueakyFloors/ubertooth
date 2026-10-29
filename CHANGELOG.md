@@ -480,6 +480,11 @@
   header. It now checks the remembered header and library are still there and
   searches again if either has moved.
   [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
+- A release now carries the btbr image (`btbr.dfu`, `.bin` and `.hex`)
+  alongside bluetooth_rxtx, so the Classic Bluetooth tools have firmware to
+  flash without building it. Published images report `ubertooth@release`
+  instead of the name of whoever built them, and the release version rather
+  than `git-unknown`.
 - `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
   on their own against an installed libubertooth, which is what
   `FindUBERTOOTH.cmake` is for. CMake 4 refused the directory outright,
@@ -1872,11 +1877,6 @@
   firmware change the host sees. It is what `COMPATIBILITY.md` already
   describes.
   [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
-- A release now carries the btbr image (`btbr.dfu`, `.bin` and `.hex`)
-  alongside bluetooth_rxtx, so the Classic Bluetooth tools have firmware to
-  flash without building it. Published images report `ubertooth@release`
-  instead of the name of whoever built them, and carry the release version
-  rather than `git-unknown`.
 - The README and the release procedure say what a release tag means:
   `yyyy-mm-DEVn` is a development pre-release, `yyyy-mm-RCn` a release
   candidate and `yyyy-mm-Rn` the release, the first two published as GitHub

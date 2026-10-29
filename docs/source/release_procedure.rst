@@ -33,12 +33,16 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     * Create a release directory using git archive
 
     * Set the release version in these files, which is what a build with no
-      git history reports:
+      git history reports. Commit the change before tagging, so a source
+      download of the tag reports the release too:
 
-    	* ``ubertooth/host/cmake/set_release.cmake`` (``LATEST_RELEASE``),
-    	  which ``tools/ubertooth-release.sh`` sets in the archive
+    	* ``ubertooth/host/cmake/set_release.cmake`` (``LATEST_RELEASE``).
+    	  ``tools/ubertooth-release.sh`` also sets it in the archive it builds.
 
     	* libbtbb/lib/src/CMakeLists.txt
+
+    * Update the two version pointers in README.md: "The latest release is …"
+      and "The current pre-release is …" in the Releases section.
 
     * Bump the firmware API version to the release's own number.
       ``UBERTOOTH_API_VERSION`` in
@@ -86,7 +90,9 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       number into each firmware image directory of the archive, and the build
       uses that shipped header as-is when ``.git`` is not present. If you build
       a release by hand rather than via the script, drop an equivalent
-      ``version.h`` into each firmware image directory before building. It has
+      ``version.h`` into ``firmware/bluetooth_rxtx``, ``firmware/btbr`` and
+      ``firmware/assembly_test`` before building -- the images that include it;
+      the bootloader does not. It has
       to define ``GIT_REVISION`` (the release number), ``FW_IMAGE_NAME`` (the
       image directory's name, which ``firmware/common/fw_info.c`` asserts the
       length of), ``COMPILE_BY``, ``COMPILE_HOST`` and ``TIMESTAMP``; a header
