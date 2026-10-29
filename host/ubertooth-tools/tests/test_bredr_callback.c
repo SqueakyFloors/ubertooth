@@ -67,6 +67,7 @@ static struct {
 	/* The reference address the last record was written with, which is
 	 * what a reader checks a recorded header or payload against. */
 	uint32_t pcap_reflap;
+	uint32_t pcapng_reflap;
 	uint8_t pcap_refuap;
 	uint8_t pcapng_refuap;
 	/* How often the survey was asked for a piconet. */
@@ -190,9 +191,9 @@ int btbb_pcapng_append_packet(btbb_pcapng_handle* h, const uint64_t ns,
                               const uint32_t reflap, const uint8_t refuap,
                               const btbb_packet* pkt)
 {
-	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
-	(void)pkt;
+	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)pkt;
 	seen.pcapng_writes++;
+	seen.pcapng_reflap = reflap;
 	seen.pcapng_refuap = refuap;
 	return pcapng_write_result;
 }
@@ -1295,7 +1296,7 @@ MU_TEST(a_survey_record_carries_the_uap_the_survey_has_settled)
 	/* The reference LAP stays "none": it is the address the tool was told
 	 * to look for, and a survey is told none. The LAP the survey found is
 	 * in the record's own LAP field. */
-	mu_assert(seen.pcap_reflap == LAP_ANY,
+	mu_assert(seen.pcap_reflap == LAP_ANY && seen.pcapng_reflap == LAP_ANY,
 	          "a survey records no reference LAP");
 
 	btbb_piconet_unref(pn);

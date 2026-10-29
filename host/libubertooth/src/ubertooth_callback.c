@@ -1519,7 +1519,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * decoder keeps one per LAP it hears, and btbb_survey_piconet() reads
 	 * the one for this packet's LAP without taking it out of the survey.
 	 * Outside a survey that table is empty, so the lookup answers NULL and
-	 * the record carries no reference UAP, as before. */
+	 * the record carries no reference UAP, as before.
+	 *
+	 * The two never arrive together: a survey keeps the decoder's own
+	 * piconets and nothing else, and the only tool that surveys through
+	 * this callback refuses `-z` beside an address. Were a caller to pass
+	 * both, the decoder would update its survey piconet and ignore the
+	 * caller's, so the record would be the one to correct, not this. */
 	btbb_piconet* uap_pn = pn ? pn
 	                          : btbb_survey_piconet(btbb_packet_get_lap(pkt));
 

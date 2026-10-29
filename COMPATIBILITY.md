@@ -111,11 +111,11 @@ head whose branch has been deleted is still served to CI by its hash, but is
 in nobody's clone. Only the C library is built (`-DENABLE_PYTHON=OFF`): the
 Ubertooth tools link nothing else from libbtbb.
 
-The pin changes no part of `btbb.h`, so the interface these tools compile and
-link against is the same as upstream's, and upstream master — which CI built
-until this change — should keep working. It is simply no longer what gets
-tested. Older upstream releases, `2020-12-R1` included, have not been
-exercised here.
+These tools call entry points the fork's libbtbb adds to `btbb.h`, so the pin
+is what they build against and upstream master — which CI built until the pin
+— no longer configures: the check below refuses it by name, which is not
+something a CMake option settles. Older upstream releases, `2020-12-R1`
+included, have not been exercised here either.
 
 ### Firmware API version: exact match, bumped for a breaking change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
