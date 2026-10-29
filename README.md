@@ -84,7 +84,15 @@ tools, specan_ui Python deps, and (on Linux) udev rules:
 ./install.sh                              # host tools only
 ./install.sh --venv ~/ubertooth-venv      # isolate the Python tools in a venv
 ./install.sh --flash-device <index|serial|all>   # also build + flash firmware
+./install.sh --uninstall                  # take it all back off again
 ```
+
+`--uninstall` removes the files an earlier run recorded — the tools, the
+libraries, the man pages, the udev rule — and nothing else: the `apt` or
+Homebrew packages, the Python packages and a `--venv` directory all stay. The
+libbtbb it installed stays too unless you ask for it with `--remove-libbtbb`,
+because anything else on the machine built against that libbtbb stops building
+until it is put back.
 
 On Debian/Ubuntu it uses `apt` and installs into `/usr/local` with `sudo`. On
 macOS it needs [Homebrew](https://brew.sh), installs into the Homebrew prefix

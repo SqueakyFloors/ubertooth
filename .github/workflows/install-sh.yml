@@ -81,16 +81,47 @@ jobs:
       # shellcheck's does not replace.
       run: bash -n install.sh
 
-    - name: Smoke run
+    - name: How the privileged steps run
       shell: bash
       # On macOS a writable --prefix is installed without root, so --no-sudo
       # still installs. On Debian/Ubuntu every install step runs as root and
       # --no-sudo only prints them, so the runner's passwordless sudo is used.
+      # The install and the uninstalls below all take this.
       run: |
         NO_SUDO=""
         if [ "${{ runner.os }}" = "macOS" ]; then
           NO_SUDO="--no-sudo"
         fi
+        echo "NO_SUDO=$NO_SUDO" >> "$GITHUB_ENV"
+
+    - name: Refuse an uninstall that also asks for an install
+      shell: bash
+      # The options that only make sense for one of the two jobs.
+      run: |
+        for opts in "--uninstall --flash" "--uninstall --venv /tmp/v" \
+                    "--uninstall --skip-deps" "--uninstall --libbtbb-ref HEAD" \
+                    "--keep-libbtbb" "--uninstall --keep-libbtbb --remove-libbtbb"; do
+          # Unquoted on purpose: each entry is a command line, not one option.
+          if ./install.sh $opts 2>"$RUNNER_TEMP/refused.log"; then
+            echo "install.sh $opts was accepted and should not have been"
+            exit 1
+          fi
+          grep -q '^error: ' "$RUNNER_TEMP/refused.log"
+        done
+
+    - name: Uninstall where nothing was installed
+      shell: bash
+      # Before the install, so the prefix really is untouched: it says so and
+      # succeeds, and it does not create the prefix it was asked about.
+      run: |
+        ./install.sh --uninstall $NO_SUDO --prefix "$RUNNER_TEMP/never" \
+          2>&1 | tee "$RUNNER_TEMP/never.log"
+        grep -q 'Nothing to remove: no record of an install.sh install' "$RUNNER_TEMP/never.log"
+        test ! -d "$RUNNER_TEMP/never"
+
+    - name: Smoke run
+      shell: bash
+      run: |
         ./install.sh --skip-deps $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv" \
           2>&1 | tee "$RUNNER_TEMP/install.log"
 
@@ -106,3 +137,87 @@ jobs:
         # difference.
         grep -q 'What the installed tools report:' "$RUNNER_TEMP/install.log"
         ! grep -q 'the installed ubertooth-util would not run' "$RUNNER_TEMP/install.log"
+        # The udev rule is the one file installed outside the prefix, and only
+        # where the build found a group to give the device to. Remembered here
+        # so the uninstall below is checked against what was really installed.
+        if [ -f /etc/udev/rules.d/40-ubertooth.rules ]; then
+          echo "UDEV_RULE=1" >> "$GITHUB_ENV"
+        fi
+
+    - name: Uninstall the tools, keeping the libbtbb it installed
+      shell: bash
+      # Nothing answers the libbtbb question here, and a script must not have
+      # a shared library taken from under it, so the uninstall keeps it.
+      run: |
+        ./install.sh --uninstall $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
+          < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall.log"
+        grep -q 'Leaving libbtbb in place' "$RUNNER_TEMP/uninstall.log"
+        test ! -e "$RUNNER_TEMP/prefix/bin/ubertooth-util"
+        test ! -e "$RUNNER_TEMP/prefix/share/man/man1/ubertooth-util.1"
+        test ! -e "$RUNNER_TEMP/prefix/include/ubertooth.h"
+        # Listed and matched rather than globbed, so the path in this file
+        # does not read as a repository name to the libbtbb pin guard.
+        ls "$RUNNER_TEMP/prefix/lib" | grep -q '^libbtbb\.'
+        test -f "$RUNNER_TEMP/prefix/share/ubertooth/install-record/libbtbb-files"
+        if [ "${UDEV_RULE:-}" = 1 ]; then
+          test ! -e /etc/udev/rules.d/40-ubertooth.rules
+        fi
+        # The venv is the user's directory, named on the command line, so it
+        # stays whatever else goes.
+        test -x "$RUNNER_TEMP/venv/bin/python"
+
+    - name: Uninstall again
+      shell: bash
+      # Safe to run twice: the host record is gone with the files it listed,
+      # so it finds nothing left of the tools, says so, and succeeds.
+      # --keep-libbtbb answers the libbtbb question without a terminal.
+      run: |
+        test ! -e "$RUNNER_TEMP/prefix/share/ubertooth/install-record/host-files"
+        ./install.sh --uninstall --keep-libbtbb $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
+          < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall2.log"
+        grep -q 'Leaving it in place (--keep-libbtbb)' "$RUNNER_TEMP/uninstall2.log"
+        grep -q 'Removed 0 file(s)' "$RUNNER_TEMP/uninstall2.log"
+
+    - name: Uninstall the libbtbb as well
+      shell: bash
+      run: |
+        ./install.sh --uninstall --remove-libbtbb $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
+          < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall3.log"
+        # Not one file or symlink of the install is left. Empty directories
+        # are, on purpose: which of bin, lib and share an install created
+        # cannot be told from a manifest of files, and on a real prefix some
+        # of them were there first.
+        test -z "$(find "$RUNNER_TEMP/prefix" \( -type f -o -type l \) -print -quit)"
+        test ! -d "$RUNNER_TEMP/prefix/share/ubertooth"
+        # Nothing of this install is left, so a fourth run has no record to
+        # read and still succeeds.
+        ./install.sh --uninstall $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
+          < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall4.log"
+        grep -q 'Nothing to remove: no record of an install.sh install' "$RUNNER_TEMP/uninstall4.log"
+
+    - name: Refuse a recorded path the script does not install
+      shell: bash
+      # A record that was damaged or edited by hand must not aim the removal
+      # at the rest of the system: the paths outside the prefix are left, the
+      # record is kept so there is still a list, and the run fails. The last
+      # two entries also cover --remove-libbtbb where no libbtbb was recorded.
+      run: |
+        mkdir -p "$RUNNER_TEMP/fake"
+        # Resolved the way install.sh resolves its prefix, so the recorded
+        # paths below are the ones it compares against.
+        fake="$(cd "$RUNNER_TEMP/fake" && pwd -P)"
+        record="$fake/share/ubertooth/install-record"
+        mkdir -p "$record" "$fake/bin"
+        touch "$fake/bin/ours" "$RUNNER_TEMP/not-ours"
+        printf '%s\n' "$fake/bin/ours" "$RUNNER_TEMP/not-ours" \
+          "$fake/../not-ours" > "$record/host-files"
+        if ./install.sh --uninstall --remove-libbtbb $NO_SUDO --prefix "$fake" \
+             < /dev/null 2>&1 | tee "$RUNNER_TEMP/fake.log"; then
+          echo "the uninstall should have failed on the paths it refused"
+          exit 1
+        fi
+        grep -q "^error: left $RUNNER_TEMP/not-ours: not a path this script installs" "$RUNNER_TEMP/fake.log"
+        grep -q '^error: 2 recorded path(s) are still there' "$RUNNER_TEMP/fake.log"
+        test -f "$RUNNER_TEMP/not-ours"
+        test -f "$record/host-files"
+        test ! -e "$fake/bin/ours"

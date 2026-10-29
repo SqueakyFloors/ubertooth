@@ -18,8 +18,21 @@
 #
 # Usage:
 #   ./install.sh [options]
+#   ./install.sh --uninstall [--prefix <path>] [--keep-libbtbb|--remove-libbtbb]
 #
 # Options:
+#   --uninstall       remove what an earlier run of this script installed into
+#                     the prefix: the host tools, the libraries, the man pages
+#                     and, on Debian/Ubuntu, the udev rule. The list comes from
+#                     what that run recorded, so nothing else on the machine is
+#                     touched: the apt or Homebrew packages, the Python
+#                     packages and a venv made with --venv are all left alone.
+#                     Safe to run twice.
+#   --keep-libbtbb    with --uninstall: leave the libbtbb this script installed
+#   --remove-libbtbb  with --uninstall: remove it as well, without asking.
+#                     Anything else built against that libbtbb stops building
+#                     until it is put back, so without either option a
+#                     terminal is asked and a script keeps it.
 #   --with-firmware   also build the firmware images (needs arm-none-eabi-gcc)
 #   --flash           also flash bluetooth_rxtx to an attached Ubertooth
 #                     (implies --with-firmware; STATE-CHANGING)
@@ -55,6 +68,11 @@ set -euo pipefail
 WITH_FIRMWARE=0
 FLASH=0
 FLASH_DEVICE=""
+UNINSTALL=0
+# "keep", "remove", or empty for "ask a terminal, keep otherwise".
+LIBBTBB_ACTION=""
+# Cleared when --libbtbb-url or --libbtbb-ref was given.
+LIBBTBB_DEFAULTS=1
 VENV=""
 # libbtbb comes from this project's fork, pinned to a commit so a push there
 # cannot change what this script builds. The pin is bumped in
@@ -66,7 +84,12 @@ NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
 
-die() { echo "error: $*" >&2; exit 1; }
+# A failure that does not end the run, one file of many: the "error: " line
+# the output rules ask for, without info()'s progress prefix. Warnings carry
+# the prefix those rules name as well.
+err() { echo "error: $*" >&2; }
+warn() { echo "warning: $*" >&2; }
+die() { err "$*"; exit 1; }
 # Progress, not a result: the script writes nothing to standard output,
 # so "./install.sh > log" still shows what it is doing.
 info() { echo "==> $*" >&2; }
@@ -153,14 +176,53 @@ as_installer() {
 	fi
 }
 
+# Record the files an install step just put on the system, so --uninstall can
+# take exactly those away again and nothing else. CMake writes
+# install_manifest.txt into the build directory on every "cmake --install",
+# one absolute path a line; the copy under the prefix is the one that survives,
+# because libbtbb is built in a temporary directory. An optional description
+# becomes a "# " comment on the first line, which the uninstall quotes back.
+record_installed() { # <name> <build dir> [description]
+	local name="$1" manifest="$2/install_manifest.txt"
+	local dest="$RECORD_DIR/$name-files" src="$WORK/$name-files"
+	if [ ! -f "$manifest" ]; then
+		warn "$manifest is missing, so --uninstall will not know about the $name files"
+		return 0
+	fi
+	# What an earlier run into this prefix installed is kept alongside what
+	# this one did: a manifest names only the files its own build installed,
+	# so a re-run configured with one tool fewer would otherwise leave that
+	# tool behind with nothing recording it. A path whose file has since
+	# gone costs the uninstall nothing; it counts as already gone.
+	#
+	# awk rather than cat, because CMake leaves no newline after the last
+	# path of a manifest and a plain cat would join it to the next line.
+	{
+		[ -z "${3:-}" ] || printf '# %s\n' "$3"
+		# LC_ALL=C, so that two paths differing only in a character
+		# the locale's collation ignores are both kept.
+		{ awk 1 "$manifest"; [ ! -f "$dest" ] || awk '!/^#/' "$dest"; } |
+			LC_ALL=C sort -u
+	} > "$src"
+	as_installer mkdir -p "$RECORD_DIR"
+	as_installer cp "$src" "$dest"
+}
+
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
 		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index, serial, or 'all'" ;;
+		--uninstall) UNINSTALL=1 ;;
+		--keep-libbtbb)
+			[ "$LIBBTBB_ACTION" != remove ] || die "--keep-libbtbb cannot be combined with --remove-libbtbb"
+			LIBBTBB_ACTION=keep ;;
+		--remove-libbtbb)
+			[ "$LIBBTBB_ACTION" != keep ] || die "--remove-libbtbb cannot be combined with --keep-libbtbb"
+			LIBBTBB_ACTION=remove ;;
 		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
-		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; [ -n "$LIBBTBB_URL" ] || die "--libbtbb-url needs a git URL" ;;
-		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
+		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_URL" ] || die "--libbtbb-url needs a git URL" ;;
+		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
 		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "--prefix needs a path" ;;
 		--skip-deps) SKIP_DEPS=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
@@ -176,6 +238,19 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
+# An uninstall builds and installs nothing, so a command line that asks for
+# both says two things and means one. --prefix says where to look and
+# --no-sudo prints the privileged steps instead of running them, so both apply
+# to either job.
+if [ "$UNINSTALL" -eq 1 ]; then
+	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash or --flash-device"
+	[ -z "$VENV" ] || die "--uninstall cannot be combined with --venv"
+	[ "$SKIP_DEPS" -eq 0 ] || die "--uninstall cannot be combined with --skip-deps"
+	[ "$LIBBTBB_DEFAULTS" -eq 1 ] || die "--uninstall cannot be combined with --libbtbb-url or --libbtbb-ref; it removes the libbtbb that was installed"
+elif [ -n "$LIBBTBB_ACTION" ]; then
+	die "--keep-libbtbb and --remove-libbtbb only apply to --uninstall"
+fi
+
 # --- platform check -------------------------------------------------------
 case "$(uname -s)" in
 	Linux)
@@ -183,7 +258,8 @@ case "$(uname -s)" in
 			die "on Linux this script supports Debian/Ubuntu (apt-get) only; see REQUIREMENTS.md for other platforms"
 		# python3 comes from apt below if it is missing; check it here if not,
 		# so an old one stops the script before anything is installed or built.
-		if command -v python3 >/dev/null 2>&1; then
+		# An uninstall builds nothing and runs no Python, so it does not care.
+		if [ "$UNINSTALL" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
 			require_python python3
 		fi
 		PLATFORM=debian
@@ -194,9 +270,12 @@ case "$(uname -s)" in
 		command -v brew >/dev/null 2>&1 || \
 			die "on macOS this script needs Homebrew (https://brew.sh); see REQUIREMENTS.md"
 		# Homebrew does not install Python here; apt does on Debian/Ubuntu.
-		command -v python3 >/dev/null 2>&1 || \
-			die "python3 not found; install Python 3.8 or newer (for example: brew install python)"
-		require_python python3 "install a newer one (for example: brew install python)"
+		# An uninstall builds nothing and runs no Python, so it does not care.
+		if [ "$UNINSTALL" -eq 0 ]; then
+			command -v python3 >/dev/null 2>&1 || \
+				die "python3 not found; install Python 3.8 or newer (for example: brew install python)"
+			require_python python3 "install a newer one (for example: brew install python)"
+		fi
 		PLATFORM=macos
 		BREW_PREFIX="$(brew --prefix)"
 		PREFIX="${PREFIX:-$BREW_PREFIX}"
@@ -206,14 +285,196 @@ case "$(uname -s)" in
 		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu and macOS (Homebrew); see REQUIREMENTS.md"
 		;;
 esac
+
+# --- uninstall ------------------------------------------------------------
+
+# True when a recorded path is one this script could have installed: under the
+# prefix, or the udev rule in one of the three directories a system keeps udev
+# rules in, which is the one file the host build writes outside the prefix. A
+# ".." could walk back out of the prefix, so a path holding one is refused
+# whatever else it looks like. So a record that was damaged or edited by hand
+# cannot name an arbitrary file and have it removed.
+#
+# The comparison is on the path as written. A prefix with a symlinked
+# subdirectory therefore reaches the link's target, which is the point: the
+# install wrote the file through that same link, and resolving the path here
+# would leave a prefix laid out that way with files and no way to remove them.
+#
+# A build pointed at a fourth udev directory with -DUDEV_RULES_PATH has its
+# rule reported and left behind; the message says which file it is.
+ours_to_remove() { # <recorded path>
+	case "$1" in
+		*/../*|*/..) return 1 ;;
+		"$PREFIX"/*) return 0 ;;
+		/etc/udev/rules.d/40-ubertooth.rules) return 0 ;;
+		/lib/udev/rules.d/40-ubertooth.rules) return 0 ;;
+		/usr/lib/udev/rules.d/40-ubertooth.rules) return 0 ;;
+	esac
+	return 1
+}
+
+# Remove the files one record lists, and nothing else. Sets REMOVED, PRINTED
+# (removals --no-sudo printed instead of running), ABSENT, SKIPPED and FAILED.
+remove_recorded() { # <record file>
+	local record="$1" path
+	REMOVED=0; PRINTED=0; ABSENT=0; SKIPPED=0; FAILED=0
+	# The test on the right of the || reads a last line with no newline
+	# after it, which is how CMake writes a manifest.
+	while IFS= read -r path || [ -n "$path" ]; do
+		case "$path" in ''|'#'*) continue ;; esac
+		if ! ours_to_remove "$path"; then
+			# An error, not a note: it is why the run ends non-zero.
+			err "left $path: not a path this script installs"
+			SKIPPED=$((SKIPPED+1)); continue
+		fi
+		# A symlink whose target has gone is still ours, hence -L.
+		if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+			ABSENT=$((ABSENT+1)); continue
+		fi
+		if ! as_installer rm -f -- "$path"; then
+			err "could not remove $path"
+			FAILED=$((FAILED+1))
+		elif [ -e "$path" ] || [ -L "$path" ]; then
+			PRINTED=$((PRINTED+1)) # --no-sudo, so nothing ran
+		else
+			REMOVED=$((REMOVED+1))
+		fi
+	done < "$record"
+}
+
+# Remove the directory this script keeps its record in, and its parent, once
+# they are empty; rmdir refuses one with anything else in it. Nothing else is
+# pruned. A manifest lists files, not directories, so which of bin, lib,
+# include and share an install created and which were already there cannot be
+# told from it, and a stock /usr/local ships several of them empty: an empty
+# directory left behind harms nothing, where removing someone else's does.
+prune_record_dirs() {
+	local dir
+	for dir in "$RECORD_DIR" "$(dirname "$RECORD_DIR")"; do
+		[ -d "$dir" ] || continue
+		# Emptiness is tested here rather than left to rmdir, so that
+		# --no-sudo does not print a removal that would have been
+		# refused, and so a real rmdir failure is heard.
+		[ -z "$(ls -A "$dir" 2>/dev/null)" ] || continue
+		as_installer rmdir "$dir" || true
+	done
+}
+
+# Take a record away once nothing it lists is left. One that still names a
+# file, because the removal failed or because the path was refused, is kept:
+# the point of the record is that a user is never left with files and no list.
+drop_record() { # <record file>
+	if [ "$FAILED" -eq 0 ] && [ "$SKIPPED" -eq 0 ]; then
+		as_installer rm -f -- "$1"
+	fi
+}
+
+# Take away what an earlier run installed into PREFIX, and nothing else: the
+# record that run wrote is the only list used, so a file this script never
+# installed is not named there and cannot be removed here. Nothing else it
+# touched is a file of ours to take back: the apt and Homebrew packages, the
+# Python packages, and a venv the user named with --venv, all stay.
+#
+# Running it twice is a no-op rather than an error, the way "rm -f" is: the
+# state asked for has been reached either way, so only a file that is still
+# there after we tried to remove it is a failure.
+uninstall() {
+	local host_record="$RECORD_DIR/host-files" btbb_record="$RECORD_DIR/libbtbb-files"
+	local removed=0 printed=0 absent=0 skipped=0 failed=0 libbtbb_what="" answer
+
+	if [ ! -f "$host_record" ] && [ ! -f "$btbb_record" ]; then
+		info "Nothing to remove: no record of an install.sh install in $PREFIX"
+		info "An install writes $RECORD_DIR; with no record there is no list to go on, so remove any such files by hand"
+		return 0
+	fi
+
+	# The script installed this libbtbb, so it may remove it, but other
+	# builds on the machine link against it and a user who only wanted the
+	# tools gone would not expect that. So: asked, and kept by default.
+	if [ -f "$btbb_record" ]; then
+		libbtbb_what="$(sed -n 's/^# //p' "$btbb_record" | head -1)"
+		info "This install includes ${libbtbb_what:-libbtbb}, in $PREFIX"
+		info "Anything else on this machine built against it stops building until it is put back"
+		case "$LIBBTBB_ACTION" in
+			remove) ;;
+			keep) info "Leaving it in place (--keep-libbtbb)" ;;
+			*)
+				if [ -t 0 ]; then
+					printf 'Remove that libbtbb as well? [y/N] ' >&2
+					read -r answer || answer=""
+					case "$answer" in
+						[yY]|[yY][eE][sS]) LIBBTBB_ACTION=remove ;;
+						*) LIBBTBB_ACTION=keep; info "Leaving libbtbb in place" ;;
+					esac
+				else
+					LIBBTBB_ACTION=keep
+					info "Leaving libbtbb in place: no terminal to ask. Re-run with --remove-libbtbb to remove it"
+				fi ;;
+		esac
+	fi
+
+	if [ -f "$host_record" ]; then
+		info "Removing the Ubertooth host tools recorded in $host_record"
+		remove_recorded "$host_record"
+		removed=$((removed+REMOVED)); printed=$((printed+PRINTED))
+		absent=$((absent+ABSENT)); skipped=$((skipped+SKIPPED))
+		failed=$((failed+FAILED))
+		drop_record "$host_record"
+	fi
+
+	if [ "$LIBBTBB_ACTION" = remove ] && [ -f "$btbb_record" ]; then
+		info "Removing the libbtbb recorded in $btbb_record"
+		remove_recorded "$btbb_record"
+		removed=$((removed+REMOVED)); printed=$((printed+PRINTED))
+		absent=$((absent+ABSENT)); skipped=$((skipped+SKIPPED))
+		failed=$((failed+FAILED))
+		drop_record "$btbb_record"
+	fi
+
+	prune_record_dirs
+	if [ "$PLATFORM" = debian ] && [ "$removed" -gt 0 ]; then
+		as_root ldconfig
+	fi
+
+	info "Removed $removed file(s) of this install from $PREFIX"
+	if [ "$printed" -gt 0 ]; then
+		info "$printed file(s) are still there: --no-sudo printed the removals above instead of running them"
+	fi
+	if [ "$absent" -gt 0 ]; then
+		info "$absent recorded file(s) were already gone"
+	fi
+	if [ "$LIBBTBB_ACTION" = keep ] && [ -f "$btbb_record" ]; then
+		info "libbtbb is still installed in $PREFIX"
+	fi
+	info "Left alone: the apt or Homebrew packages, the Python packages (numpy, qtpy, pyside6, libusb1), and any venv made with --venv"
+	if [ "$((failed+skipped))" -gt 0 ]; then
+		die "$((failed+skipped)) recorded path(s) are still there: $failed could not be removed, $skipped not this script's to remove; $RECORD_DIR still lists them"
+	fi
+}
+
 ORIG_PATH="$PATH"
 # Resolve python3 from the user's PATH, before PREFIX/bin is put first.
 PYTHON3="$(command -v python3 || true)"
 # Run paths and PATH need an absolute prefix. Create it (as root if needed) and
-# resolve symlinks so it can be compared with the Homebrew prefix.
+# resolve symlinks so it can be compared with the Homebrew prefix, and with the
+# paths an earlier run recorded.
 case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
-mkdir -p "$PREFIX" 2>/dev/null || as_installer mkdir -p "$PREFIX"
-[ -d "$PREFIX" ] && PREFIX="$(cd "$PREFIX" && pwd -P)"
+if [ "$UNINSTALL" -eq 0 ]; then
+	# An uninstall must not create the prefix it is about to look in.
+	mkdir -p "$PREFIX" 2>/dev/null || as_installer mkdir -p "$PREFIX"
+fi
+if [ -d "$PREFIX" ]; then
+	PREFIX="$(cd "$PREFIX" && pwd -P)"
+fi
+# Where an install records what it put on the system, one absolute path a line,
+# for --uninstall to take away again.
+RECORD_DIR="$PREFIX/share/ubertooth/install-record"
+
+if [ "$UNINSTALL" -eq 1 ]; then
+	uninstall
+	exit 0
+fi
+
 if [ "$PLATFORM" = macos ] && [ "$PREFIX" = "$(cd "$BREW_PREFIX" && pwd -P)" ]; then
 	# Homebrew core has its own ubertooth and libbtbb; installing over them in
 	# the Homebrew prefix would break both. Each "brew list" takes about a
@@ -378,7 +639,7 @@ if [ -n "$VENV" ]; then
 	[ "$PLATFORM" = debian ] && VENV_DEPS+=(libusb1==3.4.0)
 	if ! "$PYTHON" -m pip install --quiet "${VENV_DEPS[@]}"; then
 		PY_DEPS_WARNING="could not pip-install Python runtime deps into the venv $VENV"
-		info "WARNING: $PY_DEPS_WARNING"
+		warn "$PY_DEPS_WARNING"
 	fi
 elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 	# Homebrew's Python is externally managed and upgrades replace it, so do not
@@ -389,7 +650,7 @@ elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 	else
 		PY_DEPS_WARNING="could not pip-install GUI deps; $GUI_DEPS_HINT"
 	fi
-	[ -z "$PY_DEPS_WARNING" ] || info "WARNING: $PY_DEPS_WARNING"
+	[ -z "$PY_DEPS_WARNING" ] || warn "$PY_DEPS_WARNING"
 fi
 
 # --- 5. libbtbb -----------------------------------------------------------
@@ -403,6 +664,7 @@ cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" -DENABLE_PYTHON=OFF \
 	-DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
 cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
 as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
+record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
 [ "$PLATFORM" = debian ] && as_root ldconfig
 
 # --- 6. host tools --------------------------------------------------------
@@ -437,6 +699,7 @@ cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 	-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
 as_installer cmake --install "$REPO_ROOT/host/build"
+record_installed host "$REPO_ROOT/host/build"
 if [ "$PLATFORM" = debian ]; then
 	as_root ldconfig
 	info "udev rules installed with the host tools (unplug/replug the Ubertooth)"
@@ -481,7 +744,7 @@ else
 		*) UTIL_ANSWERED=0 ;;
 	esac
 	if [ "$UTIL_ANSWERED" -eq 0 ]; then
-		info "WARNING: the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
+		warn "the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
 	else
 		# The lines below are the tool's own, quoted as it printed
 		# them rather than given the script's "==> " prefix.
@@ -499,7 +762,7 @@ else
 			# do. Also not an answer about a second install.
 			*"libbtbb loaded from: $PREFIX/bin/"*)
 				info "The tools report themselves as the libbtbb in use, so another install would not be noticed here" ;;
-			*) info "WARNING: the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
+			*) warn "the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
 		esac
 	fi
 fi
