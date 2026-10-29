@@ -527,8 +527,8 @@ MU_TEST(a_long_packet_marked_by_symbols_written_over_counts_one)
 		f->status |= DMA_OVERFLOW;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 		                           (i << LE_FRAG_INDEX_SHIFT));
 	}
 	next_count = i;
