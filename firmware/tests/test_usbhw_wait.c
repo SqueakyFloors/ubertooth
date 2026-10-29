@@ -907,7 +907,10 @@ MU_TEST(test_ep_write_reports_nothing_taken_when_the_validation_gives_up)
 
 static unsigned handler_calls;
 static U8 handler_last_request;
-static U8 handler_data[64];
+/* The store the fake handler answers out of. Large enough that the stack's
+ * clamp on a reply assembled in the store never fires in the cases below,
+ * which are about how a reply's data stage ends rather than about its size. */
+static U8 handler_data[256];
 /* How many bytes of reply the handler offers. Zero is a request with no data
  * stage; 64 is the shape of UBERTOOTH_POLL, which is how ubertooth-btle reads
  * every captured packet. */
@@ -966,7 +969,7 @@ static void control_test_setup(void)
 	handler_last_request = 0;
 	handler_reply_len = 0;
 	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, fake_request_handler,
-	                          handler_data);
+	                          handler_data, sizeof(handler_data));
 }
 
 /* The normal path, so the test below means something: a setup packet that
@@ -1245,6 +1248,310 @@ MU_TEST(test_a_request_with_no_data_stage_is_answered_once)
 	USBHandleControlTransfer(0x80, 0);
 	mu_assert(!last_command_validated_a_buffer(),
 	          "and with only one");
+}
+
+/* ---- the bound on a host-to-device request's data ---- */
+
+/*
+ * A request that carries data to the device has that data collected in the
+ * store its handler registered, one 64-byte packet at a time, and the
+ * collection used to be bounded only by the length the host declared. wLength
+ * is sixteen bits; the largest store in this firmware holds 258 bytes. So a
+ * request declaring 65,535 wrote about 65 KiB of the host's bytes over
+ * whatever followed that store. No shipped tool sends such a request; any
+ * program on the bus can.
+ *
+ * The stack now knows how big each store is and refuses a longer request. The
+ * store below has a guard region behind it, so a collection that ran past it
+ * would be visible here rather than corrupting this test's own memory.
+ */
+
+#define OUT_STORE_LEN 72
+#define OUT_GUARD_LEN 128
+
+static struct {
+	U8 store[OUT_STORE_LEN];
+	U8 behind[OUT_GUARD_LEN];
+} out_area;
+
+/* The store the handler registers, and the largest request the stack will
+ * collect into it. One byte more has to be refused. */
+static void out_test_setup(void)
+{
+	fake_reset();
+	handler_calls = 0;
+	handler_last_request = 0;
+	handler_reply_len = 0;
+	memset(&out_area, 0, sizeof(out_area));
+	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, fake_request_handler,
+	                          out_area.store, sizeof(out_area.store));
+}
+
+/* A host-to-device request declaring wLength bytes of data to follow. */
+static void queue_out_setup_packet(U8 request, U16 wLength)
+{
+	static U8 setup[64];
+
+	memset(setup, 0, sizeof(setup));
+	setup[0] = 0x40;     /* OUT, vendor, device */
+	setup[1] = request;
+	setup[6] = wLength & 0xFF;
+	setup[7] = wLength >> 8;
+
+	fake_setup_bytes = setup;
+	packet_ready = 1;
+	packet_valid = 1;
+	packet_len = 8;
+	rx_words = 0;
+}
+
+/* One packet of that data arriving. */
+static void queue_out_data(const U8 *bytes, unsigned len)
+{
+	fake_setup_bytes = bytes;
+	packet_ready = 1;
+	packet_valid = 1;
+	packet_len = len;
+	rx_words = 0;
+}
+
+/* Is the region behind the store still as it was? */
+static int out_guard_is_clean(void)
+{
+	unsigned i;
+
+	for (i = 0; i < OUT_GUARD_LEN; i++)
+		if (out_area.behind[i] != 0)
+			return 0;
+	return 1;
+}
+
+/* The data of a request, in packets, as the host sends it. The bytes are the
+ * byte's own index, so a store filled from the wrong offset shows up. */
+static void send_out_data(unsigned total)
+{
+	static U8 data[256];
+	unsigned sent;
+
+	for (sent = 0; sent < total; sent += MAX_PACKET_SIZE0) {
+		unsigned chunk = total - sent;
+		unsigned i;
+
+		if (chunk > MAX_PACKET_SIZE0)
+			chunk = MAX_PACKET_SIZE0;
+		for (i = 0; i < chunk; i++)
+			data[i] = (U8)(sent + i);
+		queue_out_data(data, chunk);
+		USBHandleControlTransfer(0x00, 0);
+	}
+}
+
+/* The normal path, so the refusals below mean something: a request whose data
+ * fits the store is collected whole, across packets, and handed over. */
+MU_TEST(test_an_out_request_that_fits_the_store_is_handled)
+{
+	unsigned i;
+
+	out_test_setup();
+	queue_out_setup_packet(0x50, OUT_STORE_LEN);
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(0, (int)handler_calls);
+
+	send_out_data(OUT_STORE_LEN);
+
+	mu_assert_int_eq(1, (int)handler_calls);
+	mu_assert_int_eq(0x50, handler_last_request);
+	for (i = 0; i < OUT_STORE_LEN; i++)
+		mu_assert_int_eq((int)(U8)i, out_area.store[i]);
+	mu_assert(out_guard_is_clean(), "a request that fits wrote past the store");
+}
+
+/* One byte more than the store holds is refused, before any of it is taken. */
+MU_TEST(test_an_out_request_one_byte_over_the_store_is_stalled)
+{
+	out_test_setup();
+	queue_out_setup_packet(0x51, OUT_STORE_LEN + 1);
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(0, (int)handler_calls);
+	mu_assert(last_command_stalled_ep0(),
+	          "a request declaring more data than its store holds must "
+	          "stall endpoint 0");
+}
+
+/* And the worst case, the longest length a setup packet can declare. */
+MU_TEST(test_the_longest_possible_out_request_is_stalled)
+{
+	out_test_setup();
+	queue_out_setup_packet(0x52, 0xffff);
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(0, (int)handler_calls);
+	mu_assert(last_command_stalled_ep0(),
+	          "a request declaring 65,535 bytes must stall endpoint 0");
+}
+
+/*
+ * The state the refusal leaves behind has to be inert. A stall ends the
+ * transfer, but the host may already have a data packet on the wire, and that
+ * packet must not be stored: the overrun this prevents is in the collection,
+ * not in the setup packet.
+ */
+MU_TEST(test_a_stalled_over_long_request_stores_nothing)
+{
+	unsigned i;
+
+	out_test_setup();
+	queue_out_setup_packet(0x53, 0xffff);
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	send_out_data(MAX_PACKET_SIZE0 * 3);
+
+	mu_assert_int_eq(0, (int)handler_calls);
+	for (i = 0; i < OUT_STORE_LEN; i++)
+		mu_assert_int_eq(0, out_area.store[i]);
+	mu_assert(out_guard_is_clean(),
+	          "data arriving after the refusal was stored past the store");
+}
+
+/*
+ * How far the collection used to reach is not something a test can run: the
+ * bound is in the only copy of the loop. For the record, the vendor store
+ * holds 258 bytes (VENDOR_REQ_DATA_LEN) and a request may declare 65,535, so
+ * it wrote about 65 KiB over whatever followed the store. What the cases above
+ * do pin is that nothing is written past the store now.
+ */
+
+/*
+ * The bound must not touch a device-to-host request. Those are answered out of
+ * whatever the handler points the data pointer at, and the reply is cut to the
+ * handler's own length, so a host asking for more than the store holds is
+ * ordinary -- every host asks for 255 bytes of a string descriptor, and the
+ * standard store is eight bytes. A bound applied to both directions would stop
+ * the board enumerating.
+ */
+MU_TEST(test_a_request_asking_for_more_than_the_store_is_answered)
+{
+	out_test_setup();
+	handler_reply_len = 4;
+	queue_setup_packet_len(0x54, 0xffff);
+	tx_wr_en_words = 16;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(1, (int)handler_calls);
+	mu_assert(validated_a_packet_of(4),
+	          "a reply to a host that asked for more must still be sent");
+}
+
+/* A request type with no handler has no store either, so a request carrying
+ * data to it is refused rather than collected through a null pointer. */
+MU_TEST(test_an_out_request_to_a_type_with_no_store_is_stalled)
+{
+	static U8 setup[64];
+
+	out_test_setup();
+	memset(setup, 0, sizeof(setup));
+	setup[0] = 0x60;     /* OUT, reserved type, device: nothing registered */
+	setup[1] = 0x55;
+	setup[6] = 8;
+	fake_setup_bytes = setup;
+	packet_ready = 1;
+	packet_valid = 1;
+	packet_len = 8;
+	rx_words = 0;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(0, (int)handler_calls);
+	mu_assert(last_command_stalled_ep0(),
+	          "a request carrying data to a type with no store must stall "
+	          "endpoint 0");
+}
+
+/*
+ * The other half of the bound. A handler that answers out of the store cannot
+ * have more to send than the store holds, so a length it reports above that
+ * must not be believed: the reply would be assembled from the bytes after the
+ * store and sent to the host.
+ *
+ * A handler that points the data pointer somewhere else is left alone, which
+ * is the case below this one: that is how every descriptor is answered.
+ */
+MU_TEST(test_a_reply_out_of_the_store_is_cut_to_the_store)
+{
+	out_test_setup();
+	handler_reply_len = OUT_STORE_LEN + 32;
+	queue_setup_packet_len(0x58, 0xffff);
+	tx_wr_en_words = 32;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(1, (int)handler_calls);
+	mu_assert(validated_a_packet_of(MAX_PACKET_SIZE0),
+	          "the first packet of the reply is a full one");
+	/* OUT_STORE_LEN is 72, so the reply is cut to 72 and the rest of it is
+	 * the 8 bytes after the first packet -- not the 40 the handler asked
+	 * for. */
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(validated_a_packet_of(OUT_STORE_LEN - MAX_PACKET_SIZE0),
+	          "a reply out of the store must be cut to the store's size");
+}
+
+/* A handler that redirects the data pointer keeps its own length, however much
+ * larger than the store it is: this is the descriptor path, and the descriptor
+ * is not in the store. */
+static U8 elsewhere[200];
+
+static BOOL redirecting_handler(TSetupPacket *pSetup, int *piLen, U8 **ppbData)
+{
+	++handler_calls;
+	handler_last_request = pSetup->bRequest;
+	*piLen = (int)sizeof(elsewhere);
+	*ppbData = elsewhere;
+	return TRUE;
+}
+
+MU_TEST(test_a_reply_from_elsewhere_keeps_its_own_length)
+{
+	out_test_setup();
+	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, redirecting_handler,
+	                          out_area.store, sizeof(out_area.store));
+	queue_setup_packet_len(0x59, 0xffff);
+	tx_wr_en_words = 32;
+
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+
+	mu_assert_int_eq(1, (int)handler_calls);
+	mu_assert(validated_a_packet_of(MAX_PACKET_SIZE0),
+	          "a descriptor longer than the store must still be sent");
+	/* 200 bytes: three full packets then 8. The clamp must not have cut it
+	 * to the store's 72. */
+	fake_cmdcode = 0;
+	USBHandleControlTransfer(0x80, 0);
+	mu_assert(validated_a_packet_of(MAX_PACKET_SIZE0),
+	          "the second packet is a full one too, so the reply was not "
+	          "cut to the store");
+}
+
+/* And a refusal must not cost the next request. */
+MU_TEST(test_a_control_transfer_works_after_an_over_long_one_is_refused)
+{
+	out_test_setup();
+	queue_out_setup_packet(0x56, 0xffff);
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	mu_assert_int_eq(0, (int)handler_calls);
+
+	queue_out_setup_packet(0x57, OUT_STORE_LEN);
+	USBHandleControlTransfer(0x00, EP_STATUS_SETUP);
+	send_out_data(OUT_STORE_LEN);
+
+	mu_assert_int_eq(1, (int)handler_calls);
+	mu_assert_int_eq(0x57, handler_last_request);
+	mu_assert(out_guard_is_clean(), "the accepted request wrote past the store");
 }
 
 /* ---- a control reply the controller would not take ---- */
@@ -2361,6 +2668,15 @@ int main(void)
 	MU_RUN(test_a_short_setup_packet_runs_nothing);
 	MU_RUN(test_a_failed_setup_leaves_no_transfer_to_resume);
 	MU_RUN(test_a_control_transfer_works_after_a_failed_setup_read);
+	MU_RUN(test_an_out_request_that_fits_the_store_is_handled);
+	MU_RUN(test_an_out_request_one_byte_over_the_store_is_stalled);
+	MU_RUN(test_the_longest_possible_out_request_is_stalled);
+	MU_RUN(test_a_stalled_over_long_request_stores_nothing);
+	MU_RUN(test_a_request_asking_for_more_than_the_store_is_answered);
+	MU_RUN(test_an_out_request_to_a_type_with_no_store_is_stalled);
+	MU_RUN(test_a_reply_out_of_the_store_is_cut_to_the_store);
+	MU_RUN(test_a_reply_from_elsewhere_keeps_its_own_length);
+	MU_RUN(test_a_control_transfer_works_after_an_over_long_one_is_refused);
 	MU_RUN(test_a_complete_reply_leaves_nothing_on_the_endpoint);
 	MU_RUN(test_a_reply_as_long_as_asked_for_leaves_nothing_on_the_endpoint);
 	MU_RUN(test_a_reply_that_fills_whole_packets_is_ended_with_a_zero_length_one);

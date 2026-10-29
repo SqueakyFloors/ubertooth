@@ -3478,6 +3478,109 @@ void bt_slave_le() {
 _Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
                "the generic receive record must fit in what enqueue() copies");
 
+/*
+ * One byte on the air at 1 Mbit/s, in timer 0's 100 ns ticks: 8 us.
+ *
+ * The capture does not set the modem up, so the rate is whatever the host
+ * wrote to MDMCTRL, and the radio also has a 250 kbit/s mode. This is sized
+ * for 1 Mbit/s, which is what the generic transmit uses and what the mode is
+ * for. At 250 kbit/s a byte is 32 us, so the lead below is one byte rather
+ * than four -- still the byte the wait exists for, but with nothing to spare.
+ * The record is wrong for other reasons at that rate anyway: the read below
+ * takes about 14 us a byte, so it would outrun a 32 us byte on the air for
+ * the whole record rather than only at byte 0.
+ */
+#define RX_GENERIC_BYTE_100NS 80
+
+/*
+ * How much of the packet the radio is given time to receive before the capture
+ * starts clocking it out of the FIFO, in bytes.
+ *
+ * The capture starts reading as soon as the radio reports SYNC_RECEIVED. The
+ * radio sets that flag when the sync word ends, which is before the first
+ * payload byte exists, so a read that starts there asks the FIFO for a byte
+ * the radio has not put in it yet and gets a wrong one back. Only byte 0 is
+ * affected, because the read is slower than the air: cc2400_fifo_read() waits
+ * out two delay loops per bit, about 14 us a byte against 8 us on the air, so
+ * from the second byte on the radio is further ahead with every byte read.
+ * The range test reads the same radio the same way and showed this as a wrong
+ * byte 0 in about one run in five.
+ *
+ * One byte time would do, since the wait starts at or after the end of the
+ * sync word; four of the 1 Mbit/s byte times above leave room for the jitter
+ * of the delay loop and of the radio writing the byte. It must stay short:
+ * the radio goes on writing into the same 32-byte FIFO while the packet is
+ * read out of it, so a wait of a whole packet's air time would leave that
+ * FIFO nearly full.
+ */
+#define RX_GENERIC_LEAD_BYTES 4
+#define RX_GENERIC_LEAD_100NS (RX_GENERIC_LEAD_BYTES * RX_GENERIC_BYTE_100NS)
+
+/*
+ * How many times the wait below may read the counter before giving up.
+ *
+ * The wait needs a few hundred reads. This cap is only a backstop: a timer 0
+ * that is not running would otherwise leave the wait spinning, answering no
+ * control request, until the watchdog reset the board.
+ *
+ * Reaching it costs real time: 100,000 turns of a register read and a division
+ * is on the order of 25 milliseconds, with USB unserviced, once per packet. By
+ * then the radio has refilled the 32-byte FIFO several times over, so that
+ * record is wrong throughout rather than only at byte 0. Both are worse than
+ * the wait working, and both are far better than a loop that never ends: the
+ * board goes on answering between packets, so the host can stop the mode.
+ */
+#define RX_GENERIC_LEAD_POLLS 100000
+
+/*
+ * Let the radio get the start of the packet into its FIFO, then return.
+ *
+ * Timer 0 counts 100 ns ticks and resets every CLK100NS_PER_CLKN of them --
+ * 312.5 us, one clkn tick -- so this adds up the steps it sees rather than
+ * comparing against a deadline the reset would carry it past. Each step is
+ * taken modulo that period, which is what makes a step across the reset come
+ * out as the time it was: `now - last` alone would be a huge unsigned number
+ * there and end the wait at once. A step that comes out longer than the whole
+ * lead is discarded rather than counted, which is what covers the one period
+ * whose length is not CLK100NS_PER_CLKN; see the loop.
+ *
+ * rx_generic_sync() starts the timer with clkn_start() before it receives. A
+ * counter that is not advancing is caught by the poll cap above rather than
+ * leaving this waiting forever.
+ *
+ * When the timer is running this takes tens of microseconds, which is far too
+ * short to service USB in and far too short for the host to notice. The range
+ * test has the same wait, written against its own packet length, in
+ * cc2400_rangetest.c.
+ */
+static void rx_generic_wait_for_fifo(void)
+{
+	u32 last = T0TC;
+	u32 waited = 0;
+	u32 polls = RX_GENERIC_LEAD_POLLS;
+
+	while (waited < RX_GENERIC_LEAD_100NS && polls-- > 0) {
+		u32 now = T0TC;
+		u32 step = (now + CLK100NS_PER_CLKN - last) % CLK100NS_PER_CLKN;
+
+		last = now;
+		/*
+		 * A step longer than the whole lead is not a step this loop
+		 * took. One turn of it is a register read and a division, a
+		 * handful of ticks, and the longest a turn can really be is an
+		 * interrupt in the middle of it -- still well under the lead.
+		 * So a larger figure means the modulo above was taken against
+		 * the wrong period, which happens for one timer period after
+		 * the low-energy modes' clock drift correction moves the
+		 * timer's match value. Counting it would end the wait early,
+		 * which is the wrong byte 0 all this is for; dropping it waits
+		 * a little longer, and the poll cap still ends the loop.
+		 */
+		if (step <= RX_GENERIC_LEAD_100NS)
+			waited += step;
+	}
+}
+
 void rx_generic_sync(void) {
 	/*
 	 * Zeroed because the capture fills only the first
@@ -3546,6 +3649,9 @@ void rx_generic_sync(void) {
 		}
 		USRLED_SET;
 
+		/* See RX_GENERIC_LEAD_BYTES: reading the moment the sync word
+		 * ends returns a byte 0 the radio has not written yet. */
+		rx_generic_wait_for_fifo();
 		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
 		                 buf + RX_GENERIC_SYNCWORD_LEN);
 		enqueue(BR_PACKET, buf);
@@ -3576,13 +3682,30 @@ void rx_generic(void) {
  * because the dispatch records the mode it is entering for every mode alike.
  */
 void tx_generic(u8 prev_mode) {
-	u16 synch, syncl, frend, gio_save;
+	u16 synch, syncl, mdmctrl, mdmtst0, grmdm, fsdiv, frend, gio_save;
 	u8 len, sent, chunk;
 
-	// Save the syncword, the amplifier level and what GIO6 reports, all of
-	// which this puts back when the packet is out
+	/*
+	 * Every radio register this transmit writes is saved here and put back
+	 * when the packet is out, because nothing sets the radio up again
+	 * afterwards: the generic modes take the radio as the host left it,
+	 * through UBERTOOTH_SET_* and UBERTOOTH_WRITE_REGISTERS, and the mode
+	 * the board returns to reads what this leaves behind.
+	 *
+	 * GRMDM is the one that decides something: rx_generic() reads its
+	 * packet-mode bit to choose between the packet receive and the raw
+	 * symbol stream, and the value written below has that bit set, so a
+	 * receive entered after a transmit used to take the packet path
+	 * whatever the host had asked for. MDMCTRL, MDMTST0 and FSDIV are the
+	 * modem settings and the channel, which the same receive would
+	 * otherwise inherit from this packet.
+	 */
 	synch = cc2400_get(SYNCH);
 	syncl = cc2400_get(SYNCL);
+	mdmctrl = cc2400_get(MDMCTRL);
+	mdmtst0 = cc2400_get(MDMTST0);
+	grmdm = cc2400_get(GRMDM);
+	fsdiv = cc2400_get(FSDIV);
 	frend = cc2400_get(FREND);
 	gio_save = cc2400_get(IOCFG);
 
@@ -3670,9 +3793,13 @@ void tx_generic(u8 prev_mode) {
 	PAEN_CLR;
 #endif
 
-	// Restore state
+	// Restore state, in the order it was set up above
 	cc2400_set(SYNCH, synch);
 	cc2400_set(SYNCL, syncl);
+	cc2400_set(MDMCTRL, mdmctrl);
+	cc2400_set(MDMTST0, mdmtst0);
+	cc2400_set(GRMDM, grmdm);
+	cc2400_set(FSDIV, fsdiv);
 	cc2400_set(FREND, frend_keep_pa_level(frend));
 	cc2400_set(IOCFG, gio_save);
 	requested_mode = prev_mode;

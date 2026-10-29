@@ -57,7 +57,7 @@ typedef BOOL (TFnHandleRequest)(TSetupPacket *pSetup, int *piLen, U8 **ppbData);
 void USBInit(void);
 void USBRegisterDescriptors(const U8 *pabDescriptors);
 void USBRegisterRequestHandler(int iType, TFnHandleRequest *pfnHandler,
-                               U8 *pbDataStore);
+                               U8 *pbDataStore, int iDataStoreSize);
 void USBRegisterWinusbInterface(U8 bRequest, const char *pcGUID);
 void USBHwConnect(BOOL fConnect);
 void USBHwISR(void);

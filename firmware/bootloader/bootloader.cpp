@@ -190,7 +190,8 @@ int bootloader_usb_init()
 	USBRegisterDescriptors(dfu_descriptors);
 
 	// override standard request handler
-	USBRegisterRequestHandler(REQTYPE_TYPE_CLASS, dfu_request_handler, dfu_buffer);
+	USBRegisterRequestHandler(REQTYPE_TYPE_CLASS, dfu_request_handler,
+	                          dfu_buffer, sizeof(dfu_buffer));
 
 	// enable USB interrupts
 	//ISER0 |= ISER0_ISE_USB;

@@ -278,6 +278,7 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 	u32 command[5];
 	u32 result[5];
 	u8 length; // string length
+	size_t len; // the same, before it is bounded by the store
 
 	switch (pSetup->bRequest) {
 
@@ -486,7 +487,15 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 		pbData[0] = 0x00;
 		pbData[1] = 0x00;
 
-		length = (u8)strlen(GIT_REVISION);
+		/* Two zero bytes, the length, then the revision -- so the
+		 * longest revision this store holds is three bytes shorter
+		 * than the store. Without the clamp a revision string longer
+		 * than fourteen characters, which a build with a suffix has,
+		 * is copied past the end of it. */
+		len = strlen(GIT_REVISION);
+		if (len > sizeof(abVendorReqData) - 3)
+			len = sizeof(abVendorReqData) - 3;
+		length = (u8)len;
 		pbData[2] = length;
 
 		memcpy(&pbData[3], GIT_REVISION, length);
@@ -509,7 +518,8 @@ int ubertooth_usb_init()
 	USBRegisterDescriptors(abDescriptors);
 
 	// override standard request handler
-	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, usb_vendor_request_handler, abVendorReqData);
+	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, usb_vendor_request_handler,
+	                          abVendorReqData, sizeof(abVendorReqData));
 
 	// register endpoints
 	//USBHwRegisterEPIntHandler(BULK_IN_EP, usb_bulk_in_handler);
