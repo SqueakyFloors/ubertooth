@@ -85,9 +85,9 @@ channel map the scan built for it:
 
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
-manufacturer, its features, its clock offset, and its channel map as `AFH
-Map:`. A device that reports AFH off has no map to report, which is said on
-standard error as `note: AFH disabled.`.
+manufacturer, its features, its clock offset, and its channel map as an `AFH
+Map:` line. A device that reports AFH off has no map to report, and standard
+error carries a `note:` line saying so.
 
 Everything else goes to standard error: the three headings that say which half
 of the scan is running (`HCI scan`, `Ubertooth scan` and `Scan results:`), the

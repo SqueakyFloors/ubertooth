@@ -65,7 +65,7 @@ AFH map: 0x0123456789abcdef1234
 .fi
 .IP "" 0
 .P
-\fB\-x\fR adds the extended report of a device under its line, indented, as \fBhcitool info\fR shows one: its address and name, the LMP version and manufacturer, its features, its clock offset, and its channel map as \fBAFH Map:\fR\. A device that reports AFH off has no map to report, which is said on standard error as \fBnote: AFH disabled\.\fR\.
+\fB\-x\fR adds the extended report of a device under its line, indented, as \fBhcitool info\fR shows one: its address and name, the LMP version and manufacturer, its features, its clock offset, and its channel map as an \fBAFH Map:\fR line\. A device that reports AFH off has no map to report, and standard error carries a \fBnote:\fR line saying so\.
 .P
 Everything else goes to standard error: the three headings that say which half of the scan is running (\fBHCI scan\fR, \fBUbertooth scan\fR and \fBScan results:\fR), the \fBRequesting information \|\.\|\.\|\.\fR line of \fB\-x\fR, and every warning and failure (see EXIT STATUS)\. Earlier releases mixed those in with the results, so a scan piped into another program carried them along\.
 .SH "GAPS IN A CAPTURE"
