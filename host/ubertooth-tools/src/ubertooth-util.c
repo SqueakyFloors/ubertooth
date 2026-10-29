@@ -509,6 +509,29 @@ static int report_range_result(const rangetest_result *rr)
 }
 
 /*
+ * A packet the board heard that was not its own reply, mentioned once.
+ *
+ * The board discards such a packet -- another pair's range test on the same
+ * channel, or a stray packet its CRC accepted -- and keeps listening, so the
+ * run still finishes with a result. This line says what went past, because the
+ * same report for a reply that arrived corrupted is the diagnosis a FIFO read
+ * that started a byte early was found with.
+ *
+ * Takes and returns whether the warning has already been printed, so a run
+ * that discards several packets is reported once and not once a poll.
+ */
+static int report_range_discard(const rangetest_result *rr, int warned)
+{
+	if (warned || rr->discarded == 0)
+		return warned;
+
+	fprintf(stderr, "warning: range test: a packet that is not this board's "
+	        "reply was ignored (first difference at byte %d)\n",
+	        rr->discarded - 2);
+	return 1;
+}
+
+/*
  * Leaves the board idle at the end of a test that did not finish: it would
  * otherwise listen forever, and the next command would find a board that
  * looks busy. Returns the clause the caller's message ends with, so no
@@ -567,6 +590,7 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 	int cleared = 0;  /* the board has cleared the previous test's result */
 	int started = 0;  /* ...and has been seen running this one */
 	int failures = 0; /* polls in a row that could not read the board */
+	int warned = 0;   /* a discarded packet has been reported */
 
 	for (;;) {
 		rangetest_result rr;
@@ -631,7 +655,11 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		 */
 		if (rr.valid == 0)
 			cleared = 1;
-		else if (cleared)
+		/* Only once the board has cleared the previous run's result does
+		 * what it reports describe this run. */
+		if (cleared)
+			warned = report_range_discard(&rr, warned);
+		if (rr.valid != 0 && cleared)
 			return report_range_result(&rr);
 
 		if (cmd_get_watchdog_quiet(ut->devh, &info) != 0) {
@@ -658,6 +686,8 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 					        "range test result");
 				continue;
 			}
+			if (cleared)
+				warned = report_range_discard(&rr, warned);
 			if (cleared && rr.valid != 0)
 				return report_range_result(&rr);
 			/* No stop to send: the board has left the test by itself,

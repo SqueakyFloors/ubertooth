@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0153
+#define UBERTOOTH_API_VERSION 0x0154
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -582,6 +582,12 @@ enum watchdog_site {
  */
 #define UBERTOOTH_WATCHDOG_INFO_LEN 18
 
+/* How many bytes UBERTOOTH_RANGE_CHECK answers with, which is the
+ * rangetest_result below written out one byte at a time. Shared, so a field
+ * added to it is a compile error on the side that was not updated rather than
+ * a short reply on the bench. */
+#define UBERTOOTH_RANGE_RESULT_LEN 6
+
 /* In watchdog_info.fault_status: the part's "the fault address register holds
  * this fault's address" bits. One of the two is set when fault_addr means
  * something.
@@ -763,11 +769,18 @@ typedef struct {
 } bdaddr;
 
 typedef struct {
+	/* 0 before a test has completed, 1 for a result, or 2 plus the index of
+	 * the first payload byte of the reply that was not the one sent. */
 	uint8_t valid;
 	uint8_t request_pa;
 	uint8_t request_num;
 	uint8_t reply_pa;
 	uint8_t reply_num;
+	/* Whether this run heard a packet that was not its own reply and
+	 * discarded it: 0 for none, otherwise 2 plus the index of the first
+	 * payload byte that said so, the encoding `valid` uses. Only the first
+	 * such packet of a run is recorded. */
+	uint8_t discarded;
 } rangetest_result;
 
 typedef struct {

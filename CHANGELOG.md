@@ -313,7 +313,8 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.53, last moved by
+- **Reflash required:** the firmware API version is now 1.54, last moved by the
+  range test reporting a packet it discarded, before that by
   promiscuous mode reporting the access address of the connection it follows,
   before that by the
   board reporting a low-energy packet it had to drop for want of queue room and
@@ -587,6 +588,26 @@
   page records this under KNOWN BROKEN FEATURES.
   [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
 
+- `ubertooth-btle -f -j` jams and `ubertooth-dump -l` writes low-energy
+  records on a board left in another mode by a run that was interrupted
+  without stopping it. Both tools state the setting before the request that
+  starts their mode, and the mode start put it back to its default -- no
+  jamming, Basic Rate -- after that request had already been answered, so the
+  follow never jammed and the dump held Basic Rate records, neither of them
+  saying so. The board now keeps what was stated for the mode it is starting
+  and drops it there, so one run's setting is not carried into the next.
+  [#828](https://github.com/SqueakyFloors/ubertooth/issues/828)
+- The two-board range test (`ubertooth-util -n` against a `-e` repeater)
+  ignores traffic that is not its own exchange instead of ending the run on
+  it. The sender took any packet the radio's CRC accepted as the repeater's
+  reply, so a second pair testing on the same channel, or a stray packet,
+  ended the run as `error: invalid range test: mismatch on byte <n>`. The
+  sender now keeps listening and names what it discarded once per run on
+  standard error, `warning: range test: a packet that is not this board's
+  reply was ignored (first difference at byte <n>)`, and the repeater answers
+  only requests, so two repeaters cannot answer each other. A reply that is
+  this board's but arrived corrupted is still reported as a mismatch.
+  [#784](https://github.com/SqueakyFloors/ubertooth/issues/784)
 - A firmware download that stops part way through -- a cable pulled, a board
   that leaves the bus, a host that dies -- no longer leaves an image a board
   will start. `ubertooth-dfu -d` writes the vector table last, leaving erased
@@ -600,7 +621,6 @@
   fails the download as well, where it used to end the transfer and report
   success.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
-
 - **Script-visible change:** the `rssi=` figure `ubertooth-btle` prints beside
   a packet is that packet's own level in dBm, the same number the signal field
   of a `-q` or `-r` capture carries for it. It used to be the weakest reading

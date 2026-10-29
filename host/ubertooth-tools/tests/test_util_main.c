@@ -45,6 +45,10 @@ static struct {
 	int range_stall_calls, watchdog_stall_calls;
 	int range_stale_reads;        /* reads answered with the test before */
 	rangetest_result range_stale; /* ...and what that one said */
+	/* A packet the board discarded, reported from this poll on: the board
+	 * records one while it listens, before it has a result. */
+	int range_discard_from_call;
+	uint8_t range_discard;
 	watchdog_info watchdog;
 	int watchdog_rc;
 	int watchdog_calls;
@@ -571,6 +575,13 @@ int cmd_get_rangeresult(struct libusb_device_handle *h, rangetest_result *rr)
 		memset(rr, 0, sizeof(*rr)); /* cleared while the test runs */
 	else
 		*rr = fake.range;
+	/* A packet that was not this board's reply, from this poll on. Left out
+	 * of the stale window above: that read is answering with the previous
+	 * test, which this run has nothing to do with. */
+	if (fake.range_discard_from_call != 0 &&
+	    fake.rangeresult_calls >= fake.range_discard_from_call &&
+	    fake.rangeresult_calls > fake.range_stale_reads)
+		rr->discarded = fake.range_discard;
 	return fake.rangeresult_rc;
 }
 
@@ -730,7 +741,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.53)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.54)\n"
 #define BUILD_LINE "Firmware build: compile-test\n"
 /* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
@@ -748,7 +759,7 @@ static struct run_result run_util(const char *const *args)
 /* The same lines as the multi-device listing prints them: the report's own
  * label with the board's index in it. i is the index, as a string. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
-#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.53)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.54)\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
@@ -901,7 +912,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.53)\n") == 0,
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.54)\n") == 0,
 	          r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -1194,6 +1205,67 @@ MU_TEST(range_test_reports_progress_and_then_the_result)
 	mu_assert_int_eq(0, (long)strlen(r.out));
 	mu_assert(strstr(r.err, "error: invalid range test: mismatch on byte 5\n")
 	          != NULL, r.err);
+}
+
+/*
+ * A packet the board heard that was not its own reply is named once, and the
+ * run goes on: it is somebody else's traffic, not a fault in this board. The
+ * warning is on standard error, and the result still arrives on standard
+ * output with exit 0.
+ */
+MU_TEST(a_discarded_packet_is_named_once_and_the_run_goes_on)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.range_reply_after_ms = 2500;
+	fake.range_discard_from_call = 2;
+	fake.range_discard = 2 + 2;  /* the serial number's first byte */
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "request PA level : 1\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "Starting range test\n"
+	          "warning: range test: a packet that is not this board's reply "
+	          "was ignored (first difference at byte 2)\n") == 0, r.err);
+
+	/* A run that discarded nothing says nothing. */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
+
+	/* And a run whose result only turns up on the read that settles whether
+	 * it finished or was stopped -- the board writes the result just before
+	 * it leaves the mode -- is reported from there, discard included. The
+	 * mode ends on the fifth poll and that read is the sixth. */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.range_leaves_after_ms = 500;
+	fake.range_reply_at_call = 6;
+	fake.range_discard_from_call = 6;
+	fake.range_discard = 2 + 5;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
+	mu_assert(strstr(r.err, "warning: range test: a packet that is not this "
+	          "board's reply was ignored (first difference at byte 5)\n")
+	          != NULL, r.err);
+
+	/* And a discard the previous run left behind is not this run's: a poll
+	 * that lands before the board has cleared that result reads the run
+	 * before, and is not reported. What says the board has cleared it is an
+	 * empty result, so the firmware clears the two together -- a run that
+	 * ended without a reply leaves no discard record either, which
+	 * test_rangetest_radio.c pins. */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	fake.range_stale_reads = 3;
+	fake.range_stale.valid = 1;
+	fake.range_stale.discarded = 2 + 4;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
 }
 
 MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
@@ -3846,6 +3918,7 @@ int main(void)
 	MU_RUN(all_leds_query_reports_each_led_and_fails_if_any_read_fails);
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);
 	MU_RUN(range_test_reports_progress_and_then_the_result);
+	MU_RUN(a_discarded_packet_is_named_once_and_the_run_goes_on);
 	MU_RUN(range_test_with_no_repeater_times_out_and_stops_the_board);
 	MU_RUN(an_interrupted_range_test_stops_the_board);
 	MU_RUN(a_range_test_stopped_from_elsewhere_ends_the_wait);

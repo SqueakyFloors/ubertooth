@@ -737,7 +737,7 @@ int cmd_set_palevel(struct libusb_device_handle* devh, u16 level)
 static int rangeresult(struct libusb_device_handle* devh, rangetest_result *rr,
 		int quiet)
 {
-	u8 result[5];
+	u8 result[UBERTOOTH_RANGE_RESULT_LEN];
 	int r;
 
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_RANGE_CHECK, 0, 0,
@@ -758,6 +758,7 @@ static int rangeresult(struct libusb_device_handle* devh, rangetest_result *rr,
 	rr->request_num = result[2];
 	rr->reply_pa    = result[3];
 	rr->reply_num   = result[4];
+	rr->discarded   = result[5];
 
 	return 0;
 }
