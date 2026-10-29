@@ -82,14 +82,16 @@ PAYLOAD_BODY = b"\x01\x02\x03\x04"
 # are not round ones. Both land on the same CLK1-6, which is what lets the
 # decoder carry its clock candidates from the first packet to the second.
 #
-# That CLK1-6 is 5 while the packets are whitened at 0, which is the ordinary
-# case: a board hears a piconet on its own clock, and the two run a fixed
-# number of slots apart until the follow starts and the board is told to
-# close the gap. The tool has to apply that offset to read a header, so the
-# fixture would not notice it being dropped if the two clocks agreed.
-PICONET_CLK_OFFSET = 5          # slots between the board's clock and the air
-UNSETTLED_CLK100NS = 3800 + (1152 + 2 * PICONET_CLK_OFFSET) * 3125
-SETTLING_CLK100NS = 3800 + (1280 + 2 * PICONET_CLK_OFFSET) * 3125
+# The packets are whitened at CLK1-6 = 0 while the board's reading of them
+# lands four slots along, which is the ordinary case: a board hears a piconet
+# on its own clock, and the two run a fixed number of slots apart until the
+# follow starts and the board is told to close the gap. The UAP search works
+# that difference out as 60 of the 64 slots, and the tool has to apply it to
+# read a header, so a fixture whose two clocks agreed would not notice the
+# offset being dropped.
+BOARD_CLOCK_TICKS_LATE = 10     # ten 312.5 us ticks, so four 625 us slots
+UNSETTLED_CLK100NS = 3800 + (1152 + BOARD_CLOCK_TICKS_LATE) * 3125
+SETTLING_CLK100NS = 3800 + (1280 + BOARD_CLOCK_TICKS_LATE) * 3125
 ID_CLK100NS = (1_000_000, 9_000_000)
 
 # Where the reference LAP and UAP, the packet header and the flags sit in a
@@ -257,7 +259,10 @@ def capture_records(path):
     data = path.read_bytes()
     assert len(data) > 24, f"capture is only {len(data)} bytes"
     # libbtbb writes the header as a struct, so the file is in this machine's
-    # own byte order; the magic says which that is.
+    # own byte order; the magic says which that is, and a file holding
+    # neither way round is not a capture to read fields out of.
+    assert data[:4] in (bytes.fromhex("4d3cb2a1"), bytes.fromhex("a1b23c4d")), \
+        data[:4].hex()
     order = "<" if data[:4] == bytes.fromhex("4d3cb2a1") else ">"
     link_type = struct.unpack_from(order + "I", data, 20)[0]
     assert link_type == DLT_BLUETOOTH_BREDR_BB, link_type

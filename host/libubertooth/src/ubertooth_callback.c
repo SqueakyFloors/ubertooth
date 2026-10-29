@@ -1312,12 +1312,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * the piconet reports counts in clock ticks, hence the guard: those
 	 * packets are the decoder's.
 	 *
-	 * A header that does not come out right for this piconet -- a packet of
-	 * another one whose access code matched, or one with too many bit
-	 * errors -- is written into the packet by the decoder before it checks,
-	 * and goes into the record. A reader finds it out the way it checks any
-	 * recorded header, by recomputing the check bits from the reference UAP
-	 * in the same record. */
+	 * A header the error correction could decode but whose check bits do
+	 * not match this piconet's UAP -- a packet of another piconet whose
+	 * access code matched, say -- is written into the packet before the
+	 * decoder compares them, and goes into the record. A reader finds that
+	 * out the way it checks any recorded header, by recomputing the check
+	 * bits from the reference UAP in the same record. */
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)
 	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
 	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)
@@ -1325,7 +1325,9 @@ void cb_rx(ubertooth_t* ut, void* args)
 		/* Setting the data again is what carries that clock into the
 		 * packet, and leaves it there: the capture writers below do not
 		 * read it, and the Ubertooth's own reading has already been
-		 * printed. */
+		 * printed. The UAP goes in as well, so that the decoder's
+		 * comparison is against the piconet's UAP rather than against
+		 * nothing; the record carries the header bits either way. */
 		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
 		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
 

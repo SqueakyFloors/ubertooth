@@ -1478,11 +1478,9 @@
 - A Classic capture record carries the packet's own header once the followed
   piconet's clock bits are known. It went in as 18 zero bits until the follow
   began, which a reader cannot tell from a NULL packet that was never sent.
-  Records written before that still carry none, and a survey (`-z`) still
-  records no reference UAP. See WHAT A CAPTURE RECORD HOLDS in
-  ubertooth-rx(1).
+  Records written before that still carry none. See WHAT A CAPTURE RECORD
+  HOLDS in ubertooth-rx(1).
   [#778](https://github.com/SqueakyFloors/ubertooth/issues/778)
-  [#781](https://github.com/SqueakyFloors/ubertooth/issues/781)
 
 ### Documentation
 
