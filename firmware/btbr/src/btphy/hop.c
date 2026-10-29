@@ -60,6 +60,7 @@ void hop_init(uint32_t address)
 			((address >> 2) & 0x02) +
 			((address >> 1) & 0x01);
 	hop_state.x = 0;
+	hop_state.scan_x = 0;
 	hop_state.afh_enabled = 0;
 	hop_state.afh_chan_count = 0;
 }
@@ -102,7 +103,10 @@ static uint8_t hop_kernel_chan(uint8_t x, uint8_t y1, uint8_t y2)
 /*
  * The substates whose half-slot selects between transmit and receive: page,
  * inquiry, and the two page response substates.  Table 2.2 gives them
- * Y1 = CLK1 and Y2 = 32 * CLK1, and an X the state machine holds.
+ * Y1 = CLK1 and Y2 = 32 * CLK1, and an X the state machine holds.  Which
+ * clock those bits come from is the caller's: the pager's estimate of the
+ * paged device's clock for the page and central page response substates, the
+ * paged device's own for the peripheral page response.
  */
 static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
 {
@@ -122,16 +126,24 @@ uint8_t hop_inquiry(uint32_t clk)
  * is in, and X = CLKN16-12 of its own clock, which changes once every 1.28
  * seconds.  The clock of the slot being tuned does not come into it, which is
  * why this takes the native clock rather than a leg's clock.
+ *
+ * The phase is kept for hop_start_response(), because a response has to start
+ * from the phase that heard the packet rather than from the clock as it reads
+ * by the time the packet has been decoded.
  */
 uint8_t hop_scan(uint32_t clkn)
 {
-	return hop_kernel_chan(hop_scan_phase(clkn), 0, 0);
+	hop_state.scan_x = hop_scan_phase(clkn);
+	return hop_kernel_chan(hop_state.scan_x, 0, 0);
 }
 
 /*
  * The inquiry response.  Table 2.2 fixes Y1 = 1 and Y2 = 32 here, whatever the
  * half-slot: the answer to an inquiry always goes out on the frequency that
- * pairs with the one the inquiry arrived on.  X is the response phase.
+ * pairs with the one the inquiry arrived on.  X is the response phase, which
+ * holds for the extended inquiry response that may follow the FHS as well:
+ * 2.6.4.6 advances its counter only after an FHS has been sent, and says the
+ * extended inquiry response takes the phase of the FHS before it.
  */
 static uint8_t hop_inquiry_response(void)
 {

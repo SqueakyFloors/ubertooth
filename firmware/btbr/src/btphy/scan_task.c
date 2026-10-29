@@ -112,8 +112,10 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 	uint8_t chan;
 
 	/* A scan listens on the one frequency its own CLKN16-12 selects, the
-	 * same one in either half of the slot (Vol 2, Part B, Table 2.2). */
-	chan = hop_scan(btphy.master_clkn);
+	 * same one in either half of the slot (Vol 2, Part B, Table 2.2).
+	 * hop_channel() reads that clock itself, so the argument here is not
+	 * the input: there is no slot clock to give it. */
+	chan = hop_channel(0);
 
 	/* Tune to chan & start RX */
 	btphy_rf_tune_chan(BT_FREQ_MIN+chan, 0);

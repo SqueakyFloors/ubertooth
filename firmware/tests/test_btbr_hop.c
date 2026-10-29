@@ -631,6 +631,7 @@ MU_TEST(test_page_and_response_modes_use_the_half_slot)
 	btphy.master_clkn = 0x12000;
 	for (mode = 0; mode < sizeof(MODES) / sizeof(MODES[0]); mode++) {
 		btphy.mode = MODES[mode];
+		differ = 0;
 		for (phase = 0; phase < 32; phase++) {
 			int even, odd;
 
@@ -642,10 +643,40 @@ MU_TEST(test_page_and_response_modes_use_the_half_slot)
 			if (even != odd)
 				differ++;
 		}
+		/* Not every phase has to move, but the rule cannot be a
+		 * constant, and it has to hold for each mode on its own. */
+		mu_assert(differ > 0, "the half-slot changes no channel in "
+				"this mode, so Y1 = CLK1 is not reaching the "
+				"kernel");
 	}
-	/* Not every phase has to move, but the rule cannot be a constant. */
-	mu_assert(differ > 0, "the half-slot changes no channel at all, so "
-			"Y1 = CLK1 is not reaching the kernel");
+}
+
+/*
+ * A response starts from the phase the scan window that heard the packet was
+ * listening on, not from the clock as it reads once the packet is decoded. A
+ * window holds its channel for several slots, so a window that straddles a
+ * 1.28-second boundary would otherwise answer on the next phase.
+ */
+MU_TEST(test_a_response_starts_from_the_phase_the_scan_heard)
+{
+	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
+	/* The last slots of one 1.28-second interval: the scan tuned here. */
+	const uint32_t tuned_at = 0x7ffd;
+
+	follow_setup(v->ulap, NULL);
+	btphy.mode = BT_MODE_PAGE_SCAN;
+	btphy.master_clkn = tuned_at;
+	mu_assert_int_eq(hop_scan(tuned_at), hop_channel(0));
+
+	/* The packet is decoded a few slots later, over the boundary. */
+	btphy.master_clkn = tuned_at + 4;
+	mu_assert(hop_scan_phase(btphy.master_clkn) !=
+			hop_scan_phase(tuned_at),
+		"the test clocks no longer straddle a phase boundary");
+
+	btphy.mode = BT_MODE_PERIPH_PAGE_RESPONSE;
+	hop_start_response();
+	mu_assert_int_eq(hop_scan_phase(tuned_at), hop_state.x);
 }
 
 /*
@@ -685,6 +716,7 @@ int main(void)
 	MU_RUN(test_scan_modes_hop_on_the_native_clock);
 	MU_RUN(test_page_and_response_modes_use_the_half_slot);
 	MU_RUN(test_inquiry_response_ignores_the_half_slot);
+	MU_RUN(test_a_response_starts_from_the_phase_the_scan_heard);
 	MU_RUN(test_perm5_lookup_table_matches_spec);
 	MU_RUN(test_basic_bank_is_even_then_odd_channels);
 	MU_RUN(test_basic_hops_match_reference);

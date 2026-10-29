@@ -83,7 +83,7 @@ static void inquiry_scan_rx_cb(int sw_detected, void *arg)
 		 * the extended inquiry response after it, go out on the
 		 * frequency that pairs with the one the inquiry arrived on. */
 		btphy_set_mode_no_ap(BT_MODE_INQUIRY_RESPONSE);
-		hop_start_response(btphy.master_clkn);
+		hop_start_response();
 
 		/* Schedule TX FHS
 		 * We're in the scan_wait, in same tick as rx.

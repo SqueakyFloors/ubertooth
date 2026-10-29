@@ -233,7 +233,8 @@ uint8_t btphy_whiten_seed(uint32_t clk)
 	/* The two scan substates stay in this list although nothing they send
 	 * or receive is whitened with a seed: a scan listens for an access
 	 * code, which carries no payload. They are here so an unexpected call
-	 * gets a seed rather than stopping the board. */
+	 * returns -- with whatever the last response left behind, which is not
+	 * a meaningful seed -- rather than stopping the board. */
 		return hop_state.x|0x60;
 	case BT_MODE_MASTER:
 	case BT_MODE_SLAVE:

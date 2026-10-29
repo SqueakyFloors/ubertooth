@@ -122,7 +122,14 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 		 * in, advanced once per central transmit slot, and its
 		 * half-slot selects transmit or receive. */
 		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
-		hop_start_response(btphy.master_clkn);
+		hop_start_response();
+
+		/* The two legs run on the slot clock the scan just set to the
+		 * page it heard, so their half-slots alternate with the
+		 * pager's: this board answers in the half-slot that pairs with
+		 * the one the page arrived in, and waits for the FHS in the
+		 * one after that. The board's own untouched clock would share
+		 * no phase with the pager at all. */
 
 		/* Schedule TX ID(2) */
 		delay = 3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
