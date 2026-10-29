@@ -25,9 +25,6 @@
 # run says what happened without a rerun. Exits 0 when every case holds, 1
 # otherwise.
 
-# shellcheck disable=SC2329 # the para_* functions are called by name, through
-# write_page, so shellcheck cannot see that they are used.
-
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd) || exit 1
@@ -58,61 +55,40 @@ fail() {
 # The paragraphs the cases move around. Each is long enough to clear the
 # check's word floor, and distinctive enough that a grep for one line of it
 # says which paragraph reached the output.
-para_level() {
-    cat <<'EOF'
+para_level="\
 The level printed beside each packet is that packet's own reading in decibels,
 taken from the strongest sample the radio reports while the packet is arriving,
-so that a dump and a capture of the same run agree about every packet in it.
-EOF
-}
+so that a dump and a capture of the same run agree about every packet in it."
 
-para_level_reworded() {
-    cat <<'EOF'
+para_level_reworded="\
 Each packet's level is its own reading in decibels. The radio reports several
 samples while a packet arrives and the strongest of them is the one printed,
-which is also the one a capture of that run carries, so the two agree.
-EOF
-}
+which is also the one a capture of that run carries, so the two agree."
 
-para_level_lightly_edited() {
-    cat <<'EOF'
+para_level_lightly_edited="\
 The level printed beside each packet is that packet's own reading in decibels,
 taken from the strongest sample the radio reports while the packet is arriving,
-so that a dump and a capture of one run agree about every packet in it.
-EOF
-}
+so that a dump and a capture of one run agree about every packet in it."
 
-para_timeout() {
-    cat <<'EOF'
+para_timeout="\
 A board that stops answering is reported rather than waited on forever: the
 tool says which request went unanswered, leaves the capture file as it stands,
-and exits with a failure, so a wedged board cannot look like a quiet night.
-EOF
-}
+and exits with a failure, so a wedged board cannot look like a quiet night."
 
-para_hopping() {
-    cat <<'EOF'
+para_hopping="\
 Hopping follows the sequence the connection agreed, and the tool prints the
 channel each packet arrived on next to its timestamp, which is enough to tell a
-missed hop from a packet the radio simply did not hear at all.
-EOF
-}
+missed hop from a packet the radio simply did not hear at all."
 
-para_options() {
-    cat <<'EOF'
+para_options="\
 An option given twice is refused rather than quietly taken the second time, and
 a value that is not a number is named in the error, so a command line that does
-something other than what it looks like cannot run.
-EOF
-}
+something other than what it looks like cannot run."
 
-para_examples() {
-    cat <<'EOF'
+para_examples="\
 The example below writes a capture to a file and prints nothing else, which is
 the shape every tool here follows: results on standard output, and anything
-about how the run went on standard error instead.
-EOF
-}
+about how the run went on standard error instead."
 
 git_in() {
     git -C "$repo" "$@"
@@ -123,22 +99,23 @@ commit() {
     git_in commit -q -m "$1" || exit 1
 }
 
-# Write a page from the paragraphs named, each under a heading of its own, so
-# that a change at the top of the page and a change at the bottom land in
-# separate hunks the way they do in a real man page.
+# Write a page from heading-and-paragraph pairs, so that a change at the top of
+# the page and a change at the bottom land in separate hunks the way they do in
+# a real man page.
+#
+#     write_page <path> <HEADING> <paragraph> [<HEADING> <paragraph>]...
 write_page() {
     page=$1
     shift
     {
         printf '%% UBERTOOTH-PAGE(1)\n'
-        for paragraph in "$@"; do
-            # The heading is the paragraph's own name, not its position, so
-            # that inserting a paragraph does not renumber the headings below
-            # it: that would put an added line next to every removal and
-            # nothing in these pages would ever be a plain deletion.
-            printf '\n## %s\n\n' \
-                "$(printf '%s' "${paragraph#para_}" | tr 'a-z_' 'A-Z ')"
-            "$paragraph"
+        # Each paragraph goes under a heading of its own name, not its
+        # position, so that inserting a paragraph does not renumber the
+        # headings below it: that would put an added line next to every
+        # removal and nothing in these pages would ever be a plain deletion.
+        while [ "$#" -ge 2 ]; do
+            printf '\n## %s\n\n%s\n' "$1" "$2"
+            shift 2
         done
     } > "$page"
 }
@@ -153,7 +130,10 @@ new_repo() {
     git_in symbolic-ref HEAD refs/heads/main || exit 1
     git_in config user.email selftest@example.invalid || exit 1
     git_in config user.name "Self test" || exit 1
-    write_page "$repo/host/doc/page.md" para_hopping para_options para_examples
+    write_page "$repo/host/doc/page.md" \
+        HOPPING "$para_hopping" \
+        OPTIONS "$para_options" \
+        EXAMPLES "$para_examples"
     printf 'int main(void) { return 0; }\n' > "$repo/src/tool.c"
     commit "the page"
 }
@@ -162,7 +142,7 @@ new_repo() {
 add_level_paragraph() {
     {
         printf '\n## LEVEL\n\n'
-        para_level
+        printf '%s\n' "$para_level"
     } >> "$repo/host/doc/page.md"
     commit "the level beside a packet is the packet's own reading"
     adder=$(git_in rev-parse --short HEAD)
@@ -217,7 +197,10 @@ new_repo
 add_level_paragraph
 branch_off
 write_page "$repo/host/doc/page.md" \
-    para_hopping para_timeout para_options para_examples
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
 commit "say what a board that stops answering does"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
@@ -237,7 +220,10 @@ new_repo
 add_level_paragraph
 branch_off
 write_page "$repo/host/doc/page.md" \
-    para_hopping para_timeout para_options para_examples
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
 commit "take the level paragraph back out
 
 Drops-merged-text: host/doc/page.md"
@@ -253,7 +239,10 @@ new_repo
 add_level_paragraph
 branch_off
 write_page "$repo/host/doc/page.md" \
-    para_hopping para_options para_examples para_level_reworded
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples" \
+    LEVEL "$para_level_reworded"
 commit "say the level more plainly"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
@@ -264,7 +253,10 @@ new_repo
 add_level_paragraph
 branch_off
 write_page "$repo/host/doc/page.md" \
-    para_level_lightly_edited para_hopping para_options para_examples
+    LEVEL "$para_level_lightly_edited" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
 commit "put the level paragraph first"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
@@ -274,8 +266,12 @@ case_name="a paragraph moved to another page is not reported"
 new_repo
 add_level_paragraph
 branch_off
-write_page "$repo/host/doc/page.md" para_hopping para_options para_examples
-write_page "$repo/host/doc/other.md" para_level
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+write_page "$repo/host/doc/other.md" \
+    LEVEL "$para_level"
 commit "the level belongs on the other page"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
@@ -292,12 +288,16 @@ run_check
 
 case_name="a page deleted into another page is not reported"
 new_repo
-write_page "$repo/host/doc/old.md" para_timeout
+write_page "$repo/host/doc/old.md" \
+    TIMEOUT "$para_timeout"
 commit "a page of its own for a board that stops answering"
 branch_off
 git_in rm -q host/doc/old.md || exit 1
 write_page "$repo/host/doc/page.md" \
-    para_hopping para_options para_examples para_timeout
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples" \
+    TIMEOUT "$para_timeout"
 commit "fold the old page into the main one"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
@@ -308,7 +308,10 @@ new_repo
 add_level_paragraph
 pad_main 7
 branch_off
-write_page "$repo/host/doc/page.md" para_hopping para_options para_examples
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
 commit "take the level paragraph back out"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
@@ -332,7 +335,7 @@ new_repo
 add_level_paragraph
 {
     printf '.TH UBERTOOTH\\-PAGE 1\n.SH LEVEL\n'
-    para_level
+    printf '%s\n' "$para_level"
 } > "$repo/host/doc/man/page.1"
 commit "the roff page"
 branch_off
@@ -348,12 +351,15 @@ new_repo
 add_level_paragraph
 {
     printf '.TH UBERTOOTH\\-PAGE 1\n.SH LEVEL\n'
-    para_level
+    printf '%s\n' "$para_level"
 } > "$repo/host/doc/man/page.1"
 commit "the roff page"
 branch_off
 write_page "$repo/host/doc/page.md" \
-    para_hopping para_timeout para_options para_examples
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
 commit "say what a board that stops answering does"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
@@ -367,7 +373,7 @@ add_level_paragraph
 branch_off
 {
     printf '\n## TIMEOUT\n\n'
-    para_timeout
+    printf '%s\n' "$para_timeout"
 } >> "$repo/host/doc/page.md"
 commit "say what a board that stops answering does"
 run_check
