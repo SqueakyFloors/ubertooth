@@ -451,6 +451,15 @@
 
 ### Build and compatibility
 
+- `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
+  on their own against an installed libubertooth, which is what
+  `FindUBERTOOTH.cmake` is for. CMake 4 refused the directory outright,
+  because nothing there said which CMake versions it was written for, and
+  before that the first `find_package` failed because nothing pointed at the
+  Find modules beside it. The tools built that way now ask glibc for the
+  interfaces they use, as a build of the whole tree does, so a strict C
+  standard works there too.
+  [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead

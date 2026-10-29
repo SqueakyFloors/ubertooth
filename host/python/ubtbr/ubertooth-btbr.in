@@ -94,6 +94,12 @@ class BTCtlPrompt(Cmd):
 			eprint(text)
 		except BrokenPipeError:
 			point_at_the_bin(sys.stderr)
+		except (AttributeError, ValueError):
+			# There is no standard error to write to: a descriptor closed
+			# before the tool started leaves the interpreter without one.
+			# Nothing is written to it either way, which is how
+			# output_lost() and the last flush treat the same case.
+			pass
 
 	def say_prompt(self):
 		"""The prompt, where the line editor is not the one drawing it."""

@@ -229,6 +229,11 @@ firmware flashing), not radio capture.
    filter at all, since the files that must agree on the pin include this one
    and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc`
    changes), which installs the pinned ronn-ng and fails if the committed man
-   pages no longer match their Markdown.
+   pages no longer match their Markdown. One job in `build.yml` builds the
+   host tools a second way: `host-installed-libubertooth` (Ubuntu 24.04, when
+   the host changed) installs libubertooth and then configures, builds and
+   tests `host/ubertooth-tools` on its own, which is what `FindUBERTOOTH.cmake`
+   is for. Linux alone, because what it covers — which include directory a
+   target is given — is the same on every platform.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
    capture) is only "tested" when run on a real Ubertooth per [TEST_PLAN.md](TEST_PLAN.md).

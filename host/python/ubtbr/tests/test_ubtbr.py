@@ -1509,6 +1509,20 @@ assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a reader that leaves before any packet costs the session nothing")
 
+# standard error closed before the tool started, which is `2>&-`: nothing
+# can be said, and the session fails. That is the interpreter's own rule and
+# not this tool's -- input() wants all three streams and raises "lost
+# sys.stderr" without one -- so the prompt never gets as far as being read.
+# Nothing on standard output and exit 1, which is all that is left to say it
+# with.
+running = subprocess.Popen([sys.executable, WRAPPER], stdin=subprocess.PIPE,
+                           stdout=subprocess.PIPE, text=True,
+                           env=ENVIRONMENT, preexec_fn=lambda: os.close(2))
+output, _ = running.communicate("q\n", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output)
+assert output == "", output
+print("ubtbr: a session with standard error closed fails, saying nothing")
+
 # the usage text has nowhere to go either: one line, and the 0 that -h would
 # have exited with becomes 1, because what was asked for was not printed
 running = tool(arguments=("-h",))

@@ -22,23 +22,36 @@
 # Based heavily upon the hackrf cmake setup.
 
 # This directory is also configured on its own, to build the tools against an
-# installed libubertooth, so it needs its own version range rather than
-# inheriting the one host/CMakeLists.txt declares. The same range, so a build
-# through the top level is unchanged. Without it, CMake 4 refuses to generate
-# for a top-level project that never said which version it was written for.
+# installed libubertooth, and CMake wants the version range from whichever
+# file is the top-level one: without this, CMake 4 refuses to generate at all.
+#
+# The same range as host/CMakeLists.txt, written out again rather than shared:
+# CMake counts the command only where the top-level file itself calls it, and
+# refuses an include() that makes the call ("No cmake_minimum_required command
+# is present"). A build through the top level does not read this call, so the
+# two cannot disagree about anything a whole-tree build does; raising the
+# floor means raising it here as well, and in COMPATIBILITY.md.
 cmake_minimum_required(VERSION 3.5...3.27)
 
 project(ubertooth-tools C)
 include(CTest)
 set(PACKAGE ubertooth-tools)
 
-# The Find modules for libbtbb, libusb and libubertooth live beside this
-# directory, and host/CMakeLists.txt points at them for a build of the whole
-# tree. Configured on its own, nothing had, so the first find_package() below
-# failed and the caller had to know where they were kept.
+# What a build of the whole tree gets from host/CMakeLists.txt and a build of
+# this directory on its own has to set for itself.
 if(NOT ubertooth_all_SOURCE_DIR)
+	# The Find modules for libbtbb, libusb and libubertooth live beside this
+	# directory. Without this the first find_package() below failed and the
+	# caller had to know where they were kept.
 	set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake/modules
 		CACHE STRING "CMake module path")
+	# Ask glibc for the interfaces these sources use: usleep(), which POSIX
+	# dropped in 2008, and the byte-order helpers in <endian.h>. Without it a
+	# strict standard (-std=c17) hides both and the build fails, which is
+	# what #648 fixed for the whole tree; the reason it is not noticed is
+	# that compilers default to a GNU standard, which sets the macro for us.
+	# host/CMakeLists.txt says more about the choice of macro.
+	add_definitions( -D_DEFAULT_SOURCE )
 endif()
 
 if(MSVC OR APPLE)

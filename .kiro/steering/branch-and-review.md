@@ -85,12 +85,12 @@ or non-trivial operational documentation changes:
   requests and pushes to `main` only, because it compares a branch with `main`
   and on the other triggers there is no branch to compare.
   `host-installed-libubertooth` runs with the host jobs, on both tiers and on
-  `ubuntu-24.04` alone: it installs libubertooth and then configures, builds
-  and tests `host/ubertooth-tools` on its own, which is the other supported
-  way to build the tools and the only run that reaches the test directory's
-  `else()` branches. What it covers is which include directory a target is
-  given, which is the same on every platform, so it has no Mac leg.
-  `libbtbb-pin` is its
+  `ubuntu-24.04` alone, in about a minute: it installs libubertooth and then
+  configures, builds and tests `host/ubertooth-tools` on its own, which is the
+  other supported way to build the tools and the only run that reaches the
+  test directory's `else()` branches. What it covers is which include
+  directory a target is given, which is the same on every platform, so it has
+  no Mac leg. `libbtbb-pin` is its
   own workflow with no path filter, so it runs on every change, documentation
   included: two of the files that have to agree on the pin are
   `COMPATIBILITY.md` and the build guides. It also runs
