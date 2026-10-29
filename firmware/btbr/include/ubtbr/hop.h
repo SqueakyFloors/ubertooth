@@ -96,8 +96,8 @@ static inline void hop_freeze_clock(uint32_t clk)
 /* The X input of the page scan and inquiry scan substates: CLKN16-12 of the
  * scanning device's own clock (Vol 2, Part B, Table 2.2).  Those five bits
  * change once every 1.28 seconds, so a scanning device holds one frequency for
- * that long, and a pager or inquirer sweeping all 32 phases is sure to meet
- * it. */
+ * that long, and a pager or inquirer sweeping all 32 phases comes round to it
+ * every sweep. */
 static inline uint8_t hop_scan_phase(uint32_t clkn)
 {
 	return (clkn >> 12) & 0x1f;
@@ -110,9 +110,13 @@ static inline uint8_t hop_scan_phase(uint32_t clkn)
  * inquiry arrived on.  hop_increment() carries N from there.
  *
  * The phase comes from hop_scan(), not from the clock as it reads now: a scan
- * window holds one channel for several slots, and reading the clock again at
- * the end of one that crossed a 1.28-second boundary would give the next
- * phase, not the one that heard the packet. */
+ * window here holds one channel for several slots rather than retuning in each
+ * one, so reading the clock again at the end of a window that crossed a
+ * 1.28-second boundary would give the next phase, not the one that heard the
+ * packet.  2.6.4.3 freezes these bits for the page response in any case;
+ * 2.6.4.6 leaves them live for the inquiry response, and taking the window's
+ * phase departs from that, because the other end answers on the phase it
+ * transmitted on and that is the one the window heard. */
 static inline void hop_start_response(void)
 {
 	hop_state.x = hop_state.scan_x;

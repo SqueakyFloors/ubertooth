@@ -225,16 +225,16 @@ uint8_t btphy_whiten_seed(uint32_t clk)
 	case BT_MODE_PAGING_RESPONSE:
 	case BT_MODE_PERIPH_PAGE_RESPONSE:
 	case BT_MODE_INQUIRY_RESPONSE:
+	/* The two scan substates below send and receive nothing that is
+	 * whitened with a seed: a scan listens for an access code, which
+	 * carries no payload. They stay in this list so an unexpected call
+	 * returns -- with whatever the last response left behind, which is not
+	 * a meaningful seed -- rather than stopping the board. */
 	case BT_MODE_INQUIRY_SCAN:
 	case BT_MODE_PAGE_SCAN:
 	/* BT 5.1|Vol 2, Part B, 7.2 :
 	 * Instead of the master clock, the X-input used in the inquiry or page response (depending on current state)
 	 * routine shall be used The 5-bit value shall be extended with two MSBs of value 1 */
-	/* The two scan substates stay in this list although nothing they send
-	 * or receive is whitened with a seed: a scan listens for an access
-	 * code, which carries no payload. They are here so an unexpected call
-	 * returns -- with whatever the last response left behind, which is not
-	 * a meaningful seed -- rather than stopping the board. */
 		return hop_state.x|0x60;
 	case BT_MODE_MASTER:
 	case BT_MODE_SLAVE:

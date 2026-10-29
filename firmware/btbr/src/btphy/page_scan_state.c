@@ -118,18 +118,17 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 		console_putc('!');
 
 		/* The two legs below answer the page, which is a substate of
-		 * its own: it hops on the phase of the slot the page arrived
-		 * in, advanced once per central transmit slot, and its
-		 * half-slot selects transmit or receive. */
+		 * its own: it starts from the phase the scan window heard the
+		 * page on, advances it once per central transmit slot, and
+		 * takes its transmit or receive frequency from the slot.
+		 *
+		 * The slot comes from the clock the scan just set to the page
+		 * it heard, so the two ends agree on it: this board answers in
+		 * the slot that pairs with the one the page arrived in, and
+		 * waits for the FHS in the next one. The board's own untouched
+		 * clock shares no slot boundary with the pager. */
 		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
 		hop_start_response();
-
-		/* The two legs run on the slot clock the scan just set to the
-		 * page it heard, so their half-slots alternate with the
-		 * pager's: this board answers in the half-slot that pairs with
-		 * the one the page arrived in, and waits for the FHS in the
-		 * one after that. The board's own untouched clock would share
-		 * no phase with the pager at all. */
 
 		/* Schedule TX ID(2) */
 		delay = 3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());

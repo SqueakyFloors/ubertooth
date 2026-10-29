@@ -77,9 +77,9 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 
 	/* An inquirer sweeps its phase once per transmit, and a pager advances
 	 * its response phase before each FHS it sends. The substates that
-	 * answer a scan do not advance here: their answers go out in the
-	 * half-slot that pairs with the one they listened in, on the phase
-	 * they heard. */
+	 * answer a scan do not advance here: their answers go out in the slot
+	 * that pairs with the one they listened in, on the phase they
+	 * heard. */
 	if (btphy.mode == BT_MODE_INQUIRY || btphy.mode == BT_MODE_PAGING_RESPONSE)
 		hop_increment();
 

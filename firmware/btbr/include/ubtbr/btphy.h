@@ -30,8 +30,8 @@
 typedef enum btphy_mode_e {
 	BT_MODE_INQUIRY,
 	BT_MODE_PAGING,
-	/* The pager's half of the page response, Table 2.2's central page
-	 * response; the paged device's half is PERIPH_PAGE_RESPONSE below. */
+	/* The pager's side of the page response, Table 2.2's central page
+	 * response; the paged device's side is PERIPH_PAGE_RESPONSE below. */
 	BT_MODE_PAGING_RESPONSE,
 	BT_MODE_INQUIRY_SCAN,
 	BT_MODE_PAGE_SCAN,

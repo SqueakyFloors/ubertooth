@@ -22,15 +22,16 @@
  *    mechanism of 2.6.1.  Both images compute this sequence.
  *
  *  - the page scan and inquiry scan tables, 64 clock values each.  In those
- *    substates Table 2.2 gives the kernel's X input as CLKN16-12 and its Y1,
- *    Y2 and F inputs as 0, which is the whole control word, so these are the
- *    sequence a btbr board scanning for a page or an inquiry listens on, and
- *    they drive its hop_scan().  The bluetooth_rxtx image has no page or
+ *    substates Table 2.2 gives the kernel's X input as CLKN16-12 -- plus the
+ *    response counter N on the inquiry scan row, which btbr leaves at zero --
+ *    and its Y1, Y2 and F inputs as 0, which is the whole control word, so
+ *    these are the sequence a btbr board scanning for a page or an inquiry
+ *    listens on, and they drive its hop_scan().  The bluetooth_rxtx image has no page or
  *    inquiry hopping.
  *
  *    Part G prints them only at clock values that are multiples of 0x1000,
  *    where CLK1 is 0, so they cannot on their own tell Y1 = 0 apart from
- *    Y1 = CLK1.  The test derives the missing half-slots from them: with
+ *    Y1 = CLK1.  The test derives the missing clock values from them: with
  *    Y1 = Y2 = 0 the published channel must hold across the whole 1.28 seconds
  *    one CLKN16-12 value lasts.
  *

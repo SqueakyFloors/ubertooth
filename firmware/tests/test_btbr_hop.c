@@ -33,8 +33,8 @@
  * they cover addresses, clock values and channel maps Part G does not print.
  *
  * Part G prints the scan tables only where CLK1 is 0, so vectors derived from
- * them cover the rest: the published channel has to hold at every half-slot of
- * its 1.28-second interval, because the scan substates take neither CLK1 nor
+ * them cover the rest: the published channel has to hold in every slot of its
+ * 1.28-second interval, because the scan substates take neither CLK1 nor
  * the clock of the leg being tuned into the control word.
  */
 #include <stdarg.h>
@@ -515,15 +515,15 @@ MU_TEST(test_spec_sample_data_page_and_inquiry_scan)
  * Part G prints the scan tables only at clock values that are multiples of
  * 0x1000, where CLK1 is 0, so on their own they cannot tell a Y1 = 0 rule from
  * a Y1 = CLK1 one.  This derives vectors that can: with Y1 = Y2 = 0 the
- * published channel for a clock must also hold at the three other half-slots
- * of the same 1.28 seconds, because none of those bits reaches the control
- * word.  A rule that read CLK1 would move half of them.
+ * published channel for a clock must also hold at every other clock of the
+ * same 1.28 seconds, because none of those bits reaches the control word.  A
+ * rule that read CLK1 would move half of them.
  */
-MU_TEST(test_a_scan_holds_its_channel_across_the_half_slots)
+MU_TEST(test_a_scan_holds_its_channel_across_the_slots)
 {
-	/* Clock offsets within one CLKN16-12 value: the other half-slot of the
-	 * same slot pair, the next slot pair, and the far end of the 1.28
-	 * seconds. */
+	/* Clock offsets within one CLKN16-12 value: the second half of the
+	 * same slot, the next slot and its second half, the next slot pair,
+	 * and the far end of the 1.28 seconds. */
 	static const uint32_t OFFSETS[] = { 1, 2, 3, 4, 0x7ff, 0xfff };
 	int set, entry, bad = 0;
 	size_t off;
@@ -570,8 +570,8 @@ MU_TEST(test_scan_modes_hop_on_the_native_clock)
 	static const uint8_t MODES[] = {
 		BT_MODE_PAGE_SCAN, BT_MODE_INQUIRY_SCAN,
 	};
-	/* Clocks a caller might hand in: both half-slots, and one whose own
-	 * CLKN16-12 differs from the native clock's. */
+	/* Clocks a caller might hand in: every slot of a pair, and two whose
+	 * own CLKN16-12 differs from the native clock's. */
 	static const uint32_t CALLER_CLOCKS[] = { 0, 1, 2, 3, 0x3000, 0x12345 };
 	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
 	unsigned mode;
@@ -610,12 +610,12 @@ MU_TEST(test_scan_modes_hop_on_the_native_clock)
 
 /*
  * The substates that answer a page, and the page and inquiry substates
- * themselves, take their half-slot into the control word: Table 2.2 gives them
- * Y1 = CLK1 and Y2 = 32 x CLK1.  So the channel for an odd clock differs from
- * the one for the even clock beside it, on the same phase -- the pair of
- * frequencies an exchange transmits and listens on.
+ * themselves, take their slot into the control word: Table 2.2 gives them
+ * Y1 = CLK1 and Y2 = 32 x CLK1.  So the channel in a central transmit slot
+ * differs from the one in the peripheral transmit slot beside it, on the same
+ * phase -- the pair of frequencies an exchange transmits and listens on.
  */
-MU_TEST(test_page_and_response_modes_use_the_half_slot)
+MU_TEST(test_page_and_response_modes_use_the_slot)
 {
 	static const uint8_t MODES[] = {
 		BT_MODE_INQUIRY, BT_MODE_PAGING_RESPONSE,
@@ -636,6 +636,8 @@ MU_TEST(test_page_and_response_modes_use_the_half_slot)
 			int even, odd;
 
 			hop_state.x = phase;
+			/* 0x40 and 0x42 are the two slots of one pair,
+			 * CLK1 = 0 and CLK1 = 1. */
 			even = hop_channel(0x40);
 			odd = hop_channel(0x42);
 			mu_assert_int_eq(hop_inquiry(0x40), even);
@@ -645,8 +647,8 @@ MU_TEST(test_page_and_response_modes_use_the_half_slot)
 		}
 		/* Not every phase has to move, but the rule cannot be a
 		 * constant, and it has to hold for each mode on its own. */
-		mu_assert(differ > 0, "the half-slot changes no channel in "
-				"this mode, so Y1 = CLK1 is not reaching the "
+		mu_assert(differ > 0, "the slot changes no channel in this "
+				"mode, so Y1 = CLK1 is not reaching the "
 				"kernel");
 	}
 }
@@ -681,11 +683,11 @@ MU_TEST(test_a_response_starts_from_the_phase_the_scan_heard)
 
 /*
  * The inquiry response is the one substate Table 2.2 fixes at Y1 = 1 and
- * Y2 = 32 rather than reading the half-slot: the answer to an inquiry goes out
- * on the frequency that pairs with the one the inquiry arrived on, whichever
- * half-slot the board gets to transmit in.
+ * Y2 = 32 rather than reading the slot: the answer to an inquiry goes out on
+ * the frequency that pairs with the one the inquiry arrived on, whichever slot
+ * the board gets to transmit in.
  */
-MU_TEST(test_inquiry_response_ignores_the_half_slot)
+MU_TEST(test_inquiry_response_ignores_the_slot)
 {
 	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
 	int phase;
@@ -694,8 +696,8 @@ MU_TEST(test_inquiry_response_ignores_the_half_slot)
 	btphy.master_clkn = 0x12000;
 	btphy.mode = BT_MODE_INQUIRY_RESPONSE;
 	for (phase = 0; phase < 32; phase++) {
-		/* The odd half-slot of the page and inquiry rule is the same
-		 * control word, so it is the channel to expect. */
+		/* The peripheral transmit slot of the page and inquiry rule is
+		 * the same control word, so it is the channel to expect. */
 		int want;
 
 		hop_state.x = phase;
@@ -712,10 +714,10 @@ int main(void)
 	printf("btbr hop selection tests\n");
 	MU_RUN(test_spec_sample_data_connection_state);
 	MU_RUN(test_spec_sample_data_page_and_inquiry_scan);
-	MU_RUN(test_a_scan_holds_its_channel_across_the_half_slots);
+	MU_RUN(test_a_scan_holds_its_channel_across_the_slots);
 	MU_RUN(test_scan_modes_hop_on_the_native_clock);
-	MU_RUN(test_page_and_response_modes_use_the_half_slot);
-	MU_RUN(test_inquiry_response_ignores_the_half_slot);
+	MU_RUN(test_page_and_response_modes_use_the_slot);
+	MU_RUN(test_inquiry_response_ignores_the_slot);
 	MU_RUN(test_a_response_starts_from_the_phase_the_scan_heard);
 	MU_RUN(test_perm5_lookup_table_matches_spec);
 	MU_RUN(test_basic_bank_is_even_then_odd_channels);

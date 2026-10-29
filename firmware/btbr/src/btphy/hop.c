@@ -101,12 +101,13 @@ static uint8_t hop_kernel_chan(uint8_t x, uint8_t y1, uint8_t y2)
 }
 
 /*
- * The substates whose half-slot selects between transmit and receive: page,
+ * The substates whose slot selects between transmit and receive: page,
  * inquiry, and the two page response substates.  Table 2.2 gives them
- * Y1 = CLK1 and Y2 = 32 * CLK1, and an X the state machine holds.  Which
- * clock those bits come from is the caller's: the pager's estimate of the
- * paged device's clock for the page and central page response substates, the
- * paged device's own for the peripheral page response.
+ * Y1 = CLK1 and Y2 = 32 * CLK1 -- CLK1 = 0 is a central transmit slot -- and
+ * an X the state machine holds.  The clock is the caller's, and in each case
+ * it is the one the two ends share: the pager's estimate of the paged device's
+ * clock on the pager's side, and on the paged device's side the slot clock the
+ * scan set to the page it heard.
  */
 static uint8_t hop_inquiry_with_phase(uint32_t clk, uint8_t x)
 {
@@ -122,10 +123,16 @@ uint8_t hop_inquiry(uint32_t clk)
 
 /*
  * Page scan and inquiry scan.  Table 2.2 gives these two substates Y1 = 0 and
- * Y2 = 0, so a scanning device stays on one frequency whichever half-slot it
- * is in, and X = CLKN16-12 of its own clock, which changes once every 1.28
- * seconds.  The clock of the slot being tuned does not come into it, which is
- * why this takes the native clock rather than a leg's clock.
+ * Y2 = 0, so a scanning device stays on one frequency whichever slot it is in,
+ * and an X built from CLKN16-12 of its own clock, which changes once every
+ * 1.28 seconds.  The clock of the slot being tuned does not come into it,
+ * which is why this takes the native clock rather than a leg's clock.
+ *
+ * The inquiry scan row of the table is Xir, CLKN16-12 plus the response
+ * counter N; the page scan row is CLKN16-12 alone.  This image leaves N at
+ * zero, where the two are the same value: N exists to move a responder off a
+ * frequency it has just answered on, which matters where several devices
+ * answer one inquiry, and nothing here advances it.
  *
  * The phase is kept for hop_start_response(), because a response has to start
  * from the phase that heard the packet rather than from the clock as it reads
@@ -138,12 +145,11 @@ uint8_t hop_scan(uint32_t clkn)
 }
 
 /*
- * The inquiry response.  Table 2.2 fixes Y1 = 1 and Y2 = 32 here, whatever the
- * half-slot: the answer to an inquiry always goes out on the frequency that
- * pairs with the one the inquiry arrived on.  X is the response phase, which
- * holds for the extended inquiry response that may follow the FHS as well:
- * 2.6.4.6 advances its counter only after an FHS has been sent, and says the
- * extended inquiry response takes the phase of the FHS before it.
+ * The inquiry response.  Table 2.2 fixes Y1 = 1 and Y2 = 32 here, whatever
+ * slot the answer goes out in: it always takes the frequency that pairs with
+ * the one the inquiry arrived on.  X is the response phase, which holds for
+ * the extended inquiry response that may follow the FHS as well -- 2.6.4.6
+ * says that packet takes the phase of the FHS before it.
  */
 static uint8_t hop_inquiry_response(void)
 {
