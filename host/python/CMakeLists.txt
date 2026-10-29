@@ -61,7 +61,9 @@ add_test(NAME btle-extcap
 		${CMAKE_CURRENT_SOURCE_DIR}/../doc/ubertooth-util.md)
 # Under ten seconds on an idle machine, dominated by interpreter start-up for
 # each of some eighty runs, and seen at three times that on a loaded one,
-# which is what the old thirty-second limit tripped over.
+# which is what the old thirty-second limit tripped over. The test gives each
+# of those runs twenty seconds of its own, so a run that hangs is reported by
+# the test inside this limit rather than cut off here.
 set_tests_properties(btle-extcap PROPERTIES TIMEOUT 60)
 
 # Pure-Python modules are installed by CMake, not setup.py/pip. Ask the selected

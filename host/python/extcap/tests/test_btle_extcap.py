@@ -80,6 +80,14 @@ REAL_UTIL = sys.argv[2] if len(sys.argv) > 2 else None
 # this script parses is written down. Required: a check that can vanish when
 # the file is not where it was looked for is no check.
 MAN_PAGE = sys.argv[3]
+# How long one run of the script, or one wait on a child it started, is given.
+# The whole test takes about 8 s on an idle machine, almost all of it starting
+# the interpreter once for each of some eighty runs, and 25 s on a machine busy
+# with parallel builds. Twenty seconds is therefore many times what any single
+# run needs, while still leaving a hung run room to be reported inside this
+# test's own CTest timeout: that is what sizes it, rather than a multiple of
+# the 8 s above, since eighty runs cannot each be given a multiple of the whole.
+RUN_TIMEOUT_S = 20
 # The channels ubertooth-btle will tune to, which is what the script offers
 # in its configuration and the only thing it accepts for --channel.
 ADVERTISING_CHANNELS = ("37", "38", "39")
@@ -183,6 +191,18 @@ ENVIRONMENT = dict(
 )
 
 
+def wait_for_fake():
+    """Waits until the fake tool has written its arguments, which is how a
+    case knows the script has a child to pass a signal on to. True if it
+    started, False if the deadline passed first."""
+    deadline = time.monotonic() + RUN_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if os.path.exists(ARGS_FILE):
+            return True
+        time.sleep(0.05)
+    return os.path.exists(ARGS_FILE)
+
+
 def run(arguments, listing="", status=0, kill_with=0, errors="", path=None):
     with open(OUTPUT_FILE, "w") as output:
         output.write(listing)
@@ -201,10 +221,7 @@ def run(arguments, listing="", status=0, kill_with=0, errors="", path=None):
         [sys.executable, SCRIPT, *arguments],
         capture_output=True,
         text=True,
-        # Every run is milliseconds, and there are several dozen, so this
-        # stays well inside the CTest timeout and reports the hung case
-        # itself.
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=environment,
     )
@@ -535,7 +552,7 @@ print("btle-extcap: a failed listing exits 1 and says why")
 if REAL_UTIL:
     real = subprocess.run(
         [REAL_UTIL, "-U", "all", "-s"],
-        capture_output=True, text=True, timeout=10, check=False,
+        capture_output=True, text=True, timeout=RUN_TIMEOUT_S, check=False,
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"))
     assert real.returncode == 1, real
     assert NO_DEVICES in real.stderr.splitlines(), (NO_DEVICES, real)
@@ -737,16 +754,15 @@ for stop_with in (signal.SIGTERM, signal.SIGINT):
                  FAKE_UTIL_SLEEP="60"))
     # the child writes its arguments before it sleeps, so the file appearing
     # means it is running and the script has it to pass the signal on to
-    deadline = time.monotonic() + 10
-    while not os.path.exists(ARGS_FILE) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    if not os.path.exists(ARGS_FILE):
+    if not wait_for_fake():
         # nothing to stop, and the long-sleeping fake must not be left behind
         stopped.kill()
-        stopped.wait(timeout=10)
-        raise AssertionError("the fake ubertooth-btle never started")
+        stopped.wait(timeout=RUN_TIMEOUT_S)
+        raise AssertionError(
+            "timed out after %d s: the fake ubertooth-btle never started"
+            % RUN_TIMEOUT_S)
     stopped.send_signal(stop_with)
-    output, errors = stopped.communicate(timeout=10)
+    output, errors = stopped.communicate(timeout=RUN_TIMEOUT_S)
     assert stopped.returncode == 0, \
         (stop_with, stopped.returncode, output, errors)
     assert output == "", (stop_with, output)
@@ -769,11 +785,15 @@ listing = subprocess.Popen(
              # long enough to be stopped part-way, short enough that the fake
              # is gone by the end of the test however the stop lands
              FAKE_UTIL_SLEEP="3"))
-deadline = time.monotonic() + 10
-while not os.path.exists(ARGS_FILE) and time.monotonic() < deadline:
-    time.sleep(0.05)
+started = wait_for_fake()
 listing.terminate()
-output, errors = listing.communicate(timeout=10)
+output, errors = listing.communicate(timeout=RUN_TIMEOUT_S)
+# the stop has to land while the listing waits on ubertooth-util, so a fake
+# that never ran leaves nothing to check: say that, rather than failing on the
+# exit status of a script that was already finished.
+assert started, \
+    "timed out after %d s: the fake ubertooth-util never started" \
+    % RUN_TIMEOUT_S
 assert listing.returncode == -int(signal.SIGTERM), \
     (listing.returncode, output, errors)
 

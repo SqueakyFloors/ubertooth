@@ -25,6 +25,13 @@ BR_PACKET = 0
 LAP = 0x5A3C96                  # the LAP every packet record carries
 AGE_S = 3600                    # the records were written this long ago
 CLK100NS_STEP = 1_000_000       # 0.1 s of device clock between records
+# How long one ubertooth-rx run is given. The whole test takes about 0.4 s on
+# an idle machine, spread over a handful of replays, so half a minute is far
+# more than any of them needs. It is kept that wide on purpose: on a machine
+# busy with parallel builds the cost that grows is starting a process, not the
+# replay itself, and the CTest timeout on this test is larger again, so this
+# deadline is the one that fires and says the run timed out.
+RUN_TIMEOUT_S = 30
 
 # The 64-bit scrambling sequence applied to the sync word, the (64,30)
 # expurgated BCH generator (octal 260534236651), and the Barker sequence
@@ -104,7 +111,7 @@ def run(*arguments, directory):
         [BINARY, *arguments],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
         # A replay opens no device; the switch keeps it that way if one of
