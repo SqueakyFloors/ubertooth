@@ -41,8 +41,9 @@
 /* Length of an AFH channel map in bytes: one bit per Basic Rate channel, 79
  * channels in 10 bytes (the last bit is unused). The same length as
  * libubertooth's AFH_MAP_BYTES and the firmware's, repeated here so this
- * header pulls in neither libusb nor BlueZ. ubertooth-follow.c checks the two
- * agree at compile time. */
+ * header pulls in neither libusb nor BlueZ. Both tools that include this
+ * header, ubertooth-follow.c and ubertooth-scan.c, check the two agree at
+ * compile time. */
 #define FOLLOW_AFH_MAP_BYTES 10
 
 /* Basic Rate channels, one per bit of the map. */

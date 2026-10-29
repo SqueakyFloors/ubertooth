@@ -94,11 +94,13 @@ off has no map to report, and standard error carries a `note:` line saying so.
 A survey result's map is the `AFH map:` line above, the spelling it has always
 had.
 
-A device that does not answer one of those reads has no line for it, and the
-read that failed is named on standard error: the name, the LMP version, the
-features and each feature page are left out rather than reported as unknown or,
-in the features' case, as zero. Earlier releases left the line out in silence,
-and printed zeroed features as the device's own.
+A device that does not answer one of those reads has no line for it in the
+report, and the read that failed is named on standard error: the name, the LMP
+version, the features and each feature page are left out rather than reported
+as unknown or, in the features' case, as zero. Earlier releases left the line
+out in silence, and printed zeroed features as the device's own. The device's
+own line above the report still reads `[unknown]` when no name comes back,
+since that line is a result either way.
 
 Everything else goes to standard error: the three headings that say which half
 of the scan is running (`HCI scan`, `Ubertooth scan` and `Scan results:`), the
@@ -150,9 +152,10 @@ adapter — and its results are printed.
 A device the inquiry found that will not take the connection `-x` needs, or
 that will not report its channel map or its clock offset, is named the same way
 and that much of its report is missing. The scan carries on and prints the
-rest, and exits 1 because part of what `-x` asked for did not happen. The local
-adapter's settings and the clock offset used to end the whole run instead, with
-the board still open in whatever mode it was in.
+rest, and exits 1 because part of what `-x` asked for did not happen. Three of
+these — the local adapter's settings, the memory for the request, and the clock
+offset — used to end the whole run instead, with the board still open in
+whatever mode it was in.
 
 A piconet the Ubertooth half found is different: a sniffed piconet gives no
 NAP, so the address `-x` connects to has its two most significant bytes guessed

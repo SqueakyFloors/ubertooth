@@ -902,6 +902,7 @@ MU_TEST(a_connection_that_cannot_be_made_is_named)
 MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
 {
 	const uint8_t map[AFH_MAP_BYTES] = { 0 };
+	char expected[160];
 	struct run_result r;
 
 	reset_fake();
@@ -912,9 +913,11 @@ MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
 	fake.connect_errno = EHOSTDOWN;
 	r = RUN("-x", "-t", "5");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.err, "note: no extended report: a sniffed piconet "
-	          "gives no NAP, so there is no whole address to connect to\n")
-	          != NULL, r.err);
+	snprintf(expected, sizeof(expected),
+	         "note: no extended report: %s; a sniffed piconet gives no NAP, "
+	         "so the address this connects to is a guess\n",
+	         strerror(EHOSTDOWN));
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	/* The piconet is still a result, map and all. */
 	mu_assert(strstr(r.out, "??:??:44:9E:8B:33\ta nearby device\n") != NULL, r.out);

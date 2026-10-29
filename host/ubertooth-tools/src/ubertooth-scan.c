@@ -128,7 +128,10 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	 * hand. */
 	errno = 0;
 	if (hci_devinfo(dev_id, &di) < 0) {
-		report_failure("cannot get device info");
+		/* The local adapter's own settings, not the device's, so the
+		 * line says which: it is the same line for every device the
+		 * report is asked of. */
+		report_failure("cannot get the local adapter's settings");
 		return 1;
 	}
 
@@ -156,12 +159,15 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 				free(cr);
 				return 1;
 			}
-			/* A guessed address, so there was never an address to
-			 * connect to: said as a note, and the run still did
-			 * what was asked. */
-			fputs("note: no extended report: a sniffed piconet "
-			      "gives no NAP, so there is no whole address to "
-			      "connect to\n", stderr);
+			/* A guessed address, so the likely reason is that there
+			 * was never an address to connect to: said as a note,
+			 * and the run still did what was asked. The reason the
+			 * call left behind is given too, because this is not
+			 * the only way the connection can fail. */
+			fprintf(stderr, "note: no extended report: %s; a "
+			        "sniffed piconet gives no NAP, so the address "
+			        "this connects to is a guess\n",
+			        errno != 0 ? strerror(errno) : "no connection");
 			free(cr);
 			return 0;
 		}
@@ -534,6 +540,11 @@ int main(int argc, char *argv[])
 		close(dev_handle);
 		return 1;
 	}
+	/* Unbuffered, as ubertooth-rx's survey mode is: redirected to a file,
+	 * standard output is block-buffered while standard error is not, so the
+	 * progress and the headings would all arrive before the results a
+	 * "> log 2>&1" run collects them beside. */
+	setvbuf(stdout, NULL, _IONBF, 0);
 	btbb_init_survey();
 
 	if (timeout)

@@ -181,7 +181,7 @@
   headings, the progress of `-x` and every failure are on standard error. An
   inquiry the adapter refused, or a device the inquiry found that would not
   complete the report `-x` asks for, is named and exits 1; the inquiry used to
-  print the name of a BlueZ function and exit 0, and two of the report's
+  print the name of a BlueZ function and exit 0, and three of the report's
   failures ended the whole run with the board still open.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** the lines every tool prints while choosing a
