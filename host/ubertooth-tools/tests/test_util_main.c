@@ -977,6 +977,9 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	fake.watchdog.reset_site = WATCHDOG_SITE_XOSC;
 	fake.watchdog.mode = MODE_IDLE;
 	fake.watchdog.site = WATCHDOG_SITE_NONE;
+	fake.watchdog.transfer_errors = 5;
+	fake.watchdog.fault_status = 0x82;
+	fake.watchdog.fault_addr = 0x4000c008;
 	fake.timeouts.fs_lock = 3;
 	fake.timeouts.fsm = 65535;
 	r = RUN("-w");
@@ -984,6 +987,12 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	mu_assert_int_eq(1, fake.watchdog_calls);
 	mu_assert(strstr(r.out, "Last boot cause: watchdog\n") != NULL, r.out);
 	mu_assert(strstr(r.out, "BLE follow") != NULL, r.out);
+	/* What the last processor fault was, and the packets a capture lost to
+	 * failed transfers. */
+	mu_assert(strstr(r.out, "Last processor fault: status 0x00000082, "
+	                 "the access was at 0x4000c008\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "Capture transfer errors since power-on: 5\n")
+	          != NULL, r.out);
 	/* The radio wait counts come with it, in the reply's order. */
 	mu_assert_int_eq(1, fake.timeouts_calls);
 	mu_assert(strstr(r.out, "Radio waits that gave up since boot: "
@@ -1001,6 +1010,24 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "Now in a mode the board does not report, "
 	                 "servicing USB\n") != NULL, r.out);
+	/* A board that has never faulted says nothing about faults, rather
+	 * than reporting a status of zero as if one had happened. */
+	mu_assert(strstr(r.out, "processor fault") == NULL, r.out);
+	mu_assert(strstr(r.out, "Capture transfer errors since power-on: 0\n")
+	          != NULL, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	/* A fault the part records no address for: a hard fault, a usage fault,
+	 * or an instruction fetch refused because the region cannot be
+	 * executed. */
+	reset_fake();
+	fake.watchdog.armed = 1;
+	fake.watchdog.boots = 1;
+	fake.watchdog.fault_status = 0x40000000;
+	r = RUN("-w");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Last processor fault: status 0x40000000, "
+	                 "no address recorded\n") != NULL, r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
 	reset_fake();

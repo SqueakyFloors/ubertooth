@@ -143,6 +143,10 @@ JTAG.
       say nothing
 - [ ] Confirm: `Radio waits that gave up since boot:` reads 0 for all four
       counts on a board whose radio is working, before and after a capture
+- [ ] Confirm: `Capture transfer errors since power-on:` reads 0 on a board
+      whose radio is working, before and after a capture, and that no
+      `Last processor fault:` line is printed — a board that has faulted
+      names the fault's status register and the address it refused
 
 ### 2e-1. A mode starts from the same radio state every time
 

@@ -501,9 +501,9 @@ MU_TEST(test_the_usb_interrupt_still_names_what_it_interrupted)
 
 /* ---- the reply ---- */
 
-/* The eight bytes, in the order ubertooth_interface.h gives them: the host
- * reads them as a byte string, so the order is the interface. */
-MU_TEST(test_the_reply_is_the_documented_eight_bytes)
+/* Every byte, in the order ubertooth_interface.h gives them: the host reads
+ * them as a byte string, so the order is the interface. */
+MU_TEST(test_the_reply_is_the_documented_bytes)
 {
 	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
 
@@ -529,6 +529,111 @@ MU_TEST(test_the_reply_is_the_documented_eight_bytes)
 	mu_assert_int_eq(WATCHDOG_SITE_XOSC, data[5]);/* wait at the reset */
 	mu_assert_int_eq(MODE_SPECAN, data[6]);       /* mode now */
 	mu_assert_int_eq(WATCHDOG_SITE_FS_LOCK, data[7]); /* wait now */
+
+	/* The wider fields, low byte first. Nothing in this run counted a
+	 * transfer error or faulted, so all three read as zero -- which is
+	 * what the host prints nothing for. */
+	mu_assert_int_eq(0, data[8]);
+	mu_assert_int_eq(0, data[9]);
+	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
+	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
+}
+
+/*
+ * A capture transfer error is counted, reported low byte first, and kept
+ * across a reset -- the count is in the breadcrumb for the same reason the
+ * reset count is: a board that has been losing packets this way says so even
+ * after it has been reset.
+ */
+MU_TEST(test_a_transfer_error_is_counted_and_kept_across_a_reset)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+	int i;
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	for (i = 0; i < 300; ++i)
+		watchdog_count_transfer_error();
+
+	watchdog_report(data);
+	mu_assert_int_eq(300 & 0xff, data[8]);
+	mu_assert_int_eq(300 >> 8, data[9]);
+
+	/* A watchdog reset leaves RAM alone, so the count carries over. */
+	boot_with(RSID_WDTR);
+	watchdog_boot();
+	watchdog_report(data);
+	mu_assert_int_eq(300 & 0xff, data[8]);
+	mu_assert_int_eq(300 >> 8, data[9]);
+
+	/* Power-on says nothing in RAM can be trusted. */
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_report(data);
+	mu_assert_int_eq(0, data[8]);
+	mu_assert_int_eq(0, data[9]);
+}
+
+/* ...and it stops at the largest value the two bytes hold rather than
+ * wrapping, as the reset count does. */
+MU_TEST(test_the_transfer_error_count_stops_at_its_largest_value)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_crumb.transfer_errors = 65534;
+
+	watchdog_count_transfer_error();
+	watchdog_count_transfer_error();
+	watchdog_count_transfer_error();
+
+	watchdog_report(data);
+	mu_assert_int_eq(0xff, data[8]);
+	mu_assert_int_eq(0xff, data[9]);
+}
+
+/*
+ * A processor fault's status register and address reach the host.
+ *
+ * The four fault handlers never return -- they blink a code until the
+ * watchdog resets the board -- so this record is all there is to go on
+ * afterwards. Which of the four it was is the site; this says where it went
+ * wrong, which is the difference between "a fault happened in this mode" and
+ * an address to look for.
+ */
+MU_TEST(test_a_fault_records_its_status_and_address)
+{
+	uint8_t data[UBERTOOTH_WATCHDOG_INFO_LEN];
+
+	boot_with(RSID_POR);
+	watchdog_boot();
+
+	/* A memory management fault whose address register was valid. */
+	watchdog_fault(0x82, 0x4000c008);
+
+	/* The board then stops feeding, and the watchdog resets it. */
+	boot_with(RSID_WDTR);
+	watchdog_boot();
+	watchdog_report(data);
+
+	mu_assert_int_eq(0x82, data[10]);
+	mu_assert_int_eq(0x00, data[11]);
+	mu_assert_int_eq(0x00, data[12]);
+	mu_assert_int_eq(0x00, data[13]);
+	mu_assert_int_eq(0x08, data[14]);
+	mu_assert_int_eq(0xc0, data[15]);
+	mu_assert_int_eq(0x00, data[16]);
+	mu_assert_int_eq(0x40, data[17]);
+
+	/* Power-on clears it, so an old fault is not reported against a board
+	 * that has been power-cycled since. */
+	boot_with(RSID_POR);
+	watchdog_boot();
+	watchdog_report(data);
+	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
+	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
 }
 
 /*
@@ -1448,6 +1553,11 @@ int main(void)
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_every_inner_mark_is_given_back);
 	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
+	MU_RUN(test_the_ble_engine_leaves_its_sites_without_claiming_them);
+	MU_RUN(test_the_reply_is_the_documented_bytes);
+	MU_RUN(test_a_transfer_error_is_counted_and_kept_across_a_reset);
+	MU_RUN(test_the_transfer_error_count_stops_at_its_largest_value);
+	MU_RUN(test_a_fault_records_its_status_and_address);
 	MU_RUN(test_the_reply_says_the_wait_the_mode_is_in_not_the_usb_path);
 	MU_RUN(test_the_reply_says_when_the_watchdog_is_not_armed);
 	MU_RUN(test_every_usb_service_path_feeds);

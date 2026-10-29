@@ -46,6 +46,9 @@ typedef struct {
 	uint8_t  reset_site;
 	uint8_t  resets;
 	uint8_t  boots;
+	uint16_t transfer_errors;
+	uint32_t fault_status;
+	uint32_t fault_addr;
 } watchdog_crumb_t;
 
 /* Says the fields below mean something. Any other value, and the region holds
@@ -164,6 +167,21 @@ void watchdog_intent(uint8_t intent)
 	watchdog_crumb.live_intent = intent;
 }
 
+void watchdog_count_transfer_error(void)
+{
+	/* Called from the DMA interrupt, which can land between the read and
+	 * the write of this count made anywhere else. Nothing else writes it,
+	 * so the increment is this handler's alone. */
+	if (watchdog_crumb.transfer_errors < 65535)
+		watchdog_crumb.transfer_errors++;
+}
+
+void watchdog_fault(uint32_t status, uint32_t addr)
+{
+	watchdog_crumb.fault_status = status;
+	watchdog_crumb.fault_addr = addr;
+}
+
 void watchdog_boot(void)
 {
 	/* The low four bits are the reset sources. They are sticky, so clearing
@@ -191,6 +209,9 @@ void watchdog_boot(void)
 		watchdog_crumb.reset_site = WATCHDOG_SITE_NONE;
 		watchdog_crumb.resets = 0;
 		watchdog_crumb.boots = 0;
+		watchdog_crumb.transfer_errors = 0;
+		watchdog_crumb.fault_status = 0;
+		watchdog_crumb.fault_addr = 0;
 	} else if ((cause & WATCHDOG_RESET_WATCHDOG) &&
 	           watchdog_crumb.live_intent == WATCHDOG_INTENT_RUNNING) {
 		/* The board stopped feeding the watchdog without having asked to be
@@ -295,4 +316,15 @@ void watchdog_report(uint8_t *data)
 	data[6] = watchdog_crumb.live_mode;
 	/* Not live_site: see watchdog_mark(). */
 	data[7] = watchdog_crumb.live_outer_site;
+	/* The wider fields, low byte first, as the reply's own order says. */
+	data[8]  = (uint8_t)(watchdog_crumb.transfer_errors & 0xff);
+	data[9]  = (uint8_t)(watchdog_crumb.transfer_errors >> 8);
+	data[10] = (uint8_t)(watchdog_crumb.fault_status & 0xff);
+	data[11] = (uint8_t)((watchdog_crumb.fault_status >> 8) & 0xff);
+	data[12] = (uint8_t)((watchdog_crumb.fault_status >> 16) & 0xff);
+	data[13] = (uint8_t)((watchdog_crumb.fault_status >> 24) & 0xff);
+	data[14] = (uint8_t)(watchdog_crumb.fault_addr & 0xff);
+	data[15] = (uint8_t)((watchdog_crumb.fault_addr >> 8) & 0xff);
+	data[16] = (uint8_t)((watchdog_crumb.fault_addr >> 16) & 0xff);
+	data[17] = (uint8_t)((watchdog_crumb.fault_addr >> 24) & 0xff);
 }

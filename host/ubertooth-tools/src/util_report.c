@@ -322,9 +322,17 @@ void util_watchdog_cause_text(unsigned cause, char *text, size_t size)
 	text[size - 1] = '\0';
 }
 
+/* One of the reply's four-byte fields, low byte first. */
+static uint32_t util_le32(const uint8_t *at)
+{
+	return (uint32_t)at[0] | ((uint32_t)at[1] << 8) |
+	       ((uint32_t)at[2] << 16) | ((uint32_t)at[3] << 24);
+}
+
 int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 {
 	char cause[64];
+	uint32_t fault_status;
 
 	/* Unreachable from ubertooth-util, which passes a fixed-size array that
 	 * libubertooth has already refused if the board sent fewer bytes. It is
@@ -352,6 +360,29 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 	fputs("Now ", out);
 	print_watchdog_mode(out, info[6]);
 	fprintf(out, ", %s\n", util_watchdog_site_text(info[7]));
+
+	/* The last processor fault, on its own line rather than under the reset
+	 * above: a fault always resets the board, so it is one of the resets
+	 * counted, but not necessarily the last of them. Nothing is printed
+	 * until a fault has happened, which on most boards is never. */
+	fault_status = util_le32(info + 10);
+	if (fault_status != 0) {
+		uint32_t fault_addr = util_le32(info + 14);
+
+		fprintf(out, "Last processor fault: status 0x%08x, ", fault_status);
+		/* The part records no address for a hard fault or a usage fault,
+		 * nor for an instruction fetch refused because the region cannot
+		 * be executed -- which is a branch through a corrupted pointer or
+		 * return address, and the one way a memory management fault
+		 * happens on a part with no memory protection unit. */
+		if (fault_addr != 0)
+			fprintf(out, "the access was at 0x%08x\n", fault_addr);
+		else
+			fputs("no address recorded\n", out);
+	}
+
+	fprintf(out, "Capture transfer errors since power-on: %u\n",
+	        (unsigned)(info[8] | (info[9] << 8)));
 	return 0;
 }
 

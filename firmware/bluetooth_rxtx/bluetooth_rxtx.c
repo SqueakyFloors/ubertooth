@@ -1384,6 +1384,7 @@ void legacy_DMA_IRQHandler()
 			if (DMACIntErrStat & (1 << 0)) {
 				DMACIntErrClr = (1 << 0);
 				++rx_err;
+				watchdog_count_transfer_error();
 			}
 		}
 	}
@@ -2589,9 +2590,21 @@ void bt_le_sync(u8 active_mode)
 		if (do_hop)
 			goto rx_flush;
 
-		/* No DMA transfer? */
+		/* No packet. A transfer error is the only thing that can end the
+		 * wait without one, since a mode change and a hop are both handled
+		 * above, so this goes where the error has to be recovered from:
+		 * rx_flush drains the symbols the error left in the receiver and
+		 * arms the transfer again, which is also the one place rx_err is
+		 * cleared.
+		 *
+		 * `continue` here instead ended the capture. The next pass found
+		 * rx_err still set, left the wait at once, arrived here again, and
+		 * went round that way forever: nothing was received, the receive
+		 * path was never armed again, and the loop went on feeding the
+		 * watchdog, so the board answered the host throughout. A capture
+		 * that looked alive and recorded nothing until it was killed. */
 		if (!rx_tc)
-			continue;
+			goto rx_flush;
 
 		/////////////////////
 		// process the packet

@@ -319,6 +319,7 @@ was stuck:
     Unrequested watchdog resets since power-on: 2 (in 3 boots)
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
+    Capture transfer errors since power-on: 0
     Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
@@ -335,6 +336,27 @@ above, so it records no mode instead of claiming to be idle.
 
 Both counters are since power-on and stop at 255. Unplugging the board, or
 cutting power to its hub port, starts them again; `-r` does not.
+
+`Capture transfer errors` counts the times the chip's transfer controller
+reported an error on the channel a capture receives into. Each one costs the
+packet that was arriving; the capture drains the receiver and goes on, which
+is why the count is worth reporting — a capture missing packets this way
+otherwise reads as a quiet channel. It is since power-on and stops at 65535.
+
+A board that has faulted adds one more line, above that count:
+
+    Last processor fault: status 0x00000082, the access was at 0x4000c008
+
+The four processor faults each blink a code and never return, so the watchdog
+resets the board three seconds later; the reset line above names which of the
+four it was, and this line says where it went wrong. `status` is the part's
+fault status register for that fault. The address is the access the processor
+refused, where the part records one: it does not for a hard fault or a usage
+fault, nor for an instruction fetch refused because the region cannot be
+executed — which is a branch through a corrupted pointer or return address,
+and the one way a memory management fault happens on a part with no memory
+protection unit. The line is absent until a fault happens, and a power-cycle
+clears it.
 
 The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio

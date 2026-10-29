@@ -170,6 +170,11 @@ uint8_t watchdog_mark_inner(uint8_t site) { (void)site; return WATCHDOG_SITE_NON
 void watchdog_unmark(uint8_t site) { (void)site; }
 void watchdog_usb_serviced(void) {}
 
+/* Counted rather than stubbed away: one test drives a failed capture
+ * transfer and asserts the engine counts it. */
+static unsigned transfer_errors_counted;
+void watchdog_count_transfer_error(void) { transfer_errors_counted++; }
+
 /* ------------------------------------------------------------------ *
  * The code under test
  * ------------------------------------------------------------------ */
@@ -1373,19 +1378,22 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	 * the longest packet to run in. */
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
-	expected_match = 1000000 + 40 * 12500 + 3 * 12500 + 2 * 12500 +
-	                 USEC(2120);
+	expected_match = 1000000 + 24 * 12500 + 3 * 12500 + 2 * 12500 +
+	                 USEC(2120) + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 	mu_assert_int_eq(40 * 12500, conn.conn_interval);
 	mu_assert_int_eq(0, conn.conn_update_pending);
 
-	/* That branch supplied its own window, so the flag that would do it
-	 * again is spent: the next event is anchored and gets the longest
-	 * packet alone. A connection request sets the flag and this path never
-	 * opens the event the generic branch does, so without the clearing the
-	 * window would be added a second time, to an event that is due one
-	 * interval later and would still be open by then. */
-	mu_assert_int_eq(0, conn.first_conn_event);
+	/* The grid the events after it run on: one interval before that window,
+	 * which is what finish_conn_event() advances from. Without moving it
+	 * here, the estimate would carry on from the last event under the old
+	 * interval, which the new window is offset from. */
+	mu_assert_int_eq(1000000 + 24 * 12500 + 3 * 12500 - 40 * 12500,
+	                 conn.last_anchor);
+
+	/* Once an event measures the anchor, the window is no longer added: an
+	 * anchored event gets the longest packet alone, and a window-long
+	 * deadline there would still be open when the next event was due. */
 	conn.last_anchor = 2000000;
 	conn.anchor_set = 1;
 	reset_conn_event();
@@ -1884,9 +1892,18 @@ MU_TEST(a_silent_event_moves_the_anchor_on_by_one_interval)
 	mu_assert_int_eq(0, radio_touched);
 }
 
-/* The first event of a connection has no anchor to predict from, so the one
- * observed becomes it. */
-MU_TEST(the_first_event_takes_its_anchor_from_the_packet)
+/*
+ * One packet in an event whose anchor was never measured could be either the
+ * central's packet or the peripheral's answer to it, and nothing in a data
+ * PDU says which. So the estimate goes to the earliest the anchor could be,
+ * one PERIPHERAL_REPLY_LATEST before the packet.
+ *
+ * Early is the safe direction: an event armed early is still open when its
+ * packet arrives, one armed late has missed it. It used to take the packet's
+ * own time, which is one maximum-length packet and an inter-frame space late
+ * whenever the packet caught was the peripheral's.
+ */
+MU_TEST(an_unmeasured_event_puts_its_one_packet_at_the_earliest_anchor)
 {
 	anchored_connection(100000);
 	conn.anchor_set = 0;
@@ -1897,9 +1914,160 @@ MU_TEST(the_first_event_takes_its_anchor_from_the_packet)
 
 	finish_conn_event();
 
-	mu_assert_int_eq(55555, conn.last_anchor);
+	mu_assert_int_eq(55555 - PERIPHERAL_REPLY_LATEST, conn.last_anchor);
+	/* Still unmeasured: only an event that caught both packets, or one
+	 * whose packet landed where an established anchor said it would, says
+	 * where the anchor is. */
+	mu_assert_int_eq(0, conn.anchor_set);
 	mu_assert_int_eq(2000, conn.last_packet_ts);
+	/* The next event is one interval after that anchor. */
+	mu_assert_int_eq(55555 - PERIPHERAL_REPLY_LATEST + 24 * 12500 -
+	                 RX_WARMUP_TIME, fake_t1mr0);
 	mu_assert_int_eq(0, radio_touched);
+}
+
+/*
+ * #774: an empty connection event has to leave the next one armed ahead of
+ * the counter.
+ *
+ * The estimate used to come from conn_event.anchor, which no packet had
+ * written when the event was empty: on the first event of a connection it
+ * held nothing or a time from an earlier connection, so the next event was
+ * armed at a match the counter had gone past. Such a match is not reached
+ * until the counter wraps, 429 seconds later, and meanwhile the receiver sat
+ * on one data channel: the capture picked the connection up again only when
+ * its hopping came back round to that channel, 4 to 26 events later.
+ */
+MU_TEST(an_empty_first_event_arms_the_next_one_ahead_of_the_counter)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+	uint32_t window_opens;
+
+	/* A connection with a 5 ms transmit window, 3.75 ms into a 30 ms
+	 * interval, followed from its request. */
+	start_fresh();
+	le.do_follow = 1;
+	r.win_size = 4;
+	r.win_offset = 3;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	mu_assert_fatal(conn.remapping.total_channels == 37,
+	                "the connection was not followed");
+
+	window_opens = buf.timestamp + PACKET_DURATION(&buf) + 3 * 12500 +
+	               USEC(1250);
+	mu_assert_int_eq(window_opens - RX_WARMUP_TIME, fake_t1mr0);
+
+	/* Nothing in the whole window: the time is the event's deadline, and
+	 * conn_event.anchor is what it was before the connection -- which is
+	 * what the engine must not use. */
+	fake_t1tc = window_opens + 4 * 12500 + USEC(2120);
+	conn_event.anchor = 0;
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+
+	finish_conn_event();
+
+	/* The estimate is the window the connection named, and the next event
+	 * is one interval after it -- ahead of the counter, so the match is
+	 * reached. */
+	mu_assert_int_eq(window_opens, conn.last_anchor);
+	mu_assert_int_eq(window_opens + 24 * 12500 - RX_WARMUP_TIME, fake_t1mr0);
+	mu_assert(fake_t1mr0 > fake_t1tc, "the next event was armed in the past");
+	mu_assert_int_eq(1, conn.conn_event_counter);
+	mu_assert(!connection_was_reset(), "the connection was dropped");
+}
+
+/*
+ * An event's deadline never runs past the next event's own due time, however
+ * long a window the connection named.
+ *
+ * At the shortest interval the specification allows, 7.5 ms, the longest legal
+ * window plus a maximum-length packet runs about 8.7 ms. An event that closed
+ * that late would have had two intervals go by while finish_conn_event()
+ * counted one connection event, and every connection update and channel map
+ * instant is matched against that count: each would be matched an event early
+ * from then on.
+ */
+MU_TEST(an_events_deadline_stops_at_one_connection_interval)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+	uint32_t window_opens;
+
+	/* The shortest interval, 7.5 ms, with the longest window it allows:
+	 * 6.25 ms, one step below the interval. */
+	start_fresh();
+	le.do_follow = 1;
+	r.conn_interval = 6;
+	r.win_size = 5;
+	r.win_offset = 0;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	mu_assert_int_eq(6 * 12500, conn.conn_interval);
+	mu_assert_int_eq(5 * 12500, conn.win_size);
+
+	window_opens = buf.timestamp + PACKET_DURATION(&buf) + USEC(1250);
+	fake_t1tc = window_opens - RX_WARMUP_TIME;
+	fake_t1ir = TIR_MR0_Interrupt;
+	le_phy_active = 1;
+	TIMER1_IRQHandler();
+
+	/* One interval, not the 6.25 ms window plus 2.12 ms packet plus warmup
+	 * that would have run past the next event. */
+	mu_assert_int_eq(fake_t1tc + 6 * 12500, fake_t1mr0);
+}
+
+/*
+ * An estimate the counter has already gone past skips whole intervals, and
+ * the events skipped are counted.
+ *
+ * Events can be missed: an event may run to a deadline as long as its whole
+ * interval, and an interrupt handler can hold the processor across one.
+ * Arming the match where the estimate says would then put it behind the
+ * counter, where it waits for the counter to wrap.
+ */
+MU_TEST(an_overdue_estimate_skips_whole_intervals_and_counts_them)
+{
+	anchored_connection(100000);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+	/* Four and a half intervals past where the next event was due. */
+	fake_t1tc = 100000 + 24 * 12500 + 9 * (24 * 12500) / 2;
+
+	finish_conn_event();
+
+	/* The silent event took the estimate one interval on, and four more
+	 * were skipped to get ahead of the counter. */
+	mu_assert_int_eq(100000 + 5 * 24 * 12500, conn.last_anchor);
+	mu_assert_int_eq(100000 + 6 * 24 * 12500 - RX_WARMUP_TIME, fake_t1mr0);
+	mu_assert(fake_t1mr0 > fake_t1tc, "the next event was armed in the past");
+	/* One for the event that closed, four for the ones that went by. */
+	mu_assert_int_eq(5 + 1 + 4, conn.conn_event_counter);
+}
+
+/*
+ * A capture transfer that fails is counted, so that a capture losing packets
+ * to the hardware tells itself apart from a quiet channel.
+ */
+MU_TEST(a_failed_capture_transfer_is_counted)
+{
+	start_fresh();
+	le_phy_active = 1;
+	transfer_errors_counted = 0;
+
+	/* The controller reports an error on the channel the capture receives
+	 * into, and no byte with it. */
+	fake_dmac_int_stat = 1 << 0;
+	fake_dmac_int_tc_stat = 0;
+	fake_dmac_int_err_stat = 1 << 0;
+	fake_dmac_int_err_clr = 0;
+
+	le_DMA_IRQHandler();
+
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1 << 0, fake_dmac_int_err_clr);
 }
 
 /* ------------------------------------------------------------------ *
@@ -2083,7 +2251,11 @@ int main(void)
 	MU_RUN(two_packets_in_an_event_anchor_it_where_they_arrived);
 	MU_RUN(one_packet_anchors_the_event_only_near_the_prediction);
 	MU_RUN(a_silent_event_moves_the_anchor_on_by_one_interval);
-	MU_RUN(the_first_event_takes_its_anchor_from_the_packet);
+	MU_RUN(an_unmeasured_event_puts_its_one_packet_at_the_earliest_anchor);
+	MU_RUN(an_empty_first_event_arms_the_next_one_ahead_of_the_counter);
+	MU_RUN(an_events_deadline_stops_at_one_connection_interval);
+	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
+	MU_RUN(a_failed_capture_transfer_is_counted);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);
 	MU_RUN(emptying_the_symbol_buffer_gives_up_rather_than_spinning);

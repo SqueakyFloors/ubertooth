@@ -1271,6 +1271,11 @@ int main(int argc, char *argv[])
 			uint8_t raw[UBERTOOTH_WATCHDOG_INFO_LEN] = {
 				info.reset_cause, info.armed, info.resets, info.boots,
 				info.reset_mode, info.reset_site, info.mode, info.site,
+				info.transfer_errors & 0xff, info.transfer_errors >> 8,
+				info.fault_status & 0xff, (info.fault_status >> 8) & 0xff,
+				(info.fault_status >> 16) & 0xff, info.fault_status >> 24,
+				info.fault_addr & 0xff, (info.fault_addr >> 8) & 0xff,
+				(info.fault_addr >> 16) & 0xff, info.fault_addr >> 24,
 			};
 			status = util_status_merge(status,
 			        util_report_watchdog(stdout, raw, sizeof(raw)));

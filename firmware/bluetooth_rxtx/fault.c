@@ -49,6 +49,11 @@ static void flash_leds(int count) {
  * which counting blinks never gave you. A site each rather than one shared
  * "a fault" site, so -w says which of the four it was.
  *
+ * Each handler also records the part's fault status register and, where the
+ * part keeps one for that fault, the address the processor refused. Nothing
+ * else survives: these never return, so there is no stacked frame to read
+ * afterwards, and the site alone says only which fault happened in which mode.
+ *
  * These run at a priority the USB interrupt cannot preempt -- HardFault above
  * everything, the other three at the same 0 as USB -- so the USB handler's feed
  * cannot keep a faulted board alive by accident.
@@ -57,6 +62,8 @@ void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
+	/* The part records no address for these. */
+	watchdog_fault(val, 0);
 
 	while (1) {
 		flash_leds(2);
@@ -79,6 +86,12 @@ void MemManagement_Handler(void) {
 	uint8_t mmsr = SCB_MMSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
+	/* Bit 7 says the address register holds the address of this fault. It
+	 * does not for an instruction fetch refused because the region is not
+	 * executable, which is the one way this part faults here without a
+	 * memory protection unit: a branch through a corrupted pointer or
+	 * return address. The status register is what says which it was. */
+	watchdog_fault(mmsr, (mmsr & (1 << 7)) ? SCB_MMFAR : 0);
 
 	while (1) {
 		flash_leds(3);
@@ -102,6 +115,10 @@ void BusFault_Handler(void) {
 	uint8_t bfsr = SCB_BFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
+	/* Bit 7 says the address register holds this fault's address; it does
+	 * not for an imprecise fault, where the processor had moved on before
+	 * the bus reported the error. */
+	watchdog_fault(bfsr, (bfsr & (1 << 7)) ? SCB_BFAR : 0);
 
 	while (1) {
 		flash_leds(4);
@@ -125,6 +142,8 @@ void UsageFault_Handler(void) {
 	uint16_t ufsr = SCB_UFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
+	/* The part records no address for these. */
+	watchdog_fault(ufsr, 0);
 
 	while (1) {
 		flash_leds(5);

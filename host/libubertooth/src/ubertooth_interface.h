@@ -571,15 +571,16 @@ enum watchdog_site {
 };
 
 /*
- * UBERTOOTH_GET_WATCHDOG's reply: eight bytes in this order, which is why
- * every field is a byte -- no padding to agree about between the board and the
- * host.
+ * UBERTOOTH_GET_WATCHDOG's reply: eighteen bytes, in the order the fields are
+ * listed in watchdog_info below. The first eight are single bytes; the three
+ * after them are a two-byte and two four-byte values, each with its low byte
+ * first, so there is no padding to agree about between the board and the host.
  *
  * A watchdog reset the firmware asked for (a reset or a flash request) is not
  * counted and does not overwrite reset_mode/reset_site, so those describe the
  * last time the board stopped servicing USB on its own.
  */
-#define UBERTOOTH_WATCHDOG_INFO_LEN 8
+#define UBERTOOTH_WATCHDOG_INFO_LEN 18
 
 /*
  * UBERTOOTH_GET_RADIO_TIMEOUTS's reply: how many times each shape of wait on
@@ -612,6 +613,16 @@ typedef struct {
 	uint8_t reset_site;  /* and the wait it was in: watchdog_site */
 	uint8_t mode;        /* the mode it is in now */
 	uint8_t site;        /* and the wait it is in now */
+	/* Capture transfers the DMA controller reported an error on since
+	 * power-on, stopping at 65535. Each one costs the packet that was
+	 * arriving; the capture carries on, which is why the count is worth
+	 * reporting. */
+	uint16_t transfer_errors;
+	/* The last processor fault, which reset_site names: the fault status
+	 * register the handler read, and the address of the access, or zero
+	 * where the part records none. Both zero until a fault happens. */
+	uint32_t fault_status;
+	uint32_t fault_addr;
 } watchdog_info;
 
 enum rfcat24_subcommands {
