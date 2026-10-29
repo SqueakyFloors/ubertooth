@@ -56,7 +56,7 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .P
 \fB\-I\fR needs firmware of this tree's API version, and treats any other the way the rest of the tools do: a release build refuses it, a development build warns and blinks anyway (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. The other options are not gated on the API version, and ubertooth\-dfu(1) reflashes a board whatever firmware it is running, so a board is always recoverable with an image from this tree\.
 .P
-\fB\-V\fR is the version command, and gives the same answer in every tool built from C here (ubertooth(7), COMMON OPTIONS, says which those are)\. Its firmware lines, and \fB\-v\fR, read the firmware info block described below, so they name the image the board is running:
+\fB\-V\fR is the version command, and gives the same answer in every tool here: the tools written in Python answer it by running this one and passing its answer on (ubertooth(7), COMMON OPTIONS)\. Its firmware lines, and \fB\-v\fR, read the firmware info block described below, so they name the image the board is running:
 .IP "" 4
 .nf
 $ ubertooth\-util \-V

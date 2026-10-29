@@ -3,6 +3,7 @@
 ## SYNOPSIS
 
     ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] [-b <max_ac_errors>]
+    ubertooth-btbr [-U <index|serial>] -V
     ubertooth-btbr -h
 
 ## DESCRIPTION
@@ -57,13 +58,27 @@ one `btbr` was flashed onto.
  - `-b <0-65535>` :
    how many bit errors a received access code may have and still count as a
    match. A higher value finds more packets and more noise.
+ - `-V` :
+   print the version and end the command: the host tools, then the firmware
+   version and build of the board `-U` names, or of each attached board. The
+   same answer every other tool gives, including with no board attached; see
+   ubertooth(7), COMMON OPTIONS. This tool answers it by running
+   ubertooth-util(1) `-V`, so that tool has to be on the `PATH`, and is
+   reported as `error: could not run ubertooth-util: No such file or
+   directory` when it is not. No `btbr` firmware is needed for it: the
+   version is read from whatever image the board is carrying.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
    an option given twice is still reported.
 
-Each option may be given once. See DIAGNOSTICS for what a command line it
-will not take does.
+`-V` and `-h` both end the command, and both answer on standard output, so a
+command line with both prints both: the version first and the usage text
+last, whichever order they were written in.
+
+Each option may be given once, except `-V` and `-h`, which carry no value and
+say the same thing however often they are written. See DIAGNOSTICS for what a
+command line it will not take does.
 
 ## SELECTING A DEVICE
 

@@ -75,9 +75,11 @@ other options are not gated on the API version, and ubertooth-dfu(1) reflashes
 a board whatever firmware it is running, so a board is always recoverable with
 an image from this tree.
 
-`-V` is the version command, and gives the same answer in every tool built
-from C here (ubertooth(7), COMMON OPTIONS, says which those are). Its firmware lines, and `-v`, read the firmware info block described
-below, so they name the image the board is running:
+`-V` is the version command, and gives the same answer in every tool here: the
+tools written in Python answer it by running this one and passing its answer
+on (ubertooth(7), COMMON OPTIONS). Its firmware lines, and `-v`, read the
+firmware info block described below, so they name the image the board is
+running:
 
     $ ubertooth-util -V
     Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)

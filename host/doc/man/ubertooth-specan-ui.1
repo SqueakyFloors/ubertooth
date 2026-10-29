@@ -7,6 +7,8 @@
 .nf
 ubertooth\-specan\-ui [\-U <index|serial>] [\-l <freq>] [\-u <freq>]
 [\-\-wifi[=<channel(s)>]] [\-\-padding <MHz>]
+ubertooth\-specan\-ui [\-U <index|serial>] \-V
+ubertooth\-specan\-ui \-h
 .fi
 .SH "DESCRIPTION"
 ubertooth\-specan\-ui(1) shows the 2\.4 GHz band as a live spectrum plot in a window\. It runs ubertooth\-specan(1) in the background and draws what it reports, so it needs an attached Ubertooth running the \fBbluetooth_rxtx\fR firmware, Python 3\.8 or newer, and the Python packages \fBnumpy\fR, \fBqtpy\fR and a Qt binding (\fBPySide6\fR or \fBPyQt5\fR)\.
@@ -41,8 +43,13 @@ show the band around one Wi\-Fi channel (for example \fB\-\-wifi=6\fR) or a rang
 \fB\-\-padding <MHz>\fR
 extra band shown on each side with \fB\-\-wifi\fR (default 10), limited to 2402\-2480 MHz
 .TP
+\fB\-V\fR
+print the version and end the command, before the window opens: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. This tool answers it by running ubertooth\-util(1) \fB\-V\fR, so that tool has to be on the \fBPATH\fR, and is reported as \fBerror: could not run ubertooth\-util: No such file or directory\fR when it is not
+.TP
 \fB\-h\fR, \fB\-\-help\fR
 print the usage text on standard output and exit 0\.
+.P
+\fB\-V\fR and \fB\-h\fR both end the command, and both answer on standard output, so a command line with both prints both: the version first and the usage text last, whichever order they were written in\. Both come after the range checks below, so a range this tool will not take is reported instead\.
 .SH "DISPLAY"
 .IP "\(bu" 4
 White trace: the current sweep\.
@@ -80,7 +87,7 @@ A range \fBubertooth\-specan\-ui\fR will not take is refused before the window o
 .P
 A failure to start \fBubertooth\-specan\fR is reported the same way, as \fBerror: could not open an Ubertooth device\fR followed by a \fBnote:\fR naming the command, and whatever \fBubertooth\-specan\fR itself said on standard error\.
 .P
-The key help \fBh\fR shows goes to standard output, as what the user asked for\. The notes about an unknown or unsupported key are \fBnote:\fR lines on standard error\. \fB\-\-help\fR comes from the argument parser: standard output, exit 0\.
+The key help \fBh\fR shows goes to standard output, as what the user asked for\. The notes about an unknown or unsupported key are \fBnote:\fR lines on standard error\. The usage text \fB\-h\fR prints is the argument parser's: standard output, exit 0\. The option itself is the tool's own, so that a range the tool will not take is reported even beside it, as it is in every other tool here\.
 .SH "SEE ALSO"
 ubertooth\-specan(1), ubertooth\-util(1)
 .P

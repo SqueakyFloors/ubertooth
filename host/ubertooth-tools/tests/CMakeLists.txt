@@ -236,7 +236,10 @@ if(EXISTS "${UBERTOOTH_BTLE_EXTCAP}")
 		COMMAND ${Python3_EXECUTABLE}
 			${CMAKE_CURRENT_SOURCE_DIR}/test_cli_matrix.py
 			${CMAKE_CURRENT_SOURCE_DIR}/cli_spec.json
-			${UBERTOOTH_BTLE_EXTCAP})
+			${UBERTOOTH_BTLE_EXTCAP}
+			# The script answers -V by running ubertooth-util, so the one
+			# from this build goes first on the PATH of every run.
+			$<TARGET_FILE:ubertooth-util>)
 	set_tests_properties(cli-matrix-btle-extcap PROPERTIES TIMEOUT 60)
 endif()
 

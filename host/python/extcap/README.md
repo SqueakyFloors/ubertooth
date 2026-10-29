@@ -54,8 +54,21 @@ worth running by hand when a board does not appear in Wireshark.
    run `ubertooth-btle` on the selected board and write the capture into
    `PATH` (default channel 37). Wireshark names the fifo it opened; `--fifo=-`
    is standard output, for a capture run by hand
+ - `-V` :
+   the version, on standard output: the host tools, then the firmware version
+   and build of each attached board. The same answer every other tool gives,
+   including with no board attached; see `host/doc/ubertooth.md`, COMMON
+   OPTIONS. The script answers it by running `ubertooth-util -V` and passing
+   the answer on, so that tool has to be on the `PATH`. It has no `-U`, so
+   every attached board is reported, and the call ends before
+   `--extcap-interface` is read
  - `-h`, `--help` :
    the usage line, on standard output
+
+`-V` and `-h` both end the call, and both answer on standard output, so a call
+with both prints both: the version first and the usage line last, whichever
+order they were written in. Either ends the call ahead of every operation
+above, so `--extcap-interfaces -h` prints the usage line and lists nothing.
 
 ## Wireshark's own options
 

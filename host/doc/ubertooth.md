@@ -41,11 +41,17 @@ Less useful commands:
 
 ## COMMON OPTIONS
 
-`-h` and `-V` mean the same thing in every tool written in C, which is all of
-them but ubertooth-btbr(1), `btle-extcap.py` and ubertooth-specan-ui(1). Those
-three take their command lines from getopt in Python, from Wireshark's extcap
-protocol and from `argparse`; each has `-h`, and none answers `-V`. `-v` is
-not in every tool; the last paragraph here says what it means where it is.
+`-h` and `-V` mean the same thing in every tool, including the three written
+in Python -- ubertooth-btbr(1), `btle-extcap.py` and ubertooth-specan-ui(1) --
+which take their command lines from getopt in Python, from Wireshark's extcap
+protocol and from `argparse`. Those three answer `-V` by running
+ubertooth-util(1) `-V` and passing its answer on, so the lines below are the
+same words whichever tool was asked; `ubertooth-util` has to be on their
+`PATH`, as it is when the tools are installed together, and one that is not
+there is reported as `error: could not run ubertooth-util: No such file or
+directory`. `btle-extcap.py` has no `-U`, so its `-V` reports every attached
+board. `-v` is not in every tool; the last paragraph here says what it means
+where it is.
 
 `-h` prints that tool's usage text on standard output and exits 0.
 

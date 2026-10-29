@@ -23,6 +23,7 @@ import io
 import os
 import subprocess
 import sys
+import tempfile
 
 
 PACKAGE_DIR = sys.argv[1]
@@ -108,9 +109,10 @@ ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1",
                        if "PYTHONPATH" in os.environ else [PACKAGE_DIR]))
 
 
-def run(arguments):
+def run(arguments, environment=None):
     return subprocess.run([sys.executable, SCRIPT] + list(arguments),
-                          env=ENVIRONMENT, stdout=subprocess.PIPE,
+                          env=environment or ENVIRONMENT,
+                          stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, universal_newlines=True,
                           timeout=60)
 
@@ -137,3 +139,104 @@ for arguments, _call, expected in CASES:
 
 print("ubertooth-specan-ui: the same %d refusals through the script"
       % len(CASES))
+
+
+# ---- -V, which the script answers by running ubertooth-util ---------------
+#
+# A fake ubertooth-util stands in for the real one: it records the arguments it
+# was called with, prints the answer the test gives it and exits with the
+# status the test gives it. So no board is involved, and what is checked is
+# that the script passes ubertooth-util's answer through rather than writing a
+# version of its own.
+
+FAKE_UTIL = """#!%s
+import os
+import sys
+
+with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
+    record.write("\\n".join(sys.argv[1:]))
+sys.stdout.write(os.environ["FAKE_UTIL_ANSWER"])
+sys.exit(int(os.environ["FAKE_UTIL_STATUS"]))
+"""
+
+# What the fake answers with. Deliberately not the real lines, which
+# ubertooth(7), COMMON OPTIONS, describes: those are the C side's words, held
+# to the C tests by host/ubertooth-tools/tests/test_doc_example_lines.py, and
+# a copy of them here would let that check pass against this fake instead.
+# What this pins is that every line arrives unchanged, whatever it says.
+ANSWER = ("the first line ubertooth-util printed\n"
+          "the second line ubertooth-util printed\n"
+          "the third line ubertooth-util printed\n")
+
+VERSION_WORK = tempfile.TemporaryDirectory()
+FAKE_DIRECTORY = os.path.join(VERSION_WORK.name, "bin")
+os.mkdir(FAKE_DIRECTORY)
+FAKE_PATH = os.path.join(FAKE_DIRECTORY, "ubertooth-util")
+with open(FAKE_PATH, "w") as fake:
+    fake.write(FAKE_UTIL % sys.executable)
+os.chmod(FAKE_PATH, 0o755)
+VERSION_ARGS_FILE = os.path.join(VERSION_WORK.name, "args")
+# An empty directory, so a run given this PATH can run no ubertooth-util at
+# all. The script itself is started by path, so that costs it nothing.
+EMPTY_DIRECTORY = os.path.join(VERSION_WORK.name, "empty")
+os.mkdir(EMPTY_DIRECTORY)
+
+
+def version_run(arguments, answer=ANSWER, status=0, path=FAKE_DIRECTORY):
+    if os.path.exists(VERSION_ARGS_FILE):
+        os.remove(VERSION_ARGS_FILE)
+    return run(arguments, dict(ENVIRONMENT, PATH=path,
+                               FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                               FAKE_UTIL_ANSWER=answer,
+                               FAKE_UTIL_STATUS=str(status)))
+
+
+def version_arguments():
+    with open(VERSION_ARGS_FILE) as record:
+        return record.read().split("\n")
+
+
+# -V on its own: the answer, unchanged, on standard output, and exit 0. It
+# asks ubertooth-util for the version and nothing else.
+result = version_run(["-V"])
+assert result.returncode == 0, result
+assert result.stdout == ANSWER, result
+assert result.stderr == "", result
+assert version_arguments() == ["-V"], version_arguments()
+
+# -U names the board, and is passed on as ubertooth-util's own -U
+result = version_run(["-V", "-U", "05f"])
+assert result.returncode == 0, result
+assert version_arguments() == ["-V", "-U", "05f"], version_arguments()
+
+# a board that is attached and could not be read exits 1 there, and so here:
+# its line says why, and the answer is still printed
+result = version_run(["-V"], answer="Firmware version: read failed\n",
+                     status=1)
+assert result.returncode == 1, result
+assert result.stdout == "Firmware version: read failed\n", result
+
+# -V beside -h prints both, the version first, and exits 0
+result = version_run(["-h", "-V"])
+assert result.returncode == 0, result
+assert result.stdout.startswith(ANSWER), result
+assert "usage:" in result.stdout, result
+assert result.stderr == "", result
+
+# a range the tool will not take is still reported beside -V, and no version
+# is printed: the command failed before it got that far
+result = version_run(["-V", "-l", "2000"])
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == \
+    "error: frequency of 2000 MHz is below minimum frequency of 2402\n", result
+
+# ubertooth-util not on the PATH: one error line, not a traceback
+result = version_run(["-V"], path=EMPTY_DIRECTORY)
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert "Traceback" not in result.stderr, result
+assert result.stderr == \
+    "error: could not run ubertooth-util: No such file or directory\n", result
+
+print("ubertooth-specan-ui: -V passes ubertooth-util's answer through")

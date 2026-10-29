@@ -10,6 +10,7 @@ btle\-extcap\.py \-\-extcap\-interface=ubertooth<serial> \-\-extcap\-dlts
 btle\-extcap\.py \-\-extcap\-interface=ubertooth<serial> \-\-extcap\-config
 btle\-extcap\.py \-\-extcap\-interface=ubertooth<serial> \-\-capture \-\-fifo=PATH
 [\-\-channel=37|38|39]
+btle\-extcap\.py \-V
 btle\-extcap\.py \-h
 .fi
 .SH "DESCRIPTION"
@@ -51,8 +52,13 @@ the calling Wireshark's version, appended to the \fB\-\-extcap\-interfaces\fR ca
 \fB\-\-extcap\-capture\-filter=<filter>\fR
 a capture filter the user typed\. ubertooth\-btle(1) captures every advertising packet it sees and cannot apply one, so a non\-empty filter is reported invalid; see CAPTURE FILTERS
 .TP
+\fB\-V\fR
+print the version and end the call: the host tools, then the firmware version and build of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. The script answers it by running ubertooth\-util(1) \fB\-V\fR, which it needs on the \fBPATH\fR as it does for the listing, and reports one that is not there as \fBerror: could not run ubertooth\-util: No such file or directory\fR\. The script has no \fB\-U\fR, so every attached board is reported, and the call ends before \fB\-\-extcap\-interface\fR is read\. Wireshark never makes this call
+.TP
 \fB\-h\fR, \fB\-\-help\fR
 print the usage line on standard output and exit 0\. It takes effect once the whole command line has parsed, so a stray word or an unknown option is still reported
+.P
+\fB\-V\fR and \fB\-h\fR both end the call, and both answer on standard output, so a call with both prints both: the version first and the usage line last, whichever order they were written in\. Either ends the call ahead of every other option, so \fB\-\-extcap\-interfaces \-h\fR prints the usage line and lists nothing\.
 .P
 Everything else Wireshark can pass, it passes only to a program whose listing advertised the feature behind it: \fB\-\-extcap\-reload\-option\fR to one with a reloadable argument, \fB\-\-extcap\-control\-in\fR and \fB\-\-extcap\-control\-out\fR to one with toolbar controls, \fB\-\-extcap\-config\-option\-name\fR and \fB\-\-extcap\-config\-option\-value\fR to one with a configurable table value\. This script advertises none of them, so those options can only arrive by mistake and are refused like any other unknown option\.
 .SH "CAPTURE FILTERS"

@@ -2,6 +2,12 @@
 """One command-line contract, checked for every tool from one spec.
 
 Run as: test_cli_matrix.py <path to cli_spec.json> <path to one tool>
+                           [<path to the built ubertooth-util>]
+
+The third path is for the tools written in Python, which answer -V by running
+ubertooth-util: naming the one from this build puts it first on PATH, so the
+answer comes from the tools under test rather than from whatever version the
+machine has installed, or from nothing at all where none is.
 
 The rules are the project's, not this test's:
 
@@ -47,6 +53,9 @@ SPEC_PATH = sys.argv[1]
 # Absolute, because every run happens in a scratch directory of its own.
 BINARY = os.path.abspath(sys.argv[2])
 TOOL = os.path.basename(BINARY)
+# The built ubertooth-util, where the caller named it. See the module comment:
+# it is what a Python tool's -V runs.
+VERSION_TOOL = os.path.abspath(sys.argv[3]) if len(sys.argv) > 3 else None
 
 with open(SPEC_PATH) as handle:
     SPEC = json.load(handle)
@@ -80,6 +89,14 @@ DEFAULT_ROLE = "modifier"
 ACTED_ON_ROLES = {"help", "report", "selector", DEFAULT_ROLE}
 
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# The build's own ubertooth-util first on PATH, for the Python tools' -V. It
+# reads UBERTOOTH_TEST_NO_DEVICES above as every other tool here does, so the
+# answer is the host lines and "no Ubertooth attached" whatever is plugged in.
+if VERSION_TOOL is not None:
+    directories = [os.path.dirname(VERSION_TOOL)]
+    if ENVIRONMENT.get("PATH"):
+        directories.append(ENVIRONMENT["PATH"])
+    ENVIRONMENT["PATH"] = os.pathsep.join(directories)
 # A Python tool runs under the interpreter CMake found, as every other Python
 # test here does, rather than under whatever its shebang resolves to.
 COMMAND = ([sys.executable, BINARY] if CONTRACT.get("kind") == "python"

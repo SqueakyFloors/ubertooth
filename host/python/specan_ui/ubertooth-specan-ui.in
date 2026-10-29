@@ -21,6 +21,7 @@
 
 import os
 import signal
+import subprocess
 import sys
 
 # CMake replaces this placeholder in the installed wrapper. Resolve relative to
@@ -65,6 +66,45 @@ ISM_HIGH_FREQ = 2483
 
 DEFAULT_LOWER_FREQ = 2402
 DEFAULT_UPPER_FREQ = 2480
+
+# The tool that prints the -V answer. One function in libubertooth builds that
+# answer and ubertooth-util prints it, so running it here passes the same
+# lines on rather than writing a second version of them in Python, which
+# would then have to be kept in step by hand. The host tools and this tool are
+# installed together, so it is the answer the user would get from
+# ubertooth-util themselves. ubertooth(7), COMMON OPTIONS, has the lines.
+VERSION_TOOL = "ubertooth-util"
+
+
+def report_versions(selector=None):
+    """Print the -V answer, and return the exit status it leaves behind.
+
+    The child writes to this tool's own streams, so each line lands on the
+    stream it belongs on and in the order the child wrote them, and a board
+    it could not read is reported there exactly as the C tools report it.
+    """
+    command = [VERSION_TOOL, "-V"]
+    if selector:
+        # The board -U named, as ubertooth-util's own -U names it.
+        command += ["-U", selector]
+    # Nothing of this tool's is waiting in the buffers here, and this keeps
+    # it that way: a line written before the child starts must not land after
+    # the child's.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        status = subprocess.call(command)
+    except OSError as err:
+        # Not on the PATH, or there and not executable. Reported in one line
+        # like every other failure here, rather than in a traceback.
+        print("error: could not run %s: %s"
+              % (VERSION_TOOL, err.strerror or err), file=sys.stderr)
+        return 1
+    # ubertooth-util exits 0 with the whole answer and 1 when part of it could
+    # not be read; a child killed by a signal (a negative status here)
+    # answered nothing at all.
+    return 0 if status == 0 else 1
+
 
 # going much further causes the Ubertooth to stop responding :(
 
@@ -492,7 +532,17 @@ def sigint_handler(*args):
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, sigint_handler)
 
-    parser = ArgumentParser()
+    # -h is this tool's own rather than the argument parser's, because the
+    # parser answers it the moment it reads it: -h would then end the command
+    # ahead of -V and ahead of a range the tool will not take, where every
+    # other tool here reports those first and prints the usage text last.
+    parser = ArgumentParser(add_help=False)
+    parser.add_argument("-h", "--help", action="store_true", dest="help",
+                      help="print this help")
+    parser.add_argument("-V", action="store_true", dest="version",
+                      help="print version information: the host tools, and "
+                           "the firmware version and build of each attached "
+                           "board")
     parser.add_argument("-U", type=str, dest="device", metavar="index|serial",
                       help="select Ubertooth by index or serial; see ubertooth(7)")
     parser.add_argument("-l", type=int, dest="lower_freq", help="lower bound for scan, in MHz (no less than " + str(MIN_FREQ) + ")")
@@ -533,6 +583,18 @@ if __name__ == '__main__':
         check_freq_pair(lower_freq, upper_freq)
     except ValueError:
         sys.exit(1)
+
+    # -V and -h both end the command before the window opens, and both answer
+    # on standard output, so a command line with both prints both: the version
+    # first and the usage text last, so the shorter answer is not scrolled off
+    # the screen by it, whichever order they were written in. The status is
+    # the version's: -h has none of its own. Both come after the checks above,
+    # so a range this tool will not take is still reported.
+    if options.version or options.help:
+        status = report_versions(options.device) if options.version else 0
+        if options.help:
+            parser.print_help()
+        sys.exit(status)
 
     app = QtWidgets.QApplication(sys.argv)
     window = Window(ubertooth_device=ubertooth_device, lower_freq=lower_freq, upper_freq=upper_freq)

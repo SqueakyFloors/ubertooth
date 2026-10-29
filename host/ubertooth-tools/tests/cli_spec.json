@@ -806,8 +806,9 @@
       "kind": "python",
       "devices_via": "usb1",
       "module_dir": "../../python/ubtbr",
-      "optstring": "f:b:U:h",
+      "optstring": "f:b:U:hV",
       "usage_marker": "Usage: ubertooth-btbr",
+      "report_marker": "libubertooth",
       "_shape": [
         "The installed wrapper host/python/ubtbr/ubertooth-btbr.in, built by",
         "CMake. It finds its board through the Python usb1 module rather than",
@@ -815,10 +816,17 @@
         "instead of setting UBERTOOTH_TEST_NO_DEVICES; its -U selection is",
         "the ubtbr module's own, checked against several fake boards by",
         "host/python/ubtbr/tests/test_ubtbr.py. The interactive prompt is not",
-        "a command line and is covered by the same test."
+        "a command line and is covered by the same test.",
+        "",
+        "-V is answered by running ubertooth-util, so the matrix is given the",
+        "built one and puts it first on PATH. That tool does read",
+        "UBERTOOTH_TEST_NO_DEVICES, so the answer is the host lines and",
+        "\"no Ubertooth attached\" whatever is plugged in."
       ],
       "options": {
         "-h": {"value": "none", "role": "help"},
+        "-V": {"value": "none", "role": "report",
+               "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-U": {"value": "required", "role": "selector",
                "valid": ["0"]},
         "-f": {"value": "required", "role": "modifier",
@@ -838,18 +846,30 @@
       "man": "btle-extcap.md",
       "kind": "python",
       "usage_marker": "--extcap-interfaces",
+      "report_marker": "libubertooth",
       "_shape": [
         "All long options, defined by the extcap protocol Wireshark calls the",
-        "script with, so its man page has no short-option table to generate a",
-        "matrix from. The cases below are the whole contract that needs no device:",
-        "everything else it does shells out to ubertooth-util and",
-        "ubertooth-btle, which its own test",
-        "(host/python/extcap/tests/test_btle_extcap.py) covers against fakes."
+        "script with, plus -h and -V, so its man page has no short-option",
+        "table to generate a matrix from. The cases below are the whole",
+        "contract that needs no device: everything else it does shells out to",
+        "ubertooth-util and ubertooth-btle, which its own test",
+        "(host/python/extcap/tests/test_btle_extcap.py) covers against fakes.",
+        "",
+        "-V is answered by running ubertooth-util, so the matrix is given the",
+        "built one and puts it first on PATH. That tool does read",
+        "UBERTOOTH_TEST_NO_DEVICES, so the answer is the host lines and",
+        "\"no Ubertooth attached\" whatever is plugged in."
       ],
       "nothing_to_do": "error: nothing to do: give --extcap-interfaces, --extcap-dlts, --extcap-config or --capture",
       "cases": [
         {"args": ["-h"], "verdict": "help"},
         {"args": ["--help"], "verdict": "help"},
+        {"args": ["-V"], "verdict": "report",
+         "why": "the version, in the same words every other tool gives it: this script runs ubertooth-util for it"},
+        {"args": ["-V", "-h"], "verdict": "report_then_help",
+         "why": "both end the call and both answer on standard output, so both are printed, the usage line last"},
+        {"args": ["--extcap-interfaces", "-h"], "verdict": "help",
+         "why": "-h ends the call ahead of every operation, whichever order they were written in"},
         {"args": ["--bogus"], "verdict": "refused",
          "error": "error: unrecognized option '--bogus'",
          "source": "the C tools' wording for the same mistake, without their \"the tools take single-letter options\": the long options here are Wireshark's and are the normal spelling"},
@@ -889,10 +909,12 @@
         "machine without them. Its own test",
         "(host/python/specan_ui/tests/test_specan_ui_streams.py) skips for the",
         "same reason.",
-        "What it would check: -h on stdout with status 0, and one 'error: '",
-        "line on stderr with status 1 for a bad -l/-u range, a --wifi channel",
-        "that is not 1-14 and a --padding that is not a whole number of MHz,",
-        "all before the window opens (ubertooth-specan-ui.md ARGUMENTS)."
+        "What it would check: -h and -V on stdout with status 0, both on",
+        "stdout with -V first where the line carries the two of them, and one",
+        "'error: ' line on stderr with status 1 for a bad -l/-u range, a",
+        "--wifi channel that is not 1-14 and a --padding that is not a whole",
+        "number of MHz, all before the window opens",
+        "(ubertooth-specan-ui.md ARGUMENTS)."
       ]
     }
   },

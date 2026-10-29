@@ -4,6 +4,8 @@
 
     ubertooth-specan-ui [-U <index|serial>] [-l <freq>] [-u <freq>]
     [--wifi[=<channel(s)>]] [--padding <MHz>]
+    ubertooth-specan-ui [-U <index|serial>] -V
+    ubertooth-specan-ui -h
 
 ## DESCRIPTION
 
@@ -42,8 +44,21 @@ To pick one of several Ubertooths, run:
  - `--padding <MHz>` :
    extra band shown on each side with `--wifi` (default 10), limited to
    2402-2480 MHz
+ - `-V` :
+   print the version and end the command, before the window opens: the host
+   tools, then the firmware version and build of the board `-U` names, or of
+   each attached board. The same answer every other tool gives, including
+   with no board attached; see ubertooth(7), COMMON OPTIONS. This tool answers
+   it by running ubertooth-util(1) `-V`, so that tool has to be on the `PATH`,
+   and is reported as `error: could not run ubertooth-util: No such file or
+   directory` when it is not
  - `-h`, `--help` :
    print the usage text on standard output and exit 0.
+
+`-V` and `-h` both end the command, and both answer on standard output, so a
+command line with both prints both: the version first and the usage text
+last, whichever order they were written in. Both come after the range checks
+below, so a range this tool will not take is reported instead.
 
 ## DISPLAY
 
@@ -93,7 +108,9 @@ command, and whatever `ubertooth-specan` itself said on standard error.
 
 The key help `h` shows goes to standard output, as what the user asked for.
 The notes about an unknown or unsupported key are `note: ` lines on standard
-error. `--help` comes from the argument parser: standard output, exit 0.
+error. The usage text `-h` prints is the argument parser's: standard output,
+exit 0. The option itself is the tool's own, so that a range the tool will not
+take is reported even beside it, as it is in every other tool here.
 
 ## SEE ALSO
 
