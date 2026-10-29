@@ -169,8 +169,8 @@ typedef struct _le_rx_t {
 	int transfer_error;         // 1 if a capture transfer faulted during it
 } le_rx_t;
 
-// pool of all buffers
-static le_rx_t le_buffer_pool[LE_BUFFER_POOL_SIZE];
+// pool of all buffers, in the other RAM bank to leave main SRAM to the stack
+static AHB_SRAM le_rx_t le_buffer_pool[LE_BUFFER_POOL_SIZE];
 
 // buffer waiting for or actively receiving packet
 static le_rx_t *current_rxbuf = NULL;

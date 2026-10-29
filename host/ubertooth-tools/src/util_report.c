@@ -311,6 +311,10 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 
 	fprintf(out, "Capture transfer errors since power-on: %u\n",
 	        util_le16(info + 8));
+	/* Since the last boot, not since power-on: the firmware measures this
+	 * from a pattern it writes over the unused stack at startup. */
+	fprintf(out, "Most stack ever used since boot: %u of %u bytes\n",
+	        util_le16(info + 18), util_le16(info + 20));
 	return 0;
 }
 

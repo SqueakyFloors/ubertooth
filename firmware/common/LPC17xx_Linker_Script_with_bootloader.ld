@@ -27,6 +27,7 @@ MEMORY
 {
   rom (rx)  : ORIGIN = 0x00004000, LENGTH = (128K - 16384)
   ram (rwx) : ORIGIN = 0x10000000, LENGTH =  16K
+  ahb_ram (rwx) : ORIGIN = 0x2007C000, LENGTH = 16K
 }
 
 INCLUDE sections.ld

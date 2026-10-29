@@ -424,7 +424,7 @@ MU_TEST(status_helpers)
 
 /* ---- the watchdog report (-w) ------------------------------------------ */
 
-/* The report, from the eight bytes the board sends. */
+/* The report, from the bytes the board sends. */
 static char *watchdog_text(const uint8_t *info, size_t len, int *status)
 {
 	char *text = NULL;
@@ -460,6 +460,35 @@ MU_TEST(a_wedged_board_reports_where_it_was_stuck)
 	mu_assert(strstr(text, "BLE follow") != NULL, text);
 	mu_assert(strstr(text, "16 MHz crystal oscillator") != NULL, text);
 	mu_assert(strstr(text, "Now in idle mode") != NULL, text);
+	free(text);
+}
+
+/*
+ * How deep the stack has ever been, out of the room it has. An overflow on
+ * this part is silent -- it writes over the data below the stack and the
+ * damage turns up later somewhere else -- so this is the line that says
+ * whether an image has room, and it is read after a long capture.
+ */
+MU_TEST(the_report_says_how_much_stack_has_been_used)
+{
+	uint8_t info[UBERTOOTH_WATCHDOG_INFO_LEN] = {
+		WATCHDOG_RESET_POWER_ON, 1, 0, 1,
+		MODE_IDLE, WATCHDOG_SITE_NONE,
+		MODE_BT_FOLLOW_LE, WATCHDOG_SITE_NONE,
+	};
+	int status = -1;
+	char *text;
+
+	info[18] = 1976 & 0xff;
+	info[19] = 1976 >> 8;
+	info[20] = 10904 & 0xff;
+	info[21] = 10904 >> 8;
+
+	text = watchdog_text(info, sizeof(info), &status);
+	mu_assert(text != NULL, "no report");
+	mu_assert_int_eq(0, status);
+	mu_assert(strstr(text, "Most stack ever used since boot: 1976 of 10904 bytes\n")
+	          != NULL, text);
 	free(text);
 }
 
@@ -634,6 +663,7 @@ int main(void)
 	MU_RUN(nonzero_successful_values_do_not_become_status);
 	MU_RUN(status_helpers);
 	MU_RUN(a_wedged_board_reports_where_it_was_stuck);
+	MU_RUN(the_report_says_how_much_stack_has_been_used);
 	MU_RUN(a_board_that_faulted_says_which_fault);
 	MU_RUN(a_healthy_board_reports_no_last_reset);
 	MU_RUN(a_board_that_reports_no_mode_says_so);

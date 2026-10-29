@@ -4,6 +4,13 @@
 
 ### New features
 
+- `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
+  stack ever used since boot: 1976 of 10904 bytes`. The firmware writes a
+  known word over the unused stack at startup and counts how much of it has
+  gone, so a capture or a mode that comes close to running out of room can be
+  spotted before it writes over something.
+  [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
+
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
   `ubertooth-specan-ui` — answer `-V` with the same lines as every other tool:
   the host tools' version, then the firmware version and build of the board
@@ -684,6 +691,15 @@
   forever with nothing left to run and its 60-second timeout out of reach. The
   same in `btbr`'s monitor mode.
   [#811](https://github.com/SqueakyFloors/ubertooth/issues/811)
+
+- The firmware has room for its stack. The largest capture and packet buffers
+  now sit in the microcontroller's second RAM bank, which nothing else used,
+  so the `bluetooth_rxtx` image leaves 10904 bytes for the stack where it left
+  about 730. The part has no memory protection unit, so a stack that ran out
+  of room would have written over the data below it and shown up later as
+  wrong capture data or a fault somewhere else. The link now fails if an image
+  leaves the stack less than 2 KB.
+  [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
 
 - A firmware download that stops part way through -- a cable pulled, a board
   that leaves the bus, a host that dies -- no longer leaves an image a board

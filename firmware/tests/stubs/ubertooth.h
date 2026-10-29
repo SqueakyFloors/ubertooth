@@ -15,4 +15,9 @@
 #include "../../common/types.h"
 #include "../../../host/libubertooth/src/ubertooth_interface.h"
 
+/* On the board this puts a buffer in the part's second RAM bank. A host test
+ * has one address space and no linker script to say so, so it means nothing
+ * here. */
+#define AHB_SRAM
+
 #endif /* __UBERTOOTH_H */

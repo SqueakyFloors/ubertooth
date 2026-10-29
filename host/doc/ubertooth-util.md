@@ -281,9 +281,9 @@ Miscellaneous:
  - `-s` :
    get microcontroller serial number
  - `-w` :
-   get the watchdog state, why the board last reset itself, and how many of
-   the firmware's waits on the radio gave up. See [WATCHDOG][]; exits
-   non-zero if either read fails
+   get the watchdog state, why the board last reset itself, how deep its
+   stack has been, and how many of the firmware's waits on the radio gave up.
+   See [WATCHDOG][]; exits non-zero if either read fails
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -330,6 +330,7 @@ was stuck:
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
     Capture transfer errors since power-on: 0
+    Most stack ever used since boot: 1976 of 10904 bytes
     Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
@@ -359,6 +360,18 @@ promiscuous mode drains the receiver and carries on; the mode behind `-f` and
 `-n` does not yet, and a capture that stops that way looks exactly like a quiet
 band, which is why this count is worth reading after a capture that came back
 short. It is since power-on and stops at 65535.
+
+`Most stack ever used` is how deep the board's stack has been, out of the room
+the firmware leaves it. The microcontroller has no memory protection unit, so
+a stack that ran out of room would not fault where it happened: it would write
+over the data below it, and the damage would turn up later as wrong capture
+data or a fault somewhere else. The firmware writes a known word over the
+unused stack when it starts and counts how much of it has gone, so this line
+is a measurement and not an estimate. It is worth reading after a long capture
+or after a mode that is rarely exercised. The second number is the room the
+link reserves, and the build fails if that falls below 2 KB. Unlike the
+counters above it is since the last boot, because the word is written again
+every time the board starts.
 
 A board that has faulted adds one more line, above that count:
 

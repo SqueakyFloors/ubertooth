@@ -18,8 +18,8 @@
  *    not be counted or recorded as one;
  *  - power-on and brown-out mean the breadcrumb cannot be trusted, and the
  *    counters start again;
- *  - the reply the host reads is the eight bytes ubertooth_interface.h
- *    describes, in that order.
+ *  - the reply the host reads is the bytes ubertooth_interface.h describes,
+ *    in that order.
  *
  * The last cases scan the firmware sources as text, the way test_frend.c does,
  * to check the feed is called from the places USB is serviced and from the
@@ -58,6 +58,22 @@ void fake_wdfeed_write(uint32_t value)
 	fake_wdfeed_count++;
 }
 
+/* The stack high-water measurement the reply carries. On the board these scan
+ * the pattern startup wrote over the unused stack (stack_check.h); here the
+ * test says what they found. */
+unsigned fake_stack_used;
+unsigned fake_stack_size;
+
+unsigned stack_used(void)
+{
+	return fake_stack_used;
+}
+
+unsigned stack_size(void)
+{
+	return fake_stack_size;
+}
+
 /* The code under test, and the breadcrumb it works on. watchdog.c declares the
  * object and the linker script places it; here this file is its definition. */
 #include "watchdog.c"
@@ -80,6 +96,10 @@ static void boot_with(uint32_t cause)
 	 * this itself. */
 	fake_scb_icsr = 0;
 	fake_wdfeed_count = 0;
+	/* What the bluetooth_rxtx image measures on a board, so the reply test
+	 * reads the numbers a real one would carry. */
+	fake_stack_used = 1976;
+	fake_stack_size = 10904;
 	/* .bss is zeroed on every boot, armed flag included. */
 	watchdog_armed = 0;
 }
@@ -537,6 +557,12 @@ MU_TEST(test_the_reply_is_the_documented_bytes)
 	mu_assert_int_eq(0, data[9]);
 	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
 	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
+
+	/* The stack high-water pair, also low byte first. */
+	mu_assert_int_eq(0xb8, data[18]);
+	mu_assert_int_eq(0x07, data[19]);
+	mu_assert_int_eq(0x98, data[20]);
+	mu_assert_int_eq(0x2a, data[21]);
 }
 
 /*

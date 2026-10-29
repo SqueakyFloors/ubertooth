@@ -571,16 +571,17 @@ enum watchdog_site {
 };
 
 /*
- * UBERTOOTH_GET_WATCHDOG's reply: eighteen bytes, in the order the fields are
- * listed in watchdog_info below. The first eight are single bytes; the three
- * after them are a two-byte and two four-byte values, each with its low byte
- * first, so there is no padding to agree about between the board and the host.
+ * UBERTOOTH_GET_WATCHDOG's reply: twenty-two bytes, in the order the fields
+ * are listed in watchdog_info below. The first eight are single bytes; after
+ * them come a two-byte value, two four-byte values and two more two-byte
+ * values, each with its low byte first, so there is no padding to agree about
+ * between the board and the host.
  *
  * A watchdog reset the firmware asked for (a reset or a flash request) is not
  * counted and does not overwrite reset_mode/reset_site, so those describe the
  * last time the board stopped servicing USB on its own.
  */
-#define UBERTOOTH_WATCHDOG_INFO_LEN 18
+#define UBERTOOTH_WATCHDOG_INFO_LEN 22
 
 /* How many bytes UBERTOOTH_RANGE_CHECK answers with, which is the
  * rangetest_result below written out one byte at a time. Shared, so a field
@@ -650,6 +651,14 @@ typedef struct {
 	 * that bit and not the address is what has to be read. */
 	uint32_t fault_status;
 	uint32_t fault_addr;
+	/* How deep the stack has ever been since the board booted, and how much
+	 * room it has. The part has no memory protection unit, so an overflow
+	 * is silent: it writes over the data below the stack, and the damage
+	 * turns up later as wrong capture data or a processor fault. These two
+	 * are what says there is room. Both are since the last boot: the
+	 * firmware measures them from a pattern it writes at startup. */
+	uint16_t stack_used;
+	uint16_t stack_size;
 } watchdog_info;
 
 enum rfcat24_subcommands {

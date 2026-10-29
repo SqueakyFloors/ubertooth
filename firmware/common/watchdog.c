@@ -20,6 +20,7 @@
  */
 
 #include "watchdog.h"
+#include "stack_check.h"
 #include "usb_irq.h"
 
 /*
@@ -337,4 +338,21 @@ void watchdog_report(uint8_t *data)
 	data[15] = (uint8_t)((watchdog_crumb.fault_addr >> 8) & 0xff);
 	data[16] = (uint8_t)((watchdog_crumb.fault_addr >> 16) & 0xff);
 	data[17] = (uint8_t)((watchdog_crumb.fault_addr >> 24) & 0xff);
+
+	/*
+	 * How deep the stack has ever been, and how much room it has. Read
+	 * here and not kept in the breadcrumb: the answer is a scan of the
+	 * paint still in RAM, so it is as good at any moment -- and it goes
+	 * with the record of a fault, which is one of the things too little
+	 * stack would cause.
+	 */
+	{
+		unsigned used = stack_used();
+		unsigned size = stack_size();
+
+		data[18] = (uint8_t)(used & 0xff);
+		data[19] = (uint8_t)((used >> 8) & 0xff);
+		data[20] = (uint8_t)(size & 0xff);
+		data[21] = (uint8_t)((size >> 8) & 0xff);
+	}
 }

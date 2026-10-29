@@ -282,7 +282,9 @@ int ubertooth_usb_init(VendorRequestHandler *vendor_req_handler)
 	return 0;
 }
 
-usb_pkt_rx fifo[128];
+/* 8 KB, the largest object in the image: in the other RAM bank, so the stack
+ * keeps the room it needs. */
+AHB_SRAM usb_pkt_rx fifo[128];
 
 volatile u32 head = 0;
 volatile u32 tail = 0;
