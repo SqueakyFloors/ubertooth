@@ -559,6 +559,14 @@
   success.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
 
+- **Script-visible change:** the `rssi=` figure `ubertooth-btle` prints beside
+  a packet is that packet's own level in dBm, the same number the signal field
+  of a `-q` or `-r` capture carries for it. It used to be the weakest reading
+  the board reports for the packet, through a rougher approximation, which ran
+  far below the packet's own level: on the bench that reached -96 dBm where the
+  quietest captured packet was -78, and a dump and a capture of one run
+  disagreed by as much as 90 dB on an individual packet.
+  [#859](https://github.com/SqueakyFloors/ubertooth/issues/859)
 - `ubertooth-btle -p` discovers the access address of the connection it finds,
   instead of inheriting one from an earlier command. A `-t` target set for
   follow mode used to count on the board as "the host gave us an access

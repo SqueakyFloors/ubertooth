@@ -11,12 +11,14 @@
  *
  * The real cb_btle() runs here, with the real decoder, over one crafted
  * packet whose advertising data claims more bytes than arrived. Only the ring
- * buffer is faked. The cases cover both directions: an ordinary run prints
- * the dump on standard output and the complaint on standard error, and a run
- * whose capture took standard output prints neither while the capture still
- * gets the packet.
+ * buffer is faked. The stream cases cover both directions: an ordinary run
+ * prints the dump on standard output and the complaint on standard error, and
+ * a run whose capture took standard output prints neither while the capture
+ * still gets the packet. A last case reads the signal level out of both the
+ * dump and the capture of one packet, which must be the same number.
  */
 #include <fcntl.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -343,6 +345,103 @@ MU_TEST(the_promiscuous_report_follows_the_tools_report_stream)
 	ubertooth_free(ut);
 }
 
+/* ---- the level printed beside a packet ---------------------------------- */
+
+/* Where the signal level sits in a PCAP file holding one low-energy packet:
+ * past the 24-byte file header and the 16-byte record header, the pseudo-
+ * header's advertising channel index comes first and the signal level second.
+ * The index is checked as well, so a pseudo-header that grows a field in
+ * front of these two is caught as such rather than as a level nobody
+ * expected. */
+#define CAPTURED_CHANNEL_AT (24 + 16)
+#define CAPTURED_LEVEL_AT (CAPTURED_CHANNEL_AT + 1)
+
+/* The dBm figure on a `systime=` line, or INT_MIN if there is none. */
+static int printed_level(const char* text)
+{
+	const char* at = strstr(text, "rssi=");
+	int level;
+
+	if (at == NULL || sscanf(at, "rssi=%d", &level) != 1)
+		return INT_MIN;
+	return level;
+}
+
+/* The signal level the one record of a capture file carries, or INT_MIN if
+ * the file is too short to hold one or its channel byte is not where this
+ * expects the pseudo-header to start. */
+static int captured_level(const char* path, unsigned channel)
+{
+	unsigned char bytes[CAPTURED_LEVEL_AT + 1];
+	FILE* file = fopen(path, "rb");
+	size_t n;
+
+	if (file == NULL)
+		return INT_MIN;
+	n = fread(bytes, 1, sizeof(bytes), file);
+	fclose(file);
+	if (n < sizeof(bytes) || bytes[CAPTURED_CHANNEL_AT] != channel)
+		return INT_MIN;
+	return (signed char) bytes[CAPTURED_LEVEL_AT];
+}
+
+/* The dump and the capture describe the same packet, so the level they report
+ * for it is the same number: the strongest RSSI reading the board reports for
+ * the packet, through the model of the radio's RSSI curve.
+ *
+ * The record's two readings are far apart on purpose, as a real packet's
+ * often are. The weakest one used to be what the dump printed, and through a
+ * cruder conversion, so it sat far below the packet's own level: the two
+ * figures disagreed by tens of dB, and anyone comparing a dump against a
+ * capture of the same run read that as a receiver fault.
+ */
+MU_TEST(the_dump_reports_the_level_the_capture_records)
+{
+	ubertooth_t* ut = ubertooth_init();
+	btle_options opts = { .allowed_access_address_errors = 32 };
+	usb_pkt_rx rx = advertisement_with_an_unreadable_field();
+	char dir[] = "/tmp/ubertooth-btle-level-XXXXXX";
+	char capture[sizeof(dir) + 16];
+	char out[8192] = "";
+	char err[2048] = "";
+	int level, recorded;
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	mu_assert_fatal(mkdtemp(dir) != NULL, "a directory to write in");
+	snprintf(capture, sizeof(capture), "%s/capture.pcap", dir);
+	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
+	                "a capture file");
+
+	/* 70 raw counts apart, which the model puts 63 dB apart: -28 dBm for
+	 * the strongest reading of the packet, -91 dBm for the weakest. */
+	rx.rssi_max = 30;
+	rx.rssi_min = -40;
+	/* 2480 MHz, advertising channel 39, so the channel byte the check
+	 * below reads is a value nothing else in the record could be. */
+	rx.channel = 78;
+
+	fifo_push(ut->fifo, &rx, 0);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	lell_pcap_close(ut->h_pcap_le);
+	ut->h_pcap_le = NULL;
+
+	level = printed_level(out);
+	mu_assert(level != INT_MIN, "the dump prints a level");
+	recorded = captured_level(capture, 39);
+	mu_assert(recorded != INT_MIN,
+	          "the capture holds a record to read a level from");
+	mu_assert_int_eq(recorded, level);
+	/* And it is the packet's own level, not the floor of the window: the
+	 * weakest reading through the old approximation would read -94. */
+	mu_assert_int_eq(-28, level);
+
+	unlink(capture);
+	rmdir(dir);
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -351,5 +450,6 @@ int main(void)
 	MU_RUN(a_dump_prints_the_packet_and_the_complaint_on_standard_error);
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
+	MU_RUN(the_dump_reports_the_level_the_capture_records);
 	return mu_report();
 }

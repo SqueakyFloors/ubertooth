@@ -364,6 +364,20 @@ the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-k` and
 standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.
 
+The `rssi=` figure on each packet's `systime=` line is that packet's own level
+in dBm: the strongest RSSI reading the board reports for the packet, through a
+piecewise-linear model of the CC2400 datasheet's RSSI curve. It is the same
+number the signal field of a `-q` or `-r` capture carries for that packet, so a
+dump and a capture of one run agree. A `-c` PPI capture carries the board's raw
+counts instead, which are not dBm. The model has ends, so `rssi=0` means "at
+least this loud" and `rssi=-120` means "no louder than this".
+
+Earlier releases printed the weakest reading the board reports for the packet
+instead, through a rougher approximation. That figure ran far below the
+packet's own level: on the bench it reached -96 dBm where the quietest packet
+the capture recorded was -78, and a dump and a capture of the same run
+disagreed by as much as 90 dB on an individual packet.
+
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
 answering during a capture, `error: jamming not supported by this firmware`,
