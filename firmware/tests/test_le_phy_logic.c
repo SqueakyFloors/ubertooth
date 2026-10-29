@@ -191,6 +191,27 @@ void watchdog_count_transfer_error(void) { transfer_errors_counted++; }
 static unsigned errors_acknowledged;
 
 /* ------------------------------------------------------------------ *
+ * Interrupts the engine holds off
+ * ------------------------------------------------------------------ */
+
+/*
+ * The engine guards the few places where it reads a value, changes it and
+ * writes it back -- the buffer pool's "taken" flag, the timer's match-enable
+ * register, and the handover of a finished packet -- because the main loop and
+ * both interrupt handlers reach all three. On the board the guard sets
+ * PRIMASK; here stubs-lephy/irq.h stands in for it, keeping a depth count and
+ * running one hook as the outermost guarded section ends.
+ *
+ * That hook is how a test stands in for an interrupt. An interrupt raised
+ * while PRIMASK is set is latched and taken the instant the mask comes off, so
+ * the end of the section is where the hardware would run the handler. A test
+ * sets the hook to the work a handler would do and then asserts that both the
+ * handler's effect and the guarded section's effect survived.
+ */
+unsigned irq_mask_depth;
+void (*irq_pending_hook)(void);
+
+/* ------------------------------------------------------------------ *
  * The code under test
  * ------------------------------------------------------------------ */
 
@@ -260,6 +281,8 @@ static void start_fresh(void)
 	cancel_follow = 0;
 	reset_conn();
 	reset_conn_event();
+	irq_mask_depth = 0;
+	irq_pending_hook = NULL;
 }
 
 /* Fill a receive buffer the way the DMA handler leaves one: a PDU of
@@ -565,6 +588,211 @@ MU_TEST(a_released_buffer_comes_back_clean)
 			             "host as the head of the next one");
 			break;
 		}
+}
+
+/* ------------------------------------------------------------------ *
+ * What an interrupt may not cut in half
+ * ------------------------------------------------------------------ */
+
+/*
+ * Three pieces of the engine's state are changed by reading a value, altering
+ * it and writing it back, and all three are reached from the main loop and
+ * from both interrupt handlers. The timer interrupt is the one that preempts:
+ * it is installed at the highest priority and the byte interrupt at the
+ * lowest, so it cuts into the byte interrupt as well as into the loop.
+ *
+ * Each test below sets the hook to what one of the handlers does, so the
+ * stand-in mask runs it where the hardware would -- as the guarded section
+ * ends -- and then asserts that both sides' work survived. Each also asserts
+ * the hook ran at all: code that does its read-modify-write unguarded never
+ * ends a section, so the hook would never be reached, and the assertion that
+ * notices is the one that fails.
+ */
+
+/* What the byte interrupt does when a packet ends: start a wait for the
+ * synthesizer to lock, which arms match 2. */
+static void arm_a_wait_for_the_synthesizer(void)
+{
+	timer1_wait_fs_lock();
+}
+
+/* What the timer interrupt does when the buffer pool was dry: arm match 3 to
+ * look again shortly. */
+static void arm_a_wait_for_a_buffer(void)
+{
+	timer1_wait_buffer();
+}
+
+/* What the buffer wait and the channel change do: take a buffer from the
+ * pool. */
+static le_rx_t *the_buffer_the_handler_took;
+static void take_a_buffer_from_the_pool(void)
+{
+	the_buffer_the_handler_took = buffer_get();
+}
+
+/* What a hop does to the buffer the engine is holding: clear it for the next
+ * packet (change_channel()). Reached from the connection-event match. */
+static void clear_the_buffer_the_engine_holds(void)
+{
+	if (current_rxbuf != NULL)
+		buffer_clear(current_rxbuf);
+}
+
+/*
+ * The LED blink runs in the main loop, once for every packet handed to the
+ * host, and arms its own match in the same register the receive path's waits
+ * live in. A blink that wrote back a value read before the byte interrupt ran
+ * un-armed the wait the interrupt had just armed, and nothing was left to arm
+ * receive: the capture went silent while the loop went on answering the host,
+ * until the mode was restarted.
+ */
+MU_TEST(a_blink_cannot_un_arm_the_wait_an_interrupt_armed)
+{
+	start_fresh();
+	fake_t1tc = 1000;
+
+	irq_pending_hook = arm_a_wait_for_the_synthesizer;
+	blink(1, 0, 0);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the blink changed the match "
+	          "register without holding interrupts off");
+	mu_assert(fake_t1mcr & TMCR_MR1I,
+	          "the blink's own match was not armed");
+	mu_assert(fake_t1mcr & TMCR_MR2I,
+	          "the blink lost the synthesizer wait the interrupt armed, so "
+	          "nothing is left to arm receive and the capture goes silent");
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
+/* The same register, the other way round: disarming one match may not lose
+ * another that an interrupt armed. The connection-following path disarms the
+ * event match from the main loop, which is where this was reachable. */
+MU_TEST(disarming_one_match_cannot_lose_another)
+{
+	start_fresh();
+	fake_t1tc = 1000;
+
+	timer1_set_match(2000);
+	mu_assert_fatal(fake_t1mcr & TMCR_MR0I, "the event match was not armed");
+
+	irq_pending_hook = arm_a_wait_for_a_buffer;
+	timer1_clear_match();
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the match register was "
+	          "changed without holding interrupts off");
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "the event match was not disarmed");
+	mu_assert(fake_t1mcr & TMCR_MR3I,
+	          "the buffer wait the interrupt armed was lost, so nothing is "
+	          "left to notice a buffer coming free");
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
+/* Arming and disarming touch one match each and leave the rest alone, which
+ * is what makes the four waits independent. */
+MU_TEST(each_match_is_armed_on_its_own)
+{
+	start_fresh();
+
+	timer1_set_match(1);
+	timer1_wait_fs_lock();
+	timer1_wait_buffer();
+	blink(0, 0, 1);
+	mu_assert_int_eq(TMCR_MR0I | TMCR_MR1I | TMCR_MR2I | TMCR_MR3I,
+	                 (int)fake_t1mcr);
+
+	timer1_cancel_fs_lock();
+	mu_assert_int_eq(TMCR_MR0I | TMCR_MR1I | TMCR_MR3I, (int)fake_t1mcr);
+
+	timer1_cancel_wait_buffer();
+	mu_assert_int_eq(TMCR_MR0I | TMCR_MR1I, (int)fake_t1mcr);
+
+	timer1_clear_match();
+	mu_assert_int_eq(TMCR_MR1I, (int)fake_t1mcr);
+}
+
+/*
+ * Finding a free buffer and marking it taken is one step. Two contexts that
+ * each read the flag before either cleared it were both handed the same
+ * buffer: the engine then received into a buffer that was already being filled
+ * by the other, or handed one to the host twice.
+ */
+MU_TEST(two_contexts_cannot_be_handed_the_same_buffer)
+{
+	le_rx_t *mine;
+	int i, free_left;
+
+	start_fresh();
+
+	the_buffer_the_handler_took = NULL;
+	irq_pending_hook = take_a_buffer_from_the_pool;
+	mine = buffer_get();
+
+	mu_assert_fatal(mine != NULL, "the pool refused a buffer");
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the pool's flag is tested and "
+	          "cleared without holding interrupts off");
+	mu_assert_fatal(the_buffer_the_handler_took != NULL,
+	                "the pool refused the interrupt a buffer while three "
+	                "were free");
+	mu_assert(the_buffer_the_handler_took != mine,
+	          "two contexts were handed the same buffer, so two packets "
+	          "would be received into one");
+
+	/* Two gone, and the pool's own accounting says two. */
+	for (free_left = 0, i = 0; i < LE_BUFFER_POOL_SIZE; i++)
+		if (buffer_get() != NULL)
+			free_left++;
+	mu_assert_int_eq(LE_BUFFER_POOL_SIZE - 2, free_left);
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
+/*
+ * A finished packet is handed to the host and the buffer for the next one
+ * taken in one step, so current_rxbuf never names a buffer that is on its way
+ * out. It used to: the packet was queued first and the pointer moved on
+ * afterwards, and a timer match taken in between reached the buffer the host
+ * was about to be given -- the channel change clears it, the waits receive
+ * into it. The host got a record of zeroes, or one holding bytes from a later
+ * moment in the air.
+ */
+MU_TEST(a_queued_packet_is_not_reached_by_the_match_that_follows_it)
+{
+	le_rx_t *packet;
+	unsigned i;
+
+	start_fresh();
+	le_phy_active = 1;
+	rf_channel = ADV_CHANNEL_MHZ;
+	/* Held before the hook is set, so the hook stands in for a match taken
+	 * during the handover and not during this. */
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+
+	irq_pending_hook = clear_the_buffer_the_engine_holds;
+	packet = a_packet_arrives(20, ADV_CHANNEL_MHZ, 0);
+
+	mu_assert_fatal(packet != NULL, "no packet reached the host");
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the handover does not hold "
+	          "interrupts off");
+	mu_assert(packet != current_rxbuf,
+	          "receive is armed on the buffer that was handed to the host");
+
+	/* The packet the host is given is the one that was received. */
+	mu_assert_int_eq(20 + 2 + 3, (int)packet->pos);
+	mu_assert_int_eq(20 + 2 + 3, (int)packet->size);
+	mu_assert_int_eq(0x00100000 - (int)USEC(48), (int)packet->timestamp);
+	for (i = 0; i < packet->pos; i++)
+		if (i != 1 && packet->data[i] != 0x5a) {
+			mu_assert(0, "the packet handed to the host lost its bytes to "
+			             "the match taken after it was queued");
+			break;
+		}
+	mu_assert_int_eq(0, (int)irq_mask_depth);
 }
 
 /* ------------------------------------------------------------------ *
@@ -3127,6 +3355,11 @@ int main(void)
 
 	MU_RUN(the_pool_hands_out_each_buffer_once_and_then_nothing);
 	MU_RUN(a_released_buffer_comes_back_clean);
+	MU_RUN(a_blink_cannot_un_arm_the_wait_an_interrupt_armed);
+	MU_RUN(disarming_one_match_cannot_lose_another);
+	MU_RUN(each_match_is_armed_on_its_own);
+	MU_RUN(two_contexts_cannot_be_handed_the_same_buffer);
+	MU_RUN(a_queued_packet_is_not_reached_by_the_match_that_follows_it);
 	MU_RUN(the_length_byte_is_dewhitened_the_same_way_as_the_rest);
 	MU_RUN(a_field_is_read_least_significant_byte_first);
 	MU_RUN(every_packet_length_survives_the_round_trip);

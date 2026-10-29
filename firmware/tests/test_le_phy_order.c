@@ -62,12 +62,17 @@ struct le_phy_scan {
 	int unmask_writes;     /* writes of ISER0_ISE_TIMER1 to ISER0 */
 	int main_lines;        /* lines of le_phy_main() the scan read */
 	int dropped_cleared;   /* le_packet_dropped = 0 */
+	/* Changing one bit of the match-enable register: where it is done
+	 * outside the two guarded helpers, and how many are inside them. */
+	int bare_match_write;
+	int guarded_match_writes;
 };
 
 static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
+	int in_mask_helper = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -84,6 +89,31 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		if (is_assignment_to(line, "ISER0") &&
 		    contains_identifier(line, "ISER0_ISE_TIMER1"))
 			s->unmask_writes++;
+
+		/* Every `T1MCR |=` and `T1MCR &= ~` in the file, and whether it
+		 * is one of the two in the helpers that hold interrupts off. The
+		 * check runs before the gates below, so it covers the whole file
+		 * rather than one function. */
+		if (strstr(line, "timer1_arm_match_interrupt(") != NULL ||
+		    strstr(line, "timer1_disarm_match_interrupt(") != NULL) {
+			if (strchr(line, ';') == NULL && strchr(line, '{') != NULL)
+				in_mask_helper = 1;
+		} else if (in_mask_helper && line[0] == '}') {
+			in_mask_helper = 0;
+		}
+
+		{
+			char flat[SCAN_LINE_MAX];
+
+			collapse_spaces(line, flat, sizeof(flat));
+			if (strstr(flat, "T1MCR |=") != NULL ||
+			    strstr(flat, "T1MCR &=") != NULL) {
+				if (in_mask_helper)
+					s->guarded_match_writes++;
+				else if (s->bare_match_write == 0)
+					s->bare_match_write = lineno;
+			}
+		}
 
 		if (in_timer1_start) {
 			if (is_assignment_of(line, "T1MCR", "0") &&
@@ -322,6 +352,42 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
 	mu_assert(s.active_cleared < s.timer1_stop, msg);
 }
 
+/*
+ * Every bit of T1MCR that is set or cleared on its own goes through one of the
+ * two helpers that hold interrupts off while they do it.
+ *
+ * All four matches live in that one register -- the connection event, the LED
+ * blink, the synthesizer-lock wait and the buffer wait -- and no single
+ * context owns them: the main loop arms the blink and, while a connection is
+ * being followed, the event and the lock wait, and both interrupt handlers arm
+ * and disarm the waits. Setting a bit is a read-modify-write, so an interrupt
+ * landing between the read and the write costs the interrupt its bit. When the
+ * bit lost is the lock wait's, nothing arms receive again: the loop runs on,
+ * feeding the watchdog and answering the host, while the capture stays silent
+ * until the mode is restarted.
+ *
+ * This is a scan because the register is hardware. What the guard does is run
+ * in test_le_phy_logic.c, which stands an interrupt in at the end of a guarded
+ * section; the scan is what notices a new site added later without one.
+ */
+MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: a bit of T1MCR is set or cleared here without holding "
+	         "interrupts off; use timer1_arm_match_interrupt() or "
+	         "timer1_disarm_match_interrupt(), or an interrupt landing in "
+	         "the middle loses the bit it armed", path, s.bare_match_write);
+	mu_assert(s.bare_match_write == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found %d guarded writes of T1MCR, expected one "
+	         "in each of the two helpers -- the scan has stopped reading "
+	         "them", path, s.guarded_match_writes);
+	mu_assert(s.guarded_match_writes == 2, msg);
+}
+
 int main(void)
 {
 	printf("le_phy bring-up and teardown order tests\n");
@@ -332,5 +398,6 @@ int main(void)
 	MU_RUN(test_active_is_set_after_the_setup);
 	MU_RUN(test_the_interrupt_is_unmasked_last);
 	MU_RUN(test_active_is_cleared_before_the_teardown);
+	MU_RUN(test_every_match_bit_is_changed_with_interrupts_held_off);
 	return mu_report();
 }

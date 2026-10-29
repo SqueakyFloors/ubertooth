@@ -640,6 +640,16 @@
   say nothing, so a run looked like it had interfered when it had not. The man
   page records this under KNOWN BROKEN FEATURES.
   [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
+- A low-energy capture no longer loses or garbles a packet when the
+  connection-event timer fires in the middle of the capture handler, and no
+  longer goes silent part way through a run. The timer's match-enable register
+  and the buffer pool are changed with interrupts held off, and a finished
+  packet is handed to the host in one step with the buffer for the next one, so
+  neither side of a capture can lose what the other just set. A lost
+  match-enable bit left nothing to arm receive again: the board went on
+  answering the host while the capture produced nothing more.
+  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 
 - `ubertooth-btle -f -j` jams and `ubertooth-dump -l` writes low-energy
   records on a board left in another mode by a run that was interrupted

@@ -16,6 +16,7 @@
 #include "cc2400_wait.h"
 #include "queue.h"
 #include "watchdog.h"
+#include "irq.h"
 
 // current time, from timer1
 #define NOW T1TC
@@ -270,6 +271,8 @@ static void reset_conn(void) {
 static void timer1_start(void);
 static void timer1_enable_interrupt(void);
 static void timer1_stop(void);
+static void timer1_arm_match_interrupt(uint32_t bit);
+static void timer1_disarm_match_interrupt(uint32_t bit);
 static void timer1_set_match(uint32_t match);
 static void timer1_clear_match(void);
 static void timer1_arm_conn_event(void);
@@ -309,12 +312,30 @@ static void buffer_clear(le_rx_t *buf) {
 // get a packet buffer
 // returns a pointer to a buffer if available
 // returns NULL otherwise
+//
+// Three contexts take buffers from this pool: the main loop as the mode
+// starts, the byte interrupt at the end of every packet, and the timer
+// interrupt on both the buffer wait and the channel change. Finding a free
+// buffer and marking it taken has to be one step for all three. Two steps --
+// read `available`, then clear it -- let an interrupt that lands between them
+// find the same buffer free and take it as well, and the two contexts then
+// receive into one buffer, or hand it to the host twice.
+//
+// Only the test and the clear are guarded. Clearing the buffer's contents is
+// a 260-byte memset, and by then the buffer belongs to this caller and no
+// other context can reach it, so it runs with interrupts back on.
 static le_rx_t *buffer_get(void) {
 	int i;
 
 	for (i = 0; i < LE_BUFFER_POOL_SIZE; ++i) {
-		if (le_buffer_pool[i].available) {
+		uint32_t primask = irq_save_disable();
+		int taken = le_buffer_pool[i].available;
+
+		if (taken)
 			le_buffer_pool[i].available = 0;
+		irq_restore(primask);
+
+		if (taken) {
 			buffer_clear(&le_buffer_pool[i]);
 			return &le_buffer_pool[i];
 		}
@@ -806,6 +827,10 @@ static void le_dma_interrupt(uint32_t timestamp) {
 
 			// finished packet - state transition
 			if (pos > 2 && pos >= current_rxbuf->size) {
+				le_rx_t *packet;
+				uint32_t packet_timestamp = current_rxbuf->timestamp;
+				uint32_t primask;
+
 				// stop the CC2400 before flushing SSP
 				cc2400_strobe(SFSON);
 
@@ -819,8 +844,36 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// XXX disable DMA interrupt as a workaround
 				ICER0 = ICER0_ICE_DMA;
 
+				// Hand the finished packet to the host and take the
+				// buffer for the next one, in one step with interrupts
+				// held off.
+				//
+				// current_rxbuf is where every context puts the next
+				// packet, and the timer interrupt acts on it: the channel
+				// change clears the buffer it points at, and the
+				// synthesizer-lock and buffer waits arm receive into it.
+				// So between handing this buffer over and pointing
+				// current_rxbuf at a fresh one, the pointer names a buffer
+				// that is on its way to the host. A timer match taken in
+				// that window cleared it or received into it, and the host
+				// got a record of zeroes, or one holding bytes from a
+				// later moment in the air.
+				//
+				// The new buffer is taken first so that the pointer is
+				// never left naming a queued buffer even for an
+				// instruction, and the guard covers the handover so that
+				// no match can be taken part way through it. The new
+				// buffer may be NULL if the pool is exhausted; the waits
+				// below and the change_channel() and timer1 paths check
+				// for that and wait for a buffer rather than arm receive
+				// without one.
+				//
 				// TODO error transition on queue_insert
-				queue_insert(&packet_queue, current_rxbuf);
+				primask = irq_save_disable();
+				packet = current_rxbuf;
+				current_rxbuf = buffer_get();
+				queue_insert(&packet_queue, packet);
+				irq_restore(primask);
 
 				// track connection events
 				if (btle_channel_index(rf_channel) < 37) {
@@ -828,26 +881,22 @@ static void le_dma_interrupt(uint32_t timestamp) {
 
 					// first packet: set connection anchor
 					if (conn_event.num_packets == 1) {
-						conn_event.anchor = current_rxbuf->timestamp;
+						// The stamp was read before the packet was
+						// handed over: once it is queued the host owns
+						// it, and the buffer can be released and handed
+						// out again.
+						conn_event.anchor = packet_timestamp;
 						timer1_set_match(NOW + IFS_TIMEOUT); // set a timeout for next packet
 					}
 
 					// second packet: close connection event, and set hop timer
 					else if (conn_event.num_packets == 2) {
 						cc2400_strobe(SRFOFF);
-						// may be NULL if the pool is exhausted; the
-						// change_channel() and timer1 paths below check
-						// for that and wait for a buffer instead of
-						// arming RX without one
-						current_rxbuf = buffer_get();
 						finish_conn_event();
 						return;
 					}
 				}
 
-				// get a new packet
-				// TODO handle error transition
-				current_rxbuf = buffer_get();
 				if (current_rxbuf == NULL) {
 					// if all buffers are in use, wait for one to free up in background
 					timer1_wait_buffer();
@@ -1062,6 +1111,43 @@ static void timer1_enable_interrupt(void) {
 	ISER0 = ISER0_ISE_TIMER1;
 }
 
+// Arm or disarm one of timer1's match interrupts.
+//
+// T1MCR holds the enable bit of all four matches this engine uses: the
+// connection event (MR0), the LED blink (MR1), the synthesizer-lock wait
+// (MR2) and the buffer wait (MR3). Setting or clearing one bit of it is a
+// read-modify-write, and the four matches do not belong to one context: the
+// main loop arms the blink and, on the connection-following path, the event
+// and lock matches, while both interrupt handlers arm and disarm the lock and
+// buffer waits.
+//
+// So an interrupt landing between the read and the write costs the interrupt
+// its bit. The main loop writes back a value it read before the handler ran,
+// which arms whatever the loop asked for and silently un-arms what the
+// handler asked for. When the bit lost is the lock wait's, nothing is left to
+// arm receive: the engine's main loop runs on, feeding the watchdog and
+// answering the host, while the capture stays silent until the mode is
+// restarted. Every read-modify-write of this register goes through these two,
+// with interrupts held off for the few instructions it takes, so no write
+// can be built on a value another context has already moved on from.
+//
+// Writes of the whole register are left as they are: timer1_start() and the
+// teardown path write 0, which cannot lose a bit that is on its way in,
+// because nothing the engine is doing at that point wants one.
+static void timer1_arm_match_interrupt(uint32_t bit) {
+	uint32_t primask = irq_save_disable();
+
+	T1MCR |= bit;
+	irq_restore(primask);
+}
+
+static void timer1_disarm_match_interrupt(uint32_t bit) {
+	uint32_t primask = irq_save_disable();
+
+	T1MCR &= ~bit;
+	irq_restore(primask);
+}
+
 static void timer1_stop(void) {
 	T1TCR = TCR_Counter_Reset;
 
@@ -1071,11 +1157,11 @@ static void timer1_stop(void) {
 
 static void timer1_set_match(uint32_t match) {
 	T1MR0 = match;
-	T1MCR |= TMCR_MR0I;
+	timer1_arm_match_interrupt(TMCR_MR0I);
 }
 
 static void timer1_clear_match(void) {
-	T1MCR &= ~TMCR_MR0I;
+	timer1_disarm_match_interrupt(TMCR_MR0I);
 }
 
 // Re-checks of FS_LOCK in the wait timer1 is running now: the short ones,
@@ -1114,20 +1200,20 @@ static void timer1_recheck_fs_lock(void) {
 			cc2400_strobe(SFSON);
 		T1MR2 = NOW + FS_LOCK_RECHECK_SLOW;
 	}
-	T1MCR |= TMCR_MR2I;
+	timer1_arm_match_interrupt(TMCR_MR2I);
 }
 
 static void timer1_cancel_fs_lock(void) {
-	T1MCR &= ~TMCR_MR2I;
+	timer1_disarm_match_interrupt(TMCR_MR2I);
 }
 
 static void timer1_wait_buffer(void) {
 	T1MR3 = NOW + USEC(100);
-	T1MCR |= TMCR_MR3I;
+	timer1_arm_match_interrupt(TMCR_MR3I);
 }
 
 static void timer1_cancel_wait_buffer(void) {
-	T1MCR &= ~TMCR_MR3I;
+	timer1_disarm_match_interrupt(TMCR_MR3I);
 }
 
 // Empty the SSP's receive buffer, with a bound. See LE_SSP_DRAIN_READS.
@@ -1260,7 +1346,7 @@ static void timer1_interrupt(void) {
 	// LEDs
 	if (T1IR & TIR_MR1_Interrupt) {
 		T1IR = TIR_MR1_Interrupt;
-		T1MCR &= ~TMCR_MR1I;
+		timer1_disarm_match_interrupt(TMCR_MR1I);
 
 		TXLED_CLR;
 		RXLED_CLR;
@@ -1273,7 +1359,7 @@ static void timer1_interrupt(void) {
 
 		// if FS is locked, strobe RX and clear interrupt
 		if (cc2400_status() & FS_LOCK) {
-			T1MCR &= ~TMCR_MR2I;
+			timer1_disarm_match_interrupt(TMCR_MR2I);
 
 			// Never arm RX without a packet buffer: le_DMA_IRQHandler()
 			// would have nowhere to put the bytes. Wait for one instead.
@@ -1336,7 +1422,7 @@ static void blink(int tx, int rx, int usr) {
 
 	// blink for 10 ms
 	T1MR1 = NOW + MSEC(10);
-	T1MCR |= TMCR_MR1I;
+	timer1_arm_match_interrupt(TMCR_MR1I);
 }
 
 // helper function to dewhiten length from whitened data (only used
