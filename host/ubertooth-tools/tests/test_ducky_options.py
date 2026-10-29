@@ -13,6 +13,13 @@ import sys
 
 BINARY = sys.argv[1]
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# How long one ubertooth-ducky run is given. The whole test takes about 0.1 s
+# on an idle machine and 0.5 s on one busy with parallel builds, over five
+# short runs, where the cost that grows is starting a process rather than the
+# work a run does. Twenty seconds is therefore many times what any one run
+# needs, with room for a four-core machine slower again than this one, and a
+# tool that hangs is still reported in tens of seconds.
+RUN_TIMEOUT_S = 20
 
 
 def run(*arguments):
@@ -20,7 +27,7 @@ def run(*arguments):
         [BINARY, *arguments],
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=RUN_TIMEOUT_S,
         check=False,
         env=ENVIRONMENT,
     )

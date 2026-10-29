@@ -24,6 +24,12 @@ NOT_FOUND = f"no ubertooth found with serial matching '{NO_SUCH_SERIAL}'"
 # one of them to read its serial, which stalls on a board another process is
 # using.
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
+# How long one ubertooth-dfu run is given. The whole test takes about 0.3 s on
+# an idle machine and 1.2 s on one busy with parallel builds, so twenty seconds
+# is many times what any single run needs. The CTest timeout on this test is
+# larger again, so this deadline is the one that fires and names the run that
+# timed out.
+RUN_TIMEOUT_S = 20
 
 U1_DFU_VENDORID = 0x1D50
 U1_DFU_PRODUCTID = 0x6003
@@ -127,7 +133,8 @@ with tempfile.TemporaryDirectory() as directory:
             handle.write(contents)
         command = [BINARY, "-U", NO_SUCH_SERIAL, "-d", path, "-r"]
         result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=20, check=False, env=ENVIRONMENT)
+                                timeout=RUN_TIMEOUT_S, check=False,
+                                env=ENVIRONMENT)
         output = result.stdout + result.stderr
         print("$", " ".join(command))
         print(output, end="" if output.endswith("\n") else "\n")
