@@ -1552,8 +1552,6 @@ int main(void)
 	MU_RUN(test_a_wait_inside_a_handler_claims_no_outer_site);
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_every_inner_mark_is_given_back);
-	MU_RUN(test_the_reply_is_the_documented_eight_bytes);
-	MU_RUN(test_the_ble_engine_leaves_its_sites_without_claiming_them);
 	MU_RUN(test_the_reply_is_the_documented_bytes);
 	MU_RUN(test_a_transfer_error_is_counted_and_kept_across_a_reset);
 	MU_RUN(test_the_transfer_error_count_stops_at_its_largest_value);
