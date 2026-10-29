@@ -46,8 +46,6 @@
 static char le_phy[400000];
 static char rxtx[600000];
 static char dma[60000];
-/* Only the declarations near the top; the whitening tables below them are
- * long and nothing here reads them. */
 static char le_h[20000];
 
 static void load(const char *name, char *out, size_t size)
@@ -155,17 +153,76 @@ MU_TEST(the_promiscuous_buffers_hold_the_longest_packet)
 	mu_assert_int_eq(4 + 2 + 255 + 3, LE_MAX_USB_PACKET_SIZE);
 }
 
-/* The whitening table covers only the front of a PDU, so the rest of a long
- * packet is dewhitened without it, carrying on from where the table stopped.
+/*
+ * The whole packet is dewhitened, however long it is, and by one route: the
+ * header first, because the length field in it is what says how much more to
+ * wait for, then everything else once the bytes are in. Earlier releases had
+ * a table of whitening words covering the first 48 bytes and a second,
+ * bit-at-a-time path for anything past it; test_le_whitening.c is where the
+ * one that remains is run against the words that table held.
  */
-MU_TEST(a_long_promiscuous_packet_is_dewhitened_past_the_table)
+MU_TEST(a_long_promiscuous_packet_is_dewhitened_to_its_end)
 {
+	mu_assert(strstr(rxtx, "le_dewhiten_from(p + 4, LE_DMA_HEAD, channel, 0);")
+	          != NULL,
+	          "the header is not dewhitened before the length is read");
 	mu_assert(strstr(rxtx,
-	                 "if (pdu_bytes > LE_WHITENING_WORD_BYTES)"
-	                 " le_dewhiten_from(p + 4 + LE_WHITENING_WORD_BYTES,"
-	                 " pdu_bytes - LE_WHITENING_WORD_BYTES, channel,"
-	                 " LE_WHITENING_WORD_BYTES);") != NULL,
-	          "the bytes past the whitening table are not dewhitened");
+	                 "le_dewhiten_from(p + 4 + LE_DMA_HEAD,"
+	                 " pdu_bytes - LE_DMA_HEAD, channel, LE_DMA_HEAD);")
+	          != NULL,
+	          "the rest of the packet is not dewhitened");
+	/* Nothing here dewhitens a packet any other way, which is what a second
+	 * path would look like: no table of words for a channel, and no helper
+	 * of its own that took one. */
+	mu_assert(strstr(rxtx, "whitening_word[") == NULL,
+	          "the promiscuous follow half still has a whitening table path");
+	mu_assert(strstr(rxtx, "dewhiten_word(") == NULL,
+	          "the promiscuous follow half still has a dewhitening helper "
+	          "of its own");
+	mu_assert(strstr(le_h, "[40][") == NULL,
+	          "a per-channel table came back to the low-energy header");
+}
+
+/* ------------------------------------------------------------------ *
+ * The connection-follow callback
+ * ------------------------------------------------------------------ */
+
+/*
+ * cb_follow_le() is the callback for following a known access address around.
+ * Nothing installs it on a path that runs today -- the promiscuous mode's own
+ * callback assigns it and then leaves the loop that would call it -- so it is
+ * the connection-follow half of ubertooth-btle -p waiting for the work that
+ * would reach it again.
+ *
+ * It read its length through the 6-bit mask that belongs to Basic Rate
+ * packets, and then read the wire CRC at an index that mask could not keep
+ * inside the buffer it decodes into. Both are the whole byte and a bounded
+ * read now, so the callback is right on its own, whatever reaches it.
+ */
+MU_TEST(the_connection_follow_callback_reads_a_whole_length_byte)
+{
+	mu_assert(strstr(rxtx, "int cb_follow_le(") != NULL,
+	          "cb_follow_le() is not there to be found");
+	mu_assert(strstr(rxtx, "int len = idle_rxbuf[5] + 2;") != NULL,
+	          "the PDU length is not read as a whole byte");
+	mu_assert(strstr(rxtx, "idle_rxbuf[5] & 0x3f") == NULL,
+	          "the PDU length is still read through a 6-bit mask");
+	/* The bytes it decodes are what bound the read, and the count it
+	 * decodes and the bound are the same number. */
+	mu_assert(strstr(rxtx, "#define FOLLOW_LE_BYTES 46") != NULL,
+	          "the bytes the callback decodes are not named");
+	mu_assert(strstr(rxtx, "for (j = 0; j < FOLLOW_LE_BYTES; ++j)") != NULL,
+	          "the decode loop is not bounded by the bytes it decodes");
+	mu_assert(strstr(rxtx, "if (4 + len + 3 > FOLLOW_LE_BYTES) break;")
+	          != NULL,
+	          "a CRC past the decoded bytes is still read");
+	/* The bound is ahead of the CRC check, not inside it, so a packet that
+	 * claims more than was decoded is skipped whether or not the
+	 * connection's CRC is being verified: a record of it would claim bytes
+	 * that were never decoded. */
+	mu_assert(strstr(rxtx, "if (4 + len + 3 > FOLLOW_LE_BYTES) break;"
+	                 " if (le.crc_verify)") != NULL,
+	          "the bound on the claimed length is only applied when the CRC is");
 }
 
 /* ------------------------------------------------------------------ *
@@ -425,7 +482,8 @@ int main(void)
 	MU_RUN(the_promiscuous_loop_queues_the_whole_packet);
 	MU_RUN(the_promiscuous_loop_reads_the_whole_length_field);
 	MU_RUN(the_promiscuous_buffers_hold_the_longest_packet);
-	MU_RUN(a_long_promiscuous_packet_is_dewhitened_past_the_table);
+	MU_RUN(a_long_promiscuous_packet_is_dewhitened_to_its_end);
+	MU_RUN(the_connection_follow_callback_reads_a_whole_length_byte);
 	MU_RUN(only_one_half_of_the_mode_reads_symbols);
 	MU_RUN(the_shared_buffer_is_cleared_before_symbols_are_searched);
 	MU_RUN(the_loop_waits_for_the_length_byte_and_then_for_the_packet);

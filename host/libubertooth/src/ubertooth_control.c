@@ -1393,9 +1393,9 @@ int cmd_btle_slave(struct libusb_device_handle* devh, u8 *mac_address)
 int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsigned data_len) {
 	int r;
 
-	if (data_len > LE_ADV_MAX_LEN) {
+	if (data_len > ADV_IND_MAX_DATA) {
 		fprintf(stderr, "error: LE advertising data too long (%u > %u)\n",
-		        data_len, LE_ADV_MAX_LEN);
+		        data_len, ADV_IND_MAX_DATA);
 		return -1;
 	}
 

@@ -182,32 +182,98 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
 }
 
 /*
+ * The whitening sequence packed one bit to a bit, least significant bit
+ * first, so that 32 bits of it can be read at once instead of looked up one
+ * at a time. It holds one period and 31 bits more, which means any 32-bit
+ * window of the period is contiguous and no read has to wrap around.
+ *
+ * It is built from whitening[] on first use rather than written out as a
+ * second copy of the sequence: a copy in the source could disagree with the
+ * one above it, and the 20 bytes this takes do the work of a 1920-byte table
+ * of ready-made words for 40 channels, which only reached 48 bytes into a
+ * packet anyway.
+ *
+ * On first use rather than at a mode start because the callers are in two
+ * different capture engines, so there is no one place a mode start passes
+ * through. It costs one pass of 158 iterations per boot, on the first packet
+ * of the first low-energy capture, while the receive DMA goes on filling the
+ * buffer behind it. Both callers run from a mode loop, never from an
+ * interrupt, so neither can find it half built.
+ */
+#define WHITENING_PACKED_BITS (sizeof(whitening) + 31)
+#define WHITENING_WORD_COUNT ((WHITENING_PACKED_BITS + 31) / 32)
+static u32 whitening_packed[WHITENING_WORD_COUNT];
+static int whitening_packed_ready;
+
+static void pack_whitening(void) {
+	unsigned i;
+
+	for (i = 0; i < WHITENING_PACKED_BITS; ++i)
+		whitening_packed[i / 32] |=
+			(u32)whitening[i % sizeof(whitening)] << (i % 32);
+	whitening_packed_ready = 1;
+}
+
+/* The 32 bits of the sequence that start at `idx`, packed the same way.
+ *
+ * The window can start anywhere in a word, so it is taken out of the pair of
+ * words holding it. Shifting the 64-bit pair, rather than the two words
+ * separately, is what makes a window that starts exactly on a word boundary
+ * no special case: shifting a 32-bit word by 32 places is undefined. */
+static u32 whitening_word(unsigned idx) {
+	unsigned word = idx / 32;
+	u64 pair = (u64)whitening_packed[word]
+	         | (u64)whitening_packed[word + 1] << 32;
+
+	return (u32)(pair >> (idx % 32));
+}
+
+/*
  * Dewhiten and reverse the bit order of part of a PDU in place, starting
  * `offset` bytes into it. A caller that has already dewhitened the front of a
  * packet some other way carries on from where it stopped.
  *
+ * Four bytes at a time: rbit() reverses all 32 bits of a word, which reverses
+ * each byte and puts the four in the opposite order, so the bytes go in most
+ * significant first and come out least significant first. The whitening word
+ * is then one XOR for all four, where it used to be eight lookups and a
+ * modulo per byte -- which is what a 251-byte payload pays 250 times over.
+ *
  * Channel is a physical channel in the range [BT_FREQ_MIN, BT_FREQ_MAX].
- * TODO convert this to use whitening word
  */
 void le_dewhiten_from(uint8_t *data, unsigned size, unsigned channel,
                       unsigned offset) {
-	unsigned i, j, bit;
+	unsigned i = 0;
 	unsigned idx = whitening_index[btle_channel_index(channel)];
+
+	if (!whitening_packed_ready)
+		pack_whitening();
 
 	/* The whitening is one long bit sequence laid over the whole PDU, so a
 	 * part of a packet can only be dewhitened once the sequence has been
 	 * wound forward to where that part starts: 8 bits per byte skipped. */
 	idx = (idx + 8 * offset) % sizeof(whitening);
 
-	for (i = 0; i < size; ++i) {
-		uint8_t out = 0;
-		for (j = 0; j < 8; ++j) {
-			bit = (data[i] >> (7-j)) & 1;
-			bit ^= whitening[idx];
-			idx = (idx + 1) % sizeof(whitening);
-			out |= bit << j;
-		}
-		data[i] = out;
+	for (; i + 4 <= size; i += 4) {
+		u32 v = (u32)data[i + 0] << 24
+		      | (u32)data[i + 1] << 16
+		      | (u32)data[i + 2] <<  8
+		      | (u32)data[i + 3] <<  0;
+		u32 out = rbit(v) ^ whitening_word(idx);
+
+		data[i + 0] = (uint8_t)(out >>  0);
+		data[i + 1] = (uint8_t)(out >>  8);
+		data[i + 2] = (uint8_t)(out >> 16);
+		data[i + 3] = (uint8_t)(out >> 24);
+		idx = (idx + 32) % sizeof(whitening);
+	}
+
+	/* The last one to three bytes, each from the low byte of a word of the
+	 * sequence: a buffer's length is whatever the packet in it is. */
+	for (; i < size; ++i) {
+		data[i] = (uint8_t)(rbit((u32)data[i] << 24)
+		                    ^ whitening_word(idx));
+		idx = (idx + 8) % sizeof(whitening);
 	}
 }
 

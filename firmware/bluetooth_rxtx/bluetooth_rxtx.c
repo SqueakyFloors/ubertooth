@@ -99,7 +99,9 @@ generic_tx_packet tx_pkt;
 
 /* le slave stuff */
 uint8_t slave_mac_address[6] = { 0, };
-uint8_t le_adv_data[LE_ADV_MAX_LEN] = { 0x02, 0x01, 0x05 };
+/* The advertising data MODE_BT_SLAVE_LE transmits, as the host set it. Sized
+ * for the most a legacy ADV_IND can carry, which is all this ever sends. */
+uint8_t le_adv_data[ADV_IND_MAX_DATA] = { 0x02, 0x01, 0x05 };
 unsigned le_adv_len = 3;
 
 le_state_t le = {
@@ -1292,8 +1294,13 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		/* An empty payload is a request in its own right, so the
 		 * direction is what tells it apart from a read of this number;
 		 * every other case that reads data needs a byte of it and is
-		 * refused by its own length check. */
-		if (!data_from_host || data_in_len > LE_ADV_MAX_LEN)
+		 * refused by its own length check.
+		 *
+		 * The bound is what the advertising mode can transmit, so a
+		 * program that asks for more is told here, where it can see
+		 * which request the board refused. Taking it and then dropping
+		 * out of the mode left the board quietly idle instead. */
+		if (!data_from_host || data_in_len > ADV_IND_MAX_DATA)
 			return 0;
 		le_adv_len = data_in_len;
 		memcpy(le_adv_data, data, le_adv_len);
@@ -1950,6 +1957,12 @@ static void cc2400_tx_sync(uint32_t sync)
 }
 #endif
 
+/* How long a packet le_transmit() can be asked to send. Its length is a u8,
+ * so 255 bytes is the worst case, and the buffer it whitens into has to hold
+ * that much. This is not a limit on advertising data -- ADV_IND_MAX_DATA is
+ * that -- only on what the caller below can hand the radio. */
+#define LE_TX_MAX_LEN 255
+
 /*
  * Transmit a BTLE packet with the specified access address.
  *
@@ -1963,7 +1976,7 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 {
 	unsigned int fifo_space, i, j;
 	int bit;
-	u8 txbuf[LE_ADV_MAX_LEN];
+	u8 txbuf[LE_TX_MAX_LEN];
 	u8 tx_len;
 	u8 byte;
 	uint32_t sync = rbit(aa);
@@ -2737,29 +2750,8 @@ static inline void le_rx_barrier(void)
 	__asm__ volatile ("dmb" ::: "memory");
 }
 
-/*
- * Dewhitens four bytes of a PDU in place: reverses the bit order of each byte
- * and applies the channel's whitening sequence, a word at a time out of the
- * pre-computed table. `offset` is how far into the PDU the four bytes sit,
- * which is also what picks the word of the sequence that covers them.
- */
-static void dewhiten_word(u8 *pdu, unsigned offset, const uint32_t *whit)
-{
-	uint32_t v = pdu[offset+0] << 24
-	           | pdu[offset+1] << 16
-	           | pdu[offset+2] << 8
-	           | pdu[offset+3] << 0;
-	uint32_t out = rbit(v) ^ whit[offset / 4];
-
-	pdu[offset+0] = (u8)(out >>  0);
-	pdu[offset+1] = (u8)(out >>  8);
-	pdu[offset+2] = (u8)(out >> 16);
-	pdu[offset+3] = (u8)(out >> 24);
-}
-
 void bt_le_sync(u8 active_mode)
 {
-	int i;
 	int8_t rssi;
 	uint8_t site;
 	static int restart_jamming = 0;
@@ -2871,8 +2863,10 @@ void bt_le_sync(u8 active_mode)
 		le_rx_barrier();
 		memcpy(p, &le.access_address, 4);
 
-		const uint32_t *whit = whitening_word[btle_channel_index(channel)];
-		dewhiten_word(p + 4, 0, whit);
+		/* The first four bytes, which is what the DMA's first item has
+		 * delivered so far (LE_DMA_HEAD). The length field is among
+		 * them, and it is what says how much more to wait for. */
+		le_dewhiten_from(p + 4, LE_DMA_HEAD, channel, 0);
 
 		/* The PDU's length field is eight bits wide, and the buffer holds
 		 * whatever it can claim, so nothing has to be refused to keep the
@@ -2948,16 +2942,10 @@ void bt_le_sync(u8 active_mode)
 		// strobe SFSON to allow the resync to occur while we process the packet
 		cc2400_strobe(SFSON);
 
-		/* Unwhiten the rest of the packet. The table holds whole words of
-		 * the whitening sequence for the first LE_WHITENING_WORD_BYTES of a
-		 * PDU, which is as far as a packet without a Data Length Extension
-		 * payload reaches. */
-		for (i = 4; i < LE_WHITENING_WORD_BYTES; i += 4)
-			dewhiten_word(p + 4, i, whit);
-		if (pdu_bytes > LE_WHITENING_WORD_BYTES)
-			le_dewhiten_from(p + 4 + LE_WHITENING_WORD_BYTES,
-			                 pdu_bytes - LE_WHITENING_WORD_BYTES,
-			                 channel, LE_WHITENING_WORD_BYTES);
+		/* Unwhiten the rest of the packet, carrying on from the four
+		 * bytes already done above. */
+		le_dewhiten_from(p + 4 + LE_DMA_HEAD, pdu_bytes - LE_DMA_HEAD,
+		                 channel, LE_DMA_HEAD);
 
 		if (le.crc_verify) {
 			u32 calc_crc = btle_crcgen_lut(le.crc_init_reversed, p + 4, len);
@@ -3089,6 +3077,16 @@ cleanup:
 
 
 
+/* How much of a packet the callback below decodes out of the symbol buffer:
+ * the four bytes of the access address and 42 bytes of PDU, which is the count
+ * it has always decoded. The buffer it writes into is DMA_SIZE (50) bytes, so
+ * the last four are left as they were; what matters here is that nothing may
+ * be read past the bytes this number covers. */
+#define FOLLOW_LE_BYTES 46
+
+_Static_assert(FOLLOW_LE_BYTES <= DMA_SIZE,
+               "the connection-follow callback decodes more than its buffer holds");
+
 /* low energy connection following
  * follows a known AA around */
 int cb_follow_le() {
@@ -3105,7 +3103,7 @@ int cb_follow_le() {
 		access_address >>= 1;
 		access_address |= (le_rx.symbols[i] << 31);
 		if (access_address == le.access_address) {
-			for (j = 0; j < 46; ++j) {
+			for (j = 0; j < FOLLOW_LE_BYTES; ++j) {
 				u8 byte = 0;
 				for (k = 0; k < 8; k++) {
 					int offset = k + (j * 8) + i - 31;
@@ -3120,13 +3118,34 @@ int cb_follow_le() {
 				idle_rxbuf[j] = byte;
 			}
 
+			/* The length field is a whole byte in a low-energy
+			 * header: the six-bit field belongs to the Basic Rate
+			 * packets elsewhere in this file. */
+			int len = idle_rxbuf[5] + 2;
+
+			/* A header claiming more than the bytes decoded above
+			 * belongs to a packet that arrived cut short. There is
+			 * neither a CRC of it to check -- reading one would
+			 * read past the buffer -- nor a record of it to send,
+			 * because what the host would get is a record claiming
+			 * bytes that were never decoded.
+			 *
+			 * This is the buffer's own bound, not the judgement
+			 * le_length_is_possible() makes for the other capture
+			 * loop: that one asks whether a length could belong to
+			 * a packet at all, and allows a Data Length Extension
+			 * payload, which does not fit here. The arithmetic
+			 * works out to 37 payload bytes, which is the legacy
+			 * maximum, but it is the buffer that says so. */
+			if (4 + len + 3 > FOLLOW_LE_BYTES)
+				break;
+
 			// verify CRC
 			if (le.crc_verify) {
-				int len		 = (idle_rxbuf[5] & 0x3f) + 2;
 				u32 calc_crc = btle_crcgen_lut(le.crc_init_reversed, (uint8_t*)idle_rxbuf + 4, len);
 				u32 wire_crc = (idle_rxbuf[4+len+2] << 16)
-							 | (idle_rxbuf[4+len+1] << 8)
-							 |  idle_rxbuf[4+len+0];
+				             | (idle_rxbuf[4+len+1] << 8)
+				             |  idle_rxbuf[4+len+0];
 				if (calc_crc != wire_crc) // skip packets with a bad CRC
 					break;
 			}
@@ -3188,7 +3207,11 @@ void connection_follow_cb(u8 *packet) {
 			le.update_pending = 0;
 		}
 
-		if (llid == 0x03 && data[0] == 0x00) {
+		/* A connection update carries twelve bytes: the opcode and the
+		 * eleven fields read below. A shorter control packet claiming to
+		 * be one would have those fields read from whatever the buffer
+		 * held before it, and the connection followed from there. */
+		if (llid == 0x03 && *data_len >= 12 && data[0] == 0x00) {
 			// This is a CONNECTION_UPDATE_REQ.
 			// The host is changing the connection parameters.
 			le.win_size_update = packet[7];
@@ -3714,10 +3737,14 @@ void bt_slave_le() {
 	u32 calc_crc;
 	int i;
 	/* Two header bytes, the six address bytes, the advertising data and the
-	 * three CRC bytes. LE_ADV_MAX_LEN (255) is the limit for extended
-	 * advertising, which this does not send: a legacy ADV_IND carries at
-	 * most ADV_IND_MAX_DATA bytes, so that is what the buffer has to hold
-	 * and what the length below is checked against. */
+	 * three CRC bytes. A legacy ADV_IND, which is all this sends, carries
+	 * at most ADV_IND_MAX_DATA bytes of data, so that is what the buffer
+	 * has to hold.
+	 *
+	 * UBERTOOTH_LE_SET_ADV_DATA refuses anything longer, so the check below
+	 * cannot fire from a host request. It stays as the guard on this
+	 * buffer: whoever sets le_adv_data next should not be able to overrun
+	 * the record built from it. */
 	uint8_t adv_ind[2 + 6 + ADV_IND_MAX_DATA + 3] = { 0x00, };
 	unsigned adv_ind_len;
 

@@ -494,6 +494,15 @@
   interfaces they use, as a build of the whole tree does, so a strict C
   standard works there too.
   [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
+- A program that sets more advertising data than the board can transmit is
+  told so, where it used to be taken and then dropped: `cmd_le_set_adv_data()`
+  and the board's `UBERTOOTH_LE_SET_ADV_DATA` both refuse anything longer than
+  the 31 bytes a legacy ADV_IND carries, with `error: LE advertising data too
+  long`. Up to 255 bytes used to be accepted, and the advertising mode asked
+  for afterwards then went back to idle without a word. `LE_ADV_MAX_LEN` is
+  gone from `ubertooth_interface.h` with it: a program that bounded a call by
+  it wants `ADV_IND_MAX_DATA`. No shipped tool sets more than 18 bytes.
+  [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
@@ -1984,6 +1993,22 @@ Fixes with no visible change in normal use.
   dropped, and the warning about a transfer cut short passes over a full one,
   so a packet the host already held was lost with nothing said.
   [#638](https://github.com/SqueakyFloors/ubertooth/issues/638)
+- Low-energy capture dewhitens a captured packet four bytes at a time. The
+  first 48 bytes used to come from a table of whitening words and the rest a
+  bit at a time, so a Data Length Extension payload cost about 1700 lookups
+  between two packets on the air; it is now one path costing about sixty word
+  operations, and the image is 2.1 KB smaller.
+  [#600](https://github.com/SqueakyFloors/ubertooth/issues/600)
+- A connection update the promiscuous mode follows has to carry the fields it
+  is read for. A shorter control packet claiming to be one had them read from
+  whatever the receive buffer held before it, and the connection followed from
+  there.
+- The connection-follow callback reads its payload length as the whole byte a
+  low-energy header holds, and keeps the read of the packet's CRC inside the
+  bytes it decoded. Nothing reaches the callback today; it is the half of
+  `ubertooth-btle -p` that follows a connection, waiting for the work that
+  would call it again.
+  [#597](https://github.com/SqueakyFloors/ubertooth/issues/597)
 - The thread that completes a capture's transfers treats a wait a signal cut
   short as a wait to take again. It used to end the thread, which left the
   capture with nobody to complete its transfers and no line to say why; the
