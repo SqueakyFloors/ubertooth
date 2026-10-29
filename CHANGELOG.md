@@ -640,17 +640,6 @@
   say nothing, so a run looked like it had interfered when it had not. The man
   page records this under KNOWN BROKEN FEATURES.
   [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
-- A low-energy capture no longer loses or garbles a packet when the
-  connection-event timer fires in the middle of the capture handler, and no
-  longer goes silent part way through a run. The timer's match-enable register
-  and the buffer pool are changed with interrupts held off, and a finished
-  packet is handed to the host in one step with the buffer for the next one, so
-  a connection-event timer that fires in the middle of either cannot undo it. A
-  lost
-  match-enable bit left nothing to arm receive again: the board went on
-  answering the host while the capture produced nothing more.
-  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 
 - `ubertooth-btle -f -j` jams and `ubertooth-dump -l` writes low-energy
   records on a board left in another mode by a run that was interrupted
@@ -2000,6 +1989,15 @@
 
 Fixes with no visible change in normal use.
 
+- The low-energy capture engine changes its timer's match-enable register, its
+  buffer pool and the buffer a finished packet is handed over from with
+  interrupts held off, so the connection-event timer can no longer cut into any
+  of the three. Each was read, altered and written back in steps the timer
+  could land between, which could lose a buffer or a timer match. A capture
+  before and after on the bench produced the same counts, so these close
+  windows rather than change what a capture does at the rates reached there.
+  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - A request that carries more data to the board than the buffer its handler
   registered is refused, instead of having the rest of it written over whatever
   follows that buffer. The length a request may declare is sixteen bits and the
