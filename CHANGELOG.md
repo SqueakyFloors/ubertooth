@@ -295,8 +295,9 @@
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
 - **Reflash required:** the firmware API version is now 1.50, last moved by the
-  bound on the clock drift the board accumulates and the generic receive's FIFO
-  flush, before that by the channel a mode start keeps and the E-GO access code
+  AFH map a mode start keeps, the bound on the clock drift the board
+  accumulates and the generic receive's FIFO flush, before that by the channel
+  a mode start keeps and the E-GO access code
   it resets, by the finer breadcrumb sites inside USB service that
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
   can stop, by two requests refusing a value they used to accept, and by a
@@ -485,6 +486,13 @@
 
 ### Reliability fixes
 
+- `ubertooth-follow` hops on the piconet's channels after a run that captured
+  nothing. The board now keeps an AFH channel map stated after the mode
+  request, as it already kept a channel: on a board left in a mode that
+  captures no packets -- a killed `ubertooth-specan`, `-btle` or `-ego` -- the
+  map that arrived next used to be thrown away by the mode start's reset, and
+  the follow hopped all 79 channels instead.
+  [#788](https://github.com/SqueakyFloors/ubertooth/issues/788)
 - A capture that is losing packets says so, in every mode that captures:
   `warning: the board's packet queue filled up and it dropped at least one
   packet; this capture has a gap` as it happens, and `warning: the capture has

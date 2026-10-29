@@ -706,15 +706,14 @@ One rule covers what a board holds from one command to the next:
   earlier tool was killed and left the board streaming. The squelch and the
   LEDs go with it, as above, and so does the access code `ubertooth-ego -a`
   sets; the power amplifier level set with `-a` does not.
-- **A channel, a band sweep or an access code stated after the mode request is
-  kept.** It belongs to the mode that is starting, so the reset above leaves it
-  alone, whatever the board was doing before. That is where a tool states what
-  its capture needs — `ubertooth-rx`, `ubertooth-scan`, `ubertooth-btle`,
-  `ubertooth-ducky` and `ubertooth-ego` all do — and it is kept only for that
-  mode: a setting stated for a run the host has moved on from is dropped rather
-  than carried into whatever starts next. The AFH map is the one setting this
-  does not cover yet, so `ubertooth-follow` can still lose the map it states
-  after its mode request on a board left in a mode that captures nothing.
+- **A channel, a band sweep, an access code or an AFH channel map stated after
+  the mode request is kept.** It belongs to the mode that is starting, so the
+  reset above leaves it alone, whatever the board was doing before. That is
+  where a tool states what its capture needs — `ubertooth-rx`,
+  `ubertooth-scan`, `ubertooth-btle`, `ubertooth-ducky`, `ubertooth-ego` and
+  `ubertooth-follow` all do — and it is kept only for that mode: a setting
+  stated for a run the host has moved on from is dropped rather than carried
+  into whatever starts next.
 - **A channel set on its own is kept, and the next mode starts on it.** `-c`/`-C`
   with no mode on the command line leaves the board on that channel for as long
   as it stays idle, a later `-c` reads it back, and a mode started afterwards

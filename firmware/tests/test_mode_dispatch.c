@@ -109,6 +109,10 @@ struct scan {
 
 	int ego_reset_call;   /* ego_access_code_reset() in the dispatch */
 	int ego_reset_calls;  /* how many */
+	/* UBERTOOTH_SET_AFHMAP: its case, and the copy it keeps for the mode
+	 * request it followed. */
+	int afhmap_case;
+	int afhmap_keep;
 	int stated_call;      /* apply_stated_settings() in the dispatch */
 	int stated_calls;     /* how many */
 	/* apply_stated_settings(): where it is defined, where it clears the
@@ -256,6 +260,16 @@ static int scan_source(const char *path, struct scan *s)
 	while (fgets(line, sizeof(line), f) != NULL) {
 		lineno++;
 		strip_comments(line, &in_block);
+
+		/* The AFH map request's case, and the copy it keeps. Scanned
+		 * here rather than through the request_case machinery below,
+		 * which only follows the cases that ask for a mode. */
+		if (s->afhmap_case == 0 &&
+		    strstr(line, "case UBERTOOTH_SET_AFHMAP:") != NULL)
+			s->afhmap_case = lineno;
+		if (s->afhmap_case > 0 && s->afhmap_keep == 0 &&
+		    strstr(line, "stated_for_starting_mode(STATED_AFH_MAP)") != NULL)
+			s->afhmap_keep = lineno;
 
 		/* reset_absorbed_mode_state()'s body, scanned for the same reason
 		 * cc2400_idle()'s is: what it resets, and what it leaves alone. */
@@ -1181,6 +1195,31 @@ MU_TEST(test_setting_a_channel_resets_nothing)
 	}
 }
 
+/*
+ * The AFH map a request states is kept for the mode request it followed, the
+ * way a channel is. ubertooth-follow states its map just after asking for the
+ * hopping, and on a board left in a mode that captures nothing the teardown's
+ * clear_afh_map() runs a moment after that request was answered: without the
+ * copy the map is thrown away and the follow hops all 79 channels instead of
+ * the piconet's.
+ */
+MU_TEST(test_the_afh_map_request_keeps_a_copy_for_the_mode_starting)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the UBERTOOTH_SET_AFHMAP case, so "
+	         "the check below would pass without reading anything", path);
+	mu_assert(s.afhmap_case > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the AFH map request does not call "
+	         "stated_for_starting_mode(STATED_AFH_MAP), so a map stated "
+	         "after a mode request is lost when the mode start's reset "
+	         "clears it", path, s.afhmap_case);
+	mu_assert(s.afhmap_keep > s.afhmap_case, msg);
+}
+
 int main(void)
 {
 	printf("mode dispatch tests\n");
@@ -1204,6 +1243,7 @@ int main(void)
 	MU_RUN(test_the_stream_loop_runs_every_mode_dispatched_to_it);
 	MU_RUN(test_the_stream_loop_keeps_the_indirect_mode_apart);
 	MU_RUN(test_leaving_a_mode_forgets_the_afh_map);
+	MU_RUN(test_the_afh_map_request_keeps_a_copy_for_the_mode_starting);
 	MU_RUN(test_the_absorbed_modes_are_the_streamed_modes);
 	MU_RUN(test_an_absorbable_request_resets_before_its_own_setup);
 	MU_RUN(test_setting_a_channel_resets_nothing);

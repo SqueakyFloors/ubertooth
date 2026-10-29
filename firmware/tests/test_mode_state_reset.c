@@ -72,11 +72,13 @@ static u32 access_code;
  */
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
+#define STATED_AFH_MAP     (1 << 2)
 
 static u8 stated_what;
 static u8 stated_for_mode;
 static u16 stated_channel;
 static u32 stated_access_code;
+static u8 stated_afh_map[10];
 /* Whether bt_stream_rx()'s loop is running, which is what absorbs a request. */
 static int streaming;
 /* Each channel's running average of what the radio heard there, the figure a
@@ -170,6 +172,8 @@ static void apply_stated_settings(u8 starting_mode)
 		set_channel_request(stated_channel);
 	if (what & STATED_ACCESS_CODE)
 		access_code = stated_access_code;
+	if (what & STATED_AFH_MAP)
+		bluetooth_set_afh_map(stated_afh_map);
 }
 
 /* rssi_iir_reset(), which the dispatch runs on its way out of a mode. Each
@@ -377,10 +381,15 @@ static void request_btle_follow(void)
 	board_poll();
 }
 
-/* UBERTOOTH_SET_AFHMAP: the firmware's own, map and hopping table alike. */
+/* UBERTOOTH_SET_AFHMAP: the firmware's own, map and hopping table alike, and
+ * a copy kept for the mode request it followed. */
 static void request_set_afh_map(const u8 *map)
 {
 	bluetooth_set_afh_map(map);
+	if (requested_mode != mode) {
+		memcpy(stated_afh_map, map, sizeof(stated_afh_map));
+		stated_for_starting_mode(STATED_AFH_MAP);
+	}
 	board_poll();
 }
 
@@ -950,6 +959,65 @@ MU_TEST(an_absorbed_ego_request_resets_the_access_code)
 	mu_assert_int_eq(0x55667788, access_code);
 }
 
+/*
+ * The map a follow states after asking for the hopping. ubertooth-follow sends
+ * it there, and on a board left in a mode that captures nothing the teardown's
+ * clear_afh_map() runs a moment after that request was answered: without the
+ * copy the map is thrown away, and the follow hops all 79 channels instead of
+ * the piconet's 20.
+ */
+MU_TEST(an_afh_map_stated_after_the_hopping_request_survives_a_slow_mode_exit)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_start_hopping();
+	request_set_afh_map(AFH_MAP_20);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_BT_FOLLOW, mode);
+	mu_assert_int_eq(1, afh_enabled);
+	mu_assert_int_eq(20, used_channels);
+	mu_assert_int_eq(20, channels_visited());
+}
+
+/* Kept for that mode and no other: a map left behind by a run that never
+ * started would hop the next tool's capture over a piconet it knows nothing
+ * about. */
+MU_TEST(an_afh_map_stated_for_a_mode_that_never_started_is_dropped)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_start_hopping();
+	request_set_afh_map(AFH_MAP_20);
+	/* The follow's own mode request never arrives at the dispatch: the host
+	 * has moved on and asks for a plain capture instead. */
+	request_rx_symbols();
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
+	mu_assert_int_eq(0, afh_enabled);
+	mu_assert_int_eq(0, used_channels);
+}
+
+/* A map set with no mode running is kept for the capture that follows, which
+ * is the rule a channel follows: nothing is reset as a mode starts on an idle
+ * board. */
+MU_TEST(an_afh_map_set_with_no_mode_running_is_kept)
+{
+	board_reset();
+	request_set_afh_map(AFH_MAP_20);
+	request_start_hopping();
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_BT_FOLLOW, mode);
+	mu_assert_int_eq(1, afh_enabled);
+	mu_assert_int_eq(20, used_channels);
+}
+
 int main(void)
 {
 	printf("mode state carry-over tests\n");
@@ -975,5 +1043,8 @@ int main(void)
 	MU_RUN(a_mode_start_puts_the_access_code_back);
 	MU_RUN(an_access_code_stated_after_the_mode_request_survives);
 	MU_RUN(an_absorbed_ego_request_resets_the_access_code);
+	MU_RUN(an_afh_map_stated_after_the_hopping_request_survives_a_slow_mode_exit);
+	MU_RUN(an_afh_map_stated_for_a_mode_that_never_started_is_dropped);
+	MU_RUN(an_afh_map_set_with_no_mode_running_is_kept);
 	return mu_report();
 }

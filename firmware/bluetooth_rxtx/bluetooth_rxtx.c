@@ -401,12 +401,17 @@ static void set_channel_request(uint16_t requested)
  */
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
+#define STATED_AFH_MAP     (1 << 2)
 
 static volatile uint8_t  stated_what;       /* STATED_* bits, 0 for nothing */
 static volatile uint8_t  stated_for_mode;   /* the mode request it followed */
 static volatile uint16_t stated_channel;    /* as the host asked for it */
 static volatile uint32_t stated_access_code;
 static volatile int      stated_access_code_len;
+/* The ten map bytes as the host sent them, one bit per channel. The map is
+ * kept rather than the hop sequence built from it, so applying it runs the
+ * same code the request ran. */
+static volatile uint8_t  stated_afh_map[sizeof(afh_map)];
 
 /*
  * Note which mode request this setting followed. A copy kept for an earlier
@@ -464,6 +469,17 @@ static void apply_stated_settings(uint8_t starting_mode)
 	if (what & STATED_ACCESS_CODE) {
 		access_code = stated_access_code;
 		access_code_len = stated_access_code_len;
+	}
+	if (what & STATED_AFH_MAP) {
+		uint8_t map[sizeof(afh_map)];
+		unsigned i;
+
+		/* Copied out first, because bluetooth_set_afh_map() takes a plain
+		 * pointer and the copy is volatile. It rebuilds the hop sequence
+		 * from the map, which is what the capture hops on. */
+		for (i = 0; i < sizeof(map); i++)
+			map[i] = stated_afh_map[i];
+		bluetooth_set_afh_map(map);
 	}
 }
 
@@ -827,6 +843,16 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (data_in_len < sizeof(afh_map))
 			return 0;
 		bluetooth_set_afh_map(data);
+		/* Kept for the mode request this followed, as a channel is: a
+		 * follow states its map just after asking for the hopping
+		 * (ubertooth-follow), and on a board left in a mode that
+		 * captures nothing the teardown's clear_afh_map() runs a moment
+		 * after that request was answered. Without the copy the map
+		 * arriving next is thrown away, and the follow hops all 79
+		 * channels instead of the piconet's. */
+		for (i = 0; i < sizeof(afh_map); i++)
+			stated_afh_map[i] = data[i];
+		stated_for_starting_mode(STATED_AFH_MAP);
 		*data_len = 10;
 		break;
 
