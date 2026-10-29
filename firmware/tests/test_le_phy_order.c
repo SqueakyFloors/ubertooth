@@ -70,6 +70,9 @@ struct le_phy_scan {
 	/* Writing the moment a match fires at anywhere but inside the helper
 	 * that arms it in the same breath. */
 	int bare_moment_write;
+	/* Handing a match a moment worked out from the counter, from outside the
+	 * guard that arms it. */
+	int bare_moment_from_counter;
 	/* In le_dma_interrupt(), where a finished packet is handed over: the
 	 * first of each of these after the function starts. */
 	int handover_take;      /* buffer_get() */
@@ -82,7 +85,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
-	int in_mask_helper = 0, in_dma = 0;
+	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -132,6 +135,28 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		     is_assignment_to(line, "T1MR2") ||
 		     is_assignment_to(line, "T1MR3")))
 			s->bare_moment_write = lineno;
+
+		/* A moment worked out from the counter and then handed to one of
+		 * the arming calls. Reading the counter for anything else -- a
+		 * packet's timestamp, how long since the last packet -- is not
+		 * this, so the test is the two together on one line. */
+		if (!in_mask_helper && !in_grid_caller &&
+		    s->bare_moment_from_counter == 0 &&
+		    contains_identifier(line, "NOW") &&
+		    (calls_identifier(line, "timer1_set_match") ||
+		     calls_identifier(line, "timer1_arm_match")))
+			s->bare_moment_from_counter = lineno;
+
+		/* The two callers whose moment comes from the connection's grid
+		 * rather than the counter: they read it only to ask whether that
+		 * moment has gone by, and they do it inside a guard of their own. */
+		if (strstr(line, "void timer1_arm_conn_event(") != NULL ||
+		    strstr(line, "void timer1_set_match_ahead(") != NULL) {
+			if (strchr(line, ';') == NULL)
+				in_grid_caller = 1;
+		} else if (in_grid_caller && line[0] == '}') {
+			in_grid_caller = 0;
+		}
 
 		/* The handover of a finished packet, in the byte interrupt. */
 		if (strstr(line, "void le_dma_interrupt(") != NULL &&
@@ -425,7 +450,7 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	         "interrupts off; go through timer1_arm_match(), "
 	         "timer1_arm_match_in(), "
 	         "timer1_disarm_match_interrupt() or "
-	         "timer1_set_match_if_unarmed(), or an interrupt landing in the "
+	         "timer1_set_match_in_if_unarmed(), or an interrupt landing in "
 	         "middle loses the bit it armed", path, s.bare_match_use);
 	mu_assert(s.bare_match_use == 0, msg);
 
@@ -442,6 +467,14 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	         "or an interrupt between the two leaves the match armed against "
 	         "a time the counter has gone past", path, s.bare_moment_write);
 	mu_assert(s.bare_moment_write == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: this works a match's moment out from the counter before "
+	         "the guard that arms it; give the interval to one of the _in "
+	         "forms and let it read the counter, or an interrupt taken in "
+	         "between can outlast the interval and the match goes in behind "
+	         "the counter", path, s.bare_moment_from_counter);
+	mu_assert(s.bare_moment_from_counter == 0, msg);
 }
 
 /*

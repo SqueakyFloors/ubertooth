@@ -1197,7 +1197,7 @@ static void timer1_enable_interrupt(void) {
 // something from the register and then write it -- the transfer-error
 // recovery, which arms the event match only if nothing has armed it -- needs
 // the decision inside the guard as well, and takes its own: see
-// timer1_set_match_if_unarmed().
+// timer1_set_match_in_if_unarmed().
 static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
