@@ -6,9 +6,9 @@ which it has been **tested against**, and which are **not supported**.
 > **Honesty rule for this doc:** a cell is only marked *Verified* if it was
 > actually exercised — by a CI run or on real hardware (see [TEST_PLAN.md](TEST_PLAN.md) /
 > [TEST_LAB.md](TEST_LAB.md)). Requirements we intend to meet but have **not yet verified**
-> are marked *Target (unverified)*. We do not claim support we have not proven;
-> the whole reason this fork exists is that the upstream 2020-12-R1 release
-> *claimed* to work on modern systems and did not.
+> are marked *Target (unverified)*. We do not claim support we have not proven:
+> this fork exists to make the tree build and run on current systems, and the
+> matrix is the record of where that has actually been exercised.
 
 Legend:
 - ✅ **Verified** — exercised by CI or hardware, known good.
@@ -113,7 +113,7 @@ Ubertooth tools link nothing else from libbtbb.
 The pin changes no part of `btbb.h`, so the interface these tools compile and
 link against is the same as upstream's, and upstream master — which CI built
 until this change — should keep working. It is simply no longer what gets
-tested. Older upstream releases, `2020-12-R1` included, have never been
+tested. Older upstream releases, `2020-12-R1` included, have not been
 exercised here.
 
 ### Firmware API version: exact match, bumped per firmware change

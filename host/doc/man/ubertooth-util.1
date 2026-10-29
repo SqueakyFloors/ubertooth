@@ -86,7 +86,7 @@ error: options \-q \-n cannot be combined; give only one of \-q \-n \-e \-t \-x 
 .fi
 .IP "" 0
 .P
-To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), which enters the bootloader itself as part of a write (\fB\-d\fR), a read (\fB\-u\fR) or \fB\-r\fR\. \fBubertooth\-util \-f\fR entered it too, but warned for years that it was no longer required and pointed at ubertooth\-dfu(1); it has been removed, so \fB\-f\fR is now an option the tool does not know (\fBerror: unrecognized option '\-f'\fR, exit 1)\. Nothing enters the bootloader and leaves the board there any more; to park a board in it, jumper the expansion header (ubertooth\-dfu(1), MANUALLY ENTERING BOOTLOADER)\.
+To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), which enters the bootloader itself as part of a write (\fB\-d\fR), a read (\fB\-u\fR) or \fB\-r\fR\. \fBubertooth\-util \-f\fR entered it too; earlier releases already noted that it was no longer required and pointed at ubertooth\-dfu(1), and it has now been removed, so \fB\-f\fR is an option the tool does not know (\fBerror: unrecognized option '\-f'\fR, exit 1)\. Nothing enters the bootloader and leaves the board there any more; to park a board in it, jumper the expansion header (ubertooth\-dfu(1), MANUALLY ENTERING BOOTLOADER)\.
 .SH "OPTIONS"
 Common options:
 .TP

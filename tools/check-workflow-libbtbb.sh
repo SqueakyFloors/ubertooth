@@ -6,9 +6,9 @@
 # the same repository and the same commit. That says nothing about a file
 # naming a DIFFERENT libbtbb, because such a file is not claiming to use the
 # pin at all -- and that is the gap that let the Man pages job fetch upstream
-# with no ref. Upstream is missing functions the host tools call, so
-# configuring the host tree against it fails outright, and every change under
-# host/doc was blocked until someone read the log.
+# with no ref. Some functions the host tools call exist only in the fork, so
+# configuring the host tree against another libbtbb fails outright, and every
+# change under host/doc was blocked until someone read the log.
 #
 # So: no workflow file may name a libbtbb repository literally except the few
 # that have a reason to, and what those name has to be the pinned repository.

@@ -24,7 +24,7 @@ From the codebase:
 - **Radio behaviour** — BLE sniffing, BR/EDR sniffing/paging, spectrum analyzer,
   AFH map detection, RSSI. These need **real Bluetooth traffic** and a real
   Ubertooth; they cannot be faked or unit-tested in software.
-- **Modern-OS regressions** — the whole reason this fork exists: CMake 4.x,
+- **Modern-OS regressions** — a main focus of this fork: CMake 4.x,
   Python 3.12 setuptools `InvalidVersion`, distutils removal. The OS matrix must
   include **both old and new** distros to catch breakage in either direction.
 

@@ -9,9 +9,9 @@
 Intended to retransmit symbols captured with ubertooth-dump toward a target
 piconet identified by LAP/UAP.
 
-**Status: non-functional.** The tool currently performs no useful transmission
-(its own usage output warns "This tool currently does nothing"). It is retained
-as a placeholder/experimental entry point. Do not rely on it.
+**Status: non-functional.** The tool transmits nothing today, and says so in
+its own usage output ("This tool currently does nothing"). It is kept as the
+entry point for that work; do not rely on it to transmit.
 
 ## OPTIONS
 

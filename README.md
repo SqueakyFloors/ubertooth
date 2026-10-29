@@ -53,8 +53,8 @@ That release is paired with [libbtbb 2020-12-R1](https://github.com/greatscottga
 The current tree instead builds against this project's
 [libbtbb fork](https://github.com/SqueakyFloors/libbtbb), pinned to one commit
 that `install.sh`, CI and the build guide all use, so a push to libbtbb cannot
-change an Ubertooth build. The fork builds on current CMake and Python tooling
-without the workarounds upstream needs.
+change an Ubertooth build. The fork builds with current CMake and Python
+tooling, so no extra policy or compatibility flags are needed.
 
 Instructions for flashing the firmware can be found [on the corresponding readthedocs.io firmware page](https://ubertooth.readthedocs.io/en/latest/firmware.html).
 

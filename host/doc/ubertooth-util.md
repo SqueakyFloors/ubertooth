@@ -120,9 +120,9 @@ sent to the device, and the exit status is 1:
 
 To put a board into the DFU bootloader and reflash it, use ubertooth-dfu(1),
 which enters the bootloader itself as part of a write (`-d`), a read (`-u`) or
-`-r`. `ubertooth-util -f` entered it too, but warned for years that it was no
-longer required and pointed at ubertooth-dfu(1); it has been removed, so `-f`
-is now an option the tool does not know (`error: unrecognized option '-f'`,
+`-r`. `ubertooth-util -f` entered it too; earlier releases already noted that
+it was no longer required and pointed at ubertooth-dfu(1), and it has now been
+removed, so `-f` is an option the tool does not know (`error: unrecognized option '-f'`,
 exit 1). Nothing enters the bootloader and leaves the board there any more; to
 park a board in it, jumper the expansion header (ubertooth-dfu(1), MANUALLY
 ENTERING BOOTLOADER).

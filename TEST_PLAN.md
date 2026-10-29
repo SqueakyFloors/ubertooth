@@ -606,7 +606,7 @@ These branches exist in the repo but are NOT in master yet:
 ### PR #362 — Capture to stdout (`feature/capture-to-stdout`)
 - Adds `-c -` to pipe PCAP to stdout (for piping into Wireshark live)
 - Test: `ubertooth-btle -f -c - | wireshark -k -i -`
-- Risk: large change (207 files), includes unrelated deletions — needs cleanup before merge
+- Risk: large change (207 files) reaching beyond this feature — needs trimming before merge
 
 ---
 
