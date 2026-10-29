@@ -706,6 +706,13 @@ static void le_dma_interrupt(uint32_t timestamp) {
 		// taken as a fresh error the moment the DMA interrupt is enabled
 		// again. What to do about the error is decided at the end, once it is
 		// known whether a packet arrived with it.
+		//
+		// The mark the host reads goes on the receive buffer as the byte is
+		// taken, below, for the same reason: a packet this interrupt
+		// completes is handed over in there. An error reported with no byte
+		// alongside it marks nothing, because the packet it interrupted will
+		// never be finished -- the recovery drops what was received and takes
+		// a fresh buffer.
 		if (DMACIntErrStat & (1 << 0)) {
 			DMACIntErrClr = (1 << 0);
 			transfer_error = 1;
@@ -748,14 +755,19 @@ static void le_dma_interrupt(uint32_t timestamp) {
 			}
 
 			// A transfer error reported in this interrupt belongs to the
-			// packet being received, so it is marked here rather than at
-			// the end: a packet the same interrupt completes is kept -- it
-			// is whole, and the host asked for it -- but it went through a
-			// controller that reported a fault, so some of its bytes may be
-			// wrong while its length is right. The mark lets the host tell
-			// it apart from a clean one; CRC checking is off by default, so
-			// nothing else would. The capture loops in bluetooth_rxtx.c
-			// mark their own records on the same condition.
+			// packet being received, and is marked on its buffer. A packet
+			// the same interrupt completes is kept -- it is whole, and the
+			// host asked for it -- but it went through a controller that
+			// reported a fault, so some of its bytes may be wrong while its
+			// length is right. The mark lets the host tell it apart from a
+			// clean one; CRC checking is off by default, so nothing else
+			// would. The capture loops in bluetooth_rxtx.c mark their own
+			// records on the same condition.
+			//
+			// A fault that does not complete a packet takes the mark away
+			// with the packet, because the recovery clears the buffer it
+			// keeps. So nothing carries a fault to a packet it did not
+			// happen to.
 			current_rxbuf->transfer_error |= transfer_error;
 
 			// poll RSSI

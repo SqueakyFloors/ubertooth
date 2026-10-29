@@ -1641,14 +1641,17 @@ static const char *const SET_BY_THE_ACCESS_ADDRESS_CALL[] = {
 };
 
 /*
- * The four the host states before it asks for the mode: whether to follow
- * connections, and the address filter. Clearing them would throw away the
+ * The four that carry what the host asked this capture for: whether to follow
+ * connections, which the mode request itself sets, and the address filter,
+ * which arrives in a request of its own before it. The reset runs when the
+ * mode's loop starts, after both, so clearing them would throw away the
  * command line the capture was started with -- `ubertooth-btle -n` would
  * follow connections anyway, and a `-t` target would stop filtering.
  */
 static const char *const KEPT_FOR_THE_MODE_STARTING[] = {
 	"do_follow", "target", "target_mask", "target_set"
 };
+
 
 static int named_in(const char *const *list, size_t count, const char *name)
 {
@@ -1724,8 +1727,20 @@ static int read_le_state_fields(const char *path)
 				in_struct = 1;
 			continue;
 		}
-		if (strchr(flat, '}') != NULL)
+		/* A brace inside the struct opens a nested aggregate, whose
+		 * fields this scan does not read; the closing one ends the
+		 * struct. Either way the line is reported rather than passed
+		 * over, so a field hidden in a nested struct or union fails
+		 * here instead of escaping the clear.
+		 *
+		 * The closing brace is matched on the struct's own name, because
+		 * a nested aggregate closes with a brace too. */
+		if (contains_identifier(flat, "le_state_t"))
 			break;
+		if (strchr(flat, '{') != NULL || strchr(flat, '}') != NULL) {
+			unreadable_declarations++;
+			continue;
+		}
 		for (at = flat; *at != '\0'; at++) {
 			if (*at != ',' && *at != ';')
 				continue;

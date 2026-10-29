@@ -345,10 +345,12 @@ fields out of what was there.
 
 `Capture transfer errors` counts the times the chip's transfer controller
 reported an error on the channel a capture receives into. Each one costs the
-packet that was arriving. The promiscuous mode drains the receiver and carries
-on; the mode behind `-f` and `-n` does not yet, and a capture that stops that
-way looks exactly like a quiet band, which is why this count is worth reading
-after a capture that came back short. It is since power-on and stops at 65535.
+packet that was arriving, unless the error came with the byte that finished it:
+such a packet is whole, so the board keeps it and records the fault on it. The
+promiscuous mode drains the receiver and carries on; the mode behind `-f` and
+`-n` does not yet, and a capture that stops that way looks exactly like a quiet
+band, which is why this count is worth reading after a capture that came back
+short. It is since power-on and stops at 65535.
 
 A board that has faulted adds one more line, above that count:
 

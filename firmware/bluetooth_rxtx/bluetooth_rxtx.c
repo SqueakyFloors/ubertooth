@@ -2321,13 +2321,18 @@ static void le_set_access_address(u32 aa) {
 /*
  * reset le state, called by bt_generic_le and bt_follow_le()
  *
- * Every field of le_state_t is cleared here except the four the host sets
- * before it asks for the mode: whether to follow connections (do_follow) and
- * the address filter (target, target_mask, target_set). Clearing those would
- * throw away the command line the capture was started with. The CRC check is
- * the odd one out -- it is a host setting too, but a promiscuous capture
- * recovers CRCInit and turns it on by itself, so it starts off again here and
- * ubertooth-btle(1) sends it after the mode request rather than before.
+ * This runs when the mode's own loop starts, which is after the request that
+ * asked for the mode has been answered. So every field of le_state_t is
+ * cleared here except the four that carry what the host asked this capture
+ * for: whether to follow connections (do_follow, set by the mode request
+ * itself) and the address filter (target, target_mask, target_set, set by a
+ * request of their own before it). Clearing those would throw away the
+ * command line the capture was started with.
+ *
+ * The CRC check is the odd one out -- it is a host setting too, but a
+ * promiscuous capture recovers CRCInit and turns it on by itself, so it starts
+ * off again here and ubertooth-btle(1) sends it after the mode request rather
+ * than before.
  */
 void reset_le() {
 	le_set_access_address(0x8e89bed6);     // advertising channel access address

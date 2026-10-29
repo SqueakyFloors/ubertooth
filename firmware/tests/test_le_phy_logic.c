@@ -299,18 +299,20 @@ static uint8_t whitened_length_byte(unsigned channel, uint8_t length)
  * the controller reports them, and hand back the packet the engine queued for
  * the host. NULL if it queued none.
  *
- * With `fault_on_last` the controller reports a transfer error in the same
- * interrupt as the byte that completes the packet, which is a case the
- * hardware can produce: the error and the terminal count are separate flags
- * and both can be set when the interrupt is taken.
+ * `fault_at` is the byte whose interrupt also reports a transfer error, or -1
+ * for none. The error and the terminal count are separate flags and the
+ * hardware can set both for one interrupt, including on the byte that
+ * completes the packet. `bytes` stops short of the whole packet, for a fault
+ * that ends it part way through; 0 feeds all of it.
  *
  * The caller releases the packet when it is done with it, as the mode's loop
  * does, or the pool of four runs out after two packets.
  */
-static le_rx_t *a_packet_arrives(unsigned pdu_len, unsigned channel,
-                                 int fault_on_last)
+static le_rx_t *a_packet_arrives_with_a_fault_at(unsigned pdu_len,
+                                                 unsigned channel,
+                                                 int fault_at, unsigned bytes)
 {
-	unsigned total = pdu_len + 2 + 3;
+	unsigned total = bytes != 0 ? bytes : pdu_len + 2 + 3;
 	unsigned i;
 	void *packet = NULL;
 
@@ -326,7 +328,7 @@ static le_rx_t *a_packet_arrives(unsigned pdu_len, unsigned channel,
 	for (i = 0; i < total; i++) {
 		fake_dmac_int_stat = 1 << 0;
 		fake_dmac_int_tc_stat = 1 << 0;
-		if (fault_on_last && i + 1 == total)
+		if (fault_at >= 0 && (unsigned)fault_at == i)
 			fake_dmac_int_err_stat |= 1 << 0;
 		/* The second byte is the header's length field; the rest of the
 		 * packet is any bytes at all. */
@@ -348,6 +350,17 @@ static le_rx_t *a_packet_arrives(unsigned pdu_len, unsigned channel,
 	if (!queue_remove(&packet_queue, &packet))
 		return NULL;
 	return (le_rx_t *)packet;
+}
+
+/* The same, with the fault on the byte that completes the packet -- the case
+ * these tests are about -- or with no fault at all. */
+static le_rx_t *a_packet_arrives(unsigned pdu_len, unsigned channel,
+                                 int fault_on_last)
+{
+	int last = (int)(pdu_len + 2 + 3) - 1;
+
+	return a_packet_arrives_with_a_fault_at(pdu_len, channel,
+	                                        fault_on_last ? last : -1, 0);
 }
 
 /* The status word the host reads on the record for a packet the engine
@@ -2787,6 +2800,56 @@ MU_TEST(a_clean_packet_is_not_marked)
 }
 
 /*
+ * A fault part way through a packet takes the packet with it: it is not whole,
+ * and the recovery drops what was received. The mark goes with it too. The
+ * recovery keeps the buffer rather than releasing it -- nothing was handed to
+ * the host, so the pool's accounting is unchanged -- so the next packet
+ * received into that same buffer must not reach the host wearing the fault of
+ * the one that was lost.
+ */
+MU_TEST(a_fault_part_way_through_a_packet_does_not_mark_the_next_one)
+{
+	le_rx_t *packet;
+
+	start_fresh();
+
+	mu_assert(a_packet_arrives_with_a_fault_at(10, ADV_CHANNEL_MHZ, 3, 4)
+	          == NULL, "part of a packet was handed to the host");
+	mu_assert_int_eq(1, transfer_errors_counted);
+	mu_assert_int_eq(1, errors_acknowledged);
+
+	packet = a_packet_arrives(10, ADV_CHANNEL_MHZ, 0);
+	mu_assert_fatal(packet != NULL,
+	                "the packet after the fault was not queued");
+	mu_assert_int_eq(0, le_status_read_for(packet) & DMA_ERROR);
+	buffer_release(packet);
+}
+
+/*
+ * The two flags a record can carry are kept apart. A packet that follows a
+ * drop and faulted carries both: the gap in the capture is what the host
+ * reads today, and a fault must not take it away.
+ */
+MU_TEST(a_fault_does_not_hide_a_gap_in_the_capture)
+{
+	le_rx_t *packet;
+	uint8_t status;
+
+	start_fresh();
+
+	/* A packet was lost for want of room in the ring, as the engine
+	 * records it. */
+	le_packet_dropped = 1;
+
+	packet = a_packet_arrives(10, ADV_CHANNEL_MHZ, 1);
+	mu_assert_fatal(packet != NULL, "the faulted packet was not queued");
+	status = le_status_read_for(packet);
+	mu_assert_int_eq(DMA_ERROR, status & DMA_ERROR);
+	mu_assert_int_eq(FIFO_OVERFLOW, status & FIFO_OVERFLOW);
+	buffer_release(packet);
+}
+
+/*
  * A moment the connection's parameters name, which the counter has already
  * gone past, is taken as soon as the counter allows rather than armed behind
  * it. There are no whole intervals to skip for this one -- it is a window
@@ -3115,6 +3178,8 @@ int main(void)
 	MU_RUN(an_advertising_packet_completed_as_the_transfer_faulted_is_marked);
 	MU_RUN(a_fault_on_the_packet_that_closes_an_event_is_marked_and_acknowledged);
 	MU_RUN(a_clean_packet_is_not_marked);
+	MU_RUN(a_fault_part_way_through_a_packet_does_not_mark_the_next_one);
+	MU_RUN(a_fault_does_not_hide_a_gap_in_the_capture);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);
 	MU_RUN(a_torn_down_phy_ignores_a_timer_match);
 	MU_RUN(emptying_the_symbol_buffer_gives_up_rather_than_spinning);
