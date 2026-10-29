@@ -425,8 +425,9 @@ channel notes raised while following a piconet are `note: ` lines on standard
 error. What the library still writes to standard output is the calling tool's
 result — the decoded packet reports, the AFH map of `ubertooth-afh`, the
 version line — which is the right stream for them, whichever layer prints
-them. The channel map the two BlueZ tools report is the exception: those tools
-print it themselves, so no library writes it. Its device-selection
+them. libbtbb writes there too, while it recovers a piconet's address and
+about a packet it could not use. The channel map the two BlueZ tools report is
+the exception: those tools print it themselves, so no library writes it. Its device-selection
 messages are `error: ` lines on standard error, each with whatever detail it
 needs under it: the boards listed after a refusal for several attached, and
 the counts and reason after a serial that matched nothing.

@@ -97,6 +97,10 @@ static struct {
 	int features_fail;
 	int devinfo_fails;
 	int clock_fails;
+	int ext_features_fail;   /* every extended-features read fails */
+	int ext_pages;           /* feature pages the device reports beyond 0 */
+	int ext_page_fails;      /* that one page fails, 0 for none */
+	int ext_feature_reads;
 	int read_errno;
 	unsigned int slept;  /* seconds the run would have waited */
 	char adapter[16];    /* the adapter name -b asked for */
@@ -212,6 +216,34 @@ int hci_devinfo(int dev_id, struct hci_dev_info* di)
 		return -1;
 	}
 	memset(di, 0, sizeof(*di));
+	/* The local adapter supports extended features, which is what makes the
+	 * tool ask the remote for them. */
+	di->features[7] |= LMP_EXT_FEAT;
+	return 0;
+}
+
+/* The extended features, which the tool reads once for page 0 and then once
+ * per page the device says it has. pages is how many pages beyond 0 the device
+ * reports; ext_features_fail fails every call. */
+int hci_read_remote_ext_features(int dd, uint16_t handle, uint8_t page,
+                                 uint8_t* max_page, uint8_t* features, int to)
+{
+	(void)dd;
+	(void)handle;
+	(void)to;
+	fake.ext_feature_reads++;
+	if (fake.ext_features_fail
+	    || (fake.ext_page_fails != 0 && page == fake.ext_page_fails)) {
+		errno = fake.read_errno;
+		return -1;
+	}
+	if (max_page != NULL)
+		*max_page = fake.ext_pages;
+	memset(features, 0, 8);
+	/* Page 0 says the device has extended features, which is how the tool
+	 * reaches the pages above it. */
+	if (page == 0)
+		features[7] |= LMP_EXT_FEAT;
 	return 0;
 }
 
@@ -274,6 +306,9 @@ int hci_read_remote_features(int dd, uint16_t handle, uint8_t* features, int to)
 		return -1;
 	}
 	memset(features, 0, 8);
+	/* The device supports extended features, so the tool goes on to read
+	 * them, as it does against a device of any recent vintage. */
+	features[7] |= LMP_EXT_FEAT;
 	return 0;
 }
 
@@ -802,6 +837,41 @@ MU_TEST(the_extended_report_of_a_device_is_on_standard_output)
 	mu_assert_int_eq(1, (int)fake.slept);
 }
 
+/* A device with feature pages above page 0 has each of them read and reported,
+ * and a page it will not give up is named like the other reads. */
+MU_TEST(the_feature_pages_of_a_device_are_read_and_reported)
+{
+	char expected[128];
+	struct run_result r;
+
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.ext_pages = 2;
+	r = RUN("-s", "-x", "-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	/* Page 0 is named as such once there are more pages, then one line per
+	 * page above it. */
+	mu_assert(strstr(r.out, "\tFeatures page 0: ") != NULL, r.out);
+	mu_assert(strstr(r.out, "\tFeatures page 1: ") != NULL, r.out);
+	mu_assert(strstr(r.out, "\tFeatures page 2: ") != NULL, r.out);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+
+	/* A page the device will not give up: named, that page left out, and
+	 * the pages around it still read. */
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.ext_pages = 2;
+	fake.ext_page_fails = 2;
+	fake.read_errno = EIO;
+	r = RUN("-s", "-x", "-t", "5");
+	snprintf(expected, sizeof(expected),
+	         "error: reading features page 2 failed: %s\n", strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert(strstr(r.out, "\tFeatures page 1: ") != NULL, r.out);
+	mu_assert(strstr(r.out, "\tFeatures page 2: ") == NULL, r.out);
+}
+
 /* Each read of the report can fail on its own. The line it would have filled
  * in is left out, the read is named on standard error, and the run exits 1:
  * the report is not what -x asked for. They used to be left out in silence,
@@ -827,6 +897,8 @@ MU_TEST(each_read_of_the_report_that_fails_is_named)
 		  "BD Address" },
 		{ &fake.clock_fails, "error: reading clock offset failed",
 		  "Clock offset" },
+		{ &fake.ext_features_fail,
+		  "error: reading the extended features failed", NULL },
 	};
 	char expected[128];
 	struct run_result r;
@@ -843,7 +915,8 @@ MU_TEST(each_read_of_the_report_that_fails_is_named)
 		         cases[i].message, strerror(EIO));
 		mu_assert_int_eq(1, r.rc);
 		mu_assert(strstr(r.err, expected) != NULL, r.err);
-		mu_assert(strstr(r.out, cases[i].missing) == NULL, r.out);
+		if (cases[i].missing != NULL)
+			mu_assert(strstr(r.out, cases[i].missing) == NULL, r.out);
 		/* The run carried on to the end rather than exiting where the
 		 * read failed: three of these called exit(1), which left the
 		 * board open in whatever mode it was in. */
@@ -879,8 +952,10 @@ MU_TEST(a_remote_without_afh_is_noted_on_standard_error)
 	fake.afh_mode = 0x42;
 	r = RUN("-s", "-x", "-t", "5");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: the remote device reports an AFH mode "
-	          "byte that is neither off nor on (0x42)\n") != NULL, r.err);
+	/* The wording ubertooth-follow uses for the same reply. */
+	mu_assert(strstr(r.err, "error: the remote device reported AFH mode "
+	          "0x42, which is neither off (0x00) nor on (0x01)\n") != NULL,
+	          r.err);
 	mu_assert(strstr(r.err, "AFH disabled") == NULL, r.err);
 	mu_assert(strstr(r.out, "AFH") == NULL, r.out);
 }
@@ -1175,6 +1250,7 @@ int main(void)
 	MU_RUN(a_connection_that_cannot_be_made_is_named);
 	MU_RUN(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure);
 	MU_RUN(each_read_of_the_report_that_fails_is_named);
+	MU_RUN(the_feature_pages_of_a_device_are_read_and_reported);
 	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);
 	MU_RUN(a_bluez_failure_is_reported_on_standard_error);
 	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);

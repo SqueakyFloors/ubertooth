@@ -74,8 +74,10 @@ way instead of being read as 0, for example
 
 ## OUTPUT
 
-Standard output carries what the scan found and nothing else, so a run
-collected in a file or read by a script holds the results alone.
+Standard output carries what the scan found. Nothing the tool itself prints
+there is anything else, so a run collected in a file or read by a script no
+longer picks up its headings, its progress or its failures — see the end of
+this section for the two lines libbtbb still adds.
 
 Each device the BlueZ inquiry of `-s` found is its address and its name, one to
 a line. While the Ubertooth half runs, each packet it decodes is a line of its
@@ -102,11 +104,18 @@ out in silence, and printed zeroed features as the device's own. The device's
 own line above the report still reads `[unknown]` when no name comes back,
 since that line is a result either way.
 
-Everything else goes to standard error: the three headings that say which half
-of the scan is running (`HCI scan`, `Ubertooth scan` and `Scan results:`), the
-`Requesting information ...` line of `-x`, and every warning and failure (see
-EXIT STATUS). Earlier releases mixed those in with the results, so a scan
-piped into another program carried them along.
+Everything else this tool prints goes to standard error: the three headings
+that say which half of the scan is running (`HCI scan`, `Ubertooth scan` and
+`Scan results:`), the `Requesting information ...` line of `-x`, and every
+warning and failure (see EXIT STATUS). Earlier releases mixed those in with
+the results, so a scan piped into another program carried them along.
+
+Some lines on standard output come from libbtbb rather than from this tool, and
+are still mixed in with the results: what it says while it recovers a piconet's
+clock, such as `12 initial CLK1-27 candidates`, `got CLK1-27` and `clock offset
+= 3.`. Moving those is
+[#323](https://github.com/SqueakyFloors/ubertooth/issues/323)'s remaining work,
+since a library must not write to standard output at all.
 
 ## GAPS IN A CAPTURE
 
@@ -153,10 +162,10 @@ A device the inquiry found that will not take the connection `-x` needs, or
 will not answer one of the reads that fill the report in — its name, its LMP
 version, its features, a features page, its clock offset or its channel map —
 is named the same way and that much of its report is missing. The scan carries on and prints the
-rest, and exits 1 because part of what `-x` asked for did not happen. Three of
-these — the local adapter's settings, the memory for the request, and the clock
-offset — used to end the whole run instead, with the board still open in
-whatever mode it was in.
+rest, and exits 1 because part of what `-x` asked for did not happen. Three
+failures of that report — reading the local adapter's settings, finding memory
+for the request it makes, and reading the clock offset — used to end the whole
+run instead, with the board still open in whatever mode it was in.
 
 A piconet the Ubertooth half found is different: a sniffed piconet gives no
 NAP, so the address `-x` connects to has its two most significant bytes guessed

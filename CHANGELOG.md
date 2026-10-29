@@ -177,8 +177,8 @@
   file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** a `ubertooth-scan` run collected in a file or
-  piped into another program holds what it found and nothing else: its three
-  headings, the progress of `-x` and every failure are on standard error. An
+  piped into another program no longer picks up its three headings, the
+  progress of `-x` or its failures: those are on standard error now. An
   inquiry the adapter refused, or a device the inquiry found that would not
   complete the report `-x` asks for, is named and exits 1; the inquiry used to
   print the name of a BlueZ function and exit 0, and three of the report's

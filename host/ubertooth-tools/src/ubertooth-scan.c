@@ -245,6 +245,10 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 		if (tmp != NULL) {
 			printf("%s\n", tmp);
 			bt_free(tmp);
+		} else {
+			errno = 0;
+			report_failure("listing the features failed");
+			failed = 1;
 		}
 	}
 
@@ -299,8 +303,10 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 		/* Neither off nor on, so what the device is doing is unknown:
 		 * reported as itself rather than as AFH being off, which is
 		 * what it used to be taken for. */
-		fprintf(stderr, "error: the remote device reports an AFH mode "
-		        "byte that is neither off nor on (0x%02x)\n", mode);
+		fprintf(stderr, "error: the remote device reported AFH mode "
+		        "0x%02x, which is neither off (0x%02x) nor on "
+		        "(0x%02x)\n", mode, FOLLOW_AFH_MODE_OFF,
+		        FOLLOW_AFH_MODE_ON);
 		failed = 1;
 	}
 	free(cr);
@@ -367,8 +373,8 @@ int main(int argc, char *argv[])
 	 * written: redirected to a file, standard output is block-buffered
 	 * while standard error is not, so a "> log 2>&1" run would collect
 	 * every line this tool moved to standard error above the results they
-	 * belong beside. Setting it after the stream has been written is not
-	 * defined, so it is set here rather than where the survey starts. */
+	 * belong beside. Before the command line is read, because a run must
+	 * not set this after writing to the stream. */
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	opterr = 0;
@@ -513,6 +519,7 @@ int main(int argc, char *argv[])
 			/* The inquiry would have been handed a null array to
 			 * fill in. The board is open by now, so it and the
 			 * adapter go back. */
+				errno = 0;
 			report_failure("cannot allocate room for the inquiry's "
 			               "results");
 			ubertooth_stop(ut);
