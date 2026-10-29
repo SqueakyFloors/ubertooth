@@ -38,6 +38,8 @@ fi
 work=$(mktemp -d) || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
+tab=$(printf '\t')
+
 failures=0
 case_name=
 repos=0
@@ -84,6 +86,19 @@ para_options="\
 An option given twice is refused rather than quietly taken the second time, and
 a value that is not a number is named in the error, so a command line that does
 something other than what it looks like cannot run."
+
+para_bullets="\
+- The capture tools give the board back when they cannot start a capture, so
+  that a second run finds a free board instead of one still claimed by the run
+  that failed before it.
+- A capture gives its receive transfer back when it ends, so a run with more
+  than one phase no longer leaves one transfer outstanding for every phase
+  after the first."
+
+para_bullets_condensed="\
+- The capture tools give the board back when they cannot start a capture.
+- A capture gives its receive transfer back when it ends, so a run with more
+  than one phase leaves nothing outstanding."
 
 para_examples="\
 The example below writes a capture to a file and prints nothing else, which is
@@ -285,6 +300,88 @@ git_in mv host/doc/page.md host/doc/renamed.md || exit 1
 commit "rename the page"
 run_check
 [ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+grep -q "1 file(s) compared" "$out" ||
+    fail "the success line does not say the renamed page was compared"
+
+# A rename is where attribution is easiest to get wrong: main has to be
+# searched along the path it knows, not the new one, or a loss inside a rename
+# passes as text no commit can be found for.
+case_name="a renamed page that drops the text is reported"
+new_repo
+add_level_paragraph
+branch_off
+git_in mv host/doc/page.md host/doc/renamed.md || exit 1
+write_page "$repo/host/doc/renamed.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+commit "rename the page and say the hopping part again"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "host/doc/renamed.md:" "$err" || fail "the renamed page is not named"
+grep -q "the level beside a packet" "$err" ||
+    fail "the commit that gave main the paragraph is not named"
+
+case_name="a condensed list is not reported item by item"
+# Two list items taken out of one section and said again, shorter, in another.
+# Read as one block their wording dilutes and the pair reads as a loss; read
+# an item at a time, each one's words are still there.
+new_repo
+{
+    printf '\n## CHANGES\n\n%s\n' "$para_bullets"
+} >> "$repo/host/doc/page.md"
+commit "two entries for the capture tools"
+branch_off
+write_page "$repo/host/doc/page.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options" \
+    EXAMPLES "$para_examples"
+{
+    printf '\n## UNDER THE HOOD\n\n%s\n' "$para_bullets_condensed"
+} >> "$repo/host/doc/page.md"
+commit "move the entries under the hood, shorter"
+run_check
+[ "$status" -eq 0 ] || fail "expected exit 0, got $status"
+assert_read 1
+
+# ---- paths ---------------------------------------------------------------
+
+case_name="a page whose name has a space in it is read"
+new_repo
+write_page "$repo/host/doc/second page.md" \
+    HOPPING "$para_hopping" \
+    OPTIONS "$para_options"
+commit "a second page"
+{
+    printf '\n## LEVEL\n\n%s\n' "$para_level"
+} >> "$repo/host/doc/second page.md"
+commit "the level beside a packet is the packet's own reading"
+branch_off
+write_page "$repo/host/doc/second page.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout" \
+    OPTIONS "$para_options"
+commit "say what a board that stops answering does"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "second page.md:" "$err" || fail "the page with a space is not named"
+
+case_name="a page whose name has a tab in it is refused, not skipped"
+new_repo
+write_page "$repo/host/doc/pa${tab}ge.md" \
+    HOPPING "$para_hopping" \
+    LEVEL "$para_level"
+commit "a page with a tab in its name"
+branch_off
+write_page "$repo/host/doc/pa${tab}ge.md" \
+    HOPPING "$para_hopping" \
+    TIMEOUT "$para_timeout"
+commit "say what a board that stops answering does"
+run_check
+[ "$status" -eq 1 ] || fail "expected exit 1, got $status"
+grep -q "cannot read" "$err" ||
+    fail "a path it cannot read was not refused"
+[ -s "$out" ] && fail "wrote to standard output on a refusal"
 
 case_name="a page deleted into another page is not reported"
 new_repo
@@ -401,11 +498,11 @@ grep -q "no branch to read" "$out" || fail "it did not say there is no branch"
 
 # ---- the command line --------------------------------------------------
 
-case_name="an unknown argument is refused"
+case_name="an unknown option is refused"
 new_repo
 run_check --wobble
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "error: unknown argument" "$err" || fail "no error line"
+grep -q "error: unknown option" "$err" || fail "no error line"
 [ -s "$out" ] && fail "wrote to standard output on a usage error"
 
 case_name="a window that is not a number is refused"

@@ -223,13 +223,16 @@ firmware flashing), not radio capture.
    only Ubuntu 24.04 and macOS 26, so the minimum versions are exercised by the
    weekly run, not on every PR. Pin explicit versions (not `-latest`) so the
    record is reproducible, and test the **minimum and the newest** of each
-   dimension. Three narrower workflows cover one thing each on their own
+   dimension. Four narrower workflows cover one thing each on their own
    triggers: `install-sh.yml` (Ubuntu 24.04 and macOS 15, when `install.sh`
    changes), `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
    filter at all, since the files that must agree on the pin include this one
-   and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc`
+   and the build guides), `manpages.yml` (Ubuntu 24.04, when `host/doc`
    changes), which installs the pinned ronn-ng and fails if the committed man
-   pages no longer match their Markdown. One job in `build.yml` builds the
+   pages no longer match their Markdown, and `merged-text.yml` (Ubuntu 24.04,
+   on a pull request that changes a documentation page or the check itself),
+   which fails when a branch deletes a paragraph `main` had just gained. One
+   job in `build.yml` builds the
    host tools a second way: `host-installed-libubertooth` (Ubuntu 24.04, when
    the host changed) installs libubertooth and then configures, builds and
    tests `host/ubertooth-tools` on its own, which is what `FindUBERTOOTH.cmake`
