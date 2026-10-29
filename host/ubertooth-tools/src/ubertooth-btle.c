@@ -245,8 +245,11 @@ int main(int argc, char *argv[])
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
+	/* Named, so the loop below and opt_report_bad_option()
+	 * cannot be given different letters. */
+	const char options[] = ":a::r:hVfnpU:k::v::A:s:t:x:c:q:jJiI";
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":a::r:hVfnpU:k::v::A:s:t:x:c:q:jJiI")) != EOF) {
+	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* getopt only attaches an optional value (-a8e89bed6, -v1); take
 		 * a following word that could be the value as the value too, so
 		 * "-a 8e89bed6" sets and "-a zzzz" is refused rather than
@@ -380,7 +383,7 @@ int main(int argc, char *argv[])
 				first_exit_option = 'h';
 			break;
 		default:
-			opt_report_bad_option(opt, argc, argv);
+			opt_report_bad_option(opt, argc, argv, options);
 			return 1;
 		}
 	}

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "opt_parse.h"
 
@@ -365,6 +366,193 @@ static void test_check_once(void)
 	CHECK(opt_check_once(NULL, 'l', "446688") == 0);
 }
 
+/* How many words a command line below may have. Longer is a mistake in the
+ * test rather than a case worth running, so split_line() says so. */
+#define OPT_TEST_WORDS_MAX 8
+
+/* A command line split into words, the way a shell hands one over. The words
+ * point into a buffer that the next call reuses, so each line is used before
+ * the next is split. */
+static int split_line(const char *line, char **argv, int max)
+{
+	static char buffer[256];
+	char *word, *rest = NULL;
+	int argc = 0;
+
+	snprintf(buffer, sizeof(buffer), "%s", line);
+	for (word = strtok_r(buffer, " ", &rest);
+	     word != NULL;
+	     word = strtok_r(NULL, " ", &rest)) {
+		if (argc == max) {
+			checks++;
+			failures++;
+			fprintf(stderr, "FAIL %s: more than %d words\n", line, max);
+			break;
+		}
+		argv[argc++] = word;
+	}
+	argv[argc] = NULL;   /* as exec() leaves argv[argc] */
+	return argc;
+}
+
+/* What a command line is refused with, captured from standard error.
+ *
+ * The loop here is the one ubertooth-util runs: getopt's own message off, an
+ * option string starting with ':', an optional value taken from the next word
+ * where getopt left none, and opt_report_bad_option() called on the first
+ * thing getopt will not take. The separate-value step belongs here because it
+ * is a word the reporter's own search has to get past.
+ */
+static void refusal_for(const char *options, const char *reported_with,
+                        const char *line, char *out, size_t size)
+{
+	char *argv[OPT_TEST_WORDS_MAX + 1];
+	int argc = split_line(line, argv, OPT_TEST_WORDS_MAX);
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	long length;
+	int opt;
+
+	out[0] = '\0';
+	if (capture == NULL || saved < 0) {
+		if (capture != NULL)
+			fclose(capture);
+		if (saved >= 0)
+			close(saved);
+		return;
+	}
+
+	optind = 0;
+	opterr = 0;
+	while ((opt = getopt(argc, argv, options)) != -1) {
+		if (opt == '?' || opt == ':')
+			break;
+		/* The letters whose value ubertooth-util also takes as its own
+		 * word, as its getopt loop does. */
+		if (optarg == NULL && strchr("lacCdqzn", opt) != NULL)
+			optarg = opt_separate_value(argc, argv,
+			                            opt == 'z' ?
+			                            opt_value_signed_decimal :
+			                            opt_value_decimal);
+	}
+
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	opt_report_bad_option(opt, argc, argv, reported_with);
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+
+	length = ftell(capture);
+	rewind(capture);
+	if (length > 0 && (size_t)length < size)
+		out[fread(out, 1, (size_t)length, capture)] = '\0';
+	fclose(capture);
+}
+
+/*
+ * The word a stray dash is reported in.
+ *
+ * getopt names the letter it rejected, not the word that held it, and how far
+ * it has read does not say either: it moves past a word while reading its
+ * last letter. So the reporter parses the command line again with the tool's
+ * own option letters, and the word it names is the one the parse stopped in.
+ * Without those letters, an option word holding a dash ("-r-x") could not be
+ * told from an attached option value holding one ("-Ufoo-"), and a command
+ * line with both named the wrong one.
+ */
+static void test_bad_option_word(void)
+{
+	/* A copy of ubertooth-util's letters, so the cases below read against
+	 * a real tool's command lines: -U and -r are the ones they turn on, -U
+	 * taking a value and -r not. It is only a copy -- what checks each
+	 * tool's own letters, and that its getopt loop and its reporter are
+	 * given the same ones, is test_cli_matrix.py. */
+	static const char util[] =
+		":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx";
+	static const struct {
+		const char *line;
+		const char *expected;
+	} cases[] = {
+		/* One word, the dash inside it and at its end. */
+		{ "ubertooth-util -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		{ "ubertooth-util -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* A word after the one that failed is never read, so it is
+		 * never named -- whether or not it holds a dash of its own. */
+		{ "ubertooth-util -v- -h",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		{ "ubertooth-util -v- -r-x",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		{ "ubertooth-util -r-x -v-",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		/* The dash in "-Ufoo-" is part of -U's value: that word is not
+		 * a mistake, and is not named for one. */
+		{ "ubertooth-util -v- -Ufoo-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		{ "ubertooth-util -Ufoo- -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		{ "ubertooth-util -Ufoo- -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* An option and then the dash a word later. */
+		{ "ubertooth-util -v -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		/* Two dashes read as the letter '-', and the word says so. */
+		{ "ubertooth-util --bogus",
+		  "error: unrecognized option '--bogus': the tools take "
+		  "single-letter options\n" },
+		/* A different mistake first: that one is reported, and the
+		 * dash behind it is never reached. */
+		{ "ubertooth-util -Z -v-",
+		  "error: unrecognized option '-Z'\n" },
+		/* A missing value is not the dash branch at all. */
+		{ "ubertooth-util -U",
+		  "error: option '-U' requires a value\n" },
+		/* An optional value written as its own word. getopt does not
+		 * read "-90" -- the tool takes it with opt_separate_value() --
+		 * and refuses it on its own, since '9' is not an option. The
+		 * search has to get past it to reach the dash behind it. */
+		{ "ubertooth-util -z -90 -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		{ "ubertooth-util -z -90 -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* The same value attached, which getopt does read. */
+		{ "ubertooth-util -z-90 -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* A required value as its own word, and an optional one. */
+		{ "ubertooth-util -U foo -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		{ "ubertooth-util -n 5 -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+		/* A required value as its own word that holds a dash itself.
+		 * "-v-" is what -U is set to, so it is not a mistake and the
+		 * dash behind it is the one to name. */
+		{ "ubertooth-util -U -v- -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		{ "ubertooth-util -U -r-x -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
+	};
+	char line[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		refusal_for(util, util, cases[i].line, line, sizeof(line));
+		checks++;
+		if (strcmp(line, cases[i].expected) != 0) {
+			fprintf(stderr, "FAIL %s: expected %s     got %s",
+			        cases[i].line, cases[i].expected, line);
+			failures++;
+		}
+	}
+
+	/* No option string to parse with: the dash alone rather than a guess
+	 * at the word, and no crash. A caller that passes NULL has not been
+	 * converted; the matrix test checks that none is left. */
+	refusal_for(util, NULL, "ubertooth-util -v-", line, sizeof(line));
+	CHECK(strcmp(line, "error: unrecognized option '-'\n") == 0);
+}
+
 int main(void)
 {
 	test_decimal();
@@ -379,6 +567,7 @@ int main(void)
 	test_value_checks();
 	test_next_word_and_operands();
 	test_check_once();
+	test_bad_option_word();
 	printf("opt_parse: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

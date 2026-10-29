@@ -669,6 +669,11 @@
   `ubertooth-util -v- -h` complained about `-h`. Every tool reported it that
   way.
   [#501](https://github.com/SqueakyFloors/ubertooth/issues/501)
+- A command line with a dash in more than one word names the word that is
+  actually wrong. `ubertooth-util -v- -Ufoo-` read `error: unrecognized option
+  '-' in '-Ufoo-'`, a word with nothing wrong in it -- the dash there is part
+  of `-U`'s value -- and now reads `'-v-'`, the word the tools stopped on.
+  [#790](https://github.com/SqueakyFloors/ubertooth/issues/790)
 - A value that is not a Bluetooth address reads the same way from every option
   that takes one, naming the address it sets: `error: target address must be
   xx:xx:xx:xx:xx:xx (got <word>)`. Three tools worded it three ways, and
@@ -1728,6 +1733,13 @@ Fixes with no visible change in normal use.
   not pass at all. The window is sized from that delay now. Untested: nobody
   here has a badge.
   [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
+- The ToorCon 13 badge's range test puts its packets in the radio and reads
+  them back, so it can pass. It reached the radio's buffer a byte at a time,
+  which the radio does not take as data at all: it transmitted empty packets
+  and read zeros back, so the reply never matched what was sent and the test
+  could not pass however close the two boards were. Untested: nobody here has
+  a badge, and no build makes this image.
+  [#705](https://github.com/SqueakyFloors/ubertooth/issues/705)
 - A board selection that ran out of memory exited 1 with no line at all,
   whether it was asked for by index or by serial.
 - The `ubertooth-btle` that `btle-extcap.py` runs for a Wireshark capture no

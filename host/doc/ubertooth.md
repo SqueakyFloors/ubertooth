@@ -135,8 +135,10 @@ the word it was written in rather than the dash on its own:
 `ubertooth-util -v-` and `ubertooth-util -r-x` both read
 `error: unrecognized option '-' in '<word>'`. The trailing form used to be
 blamed on `--`, or on the option after it (`ubertooth-util -v- -h` named
-`-h`), neither of which the user had written. A command line with more than
-one word holding a dash names one of them.
+`-h`), neither of which the user had written. Where several words hold a dash,
+the one named is the word the parse stopped in, which is the first word the
+tools would not take: `ubertooth-util -v- -Ufoo-` names `-v-`, because the
+dash in `-Ufoo-` is part of `-U`'s value and nothing in that word is wrong.
 
 An option may be given a value only once. `-l 446688 -l aabbcc` names two
 LAPs for one capture, so it is refused with `error: option '-l' given more

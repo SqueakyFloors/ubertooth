@@ -249,16 +249,41 @@ CASES = {
         (("-c", "24x"), "error: unexpected argument '24x'"),
         # A stray dash is named with the word it was written in, wherever in
         # the word it is. The matrix generates these for every tool; these two
-        # are the forms the option parser reports a word late.
+        # are the forms the option parser used to report a word late.
         (("-v-",), "error: unrecognized option '-' in '-v-'"),
         (("-v-", "-h"), "error: unrecognized option '-' in '-v-'"),
-        # Two words holding a dash: the parser stops on the second, and
-        # which of the two is the wrong one depends on option letters the
-        # shared reporter is not given, so the word it stopped on is named.
-        # The second case is the one that reads worst, because the dash there
-        # is part of -U's value and nothing in that word is wrong.
-        (("-v-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
-        (("-v-", "-Ufoo-"), "error: unrecognized option '-' in '-ufoo-'"),
+        # Two words holding a dash: the first one is the mistake, because that
+        # is where the parse stopped, and the word after it was never read.
+        (("-v-", "-r-x"), "error: unrecognized option '-' in '-v-'"),
+        # The dash in "-Ufoo-" is part of -U's value, so nothing in that word
+        # is wrong, and it is not named however it is written beside a word
+        # that is. This was the case that read worst.
+        (("-v-", "-Ufoo-"), "error: unrecognized option '-' in '-v-'"),
+        (("-Ufoo-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        # A dash in the middle of a word rather than at its end, and a word
+        # after it with one too: still the first of the two.
+        (("-r-x", "-v-"), "error: unrecognized option '-' in '-r-x'"),
+        # An option that takes a value, then the dash a word later: the word
+        # the dash is in, not the one the value was attached to.
+        (("-v", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-Ufoo-", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        # Another mistake first: that one is reported, and the dash behind it
+        # is never reached.
+        (("-x", "-Z", "-v-"), "error: unrecognized option '-z'"),
+        # An optional value written as its own word. getopt does not read
+        # "-90" -- the tool takes it afterwards -- and refuses it on its own,
+        # since '9' is not an option, so the search for the dash has to get
+        # past that word to reach the one behind it.
+        (("-z", "-90", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-z", "-90", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        # A required value as its own word, and the same optional value
+        # attached to its option.
+        (("-U", "foo", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        (("-z-90", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        # A required value as its own word that holds a dash itself: "-v-" is
+        # what -U is set to here, so the dash behind it is the mistake.
+        (("-U", "-v-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-U", "-r-x", "-v-"), "error: unrecognized option '-' in '-v-'"),
     ),
 }
 

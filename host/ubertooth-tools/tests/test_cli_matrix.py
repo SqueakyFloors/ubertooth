@@ -761,7 +761,12 @@ def check_the_spec_lists_every_option():
     # would only be checked against the spec, which is what it is meant to
     # keep honest.
     source = os.path.join(here, "..", "src", TOOL + ".c")
-    pattern = r'getopt\(argc,\s*argv,\s*"([^"]+)"\)'
+    # Written out, or the name of the constant the tool keeps it in, which is
+    # then looked up below: every C tool now names its option string, because
+    # opt_report_bad_option() is given the same one to find the word a stray
+    # dash was written in.
+    pattern = (r'getopt\(argc,\s*argv,\s*(?:"([^"]+)"'
+               r'|([A-Za-z_][A-Za-z_0-9]*))\)')
     if not os.path.exists(source) and CONTRACT.get("kind") == "python":
         source = BINARY
         # Written out, or the name of the constant the tool keeps it in, which
@@ -787,10 +792,15 @@ def check_the_spec_lists_every_option():
             passed = found.group(1)
             if passed is None:
                 # A named constant: the tool's own value for it, so the check
-                # still reads what getopt is given rather than a name.
-                named = re.search(r'^%s\s*=\s*"([^"]+)"'
-                                  % re.escape(found.group(2)), text,
+                # still reads what getopt is given rather than a name. Either
+                # a Python assignment at the left margin, or a C array
+                # declaration (`const char options[] = "..."`).
+                name = re.escape(found.group(2))
+                named = re.search(r'^%s\s*=\s*"([^"]+)"' % name, text,
                                   re.MULTILINE)
+                if named is None:
+                    named = re.search(r'\b%s\s*\[\s*\]\s*=\s*"([^"]+)"' % name,
+                                      text)
                 if named is None:
                     problems.append((SPEC_CASE,
                                      "%s passes %s to getopt and does not "
@@ -799,6 +809,35 @@ def check_the_spec_lists_every_option():
                                         found.group(2))))
                 else:
                     passed = named.group(1)
+            # The reporter has to be given the same option letters as getopt,
+            # or the word it names a stray dash in is worked out against the
+            # wrong tool. It is the one argument nothing else would catch:
+            # a different literal there would still parse and still refuse.
+            wanted = found.group(1) if found.group(2) is None \
+                else found.group(2)
+            calls = re.findall(r'opt_report_bad_option\(([^;]*?)\)\s*;', text)
+            # A C tool that does not call the shared reporter at all is a
+            # finding of its own, reported by the per-tool cases; a call this
+            # cannot read is one here, because an unread call is an unchecked
+            # one.
+            for arguments in calls:
+                given = re.search(r',\s*(?:"([^"]*)"'
+                                  r'|([A-Za-z_][A-Za-z_0-9]*))\s*$', arguments)
+                if given is None:
+                    problems.append((SPEC_CASE,
+                                     "%s calls opt_report_bad_option(%s), "
+                                     "which does not end in the option string"
+                                     % (os.path.relpath(source, here),
+                                        arguments.strip())))
+                    continue
+                name = given.group(1) if given.group(2) is None \
+                    else given.group(2)
+                if name != wanted:
+                    problems.append((SPEC_CASE,
+                                     "%s gives getopt %r and "
+                                     "opt_report_bad_option() %r"
+                                     % (os.path.relpath(source, here),
+                                        wanted, name)))
         if found is None:
             problems.append((SPEC_CASE,
                          "could not find the getopt string in %s"

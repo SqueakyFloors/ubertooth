@@ -129,8 +129,11 @@ int main(int argc, char *argv[])
     /* Report a bad option ourselves rather than letting getopt print it:
      * see opt_report_bad_option(). The leading ':' makes a missing option
      * value distinguishable from an option getopt does not know. */
+    /* Named, so the loop below and opt_report_bad_option()
+     * cannot be given different letters. */
+    const char options[] = ":hVU:r:v:";
     opterr = 0;
-    while ((opt = getopt(argc, argv, ":hVU:r:v:")) != EOF) {
+    while ((opt = getopt(argc, argv, options)) != EOF) {
 	/* No option may be given a value twice: see opt_check_once(). A second
 	 * -r used to replace the list the first one gave, without a word; one
 	 * -r already takes a whole list ("-r %main,0x02-0x05"). */
@@ -187,7 +190,7 @@ int main(int argc, char *argv[])
 	    break;
 	}
 	default:
-	    opt_report_bad_option(opt, argc, argv);
+	    opt_report_bad_option(opt, argc, argv, options);
 	    free(regList);
 	    return 1;
 	}

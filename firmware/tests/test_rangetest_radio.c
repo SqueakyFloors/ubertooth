@@ -463,6 +463,12 @@ struct badge_scan {
 	char window_text[256];      /* as written */
 	int polls_from_window;      /* and its poll budget from the window */
 	char polls_text[256];       /* as written */
+	/* The two SPI clock divisors and the wait before a FIFO read. A
+	 * divisor is the reciprocal of a rate, so the slower clock is the
+	 * larger number. */
+	int brg_fast;
+	int brg_fifo_read;
+	int lead_polls;
 };
 
 static int scan_badge_header(const char *badge_path, struct badge_scan *b)
@@ -487,6 +493,24 @@ static int scan_badge_header(const char *badge_path, struct badge_scan *b)
 
 			if (n > 0)
 				b->poll_us = n;
+		}
+		if (b->brg_fast == 0) {
+			int n = defined_number(line, "SPI_BRG_FAST");
+
+			if (n > 0)
+				b->brg_fast = n;
+		}
+		if (b->brg_fifo_read == 0) {
+			int n = defined_number(line, "SPI_BRG_FIFO_READ");
+
+			if (n > 0)
+				b->brg_fifo_read = n;
+		}
+		if (b->lead_polls == 0) {
+			int n = defined_number(line, "FIFO_LEAD_POLLS");
+
+			if (n > 0)
+				b->lead_polls = n;
 		}
 		/*
 		 * Both of these are pinned as written, as the tick conversion
@@ -514,12 +538,126 @@ static int scan_badge_header(const char *badge_path, struct badge_scan *b)
 	return 1;
 }
 
+/*
+ * What the scan of the badge's own source records.
+ *
+ * The badge runs the same range test against the same radio, so the radio's
+ * two framing requirements are the badge's too: a FIFO transfer gives the
+ * FIFO's address once and then the data with chip select held low, and a FIFO
+ * read needs a slower clock than a register read. The badge cannot share the
+ * Ubertooth's helpers, which drive LPC17xx pins, so it has its own pair
+ * written against the R8C's UART, and this reads them.
+ *
+ * Nothing here can run that code: no toolchain in this repository builds the
+ * badge image and nobody here has a badge. Reading it as text is the only
+ * check there is, which is why this one looks at the shape of both helpers
+ * rather than only at the range test calling them.
+ */
+struct badge_source_scan {
+	int perbyte_fifo;          /* a per-byte FIFO transfer, if one is left */
+	char perbyte_text[256];    /* as written */
+	int write_fn, read_fn;     /* where each helper is defined */
+	int write_address_bytes;   /* lines sending the FIFO's address in it */
+	int write_hold;            /* the hold before chip select rises */
+	int read_address_bytes;
+	int read_hold;
+	int read_slow_clock;       /* the clock dropped for the read */
+	int read_clock_restored;   /* and put back after it */
+	int rangetest_fifo_write;  /* the range test's calls */
+	int rangetest_fifo_read;
+	int rangetest_sync_wait;   /* its wait for the radio to have the packet */
+	int rangetest_lead;
+};
+
+static int scan_badge_source(const char *badge_source, struct badge_source_scan *b)
+{
+	char line[SCAN_LINE_MAX], name[128], current[128] = "";
+	int in_block = 0, depth = 0, lineno = 0;
+	FILE *f = fopen(badge_source, "r");
+
+	if (f == NULL)
+		return 0;
+	memset(b, 0, sizeof(*b));
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		const char *p;
+
+		lineno++;
+		strip_comments(line, &in_block);
+		if (depth == 0 && call_name(line, name, sizeof(name)))
+			snprintf(current, sizeof(current), "%s", name);
+
+		/* The fault this is here for: one SPI transaction per byte,
+		 * which writes nothing into the FIFO and reads nothing out.
+		 * Named on one line, as it was written; and because that is a
+		 * shape rather than a rule, a single-register transfer anywhere
+		 * in the range test counts too -- it has no other use for one,
+		 * and this scan is the only check this image gets. */
+		if (b->perbyte_fifo == 0 &&
+		    ((contains_identifier(line, "FIFOREG") &&
+		      (contains_identifier(line, "cc2400_get8") ||
+		       contains_identifier(line, "cc2400_set8"))) ||
+		     (strcmp(current, "cc2400_range_test") == 0 &&
+		      (calls_identifier(line, "cc2400_get8") ||
+		       calls_identifier(line, "cc2400_set8"))))) {
+			b->perbyte_fifo = lineno;
+			collapse_spaces(line, b->perbyte_text,
+			                sizeof(b->perbyte_text));
+		}
+
+		if (strcmp(current, "cc2400_fifo_write") == 0) {
+			if (b->write_fn == 0)
+				b->write_fn = lineno;
+			if (contains_identifier(line, "FIFOREG"))
+				b->write_address_bytes++;
+			if (calls_identifier(line, "spi_delay"))
+				b->write_hold = lineno;
+		} else if (strcmp(current, "cc2400_fifo_read") == 0) {
+			if (b->read_fn == 0)
+				b->read_fn = lineno;
+			if (contains_identifier(line, "FIFOREG"))
+				b->read_address_bytes++;
+			if (calls_identifier(line, "spi_delay"))
+				b->read_hold = lineno;
+			if (contains_identifier(line, "SPI_BRG_FIFO_READ"))
+				b->read_slow_clock = lineno;
+			if (contains_identifier(line, "SPI_BRG_FAST"))
+				b->read_clock_restored = lineno;
+		} else if (strcmp(current, "cc2400_range_test") == 0) {
+			if (calls_identifier(line, "cc2400_fifo_write") &&
+			    b->rangetest_fifo_write == 0)
+				b->rangetest_fifo_write = lineno;
+			if (calls_identifier(line, "cc2400_fifo_read") &&
+			    b->rangetest_fifo_read == 0)
+				b->rangetest_fifo_read = lineno;
+			if (calls_identifier(line, "cc2400_wait_sync_received") &&
+			    b->rangetest_sync_wait == 0)
+				b->rangetest_sync_wait = lineno;
+			if (calls_identifier(line, "fifo_lead_delay") &&
+			    b->rangetest_lead == 0)
+				b->rangetest_lead = lineno;
+		}
+
+		for (p = line; *p != '\0'; p++) {
+			if (*p == '{')
+				depth++;
+			else if (*p == '}')
+				depth--;
+		}
+	}
+
+	fclose(f);
+	return 1;
+}
+
 static struct scan s;
 static struct spi_scan spi;
 static struct badge_scan badge;
+static struct badge_source_scan badge_src;
 static const char *path = FW_RXTX_DIR "/cc2400_rangetest.c";
 static const char *spi_path = FW_COMMON_DIR "/ubertooth.c";
 static const char *badge_path = FW_DIR "/tc13badge/tc13badge.h";
+static const char *badge_source = FW_DIR "/tc13badge/tc13badge.c";
 
 /*
  * The deafness. Without MANAND the demodulator never settles on a packet, so
@@ -1023,6 +1161,164 @@ MU_TEST(test_the_badge_listens_past_the_repeaters_turnaround)
 	mu_assert(badge.polls_from_window, why);
 }
 
+/*
+ * The badge's half of the same fault. Its range test reached the radio's FIFO
+ * a byte at a time, so it wrote an empty FIFO and read zeros out of one. The
+ * radio's checksum flag is set by exactly that, so the badge got as far as
+ * believing a packet had arrived, and then the comparison against what it had
+ * sent failed at the first byte -- which is why its range test could not pass
+ * however close the two boards were.
+ */
+MU_TEST(test_the_badge_reaches_the_fifo_through_its_own_helpers)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: `%s` is one SPI transaction per byte, which writes "
+	         "nothing into the FIFO and reads nothing out of it",
+	         badge_source, badge_src.perbyte_fifo, badge_src.perbyte_text);
+	mu_assert(badge_src.perbyte_fifo == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: no cc2400_fifo_write() for the badge to transmit with",
+	         badge_source);
+	mu_assert(badge_src.write_fn > 0, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s: no cc2400_fifo_read() for the badge to receive with",
+	         badge_source);
+	mu_assert(badge_src.read_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_range_test() does not transmit through "
+	         "cc2400_fifo_write()", badge_source);
+	mu_assert(badge_src.rangetest_fifo_write > 0, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_range_test() does not receive through "
+	         "cc2400_fifo_read()", badge_source);
+	mu_assert(badge_src.rangetest_fifo_read > 0, msg);
+}
+
+/*
+ * The shape of the badge's two helpers: the FIFO's address once rather than
+ * once per byte, the datasheet's hold before chip select rises, and the
+ * slower clock a FIFO read needs, put back when the read is done.
+ */
+MU_TEST(test_the_badges_fifo_transfers_keep_their_shape)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_fifo_write() names FIFOREG %d times, not once: "
+	         "the radio takes the address once and then the data",
+	         badge_source, badge_src.write_fn, badge_src.write_address_bytes);
+	mu_assert(badge_src.write_address_bytes == 1, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_fifo_read() names FIFOREG %d times, not once",
+	         badge_source, badge_src.read_fn, badge_src.read_address_bytes);
+	mu_assert(badge_src.read_address_bytes == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_fifo_write() does not hold chip select after "
+	         "the last clock (the datasheet's t_ps)",
+	         badge_source, badge_src.write_fn);
+	mu_assert(badge_src.write_hold > 0, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_fifo_read() does not hold chip select after "
+	         "the last clock", badge_source, badge_src.read_fn);
+	mu_assert(badge_src.read_hold > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_fifo_read() does not drop the clock to "
+	         "SPI_BRG_FIFO_READ, so it reads wrong bytes however it is "
+	         "framed", badge_source, badge_src.read_fn);
+	mu_assert(badge_src.read_slow_clock > 0, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_fifo_read() does not put the clock back to "
+	         "SPI_BRG_FAST, so every later transfer runs at the slow one",
+	         badge_source, badge_src.read_fn);
+	mu_assert(badge_src.read_clock_restored > 0, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_fifo_read() restores the clock at line %d, before "
+	         "it drops it at %d, so the read itself runs at the fast one",
+	         badge_source, badge_src.read_clock_restored,
+	         badge_src.read_slow_clock);
+	mu_assert(badge_src.read_slow_clock < badge_src.read_clock_restored, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: SPI_BRG_FIFO_READ is %d and SPI_BRG_FAST is %d; a divisor "
+	         "is the reciprocal of a rate, so the read's has to be the "
+	         "larger of the two", badge_path,
+	         badge.brg_fifo_read, badge.brg_fast);
+	mu_assert(badge.brg_fifo_read > badge.brg_fast, msg);
+}
+
+/*
+ * The badge waits before it reads, for the same reason the Ubertooth does:
+ * the radio raises its sync-word flag before the first payload byte is in the
+ * FIFO, so a read that starts there gets a byte that does not exist yet.
+ */
+MU_TEST(test_the_badge_waits_for_the_radio_to_have_the_packet)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: no FIFO_LEAD_POLLS for the badge to wait", badge_path);
+	mu_assert(badge.lead_polls > 0, msg);
+
+	/*
+	 * And it has to be the right length, for the same two reasons the
+	 * Ubertooth's RANGETEST_LEAD_BYTES does: at least the one byte the
+	 * radio has not written when it reports the sync word, and no more
+	 * than a quarter of its 32-byte FIFO, which is holding the repeater's
+	 * burst while the packet is read out of it.
+	 *
+	 * The badge counts nops rather than ticks, so the bound is in turns of
+	 * that loop. One turn is a nop and the loop's decrement and branch,
+	 * between 2 and 10 of this part's 50 ns cycles, so the wait is between
+	 * polls/10 and polls/2 microseconds. Both ends have to land in the
+	 * 8 to 64 us the two reasons leave.
+	 */
+	snprintf(msg, sizeof(msg),
+	         "%s: FIFO_LEAD_POLLS is %d, so the wait is %d to %d us. It has "
+	         "to be at least the 8 us of one byte at its fastest, and no "
+	         "more than the 64 us of a quarter FIFO at its slowest",
+	         badge_path, badge.lead_polls, badge.lead_polls / 10,
+	         badge.lead_polls / 2);
+	mu_assert(badge.lead_polls / 10 >= 8 && badge.lead_polls / 2 <= 64, msg);
+
+	/*
+	 * The read's clock, against the rate it is derived from rather than
+	 * only against the fast one: in clock synchronous serial mode the bit
+	 * rate is f1 / (2 * (u0brg + 1)), f1 is 20 MHz, and the Ubertooth's
+	 * working FIFO read clocks at about 570 kbit/s.
+	 */
+	if (badge.brg_fifo_read > 0) {
+		int kbit = 20000 / (2 * (badge.brg_fifo_read + 1));
+
+		snprintf(msg, sizeof(msg),
+		         "%s: SPI_BRG_FIFO_READ is %d, which clocks the read at "
+		         "%d kbit/s. The Ubertooth reads its FIFO at about 570 "
+		         "and gets the bytes right; 500 to 600 is the band "
+		         "around that", badge_path, badge.brg_fifo_read, kbit);
+		mu_assert(kbit >= 500 && kbit <= 600, msg);
+	}
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_range_test() does not wait after the sync word, "
+	         "so byte 0 of a reply is whatever the FIFO holds",
+	         badge_source);
+	mu_assert(badge_src.rangetest_lead > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the wait is at line %d, the sync word at %d and the read "
+	         "at %d: it has to come between them", badge_source,
+	         badge_src.rangetest_lead, badge_src.rangetest_sync_wait,
+	         badge_src.rangetest_fifo_read);
+	mu_assert(badge_src.rangetest_sync_wait > 0 &&
+	          badge_src.rangetest_lead > badge_src.rangetest_sync_wait &&
+	          badge_src.rangetest_lead < badge_src.rangetest_fifo_read, msg);
+}
+
 MU_TEST(test_the_range_test_has_one_copy)
 {
 	int sources = 0;
@@ -1053,6 +1349,10 @@ int main(void)
 		printf("cannot open %s to scan\n", badge_path);
 		return 1;
 	}
+	if (!scan_badge_source(badge_source, &badge_src)) {
+		printf("cannot open %s to scan\n", badge_source);
+		return 1;
+	}
 
 	MU_RUN(test_both_modes_hold_the_gain_amplifier_out_of_reset);
 	MU_RUN(test_the_repeater_sets_the_packet_format);
@@ -1064,6 +1364,9 @@ int main(void)
 	MU_RUN(test_the_wait_is_a_few_bytes_of_air_time);
 	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);
 	MU_RUN(test_the_badge_listens_past_the_repeaters_turnaround);
+	MU_RUN(test_the_badge_reaches_the_fifo_through_its_own_helpers);
+	MU_RUN(test_the_badges_fifo_transfers_keep_their_shape);
+	MU_RUN(test_the_badge_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_range_test_has_one_copy);
 	return mu_report();
 }

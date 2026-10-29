@@ -163,6 +163,52 @@
 #define SPI_BYTE_POLLS    10000
 
 /*
+ * The UART's clock divisors, which set the radio's SPI clock: in clock
+ * synchronous serial mode the bit rate is f1 / (2 * (u0brg + 1)), and f1 is
+ * the 20 MHz r8c_init() leaves.
+ *
+ * SPI_BRG_FAST is what uart_init() sets, 2.5 MHz, and every transfer but one
+ * runs at it. The exception is reading the radio's FIFO, which comes back as
+ * wrong bytes at a register read's clock however the transfer is framed. The
+ * Ubertooth firmware, whose range test had the same fault, reads its FIFO at
+ * about 14 us a byte and gets the bytes right -- some 570 kbit/s, measured on
+ * a pair of boards -- so SPI_BRG_FIFO_READ is the divisor that comes nearest
+ * to that here: 20 MHz / (2 * 18) is 556 kbit/s.
+ *
+ * Worked out from that measurement and this part's clock, not measured on a
+ * badge: see the note on the range test in README.
+ */
+#define SPI_BRG_FAST      3
+#define SPI_BRG_FIFO_READ 17
+
+/*
+ * How long the range test waits, after the radio reports a sync word, before
+ * it reads the first byte out of the FIFO.
+ *
+ * The radio raises that flag as the sync word ends, which is before the first
+ * payload byte exists, so a read starting there gets a byte the radio has not
+ * written. One byte time covers it: these packets go out at 1 Mbit/s, so a
+ * byte is 8 us.
+ *
+ * The ceiling is the radio's 32-byte FIFO. The peer answering this range test
+ * is an Ubertooth running cc2400_repeater(), which sends its replies as a
+ * burst of 128, so the burst keeps arriving into that FIFO while the packet is
+ * read out of it, and every byte waited for is another byte sitting there. The
+ * Ubertooth's own range test waits 4 bytes, and the firmware tests hold that
+ * figure to 8, a quarter of the FIFO. The same ceiling, 8 bytes or 64 us, is
+ * the one here.
+ *
+ * This is a loop of this many nops rather than a timed wait, because the badge
+ * starts no timer. One turn of that loop is a nop and the loop's own decrement
+ * and branch, so somewhere between two and ten of this part's 50 ns cycles,
+ * which puts 100 turns between 10 and 50 us. That is above the one byte at the
+ * bottom of the range and inside the 64 us at the top of it for any
+ * per-turn cost in that bracket, which is what the figure has to be: nobody
+ * has counted the cycles on a badge.
+ */
+#define FIFO_LEAD_POLLS 100
+
+/*
  * Waiting for a packet is the one wait that is not about the radio being late:
  * nothing is wrong when no packet comes, the other end has simply not
  * transmitted. The range test gives up on it all the same, because the badge
@@ -218,6 +264,8 @@ uint16_t cc2400_get(uint8_t reg);
 void cc2400_set(uint8_t reg, uint16_t val);
 uint8_t cc2400_get8(uint8_t reg);
 void cc2400_set8(uint8_t reg, uint8_t val);
+void cc2400_fifo_write(uint8_t len, const uint8_t *data);
+void cc2400_fifo_read(uint8_t len, uint8_t *buf);
 uint8_t cc2400_status(void);
 uint8_t cc2400_strobe(uint8_t reg);
 int cc2400_wait_main(uint16_t value);

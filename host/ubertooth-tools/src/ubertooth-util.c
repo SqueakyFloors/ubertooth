@@ -792,8 +792,11 @@ int main(int argc, char *argv[])
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
 	 * value distinguishable from an option getopt does not know. */
+	/* Named, so the loop below and opt_report_bad_option()
+	 * cannot be given different letters. */
+	const char options[] = ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx";
 	opterr = 0;
-	while ((opt=getopt(argc,argv,":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx")) != EOF) {
+	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
 		 * -z takes a negative value (a signed RSSI threshold). Resolved
 		 * before the check below, which only counts an option that came
@@ -953,7 +956,7 @@ int main(int argc, char *argv[])
 			do_help = 1;
 			break;
 		default:
-			opt_report_bad_option(opt, argc, argv);
+			opt_report_bad_option(opt, argc, argv, options);
 			return 1;
 		}
 	}
