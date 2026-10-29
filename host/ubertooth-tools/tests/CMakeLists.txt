@@ -996,8 +996,8 @@ if(libubertooth_SOURCE_DIR)
 	# capture that no longer stops would hang here; fail it instead.
 	set_tests_properties(keep-alive PROPERTIES TIMEOUT 10)
 
-	# What the low-energy callback prints, and on which stream, when a
-	# capture has taken standard output. The real cb_btle() and the real
+	# What the low-energy callback prints, on which stream, and with what
+	# signal level beside each packet. The real cb_btle() and the real
 	# decoder run over one crafted packet, so the complaint the cases look
 	# for is libbtbb's own; only the fifo calls are faked
 	# (ubertooth_fifo.c is not linked, for the same reason as above).
@@ -1013,7 +1013,8 @@ if(libubertooth_SOURCE_DIR)
 	target_link_libraries(test-btle-dump-streams ${LIBUSB_LIBRARIES} ${LIBBTBB_LIBRARIES}
 		Threads::Threads)
 	add_test(NAME btle-dump-streams COMMAND test-btle-dump-streams)
-	# Two callback calls over one packet each: milliseconds.
+	# A handful of callback calls over one packet each, and two short
+	# captures: milliseconds.
 	set_tests_properties(btle-dump-streams PROPERTIES TIMEOUT 5)
 
 	# How a signal stops a capture: the real library handlers, and the waits

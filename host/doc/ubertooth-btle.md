@@ -357,12 +357,18 @@ check has passed. The board is opened and its firmware is checked before that,
 so a run refused for either reason leaves no empty file behind either.
 
 The `rssi=` figure on each packet's `systime=` line is that packet's own level
-in dBm: the strongest reading taken while its symbols were collected, through
-the CC2400 datasheet's conversion. It is the same number the capture's signal
-field carries for the same packet, so a dump and a capture of one run agree.
+in dBm: the strongest reading the board took while it was collecting the
+packet's symbols, through the CC2400 datasheet's conversion. A packet that
+arrives in several records reports the readings of the first one. It is the
+same number the signal field of a `-q` or `-r` capture carries for that packet,
+so a dump and a capture of one run agree; a `-c` PPI capture carries the
+board's raw counts instead, which are not dBm.
+
 Earlier releases printed the weakest reading of the window instead, through a
-rougher approximation, which described the quiet air between packets rather
-than the packet and could differ from the capture by tens of dB.
+rougher approximation. In the follow modes the receiver is open for
+milliseconds around each packet, so that figure described the quiet air
+between packets rather than the packet, and read tens of dB away from the
+capture of the same run.
 
 ## DIAGNOSTICS
 

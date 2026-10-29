@@ -11,10 +11,11 @@
  *
  * The real cb_btle() runs here, with the real decoder, over one crafted
  * packet whose advertising data claims more bytes than arrived. Only the ring
- * buffer is faked. The cases cover both directions: an ordinary run prints
- * the dump on standard output and the complaint on standard error, and a run
- * whose capture took standard output prints neither while the capture still
- * gets the packet.
+ * buffer is faked. The stream cases cover both directions: an ordinary run
+ * prints the dump on standard output and the complaint on standard error, and
+ * a run whose capture took standard output prints neither while the capture
+ * still gets the packet. A last case reads the signal level out of both the
+ * dump and the capture of one packet, which must be the same number.
  */
 #include <fcntl.h>
 #include <limits.h>
@@ -400,6 +401,7 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	char capture[sizeof(dir) + 16];
 	char out[8192] = "";
 	char err[2048] = "";
+	int level;
 
 	mu_assert_fatal(ut != NULL, "a handle");
 	mu_assert_fatal(mkdtemp(dir) != NULL, "a directory to write in");
@@ -407,11 +409,11 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
 	                "a capture file");
 
-	/* A loud packet in a quiet window: the strongest reading saturates the
-	 * receiver, the weakest is 40 raw counts below it. */
+	/* 70 raw counts apart, which the datasheet's curve puts about 66 dB
+	 * apart: a packet 14 dB short of saturating the receiver, in a window
+	 * whose quietest moment is near the noise floor. */
 	rx.rssi_max = 30;
 	rx.rssi_min = -40;
-	rx.rssi_avg = -20;
 
 	fifo_push(ut->fifo, &rx, 0);
 	capture_output();
@@ -420,11 +422,14 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	lell_pcap_close(ut->h_pcap_le);
 	ut->h_pcap_le = NULL;
 
-	mu_assert(printed_level(out) != INT_MIN, out);
-	mu_assert_int_eq(captured_level(capture), printed_level(out));
+	level = printed_level(out);
+	mu_assert(level != INT_MIN, out);
+	mu_assert(captured_level(capture) != INT_MIN,
+	          "the capture holds a record to read a level from");
+	mu_assert_int_eq(captured_level(capture), level);
 	/* And it is the packet's own level, not the floor of the window: the
 	 * weakest reading through the old approximation would read -94. */
-	mu_assert_int_eq(-28, printed_level(out));
+	mu_assert_int_eq(-28, level);
 
 	unlink(capture);
 	rmdir(dir);
