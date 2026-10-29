@@ -86,8 +86,10 @@ channel map the scan built for it:
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
 manufacturer, its features, its clock offset, and its channel map as an `AFH
-Map:` line. A device that reports AFH off has no map to report, and standard
-error carries a `note:` line saying so.
+Map:` line, the field name `hcitool info` gives it. A device that reports AFH
+off has no map to report, and standard error carries a `note:` line saying so.
+A survey result's map is the `AFH map:` line above, the spelling it has always
+had.
 
 Everything else goes to standard error: the three headings that say which half
 of the scan is running (`HCI scan`, `Ubertooth scan` and `Scan results:`), the
@@ -137,10 +139,15 @@ An inquiry asked for with `-s` that the adapter refused exits 1 as well, with
 adapter — and its results are printed.
 
 A device that will not take the connection `-x` needs, or that will not report
-its channel map, is named the same way and its report stops there. The scan
-carries on and prints the rest, and exits 1 because part of what `-x` asked for
-did not happen. A device that reports AFH off is not such a failure: it
-answered, and `note: AFH disabled.` is the answer.
+its channel map or its clock offset, is named the same way and that much of
+its report is missing. The scan carries on and prints the rest, and exits 1
+because part of what `-x` asked for did not happen. Three of these used to end
+the whole run instead, with the board still open in whatever mode it was in.
+
+A device that reports AFH off is not such a failure: it answered, and `note:
+AFH disabled` is the answer. A device that reports an AFH mode byte which is
+neither off nor on is one, and says what the byte was; it used to be taken for
+AFH off.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that

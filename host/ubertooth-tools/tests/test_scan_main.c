@@ -762,8 +762,22 @@ MU_TEST(a_remote_without_afh_is_noted_on_standard_error)
 	fake.inquiry_responses = 1;
 	fake.afh_mode = FOLLOW_AFH_MODE_OFF;
 	r = RUN("-s", "-x", "-t", "5");
+	/* The device answered, so this is not a failure of the report. */
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.err, "note: AFH disabled.\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "note: AFH disabled\n") != NULL, r.err);
+	mu_assert(strstr(r.out, "AFH") == NULL, r.out);
+
+	/* A mode byte that is neither off nor on says so: it used to be taken
+	 * for AFH off, so a device reporting nonsense was reported as a device
+	 * that had answered. */
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.afh_mode = 0x42;
+	r = RUN("-s", "-x", "-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the remote device reports an AFH mode "
+	          "byte that is neither off nor on (0x42)\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "AFH disabled") == NULL, r.err);
 	mu_assert(strstr(r.out, "AFH") == NULL, r.out);
 }
 

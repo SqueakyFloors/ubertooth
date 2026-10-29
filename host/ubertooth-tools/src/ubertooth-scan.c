@@ -107,10 +107,15 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 	/* 1 once some part of the report could not be fetched. */
 	int failed = 0;
 
+	/* Each failure here gives up on this device's report and leaves the rest
+	 * of the scan running. They used to call exit(1) instead, which ended
+	 * the run with the board still open in whatever mode it was in and the
+	 * adapter handle still held: this function is called with both in
+	 * hand. */
 	errno = 0;
 	if (hci_devinfo(dev_id, &di) < 0) {
-		report_failure("can't get device info");
-		exit(1);
+		report_failure("cannot get device info");
+		return 1;
 	}
 
 	/* This says what the tool is doing, not what was asked for, so it goes
@@ -121,8 +126,8 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 	errno = 0;
 	cr = malloc(sizeof(*cr) + sizeof(struct hci_conn_info));
 	if (!cr) {
-		report_failure("can't get connection info");
-		exit(1);
+		report_failure("cannot allocate the connection info request");
+		return 1;
 	}
 
 	bacpy(&cr->bdaddr, bdaddr);
@@ -132,7 +137,7 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 		if (hci_create_connection(dd, bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
-			report_failure("can't create connection");
+			report_failure("cannot create connection");
 			free(cr);
 			return 1;
 		}
@@ -194,14 +199,18 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 	errno = 0;
 	if (hci_read_clock_offset(dd, handle, &offset, 1000) < 0) {
 		report_failure("reading clock offset failed");
-		exit(1);
+		failed = 1;
+	} else {
+		printf("\tClock offset: 0x%4.4x\n", btohs(offset));
 	}
-
-	printf("\tClock offset: 0x%4.4x\n", btohs(offset));
 
 	/* A read that failed leaves the mode byte and the map as the caller
 	 * found them, so neither is looked at: the report used to go on to read
-	 * an uninitialised mode and could print a map that was never read. */
+	 * an uninitialised mode and could print a map that was never read.
+	 *
+	 * The field name is the one hcitool info gives it, like the report's
+	 * other lines; the line a survey result gets further down is the one
+	 * libbtbb printed, so each keeps the spelling its readers know. */
 	errno = 0;
 	if (hci_read_afh_map(dd, handle, &mode, afh_map, 1000) < 0) {
 		report_failure("HCI read AFH map request failed");
@@ -211,10 +220,17 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 		for (i = 0; i < AFH_MAP_BYTES; i++)
 			printf("%02x", afh_map[i]);
 		printf("\n");
-	} else {
+	} else if (mode == FOLLOW_AFH_MODE_OFF) {
 		/* Not part of the device's report but a note about it: there is
 		 * no map to report. */
-		fputs("note: AFH disabled.\n", stderr);
+		fputs("note: AFH disabled\n", stderr);
+	} else {
+		/* Neither off nor on, so what the device is doing is unknown:
+		 * reported as itself rather than as AFH being off, which is
+		 * what it used to be taken for. */
+		fprintf(stderr, "error: the remote device reports an AFH mode "
+		        "byte that is neither off nor on (0x%02x)\n", mode);
+		failed = 1;
 	}
 	free(cr);
 

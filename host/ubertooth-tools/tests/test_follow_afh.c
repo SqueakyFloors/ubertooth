@@ -485,9 +485,27 @@ MU_TEST(a_map_is_reported_as_one_line_of_hex)
 	afh_map_line(map, line, sizeof(line));
 	mu_assert(strcmp("AFH map: 0x0100000000000000007f", line) == 0, line);
 
-	/* The buffer length the tools use is exactly enough: a shorter one
-	 * would truncate instead of overrunning, and no map is left behind. */
+	/* The buffer length the tools use is exactly enough. */
 	mu_assert_int_eq((int)strlen(line) + 1, AFH_MAP_LINE_LEN);
+}
+
+/* A buffer too small truncates rather than overrunning. */
+MU_TEST(a_map_line_that_does_not_fit_is_truncated)
+{
+	uint8_t map[FOLLOW_AFH_MAP_BYTES];
+	char guarded[AFH_MAP_LINE_LEN + 4];
+	size_t room;
+
+	memset(map, 0xff, sizeof(map));
+	for (room = 1; room < AFH_MAP_LINE_LEN; room++) {
+		memset(guarded, '#', sizeof(guarded));
+		afh_map_line(map, guarded, room);
+		mu_assert(strlen(guarded) < room, "wrote past the length given");
+		mu_assert(guarded[room] == '#', "wrote past the buffer");
+		/* What did fit is the start of the whole line. */
+		mu_assert(strncmp(guarded, "AFH map: 0xffffffffffffffffffff",
+		          strlen(guarded)) == 0, guarded);
+	}
 }
 
 MU_TEST(a_map_line_call_with_nothing_to_write_does_nothing)
@@ -527,6 +545,7 @@ int main(void)
 	MU_RUN(a_message_call_with_nowhere_to_write_does_nothing);
 	MU_RUN(dash_a_needs_a_target_address_and_a_connection);
 	MU_RUN(a_map_is_reported_as_one_line_of_hex);
+	MU_RUN(a_map_line_that_does_not_fit_is_truncated);
 	MU_RUN(a_map_line_call_with_nothing_to_write_does_nothing);
 	return mu_report();
 }
