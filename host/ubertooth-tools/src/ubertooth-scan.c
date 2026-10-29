@@ -164,10 +164,15 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 			 * and the run still did what was asked. The reason the
 			 * call left behind is given too, because this is not
 			 * the only way the connection can fail. */
-			fprintf(stderr, "note: no extended report: %s; a "
-			        "sniffed piconet gives no NAP, so the address "
-			        "this connects to is a guess\n",
-			        errno != 0 ? strerror(errno) : "no connection");
+			if (errno != 0)
+				fprintf(stderr, "note: no extended report: %s; "
+				        "a sniffed piconet gives no NAP, so the "
+				        "address this connects to is a guess\n",
+				        strerror(errno));
+			else
+				fputs("note: no extended report: a sniffed "
+				      "piconet gives no NAP, so the address "
+				      "this connects to is a guess\n", stderr);
 			free(cr);
 			return 0;
 		}
@@ -234,9 +239,13 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 			features[0], features[1], features[2], features[3],
 			features[4], features[5], features[6], features[7]);
 
+		/* BlueZ returns NULL when it cannot build the list, which
+		 * printed "(null)" as the device's features. */
 		tmp = lmp_featurestostr(features, "\t\t", 63);
-		printf("%s\n", tmp);
-		bt_free(tmp);
+		if (tmp != NULL) {
+			printf("%s\n", tmp);
+			bt_free(tmp);
+		}
 	}
 
 	for (i = 1; i <= max_page; i++) {
@@ -353,6 +362,15 @@ int main(int argc, char *argv[])
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
 	const char options[] = ":hVU:t:e:xsb:";
+
+	/* Unbuffered, as ubertooth-rx's survey mode is, and before anything is
+	 * written: redirected to a file, standard output is block-buffered
+	 * while standard error is not, so a "> log 2>&1" run would collect
+	 * every line this tool moved to standard error above the results they
+	 * belong beside. Setting it after the stream has been written is not
+	 * defined, so it is set here rather than where the survey starts. */
+	setvbuf(stdout, NULL, _IONBF, 0);
+
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
@@ -491,6 +509,17 @@ int main(int argc, char *argv[])
 		max_rsp = 255;
 		flags = IREQ_CACHE_FLUSH;
 		ii = (inquiry_info*)malloc(max_rsp * sizeof(inquiry_info));
+		if (ii == NULL) {
+			/* The inquiry would have been handed a null array to
+			 * fill in. The board is open by now, so it and the
+			 * adapter go back. */
+			report_failure("cannot allocate room for the inquiry's "
+			               "results");
+			ubertooth_stop(ut);
+			ubertooth_free(ut);
+			close(dev_handle);
+			return 1;
+		}
 
 		errno = 0;
 		num_rsp = hci_inquiry(dev_id, len, max_rsp, NULL, &ii, flags);
@@ -540,11 +569,6 @@ int main(int argc, char *argv[])
 		close(dev_handle);
 		return 1;
 	}
-	/* Unbuffered, as ubertooth-rx's survey mode is: redirected to a file,
-	 * standard output is block-buffered while standard error is not, so the
-	 * progress and the headings would all arrive before the results a
-	 * "> log 2>&1" run collects them beside. */
-	setvbuf(stdout, NULL, _IONBF, 0);
 	btbb_init_survey();
 
 	if (timeout)

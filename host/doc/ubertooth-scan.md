@@ -150,8 +150,9 @@ An inquiry asked for with `-s` that the adapter refused exits 1 as well, with
 adapter — and its results are printed.
 
 A device the inquiry found that will not take the connection `-x` needs, or
-that will not report its channel map or its clock offset, is named the same way
-and that much of its report is missing. The scan carries on and prints the
+will not answer one of the reads that fill the report in — its name, its LMP
+version, its features, a features page, its clock offset or its channel map —
+is named the same way and that much of its report is missing. The scan carries on and prints the
 rest, and exits 1 because part of what `-x` asked for did not happen. Three of
 these — the local adapter's settings, the memory for the request, and the clock
 offset — used to end the whole run instead, with the board still open in

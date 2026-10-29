@@ -8,11 +8,13 @@
  * faked receive ends the capture loop on its first turn, so no case waits on a
  * board.
  *
- * BlueZ itself is faked as far as finding and opening a local adapter, which
- * every run does before it reaches the Ubertooth, and the inquiry -s asks for,
- * which finds nothing: no case needs a Bluetooth adapter on the machine
- * running the tests. Both adapter steps can be made to fail, so what the tool
- * says and which stream it says it on are pinned here too.
+ * BlueZ is faked throughout: finding and opening a local adapter, which every
+ * run does before it reaches the Ubertooth, the inquiry -s asks for, and every
+ * read the extended report of -x makes of a device the inquiry found. No case
+ * needs a Bluetooth adapter on the machine running the tests, which is the
+ * only way those paths can be covered: the lab host has every BlueZ tool and
+ * no adapter. Each of them can be made to fail, so what the tool says, which
+ * stream it says it on, and the exit status are pinned here.
  */
 #include <errno.h>
 #include <fcntl.h>
@@ -93,6 +95,8 @@ static struct {
 	int name_fails;
 	int version_fails;
 	int features_fail;
+	int devinfo_fails;
+	int clock_fails;
 	int read_errno;
 	char adapter[16];    /* the adapter name -b asked for */
 	int dev_fd;          /* the adapter handle the tool was given */
@@ -202,6 +206,10 @@ int hci_inquiry(int dev_id, int len, int num_rsp, const uint8_t* lap,
 int hci_devinfo(int dev_id, struct hci_dev_info* di)
 {
 	(void)dev_id;
+	if (fake.devinfo_fails) {
+		errno = fake.read_errno;
+		return -1;
+	}
 	memset(di, 0, sizeof(*di));
 	return 0;
 }
@@ -273,6 +281,10 @@ int hci_read_clock_offset(int dd, uint16_t handle, uint16_t* offset, int to)
 	(void)dd;
 	(void)handle;
 	(void)to;
+	if (fake.clock_fails) {
+		errno = fake.read_errno;
+		return -1;
+	}
 	*offset = 0;
 	return 0;
 }
@@ -796,6 +808,13 @@ MU_TEST(each_read_of_the_report_that_fails_is_named)
 		  "LMP Version" },
 		{ &fake.features_fail, "error: reading the features failed",
 		  "Features" },
+		/* This one reads the local adapter, not the device, so the line
+		 * says which; it used to call exit(1). */
+		{ &fake.devinfo_fails,
+		  "error: cannot get the local adapter's settings",
+		  "BD Address" },
+		{ &fake.clock_fails, "error: reading clock offset failed",
+		  "Clock offset" },
 	};
 	char expected[128];
 	struct run_result r;
@@ -813,8 +832,14 @@ MU_TEST(each_read_of_the_report_that_fails_is_named)
 		mu_assert_int_eq(1, r.rc);
 		mu_assert(strstr(r.err, expected) != NULL, r.err);
 		mu_assert(strstr(r.out, cases[i].missing) == NULL, r.out);
-		/* The rest of the report is still there. */
-		mu_assert(strstr(r.out, "\tBD Address:  ") != NULL, r.out);
+		/* The run carried on to the end rather than exiting where the
+		 * read failed: three of these called exit(1), which left the
+		 * board open in whatever mode it was in. */
+		mu_assert(strstr(r.err, "Scan results:") != NULL, r.err);
+		mu_assert_int_eq(1, fake.stops);
+		mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+		/* The device the inquiry found is still a result. */
+		mu_assert(strstr(r.out, "11:11:11:11:11:11\t") != NULL, r.out);
 	}
 }
 
