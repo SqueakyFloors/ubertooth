@@ -1600,10 +1600,12 @@
   over, the host's own clock now settles which it was, so a file that begins
   with such a record replays with its own times.
   [#465](https://github.com/SqueakyFloors/ubertooth/issues/465)
-- A live capture that goes quiet for longer than the capture clock's period no
-  longer comes out 327.68 s wrong from there on, which `ubertooth-btle -f` and
-  `-n` could do on any quiet channel. How many times the board's clock started
-  over during a gap now comes from the time the host's own clock saw pass.
+- A live capture that goes quiet for longer than its capture clock's period no
+  longer comes out a whole period wrong from there on - 429.50 s in
+  `ubertooth-btle -f` and `-n`, which reach it on any quiet channel, 327.68 s
+  where the packets carry no period count of their own. How many times the
+  board's clock started over during a gap now comes from the time the host's
+  own clock saw pass.
   [#465](https://github.com/SqueakyFloors/ubertooth/issues/465)
 - A leftover first record no longer puts hours into every timestamp of a
   `ubertooth-rx` or `ubertooth-follow` capture. Such a record also carries the

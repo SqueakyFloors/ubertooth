@@ -1073,8 +1073,13 @@ static void a_live_gap_of(uint64_t period, uint64_t start, uint64_t gap)
 	ubertooth_t ut;
 	const uint64_t ticks[3] = { start, start + ONE_SECOND_TICKS,
 	                            start + ONE_SECOND_TICKS + gap };
+	/* Three milliseconds later than the board's clock makes the gap, which
+	 * is the sort of difference a real one has: the records arrive a
+	 * packet's latency after the air, and the two clocks drift. The wrap
+	 * count has to come out the same for a measure that is merely close. */
 	const uint64_t arrived_ns[3] = { 0, 100 * ONE_SECOND_TICKS,
-	                                 100 * (ONE_SECOND_TICKS + gap) };
+	                                 100 * (ONE_SECOND_TICKS + gap)
+	                                 + 3000000ull };
 	uint64_t times[3];
 
 	capture_records(&ut, period, 3, ticks, arrived_ns, NULL, times);
@@ -1125,6 +1130,53 @@ MU_TEST(a_wrap_a_backlog_hid_still_counts)
 	a_live_gap_of(CLK100NS_PERIOD,
 	              CLK100NS_PERIOD - 6 * ONE_SECOND_TICKS,
 	              10 * ONE_SECOND_TICKS);
+}
+
+/* A quiet gap of more than a period between the capture's own first two
+ * records, which is where the wrap count and the leftover decision meet: the
+ * gap has to be counted and the first record left as the anchor. A capture
+ * that opened on a quiet channel reaches this. The host's measure is given
+ * 1.9 s short of what the board's clock makes it - just inside the slack - so
+ * the periods are counted on a measure that is close rather than exact. */
+MU_TEST(a_long_quiet_gap_at_the_start_is_not_a_leftover_record)
+{
+	ubertooth_t ut;
+	const uint64_t gap = 3 * ((uint64_t) CLK100NS_PERIOD / 2);
+	const uint64_t ticks[2] = { 100 * ONE_SECOND_TICKS,
+	                            100 * ONE_SECOND_TICKS + gap };
+	const uint64_t arrived_ns[2] = { 0, 100 * gap - 1900000000ull };
+	uint64_t times[2];
+
+	capture_records(&ut, CLK100NS_PERIOD, 2, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[0]);
+	mu_assert_int_eq(100 * gap, times[1] - times[0]);
+}
+
+/* A record out of place further into a live capture, reading 50 s below the
+ * records either side of it and arriving a millisecond after the one before.
+ * Fifty seconds is more time than the host saw pass, so no wrap is counted
+ * and the records after it keep their times; only the stray's own time is
+ * where its reading puts it. Read as the clock starting over, as a drop
+ * further in used to be, it added 327.68 s to every record after it. */
+MU_TEST(a_stray_record_further_into_a_live_capture_adds_nothing)
+{
+	ubertooth_t ut;
+	const uint64_t ticks[4] = { 100 * ONE_SECOND_TICKS,
+	                            101 * ONE_SECOND_TICKS,
+	                             51 * ONE_SECOND_TICKS,   /* out of place */
+	                            102 * ONE_SECOND_TICKS };
+	const uint64_t arrived_ns[4] = { 0, 1000000000ull, 1001000000ull,
+	                                 2000000000ull };
+	uint64_t times[4];
+
+	capture_records(&ut, CLK100NS_PERIOD, 4, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(0, ut.clk100ns_upper);
+	mu_assert_int_eq(ut.abs_start_ns, times[0]);
+	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[1] - times[0]);
+	mu_assert_int_eq(100 * 2 * ONE_SECOND_TICKS, times[3] - times[0]);
 }
 
 /* A live capture's times are where it was anchored plus the board's own clock
@@ -2025,6 +2077,8 @@ int main(void)
 	MU_RUN(a_first_record_reading_below_the_capture_moves_the_anchor);
 	MU_RUN(a_quiet_live_gap_keeps_its_time_however_long_it_was);
 	MU_RUN(a_wrap_a_backlog_hid_still_counts);
+	MU_RUN(a_long_quiet_gap_at_the_start_is_not_a_leftover_record);
+	MU_RUN(a_stray_record_further_into_a_live_capture_adds_nothing);
 	MU_RUN(a_host_clock_that_steps_does_not_move_live_times);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);
