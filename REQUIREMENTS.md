@@ -42,6 +42,7 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 | GNU make | firmware build | `build-essential` | Xcode CLT (stock `make` 3.81 is fine) |
 | arm-none-eabi-gcc | cross-compile firmware | `gcc-arm-none-eabi` | `brew install --cask gcc-arm-embedded` |
 | ARM C++ runtime | only `firmware/bootloader`, the one image written in C++ | `libstdc++-arm-none-eabi-newlib` | carried by the cask above |
+| perl | only `make -C firmware test`, to generate the ToorCon badge's register header | pre-installed | pre-installed |
 | dfu-util | flash firmware over DFU | `dfu-util` | `brew install dfu-util` |
 | ubertooth-dfu (host tool) | the `.dfu` packaging step | built with the host tools | same |
 
