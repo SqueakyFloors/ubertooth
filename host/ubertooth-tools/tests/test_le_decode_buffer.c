@@ -14,7 +14,6 @@
  * that overstates the length fails here in a plain build as well as under a
  * sanitizer.
  */
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,18 +125,40 @@ static void dirty_the_stack(void)
 static uint32_t gaps;
 static uint32_t transfer_errors;
 static char errors[1024];
+static char output[4096];
 
-/* Runs the queued records through the real callback, one call each. The
- * callback prints the packet, so its output goes to /dev/null to keep it out
- * of the test's own, and the bytes the decoder was given are left in
- * handed[]. Standard error is collected instead of discarded: the gap warning
- * goes there. */
+/* Reads back what a stream collected into a tmpfile, and closes it. */
+static void collect(FILE* from, char* into, size_t size)
+{
+	long len = 0;
+
+	if (from == NULL)
+		return;
+	len = ftell(from);
+	if (len > 0) {
+		if (len > (long)size - 1)
+			len = (long)size - 1;
+		rewind(from);
+		len = (long)fread(into, 1, (size_t)len, from);
+	}
+	if (len < 0)
+		len = 0;
+	into[len] = '\0';
+	fclose(from);
+}
+
+/* Runs the queued records through the real callback, one call each. Both
+ * streams are collected rather than printed -- the callback prints a line per
+ * packet, which does not belong in the test's own output -- and the bytes the
+ * decoder was given are left in handed[]. Collecting standard output as well
+ * lets a case pin that a warning is not on it, which is what a capture written
+ * to standard output depends on. */
 static void run_capture(void)
 {
 	ubertooth_t ut;
 	int saved, saved_err;
-	int devnull;
 	FILE* err;
+	FILE* out;
 	long len = 0;
 
 	memset(&ut, 0, sizeof(ut));
@@ -149,16 +170,15 @@ static void run_capture(void)
 	decodes = 0;
 	next_index = 0;
 	errors[0] = '\0';
+	output[0] = '\0';
 
 	fflush(stdout);
 	fflush(stderr);
 	saved = dup(fileno(stdout));
 	saved_err = dup(fileno(stderr));
-	devnull = open("/dev/null", O_WRONLY);
-	if (devnull >= 0) {
-		dup2(devnull, fileno(stdout));
-		close(devnull);
-	}
+	out = tmpfile();
+	if (out != NULL)
+		dup2(fileno(out), fileno(stdout));
 	err = tmpfile();
 	if (err != NULL)
 		dup2(fileno(err), fileno(stderr));
@@ -174,19 +194,8 @@ static void run_capture(void)
 	close(saved);
 	close(saved_err);
 
-	if (err != NULL) {
-		len = ftell(err);
-		if (len > 0) {
-			if (len > (long)sizeof(errors) - 1)
-				len = (long)sizeof(errors) - 1;
-			rewind(err);
-			len = (long)fread(errors, 1, (size_t)len, err);
-		}
-		if (len < 0)
-			len = 0;
-		errors[len] = '\0';
-		fclose(err);
-	}
+	collect(err, errors, sizeof(errors));
+	collect(out, output, sizeof(output));
 
 	/* What ubertooth_queue_gaps() and ubertooth_transfer_errors() hand a
 	 * tool at the end of a capture. */
@@ -401,6 +410,10 @@ MU_TEST(each_packet_marked_by_a_transfer_error_is_counted_and_warned_once)
 
 	mu_assert_int_eq(2, (int)transfer_errors);
 	mu_assert_int_eq(1, times_said(TRANSFER_WARNING));
+
+	/* On standard error, not on standard output, which a capture can own. */
+	mu_assert(strstr(output, TRANSFER_WARNING) == NULL,
+	          "the warning went to standard output");
 
 	/* The two counts are separate: a faulted transfer is not a full queue,
 	 * and a capture should not be told it has gaps it does not have. */

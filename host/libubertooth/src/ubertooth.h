@@ -200,9 +200,10 @@ typedef struct {
 
 	/* How many records arrived carrying DMA_ERROR, which the board sets when
 	 * the chip's transfer controller reported an error on the channel a
-	 * capture receives into. The record it is marked on holds a whole packet
-	 * the board kept, but a packet the fault cut short is lost, so this
-	 * counts places where the capture may be missing packets.
+	 * capture receives into. The record it is marked on was kept, because its
+	 * transfer had finished, but some of its bytes may be wrong and what the
+	 * fault cut short before it is lost, so this counts places where the
+	 * capture may be wrong or missing packets.
 	 *
 	 * The same pair as the gap counters above: the warned flag keeps the
 	 * running warning to one line per capture, and the count is what a tool
@@ -610,10 +611,10 @@ uint32_t ubertooth_queue_gaps(ubertooth_t* ut);
 /*
  * How many capture transfer errors a capture on this handle saw: times the
  * board said the chip's transfer controller reported an error on the channel a
- * capture receives into. The packet the board marked is whole and was kept; a
- * packet the fault cut short is gone, so each one is a place the capture may be
- * missing packets. ubertooth-util(1) -w reports the board's own count of these
- * since power-on; this one counts only what reached this capture.
+ * capture receives into. The record the board marked was kept, so each one is a
+ * place the capture may be wrong, or missing what the fault cut short.
+ * ubertooth-util(1) -w reports the board's own count of these since power-on;
+ * this one counts only what reached this capture.
  */
 uint32_t ubertooth_transfer_errors(ubertooth_t* ut);
 

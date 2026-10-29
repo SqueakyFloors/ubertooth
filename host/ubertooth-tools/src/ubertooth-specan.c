@@ -597,8 +597,10 @@ int main(int argc, char *argv[])
 	ubertooth_stop(ut);
 
 	/* What the capture is missing, once the packets have scrolled
-	 * past. A gap is a stretch the board had no queue room for, so
-	 * the count is of gaps and not of the packets lost in them. */
+	 * past. A gap is a stretch the board had no queue room for
+	 * and a transfer error is one the chip's transfer controller faulted at,
+	 * so the counts are of those places and not of the packets lost at
+	 * them. */
 	ubertooth_report_capture_losses(ut);
 
 	/* A sweep whose stream died stopped there, so the samples are

@@ -96,6 +96,17 @@ The count is of gaps, not of lost records: one full queue can swallow several,
 and the board sends no number. Nothing in the dump marks where a gap is, so a
 dump with gaps is continuous only between them.
 
+A capture transfer error is reported the same way. The chip's transfer
+controller can report an error on the channel the board receives into: the
+record it was filling had arrived, so it is kept and marked, while some of its
+bytes may be wrong and whatever the fault cut short before it is lost. The
+first mark warns `warning: the board had a transfer error while capturing;
+what it was receiving was kept, but some of those bytes may be wrong and the
+capture may be missing packets around it`, and when the dump ends it says how
+many there were: `warning: the capture has 3 transfer errors where a packet
+may be wrong or missing`. ubertooth-util(1) `-w` reports the board's own count
+of them since power-on, over every capture the board has run.
+
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after the dump is

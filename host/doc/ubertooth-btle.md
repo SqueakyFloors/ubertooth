@@ -412,13 +412,14 @@ through after it, so a capture that ends in the moment after a gap does not
 report that last one.
 
 A capture transfer error is reported the same way. The chip's transfer
-controller can report an error on the channel a capture receives into: a
-packet that was already whole when it happened is kept and marked, and a
-packet the fault cut short is lost. The first mark warns `warning: the board
-had a transfer error while capturing; the packet it is marked on is whole and
-was kept, but this capture may be missing packets around it`, and when the
+controller can report an error on the channel a capture receives into: what
+the board was receiving at the time had arrived, so it is kept and marked,
+while some of its bytes may be wrong and whatever the fault cut short before
+it is lost. The first mark warns `warning: the board had a transfer error
+while capturing; what it was receiving was kept, but some of those bytes may
+be wrong and the capture may be missing packets around it`, and when the
 capture ends it says how many there were: `warning: the capture has 3 transfer
-errors where the board may have lost a packet`. ubertooth-util(1) `-w` reports
+errors where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports
 the board's own count of them since power-on, over every capture the board has
 run.
 
