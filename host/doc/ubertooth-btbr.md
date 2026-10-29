@@ -74,7 +74,9 @@ one `btbr` was flashed onto.
 
 `-V` and `-h` both end the command, and both answer on standard output, so a
 command line with both prints both: the version first and the usage text
-last, whichever order they were written in.
+last, whichever order they were written in. The status is then `-V`'s, so a
+board that could not be read makes a command line carrying `-h` exit 1, with
+the usage text printed all the same.
 
 Each option may be given once, except `-V` and `-h`, which carry no value and
 say the same thing however often they are written. See DIAGNOSTICS for what a

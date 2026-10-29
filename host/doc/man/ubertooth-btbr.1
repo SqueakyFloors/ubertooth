@@ -52,7 +52,7 @@ print the version and end the command: the host tools, then the firmware version
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .P
-\fB\-V\fR and \fB\-h\fR both end the command, and both answer on standard output, so a command line with both prints both: the version first and the usage text last, whichever order they were written in\.
+\fB\-V\fR and \fB\-h\fR both end the command, and both answer on standard output, so a command line with both prints both: the version first and the usage text last, whichever order they were written in\. The status is then \fB\-V\fR's, so a board that could not be read makes a command line carrying \fB\-h\fR exit 1, with the usage text printed all the same\.
 .P
 Each option may be given once, except \fB\-V\fR and \fB\-h\fR, which carry no value and say the same thing however often they are written\. See DIAGNOSTICS for what a command line it will not take does\.
 .SH "SELECTING A DEVICE"

@@ -57,8 +57,14 @@ To pick one of several Ubertooths, run:
 
 `-V` and `-h` both end the command, and both answer on standard output, so a
 command line with both prints both: the version first and the usage text
-last, whichever order they were written in. Both come after the range checks
-below, so a range this tool will not take is reported instead.
+last, whichever order they were written in. The status is then `-V`'s, so a
+board that could not be read makes a command line carrying `-h` exit 1, with
+the usage text printed all the same. Both come after the range checks below,
+so a range this tool will not take is reported instead.
+
+The whole command line is read before the window's own modules are imported,
+so `-V`, `-h` and a refused range are answered on a machine with no `numpy`
+and no Qt binding. Only opening the window needs those.
 
 ## DISPLAY
 

@@ -67,8 +67,10 @@ worth running by hand when a board does not appear in Wireshark.
 
 `-V` and `-h` both end the call, and both answer on standard output, so a call
 with both prints both: the version first and the usage line last, whichever
-order they were written in. Either ends the call ahead of every operation
-above, so `--extcap-interfaces -h` prints the usage line and lists nothing.
+order they were written in. The status is then `-V`'s, so a board that could
+not be read makes a call carrying `-h` exit 1, with the usage line printed all
+the same. Either option ends the call ahead of every operation above, so
+`--extcap-interfaces -h` prints the usage line and lists nothing.
 
 ## Wireshark's own options
 

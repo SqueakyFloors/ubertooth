@@ -904,17 +904,17 @@
       "kind": "python",
       "testable": false,
       "why_not": [
-        "The script imports numpy and a Qt binding at module level, before it",
-        "reads its command line, so none of its refusals can be reached on a",
-        "machine without them. Its own test",
-        "(host/python/specan_ui/tests/test_specan_ui_streams.py) skips for the",
-        "same reason.",
-        "What it would check: -h and -V on stdout with status 0, both on",
-        "stdout with -V first where the line carries the two of them, and one",
-        "'error: ' line on stderr with status 1 for a bad -l/-u range, a",
-        "--wifi channel that is not 1-14 and a --padding that is not a whole",
-        "number of MHz, all before the window opens",
-        "(ubertooth-specan-ui.md ARGUMENTS)."
+        "A command line this tool accepts opens a window, so it needs numpy,",
+        "a Qt binding and a display. The matrix runs every case it generates,",
+        "accepted ones included, so it cannot run here at all.",
+        "The calls that end before the window does open -- -h, -V and a",
+        "refused range -- need none of those, and the tool's own test",
+        "(host/python/specan_ui/tests/test_specan_ui_streams.py) runs them",
+        "everywhere, with numpy and the Qt binding shadowed by modules that",
+        "refuse to import in one case to show they are not needed.",
+        "What the matrix would add: -h and -V on stdout with status 0, both",
+        "on stdout with -V first where the line carries the two of them, and",
+        "the pairs and malformed values it generates from the option table."
       ]
     }
   },

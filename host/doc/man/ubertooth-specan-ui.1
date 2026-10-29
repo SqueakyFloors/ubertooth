@@ -49,7 +49,9 @@ print the version and end the command, before the window opens: the host tools, 
 \fB\-h\fR, \fB\-\-help\fR
 print the usage text on standard output and exit 0\.
 .P
-\fB\-V\fR and \fB\-h\fR both end the command, and both answer on standard output, so a command line with both prints both: the version first and the usage text last, whichever order they were written in\. Both come after the range checks below, so a range this tool will not take is reported instead\.
+\fB\-V\fR and \fB\-h\fR both end the command, and both answer on standard output, so a command line with both prints both: the version first and the usage text last, whichever order they were written in\. The status is then \fB\-V\fR's, so a board that could not be read makes a command line carrying \fB\-h\fR exit 1, with the usage text printed all the same\. Both come after the range checks below, so a range this tool will not take is reported instead\.
+.P
+The whole command line is read before the window's own modules are imported, so \fB\-V\fR, \fB\-h\fR and a refused range are answered on a machine with no \fBnumpy\fR and no Qt binding\. Only opening the window needs those\.
 .SH "DISPLAY"
 .IP "\(bu" 4
 White trace: the current sweep\.

@@ -610,7 +610,7 @@ assert result.stdout == "Firmware version: read failed\n", result
 result = run(("-h", "-V"), listing=VERSION_ANSWER)
 assert result.returncode == 0, result
 assert result.stdout.startswith(VERSION_ANSWER), result
-assert result.stdout.rstrip("\n").endswith("--channel=37|38|39])"), result
+assert result.stdout.rstrip("\n").endswith("-V | -h"), result
 assert result.stderr == "", result
 
 # ubertooth-util not on the PATH: one error line, not a traceback
@@ -618,6 +618,15 @@ result = run(("-V",), listing=VERSION_ANSWER, path=EMPTY)
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert "Traceback" not in result.stderr, result
+assert result.stderr == \
+    "error: could not run ubertooth-util: No such file or directory\n", result
+
+# and the usage line beside it is still printed, since -h was asked for too:
+# a version that could not be read does not take the rest of the answer with
+# it. The status is the version's.
+result = run(("-h", "-V"), listing=VERSION_ANSWER, path=EMPTY)
+assert result.returncode == 1, result
+assert result.stdout.startswith("Usage:"), result
 assert result.stderr == \
     "error: could not run ubertooth-util: No such file or directory\n", result
 

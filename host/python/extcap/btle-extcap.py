@@ -110,20 +110,23 @@ def with_optional_values(argv):
 
 
 def run_tool(command, **options):
-    """Start one of the Ubertooth tools, or end with an error: line.
+    """Start one of the Ubertooth tools, or report why it could not run.
 
-    A tool that is not on the PATH Wireshark started this script with, or
-    that cannot be executed, would otherwise end the script in a Python
-    traceback. The reason has to arrive in the same one-line form as every
-    other error here, since for a capture that is what Wireshark shows for
-    the interface.
+    Returns None when it could not, having written the reason. A tool that is
+    not on the PATH Wireshark started this script with, or that cannot be
+    executed, would otherwise end the script in a Python traceback. The
+    reason has to arrive in the same one-line form as every other error here,
+    since for a capture that is what Wireshark shows for the interface.
+
+    The caller is left to end the call, rather than this ending it: a -V
+    beside -h still has the usage line to print afterwards.
     """
     try:
         return Popen(command, **options)
     except OSError as err:
         print("error: could not run %s: %s"
               % (command[0], err.strerror or err), file=sys.stderr)
-        sys.exit(1)
+        return None
 
 
 def report_versions():
@@ -148,6 +151,8 @@ def report_versions():
     sys.stdout.flush()
     sys.stderr.flush()
     child = run_tool(['ubertooth-util', '-V'])
+    if child is None:
+        return 1
     status = child.wait()
     # ubertooth-util exits 0 with the whole answer and 1 when part of it could
     # not be read; a child killed by a signal (a negative status here)
@@ -387,7 +392,8 @@ def usage(out=sys.stdout):
     print("Usage: %s --extcap-interfaces |"
           " --extcap-interface=ubertooth<serial>"
           " (--extcap-dlts | --extcap-config |"
-          " --capture --fifo=PATH [--channel=37|38|39])" % sys.argv[0],
+          " --capture --fifo=PATH [--channel=37|38|39]) |"
+          " -V | -h" % sys.argv[0],
           file=out)
 
 
@@ -425,6 +431,9 @@ def list_interfaces():
     # no serial to offer, so it is left out.
     proc = run_tool(['ubertooth-util', '-U', 'all', '-s'],
                     stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    if proc is None:
+        # It said why; with nothing to list the call failed.
+        return 1
     out, errors = proc.communicate()
 
     serials = [m.group(2) for m in
@@ -536,6 +545,10 @@ def capture(interface, fifo, channel):
         "-q", fifo,
         "-A", channel,
     ], stdout=None if fifo == "-" else DEVNULL)
+    if child is None:
+        # It said why; no capture started, which Wireshark reads as a failed
+        # capture and shows the reason for.
+        return 1
     if stop_signal is not None:
         # the signal arrived while the child was starting, so the handler
         # may have run before this name held the child: pass it on here

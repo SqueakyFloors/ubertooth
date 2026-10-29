@@ -2038,6 +2038,15 @@ assert "Traceback" not in errors, errors
 assert errors == \
     "error: could not run ubertooth-util: No such file or directory\n", errors
 
+# and the usage text beside it is still printed, since -h was asked for too:
+# a version that could not be read does not take the rest of the answer with
+# it. The status is the version's.
+status, output, errors = version_ran(("-h", "-V"), path=NO_UTIL_DIR)
+assert status == 1, (status, output, errors)
+assert output.startswith("Usage: ubertooth-btbr"), output
+assert errors == \
+    "error: could not run ubertooth-util: No such file or directory\n", errors
+
 print("ubtbr: -V passes ubertooth-util's answer through")
 
 WORK.cleanup()

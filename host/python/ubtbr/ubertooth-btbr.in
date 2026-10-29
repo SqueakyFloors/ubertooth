@@ -376,8 +376,10 @@ def report_versions(selector=None):
 	it could not read is reported there exactly as the C tools report it.
 	"""
 	command = [VERSION_TOOL, "-V"]
-	if selector:
-		# The board -U named, as ubertooth-util's own -U names it.
+	if selector is not None:
+		# The board -U named, as ubertooth-util's own -U names it, whatever
+		# it was given: what an empty value means is that tool's to say, as
+		# it is for the session this tool opens without -V.
 		command += ["-U", selector]
 	# Nothing of this tool's is waiting in the buffers here, and this keeps
 	# it that way: a line written before the child starts must not land

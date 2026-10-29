@@ -13,9 +13,11 @@ window and no board. Each refusal writes one line starting "error: " to
 standard error, nothing to standard output, and raises ValueError, which the
 script turns into exit 1.
 
-With the script named as well, the same cases are run through it end to end.
-That needs its Qt binding and numpy; where they are missing the script cannot
-start at all, so those runs say so and are skipped.
+With the script named as well, the same cases are run through it end to end,
+along with -h and -V. The script reads its whole command line before the
+window's own imports, so none of those calls needs numpy or a Qt binding, and
+one case shadows both with modules that refuse to import to prove it. Only
+opening the window needs them.
 """
 
 import contextlib
@@ -117,19 +119,15 @@ def run(arguments, environment=None):
                           timeout=60)
 
 
-# --help comes from argparse: standard output, exit 0. It also proves the
-# script's imports are satisfied, which tells a missing third-party module
-# apart from a real failure.
-result = run(["--help"])
-if result.returncode != 0 and "ModuleNotFoundError" in result.stderr:
-    missing = [line for line in result.stderr.splitlines()
-               if "ModuleNotFoundError" in line]
-    print("ubertooth-specan-ui: skipping the end-to-end cases (%s)"
-          % "; ".join(missing))
-    sys.exit(0)
+# -h prints the usage text on standard output and exits 0. The script reads
+# its whole command line before the window's own imports, so this runs on a
+# machine with no numpy and no Qt binding, as every case below does.
+result = run(["-h"])
 assert result.returncode == 0, result
 assert result.stdout.startswith("usage:"), result
 assert result.stderr == "", result
+# --help is the same option
+assert run(["--help"]).stdout == result.stdout, result
 
 for arguments, _call, expected in CASES:
     result = run(arguments)
@@ -239,4 +237,62 @@ assert "Traceback" not in result.stderr, result
 assert result.stderr == \
     "error: could not run ubertooth-util: No such file or directory\n", result
 
+# and the usage text beside it is still printed, since -h was asked for too:
+# a version that could not be read does not take the rest of the answer with
+# it. The status is the version's.
+result = version_run(["-h", "-V"], path=EMPTY_DIRECTORY)
+assert result.returncode == 1, result
+assert result.stdout.startswith("usage:"), result
+assert result.stderr == \
+    "error: could not run ubertooth-util: No such file or directory\n", result
+
 print("ubertooth-specan-ui: -V passes ubertooth-util's answer through")
+
+
+# ---- and none of that needs numpy or a Qt binding -------------------------
+#
+# The window does. The command line does not, and -V least of all: it is how a
+# user says which tools they have, and a Qt binding that is missing or broken
+# is exactly when they would be asked. Both modules are shadowed here by ones
+# that refuse to import, which is what a machine without them looks like to
+# the script.
+
+WITHOUT_GUI = os.path.join(VERSION_WORK.name, "no-gui")
+os.mkdir(WITHOUT_GUI)
+with open(os.path.join(WITHOUT_GUI, "numpy.py"), "w") as refused:
+    refused.write('raise ImportError("numpy is not installed here")\n')
+os.mkdir(os.path.join(WITHOUT_GUI, "qtpy"))
+with open(os.path.join(WITHOUT_GUI, "qtpy", "__init__.py"), "w") as refused:
+    refused.write('raise ImportError("no Qt binding is installed here")\n')
+
+no_gui = dict(ENVIRONMENT,
+              PYTHONPATH=os.pathsep.join([WITHOUT_GUI,
+                                          ENVIRONMENT["PYTHONPATH"]]),
+              PATH=FAKE_DIRECTORY,
+              FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+              FAKE_UTIL_ANSWER=ANSWER,
+              FAKE_UTIL_STATUS="0")
+
+result = run(["-V"], no_gui)
+assert result.returncode == 0, result
+assert result.stdout == ANSWER, result
+assert "ImportError" not in result.stderr, result
+
+result = run(["-h"], no_gui)
+assert result.returncode == 0, result
+assert result.stdout.startswith("usage:"), result
+assert result.stderr == "", result
+
+result = run(["-l", "2000"], no_gui)
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == \
+    "error: frequency of 2000 MHz is below minimum frequency of 2402\n", result
+
+# and a run that does open the window still needs them, which is what says
+# the modules were really out of reach above
+result = run([], no_gui)
+assert result.returncode != 0, result
+assert "numpy is not installed here" in result.stderr, result
+
+print("ubertooth-specan-ui: -V, -h and the refusals need no Qt binding")
