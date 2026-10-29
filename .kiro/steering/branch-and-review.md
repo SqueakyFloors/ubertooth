@@ -152,15 +152,22 @@ Speed matters. Do not wait for every job.
 ## Firmware API version
 
 `UBERTOOTH_API_VERSION` (`host/libubertooth/src/ubertooth_interface.h`, which
-the firmware reports as the USB `bcdDevice`) is bumped **once per firmware
-change the host relies on**, in the PR that makes it.
+the firmware reports as the USB `bcdDevice`) moves **only for a change that
+breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
 
-- A PR that adds, removes or changes a request, or changes the behaviour of an
-  existing one, MUST bump the minor version and update `CHANGELOG.md`,
-  `COMPATIBILITY.md`, `TEST_PLAN.md` and the pinned strings in the tests. The
-  number is BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Host-only PRs
-  MUST NOT touch it. Take the value after whatever `main` carries, re-checking
-  after a rebase.
+- During development a firmware PR MUST NOT bump it. The host tools and the
+  firmware are built, installed and flashed together, and a development build
+  only warns when the two disagree, so an ordinary firmware change -- a new
+  request, a new mode, a fix -- leaves the number where it is. A host-only PR
+  MUST NOT touch it at all: it has no new firmware to pair with, so moving the
+  number only refuses boards that are fine.
+- A PR MUST bump the minor version when the change really does break an older
+  host tool: a request removed or renumbered, a reply or record layout an
+  older host would misread. Say in the PR why it breaks one. Such a PR also
+  updates `CHANGELOG.md`, `COMPATIBILITY.md`, `TEST_PLAN.md` and the pinned
+  strings in the tests, and it is the maintainer who merges it. The number is
+  BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Take the value after
+  whatever `main` carries, re-checking after a rebase.
 - That list is the whole list, because **sample output** writes the version as
   `API:<version>` rather than a number, in the man pages, the README, `docs/`
   and the CHANGELOG alike. Keep it that way: pinning a real value in a sample
@@ -183,9 +190,13 @@ change the host relies on**, in the PR that makes it.
   dropping it is a failure rather than a pass. Run it before pushing; it reads
   files and takes a second.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
-  the value on the branch with `main`'s tip and with their merge base and
-  applies the two halves of the rule above. Run it before pushing: a value
-  that was free when the branch was cut may not be free now.
+  the value on the branch with `main`'s tip and with their merge base. It
+  cannot judge whether a change breaks an older host tool, so it asks what is
+  left: a branch that changes the firmware interface may leave the value as
+  the merge base had it, or take one above `main`'s; a branch that changes no
+  firmware interface file must leave it alone; and only a release takes a
+  major version. Run it before pushing if you are bumping: a value that was
+  free when the branch was cut may not be free now.
 - To decide whether a branch changes the firmware interface, that check
   compares the **content** of a list of files, whole-line comments and blank
   lines not counted: the sources compiled into the two run-time images,
@@ -199,19 +210,16 @@ change the host relies on**, in the PR that makes it.
   conditional on it. A line that merely uses one, such as the link command
   that passes `$(LINKER_SCRIPT)` to the linker, and a longer name that begins
   with a watched one, such as `LINKER_SCRIPT_DIRS`, do not count.
-  It is an approximation, so it is not the rule, the paragraph above is. A
-  firmware change the host relies on that touches nothing on that list still
-  needs the bump by hand, and a change to a watched file that the host cannot
-  observe is still asked for one. The false reds to expect: a change to one of
-  the images' sources the host never reads, such as the LED patterns or the
-  debug UART, and code moved verbatim between two watched files. The interface
-  header's BTBR and BTCTL half is not one of them: `btbr` reports this same
-  version, so a change there is as real an interface change as any other.
-- So `api-version` is the one job in the gating set whose red is sometimes
-  wrong. If it refuses a branch that changes nothing the host sees, do NOT
-  bump the version to clear it and do NOT edit the watched list to suit one
-  branch: say on the PR which files it named and why none of them changes
-  what the host sees, and leave it for the maintainer to merge red.
+  It is an approximation, so it is not the rule, the paragraph above is. All
+  it decides is whether a branch is ALLOWED to bump: a change to a watched
+  file the host cannot observe now costs nothing, because a branch that takes
+  no new version passes either way, and the interface header's BTBR and BTCTL
+  half is watched like the rest, since `btbr` reports this same version.
+- The one false red left is the other direction: a change that breaks an older
+  host tool from a file the check does not watch. Its bump is then refused as
+  though the branch were host-only. Do NOT edit the watched list to suit one
+  branch: say on the PR what changed and why an older host tool would misread
+  it, and leave it for the maintainer to merge red.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).

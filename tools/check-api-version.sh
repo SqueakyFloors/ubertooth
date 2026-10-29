@@ -1,16 +1,25 @@
 #!/bin/sh
-# Fail when a branch claims a firmware API version main has already taken, or
-# when a branch with no firmware change moves it at all.
+# Fail when a branch bumps the firmware API version to a value main has
+# already taken, when a branch with no firmware change moves it at all, or
+# when either takes a major version a release reserves.
 #
 # The rule is in .kiro/steering/branch-and-review.md, "Firmware API version".
 # The host accepts firmware of exactly UBERTOOTH_API_VERSION, which both
-# run-time images report as their USB bcdDevice, so a branch that changes the
-# host-facing interface of either has to take a version main has not used.
-# Two branches cut from the same main each picked the next value; one merged,
-# and the other was then claiming a version whose firmware was already in the
-# tree. Had it landed, tools built from it would have accepted a board still
-# carrying the older image -- the one thing this version exists to prevent.
-# Nothing noticed either time, because the rule was checked by hand.
+# run-time images report as their USB bcdDevice. Host tools and firmware are
+# built, installed and flashed together, and a development build only warns
+# when the two disagree, so an ordinary firmware change takes no new version.
+# The version moves for a change that breaks older host tools -- a request
+# removed or renumbered, a reply layout an older host would misread -- and
+# once more at each release. A bump is therefore the branch's decision, and
+# what is left for a check is the part a branch cannot see: a bump it does
+# take has to be a value main has not used.
+#
+# That is what went wrong twice by hand. Two branches cut from the same main
+# each picked the next value; one merged, and the other was then claiming a
+# version whose firmware was already in the tree. Had it landed, tools built
+# from it would have accepted a board still carrying the older image -- the
+# one thing this version exists to prevent. Nothing noticed either time,
+# because the rule was checked by hand.
 #
 # Run it from anywhere in a checkout:
 #
@@ -28,11 +37,12 @@
 #
 # and applies one rule:
 #
-#   - HEAD changes a firmware interface file: cur must be GREATER than mainv.
-#     Greater than mainv, not than base, because main moves while a branch is
-#     open. The collision described above is exactly the case where cur is
-#     above base and equal to mainv, so comparing with the merge base is what
-#     let it through.
+#   - HEAD changes a firmware interface file: cur may EQUAL base, which is the
+#     ordinary case and takes no new version, or it may be GREATER than mainv,
+#     which is a deliberate bump. Greater than mainv, not than base, because
+#     main moves while a branch is open. The collision described above is
+#     exactly the case where cur is above base and equal to mainv, so
+#     comparing with the merge base is what let it through.
 #   - HEAD changes none of them: cur must EQUAL base. A host-only change has
 #     no new firmware to pair with, so moving the version only refuses boards
 #     that are fine.
@@ -52,20 +62,26 @@
 #
 # "Changes a firmware interface file" is an approximation, because CI cannot
 # judge behaviour: it is a change to the content of one of the files listed
-# below, comments and blank lines not counted. So the next reader knows which
-# way each half of it is wrong:
+# below, comments and blank lines not counted. Now that a firmware change
+# takes no version of its own, all the approximation decides is whether a
+# branch is ALLOWED to bump: a branch that bumps without one is refused,
+# because the version it moves pairs the host with firmware it has not got.
+# So the next reader knows which way each half of it is wrong:
 #
 #   - It misses a firmware change the host relies on that is made somewhere
-#     else. firmware/common.mk is half covered: the compile flags that decide
+#     else, and a branch that has to bump for such a change is then refused as
+#     though it were host-only. That is the one false red left, and the message
+#     for it says what to do: say so on the pull request and let the maintainer
+#     merge it red. firmware/common.mk is half covered: the compile flags that decide
 #     what the host sees are watched one by one (see watched_flags below), and
 #     the rest of that file -- where object files go, the warning flags, the
 #     rules -- is not.
 #   - It calls changes interface changes that are not. Two kinds: a change to
 #     one of the images' sources that the host never reads, the LED patterns,
 #     the debug UART and tinyprintf among them; and code moved verbatim
-#     between two watched files. Each is a false red on a gating job, and the
-#     way out is the maintainer merging it red, not a version nobody needs;
-#     the message below says so.
+#     between two watched files. Neither costs a red any more: such a branch
+#     takes no new version and passes. All it means is that a bump would have
+#     been allowed had the branch wanted one.
 #   - It cannot see two open branches claiming the same value, since neither
 #     is wrong until the other merges. The second goes red as soon as the
 #     first lands, and the push-to-main leg of the job catches it even if the
@@ -89,17 +105,19 @@ usage() {
 usage: tools/check-api-version.sh [main-ref]
        tools/check-api-version.sh --list-watched
 
-Check UBERTOOTH_API_VERSION on this branch against main: a branch that changes
-the firmware interface must take a version above main's, and a branch that
-does not must leave it as the merge base had it. Neither may take a major
-version (minor digits 00), which a release reserves; a release is the one
-exception, and it takes the next major on its own.
+Check UBERTOOTH_API_VERSION on this branch against main. A firmware change
+takes no new version -- the version moves only for a change that breaks older
+host tools -- so a branch that changes the firmware interface may leave it as
+the merge base had it, and a branch that does bump it must take a value above
+main's. A branch that changes no firmware interface file must leave it alone.
+Neither may take a major version (minor digits 00), which a release reserves;
+a release is the one exception, and it takes the next major on its own.
 
 main-ref is the commit to treat as main's tip, and defaults to the remote this
 checkout tracks main from, then origin/main.
 
---list-watched prints the files a change to which asks for a new version, and
-reads no commit, so it takes no main-ref. One of them, firmware/common.mk, is
+--list-watched prints the files a change to which lets a branch take a new
+version, and reads no commit, so it takes no main-ref. One of them, firmware/common.mk, is
 read a line at a time: only the lines that set one of the compile flags listed
 in this script count -- an assignment to one, a -D or -U flag naming one, or a
 conditional on one -- and every other line of it is ignored.
@@ -148,7 +166,8 @@ EOF
 # the tree, rather than as git pathspecs. Pathspec globbing is not the same
 # command to command -- the wildcards that select these files for `git diff`
 # select nothing for `git ls-tree` -- and a list that silently comes back
-# empty is the answer that asks for no bump.
+# empty would read every branch as host-only, which refuses the bumps that
+# are real.
 #
 # Every source arm reaches any depth, so none stops at a directory separator:
 # firmware/common/ has to reach lpcusb/target/, where the shared USB sources
@@ -397,10 +416,11 @@ changed_names() {
 #
 # Only a whole-line comment, though. A comment that follows code, a comment
 # body whose /* opened after code on an earlier line, and a re-indentation all
-# read as content, so each counts as the firmware change that would justify a
-# bump. The cost runs both ways: a reworded trailing comment asks for a bump
-# nobody needed, and a branch that wanted one could take it by editing a
-# trailing comment in any watched file. Reading further would mean lexing C,
+# read as content, so each counts as a firmware change. Now that a firmware
+# change takes no version of its own, reading a reworded trailing comment as
+# one costs nothing; what it leaves is a branch that wanted a version it may
+# not have being able to let itself bump by editing a trailing comment in any
+# watched file. Reading further would mean lexing C,
 # and a /* inside a string literal -- never alone on its line -- would then be
 # mistaken for the start of a comment and swallow real code until the next */.
 # Ignoring whitespace would retire the re-indentation half, but one of the
@@ -408,8 +428,8 @@ changed_names() {
 # line a recipe, so whitespace there is content.
 #
 # What this does not weaken is the rule's point. The branch that has to be
-# refused is the one that changed the firmware and kept the version, and for
-# that the filter only has to notice real code changes, which it does.
+# refused is the one that moves the version with no firmware change behind it,
+# and for that the filter only has to notice real code changes, which it does.
 strip_noninterface() {
     awk '
     # Inside a block comment that began on an earlier line.
@@ -456,7 +476,7 @@ strip_noninterface() {
 # That filtered text for one file at one commit, empty when the commit does
 # not have the file, so adding or removing one shows up as a difference. A
 # git show that fails is a failure rather than an empty answer: empty is the
-# answer that asks for no bump.
+# answer that reads the branch as host-only.
 interface_text() {
     git cat-file -e "$1:$2" 2> /dev/null || return 0
     text=$(git show "$1:$2") || return 1
@@ -473,7 +493,8 @@ interface_text() {
         # grep exits 1 when nothing matched, and here that is an answer rather
         # than a failure: this commit sets none of the watched flags. Anything
         # above 1 is a real failure, an unreadable pattern file above all, and
-        # must not pass as that answer: empty is what asks for no bump.
+        # must not pass as that answer: empty is what reads the branch as
+        # host-only.
         printf '%s\n' "$text" | grep -v '^[[:space:]]*#[[:space:]]' |
             collapse_blanks | grep -E -f "$work/patterns"
         matched=$?
@@ -655,7 +676,7 @@ top=$(git rev-parse --show-toplevel 2> /dev/null) || {
 }
 cd "$top" || exit 1
 
-# The files a change to which asks for a bump, so a reader -- and the
+# The files a change to which lets a branch bump, so a reader -- and the
 # self-test -- can see what the check is watching rather than trust that the
 # pathspecs above still match anything.
 if [ "$list_watched" = yes ]; then
@@ -719,15 +740,15 @@ fi
 
 # Which watched files this branch really changes. Every one is compared by
 # content with the comments and blank lines taken out, rather than by whether
-# the branch touched its path, so a comment appended to a firmware source does
-# not read as the firmware change that would justify a bump.
+# the branch touched its path, so a comment appended to a firmware source
+# cannot be the firmware change a bump needs behind it.
 #
 # Comparing files this way rather than reading `git diff` output is also what
 # keeps the answer independent of this checkout's configuration. A diff is a
 # display format: color.ui = always colorises it even when nothing is a
 # terminal, and diff.external replaces it altogether, either of which would
-# leave a line-matching filter finding no changes and reporting the permissive
-# answer. There is no format to get wrong here.
+# leave a line-matching filter finding no changes and reading every branch as
+# host-only. There is no format to get wrong here.
 #
 # Everything in this script fails rather than guesses, this included: a git
 # command that went wrong must not come back as an empty list.
@@ -743,8 +764,8 @@ watched_flags > "$work/flags" || exit 1
 }
 
 # And the patterns that find each of them being set, written once for the same
-# reason. Empty is the answer that asks for no bump, so an empty pattern file
-# is a failure rather than a pass.
+# reason. Empty is the answer that reads the branch as host-only, so an empty
+# pattern file is a failure rather than a pass.
 name_patterns > "$work/patterns" || exit 1
 [ -s "$work/patterns" ] || {
     echo "error: the watched flag list produced no patterns, so a change to a" >&2
@@ -755,9 +776,9 @@ name_patterns > "$work/patterns" || exit 1
 # And a floor on what those patterns find, because having patterns is not the
 # same as their matching anything. The build file does set these flags, so a
 # pattern list that finds none of them has stopped reading the file -- and the
-# filtered text would then be empty at both commits, compare equal, and ask
-# for no bump. That is the one shape of wrongness this script is meant not to
-# have, so it says so instead.
+# filtered text would then be empty at both commits, compare equal, and read
+# the file as unchanged whatever a branch did to it. A check that has stopped
+# reading what it is meant to read says so instead.
 if git cat-file -e "$head_commit:$common_mk" 2> /dev/null; then
     interface_text "$head_commit" "$common_mk" > "$work/mk.head" || {
         printf 'error: could not read %s at HEAD\n' "$common_mk" >&2
@@ -792,8 +813,8 @@ watched_at "$head_commit" "$work/head.list" || {
 # comm writes to a file and its status is read, rather than the two being one
 # pipeline ending in a tolerated failure. A pipeline's status is its last
 # command's, so a comm or sort that went wrong would have come back as an
-# empty list of changed files, which is the answer that asks for no bump --
-# the one shape of wrongness this script is meant not to have. comm exits
+# empty list of changed files, which reads the branch as host-only and
+# refuses a bump it is entitled to. comm exits
 # non-zero on input it finds out of order, which is a real possibility rather
 # than a theoretical one: that is what LC_ALL above is for, and if the two
 # ever disagree again this says so instead of passing the branch.
@@ -933,6 +954,23 @@ say_free_is_major() {
 }
 
 if [ -n "$changed" ]; then
+    # The ordinary case: a firmware change that takes no new version. The host
+    # tools and the firmware are built, installed and flashed together, and a
+    # development build only warns when the two disagree, so the number is
+    # worth moving only when an older host tool would misread a board -- which
+    # is a judgement about behaviour, so the branch makes it and says why on
+    # the pull request.
+    #
+    # Equal to the merge base, not to main's: main may have bumped since this
+    # branch was cut, and following that value would pair this branch's host
+    # tools with firmware it knows nothing about.
+    if [ "$cur_digits" = "$base_digits" ]; then
+        echo "check-api-version: this branch changes the firmware interface and"
+        echo "leaves UBERTOOTH_API_VERSION at $cur_pretty, as the merge base had it."
+        echo "No bump taken: the version moves only for a change that breaks older host tools."
+        echo "$compared; main has $main_pretty."
+        exit 0
+    fi
     if [ "$(( 0x$cur_digits ))" -gt "$(( 0x$main_digits ))" ] &&
         { [ "$(( cur_decimal % 100 ))" -ne 0 ] || [ "$release_shaped" = yes ]; }; then
         echo "check-api-version: this branch changes the firmware interface and"
@@ -963,25 +1001,27 @@ if [ -n "$changed" ]; then
                 echo ""
                 say_free_is_major
             fi
-            # The same list the message below prints, because the same escape
-            # applies: the branch may not need any bump at all, and a reader
-            # told only that the value is reserved would take the next minor
-            # instead of asking whether the red is real.
+            # The same list the message below prints, because the same way out
+            # applies: the branch may need no bump at all, and a reader told
+            # only that the value is reserved would take the next minor
+            # instead of asking whether a bump is needed.
             echo ""
             echo "       The firmware interface files this branch changes:"
             printf '%s\n' "$changed" | sed 's/^/         /'
             echo ""
-            echo "       If none of them change what the host sees, this is a"
-            echo "       false red: put the version back to 0x$base_digits, say so on"
-            echo "       the pull request, and let the maintainer merge with this"
-            echo "       job red, rather than taking any new version."
+            echo "       If none of them break older host tools, then simply"
+            echo "       put the version back to 0x$base_digits and this check is green:"
+            echo "       a firmware change needs no version of its own."
             echo "       tools/check-api-version.sh --list-watched prints the list."
         } >&2
         exit 1
     fi
+    # A branch that moved the version to a value that is not above main's. It
+    # may bump, because it changes the firmware, but a value main has already
+    # shipped pairs its host tools with an image that is already out there.
     {
-        echo "error: this branch changes the firmware interface, so"
-        echo "       UBERTOOTH_API_VERSION has to be above the one main carries."
+        echo "error: this branch bumps UBERTOOTH_API_VERSION, so the value it takes"
+        echo "       has to be above the one main carries."
         echo ""
         echo "         at HEAD:   $cur_pretty"
         echo "         on main:   $main_pretty"
@@ -1003,6 +1043,13 @@ if [ -n "$changed" ]; then
         echo "       so reusing one main has already shipped lets tools built from"
         echo "       this branch accept a board carrying the older image."
         echo ""
+        echo "       Or take no new version: put it back to 0x$base_digits, as the merge"
+        echo "       base had it. A firmware change needs no version of its own,"
+        echo "       because the host tools and the firmware are built and flashed"
+        echo "       together; the version moves for a change that breaks older"
+        echo "       host tools, such as a request removed or renumbered, or a"
+        echo "       reply layout an older host would misread."
+        echo ""
         echo "       The firmware interface files this branch changes:"
         printf '%s\n' "$changed" | sed 's/^/         /'
         if [ -n "$flag_names" ]; then
@@ -1023,14 +1070,9 @@ if [ -n "$changed" ]; then
             fi
         fi
         echo ""
-        echo "       If none of them change what the host sees, this is a false"
-        echo "       red. The usual reasons: the file is compiled into an image"
-        echo "       but the host never reads it, such as the LED patterns or the"
-        echo "       debug UART; the code was moved verbatim between two of"
-        echo "       these files; or the line that changed in firmware/common.mk"
-        echo "       sets a flag the host cannot observe. Say so on the pull"
-        echo "       request and let the maintainer merge with this job red,"
-        echo "       rather than taking a version nobody needs."
+        echo "       They are what a bump would be for. Some of them the host"
+        echo "       never reads, the LED patterns and the debug UART among them:"
+        echo "       watched here, and nothing an older host tool could notice."
         echo "       tools/check-api-version.sh --list-watched prints the list."
     } >&2
     exit 1
@@ -1077,8 +1119,9 @@ fi
     echo "       (minor digits 00) with CHANGELOG.md, COMPATIBILITY.md and"
     echo "       TEST_PLAN.md moving with it."
     echo ""
-    echo "       If this branch does change what the host sees, it changes it"
-    echo "       somewhere tools/check-api-version.sh does not watch; say so on"
-    echo "       the pull request."
+    echo "       If this branch does change the firmware, it changes it somewhere"
+    echo "       tools/check-api-version.sh does not watch, which is the one false"
+    echo "       red this check still has: say so on the pull request and let the"
+    echo "       maintainer merge with this job red."
 } >&2
 exit 1

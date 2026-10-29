@@ -4,12 +4,20 @@
 #
 #     tools/check-api-version-selftest.sh
 #
-# The check it exercises guards a rule that cost three nights of hand-checking
-# and still let two pull requests claim a version main had taken, so it has to
-# be right in both directions: refusing a good branch is as bad as passing a
-# bad one, because a check that cries wolf gets ignored. Each case below builds
-# a throwaway repository, puts a branch in one of the shapes the rule names,
-# and asserts the status and the message.
+# The rule it exercises: a firmware change takes no new version of its own,
+# because the host tools and the firmware are built and flashed together and
+# the version moves only for a change that breaks older host tools. So a
+# branch that changes the firmware interface may leave the version as the
+# merge base had it, and a branch that does bump it has to take a value main
+# has not used. A branch with no firmware change leaves it alone, and only a
+# release takes a major version.
+#
+# The collision half of that cost three nights of hand-checking and still let
+# two pull requests claim a version main had taken, so the check has to be
+# right in both directions: refusing a good branch is as bad as passing a bad
+# one, because a check that cries wolf gets ignored. Each case below builds a
+# throwaway repository, puts a branch in one of the shapes the rule names, and
+# asserts the status and the message.
 #
 # The header the cases read from is a copy of the real
 # host/libubertooth/src/ubertooth_interface.h, so the value is parsed out of
@@ -207,21 +215,23 @@ want_no_stderr() {
     return 0
 }
 
-# A branch that changes the firmware interface and leaves the version where
-# main already has it: the collision this check exists for.
+# The ordinary development branch: it changes the firmware interface and takes
+# no new version. Nothing about that pairs the host with firmware it has not
+# got, so it passes, and the note says a bump is for a change that breaks
+# older host tools.
 new_repo 0x0131
 edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
 commit "$repo" "change the firmware, keep the version"
-run "firmware changed, version is main's" "$repo" main
-want_status 1
-want_empty_stdout
-want_stderr "has to be above the one main carries"
-want_stderr "at HEAD:   1.31 (0x0131)"
-want_stderr "on main:   1.31 (0x0131)"
-want_stderr "next free: 0x0132"
-want_stderr "firmware/bluetooth_rxtx/bluetooth_rxtx.c"
+run "firmware changed, no bump taken" "$repo" main
+want_status 0
+want_empty_stderr
+want_stdout "changes the firmware interface"
+want_stdout "1.31 (0x0131), as the merge base had it"
+want_stdout "No bump taken"
+want_stdout "breaks older host tools"
 
-# The same branch with the version bumped.
+# The same branch with a deliberate bump, which is still allowed and still has
+# to take a value main has not used.
 set_version "$repo" 0x0132
 commit "$repo" "take the next version"
 run "firmware changed, version bumped" "$repo" main
@@ -245,9 +255,13 @@ git -C "$repo" checkout -q work
 run "main moved to the value this branch claims" "$repo" main
 want_status 1
 want_empty_stdout
+want_stderr "has to be above the one main carries"
 want_stderr "at HEAD:   1.31 (0x0131)"
 want_stderr "on main:   1.31 (0x0131)"
 want_stderr "next free: 0x0132"
+want_stderr "firmware/bluetooth_rxtx/bluetooth_rxtx.c"
+# The other way out, now that a firmware change needs no version of its own.
+want_stderr "put it back to 0x0130"
 
 # Rebasing it onto that main and taking the next value is what fixes it.
 set_version "$repo" 0x0132
@@ -330,10 +344,17 @@ want_stderr "0x012a, which is not"
 want_stderr "binary-coded decimal"
 
 # Which is why the suggested value carries the BCD rather than hex: after 1.39
-# comes 1.40.
-new_repo 0x0139
+# comes 1.40. The suggestion appears only where a branch bumped, so this one
+# takes a value main took while it was open.
+new_repo 0x0138
 edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
-commit "$repo" "change the firmware, keep the version"
+set_version "$repo" 0x0139
+commit "$repo" "change the firmware and take 0x0139"
+git -C "$repo" checkout -q main
+edit "$repo" firmware/common/usb.c
+set_version "$repo" 0x0139
+commit "$repo" "another branch took it first"
+git -C "$repo" checkout -q work
 run "the next value rolls over" "$repo" main
 want_status 1
 want_stderr "next free: 0x0140"
@@ -343,9 +364,15 @@ want_stderr "next free: 0x0140"
 # release may take, so the branch has no value free. The check still names the
 # next value -- the arithmetic is worth seeing -- and then says this branch
 # cannot have it, rather than suggesting a value it would refuse.
-new_repo 0x0199
+new_repo 0x0198
 edit "$repo" firmware/common/usb.c
-commit "$repo" "change shared firmware code, keep the version"
+set_version "$repo" 0x0199
+commit "$repo" "change shared firmware code and take the last minor"
+git -C "$repo" checkout -q main
+edit "$repo" firmware/common/usb.c
+set_version "$repo" 0x0199
+commit "$repo" "another branch took it first"
+git -C "$repo" checkout -q work
 run "the next value rolls into the next major version" "$repo" main
 want_status 1
 want_stderr "next free: 0x0200"
@@ -364,15 +391,17 @@ want_status 0
 want_stdout "no firmware interface file changed"
 
 # The btbr image is. It reports this same version as its bcdDevice, so a
-# change to its sources is a change to firmware a host is paired with, and it
-# has to take a version of its own.
+# change to its sources is a change to firmware a host is paired with, and the
+# check reads it as one rather than as a host-only change. Which message a
+# case gets is what says whether the file is watched: a watched file changed
+# says "changes the firmware interface", an unwatched one says "no firmware
+# interface file changed".
 new_repo 0x0131
 edit "$repo" firmware/btbr/src/btbr.c
 commit "$repo" "change the btbr image and keep the version"
 run "the btbr image is the interface" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "firmware/btbr/src/btbr.c"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # The interface header on its own counts as a firmware change: the request
 # numbers and the shared structs live there.
@@ -385,14 +414,16 @@ want_status 0
 want_stdout "changes the firmware interface"
 want_stdout "takes 1.32 (0x0132)"
 
-# The same request added without taking a new version.
+# The same request added without taking a new version, which is the ordinary
+# case: a request added takes nothing away from an older host tool.
 new_repo 0x0131
 printf '#define UBERTOOTH_SOMETHING_NEW 99\n' >> "$repo/$header_path"
 commit "$repo" "add a request and keep the version"
 run "a new request in the interface header, version kept" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "$header_path"
+want_status 0
+want_empty_stderr
+want_stdout "changes the firmware interface"
+want_stdout "No bump taken"
 
 # A comment after the value is not part of it.
 new_repo 0x0131
@@ -471,9 +502,8 @@ new_repo 0x0131
 edit "$repo" firmware/bluetooth_rxtx/Makefile
 commit "$repo" "change which sources the image is built from"
 run "the image's Makefile is a firmware change" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "firmware/bluetooth_rxtx/Makefile"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # firmware/common.mk carries the compile flags, so a change to one of the few
 # that decide what the host sees is a firmware change with no source change at
@@ -483,13 +513,11 @@ new_repo 0x0131
 mk_edit "$repo" "BOARD  ?= UBERTOOTH_ONE" "BOARD ?= UBERTOOTH_ZERO"
 commit "$repo" "build for the other board"
 run "a watched compile flag changed, version kept" "$repo" main
-want_status 1
-want_empty_stdout
-want_stderr "has to be above the one main carries"
-want_stderr "$common_mk"
-want_stderr "BOARD"
+want_status 0
+want_empty_stderr
+want_stdout "changes the firmware interface"
 
-# The same change with the bump it asks for.
+# The same change with a bump, which such a branch is allowed to take.
 set_version "$repo" 0x0132
 commit "$repo" "take the next version"
 run "a watched compile flag changed, version bumped" "$repo" main
@@ -503,9 +531,8 @@ new_repo 0x0131
 mk_edit "$repo" "ifeq (\$(DISABLE_TX), )" "ifneq (\$(DISABLE_TX), )"
 commit "$repo" "stop building transmission in"
 run "the transmission flag changed, version kept" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "DISABLE_TX"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # A flag that is commented out counts, because uncommenting it is the change.
 # -fpack-struct repacks the structs the host and the firmware both compile out
@@ -515,9 +542,8 @@ new_repo 0x0131
 mk_edit "$repo" "#CFLAGS += -fpack-struct" "CFLAGS += -fpack-struct"
 commit "$repo" "pack the structs"
 run "a commented-out flag turned on, version kept" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "-fpack-struct"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # Every other line of the file is ignored. The optimisation level is the shape
 # of the change this watch is narrowed for: the one merge that changed this
@@ -571,10 +597,15 @@ want_stdout "no firmware interface file changed"
 # A define added straight to a CFLAGS line reaches every firmware source, the
 # same as one added through CDEFS, and the file already does that with
 # -D__thumb2__=1. So the -D itself is watched, wherever it is written.
+#
+# This branch also moves the version below main's, which is the one shape that
+# refuses a firmware branch -- and the only one that prints which flags the
+# check read, so it is where that part of the message is exercised.
 new_repo 0x0131
 printf 'CFLAGS += -DEXTRA_HOST_FACING_REQUESTS\n' >> "$repo/$common_mk"
-commit "$repo" "define something for every firmware source"
-run "a define added straight to a flags line, version kept" "$repo" main
+set_version "$repo" 0x0130
+commit "$repo" "define something for every firmware source and go backwards"
+run "a define added straight to a flags line, bumped below main" "$repo" main
 want_status 1
 want_empty_stdout
 want_stderr "has to be above the one main carries"
@@ -584,8 +615,9 @@ want_stderr "-D"
 want_stderr "+ CFLAGS += -DEXTRA_HOST_FACING_REQUESTS"
 
 # Two watched lines swapped changes no flag's own setting, but it does change
-# the file the check reads, so it is refused -- and the message has to say
-# which lines, which it can only do by reading what the check compared.
+# the file the check reads, so it counts as a firmware change -- and the
+# message has to say which lines, which it can only do by reading what the
+# check compared. The version goes backwards here so that message is printed.
 new_repo 0x0131
 awk '/^#CFLAGS \+= -fpack-struct$/ { held = $0; next }
      held != "" { print; print held; held = ""; next }
@@ -596,7 +628,8 @@ cmp -s "$repo/$common_mk" "$real_common_mk" && {
     printf '%s\n' "       moves has changed shape" >&2
     exit 1
 }
-commit "$repo" "swap two flag lines"
+set_version "$repo" 0x0130
+commit "$repo" "swap two flag lines and go backwards"
 run "two watched lines swapped" "$repo" main
 want_status 1
 want_stderr "has to be above the one main carries"
@@ -666,10 +699,10 @@ for case_pair in \
     mk_edit "$repo" "$old" "$new"
     commit "$repo" "change a watched compile flag"
     run "a watched line is still read: $new" "$repo" main
-    want_status 1
-    want_empty_stdout
-    want_stderr "has to be above the one main carries"
-    want_stderr "$common_mk"
+    want_status 0
+    want_empty_stderr
+    want_stdout "changes the firmware interface"
+    want_no_stdout "no firmware interface file changed"
 done
 
 # And the floor under all of it: having patterns is not the same as their
@@ -688,12 +721,14 @@ want_stderr "have stopped matching"
 
 # The other direction, so the matching above cannot have narrowed to nothing:
 # changing which script the image is laid out with is still a firmware change,
-# and it is the one line of the four that assigns LINKER_SCRIPT itself.
+# and it is the one line of the four that assigns LINKER_SCRIPT itself. The
+# version goes backwards so the refusal names the flag it read.
 new_repo 0x0131
 mk_edit "$repo" "LINKER_SCRIPT ?= LPC17xx_Linker_Script_with_bootloader.ld" \
     "LINKER_SCRIPT ?= LPC17xx_Linker_Script.ld"
-commit "$repo" "lay the image out without the bootloader"
-run "the linker script setting changed, version kept" "$repo" main
+set_version "$repo" 0x0130
+commit "$repo" "lay the image out without the bootloader and go backwards"
+run "the linker script setting changed, version below main's" "$repo" main
 want_status 1
 want_empty_stdout
 want_stderr "has to be above the one main carries"
@@ -706,16 +741,15 @@ new_repo 0x0131
 edit "$repo" firmware/common/LPC17xx_Linker_Script_with_bootloader.ld
 commit "$repo" "change the memory layout"
 run "the image's linker script is a firmware change" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "LPC17xx_Linker_Script_with_bootloader.ld"
+want_status 0
+want_stdout "changes the firmware interface"
 
 new_repo 0x0131
 edit "$repo" firmware/common/sections.ld
 commit "$repo" "change the sections the linker script includes"
 run "the included sections file is a firmware change" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # The bootloader's own linker script is not: firmware/common holds four and
 # this image uses two of them.
@@ -732,9 +766,8 @@ new_repo 0x0131
 edit "$repo" firmware/common/lpcusb/target/usbhw_lpc.c
 commit "$repo" "change the shared USB code"
 run "the lpcusb sources are part of the image" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "lpcusb/target/usbhw_lpc.c"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # A comment appended to a firmware source is not a firmware change, in either
 # direction. This is the bypass one directory below the README: a comment in a
@@ -784,7 +817,10 @@ want_status 0
 want_stdout "no firmware interface file changed"
 
 # Commenting an existing request out is a change to the interface, though: the
-# filter drops the lines, so the header it compares has lost them.
+# filter drops the lines, so the header it compares has lost them. A request
+# taken away is the kind of change a bump is for, but which changes break an
+# older host tool is a judgement the branch makes, so the check reads this as
+# a firmware change and leaves the number to the branch.
 new_repo 0x0131
 git -C "$repo" checkout -q main
 printf '#define UBERTOOTH_SOMETHING 98\n' >> "$repo/$header_path"
@@ -795,8 +831,8 @@ sed 's|^#define UBERTOOTH_SOMETHING 98|/*\n#define UBERTOOTH_SOMETHING 98\n*/|' 
 mv "$repo/h.new" "$repo/$header_path"
 commit "$repo" "comment that request out"
 run "commenting a request out is an interface change" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # firmware/Makefile picks which images to build, not how any of them is
 # compiled, so it is not the interface.
@@ -1000,14 +1036,13 @@ git -C "$repo" checkout -q -B work
 edit "$repo" firmware/bluetooth_rxtx/src/helper.c
 commit "$repo" "change the nested source, keep the version"
 run "a source in a subdirectory of the image counts" "$repo" main
-want_status 1
-want_stderr "has to be above the one main carries"
-want_stderr "firmware/bluetooth_rxtx/src/helper.c"
+want_status 0
+want_stdout "changes the firmware interface"
 
 # The answer must not depend on how this checkout happens to be configured to
 # display a diff. color.ui = always colorises even when nothing is a terminal
 # and diff.external replaces the format altogether, either of which would make
-# a line-matching filter see no change and report the permissive answer.
+# a line-matching filter see no change and read the branch as host-only.
 for setting in "color.ui always" "diff.external /bin/echo" "diff.noprefix true"; do
     new_repo 0x0131
     # shellcheck disable=SC2086 # two words, a git config key and its value
@@ -1015,8 +1050,9 @@ for setting in "color.ui always" "diff.external /bin/echo" "diff.noprefix true";
     printf '#define UBERTOOTH_SOMETHING_NEW 99\n' >> "$repo/$header_path"
     commit "$repo" "add a request to the interface"
     run "an interface change is found with $setting set" "$repo" main
-    want_status 1
-    want_stderr "has to be above the one main carries"
+    want_status 0
+    want_stdout "changes the firmware interface"
+    want_no_stdout "no firmware interface file changed"
 done
 
 # --list-watched prints what the check watches, so a reader does not have to
@@ -1135,4 +1171,4 @@ if [ "$failures" -ne 0 ]; then
     printf '%s\n' "error: $failures of the API version check's cases did not hold" >&2
     exit 1
 fi
-printf '%s\n' "check-api-version.sh refuses a claimed or stray version and passes the rest."
+printf '%s\n' "check-api-version.sh refuses a claimed or stray version, lets a firmware change take none, and passes the rest."
