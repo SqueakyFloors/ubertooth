@@ -2106,22 +2106,48 @@ MU_TEST(an_overdue_estimate_skips_whole_intervals_and_counts_them)
  */
 MU_TEST(the_overdue_test_holds_across_the_counters_wrap)
 {
+	const uint32_t interval = 24 * 12500;
+
 	/* An anchor just below the counter's end, and a reading just above its
-	 * start: half an interval has gone by, over the wrap. */
-	anchored_connection(0xffffffffu - (24 * 12500) / 2);
+	 * start: half an interval has gone by, over the wrap. Nothing is skipped
+	 * -- the next event is still half an interval ahead -- which is the half
+	 * of the comparison that a difference read as unsigned would get wrong,
+	 * by 429 seconds. */
+	anchored_connection(0u - interval / 2);
 	conn_event.num_packets = 0;
 	conn_event.opened = 1;
-	fake_t1tc = (24 * 12500) / 2;
+	fake_t1tc = interval / 2;
 
 	finish_conn_event();
 
-	/* One interval on from the anchor, and nothing skipped: the next event
-	 * is still half an interval ahead. */
-	mu_assert_int_eq((uint32_t)(0xffffffffu - (24 * 12500) / 2) +
-	                 24 * 12500, conn.last_anchor);
+	mu_assert_int_eq((uint32_t)(0u - interval / 2) + interval,
+	                 conn.last_anchor);
 	mu_assert_int_eq(5 + 1, conn.conn_event_counter);
-	mu_assert_int_eq(conn.last_anchor + 24 * 12500 - RX_WARMUP_TIME,
+	mu_assert_int_eq(conn.last_anchor + interval - RX_WARMUP_TIME,
 	                 fake_t1mr0);
+
+	/* And the other half: the same wrap with two and a half intervals gone,
+	 * so the estimate is overdue and whole intervals are skipped across the
+	 * end of the counter. */
+	anchored_connection(0u - interval / 2);
+	conn.hop_increment = 7;
+	conn.channel_idx = 1;
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+	fake_t1tc = interval / 2 + 2 * interval;
+
+	finish_conn_event();
+
+	/* The closed event took the estimate one interval on, and two more were
+	 * skipped to get ahead of the counter. */
+	mu_assert_int_eq((uint32_t)(0u - interval / 2) + 3 * interval,
+	                 conn.last_anchor);
+	mu_assert_int_eq(5 + 1 + 2, conn.conn_event_counter);
+	mu_assert_int_eq((1 + 2 * 7) % 37, conn.channel_idx);
+	mu_assert_int_eq(conn.last_anchor + interval - RX_WARMUP_TIME,
+	                 fake_t1mr0);
+	mu_assert((int32_t)(fake_t1mr0 - fake_t1tc) > 0,
+	          "the next event was armed behind the counter");
 }
 
 /*

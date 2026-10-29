@@ -165,8 +165,10 @@ void watchdog_intent(uint8_t intent);
 
 /*
  * Count one capture transfer error: the DMA controller reported an error on
- * the channel a capture receives into, so the packet being received is lost
- * and the mode has to drain the receiver and arm the transfer again.
+ * the channel a capture receives into, so the packet being received is lost.
+ * What the mode does about it is the mode's own: the promiscuous path drains
+ * the receiver and arms the transfer again, and the low-energy engine does
+ * not yet, which leaves that capture stopped.
  *
  * Reported by UBERTOOTH_GET_WATCHDOG, for the reason the radio wait counts
  * exist (firmware/common/cc2400_wait.h): carrying on is right, and silent.

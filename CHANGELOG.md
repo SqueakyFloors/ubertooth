@@ -1618,8 +1618,8 @@ Fixes with no visible change in normal use.
 - The board's record of why it last reset itself says which firmware wrote it,
   so a firmware that keeps more there than the one before it starts the counts
   again instead of reading its own fields out of what it finds. Flashing this
-  one over an earlier one therefore reports no resets and no boots until the
-  board has had some.
+  one over an earlier one therefore reports no unrequested resets, and this
+  boot as the board's first.
   [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 - The `*` on a version string, which says the checkout had uncommitted
   changes, is about the checkout the tools were built from. It used to be
