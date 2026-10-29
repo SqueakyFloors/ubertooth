@@ -108,6 +108,10 @@ if ( ${LIBBLUETOOTH_FOUND} )
 	# the tests in ../tests build it everywhere, including where
 	# ubertooth-follow itself is skipped.
 	target_sources(ubertooth-follow PRIVATE follow_afh.c)
+	# ubertooth-scan links it for the one line an AFH map is reported on,
+	# which both BlueZ tools print themselves rather than letting libbtbb
+	# print it for them.
+	target_sources(ubertooth-scan PRIVATE follow_afh.c)
 endif()
 
 # ubertooth-debug is special because of the extra source file

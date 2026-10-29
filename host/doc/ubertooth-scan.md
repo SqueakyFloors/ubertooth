@@ -72,6 +72,51 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: maximum access code errors must be 0-5 (got 6)`.
 
+## OUTPUT
+
+Standard output carries what the scan found. Nothing the tool itself prints
+there is anything else, so a run collected in a file or read by a script no
+longer picks up its headings, its progress or its failures — see the end of
+this section for the two lines libbtbb still adds.
+
+Each device the BlueZ inquiry of `-s` found is its address and its name, one to
+a line. While the Ubertooth half runs, each packet it decodes is a line of its
+own, as `ubertooth-rx` reports one. Then each piconet that half found is its
+address, with the NAP unknown, and the channel map the scan built for it:
+
+    systime=1762000000 ch=39 LAP=9e8b33 err=0 clk100ns=1234567 clk1=12 s=-55 n=-90 snr=35
+    ??:??:??:9E:8B:33
+    AFH map: 0x0123456789abcdef1234
+
+`-x` adds the extended report of a device under its line, indented, as
+`hcitool info` shows one: its address and name, the LMP version and
+manufacturer, its features, its clock offset, and its channel map as an `AFH
+Map:` line, the field name `hcitool info` gives it. A device that reports AFH
+off has no map to report, and standard error carries a `note:` line saying so.
+A survey result's map is the `AFH map:` line above, the spelling it has always
+had.
+
+A device that does not answer one of those reads has no line for it in the
+report, and the read that failed is named on standard error: the name, the LMP
+version, the features and each feature page are left out rather than reported
+as unknown or, in the features' case, as zero. Earlier releases left the line
+out in silence, and printed zeroed features as the device's own. The device's
+own line above the report still reads `[unknown]` when no name comes back,
+since that line is a result either way.
+
+Everything else this tool prints goes to standard error: the three headings
+that say which half of the scan is running (`HCI scan`, `Ubertooth scan` and
+`Scan results:`), the `Requesting information ...` line of `-x`, and every
+warning and failure (see EXIT STATUS). Earlier releases mixed those in with
+the results, so a scan piped into another program carried them along.
+
+Some lines on standard output come from libbtbb rather than from this tool, and
+are still mixed in with the results: what it says while it recovers a piconet's
+clock, such as `12 initial CLK1-27 candidates`, `got CLK1-27` and `clock offset
+= 3.`. Moving those is
+[#323](https://github.com/SqueakyFloors/ubertooth/issues/323)'s remaining work,
+since a library must not write to standard output at all.
+
 ## GAPS IN A CAPTURE
 
 A capture that is losing packets says so. The board holds captured packets in a
@@ -107,6 +152,32 @@ with one `error: ` line on standard error naming the adapter and why, for
 example `error: Bluetooth device hci7 not found: No such device`. Nothing is
 printed on standard output, so a caller collecting the scan results in a file
 does not find the failure among them.
+
+An inquiry asked for with `-s` that the adapter refused exits 1 as well, with
+`error: the BlueZ inquiry failed: <reason>` on standard error: half of what
+`-s` asked for did not happen. The Ubertooth half still runs — it needs no
+adapter — and its results are printed.
+
+A device the inquiry found that will not take the connection `-x` needs, or
+will not answer one of the reads that fill the report in — its name, its LMP
+version, its features, a features page, its clock offset or its channel map —
+is named the same way and that much of its report is missing. The scan carries on and prints the
+rest, and exits 1 because part of what `-x` asked for did not happen. Three
+failures of that report — reading the local adapter's settings, finding memory
+for the request it makes, and reading the clock offset — used to end the whole
+run instead, with the board still open in whatever mode it was in.
+
+A piconet the Ubertooth half found is different: a sniffed piconet gives no
+NAP, so the address `-x` connects to has its two most significant bytes guessed
+as `00:00` and reaches only a device whose address really begins that way. A
+connection that cannot be made to such an address is the normal case, so it is
+a `note:` and the run still exits 0. Give such a device to `ubertooth-scan -s
+-x`, or to `ubertooth-follow -t`, by its whole address.
+
+A device that reports AFH off is not such a failure: it answered, and `note:
+AFH disabled` is the answer. A device that reports an AFH mode byte which is
+neither off nor on is one, and says what the byte was; it used to be taken for
+AFH off.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that

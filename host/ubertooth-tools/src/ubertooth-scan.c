@@ -37,9 +37,19 @@
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
 #include "request_report.h"
+/* For afh_map_line(), the one line both BlueZ tools report an AFH channel map
+ * on, and FOLLOW_AFH_MODE_ON, the AFH_Mode byte they both read. */
+#include "follow_afh.h"
 #include <btbb.h>
 #include <getopt.h>
 #include <limits.h>
+
+/* follow_afh.h repeats the map length so it needs neither libusb nor BlueZ;
+ * this file sizes its own map with the library's, and afh_map_line() walks the
+ * repeated one, so a mismatch would read past the shorter of the two. */
+#if FOLLOW_AFH_MAP_BYTES != AFH_MAP_BYTES
+#error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
+#endif
 
 static void usage()
 {
@@ -70,8 +80,34 @@ static void usage()
 	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
 }
 
+/* One "error: " line for a call that failed, on standard error, naming what
+ * the tool was doing and giving the system reason only when the call left one
+ * behind. Each caller clears errno first, for the reason the two adapter
+ * failures in main() give: BlueZ does not promise an errno for every way its
+ * calls can fail, so a leftover one from an earlier call would be reported as
+ * this failure's cause, and a failure that set none would read "Undefined
+ * error: 0". Those two name the adapter in their line and so write it
+ * themselves, and end the command rather than carrying on. */
+static void report_failure(const char* what)
+{
+	if (errno != 0)
+		fprintf(stderr, "error: %s: %s\n", what, strerror(errno));
+	else
+		fprintf(stderr, "error: %s\n", what);
+}
 
-void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
+
+/* The extended report of one device, on standard output. Returns 1 when some
+ * part of it could not be fetched and has been named on standard error, so the
+ * run's exit status can say that what -x asked for did not all happen.
+ *
+ * whole_address says whether the address is the device's own, as a BlueZ
+ * inquiry reports it, or one the scan put together from a sniffed piconet. The
+ * second kind has the two most significant bytes guessed as 00:00, because no
+ * packet carries them, so it reaches only a device whose address really begins
+ * that way: a connection that cannot be made to such an address is the normal
+ * case and not a failure of the command. */
+int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 {
 	uint16_t handle, offset;
 	uint8_t features[8], max_page = 0;
@@ -82,29 +118,63 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 	struct hci_dev_info di;
 	struct hci_conn_info_req *cr;
 	int i, cc = 0;
+	/* 1 once some part of the report could not be fetched. */
+	int failed = 0;
 
+	/* Each failure here gives up on this device's report and leaves the rest
+	 * of the scan running. They used to call exit(1) instead, which ended
+	 * the run with the board still open in whatever mode it was in and the
+	 * adapter handle still held: this function is called with both in
+	 * hand. */
+	errno = 0;
 	if (hci_devinfo(dev_id, &di) < 0) {
-		perror("Can't get device info");
-		exit(1);
+		/* The local adapter's own settings, not the device's, so the
+		 * line says which: it is the same line for every device the
+		 * report is asked of. */
+		report_failure("cannot get the local adapter's settings");
+		return 1;
 	}
 
-	printf("Requesting information ...\n");
+	/* This says what the tool is doing, not what was asked for, so it goes
+	 * to standard error with the rest of the tool's progress: the report
+	 * below is what a caller collecting standard output wants. */
+	fputs("Requesting information ...\n", stderr);
 
+	errno = 0;
 	cr = malloc(sizeof(*cr) + sizeof(struct hci_conn_info));
 	if (!cr) {
-		perror("Can't get connection info");
-		exit(1);
+		report_failure("cannot allocate the connection info request");
+		return 1;
 	}
 
 	bacpy(&cr->bdaddr, bdaddr);
 	cr->type = ACL_LINK;
 	if (ioctl(dd, HCIGETCONNINFO, (unsigned long) cr) < 0) {
+		errno = 0;
 		if (hci_create_connection(dd, bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
-			perror("Can't create connection");
+			if (whole_address) {
+				report_failure("cannot create connection");
+				free(cr);
+				return 1;
+			}
+			/* A guessed address, so the likely reason is that there
+			 * was never an address to connect to: said as a note,
+			 * and the run still did what was asked. The reason the
+			 * call left behind is given too, because this is not
+			 * the only way the connection can fail. */
+			if (errno != 0)
+				fprintf(stderr, "note: no extended report: %s; "
+				        "a sniffed piconet gives no NAP, so the "
+				        "address this connects to is a guess\n",
+				        strerror(errno));
+			else
+				fputs("note: no extended report: a sniffed "
+				      "piconet gives no NAP, so the address "
+				      "this connects to is a guess\n", stderr);
 			free(cr);
-			return;
+			return 0;
 		}
 		sleep(1);
 		cc = 1;
@@ -117,9 +187,18 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 	ba2str(bdaddr, addr);
 	printf("\tBD Address:  %s\n", addr);
 
-	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name, 25000) == 0)
+	/* Every read below leaves its line out when it fails, and says so: a
+	 * line missing from the report with nothing on standard error used to
+	 * look like a device that has no name or no version. */
+	errno = 0;
+	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name, 25000) == 0) {
 		printf("\tDevice Name: %s\n", name);
+	} else {
+		report_failure("reading the device name failed");
+		failed = 1;
+	}
 
+	errno = 0;
 	if (hci_read_remote_version(dd, handle, &version, 20000) == 0) {
 		char *ver = lmp_vertostr(version.lmp_ver);
 		printf("\tLMP Version: %s (0x%x) LMP Subversion: 0x%x\n"
@@ -131,29 +210,60 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 			version.manufacturer);
 		if (ver)
 			bt_free(ver);
+	} else {
+		report_failure("reading the LMP version failed");
+		failed = 1;
 	}
 
+	/* The result of this read was ignored outright, so a device that would
+	 * not answer had the zeroed buffer printed as its features. */
 	memset(features, 0, sizeof(features));
-	hci_read_remote_features(dd, handle, features, 20000);
+	errno = 0;
+	if (hci_read_remote_features(dd, handle, features, 20000) < 0) {
+		report_failure("reading the features failed");
+		failed = 1;
+	} else {
+		if ((di.features[7] & LMP_EXT_FEAT) && (features[7] & LMP_EXT_FEAT)) {
+			errno = 0;
+			if (hci_read_remote_ext_features(dd, handle, 0, &max_page,
+							features, 20000) < 0) {
+				report_failure("reading the extended features "
+				               "failed");
+				failed = 1;
+			}
+		}
 
-	if ((di.features[7] & LMP_EXT_FEAT) && (features[7] & LMP_EXT_FEAT))
-		hci_read_remote_ext_features(dd, handle, 0, &max_page,
-							features, 20000);
+		printf("\tFeatures%s: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
+					"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n",
+			(max_page > 0) ? " page 0" : "",
+			features[0], features[1], features[2], features[3],
+			features[4], features[5], features[6], features[7]);
 
-	printf("\tFeatures%s: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
-				"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n",
-		(max_page > 0) ? " page 0" : "",
-		features[0], features[1], features[2], features[3],
-		features[4], features[5], features[6], features[7]);
-
-	tmp = lmp_featurestostr(features, "\t\t", 63);
-	printf("%s\n", tmp);
-	bt_free(tmp);
+		/* BlueZ returns NULL when it cannot build the list, which
+		 * printed "(null)" as the device's features. */
+		tmp = lmp_featurestostr(features, "\t\t", 63);
+		if (tmp != NULL) {
+			printf("%s\n", tmp);
+			bt_free(tmp);
+		} else {
+			errno = 0;
+			report_failure("listing the features failed");
+			failed = 1;
+		}
+	}
 
 	for (i = 1; i <= max_page; i++) {
+		char what[48];
+
+		errno = 0;
 		if (hci_read_remote_ext_features(dd, handle, i, NULL,
-							features, 20000) < 0)
+							features, 20000) < 0) {
+			snprintf(what, sizeof(what),
+			         "reading features page %d failed", i);
+			report_failure(what);
+			failed = 1;
 			continue;
+		}
 
 		printf("\tFeatures page %d: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
 					"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n", i,
@@ -161,24 +271,43 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 			features[4], features[5], features[6], features[7]);
 	}
 
+	errno = 0;
 	if (hci_read_clock_offset(dd, handle, &offset, 1000) < 0) {
-		perror("Reading clock offset failed");
-		exit(1);
+		report_failure("reading clock offset failed");
+		failed = 1;
+	} else {
+		printf("\tClock offset: 0x%4.4x\n", btohs(offset));
 	}
 
-	printf("\tClock offset: 0x%4.4x\n", btohs(offset));
-
-	if(hci_read_afh_map(dd, handle, &mode, afh_map, 1000) < 0) {
-	perror("HCI read AFH map request failed");
-	}
-	if(mode == 0x01) {
-		// DGS: Replace with call to btbb_print_afh_map - need a piconet
+	/* A read that failed leaves the mode byte and the map as the caller
+	 * found them, so neither is looked at: the report used to go on to read
+	 * an uninitialised mode and could print a map that was never read.
+	 *
+	 * The field name is the one hcitool info gives it, like the report's
+	 * other lines; the line a survey result gets further down is the one
+	 * libbtbb printed, so each keeps the spelling its readers know. */
+	errno = 0;
+	if (hci_read_afh_map(dd, handle, &mode, afh_map, 1000) < 0) {
+		report_failure("HCI read AFH map request failed");
+		failed = 1;
+	} else if (mode == FOLLOW_AFH_MODE_ON) {
 		printf("\tAFH Map: 0x");
-		for(i=0; i<10; i++)
+		for (i = 0; i < AFH_MAP_BYTES; i++)
 			printf("%02x", afh_map[i]);
 		printf("\n");
+	} else if (mode == FOLLOW_AFH_MODE_OFF) {
+		/* Not part of the device's report but a note about it: there is
+		 * no map to report. */
+		fputs("note: AFH disabled\n", stderr);
 	} else {
-		printf("AFH disabled.\n");
+		/* Neither off nor on, so what the device is doing is unknown:
+		 * reported as itself rather than as AFH being off, which is
+		 * what it used to be taken for. */
+		fprintf(stderr, "error: the remote device reported AFH mode "
+		        "0x%02x, which is neither off (0x%02x) nor on "
+		        "(0x%02x)\n", mode, FOLLOW_AFH_MODE_OFF,
+		        FOLLOW_AFH_MODE_ON);
+		failed = 1;
 	}
 	free(cr);
 
@@ -186,11 +315,14 @@ void extra_info(int dd, int dev_id, bdaddr_t* bdaddr)
 		usleep(10000);
 		hci_disconnect(dd, handle, HCI_OE_USER_ENDED_CONNECTION, 10000);
 	}
+	return failed;
 }
 
-/* For a given BD_ADDR, print address, name and class */
-void print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
-						  char* printable_addr, uint8_t extended)
+/* For a given BD_ADDR, print address, name and class. Returns what
+ * extra_info() returned, or 0 without -x. whole_address is as it is there. */
+int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
+						  char* printable_addr, uint8_t extended,
+						  int whole_address)
 {
 	char name[248] = { 0 };
 
@@ -199,7 +331,8 @@ void print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
 
 	printf("%s\t%s\n", printable_addr, name);
 	if (extended)
-		extra_info(dev_handle, dev_id, bdaddr);
+		return extra_info(dev_handle, dev_id, bdaddr, whole_address);
+	return 0;
 }
 
 
@@ -210,8 +343,10 @@ int main(int argc, char *argv[])
 	int max_rsp, num_rsp, lap, timeout = 20;
 	uint8_t uap, extended = 0;
 	uint8_t scan = 0;
-	/* 1 once the Ubertooth scan's USB stream died part-way, so the exit
-	 * status says the results below are incomplete. */
+	/* 1 once something the command asked for did not happen: the Ubertooth
+	 * scan's USB stream died part-way, the inquiry of -s failed, or part of
+	 * the report of -x could not be fetched. The results are still printed,
+	 * and the status says they are incomplete. */
 	int exit_status = 0;
 	/* -h ends the command once the whole command line has parsed (see below),
 	 * and so does -V, whose own result is version_status: it reads the board,
@@ -222,6 +357,7 @@ int main(int argc, char *argv[])
 	char* ubertooth_device = NULL;
 	char *bt_dev = "hci0";
 	char addr[19] = { 0 };
+	char map_line[AFH_MAP_LINE_LEN];
 	ubertooth_t* ut = NULL;
 	btbb_piconet* pn;
 	bdaddr_t bdaddr;
@@ -232,6 +368,15 @@ int main(int argc, char *argv[])
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
 	const char options[] = ":hVU:t:e:xsb:";
+
+	/* Unbuffered, as ubertooth-rx's survey mode is, and before anything is
+	 * written: redirected to a file, standard output is block-buffered
+	 * while standard error is not, so a "> log 2>&1" run would collect
+	 * every line this tool moved to standard error above the results they
+	 * belong beside. Before the command line is read, because a run must
+	 * not set this after writing to the stream. */
+	setvbuf(stdout, NULL, _IONBF, 0);
+
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
@@ -243,10 +388,6 @@ int main(int argc, char *argv[])
 			break;
 		case 'b':
 			bt_dev = optarg;
-			if (bt_dev == NULL) {
-				perror(optarg);
-				return 1;
-			}
 			break;
 		case 't':
 			if (opt_require_count(optarg, 0, "timeout", "seconds",
@@ -365,24 +506,50 @@ int main(int argc, char *argv[])
 	}
 
 	if (scan) {
-		/* Equivalent to "hcitool scan" */
-		printf("HCI scan\n");
+		/* Equivalent to "hcitool scan". The heading says which half of
+		 * the scan is running, so it goes to standard error with the
+		 * rest of the tool's progress: standard output carries the
+		 * devices found and nothing else. */
+		fputs("HCI scan\n", stderr);
 		len  = 8;
 		max_rsp = 255;
 		flags = IREQ_CACHE_FLUSH;
 		ii = (inquiry_info*)malloc(max_rsp * sizeof(inquiry_info));
+		if (ii == NULL) {
+			/* The inquiry would have been handed a null array to
+			 * fill in. The board is open by now, so it and the
+			 * adapter go back. */
+				errno = 0;
+			report_failure("cannot allocate room for the inquiry's "
+			               "results");
+			ubertooth_stop(ut);
+			ubertooth_free(ut);
+			close(dev_handle);
+			return 1;
+		}
 
+		errno = 0;
 		num_rsp = hci_inquiry(dev_id, len, max_rsp, NULL, &ii, flags);
-		/* A stop is what cut the inquiry short, so it is not reported as
-		 * a failure of the adapter: the user asked for it, and the run
-		 * ends below. */
-		if (num_rsp < 0 && !ubertooth_stop_requested())
-			perror("hci_inquiry");
+		/* An inquiry that failed is half of what -s asked for, so the
+		 * status says so; the Ubertooth half still runs, since it needs
+		 * no adapter. The line used to be the bare name of the BlueZ
+		 * function, with no prefix, and the run exited 0 as though the
+		 * inquiry had found nothing.
+		 *
+		 * A stop is not that failure: the user asked for it, so the
+		 * inquiry it cut short is not reported as the adapter's fault,
+		 * and the run ends below. */
+		if (num_rsp < 0 && !ubertooth_stop_requested()) {
+			report_failure("the BlueZ inquiry failed");
+			exit_status = 1;
+		}
 
 		for (i = 0; i < num_rsp; i++) {
 			ba2str(&(ii+i)->bdaddr, addr);
-			print_name_and_class(dev_handle, dev_id, &(ii+i)->bdaddr, addr,
-			                     extended);
+			/* The inquiry reports each device's own whole address. */
+			if (print_name_and_class(dev_handle, dev_id, &(ii+i)->bdaddr,
+			                         addr, extended, 1) != 0)
+				exit_status = 1;
 		}
 		free(ii);
 	}
@@ -390,12 +557,13 @@ int main(int argc, char *argv[])
 	/* Stopped during the inquiry above, which takes up to ten seconds and
 	 * which BlueZ ends on a signal: the run gives the board and the adapter
 	 * back rather than starting a capture the user has asked to stop. What
-	 * the inquiry did find has already been printed. */
+	 * the inquiry did find has already been printed. A stop is not a
+	 * failure, so the status is 0 unless the inquiry itself failed. */
 	if (ubertooth_stop_requested()) {
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		close(dev_handle);
-		return 0;
+		return exit_status;
 	}
 
 	/* libbtbb refuses only a -e out of its own range, which the check on -e
@@ -498,9 +666,9 @@ int main(int argc, char *argv[])
 
 	/* Now find hidden piconets with Ubertooth. This heads the results below,
 	 * so it waits until the board is sweeping: printed before the requests
-	 * that start the capture, it was left on standard output by a run that
-	 * then refused one of them and printed no results at all. */
-	printf("\nUbertooth scan\n");
+	 * that start the capture, a run that then refused one of them announced
+	 * a scan it never made and printed no results at all. */
+	fputs("\nUbertooth scan\n", stderr);
 
 	// receive and process each packet
 	while(!ubertooth_stopping(ut)) {
@@ -529,7 +697,10 @@ int main(int argc, char *argv[])
 		exit_status = 1;
 	ubertooth_free(ut);
 
-	printf("\nScan results:\n");
+	/* The heading of the results, not one of them: on standard error with
+	 * the two above it, so what a caller collects on standard output is the
+	 * devices and their reports alone. */
+	fputs("\nScan results:\n", stderr);
 	while((pn=btbb_next_survey_result()) != NULL) {
 		lap = btbb_piconet_get_lap(pn);
 		if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {
@@ -540,11 +711,22 @@ int main(int argc, char *argv[])
 			/* Printable version showing that the NAP is unknown */
 			sprintf(addr, "??:??:%02X:%02X:%02X:%02X", uap,
 			        (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
-			print_name_and_class(dev_handle, dev_id, &bdaddr, addr, extended);
+			/* The NAP of a sniffed piconet is not in any packet, so
+			 * the address this connects to is a guess: see
+			 * extra_info(). */
+			if (print_name_and_class(dev_handle, dev_id, &bdaddr, addr,
+			                         extended, 0) != 0)
+				exit_status = 1;
 		} else
 			printf("??:??:??:%02X:%02X:%02X\n", (lap >> 16) & 0xFF,
 			       (lap >> 8) & 0xFF, lap & 0xFF);
-		btbb_print_afh_map(pn);
+		/* The map the scan built for this piconet is part of its
+		 * result, so the tool prints it -- in the same words as
+		 * libbtbb's btbb_print_afh_map(), which wrote it from inside
+		 * the library: standard output belongs to the tool. */
+		afh_map_line(btbb_piconet_get_afh_map(pn), map_line,
+		             sizeof(map_line));
+		printf("%s\n", map_line);
 	}
 
 	close(dev_handle);

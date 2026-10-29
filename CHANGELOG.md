@@ -176,6 +176,14 @@
   error, `-h` exits 0, and a command line with nothing to do is refused. A
   file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Script-visible change:** a `ubertooth-scan` run collected in a file or
+  piped into another program no longer picks up its three headings, the
+  progress of `-x` or its failures: those are on standard error now. An
+  inquiry the adapter refused, or a device the inquiry found that would not
+  complete the report `-x` asks for, is named and exits 1; the inquiry used to
+  print the name of a BlueZ function and exit 0, and three of the report's
+  failures ended the whole run with the board still open.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** the lines every tool prints while choosing a
   board now read like the rest. With none attached they say `error: no
   Ubertooth devices found`, in place of `could not open Ubertooth device`;

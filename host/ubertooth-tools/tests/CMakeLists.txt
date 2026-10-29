@@ -1059,7 +1059,8 @@ set_tests_properties(manpages PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 set(LIBBLUETOOTH_FIND_QUIETLY TRUE)
 find_package(BLUETOOTH)
 if(LIBBLUETOOTH_FOUND)
-	add_executable(test-scan-main test_scan_main.c ../src/request_report.c)
+	add_executable(test-scan-main test_scan_main.c ../src/follow_afh.c
+		../src/request_report.c)
 	target_link_libraries(test-scan-main opt-parse-for-tests
 		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES})
 	if(libubertooth_SOURCE_DIR)

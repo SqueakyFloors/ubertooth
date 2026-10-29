@@ -461,6 +461,71 @@ MU_TEST(dash_a_needs_a_target_address_and_a_connection)
 	mu_assert(follow_afh_handle_refusal(1, 1) == NULL, "both present");
 }
 
+/* The line both BlueZ tools report a map on, in the words libbtbb's
+ * btbb_print_afh_map() used, so moving the printing into the tools did not
+ * change what a reader or a script sees. */
+MU_TEST(a_map_is_reported_as_one_line_of_hex)
+{
+	uint8_t map[FOLLOW_AFH_MAP_BYTES];
+	char line[AFH_MAP_LINE_LEN];
+
+	memset(map, 0xff, sizeof(map));
+	afh_map_line(map, line, sizeof(line));
+	mu_assert(strcmp("AFH map: 0xffffffffffffffffffff", line) == 0, line);
+
+	memset(map, 0, sizeof(map));
+	afh_map_line(map, line, sizeof(line));
+	mu_assert(strcmp("AFH map: 0x00000000000000000000", line) == 0, line);
+
+	/* Byte order as read: the first byte of the map is the first pair of
+	 * digits, low channels first. */
+	memset(map, 0, sizeof(map));
+	map[0] = 0x01;
+	map[9] = 0x7f;
+	afh_map_line(map, line, sizeof(line));
+	mu_assert(strcmp("AFH map: 0x0100000000000000007f", line) == 0, line);
+
+	/* The buffer length the tools use is exactly enough. */
+	mu_assert_int_eq((int)strlen(line) + 1, AFH_MAP_LINE_LEN);
+}
+
+/* A buffer too small truncates rather than overrunning. */
+MU_TEST(a_map_line_that_does_not_fit_is_truncated)
+{
+	uint8_t map[FOLLOW_AFH_MAP_BYTES];
+	char guarded[AFH_MAP_LINE_LEN + 4];
+	size_t room, byte;
+
+	memset(map, 0xff, sizeof(map));
+	for (room = 1; room < AFH_MAP_LINE_LEN; room++) {
+		memset(guarded, '#', sizeof(guarded));
+		afh_map_line(map, guarded, room);
+		mu_assert(strlen(guarded) < room, "wrote past the length given");
+		/* The whole tail, so a write of more than one byte past the
+		 * length given is caught too. */
+		for (byte = room; byte < sizeof(guarded); byte++)
+			mu_assert(guarded[byte] == '#', "wrote past the buffer");
+		/* What did fit is the start of the whole line. */
+		mu_assert(strncmp(guarded, "AFH map: 0xffffffffffffffffffff",
+		          strlen(guarded)) == 0, guarded);
+	}
+}
+
+MU_TEST(a_map_line_call_with_nothing_to_write_does_nothing)
+{
+	uint8_t map[FOLLOW_AFH_MAP_BYTES];
+	char line[AFH_MAP_LINE_LEN] = "keep";
+
+	memset(map, 0xff, sizeof(map));
+	afh_map_line(map, NULL, 0);
+	/* Nowhere to write is nowhere to write, whatever the length says. */
+	afh_map_line(map, NULL, sizeof(line));
+	afh_map_line(map, line, 0);
+	mu_assert(strcmp("keep", line) == 0, "zero length leaves the buffer");
+	afh_map_line(NULL, line, sizeof(line));
+	mu_assert(line[0] == '\0', "no map writes an empty string");
+}
+
 int main(void)
 {
 	MU_RUN(counts_the_79_real_channels_only);
@@ -482,5 +547,8 @@ int main(void)
 	MU_RUN(each_outcome_has_its_own_plain_line);
 	MU_RUN(a_message_call_with_nowhere_to_write_does_nothing);
 	MU_RUN(dash_a_needs_a_target_address_and_a_connection);
+	MU_RUN(a_map_is_reported_as_one_line_of_hex);
+	MU_RUN(a_map_line_that_does_not_fit_is_truncated);
+	MU_RUN(a_map_line_call_with_nothing_to_write_does_nothing);
 	return mu_report();
 }

@@ -557,6 +557,7 @@ int main(int argc, char *argv[])
 		follow_afh_reader reader;
 		follow_afh_read read_out;
 		char line[256];
+		char map_line[AFH_MAP_LINE_LEN];
 		const char* refusal;
 
 		/* The branch above is the only one that fills in handle, and it
@@ -591,19 +592,16 @@ int main(int argc, char *argv[])
 			memcpy(afh_map, read_out.map, sizeof(afh_map));
 			fprintf(stderr, "%s\n", line);
 			btbb_piconet_set_afh_map(pn, afh_map);
-			/* libbtbb prints the map itself, on standard output. A
-			 * capture owns that stream when it is "-", and takes
-			 * the map with it: the line is written here instead,
-			 * in the wording btbb_print_afh_map() uses, so -a
-			 * still answers. */
-			if (capture_took_stdout)
-				fprintf(stderr,
-				        "AFH map: 0x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
-				        afh_map[0], afh_map[1], afh_map[2], afh_map[3],
-				        afh_map[4], afh_map[5], afh_map[6], afh_map[7],
-				        afh_map[8], afh_map[9]);
-			else
-				btbb_print_afh_map(pn);
+			/* The map is what -a was asked for, so it goes to
+			 * standard output -- written here rather than by
+			 * libbtbb's btbb_print_afh_map(), which wrote the same
+			 * line from inside the library: standard output belongs
+			 * to the tool. A capture owns that stream when it is
+			 * "-" and takes the map with it, so then the line goes
+			 * to standard error, where -a still answers. */
+			afh_map_line(afh_map, map_line, sizeof(map_line));
+			fprintf(capture_took_stdout ? stderr : stdout, "%s\n",
+			        map_line);
 			break;
 		case FOLLOW_AFH_ACTION_DISABLE:
 			fprintf(stderr, "%s\n", line);

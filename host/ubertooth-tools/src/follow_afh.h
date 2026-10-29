@@ -22,7 +22,9 @@
 /*
  * What ubertooth-follow -a does with an AFH channel map read from a remote
  * device: whether the read can be attempted at all, whether the result is
- * usable, and what the tool does next.
+ * usable, and what the tool does next. Plus the one line a map is reported
+ * on, which both BlueZ tools print, so the two agree on the wording:
+ * ubertooth-scan links this file for afh_map_line() alone.
  *
  * Deliberately free of BlueZ and libusb. ubertooth-follow itself links
  * libbluetooth and so is built on Linux only, but these decisions are the part
@@ -39,8 +41,9 @@
 /* Length of an AFH channel map in bytes: one bit per Basic Rate channel, 79
  * channels in 10 bytes (the last bit is unused). The same length as
  * libubertooth's AFH_MAP_BYTES and the firmware's, repeated here so this
- * header pulls in neither libusb nor BlueZ. ubertooth-follow.c checks the two
- * agree at compile time. */
+ * header pulls in neither libusb nor BlueZ. Both tools that include this
+ * header, ubertooth-follow.c and ubertooth-scan.c, check the two agree at
+ * compile time. */
 #define FOLLOW_AFH_MAP_BYTES 10
 
 /* Basic Rate channels, one per bit of the map. */
@@ -150,6 +153,17 @@ follow_afh_action follow_afh_action_for(follow_afh_result result);
  * say writes an empty string. */
 void follow_afh_message(const follow_afh_read* out, const char* detail,
                         char* buf, size_t len);
+
+/* Characters afh_map_line() can write, the terminator included: "AFH map: 0x"
+ * is 11, the map is two hex digits per byte. */
+#define AFH_MAP_LINE_LEN (11 + 2 * FOLLOW_AFH_MAP_BYTES + 1)
+
+/* An AFH channel map as the one line it is reported on, written into buf with
+ * no trailing newline: "AFH map: 0x" and the map's bytes in order, the way
+ * hcitool shows one. Both BlueZ tools print this line themselves rather than
+ * having libbtbb print it for them: standard output belongs to the tool, and a
+ * library must not write to it. A NULL map writes an empty string. */
+void afh_map_line(const uint8_t* map, char* buf, size_t len);
 
 /* Whether -a can be attempted at all: the map is read over an ACL link to the
  * target, so it needs an address a connection can be made to, which is the
