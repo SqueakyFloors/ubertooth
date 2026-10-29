@@ -306,9 +306,9 @@
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
   can stop, by two requests refusing a value they used to accept, and by a
   record naming no channel when the board is tuned outside the band. A release
-  build of the host tools refuses firmware of any other API version, older or
-  newer, while a development build warns about it. Host and firmware come from
-  the same tree:
+  build of the host
+  tools refuses firmware of any other API version, older or newer, while a
+  development build warns about it. Host and firmware come from the same tree:
   `ubertooth-dfu` reflashes a board whatever firmware it is running, but only
   with an image built from this tree, and `2020-12-R1` firmware is refused.
   [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
