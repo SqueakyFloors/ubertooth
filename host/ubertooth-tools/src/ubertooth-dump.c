@@ -169,6 +169,11 @@ int main(int argc, char *argv[])
 	r = rx_dump(ut, bitstream);
 
 	ubertooth_stop(ut);
+	/* What the dump is missing, once the records have scrolled past. A gap is
+	 * a stretch the board had no queue room for, so the count is of gaps and
+	 * not of the packets lost in them. */
+	ubertooth_report_queue_gaps(ut);
+
 	status = (r < 0 || ubertooth_stream_failed(ut)) ? 1 : 0;
 	ubertooth_free(ut);
 	return status;

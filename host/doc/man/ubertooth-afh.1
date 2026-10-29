@@ -88,6 +88,8 @@ Standard output carries the detected channel maps\. Errors, warnings and the too
 A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-l' requires a value\fR\.
 .P
 \fB\-h\fR is what the user asked for, so the usage text goes to standard output and nothing goes to standard error\. A bare \fBubertooth\-afh\fR, with no arguments at all, is the one refusal the usage text does follow, on standard error with the \fBerror:\fR line\.
+.SH "GAPS IN A CAPTURE"
+A capture that is losing packets says so\. The board holds captured packets in a queue until this tool reads them, and a queue with no room left loses the next packet\. The first time it happens the capture warns \fBwarning: the board's packet queue filled up and it dropped at least one packet; this capture has a gap\fR, and when the capture ends it says how many such gaps there were: \fBwarning: the capture has 3 gaps where the board's queue filled up and it dropped packets\fR\. The count is of gaps, not of lost packets: one full queue can swallow several packets, and the board sends no number\. Nothing says which packets are missing, so a capture with gaps is complete only between them\. The board reports a gap on the first packet that gets through after it, so a capture that ends in the moment after a gap does not report that last one\.
 .SH "EXIT STATUS"
 \fBubertooth\-afh\fR does not stop on its own, so it normally exits 0 after being interrupted (Ctrl\-C)\. \fB\-h\fR also exits 0\.
 .P

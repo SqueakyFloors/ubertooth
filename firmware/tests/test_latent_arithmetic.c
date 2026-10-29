@@ -312,6 +312,83 @@ MU_TEST(test_a_large_drift_corrects_every_tick_rather_than_never)
 	                                "clk_drift_correction = 1;"));
 }
 
+/*
+ * The drift figure the board keeps, after a request has been added to it.
+ *
+ * Each UBERTOOTH_FIX_CLOCK_DRIFT request adds to a running figure. The figure
+ * is 16 bits wide, so without a bound a run of requests walks past what it
+ * holds and comes back with the other sign: the board then corrects its clock
+ * in the direction opposite to the one the host asked for. Nothing beyond
+ * CLK_DRIFT_PPM_MAX corrects any faster either, which is where the bound is.
+ */
+#define CLK_DRIFT_PPM_MAX 320
+
+static int16_t drift_accumulate(int16_t running, int16_t request)
+{
+	int32_t sum = (int32_t)running + request;
+
+	if (sum > CLK_DRIFT_PPM_MAX)
+		sum = CLK_DRIFT_PPM_MAX;
+	else if (sum < -CLK_DRIFT_PPM_MAX)
+		sum = -CLK_DRIFT_PPM_MAX;
+	return (int16_t)sum;
+}
+
+MU_TEST(test_the_accumulated_drift_figure_stays_within_what_it_can_correct)
+{
+	int16_t ppm = 0;
+	int i;
+
+	/* What a capture does today: a handful of tens of PPM, added up. */
+	ppm = drift_accumulate(ppm, 25);
+	mu_assert_int_eq(25, ppm);
+	ppm = drift_accumulate(ppm, -10);
+	mu_assert_int_eq(15, ppm);
+	mu_assert_int_eq(21, drift_interval(15));
+
+	/* The bound, from either side, and the correction it gives. */
+	mu_assert_int_eq(320, drift_accumulate(0, 320));
+	mu_assert_int_eq(320, drift_accumulate(0, 400));
+	mu_assert_int_eq(-320, drift_accumulate(0, -400));
+	mu_assert_int_eq(1, drift_interval(320));
+
+	/* A run of requests at the largest value the host can send. Unbounded,
+	 * the figure passes 32767 after 103 of them and comes back negative:
+	 * the correction then runs the clock the other way. */
+	ppm = 0;
+	for (i = 0; i < 1000; i++) {
+		ppm = drift_accumulate(ppm, 320);
+		mu_assert(ppm > 0, "the accumulated figure changed sign");
+		mu_assert(ppm <= CLK_DRIFT_PPM_MAX,
+		          "the accumulated figure passed what it can correct");
+	}
+	mu_assert_int_eq(320, ppm);
+
+	/* The same the other way, and a request back towards zero is still
+	 * taken: the figure saturates, it does not stick. */
+	ppm = 0;
+	for (i = 0; i < 1000; i++)
+		ppm = drift_accumulate(ppm, -320);
+	mu_assert_int_eq(-320, ppm);
+	ppm = drift_accumulate(ppm, 300);
+	mu_assert_int_eq(-20, ppm);
+
+	/* The handler adds in 32 bits and stores the bounded figure, rather
+	 * than adding into the 16-bit figure itself. */
+	mu_assert(holds(rxtx_source,
+	                "drift_ppm = (int32_t)clk_drift_ppm + "
+	                "(int16_t)((data[0] << 8) | (data[1] << 0));"),
+	          "the drift request adds the two in 32 bits");
+	mu_assert(holds(rxtx_source,
+	                "if (drift_ppm > CLK_DRIFT_PPM_MAX) "
+	                "drift_ppm = CLK_DRIFT_PPM_MAX; "
+	                "else if (drift_ppm < -CLK_DRIFT_PPM_MAX) "
+	                "drift_ppm = -CLK_DRIFT_PPM_MAX;"),
+	          "the drift request bounds the figure both ways");
+	mu_assert(holds(rxtx_source, "clk_drift_ppm = (int16_t)drift_ppm;"),
+	          "the drift request stores the bounded figure");
+}
+
 /* ---- the channel a record reports --------------------------------------- */
 
 /*
@@ -457,6 +534,7 @@ int main(void)
 	MU_RUN(test_the_ego_capture_length_is_bounded_by_its_buffer);
 	MU_RUN(test_a_reversed_crc_init_is_twenty_four_bits_wide);
 	MU_RUN(test_a_large_drift_corrects_every_tick_rather_than_never);
+	MU_RUN(test_the_accumulated_drift_figure_stays_within_what_it_can_correct);
 	MU_RUN(test_a_frequency_outside_the_band_reports_no_channel);
 	MU_RUN(test_every_record_reports_its_channel_the_same_way);
 	MU_RUN(test_the_shortest_wait_is_one_pass_not_four_billion);

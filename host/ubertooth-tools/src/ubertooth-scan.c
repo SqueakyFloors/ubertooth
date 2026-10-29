@@ -472,6 +472,11 @@ int main(int argc, char *argv[])
 
 	ubertooth_stop(ut);
 
+	/* What the capture is missing, once the packets have scrolled
+	 * past. A gap is a stretch the board had no queue room for, so
+	 * the count is of gaps and not of the packets lost in them. */
+	ubertooth_report_queue_gaps(ut);
+
 	/* A scan whose stream died stopped there, so the results below are
 	 * only what arrived before that. They are still printed, and the exit
 	 * status says they are incomplete. The handle is read after the

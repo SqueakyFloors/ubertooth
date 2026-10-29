@@ -497,6 +497,20 @@ void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 	signal(SIGINT, fake_cleanup);
 }
 
+
+/* The end-of-capture gap report, which the tool calls and no case here reads:
+ * a capture whose records never carried FIFO_OVERFLOW has nothing to say. */
+void ubertooth_report_queue_gaps(ubertooth_t* ut)
+{
+	(void)ut;
+}
+
+/* The gap count the specan callback keeps, which belongs to libubertooth. */
+void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx)
+{
+	(void)ut; (void)rx;
+}
+
 int ubertooth_stream_failed(ubertooth_t* ut)
 {
 	(void)ut;

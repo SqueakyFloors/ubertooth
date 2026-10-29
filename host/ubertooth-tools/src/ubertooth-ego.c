@@ -296,6 +296,11 @@ int main(int argc, char *argv[])
 			usleep(500);
 		}
 		ubertooth_stop(ut);
+
+		/* What the capture is missing, once the packets have scrolled
+		 * past. A gap is a stretch the board had no queue room for, so
+		 * the count is of gaps and not of the packets lost in them. */
+		ubertooth_report_queue_gaps(ut);
 	}
 	ubertooth_free(ut);
 

@@ -67,6 +67,20 @@ An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: maximum access code errors must be 0-5 (got 6)`.
 
+## GAPS IN A CAPTURE
+
+A capture that is losing packets says so. The board holds captured packets in a
+queue until this tool reads them, and a queue with no room left loses the next
+packet. The first time it happens the capture warns `warning: the board's
+packet queue filled up and it dropped at least one packet; this capture has a
+gap`, and when the capture ends it says how many such gaps there were:
+`warning: the capture has 3 gaps where the board's queue filled up and it
+dropped packets`. The count is of gaps, not of lost packets: one full queue can
+swallow several packets, and the board sends no number. Nothing says which
+packets are missing, so a capture with gaps is complete only between them. The
+board reports a gap on the first packet that gets through after it, so a
+capture that ends in the moment after a gap does not report that last one.
+
 ## EXIT STATUS
 
 A scan that ran to its `-t` timeout, or that was interrupted (Ctrl-C), exits 0

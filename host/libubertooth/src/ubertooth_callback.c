@@ -553,6 +553,47 @@ static uint32_t clkn_at_access_code( uint8_t periods, uint32_t clk100ns,
 /* Sniff for LAPs. If a piconet is provided, use the given LAP to
  * search for UAP.
  */
+void ubertooth_count_queue_gap(ubertooth_t* ut, const usb_pkt_rx* rx)
+{
+	if (ut == NULL || rx == NULL)
+		return;
+
+	/* A keep-alive is one byte on the wire -- the record's type and nothing
+	 * else -- so its other fields hold whatever the record before it left in
+	 * the buffer, this flag among them. Counting one would repeat a gap that
+	 * was already counted. */
+	if (rx->pkt_type == KEEP_ALIVE)
+		return;
+
+	if (!(rx->status & FIFO_OVERFLOW))
+		return;
+
+	ut->queue_gaps++;
+	if (ut->queue_gap_warned)
+		return;
+
+	ut->queue_gap_warned = 1;
+	fprintf(stderr, "warning: the board's packet queue filled up and it "
+	        "dropped at least one packet; this capture has a gap\n");
+}
+
+uint32_t ubertooth_queue_gaps(ubertooth_t* ut)
+{
+	return ut != NULL ? ut->queue_gaps : 0;
+}
+
+void ubertooth_report_queue_gaps(ubertooth_t* ut)
+{
+	uint32_t gaps = ubertooth_queue_gaps(ut);
+
+	if (gaps == 0)
+		return;
+
+	fprintf(stderr, "warning: the capture has %u gap%s where the board's "
+	        "queue filled up and it dropped packets\n",
+	        gaps, gaps == 1 ? "" : "s");
+}
+
 void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 {
 	btbb_packet* pkt = NULL;
@@ -567,6 +608,10 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
+
+	/* Before the checks below: a record this callback goes on to discard
+	 * still carries the board's word that packets were lost before it. */
+	ubertooth_count_queue_gap(ut, rx);
 
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
@@ -652,6 +697,10 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
 
+	/* Before the checks below: a record this callback goes on to discard
+	 * still carries the board's word that packets were lost before it. */
+	ubertooth_count_queue_gap(ut, rx);
+
 	/* Sanity check: the channel names a bit of the AFH map below */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
@@ -689,6 +738,10 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
+
+	/* Before the checks below: a record this callback goes on to discard
+	 * still carries the board's word that packets were lost before it. */
+	ubertooth_count_queue_gap(ut, rx);
 
 	static unsigned long last_seen[NUM_BREDR_CHANNELS] = {0};
 	static unsigned long counter = 0;
@@ -738,6 +791,10 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	char syms[BANK_LEN];
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
+
+	/* Before the checks below: a record this callback goes on to discard
+	 * still carries the board's word that packets were lost before it. */
+	ubertooth_count_queue_gap(ut, rx);
 
 	static unsigned long last_seen[NUM_BREDR_CHANNELS] = {0};
 	static unsigned long counter = 0;
@@ -977,6 +1034,8 @@ void cb_ego(ubertooth_t* ut, void* args)
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
 
+	ubertooth_count_queue_gap(ut, rx);
+
 	/* Wide enough to hold a stamp plus a whole clock period, as the
 	 * low-energy callback above is: in 32 bits that sum wraps for any stamp
 	 * above 1018167295, and the delta is only right afterwards because the
@@ -1104,6 +1163,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 	ubertooth_unpack_symbols((uint8_t*)rx->data, syms);
+
+	/* Before the checks below: a record this callback goes on to discard
+	 * still carries the board's word that packets were lost before it. */
+	ubertooth_count_queue_gap(ut, rx);
 
 	if (rx->pkt_type != BR_PACKET) {
 		goto out;

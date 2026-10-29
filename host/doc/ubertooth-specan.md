@@ -126,6 +126,20 @@ were left over from an earlier run, still queued on the board. The line is
 printed whether samples arrived or not, so a board that has stopped sending
 shows up within a second as counters that stop moving.
 
+## GAPS IN A CAPTURE
+
+A capture that is losing packets says so. The board holds captured packets in a
+queue until this tool reads them, and a queue with no room left loses the next
+packet. The first time it happens the capture warns `warning: the board's
+packet queue filled up and it dropped at least one packet; this capture has a
+gap`, and when the capture ends it says how many such gaps there were:
+`warning: the capture has 3 gaps where the board's queue filled up and it
+dropped packets`. The count is of gaps, not of lost packets: one full queue can
+swallow several packets, and the board sends no number. Nothing says which
+packets are missing, so a capture with gaps is complete only between them. The
+board reports a gap on the first packet that gets through after it, so a
+capture that ends in the moment after a gap does not report that last one.
+
 ## DIAGNOSTICS
 
 Standard output carries only the samples — whatever `-d` has not sent to a
