@@ -62,7 +62,7 @@ volatile uint16_t channel = 2441;
 volatile uint16_t hop_direct_channel = 0;      // for hopping directly to a channel
 volatile uint16_t hop_timeout = 158;
 volatile uint16_t requested_channel = 0;
-volatile uint16_t le_adv_channel = 2402;
+volatile uint16_t le_adv_channel = BT_FREQ_MIN;
 volatile int      cancel_follow = 0;
 
 /* bulk USB stuff */
@@ -388,10 +388,10 @@ static void reset_absorbed_mode_state(uint8_t requested)
 static void set_channel_request(uint16_t requested)
 {
 	requested_channel = requested;
-	/* bluetooth band sweep mode, start at channel 2402 */
+	/* bluetooth band sweep mode, start at the bottom of the band */
 	if (requested_channel > MAX_FREQ) {
 		hop_mode = HOP_SWEEP;
-		requested_channel = 2402;
+		requested_channel = BT_FREQ_MIN;
 	}
 	/* fixed channel mode, can be outside bluetooth band */
 	else {
@@ -1462,7 +1462,7 @@ static void cc2400_idle()
 	hop_direct_channel = 0;
 	hop_timeout = 158;
 	requested_channel = 0;
-	le_adv_channel = 2402;
+	le_adv_channel = BT_FREQ_MIN;
 
 	/*
 	 * The AFH map goes with the mode that was using it. Nothing used to
@@ -1960,9 +1960,9 @@ void hop(void (*service)(void))
 	else if (hop_mode == HOP_SWEEP) {
 		do {
 			channel += 32;
-			if (channel > 2480)
-				channel -= 79;
-		} while ( used_channels != 0 && afh_enabled && !( afh_map[(channel-2402)/8] & 0x1<<((channel-2402)%8) ) );
+			if (channel > BT_FREQ_MAX)
+				channel -= BT_FREQ_MAX - BT_FREQ_MIN + 1;
+		} while ( used_channels != 0 && afh_enabled && !( afh_map[(channel-BT_FREQ_MIN)/8] & 0x1<<((channel-BT_FREQ_MIN)%8) ) );
 	}
 
 	/* AFH detection
@@ -1971,9 +1971,9 @@ void hop(void (*service)(void))
 	else if (hop_mode == HOP_AFH) {
 		do {
 			channel += 32;
-			if (channel > 2480)
-				channel -= 79;
-		} while( used_channels != 79 && (afh_map[(channel-2402)/8] & 0x1<<((channel-2402)%8)) );
+			if (channel > BT_FREQ_MAX)
+				channel -= BT_FREQ_MAX - BT_FREQ_MIN + 1;
+		} while( used_channels != NUM_BREDR_CHANNELS && (afh_map[(channel-BT_FREQ_MIN)/8] & 0x1<<((channel-BT_FREQ_MIN)%8)) );
 	}
 
 	else if (hop_mode == HOP_BLUETOOTH) {
@@ -2777,7 +2777,7 @@ void bt_le_sync(u8 active_mode)
 			cc2400_wait_fs_unlock();
 
 			/* Retune */
-			channel = le_adv_channel != 0 ? le_adv_channel : 2402;
+			channel = le_adv_channel != 0 ? le_adv_channel : BT_FREQ_MIN;
 			restart_jamming = 1;
 		}
 

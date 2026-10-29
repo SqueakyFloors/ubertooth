@@ -220,11 +220,11 @@ int main(int argc, char *argv[])
 
 	r = ubertooth_check_api(ut);
 	if (r < 0) {
-		/* ubertooth_check_api() releases the board itself on a version
-		 * mismatch; a version it could not read at all leaves the board
-		 * open. Closing covers both, because closing a board already
-		 * released does nothing, and it sends no STOP to a firmware
-		 * this host will not drive. */
+		/* ubertooth_check_api() releases the board itself when it
+		 * refuses the firmware; firmware it could not read at all
+		 * leaves the board open. Closing covers both, because closing a
+		 * board already released does nothing, and it sends no STOP to
+		 * a firmware this host will not drive. */
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;

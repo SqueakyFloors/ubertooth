@@ -347,21 +347,30 @@ void ubertooth_free(ubertooth_t* ut);
  * and writes version, or a negative libusb error, already reported. The board
  * is left open either way. */
 int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
-/* Whether the board's firmware is the version these host tools were built
- * with, which is the version they require. Returns 0 when the command may go
- * on, or a negative error, already reported: a version this host refuses to
- * drive, or a version that could not be read at all.
+/* Whether the board's firmware is the one these host tools were built with:
+ * the API version they require, and the image they drive. Returns 0 when the
+ * command may go on, or a negative error, already reported: a version this
+ * host refuses to drive, a version that could not be read at all, or another
+ * of this tree's images, whose message names the image to flash.
  *
  * A release build refuses any other version. A development build reports it
  * and returns 0, so host tools and firmware from different commits can be
  * used together; see ubertooth_report_api_mismatch().
  *
  * A refused version is released here: the board is sent a STOP and closed, so
- * a tool that returns after this one does not leave it claimed. A version
- * that could not be read leaves the board open, because nothing is known
- * about it. Either way the caller still owes the handle an
- * ubertooth_close() -- which does nothing on a board already released -- and
- * an ubertooth_free(). */
+ * a tool that returns after this one does not leave it claimed. A refused
+ * image is closed without the STOP, because no mode has been started and the
+ * image may be one that does not answer STOP.
+ *
+ * A version that could not be read leaves the board open, because nothing is
+ * known about it, and so does an image that could not be read: a development
+ * build runs on against firmware older than the info block, and that board
+ * cannot be told from one too busy to answer the read. The request that needs
+ * the other image reports it either way.
+ *
+ * Whatever the answer, the caller still owes the handle an ubertooth_close()
+ * -- which does nothing on a board already released -- and an
+ * ubertooth_free(). */
 int ubertooth_check_api(ubertooth_t *ut);
 /* The environment variable that overrides what the build decides about
  * firmware of another API version: exactly "1" runs on, exactly "0" refuses,

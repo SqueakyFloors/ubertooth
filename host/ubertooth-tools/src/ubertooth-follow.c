@@ -123,10 +123,10 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
  * never opened one does nothing, and the handle is allocated with the capture
  * files, well before the board, so there is always one to give back.
  *
- * One close covers both firmware version failures: ubertooth_check_api()
- * releases the board itself when the firmware reports a version this host
- * will not drive, and a version it could not read at all leaves the board
- * open, so closing a board that is already released does nothing. */
+ * One close covers both firmware failures: ubertooth_check_api() releases the
+ * board itself when it refuses the firmware -- another API version, or the
+ * other image -- and firmware it could not read at all leaves the board open,
+ * so closing a board that is already released does nothing. */
 static void follow_release_board(ubertooth_t* ut, int sock, uint16_t handle,
                                  int cc)
 {

@@ -687,9 +687,9 @@ static void change_channel(void) {
 	if (conn.access_address == ADVERTISING_AA) {
 		// FIXME
 		switch (le_adv_channel) {
-			case 2402: channel_idx = 37; break;
-			case 2426: channel_idx = 38; break;
-			case 2480: channel_idx = 39; break;
+			case BTLE_ADV_CHANNEL_37_MHZ: channel_idx = 37; break;
+			case BTLE_ADV_CHANNEL_38_MHZ: channel_idx = 38; break;
+			case BTLE_ADV_CHANNEL_39_MHZ: channel_idx = 39; break;
 			default:   channel_idx = 37; break;
 		}
 	} else {

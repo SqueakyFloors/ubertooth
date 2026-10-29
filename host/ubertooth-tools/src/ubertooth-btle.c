@@ -70,10 +70,10 @@ static void report_request_failure(const char *what)
 static u16 adv_channel(int index)
 {
 	if (index == ADV_INDEX_MIN)
-		return 2402;
+		return BTLE_ADV_CHANNEL_37_MHZ;
 	if (index == ADV_INDEX_MIN + 1)
-		return 2426;
-	return 2480;
+		return BTLE_ADV_CHANNEL_38_MHZ;
+	return BTLE_ADV_CHANNEL_39_MHZ;
 }
 
 static void print_mac(FILE *out, uint8_t *mac_address, int mask) {

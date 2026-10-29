@@ -111,6 +111,11 @@ static struct {
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
 	int stop_refused;
+	/* the signal handler -n installs, and the signal itself: the wait is
+	 * stopped once it has slept this many times (0: never), which is where
+	 * a Ctrl-C lands */
+	int cleanup_handlers;
+	int stop_after_sleeps;
 } fake;
 
 /* Every select returns fake_ut, except that the select after a reset returns
@@ -221,6 +226,24 @@ int libusb_reset_device(struct libusb_device_handle *h)
 	    fake.usb_reset_answers_after_polls == 0)
 		fake.follow_serial_rc = 0;
 	return fake.usb_reset_rc;
+}
+
+/* The library's signal handling, as the tool uses it: the handler is
+ * installed, and a flag it would set is read on the tool's own thread. A case
+ * raises the flag by the sleep count rather than by a real signal, so the
+ * moment it arrives is the same on every run. */
+void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+{
+	(void)ut;
+	(void)do_exit;
+	fake.cleanup_handlers++;
+}
+
+int ubertooth_stopping(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stop_after_sleeps != 0
+	       && fake.sleeps >= fake.stop_after_sleeps;
 }
 
 uint64_t util_clock_now_ms(void) { return fake.now_ms; }
@@ -1274,6 +1297,49 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	mu_assert(strstr(r.err, "error: the board did not start the range test "
 	                 "within 10 s; the range test has been stopped\n")
 	          != NULL, r.err);
+}
+
+MU_TEST(an_interrupted_range_test_stops_the_board)
+{
+	struct run_result r;
+
+	/* Ctrl-C during the wait. The board would otherwise be left listening
+	 * for a reply nobody is waiting for, until someone ran -S, so the
+	 * signal ends the wait like every other ending: the mode is stopped,
+	 * the line says so, and the status is 1 because no result was read. */
+	reset_fake();
+	fake.range_reply_after_ms = 0; /* nothing would ever answer */
+	fake.stop_after_sleeps = 3;
+	r = RUN("-n", "0");           /* a wait with no deadline to end it */
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.cleanup_handlers);
+	mu_assert(strstr(r.err, "error: interrupted before the range test "
+	                 "finished; the range test has been stopped\n") != NULL,
+	          r.err);
+	/* the STOP before the test, and the one that leaves the board idle */
+	mu_assert_int_eq(2, fake.stop_calls);
+	/* the wait ends on the signal, not a poll later */
+	mu_assert_int_eq(3, fake.sleeps);
+
+	/* and when the board refuses that stop, the line says what is left
+	 * running instead of claiming the board is idle */
+	reset_fake();
+	fake.range_reply_after_ms = 0;
+	fake.stop_after_sleeps = 1;
+	fake.stop_rc = -1;
+	r = RUN("-n", "0");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: interrupted before the range test "
+	                 "finished; the range test has not been stopped; -S "
+	                 "stops it\n") != NULL, r.err);
+
+	/* A test that finishes is not reported as interrupted, and a wait
+	 * nothing interrupts still ends on its deadline. */
+	reset_fake();
+	fake.range_reply_after_ms = 1000;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "interrupted") == NULL, r.err);
 }
 
 MU_TEST(a_range_test_stopped_from_elsewhere_ends_the_wait)
@@ -3794,6 +3860,7 @@ int main(void)
 	MU_RUN(range_result_is_reported_and_a_failed_read_fails);
 	MU_RUN(range_test_reports_progress_and_then_the_result);
 	MU_RUN(range_test_with_no_repeater_times_out_and_stops_the_board);
+	MU_RUN(an_interrupted_range_test_stops_the_board);
 	MU_RUN(a_range_test_stopped_from_elsewhere_ends_the_wait);
 	MU_RUN(the_watchdog_state_is_reported_and_a_failed_read_fails);
 	MU_RUN(setters_pass_their_arguments_and_report_failures);

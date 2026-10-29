@@ -954,7 +954,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	/* The decoder is told how many bytes were captured, so it reads no
 	 * further than that. */
 	lell_allocate_and_decode_n(le_data, le_data_len,
-	                           rx->channel + 2402, rx->clk100ns, &pkt);
+	                           rx->channel + BT_FREQ_MIN, rx->clk100ns, &pkt);
 	/* The decoder hands back nothing if it could not allocate the packet. */
 	if (pkt == NULL) {
 		fprintf(stderr, "error: unable to allocate memory\n");
@@ -1011,7 +1011,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	uint64_t ts_diff = rx_ts - prev_ts;
 	prev_ts = le32toh( rx->clk100ns );
 	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
-	       systime, rx->channel + 2402, lell_get_access_address(pkt),
+	       systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
 	       ts_diff / 10000.0, rx->rssi_min - 54);
 
 	/* The bytes of the packet itself: the PDU header, the payload the
@@ -1058,7 +1058,7 @@ void cb_ego(ubertooth_t* ut, void* args)
 	prev_ts = le32toh(rx->clk100ns);
 	printf("time=%u delta_t=%.06f ms freq=%d \n",
 	       le32toh(rx->clk100ns), ts_diff / 10000.0,
-	       rx->channel + 2402);
+	       rx->channel + BT_FREQ_MIN);
 
 	for (i = 0; i < len; ++i)
 		printf("%02x ", rx->data[i]);

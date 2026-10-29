@@ -609,11 +609,10 @@ status 1:
     error: no reply from the repeater within 10 s: start one in range with ubertooth-util -e, or wait longer with -n <seconds>; the range test has been stopped
 
 `-n <seconds>` chooses the wait, and `-n 0` waits forever, for a repeater
-being set up by hand at the other end. Interrupting `-n` with Ctrl-C is the one
-ending that leaves the test running, and `ubertooth-util -S` stops it
-afterwards. (It has to be afterwards: `-n` holds
-the board for as long as it is watching, as every tool holds the board it is
-using, so another command cannot reach it meanwhile.)
+being set up by hand at the other end. Interrupting `-n` with Ctrl-C stops the
+test like the other endings do, and says so, with exit status 1:
+
+    error: interrupted before the range test finished; the range test has been stopped
 
 A board that leaves the test without a reply ends the wait at once rather than
 waiting out the deadline: `error: the range test was stopped before the
@@ -631,10 +630,10 @@ the deadline, which can take a few seconds longer than the wait asked for:
 each read has a timeout of its own, and libubertooth reports the transfer
 itself on the line before.
 
-Every ending but a signal leaves the board out of the test, so the next
-command finds it idle: the ones above stop it, and a board that left the test
-by itself is already out of it. Each of those messages ends by saying so, and
-says instead that `-S` stops it if the stop itself was refused.
+Every ending leaves the board out of the test, so the next command finds it
+idle: the ones above stop it, and a board that left the test by itself is
+already out of it. Each of those messages ends by saying so, and says instead
+that `-S` stops it if the stop itself was refused.
 
 ### -m, the last result
 
@@ -756,10 +755,10 @@ when a later operation in the same command succeeds.
 
 `-n` exits 0 when the range test finished and its result was printed. It
 exits 1 when nothing replied within the wait, when the test ended or never
-started, and when the reply came back corrupted (see [RANGE TEST][]). It also
-exits 1 when three polls in a row cannot read the board, as `error: range test
-result read failed; <what became of the test>` or
-`error: board mode read failed; ...`.
+started, when the reply came back corrupted, and when the wait was interrupted
+with Ctrl-C (see [RANGE TEST][]). It also exits 1 when three polls in a row
+cannot read the board, as `error: range test result read failed; <what became
+of the test>` or `error: board mode read failed; ...`.
 
 A command line that asks for no operation at all is refused before any device
 is opened, rather than opening the selected board, doing nothing with it and
