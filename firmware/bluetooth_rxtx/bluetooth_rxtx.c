@@ -123,22 +123,47 @@ typedef struct _le_promisc_active_aa_t {
 	int count;
 } le_promisc_active_aa_t;
 
+/* How many of the gaps between one connection's returns to this channel the
+ * estimator keeps. It looks for the pattern they repeat, and needs two runs of
+ * one pattern to see a repeat, so this is twice the longest pattern it can
+ * find: sixteen gaps, so up to eight returns a trip round the channels.
+ *
+ * A full channel map returns once a trip. A smaller map returns about 37/U
+ * times, U being the channels it uses, because the remapping spreads the
+ * unused positions over the used ones: twice or three times for the maps of
+ * 18 and 19 channels the connections on the bench negotiate, eight times for
+ * a map of five. A map smaller than that returns too often for the pattern to
+ * fit here, and then nothing is reported. */
+#define LE_PROMISC_GAPS 16
+
 typedef struct _le_promisc_state_t {
 	// LFU cache of recently seen AA's
 	le_promisc_active_aa_t active_aa[32];
 
-	// recovering hop interval
-	u32 smallest_hop_interval;
+	/* Recovering the connection interval.
+	 *
+	 * The mode listens on one data channel, so it sees the connection
+	 * whenever the hop sequence brings it back here -- a whole number of
+	 * connection events later. Every gap between two sightings is
+	 * therefore a whole number of connection intervals.
+	 *
+	 * The spacings between returns repeat every trip round the 37 hop
+	 * positions and add up to 37 connection events, so the gaps are kept
+	 * in the order they arrived and the estimator looks for the pattern
+	 * they repeat. The oldest falls off the end, which is how a figure
+	 * already reported stops being reported once the connection it
+	 * described has changed or gone. */
+	u32 gap[LE_PROMISC_GAPS];
+	u8 gap_count;
 	int consec_intervals;
 
 	/* When a packet of the connection was last seen on the channel being
 	 * listened to, and whether one has been. The estimator times how long
-	 * the connection takes to come back and keeps the smallest gap, so it
-	 * must have no stamp to measure from when a pass starts: the mode's
-	 * teardown stops the capture clock and zeroes it, so a stamp left by
-	 * an earlier pass is a reading of a clock that has since restarted,
-	 * and the gap computed from it is an arbitrary one that gets reported
-	 * for the rest of the pass whenever it comes out small. */
+	 * the connection takes to come back, so it must have no stamp to
+	 * measure from when a pass starts: the mode's teardown stops the
+	 * capture clock and zeroes it, so a stamp left by an earlier pass is a
+	 * reading of a clock that has since restarted, and the gap computed
+	 * from it belongs to nothing. */
 	u32 prev_clk;
 	u8 seen_a_packet;
 
@@ -2433,7 +2458,6 @@ void reset_le() {
 // reset LE Promisc state
 void reset_le_promisc(void) {
 	memset(&le_promisc, 0, sizeof(le_promisc));
-	le_promisc.smallest_hop_interval = 0xffffffff;
 }
 
 /* generic le mode */
@@ -3078,7 +3102,8 @@ void connection_follow_cb(u8 *packet) {
 
 			// conn interval must be [7.5 ms, 4.0s] in units of 1.25 ms
 			conn_interval = (packet[29] << 8) | packet[28];
-			if (conn_interval < 6 || conn_interval > 3200)
+			if (conn_interval < LE_MIN_CONN_INTERVAL ||
+					conn_interval > LE_MAX_CONN_INTERVAL)
 				return;
 
 			// This is a connect packet
@@ -3151,9 +3176,30 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 }
 
 // divide, rounding to the nearest integer: round up at 0.5.
-#define DIVIDE_ROUND(N, D) ((N) + (D)/2) / (D)
+#define DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
+
+/* The longest gap that can be a trip round the channels: 37 channels at the
+ * longest connection interval, 148 s. Anything longer is not this connection
+ * coming back. */
+#define LE_PROMISC_MAX_GAP \
+	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_BASECLK)
 
 void promisc_recover_hop_increment(u8 *packet) {
+	/* The interval the span below is divided by. The estimator hands over
+	 * nothing outside the range a connection may use, but the division is
+	 * unforgiving enough to check anyway: the LPC17xx leaves DIV_0_TRP
+	 * clear, so a zero divisor makes UDIV answer 0 rather than fault, and
+	 * hop_interval_lut[0] is 0 -- a board that has stopped hopping and
+	 * reports both numbers as zero. Nothing is reported instead; the
+	 * search below keeps cycling, so a later interval is still picked up.
+	 */
+	if (le.conn_interval < LE_MIN_CONN_INTERVAL ||
+			le.conn_interval > LE_MAX_CONN_INTERVAL) {
+		hop_direct_channel = 2404;
+		do_hop = 1;
+		return;
+	}
+
 	if (channel == 2404) {
 		le_promisc.first_ts = CLK100NS;
 		hop_direct_channel = 2406;
@@ -3165,15 +3211,26 @@ void promisc_recover_hop_increment(u8 *packet) {
 		// Number of channels hopped between previous and current timestamp.
 		u32 channels_hopped = DIVIDE_ROUND(second_ts - le_promisc.first_ts,
 										   le.conn_interval * LE_BASECLK);
-		if (channels_hopped < 37) {
-			// Get the hop increment based on the number of channels hopped.
+		/* At least one: the two sightings are a whole number of connection
+		 * events apart, and a span shorter than half an interval rounds to
+		 * none of them. hop_interval_lut[0] is 0, so taking it would be a
+		 * hop increment of 0 and a board that stops hopping. */
+		if (channels_hopped >= 1 && channels_hopped < LE_HOP_CHANNELS &&
+				hop_interval_lut[channels_hopped] >= LE_MIN_HOP_INCREMENT &&
+				hop_interval_lut[channels_hopped] <= LE_MAX_HOP_INCREMENT) {
+			/* The table turns a number of connection events into the hop
+			 * increment that covers them, and only a dozen of its entries
+			 * are an increment a connection may use: the rest come from a
+			 * span measured against an interval that was not this
+			 * connection's. Following one of those chases a sequence no
+			 * connection uses, so the search below keeps cycling instead. */
 			le.channel_increment = hop_interval_lut[channels_hopped];
 			le.interval_timer = le.conn_interval / 2;
 			le.conn_count = 0;
 			le.conn_epoch = 0;
 			do_hop = 0;
 			// Move on to regular connection following.
-			le.channel_idx = (1 + le.channel_increment) % 37;
+			le.channel_idx = (1 + le.channel_increment) % LE_HOP_CHANNELS;
 			le.link_state = LINK_CONNECTED;
 			le.crc_verify = 0;
 			hop_mode = HOP_BTLE;
@@ -3194,6 +3251,122 @@ void promisc_recover_hop_increment(u8 *packet) {
 	}
 }
 
+/* How far two spans may be apart and still count as the same one. The
+ * connection's own clock may be 500 ppm out and the board's clock adds to
+ * that, so allow about 0.2% of the span, plus half of the 1.25 ms a
+ * connection interval is counted in so that rounding alone never splits two
+ * readings of the same span. */
+static u32 le_gap_tolerance(u32 span) {
+	return (span >> 9) + LE_BASECLK / 2;
+}
+
+/* Are these two spans the same one, read twice? */
+static int le_same_span(u32 a, u32 b) {
+	u32 shorter = a < b ? a : b;
+	u32 apart = a < b ? b - a : a - b;
+
+	return apart <= le_gap_tolerance(shorter);
+}
+
+/* Add a gap to the end of the ring, dropping the oldest. */
+static void promisc_note_gap(u32 gap) {
+	if (le_promisc.gap_count < LE_PROMISC_GAPS) {
+		le_promisc.gap[le_promisc.gap_count++] = gap;
+		return;
+	}
+
+	memmove(&le_promisc.gap[0], &le_promisc.gap[1],
+			(LE_PROMISC_GAPS - 1) * sizeof(le_promisc.gap[0]));
+	le_promisc.gap[LE_PROMISC_GAPS - 1] = gap;
+}
+
+/* The gap this many places back from the newest. */
+static u32 promisc_gap_back(unsigned back) {
+	return le_promisc.gap[le_promisc.gap_count - 1 - back];
+}
+
+/* The connection interval the gaps say, in units of 1.25 ms, or 0 when they
+ * do not say one that can be believed.
+ *
+ * A connection returns to this channel at spacings that repeat every trip
+ * round the 37 hop positions, and those spacings add up to 37 connection
+ * events because the trip visits every position once. A full channel map
+ * gives one spacing, the whole trip; a smaller map gives several, because
+ * every unused position is remapped onto a used one, so this channel comes up
+ * more than once a trip and at uneven spacings. Either way, one repeat of the
+ * pattern is 37 events, which is the one piece of arithmetic that holds for
+ * both and needs no guess about the map.
+ *
+ * So: find the shortest pattern the gaps just seen repeat, and take its total.
+ * Nothing is reported until the gaps do repeat, which is also what keeps a
+ * missed return out of the answer: a return the board did not hear makes one
+ * gap the sum of two, and a run with such a gap in it does not repeat.
+ */
+static u16 promisc_interval(void) {
+	unsigned period, i;
+
+	for (period = 1; period <= LE_PROMISC_GAPS / 2; ++period) {
+		u32 total = 0;
+		u32 interval, unit;
+
+		if (le_promisc.gap_count < 2 * period)
+			break;
+
+		/* Two runs of `period` gaps back to back, the newer against the
+		 * older. */
+		for (i = 0; i < period; ++i)
+			if (!le_same_span(promisc_gap_back(i),
+					promisc_gap_back(i + period)))
+				break;
+		if (i < period)
+			continue;
+
+		for (i = 0; i < period; ++i)
+			total += promisc_gap_back(i);
+
+		/* One repeat is one trip round the channels, so it cannot be
+		 * longer than the longest trip. Checked before the division,
+		 * because the sum of this many gaps can also be more than a
+		 * 32-bit count holds. */
+		if (total > LE_PROMISC_MAX_GAP || total < promisc_gap_back(0))
+			continue;
+
+		interval = DIVIDE_ROUND(total, LE_HOP_CHANNELS * LE_BASECLK);
+
+		/* Nothing outside the range a connection interval may take is
+		 * one. That rules out every pattern totalling less than the
+		 * 277.5 ms a trip round 37 channels takes at the shortest
+		 * interval, which is where the figures too small to believe
+		 * came from. */
+		if (interval < LE_MIN_CONN_INTERVAL ||
+				interval > LE_MAX_CONN_INTERVAL)
+			return 0;
+
+		/* Every gap in the pattern is a whole number of connection
+		 * events, so it has to be a whole number of this interval, and
+		 * no more events than a trip round the channels holds. A run of
+		 * gaps that is part of a longer pattern repeats too -- the last
+		 * two of 11, 7, 19, 11, 7, 19 are 19, 11 twice over -- and this
+		 * is what tells the part from the whole: a part-pattern's total
+		 * is not 37 events, so the interval it gives does not measure
+		 * its own gaps. */
+		unit = interval * LE_BASECLK;
+		for (i = 0; i < period; ++i) {
+			u32 gap = promisc_gap_back(i);
+			u32 events = DIVIDE_ROUND(gap, unit);
+
+			if (events < 1 || events > LE_HOP_CHANNELS)
+				return 0;
+			if (!le_same_span(gap, events * unit))
+				return 0;
+		}
+
+		return (u16)interval;
+	}
+
+	return 0;
+}
+
 void promisc_recover_hop_interval(u8 *packet) {
 	u32 cur_clk = CLK100NS;
 	u32 measured, clk_diff;
@@ -3212,14 +3385,37 @@ void promisc_recover_hop_interval(u8 *packet) {
 		measured += CLK100NS_PERIOD; // handle rollover
 	clk_diff = measured - le_promisc.prev_clk;
 
-	// probably consecutive data packets on the same channel
-	if (clk_diff < 2 * LE_BASECLK)
+	/* Shorter than one connection interval, so both packets belong to the
+	 * same connection event -- the central's and the peripheral's halves
+	 * of one exchange, or a second exchange in the same event. That is not
+	 * a visit to this channel, and the sighting does not become the one the
+	 * next gap is measured from either: the event's first packet is where
+	 * the connection's own grid is. */
+	if (clk_diff < LE_MIN_CONN_INTERVAL * LE_BASECLK)
 		return;
 
-	if (clk_diff < le_promisc.smallest_hop_interval)
-		le_promisc.smallest_hop_interval = clk_diff;
+	/* The clock reading, not the value the rollover was undone on: that
+	 * one is above the clock's range, so the next sighting would measure a
+	 * gap from a time the clock never shows. */
+	le_promisc.prev_clk = cur_clk;
 
-	obsv_hop_interval = DIVIDE_ROUND(le_promisc.smallest_hop_interval, 37 * LE_BASECLK);
+	/* Longer than a trip round the channels at the longest interval the
+	 * specification allows. The connection was away, or the clock wrapped
+	 * more than once: either way the gap says nothing, for or against. */
+	if (clk_diff > LE_PROMISC_MAX_GAP)
+		return;
+
+	promisc_note_gap(clk_diff);
+	obsv_hop_interval = promisc_interval();
+
+	if (obsv_hop_interval == 0) {
+		/* Nothing believable: report nothing and let go of anything
+		 * already adopted, rather than stand by a figure the gaps no
+		 * longer support. */
+		le.conn_interval = 0;
+		le_promisc.consec_intervals = 0;
+		return;
+	}
 
 	if (le.conn_interval == obsv_hop_interval) {
 		// 5 consecutive hop intervals: consider it legit and move on
@@ -3235,11 +3431,6 @@ void promisc_recover_hop_interval(u8 *packet) {
 		le.conn_interval = obsv_hop_interval;
 		le_promisc.consec_intervals = 0;
 	}
-
-	/* The clock reading, not the value the rollover was undone on: that
-	 * one is above the clock's range, so the next sighting would measure a
-	 * gap from a time the clock never shows. */
-	le_promisc.prev_clk = cur_clk;
 }
 
 void promisc_follow_cb(u8 *packet) {

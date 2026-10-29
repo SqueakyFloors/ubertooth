@@ -95,6 +95,20 @@ static const u8 whitening_index[] = {
     94, 86, 49, 52, 20, 40, 27, 84, 90, 63, 112, 47, 102
 };
 
+/* The data channels a connection's hop sequence runs over. A connection whose
+ * channel map holds all of them reaches any one channel exactly once per trip
+ * round them. */
+#define LE_HOP_CHANNELS 37
+
+/* The connection interval the specification allows, in its own units of
+ * 1.25 ms: 7.5 ms to 4 s. */
+#define LE_MIN_CONN_INTERVAL 6
+#define LE_MAX_CONN_INTERVAL 3200
+
+/* The hop increment the specification allows. */
+#define LE_MIN_HOP_INCREMENT 5
+#define LE_MAX_HOP_INCREMENT 16
+
 static const u8 hop_interval_lut[] = {
     0, 1, 19, 25, 28, 15, 31, 16, 14, 33, 26, 27, 34, 20, 8,
     5, 7, 24, 35, 2, 13, 30, 32, 29, 17, 3, 10, 11, 4, 23, 21,

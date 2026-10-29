@@ -423,6 +423,13 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Confirm: the access address is reported, as the first of the four
       parameters and before the CRC init value, and matches the one the
       capture's packets carry
+- [ ] Confirm: the hop interval, if one is reported, is the connection's own,
+      within a 1.25 ms unit of what the peer says it negotiated. It is worked
+      out from several returns to one channel in a row, so allow ten seconds
+      or more after the CRC init value. A run that reports the access address
+      and the CRC init value and no interval is the honest outcome on a link
+      the board hears only part of, and not a failure of this step; a figure
+      that disagrees with the peer's is.
 
 ### 3d. Promiscuous mode finds its own access address
 
