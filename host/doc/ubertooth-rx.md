@@ -115,11 +115,11 @@ Output options:
 
 A record of a `-q` or `-r` capture carries the signal power of its packet and
 no measured noise power: nothing measures the background between packets, so
-the record's noise-power-valid flag stays clear. Wireshark then shows the
-field as `Invalid Noise Power` and derives no signal-to-noise ratio from it.
-The `n=` column on the screen is the RSSI average the board took over the
-packet itself, which is mostly the packet's own power, and `snr=` is the
-signal beside it less that average.
+the record's noise-power-valid flag stays clear and the byte beside it is not
+a reading. Wireshark shows it as `Invalid Noise Power`. The `n=` column on the
+screen is the RSSI average the board took over the packet itself, which is
+mostly the packet's own power, and `snr=` is the signal beside it less that
+average.
 
 Miscellaneous:
 

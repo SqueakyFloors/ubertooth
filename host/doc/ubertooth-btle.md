@@ -253,9 +253,9 @@ each.
 
 A `-q` or `-r` capture record carries the signal power of its packet and no
 measured noise power: nothing measures the background between packets, so the
-record's noise-power-valid flag stays clear. Wireshark then shows the field as
-`Invalid Noise Power` and derives no signal-to-noise ratio from it. A `-c` PPI
-record carries the board's own RSSI readings instead, as described below.
+record's noise-power-valid flag stays clear and the byte beside it is not a
+reading. Wireshark shows it as `Unused signed byte`. A `-c` PPI record carries
+the board's own RSSI readings instead, as described below.
 
 Miscellaneous:
 

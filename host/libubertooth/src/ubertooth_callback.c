@@ -86,9 +86,11 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  *
  * libbtbb sets the noise-power-valid flag of a record only when the noise
  * figure it is given is below that record's signal figure, so a figure no
- * signal can reach leaves the flag clear and a reader marks the field invalid
- * rather than showing it as a measurement. +127 dBm is such a figure: the
- * signal field is derived from the board's RSSI and tops out at 0 dBm.
+ * signal can reach leaves the flag clear and a reader does not take the byte
+ * for a measurement. +127 dBm is such a figure: the signal field is derived
+ * from the board's RSSI and tops out at 0 dBm. With the flag clear the byte
+ * itself means nothing, which is why a value no receiver could report is the
+ * safe one to write there.
  *
  * The board sends an RSSI average taken over the packet itself, which is
  * mostly the packet's own power rather than the background around it, so it is

@@ -3,9 +3,10 @@
  *
  * Every record of both capture formats carries a signal figure, a noise
  * figure, and a flag for each saying whether that figure is a measurement. A
- * reader that finds the noise flag clear marks the field invalid, the way
- * Wireshark shows `Invalid Noise Power`; a reader that finds it set shows the
- * figure as a reading, and computes a signal-to-noise ratio from the pair.
+ * reader that finds the noise flag clear does not take the byte for a reading:
+ * Wireshark labels it `Invalid Noise Power` on a Basic Rate record and
+ * `Unused signed byte` on a low-energy one. A reader that finds the flag set
+ * shows the figure, and computes a signal-to-noise ratio from the pair.
  *
  * Nothing measures the background between packets. The board sends the maximum,
  * minimum and average of the RSSI it read while the packet itself was
@@ -478,7 +479,7 @@ static void check_noise_is_absent(const char* name,
 	mu_assert_int_eq(RECORDED_SIGNAL_DBM, record->signal);
 
 	/* The noise figure is not, and now says so too. A reader that finds
-	 * this flag clear marks the field invalid and computes no
+	 * this flag clear does not take the byte for a reading, and computes no
 	 * signal-to-noise ratio from it. */
 	mu_assert(!(record->flags & noise_valid),
 	          "the noise power is recorded as measured");
