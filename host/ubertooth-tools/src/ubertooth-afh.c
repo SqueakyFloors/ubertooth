@@ -223,9 +223,11 @@ int main(int argc, char* argv[])
 	ubertooth_report_queue_gaps(ut);
 	/* A stream that died is read after the teardown, because the teardown is
 	 * where a transfer the board never gave back comes out: that run holds
-	 * less than was asked for, whatever the phases above made of it.
-	 * libubertooth has already printed what failed. */
-	if (ubertooth_stream_failed(ut))
+	 * less than was asked for, whatever the phases above made of it. A
+	 * teardown the board refused is read here for the same reason, and left
+	 * the board running the mode this tool started. libubertooth has already
+	 * printed what failed in both cases. */
+	if (ubertooth_stream_failed(ut) || ubertooth_stop_failed(ut))
 		status = 1;
 	ubertooth_free(ut);
 	/* The piconet outlives the receive phases, so it is given back here

@@ -51,15 +51,19 @@ command are refused before any device is opened:
 `error: -l cannot be combined with -c; a capture uses one modulation`. The
 second one used to be the one used, and the other was dropped without a word.
 
-A refused command line creates and truncates nothing: `-d` names its file while
-the command line is read, and it is opened only once every check has passed.
+A refused command line creates and truncates nothing: `-d` names its file
+while the command line is read, and it is opened only once every check has
+passed. The board is opened and its firmware is checked before that, so a run
+refused for either reason leaves no empty file behind either.
 
 ## DIAGNOSTICS
 
 Without `-d`, standard output carries the binary symbol stream and nothing
 else, and so does `-d -`. Errors, warnings and the per-block timestamp go to
 standard error, each error as one line starting `error: `, for example
-`error: /no/such/dir/capture.bin: No such file or directory`.
+`error: /no/such/dir/capture.bin: No such file or directory`. That line comes
+after the board has been selected and its firmware accepted, because that is
+when the file is opened.
 
 A terminal is refused either way, before any device is opened:
 `error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
@@ -87,6 +91,17 @@ or dropped off the bus, so the dump stops there and holds only what arrived
 before it. The failure is reported on standard error as it happens. A board
 that never hands the transfer back at all exits 1 too, reported by the
 `warning:` line ubertooth(7) describes rather than an error.
+
+Also 1 when the board refuses the request that ends the dump: it is left in
+the capture mode, and no other tool can open it until it is reset or
+re-plugged. What was dumped stays written out, and libubertooth names the
+refused request on standard error.
+
+A `-d` file is opened once the board has been opened and its firmware
+accepted, not before, so a run refused for either reason leaves no empty file
+behind. A terminal on standard output is still refused while the command line
+is read, with or without `-d -`, because that is a problem with the command
+rather than with the board.
 
 ## SEE ALSO
 

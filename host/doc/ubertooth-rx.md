@@ -277,9 +277,10 @@ attached: `-u` without `-l` gives `error: -u <UAP> requires -l <LAP>`, and an
 address beside survey mode gives `error: survey mode (-z) discovers addresses,
 so it cannot be given -l or -u`.
 
-A refused command line creates and truncates nothing: `-r`, `-q` and `-d`
-name their file while the command line is read, and it is opened only once
-every check has passed.
+A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
+their file while the command line is read, and it is opened only once every
+check has passed. The board is opened and its firmware is checked before that,
+so a run refused for either reason leaves no empty file behind either.
 
 `-` means standard output only as the whole value of `-q` or `-d`
 (ubertooth(7), OPTION VALUES). Any other value is a file name, including one
@@ -371,6 +372,20 @@ A refused channel request is answered with the capture already running (see
 HOW THE CHANNEL IS SET), so the mode is stopped on the way out. A board that
 has stopped answering altogether can add a line of its own to the report as
 that is done.
+
+A capture the board would not stop exits 1 as well, however cleanly the
+capture itself ran: the request that takes the board out of its capture mode
+was stalled, so the board is left in that mode and no other tool can open it
+until it is reset or re-plugged. What was captured stays written out, a `-z`
+survey still prints its results, and libubertooth names the refused request on
+standard error. This is what a `-t` run that reported success and then left a
+board nothing could open used to look like.
+
+The `-q`, `-r` and `-d` files are created once the board has been opened and
+its firmware accepted, not before, so a run refused for either reason leaves
+no empty capture behind. A replay (`-i`) creates them once its input file has
+been opened, since it needs no board. A terminal on standard output is still
+refused while the command line is read.
 
 ## SEE ALSO
 

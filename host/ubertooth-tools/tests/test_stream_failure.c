@@ -68,6 +68,11 @@ static pthread_mutex_t fake_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct {
 	struct libusb_transfer* in_flight;
 	int submits;
+	/* 1 to have the board stall the teardown's STOP, which is what a board
+	 * that will not leave its mode looks like, and 1 to have it gone from
+	 * the bus as well. */
+	int refuse_stop;
+	int board_has_left_the_bus;
 	int cancelled;
 	int frees;
 	int refuse_submit;        /* fail libusb_submit_transfer() */
@@ -188,6 +193,10 @@ int pthread_join(pthread_t thread, void** retval)
 	return real_pthread_join(thread, retval);
 }
 
+/* Stands in for the board's USB handle, and for the board itself in the
+ * device list the fakes below keep. Nothing dereferences it. */
+static int fake_devh;
+
 /* ---- libusb fakes ------------------------------------------------------- */
 /* Defined here, so they win over the libusb library symbols. */
 
@@ -200,16 +209,63 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 {
 	(void)devh;
 	(void)request_type;
-	(void)bRequest;
 	(void)wValue;
 	(void)wIndex;
 	(void)timeout;
 	pthread_mutex_lock(&fake_lock);
 	fake.control_requests++;
 	pthread_mutex_unlock(&fake_lock);
+	/* A board stalls a request it will not take. The teardown's STOP is the
+	 * one that matters here: a board that stalls it is left running the mode
+	 * the capture started. */
+	if (bRequest == UBERTOOTH_STOP && fake.refuse_stop)
+		return LIBUSB_ERROR_PIPE;
 	if (data != NULL && wLength > 0)
 		memset(data, 0, wLength);
 	return wLength;
+}
+
+/* The board behind the handle, and the bus it is on. The report about a
+ * stalled request asks whether the board has gone before it blames the
+ * board's firmware, and the real check lists the bus; the handle here is not
+ * a real one, so the list is this fake's. */
+libusb_device* LIBUSB_CALL libusb_get_device(libusb_device_handle* devh)
+{
+	(void)devh;
+	return (libusb_device*)&fake_devh;
+}
+
+ssize_t LIBUSB_CALL libusb_get_device_list(libusb_context* ctx,
+	libusb_device*** list)
+{
+	static libusb_device* devices[1];
+
+	(void)ctx;
+	devices[0] = (libusb_device*)&fake_devh;
+	*list = devices;
+	return fake.board_has_left_the_bus ? 0 : 1;
+}
+
+void LIBUSB_CALL libusb_free_device_list(libusb_device** list,
+	int unref_devices)
+{
+	(void)list;
+	(void)unref_devices;
+}
+
+/* The teardown gives the interface and the handle back; neither reaches a
+ * board here. */
+int LIBUSB_CALL libusb_release_interface(libusb_device_handle* devh,
+	int interface_number)
+{
+	(void)devh;
+	(void)interface_number;
+	return 0;
+}
+
+void LIBUSB_CALL libusb_close(libusb_device_handle* devh)
+{
+	(void)devh;
 }
 
 /* The stream clears the receive pipe before it reads; nothing here depends on
@@ -332,8 +388,6 @@ int LIBUSB_CALL libusb_handle_events_timeout(libusb_context* ctx,
 }
 
 /* ---- helpers ------------------------------------------------------------ */
-
-static int fake_devh;
 
 static ubertooth_t* new_handle(void)
 {
@@ -652,6 +706,105 @@ MU_TEST(a_stream_that_dies_ends_the_capture)
 	release_handle(ut);
 }
 
+/* The teardown's STOP is what takes the board out of the mode a capture
+ * started. A board that would not take it is left in that mode, and no other
+ * tool can open it until it is reset or re-plugged, so the run did not finish
+ * what it was asked: the handle keeps what the request came back with, and
+ * every streaming tool turns that into exit 1.
+ *
+ * This is the fault a lab board produced by itself while a capture was being
+ * repeated: the capture ran its whole timeout, so the run looked like one that
+ * worked, and only the next command found a board nothing could open. */
+MU_TEST(a_refused_teardown_is_recorded)
+{
+	ubertooth_t* ut;
+	char err[512] = "";
+	char out[256] = "";
+
+	reset();
+	fake.refuse_stop = 1;
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+
+	capture_output();
+	ubertooth_stop(ut);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	mu_assert(ubertooth_stop_failed(ut), "the refused stop is recorded");
+	/* The stream itself was never asked for, so it is not what failed. */
+	mu_assert(!ubertooth_stream_failed(ut), "the stream did not fail");
+	/* The library names the request, so no tool has to. */
+	mu_assert(strstr(err, "error: could not stop the running mode") != NULL,
+	          err);
+	mu_assert(out[0] == '\0', out);
+
+	release_handle(ut);
+}
+
+/* A teardown the board took leaves nothing recorded, which is the regression
+ * that matters: every ordinary end of a capture goes this way.
+ * ubertooth_close() sends no STOP at all, so it cannot record one
+ * either. */
+MU_TEST(a_teardown_the_board_took_is_not_a_failure)
+{
+	ubertooth_t* ut;
+	char err[256] = "";
+	char out[256] = "";
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+	capture_output();
+	ubertooth_stop(ut);
+	release_output(out, sizeof(out), err, sizeof(err));
+	mu_assert(!ubertooth_stop_failed(ut), "nothing was refused");
+	mu_assert(err[0] == '\0', err);
+	release_handle(ut);
+
+	reset();
+	fake.refuse_stop = 1;
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+	capture_output();
+	ubertooth_close(ut);
+	release_output(out, sizeof(out), err, sizeof(err));
+	mu_assert(!ubertooth_stop_failed(ut), "a close sends no stop");
+	mu_assert(err[0] == '\0', err);
+	release_handle(ut);
+}
+
+/* A board that has left the USB bus stalls the teardown too on some hosts,
+ * and its firmware is not the reason: saying so sent the user to reflash a
+ * board that was never the problem. One line, naming what happened, and no
+ * note about firmware API versions. The status is still a failure. */
+MU_TEST(a_teardown_of_a_board_that_has_gone_does_not_blame_the_firmware)
+{
+	ubertooth_t* ut;
+	char err[512] = "";
+	char out[256] = "";
+
+	reset();
+	fake.refuse_stop = 1;
+	fake.board_has_left_the_bus = 1;
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+	/* As opening a board records it: the report has a version to quote, and
+	 * a board to ask about. */
+	ubertooth_note_api_version(ut->devh, UBERTOOTH_API_VERSION);
+
+	capture_output();
+	ubertooth_stop(ut);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	mu_assert(ubertooth_stop_failed(ut), "the refused stop is recorded");
+	mu_assert(strcmp(err, "error: could not stop the running mode: the board "
+	                 "is no longer attached\n") == 0, err);
+	mu_assert(out[0] == '\0', out);
+
+	release_handle(ut);
+	ubertooth_forget_api_version(&fake_devh);
+}
+
 /* A capture stopped the ordinary way -- a timeout, or a Ctrl-C -- is not a
  * failure, and it is not cut short either: this is the regression that
  * matters, since every normal run goes this way. */
@@ -859,6 +1012,9 @@ int main(void)
 	MU_RUN(a_refused_re_arm_ends_the_capture);
 	MU_RUN(the_first_failure_is_the_one_kept);
 	MU_RUN(a_stream_that_dies_ends_the_capture);
+	MU_RUN(a_refused_teardown_is_recorded);
+	MU_RUN(a_teardown_the_board_took_is_not_a_failure);
+	MU_RUN(a_teardown_of_a_board_that_has_gone_does_not_blame_the_firmware);
 	MU_RUN(a_capture_that_was_stopped_is_not_a_failure);
 	MU_RUN(an_interrupt_is_not_a_failure);
 	MU_RUN(a_detection_phase_that_lost_its_stream_is_not_a_quiet_piconet);

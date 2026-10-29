@@ -220,6 +220,13 @@ board stopped answering or dropped off the bus, so what it reported is
 whatever arrived before that. A detection phase that lost its stream is never
 reported as a quiet piconet, so it exits 1 rather than 2.
 
+A teardown the board refused exits 1 too, and this is one of the paths that
+reach it: the request that takes the board out of its capture mode was
+stalled, so the board is left in that mode and no other tool can open it
+until it is reset or re-plugged. The map the run detected is still printed,
+and libubertooth names the refused request on standard error. A quiet piconet
+is not reported as 2 in that case either.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

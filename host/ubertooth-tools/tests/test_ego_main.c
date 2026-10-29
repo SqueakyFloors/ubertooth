@@ -59,6 +59,9 @@ static struct {
 	 * access code, l set capture length, e start the E-GO mode, ? a
 	 * subcommand this fake does not know. */
 	char calls[16];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -145,6 +148,15 @@ void ubertooth_stop(ubertooth_t *ut)
 {
 	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 void ubertooth_close(ubertooth_t *ut)
@@ -643,6 +655,30 @@ MU_TEST(an_interrupted_capture_stops_and_exits_zero)
 
 /* A capture that stops short because a poll failed did not do what was asked,
  * so it says so and exits 1, which the man page's EXIT STATUS promises. */
+/* A capture the board would not stop leaves that board running the E-GO mode,
+ * and no other tool can open it until it is reset or re-plugged, so the run
+ * did not do what was asked. libubertooth has already named the refused
+ * request. */
+MU_TEST(a_capture_whose_teardown_was_refused_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.interrupt_the_capture = 1;
+	fake.stop_refused = 1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+
+	/* The same capture on a board that takes the stop. */
+	reset_fake();
+	fake.interrupt_the_capture = 1;
+	r = RUN("-f");
+	mu_assert_int_eq(0, r.rc);
+}
+
 MU_TEST(a_failed_poll_ends_the_capture_with_1)
 {
 	struct run_result r;
@@ -702,6 +738,7 @@ int main(void)
 	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
 	MU_RUN(help_wins_over_a_refused_combination);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
+	MU_RUN(a_capture_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_failed_poll_ends_the_capture_with_1);
 	MU_RUN(a_short_poll_reply_is_reported);
 	return mu_report();

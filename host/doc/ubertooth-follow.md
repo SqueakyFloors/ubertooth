@@ -190,12 +190,13 @@ see CAPTURING TO STANDARD OUTPUT.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
-check has passed. A file that cannot be created is one `error: ` line naming
-it, for example
-`error: /no/such/dir/dump.bin: No such file or directory`, and exit 1. For a
-`-q` file the line carries no reason, `error: CAPTURE.pcap: could not be
-created`: the PCAP writer in libbtbb prints the reason itself, above that
-line, and leaves nothing this tool can trust.
+check has passed. The board is opened and its firmware is checked before that,
+so a run refused for either reason leaves no empty file behind either. A file
+that cannot be created is one `error: ` line naming it, for example `error:
+/no/such/dir/dump.bin: No such file or directory`, and exit 1. For a `-q` file
+the line carries no reason, `error: CAPTURE.pcap: could not be created`: the
+PCAP writer in libbtbb prints the reason itself, above that line, and leaves
+nothing this tool can trust.
 
 ## CAPTURING TO STANDARD OUTPUT
 
@@ -271,6 +272,20 @@ what arrived before it. The failure is reported on standard error as it
 happens, as `error: receive transfer failed: <reason>`. A board that never
 hands the transfer back at all exits 1 too, reported by the `warning:` line
 ubertooth(7) describes rather than that error.
+
+A follow the board would not stop exits 1 as well: the request that takes the
+board out of its capture mode was stalled, so the board is left in that mode
+and no other tool can open it until it is reset or re-plugged. What was
+captured stays written out, and libubertooth names the refused request on
+standard error.
+
+The `-q`, `-r` and `-d` files are created once the board has been opened and
+its firmware accepted, not before, so a run refused for either reason leaves
+no empty capture behind. For this tool that is later than it sounds: the
+adapter, the connection to the target and the clock and AFH reads all come
+first, so a path that cannot be opened is reported after them. A terminal on
+standard output is still refused while the command line is read, and so is
+every other fault in the command line.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that

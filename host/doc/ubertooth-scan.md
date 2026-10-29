@@ -143,6 +143,12 @@ A BlueZ inquiry asked for with `-s` runs before the sweep is stated, so its
 results are printed even when the sweep is then refused: that half of the scan
 needs no Ubertooth, and what it reported is what it saw.
 
+A scan the board would not stop exits 1 as well: the request that takes the
+board out of its capture mode was stalled, so the board is left in that mode
+and no other tool can open it until it is reset or re-plugged. The results the
+scan found are still printed, and libubertooth names the refused request on
+standard error.
+
 ## SEE ALSO
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how

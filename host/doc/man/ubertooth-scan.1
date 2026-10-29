@@ -77,6 +77,8 @@ That pair is the report\. A sweep the board's firmware has not got is stalled, w
 The sweep is stated to the board after the capture has been asked for, because a mode start resets the board's hop mode and would throw away a sweep stated before it: without that, a scan listened to one channel and printed a map that meant nothing\. See ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS\. The board keeps a sweep stated after the capture request whatever it was doing before, so nothing has to be stopped first; a board left in a mode that captures nothing, a killed spectrum scan say, used to swallow it and the map was built from one channel\.
 .P
 A BlueZ inquiry asked for with \fB\-s\fR runs before the sweep is stated, so its results are printed even when the sweep is then refused: that half of the scan needs no Ubertooth, and what it reported is what it saw\.
+.P
+A scan the board would not stop exits 1 as well: the request that takes the board out of its capture mode was stalled, so the board is left in that mode and no other tool can open it until it is reset or re\-plugged\. The results the scan found are still printed, and libubertooth names the refused request on standard error\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

@@ -39,6 +39,15 @@ uint32_t systime;
 
 /* ---- fakes -------------------------------------------------------------- */
 
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
 static usb_pkt_rx next_packet;
 static int hops;                 /* cmd_hop() calls */
 static int afh_maps_sent;

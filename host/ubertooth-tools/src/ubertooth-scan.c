@@ -481,8 +481,12 @@ int main(int argc, char *argv[])
 	 * only what arrived before that. They are still printed, and the exit
 	 * status says they are incomplete. The handle is read after the
 	 * teardown, because cancelling the transfer can be what brings the
-	 * failure out. libubertooth has already printed what failed. */
-	if (ubertooth_stream_failed(ut))
+	 * failure out. libubertooth has already printed what failed.
+	 *
+	 * A teardown the board refused counts the same way: that board is left
+	 * running the mode this scan started, and no other tool can open it
+	 * until it is reset or re-plugged. */
+	if (ubertooth_stream_failed(ut) || ubertooth_stop_failed(ut))
 		exit_status = 1;
 	ubertooth_free(ut);
 

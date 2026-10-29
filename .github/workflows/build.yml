@@ -242,12 +242,17 @@ jobs:
     - name: Capture-to-stdout smoke test
       working-directory: ${{github.workspace}}/host/build
       shell: bash
-      # No device is present: option parsing still emits a complete 24-byte PCAP
-      # global header before device open fails. This verifies binary stdout is
-      # unpolluted on every Linux/macOS runner. The capture needs a mode to run
-      # in, since a command line with no work in it is refused before any
-      # capture file is opened; -r - is refused while the options are read, so
-      # it needs none.
+      # No device is present, so a capture bound for standard output writes
+      # nothing at all: the capture is opened only once the board is open and
+      # its firmware accepted, so a run that finds no board leaves not even a
+      # PCAP header behind. What this checks on every Linux/macOS runner is
+      # that standard output stays byte-for-byte empty on that path, which is
+      # where a stray printf would show up; how the header itself is written
+      # needs a board, and the hardware runs cover it.
+      #
+      # The capture needs a mode to run in, since a command line with no work
+      # in it is refused before any device is opened; -r - is refused while
+      # the options are read, so it needs none.
       run: |
         set +e
         ./ubertooth-tools/src/ubertooth-btle -n -q - > le.pcap 2> le.err
@@ -258,8 +263,9 @@ jobs:
         from pathlib import Path
         for name in ('le.pcap', 'ppi.pcap'):
             data = Path(name).read_bytes()
-            assert len(data) == 24, (name, len(data))
-            assert data[:4] == bytes.fromhex('4d3cb2a1'), (name, data[:4])
+            assert data == b'', (name, data)
+        for name in ('le.err', 'ppi.err'):
+            assert b'Ubertooth' in Path(name).read_bytes(), (name,)
         assert Path('ng.out').read_bytes() == b''
         assert b'not supported' in Path('ng.err').read_bytes()
         PY

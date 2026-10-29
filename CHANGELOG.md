@@ -512,6 +512,35 @@
   like a quiet band. The count is of gaps, not of lost packets: the board sends
   no number.
   [#786](https://github.com/SqueakyFloors/ubertooth/issues/786)
+- **Script-visible change:** every tool that ends a capture mode exits 1 when
+  the board refused the request that ends it. Such a board is left running
+  that mode and no other tool can open it until it is reset or re-plugged, so
+  a run that reported success used to be followed by a board nothing could
+  open. `ubertooth-afh`, `-btle`, `-ducky`, `-dump`, `-ego`, `-follow`, `-rx`,
+  `-scan`, `-specan` and `-tx` all do this; whatever they captured is still
+  written out.
+  [#741](https://github.com/SqueakyFloors/ubertooth/issues/741)
+  [#802](https://github.com/SqueakyFloors/ubertooth/issues/802)
+- **Script-visible change:** `ubertooth-btbr` exits 1 when the thread reading
+  the board stopped on a failure, for example because the board's hub port was
+  power-cycled during an `inquiry`. Nothing restarts that thread, so no
+  message arrives for the rest of the session; it reported every step
+  correctly and then exited 0, so a script could not tell such a run from one
+  where every command worked. A single command the board refused still leaves
+  the prompt up and does not change the status.
+  [#737](https://github.com/SqueakyFloors/ubertooth/issues/737)
+- A run refused for its firmware leaves no empty capture file behind.
+  `ubertooth-btle`, `-dump`, `-follow`, `-rx` and `-specan` create the file
+  `-q`, `-c`, `-r` or `-d` names once the board is open and its firmware
+  accepted, not before, so there is nothing to tell apart from a capture that
+  caught nothing.
+  [#803](https://github.com/SqueakyFloors/ubertooth/issues/803)
+- A board that has left the USB bus is reported as that rather than as
+  firmware too old: `error: could not stop the running mode: the board is no
+  longer attached`, with no note about firmware API versions. Such a board can
+  stall a request on its way out, which sent the reader off to reflash a board
+  that was never the problem.
+  [#805](https://github.com/SqueakyFloors/ubertooth/issues/805)
 - Every Classic capture finds the access codes that start at the last position
   of a bank of symbols. The search was given one position fewer than the bank
   holds, so an access code beginning 64 symbols before the bank's end -- with

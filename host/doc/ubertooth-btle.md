@@ -306,7 +306,8 @@ text on standard output.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-c` name
 their file while the command line is read, and it is opened only once every
-check has passed.
+check has passed. The board is opened and its firmware is checked before that,
+so a run refused for either reason leaves no empty file behind either.
 
 ## DIAGNOSTICS
 
@@ -368,6 +369,16 @@ or cannot be opened, when the board refuses the jam mode, a `-t` target, a
 sniffing or faux slave mode, or an access address or CRC verify request, and
 when a capture stops short because a poll failed. No device is opened for a
 refused command line.
+
+1 as well when the board refuses the request that ends a capture: it is left
+in the capture mode, and no other tool can open it until it is reset or
+re-plugged. What was captured stays written out, and libubertooth names the
+refused request on standard error.
+
+A `-q`, `-c` or `-r` file is created once the board has been opened and its
+firmware accepted, not before, so a run refused for either reason leaves no
+empty capture behind. A file the tool then cannot create is reported with the
+name the user gave, and the board is given back.
 
 ## SEE ALSO
 

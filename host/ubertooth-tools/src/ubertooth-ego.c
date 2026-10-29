@@ -301,6 +301,13 @@ int main(int argc, char *argv[])
 		 * past. A gap is a stretch the board had no queue room for, so
 		 * the count is of gaps and not of the packets lost in them. */
 		ubertooth_report_queue_gaps(ut);
+
+		/* A teardown the board refused left it running the E-GO mode
+		 * this tool started, and no other tool can open it until it is
+		 * reset or re-plugged, so the run did not do what was asked.
+		 * libubertooth has already named the refused request. */
+		if (ubertooth_stop_failed(ut))
+			status = 1;
 	}
 	ubertooth_free(ut);
 

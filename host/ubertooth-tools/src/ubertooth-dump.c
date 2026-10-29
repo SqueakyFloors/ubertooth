@@ -126,16 +126,16 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	/* Every check has passed, so the dump file can be opened. A lone "-" is
-	 * standard output, where the stream goes anyway without -d. */
-	if (dump_name != NULL) {
-		dumpfile = opt_open_dump_file(dump_name, "dump data");
-		if (dumpfile == NULL)
+	/* Without -d the stream is standard output, so a terminal there is the
+	 * same mistake as "-d -" on one: it fills the screen with control
+	 * characters and leaves nothing a reader can use. Either way it is a
+	 * problem with the command line, so it is refused here, before any
+	 * board is opened; the file itself is opened once the board has been
+	 * accepted, below. */
+	if (dump_name == NULL) {
+		if (opt_check_stdout_not_tty("dump data") < 0)
 			return 1;
-	} else if (opt_check_stdout_not_tty("dump data") < 0) {
-		/* Without -d the stream is standard output, so a terminal there is
-		 * the same mistake as "-d -" on one: it fills the screen with
-		 * control characters and leaves nothing a reader can use. */
+	} else if (opt_check_capture_destination(dump_name, "dump data") < 0) {
 		return 1;
 	}
 
@@ -149,12 +149,24 @@ int main(int argc, char *argv[])
 	if (r < 0) {
 		/* A refused version was released inside ubertooth_check_api(); one
 		 * it could not read at all leaves the board open. Closing covers
-		 * both, because closing a board already released does nothing.
-		 * The dump file is left to process exit, as on every other exit
-		 * of this tool: libubertooth owns that global, not the tool. */
+		 * both, because closing a board already released does nothing. */
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
+	}
+
+	/* The board is open and usable, so the dump file can be opened: a run
+	 * refused for its firmware leaves no empty file behind for the user to
+	 * tell apart from a dump that caught nothing. The file is left to
+	 * process exit from here on, as on every other exit of this tool:
+	 * libubertooth owns that global, not the tool. */
+	if (dump_name != NULL) {
+		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		if (dumpfile == NULL) {
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
 	}
 
 	/* Clean up on exit. */
@@ -174,7 +186,12 @@ int main(int argc, char *argv[])
 	 * not of the packets lost in them. */
 	ubertooth_report_queue_gaps(ut);
 
-	status = (r < 0 || ubertooth_stream_failed(ut)) ? 1 : 0;
+	/* A teardown the board refused is read here too: that board is left
+	 * running the mode this dump started, and no other tool can open it
+	 * until it is reset or re-plugged. libubertooth has already named the
+	 * refused request, and what was dumped stays written out. */
+	status = (r < 0 || ubertooth_stream_failed(ut)
+	          || ubertooth_stop_failed(ut)) ? 1 : 0;
 	ubertooth_free(ut);
 	return status;
 }

@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "../../../firmware/tests/minunit.h"
@@ -85,6 +86,9 @@ static struct {
 	 * sweep. */
 	char calls[16];
 	ubertooth_t ut;
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } device;
 
 static void record(char call)
@@ -141,10 +145,21 @@ int ubertooth_check_api(ubertooth_t* ut)
 	return device.api_rc;
 }
 
+/* The real one also closes the capture files the handle holds, which is what
+ * flushes a PCAP header out, so the fake does it too: a case that asks where
+ * a capture went has to see what the writer wrote. */
 void ubertooth_close(ubertooth_t* ut)
 {
 	ut->devh = NULL;
 	device.closes++;
+	if (ut->h_pcap_bredr != NULL) {
+		btbb_pcap_close(ut->h_pcap_bredr);
+		ut->h_pcap_bredr = NULL;
+	}
+	if (ut->h_pcapng_bredr != NULL) {
+		btbb_pcapng_close(ut->h_pcapng_bredr);
+		ut->h_pcapng_bredr = NULL;
+	}
 }
 
 /* The one the library installs stops the capture on Ctrl-C; the fake does the
@@ -277,6 +292,24 @@ void ubertooth_stop(ubertooth_t* ut)
 	device.stops++;
 }
 
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return device.stop_refused;
+}
+
 /* The packet decode is libubertooth's and needs none of this: what a block
  * contains does not change any exit status here. */
 void cb_rx(ubertooth_t* ut, void* args)
@@ -347,6 +380,118 @@ MU_TEST(a_capture_whose_stream_died_exits_one)
 	mu_assert_int_eq(30, device.timeout_set);
 	mu_assert_int_eq(1, device.thread_stops);
 	mu_assert_int_eq(1, device.stops);
+}
+
+/* A capture bound for standard output takes that stream over and writes its
+ * PCAP header there, and the run's own lines go to standard error instead.
+ * This is what the build's capture-to-stdout smoke test used to check on a
+ * runner with no board: the header is now written only once the board is
+ * usable, so it is pinned here, where a board can be faked. The first bytes
+ * are libpcap's nanosecond magic and the file format version; the rest of the
+ * header is libpcap's own. */
+MU_TEST(a_capture_on_standard_output_gets_the_stream_and_its_header)
+{
+	static const unsigned char HEADER_START[] = {
+		0x4d, 0x3c, 0xb2, 0xa1,  /* magic, little-endian, nanoseconds */
+		0x02, 0x00, 0x04, 0x00   /* format version 2.4 */
+	};
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 1;
+
+	r = RUN_RX("-q", "-", "-z", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(memcmp(r.out, HEADER_START, sizeof(HEADER_START)) == 0,
+	          "standard output starts with the PCAP header");
+	/* The survey results are what this run was asked for, and the capture
+	 * has taken standard output, so they are on standard error. */
+	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
+}
+
+/* A teardown the board refused leaves that board running the capture mode,
+ * and no other tool can open it until it is reset or re-plugged, so the run
+ * did not do what was asked. What was captured is still written out, and
+ * libubertooth has already named the refused request, so nothing is added to
+ * standard error here. This is the fault a lab board produced by itself: the
+ * capture ran its timeout, so the run used to look like one that worked. */
+MU_TEST(a_capture_whose_teardown_was_refused_exits_one)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+	device.stop_refused = 1;
+
+	r = RUN_RX("-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	/* Nothing of this tool's own: the library printed the refusal. */
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	/* The capture itself ran to the end and kept every block. */
+	mu_assert_int_eq(3, device.blocks);
+	mu_assert_int_eq(1, device.stops);
+
+	/* The same capture on a board that takes the stop. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(0, r.rc);
+}
+
+/* A survey whose teardown was refused still prints what it found: those
+ * packets are real. Only the status says the board was left running. */
+MU_TEST(a_survey_whose_teardown_was_refused_still_prints_its_results)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 1;
+	device.stop_refused = 1;
+
+	r = RUN_RX("-z", "-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "Survey Results") != NULL, r.out);
+}
+
+/* A run refused for its firmware creates no capture file: an empty one left
+ * behind is a file the user then has to tell apart from a capture that caught
+ * nothing. Each of the three file options is checked, because each is opened
+ * by a writer of its own. */
+MU_TEST(a_run_refused_for_its_firmware_creates_no_file)
+{
+	static const char* const options[] = { "-q", "-r", "-d" };
+	struct run_result r;
+	struct stat info;
+	char path[64];
+	size_t i;
+
+	for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
+		int fd;
+
+		reset_device();
+		device.api_rc = -1;
+		device.api_released = 1;
+		snprintf(path, sizeof(path), "/tmp/rx-main-XXXXXX");
+		fd = mkstemp(path);
+		mu_assert_fatal(fd >= 0, "temp name taken");
+		close(fd);
+		unlink(path);
+
+		r = RUN_RX(options[i], path, "-t", "10");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert_int_eq(1, device.check_api_calls);
+		mu_assert(stat(path, &info) != 0, path);
+		mu_assert_int_eq(0, device.rx_syms_calls);
+		unlink(path);
+	}
 }
 
 /* A capture that ran to its timeout did what was asked: it keeps exiting 0.
@@ -843,6 +988,10 @@ int main(void)
 
 	MU_RUN(a_capture_whose_stream_died_exits_one);
 	MU_RUN(every_exit_path_gives_the_handle_back);
+	MU_RUN(a_capture_on_standard_output_gets_the_stream_and_its_header);
+	MU_RUN(a_capture_whose_teardown_was_refused_exits_one);
+	MU_RUN(a_survey_whose_teardown_was_refused_still_prints_its_results);
+	MU_RUN(a_run_refused_for_its_firmware_creates_no_file);
 	MU_RUN(a_bounded_capture_still_exits_zero);
 	MU_RUN(an_interrupted_capture_still_exits_zero);
 	MU_RUN(a_survey_whose_stream_died_still_prints_its_results);

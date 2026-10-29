@@ -192,6 +192,10 @@ when the board refuses one of the requests that set the capture up, when the
 firmware does not support the requested mode, and when the capture stops short
 because a poll failed.
 
+1 as well when the board refuses the request that ends the capture: it is left
+in the E-GO mode, and no other tool can open it until it is reset or
+re-plugged. libubertooth names the refused request on standard error.
+
 ## SEE ALSO
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how

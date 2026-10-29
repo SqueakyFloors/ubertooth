@@ -79,6 +79,19 @@ static void captured(void (*call)(void))
 static int board_a;
 static int board_b;
 
+/* Whether the board behind the handle above has left the USB bus. The real
+ * check lists the bus through libusb; these handles are not real ones, so the
+ * answer is scripted here. Zero by default, which is the bench a board is
+ * normally on. */
+static int board_has_left_the_bus;
+
+int ubertooth_device_gone(const void* board)
+{
+	mu_assert(board == &board_a || board == &board_b,
+	          "asked about a board the report was given");
+	return board_has_left_the_bus;
+}
+
 /* The handful of one-call wrappers captured() needs, with what they report
  * passed through a file-scope variable. */
 static uint16_t call_version;
@@ -318,6 +331,55 @@ MU_TEST(a_released_boards_version_is_not_quoted_for_the_next_board)
 	ubertooth_forget_api_version(&board_a);
 }
 
+/* A board that has left the USB bus stalls a request on its way out on some
+ * hosts, and its firmware is not the reason: the board is simply not there.
+ * Blaming the firmware sent the user to reflash a board that was never the
+ * problem, with a note quoting two API versions that were the same. Such a
+ * board gets one line saying what happened, and no word about firmware.
+ */
+MU_TEST(a_board_that_has_left_the_bus_is_not_blamed_on_its_firmware)
+{
+	ubertooth_note_api_version(&board_a, UBERTOOTH_API_VERSION);
+	board_has_left_the_bus = 1;
+
+	captured(report_unsupported);
+	mu_assert(strstr(err, "error: could not set the channel: the board is "
+	                 "no longer attached\n") != NULL, err);
+	mu_assert(strstr(err, "firmware") == NULL,
+	          "a board that has gone is not a firmware problem");
+	mu_assert(strstr(err, "stalled") == NULL,
+	          "the stall is how it was seen, not what happened");
+	mu_assert(strstr(err, "note:") == NULL, "one line, no note");
+	mu_assert(out[0] == '\0', out);
+
+	/* The board back on the bus: the stall is the firmware refusing the
+	 * request again, which is what the reader needs then. */
+	board_has_left_the_bus = 0;
+	captured(report_unsupported);
+	mu_assert(strstr(err, "the board's firmware does not support it") != NULL,
+	          err);
+
+	ubertooth_forget_api_version(&board_a);
+}
+
+/* With no board's version read, there is no handle to ask about either: the
+ * bootloader ubertooth-dfu talks to has no API version, so that report keeps
+ * the stall wording rather than guessing at a board that has gone. */
+MU_TEST(a_report_with_no_board_behind_it_keeps_the_stall_wording)
+{
+	ubertooth_forget_api_version(&board_a);
+	ubertooth_forget_api_version(&board_b);
+	board_has_left_the_bus = 1;
+
+	captured(report_unsupported);
+	mu_assert(strstr(err, "the board's firmware does not support it") != NULL,
+	          err);
+	mu_assert(strstr(err, "firmware API version") == NULL,
+	          "no version has been read, so none is quoted");
+
+	board_has_left_the_bus = 0;
+}
+
 int main(void)
 {
 	MU_RUN(an_unsupported_request_names_both_api_versions);
@@ -327,5 +389,7 @@ int main(void)
 	MU_RUN(the_note_names_the_side_to_replace_and_the_board);
 	MU_RUN(an_unsupported_request_is_named_with_the_stall);
 	MU_RUN(a_released_boards_version_is_not_quoted_for_the_next_board);
+	MU_RUN(a_board_that_has_left_the_bus_is_not_blamed_on_its_firmware);
+	MU_RUN(a_report_with_no_board_behind_it_keeps_the_stall_wording);
 	return mu_report();
 }

@@ -378,6 +378,39 @@ static void report_no_devices(void)
 	fprintf(stderr, "error: no Ubertooth devices found\n");
 }
 
+int ubertooth_device_gone(const void* board)
+{
+	struct libusb_device* dev;
+	struct libusb_device** usb_list;
+	ssize_t count, i;
+	int present = 0;
+
+	if (board == NULL)
+		return 0;
+	/* The device object behind the open handle. The handle holds a
+	 * reference to it, so it stays valid even for a board that has been
+	 * unplugged; what goes away is its place in the list below. */
+	dev = libusb_get_device((struct libusb_device_handle*)board);
+	if (dev == NULL)
+		return 0;
+	count = libusb_get_device_list(NULL, &usb_list);
+	/* A bus that could not be listed says nothing about this board, so the
+	 * caller is left with what it already had. */
+	if (count < 0)
+		return 0;
+	/* libusb hands back the same device object for a board it has already
+	 * discovered, and leaves out one that has gone, so the comparison is
+	 * of pointers and reaches no hardware. */
+	for (i = 0; i < count; i++) {
+		if (usb_list[i] == dev) {
+			present = 1;
+			break;
+		}
+	}
+	libusb_free_device_list(usb_list, 1);
+	return !present;
+}
+
 /* Opens the Ubertooth at enumeration index ubertooth_device, or the only one
  * when ubertooth_device is negative. When quiet, nothing is printed and no
  * command is sent: an index that is not present, or several devices with no
@@ -924,6 +957,11 @@ static void rx_stream_failed(ubertooth_t* ut, int status)
 int ubertooth_stream_failed(ubertooth_t* ut)
 {
 	return ut != NULL && ut->rx_stream_status != 0;
+}
+
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	return ut != NULL && ut->stop_status != 0;
 }
 
 /* Guards every read and write of ubertooth_t.rx_xfer and rx_xfer_state, the
@@ -1766,8 +1804,18 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 	}
 	else {
 		if (ut->devh != NULL) {
-			if (send_stop)
-				cmd_stop(ut->devh);
+			if (send_stop) {
+				/* A board that would not stop is left running
+				 * the mode, and no other tool can open it
+				 * until it is reset or re-plugged. cmd_stop()
+				 * has already said what it refused; keeping
+				 * the code is what lets the tool's exit status
+				 * say the run did not finish. */
+				int stopped = cmd_stop(ut->devh);
+
+				if (stopped < 0 && ut->stop_status == 0)
+					ut->stop_status = stopped;
+			}
 			libusb_release_interface(ut->devh, 0);
 			/* Any firmware API version read off this board goes with
 			 * it, so a report about the next board cannot quote this
@@ -1867,6 +1915,7 @@ ubertooth_t* ubertooth_init()
 	ut->rx_xfer = NULL;
 	ut->rx_xfer_state = RX_XFER_OURS;
 	ut->rx_stream_status = 0;
+	ut->stop_status = 0;
 	ut->short_xfer_warned = 0;
 	ut->stop_ubertooth = 0;
 	ubertooth_capture_clock_reset(ut);

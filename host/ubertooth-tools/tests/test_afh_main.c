@@ -41,6 +41,9 @@ static struct {
 	int no_memory;    /* btbb_piconet_new() cannot allocate */
 	int piconet_news; /* btbb_piconet_new() calls */
 	int piconet_frees;/* btbb_piconet_unref() calls */
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -160,6 +163,15 @@ void ubertooth_stop(ubertooth_t *ut)
 	fake.stops++;
 	if (fake.fails_at_stop)
 		fake.stream_failed = 1;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 void ubertooth_close(ubertooth_t *ut)
@@ -337,6 +349,38 @@ MU_TEST(a_run_whose_stream_is_only_found_lost_at_the_teardown_exits_1)
 	mu_assert_int_eq(1, fake.rx_afh_r_calls);
 }
 
+/* A teardown the board refused leaves that board running the mode this tool
+ * started, and no other tool can open it until it is reset or re-plugged, so
+ * the run did not do what was asked. The AFH map it found is still reported,
+ * and libubertooth has already named the refused request. */
+MU_TEST(a_run_whose_teardown_was_refused_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_refused = 1;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+	/* The detection and monitoring phases both ran: what the run found is
+	 * kept, and only the status changed. */
+	mu_assert_int_eq(1, fake.rx_afh_calls);
+
+	/* A detection phase that found nothing would otherwise exit 2, the
+	 * status that says the piconet was quiet. A board left running is a
+	 * failure, which is 1. */
+	reset_fake();
+	fake.stop_refused = 1;
+	fake.rx_afh_rc = UBERTOOTH_AFH_NO_PACKETS;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(1, r.rc);
+
+	/* The same board on a run that stopped cleanly. */
+	reset_fake();
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(0, r.rc);
+}
+
 /* A library error - libbtbb, or a receive that could not be started - is not
  * reported as "no packets", and it is not reported as success either. The
  * library has already said what failed. */
@@ -499,6 +543,7 @@ int main(void)
 	MU_RUN(the_r_format_exits_1_when_its_stream_died);
 	MU_RUN(the_r_format_exits_1_when_its_receive_could_not_start);
 	MU_RUN(a_run_whose_stream_is_only_found_lost_at_the_teardown_exits_1);
+	MU_RUN(a_run_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_library_error_is_not_mistaken_for_no_packets);
 	MU_RUN(a_run_that_never_reaches_the_receive_phase_frees_the_piconet);
 	MU_RUN(a_piconet_that_cannot_be_allocated_is_refused);

@@ -90,6 +90,10 @@ opened.
 takes only part of it: nothing is transmitted, since the address decides what
 the board sends. libubertooth reports the refusal.
 
+1 as well when the board refuses the request that ends the transmit: it is
+left sending, and no other tool can open it until it is reset or re-plugged.
+libubertooth names the refused request on standard error.
+
 ## SEE ALSO
 
 ubertooth-dump(1)

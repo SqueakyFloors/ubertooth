@@ -60,22 +60,18 @@ assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == "error: -v may be given only once\n", result
 
-# -d: only a bare "-" means stdout; every other value is a file name, even one
-# starting with "-". Each run stops at device selection, after the -d value
-# has been handled, so what it did with the value is visible on disk.
-# Each case gets an empty directory of its own, so the file it is expected to
-# create cannot be one an earlier case left behind.
-for value, written in (("-x", "-x"), ("./-x", "-x"), ("-v", "-v"),
-                       ("plain.dat", "plain.dat"), ("-", None)):
+# A -d file is created only once the board has been accepted, so a run that
+# finds no board leaves nothing behind -- not even for a value that is plainly
+# a file name. Each case gets an empty directory of its own, so a file an
+# earlier case left behind cannot be read as one this run made.
+for value in ("-x", "./-x", "-v", "plain.dat", "-"):
     with tempfile.TemporaryDirectory() as directory:
         result = run(("-U", NO_SUCH_SERIAL, "-d", value), directory)
         assert result.returncode == 1, (value, result)
         assert "no ubertooth found" in (result.stdout + result.stderr).lower(), \
             (value, result)
-        listing = os.listdir(directory)
-        # None: a bare "-" is stdout, so it writes no file of its own
-        assert listing == ([] if written is None else [written]), \
-            (value, listing, result)
+        left = os.listdir(directory)
+        assert left == [], (value, left, result)
 
 def run_with_tty_stdout(arguments):
     """The tool with standard output on a pty. None if there is no pty to be
@@ -124,17 +120,18 @@ else:
     assert "no ubertooth devices found" in result.stderr.lower(), result
     print("ubertooth-specan: -d - refuses a tty, -d - -g writes text to one")
 
-print("ubertooth-specan: ranges refused, -d takes '-' as stdout and the rest as files")
+    # Only a bare "-" is standard output; every other value is a file name,
+    # even one starting with "-". Since no file is created before a board is
+    # accepted, that distinction shows in the tty refusal rather than on disk:
+    # "-d -x" is a file, so a terminal on standard output is nothing to do
+    # with it and the run reaches device selection.
+    for value in ("-x", "./-x", "-v", "plain.dat"):
+        result = run_with_tty_stdout(("-d", value))
+        assert result.returncode == 1, (value, result)
+        assert "tty" not in result.stderr.lower(), (value, result)
+        assert "no ubertooth devices found" in result.stderr.lower(), \
+            (value, result)
+    print("ubertooth-specan: -d takes '-' as stdout and the rest as files")
 
-# A -d file that cannot be opened is reported like every other error: one
-# line starting "error: ", on standard error, with nothing on standard output
-# and exit 1. It used to be perror's unprefixed "<file>: <reason>".
-result = run(("-d", "/no/such/dir/samples.bin"))
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr == \
-    "error: /no/such/dir/samples.bin: No such file or directory\n", result
-# refused before the device was looked for
-assert "no ubertooth" not in result.stderr.lower(), result
-
-print("ubertooth-specan: a -d file that cannot be opened says error: on stderr")
+print("ubertooth-specan: ranges refused, and no file is created before a"
+      " board is accepted")

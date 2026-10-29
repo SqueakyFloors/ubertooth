@@ -54,6 +54,15 @@ static struct {
 
 /* ---- libusb and libbtbb fakes ------------------------------------------ */
 
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
 /* Defined here, so they take precedence over the libusb library symbols. */
 struct libusb_transfer* LIBUSB_CALL libusb_alloc_transfer(int iso_packets)
 {

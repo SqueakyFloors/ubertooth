@@ -153,6 +153,21 @@ int ubertooth_report_api_mismatch(uint16_t version, const char* selector)
 
 void ubertooth_report_unsupported_request(const char* what, int code)
 {
+	/* A board that has left the USB bus can stall a request on its way out,
+	 * and then this is not about firmware at all: the board whose version
+	 * the note would quote is not there any more. Saying it is too old
+	 * sends the user to reflash a board that was never the problem, so the
+	 * line says what really happened and stops there. Asked of the board
+	 * the version was read from, which is the board these requests go to:
+	 * only one is open at a time. The bus is listed rather than the board
+	 * asked anything, so a board that is merely silent is not disturbed. */
+	if (board_api_version_owner != NULL
+	    && ubertooth_device_gone(board_api_version_owner)) {
+		fprintf(stderr, "error: could not %s: the board is no longer "
+		        "attached\n", what);
+		return;
+	}
+
 	/* A board refuses a request it does not implement by stalling it, and
 	 * the stall is all the host sees: no reason comes back. So the line
 	 * names the request, and the note puts the board's firmware API version

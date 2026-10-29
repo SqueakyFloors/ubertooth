@@ -1988,6 +1988,15 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 }
 #endif
 
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
 /* What the library's shared report says about a request the bootloader
  * stalled: the request named, and no firmware API version, because this tool
  * talks to the bootloader and never reads one. */

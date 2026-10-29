@@ -367,71 +367,26 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* A capture bound for standard output must not go to a terminal. That
+	 * is a problem with the command line, so it is refused here, before a
+	 * board or an adapter is opened; the stream itself is taken over
+	 * further down, where the file is created. */
+	if (opt_check_capture_destination(pcap_name, "capture data") < 0 ||
+	    opt_check_capture_destination(dump_name, "dump data") < 0)
+		return 1;
+
+	/* Whether a capture will own this process's standard output, which the
+	 * command line already says. Known before the stream is actually taken
+	 * over, because the lines that have to go to standard error instead --
+	 * the AFH map -a reports -- are written before that. */
+	capture_took_stdout = opt_writes_to_stdout(pcap_name)
+	                      || opt_writes_to_stdout(dump_name);
+
 	/* Every check has passed, so the handle and its 72 MB fifo can be
-	 * allocated: the capture files below are kept on it. */
+	 * allocated: the capture files further down are kept on it. */
 	ut = ubertooth_init();
 	if (ut == NULL)
 		return 1;
-
-	/* And the files can be opened: a refused command line creates and
-	 * truncates nothing. */
-	errno = 0;
-	if (pcapng_name != NULL &&
-	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
-		opt_report_create_failure(pcapng_name, errno);
-		ubertooth_close(ut);
-		ubertooth_free(ut);
-		return 1;
-	}
-	if (pcap_name != NULL) {
-		/* A lone "-" is standard output, which the capture then owns:
-		 * see opt_capture_path(). The per-packet report this tool
-		 * prints there goes nowhere for such a run, which is what the
-		 * man page says of it; the notes and failures are on standard
-		 * error and still arrive. */
-		int saved_fd;
-		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
-		int failed;
-
-		if (file == NULL) {
-			if (saved_fd >= 0)
-				close(saved_fd);
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
-		}
-		errno = 0;
-		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
-		if (saved_fd >= 0) {
-			capture_took_stdout = 1;
-			close(saved_fd);
-		}
-		free(file);
-		if (failed) {
-			/* The name the user gave, not the /dev/fd path a lone
-			 * "-" is opened through, and no reason: the PCAP writer
-			 * prints the real one itself and leaves errno holding
-			 * whatever it last set. */
-			opt_report_create_failure(pcap_name, 0);
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
-		}
-	}
-	if (dump_name != NULL) {
-		dumpfile = opt_open_dump_file(dump_name, "dump data");
-		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
-			capture_took_stdout = 1;
-		if (dumpfile == NULL) {
-			/* The capture files are on the handle, so the close is
-			 * what gets them written out and shut; no board has
-			 * been opened yet, and the close does nothing to a
-			 * handle that has none. */
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
-		}
-	}
 
 	/* A named adapter that does not exist, or one that cannot be opened,
 	 * used to go unnoticed until a later HCI call worked on fd -1.
@@ -450,7 +405,7 @@ int main(int argc, char *argv[])
 		else
 			fprintf(stderr, "error: Bluetooth device %s not found\n",
 			        bt_dev);
-		ubertooth_close(ut); /* the capture files, as above */
+		ubertooth_close(ut); /* nothing is open on it yet; harmless */
 		ubertooth_free(ut);
 		return 1;
 	}
@@ -463,7 +418,7 @@ int main(int argc, char *argv[])
 		else
 			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
 			        bt_dev);
-		ubertooth_close(ut); /* the capture files, as above */
+		ubertooth_close(ut); /* nothing is open on it yet; harmless */
 		ubertooth_free(ut);
 		return 1;
 	}
@@ -672,6 +627,60 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* The board is open and usable, so the files this run writes can be
+	 * opened. Not before: a run refused for its firmware used to leave an
+	 * empty capture behind, which a user then had to tell apart from a
+	 * capture that caught nothing.
+	 *
+	 * A lone "-" redirects this process's standard output, which is why
+	 * nothing may be printed there after this point except the capture
+	 * itself. */
+	errno = 0;
+	if (pcapng_name != NULL &&
+	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
+		opt_report_create_failure(pcapng_name, errno);
+		follow_release_board(ut, sock, handle, cc);
+		return 1;
+	}
+	if (pcap_name != NULL) {
+		/* A lone "-" is standard output, which the capture then owns:
+		 * see opt_capture_path(). The per-packet report this tool
+		 * prints there goes nowhere for such a run, which is what the
+		 * man page says of it; the notes and failures are on standard
+		 * error and still arrive. */
+		int saved_fd;
+		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		int failed;
+
+		if (file == NULL) {
+			if (saved_fd >= 0)
+				close(saved_fd);
+			follow_release_board(ut, sock, handle, cc);
+			return 1;
+		}
+		errno = 0;
+		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
+		if (saved_fd >= 0)
+			close(saved_fd);
+		free(file);
+		if (failed) {
+			/* The name the user gave, not the /dev/fd path a lone
+			 * "-" is opened through, and no reason: the PCAP writer
+			 * prints the real one itself and leaves errno holding
+			 * whatever it last set. */
+			opt_report_create_failure(pcap_name, 0);
+			follow_release_board(ut, sock, handle, cc);
+			return 1;
+		}
+	}
+	if (dump_name != NULL) {
+		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		if (dumpfile == NULL) {
+			follow_release_board(ut, sock, handle, cc);
+			return 1;
+		}
+	}
+
 	/* libbtbb refuses only a -e outside its own range, which the check on
 	 * -e above has already caught, and it says so itself. */
 	r = btbb_init(max_ac_errors);
@@ -828,8 +837,14 @@ int main(int argc, char *argv[])
 	 * asked for. The exit status has to say so, or a caller cannot tell it
 	 * from a Ctrl-C. The handle is read after the teardown, because
 	 * cancelling the transfer can be what brings the failure out.
-	 * libubertooth has already printed what failed. */
-	status = ubertooth_stream_failed(ut) ? 1 : 0;
+	 * libubertooth has already printed what failed.
+	 *
+	 * A teardown the board refused counts the same way: that board is left
+	 * running the mode this follow started, and no other tool can open it
+	 * until it is reset or re-plugged. What was captured stays written
+	 * out. */
+	status = (ubertooth_stream_failed(ut) || ubertooth_stop_failed(ut))
+	         ? 1 : 0;
 	ubertooth_free(ut);
 	return status;
 }

@@ -198,6 +198,20 @@ typedef struct {
 	uint32_t queue_gaps;
 	uint8_t queue_gap_warned;
 
+	/* What the teardown's STOP request came back with, 0 while none has
+	 * failed. A board that would not take it is left running the mode the
+	 * capture started, and no other tool can open it until it is reset or
+	 * re-plugged, so the run did not finish what it was asked: every
+	 * streaming tool turns this into a non-zero exit status. Read it
+	 * through ubertooth_stop_failed().
+	 *
+	 * Written only by the teardown, on the run's own thread, once the poll
+	 * thread is joined. The first failure wins, as for rx_stream_status
+	 * above, and it is never cleared: on a handle that stops more than one
+	 * mode (ubertooth-afh detects a map, then monitors it) it means "a
+	 * teardown on this handle was refused". */
+	int stop_status;
+
 	/* The board the user named, as they wrote it after -U: an index or a
 	 * serial. NULL when they named none and the library opened whichever
 	 * board it found. A message about this one board can then say which it
@@ -381,6 +395,13 @@ int ubertooth_report_api_mismatch(uint16_t version, const char* selector);
  * tool needs to. */
 void ubertooth_note_api_version(const void* board, uint16_t version);
 void ubertooth_forget_api_version(const void* board);
+/* Whether the board behind an open handle has left the USB bus. board is the
+ * board's USB handle, as ubertooth_note_api_version() takes it. The bus is
+ * listed and no request is sent, so this is safe to call on a board that has
+ * stopped answering. 0 for a board that is still there, and for anything this
+ * cannot tell: a bus that could not be listed is not evidence that a board
+ * has gone. */
+int ubertooth_device_gone(const void* board);
 /* Reports a request the board's firmware does not implement, which it refuses
  * by stalling. what names the request and reads after "could not" ("set the
  * channel"). code is the libusb error code to quote, or 0 where the stall
@@ -389,7 +410,10 @@ void ubertooth_forget_api_version(const void* board);
  * The report names the board's firmware API version alongside the one these
  * tools require, where a version has been read: firmware from another commit
  * is the usual reason a request is missing, and the reflash is the usual fix.
- */
+ *
+ * A board that has left the USB bus stalls requests too on some hosts, and
+ * its firmware is not the reason: such a board gets one line saying it is no
+ * longer attached, and no word about firmware. */
 void ubertooth_report_unsupported_request(const char* what, int code);
 /* Stops the capture after this many seconds, through the same flag Ctrl-C
  * uses. The handle is not read: the alarm stops whichever capture is running,
@@ -453,6 +477,15 @@ uint32_t ubertooth_queue_gaps(ubertooth_t* ut);
  * lost in them.
  */
 void ubertooth_report_queue_gaps(ubertooth_t* ut);
+
+/* Whether the STOP request that ends a capture was refused on this handle.
+ * Such a board is left running the mode the capture started, and no other
+ * tool can open it until it is reset or re-plugged, so the run did not do
+ * what was asked: a tool that streamed has to turn this into a non-zero exit
+ * status, keeping whatever it captured. libubertooth has already named the
+ * refused request on standard error, so a tool adds no message of its own.
+ * Read it after ubertooth_stop(), which is what sends the request. */
+int ubertooth_stop_failed(ubertooth_t* ut);
 
 int ubertooth_bulk_init(ubertooth_t* ut);
 void ubertooth_bulk_wait(ubertooth_t* ut);

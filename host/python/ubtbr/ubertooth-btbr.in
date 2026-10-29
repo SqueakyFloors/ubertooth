@@ -458,6 +458,19 @@ def main():
 		sys.stdout.flush()
 		sys.stderr.flush()
 		os._exit(1)
+	if bt.rx_error() is not None:
+		# The thread reading the board stopped on a failure: the board left
+		# the bus, stopped answering, or sent something the framing could
+		# not read. Nothing restarts that thread, so no message has arrived
+		# since. Whatever the commands after that printed, the session did
+		# not do what it was asked, so a script wrapping this tool can tell
+		# it from one where every command worked. The handle closed cleanly,
+		# which is why this is an ordinary exit.
+		#
+		# A command the board answered with a refusal is not this: that is
+		# one command failing in a session that went on working, the way a
+		# shell reports a failed command without failing itself.
+		sys.exit(1)
 
 if __name__ == '__main__':
 	# What main() decided, kept so that a standard output found gone below
