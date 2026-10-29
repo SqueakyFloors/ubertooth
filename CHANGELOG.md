@@ -615,9 +615,8 @@
   [#462](https://github.com/SqueakyFloors/ubertooth/issues/462)
 - Every e-go record carried two bytes of its own timestamp at the end of its
   data, because the receive buffer was two bytes shorter than the record it
-  goes out in. The capture length a program can set over USB is bounded to the
-  1 to 48 bytes `ubertooth-ego` already offers as well: a longer one made the
-  receive write past that buffer and down the stack.
+  goes out in. The buffer is now the record's whole data field, and the
+  receive loop stays inside it whatever capture length the board was given.
   [#749](https://github.com/SqueakyFloors/ubertooth/issues/749)
 - `ubertooth-follow -w` compensates the delay it says it does. The option
   counts 625 us timeslots, and the clock the board hops on counts 312.5 us
