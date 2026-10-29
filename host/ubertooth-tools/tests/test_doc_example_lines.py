@@ -59,7 +59,7 @@ WILD = "\x00"
 TOKEN = re.compile(r'"(?:[^"\\\n]|\\.)*"|[A-Za-z_][A-Za-z_0-9]*|.', re.S)
 
 # A printf conversion, filled in when the line is printed.
-CONVERSION = re.compile(r'%[-+ #0-9.*lhzjt]*[diouxXeEfgGaAcspn%]')
+CONVERSION = re.compile(r'%[-+ 0-9#.*lhzjt]*[diouxXeEfgGaAcspn%]')
 
 # What a line does not promise: a placeholder, a board serial, a firmware
 # revision, an address, a number.
