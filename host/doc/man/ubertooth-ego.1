@@ -62,15 +62,17 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "ACCESS CODE"
-\fB\-a\fR sets the access code on the board, which keeps it until the board is reset or reflashed\. A run without \fB\-a\fR sends no access code at all, so it uses whichever one the board was last given, not a default of its own:
+\fB\-a\fR sets the access code for the run that asks for it\. A run without \fB\-a\fR receives with \fB630f9ffe\fR: a mode start puts the code back to that default, so one run's \fB\-a\fR does not reach the next\.
 .IP "" 4
 .nf
-ubertooth\-ego \-r \-c 2418 \-a 11223344   # sets the board's access code
-ubertooth\-ego \-r \-c 2418               # still receives with 11223344
+ubertooth\-ego \-r \-c 2418 \-a 11223344   # receives with 11223344
+ubertooth\-ego \-r \-c 2418               # receives with 630f9ffe
 .fi
 .IP "" 0
 .P
-\fB630f9ffe\fR is the firmware's value after a reset, so it is what a run without \fB\-a\fR uses only on a board that has not been given another\. Pass \fB\-a\fR when a run has to be reproducible, or reset the board (\fBubertooth\-util \-r\fR) first\. All three modes use the access code\.
+The code is stated just after the request that starts the mode, which is what keeps a board left in another mode from throwing it away as it leaves it; see ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS\. Continuous receive tunes once, so a code that arrives after the capture has started costs its first millisecond, while \fB\-f\fR, \fB\-i\fR and \fB\-j\fR pick one up on their next hop\. All three modes use the access code\.
+.P
+A program driving the board by hand can still set a code of its own and have the capture that follows use it, as it can with a channel: a mode started on an idle board resets nothing, because no earlier mode's code can be there to reset\.
 .SH "TRANSMIT POWER"
 Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level jamming always used before\. Sniffing does not transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .SH "ARGUMENTS"

@@ -91,6 +91,9 @@ struct scan {
 	int clear_calls;      /* how many */
 	int irq_hold;         /* usb_irq_hold() in the dispatch */
 	int irq_release;      /* usb_irq_release() in the dispatch */
+	/* The second pair, around the mode record and the copy it applies. */
+	int irq_hold_2;
+	int irq_release_2;
 	int idle_fn;          /* where cc2400_idle() is defined */
 	int idle_fn_lines;    /* how many lines of it the scan read */
 	int idle_fn_mode;     /* `mode = ...` inside cc2400_idle() */
@@ -103,6 +106,20 @@ struct scan {
 	 * clears the channel averages. */
 	int absorbed_reset_fn;
 	int absorbed_reset_fn_iir;
+
+	int ego_reset_call;   /* ego_access_code_reset() in the dispatch */
+	int ego_reset_calls;  /* how many */
+	int stated_call;      /* apply_stated_settings() in the dispatch */
+	int stated_calls;     /* how many */
+	/* apply_stated_settings(): where it is defined, where it clears the
+	 * copy, and where it first reads what the copy holds. */
+	int stated_fn;
+	int stated_fn_clear;
+	int stated_fn_clear_last;
+	int stated_fn_clears;
+	int stated_fn_first_use;
+	int stated_fn_match;  /* where it compares the two modes */
+	int stated_fn_pending; /* where it asks whether that mode is still asked for */
 	int idle_fn_manand;   /* cc2400_set(MANAND, ...) inside cc2400_idle() */
 
 	/* The modes the dispatch runs by calling bt_stream_rx(), and the
@@ -222,6 +239,7 @@ static int scan_source(const char *path, struct scan *s)
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_loop = 0, in_idle_fn = 0;
 	int in_absorbed_fn = 0;
+	int in_stated_fn = 0;
 	char fn[64] = "", name[64];
 	struct request_case current;
 	const char *p;
@@ -250,7 +268,59 @@ static int scan_source(const char *path, struct scan *s)
 			continue;
 		}
 
+		/*
+		 * apply_stated_settings()'s body. The copy of what the host
+		 * stated has to be cleared whether it is applied or not: a copy
+		 * kept for a mode that never started belongs to a run that is
+		 * over, and leaving it would carry that run's channel into
+		 * whatever starts next.
+		 */
+		if (in_stated_fn) {
+			/* The guard that keeps a copy to its own mode: the body
+			 * has to compare the mode request the copy followed with
+			 * the mode that is starting. Without it, a copy left by a
+			 * run whose mode never started would be applied to
+			 * whatever starts next -- the carry-over the reset exists
+			 * to prevent. */
+			if (contains_identifier(line, "stated_for_mode") &&
+			    contains_identifier(line, "starting_mode") &&
+			    s->stated_fn_match == 0)
+				s->stated_fn_match = lineno;
+			/* And what keeps a copy whose mode has not started yet:
+			 * the dispatch reads the request once on its way in, so
+			 * a second tool's request and its setting can both be
+			 * answered during the reset, and the mode starting here
+			 * is the first tool's. */
+			if (contains_identifier(line, "stated_for_mode") &&
+			    contains_identifier(line, "requested_mode") &&
+			    s->stated_fn_pending == 0)
+				s->stated_fn_pending = lineno;
+			if (is_assignment_to(line, "stated_what")) {
+				if (s->stated_fn_clear == 0)
+					s->stated_fn_clear = lineno;
+				/* The last one is the apply path's: the drop
+				 * branch clears it too, and recording only the
+				 * first would let the apply path stop. */
+				s->stated_fn_clear_last = lineno;
+				s->stated_fn_clears++;
+			}
+			if (contains_identifier(line, "what") &&
+			    !is_assignment_to(line, "stated_what") &&
+			    strstr(line, "if") != NULL &&
+			    s->stated_fn_first_use == 0)
+				s->stated_fn_first_use = lineno;
+			if (line[0] == '}')
+				in_stated_fn = 0;
+			continue;
+		}
+
 		if (!in_main && !in_idle_fn) {
+			if (strstr(line, "apply_stated_settings(") != NULL &&
+			    strchr(line, ';') == NULL) {
+				in_stated_fn = 1;
+				s->stated_fn = lineno;
+				continue;
+			}
 			if (strstr(line, "reset_absorbed_mode_state(") != NULL &&
 			    strchr(line, ';') == NULL) {
 				in_absorbed_fn = 1;
@@ -399,10 +469,28 @@ static int scan_source(const char *path, struct scan *s)
 			if (s->iir_call == 0)
 				s->iir_call = lineno;
 		}
-		if (strstr(line, "usb_irq_hold(") != NULL && s->irq_hold == 0)
-			s->irq_hold = lineno;
-		if (strstr(line, "usb_irq_release(") != NULL && s->irq_release == 0)
-			s->irq_release = lineno;
+		if (strstr(line, "ego_access_code_reset(") != NULL) {
+			s->ego_reset_calls++;
+			if (s->ego_reset_call == 0)
+				s->ego_reset_call = lineno;
+		}
+		if (strstr(line, "apply_stated_settings(") != NULL) {
+			s->stated_calls++;
+			if (s->stated_call == 0)
+				s->stated_call = lineno;
+		}
+		if (strstr(line, "usb_irq_hold(") != NULL) {
+			if (s->irq_hold == 0)
+				s->irq_hold = lineno;
+			else if (s->irq_hold_2 == 0)
+				s->irq_hold_2 = lineno;
+		}
+		if (strstr(line, "usb_irq_release(") != NULL) {
+			if (s->irq_release == 0)
+				s->irq_release = lineno;
+			else if (s->irq_release_2 == 0)
+				s->irq_release_2 = lineno;
+		}
 		if (is_assignment_to(line, "mode")) {
 			s->mode_assigns++;
 			if (s->mode_assign == 0)
@@ -506,6 +594,157 @@ MU_TEST(test_leaving_a_mode_idles_once_first)
 	         path, s.idle_call, s.mode_assign);
 	mu_assert(s.idle_call > 0 && s.mode_assign > 0 &&
 	          s.idle_call < s.mode_assign, msg);
+}
+
+/*
+ * The E-GO access code is put back on the way out of a mode, in the dispatch
+ * and nowhere else: it belongs to the capture that asked for it, and it used
+ * to stay on the board until a reset, so the next ubertooth-ego run captured
+ * with the code the last one was given.
+ */
+MU_TEST(test_leaving_a_mode_puts_the_access_code_back)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch calls ego_access_code_reset() %d times; it "
+	         "belongs with the other resets, on the way out of whatever mode "
+	         "was running",
+	         path, s.ego_reset_calls);
+	mu_assert(s.ego_reset_calls == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: ego_access_code_reset() is called at or after the "
+	         "`mode =` at line %d, so it would run after the new mode was "
+	         "recorded rather than as part of leaving the old one",
+	         path, s.ego_reset_call, s.mode_assign);
+	mu_assert(s.ego_reset_call > 0 && s.mode_assign > 0 &&
+	          s.ego_reset_call < s.mode_assign, msg);
+}
+
+/*
+ * What the host stated after its mode request is applied once, after the
+ * reset that would otherwise have thrown it away and before the cases, whose
+ * own setup wins. After `mode` as well, because a channel request reads it.
+ */
+MU_TEST(test_what_was_stated_is_applied_between_the_reset_and_the_cases)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch calls apply_stated_settings() %d times; a "
+	         "mode start applies the copy once",
+	         path, s.stated_calls);
+	mu_assert(s.stated_calls == 1, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: apply_stated_settings() is called outside the window "
+	         "between the `mode =` at line %d and the first "
+	         "`case MODE_...:` at line %d, so it would run before the reset "
+	         "it undoes or after the mode's own setup",
+	         path, s.stated_call, s.mode_assign, s.first_case);
+	mu_assert(s.stated_call > s.mode_assign && s.stated_call < s.first_case,
+	          msg);
+}
+
+/*
+ * The mode record and the copy it applies are one step as far as the request
+ * handler is concerned: both of the requests that leave a copy run from the
+ * USB interrupt, so one arriving between them would have its own copy dropped
+ * by the read-then-clear, or leave the channel from its request and the hop
+ * mode from the copy.
+ */
+MU_TEST(test_the_mode_record_and_the_copy_hold_the_usb_interrupt_off)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch has no second usb_irq_hold() / "
+	         "usb_irq_release() pair (found %d / %d), so the `mode =` at "
+	         "line %d and the apply_stated_settings() at line %d run with "
+	         "the request handler live",
+	         path, s.irq_hold_2, s.irq_release_2, s.mode_assign,
+	         s.stated_call);
+	mu_assert(s.irq_hold_2 > 0 && s.irq_release_2 > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the `mode =` at line %d and apply_stated_settings() at "
+	         "line %d are not both inside the hold at lines %d-%d",
+	         path, s.mode_assign, s.stated_call, s.irq_hold_2,
+	         s.irq_release_2);
+	mu_assert(s.irq_hold_2 < s.mode_assign && s.mode_assign < s.stated_call &&
+	          s.stated_call < s.irq_release_2, msg);
+}
+
+/*
+ * A copy for a mode that is not the one starting is dropped -- unless that
+ * mode is still the one the host is waiting for, which is the one case where
+ * its mode start is yet to come. Dropping it always would lose a second
+ * tool's setting when its request arrived during the first tool's teardown;
+ * keeping it always would carry a dead run's channel into a later mode.
+ */
+MU_TEST(test_a_stated_setting_is_dropped_unless_its_mode_is_still_asked_for)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg), "%s: the scan did not find "
+	         "apply_stated_settings()'s definition", path);
+	mu_assert(s.stated_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: apply_stated_settings() does not compare "
+	         "`stated_for_mode` with `requested_mode`, so a copy whose mode "
+	         "has not started yet is either dropped or kept without asking "
+	         "whether that mode is still coming",
+	         path, s.stated_fn);
+	mu_assert(s.stated_fn_pending > 0, msg);
+
+	/* Both branches clear it: the one that drops a dead copy and the one
+	 * that applies a copy. The last `stated_what = 0` is the applying
+	 * branch's, so it is the one that has to come before the copy is read:
+	 * a branch that applied a copy and left it would apply it again at the
+	 * next mode start. */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: apply_stated_settings() clears the copy %d times; the "
+	         "branch that drops one and the branch that applies one each "
+	         "have to",
+	         path, s.stated_fn, s.stated_fn_clears);
+	mu_assert(s.stated_fn_clears == 2, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: it reads what the copy holds at line %d before the "
+	         "applying branch clears it at line %d, so a copy it applied "
+	         "could be left behind for the next mode start",
+	         path, s.stated_fn, s.stated_fn_first_use, s.stated_fn_clear_last);
+	mu_assert(s.stated_fn_clear_last > 0 && s.stated_fn_first_use > 0 &&
+	          s.stated_fn_clear_last < s.stated_fn_first_use, msg);
+}
+
+/*
+ * And it is applied only to the mode it was stated for. The model in
+ * test_mode_state_reset.c checks what that rule does; this checks that the
+ * firmware still asks the question, because a body that applied every copy it
+ * held would pass every other test here while carrying one run's channel into
+ * the next mode.
+ */
+MU_TEST(test_a_stated_setting_is_applied_only_to_the_mode_it_was_stated_for)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: apply_stated_settings() does not compare "
+	         "`stated_for_mode` with the mode that is starting, so a copy "
+	         "stated for a mode that never started would be applied to "
+	         "whatever starts next",
+	         path, s.stated_fn);
+	mu_assert(s.stated_fn_match > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the comparison is at or after the first use of what the "
+	         "copy holds, at line %d",
+	         path, s.stated_fn_match, s.stated_fn_first_use);
+	mu_assert(s.stated_fn_first_use > 0 &&
+	          s.stated_fn_match < s.stated_fn_first_use, msg);
 }
 
 /*
@@ -949,6 +1188,11 @@ int main(void)
 	MU_RUN(test_mode_is_recorded_once);
 	MU_RUN(test_mode_is_recorded_before_the_cases);
 	MU_RUN(test_leaving_a_mode_idles_once_first);
+	MU_RUN(test_leaving_a_mode_puts_the_access_code_back);
+	MU_RUN(test_what_was_stated_is_applied_between_the_reset_and_the_cases);
+	MU_RUN(test_the_mode_record_and_the_copy_hold_the_usb_interrupt_off);
+	MU_RUN(test_a_stated_setting_is_dropped_unless_its_mode_is_still_asked_for);
+	MU_RUN(test_a_stated_setting_is_applied_only_to_the_mode_it_was_stated_for);
 	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
 	MU_RUN(test_leaving_a_mode_forgets_the_channel_averages);
 	MU_RUN(test_an_absorbed_mode_start_keeps_the_channel_averages);

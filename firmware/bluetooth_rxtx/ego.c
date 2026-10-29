@@ -43,10 +43,26 @@ static const uint16_t channels[4] = { 2408, 2418, 2423, 2469 };
 
 // global mutable state
 // FIXME: put this in a struct and reset it properly
-uint32_t access_code = 0x630f9ffe;
+volatile uint32_t access_code = EGO_DEFAULT_ACCESS_CODE;
 /* Stored for rf_on()'s TODO below: the radio is told a 32-bit sync word
  * whatever length the host asked for, so nothing reads this yet. */
-int access_code_len = 4;
+volatile int access_code_len = EGO_DEFAULT_ACCESS_CODE_LEN;
+
+/*
+ * Put the access code back to the one ubertooth-ego(1) documents.
+ *
+ * The mode dispatch calls this as a mode starts, for the reason it forgets the
+ * AFH map there: the code belongs to the capture that asked for it. It used to
+ * be set once at boot and kept until the board was reset, so an
+ * `ubertooth-ego -a 11223344` left 11223344 on the board and the next run
+ * captured with it while reporting nothing -- a capture that looks like a
+ * default-access-code run and is not one.
+ */
+void ego_access_code_reset(void)
+{
+	access_code = EGO_DEFAULT_ACCESS_CODE;
+	access_code_len = EGO_DEFAULT_ACCESS_CODE_LEN;
+}
 
 typedef enum _ego_state_t {
 	EGO_ST_INIT = 0,
@@ -110,7 +126,20 @@ static void ego_deinit(void) {
 	ICER0 = ICER0_ICE_USB;
 }
 
+/* What the last rf_on() tuned to and programmed as the sync word. Continuous
+ * receive tunes once, so this is what lets it notice the host changing either
+ * of them while it runs; see continuous_cap_state(). */
+static uint16_t rf_on_channel;
+static uint32_t rf_on_access_code;
+
 static void rf_on(void) {
+	/* Both are read once here, because the host can change either while
+	 * this runs: what goes into the registers below has to be what is
+	 * remembered as programmed, or a change that arrived mid-setup would
+	 * never be noticed. */
+	uint16_t tuned_channel = channel;
+	uint32_t code = access_code;
+
 	cc2400_set(MANAND,  0x7fff);
 	cc2400_set(LMTST,   0x2b22);
 	cc2400_set(MDMTST0, 0x134b); // without PRNG
@@ -121,13 +150,16 @@ static void rf_on(void) {
 	//      |  | +---------------> 1 byte of 01010101
 	//      |  +-----------------> packet mode
 	//      +--------------------> un-buffered mode
-	cc2400_set(FSDIV,   channel - 1); // 1 MHz IF
+	cc2400_set(FSDIV,   tuned_channel - 1); // 1 MHz IF
 	cc2400_set(MDMCTRL, 0x0040); // 250 kHz frequency deviation
 	cc2400_set(GRDEC,  3);       // 250 kbit
 
         // TODO handle access code length above
-	cc2400_set(SYNCH, (access_code >> 16) & 0xffff);
-	cc2400_set(SYNCL, (access_code >>  0) & 0xffff);
+	cc2400_set(SYNCH, (code >> 16) & 0xffff);
+	cc2400_set(SYNCL, (code >>  0) & 0xffff);
+
+	rf_on_channel = tuned_channel;
+	rf_on_access_code = code;
 
 	/* Bounded, so a radio that stops answering cannot hold this mode for
 	 * good: ego_main()'s loop is then reached again and sees that the host
@@ -247,6 +279,31 @@ static void continuous_cap_state(ego_fsm_state_t *state) {
 	ego_packet_t packet = {
 		.rxtime = CLK100NS,
 	};
+
+	/*
+	 * A tool states its channel and its access code after the request that
+	 * starts this mode, because a mode start puts both back to their
+	 * defaults. Either can therefore arrive once the mode is running, and
+	 * this is the only E-GO mode that tunes once: follow and jam run
+	 * rf_on() again on every hop, so they pick a change up within a hop.
+	 * Go back through rf_on() when one of them changes, so the capture is
+	 * on the channel and the sync word the user asked for.
+	 */
+	if (channel != rf_on_channel || access_code != rf_on_access_code) {
+		cc2400_strobe(SRFOFF);
+		ssp_stop();
+		/* Whatever the radio had already handed over belongs to the
+		 * channel and the sync word that are being left behind, as it
+		 * does after a packet below: drop it, or the first packet of
+		 * the new capture would be built partly out of it. */
+		while (SSP1SR & SSPSR_RNE) {
+			uint8_t stale = (uint8_t)DIO_SSP_DR;
+
+			(void)stale;
+		}
+		state->state = EGO_ST_START_RX;
+		return;
+	}
 
 	if (sync_received()) {
 		RXLED_SET;

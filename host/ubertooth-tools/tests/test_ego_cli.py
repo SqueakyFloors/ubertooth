@@ -56,15 +56,14 @@ help_run = subprocess.run(
 )
 assert help_run.returncode == 0, help_run
 assert "-i, -j" in help_run.stdout, help_run
-# -c is only used by continuous receive, and -a is not a default the tool
-# sends: the board keeps the last code it was given.
+# -c is only used by continuous receive.
 assert "continuous rx only" in help_run.stdout, help_run
-# The channel -r receives on without -c is a real default the tool sends, so
-# the usage text names it the way the -l line names 18.
+# The channel -r receives on without -c, and the access code a run without -a
+# captures with, are both real defaults: a mode start puts the code back to
+# 630f9ffe, so the usage text names it the way the -l line names 18.
 assert "default: 2418" in help_run.stdout, help_run
 assert "default: 18" in help_run.stdout, help_run
-assert "keeps the last code it was given" in help_run.stdout, help_run
-assert "default: 630f9ffe" not in help_run.stdout, help_run
+assert "default: 630f9ffe" in help_run.stdout, help_run
 
 # A channel the chosen mode never sends is refused before device selection, so
 # nothing reports a missing board.

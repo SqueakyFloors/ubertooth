@@ -67,6 +67,14 @@ static struct {
 	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
 	int adv_data_calls;
 	u16 last_channel;
+	/* Returned by a channel request made once a mode has started, which is
+	 * the one a mode start cannot throw away. */
+	int restated_channel_rc;
+	/* The channel requests, counted on each side of the mode request: a
+	 * mode that starts listening or advertising at once needs one before
+	 * it, and a mode start keeps only the one after it. */
+	int channel_sets_before_the_mode_request;
+	int channel_sets_after_the_mode_request;
 	u32 access_address;
 	int aa_reads;
 	int aa_writes;
@@ -286,8 +294,19 @@ int cmd_poll(struct libusb_device_handle *devh, usb_pkt_rx *p)
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
 {
 	(void)devh;
+	/* Not a letter in fake.calls, which would re-letter every expected call
+	 * string: what matters is whether the mode had been asked for by the
+	 * time the channel was stated. */
+	int after_the_mode_request =
+		strchr(fake.calls, 'm') != NULL || strchr(fake.calls, 'S') != NULL;
+
+	if (after_the_mode_request)
+		fake.channel_sets_after_the_mode_request++;
+	else
+		fake.channel_sets_before_the_mode_request++;
 	fake.last_channel = channel;
-	return fake.channel_rc;
+	return after_the_mode_request ? fake.restated_channel_rc
+	                              : fake.channel_rc;
 }
 
 int cmd_set_modulation(struct libusb_device_handle *devh, u16 mod)
@@ -972,11 +991,28 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: modulation set failed\n") == 0, r.err);
 
+	/* The channel before the mode request: nothing has started, so the
+	 * mode is not, and there is no mode to stop. */
 	reset_fake();
 	fake.channel_rc = -1;
 	r = RUN("-f");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.sniffing_calls);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err,
+	                 "error: could not set the advertising channel\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	/* The same channel restated after the mode request: the board is
+	 * already following, on a channel the user did not ask for, so the run
+	 * ends with the mode stopped rather than reporting a follow that found
+	 * nothing. */
+	reset_fake();
+	fake.restated_channel_rc = -1;
+	r = RUN("-f");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.sniffing_calls);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err,
 	                 "error: could not set the advertising channel\n") == 0,
@@ -997,6 +1033,22 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
+	/* The same channel restated once advertising has started: the board is
+	 * advertising on a channel the user did not ask for, so this one does
+	 * stop it on the way out. */
+	reset_fake();
+	fake.restated_channel_rc = -1;
+	r = RUN("-s22:44:66:88:aa:cc");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.slave_calls);
+	mu_assert_int_eq(1, fake.channel_sets_before_the_mode_request);
+	mu_assert_int_eq(1, fake.channel_sets_after_the_mode_request);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strcmp(r.err,
+	                 "error: could not set the advertising channel\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
 	reset_fake();
 	fake.adv_data_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
@@ -1008,15 +1060,30 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
-	/* the -A channel index reaches the board in both modes */
+	/*
+	 * The -A channel index reaches the board in both modes, stated twice:
+	 * once before the request that starts the mode and once after it.
+	 *
+	 * Both modes act on the channel the moment they start -- one listens,
+	 * the other advertises -- so the board has to be on it beforehand. And
+	 * a mode start puts the channel back to its default, which a board
+	 * left in another mode by a killed tool does after it has answered the
+	 * mode request: that threw the first statement away, so the second one
+	 * is what such a board keeps.
+	 */
 	reset_fake();
 	r = RUN("-A39", "-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(2480, fake.last_channel);
+	mu_assert_int_eq(1, fake.channel_sets_before_the_mode_request);
+	mu_assert_int_eq(1, fake.channel_sets_after_the_mode_request);
+
 	reset_fake();
 	r = RUN("-A38", "-f");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(2426, fake.last_channel);
+	mu_assert_int_eq(1, fake.channel_sets_before_the_mode_request);
+	mu_assert_int_eq(1, fake.channel_sets_after_the_mode_request);
 }
 
 /* A capture file the tool cannot create names the file the user gave and the

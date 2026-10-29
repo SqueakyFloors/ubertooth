@@ -704,7 +704,17 @@ One rule covers what a board holds from one command to the next:
   and no other way: `ubertooth-rx` after an `ubertooth-afh` hops across the
   whole channel set, not on the map that run found. This holds even when the
   earlier tool was killed and left the board streaming. The squelch and the
-  LEDs go with it, as above; the power amplifier level set with `-a` does not.
+  LEDs go with it, as above, and so does the access code `ubertooth-ego -a`
+  sets; the power amplifier level set with `-a` does not.
+- **A channel, a band sweep or an access code stated after the mode request is
+  kept.** It belongs to the mode that is starting, so the reset above leaves it
+  alone, whatever the board was doing before. That is where a tool states what
+  its capture needs — `ubertooth-rx`, `ubertooth-scan`, `ubertooth-btle`,
+  `ubertooth-ducky` and `ubertooth-ego` all do — and it is kept only for that
+  mode: a setting stated for a run the host has moved on from is dropped rather
+  than carried into whatever starts next. The AFH map is the one setting this
+  does not cover yet, so `ubertooth-follow` can still lose the map it states
+  after its mode request on a board left in a mode that captures nothing.
 - **A channel set on its own is kept, and the next mode starts on it.** `-c`/`-C`
   with no mode on the command line leaves the board on that channel for as long
   as it stays idle, a later `-c` reads it back, and a mode started afterwards
@@ -722,9 +732,18 @@ what it is capturing on, as `ubertooth-follow` does each time it re-syncs its
 clock. A tool cannot tell the board which of the two it is doing, so one that
 wants a clean map after a restart says what it wants of the map once its mode
 is running, rather than before it starts. The channel a capture needs goes the
-same way round: `ubertooth-rx` and `ubertooth-scan` state theirs after their
-mode request, so a board that was already capturing cannot decide where they
-listen.
+same way round, and for the same reason it is stated after the mode request.
+
+One re-send does reset something: a second `ubertooth-ego` run against a board
+still capturing from a killed first run gets the default access code back,
+because that request puts it back itself rather than waiting for a mode start
+that is not coming. It does not change which E-GO mode is running, so stop the
+board first if the run that was killed used another one.
+
+A mode that tunes once reads a late setting a moment later than one that tunes
+on every hop: `ubertooth-ego -r` re-tunes when its channel or access code
+arrives after the capture has started, which costs the first millisecond of
+it.
 
 ## EXIT STATUS
 

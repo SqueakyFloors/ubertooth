@@ -136,12 +136,12 @@ mode, so a sweep stated before the capture request was thrown away and the
 capture sat on one channel without saying so. See ubertooth-util(1),
 CARRY-OVER BETWEEN RUNS.
 
-A board that was already capturing — what a killed `ubertooth-afh` or
-`ubertooth-follow` leaves behind — does that reset while it takes the capture
-request, so the sweep stated after it survives. A board left in a mode that
-captures nothing, a spectrum scan say, resets as it leaves that mode, a moment
-after the capture request has been answered, and can still swallow the sweep:
-stop such a board with `ubertooth-util -S` before capturing.
+The board keeps what is stated after the capture request whatever it was doing
+before, so nothing has to be stopped first. A board left in a mode that
+captures nothing — a killed `ubertooth-specan`, `ubertooth-btle` or
+`ubertooth-ego` — used to swallow the sweep, because it runs the reset a moment
+after the capture request has been answered, and the capture then sat on
+2441 MHz.
 
 The board stays on whatever it was tuned to until the request arrives and the
 next hop acts on it, which takes up to 40 ms. Packets captured in that window

@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0148
+#define UBERTOOTH_API_VERSION 0x0149
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -619,6 +619,13 @@ enum rfcat24_subcommands {
 	RFCAT_SET_AA                 = 1,
 	RFCAT_CAP_LEN                = 2,
 };
+
+/*
+ * The sync word an E-GO capture looks for when the host sends no access code
+ * of its own. A mode start puts the firmware back to it, and ubertooth-ego
+ * names it as the default, so both sides read it from here.
+ */
+#define EGO_DEFAULT_ACCESS_CODE 0x630f9ffeu
 
 /* The most advertising data an extended advertising PDU can carry, and so the
  * most UBERTOOTH_LE_SET_ADV_DATA accepts. */

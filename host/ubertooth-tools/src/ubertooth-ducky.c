@@ -330,6 +330,17 @@ int main(int argc, char *argv[])
 			return request_failed(ut, "set the advertising data");
 		if (cmd_btle_slave(ut->devh, bd_addr) < 0)
 			return request_failed(ut, "start advertising");
+		/* And again now the mode has started. Advertising begins with
+		 * it, so the channel has to be on the board beforehand -- but a
+		 * mode start puts it back to 2441 MHz, and a board left in
+		 * another mode by a killed tool does that after this request
+		 * has been answered, which threw the channel away: the quack
+		 * went out on 2441 MHz, which is not an advertising channel at
+		 * all, whatever -A asked for. The board keeps a
+		 * channel stated after the request for the mode it is starting,
+		 * and reads it again for every advertisement. */
+		if (cmd_set_channel(ut->devh, channel) < 0)
+			return request_failed(ut, "set the advertising channel");
 
 		sleep(2);
 		ubertooth_stop(ut);

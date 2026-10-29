@@ -244,7 +244,8 @@ static struct run_result run_ego(const char *const *args)
 /* ---- tests -------------------------------------------------------------- */
 
 /* A capture the board took: the requests in order, carrying the values the
- * command line asked for. */
+ * command line asked for. The channel and the access code come after the mode
+ * request, because a mode start resets both; see the test below. */
 MU_TEST(a_capture_the_board_took_sends_the_setup_requests_and_exits_0)
 {
 	struct run_result r;
@@ -252,7 +253,7 @@ MU_TEST(a_capture_the_board_took_sends_the_setup_requests_and_exits_0)
 	reset_fake();
 	r = RUN("-r", "-c", "2408", "-a", "11223344", "-l", "24");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "cale") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "leca") == 0, fake.calls);
 	mu_assert_int_eq(2408, fake.last_channel);
 	mu_assert_int_eq(4, fake.last_access_code_len);
 	mu_assert_int_eq(0x11, fake.last_access_code[0]);
@@ -264,9 +265,9 @@ MU_TEST(a_capture_the_board_took_sends_the_setup_requests_and_exits_0)
 }
 
 /* Following connections hops on the board, so no channel is set, and the tool
- * sends no access code of its own: the board keeps whichever one it was last
- * set to, which is what the man page's ACCESS CODE section describes. The
- * capture length is the only setup request. */
+ * sends no access code of its own: the mode start puts the board's code back
+ * to the documented default, which is what a run without -a captures with.
+ * The capture length is the only setup request. */
 MU_TEST(following_sets_only_the_capture_length)
 {
 	struct run_result r;
@@ -289,9 +290,35 @@ MU_TEST(continuous_receive_without_c_sends_the_default_channel)
 	reset_fake();
 	r = RUN("-r");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "cle") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "lec") == 0, fake.calls);
 	mu_assert_int_eq(2418, fake.last_channel);
 	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+}
+
+/*
+ * The channel and the access code are stated after the request that starts the
+ * mode. A mode start resets both, and a board left in another mode by a killed
+ * tool runs that reset a moment after it has answered the mode request, so
+ * anything stated first was thrown away: the capture ran on 2441 MHz, or with
+ * the access code the previous run had left behind.
+ */
+MU_TEST(the_channel_and_access_code_follow_the_mode_request)
+{
+	struct run_result r;
+	const char *mode_request;
+
+	reset_fake();
+	r = RUN("-r", "-c", "2408", "-a", "11223344");
+	mu_assert_int_eq(0, r.rc);
+	mode_request = strchr(fake.calls, 'e');
+	mu_assert(mode_request != NULL, fake.calls);
+	mu_assert(strchr(fake.calls, 'c') > mode_request, fake.calls);
+	mu_assert(strchr(fake.calls, 'a') > mode_request, fake.calls);
+
+	/* The capture length is not reset by a mode start, and the mode must
+	 * not be started on a length the board refused, so it stays in
+	 * front. */
+	mu_assert(strchr(fake.calls, 'l') < mode_request, fake.calls);
 }
 
 /* A board that cannot be opened, and a firmware the host will not drive, each
@@ -334,17 +361,18 @@ MU_TEST(a_board_or_firmware_the_tool_cannot_use_exits_1)
 /* Each refused setup request is named, in one line on standard error, and ends
  * the command there: they used to be ignored, so a board that refused one
  * captured on whatever channel, access code or length it was left on and
- * reported success. */
+ * reported success. A refusal after the mode request leaves the mode running,
+ * so the board is stopped on the way out either way. */
 MU_TEST(a_refused_setup_request_is_named_and_exits_1)
 {
 	static const struct {
 		int *result;         /* the request to have the board refuse */
-		const char *calls;   /* the requests made before the refusal */
+		const char *calls;   /* every request up to and including it */
 		const char *message;
 	} cases[] = {
-		{ &fake.channel_rc, "c",   "error: could not set the channel\n" },
-		{ &fake.set_aa_rc,  "ca",  "error: could not set the access code\n" },
-		{ &fake.cap_len_rc, "cal", "error: could not set the capture length\n" },
+		{ &fake.cap_len_rc, "l",    "error: could not set the capture length\n" },
+		{ &fake.channel_rc, "lec",  "error: could not set the channel\n" },
+		{ &fake.set_aa_rc,  "leca", "error: could not set the access code\n" },
 	};
 	struct run_result r;
 	size_t i;
@@ -359,12 +387,19 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_1)
 		r = RUN("-r", "-c", "2408", "-a", "11223344");
 		mu_assert_int_eq(1, r.rc);
 		mu_assert(strcmp(fake.calls, cases[i].calls) == 0, fake.calls);
-		/* The E-GO mode is never started on top of a refused setting. */
-		mu_assert(strchr(fake.calls, 'e') == NULL, fake.calls);
+		/* Nothing is sent after the refusal, and no capture is read. */
 		mu_assert_int_eq(1, fake.stops); /* the board is still released */
 		mu_assert(r.out[0] == '\0', r.out);
 		mu_assert(strcmp(r.err, cases[i].message) == 0, r.err);
 	}
+
+	/* A capture length the board refuses still keeps the mode from
+	 * starting: it is the one setup request that goes first. */
+	reset_fake();
+	fake.cap_len_rc = -9;
+	r = RUN("-r", "-c", "2408");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strchr(fake.calls, 'e') == NULL, fake.calls);
 }
 
 /* The access code is only sent when -a asked for one, so a board that refuses
@@ -377,7 +412,7 @@ MU_TEST(the_access_code_request_is_only_sent_for_a)
 	fake.set_aa_rc = -9;
 	r = RUN("-r", "-c", "2408");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "cle") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "lec") == 0, fake.calls);
 }
 
 /* The firmware refusing the mode itself is reported as it always was, after
@@ -649,6 +684,7 @@ int main(void)
 	MU_RUN(a_capture_the_board_took_sends_the_setup_requests_and_exits_0);
 	MU_RUN(following_sets_only_the_capture_length);
 	MU_RUN(continuous_receive_without_c_sends_the_default_channel);
+	MU_RUN(the_channel_and_access_code_follow_the_mode_request);
 	MU_RUN(a_board_or_firmware_the_tool_cannot_use_exits_1);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_1);
 	MU_RUN(the_access_code_request_is_only_sent_for_a);
