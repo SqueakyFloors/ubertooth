@@ -81,6 +81,22 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 	}
 }
 
+/* The noise figure handed to the capture writers, which means "nothing
+ * measured the background between these packets".
+ *
+ * libbtbb sets the noise-power-valid flag of a record only when the noise
+ * figure it is given is below that record's signal figure, so a figure no
+ * signal can reach leaves the flag clear and a reader does not take the byte
+ * for a measurement. +127 dBm is such a figure: the signal field is derived
+ * from the board's RSSI and tops out at 0 dBm. With the flag clear the byte
+ * itself means nothing, which is why a value no receiver could report is the
+ * safe one to write there.
+ *
+ * The board sends an RSSI average taken over the packet itself, which is
+ * mostly the packet's own power rather than the background around it, so it is
+ * not a noise measurement to record. */
+#define NOISE_NOT_MEASURED INT8_MAX
+
 #define RSSI_HISTORY_LEN 10
 
 /* The ten most recent RSSI maxima of each Basic Rate channel, newest last, and
@@ -129,8 +145,11 @@ static void determine_signal_and_noise( usb_pkt_rx *rx, int8_t * sig, int8_t * n
 #endif
 	*sig = cc2400_rssi_to_dbm( rssi );
 
-	/* Noise is an IIR of averages */
-	/* FIXME: currently bogus */
+	/* The board's RSSI average over the packet, which is an estimate of the
+	 * noise only in that a quiet channel makes it low. It goes in the
+	 * screen column beside the signal, and not into a capture record: a
+	 * record's noise field says what the background measured, and nothing
+	 * measures that. */
 	*noise = cc2400_rssi_to_dbm( rx->rssi_avg );
 }
 
@@ -1094,7 +1113,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	/* Dump to PCAP/PCAPNG if specified */
 	refAA = lell_packet_is_data(pkt) ? 0 : 0x8e89bed6;
 	sig = cc2400_rssi_to_dbm( rx->rssi_max );
-	noise = INT8_MIN; // FIXME - keep track of this
+	noise = NOISE_NOT_MEASURED;
 
 	if (ut->h_pcap_le) {
 		/* only one of these two will succeed, depending on
@@ -1321,8 +1340,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx, arrival_ns );
 
-	int8_t signal_level = rx->rssi_max;
-	int8_t noise_level = rx->rssi_min;
+	int8_t signal_level, noise_level;
 	determine_signal_and_noise( rx, &signal_level, &noise_level );
 	int8_t snr = signal_level - noise_level;
 
@@ -1473,15 +1491,17 @@ void cb_rx(ubertooth_t* ut, void* args)
 		btbb_decode_header(pkt);
 	}
 
-	/* Dump to PCAP/PCAPNG if specified */
+	/* Dump to PCAP/PCAPNG if specified. The noise figure is the unmeasured
+	 * one: the level printed above is derived from the packet's own power,
+	 * which is not what a record's noise field means. */
 	if (ut->h_pcap_bredr) {
 		btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
-		                        signal_level, noise_level,
+		                        signal_level, NOISE_NOT_MEASURED,
 		                        lap, uap, pkt);
 	}
 	if (ut->h_pcapng_bredr) {
 		btbb_pcapng_append_packet(ut->h_pcapng_bredr, nowns,
-		                          signal_level, noise_level,
+		                          signal_level, NOISE_NOT_MEASURED,
 		                          lap, uap, pkt);
 	}
 

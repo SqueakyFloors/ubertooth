@@ -112,6 +112,7 @@ BT_HEADER_AT = 16
 FLAGS_AT = 20
 PAYLOAD_AT = 22
 BREDR_DEWHITENED = 0x0001
+BREDR_NOISEPOWER_VALID = 0x0004
 BREDR_REFLAP_VALID = 0x0010
 BREDR_PAYLOAD_PRESENT = 0x0020
 BREDR_REFUAP_VALID = 0x0080
@@ -446,6 +447,14 @@ with tempfile.TemporaryDirectory() as workdir:
         # the two ID packets have no header on air at all.
         for index in (0, 1, 3):
             assert records[index].header == 0, (name, records)
+
+        # No record claims a measured noise power, because nothing measures
+        # the background between packets: the board sends an RSSI average
+        # taken over the packet itself. A reader that finds this flag clear
+        # marks the field invalid instead of computing a signal-to-noise
+        # ratio from a figure that is mostly the packet's own power.
+        for rec in records:
+            assert not rec.flags & BREDR_NOISEPOWER_VALID, (name, records)
 
         # That mid-acquisition record is still wrong about its payload, and
         # the same lack of a clock is why: it carries whatever bytes the

@@ -255,6 +255,12 @@ packet times are behind the host clock by more than half the capture clock's
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
+A `-q` or `-r` capture record carries the signal power of its packet and no
+measured noise power: nothing measures the background between packets, so the
+record's noise-power-valid flag stays clear and the byte beside it is not a
+reading. Wireshark shows it as `Unused signed byte`. A `-c` PPI record carries
+the board's own RSSI readings instead, as described below.
+
 Miscellaneous:
 
  - `-A <37|38|39>` :

@@ -609,6 +609,15 @@
   quietest captured packet was -78, and a dump and a capture of one run
   disagreed by as much as 90 dB on an individual packet.
   [#859](https://github.com/SqueakyFloors/ubertooth/issues/859)
+- A `-q` or `-r` capture record no longer claims a noise power that nothing
+  measured. The noise-power-valid flag now stays clear on both the low-energy
+  and the Basic Rate path, so a reader no longer takes the field for a
+  reading: Wireshark labels the byte `Unused signed byte` on a low-energy
+  record and `Invalid Noise Power` on a Basic Rate one. Low-energy records used
+  to carry -128 dBm as a measurement, and Basic Rate records the RSSI average
+  the board took over the packet itself, which is mostly the packet's own
+  power, and a signal-to-noise ratio computed from either is meaningless.
+  [#873](https://github.com/SqueakyFloors/ubertooth/issues/873)
 - `ubertooth-btle -p` reports a connection interval that can be believed, or
   none at all. It used to time how long the connection took to come back to
   the channel it listens on, keep the smallest gap it had ever seen and divide

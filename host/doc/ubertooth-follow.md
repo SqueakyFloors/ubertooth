@@ -82,6 +82,14 @@ Requires BlueZ (Linux only).
  - `-h` :
    show help.
 
+A record of a `-q` or `-r` capture carries the signal power of its packet and
+no measured noise power: nothing measures the background between packets, so
+the record's noise-power-valid flag stays clear and the byte beside it is not
+a reading. Wireshark shows it as `Invalid Noise Power`. The `n=` column on the
+screen is the RSSI average the board took over the packet itself, which is
+mostly the packet's own power, and `snr=` is the signal beside it less that
+average.
+
 ## AFH
 
 `-a` is experimental. It makes the local BlueZ device connect to the target and
