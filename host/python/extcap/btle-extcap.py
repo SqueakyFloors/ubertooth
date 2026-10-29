@@ -20,6 +20,7 @@
 # Boston, MA 02110-1301, USA.
 
 import getopt
+import os
 import re
 import signal
 import sys
@@ -109,6 +110,82 @@ def with_optional_values(argv):
     return rewritten
 
 
+def point_at_the_bin(stream):
+    """Send a stream that cannot be written to the bin, so writing it is safe.
+
+    The interpreter flushes both streams as it exits, where no handler can
+    reach a failure: a write that fails there ends the script in status 120
+    and a message of its own. ubtbr/streams.py does the same for
+    ubertooth-btbr, and has the longer note.
+    """
+    try:
+        nowhere = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(nowhere, stream.fileno())
+        finally:
+            os.close(nowhere)
+    except (OSError, ValueError, AttributeError):
+        # There is no such stream to point anywhere: it was closed before the
+        # script started. Nothing is written to it either way.
+        pass
+
+
+def output_lost():
+    """Report that standard output has gone away, and end the call.
+
+    The one line ubertooth-btbr gives for the same loss, said once because
+    this ends the call where it is called: an answer that was not printed is
+    not a call that did what was asked (.kiro/steering/cli-output.md).
+    """
+    point_at_the_bin(sys.stdout)
+    try:
+        print("error: standard output has gone away", file=sys.stderr)
+    except (OSError, ValueError, AttributeError):
+        # Standard error went the same way, which is what `2>&1` into a reader
+        # that left leaves. The exit status is all there is to say it with.
+        point_at_the_bin(sys.stderr)
+    sys.exit(1)
+
+
+def answer(text):
+    """Print what the user asked for, or report that it could not be printed.
+
+    Standard output carries the answer (.kiro/steering/cli-output.md), and two
+    states a shell can leave it in used to pass for a call that worked: with
+    no stream at all (`-h >&-`), where print() is silently a no-op, and with
+    a descriptor that was opened for reading only, where the text reaches the
+    buffer and the flush is what fails.
+    """
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except (AttributeError, ValueError, OSError):
+        output_lost()
+
+
+def bin_a_missing_standard_error():
+    """Keep this script's diagnostics out of the answer.
+
+    With no such stream, print(..., file=sys.stderr) writes to standard output
+    instead, which for an extcap program is the worst place for it: Wireshark
+    reads standard output as the answer, so an error line there becomes a
+    capture interface, a DLT or a filter verdict. The bin takes them.
+
+    Descriptor 2 is pointed there as well, so that a child inherits the bin
+    rather than a closed descriptor whose number its next open() would take.
+    Taking a lower descriptor would be worse still: standard output may be
+    closed too, and a child handed a writable bin for it would throw away
+    what it was asked to write.
+    """
+    if sys.stderr is not None:
+        return
+    nowhere = os.open(os.devnull, os.O_WRONLY)
+    if nowhere != 2:
+        os.dup2(nowhere, 2)
+        os.close(nowhere)
+    sys.stderr = open(2, "w", closefd=False)
+
+
 def run_tool(command, **options):
     """Start one of the Ubertooth tools, or report why it could not run.
 
@@ -153,23 +230,14 @@ def report_versions():
     except (AttributeError, ValueError):
         # There is no standard output at all: a descriptor closed before the
         # script started leaves the interpreter without one, so the answer
-        # cannot be printed. Said in one line, and the child is not started:
+        # cannot be printed. Reported there, in the one line that says it
+        # however much of the answer was lost, and the child is not started:
         # with that descriptor closed, the first file the child opens takes
         # its number, and the answer would be written into whatever that
         # turned out to be.
-        print("error: standard output has gone away", file=sys.stderr)
-        return 1
-    child_streams = {}
-    try:
-        sys.stderr.flush()
-    except (AttributeError, ValueError):
-        # Nor any standard error. That costs the child's diagnostics and not
-        # the answer, so nothing is said about it, but the child is handed
-        # the bin for them rather than the closed descriptor: the first file
-        # it opened would otherwise take that number and its lines would be
-        # written into whatever that turned out to be.
-        child_streams["stderr"] = DEVNULL
-    child = run_tool(['ubertooth-util', '-V'], **child_streams)
+        output_lost()
+    sys.stderr.flush()
+    child = run_tool(['ubertooth-util', '-V'])
     if child is None:
         return 1
     status = child.wait()
@@ -264,6 +332,10 @@ def sig_handler(sig, frame):
         child.terminate()
 
 def main():
+    # Before anything is printed, since what this does is decide where the
+    # diagnostics below go.
+    bin_a_missing_standard_error()
+
     # A bare call has said nothing for a message about the command line to
     # answer, so the usage line is the answer, on standard error since it was
     # not asked for. Every other refusal is its one "error: " line alone
@@ -407,13 +479,24 @@ def main():
         sys.exit(1)
 
 
-def usage(out=sys.stdout):
-    print("Usage: %s --extcap-interfaces |"
-          " --extcap-interface=ubertooth<serial>"
-          " (--extcap-dlts | --extcap-config |"
-          " --capture --fifo=PATH [--channel=37|38|39]) |"
-          " -V | -h" % sys.argv[0],
-          file=out)
+def usage(out=None):
+    """Print the usage line.
+
+    With no stream named it is the answer -h asked for, so it goes to
+    standard output and its loss is reported. A bare command line did not ask
+    for it, so that one names standard error and is not worth reporting: the
+    "error: " line it follows has gone the same way, and the exit status says
+    what happened.
+    """
+    line = ("Usage: %s --extcap-interfaces |"
+            " --extcap-interface=ubertooth<serial>"
+            " (--extcap-dlts | --extcap-config |"
+            " --capture --fifo=PATH [--channel=37|38|39]) |"
+            " -V | -h\n" % sys.argv[0])
+    if out is None:
+        answer(line)
+    else:
+        print(line, end="", file=out)
 
 
 # One "Serial No (<index>): <serial>" line per attached board, which is what

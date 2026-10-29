@@ -91,7 +91,11 @@ A failure to start \fBubertooth\-specan\fR is reported the same way, as \fBerror
 .P
 A \fB\-V\fR with no standard output to print the answer to, which is what \fBubertooth\-specan\-ui \-V >&\-\fR leaves, is \fBerror: standard output has gone away\fR and exit 1\. ubertooth\-util(1) is not started there: with that descriptor closed, the first file it opened would take its number and the answer would be written into that\.
 .P
-The key help \fBh\fR shows goes to standard output, as what the user asked for\. The notes about an unknown or unsupported key are \fBnote:\fR lines on standard error\. The usage text \fB\-h\fR prints is the argument parser's: standard output, exit 0\. The option itself is the tool's own, so that a range the tool will not take is reported even beside it, as it is in every other tool here\.
+The key help \fBh\fR shows goes to standard output, as what the user asked for\. The notes about an unknown or unsupported key are \fBnote:\fR lines on standard error\. The usage text \fB\-h\fR prints is the argument parser's, printed by the tool: standard output, exit 0\. The option itself is the tool's own, so that a range the tool will not take is reported even beside it, as it is in every other tool here\.
+.P
+A \fB\-h\fR with nowhere to print that text is \fBerror: standard output has gone away\fR and exit 1: a command that printed nothing did not do what was asked\. That covers both descriptors a shell can leave, one closed before the tool started (\fBubertooth\-specan\-ui \-h >&\-\fR) and one open for reading only (\fBubertooth\-specan\-ui \-h 1<&0\fR)\. Left to the argument parser, the first of those writes the text to standard error instead\. A \fB\-V \-h\fR that loses both halves of its answer says the line once\.
+.P
+With standard error closed, the \fBerror:\fR lines above are lost rather than moved: none of them falls back to standard output, where a reader or a script is entitled to find only what it asked for\. The exit status is then all that is left to say what happened\.
 .SH "SEE ALSO"
 ubertooth\-specan(1), ubertooth\-util(1)
 .P

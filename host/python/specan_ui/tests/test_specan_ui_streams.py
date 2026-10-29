@@ -276,6 +276,113 @@ print("ubertooth-specan-ui: -V with no standard output at all is reported,"
       " not a traceback")
 
 
+# ---- a standard stream the shell closed before the tool started -----------
+#
+# The three states a redirection leaves are each a different thing to the
+# interpreter: no stream at all, where the argument parser writes the usage
+# text to standard error instead, which is not where the man page says it
+# goes; a stream over a descriptor that cannot be written, which takes the
+# text into the buffer and fails at the flush, where the interpreter meets it
+# as it exits and ends the tool in status 120; and no standard error, where
+# print(..., file=sys.stderr) writes to standard output instead, so a
+# refusal lands among what the user asked for.
+#
+# The state has to be arranged between fork and exec, since it is about the
+# descriptors the tool is started with.
+
+OUTPUT_GONE = "error: standard output has gone away\n"
+
+
+def unwritable_stdout():
+    """Leave standard output open for reading only, which is `1<&0`."""
+    nowhere = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(nowhere, 1)
+    os.close(nowhere)
+
+
+def ran_with(arguments, prepare, environment=None):
+    """Run the tool with one of its streams as a shell could have left it."""
+    running = subprocess.Popen(
+        [sys.executable, SCRIPT] + list(arguments),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True, env=environment or ENVIRONMENT,
+        preexec_fn=prepare)
+    output, errors = running.communicate(timeout=60)
+    return running.returncode, output, errors
+
+
+# -h with no standard output, which is `-h >&-`: the usage text was asked for
+# and cannot be printed, so the loss is reported and the command fails. It
+# used to print the text on standard error and exit 0, which says both that
+# the text was delivered and that it went where a reader of the man page
+# would not look for it.
+status, output, errors = ran_with(("-h",), lambda: os.close(1))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == OUTPUT_GONE, errors
+assert "usage:" not in errors, errors
+assert "Traceback" not in errors, errors
+
+# -h on a standard output that cannot be written, which is `-h 1<&0`: the
+# text reaches the buffer and the flush is where it fails, so a different
+# handler catches it; the line and the status are the same. The descriptor is
+# pointed at the bin, so the flush the interpreter does as it exits -- which
+# no handler can reach -- does not end the tool in status 120 instead.
+status, output, errors = ran_with(("-h",), unwritable_stdout)
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == OUTPUT_GONE, errors
+assert "Traceback" not in errors, errors
+assert "Exception ignored" not in errors, errors
+
+# -V and -h together, where both halves of the answer are lost: the line is
+# said once, by whichever found the stream gone first, since there is nothing
+# left to print after it. ubertooth-util is on the PATH here and must not be
+# run, for the reason -V alone does not run it.
+if os.path.exists(VERSION_ARGS_FILE):
+    os.remove(VERSION_ARGS_FILE)
+status, output, errors = ran_with(("-V", "-h"), lambda: os.close(1),
+                                 environment=dict(
+                                     ENVIRONMENT, PATH=FAKE_DIRECTORY,
+                                     FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                                     FAKE_UTIL_ANSWER=ANSWER,
+                                     FAKE_UTIL_STATUS="0"))
+assert status == 1, (status, output, errors)
+assert errors == OUTPUT_GONE, errors
+assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
+
+# a refused range with no standard error, which is `-l 2000 2>&-`: the line
+# is lost, and what matters is where it does not go. It used to land on
+# standard output, among what the user asked for.
+status, output, errors = ran_with(("-l", "2000"), lambda: os.close(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+assert errors == "", errors
+
+# and that stream going does not cost the answer: -h still prints the usage
+# text, on standard output, and exits 0
+status, output, errors = ran_with(("-h",), lambda: os.close(2))
+assert status == 0, (status, output, errors)
+assert output.startswith("usage:"), output
+
+
+def close_both():
+    """Leave neither stream, which is `>&- 2>&-`."""
+    os.close(1)
+    os.close(2)
+
+
+# with neither stream, which is `-h >&- 2>&-`, the status is all that is
+# left: the usage text is written nowhere, and the bin this tool opens for
+# its own diagnostics is not somewhere the user asked for it either.
+status, output, errors = ran_with(("-h",), close_both)
+assert status == 1, (status, output, errors)
+assert output == "" and errors == "", (output, errors)
+
+print("ubertooth-specan-ui: a standard stream the shell closed is reported,"
+      " not a traceback")
+
+
 # ---- and none of that needs numpy or a Qt binding -------------------------
 #
 # The window does. The command line does not, and -V least of all: it is how a

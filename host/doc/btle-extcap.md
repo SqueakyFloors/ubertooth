@@ -194,6 +194,17 @@ exit 1. ubertooth-util(1) is not started there: with that descriptor closed,
 the first file it opened would take its number and the answer would be
 written into that.
 
+A `-h` whose usage line has nowhere to go is that same line and exit 1, for
+both descriptors a shell can leave: one closed before the script started
+(`btle-extcap.py -h >&-`) and one open for reading only (`btle-extcap.py -h
+1<&0`), where the line reaches the buffer and the flush is what fails. A `-V
+-h` that loses both halves of its answer says it once.
+
+With standard error closed, the `error: ` lines above are lost rather than
+moved: none of them falls back to standard output, which Wireshark reads as
+the answer to the call. The exit status is then all that is left to say what
+happened.
+
 ## EXIT STATUS
 
 The call either did what was asked, which is 0, or it did not, which is 1.

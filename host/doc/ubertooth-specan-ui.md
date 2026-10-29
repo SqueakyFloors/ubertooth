@@ -120,9 +120,23 @@ written into that.
 
 The key help `h` shows goes to standard output, as what the user asked for.
 The notes about an unknown or unsupported key are `note: ` lines on standard
-error. The usage text `-h` prints is the argument parser's: standard output,
-exit 0. The option itself is the tool's own, so that a range the tool will not
-take is reported even beside it, as it is in every other tool here.
+error. The usage text `-h` prints is the argument parser's, printed by the
+tool: standard output, exit 0. The option itself is the tool's own, so that a
+range the tool will not take is reported even beside it, as it is in every
+other tool here.
+
+A `-h` with nowhere to print that text is `error: standard output has gone
+away` and exit 1: a command that printed nothing did not do what was asked.
+That covers both descriptors a shell can leave, one closed before the tool
+started (`ubertooth-specan-ui -h >&-`) and one open for reading only
+(`ubertooth-specan-ui -h 1<&0`). Left to the argument parser, the first of
+those writes the text to standard error instead. A `-V -h` that loses both
+halves of its answer says the line once.
+
+With standard error closed, the `error: ` lines above are lost rather than
+moved: none of them falls back to standard output, where a reader or a script
+is entitled to find only what it asked for. The exit status is then all that
+is left to say what happened.
 
 ## SEE ALSO
 
