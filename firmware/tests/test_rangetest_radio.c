@@ -73,9 +73,9 @@ struct scan {
 	int fifo_wait_timer;     /* it reads timer 0's 100 ns counter */
 	int fifo_wait_step;      /* the step it computes, as written */
 	char fifo_wait_text[256];
-	int fifo_wait_guard;     /* it drops a step longer than the lead */
+	int fifo_wait_guard;     /* where it drops a step longer than the lead */
 	int fifo_wait_adds;      /* how many statements add to the total */
-	int fifo_wait_add_ok;    /* and whether the one of them is the step */
+	int fifo_wait_add_ok;    /* where the one that adds the step is */
 	char fifo_wait_add[256]; /* as written */
 	int fifo_wait_length;    /* its length is RANGETEST_LEAD_100NS */
 	int fifo_wait_cap;       /* and it gives up after RANGETEST_LEAD_POLLS */
@@ -343,19 +343,21 @@ static int scan_source(const char *path, struct scan *s)
 				collapse_spaces(line, flat, sizeof(flat));
 				if (strcmp(flat,
 				           "if (step <= RANGETEST_LEAD_100NS)") == 0)
-					s->fifo_wait_guard = 1;
+					s->fifo_wait_guard = lineno;
 			}
 			/*
-			 * And the one statement the guard stands in front of, so
-			 * that an addition of something other than the step, or
-			 * an addition outside the guard, is not silently allowed.
+			 * And the one statement the guard stands in front of,
+			 * with its line, so that an addition of something other
+			 * than the step, a second addition, or an addition the
+			 * guard does not reach -- an empty guard body leaves the
+			 * guard itself intact -- is not silently allowed.
 			 */
 			if (strstr(line, "waited +=") != NULL) {
 				collapse_spaces(line, s->fifo_wait_add,
 				                sizeof(s->fifo_wait_add));
 				s->fifo_wait_adds++;
 				if (strcmp(s->fifo_wait_add, "waited += step;") == 0)
-					s->fifo_wait_add_ok = 1;
+					s->fifo_wait_add_ok = lineno;
 			}
 		}
 
@@ -1163,11 +1165,18 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() adds to its total %d times, "
-	         "the last as `%s`. One `waited += step;` behind the guard is the "
-	         "whole of it: anything else, or a second one outside the guard, "
-	         "waits for a length no test here knows",
-	         path, s.fifo_wait_fn, s.fifo_wait_adds, s.fifo_wait_add);
-	mu_assert(s.fifo_wait_adds == 1 && s.fifo_wait_add_ok, msg);
+	         "the last as `%s`. One `waited += step;` is the whole of it: "
+	         "anything else, or a second one, waits for a length no test here "
+	         "knows", path, s.fifo_wait_fn, s.fifo_wait_adds, s.fifo_wait_add);
+	mu_assert(s.fifo_wait_adds == 1 && s.fifo_wait_add_ok > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the guard is at line %d and the addition it stands in front "
+	         "of at line %d. The addition has to be the next line: an empty "
+	         "guard body leaves the guard reading correctly above an addition "
+	         "it no longer reaches, which counts every step again",
+	         path, s.fifo_wait_guard, s.fifo_wait_add_ok);
+	mu_assert(s.fifo_wait_add_ok == s.fifo_wait_guard + 1, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: rangetest_wait_for_fifo() does not wait "
@@ -1675,7 +1684,11 @@ MU_TEST(test_the_range_test_has_one_copy)
 #define FAST_FIX_PERIOD 3126u
 #define SLOW_FIX_PERIOD 9374u
 
-/* The lead the firmware waits, four 1 Mbit/s byte times. */
+/*
+ * The lead the firmware waits, four 1 Mbit/s byte times. The counts below are
+ * for this length, so the sweep checks it against the firmware's own figures
+ * rather than assuming them.
+ */
 #define MODEL_LEAD 320u
 
 /*
@@ -1822,6 +1835,13 @@ MU_TEST(test_no_reading_of_a_drift_fixed_period_ends_the_wait_early)
 	struct period_sweep slow = sweep_period(SLOW_FIX_PERIOD);
 	struct period_sweep fast = sweep_period(FAST_FIX_PERIOD);
 	char msg[256];
+
+	snprintf(msg, sizeof(msg),
+	         "the firmware waits %d byte times of %d ticks, %d in all, and "
+	         "this sweep is written for %u: its counts no longer describe "
+	         "the firmware", s.lead_bytes, s.byte_100ns,
+	         s.lead_bytes * s.byte_100ns, MODEL_LEAD);
+	mu_assert((uint32_t)(s.lead_bytes * s.byte_100ns) == MODEL_LEAD, msg);
 
 	mu_assert_int_eq(51040, (int)slow.would_without_guard);
 
