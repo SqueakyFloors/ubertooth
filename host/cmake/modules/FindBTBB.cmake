@@ -251,6 +251,14 @@ foreach(_libbtbb_library IN LISTS LIBBTBB_LIBRARIES)
 endforeach()
 unset(_libbtbb_library)
 
+# pkg-config's answer is remembered too, in FindPkgConfig's own marker, and
+# pkg_check_modules() below does nothing while it is set: the search would
+# take the directory that has gone as its hint instead of asking pkg-config
+# where libbtbb is now. So it goes whenever there is a search to do.
+if (NOT LIBBTBB_INCLUDE_DIR OR NOT LIBBTBB_LIBRARIES)
+  unset(__pkg_config_checked_PC_LIBBTBB CACHE)
+endif()
+
 if (LIBBTBB_INCLUDE_DIR AND LIBBTBB_LIBRARIES)
 
   # in cache already

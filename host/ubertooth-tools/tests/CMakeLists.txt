@@ -1238,16 +1238,16 @@ endforeach()
 # project against this build's libbtbb, against a header with two of those
 # functions renamed out of it, and against a library that defines none of
 # them under optimisation.
-# LIBBTBB_LIBRARIES is quoted: a path with a space in it, or two libraries in
-# it, would otherwise arrive as extra arguments and the test would report a
-# usage error instead of running.
+# Both are quoted: a path with a space in it, or two libraries in
+# LIBBTBB_LIBRARIES, would otherwise arrive as extra arguments and the test
+# would report a usage error instead of running.
 add_test(
 	NAME btbb-check
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_btbb_check.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..
-		${LIBBTBB_INCLUDE_DIR}
+		"${LIBBTBB_INCLUDE_DIR}"
 		"${LIBBTBB_LIBRARIES}")
 # Five configures of a project with one C file's worth of compiler detection
 # in it, plus the probe compiles and the empty library's own build: 19 s here
@@ -1280,22 +1280,24 @@ set_tests_properties(libusb-include PROPERTIES TIMEOUT 60)
 # a header directory and a library they remember are still there, because a
 # package upgrade moves them: a remembered path taken on trust reported the
 # library found and left the build to fail on the missing header. Runs each
-# real module from a one-line project against an install of its own in three
-# shapes, removing what the module remembers each time.
-# LIBBTBB_LIBRARIES is quoted for the same reason as btbb-check above: the
-# test copies that library, and two of them, or a path with a space in it,
-# would arrive as extra arguments.
+# real module from a one-line project against an install of its own in four
+# shapes: three that remove what the module remembers, and one that moves the
+# install to another prefix, where the module has to find it again.
+# LIBBTBB_INCLUDE_DIR and LIBBTBB_LIBRARIES are quoted: the test copies that
+# header and library, and a path with a space in it, or two libraries, would
+# otherwise arrive as extra arguments and the test would report a usage error
+# instead of running.
 add_test(
 	NAME find-stale-paths
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_find_stale_paths.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..
-		${LIBBTBB_INCLUDE_DIR}
+		"${LIBBTBB_INCLUDE_DIR}"
 		"${LIBBTBB_LIBRARIES}")
-# Fifteen configures, five of them of a project with C in it for FindBTBB's
-# function check and the rest of a project with no languages, which need no
-# compiler: 13 s here. The same limit as btbb-check and libusb-include above,
-# which leaves room for a cold CI runner where compiler detection is most of
-# the time.
-set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 60)
+# Twenty-one configures, seven of them of a project with C in it for
+# FindBTBB's function check and the rest of a project with no languages, which
+# needs no compiler: 19 s here. Twice the limit of btbb-check and
+# libusb-include above, because this is three times the configures of either,
+# and a cold CI runner spends seconds on compiler detection alone.
+set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 120)

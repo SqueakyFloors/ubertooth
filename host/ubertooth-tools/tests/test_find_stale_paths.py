@@ -27,6 +27,10 @@ need it, so FindBTBB is asked for it with REQUIRED and has to arrive back at
 the installed one, function check and all. libubertooth and libbluetooth may
 be absent, so an honest "not found" passes for those two.
 
+A fourth shape is the move itself, in check_move() below: the install goes
+from one prefix to another, both named by nothing but their pkg-config files,
+and the module has to report the second.
+
 Usage: test_find_stale_paths.py <cmake> <repository root>
                                 <libbtbb include dir> <libbtbb library>
 """
@@ -65,15 +69,36 @@ file(WRITE "${CMAKE_BINARY_DIR}/library.txt" "${%(prefix)s_LIBRARIES}")
 # libbtbb's install is a copy of the real one, because FindBTBB's function
 # check has to pass on the first configure of each case; for the other two an
 # empty file is enough, since nothing reads or links them.
+#
+# "module" is the pkg-config module each one asks for, used by the move case
+# below: FindBLUETOOTH asks for bluez rather than for a name of its own.
 MODULES = (
     {"package": "BTBB", "prefix": "LIBBTBB", "header": "btbb.h",
-     "library": "libbtbb", "required": "REQUIRED", "language": "C"},
+     "library": "libbtbb", "module": "libbtbb", "required": "REQUIRED",
+     "language": "C"},
     {"package": "UBERTOOTH", "prefix": "LIBUBERTOOTH",
      "header": "ubertooth.h", "library": "libubertooth",
-     "required": "", "language": "NONE"},
+     "module": "libubertooth", "required": "", "language": "NONE"},
     {"package": "BLUETOOTH", "prefix": "LIBBLUETOOTH", "header": "hci.h",
-     "library": "libbluetooth", "required": "", "language": "NONE"},
+     "library": "libbluetooth", "module": "bluez", "required": "",
+     "language": "NONE"},
 )
+
+# A pkg-config file for the install make_install() has just written, so the
+# move case can put an install somewhere the modules' own directory lists do
+# not name and have them find it anyway.
+PC_FILE = """\
+prefix=%(root)s
+exec_prefix=${prefix}
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: %(module)s
+Description: stands in for %(module)s while the modules are tested
+Version: 1.0
+Cflags: -I${includedir}
+Libs: -L${libdir} -l%(link)s
+"""
 
 
 def fail(message):
@@ -81,11 +106,15 @@ def fail(message):
     sys.exit(1)
 
 
-def configure(cmake, source, build, defines):
+def configure(cmake, source, build, defines, pkg_config_path=None):
     """Configure the project, returning (status, output on one line)."""
+    environment = dict(os.environ)
+    if pkg_config_path is not None:
+        environment["PKG_CONFIG_PATH"] = pkg_config_path
     done = subprocess.run([cmake, "-S", source, "-B", build] + defines,
                           stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True)
+                          stderr=subprocess.STDOUT, text=True,
+                          env=environment)
     # CMake wraps and indents a message(FATAL_ERROR), so what is reported here
     # is one line.
     return done.returncode, " ".join(done.stdout.split())
@@ -133,6 +162,12 @@ def make_install(module, root, real):
     else:
         for path in (os.path.join(include, module["header"]), library):
             open(path, "w", encoding="utf-8").close()
+    pkgconfig = os.path.join(root, "lib", "pkgconfig")
+    os.makedirs(pkgconfig)
+    with open(os.path.join(pkgconfig, module["module"] + ".pc"), "w",
+              encoding="utf-8") as handle:
+        handle.write(PC_FILE % {"root": root, "module": module["module"],
+                                "link": module["library"][len("lib"):]})
     return include, library
 
 
@@ -174,8 +209,9 @@ def check_module(cmake, work, modules, module, real):
               encoding="utf-8") as handle:
         handle.write(PROJECT % dict(module, modules=modules))
 
-    def configure_or_fail(build, defines, case, where):
-        status, output = configure(cmake, source, build, defines)
+    def configure_or_fail(build, defines, case, where, pkg_config_path=None):
+        status, output = configure(cmake, source, build, defines,
+                                   pkg_config_path)
         if status != 0:
             fail("%s: %s: configuring %s failed, so the module used a path it "
                  "remembered instead of searching for %s again:\n%s"
@@ -225,6 +261,52 @@ def check_module(cmake, work, modules, module, real):
                               "-DNORMAL_LIBRARY=" + library],
                       case, "with the paths set as ordinary variables")
     check_recovered(module, build, case, [root])
+
+    check_move(cmake, work, module, real, source, configure_or_fail)
+
+
+def pkgconfig_dir(root):
+    """Where make_install() put the pkg-config file under root."""
+    return os.path.join(root, "lib", "pkgconfig")
+
+
+def check_move(cmake, work, module, real, source, configure_or_fail):
+    """A library that moves to another prefix must be found where it is now.
+
+    The two prefixes here are named by nothing but their pkg-config files,
+    which is the case a package upgrade makes: Homebrew's pkg-config file
+    points into the version's own directory under Cellar. pkg-config's own
+    answer is remembered in the build directory too, so dropping the paths is
+    not enough on its own -- the module has to ask pkg-config again, or it
+    reports the library missing although it is installed.
+
+    Skipped where the first configure finds something other than the prefix it
+    was pointed at, which is a machine with no pkg-config on it.
+    """
+    package = module["package"]
+    case = "moved to another prefix"
+    first = os.path.join(work, "%s-prefix-one" % package.lower())
+    include, _ = make_install(module, first, real)
+    build = os.path.join(work, "%s-moved-build" % package.lower())
+    configure_or_fail(build, [], case, "against an install in a prefix of its "
+                      "own", pkgconfig_dir(first))
+    if reported(build)[1] != include:
+        print("%s: %s: pkg-config did not lead the module to %s, so the move "
+              "is not checked here" % (package, case, include))
+        return
+
+    second = os.path.join(work, "%s-prefix-two" % package.lower())
+    moved, library = make_install(module, second, real)
+    shutil.rmtree(first)
+    configure_or_fail(build, [], case, "again after the move",
+                      pkgconfig_dir(second))
+    found, where, libraries = reported(build)
+    if not found or where != moved or library not in libraries.split(";"):
+        fail("%s: %s: Find%s.cmake reports %s, %s after the install moved to "
+             "%s, where it is now: dropping the paths it remembered is not "
+             "enough if pkg-config is not asked again"
+             % (package, case, package, where or "nothing",
+                libraries or "nothing", second))
 
 
 def main():

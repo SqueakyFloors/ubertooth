@@ -48,6 +48,14 @@ foreach(_libbluetooth_library IN LISTS LIBBLUETOOTH_LIBRARIES)
 endforeach()
 unset(_libbluetooth_library)
 
+# pkg-config's answer is remembered too, in FindPkgConfig's own marker, and
+# pkg_check_modules() below does nothing while it is set: the search would
+# take the directory that has gone as its hint instead of asking pkg-config
+# where libbluetooth is now. So it goes whenever there is a search to do.
+if (NOT LIBBLUETOOTH_INCLUDE_DIR OR NOT LIBBLUETOOTH_LIBRARIES)
+  unset(__pkg_config_checked_PC_LIBBLUETOOTH CACHE)
+endif()
+
 if (LIBBLUETOOTH_INCLUDE_DIR AND LIBBLUETOOTH_LIBRARIES)
 
   # in cache already

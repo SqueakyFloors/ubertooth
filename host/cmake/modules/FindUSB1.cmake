@@ -48,6 +48,14 @@ foreach(_libusb_library IN LISTS LIBUSB_LIBRARIES)
 endforeach()
 unset(_libusb_library)
 
+# pkg-config's answer is remembered too, in FindPkgConfig's own marker, and
+# pkg_check_modules() below does nothing while it is set: the search would
+# take the directory that has gone as its hint instead of asking pkg-config
+# where libusb is now. So it goes whenever there is a search to do.
+if (NOT LIBUSB_INCLUDE_DIR OR NOT LIBUSB_LIBRARIES)
+  unset(__pkg_config_checked_PC_LIBUSB CACHE)
+endif()
+
 if (LIBUSB_INCLUDE_DIR AND LIBUSB_LIBRARIES)
 
   # in cache already. USB1_FOUND as well as LIBUSB_FOUND: USB1 is the name

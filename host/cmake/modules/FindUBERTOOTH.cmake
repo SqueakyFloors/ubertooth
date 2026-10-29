@@ -45,6 +45,14 @@ foreach(_libubertooth_library IN LISTS LIBUBERTOOTH_LIBRARIES)
 endforeach()
 unset(_libubertooth_library)
 
+# pkg-config's answer is remembered too, in FindPkgConfig's own marker, and
+# pkg_check_modules() below does nothing while it is set: the search would
+# take the directory that has gone as its hint instead of asking pkg-config
+# where libubertooth is now. So it goes whenever there is a search to do.
+if (NOT LIBUBERTOOTH_INCLUDE_DIR OR NOT LIBUBERTOOTH_LIBRARIES)
+  unset(__pkg_config_checked_PC_LIBUBERTOOTH CACHE)
+endif()
+
 if (LIBUBERTOOTH_INCLUDE_DIR AND LIBUBERTOOTH_LIBRARIES)
 
   # in cache already
