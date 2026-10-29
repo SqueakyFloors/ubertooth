@@ -26,7 +26,7 @@ CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
-# tc13badge_syntax rule at the end of this file.
+# $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
 TC13_GEN := $(BINDIR)/tc13badge
 
 .PHONY: all test clean
@@ -636,10 +636,14 @@ $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 #   - main is renamed. The badge's entry point returns void, as a freestanding
 #     one may, and a host compiler holds main to returning int.
 #
-# -std=gnu99 is the dialect the rest of this file compiles in, named here so
-# that the check means the same thing on both host compilers: compilers have
-# been known to promote a warning to an error between releases, and this
-# should fail for a change in the sources rather than for a change of default.
+# -std=gnu99 is the dialect the rest of this file compiles in, named here
+# rather than left to each compiler's default, which has changed between
+# releases. The gnu part of it is load-bearing: mkports writes an anonymous
+# struct inside a union for each register's bits, which plain c99 does not
+# have. It pins the dialect and nothing more -- without -Werror the two host
+# compilers still disagree about how hard to be on some mistakes, so the
+# Linux run can warn where the macOS one fails -- and either way the badge is
+# compiled on both.
 #
 # No -Wall or -Wextra: the badge's C carries warnings of long standing in code
 # nobody here can test, and which warnings appear depends on the host
@@ -649,11 +653,11 @@ $(BINDIR)/tc13badge_syntax.stamp: $(FW_BADGE)/tc13badge.c $(FW_BADGE)/toorcon.c 
 		$(FW_BADGE)/bitmaps.h $(FW_BADGE)/r8c2l.io $(FW_BADGE)/mkports \
 		| $(BINDIR)
 	@if [ -e $(FW_BADGE)/r8c2l.h ]; then \
-		echo "error: $(FW_BADGE)/r8c2l.h exists and would be compiled instead of the one this check generates; run 'make -C $(FW_BADGE) clean'" >&2; \
+		echo "error: firmware/tc13badge/r8c2l.h exists and would be compiled instead of the one this check generates; run 'make -C firmware/tc13badge clean'" >&2; \
 		exit 1; \
 	fi
 	mkdir -p $(TC13_GEN)
-	$(FW_BADGE)/mkports $(FW_BADGE)/r8c2l.io \
+	perl $(FW_BADGE)/mkports $(FW_BADGE)/r8c2l.io \
 		$(TC13_GEN)/r8c2l.h $(TC13_GEN)/r8c2l.inc
 	$(CC) -fsyntax-only -std=gnu99 '-D__attribute__(x)=' -Dmain=tc13badge_main \
 		-I$(TC13_GEN) -I$(FW_BADGE) \
