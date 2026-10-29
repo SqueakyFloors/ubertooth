@@ -129,6 +129,35 @@ def gap_ticks(periods):
     return ticks
 
 
+# Quiet gaps as fractions of the period, in tenths of one, and where in the
+# period each one starts: the start decides whether the clock comes back
+# reading higher or lower than it did, which is all a replay has to go on.
+QUIET_GAP_TENTHS = (4, 6, 15, 30)
+QUIET_GAP_STARTS = (0, 3, 8)
+
+
+def quiet_gap_ticks(start_ticks, gap):
+    """Three records: two a second apart from a second into start_ticks, then
+    one after a quiet gap of `gap` ticks. The extra second keeps the first two
+    records clear of a wrap of their own."""
+    first = start_ticks + 10_000_000
+    return [first, first + 10_000_000, first + 10_000_000 + gap]
+
+
+def replay_rule_offsets(ticks):
+    """The times a replay gives these records, relative to the first: one wrap
+    counted where the clock reading came back lower than it did, and none
+    where it came back higher, whatever time really passed."""
+    upper = 0
+    out = []
+    for i, t in enumerate(ticks):
+        if i and t % CLK100NS_PERIOD < ticks[i - 1] % CLK100NS_PERIOD:
+            upper += 1
+        out.append(100 * (upper * CLK100NS_PERIOD + t % CLK100NS_PERIOD
+                          - ticks[0] % CLK100NS_PERIOD))
+    return out
+
+
 # One lost period is the commonest case and two shows them adding up; both
 # have to come out of the count, and both have to be reported where there is
 # no count to come out of.
@@ -286,6 +315,31 @@ with tempfile.TemporaryDirectory() as workdir:
             result.stderr
         # Said once, not once a packet.
         assert result.stderr.count("warning:") == 1, result.stderr
+
+    # Quiet gaps of 0.4, 0.6, 1.5 and 3 periods in records carrying no count,
+    # each from three points in the period so that the clock comes back
+    # reading both higher and lower than it did. A live capture now takes the
+    # number of periods from the gap its own clock measured; a replay has only
+    # the clock readings, so it counts the one wrap a reading that dropped
+    # shows and loses what a reading that rose hides, which is how a saved
+    # file has always replayed. Every record of every shape is checked here,
+    # so a change to the replay path shows up as a different time.
+    for tenths in QUIET_GAP_TENTHS:
+        for start in QUIET_GAP_STARTS:
+            ticks = quiet_gap_ticks(start * (CLK100NS_PERIOD // 10),
+                                    tenths * (CLK100NS_PERIOD // 10))
+            result, pcap, pcapng = replay(fixture(ticks, counted=False), work,
+                                          records=3)
+            expected = replay_rule_offsets(ticks)
+            assert pcap == expected, (tenths, start, pcap, result)
+            assert pcapng == expected, (tenths, start, pcapng, result)
+            # Where the replay did lose periods, it says so rather than
+            # passing it in silence.
+            lost = offsets_ns(ticks)[-1] - expected[-1]
+            assert lost % (100 * CLK100NS_PERIOD) == 0, \
+                (tenths, start, lost)
+            assert ("warning:" in result.stderr) == (lost > 0), \
+                (tenths, start, lost, result.stderr)
 
     # A first record out of place, however far ahead it reads. The capture is
     # anchored on the earliest clock reading in it, so the two records that

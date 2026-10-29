@@ -209,6 +209,13 @@ clock's 327.68 s period: a quiet gap lost a clock wrap, or the host clock was
 stepped forwards`. Both causes look the same from here, which is why the
 message names each.
 
+Where the records carry no count at all, which here is a capture's first
+period, a live capture takes the periods in a quiet gap from the host's own
+clock instead. A replay cannot: the host time a record carries is only a whole
+second, and a saved file's records can be out of order or edited. So a replay
+reads one period from a clock reading that came back lower than it did and
+none from one that came back higher, as it always has.
+
 Files recorded with older firmware can begin with a record out of place.
 Firmware from before this fork's first release, 2020-12-R1+modern1, and
 upstream firmware up to 2020-12-R1, could begin a capture with a record left
