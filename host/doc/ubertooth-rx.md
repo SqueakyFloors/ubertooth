@@ -346,9 +346,14 @@ capture that ends in the moment after a gap does not report that last one.
 ## EXIT STATUS
 
 A capture that ran to its `-t` timeout, or that was interrupted (Ctrl-C),
-exits 0 with whatever it captured, and so does `-h`. A refused command line
-exits 1 (see ARGUMENTS), as does a file that cannot be opened and a replay
-that could not be read whole (see REPLAYING A SAVED CAPTURE).
+exits 0 with whatever it captured, and so does `-h`.
+
+A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
+ubertooth(7), SELECTING A DEVICE.
+
+A refused command line exits 1 (see ARGUMENTS), as does a file that cannot be
+opened and a replay that could not be read whole (see REPLAYING A SAVED
+CAPTURE).
 
 A live capture whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only

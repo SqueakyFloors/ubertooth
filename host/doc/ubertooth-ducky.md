@@ -108,6 +108,9 @@ request on standard error.
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.
 
+A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
+ubertooth(7), SELECTING A DEVICE.
+
 ## SEE ALSO
 
 ubertooth-btle(1)

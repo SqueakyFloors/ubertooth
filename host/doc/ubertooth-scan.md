@@ -92,6 +92,9 @@ A scan that ran to its `-t` timeout, or that was interrupted (Ctrl-C), exits 0
 with whatever it found, and so does `-h`. A refused command line exits 1 (see
 ARGUMENTS).
 
+A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
+ubertooth(7), SELECTING A DEVICE.
+
 A scan whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the Ubertooth half of the scan stops
 there. The results it did get are still printed, and the failure is reported

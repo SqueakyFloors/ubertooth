@@ -49,7 +49,8 @@ static struct {
 	int frees;           /* and how many of them it gave back */
 	ubertooth_t *last_freed;
 	int sleeps;
-	int cleanup_handlers; /* register_cleanup_handler() calls */
+	int cleanup_handlers; /* ubertooth_catch_stop_signals() calls */
+	int stop_requested;  /* what ubertooth_stop_requested() answers */
 	/* Every device call in order, one letter each: c set channel,
 	 * a set advertising data, s start advertising as a slave. */
 	char calls[16];
@@ -84,14 +85,24 @@ ubertooth_t *ubertooth_init(void)
 	return &fake_ut;
 }
 
-/* A quack installs the library's handlers so the advertising wait below can be
- * cut short and the board taken out of advertising on the way out. Counted
- * rather than put in fake.calls, which is the device's own calls. */
-void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+/* The library's handlers, installed before the board is opened, so a Ctrl-C
+ * during the opening is not discarded and one during the advertising wait
+ * below cuts it short and takes the board out of advertising. Counted rather
+ * than put in fake.calls, which is the device's own calls. */
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	fake.cleanup_handlers++;
+}
+
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_requested;
+}
+
+/* The fake open always finds the board, so it never gives up on a stop. */
+int ubertooth_open_stopped(void)
+{
+	return 0;
 }
 
 /* Asserting here would print to the standard output a run has redirected, so
@@ -245,6 +256,26 @@ MU_TEST(a_quack_the_board_took_sends_its_requests_and_exits_0)
 /* The three advertising channel indexes tune the three frequencies the
  * Bluetooth Core specification gives them: 37 at the bottom of the band, 38 in
  * the middle, 39 at the top. */
+/* A stop that arrived while the board was being opened ends the run before
+ * anything is transmitted: no channel, no advertising data, no advertising,
+ * and none of the two-second wait. */
+MU_TEST(a_stop_while_the_board_was_opened_quacks_nothing)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_requested = 1;
+	r = RUN("-q", "-a", "11:22:33:44:55:66");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(0, fake.sleeps);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+}
+
 MU_TEST(each_advertising_index_tunes_its_own_frequency)
 {
 	reset_fake();
@@ -438,6 +469,7 @@ MU_TEST(every_exit_path_gives_the_device_back)
 int main(void)
 {
 	MU_RUN(a_quack_the_board_took_sends_its_requests_and_exits_0);
+	MU_RUN(a_stop_while_the_board_was_opened_quacks_nothing);
 	MU_RUN(each_advertising_index_tunes_its_own_frequency);
 	MU_RUN(a_quack_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_refused_request_is_named_and_exits_1);

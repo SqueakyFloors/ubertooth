@@ -140,12 +140,16 @@ int main(int argc, char* argv[])
 	if (ut == NULL)
 		return 1;
 
+	/* Stop on Ctrl-C from here on, before the board is opened: a signal
+	 * that arrives while one is being found would otherwise be discarded. */
+	ubertooth_catch_stop_signals();
+
 	r = ubertooth_connect_select(ut, ubertooth_device);
 	if (r < 0) {
 		/* ubertooth_connect_select() has already closed whatever it
 		 * opened, so only the handle itself is left to give back. */
 		ubertooth_free(ut);
-		return 1;
+		return ubertooth_open_stopped() ? 0 : 1;
 	}
 
 	r = ubertooth_check_api(ut);
@@ -158,6 +162,14 @@ int main(int argc, char* argv[])
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
+	}
+
+	/* Stopped while the board was being opened: the run ends here, with the
+	 * board given back and nothing transmitted. */
+	if (ubertooth_stop_requested()) {
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 0;
 	}
 
 	// set bt address
@@ -175,9 +187,6 @@ int main(int argc, char* argv[])
 	/* The tool transmits; the syncword it derived is progress, not the
 	 * result the user asked for. */
 	fprintf(stderr, "Syncword: 0x%" PRIx64 "\n", btbb_gen_syncword(lap));
-
-	/* Clean up on exit. */
-	register_cleanup_handler(ut, 0);
 
 	if (timeout)
 		ubertooth_set_timeout(ut, timeout);

@@ -299,7 +299,42 @@ int ubertooth_firmware_version_text(ubertooth_t *ut, char *text, size_t size);
 
 /* Installs the library's signal handlers, so Ctrl-C, SIGTERM, SIGHUP, SIGQUIT
  * and SIGALRM stop the capture instead of killing the tool with its mode still
- * running on the board. Pass do_exit = 0: see cleanup_exit() in ubertooth.c.
+ * running on the board.
+ *
+ * Call it before a board is opened. Until the handlers are in place a signal
+ * gets whatever disposition the tool was started with, and a tool started as
+ * a background job by a script was started with SIGINT ignored: such a signal
+ * is discarded, so the user's first Ctrl-C does nothing at all and a second
+ * one is needed. Opening a board takes a moment -- selecting one by serial
+ * number reads the serial of every attached board, and a board that does not
+ * answer costs a second -- which is long enough for a signal to land in that
+ * window.
+ *
+ * A stop that arrives before the capture starts is not lost: it is in the flag
+ * ubertooth_stopping() reads, the board selection below gives up on it, and a
+ * receive loop that does start ends on its first turn. */
+void ubertooth_catch_stop_signals(void);
+
+/* 1 once a signal has asked this run to stop, for a caller that has no handle
+ * yet: before a board is open there is nothing for ubertooth_stopping() to
+ * read. A tool asks this between opening a board and starting anything on it,
+ * so a run the user has already stopped ends there instead of putting the
+ * board in a mode, or transmitting, only to stop it again. */
+int ubertooth_stop_requested(void);
+
+/* 1 when the last open gave up because the user stopped the run, rather than
+ * because it could not find or open a board. Only that outcome is not a
+ * failure, so it is the one a tool exits 0 on; a board that is genuinely not
+ * there still reports its error and exits 1, even if a signal happened to
+ * arrive at the same moment. Read it straight after an open returned NULL or
+ * a negative result. */
+int ubertooth_open_stopped(void);
+
+/* ubertooth_catch_stop_signals(), plus the handle for the do_exit = 1 form of
+ * the handlers. The host tools call ubertooth_catch_stop_signals() above
+ * instead, because they install the handlers before they have a handle; this
+ * stays for a caller outside this repository that holds one, and do_exit = 1
+ * is not a form to choose (see cleanup_exit() in ubertooth.c).
  *
  * The library keeps ut until ubertooth_free() gives it back, so nothing the
  * caller has to unregister: free the handle and the handlers let go of it. */

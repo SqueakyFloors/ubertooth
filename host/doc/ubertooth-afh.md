@@ -200,6 +200,9 @@ capture that ends in the moment after a gap does not report that last one.
 `ubertooth-afh` does not stop on its own, so it normally exits 0 after being
 interrupted (Ctrl-C). `-h` also exits 0.
 
+A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
+ubertooth(7), SELECTING A DEVICE.
+
 It exits 2 when the `-t` detection phase received no packet from the piconet
 (see DETECTION AND MONITORING). The number of seconds in that message is the
 `-t` value, not the time actually spent listening, which is shorter if the

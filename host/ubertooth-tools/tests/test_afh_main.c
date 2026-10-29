@@ -44,6 +44,12 @@ static struct {
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
 	int stop_refused;
+	/* The library's stop handlers, which go in before the board is
+	 * opened, so a Ctrl-C during the opening is not discarded. */
+	int catch_handlers;
+	/* The stop a signal recorded while the board was being opened, which
+	 * the tool reads before it asks anything of the board. */
+	int stop_requested;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -119,10 +125,20 @@ int btbb_init_survey(void)
 	return 0;
 }
 
-void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
+	fake.catch_handlers++;
+}
+
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_requested;
+}
+
+/* The fake open always finds the board, so it never gives up on a stop. */
+int ubertooth_open_stopped(void)
+{
+	return 0;
 }
 
 int rx_afh(ubertooth_t *ut, btbb_piconet *pn, int timeout)
@@ -246,6 +262,22 @@ MU_TEST(the_message_names_the_piconet_and_the_timeout)
 
 /* With packets received, nothing changes: the map is printed by the library
  * and the tool exits 0 once monitoring is interrupted. */
+/* A stop that arrived while the board was being opened ends the run before
+ * any capture starts: exit 0, nothing printed, the board and the piconet given
+ * back. */
+MU_TEST(a_stop_while_the_board_was_opened_captures_nothing)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_requested = 1;
+	r = RUN("-l", "446688", "-u", "22", "-t", "3");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(0, fake.rx_afh_calls);
+	mu_assert_int_eq(0, fake.stops);
+}
+
 MU_TEST(a_detected_map_still_exits_0_with_no_message)
 {
 	struct run_result r;
@@ -256,6 +288,9 @@ MU_TEST(a_detected_map_still_exits_0_with_no_message)
 	mu_assert(r.err[0] == '\0', r.err);
 	mu_assert_int_eq(3, fake.last_timeout);
 	mu_assert_int_eq(1, fake.stops);
+	/* And the stop handlers were in before the board was opened, so a
+	 * Ctrl-C during the opening would have been acted on. */
+	mu_assert_int_eq(1, fake.catch_handlers);
 }
 
 /* Without -t there is no detection phase to fail. */
@@ -545,6 +580,7 @@ int main(void)
 	MU_RUN(no_packets_in_the_detection_phase_is_reported_and_exits_2);
 	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(the_message_names_the_piconet_and_the_timeout);
+	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);
 	MU_RUN(a_detected_map_still_exits_0_with_no_message);
 	MU_RUN(no_timeout_runs_the_monitor_as_before);
 	MU_RUN(the_r_format_is_unchanged);

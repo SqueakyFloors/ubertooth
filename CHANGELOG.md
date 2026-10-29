@@ -553,6 +553,16 @@
   -r` and `-i` after any other interrupted capture, such as a killed
   `ubertooth-specan`, also used to start in follow mode.
   [#757](https://github.com/SqueakyFloors/ubertooth/issues/757)
+- One Ctrl-C ends a capture even when it arrives while the board is still
+  being opened. The tools installed their signal handlers after the board was
+  open, and a tool started as a background job by a script is started with
+  SIGINT ignored, so a signal arriving in that window was discarded: the first
+  Ctrl-C did nothing and a second was needed. Selecting a board by serial
+  number reads the serial of every attached board, and one that does not
+  answer costs a second, which is long enough for a signal to land there. The
+  board selection now gives up as soon as the stop arrives, and a run stopped
+  before it opened a board exits 0 rather than reporting a failure to find one.
+  [#584](https://github.com/SqueakyFloors/ubertooth/issues/584)
 - `ubertooth-follow` hops on the piconet's channels after a run that captured
   nothing. The board now keeps an AFH channel map stated after the mode
   request, as it already kept a channel: on a board left in a mode that
@@ -1710,6 +1720,12 @@
 
 Fixes with no visible change in normal use.
 
+- The thread that completes a capture's transfers treats a wait a signal cut
+  short as a wait to take again. It used to end the thread, which left the
+  capture with nobody to complete its transfers and no line to say why; the
+  same wait during a capture's teardown now finishes as well, instead of
+  leaving the transfer behind for the next capture on that handle to refuse.
+  [#584](https://github.com/SqueakyFloors/ubertooth/issues/584)
 - The generic receive clears the radio's FIFO between packets. A packet longer
   than the FIFO left bytes in it, and those bytes came out in front of the next
   packet: the record after a long one arrived shifted. No shipped tool asks for

@@ -241,6 +241,14 @@ A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and
 so does `-h`. A refused command line exits 1 (see ARGUMENTS), as does a file
 that cannot be opened and a target the tool could not set up a follow on.
 
+A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
+ubertooth(7), SELECTING A DEVICE. That covers everything from the board being
+found onwards. The adapter setup before it, and the page in particular, is the
+part of a follow that a signal ends the way it would end any other program: the
+page waits up to 25 seconds, BlueZ takes its own calls again when a signal cuts
+them short, and no handler of this tool's is installed yet, so Ctrl-C there
+ends the tool at once rather than cleanly.
+
 A page to the target that fails exits 1 as well, before any board is opened:
 the page is what yields the target's clock offset, and a follow of a named
 target without it would hop on the local device's clock instead. A follow keyed

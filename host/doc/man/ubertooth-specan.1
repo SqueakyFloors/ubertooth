@@ -113,6 +113,8 @@ One case does not reach either line: when \fB\-d \-\fR writes into a pipe whose 
 A sweep the board would not stop exits 1 as well: the request that takes the board out of sweep mode was stalled, so the board is left sweeping and no other tool can open it until it is reset or re\-plugged\. The samples that arrived stay written out, and libubertooth names the refused request on standard error\.
 .P
 A \fB\-d\fR file is opened once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty file behind; that is also why the message for a \fB\-d\fR file that cannot be opened comes after the board has been selected\. A terminal on standard output is still refused while the command line is read\.
+.P
+A run stopped by Ctrl\-C before it had opened a board exits 0, with nothing on standard error: see ubertooth(7), SELECTING A DEVICE\.
 .SH "SEE ALSO"
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

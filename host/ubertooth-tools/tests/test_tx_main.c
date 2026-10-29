@@ -30,6 +30,11 @@ static struct {
 	 * that could not be read is not */
 	int api_version_was_read;
 	int inits, frees, closes, connects, api_checks, bdaddr_sets;
+	/* The stop a signal recorded while the board was being opened, which
+	 * the tool reads before it asks anything of the board, and whether the
+	 * open itself gave up because of it. */
+	int stop_requested;
+	int open_stopped;
 	int library_closes; /* closes done inside the library, not by the tool */
 	int stops, registrations, tx_syms, timeout_set;
 	int tx_syms_rc;      /* what cmd_tx_syms() returns */
@@ -112,14 +117,26 @@ int ubertooth_stopping(ubertooth_t* ut)
 	return ut->stop_ubertooth;
 }
 
-void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+/* Installed before the board is opened, so every case here reaches it. */
+void ubertooth_catch_stop_signals(void)
 {
-	(void)do_exit;
 	fake.registrations++;
-	mu_assert(fake.reach_transmit, "no test should reach the transmit path");
-	/* The real handler ends the wait on a signal; here it ends it at once,
-	 * so a case can run the whole transmit without waiting a second. */
-	ut->stop_ubertooth = 1;
+	/* The real handler ends the transmit wait on a signal; here it ends it
+	 * at once, so a case that reaches the transmit runs the whole of it
+	 * without waiting a second. */
+	fake_ut.stop_ubertooth = 1;
+}
+
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_requested;
+}
+
+/* Whether the fake open gave up because the run was stopped, which is what
+ * decides the exit status of a run that opened no board. */
+int ubertooth_open_stopped(void)
+{
+	return fake.open_stopped;
 }
 
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
@@ -429,6 +446,46 @@ MU_TEST(an_address_the_board_refuses_releases_it)
 	mu_assert_int_eq(1, fake.frees);
 }
 
+/* A stop that arrived while the board was being opened ends the run before
+ * anything is transmitted. The handlers go in before the open now, so such a
+ * signal is no longer discarded, and it must not be left to the transmit loop
+ * to notice after the board is already sending. */
+MU_TEST(a_stop_while_the_board_was_opened_transmits_nothing)
+{
+	char* argv[] = { "ubertooth-tx", "-l", "123456", "-u", "11", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.stop_requested = 1;
+	run_main(&r, 5, argv);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.registrations);
+	mu_assert_int_eq(0, fake.bdaddr_sets);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+}
+
+/* A board selection the user stopped is not a failure to find a board: exit 0,
+ * nothing printed, nothing transmitted. Any other failed selection exits 1. */
+MU_TEST(a_selection_the_user_stopped_exits_zero)
+{
+	char* argv[] = { "ubertooth-tx", "-l", "123456", "-u", "11", NULL };
+	struct run r;
+
+	reset();
+	fake.open_stopped = 1;
+	run_main(&r, 5, argv);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.bdaddr_sets);
+	mu_assert_int_eq(1, fake.frees);
+
+	reset();
+	run_main(&r, 5, argv);
+	mu_assert_int_eq(1, r.rc);
+}
+
 int main(void)
 {
 	/* Neither binary links libubertooth: the fakes above are the whole
@@ -442,6 +499,8 @@ int main(void)
 	MU_RUN(a_refused_firmware_version_is_closed_and_freed);
 	MU_RUN(a_version_that_cannot_be_read_closes_and_frees);
 	MU_RUN(a_transmit_whose_teardown_was_refused_exits_one);
+	MU_RUN(a_stop_while_the_board_was_opened_transmits_nothing);
+	MU_RUN(a_selection_the_user_stopped_exits_zero);
 	MU_RUN(an_address_the_board_refuses_releases_it);
 	return mu_report();
 }

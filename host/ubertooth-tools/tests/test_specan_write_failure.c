@@ -511,12 +511,21 @@ int ubertooth_stopping(ubertooth_t* ut)
 	return ut->stop_ubertooth;
 }
 
-void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	device.cleanup_handlers++;
 	signal(SIGINT, fake_cleanup);
+}
+
+int ubertooth_stop_requested(void)
+{
+	return stop_requested;
+}
+
+/* The fake open always finds the board, so it never gives up on a stop. */
+int ubertooth_open_stopped(void)
+{
+	return 0;
 }
 
 

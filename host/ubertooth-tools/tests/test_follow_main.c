@@ -117,6 +117,10 @@ static struct {
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
 	int stop_refused;
+	/* 1 once the library's stop handlers are in place, and the stop a
+	 * signal recorded while the board was being opened. */
+	int stop_handlers;
+	int stop_requested;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -307,10 +311,20 @@ int ubertooth_stopping(ubertooth_t* ut)
 	return ut->stop_ubertooth;
 }
 
-void register_cleanup_handler(ubertooth_t* ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
+	fake.stop_handlers++;
+}
+
+int ubertooth_stop_requested(void)
+{
+	return fake.stop_requested;
+}
+
+/* The fake open always finds the board, so it never gives up on a stop. */
+int ubertooth_open_stopped(void)
+{
+	return 0;
 }
 
 int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
@@ -534,6 +548,10 @@ MU_TEST(a_follow_the_board_took_exits_0)
 	mu_assert(fake.dev_fd_closed_by_capture,
 	          "the adapter handle was still open when the capture started");
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+	/* The stop handlers are in, installed before the board was opened.
+	 * Not before the BlueZ setup above, whose calls BlueZ takes again
+	 * itself when a signal cuts them short. */
+	mu_assert_int_eq(1, fake.stop_handlers);
 }
 
 /* A firmware this host will not drive, and a libbtbb that refuses the decoder
@@ -545,6 +563,21 @@ MU_TEST(a_follow_the_board_took_exits_0)
  * mode, and no other tool can open it until it is reset or re-plugged, so the
  * run did not do what was asked. What was captured stays written out, and
  * libubertooth has already named the refused request. */
+/* A stop that arrived while the board was being opened ends the run before any
+ * capture starts, with the board and the adapter given back. */
+MU_TEST(a_stop_while_the_board_was_opened_captures_nothing)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_requested = 1;
+	r = RUN("-t", "11:22:33:44:55:66");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.receives);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
+}
+
 MU_TEST(a_follow_whose_teardown_was_refused_exits_1)
 {
 	struct run_result r;
@@ -1058,6 +1091,7 @@ int main(void)
 	MU_RUN(the_clock_is_set_before_the_receive_transfer);
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
+	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);
 	MU_RUN(a_follow_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_firmware_the_tool_cannot_use_gives_the_board_back);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
