@@ -813,20 +813,31 @@ def check_the_spec_lists_every_option():
             # or the word it names a stray dash in is worked out against the
             # wrong tool. It is the one argument nothing else would catch:
             # a different literal there would still parse and still refuse.
-            reporter = re.search(r'opt_report_bad_option\([^;]*?,\s*'
-                                 r'(?:"([^"]*)"|([A-Za-z_][A-Za-z_0-9]*))\s*\)',
-                                 text)
-            if reporter is not None:
-                given = reporter.group(1) if reporter.group(2) is None \
-                    else reporter.group(2)
-                wanted = found.group(1) if found.group(2) is None \
-                    else found.group(2)
-                if given != wanted:
+            wanted = found.group(1) if found.group(2) is None \
+                else found.group(2)
+            calls = re.findall(r'opt_report_bad_option\(([^;]*?)\)\s*;', text)
+            # A C tool that does not call the shared reporter at all is a
+            # finding of its own, reported by the per-tool cases; a call this
+            # cannot read is one here, because an unread call is an unchecked
+            # one.
+            for arguments in calls:
+                given = re.search(r',\s*(?:"([^"]*)"'
+                                  r'|([A-Za-z_][A-Za-z_0-9]*))\s*$', arguments)
+                if given is None:
+                    problems.append((SPEC_CASE,
+                                     "%s calls opt_report_bad_option(%s), "
+                                     "which does not end in the option string"
+                                     % (os.path.relpath(source, here),
+                                        arguments.strip())))
+                    continue
+                name = given.group(1) if given.group(2) is None \
+                    else given.group(2)
+                if name != wanted:
                     problems.append((SPEC_CASE,
                                      "%s gives getopt %r and "
                                      "opt_report_bad_option() %r"
                                      % (os.path.relpath(source, here),
-                                        wanted, given)))
+                                        wanted, name)))
         if found is None:
             problems.append((SPEC_CASE,
                          "could not find the getopt string in %s"

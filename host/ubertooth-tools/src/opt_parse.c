@@ -346,11 +346,14 @@ int opt_no_arguments(int argc)
  *
  * Setting optind to 0 is what the GNU getopt takes as "start over": it
  * forgets how far into a word it had read, which setting optind to 1 does
- * not. Every tool here uses a GNU getopt -- the platform's where it has one,
- * and the copy in host/ubertooth-tools/getopt elsewhere (USE_OWN_GNU_GETOPT)
- * -- so there is one rule to follow. The BSD getopt's optreset is not it, and
- * assigning to that variable on macOS does nothing at all, because the tools
- * there are linked against the bundled getopt and not the system one.
+ * not. That is the rule for every platform the tools are built for today:
+ * Linux and the BSDs link the system getopt, which on Linux is the GNU one,
+ * and macOS and MSVC link the copy in host/ubertooth-tools/getopt
+ * (USE_OWN_GNU_GETOPT), which is the GNU one too. The BSD getopt reads
+ * optreset instead; assigning to that variable on macOS does nothing at all,
+ * because the bundled getopt is what the tools there call. A platform with a
+ * BSD getopt and no bundled copy would need optreset as well, and the
+ * COMPATIBILITY.md matrix has none.
  */
 static void getopt_restart(void)
 {
@@ -373,13 +376,22 @@ static void getopt_restart(void)
  * the command line again, one word at a time: the first word whose arrival
  * makes getopt refuse a dash is the word that holds it.
  *
- * A word that makes getopt refuse something else is left out of the passes
- * that follow. That is how a separate option value is got past: an optional
- * value may be written as its own word ("ubertooth-util -z -90"), which
- * getopt does not read -- the tool picks it up with opt_separate_value()
- * afterwards -- and which getopt refuses on its own ('9' is not an option).
- * Leaving it out is safe, because the one refusal the tool stopped on was the
- * dash: anything getopt will not read here, the tool's own loop did read.
+ * Two kinds of refusal on the way are not the one being reported, and each
+ * is handled on its own:
+ *
+ * An option whose value is missing ("-U" with nothing after it yet) is kept.
+ * A required value may be the next word, which the pass that stops at the
+ * option has not reached: "ubertooth-util -U -v- -r-x" gives -U the value
+ * "-v-", so that word is not a mistake and must not be named for one.
+ * Dropping the option here would leave its value to be read as options.
+ *
+ * An option getopt does not know is left out of the passes that follow. That
+ * is how a separate optional value is got past: an optional value may be
+ * written as its own word ("ubertooth-util -z -90"), which getopt does not
+ * read -- the tool picks it up with opt_separate_value() afterwards -- and
+ * which getopt refuses on its own, '9' being no option. Leaving it out is
+ * safe because the refusal the tool stopped on was the dash, so a word getopt
+ * will not read here is one the tool's own loop read another way.
  *
  * getopt is left part-way through a command line of its own afterwards, so
  * this may only be called where the tool is giving up: every caller of
@@ -413,6 +425,10 @@ static const char *dash_word(int argc, char *argv[], const char *options)
 	taken[0] = argv[0];
 	count = 1;
 
+	/* getopt's own messages off, as the caller's loop has them: these
+	 * passes refuse things on purpose and must stay silent. */
+	opterr = 0;
+
 	for (i = 1; i < argc && word == NULL; i++) {
 		int refused = 0, opt, k;
 
@@ -427,17 +443,17 @@ static const char *dash_word(int argc, char *argv[], const char *options)
 			 * ':' for one whose value is missing; anything else is
 			 * an option it took. No tool has either as a letter. */
 			if (opt == '?' || opt == ':') {
-				refused = 1;
+				refused = opt;
 				break;
 			}
 		}
 
-		if (!refused)
-			taken[count++] = argv[i];
-		else if (optopt == '-')
-			word = argv[i];
-		/* else: a word getopt will not read but the tool's own loop
-		 * did, so it is left out of the passes that follow. */
+		if (refused == '?' && optopt == '-')
+			word = argv[i];           /* the dash: this is the word */
+		else if (refused != '?')
+			taken[count++] = argv[i]; /* taken, or waiting for a value */
+		/* else: an option getopt does not know, which the tool's own
+		 * loop read another way, so it is left out of what follows. */
 	}
 
 	free(block);

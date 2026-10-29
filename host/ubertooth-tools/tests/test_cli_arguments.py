@@ -280,6 +280,10 @@ CASES = {
         # attached to its option.
         (("-U", "foo", "-v-"), "error: unrecognized option '-' in '-v-'"),
         (("-z-90", "-v-"), "error: unrecognized option '-' in '-v-'"),
+        # A required value as its own word that holds a dash itself: "-v-" is
+        # what -U is set to here, so the dash behind it is the mistake.
+        (("-U", "-v-", "-r-x"), "error: unrecognized option '-' in '-r-x'"),
+        (("-U", "-r-x", "-v-"), "error: unrecognized option '-' in '-v-'"),
     ),
 }
 

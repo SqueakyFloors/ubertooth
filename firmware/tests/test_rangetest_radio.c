@@ -1228,6 +1228,12 @@ MU_TEST(test_the_badges_fifo_transfers_keep_their_shape)
 	         "SPI_BRG_FAST, so every later transfer runs at the slow one",
 	         badge_source, badge_src.read_fn);
 	mu_assert(badge_src.read_clock_restored > 0, msg);
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_fifo_read() restores the clock at line %d, before "
+	         "it drops it at %d, so the read itself runs at the fast one",
+	         badge_source, badge_src.read_clock_restored,
+	         badge_src.read_slow_clock);
+	mu_assert(badge_src.read_slow_clock < badge_src.read_clock_restored, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s: SPI_BRG_FIFO_READ is %d and SPI_BRG_FAST is %d; a divisor "

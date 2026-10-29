@@ -521,6 +521,13 @@ static void test_bad_option_word(void)
 		  "error: unrecognized option '-' in '-v-'\n" },
 		{ "ubertooth-util -n 5 -v-",
 		  "error: unrecognized option '-' in '-v-'\n" },
+		/* A required value as its own word that holds a dash itself.
+		 * "-v-" is what -U is set to, so it is not a mistake and the
+		 * dash behind it is the one to name. */
+		{ "ubertooth-util -U -v- -r-x",
+		  "error: unrecognized option '-' in '-r-x'\n" },
+		{ "ubertooth-util -U -r-x -v-",
+		  "error: unrecognized option '-' in '-v-'\n" },
 	};
 	char line[256];
 	size_t i;
