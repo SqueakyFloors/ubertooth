@@ -819,6 +819,16 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 #else
 #define STALLED(what) ""
 #endif
+
+/* How many lines that report puts on standard error: one when the library's
+ * own report is compiled in, none when it is the stub above. The cases that
+ * count the error lines of a stalled request add it up rather than naming a
+ * total, so they hold in both configurations. */
+#ifdef TEST_REAL_API_REPORTS
+#define STALLED_REQUEST_LINES 1
+#else
+#define STALLED_REQUEST_LINES 0
+#endif
 #define NO_ANSWER(what) \
 	"error: could not " what \
 	": the board did not answer in time (libusb -7)\n" \
@@ -860,7 +870,7 @@ MU_TEST(a_refused_address_set_exits_1)
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert(strstr(r.err, STALLED("set the Bluetooth address")) != NULL,
 	          r.err);
-	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert_int_eq(STALLED_REQUEST_LINES, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 	/* The board goes back without a STOP, since no mode has started, and
 	 * the adapter handle goes back with it. */
@@ -898,7 +908,7 @@ MU_TEST(a_refused_clock_set_exits_1)
 	mu_assert_int_eq(0, fake.thread_starts);
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert(strstr(r.err, STALLED("zero the board's clock")) != NULL, r.err);
-	mu_assert_int_eq(1, occurrences(r.err, "error:"));
+	mu_assert_int_eq(STALLED_REQUEST_LINES, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
