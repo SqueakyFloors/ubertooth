@@ -20,7 +20,24 @@ Boston, MA 02110-1301, USA.
 hardware notes:
 
 Ubertooth One schematic and layout files were designed in KiCad, an open source
-electronic design automation package.
+electronic design automation package. Board makers build Ubertooth One hardware
+from these files.
+
+	ubertooth-one.sch	schematic
+	ubertooth-one.brd	board layout
+
+Both are in the file format KiCad used in 2011.
+
+The board carries an LPC1754 or an LPC1756 depending on the build. The
+schematic calls for an LPC1754, with 128 KB of flash; boards in the field are a
+mix, and the LPC1756, with 256 KB, is the other part they are built with. The
+bootloader reads the part identification number and sizes flash from it, so the
+same firmware image serves either. Both parts have 32 KB of RAM in two 16 KB
+banks that are not contiguous: the main SRAM at 0x10000000, which the firmware
+runs from, and the AHB SRAM at 0x2007C000.
+
+docs/source/ubertooth_one.rst describes the board for a user: its radio, its
+connectors and its LEDs.
 
 order of copper layers:
 	Front

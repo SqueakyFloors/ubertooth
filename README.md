@@ -12,6 +12,17 @@ suitable for Bluetooth experimentation. Ubertooth ships with a capable
 BLE (Bluetooth Smart) sniffer and can sniff some data from Basic Rate
 (BR) Bluetooth Classic connections.
 
+## Hardware
+
+An Ubertooth One is a USB 2.4 GHz radio: a CC2400 transceiver behind a CC2591
+front end, driven by an LPC175x ARM Cortex-M3, with an RP-SMA antenna jack.
+
+<img src="docs/images/ubertooth-one.jpeg" alt="Ubertooth One" width="300">
+
+The [hardware page](docs/source/ubertooth_one.rst) describes the board, what its
+radio can and cannot do, and its connectors and LEDs. The KiCad
+[design files](hardware/ubertooth-one) it is built from are in this tree.
+
 ## What it is good for
 
 Ubertooth is a sniffer. Unlike a phone app such as nRF Connect or

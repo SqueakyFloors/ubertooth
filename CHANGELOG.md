@@ -1896,6 +1896,13 @@
   `yyyy-mm-DEVn` is a development pre-release, `yyyy-mm-RCn` a release
   candidate and `yyyy-mm-Rn` the release, the first two published as GitHub
   pre-releases, and host tools and firmware from one tag belong together.
+- The README opens with a short Hardware section: what an Ubertooth One is,
+  the board photo, and links on to the detail. The hardware page it links to
+  is current, and says which LPC part a board carries and how much flash and
+  RAM it has, what the radio can and cannot do, the connectors and the LEDs as
+  the firmware drives them today, and the KiCad design files the board is
+  built from. The Ubertooth Zero page is gone: the fork's documentation covers
+  Ubertooth One.
 - A one-page guide, "Using Ubertooth with Wireshark", covers the
   `btle-extcap.py` plugin end to end: what it gives you over a named pipe,
   the three install steps, the options dialog, why a capture filter is
