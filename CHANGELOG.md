@@ -1968,6 +1968,25 @@ Fixes with no visible change in normal use.
   dropped, and the warning about a transfer cut short passes over a full one,
   so a packet the host already held was lost with nothing said.
   [#638](https://github.com/SqueakyFloors/ubertooth/issues/638)
+- A program that sets more advertising data than the board can transmit is
+  told so: `UBERTOOTH_LE_SET_ADV_DATA` refuses anything longer than the 31
+  bytes a legacy ADV_IND carries, and `cmd_le_set_adv_data()` says
+  `error: LE advertising data too long` against the same limit. The request
+  used to take up to 255 bytes, and the mode asked for afterwards then went
+  back to idle without a word. No shipped tool sets more than 18 bytes.
+  [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
+- Low-energy capture dewhitens a packet four bytes at a time, in one path
+  rather than a table of whitening words for the first 48 bytes and a
+  bit-at-a-time loop for the rest. A Data Length Extension payload cost about
+  1700 lookups between two packets on the air; it now costs about sixty word
+  operations, and the image is 2.1 KB smaller.
+  [#600](https://github.com/SqueakyFloors/ubertooth/issues/600)
+- The connection-follow callback reads its payload length as the whole byte a
+  low-energy header holds, and keeps the read of the packet's CRC inside the
+  bytes it decoded. Nothing reaches the callback today; it is the half of
+  `ubertooth-btle -p` that follows a connection, waiting for the work that
+  would call it again.
+  [#597](https://github.com/SqueakyFloors/ubertooth/issues/597)
 - The thread that completes a capture's transfers treats a wait a signal cut
   short as a wait to take again. It used to end the thread, which left the
   capture with nobody to complete its transfers and no line to say why; the

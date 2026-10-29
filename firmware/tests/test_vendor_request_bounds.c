@@ -171,7 +171,7 @@ MU_TEST(test_the_old_bound_was_right_when_the_length_did_not_shrink)
 /* State these requests set, so a refused one can be seen to have set none. */
 static uint64_t target_address;
 static uint16_t registers[0x100];
-static uint8_t advertising[LE_ADV_MAX_LEN];
+static uint8_t advertising[ADV_IND_MAX_DATA];
 static int advertising_len = -1;
 
 /*
@@ -189,7 +189,7 @@ static int fake_request_handler(uint8_t request, const uint16_t *params,
 
 	switch (request) {
 	case UBERTOOTH_LE_SET_ADV_DATA:
-		if (!data_from_host || data_in_len > LE_ADV_MAX_LEN)
+		if (!data_from_host || data_in_len > ADV_IND_MAX_DATA)
 			return 0;
 		memcpy(advertising, data, data_in_len);
 		advertising_len = (int)data_in_len;
@@ -396,6 +396,33 @@ MU_TEST(test_a_request_with_an_empty_body_is_accepted)
 	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
 	                                     body, 0));
 	mu_assert_int_eq(0, advertising_len);
+}
+
+/*
+ * ...and a body longer than the advertising mode can transmit is refused,
+ * which is what the host sees instead of the mode dropping back to idle
+ * without a word once it tried to build the packet.
+ */
+MU_TEST(test_an_advertising_payload_longer_than_an_adv_ind_is_refused)
+{
+	static uint8_t body[ADV_IND_MAX_DATA + 1];
+	unsigned i;
+
+	for (i = 0; i < sizeof(body); i++)
+		body[i] = (uint8_t)i;
+
+	reset_state();
+	/* The longest an ADV_IND can carry is taken. */
+	mu_assert_int_eq(1, control_transfer(fake_request_handler, REQ_OUT,
+	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
+	                                     body, ADV_IND_MAX_DATA));
+	mu_assert_int_eq(ADV_IND_MAX_DATA, advertising_len);
+
+	/* One byte more is refused, and leaves what was set before it. */
+	mu_assert_int_eq(0, control_transfer(fake_request_handler, REQ_OUT,
+	                                     UBERTOOTH_LE_SET_ADV_DATA, 0,
+	                                     body, ADV_IND_MAX_DATA + 1));
+	mu_assert_int_eq(ADV_IND_MAX_DATA, advertising_len);
 }
 
 /* A read of that number is still refused, and changes nothing. */
@@ -1050,6 +1077,7 @@ int main(void)
 	MU_RUN(test_a_write_request_shorter_than_it_reads_is_refused);
 	MU_RUN(test_a_register_write_needs_three_bytes_per_register);
 	MU_RUN(test_a_request_with_an_empty_body_is_accepted);
+	MU_RUN(test_an_advertising_payload_longer_than_an_adv_ind_is_refused);
 	MU_RUN(test_a_read_of_a_request_with_an_empty_body_is_refused);
 
 	MU_RUN(test_the_reply_claims_every_register_it_filled);

@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -201,6 +201,18 @@ $(BINDIR)/test_le_state_reset: test_le_state_reset.c minunit.h source_scan.h \
 		$(FW_RXTX)/bluetooth_le.h $(FW_RXTX)/bluetooth_rxtx.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_state_reset.c
+
+# The whitening sequence the two low-energy capture paths lay over a packet.
+# bluetooth_le.c is pure logic and links as it is, and stubs-lephy/ puts a fake
+# register file under the firmware's own ubertooth.h, as test_le_phy_logic does,
+# so rbit()'s prototype here is the firmware's.
+$(BINDIR)/test_le_whitening: test_le_whitening.c minunit.h \
+		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h \
+		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
+		$(FW_COMMON)/ubertooth.h $(FW_COMMON)/lpc17.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-lephy $(CPPFLAGS) -I$(FW_LPCUSB) -I$(FW_COMMON) \
+		-DUBERTOOTH_ONE -DFW_HOST_TEST \
+		-o $@ test_le_whitening.c $(FW_RXTX)/bluetooth_le.c
 
 # How long a capture the target filter needs before it compares the address in
 # it. The filter runs inside the capture loop, so it is modelled here and

@@ -146,15 +146,17 @@ MU_TEST(test_every_scanned_source_opens)
  * header bytes, the six address bytes, the advertising data the host set, and
  * three CRC bytes written in after them.
  *
- * The buffer was 32 bytes and the length was checked against LE_ADV_MAX_LEN,
- * which is 255 -- the limit for extended advertising, not for the legacy
- * ADV_IND this sends. Advertising data of 22 bytes or more therefore wrote
- * the CRC past the end of the buffer, and the running length, a uint8_t,
- * wrapped at 250 bytes of data.
+ * The buffer was 32 bytes and the length was checked against a 255-byte
+ * bound -- the limit for extended advertising, not for the legacy ADV_IND
+ * this sends. Advertising data of 22 bytes or more therefore wrote the CRC
+ * past the end of the buffer, and the running length, a uint8_t, wrapped at
+ * 250 bytes of data.
  *
  * Both in-tree senders use 3 bytes (the default) and 18 (ubertooth-btle -a
- * and ubertooth-ducky), so neither reaches it; a caller of libubertooth's
- * cmd_le_set_adv_data() can set up to 255.
+ * and ubertooth-ducky), so neither reaches it. The request that sets the data
+ * now bounds it by what an ADV_IND can carry as well, so a program that asks
+ * for more is told so rather than having the mode go idle on it; the check in
+ * the mode stays as the guard on the record it builds.
  */
 #define ADV_IND_RECORD_BYTES (2 + 6 + ADV_IND_MAX_DATA + 3)
 
@@ -192,6 +194,16 @@ MU_TEST(test_the_advertising_mode_bounds_its_data_by_the_legacy_limit)
 	          "the advertising length is not checked against the legacy limit");
 	mu_assert(holds(rxtx_source, "unsigned adv_ind_len;"),
 	          "the record's running length is narrow enough to wrap");
+
+	/* The request that sets the data is bounded by the same limit, so the
+	 * program that sent it is where an oversized payload is refused, and
+	 * the buffer it copies into is sized for what it accepts. */
+	mu_assert(holds(rxtx_source,
+	                "if (!data_from_host || data_in_len > ADV_IND_MAX_DATA)"),
+	          "the request that sets advertising data is not bounded by the "
+	          "legacy limit");
+	mu_assert(holds(rxtx_source, "uint8_t le_adv_data[ADV_IND_MAX_DATA]"),
+	          "the advertising data buffer is not sized from ADV_IND_MAX_DATA");
 }
 
 /* ---- the E-GO capture length -------------------------------------------- */

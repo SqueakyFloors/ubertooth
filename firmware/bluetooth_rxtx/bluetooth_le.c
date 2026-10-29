@@ -182,32 +182,90 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
 }
 
 /*
+ * The whitening sequence packed one bit to a bit, least significant bit
+ * first, so that 32 bits of it can be read at once instead of looked up one
+ * at a time. It holds one period and 31 bits more, which means any 32-bit
+ * window of the period is contiguous and no read has to wrap around.
+ *
+ * It is built from whitening[] on first use rather than written out as a
+ * second copy of the sequence: a copy in the source could disagree with the
+ * one above it, and a table of ready-made words for all 40 channels would
+ * cost more flash than the whole low-energy capture path. Both callers run
+ * from a mode loop, never from an interrupt, so one of them cannot find it
+ * half built.
+ */
+#define WHITENING_WORD_COUNT ((sizeof(whitening) + 31 + 31) / 32)
+static u32 whitening_packed[WHITENING_WORD_COUNT];
+static int whitening_packed_ready;
+
+static void pack_whitening(void) {
+	unsigned i;
+
+	for (i = 0; i < sizeof(whitening) + 31; ++i)
+		whitening_packed[i / 32] |=
+			(u32)whitening[i % sizeof(whitening)] << (i % 32);
+	whitening_packed_ready = 1;
+}
+
+/* The 32 bits of the sequence that start at `idx`, packed the same way. */
+static u32 whitening_word(unsigned idx) {
+	unsigned word = idx / 32;
+	unsigned bit = idx % 32;
+	u32 w = whitening_packed[word] >> bit;
+
+	/* A shift of 32 places is not defined, and a window that starts on a
+	 * word boundary has nothing to take from the next word anyway. */
+	if (bit != 0)
+		w |= whitening_packed[word + 1] << (32 - bit);
+	return w;
+}
+
+/*
  * Dewhiten and reverse the bit order of part of a PDU in place, starting
  * `offset` bytes into it. A caller that has already dewhitened the front of a
  * packet some other way carries on from where it stopped.
  *
+ * Four bytes at a time: rbit() reverses all 32 bits of a word, which reverses
+ * each byte and puts the four in the opposite order, so the bytes go in most
+ * significant first and come out least significant first. The whitening word
+ * is then one XOR for all four, where it used to be eight lookups and a
+ * modulo per byte -- which is what a 251-byte payload pays 250 times over.
+ *
  * Channel is a physical channel in the range [BT_FREQ_MIN, BT_FREQ_MAX].
- * TODO convert this to use whitening word
  */
 void le_dewhiten_from(uint8_t *data, unsigned size, unsigned channel,
                       unsigned offset) {
-	unsigned i, j, bit;
+	unsigned i = 0;
 	unsigned idx = whitening_index[btle_channel_index(channel)];
+
+	if (!whitening_packed_ready)
+		pack_whitening();
 
 	/* The whitening is one long bit sequence laid over the whole PDU, so a
 	 * part of a packet can only be dewhitened once the sequence has been
 	 * wound forward to where that part starts: 8 bits per byte skipped. */
 	idx = (idx + 8 * offset) % sizeof(whitening);
 
-	for (i = 0; i < size; ++i) {
-		uint8_t out = 0;
-		for (j = 0; j < 8; ++j) {
-			bit = (data[i] >> (7-j)) & 1;
-			bit ^= whitening[idx];
-			idx = (idx + 1) % sizeof(whitening);
-			out |= bit << j;
-		}
-		data[i] = out;
+	for (; i + 4 <= size; i += 4) {
+		u32 v = (u32)data[i + 0] << 24
+		      | (u32)data[i + 1] << 16
+		      | (u32)data[i + 2] <<  8
+		      | (u32)data[i + 3] <<  0;
+		u32 out = rbit(v) ^ whitening_word(idx);
+
+		data[i + 0] = (uint8_t)(out >>  0);
+		data[i + 1] = (uint8_t)(out >>  8);
+		data[i + 2] = (uint8_t)(out >> 16);
+		data[i + 3] = (uint8_t)(out >> 24);
+		idx = (idx + 32) % sizeof(whitening);
+	}
+
+	/* The last one to three bytes, each from the low byte of a word of the
+	 * sequence: a buffer's length is whatever the packet in it is. */
+	for (; i < size; ++i) {
+		data[i] = (uint8_t)(rbit((u32)data[i] << 24)
+		                    ^ whitening_word(idx));
+		idx = (idx + 8) % sizeof(whitening);
 	}
 }
 

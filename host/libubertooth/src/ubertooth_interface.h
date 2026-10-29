@@ -665,13 +665,13 @@ enum rfcat24_subcommands {
  */
 #define EGO_DEFAULT_ACCESS_CODE 0x630f9ffeu
 
-/* The most advertising data an extended advertising PDU can carry, and so the
- * most UBERTOOTH_LE_SET_ADV_DATA accepts. */
-#define LE_ADV_MAX_LEN 255
-
 /* The most a legacy ADV_IND can carry, which is what the board transmits in
  * MODE_BT_SLAVE_LE: its six-bit length field counts the six address bytes as
- * well, and the specification caps AdvData at 31 bytes. */
+ * well, and the specification caps AdvData at 31 bytes.
+ *
+ * It is also the most UBERTOOTH_LE_SET_ADV_DATA accepts, because that is the
+ * only thing the data is ever used for: a longer payload could not be
+ * transmitted, so the request says so instead of taking it. */
 #define ADV_IND_MAX_DATA 31
 
 enum jam_modes {

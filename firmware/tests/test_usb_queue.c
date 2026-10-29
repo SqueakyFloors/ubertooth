@@ -1195,6 +1195,12 @@ struct producer {
  * usb_enqueue_le_packet() belongs to no single loop either: it is the one
  * place a captured low-energy packet is turned into records, splitting a
  * packet too long for one of them, and both low-energy capture paths call it.
+ *
+ * cb_follow_le() is named against bt_generic_le() because that is the loop the
+ * one assignment of it sits under: cb_le_promisc() runs there and installs it
+ * as the data callback. Nothing reaches it today -- that assignment is
+ * followed by a return out of the loop -- so what the row records is where it
+ * would run from, which is also the loop whose host collects those records.
  */
 static struct producer producers[] = {
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "enqueue",              NULL,              0, 0, { 0 } },
@@ -1204,7 +1210,7 @@ static struct producer producers[] = {
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "specan",               "specan",          0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "rx_generic_sync",      "rx_generic_sync", 0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "bt_le_sync",           "bt_le_sync",      0, 0, { 0 } },
-	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "cb_follow_le",         "bt_le_sync",      0, 0, { 0 } },
+	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "cb_follow_le",         "bt_generic_le",   0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "cb_le_promisc",        "bt_generic_le",   0, 0, { 0 } },
 	{ FW_RXTX_DIR, "bluetooth_rxtx.c", "le_promisc_state",     "bt_generic_le",   0, 0, { 0 } },
 	{ FW_RXTX_DIR, "le_phy.c",         "usb_enqueue_le",       NULL,              0, 0, { 0 } },
