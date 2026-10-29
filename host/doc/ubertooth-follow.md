@@ -66,9 +66,7 @@ Requires BlueZ (Linux only).
    `error: PCAPNG capture to stdout is not supported; use -q -`
  - `-q <filename>` :
    capture packets to a PCAP file. `-q -` writes the capture to standard
-   output; see CAPTURING TO STANDARD OUTPUT. A record carries the signal power
-   of its packet and no noise power: nothing measures the background between
-   packets, so the record's noise field is marked absent.
+   output; see CAPTURING TO STANDARD OUTPUT
  - `-d <filename>` :
    dump received symbols to the named file. `-d -` writes them to standard
    output; see CAPTURING TO STANDARD OUTPUT
@@ -83,6 +81,11 @@ Requires BlueZ (Linux only).
    USB delay in 625us timeslots (default: 5).
  - `-h` :
    show help.
+
+A record of a `-q` or `-r` capture carries the signal power of its packet and
+no noise power: nothing measures the background between packets, so the
+record's noise field is marked absent and a reader shows it as absent rather
+than computing a signal-to-noise ratio from it.
 
 ## AFH
 

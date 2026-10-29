@@ -46,7 +46,7 @@ print the version: the host tools, then the firmware version and build of each a
 capture packets to a PCAPNG file\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so \fB\-r \-\fR is refused: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR
 .TP
 \fB\-q <filename>\fR
-capture packets to a PCAP file\. \fB\-q \-\fR writes the capture to standard output; see CAPTURING TO STANDARD OUTPUT\. A record carries the signal power of its packet and no noise power: nothing measures the background between packets, so the record's noise field is marked absent\.
+capture packets to a PCAP file\. \fB\-q \-\fR writes the capture to standard output; see CAPTURING TO STANDARD OUTPUT
 .TP
 \fB\-d <filename>\fR
 dump received symbols to the named file\. \fB\-d \-\fR writes them to standard output; see CAPTURING TO STANDARD OUTPUT
@@ -65,6 +65,8 @@ USB delay in 625us timeslots (default: 5)\.
 .TP
 \fB\-h\fR
 show help\.
+.P
+A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no noise power: nothing measures the background between packets, so the record's noise field is marked absent and a reader shows it as absent rather than computing a signal\-to\-noise ratio from it\.
 .SH "AFH"
 \fB\-a\fR is experimental\. It makes the local BlueZ device connect to the target and asks the local controller for the AFH channel map of \fIthat\fR link, then follows the piconet keyed on the target's LAP/UAP\. The two are the same hop sequence only when the target is master of the piconet you want to follow, which \fBubertooth\-follow\fR cannot check\. Treat a capture made with \fB\-a\fR accordingly\.
 .P
