@@ -45,9 +45,14 @@ ubertooth-util(1), SQUELCH.
 
 By default, Ubertooth will follow any connection it observes. You can
 limit this to following a specific Bluetooth Address (BD ADDR) using the
-`-t` command line flag. For example, the following command will only
-sniff connections where the central or peripheral's BD ADDR is
-`22:44:66:88:AA:CC`:
+`-t` command line flag. `-t` is for follow mode: it picks out a connection by
+the device address its advertising and connect packets carry, which is what
+`-f` watches for (in `-n` the board drops the advertising packets that do not
+match it, and nothing else). Promiscuous mode starts on a connection that is
+already running, whose packets carry no device address at all, so `-t` has
+nothing to match there and is refused with `-p`. For example, the following
+command will only sniff connections where the central or peripheral's BD ADDR
+is `22:44:66:88:AA:CC`:
 
     ubertooth-btle -f -t 22:44:66:88:AA:CC
 
@@ -132,7 +137,10 @@ Major modes:
  - `-p` :
    Promiscuous mode: sniff already-established connections. It sets no channel
    of its own: it listens on the one the board is holding, 2440 MHz unless
-   `ubertooth-util -c` left it on another even frequency. As it works a
+   `ubertooth-util -c` left it on another even frequency. It discovers the
+   access address of a connection on that channel, unless an earlier
+   `ubertooth-btle -a <address>` command gave the board one to follow; nothing
+   else makes it skip discovery, and `-t` is refused with it. As it works a
    connection out it reports each parameter it has recovered: the access
    address, the CRC init value, the hop interval and the hop increment. Those
    lines go to standard output, or to standard error once `-q -` or `-c -` has
@@ -162,7 +170,15 @@ Filtering:
 
  - `-t <BD ADDR>` :
    Limit connection following and interference in follow mode to the
-   specified BD ADDR. `-s` and `-t` are two different addresses and a command
+   specified BD ADDR. It is for the follow modes: `-f` follows only a
+   connection whose advertising or connect packets carry this address, and
+   `-n` drops the advertising packets that do not. Every form of it, `-t none`
+   included, is refused with `-p`, which has no device address to match
+   against: `error: -t does not go with -p: promiscuous mode has no device
+   address to match a target against`. The combination used to be accepted,
+   and the board then read "a target was set" as "the host gave an access
+   address", so `-p` followed `8e89bed6` and captured nothing.
+   `-s` and `-t` are two different addresses and a command
    can give both: `-s A -t B` advertises from A and follows B, and `-t none`
    clears the target without touching the address `-s` was given. They shared
    one address, so whichever of the two was written last used to set both, and
@@ -219,7 +235,14 @@ Miscellaneous:
    the device is opened. Getting and setting in one command is refused; other
    options such as `-k` still run after a get. `-a` does not go with a
    sniffing mode (`-f`, `-n`, `-p`), which runs until it is interrupted; the
-   combination is refused before any device is opened.
+   combination is refused before any device is opened. So an address for `-p`
+   is given by a command of its own first: `ubertooth-btle -a <address>` and
+   then `ubertooth-btle -p`. It is the one setting that makes `-p` skip
+   discovery, and the board keeps it until its low-energy state next resets:
+   a connection timing out during a `-p` run, a `-p` run that went looking for
+   an address itself, `ubertooth-util -r`, or a re-plug. A follow run (`-f`,
+   `-n`) does not clear it. Promiscuous mode then discovers an address again
+   rather than falling back to the advertising one.
  - `-k [01]` :
    Read (`-k`) or set (`-k 0` or `-k 1`) CRC verification
    (default: 0). Any other value is refused. A set and a read in one command
@@ -301,6 +324,11 @@ is interrupted`, so there is nothing for an access address or faux slave mode
 request to run after. `-t` and `-k` are not in that list: `-t` is sent before
 the mode starts, which is what it is for, and the `-k` options run once it has
 started.
+
+`-t` with `-p` gives
+`error: -t does not go with -p: promiscuous mode has no device address to
+match a target against`, whatever the target is: a connection that is already
+running names no device, so `-t none` is refused beside `-p` as well.
 
 `-i` or `-I` without `-f` or `-p` gives
 `error: -i needs -f or -p: there is no connection to interfere with

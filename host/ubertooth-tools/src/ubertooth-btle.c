@@ -135,6 +135,7 @@ static void usage(FILE *out)
 	fprintf(out, "\t       -a and -s do not go with -f, -n or -p, which run until interrupted\n");
 	fprintf(out, "\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
 	fprintf(out, "\t-t none unset connection following target\n");
+	fprintf(out, "\t       -t is for -f and -n; any -t, \"none\" included, is refused with -p\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Interference (only with -f or -p):\n");
 	fprintf(out, "\t-i, -j  interfere with (jam) one connection and return to idle\n");
@@ -429,6 +430,21 @@ int main(int argc, char *argv[])
 	    (do_get_aa || do_set_aa || do_slave_mode)) {
 		fprintf(stderr, "error: -a and -s do not go with -f, -n or -p:"
 		        " a sniffing mode runs until it is interrupted\n");
+		return 1;
+	}
+
+	/* -t picks out a connection by the device address its advertising and
+	 * connect packets carry. Promiscuous mode starts on a connection that
+	 * is already running, whose packets carry no device address, so there
+	 * is nothing there for a target to match -- which is as true of "-t
+	 * none" as of an address, so the message is about the option rather
+	 * than its value. An access address for -p comes from a separate
+	 * "ubertooth-btle -a <address>" command instead; otherwise the mode
+	 * discovers one. */
+	if (do_target && do_promisc) {
+		fprintf(stderr, "error: -t does not go with -p: promiscuous"
+		        " mode has no device address to match a target"
+		        " against\n");
 		return 1;
 	}
 

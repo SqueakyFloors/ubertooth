@@ -48,10 +48,11 @@ $(BINDIR)/test_bluetooth_hop: test_bluetooth_hop.c minunit.h spec_hop_vectors.h 
 # the model's shape is scanned in test_mode_dispatch. bluetooth.c is linked in,
 # so the AFH map and the hop sequence the model asks about are the firmware's.
 $(BINDIR)/test_mode_state_reset: test_mode_state_reset.c minunit.h \
-		stubs/ubertooth.h $(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h \
-		| $(BINDIR)
-	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -o $@ test_mode_state_reset.c \
-		$(FW_RXTX)/bluetooth.c
+		source_scan.h stubs/ubertooth.h \
+		$(FW_RXTX)/bluetooth.c $(FW_RXTX)/bluetooth.h \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_mode_state_reset.c $(FW_RXTX)/bluetooth.c
 
 # The identify blink pattern has no hardware dependency, so it compiles as is.
 $(BINDIR)/test_identify_blink: test_identify_blink.c minunit.h \

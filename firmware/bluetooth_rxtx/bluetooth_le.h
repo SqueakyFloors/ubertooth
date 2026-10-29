@@ -34,6 +34,12 @@ typedef enum {
 
 typedef struct _le_state_t {
     u32 access_address;         // Access Address to filter by
+    /* Whether the host gave us that access address, as against it being the
+     * advertising one every reset puts back. Promiscuous mode discovers an
+     * access address unless this says it was handed one. Only
+     * UBERTOOTH_SET_ACCESS_ADDRESS sets it, and reset_le() clears it, so it
+     * never outlives the address it describes. */
+    int access_address_set;
     u16 synch;                  // Access address in CC2400 syncword format
     u16 syncl;                  // lower 16 bits thereof
     u32 crc_init;               // CrcInit: used to calculate CRC

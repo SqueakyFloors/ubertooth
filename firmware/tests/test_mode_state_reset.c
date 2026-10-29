@@ -29,10 +29,17 @@
  * test_mode_dispatch.c pins the firmware's shape against this model: that the
  * idle reset clears the map, that the three absorbable requests reset before
  * their own setup, and that setting a channel resets nothing.
+ *
+ * The last part of this file is the same question for low-energy state: what
+ * one ubertooth-btle run leaves behind for the next. Its own scan of
+ * bluetooth_rxtx.c is at the end.
  */
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "minunit.h"
+#include "source_scan.h"
 #include "bluetooth.h"
 
 /* Non-static state in bluetooth.c. */
@@ -1301,6 +1308,308 @@ MU_TEST(a_stop_ends_an_ego_run)
 	mu_assert_int_eq(IDLE_CHANNEL, channel);
 }
 
+/* ------------------------------------------------------------------------
+ * The low-energy state a run leaves behind
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Promiscuous mode (ubertooth-btle -p) has two halves: it listens on one data
+ * channel until an access address repeats, then follows that address. The
+ * first half is skipped when the host has already given the board an address
+ * to follow, which is the only thing that may skip it -- and the board used to
+ * ask a flag that UBERTOOTH_BTLE_SET_TARGET set as well. A -t target, which
+ * is a device address and no access address at all, therefore sent the mode
+ * straight to the second half, syncing on the advertising access address that
+ * every reset puts back, so it captured nothing. The flag outlived the tool,
+ * so every later -p did the same.
+ *
+ * bt_promisc_le() and the request handler are hardware code, so the two
+ * settings, the reset and one pass of the mode's loop are modelled here, and
+ * the scans below pin the firmware's own shape to the model.
+ */
+
+/* What reset_le() puts back: the access address every advertising packet
+ * carries. */
+#define ADVERTISING_AA 0x8e89bed6u
+
+/* The access address of a connection on the channel the mode is listening on,
+ * which is what its first half discovers. Any value but the advertising one
+ * will do. */
+#define DISCOVERED_AA 0x5a3b9c1du
+
+static u32 le_access_address;
+static int le_access_address_set;
+static int le_target_set;
+/* Whether the last pass of the mode's loop ran its first half. */
+static int le_promisc_listened;
+
+/* reset_le() */
+static void reset_le(void)
+{
+	le_access_address = ADVERTISING_AA;
+	le_access_address_set = 0;
+}
+
+/* The board as it comes up, as far as low-energy state goes. */
+static void le_board_reset(void)
+{
+	le_target_set = 0;
+	le_promisc_listened = 0;
+	reset_le();
+}
+
+/* UBERTOOTH_SET_ACCESS_ADDRESS: "ubertooth-btle -a <address>" */
+static void request_set_access_address(u32 aa)
+{
+	le_access_address = aa;
+	le_access_address_set = 1;
+}
+
+/*
+ * UBERTOOTH_BTLE_SET_TARGET: "ubertooth-btle -t <address>", or "-t none",
+ * which is the request with a mask length of zero.
+ */
+static void request_set_target(int address_given)
+{
+	le_target_set = address_given;
+}
+
+/* One pass of bt_promisc_le()'s loop. */
+static void promisc_pass(void)
+{
+	if (!le_access_address_set) {
+		/* bt_generic_le() resets the low-energy state and listens */
+		reset_le();
+		le_promisc_listened = 1;
+		le_access_address = DISCOVERED_AA;
+	} else {
+		le_promisc_listened = 0;
+	}
+	/* bt_le_sync() follows le_access_address from here */
+}
+
+/*
+ * The connection timeout inside bt_le_sync(): it resets the low-energy state
+ * and hands promiscuous mode's loop another pass.
+ */
+static void promisc_connection_timed_out(void)
+{
+	reset_le();
+}
+
+/* ------------------------------------------------------------------------
+ * The firmware's own shape
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Walk one firmware source, comments and string literals removed, and call
+ * `line_seen` for each line with the function and the request case it sits
+ * in. A function header is a line that starts in column 0 and names
+ * something; a case label is a line whose first word is `case`.
+ */
+typedef void (*line_fn)(const char *line, const char *function,
+                        const char *request, int number);
+
+static void scan_rxtx_lines(line_fn line_seen, const char *name)
+{
+	char path[256];
+	FILE *source;
+	char line[SCAN_LINE_MAX];
+	char function[64] = "";
+	char request[96] = "";
+	int in_block = 0;
+	int number = 0;
+
+	snprintf(path, sizeof(path), "%s/%s", FW_RXTX_DIR, name);
+	source = fopen(path, "r");
+	if (source == NULL) {
+		fprintf(stderr, "cannot open %s\n", path);
+		exit(1);
+	}
+
+	while (fgets(line, sizeof(line), source) != NULL) {
+		const char *trimmed;
+		char flat[SCAN_LINE_MAX];
+
+		number++;
+		strip_comments(line, &in_block);
+		strip_string_literals(line);
+		collapse_spaces(line, flat, sizeof(flat));
+
+		/* A function header: it starts in column 0 and has a name in
+		 * front of its first '('. A prototype matches too, which is
+		 * harmless: the lines this scan asks about are inside
+		 * functions. */
+		if (line[0] != '\0' && line[0] != ' ' && line[0] != '\t' &&
+		    line[0] != '#' && line[0] != '}' && strchr(line, '(') != NULL) {
+			if (call_name(line, function, sizeof(function)))
+				request[0] = '\0';
+		}
+
+		trimmed = flat;
+		if (strncmp(trimmed, "case ", 5) == 0) {
+			size_t length = strcspn(trimmed + 5, ":");
+			if (length < sizeof(request)) {
+				memcpy(request, trimmed + 5, length);
+				request[length] = '\0';
+			}
+		}
+
+		line_seen(flat, function, request, number);
+	}
+	fclose(source);
+}
+
+/* What the scans found, filled in by the callbacks below. */
+static int aa_set_assignments;         /* `le.access_address_set = 1` */
+static char aa_set_request[96];        /* the request case it sits in */
+static int aa_clear_assignments;       /* `le.access_address_set = 0` */
+static char aa_clear_function[64];     /* the function it sits in */
+static int target_case_touches_aa;     /* the target request names the setting */
+static int promisc_reads_aa_set;       /* bt_promisc_le() asks the setting */
+static int promisc_reads_target_set;   /* ...or still asks the target */
+static int lines_scanned;
+
+static void note_line(const char *line, const char *function,
+                      const char *request, int number)
+{
+	(void)number;
+	lines_scanned++;
+
+	if (is_assignment_of(line, "le.access_address_set", "1")) {
+		aa_set_assignments++;
+		snprintf(aa_set_request, sizeof(aa_set_request), "%s", request);
+	}
+	if (is_assignment_of(line, "le.access_address_set", "0")) {
+		aa_clear_assignments++;
+		snprintf(aa_clear_function, sizeof(aa_clear_function), "%s",
+		         function);
+	}
+	if (strcmp(request, "UBERTOOTH_BTLE_SET_TARGET") == 0 &&
+	    contains_identifier(line, "access_address_set"))
+		target_case_touches_aa = 1;
+	if (strcmp(function, "bt_promisc_le") == 0) {
+		if (contains_identifier(line, "le.access_address_set"))
+			promisc_reads_aa_set = 1;
+		if (contains_identifier(line, "le.target_set"))
+			promisc_reads_target_set = 1;
+	}
+}
+
+/* ------------------------------------------------------------------------
+ * The low-energy tests
+ * ------------------------------------------------------------------------ */
+
+/* A target is for follow mode. Promiscuous mode still discovers an address. */
+MU_TEST(a_target_does_not_stop_promiscuous_discovery)
+{
+	le_board_reset();
+	request_set_target(1);
+
+	promisc_pass();
+
+	mu_assert(le_promisc_listened, "the mode skipped its discovery half");
+	mu_assert_int_eq((int)DISCOVERED_AA, (int)le_access_address);
+}
+
+/* An access address the host gave is followed, discovery skipped. */
+MU_TEST(an_access_address_from_the_host_is_followed)
+{
+	le_board_reset();
+	request_set_access_address(0x12345678u);
+
+	promisc_pass();
+
+	mu_assert(!le_promisc_listened,
+	          "the mode listened for an address it had been given");
+	mu_assert_int_eq((int)0x12345678u, (int)le_access_address);
+}
+
+/*
+ * The sequence out of the report: a follow run with a target, then a
+ * promiscuous run of its own. Nothing between the two resets the low-energy
+ * state -- the follow modes run le_phy_main(), which does not, and the target
+ * is cleared by "-t none" and nothing else -- so the second run has to
+ * discover an address with the target still on the board.
+ */
+MU_TEST(a_promiscuous_run_after_a_targeted_follow_discovers)
+{
+	le_board_reset();
+
+	/* ubertooth-btle -f -t <address>, which resets nothing */
+	request_set_target(1);
+
+	/* ubertooth-btle -p, a command later */
+	promisc_pass();
+
+	mu_assert(le_target_set, "the target was cleared by something else");
+	mu_assert(le_promisc_listened, "the mode skipped its discovery half");
+	mu_assert_int_eq((int)DISCOVERED_AA, (int)le_access_address);
+}
+
+/*
+ * A connection that goes quiet during a promiscuous run resets the low-energy
+ * state, which puts the advertising access address back. The next pass has to
+ * discover one rather than follow that.
+ */
+MU_TEST(a_connection_timeout_puts_discovery_back)
+{
+	le_board_reset();
+	request_set_access_address(0x12345678u);
+	promisc_pass();
+	mu_assert(!le_promisc_listened, "the given address was not followed");
+
+	promisc_connection_timed_out();
+	promisc_pass();
+
+	mu_assert(le_promisc_listened, "the mode followed a reset's address");
+	mu_assert_int_eq((int)DISCOVERED_AA, (int)le_access_address);
+}
+
+/* The two settings are separate in both directions: clearing the target
+ * leaves an access address the host gave alone. */
+MU_TEST(clearing_the_target_keeps_the_given_access_address)
+{
+	le_board_reset();
+	request_set_access_address(0x12345678u);
+
+	request_set_target(0);
+	promisc_pass();
+
+	mu_assert(!le_promisc_listened, "the given address was forgotten");
+	mu_assert_int_eq((int)0x12345678u, (int)le_access_address);
+}
+
+/* The firmware's shape, against the model above. */
+MU_TEST(the_firmware_keeps_the_two_settings_apart)
+{
+	/* le_phy.c is scanned as well, because it shares le_state_t and reads
+	 * le.target_set for its own advertising filter: a second place that
+	 * set the access address setting would be just as wrong there. */
+	scan_rxtx_lines(note_line, "bluetooth_rxtx.c");
+	scan_rxtx_lines(note_line, "le_phy.c");
+
+	mu_assert(lines_scanned > 1000, "the sources were not scanned");
+
+	/* Only the access address request gives the mode an address. */
+	mu_assert_int_eq(1, aa_set_assignments);
+	mu_assert(strcmp(aa_set_request, "UBERTOOTH_SET_ACCESS_ADDRESS") == 0,
+	          aa_set_request);
+	mu_assert(!target_case_touches_aa,
+	          "the target request touches the access address setting");
+
+	/* And only a low-energy reset takes it away. */
+	mu_assert_int_eq(1, aa_clear_assignments);
+	mu_assert(strcmp(aa_clear_function, "reset_le") == 0,
+	          aa_clear_function);
+
+	/* The mode asks that setting, not the target. */
+	mu_assert(promisc_reads_aa_set,
+	          "bt_promisc_le() does not ask whether an address was given");
+	mu_assert(!promisc_reads_target_set,
+	          "bt_promisc_le() still asks whether a target was set");
+}
+
 int main(void)
 {
 	printf("mode state carry-over tests\n");
@@ -1336,5 +1645,11 @@ int main(void)
 	MU_RUN(an_absorbed_ego_request_forgets_the_hopping);
 	MU_RUN(a_refused_ego_request_leaves_the_run_alone);
 	MU_RUN(a_stop_ends_an_ego_run);
+	MU_RUN(a_target_does_not_stop_promiscuous_discovery);
+	MU_RUN(an_access_address_from_the_host_is_followed);
+	MU_RUN(a_promiscuous_run_after_a_targeted_follow_discovers);
+	MU_RUN(a_connection_timeout_puts_discovery_back);
+	MU_RUN(clearing_the_target_keeps_the_given_access_address);
+	MU_RUN(the_firmware_keeps_the_two_settings_apart);
 	return mu_report();
 }
