@@ -303,18 +303,22 @@ MU_TEST(run_application_checks_before_it_jumps)
 	mu_assert(check < jump, "run_application() jumps before it checks");
 }
 
-/* The jump loads its address as a number of its own, so the check has to be
- * about the same address. 16384 is 0x4000. The jump is assembly inside a
- * string literal, so this is the one scan here that keeps literals. */
+/* The jump loads its address as a decimal number of its own, so the check has
+ * to be about the same address. The instruction looked for here is built from
+ * APP_IMAGE_BASE rather than written out, so the two cannot drift apart. The
+ * jump is assembly inside a string literal, so this is the one scan here that
+ * keeps literals. */
 MU_TEST(the_check_and_the_jump_use_the_same_address)
 {
 	static char source[200000];
 	char collapsed[200000];
+	char instruction[48];
 
-	mu_assert_int_eq(16384, APP_IMAGE_BASE);
+	snprintf(instruction, sizeof(instruction), "movw r3, %c%u", '#',
+	         APP_IMAGE_BASE);
 	read_bootloader_source_keeping(source, sizeof(source), 1);
 	collapse_spaces(source, collapsed, sizeof(collapsed));
-	mu_assert(strstr(collapsed, "movw r3, #16384") != NULL,
+	mu_assert(strstr(collapsed, instruction) != NULL,
 	          "the jump no longer loads the address the check reads");
 }
 
