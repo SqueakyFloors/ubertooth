@@ -1132,6 +1132,59 @@ MU_TEST(a_wrap_a_backlog_hid_still_counts)
 	              10 * ONE_SECOND_TICKS);
 }
 
+/* The same as capture_records(), with whatever the library wrote to standard
+ * error during it returned in text. */
+static void capture_records_reporting(ubertooth_t* ut, uint64_t period,
+                                      int records, const uint64_t ticks[],
+                                      const uint64_t arrived_ns[],
+                                      uint64_t times[], char* text, size_t size)
+{
+	FILE* reported = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+
+	text[0] = '\0';
+	mu_assert(reported != NULL && saved >= 0,
+	          "cannot capture standard error");
+	if (reported == NULL || saved < 0)
+		return;
+
+	fflush(stderr);
+	dup2(fileno(reported), fileno(stderr));
+	capture_records(ut, period, records, ticks, arrived_ns, NULL, times);
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+
+	rewind(reported);
+	n = fread(text, 1, size - 1, reported);
+	text[n] = '\0';
+	fclose(reported);
+}
+
+/* A quiet gap a live capture now counts says nothing on standard error: there
+ * is nothing left to report, the times being the ones the packets arrived at.
+ * The same gap used to leave them a period short, which is what the warning
+ * was telling the user about. */
+MU_TEST(a_quiet_live_gap_the_host_counted_is_not_reported)
+{
+	ubertooth_t ut;
+	const uint64_t gap = 3 * ((uint64_t) CLK100NS_TIMER1_PERIOD / 2);
+	const uint64_t ticks[3] = { ONE_SECOND_TICKS, 2 * ONE_SECOND_TICKS,
+	                            2 * ONE_SECOND_TICKS + gap };
+	const uint64_t arrived_ns[3] = { 0, 100 * ONE_SECOND_TICKS,
+	                                 100 * (ONE_SECOND_TICKS + gap) };
+	uint64_t times[3];
+	char text[400];
+
+	capture_records_reporting(&ut, CLK100NS_TIMER1_PERIOD, 3, ticks,
+	                          arrived_ns, times, text, sizeof(text));
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * gap, times[2] - times[1]);
+	mu_assert_int_eq(0, (int) strlen(text));
+}
+
 /* A quiet gap of more than a period between the capture's own first two
  * records, which is where the wrap count and the leftover decision meet: the
  * gap has to be counted and the first record left as the anchor. A capture
@@ -1177,6 +1230,35 @@ MU_TEST(a_stray_record_further_into_a_live_capture_adds_nothing)
 	mu_assert_int_eq(ut.abs_start_ns, times[0]);
 	mu_assert_int_eq(100 * ONE_SECOND_TICKS, times[1] - times[0]);
 	mu_assert_int_eq(100 * 2 * ONE_SECOND_TICKS, times[3] - times[0]);
+	/* The stray's own time is where its reading puts it, 49 s before the
+	 * capture started. Nothing can place a record whose reading belongs to
+	 * no part of this capture; what matters is that it takes the records
+	 * after it with it no longer. */
+	mu_assert_int_eq(ut.abs_start_ns - 100 * 49 * ONE_SECOND_TICKS,
+	                 times[2]);
+}
+
+/* A record out of place by more than half a period, with the same millisecond
+ * between it and the record before: no gap that short can account for a drop
+ * that long, and one wrap of the clock accounts for it almost exactly, so it
+ * is read as the clock starting over - as a drop further into a capture always
+ * has been. The records after it are carried with it, a period on. */
+MU_TEST(a_record_more_than_half_a_period_out_is_still_a_wrap)
+{
+	ubertooth_t ut;
+	const uint64_t period = CLK100NS_PERIOD;
+	const uint64_t ticks[3] = { 300 * ONE_SECOND_TICKS,
+	                            301 * ONE_SECOND_TICKS,
+	                             10 * ONE_SECOND_TICKS };
+	const uint64_t arrived_ns[3] = { 0, 1000000000ull, 1001000000ull };
+	uint64_t times[3];
+
+	capture_records(&ut, period, 3, ticks, arrived_ns, NULL, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+	mu_assert_int_eq(100 * (period + 10 * ONE_SECOND_TICKS
+	                        - 300 * ONE_SECOND_TICKS),
+	                 times[2] - times[0]);
 }
 
 /* A live capture's times are where it was anchored plus the board's own clock
@@ -2077,8 +2159,10 @@ int main(void)
 	MU_RUN(a_first_record_reading_below_the_capture_moves_the_anchor);
 	MU_RUN(a_quiet_live_gap_keeps_its_time_however_long_it_was);
 	MU_RUN(a_wrap_a_backlog_hid_still_counts);
+	MU_RUN(a_quiet_live_gap_the_host_counted_is_not_reported);
 	MU_RUN(a_long_quiet_gap_at_the_start_is_not_a_leftover_record);
 	MU_RUN(a_stray_record_further_into_a_live_capture_adds_nothing);
+	MU_RUN(a_record_more_than_half_a_period_out_is_still_a_wrap);
 	MU_RUN(a_host_clock_that_steps_does_not_move_live_times);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);

@@ -243,9 +243,13 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * disagree before the decision flips. Small is still the safer direction. Too
  * small reads a real gap between the capture's first two packets as a leftover
  * packet, and the times come out that much short, which the host clock catches
- * and reports below. Too large reads the leftover packet as part of the
- * capture: they come out a period or more long, and nothing says so, because
- * that report only looks for times behind the host clock. */
+ * and reports below. That is the one way a real gap can be lost here, and it
+ * takes a gap whose two measures are further apart than this: a capture whose
+ * first packet waited on the board while the host was not reading, for
+ * instance, has the time it waited in the clock reading and not in the gap.
+ * Too large reads the leftover packet as part of the capture: the times come
+ * out a period or more long, and nothing says so, because that report only
+ * looks for times behind the host clock. */
 #define CLK100NS_WRAP_SLACK_NS 2000000000ull
 
 /* Whether the period count the capture's first packet carried belonged to the
@@ -367,7 +371,9 @@ static uint64_t wraps_the_gap_accounts_for( const ubertooth_t* ut,
 	/* The wraps the rest of the gap comes to, rounded to the nearest whole
 	 * one. Never fewer than none: a gap the clock has already overshot is
 	 * the clock reading further on than the host saw time for, which no
-	 * number of wraps improves. */
+	 * number of wraps improves. That is also what the division gives for a
+	 * negative numerator, C truncating towards zero rather than rounding,
+	 * so the clamp below is where such a gap is settled. */
 	int64_t wraps = (gap - moved + period / 2) / period;
 	int64_t claim;
 
