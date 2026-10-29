@@ -547,7 +547,9 @@
   the entry pin bridged. The bootloader half takes effect only on a board
   carrying a bootloader built from this tree, which is installed with ISP or
   JTAG; a download interrupted inside its last 4 KiB is still one for the
-  bench either way.
+  bench either way. A read of the image file that fails part way through now
+  fails the download as well, where it used to end the transfer and report
+  success.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
 
 - `ubertooth-btle -p` discovers the access address of the connection it finds,

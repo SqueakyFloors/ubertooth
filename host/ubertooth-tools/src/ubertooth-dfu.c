@@ -1195,6 +1195,17 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  * it -- all of a download bar its last few blocks -- now leaves a board whose
  * bootloader finds nothing to start and waits in DFU for another image.
  */
+/* Step 3 writes SECTOR_SIZE worth of blocks and relies on that being the
+ * whole of the sector the region starts in, so that the erase its first block
+ * triggers is followed by the rest of that sector's contents. The family's
+ * sectors are 4 KiB over the first 64 KiB and 32 KiB above that
+ * (firmware/bootloader/flash.h), so a region starting at or above 64 KiB
+ * would sit in a 32 KiB sector: the alignment check in download() would still
+ * pass and step 3 would then leave 28 KiB erased behind a written vector
+ * table. Today the region starts at 0x4000, well inside the 4 KiB range. */
+_Static_assert(BOOTLOADER_OFFSET + BOOTLOADER_SIZE + SECTOR_SIZE <= 0x10000,
+               "the application region must start in a SECTOR_SIZE sector");
+
 int download(libusb_device_handle* devh, FILE* downfile) {
 	const int first_block = (BOOTLOADER_OFFSET + BOOTLOADER_SIZE) / BLOCK_SIZE;
 	const int sector_blocks = SECTOR_SIZE / BLOCK_SIZE;

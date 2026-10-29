@@ -17,6 +17,7 @@
  * scans dfu.cpp.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "minunit.h"
@@ -28,9 +29,16 @@
 /* The flash bound the bootloader passes in: the largest part in the family,
  * LPC_FLASH_SIZE_FALLBACK in flash.h. Spelled out rather than included,
  * because flash.h pulls in the In-Application Programming code and this test
- * is about the predicate alone; the scan at the end shows the bootloader
- * passes that constant. */
+ * is about the predicate alone. The scan at the end shows the bootloader
+ * passes that constant, and reads flash.h to show it still has this value. */
 #define FLASH_TOP 0x80000u
+
+/* The sector the application region starts in, LPC_SMALL_SECTOR_SIZE in
+ * flash.h, which the host's SECTOR_SIZE has to match: ubertooth-dfu writes
+ * that many bytes as the last step of a download, and the erase the
+ * bootloader does covers exactly one sector. Read out of flash.h below too.
+ */
+#define FIRST_SECTOR_SIZE 0x1000u
 
 /* The first two words of a real image, read out of the bluetooth_rxtx.bin
  * this tree builds. The stack pointer is _StackTop, the top of the 16 KiB the
@@ -134,6 +142,19 @@ MU_TEST(the_ends_of_the_application_region_are_startable)
 
 /* ---- the stack pointer -------------------------------------------------- */
 
+/* A stack in the AHB SRAM is accepted too. No image in this tree links that
+ * way, but one outside it could, and refusing it would leave a board waiting
+ * in DFU for an image it already has. */
+MU_TEST(a_stack_pointer_in_the_ahb_ram_is_startable)
+{
+	mu_assert(app_image_startable(APP_AHB_RAM_BASE + 0x4000u,
+	                              REAL_RESET_VECTOR, FLASH_TOP),
+	          "a stack pointer in the AHB SRAM was refused");
+	mu_assert(app_image_startable(APP_AHB_RAM_LIMIT, REAL_RESET_VECTOR,
+	                              FLASH_TOP),
+	          "a stack pointer at the top of the AHB SRAM was refused");
+}
+
 MU_TEST(a_stack_pointer_outside_ram_is_not_startable)
 {
 	/* Below RAM: flash, and the one word of it the processor would push to
@@ -222,7 +243,8 @@ MU_TEST(the_bootloaders_own_bound_is_the_familys_not_the_parts)
 
 /* bootloader.cpp with its comments and string literals stripped, so a scan
  * cannot match text that is not code. */
-static void read_bootloader_source(char *out, size_t size)
+static void read_bootloader_source_keeping(char *out, size_t size,
+                                           int keep_strings)
 {
 	FILE *file = fopen(FW_BOOTLOADER_DIR "/bootloader.cpp", "r");
 	char line[SCAN_LINE_MAX];
@@ -240,7 +262,8 @@ static void read_bootloader_source(char *out, size_t size)
 		size_t length;
 
 		strip_comments(line, &in_block);
-		strip_string_literals(line);
+		if (!keep_strings)
+			strip_string_literals(line);
 		length = strlen(line);
 		if (used + length + 1 >= size)
 			break;
@@ -250,6 +273,11 @@ static void read_bootloader_source(char *out, size_t size)
 	}
 	fclose(file);
 	mu_assert(used > 0, "bootloader.cpp read as nothing");
+}
+
+static void read_bootloader_source(char *out, size_t size)
+{
+	read_bootloader_source_keeping(out, size, 0);
 }
 
 /* The whole point of the predicate is that it runs before the jump. The jump
@@ -273,6 +301,89 @@ MU_TEST(run_application_checks_before_it_jumps)
 	mu_assert_fatal(check != NULL,
 	                "run_application() does not check the image");
 	mu_assert(check < jump, "run_application() jumps before it checks");
+}
+
+/* The jump loads its address as a number of its own, so the check has to be
+ * about the same address. 16384 is 0x4000. The jump is assembly inside a
+ * string literal, so this is the one scan here that keeps literals. */
+MU_TEST(the_check_and_the_jump_use_the_same_address)
+{
+	static char source[200000];
+	char collapsed[200000];
+
+	mu_assert_int_eq(16384, APP_IMAGE_BASE);
+	read_bootloader_source_keeping(source, sizeof(source), 1);
+	collapse_spaces(source, collapsed, sizeof(collapsed));
+	mu_assert(strstr(collapsed, "movw r3, #16384") != NULL,
+	          "the jump no longer loads the address the check reads");
+}
+
+/* The numbers this test and the host both copy out of flash.h, read back out
+ * of flash.h: a change there has to reach them rather than leave this suite
+ * passing while it describes something else. flash.h is not included here
+ * because it pulls in the In-Application Programming code. */
+static unsigned long flash_h_define(const char *name)
+{
+	FILE *file = fopen(FW_BOOTLOADER_DIR "/flash.h", "r");
+	char line[SCAN_LINE_MAX];
+	unsigned long value = 0;
+	int in_block = 0;
+
+	if (file == NULL) {
+		mu_assert(0, "cannot read flash.h");
+		return 0;
+	}
+	while (fgets(line, sizeof(line), file) != NULL) {
+		char *at;
+
+		strip_comments(line, &in_block);
+		if (strncmp(line, "#define ", 8) != 0)
+			continue;
+		at = line + 8;
+		while (*at == ' ')
+			at++;
+		if (strncmp(at, name, strlen(name)) != 0 ||
+		    is_ident_char(at[strlen(name)]))
+			continue;
+		value = strtoul(at + strlen(name), NULL, 0);
+		break;
+	}
+	fclose(file);
+	return value;
+}
+
+MU_TEST(the_bound_and_the_sector_size_match_flash_h)
+{
+	mu_assert_int_eq(FLASH_TOP, flash_h_define("LPC_FLASH_SIZE_FALLBACK"));
+	mu_assert_int_eq(FIRST_SECTOR_SIZE,
+	                 flash_h_define("LPC_SMALL_SECTOR_SIZE"));
+}
+
+/* ...and the host writes that same sector size as the last step of a
+ * download. The two are separate constants in separate trees, and the order
+ * only works while they agree, so the host's is read here as text. */
+MU_TEST(the_hosts_sector_size_matches_the_firmwares)
+{
+	FILE *file = fopen(HOST_DFU_DIR "/dfu.h", "r");
+	char line[SCAN_LINE_MAX];
+	int found = 0;
+	int in_block = 0;
+
+	mu_assert_fatal(file != NULL, "cannot read the host's dfu.h");
+	while (fgets(line, sizeof(line), file) != NULL) {
+		char collapsed[SCAN_LINE_MAX];
+
+		strip_comments(line, &in_block);
+		collapse_spaces(line, collapsed, sizeof(collapsed));
+		/* 1<<12 is 0x1000. Matched as text because the host spells it as a
+		 * shift: a reader who changes it has to come here. */
+		if (strcmp(collapsed, "#define SECTOR_SIZE (1<<12)") == 0)
+			found = 1;
+	}
+	fclose(file);
+	mu_assert(found, "the host's SECTOR_SIZE is no longer (1<<12), which is "
+	          "the sector the bootloader erases");
+	mu_assert_int_eq(0x1000u, FIRST_SECTOR_SIZE);
 }
 
 /* And a board with nothing to start has to end up somewhere useful: main()
@@ -306,12 +417,16 @@ int main(void)
 	MU_RUN(the_ends_of_the_application_region_are_startable);
 	MU_RUN(a_stack_pointer_outside_ram_is_not_startable);
 	MU_RUN(a_stack_pointer_at_the_top_of_ram_is_startable);
+	MU_RUN(a_stack_pointer_in_the_ahb_ram_is_startable);
 	MU_RUN(an_unaligned_stack_pointer_is_not_startable);
 	MU_RUN(a_reset_vector_without_the_thumb_bit_is_not_startable);
 	MU_RUN(a_reset_vector_outside_the_application_region_is_not_startable);
 	MU_RUN(a_reset_vector_past_the_given_bound_is_not_startable);
 	MU_RUN(the_bootloaders_own_bound_is_the_familys_not_the_parts);
 	MU_RUN(run_application_checks_before_it_jumps);
+	MU_RUN(the_check_and_the_jump_use_the_same_address);
+	MU_RUN(the_bound_and_the_sector_size_match_flash_h);
+	MU_RUN(the_hosts_sector_size_matches_the_firmwares);
 	MU_RUN(main_runs_the_bootloader_when_there_is_nothing_to_start);
 	return mu_report();
 }

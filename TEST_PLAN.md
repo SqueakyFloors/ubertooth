@@ -233,7 +233,7 @@ for the reason given in 2f.*
       part the bootloader's table has no entry for. Every board shipped is
       built from a listed part
 
-### 2g2. An interrupted download leaves the board in DFU
+### 2g-1. An interrupted download leaves the board in DFU
 
 *Needs a board at the bench and the same ISP or JTAG requirement as 2f, since
 the half that refuses to start an application is in the bootloader. It is a

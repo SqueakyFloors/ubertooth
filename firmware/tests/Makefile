@@ -414,13 +414,16 @@ $(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
 # app_image.h reads no hardware, so the check that decides whether the
 # bootloader starts an application compiles here as it is. The jump it guards
 # is two instructions of assembly, so the test also reads bootloader.cpp as
-# text to show the check is in front of them: that source is a prerequisite,
-# or editing it would leave the scan unrun.
+# text to show the check is in front of them. It also reads flash.h and the
+# host's dfu.h for the two constants the write order depends on, so all three
+# sources are prerequisites, or editing one would leave the scan that guards
+# it unrun.
 $(BINDIR)/test_bootloader_app_image: test_bootloader_app_image.cpp \
 		minunit.h source_scan.h $(FW_BOOT)/app_image.h \
-		$(FW_BOOT)/bootloader.cpp | $(BINDIR)
+		$(FW_BOOT)/bootloader.cpp $(FW_BOOT)/flash.h \
+		$(HOST_DFU)/dfu.h | $(BINDIR)
 	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
-		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -DHOST_DFU_DIR='"$(HOST_DFU)"' \
 		-o $@ test_bootloader_app_image.cpp
 # Seven pieces of arithmetic that are wrong but that nothing in the tree can
 # reach. Every one of them lives in a translation unit that talks to hardware,

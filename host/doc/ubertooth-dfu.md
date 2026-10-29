@@ -105,9 +105,9 @@ for flash the part has not got.
 A `-d` that stops part way through -- a cable pulled, a board that leaves the
 bus, a host that dies -- leaves a board with no application to start rather
 than a broken one. The first 256 bytes of the application region hold the
-vector table the board starts from, and they are written twice: blank at the
-start of the transfer, so there is nothing to start while the image goes in,
-and with the real vector table at the end of it. A bootloader built from this
+vector table the board starts from, and they are written twice: blank first,
+so there is nothing to start while the rest of the image goes in, and with the
+real vector table in the last step of the transfer. A bootloader built from this
 tree finds the blank table, refuses to jump, and waits in DFU for another
 image, so a flash that failed is followed by another `ubertooth-dfu -d`. A
 board carrying an earlier bootloader jumps into the blank table instead and
