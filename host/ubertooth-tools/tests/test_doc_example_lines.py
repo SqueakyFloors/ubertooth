@@ -45,8 +45,11 @@ the test.
 
 What this does not catch:
 
-  * every number is a wildcard, so a figure a page shows is never checked,
-    even one that does not vary;
+  * every number is a wildcard, sign and all, so a figure a page shows is
+    never checked, even one that does not vary, and `(libusb -3)` reads the
+    same as `(libusb 3)`;
+  * `<...>` on a page is read as a placeholder, even where a tool prints
+    those angle brackets, as the usage text does in `-U <index|serial>`;
   * a message a library builds, which a test pins without its prefix, is
     covered whichever of `error:`, `warning:` and `note:` the page shows it
     with;
@@ -104,7 +107,7 @@ VOLATILE = re.compile(
     r'|\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){4,5}\b'
     r"|'[0-9a-f]{2,32}'"          # a serial, or the start of one, in quotes
     r'|0x[0-9A-Fa-f]+'
-    r'|\b\d+(?:\.\d+)*\b')
+    r'|-?\b\d+(?:\.\d+)*\b')      # a number, sign and all
 
 # A line a tool prints: a diagnostic, or a report line with a label. The
 # wildcard form is for a test that holds the level in a conversion.
@@ -125,7 +128,7 @@ EVERY = 6
 
 # A floor on how many example lines this finds, so a change to the patterns
 # above cannot leave the check passing having looked at nothing.
-AT_LEAST = 60
+AT_LEAST = 95
 
 # The documented lines no host test pins, with why. Each entry is the page and
 # the line as it appears there.
@@ -292,10 +295,9 @@ def without_prose(text, python):
         # A group matched only for a comment; a literal matches group 0 alone.
         return ' ' if match.lastindex else match.group(0)
 
-    text = C_PROSE.sub(replace, text)
-    if python:
-        text = PY_PROSE.sub(replace, text)
-    return text
+    # One or the other, never both: Python's floor division is C's comment
+    # marker, and C sources have no `#` comments to find.
+    return (PY_PROSE if python else C_PROSE).sub(replace, text)
 
 
 def pinned_patterns(text, python=False):
@@ -387,22 +389,24 @@ def pinned_lines(host_src):
 def documented_lines(doc):
     """The example output lines the man pages show, with their place.
 
-    An indented run of lines is an example block unless the line above it
-    starts a list item, in which case the indented lines are that item's
-    prose -- the description of an option, which no tool prints. A couple of
-    those descriptions are indented four spaces where their neighbours use
-    three, so indentation alone does not tell them apart.
+    An indented run of lines is an example block unless it comes straight
+    after a list item, in which case it is that item's prose -- the
+    description of an option, which no tool prints. A couple of those
+    descriptions are indented four spaces where their neighbours use three,
+    so indentation alone does not tell them apart. A blank line ends the
+    item, so an example block under one is read as an example block.
     """
     found = []
     for path in sorted(glob.glob(os.path.join(doc, "*.md"))):
         with open(path, encoding="utf-8", errors="replace") as handle:
             in_list_item = False
             for number, raw in enumerate(handle, 1):
+                if LIST_ITEM.match(raw):
+                    # However far in the bullet itself is indented.
+                    in_list_item = True
+                    continue
                 if not INDENTED.match(raw):
-                    # A blank line inside a list item does not end it: the
-                    # paragraph after it belongs to the same item.
-                    if raw.strip():
-                        in_list_item = LIST_ITEM.match(raw) is not None
+                    in_list_item = False
                     continue
                 if in_list_item:
                     continue
@@ -459,13 +463,15 @@ def tied_down_by(pinned, line):
 
 
 def variants(line):
-    """Near-misses of the line: two letters pushed into one of its words.
+    """Near-misses of the line: a word changed, a character taken out.
 
-    Every few characters of every run of text the page promises, so a change
-    lands on text rather than inside a placeholder, and no stretch of the
-    line is far enough from a change to go unexamined. These stand for the
-    reworded page this check exists to fail on, and a pattern has to reject
-    all of them to count as holding the line down.
+    Both are made every few characters of every run of text the page
+    promises, so a change lands on text rather than inside a placeholder.
+    Taking a character out matters as much as adding one, because a page can
+    lose a word next to a field a test leaves open -- `(libusb -3)` written
+    as `(libusb 3)` -- and the open field would swallow the difference.
+    These stand for the reworded page this check exists to fail on, and a
+    pattern has to reject all of them to count as holding the line down.
     """
     made = []
     at = 0
@@ -473,9 +479,10 @@ def variants(line):
         at = line.find(run, at)
         if at < 0:
             break
-        for offset in range(2, len(run) - 1, EVERY):
+        for offset in range(1, len(run), EVERY):
             into = at + offset
             made.append(line[:into] + "zq" + line[into:])
+            made.append(line[:into] + line[into + 1:])
         at += len(run)
     return made
 

@@ -1226,13 +1226,19 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		if (wanted_back)
 			break;
 		/* A whole 64-byte packet is a packet, whichever of the two
-		 * statuses came with it: libusb reports a transfer that received
-		 * every byte asked for as completed, and it can also report the
-		 * timeout expiring on that same transfer, and the packet in the
-		 * buffer is a packet either way. How many bytes arrived is this
-		 * transfer's own count and not the last one's: libusb writes
-		 * actual_length as it completes a transfer, every time, before
-		 * it calls this, so a slot nothing filled in cannot read full.
+		 * statuses came with it.
+		 *
+		 * libusb calls a transfer that received every byte asked for
+		 * completed, which is what a packet almost always arrives as.
+		 * The same transfer can come back as timed out instead, because
+		 * the timeout and the transfer finishing are a race: the packet
+		 * arrived, and the timer had already gone off. Either way the
+		 * buffer holds a packet.
+		 *
+		 * The count of bytes is this transfer's own and not the last
+		 * one's, because libusb writes actual_length as it completes a
+		 * transfer, every time, before calling this. So a slot nothing
+		 * filled in cannot read as a full one.
 		 *
 		 * Short of 64 bytes is not a packet. When a capture goes quiet
 		 * the firmware answers the bulk endpoint with a one-byte
