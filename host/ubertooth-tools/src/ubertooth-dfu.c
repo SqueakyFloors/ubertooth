@@ -1098,43 +1098,167 @@ int dfu_get_status(libusb_device_handle* devh) {
 	return 0;
 }
 
-int download(libusb_device_handle* devh, FILE* downfile) {
-	int address, length, block, rv, block_count=1;
+/* One block of the image, index counted from its start. A block the file ends
+ * part way through is padded out with 0xFF -- what flash reads as once it is
+ * erased, so the padding programs nothing. Returns 0 when the file would not
+ * seek there or gave no bytes at all, which the caller treats as a read that
+ * failed: how many blocks the image has is settled before any of this is
+ * sent, so every index asked for here is one the file has. */
+static int read_image_block(FILE* downfile, int index, uint8_t* buffer)
+{
+	size_t got;
+
+	if (fseek(downfile, (long)index * BLOCK_SIZE, SEEK_SET) != 0)
+		return 0;
+	got = fread(buffer, 1, BLOCK_SIZE, downfile);
+	if (got == 0)
+		return 0;
+	memset(buffer + got, 0xFF, BLOCK_SIZE - got);
+	return 1;
+}
+
+/* Send one block to the bootloader and read the status it left behind. Both
+ * have to succeed for the block to be in flash, so anything but 0 back from
+ * here means the download stopped where it was. blocks_sent counts the blocks
+ * that did go through, which is what the rows of progress dots are broken on.
+ */
+static int send_block(libusb_device_handle* devh, int block, uint8_t* buffer,
+                      int* blocks_sent)
+{
+	int rv;
+
+	rv = libusb_control_transfer(devh, DFU_OUT, REQ_DNLOAD, block, 0,
+	                             buffer, BLOCK_SIZE, 1000);
+	if (rv < 0) {
+		end_progress_row();
+		report_dfu_block_failure("write block", block, rv);
+		return rv;
+	}
+	rv = dfu_get_status(devh);
+	if (rv < 0)
+		return rv;
+	/* A dot per block written, on standard error with the rest of the
+	 * progress, 40 to a row. */
+	progress_dot();
+	(*blocks_sent)++;
+	if (*blocks_sent % 40 == 0)
+		end_progress_row();
+	return 0;
+}
+
+/* Read block index of the image and send it to the block of flash that holds
+ * it. Reports what went wrong and returns negative either way, so the caller
+ * only has to stop. */
+static int send_image_block(libusb_device_handle* devh, FILE* downfile,
+                            int first_block, int index, int* blocks_sent)
+{
 	uint8_t buffer[BLOCK_SIZE];
-	address = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
-	block = address / BLOCK_SIZE;
-	fseek(downfile, 0, SEEK_SET);
+
+	if (!read_image_block(downfile, index, buffer)) {
+		end_progress_row();
+		fprintf(stderr, "error: download failed: could not read block %d of "
+		        "the image\n", index);
+		return -1;
+	}
+	return send_block(devh, first_block + index, buffer, blocks_sent);
+}
+
+/* Write the image to the application region in an order that leaves nothing
+ * startable behind if the download stops part way through.
+ *
+ * The region's first block holds the vector table: the initial stack pointer
+ * and the reset vector that decide where a board goes when it is powered up.
+ * Written first, as it used to be, it is in place for the whole of the
+ * transfer, so a download that stops -- a cable pulled, a board that leaves
+ * the bus, a host that dies -- leaves a board that starts an application
+ * missing the rest of itself. It faults on every power-up from then on, and
+ * only bridging the bootloader entry pin at the bench brings it back.
+ *
+ * So the vector table goes away first and is written last:
+ *
+ *   1. the first block is written as erased flash (0xFF), which leaves no
+ *      stack pointer and no reset vector for anything to start from;
+ *   2. every block above the first sector is written;
+ *   3. the first sector is written, the vector table with it.
+ *
+ * Step 1 is also what erases the first sector, and that is why step 3 writes
+ * the whole sector rather than the vector table on its own: the bootloader
+ * erases a sector when the block at the start of it is written
+ * (firmware/bootloader/flash.h, Flash::write), so a second write to the
+ * region's first block would erase the fifteen blocks after it. A board in
+ * the field has no request that programs without erasing, and this tool has
+ * to keep working with the bootloader already on the board.
+ *
+ * That leaves one window, in step 3: an interruption after the vector table
+ * and before the end of that 4 KiB sector still leaves a startable vector
+ * table in front of a sector that is only partly written. Everything before
+ * it -- all of a download bar its last few blocks -- now leaves a board whose
+ * bootloader finds nothing to start and waits in DFU for another image.
+ */
+/* Step 3 writes SECTOR_SIZE worth of blocks and relies on that being the
+ * whole of the sector the region starts in, so that the erase its first block
+ * triggers is followed by the rest of that sector's contents. The family's
+ * sectors are 4 KiB over the first 64 KiB and 32 KiB above that
+ * (firmware/bootloader/flash.h), so a region starting at or above 64 KiB
+ * would sit in a 32 KiB sector: the alignment check in download() would still
+ * pass and step 3 would then leave 28 KiB erased behind a written vector
+ * table. Today the region starts at 0x4000, well inside the 4 KiB range. */
+_Static_assert(BOOTLOADER_OFFSET + BOOTLOADER_SIZE + SECTOR_SIZE <= 0x10000,
+               "the application region must start in a SECTOR_SIZE sector");
+
+int download(libusb_device_handle* devh, FILE* downfile) {
+	const int first_block = (BOOTLOADER_OFFSET + BOOTLOADER_SIZE) / BLOCK_SIZE;
+	const int sector_blocks = SECTOR_SIZE / BLOCK_SIZE;
+	int address = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
+	uint8_t buffer[BLOCK_SIZE];
+	int blocks_sent = 0;
+	int image_blocks, index, rv;
+	long image_length;
 
 	if ((address & (SECTOR_SIZE - 1)) != 0) {
 		fprintf(stderr, "error: download failed: must start at sector boundary\n");
 		return -1;
 	}
 
+	/* How many blocks there are to write, settled before anything is sent so
+	 * that the order below can address them in any order it likes. The image
+	 * has already been read whole and checked by this point, so a size that
+	 * will not read here is a file that changed under the tool. */
+	if (fseek(downfile, 0, SEEK_END) != 0 ||
+	    (image_length = ftell(downfile)) <= 0) {
+		fprintf(stderr, "error: download failed: could not measure the image\n");
+		return -1;
+	}
+	image_blocks = (int)((image_length + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
 		fprintf(stderr, "error: download failed: could not enter DFU mode\n");
 		return rv;
 	}
-	while((length=fread(buffer, 1, BLOCK_SIZE, downfile))) {
-		for(;length<BLOCK_SIZE;length++)
-			buffer[length] = 0xFF;
-		rv = libusb_control_transfer(devh, DFU_OUT, REQ_DNLOAD, block, 0,
-		                             buffer, BLOCK_SIZE, 1000);
-		if (rv < 0) {
-			end_progress_row();
-			report_dfu_block_failure("write block", block, rv);
-			return rv;
-		}
-		rv = dfu_get_status(devh);
+
+	/* Step 1: no vector table, so nothing is startable from here until step 3
+	 * has finished. */
+	memset(buffer, 0xFF, sizeof(buffer));
+	rv = send_block(devh, first_block, buffer, &blocks_sent);
+	if (rv < 0)
+		return rv;
+
+	/* Step 2: everything above the first sector. */
+	for (index = sector_blocks; index < image_blocks; index++) {
+		rv = send_image_block(devh, downfile, first_block, index,
+		                      &blocks_sent);
 		if (rv < 0)
 			return rv;
-		/* A dot per block written, on standard error with the rest of the
-		 * progress, 40 to a row. */
-		progress_dot();
-		if (block_count % 40 == 0)
-			end_progress_row();
-		block++;
-		block_count++;
+	}
+
+	/* Step 3: the first sector, the vector table first because the erase
+	 * goes with it. */
+	for (index = 0; index < sector_blocks && index < image_blocks; index++) {
+		rv = send_image_block(devh, downfile, first_block, index,
+		                      &blocks_sent);
+		if (rv < 0)
+			return rv;
 	}
 	end_progress_row();
 	return 0;

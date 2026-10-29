@@ -233,6 +233,32 @@ for the reason given in 2f.*
       part the bootloader's table has no entry for. Every board shipped is
       built from a listed part
 
+### 2g-1. An interrupted download leaves the board in DFU
+
+*Needs a board at the bench and the same ISP or JTAG requirement as 2f, since
+the half that refuses to start an application is in the bootloader. It is a
+destructive test: a board that ends up elsewhere needs the entry pin bridged
+(pins 1 and 3 of P4 on an Ubertooth One), so run it only on a board you can
+reach.*
+
+- [ ] Install `firmware/bootloader/bootloader.hex` over ISP or JTAG
+- [ ] Flash the application with
+      `ubertooth-dfu -U <serial> -d bluetooth_rxtx.dfu -r` and confirm
+      `ubertooth-util -U <serial> -v` reports the revision just written
+- [ ] Start the same flash again and interrupt it part way through, before its
+      last row of dots: unplug the board, or kill `ubertooth-dfu`
+- [ ] Power-cycle the board with the entry pin left alone
+- [ ] Confirm: it comes up as the bootloader, USB ID `1d50:6003`, with the
+      chasing LED pattern, and not as the application; `ubertooth-util -v`
+      finds no board
+- [ ] Run `ubertooth-dfu -d bluetooth_rxtx.dfu -r`, with no `-U` for the
+      reason given in 2f
+- [ ] Confirm: the flash succeeds and the board comes back running the
+      application, so a board left this way is recovered over USB
+- [ ] Known gap: an interruption inside the last 4 KiB leaves a startable
+      half-written image, because the sector holding the vector table has to
+      be written as a whole. Such a board does need the entry pin
+
 ### 2h. Flashing back off the btbr image
 
 *Needs a board that can be reached at the bench: a run that leaves it in the

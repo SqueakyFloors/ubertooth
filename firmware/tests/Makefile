@@ -22,7 +22,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 
 .PHONY: all test clean
@@ -410,6 +410,21 @@ $(BINDIR)/test_bootloader_flash_bounds: test_bootloader_flash_bounds.cpp \
 	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -DHOST_DFU_DIR='"$(HOST_DFU)"' \
 		-o $@ test_bootloader_flash_bounds.cpp
+
+# app_image.h reads no hardware, so the check that decides whether the
+# bootloader starts an application compiles here as it is. The jump it guards
+# is two instructions of assembly, so the test also reads bootloader.cpp as
+# text to show the check is in front of them. It also reads flash.h and the
+# host's dfu.h for the two constants the write order depends on, so all three
+# sources are prerequisites, or editing one would leave the scan that guards
+# it unrun.
+$(BINDIR)/test_bootloader_app_image: test_bootloader_app_image.cpp \
+		minunit.h source_scan.h $(FW_BOOT)/app_image.h \
+		$(FW_BOOT)/bootloader.cpp $(FW_BOOT)/flash.h \
+		$(HOST_DFU)/dfu.h | $(BINDIR)
+	$(CXX) $(CXXFLAGS) -I$(FW_BOOT) $(CPPFLAGS) \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -DHOST_DFU_DIR='"$(HOST_DFU)"' \
+		-o $@ test_bootloader_app_image.cpp
 # Seven pieces of arithmetic that are wrong but that nothing in the tree can
 # reach. Every one of them lives in a translation unit that talks to hardware,
 # so this test links no firmware source: it checks each contract on its own and

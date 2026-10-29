@@ -96,9 +96,30 @@ program a sector the part does not have, which fails. Either way everything
 sent before that point is already written, and all this tool sees of the
 refusal is the stall, which it reports as
 `error: could not write block 164: the board's firmware does not support it
-(stalled, libusb -9)`: the board is left running an application missing its
-tail, after a message that says nothing about flash sizes. It is the same
-cause as the read-back bound: asking for flash the part has not got.
+(stalled, libusb -9)`, a message that says nothing about flash sizes. Blocks
+below that point are already written, so the board holds part of an image: the
+order described below means it holds no vector table either, so there is
+nothing for it to start. It is the same cause as the read-back bound: asking
+for flash the part has not got.
+
+A `-d` that stops part way through -- a cable pulled, a board that leaves the
+bus, a host that dies -- leaves a board with no application to start rather
+than a broken one. The first 256 bytes of the application region hold the
+vector table the board starts from, and they are written twice: blank first,
+so there is nothing to start while the rest of the image goes in, and with the
+real vector table in the last step of the transfer. A bootloader built from this
+tree finds the blank table, refuses to jump, and waits in DFU for another
+image, so a flash that failed is followed by another `ubertooth-dfu -d`. A
+board carrying an earlier bootloader jumps into the blank table instead and
+stops there, so it needs the same trip to the bench it always did; a
+bootloader is installed with ISP or JTAG rather than over USB, so this part of
+the fix reaches a board only when someone puts it there.
+
+One window remains, in the last 4 KiB. The bootloader erases a flash sector
+when the first block of it is written, so the sector holding the vector table
+has to be written as a whole, vector table first, and an interruption inside
+it still leaves a board that starts a partly written image. That board has to
+be recovered at the bench, as MANUALLY ENTERING BOOTLOADER below describes.
 
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the
