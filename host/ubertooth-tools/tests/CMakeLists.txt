@@ -318,7 +318,11 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_uap_record.py
 		$<TARGET_FILE:ubertooth-rx>)
-set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 10)
+# About 0.7 s on an idle machine. The old ten seconds matched the test's own
+# per-replay deadline, so a loaded machine was cut off here with nothing said
+# and a hang was never reported by the test. A minute leaves that deadline room
+# to fire first and say so.
+set_tests_properties(rx-uap-record PROPERTIES TIMEOUT 60)
 
 add_executable(test-btle-options
 	test_btle_options.c
@@ -343,6 +347,10 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_ego_cli.py
 		$<TARGET_FILE:ubertooth-ego>)
+# About 0.55 s on an idle machine, over five short runs. A minute leaves the
+# test's own ten-second per-run deadline room to fire first and say which run
+# timed out.
+set_tests_properties(ego-cli PROPERTIES TIMEOUT 60)
 
 add_executable(test-util-report
 	test_util_report.c

@@ -192,9 +192,9 @@ ENVIRONMENT = dict(
 
 
 def wait_for_fake():
-    """Waits until the fake tool has written its arguments, which is how a
-    case knows the script has a child to pass a signal on to. True if it
-    started, False if the deadline passed first."""
+    """Wait until the fake tool has written its arguments, which is how a case
+    knows the script has a child to pass a signal on to. True if it started,
+    False if the deadline passed first."""
     deadline = time.monotonic() + RUN_TIMEOUT_S
     while time.monotonic() < deadline:
         if os.path.exists(ARGS_FILE):
@@ -755,7 +755,8 @@ for stop_with in (signal.SIGTERM, signal.SIGINT):
     # the child writes its arguments before it sleeps, so the file appearing
     # means it is running and the script has it to pass the signal on to
     if not wait_for_fake():
-        # nothing to stop, and the long-sleeping fake must not be left behind
+        # nothing to stop, so end the script rather than wait on it. The fake
+        # it may have started is left to finish its own sleep.
         stopped.kill()
         stopped.wait(timeout=RUN_TIMEOUT_S)
         raise AssertionError(
@@ -782,9 +783,13 @@ listing = subprocess.Popen(
     [sys.executable, SCRIPT, "--extcap-interfaces"],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     env=dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
-             # long enough to be stopped part-way, short enough that the fake
-             # is gone by the end of the test however the stop lands
-             FAKE_UTIL_SLEEP="3"))
+             # The stop has to land while the listing still waits on this
+             # sleep, and the few lines between seeing the fake start and
+             # sending the stop can themselves take seconds on a machine busy
+             # with parallel builds. Ten seconds covers that, and a fake that
+             # outlives the test only finishes its own sleep in a temporary
+             # directory.
+             FAKE_UTIL_SLEEP="10"))
 started = wait_for_fake()
 listing.terminate()
 output, errors = listing.communicate(timeout=RUN_TIMEOUT_S)
