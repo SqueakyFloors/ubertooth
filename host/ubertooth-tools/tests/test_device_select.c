@@ -542,6 +542,68 @@ MU_TEST(the_expected_image_and_an_unreadable_one_both_pass)
 	ubertooth_free(ut);
 }
 
+/* Runs ubertooth_check_image(ut) with stderr captured into msg. */
+static int check_image_capturing(ubertooth_t *ut, char *msg, size_t len)
+{
+	FILE *capture = tmpfile();
+	int saved = dup(fileno(stderr));
+	size_t n;
+	int result;
+
+	msg[0] = '\0';
+	if (capture == NULL || saved < 0) {
+		mu_assert(0, "capture stderr");
+		return 0;
+	}
+	fflush(stderr);
+	dup2(fileno(capture), fileno(stderr));
+	result = ubertooth_check_image(ut);
+	fflush(stderr);
+	dup2(saved, fileno(stderr));
+	close(saved);
+	rewind(capture);
+	n = fread(msg, 1, len - 1, capture);
+	msg[n] = '\0';
+	fclose(capture);
+	return result;
+}
+
+/* The image check on its own, which is what ubertooth-debug calls: it refuses
+ * the other image with the same message, and says nothing about the firmware
+ * version, so a board carrying an older revision of the right image is read
+ * as the debugging work it is. */
+MU_TEST(the_image_check_alone_ignores_the_firmware_version)
+{
+	char msg[512];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(1);
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION - 1;
+	fake.devs[1].image = "btbr";
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(-1, check_image_capturing(ut, msg, sizeof(msg)));
+	mu_assert(strcmp(msg,
+	                 "error: the Ubertooth is running btbr; this tool needs "
+	                 "bluetooth_rxtx\n"
+	                 "note: flash it with ubertooth-dfu -d "
+	                 "firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r\n")
+	          == 0, msg);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(0, fake.stops);
+	ubertooth_free(ut);
+
+	bus_with_ubertooths(1);
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION - 1;
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(0, check_image_capturing(ut, msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
+	mu_assert_int_eq(0, fake.closes);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+}
+
 MU_TEST(an_index_in_range_opens_that_device)
 {
 	char msg[256];
@@ -1680,6 +1742,7 @@ int main(void)
 {
 	MU_RUN(a_board_running_the_other_image_is_refused_by_name);
 	MU_RUN(the_expected_image_and_an_unreadable_one_both_pass);
+	MU_RUN(the_image_check_alone_ignores_the_firmware_version);
 	MU_RUN(an_index_in_range_opens_that_device);
 	MU_RUN(an_index_past_several_devices_opens_nothing);
 	MU_RUN(an_index_too_large_for_an_int_opens_nothing);

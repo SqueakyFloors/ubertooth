@@ -430,6 +430,24 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version);
  * -- which does nothing on a board already released -- and an
  * ubertooth_free(). */
 int ubertooth_check_api(ubertooth_t *ut);
+/* Whether the board runs the firmware image these tools drive,
+ * bluetooth_rxtx, rather than the other image this tree builds. Returns 0
+ * when the command may go on, or -1 for another image, already reported by
+ * name with the line that flashes the right one.
+ *
+ * This is the image half of ubertooth_check_api(), for a tool that drives
+ * whatever firmware version a board is carrying but still needs this image's
+ * requests: ubertooth-debug, which reads CC2400 registers. Every other tool
+ * gets it through ubertooth_check_api() and does not call this.
+ *
+ * A refused board is closed here, without a STOP, because no mode has been
+ * started and the other image may not answer STOP; the caller still owes the
+ * handle an ubertooth_close() -- which does nothing on a board already
+ * released -- and an ubertooth_free(). A board that would not say which image
+ * it runs returns 0 and is left open: firmware older than the info block
+ * cannot be told from a board too busy to answer the read, and the request
+ * that needs this image reports either one. */
+int ubertooth_check_image(ubertooth_t *ut);
 /* The environment variable that overrides what the build decides about
  * firmware of another API version: exactly "1" runs on, exactly "0" refuses,
  * and anything else -- including unset and empty -- leaves the build's own
