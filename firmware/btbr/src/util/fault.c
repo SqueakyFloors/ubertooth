@@ -137,7 +137,7 @@ static void dump_debug_registers(void)
 void HardFault_Handler(void)
 {
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
-	/* The part records no address for this one. */
+	/* The part keeps no address register for this one. */
 	watchdog_fault(SCB_HFSR, 0);
 	early_printf("HardFault at 0x%x\n", get_lr());
 	dump_debug_registers();
@@ -149,11 +149,12 @@ void MemManagement_Handler(void)
 	uint8_t mmsr = SCB_MMSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
-	/* Bit 7 of the status says the address register holds this fault's
-	 * address. The debug UART below prints the same registers, for a board
-	 * someone has a serial console on; the breadcrumb is what a board
-	 * plugged into a host alone can still report. */
-	watchdog_fault(mmsr, (mmsr & (1 << 7)) ? SCB_MMFAR : 0);
+	/* The address register as it stands; bit 7 of the status, which goes
+	 * with it, says whether it holds this fault's address. The debug UART
+	 * below prints the same registers, for a board someone has a serial
+	 * console on; the breadcrumb is what a board plugged into a host alone
+	 * can still report. */
+	watchdog_fault(mmsr, SCB_MMFAR);
 	early_printf("MMFault at 0x%x\n", get_lr());
 	dump_debug_registers();
 	blink_fault_code(FAULT_CODE_MEM);
@@ -164,7 +165,9 @@ void BusFault_Handler(void)
 	uint8_t bfsr = SCB_BFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
-	watchdog_fault(bfsr, (bfsr & (1 << 7)) ? SCB_BFAR : 0);
+	/* As the memory management fault above: the status says whether the
+	 * address register holds this fault's address. */
+	watchdog_fault(bfsr, SCB_BFAR);
 	early_printf("BusFault at %x\n", get_lr());
 	dump_debug_registers();
 	blink_fault_code(FAULT_CODE_BUS);
@@ -173,7 +176,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
-	/* The part records no address for this one. */
+	/* The part keeps no address register for this one. */
 	watchdog_fault(SCB_UFSR, 0);
 	early_printf("UsageFault at %x\n", get_lr());
 	dump_debug_registers();

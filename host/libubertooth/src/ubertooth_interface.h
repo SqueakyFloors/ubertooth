@@ -582,6 +582,12 @@ enum watchdog_site {
  */
 #define UBERTOOTH_WATCHDOG_INFO_LEN 18
 
+/* In watchdog_info.fault_status: the part's "the fault address register holds
+ * this fault's address" bit. It is bit 7 of the memory management and bus
+ * fault status registers, and reserved, reading zero, in the hard fault and
+ * usage fault ones, which have no address register. */
+#define UBERTOOTH_FAULT_ADDR_VALID 0x80
+
 /*
  * UBERTOOTH_GET_RADIO_TIMEOUTS's reply: how many times each shape of wait on
  * the CC2400 has given up since the board started, in this order, each as two
@@ -619,8 +625,12 @@ typedef struct {
 	 * reporting. */
 	uint16_t transfer_errors;
 	/* The last processor fault, which reset_site names: the fault status
-	 * register the handler read, and the address of the access, or zero
-	 * where the part records none. Both zero until a fault happens. */
+	 * register the handler read, and the part's fault address register.
+	 * Both zero until a fault happens. The address means something only
+	 * when the status has UBERTOOTH_FAULT_ADDR_VALID set: two of the four
+	 * faults keep no address register, and the two that do say in that bit
+	 * whether it holds this fault's address. Zero is a real address, so
+	 * that bit and not the address is what has to be read. */
 	uint32_t fault_status;
 	uint32_t fault_addr;
 } watchdog_info;

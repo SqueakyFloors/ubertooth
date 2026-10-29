@@ -19,7 +19,7 @@
 #include "../../../firmware/tests/minunit.h"
 #include "ubertooth_control.h"
 
-#define REPLY_MAX 17
+#define REPLY_MAX 32
 
 /* How many calls one scripted sequence can answer differently. The poll makes
  * at most three attempts, which is the longest run of calls any read here
@@ -449,11 +449,11 @@ MU_TEST(the_polled_reads_report_nothing)
 }
 
 /*
- * The watchdog state: eight bytes, read in the order the interface gives, and
- * a short reply leaves the caller's struct alone rather than filling it from
- * whatever the buffer held.
+ * The watchdog state: every byte of the reply, read in the order the interface
+ * gives, and a short reply leaves the caller's struct alone rather than
+ * filling it from whatever the buffer held.
  */
-MU_TEST(watchdog_state_needs_all_8_bytes)
+MU_TEST(watchdog_state_needs_the_whole_reply)
 {
 	watchdog_info info;
 
@@ -466,6 +466,12 @@ MU_TEST(watchdog_state_needs_all_8_bytes)
 	fake.reply[5] = WATCHDOG_SITE_XOSC;
 	fake.reply[6] = MODE_IDLE;
 	fake.reply[7] = WATCHDOG_SITE_NONE;
+	fake.reply[8] = 300 & 0xff;
+	fake.reply[9] = 300 >> 8;
+	fake.reply[10] = 0x82;
+	fake.reply[14] = 0x08;
+	fake.reply[15] = 0xc0;
+	fake.reply[17] = 0x40;
 	mu_assert_int_eq(0, cmd_get_watchdog(NULL, &info));
 	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.last_request);
 	mu_assert_int_eq(WATCHDOG_RESET_WATCHDOG, info.reset_cause);
@@ -476,6 +482,14 @@ MU_TEST(watchdog_state_needs_all_8_bytes)
 	mu_assert_int_eq(WATCHDOG_SITE_XOSC, info.reset_site);
 	mu_assert_int_eq(MODE_IDLE, info.mode);
 	mu_assert_int_eq(WATCHDOG_SITE_NONE, info.site);
+	/* The wider fields, low byte first: a transfer-error count of 300, and
+	 * a memory management fault at 0x4000c008 whose status says the address
+	 * register holds it. */
+	mu_assert_int_eq(300, info.transfer_errors);
+	mu_assert_int_eq(0x82, info.fault_status);
+	mu_assert(info.fault_status & UBERTOOTH_FAULT_ADDR_VALID,
+	          "the status does not say the address was recorded");
+	mu_assert_int_eq(0x4000c008, info.fault_addr);
 
 	memset(&info, 0x5a, sizeof(info));
 	script(UBERTOOTH_WATCHDOG_INFO_LEN - 1, 0x11);
@@ -794,7 +808,7 @@ int main(void)
 	MU_RUN(channel_needs_both_bytes);
 	MU_RUN(serial_needs_all_17_bytes);
 	MU_RUN(range_result_needs_all_5_bytes);
-	MU_RUN(watchdog_state_needs_all_8_bytes);
+	MU_RUN(watchdog_state_needs_the_whole_reply);
 	MU_RUN(radio_timeouts_are_read_little_endian);
 	MU_RUN(the_polled_reads_report_nothing);
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);

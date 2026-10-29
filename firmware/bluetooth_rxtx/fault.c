@@ -62,7 +62,8 @@ void HardFault_Handler(void) {
 	uint32_t val = SCB_HFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
-	/* The part records no address for these. */
+	/* As the usage fault below: no address register, and bit 7 of this
+	 * status is reserved and reads zero. */
 	watchdog_fault(val, 0);
 
 	while (1) {
@@ -86,12 +87,15 @@ void MemManagement_Handler(void) {
 	uint8_t mmsr = SCB_MMSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
-	/* Bit 7 says the address register holds the address of this fault. It
-	 * does not for an instruction fetch refused because the region is not
+	/* The address register as it stands: bit 7 of the status, which goes
+	 * with it, is what says whether it holds this fault's address. It does
+	 * not for an instruction fetch refused because the region is not
 	 * executable, which is the one way this part faults here without a
 	 * memory protection unit: a branch through a corrupted pointer or
-	 * return address. The status register is what says which it was. */
-	watchdog_fault(mmsr, (mmsr & (1 << 7)) ? SCB_MMFAR : 0);
+	 * return address. Passed rather than zeroed when that bit is clear,
+	 * because zero is also a real address -- a null pointer dereference,
+	 * which is what a fault in a capture mode is most likely to be. */
+	watchdog_fault(mmsr, SCB_MMFAR);
 
 	while (1) {
 		flash_leds(3);
@@ -115,10 +119,10 @@ void BusFault_Handler(void) {
 	uint8_t bfsr = SCB_BFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
-	/* Bit 7 says the address register holds this fault's address; it does
-	 * not for an imprecise fault, where the processor had moved on before
-	 * the bus reported the error. */
-	watchdog_fault(bfsr, (bfsr & (1 << 7)) ? SCB_BFAR : 0);
+	/* As above: bit 7 of the status says whether the address register holds
+	 * this fault's address. It does not for an imprecise fault, where the
+	 * processor had moved on before the bus reported the error. */
+	watchdog_fault(bfsr, SCB_BFAR);
 
 	while (1) {
 		flash_leds(4);
@@ -142,7 +146,8 @@ void UsageFault_Handler(void) {
 	uint16_t ufsr = SCB_UFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
-	/* The part records no address for these. */
+	/* The part keeps no address register for this fault, and bit 7 of its
+	 * status is reserved and reads zero, so the host prints no address. */
 	watchdog_fault(ufsr, 0);
 
 	while (1) {

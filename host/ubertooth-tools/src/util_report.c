@@ -322,7 +322,12 @@ void util_watchdog_cause_text(unsigned cause, char *text, size_t size)
 	text[size - 1] = '\0';
 }
 
-/* One of the reply's four-byte fields, low byte first. */
+/* The reply's wider fields, low byte first. */
+static unsigned util_le16(const uint8_t *at)
+{
+	return (unsigned)at[0] | ((unsigned)at[1] << 8);
+}
+
 static uint32_t util_le32(const uint8_t *at)
 {
 	return (uint32_t)at[0] | ((uint32_t)at[1] << 8) |
@@ -370,19 +375,20 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 		uint32_t fault_addr = util_le32(info + 14);
 
 		fprintf(out, "Last processor fault: status 0x%08x, ", fault_status);
-		/* The part records no address for a hard fault or a usage fault,
-		 * nor for an instruction fetch refused because the region cannot
-		 * be executed -- which is a branch through a corrupted pointer or
-		 * return address, and the one way a memory management fault
-		 * happens on a part with no memory protection unit. */
-		if (fault_addr != 0)
+		/* Bit 7 of the status is the board's "the address register holds
+		 * this fault's address" bit, in both of the two status registers
+		 * that have one; it is reserved and reads zero in the other two,
+		 * which have no address register at all. Read rather than
+		 * comparing the address against zero, because zero is a real
+		 * address -- a null pointer dereference records it. */
+		if (fault_status & UBERTOOTH_FAULT_ADDR_VALID)
 			fprintf(out, "the access was at 0x%08x\n", fault_addr);
 		else
 			fputs("no address recorded\n", out);
 	}
 
 	fprintf(out, "Capture transfer errors since power-on: %u\n",
-	        (unsigned)(info[8] | (info[9] << 8)));
+	        util_le16(info + 8));
 	return 0;
 }
 

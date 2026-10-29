@@ -1388,7 +1388,7 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	                "the connection was not followed, so there is no update "
 	                "to apply");
 	conn.last_anchor = 1000000;
-	conn.anchor_set = 1;
+	conn.anchor_error = 0;
 
 	/* An update to a 50 ms interval, a 3.75 ms window offset and a 2.5 ms
 	 * transmit window, at event 7. */
@@ -1410,11 +1410,13 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 
 	/* Then the event itself, on the new interval, with the whole window and
-	 * the longest packet to run in. */
+	 * the longest packet to run in. The counter is where that match put it:
+	 * the event opens a warmup before its window, and its deadline is
+	 * counted from there. */
+	fake_t1tc = expected_match;
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
-	expected_match = 1000000 + 24 * 12500 + 3 * 12500 + 2 * 12500 +
-	                 USEC(2120) + RX_WARMUP_TIME;
+	expected_match = fake_t1tc + 2 * 12500 + USEC(2120) + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 	mu_assert_int_eq(40 * 12500, conn.conn_interval);
 	mu_assert_int_eq(0, conn.conn_update_pending);
@@ -1430,7 +1432,7 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	 * anchored event gets the longest packet alone, and a window-long
 	 * deadline there would still be open when the next event was due. */
 	conn.last_anchor = 2000000;
-	conn.anchor_set = 1;
+	conn.anchor_error = 0;
 	reset_conn_event();
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
@@ -1486,7 +1488,7 @@ MU_TEST(the_first_event_of_a_connection_waits_out_the_whole_window)
 	/* The next event is anchored, so it gets the packet timeout alone: a
 	 * window-long one would still be open when the hop after it was due. */
 	conn.last_anchor = fake_t1tc;
-	conn.anchor_set = 1;
+	conn.anchor_error = 0;
 	reset_conn_event();
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
@@ -1853,7 +1855,7 @@ static void anchored_connection(uint32_t last_anchor)
 	conn.conn_interval = 24 * 12500;
 	conn.supervision_timeout = SEC(32);
 	conn.last_anchor = last_anchor;
-	conn.anchor_set = 1;
+	conn.anchor_error = 0;
 	conn.last_packet_ts = 1000;
 	fake_t1tc = 1000;
 	conn.conn_event_counter = 5;
@@ -1870,7 +1872,7 @@ MU_TEST(two_packets_in_an_event_anchor_it_where_they_arrived)
 	finish_conn_event();
 
 	mu_assert_int_eq(123456, conn.last_anchor);
-	mu_assert_int_eq(1, conn.anchor_set);
+	mu_assert_int_eq(0, conn.anchor_error);
 	mu_assert_int_eq(6, conn.conn_event_counter);
 	mu_assert_int_eq(0, conn_event.num_packets);
 	mu_assert_int_eq(0, conn_event.opened);
@@ -1919,7 +1921,7 @@ MU_TEST(a_silent_event_moves_the_anchor_on_by_one_interval)
 	finish_conn_event();
 
 	mu_assert_int_eq(100000 + 24 * 12500, conn.last_anchor);
-	mu_assert_int_eq(1, conn.anchor_set);
+	mu_assert_int_eq(0, conn.anchor_error);
 	/* The supervision timeout runs from the last packet, which this event
 	 * did not have, so that time must not move. */
 	mu_assert_int_eq(1000, conn.last_packet_ts);
@@ -1941,7 +1943,10 @@ MU_TEST(a_silent_event_moves_the_anchor_on_by_one_interval)
 MU_TEST(an_unmeasured_event_puts_its_one_packet_at_the_earliest_anchor)
 {
 	anchored_connection(100000);
-	conn.anchor_set = 0;
+	/* No packet has measured the anchor: the estimate is the transmit
+	 * window the connection named, so it can be a window early. */
+	conn.win_size = 5 * 12500;
+	conn.anchor_error = conn.win_size;
 	conn.last_anchor = 0;
 	conn_event.anchor = 55555;
 	conn_event.num_packets = 1;
@@ -1950,10 +1955,10 @@ MU_TEST(an_unmeasured_event_puts_its_one_packet_at_the_earliest_anchor)
 	finish_conn_event();
 
 	mu_assert_int_eq(55555 - PERIPHERAL_REPLY_LATEST, conn.last_anchor);
-	/* Still unmeasured: only an event that caught both packets, or one
-	 * whose packet landed where an established anchor said it would, says
-	 * where the anchor is. */
-	mu_assert_int_eq(0, conn.anchor_set);
+	/* Still unmeasured, and the estimate is now known to be within one
+	 * reply's distance: only an event that caught both packets, or one whose
+	 * packet landed where an established anchor said it would, measures it. */
+	mu_assert_int_eq(PERIPHERAL_REPLY_LATEST, conn.anchor_error);
 	mu_assert_int_eq(2000, conn.last_packet_ts);
 	/* The next event is one interval after that anchor. */
 	mu_assert_int_eq(55555 - PERIPHERAL_REPLY_LATEST + 24 * 12500 -
@@ -2081,6 +2086,34 @@ MU_TEST(an_overdue_estimate_skips_whole_intervals_and_counts_them)
 	mu_assert(fake_t1mr0 > fake_t1tc, "the next event was armed in the past");
 	/* One for the event that closed, four for the ones that went by. */
 	mu_assert_int_eq(5 + 1 + 4, conn.conn_event_counter);
+}
+
+/*
+ * ...and the same across the counter's wrap, which comes round every 429
+ * seconds and so inside any connection worth following.
+ *
+ * The comparison is a signed difference for that reason: an estimate a little
+ * past the end of the counter against a reading a little past its start has to
+ * read as "ahead by a little", not as "behind by 429 seconds".
+ */
+MU_TEST(the_overdue_test_holds_across_the_counters_wrap)
+{
+	/* An anchor just below the counter's end, and a reading just above its
+	 * start: half an interval has gone by, over the wrap. */
+	anchored_connection(0xffffffffu - (24 * 12500) / 2);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+	fake_t1tc = (24 * 12500) / 2;
+
+	finish_conn_event();
+
+	/* One interval on from the anchor, and nothing skipped: the next event
+	 * is still half an interval ahead. */
+	mu_assert_int_eq((uint32_t)(0xffffffffu - (24 * 12500) / 2) +
+	                 24 * 12500, conn.last_anchor);
+	mu_assert_int_eq(5 + 1, conn.conn_event_counter);
+	mu_assert_int_eq(conn.last_anchor + 24 * 12500 - RX_WARMUP_TIME,
+	                 fake_t1mr0);
 }
 
 /*
@@ -2317,6 +2350,7 @@ int main(void)
 	MU_RUN(an_empty_first_event_arms_the_next_one_ahead_of_the_counter);
 	MU_RUN(an_events_deadline_stops_short_of_the_next_event);
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
+	MU_RUN(the_overdue_test_holds_across_the_counters_wrap);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_failed_capture_transfer_is_counted);
 	MU_RUN(a_torn_down_phy_ignores_a_dma_interrupt);

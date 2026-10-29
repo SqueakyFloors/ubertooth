@@ -46,6 +46,11 @@
 // could be, because one packet alone does not say which of the two it was.
 #define PERIPHERAL_REPLY_LATEST (LONGEST_PACKET + USEC(150))
 
+// How far ahead of the counter a connection event's match has to be armed.
+// See timer1_arm_conn_event(): arming it closer than the few instructions
+// that arming takes would leave the match behind the counter.
+#define CONN_EVENT_ARM_MARGIN USEC(10)
+
 // observed connection anchor must be within ANCHOR_EPSILON of
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
@@ -214,14 +219,14 @@ typedef struct _le_conn_t {
 	// transmit window it named, and every event that closes either measures
 	// it or moves it on by one connection interval.
 	//
-	// anchor_set says whether a received packet has measured it. Until one
-	// has, it is the start of a transmit window rather than the connection's
-	// anchor point, so it can be as much as one window early -- never late,
-	// because the central's first packet cannot arrive before its window
-	// opens. Events armed from an unmeasured estimate are therefore given
-	// the whole window to run in.
+	// anchor_error is how much earlier than the estimate the real anchor
+	// could be, and zero once a received packet has measured it. Early is
+	// the only direction the estimate can be wrong in: neither the transmit
+	// window it starts from nor the reply that follows a packet can begin
+	// before the anchor. An event is given that much longer to run in, so
+	// the packet it is waiting for is still inside its deadline.
 	uint32_t last_anchor;
-	int      anchor_set;
+	uint32_t anchor_error;
 	uint32_t last_packet_ts; // used to check supervision timeout
 
 	uint16_t conn_event_counter;
@@ -326,16 +331,34 @@ static void reset_conn_event(void) {
 	conn_event.opened = 0;
 }
 
+// Has a received packet measured the connection's anchor point? Nothing has
+// to be allowed for in an event's deadline once one has.
+static int anchor_measured(void) {
+	return conn.anchor_error == 0;
+}
+
+// Has the connection reached the event a change was scheduled for?
+//
+// The counter is 16 bits wide and wraps, so the comparison is a signed
+// difference, as the specification's own "instant" rule is: an instant is
+// within 32767 events of where the connection is. At or past it, not equal to
+// it, because events can go by unobserved -- timer1_arm_conn_event() skips
+// whole intervals when the estimate has gone past, and the counter steps over
+// an instant with them. An equality test then left the change pending for the
+// rest of the connection, and the follow ran on parameters or a channel map
+// the connection had left behind.
+static int conn_event_reached(uint16_t instant) {
+	return (int16_t)(conn.conn_event_counter - instant) >= 0;
+}
+
 // How long a connection event is given to produce its packets, counted from
 // the moment the event opens.
 //
-// An anchored event needs one maximum-length packet's time and the receiver's
-// warmup: its packet is due within a few microseconds of where it was armed.
-// An event opened on an unmeasured estimate also has to cover how early that
-// estimate can be -- a whole transmit window on the first event under a set of
-// parameters, because the central's packet may arrive anywhere inside the
-// window, and PERIPHERAL_REPLY_LATEST once the estimate is being tracked from
-// single packets.
+// An event needs one maximum-length packet's time and the receiver's warmup,
+// plus however much earlier than the estimate its anchor could be: a whole
+// transmit window under parameters no packet has been seen under, one reply's
+// distance once the estimate comes from a single packet, and nothing once a
+// packet has measured the anchor.
 //
 // Never long enough to run into the next event's own arming, which is one
 // warmup before that event is due. At the shortest interval the specification
@@ -344,16 +367,14 @@ static void reset_conn_event(void) {
 // finish_conn_event() would then count two elapsed intervals as one connection
 // event. Every connection update and channel map instant is matched against
 // that count, so from there on each instant would be matched an event early.
+//
+// The clamp costs the end of the window in one case: the first event under the
+// shortest interval with the longest window the specification allows there.
+// That event closes about 1.5 ms before its window does, so a packet starting
+// in that last stretch is missed. Listening through the whole window and being
+// armed for the next event cannot both be done at those parameters.
 static uint32_t conn_event_deadline(void) {
-	uint32_t deadline = LONGEST_PACKET + RX_WARMUP_TIME;
-
-	if (!conn.anchor_set) {
-		uint32_t early = conn.win_size;
-
-		if (early < PERIPHERAL_REPLY_LATEST)
-			early = PERIPHERAL_REPLY_LATEST;
-		deadline += early;
-	}
+	uint32_t deadline = LONGEST_PACKET + RX_WARMUP_TIME + conn.anchor_error;
 
 	// Nothing to clamp against when no connection is being followed. That
 	// takes a match armed for something which is not a connection event,
@@ -376,9 +397,16 @@ static uint32_t conn_event_deadline(void) {
 // long as its whole interval, and an interrupt handler can hold the processor
 // across one. A match behind the counter is not reached until the counter
 // wraps, 429 seconds later, which leaves the receiver parked on one data
-// channel and the capture recording nothing. So the estimate skips whole
-// intervals until it is ahead, and the events skipped are counted: that count
-// is what every connection update and channel map instant is matched against.
+// channel and the capture recording nothing, with nothing to recover it: the
+// supervision timeout is only checked when an event closes. So the estimate
+// skips whole intervals until it is far enough ahead, and the events skipped
+// are counted -- that count is what every connection update and channel map
+// instant is matched against.
+//
+// Far enough ahead means CONN_EVENT_ARM_MARGIN, not simply ahead: the counter
+// runs while this function reads it, divides, and writes the match register,
+// so a match set a tick or two in front of it would be passed before it was
+// armed, and that is the same 429-second stall.
 static void timer1_arm_conn_event(void) {
 	uint32_t target;
 	int32_t behind;
@@ -391,9 +419,13 @@ static void timer1_arm_conn_event(void) {
 	target = conn.last_anchor + conn.conn_interval - RX_WARMUP_TIME;
 
 	// Signed, so this reads as "how far the counter is past the target"
-	// however either of them has wrapped.
-	behind = (int32_t)(NOW - target);
+	// however either of them has wrapped. The margin is added to it rather
+	// than subtracted from the target so that a target already within the
+	// margin counts as past.
+	behind = (int32_t)(NOW - target) + (int32_t)CONN_EVENT_ARM_MARGIN;
 	if (behind >= 0) {
+		// Strictly more than `behind`, so the target lands more than the
+		// margin ahead of the counter.
 		uint32_t skipped = (uint32_t)behind / conn.conn_interval + 1;
 
 		conn.last_anchor += skipped * conn.conn_interval;
@@ -432,7 +464,7 @@ static void finish_conn_event(void) {
 	}
 
 	// if there's one packet, we need to find out if it was the master
-	else if (conn_event.num_packets == 1 && conn.anchor_set) {
+	else if (conn_event.num_packets == 1 && anchor_measured()) {
 		// calculate the difference between the estimated and observed anchor
 		uint32_t estimated_anchor = conn.last_anchor + conn.conn_interval;
 		uint32_t delta = estimated_anchor - conn_event.anchor;
@@ -447,7 +479,7 @@ static void finish_conn_event(void) {
 	// if we observed a new anchor, set it
 	if (last_anchor_set) {
 		conn.last_anchor = last_anchor;
-		conn.anchor_set = 1;
+		conn.anchor_error = 0;
 	}
 
 	// One packet, with no measured anchor to put it against: it is either
@@ -457,8 +489,9 @@ static void finish_conn_event(void) {
 	// early is still open when its packet arrives, one armed late has
 	// missed it -- and tracking the estimate from single packets is what
 	// follows the peer's clock while no event has caught both packets.
-	else if (!conn.anchor_set && conn_event.num_packets > 0) {
+	else if (!anchor_measured() && conn_event.num_packets > 0) {
 		conn.last_anchor = conn_event.anchor - PERIPHERAL_REPLY_LATEST;
+		conn.anchor_error = PERIPHERAL_REPLY_LATEST;
 	}
 
 	// Nothing received: move the estimate on by one interval.
@@ -679,12 +712,13 @@ static void le_dma_interrupt(uint32_t timestamp) {
 		if (DMACIntErrStat & (1 << 0)) {
 			// TODO error state transition
 			DMACIntErrClr = (1 << 0);
-			// The packet being received is lost: its bytes stop here, so
-			// it never reaches its length and the event's deadline closes
-			// it. The engine recovers by itself -- the next event clears
-			// the buffer and arms receive again -- and this is what says
-			// it happened, since a capture missing packets this way reads
-			// as a quiet channel.
+			// The packet being received is lost, and this engine does
+			// nothing else about it: the deadline that would have closed
+			// the connection event was cleared when the packet's first
+			// byte arrived, and the timeout for the next packet is only
+			// armed where a packet ends, so neither is left to fire.
+			// Counting it is what makes that visible at all -- a capture
+			// that stops this way reads as a quiet channel.
 			watchdog_count_transfer_error();
 		}
 	}
@@ -985,7 +1019,7 @@ static void timer1_interrupt(void) {
 
 		// connection update procedure
 		if (conn.conn_update_pending &&
-				conn.conn_event_counter == conn.conn_update_instant) {
+				conn_event_reached(conn.conn_update_instant)) {
 
 			// on the first past through, handle the transmit window
 			// offset. if there's no offset, skip down to else block
@@ -1013,7 +1047,7 @@ static void timer1_interrupt(void) {
 
 				// this is like a new connection, so set all values
 				// accordingly
-				conn.anchor_set = 0;
+				conn.anchor_error = conn.win_size;
 				conn.conn_interval = conn.conn_update_pending_interval;
 				conn.supervision_timeout = conn.conn_update_pending_supervision_timeout;
 				conn.conn_update_pending = 0;
@@ -1030,8 +1064,12 @@ static void timer1_interrupt(void) {
 				// No packet has measured the anchor under the new
 				// parameters, so conn_event_deadline() gives this event
 				// the whole window, as it does the first event of a new
-				// connection.
-				timer1_set_match(window_opens + conn_event_deadline());
+				// connection. Counted from now, which is when the event
+				// opens, as the generic branch below does: counted from
+				// the window instead, the event would run a warmup longer
+				// than the deadline says and close exactly where the next
+				// event has to be armed.
+				timer1_set_match(NOW + conn_event_deadline());
 				change_channel();
 			}
 			return;
@@ -1039,7 +1077,7 @@ static void timer1_interrupt(void) {
 
 		// channel map update
 		if (conn.channel_map_update_pending &&
-				conn.conn_event_counter == conn.channel_map_update_instant) {
+				conn_event_reached(conn.channel_map_update_instant)) {
 			conn.remapping = conn.pending_remapping;
 			conn.channel_map_update_pending = 0;
 		}
@@ -1294,6 +1332,19 @@ static void le_connect_handler(le_rx_t *buf) {
 	if (cancel_follow)
 		cancel_follow = 0;
 
+	// Every connection starts from nothing, so that none of it is carried
+	// over from the last one this mode followed. A run stopped part way
+	// through a connection leaves that state behind -- the mode's teardown
+	// does not clear it -- and the next connection would otherwise be
+	// followed with the previous one's event counter, so every instant in
+	// it is matched thousands of events out, and with its hop position, its
+	// channel map and any change still waiting for an instant.
+	//
+	// The counter in particular has to start at zero: the specification
+	// counts a connection's events from there, and that is what the
+	// instants a connection names are counted in.
+	reset_conn();
+
 	conn.access_address     = extract_field(buf, 14, 4);
 	conn.crc_init           = extract_field(buf, 18, 3);
 	// CRCInit is a 24-bit field. rbit() reverses all 32 bits of the word, so
@@ -1336,7 +1387,7 @@ static void le_connect_handler(le_rx_t *buf) {
 	// stands in for one.
 	conn.last_anchor = buf->timestamp + PACKET_DURATION(buf) +
 			conn.win_offset + USEC(1250) - conn.conn_interval;
-	conn.anchor_set = 0;
+	conn.anchor_error = conn.win_size;
 
 	// The connection has delivered nothing yet, so its supervision timeout
 	// runs from the request that opened it. Without this, an empty first
@@ -1534,7 +1585,10 @@ void le_phy_main(void) {
 
 	current_rxbuf = buffer_get();
 	rf_channel = le_adv_channel; // FIXME
-	conn.access_address = ADVERTISING_AA;
+	// Not just the access address: the whole connection state, so a run
+	// stopped part way through a connection leaves nothing behind for this
+	// one to follow with.
+	reset_conn();
 	le_sys_init();
 	le_cc2400_init_rf();
 

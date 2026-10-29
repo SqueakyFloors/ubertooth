@@ -178,9 +178,10 @@ void watchdog_intent(uint8_t intent)
 
 void watchdog_count_transfer_error(void)
 {
-	/* Called from the DMA interrupt, which can land between the read and
-	 * the write of this count made anywhere else. Nothing else writes it,
-	 * so the increment is this handler's alone. */
+	/* Called from the DMA interrupt. The only other write is the one
+	 * watchdog_boot() makes to start the count again, which runs before
+	 * any interrupt is enabled, so nothing can land between this read and
+	 * this write. */
 	if (watchdog_crumb.transfer_errors < 65535)
 		watchdog_crumb.transfer_errors++;
 }

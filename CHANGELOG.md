@@ -554,6 +554,13 @@
   connections lost their first 4 to 26 events, which is where the feature
   exchange, the data length and PHY updates and the pairing are.
   [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- A packet in a low-energy capture carries the access address it was received
+  with. A connection request set the connection's address as soon as it was
+  read, while the radio went on listening for the advertising one until the
+  next hop, so packets received in between were recorded under the
+  connection's: other devices' advertising packets turned up in the capture as
+  the opening packets of the connection just followed.
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
 - `ubertooth-btle -p` keeps capturing after a failed capture transfer. One such
   error used to end the capture: the board went on answering the host and
   recording nothing until the tool was killed.
