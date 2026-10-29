@@ -199,7 +199,10 @@ record_installed() { # <name> <build dir> [description]
 	# path of a manifest and a plain cat would join it to the next line.
 	{
 		[ -z "${3:-}" ] || printf '# %s\n' "$3"
-		{ awk 1 "$manifest"; [ ! -f "$dest" ] || awk '!/^#/' "$dest"; } | sort -u
+		# LC_ALL=C, so that two paths differing only in a character
+		# the locale's collation ignores are both kept.
+		{ awk 1 "$manifest"; [ ! -f "$dest" ] || awk '!/^#/' "$dest"; } |
+			LC_ALL=C sort -u
 	} > "$src"
 	as_installer mkdir -p "$RECORD_DIR"
 	as_installer cp "$src" "$dest"
@@ -286,15 +289,26 @@ esac
 # --- uninstall ------------------------------------------------------------
 
 # True when a recorded path is one this script could have installed: under the
-# prefix, or the udev rule, which is the one file the host build writes outside
-# it. A ".." could walk back out of the prefix, so a path holding one is
-# refused whatever else it looks like. A record that was damaged or edited by
-# hand therefore cannot aim the removal at the rest of the system.
+# prefix, or the udev rule in one of the three directories a system keeps udev
+# rules in, which is the one file the host build writes outside the prefix. A
+# ".." could walk back out of the prefix, so a path holding one is refused
+# whatever else it looks like. So a record that was damaged or edited by hand
+# cannot name an arbitrary file and have it removed.
+#
+# The comparison is on the path as written. A prefix with a symlinked
+# subdirectory therefore reaches the link's target, which is the point: the
+# install wrote the file through that same link, and resolving the path here
+# would leave a prefix laid out that way with files and no way to remove them.
+#
+# A build pointed at a fourth udev directory with -DUDEV_RULES_PATH has its
+# rule reported and left behind; the message says which file it is.
 ours_to_remove() { # <recorded path>
 	case "$1" in
 		*/../*|*/..) return 1 ;;
 		"$PREFIX"/*) return 0 ;;
-		*/udev/rules.d/40-ubertooth.rules) return 0 ;;
+		/etc/udev/rules.d/40-ubertooth.rules) return 0 ;;
+		/lib/udev/rules.d/40-ubertooth.rules) return 0 ;;
+		/usr/lib/udev/rules.d/40-ubertooth.rules) return 0 ;;
 	esac
 	return 1
 }
@@ -309,7 +323,8 @@ remove_recorded() { # <record file>
 	while IFS= read -r path || [ -n "$path" ]; do
 		case "$path" in ''|'#'*) continue ;; esac
 		if ! ours_to_remove "$path"; then
-			info "  left $path: not a path this script installs"
+			# An error, not a note: it is why the run ends non-zero.
+			err "left $path: not a path this script installs"
 			SKIPPED=$((SKIPPED+1)); continue
 		fi
 		# A symlink whose target has gone is still ours, hence -L.
@@ -337,7 +352,11 @@ prune_record_dirs() {
 	local dir
 	for dir in "$RECORD_DIR" "$(dirname "$RECORD_DIR")"; do
 		[ -d "$dir" ] || continue
-		as_installer rmdir "$dir" 2>/dev/null || true
+		# Emptiness is tested here rather than left to rmdir, so that
+		# --no-sudo does not print a removal that would have been
+		# refused, and so a real rmdir failure is heard.
+		[ -z "$(ls -A "$dir" 2>/dev/null)" ] || continue
+		as_installer rmdir "$dir" || true
 	done
 }
 
@@ -427,12 +446,9 @@ uninstall() {
 	if [ "$LIBBTBB_ACTION" = keep ] && [ -f "$btbb_record" ]; then
 		info "libbtbb is still installed in $PREFIX"
 	fi
-	info "Left alone: the apt or Homebrew packages, the Python packages, and any venv made with --venv"
-	if [ "$failed" -gt 0 ]; then
-		die "could not remove $failed file(s) of this install; $RECORD_DIR still lists them"
-	fi
-	if [ "$skipped" -gt 0 ]; then
-		die "left $skipped recorded path(s) this script does not install; $RECORD_DIR still lists them"
+	info "Left alone: the apt or Homebrew packages, the Python packages (numpy, qtpy, pyside6, libusb1), and any venv made with --venv"
+	if [ "$((failed+skipped))" -gt 0 ]; then
+		die "$((failed+skipped)) recorded path(s) are still there: $failed could not be removed, $skipped not this script's to remove; $RECORD_DIR still lists them"
 	fi
 }
 

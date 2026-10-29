@@ -437,9 +437,8 @@
   of leaving it to the compiler's default GNU standard.
   [#648](https://github.com/SqueakyFloors/ubertooth/issues/648)
 - `install.sh --uninstall` takes the install back off again: the files the
-  install recorded under the prefix, the udev rule with them, and nothing else.
-  The libbtbb it installed is kept unless you ask for it with
-  `--remove-libbtbb`, because other builds on the machine link against it.
+  install recorded, the udev rule with them, and nothing else. The libbtbb it
+  installed is kept unless you ask for it, because other builds link against it.
   [#337](https://github.com/SqueakyFloors/ubertooth/issues/337)
 - `install.sh` says it is checking Homebrew, and that it is working out which
   Ubertooth to flash, before those slow steps run; on macOS its first line

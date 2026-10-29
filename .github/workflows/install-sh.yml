@@ -168,11 +168,14 @@ jobs:
 
     - name: Uninstall again
       shell: bash
-      # Safe to run twice: it finds nothing left of the host tools, says so,
-      # and succeeds.
+      # Safe to run twice: the host record is gone with the files it listed,
+      # so it finds nothing left of the tools, says so, and succeeds.
+      # --keep-libbtbb answers the libbtbb question without a terminal.
       run: |
-        ./install.sh --uninstall $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
+        test ! -e "$RUNNER_TEMP/prefix/share/ubertooth/install-record/host-files"
+        ./install.sh --uninstall --keep-libbtbb $NO_SUDO --prefix "$RUNNER_TEMP/prefix" \
           < /dev/null 2>&1 | tee "$RUNNER_TEMP/uninstall2.log"
+        grep -q 'Leaving it in place (--keep-libbtbb)' "$RUNNER_TEMP/uninstall2.log"
         grep -q 'Removed 0 file(s)' "$RUNNER_TEMP/uninstall2.log"
 
     - name: Uninstall the libbtbb as well
@@ -213,8 +216,8 @@ jobs:
           echo "the uninstall should have failed on the paths it refused"
           exit 1
         fi
-        grep -q "left $RUNNER_TEMP/not-ours: not a path this script installs" "$RUNNER_TEMP/fake.log"
-        grep -q '^error: left 2 recorded path' "$RUNNER_TEMP/fake.log"
+        grep -q "^error: left $RUNNER_TEMP/not-ours: not a path this script installs" "$RUNNER_TEMP/fake.log"
+        grep -q '^error: 2 recorded path(s) are still there' "$RUNNER_TEMP/fake.log"
         test -f "$RUNNER_TEMP/not-ours"
         test -f "$record/host-files"
         test ! -e "$fake/bin/ours"
