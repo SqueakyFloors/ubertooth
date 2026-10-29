@@ -1152,10 +1152,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	uint16_t clk_offset;
 	uint32_t clkn;
 	int r;
-	/* The LAP the access-code search looks for, which is the followed
-	 * piconet's LAP or any LAP at all. The reference LAP a record carries
-	 * is a different thing, read from the packet that was found. */
-	uint32_t search_lap = LAP_ANY;
+	uint32_t lap = LAP_ANY;
 	uint8_t uap = UAP_ANY;
 
 	static int trim_counter = 0;
@@ -1197,22 +1194,14 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* Look for packets with specified LAP, if given. Otherwise
 	 * search for any packet. */
 	if (pn) {
-		search_lap = btbb_piconet_get_flag(pn, BTBB_LAP_VALID) ? btbb_piconet_get_lap(pn) : LAP_ANY;
+		lap = btbb_piconet_get_flag(pn, BTBB_LAP_VALID) ? btbb_piconet_get_lap(pn) : LAP_ANY;
 	}
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, search_lap, max_ac_errors, &pkt);
+	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, lap, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
-
-	/* The reference LAP the capture records with this packet, which is what
-	 * a reader checks its access code against: the LAP of the packet that
-	 * was found, either the one searched for or the one the search
-	 * recovered. Reading it from the piconet instead left every record of a
-	 * survey capture -- a survey is given no piconet -- with no reference
-	 * address at all, in the mode whose job is finding addresses. */
-	uint32_t lap = btbb_packet_get_lap(pkt);
 
 	/* calculate the offset between the first bit of the AC and the rising edge of CLKN */
 	clk_offset = (le32toh(rx->clk100ns) + offset*10 +
@@ -1312,14 +1301,16 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* The packet's own 18-bit header, for the capture record below. Nothing
 	 * else reads it while the decoder is still working the piconet's clock
 	 * out: the UAP search unwhitens the header into a scratch buffer, takes
-	 * the UAP out of its check bits and throws the header away.
+	 * the UAP out of its check bits and throws the header away. Such a
+	 * record carried 18 zero bits, which a reader cannot tell from a header
+	 * of zeros that was really sent.
 	 *
 	 * Reading it needs the piconet's clock rather than the Ubertooth's. The
-	 * two differ by the offset the UAP search worked out, in slots, until
-	 * the whole clock is known: from then on the firmware is told to apply
-	 * the offset itself, libbtbb reads the header, and the offset the
-	 * piconet reports counts in the clock's own ticks instead. Hence the
-	 * guard, which leaves those packets to the decoder.
+	 * two differ by the offset the UAP search worked out, which counts in
+	 * 625 us slots and so in two clock ticks each, until the whole clock is
+	 * known. From then on libbtbb reads the header itself and the offset
+	 * the piconet reports counts in clock ticks, hence the guard: those
+	 * packets are the decoder's.
 	 *
 	 * A header that does not come out right for this piconet -- a packet of
 	 * another one whose access code matched, or one with too many bit
@@ -1331,12 +1322,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
 	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)
 	       && btbb_header_present(pkt)) {
-		/* One slot is two clock ticks, which is what the offset has to
-		 * be scaled by to move this packet's clock reading into the
-		 * piconet's time. Setting the data again is what carries that
-		 * clock into the packet, and leaves it there: the capture
-		 * writers below do not read it, and the Ubertooth's own reading
-		 * has already been printed. */
+		/* Setting the data again is what carries that clock into the
+		 * packet, and leaves it there: the capture writers below do not
+		 * read it, and the Ubertooth's own reading has already been
+		 * printed. */
 		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
 		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
 

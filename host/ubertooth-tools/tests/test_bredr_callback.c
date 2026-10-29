@@ -12,8 +12,8 @@
  * here touches a device.
  *
  * libbtbb is still linked, because the callbacks allocate a real packet and
- * read fields back out of it; only the three entry points whose arguments are
- * what this test is about are replaced.
+ * read fields back out of it; only the entry points whose arguments are what
+ * this test is about are replaced.
  */
 #include <fcntl.h>
 #include <stdint.h>
@@ -964,6 +964,19 @@ MU_TEST(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known)
 	run_callback(cb_rx, pn);
 	mu_assert_int_eq(0, seen.header_decodes);
 	mu_assert_int_eq(1, seen.set_data_calls);
+
+	/* A piconet whose UAP was given on the command line but whose clock
+	 * bits nothing has worked out yet: there is no offset to apply, so the
+	 * header would be read at the board's clock and recorded as the
+	 * packet's. It is left alone until a packet settles those bits. */
+	memset(&seen, 0, sizeof(seen));
+	header_present_result = 1;
+	btbb_piconet_set_flag(pn, BTBB_CLK6_VALID, 0);
+	next_index = 0;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0, seen.header_decodes);
+	mu_assert_int_eq(1, seen.set_data_calls);
+	btbb_piconet_set_flag(pn, BTBB_CLK6_VALID, 1);
 
 	/* Once the whole clock is known the decoder reads the header itself,
 	 * and the board has been told to close the gap, so the offset must not

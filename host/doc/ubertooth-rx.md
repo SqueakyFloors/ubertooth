@@ -290,23 +290,26 @@ one stream, so `-q -` and `-d -` in one command are refused:
 
 ## WHAT A CAPTURE RECORD HOLDS
 
-Every record of a `-q` or `-r` capture names the LAP of the packet it holds as
-its reference LAP, whichever mode wrote it: the reference address is what a
-reader checks a record's own fields against. The piconet's UAP joins it once
-the decoder has settled that UAP, and with it the packet's own 18-bit header.
+Every record of a `-q` or `-r` capture carries the LAP recovered from the
+packet's own access code, in every mode, including a survey (`-z`). The
+reference LAP and reference UAP beside it are a different thing: the address
+this tool was told to look for. A run given none records no reference address,
+and says so with the flags, which is what a reader checks before using it.
 
-A reader checks that header by recomputing its check bits from the reference
-UAP in the same record, which is also how it tells a header this tool could
-not place -- a packet of another piconet whose access code matched, or one
-with too many bit errors -- from one that was really sent.
+The packet's own 18-bit header joins them once a followed piconet's clock bits
+are known, which is what the UAP search works out along with the UAP. A reader
+checks a recorded header by recomputing its check bits from the reference UAP
+in the same record, which is also how it tells a header this tool could not
+place -- a packet of another piconet whose access code matched, or one with
+too many bit errors -- from one that was really sent.
 
-A record written before the UAP is settled carries no header at all. The
-header is whitened at the piconet's clock, so until the decoder has worked
+A record written before those clock bits are known carries no header at all.
+The header is whitened at the piconet's clock, so until the decoder has worked
 that clock out there is nothing to unwhiten it with, and the record holds 18
-zero bits instead. So do the records of a survey (`-z`), which follows no
-piconet and names the LAP alone, and the one packet that completes the
-piconet's clock. A piconet whose UAP is `ff` records no reference UAP either,
-because that is the value the format uses for "none".
+zero bits instead. So do the records of a survey, which follows no piconet,
+and the one packet that completes the piconet's clock. A piconet whose UAP is
+`ff` records no reference UAP either, because that is the value the format
+uses for "none".
 
 ## CAPTURING TO STANDARD OUTPUT
 

@@ -282,11 +282,11 @@ add_test(
 set_tests_properties(rx-replay PROPERTIES TIMEOUT 30)
 
 # What the capture records of a replay say about the piconet they came from:
-# the reference UAP, the packet's own header and the reference LAP. The fixture
-# is built by the test itself -- an ID packet, a DH1 whose CRC leaves every
-# clock candidate alive, the DH1 whose CRC settles the UAP, then another ID
-# packet -- and is replayed twice, once followed and once surveyed. Two runs,
-# well under a second each.
+# the reference UAP, the packet's own header, and which LAP is recorded where.
+# The fixture is built by the test itself -- an ID packet, a DH1 whose CRC
+# leaves every clock candidate alive, the DH1 whose CRC settles the UAP, then
+# another ID packet -- and is replayed three times: followed, surveyed, and
+# with neither option. Three runs, well under a second each.
 add_test(
 	NAME rx-uap-record
 	COMMAND ${Python3_EXECUTABLE}

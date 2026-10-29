@@ -21,8 +21,9 @@ Three things each record is checked for here:
   settled on is what makes the header readable, and the record used to go
   out with all 18 bits zero, which a reader cannot tell from a real header
   of zeros;
-* the reference LAP, which a survey capture (-z) used to leave out of every
-  record, in the mode whose job is finding addresses.
+* which LAP is recorded where: every record carries the LAP recovered from
+  the packet's own access code, while the reference LAP beside it is the
+  address the tool was told to look for, and is empty when it was told none.
 
 The fixture is a replay of four records built from scratch here, so no board
 and no saved capture is needed: an ID packet with no header, a DH1 whose CRC
@@ -95,6 +96,7 @@ ID_CLK100NS = (1_000_000, 9_000_000)
 # LINKTYPE_BLUETOOTH_BREDR_BB record, and the flags that say the reference
 # address in it is there to be used.
 DLT_BLUETOOTH_BREDR_BB = 255
+LAP_AT = 8
 REF_LAP_UAP_AT = 12
 BT_HEADER_AT = 16
 FLAGS_AT = 20
@@ -106,8 +108,11 @@ BREDR_REFUAP_VALID = 0x0080
 LAP_ANY = 0xFFFFFF              # what a record with no reference LAP carries
 UAP_ANY = 0xFF                  # what a record with no reference UAP carries
 
-# What one capture record says, of the fields this test is about.
-Record = namedtuple("Record", "lap uap flags header payload")
+# What one capture record says, of the fields this test is about. `found` is
+# the LAP recovered from the packet's own access code, which every record
+# carries; `lap` and `uap` are the reference address, meaning the one the tool
+# was told to look for.
+Record = namedtuple("Record", "found lap uap flags header payload")
 
 
 def sync_word(lap):
@@ -234,7 +239,8 @@ def record(host_time, clk100ns, channel, symbols):
 def read_record(order, body):
     """The fields this test reads out of one basic-rate baseband record."""
     reference = struct.unpack_from(order + "I", body, REF_LAP_UAP_AT)[0]
-    return Record(lap=reference & 0xFFFFFF,
+    return Record(found=struct.unpack_from(order + "I", body, LAP_AT)[0],
+                  lap=reference & 0xFFFFFF,
                   uap=reference >> 24,
                   flags=struct.unpack_from(order + "H", body, FLAGS_AT)[0],
                   header=struct.unpack_from(order + "I", body, BT_HEADER_AT)[0],
@@ -357,10 +363,10 @@ def replay(work, prefix, *options):
 def show(name, records):
     """Print what each record says, so a run by hand shows the capture."""
     for index, rec in enumerate(records):
-        print("%s record %d: reference LAP=%06x UAP=%02x flags=0x%04x "
-              "header=0x%05x payload=%s"
-              % (name, index, rec.lap, rec.uap, rec.flags, rec.header,
-                 rec.payload.hex() or "none"))
+        print("%s record %d: LAP=%06x reference LAP=%06x UAP=%02x "
+              "flags=0x%04x header=0x%05x payload=%s"
+              % (name, index, rec.found, rec.lap, rec.uap, rec.flags,
+                 rec.header, rec.payload.hex() or "none"))
 
 
 with tempfile.TemporaryDirectory() as workdir:
@@ -378,9 +384,12 @@ with tempfile.TemporaryDirectory() as workdir:
         assert len(records) == 4, (name, records)
         show(name, records)
 
-        # Every record names the piconet the packet came from, which is the
-        # LAP this run was told to follow.
+        # Every record carries the LAP recovered from the packet's own access
+        # code, and names as its reference the LAP this run was told to
+        # follow, which is what the reference address means: the address
+        # configured into the tool that led to the capture.
         for rec in records:
+            assert rec.found == LAP, (name, records)
             assert rec.lap == LAP, (name, records)
             assert rec.flags & BREDR_REFLAP_VALID, (name, records)
 
@@ -442,10 +451,10 @@ with tempfile.TemporaryDirectory() as workdir:
         assert records[3].uap == UAP, (name, records)
         assert records[3].flags & BREDR_REFUAP_VALID, (name, records)
 
-    # The same fixture surveyed instead of followed. A survey is given no
-    # piconet to follow and discovers the addresses itself, and it used to
-    # write no reference address at all: reference LAP ffffff, reference UAP
-    # ff, in the mode whose job is finding addresses.
+    # The same fixture surveyed instead of followed. A survey is told no
+    # address to look for and discovers them itself, which is what its
+    # records say: the LAP of every packet it found, and no reference
+    # address, because there was none to configure.
     result, captures = replay(work, "survey", "-z")
     assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
             in result.stdout), result
@@ -459,28 +468,38 @@ with tempfile.TemporaryDirectory() as workdir:
         assert len(records) == 4, (name, records)
         show(name, records)
 
-        # Every record names the LAP the survey found it under.
+        # The LAP each packet was found under is in every record, which is
+        # what a survey is for.
         for rec in records:
-            assert rec.lap == LAP, (name, records)
-            assert rec.flags & BREDR_REFLAP_VALID, (name, records)
+            assert rec.found == LAP, (name, records)
 
-        # The UAP a survey settles is still missing from the records, and
-        # so is the header that needs its clock: the piconets a survey keeps
-        # are the decoder's own, one per LAP, and it hands out no way to read
-        # one without destroying the survey. Pinned here so that whoever
-        # gives it one sees these two lines fail.
+        # The reference address is empty and says so, because nothing was
+        # configured to look for: that is the honest encoding of a survey,
+        # and it is what the reference-LAP-valid flag means -- the address
+        # given to the tool led to this packet being captured.
+        for rec in records:
+            assert rec.lap == LAP_ANY, (name, records)
+            assert not rec.flags & BREDR_REFLAP_VALID, (name, records)
+
+        # The UAP a survey settles is missing from the records all the same,
+        # and so is the header that needs its clock. The piconets a survey
+        # keeps are the decoder's own, one per LAP, and it hands out no way
+        # to read one without destroying the survey. Pinned here so that
+        # whoever gives it one sees these two lines fail.
         for rec in records:
             assert rec.uap == UAP_ANY, (name, records)
             assert rec.header == 0, (name, records)
 
     # And the same fixture with neither option, which reads every packet it
-    # can and works no piconet out. Those records name their LAP too, for
-    # the same reason: it comes from the packet, not from a piconet.
+    # can and works no piconet out: the LAP of each packet, and again no
+    # reference address.
     result, captures = replay(work, "plain")
     for name, records in captures:
         assert len(records) == 4, (name, records)
         show(name, records)
         for rec in records:
-            assert rec.lap == LAP, (name, records)
-            assert rec.flags & BREDR_REFLAP_VALID, (name, records)
+            assert rec.found == LAP, (name, records)
+            assert rec.lap == LAP_ANY, (name, records)
+            assert not rec.flags & BREDR_REFLAP_VALID, (name, records)
             assert rec.uap == UAP_ANY, (name, records)
+            assert rec.header == 0, (name, records)
