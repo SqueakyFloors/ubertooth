@@ -179,6 +179,8 @@ Data source:
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE
+.SH "KNOWN BROKEN FEATURES"
+Interference (\fB\-i\fR, \fB\-I\fR, and their original jam spellings \fB\-j\fR and \fB\-J\fR) is accepted, but no capture mode acts on it yet: the board follows or listens to the connection as usual and transmits nothing, so a run with one of these options is no different from a run without it\. The tool prints one \fBwarning:\fR line saying so when any of them is given\. Making interference work again is tracked in issue #871 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/871\fR\.
 .SH "USING WITH CRACKLE"
 \fBcrackle\fR is a tool for cracking the BLE key exchange and decrypting encrypted data\. To capture data for use with \fBcrackle\fR, sniff connections in follow mode using \fB\-f\fR and log data to PCAP/PPI using \fB\-c\fR\. Example:
 .IP "" 4

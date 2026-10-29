@@ -194,7 +194,10 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	cmd_set_modulation(ut->devh, modulation);
+	/* Stated after the mode request, inside rx_dump(): a dump killed before
+	 * the request then leaves no modulation behind for a later capture to
+	 * inherit, and a board left in a mode does not reset it away. */
+	ubertooth_set_dump_modulation(modulation);
 	/* A dump that could not start, or whose stream died part-way, holds
 	 * less than was asked for. The exit status has to say so, or a caller
 	 * cannot tell it from a Ctrl-C. The handle is read again after the

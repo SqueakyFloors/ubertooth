@@ -461,6 +461,14 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Interference is accepted but no mode acts on it yet, so an honest run
+	 * says so once rather than reporting a clean capture for something it
+	 * did not do. See the KNOWN BROKEN FEATURES section of the man page. */
+	if (jam_mode != JAM_NONE)
+		fprintf(stderr, "warning: interference (-i, -I, -j, -J) is accepted"
+		        " but no mode acts on it yet; see"
+		        " https://github.com/SqueakyFloors/ubertooth/issues/871\n");
+
 	/* A command line with no work in it: refused here, before a device is
 	 * opened and before any capture file is created. It used to open the
 	 * selected board, check its API version, send nothing, print the usage
@@ -607,22 +615,12 @@ int main(int argc, char *argv[])
 	if (do_follow || do_no_follow || do_promisc) {
 		usb_pkt_rx rx;
 
-		r = cmd_set_jam_mode(ut->devh, jam_mode);
-		if (jam_mode != JAM_NONE && r != 0) {
-			fprintf(stderr, "error: jamming not supported by this firmware\n");
-			return release_handle(ut, 1);
-		}
 		/* A mode the board would not enter must not be followed by a
 		 * capture loop that reports a clean run, so each request below
 		 * is checked. Each failure stops the board first: the mode
 		 * request may have reached it even though the reply did not
 		 * come back, and a board left part-way into a low-energy mode
 		 * is the state it stops answering control requests in. */
-		if (cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY) < 0) {
-			fprintf(stderr, "error: modulation set failed\n");
-			ubertooth_stop(ut);
-			return release_handle(ut, 1);
-		}
 
 		if (do_follow || do_no_follow) {
 			/* Checked one at a time, so the report names the
@@ -673,6 +671,23 @@ int main(int argc, char *argv[])
 				ubertooth_stop(ut);
 				return release_handle(ut, 1);
 			}
+		}
+
+		/* The modulation and the jam mode are stated after the mode
+		 * request, not before it, so a run killed before the request
+		 * leaves neither behind for the next capture to inherit. A mode
+		 * start resets both, and the firmware keeps the value stated for
+		 * the mode it is starting. */
+		if (cmd_set_modulation(ut->devh, MOD_BT_LOW_ENERGY) < 0) {
+			fprintf(stderr, "error: modulation set failed\n");
+			ubertooth_stop(ut);
+			return release_handle(ut, 1);
+		}
+		r = cmd_set_jam_mode(ut->devh, jam_mode);
+		if (jam_mode != JAM_NONE && r != 0) {
+			fprintf(stderr, "error: jamming not supported by this firmware\n");
+			ubertooth_stop(ut);
+			return release_handle(ut, 1);
 		}
 
 		// The -v options run *after* the mode has started (mode entry runs

@@ -1857,14 +1857,49 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 }
 
 /* dump received symbols to stdout */
+/*
+ * The modulation ubertooth-dump asks for, bridged into the start callback
+ * below because stream_rx_usb() passes it only the device handle. It defaults
+ * to Basic Rate, the firmware's own default, so a caller that does not set it
+ * leaves the modulation as it was.
+ */
+static uint16_t dump_modulation = MOD_BT_BASIC_RATE;
+
+void ubertooth_set_dump_modulation(uint16_t modulation)
+{
+	dump_modulation = modulation;
+}
+
+/*
+ * Start a symbol capture and then state the modulation, in that order.
+ *
+ * ubertooth-dump used to set the modulation before the mode request. A mode
+ * start resets the modulation, and a board left in a mode by a killed tool
+ * runs that reset after the request has been answered, so the dump wrote Basic
+ * Rate records whatever -l asked for. Worse, a dump killed before its request
+ * left the modulation on the board for the next capture to inherit, which
+ * could read Classic traffic as low energy and say nothing. Stating it after
+ * the request keeps neither hazard: the firmware keeps the value for the mode
+ * now starting, and nothing is left behind by a run that never started one.
+ */
+static int cmd_rx_syms_with_modulation(struct libusb_device_handle* devh)
+{
+	int r = cmd_rx_syms(devh);
+	if (r < 0)
+		return r;
+	return cmd_set_modulation(devh, dump_modulation);
+}
+
 int rx_dump(ubertooth_t* ut, int bitstream)
 {
 	int r;
 
 	if (bitstream)
-		r = stream_rx_usb(ut, cb_dump_bitstream, NULL, cmd_rx_syms);
+		r = stream_rx_usb(ut, cb_dump_bitstream, NULL,
+		                  cmd_rx_syms_with_modulation);
 	else
-		r = stream_rx_usb(ut, cb_dump_full, NULL, cmd_rx_syms);
+		r = stream_rx_usb(ut, cb_dump_full, NULL,
+		                  cmd_rx_syms_with_modulation);
 	return r < 0 ? r : 0;
 }
 

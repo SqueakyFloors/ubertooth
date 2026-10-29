@@ -118,13 +118,13 @@ int ubertooth_open_stopped(void)
 	return 0;
 }
 
-int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
+/* The tool states the modulation through this now, not cmd_set_modulation():
+ * the real rx_dump() sends it after the mode request. */
+void ubertooth_set_dump_modulation(uint16_t mod)
 {
-	(void)devh;
 	(void)mod;
 	fake.modulations++;
 	mu_assert(fake.reach_capture, "no test should reach the capture");
-	return 0;
 }
 
 int rx_dump(ubertooth_t* ut, int bitstream)

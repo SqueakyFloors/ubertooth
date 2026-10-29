@@ -679,6 +679,11 @@ int rx_file_report(int result, const char* filename);
  * created -- or its stream died part-way. */
 int rx_dump(ubertooth_t* ut, int full);
 
+/* Choose the modulation rx_dump() asks for. It is stated after the mode
+ * request, so call this before rx_dump() rather than sending the modulation
+ * request directly; see rx_dump() in ubertooth.c. Basic Rate is the default. */
+void ubertooth_set_dump_modulation(uint16_t modulation);
+
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
  * single packet from the piconet, so there is no map to report. */
 #define UBERTOOTH_AFH_NO_PACKETS (-2000)

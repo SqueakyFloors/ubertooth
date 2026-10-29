@@ -122,6 +122,21 @@ struct scan {
 	int afhmap_guard;
 	int afhmap_clear_case;
 	int afhmap_clear_drop;
+
+	/* The modulation and jam mode requests, and the copy each keeps for the
+	 * mode it is stated for. Scanned here rather than through the
+	 * request_case machinery, which only follows cases that ask for a mode.
+	 * idle_fn_jam and idle_fn_modulation are where cc2400_idle() resets the
+	 * two, which is what the copy carries them past. */
+	int setmod_case;
+	int setmod_keep;
+	int jam_case;
+	int jam_keep;
+	int idle_fn_jam;
+	int idle_fn_modulation;
+	/* Where apply_stated_settings() writes each of the two back. */
+	int stated_fn_modulation;
+	int stated_fn_jam;
 	int stated_call;      /* apply_stated_settings() in the dispatch */
 	int stated_calls;     /* how many */
 	/* apply_stated_settings(): where it is defined, where it clears the
@@ -299,6 +314,22 @@ static int scan_source(const char *path, struct scan *s)
 		    strstr(line, "stated_what &= ~STATED_AFH_MAP") != NULL)
 			s->afhmap_clear_drop = lineno;
 
+		/* The modulation and jam mode requests keep a copy the same way
+		 * the AFH map does, scanned the same way. */
+		if (s->setmod_case == 0 &&
+		    strstr(line, "case UBERTOOTH_SET_MOD:") != NULL)
+			s->setmod_case = lineno;
+		if (s->setmod_case > 0 && s->setmod_keep == 0 &&
+		    strstr(line, "stated_for_starting_mode(STATED_MODULATION)")
+		    != NULL)
+			s->setmod_keep = lineno;
+		if (s->jam_case == 0 &&
+		    strstr(line, "case UBERTOOTH_JAM_MODE:") != NULL)
+			s->jam_case = lineno;
+		if (s->jam_case > 0 && s->jam_keep == 0 &&
+		    strstr(line, "stated_for_starting_mode(STATED_JAM_MODE)") != NULL)
+			s->jam_keep = lineno;
+
 		/* reset_absorbed_mode_state()'s body, scanned for the same reason
 		 * cc2400_idle()'s is: what it resets, and what it leaves alone. */
 		if (in_absorbed_fn) {
@@ -346,6 +377,12 @@ static int scan_source(const char *path, struct scan *s)
 				s->stated_fn_clear_last = lineno;
 				s->stated_fn_clears++;
 			}
+			if (is_assignment_to(line, "modulation") &&
+			    s->stated_fn_modulation == 0)
+				s->stated_fn_modulation = lineno;
+			if (is_assignment_to(line, "jam_mode") &&
+			    s->stated_fn_jam == 0)
+				s->stated_fn_jam = lineno;
 			if (contains_identifier(line, "what") &&
 			    !is_assignment_to(line, "stated_what") &&
 			    strstr(line, "if") != NULL &&
@@ -501,6 +538,12 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "rssi_iir_reset(") != NULL &&
 			    s->idle_fn_iir == 0)
 				s->idle_fn_iir = lineno;
+			if (is_assignment_to(line, "jam_mode") &&
+			    s->idle_fn_jam == 0)
+				s->idle_fn_jam = lineno;
+			if (is_assignment_to(line, "modulation") &&
+			    s->idle_fn_modulation == 0)
+				s->idle_fn_modulation = lineno;
 			/* The value as well as the register: a teardown that
 			 * wrote the override rather than the reset value would
 			 * leave exactly the carry-over this is about. */
@@ -690,6 +733,70 @@ MU_TEST(test_leaving_a_mode_puts_the_access_code_back)
 	         path, s.ego_reset_call, s.mode_assign);
 	mu_assert(s.ego_reset_call > 0 && s.mode_assign > 0 &&
 	          s.ego_reset_call < s.mode_assign, msg);
+}
+
+/*
+ * cc2400_idle() puts the modulation and the jam mode back to their defaults,
+ * so a mode start keeps neither from the run that was leaving. The copy a
+ * request states for the starting mode is what carries the wanted value past
+ * this reset; without the reset, a value one run asked for would be the next
+ * run's silent default.
+ */
+MU_TEST(test_leaving_a_mode_puts_the_modulation_and_jam_mode_back)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_idle() no longer resets `modulation`, so a dump's "
+	         "low energy would be carried into the next capture", path);
+	mu_assert(s.idle_fn_modulation > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_idle() no longer resets `jam_mode`, so a jam mode "
+	         "one run asked for would be carried into the next", path);
+	mu_assert(s.idle_fn_jam > 0, msg);
+}
+
+/*
+ * Both requests that state a setting before the mode request they belong to --
+ * the modulation for ubertooth-dump -l, the jam mode for ubertooth-btle -j --
+ * keep a copy scoped to the mode the request starts, the same way the channel
+ * and the AFH map do. Without it, a mode start's reset would throw the setting
+ * away after the request carrying it had been answered.
+ */
+MU_TEST(test_the_modulation_and_jam_mode_requests_keep_a_copy)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the UBERTOOTH_SET_MOD case", path);
+	mu_assert_fatal(s.setmod_case > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the modulation request does not call "
+	         "stated_for_starting_mode(STATED_MODULATION), so `ubertooth-dump "
+	         "-l` writes Basic Rate records on a board left in another mode",
+	         path, s.setmod_case);
+	mu_assert(s.setmod_keep > s.setmod_case, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the UBERTOOTH_JAM_MODE case", path);
+	mu_assert_fatal(s.jam_case > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the jam mode request does not call "
+	         "stated_for_starting_mode(STATED_JAM_MODE)",
+	         path, s.jam_case);
+	mu_assert(s.jam_keep > s.jam_case, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: apply_stated_settings() does not write `modulation`, so the "
+	         "copy a dump kept is never put back after the reset", path);
+	mu_assert(s.stated_fn_modulation > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: apply_stated_settings() does not write `jam_mode`", path);
+	mu_assert(s.stated_fn_jam > 0, msg);
 }
 
 /*
@@ -1502,6 +1609,8 @@ int main(void)
 	MU_RUN(test_mode_is_recorded_before_the_cases);
 	MU_RUN(test_leaving_a_mode_idles_once_first);
 	MU_RUN(test_leaving_a_mode_puts_the_access_code_back);
+	MU_RUN(test_leaving_a_mode_puts_the_modulation_and_jam_mode_back);
+	MU_RUN(test_the_modulation_and_jam_mode_requests_keep_a_copy);
 	MU_RUN(test_what_was_stated_is_applied_between_the_reset_and_the_cases);
 	MU_RUN(test_the_mode_record_and_the_copy_hold_the_usb_interrupt_off);
 	MU_RUN(test_a_stated_setting_is_dropped_unless_its_mode_is_still_asked_for);

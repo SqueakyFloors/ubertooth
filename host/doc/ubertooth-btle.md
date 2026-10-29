@@ -300,6 +300,16 @@ Data source:
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
 
+## KNOWN BROKEN FEATURES
+
+Interference (`-i`, `-I`, and their original jam spellings `-j` and `-J`) is
+accepted, but no capture mode acts on it yet: the board follows or listens to
+the connection as usual and transmits nothing, so a run with one of these
+options is no different from a run without it. The tool prints one `warning:`
+line saying so when any of them is given. Making interference work again is
+tracked in
+[issue #871](https://github.com/SqueakyFloors/ubertooth/issues/871).
+
 ## USING WITH CRACKLE
 
 `crackle` is a tool for cracking the BLE key exchange and decrypting

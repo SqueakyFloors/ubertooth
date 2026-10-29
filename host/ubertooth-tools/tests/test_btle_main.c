@@ -1034,7 +1034,12 @@ MU_TEST(a_failed_target_set_and_jamming_are_reported_on_stderr)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
 	mu_assert_int_eq(0, fake.polls); /* no capture was started */
+	/* The run-time warning that interference does nothing yet comes first,
+	 * then the request the board refused. */
 	mu_assert(strcmp(r.err,
+	                 "warning: interference (-i, -I, -j, -J) is accepted but"
+	                 " no mode acts on it yet; see"
+	                 " https://github.com/SqueakyFloors/ubertooth/issues/871\n"
 	                 "error: jamming not supported by this firmware\n") == 0,
 	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
@@ -1230,7 +1235,9 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	fake.modulation_rc = -1;
 	r = RUN("-f");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(0, fake.sniffing_calls); /* the mode was not started */
+	/* The modulation is stated after the mode request now, so the mode has
+	 * started by the time it fails and is stopped on the way out. */
+	mu_assert_int_eq(1, fake.sniffing_calls);
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: modulation set failed\n") == 0, r.err);
 

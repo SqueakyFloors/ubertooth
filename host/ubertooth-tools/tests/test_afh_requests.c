@@ -848,8 +848,12 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
-	mu_assert_int_eq(1, fake.n);
+	/* Two requests: the symbol capture, and the modulation it states after
+	 * it rather than before, so a dump killed before the request leaves no
+	 * modulation on the board for a later capture to inherit. */
+	mu_assert_int_eq(2, fake.n);
 	mu_assert_int_eq(1, sent(UBERTOOTH_RX_SYMBOLS));
+	mu_assert_int_eq(1, sent(UBERTOOTH_SET_MOD));
 	mu_assert_int_eq(0, sent(UBERTOOTH_AFH));
 	mu_assert(err[0] == '\0', err);
 
