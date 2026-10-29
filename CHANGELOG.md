@@ -1674,6 +1674,13 @@
   Records written before that still carry none. See WHAT A CAPTURE RECORD
   HOLDS in ubertooth-rx(1).
   [#778](https://github.com/SqueakyFloors/ubertooth/issues/778)
+- Ctrl-C ends a capture at once even while the board is not answering a poll.
+  The poll's retries used to run to the end first, so a stop could take about
+  three seconds. **Script-visible change:** the interrupted poll's failure is
+  now reported (`error: USB poll failed`) and the run exits 1, where before it
+  recovered and exited 0. A capture nobody has stopped still gets all three
+  attempts.
+  [#844](https://github.com/SqueakyFloors/ubertooth/issues/844)
 
 ### Documentation
 

@@ -442,6 +442,13 @@ sniffing or faux slave mode, or an access address or CRC verify request, and
 when a capture stops short because a poll failed. No device is opened for a
 refused command line.
 
+A poll the board does not answer is tried again, up to three attempts of one
+second each, so one unlucky poll does not end a capture that has been running
+for a quarter of an hour. Ctrl-C ends that waiting at once: the attempts still
+to come are dropped, and if the poll it interrupted had failed, that failure is
+reported (`error: USB poll failed`) and the run exits 1 where an uninterrupted
+capture would have recovered and exited 0.
+
 1 as well when the board refuses the request that ends a capture: it is left
 in the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was captured stays written out, and libubertooth names the
