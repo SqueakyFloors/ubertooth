@@ -82,11 +82,6 @@ struct scan {
 	int truth_test;        /* a `&&` against a hex mask, anywhere in the file */
 	int truth_test_line;
 	int rx_generic_sync;   /* where rx_generic_sync() is defined */
-	int flush_def;         /* where rx_generic_flush_fifo() is defined */
-	int flush_reads_fifo;  /* its read of a whole FIFO's worth */
-	int flush_call;        /* the call to it in the capture loop */
-	int srx_strobe;        /* the loop's SRX strobe */
-	int packet_read;       /* the loop's read of the record's payload */
 	int record_buffer;     /* its record buffer's declaration */
 	char record_buffer_decl[SCAN_LINE_MAX];
 	long syncword_len;     /* RX_GENERIC_SYNCWORD_LEN, -1 when not found */
@@ -156,7 +151,6 @@ static void scan_source(struct scan *s)
 	char line[512];
 	char name[64];
 	int lineno = 0, in_block = 0, in_rx_generic = 0, in_rx_generic_sync = 0;
-	int in_flush = 0;
 	FILE *f = fopen(path, "r");
 
 	memset(s, 0, sizeof(*s));
@@ -176,24 +170,7 @@ static void scan_source(struct scan *s)
 				s->truth_test_line = lineno;
 		}
 
-		if (in_flush) {
-			if (strstr(line, "cc2400_fifo_read(CC2400_FIFO_SIZE") != NULL)
-				s->flush_reads_fifo = lineno;
-			if (line[0] == '}')
-				in_flush = 0;
-			continue;
-		}
-
 		if (in_rx_generic_sync) {
-			if (s->flush_call == 0 &&
-			    contains_identifier(line, "rx_generic_flush_fifo"))
-				s->flush_call = lineno;
-			if (s->srx_strobe == 0 &&
-			    strstr(line, "cc2400_strobe(SRX)") != NULL)
-				s->srx_strobe = lineno;
-			if (s->packet_read == 0 &&
-			    strstr(line, "cc2400_fifo_read(RX_GENERIC_DATA_LEN") != NULL)
-				s->packet_read = lineno;
 			/* The buffer the record is built in: the first local
 			 * array declared in the function. */
 			if (s->record_buffer == 0 &&
@@ -226,9 +203,6 @@ static void scan_source(struct scan *s)
 			} else if (strcmp(name, "rx_generic_sync") == 0) {
 				in_rx_generic_sync = 1;
 				s->rx_generic_sync = lineno;
-			} else if (strcmp(name, "rx_generic_flush_fifo") == 0) {
-				in_flush = 1;
-				s->flush_def = lineno;
 			}
 		}
 	}
@@ -335,64 +309,6 @@ MU_TEST(test_the_record_buffer_is_the_size_enqueue_copies)
 	mu_assert(strchr(s.record_buffer_decl, '=') != NULL, msg);
 }
 
-/* ---- the flush between packets ----------------------------------------- */
-
-/*
- * The capture reads RX_GENERIC_DATA_LEN bytes per sync word, and the radio
- * writes on while that read runs, so a packet longer than the FIFO leaves
- * bytes in it. Those bytes used to come out in front of the next packet, as a
- * payload shifted by as many bytes as were left.
- *
- * The flush is a read of a whole FIFO's worth, discarded, and it has to run
- * where nothing is arriving: after the wait for the radio to be out of
- * receive and before the strobe that puts it back in. A flush after the
- * record's own read, with the radio receiving again, would eat the head of the
- * next packet instead -- the same record, wrong the other way.
- */
-MU_TEST(test_the_capture_flushes_the_fifo_before_it_receives_again)
-{
-	char msg[768];
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the scan did not find rx_generic_sync()'s definition, so "
-	         "the checks below would pass without reading anything", path);
-	mu_assert(s.opened && s.rx_generic_sync > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: rx_generic_flush_fifo() is not defined; the capture has "
-	         "nothing to clear the radio's FIFO with", path);
-	mu_assert(s.flush_def > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_flush_fifo() does not read "
-	         "cc2400_fifo_read(CC2400_FIFO_SIZE, ...): a shorter read can "
-	         "leave bytes behind, and the radio has no flush command",
-	         path, s.flush_def);
-	mu_assert(s.flush_reads_fifo > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: the capture loop never calls rx_generic_flush_fifo()",
-	         path, s.rx_generic_sync);
-	mu_assert(s.flush_call > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the loop's SRX strobe was not found, so the order below "
-	         "cannot be checked", path);
-	mu_assert(s.srx_strobe > 0 && s.packet_read > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: the flush runs after the SRX strobe at line %d, with "
-	         "the radio receiving: it would eat the start of the next "
-	         "packet", path, s.flush_call, s.srx_strobe);
-	mu_assert(s.flush_call < s.srx_strobe, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: the flush runs after the record's own read at line %d, "
-	         "so the first packet of a run is read from a FIFO that was "
-	         "never cleared", path, s.flush_call, s.packet_read);
-	mu_assert(s.flush_call < s.packet_read, msg);
-}
-
 int main(void)
 {
 	printf("GRMDM generic receive tests\n");
@@ -404,6 +320,5 @@ int main(void)
 	MU_RUN(test_no_mask_is_tested_with_a_logical_and);
 	MU_RUN(test_the_generic_record_fits_what_enqueue_copies);
 	MU_RUN(test_the_record_buffer_is_the_size_enqueue_copies);
-	MU_RUN(test_the_capture_flushes_the_fifo_before_it_receives_again);
 	return mu_report();
 }

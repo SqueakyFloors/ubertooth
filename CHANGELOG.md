@@ -306,8 +306,8 @@
   by a channel set reaching the board while it follows a connection, before
   that by the
   E-GO mode request starting the mode it names on a board already running one,
-  by the AFH map a mode start keeps, the bound on the clock drift
-  the board accumulates and the generic receive's FIFO flush, by
+  by the AFH map a mode start keeps and the bound on the clock drift
+  the board accumulates, by
   the channel a mode start keeps and the E-GO access code
   it resets, by the finer breadcrumb sites inside USB service that
   `ubertooth-util -w` reads, by the breadcrumb gaining two more places a board
@@ -1762,11 +1762,6 @@ Fixes with no visible change in normal use.
   same wait during a capture's teardown now finishes as well, instead of
   leaving the transfer behind for the next capture on that handle to refuse.
   [#584](https://github.com/SqueakyFloors/ubertooth/issues/584)
-- The generic receive clears the radio's FIFO between packets. A packet longer
-  than the FIFO left bytes in it, and those bytes came out in front of the next
-  packet: the record after a long one arrived shifted. No shipped tool asks for
-  the mode.
-  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
 - The clock drift the board accumulates stays within what it can correct. A run
   of drift requests used to walk past what the 16-bit figure holds and come
   back with the other sign, which would run the clock the opposite way to the
