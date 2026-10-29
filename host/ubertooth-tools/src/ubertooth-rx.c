@@ -558,6 +558,10 @@ int main(int argc, char* argv[])
 		r = stream_rx_file(ut, infile, cb_rx, pn);
 		fclose(infile);
 		exit_status = rx_file_report(r, infile_name);
+
+		/* A recorded capture carries the gaps it was recorded with, and
+		 * the replay is where a reader of the file finds out about them. */
+		ubertooth_report_queue_gaps(ut);
 	}
 
 	if(survey_mode) {

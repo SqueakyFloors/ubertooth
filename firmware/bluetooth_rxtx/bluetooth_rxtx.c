@@ -915,6 +915,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 
 	case UBERTOOTH_CLEAR_AFHMAP:
 		clear_afh_map();
+		/* Including a map stated for a mode whose start is still to come:
+		 * a host that clears the map means the capture to hop the whole
+		 * band, and applying the earlier map at the mode start would be
+		 * the opposite of what it asked for. */
+		stated_what &= ~STATED_AFH_MAP;
 		*data_len = 10;
 		break;
 
