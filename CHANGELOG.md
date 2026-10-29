@@ -952,6 +952,13 @@
   back wrong -- and only byte 0, because the read trails the air from there on.
   Each now waits for the radio to have the start of the packet.
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
+- That wait is no longer cut short by a clock period the drift correction has
+  lengthened, which brought the same `mismatch on byte 0` back on a board that
+  had followed Classic traffic since it was plugged in. The wait is timed by a
+  counter that resets every 312.5 µs, and a reading taken just after a
+  lengthened period reset was read as up to 167 µs of waiting that had not
+  happened.
+  [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
 - A Classic packet longer than one 400 µs bank is reported as what was
   captured, and a piconet follow runs to the end instead of dying partway.
   `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
@@ -1963,12 +1970,7 @@ Fixes with no visible change in normal use.
   starts reading the packet out, so byte 0 of a record is the byte that
   arrived. The same wait fixed the range test's wrong byte 0.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
-- The range test's wait for that first byte is no longer cut short by the one
-  clock period a drift fix lengthens, so byte 0 of a reply is still the byte
-  that arrived. The wait is timed by a counter that resets every 312.5 us, and
-  a reading taken just after such a period reset used to be read as up to
-  167 us of waiting that had not happened.
-  [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
+
 - A capture keeps a packet whose transfer brought all 64 bytes and came back
   with the timed-out status rather than the completed one. It used to be
   dropped, and the warning about a transfer cut short passes over a full one,

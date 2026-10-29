@@ -94,6 +94,8 @@ struct scan {
 	int fifo_wait_step;      /* the step it computes, as written */
 	char fifo_wait_text[256];
 	int fifo_wait_guard;     /* where it drops a step longer than the lead */
+	int fifo_wait_joined;    /* a line of it joined to the next by a `\` */
+	int fifo_wait_polls;     /* RANGETEST_LEAD_POLLS as written */
 	int fifo_wait_adds;      /* how many statements add to the total */
 	int fifo_wait_add_ok;    /* where the one that adds the step is */
 	char fifo_wait_add[256]; /* as written */
@@ -225,6 +227,49 @@ static int defined_number(const char *line, const char *name)
 	return (int)number;
 }
 
+/*
+ * The first line from `start` to the end of that function that ends in a
+ * backslash, or 0 if there is none.
+ *
+ * The scan below reads the file a physical line at a time, and the compiler
+ * does not: a backslash at the end of a line joins it to the next one. A line
+ * of `// \` therefore takes the line below it into its comment, and the scan
+ * still reads that line as code -- so the guard can be commented out with
+ * every check on it satisfied. This reads the file again because the scan
+ * strips comments as it goes, which takes the backslash with them.
+ */
+static int joined_line_in_function(const char *path, int start)
+{
+	char line[SCAN_LINE_MAX];
+	int lineno = 0;
+	FILE *f;
+
+	if (start <= 0)
+		return 0;
+	f = fopen(path, "r");
+	if (f == NULL)
+		return 0;
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		size_t len = strlen(line);
+
+		lineno++;
+		if (lineno < start)
+			continue;
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r' ||
+		                   line[len - 1] == ' ' || line[len - 1] == '\t'))
+			len--;
+		if (len > 0 && line[len - 1] == '\\') {
+			fclose(f);
+			return lineno;
+		}
+		if (lineno > start && line[0] == '}')
+			break;    /* the function's closing brace */
+	}
+	fclose(f);
+	return 0;
+}
+
 static int scan_source(const char *path, struct scan *s)
 {
 	char line[512];
@@ -258,7 +303,8 @@ static int scan_source(const char *path, struct scan *s)
 			in_turnaround = 1;
 			continue;
 		}
-		if (strstr(line, "rangetest_wait_for_fifo(void)") != NULL) {
+		if (strstr(line, "rangetest_wait_for_fifo(void)") != NULL &&
+		    s->fifo_wait_fn == 0) {
 			s->fifo_wait_fn = lineno;
 			in_fifo_wait = 1;
 			continue;
@@ -319,6 +365,12 @@ static int scan_source(const char *path, struct scan *s)
 			if (n > 0)
 				s->lead_bytes = n;
 		}
+		if (s->fifo_wait_polls == 0) {
+			int n = defined_number(line, "RANGETEST_LEAD_POLLS");
+
+			if (n > 0)
+				s->fifo_wait_polls = n;
+		}
 		/*
 		 * The wait's length has to be a number of byte times, not a tick
 		 * count of its own: a plain number here is how a wait for one byte
@@ -334,24 +386,14 @@ static int scan_source(const char *path, struct scan *s)
 		if (in_fifo_wait && !fifo_wait_ended) {
 			char flat[SCAN_LINE_MAX];
 
-			collapse_spaces(line, flat, sizeof(flat));
-
 			/*
-			 * Comments are left out of everything below, so they can
-			 * be rewritten without touching this test, and so no
-			 * check is satisfied by a sentence that only talks about
-			 * the code.
+			 * strip_comments() has already run on the line, so what
+			 * is left of a comment is an empty line. Comments are
+			 * therefore out of everything below, which leaves them
+			 * free to be rewritten and keeps a check from being
+			 * satisfied by a sentence that only talks about the code.
 			 */
-			if (fifo_wait_comment) {
-				if (strstr(flat, "*/") != NULL)
-					fifo_wait_comment = 0;
-				continue;
-			}
-			if (strncmp(flat, "/*", 2) == 0) {
-				if (strstr(flat + 2, "*/") == NULL)
-					fifo_wait_comment = 1;
-				continue;
-			}
+			collapse_spaces(line, flat, sizeof(flat));
 			if (flat[0] == '\0')
 				continue;
 
@@ -607,6 +649,7 @@ static int scan_source(const char *path, struct scan *s)
 	}
 
 	fclose(f);
+	s->fifo_wait_joined = joined_line_in_function(path, s->fifo_wait_fn);
 	return 1;
 }
 
@@ -1220,13 +1263,14 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	mu_assert(s.fifo_wait_step, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: rangetest_wait_for_fifo() counts every step the modulo "
-	         "returns. The timer's period is not CLK100NS_PER_CLKN for one "
-	         "period after the low-energy modes' clock drift correction moves "
-	         "its match value, and a step across that period's reset comes "
-	         "out of the fixed modulus as an arbitrary number: counting it "
-	         "ends the wait at once, which is the wrong byte 0 the wait is for",
-	         path, s.fifo_wait_fn);
+	         "%s:%d: rangetest_wait_for_fifo() has no "
+	         "`if (step <= RANGETEST_LEAD_100NS)` line, written just so, so "
+	         "every step the modulo returns is counted. The timer's period is "
+	         "not CLK100NS_PER_CLKN for the one period a clock drift "
+	         "correction lengthens, and a step across that period's reset "
+	         "comes out of the fixed modulus as an arbitrary number: counting "
+	         "it ends the wait at once, which is the wrong byte 0 the wait is "
+	         "for", path, s.fifo_wait_fn);
 	mu_assert(s.fifo_wait_guard, msg);
 
 	snprintf(msg, sizeof(msg),
@@ -1269,6 +1313,26 @@ MU_TEST(test_the_read_waits_for_the_radio_to_have_the_packet)
 	         "the board answering nothing until the watchdog resets it",
 	         path, s.fifo_wait_fn);
 	mu_assert(s.fifo_wait_cap, msg);
+
+	/*
+	 * And the cap has to be larger than the number of turns the wait needs,
+	 * or it ends the wait instead of backstopping it -- which is the early
+	 * read again, and the body above would not change by one character.
+	 */
+	snprintf(msg, sizeof(msg),
+	         "%s: RANGETEST_LEAD_POLLS is %d. A turn of the wait is a few "
+	         "ticks, so the %d ticks it waits take a few hundred turns: a cap "
+	         "near that is what ends the wait, not a backstop against a timer "
+	         "that is not running", path, s.fifo_wait_polls,
+	         s.lead_bytes * s.byte_100ns);
+	mu_assert(s.fifo_wait_polls >= 10000, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: a line of rangetest_wait_for_fifo() ends in a backslash, "
+	         "which joins it to the line below. A comment written that way "
+	         "takes the next line into itself, and the checks here read that "
+	         "line as code", path, s.fifo_wait_joined);
+	mu_assert(s.fifo_wait_joined == 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s: cc2400_rangetest() notices a sync word at line %d and reads "
@@ -1824,8 +1888,8 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 	          "this guards against");
 
 	/*
-	 * The period is not always CLK100NS_PER_CLKN: the low-energy modes'
-	 * clock drift correction moves the timer's match value for one period,
+	 * The period is not always CLK100NS_PER_CLKN: the clock interrupt's
+	 * drift correction moves the timer's match value for one period,
 	 * which can make it about three times as long. A step across the reset
 	 * of such a period comes out of the fixed modulus as an arbitrary
 	 * number -- 2,056 for the pair below -- and counting it would end the
@@ -1930,6 +1994,7 @@ MU_TEST(test_no_reading_of_a_drift_fixed_period_ends_the_wait_early)
 	mu_assert((uint32_t)(s.lead_bytes * s.byte_100ns) == MODEL_LEAD, msg);
 
 	mu_assert_int_eq(51040, (int)slow.would_without_guard);
+	mu_assert_int_eq(0, (int)fast.would_without_guard);
 
 	snprintf(msg, sizeof(msg),
 	         "%ld readings of the long period still end the wait before the "

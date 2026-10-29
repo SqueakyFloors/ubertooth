@@ -200,16 +200,19 @@ static void rangetest_wait_for_fifo(void)
 		 * handful of ticks. So a larger figure means the modulo above
 		 * was taken against the wrong period.
 		 *
-		 * The timer's match value is not fixed. A clock drift fix
-		 * moves it for one period, and a fix for a clock running slow
-		 * makes that period about three times as long; a step taken
-		 * one tick after the end of such a period comes out of the
-		 * fixed modulus as 1,673 ticks against a lead of 320, which
-		 * would end the wait before the radio had written byte 0.
-		 * Only the low-energy modes fix drift, but the value the last
-		 * fix of such a mode left behind can still be in the timer
-		 * when this mode starts, which is how it reaches the range
-		 * test.
+		 * The timer's match value is not fixed. The clock interrupt
+		 * corrects for clock drift by moving it for one period, and a
+		 * correction for a clock running slow makes that period about
+		 * three times as long; a step taken one tick after the end of
+		 * such a period comes out of the fixed modulus as 1,673 ticks
+		 * against a lead of 320, which would end the wait before the
+		 * radio had written byte 0.
+		 *
+		 * That correction is armed by the host, which sends a drift
+		 * figure while following Classic traffic, and nothing disarms
+		 * it when the mode ends. So the range test runs with it armed,
+		 * and a lengthened period comes round every few clkn ticks --
+		 * every tick, for a clock drifting enough.
 		 *
 		 * Dropping the step is the safe direction: the wait runs
 		 * another turn, and the poll cap still ends the loop.
