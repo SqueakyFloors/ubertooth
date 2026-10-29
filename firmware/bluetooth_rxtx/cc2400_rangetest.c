@@ -199,11 +199,19 @@ static void rangetest_wait_for_fifo(void)
 		 * handful of ticks, and the longest a turn can really be is an
 		 * interrupt in the middle of it -- still well under the lead.
 		 * So a larger figure means the modulo above was taken against
-		 * the wrong period, which happens for one timer period after
-		 * the low-energy modes' clock drift correction moves the
-		 * timer's match value. Counting it would end the wait early,
-		 * which is the wrong byte 0 all this is for; dropping it waits
-		 * a little longer, and the poll cap still ends the loop.
+		 * the wrong period. Every clock drift fix lengthens the period
+		 * it runs in, and a fix for a clock running slow sets a match
+		 * value about three times the usual one. Only the low-energy
+		 * modes fix drift, but the match value the last fix of such a
+		 * mode left behind can still be in the timer when this one
+		 * starts, which is how it reaches the range test.
+		 *
+		 * Counting such a step would end the wait early -- a step
+		 * taken one tick after the end of a lengthened period comes
+		 * out of the fixed modulus as 1,673 ticks against a lead of
+		 * 320 -- which is the wrong byte 0 all this is for. Dropping
+		 * it waits a little longer, and the poll cap still ends the
+		 * loop.
 		 */
 		if (step <= RANGETEST_LEAD_100NS)
 			waited += step;

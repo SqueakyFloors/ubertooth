@@ -32,6 +32,7 @@
 
 #include "minunit.h"
 #include "source_scan.h"
+#include "ubertooth_interface.h"
 
 #ifndef FW_DIR
 #define FW_DIR ".."
@@ -326,9 +327,21 @@ static int scan_source(const char *path, struct scan *s)
 				           "CLK100NS_PER_CLKN;") == 0)
 					s->fifo_wait_step = 1;
 			}
+			/*
+			 * The guard, pinned as written for the same reason:
+			 * `RANGETEST_LEAD_100NS <= step` compiles, reads as a
+			 * guard, and keeps only the steps that should be
+			 * dropped.
+			 */
 			if (contains_identifier(line, "step") &&
-			    strstr(line, "<=") != NULL)
-				s->fifo_wait_guard = 1;
+			    strstr(line, "<=") != NULL) {
+				char flat[256];
+
+				collapse_spaces(line, flat, sizeof(flat));
+				if (strcmp(flat,
+				           "if (step <= RANGETEST_LEAD_100NS)") == 0)
+					s->fifo_wait_guard = 1;
+			}
 		}
 
 		/*
@@ -1622,11 +1635,23 @@ MU_TEST(test_the_range_test_has_one_copy)
  * Timer 0 resets every CLK100NS_PER_CLKN ticks, so the wait adds up the steps
  * it sees instead of comparing against a deadline the reset would carry it
  * past. `(now + period - last) % period` is what makes a step across the reset
- * come out as the time it was; the scan above pins that the firmware writes
- * it, and this says what it has to come to. The generic receive has the same
- * accumulation, with its own runnable model, in test_grmdm_rx_generic.c.
+ * come out as the time it was. This is a copy of the loop, not the firmware's
+ * own: what pins the firmware to this arithmetic and to the guard below is the
+ * source scan above, and what these say is the behavior that arithmetic has to
+ * come to. The generic receive has the same accumulation, with its own
+ * runnable model, in test_grmdm_rx_generic.c.
  */
-#define CLKN_PERIOD 3125u  /* CLK100NS_PER_CLKN: 312.5 us in 100 ns ticks */
+#define CLKN_PERIOD ((uint32_t)CLK100NS_PER_CLKN)  /* 312.5 us in 100 ns ticks */
+
+/*
+ * How long the one period a clock drift fix lengthens is, in the same ticks.
+ * A fix for a clock running slow writes 3124 + 6249 to the timer's match
+ * register, and the period is one tick longer than the match value.
+ */
+#define LONG_PERIOD 9374u
+
+/* The lead the firmware waits, four 1 Mbit/s byte times. */
+#define MODEL_LEAD 320u
 
 /*
  * The firmware's loop, with the counter supplied instead of read. uint32_t
@@ -1711,6 +1736,56 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 	}
 }
 
+/*
+ * The guard leaves no reading of a lengthened period that ends the wait before
+ * the lead has really passed.
+ *
+ * Every pair of readings across the reset of such a period is tried here.
+ * `real` is the time that actually passed between the two, which the firmware
+ * cannot know; `step` is what the fixed modulus makes of them. Without the
+ * guard a single step of 320 ticks or more ends the wait on its own, and 51,040
+ * of these pairs do that with less than the lead behind them -- as little as
+ * one tick. The guard drops every one of those, and the steps it still counts
+ * stand for 145 us of real time at the least, more than four times the lead,
+ * so none of them can end the wait early either.
+ */
+MU_TEST(test_no_reading_of_a_lengthened_period_ends_the_wait_early)
+{
+	long early_without_the_guard = 0, early_with_it = 0;
+	uint32_t least_real_counted = 0xffffffffu;
+	uint32_t last, now;
+	char msg[256];
+
+	for (last = CLKN_PERIOD + 1; last < LONG_PERIOD; last++) {
+		for (now = 0; now < last && now < CLKN_PERIOD; now++) {
+			uint32_t step = (now + CLKN_PERIOD - last) % CLKN_PERIOD;
+			uint32_t real = now + LONG_PERIOD - last;
+
+			if (step >= MODEL_LEAD && real < MODEL_LEAD)
+				early_without_the_guard++;
+			if (step > MODEL_LEAD)
+				continue;    /* the guard drops it */
+			if (real < least_real_counted)
+				least_real_counted = real;
+			if (step >= MODEL_LEAD && real < MODEL_LEAD)
+				early_with_it++;
+		}
+	}
+
+	mu_assert_int_eq(51040, (int)early_without_the_guard);
+
+	snprintf(msg, sizeof(msg),
+	         "%ld readings of a lengthened period still end the wait before "
+	         "the lead has passed", early_with_it);
+	mu_assert(early_with_it == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "a step the guard counts stood for only %u ticks, under the %u "
+	         "the lead is: counting it ends the wait early",
+	         least_real_counted, MODEL_LEAD);
+	mu_assert(least_real_counted >= MODEL_LEAD, msg);
+}
+
 int main(void)
 {
 	printf("range test radio setup tests\n");
@@ -1750,5 +1825,6 @@ int main(void)
 	MU_RUN(test_the_badge_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_range_test_has_one_copy);
 	MU_RUN(test_the_wait_adds_up_steps_across_the_counters_reset);
+	MU_RUN(test_no_reading_of_a_lengthened_period_ends_the_wait_early);
 	return mu_report();
 }
