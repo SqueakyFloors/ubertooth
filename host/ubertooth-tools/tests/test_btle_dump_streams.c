@@ -349,8 +349,12 @@ MU_TEST(the_promiscuous_report_follows_the_tools_report_stream)
 
 /* Where the signal level sits in a PCAP file holding one low-energy packet:
  * past the 24-byte file header and the 16-byte record header, the pseudo-
- * header's channel byte comes first and the signal level second. */
-#define CAPTURED_LEVEL_AT (24 + 16 + 1)
+ * header's advertising channel index comes first and the signal level second.
+ * The index is checked as well, so a pseudo-header that grows a field in
+ * front of these two is caught as such rather than as a level nobody
+ * expected. */
+#define CAPTURED_CHANNEL_AT (24 + 16)
+#define CAPTURED_LEVEL_AT (CAPTURED_CHANNEL_AT + 1)
 
 /* The dBm figure on a `systime=` line, or INT_MIN if there is none. */
 static int printed_level(const char* text)
@@ -364,8 +368,9 @@ static int printed_level(const char* text)
 }
 
 /* The signal level the one record of a capture file carries, or INT_MIN if
- * the file is too short to hold one. */
-static int captured_level(const char* path)
+ * the file is too short to hold one or its channel byte is not where this
+ * expects the pseudo-header to start. */
+static int captured_level(const char* path, unsigned channel)
 {
 	unsigned char bytes[CAPTURED_LEVEL_AT + 1];
 	FILE* file = fopen(path, "rb");
@@ -375,22 +380,21 @@ static int captured_level(const char* path)
 		return INT_MIN;
 	n = fread(bytes, 1, sizeof(bytes), file);
 	fclose(file);
-	if (n < sizeof(bytes))
+	if (n < sizeof(bytes) || bytes[CAPTURED_CHANNEL_AT] != channel)
 		return INT_MIN;
 	return (signed char) bytes[CAPTURED_LEVEL_AT];
 }
 
 /* The dump and the capture describe the same packet, so the level they report
- * for it is the same number: the strongest reading taken while the packet's
- * symbols were collected, converted to dBm the way the datasheet's curve
- * says.
+ * for it is the same number: the strongest of the readings taken while the
+ * packet's symbols were collected, converted to dBm the way the datasheet's
+ * curve says.
  *
- * The readings here are far apart on purpose, as a packet's are whenever the
- * receiver is open for a while around it: the weakest reading is the quiet air
- * between packets, and reporting that beside a packet described the silence
- * rather than the packet. The two figures then disagreed by tens of dB, and
- * anyone comparing a dump against a capture of the same run read it as a
- * receiver fault.
+ * The readings here are far apart on purpose. The weakest one used to be what
+ * the dump printed, and through a cruder conversion, so it sat far below the
+ * packet's own level: the two figures disagreed by tens of dB, and anyone
+ * comparing a dump against a capture of the same run read that as a receiver
+ * fault.
  */
 MU_TEST(the_dump_reports_the_level_the_capture_records)
 {
@@ -409,11 +413,16 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
 	                "a capture file");
 
-	/* 70 raw counts apart, which the datasheet's curve puts about 66 dB
-	 * apart: a packet 14 dB short of saturating the receiver, in a window
-	 * whose quietest moment is near the noise floor. */
+	/* 70 raw counts apart, which the datasheet's curve puts 63 dB apart:
+	 * -28 dBm for the strongest reading of the packet, -91 dBm for the
+	 * weakest. A real packet's readings spread like this, because the
+	 * radio's reading has not caught up with the packet when its first
+	 * bytes arrive. */
 	rx.rssi_max = 30;
 	rx.rssi_min = -40;
+	/* 2480 MHz, advertising channel 39, so the channel byte the check
+	 * below reads is a value nothing else in the record could be. */
+	rx.channel = 78;
 
 	fifo_push(ut->fifo, &rx, 0);
 	capture_output();
@@ -424,9 +433,9 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 
 	level = printed_level(out);
 	mu_assert(level != INT_MIN, out);
-	mu_assert(captured_level(capture) != INT_MIN,
+	mu_assert(captured_level(capture, 39) != INT_MIN,
 	          "the capture holds a record to read a level from");
-	mu_assert_int_eq(captured_level(capture), level);
+	mu_assert_int_eq(captured_level(capture, 39), level);
 	/* And it is the packet's own level, not the floor of the window: the
 	 * weakest reading through the old approximation would read -94. */
 	mu_assert_int_eq(-28, level);

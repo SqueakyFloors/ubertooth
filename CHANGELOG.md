@@ -545,25 +545,13 @@
 
 ### Reliability fixes
 
-- A firmware download that stops part way through -- a cable pulled, a board
-  that leaves the bus, a host that dies -- no longer leaves an image a board
-  will start. `ubertooth-dfu -d` writes the vector table last, leaving erased
-  flash in its place until then, and the bootloader refuses to start an
-  application that is not there: it waits in DFU instead, so the next
-  `ubertooth-dfu -d` recovers the board rather than someone at the bench with
-  the entry pin bridged. The bootloader half takes effect only on a board
-  carrying a bootloader built from this tree, which is installed with ISP or
-  JTAG; a download interrupted inside its last 4 KiB is still one for the
-  bench either way. A read of the image file that fails part way through now
-  fails the download as well, where it used to end the transfer and report
-  success.
-  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
-
-- The `rssi=` figure `ubertooth-btle` prints beside a packet is that packet's
-  own level in dBm, the same number the capture's signal field carries for the
-  same packet. It used to be the weakest reading of the window the packet
-  arrived in, through a rougher approximation: that described the quiet air
-  between packets, and read tens of dB away from the capture of the same run.
+- **Script-visible change:** the `rssi=` figure `ubertooth-btle` prints beside
+  a packet is that packet's own level in dBm, the same number the signal field
+  of a `-q` or `-r` capture carries for it. It used to be the weakest of the
+  packet's readings through a rougher approximation, which ran far below the
+  packet's own level: on the bench that reached -96 dBm where the quietest
+  captured packet was -78, so a dump and a capture of one run disagreed by up
+  to 55 dB.
   [#859](https://github.com/SqueakyFloors/ubertooth/issues/859)
 - `ubertooth-btle -p` discovers the access address of the connection it finds,
   instead of inheriting one from an earlier command. A `-t` target set for

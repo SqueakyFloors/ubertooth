@@ -356,20 +356,6 @@ their file while the command line is read, and it is opened only once every
 check has passed. The board is opened and its firmware is checked before that,
 so a run refused for either reason leaves no empty file behind either.
 
-The `rssi=` figure on each packet's `systime=` line is that packet's own level
-in dBm: the strongest reading the board took while it was collecting the
-packet's symbols, through the CC2400 datasheet's conversion. A packet that
-arrives in several records reports the readings of the first one. It is the
-same number the signal field of a `-q` or `-r` capture carries for that packet,
-so a dump and a capture of one run agree; a `-c` PPI capture carries the
-board's raw counts instead, which are not dBm.
-
-Earlier releases printed the weakest reading of the window instead, through a
-rougher approximation. In the follow modes the receiver is open for
-milliseconds around each packet, so that figure described the quiet air
-between packets rather than the packet, and read tens of dB away from the
-capture of the same run.
-
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: either the decoded packets or
@@ -377,6 +363,21 @@ the capture data of `-q -` or `-c -`, plus the lines that answer `-a`, `-k` and
 `-t` and the parameters `-p` recovers. With the capture on standard output,
 standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.
+
+The `rssi=` figure on each packet's `systime=` line is that packet's own level
+in dBm, through the CC2400 datasheet's conversion: in `-f` and `-n` the board
+reads RSSI once per received byte and this is the strongest of a packet's
+readings, and in `-p` it takes a single reading as the packet ends. It is the
+same number the signal field of a `-q` or `-r` capture carries for that packet,
+so a dump and a capture of one run agree. A `-c` PPI capture carries the
+board's raw counts instead, which are not dBm.
+
+Earlier releases printed the weakest of a packet's readings, through a rougher
+approximation than the datasheet's curve. That figure ran far below the
+packet's own level: on the bench it reached -96 dBm where the quietest packet
+the capture recorded was -78, so a dump and a capture of the same run
+disagreed by up to 55 dB. In `-p`, where there is only one reading, the two
+differed by the conversion alone.
 
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
