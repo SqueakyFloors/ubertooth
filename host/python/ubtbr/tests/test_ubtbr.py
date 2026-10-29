@@ -119,6 +119,11 @@ gone out, which is how a test has a packet arrive while a command is
 running rather than before the prompt is up, and UBTBR_FAKE_READ_DELAY holds
 each of them, which spreads them over a session instead of handing them all
 over at once.
+
+UBTBR_FAKE_READ_FAILS makes the read raise USBErrorPipe instead of timing
+out, once UBTBR_FAKE_READS_AFTER writes have gone out: that is a board that
+left the USB bus with the session still up, which is what a power-cycled hub
+port does to a running command.
 """
 
 import os
@@ -136,6 +141,10 @@ class USBErrorTimeout(USBError):
 
 class USBErrorAccess(USBError):
     value = -3
+
+
+class USBErrorPipe(USBError):
+    pass
 
 
 class USBErrorBusy(USBError):
@@ -177,6 +186,8 @@ class _Handle:
     def bulkRead(self, endpoint, length, timeout=0):
         canned = os.environ.get("UBTBR_FAKE_READS")
         after = int(os.environ.get("UBTBR_FAKE_READS_AFTER", "0"))
+        if os.environ.get("UBTBR_FAKE_READ_FAILS") and self.writes >= after:
+            raise USBErrorPipe("LIBUSB_ERROR_PIPE [-9]")
         if canned and self.writes >= after:
             with open(canned) as pending:
                 packets = pending.read().split()
@@ -1128,6 +1139,22 @@ assert "error: bdaddr 11:22:33:44:55:66: timeout" in errors, errors
 assert "Traceback" not in errors, errors
 assert "Exception in thread" not in errors, errors
 print("ubtbr: a request the device will not take ends the command, not the tool")
+
+# a board that left the USB bus with the session still up: the thread reading
+# it ends on the USB failure, nothing restarts it, and no message arrives for
+# the rest of the session. The session therefore did not do what it was asked,
+# and exits 1 -- it used to report every step correctly and then exit 0, so a
+# script could not tell this from a run where every command worked. The reads
+# fail only once the three setup writes have gone out, so the failure lands
+# where a hub port power-cycled under a running command puts it.
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READ_FAILS="1",
+                    UBTBR_FAKE_READS_AFTER="3"))
+output, errors = running.communicate("inquiry\nq\n", timeout=DEADLINE * 2)
+assert running.returncode == 1, (running.returncode, output, errors)
+assert "error: the receive thread stopped: USBErrorPipe" in errors, errors
+assert "Traceback" not in errors, errors
+assert "Exception in thread" not in errors, errors
+print("ubtbr: a board that left the bus under the session exits 1")
 
 # an interrupt while a command that runs commands of its own is going: the
 # prompt joins whatever it started, and a super command is not a command.

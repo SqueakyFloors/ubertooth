@@ -53,6 +53,9 @@ static struct {
 	/* Every device call in order, one letter each: c set channel,
 	 * a set advertising data, s start advertising as a slave. */
 	char calls[16];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -117,6 +120,15 @@ void ubertooth_stop(ubertooth_t *ut)
 {
 	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 void ubertooth_close(ubertooth_t *ut)
@@ -241,6 +253,29 @@ MU_TEST(each_advertising_index_tunes_its_own_frequency)
 /* Each refused request is named, in one line on standard error, and ends the
  * command there: it used to be ignored, so a board that refused one still
  * slept for two seconds and reported success. */
+/* A quack the board would not stop leaves that board advertising, and no other
+ * tool can open it until it is reset or re-plugged, so the run did not finish.
+ * libubertooth has already named the refused request. */
+MU_TEST(a_quack_whose_teardown_was_refused_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_refused = 1;
+	r = RUN("-q");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+	/* Every request still went out, and the duck still quacked. */
+	mu_assert(strcmp(fake.calls, "casc") == 0, fake.calls);
+	mu_assert(strstr(r.err, "Quacking ") != NULL, r.err);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+
+	/* The same quack on a board that takes the stop. */
+	reset_fake();
+	r = RUN("-q");
+	mu_assert_int_eq(0, r.rc);
+}
+
 MU_TEST(a_refused_request_is_named_and_exits_1)
 {
 	static const struct {
@@ -394,6 +429,7 @@ int main(void)
 {
 	MU_RUN(a_quack_the_board_took_sends_its_requests_and_exits_0);
 	MU_RUN(each_advertising_index_tunes_its_own_frequency);
+	MU_RUN(a_quack_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_refused_request_is_named_and_exits_1);
 	MU_RUN(the_bootloader_signal_is_checked_too);
 	MU_RUN(a_random_address_quack_is_checked_as_well);

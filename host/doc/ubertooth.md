@@ -237,6 +237,21 @@ without waiting for its answer has only the stall to report, so that line ends
 `(stalled)`. A board in the DFU bootloader runs no application firmware, so
 ubertooth-dfu(1) reports a refused request without the note.
 
+A board that has left the USB bus stalls a request too, on some hosts, and its
+firmware is not the reason: the board whose version the note would quote is
+not there any more. Before the firmware is blamed the bus is listed, and a
+board that has gone from it gets one line of its own, with no note:
+
+    error: could not stop the running mode: the board is no longer attached
+
+Nothing is asked of the board to find that out, so a board that is merely
+silent is left alone. A bus that cannot be listed says nothing either way, and
+the request is reported as the stall it arrived as. So is one sent to a board
+whose version was never recorded, which is ubertooth-dfu(1) talking to the
+bootloader: there is no handle there to ask the bus about. Every board these
+tools open through libubertooth is recorded as it is opened, so every board a
+mode runs on is covered.
+
 Which answer a build gives can be set either way with
 `UBERTOOTH_ALLOW_API_MISMATCH` (see ENVIRONMENT below).
 

@@ -63,6 +63,9 @@ static struct {
 	/* Every device call in order, one letter each: c set the channel,
 	 * s start sending symbols. */
 	char calls[16];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -166,6 +169,24 @@ void ubertooth_stop(ubertooth_t* ut)
 {
 	ut->devh = NULL; /* as the library's cleanup leaves it */
 	fake.stops++;
+}
+
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 /* Counted rather than freeing: the handle above is this test's own static. */
@@ -347,6 +368,23 @@ void ubertooth_report_unsupported_request(const char* what, int code)
  * error, and ends the command there: it used to be ignored, so the board
  * stayed on whatever channel it was left on and the tool printed an AFH map
  * that meant nothing, reporting success. */
+/* A scan the board would not stop leaves that board running the capture mode,
+ * and no other tool can open it until it is reset or re-plugged, so the run
+ * did not do what was asked. The results it found are still printed, and
+ * libubertooth has already named the refused request. */
+MU_TEST(a_scan_whose_teardown_was_refused_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_refused = 1;
+	r = RUN("-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(strstr(r.out, "Scan results:") != NULL, r.out);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+}
+
 MU_TEST(a_refused_sweep_is_named_and_exits_1)
 {
 	struct run_result r;
@@ -594,6 +632,7 @@ int main(void)
 	 * device, so any library call the tool grows becomes a link error
 	 * rather than a silently real one. */
 	MU_RUN(a_scan_the_board_took_sweeps_and_exits_0);
+	MU_RUN(a_scan_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_refused_sweep_is_named_and_exits_1);
 	MU_RUN(a_refused_sweep_keeps_the_bluez_results);
 	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);

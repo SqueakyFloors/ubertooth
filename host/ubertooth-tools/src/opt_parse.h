@@ -120,6 +120,25 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap);
 int opt_check_stdout_not_tty(const char *what);
 
 /*
+ * Whether a file option's value says to write to standard output, which is
+ * the lone "-" and nothing else (ubertooth(7), OPTION VALUES). The one place
+ * that rule is written down, so a tool that has to know before it opens the
+ * destination does not spell it out again. NULL, a tool given no such option,
+ * is not standard output.
+ */
+int opt_writes_to_stdout(const char *filename);
+
+/*
+ * The same refusal for a destination that may or may not be standard output:
+ * 0 for any file name, and the check above for a lone "-". A tool whose
+ * capture file is created later -- once the board is known to be usable --
+ * calls this while it is still reading its command line, so a terminal is
+ * refused before any board is opened. NULL is a tool that was given no such
+ * option, and passes.
+ */
+int opt_check_capture_destination(const char *filename, const char *what);
+
+/*
  * Where a capture option's value says to write, with a lone "-" meaning
  * standard output (ubertooth(7), OPTION VALUES).
  *

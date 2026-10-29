@@ -200,6 +200,18 @@ int opt_check_stdout_not_tty(const char *what)
 	return 0;
 }
 
+int opt_writes_to_stdout(const char *filename)
+{
+	return filename != NULL && strcmp(filename, "-") == 0;
+}
+
+int opt_check_capture_destination(const char *filename, const char *what)
+{
+	if (opt_writes_to_stdout(filename))
+		return opt_check_stdout_not_tty(what);
+	return 0;
+}
+
 /* Hand the real standard output to a capture and send this process's own
  * standard output to /dev/null for the rest of the run, so that nothing the
  * tool prints can land in the middle of the capture stream. Returns the

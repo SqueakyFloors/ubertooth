@@ -37,9 +37,9 @@ print the usage text on standard output and exit 0\. It takes effect once the wh
 .P
 The board demodulates one modulation at a time, so \fB\-c\fR and \fB\-l\fR in one command are refused before any device is opened: \fBerror: \-l cannot be combined with \-c; a capture uses one modulation\fR\. The second one used to be the one used, and the other was dropped without a word\.
 .P
-A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\.
+A refused command line creates and truncates nothing: \fB\-d\fR names its file while the command line is read, and it is opened only once every check has passed\. The board is opened and its firmware is checked before that, so a run refused for either reason leaves no empty file behind either\.
 .SH "DIAGNOSTICS"
-Without \fB\-d\fR, standard output carries the binary symbol stream and nothing else, and so does \fB\-d \-\fR\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\.
+Without \fB\-d\fR, standard output carries the binary symbol stream and nothing else, and so does \fB\-d \-\fR\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\. That line comes after the board has been selected and its firmware accepted, because that is when the file is opened\.
 .P
 A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. The stream is binary, so a terminal fills with control characters and the dump is lost\. Redirect or pipe standard output instead\.
 .P
@@ -50,6 +50,10 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 0 when the command did what was asked, including \fB\-h\fR, and after the dump is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take, for a \fB\-d\fR file that cannot be opened, and when the selected Ubertooth is not found or cannot be opened\.
 .P
 Also 1 when the dump's USB stream fails part\-way: the board stopped answering or dropped off the bus, so the dump stops there and holds only what arrived before it\. The failure is reported on standard error as it happens\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than an error\.
+.P
+Also 1 when the board refuses the request that ends the dump: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was dumped stays written out, and libubertooth names the refused request on standard error\.
+.P
+A \fB\-d\fR file is opened once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

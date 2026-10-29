@@ -95,8 +95,10 @@ status 1. ubertooth-btle(1) refuses its binary capture to a terminal the same
 way. With `-g` or `-G` the samples are text, and a terminal is welcome to
 them.
 
-A refused command line creates and truncates nothing: `-d` names its file while
-the command line is read, and it is opened only once every check has passed.
+A refused command line creates and truncates nothing: `-d` names its file
+while the command line is read, and it is opened only once every check has
+passed. The board is opened and its firmware is checked before that, so a run
+refused for either reason leaves no empty file behind either.
 
 ## VERBOSE OUTPUT
 
@@ -171,6 +173,18 @@ a `-d` file, to standard output with `-d -`, or to standard output as text:
 One case does not reach either line: when `-d -` writes into a pipe whose
 reader has gone, the process is killed by `SIGPIPE` before the failed write
 returns, so the shell reports status 141.
+
+A sweep the board would not stop exits 1 as well: the request that takes the
+board out of sweep mode was stalled, so the board is left sweeping and no
+other tool can open it until it is reset or re-plugged. The samples that
+arrived stay written out, and libubertooth names the refused request on
+standard error.
+
+A `-d` file is opened once the board has been opened and its firmware
+accepted, not before, so a run refused for either reason leaves no empty file
+behind; that is also why the message for a `-d` file that cannot be opened
+comes after the board has been selected. A terminal on standard output is
+still refused while the command line is read.
 
 ## SEE ALSO
 

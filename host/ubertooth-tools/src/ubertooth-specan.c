@@ -419,11 +419,14 @@ int main(int argc, char *argv[])
 	 * capture of a sweep has always been; the screen with no format asked
 	 * for gets one text line per sample.
 	 *
-	 * Every check has passed, so -d can be opened. Only a bare "-" means
-	 * stdout (the one argument rule, as ubertooth-btle -r already checks).
-	 * Any other value is a file name, including one starting with "-", so
-	 * "-d -x" writes the file "-x" rather than silently streaming samples
-	 * to stdout and dropping a mistyped option. */
+	 * Only a bare "-" means stdout (the one argument rule, as
+	 * ubertooth-btle -r already checks). Any other value is a file name,
+	 * including one starting with "-", so "-d -x" writes the file "-x"
+	 * rather than silently streaming samples to stdout and dropping a
+	 * mistyped option.
+	 *
+	 * Settled here, where the rest of the command line is checked; the file
+	 * itself is opened once the board has been accepted, below. */
 	if (dump_name != NULL && format_option == 0)
 		output_mode = SPECAN_FILE;
 	if (dump_name == NULL || strcmp(dump_name, "-") == 0) {
@@ -434,13 +437,6 @@ int main(int argc, char *argv[])
 		    opt_check_stdout_not_tty("samples") < 0)
 			return 1;
 		dumpfile = stdout;
-	} else {
-		dumpfile = fopen(dump_name, "w");
-		if (dumpfile == NULL) {
-			fprintf(stderr, "error: %s: %s\n", dump_name,
-			        strerror(errno));
-			return 1;
-		}
 	}
 
 	ut = ubertooth_start_select(ubertooth_device);
@@ -473,6 +469,22 @@ int main(int argc, char *argv[])
 		ubertooth_close(ut);
 		ubertooth_free(ut);
 		return 1;
+	}
+
+	/* The board is open and usable, so -d can be opened: a run refused for
+	 * its firmware leaves no empty file behind for the user to tell apart
+	 * from a sweep that caught nothing. The block above has already set
+	 * dumpfile for every destination that is standard output, so one still
+	 * unset here is a file name waiting to be opened. */
+	if (dumpfile == NULL) {
+		dumpfile = fopen(dump_name, "w");
+		if (dumpfile == NULL) {
+			fprintf(stderr, "error: %s: %s\n", dump_name,
+			        strerror(errno));
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
 	}
 
 	/* The sweep as it will actually run, and where its samples go: the two
@@ -568,8 +580,12 @@ int main(int argc, char *argv[])
 	/* A sweep whose stream died stopped there, so the samples are
 	 * incomplete. The handle is read after the teardown, because cancelling
 	 * the transfer can be what brings the failure out. libubertooth has
-	 * already printed what failed. */
-	stream_failed = ubertooth_stream_failed(ut);
+	 * already printed what failed.
+	 *
+	 * A teardown the board refused counts the same way: that board is left
+	 * sweeping, and no other tool can open it until it is reset or
+	 * re-plugged. The samples that arrived stay written out. */
+	stream_failed = ubertooth_stream_failed(ut) || ubertooth_stop_failed(ut);
 	ubertooth_free(ut);
 
 	fprintf(stderr, "Ubertooth stopped\n");

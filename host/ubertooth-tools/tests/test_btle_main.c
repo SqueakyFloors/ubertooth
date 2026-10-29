@@ -84,6 +84,11 @@ static struct {
 	 * r read access address, w write access address, t set target,
 	 * m mode started, p poll, S faux slave mode started. */
 	char calls[64];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
+	int api_checks;
+	int api_rc;  /* what ubertooth_check_api() returns */
 } fake;
 
 static ubertooth_t fake_ut;
@@ -192,13 +197,26 @@ int lell_pcapng_create_file(const char *filename, const char *interface_desc,
 int ubertooth_check_api(ubertooth_t *ut)
 {
 	(void)ut;
-	return 0;
+	fake.api_checks++;
+	if (fake.api_rc < 0)
+		/* A refused version is released inside the real one. */
+		ut->devh = NULL;
+	return fake.api_rc;
 }
 
 void ubertooth_stop(ubertooth_t *ut)
 {
 	(void)ut;
 	fake.stops++;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 void ubertooth_close(ubertooth_t *ut)
@@ -772,6 +790,30 @@ MU_TEST(an_interrupted_capture_stops_and_exits_zero)
 
 /* A poll that fails ends the capture short, so it is an error on standard
  * error and exit 1, not "USB error" on standard output and exit 0. */
+/* A capture the board would not stop leaves that board running the mode, and
+ * no other tool can open it until it is reset or re-plugged, so the run did
+ * not do what was asked. What was captured stays written out, and libubertooth
+ * has already named the refused request. */
+MU_TEST(a_capture_whose_teardown_was_refused_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.interrupt_the_capture = 1;
+	fake.stop_refused = 1;
+	r = RUN("-n");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	/* The same capture on a board that takes the stop. */
+	reset_fake();
+	fake.interrupt_the_capture = 1;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+}
+
 MU_TEST(a_failed_poll_is_reported_on_stderr_and_exits_1)
 {
 	struct run_result r;
@@ -1087,7 +1129,30 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 }
 
 /* A capture file the tool cannot create names the file the user gave and the
- * reason, and no device is opened for it. */
+ * reason. The board has been opened and checked by then, because the file is
+ * created only once the board is known to be usable, so the board is given
+ * back on the way out. */
+/* A run refused for its firmware creates no capture file: an empty one left
+ * behind is a file the user then has to tell apart from a capture that caught
+ * nothing. Neither writer is asked for a file, and the board is given back. */
+MU_TEST(a_run_refused_for_its_firmware_creates_no_file)
+{
+	static const char* const options[] = { "-q", "-c", "-r" };
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
+		reset_fake();
+		fake.api_rc = -1;
+		r = RUN("-f", options[i], "/tmp/btle-main-must-not-exist.pcap");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert_int_eq(1, fake.api_checks);
+		mu_assert(fake.capture_file[0] == '\0', fake.capture_file);
+		mu_assert_int_eq(1, fake.closes);
+		mu_assert(r.out[0] == '\0', r.out);
+	}
+}
+
 MU_TEST(a_capture_file_that_cannot_be_created_is_named)
 {
 	struct run_result r;
@@ -1099,7 +1164,8 @@ MU_TEST(a_capture_file_that_cannot_be_created_is_named)
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "error: /no/such/dir/out.pcap: ") == r.err,
 	          r.err);
-	mu_assert_int_eq(0, fake.connects);
+	mu_assert_int_eq(1, fake.connects);
+	mu_assert_int_eq(1, fake.closes);
 
 	reset_fake();
 	fake.capture_create_rc = -1;
@@ -1108,7 +1174,8 @@ MU_TEST(a_capture_file_that_cannot_be_created_is_named)
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "error: /no/such/dir/out.pcapng: ") == r.err,
 	          r.err);
-	mu_assert_int_eq(0, fake.connects);
+	mu_assert_int_eq(1, fake.connects);
+	mu_assert_int_eq(1, fake.closes);
 }
 
 /* The usage text says what a set and a read in one command do. */
@@ -1321,6 +1388,7 @@ int main(void)
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
 	MU_RUN(the_callback_reports_on_the_same_stream_as_the_tool);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
+	MU_RUN(a_capture_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_failed_poll_is_reported_on_stderr_and_exits_1);
 	MU_RUN(a_short_poll_reply_is_reported);
 	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);
@@ -1331,6 +1399,7 @@ int main(void)
 	MU_RUN(the_help_option_exits_0_with_the_usage_text_on_stdout);
 	MU_RUN(a_bad_command_line_is_reported_on_stderr);
 	MU_RUN(a_mode_the_board_refuses_stops_the_run);
+	MU_RUN(a_run_refused_for_its_firmware_creates_no_file);
 	MU_RUN(a_capture_file_that_cannot_be_created_is_named);
 	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
 	return mu_report();

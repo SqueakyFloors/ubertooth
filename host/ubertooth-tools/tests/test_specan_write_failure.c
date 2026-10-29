@@ -405,6 +405,15 @@ MU_TEST(an_output_mode_that_is_not_one_of_ours_ends_the_run)
 
 /* ---- a scripted device, so the real main() can be run ----------------- */
 
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
 /* How the samples written during the sweep are made to fail. */
 enum break_output {
 	OUTPUT_WORKS,
@@ -435,6 +444,9 @@ static struct {
 	char selector[64];
 	enum break_output break_output;
 	ubertooth_t ut;
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } device;
 
 static void reset_device(void)
@@ -607,6 +619,15 @@ void ubertooth_stop(ubertooth_t* ut)
 	device.device_stops++;
 }
 
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return device.stop_refused;
+}
+
 void ubertooth_close(ubertooth_t* ut)
 {
 	(void)ut;
@@ -767,6 +788,82 @@ MU_TEST(a_sweep_that_was_written_exits_zero)
  * spinning with nothing arriving, and the run ended on its own timeout or a
  * Ctrl-C looking like a success.
  */
+/* A sweep the board would not stop leaves that board sweeping, and no other
+ * tool can open it until it is reset or re-plugged, so the run did not do what
+ * was asked. The samples that arrived are still written out, and libubertooth
+ * has already named the refused request, so nothing is added here. */
+MU_TEST(a_sweep_whose_teardown_was_refused_exits_one)
+{
+	char path[64];
+	char err[512];
+	struct stat info;
+
+	reset_device();
+	device.blocks_to_sweep = 3;
+	device.stop_refused = 1;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
+	mu_assert(strcmp(err, "Ubertooth stopped\n") == 0, err);
+	mu_assert_int_eq(3, device.blocks);
+	mu_assert_int_eq(0, stat(path, &info));
+	mu_assert(info.st_size > 0, "the samples that arrived were written");
+	unlink(path);
+
+	/* The same sweep on a board that takes the stop. */
+	reset_device();
+	device.blocks_to_sweep = 3;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+	mu_assert_int_eq(0, RUN_SPECAN(err, "-d", path));
+	unlink(path);
+}
+
+/* A run refused for its firmware creates no -d file: an empty capture left
+ * behind is one a user then has to tell apart from a sweep that caught
+ * nothing. The board is given back, and the reason is libubertooth's. */
+MU_TEST(a_run_refused_for_its_firmware_creates_no_file)
+{
+	char path[64];
+	char err[512];
+	struct stat info;
+
+	reset_device();
+	device.check_api_rc = -1;
+	mu_assert_fatal(make_temp_file(path, sizeof(path)) == 0,
+	                "temp file created");
+	/* The name of a file that is not there: make_temp_file() created one,
+	 * so it is removed before the run that must not re-create it. */
+	unlink(path);
+
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", path));
+	mu_assert_int_eq(1, device.check_api_calls);
+	mu_assert(stat(path, &info) != 0, "no file was created");
+	mu_assert_int_eq(1, device.device_closes);
+	mu_assert_int_eq(1, device.device_frees);
+	/* No mode was started, so nothing was swept and nothing stopped. */
+	mu_assert_int_eq(0, device.specan_calls);
+}
+
+/* A -d file that cannot be opened is reported like every other failure: one
+ * "error: " line on standard error, nothing on standard output, exit 1. It
+ * used to be perror's unprefixed "<file>: <reason>". Checked here rather than
+ * from the command line, because the file is opened only once the board has
+ * been accepted. */
+MU_TEST(a_dump_file_that_cannot_be_opened_is_named)
+{
+	char err[512];
+
+	reset_device();
+	mu_assert_int_eq(1, RUN_SPECAN(err, "-d", "/no/such/dir/samples.bin"));
+	mu_assert(strcmp(err, "error: /no/such/dir/samples.bin: "
+	                 "No such file or directory\n") == 0, err);
+	mu_assert_int_eq(1, device.device_closes);
+	mu_assert_int_eq(1, device.device_frees);
+	mu_assert_int_eq(0, device.specan_calls);
+}
+
 MU_TEST(a_sweep_whose_stream_died_exits_one)
 {
 	char path[64];
@@ -1236,6 +1333,9 @@ int main(void)
 	MU_RUN(a_failed_text_write_ends_the_run);
 	MU_RUN(a_text_sweep_that_could_not_be_written_exits_one);
 	MU_RUN(a_gnuplot_sweep_ends_each_pass_with_a_blank_line);
+	MU_RUN(a_sweep_whose_teardown_was_refused_exits_one);
+	MU_RUN(a_run_refused_for_its_firmware_creates_no_file);
+	MU_RUN(a_dump_file_that_cannot_be_opened_is_named);
 	MU_RUN(a_sweep_whose_stream_died_exits_one);
 	MU_RUN(a_sweep_whose_collecting_thread_failed_exits_one);
 	MU_RUN(an_interrupted_sweep_still_exits_zero);

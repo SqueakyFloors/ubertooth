@@ -265,8 +265,22 @@ when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
 board refuses the requests
 that set the session up, when Ctrl-C ends the tool before the prompt is up,
-and when the session ends with a command that would not stop still holding the
-board.
+when the session ends with a command that would not stop still holding the
+board, and when the thread reading the board stopped on a failure.
+
+The last of those is a board that left the USB bus, stopped answering, or sent
+something this tool could not read, with the session still up: the thread
+reading it ends there, nothing restarts it, and no message arrives for the
+rest of the session. The board was power-cycled under a running `inquiry` when
+this was found, and the session reported every step correctly and then exited
+0, so a script could not tell it from a run where every command worked. What
+ended that thread is said as it happens, `error: the receive thread stopped:
+<type>: ...`, and again on the way out as a `warning: `.
+
+A single command the board refused is not that. It is reported on standard
+error (see DIAGNOSTICS), the prompt stays up, and the session goes on and
+ends with the status its own ending gives it, the way a shell reports a failed
+command without failing itself.
 
 ## SEE ALSO
 

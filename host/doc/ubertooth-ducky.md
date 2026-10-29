@@ -94,6 +94,11 @@ tool will not take or with nothing to do, for a UUID it cannot read, when the
 selected Ubertooth is not found or cannot be opened, and when the board
 refuses one of those requests.
 
+1 as well when the board refuses the request that stops the advertisement at
+the end of the two seconds: the board is left advertising, and no other tool
+can open it until it is reset or re-plugged. libubertooth names the refused
+request on standard error.
+
 ## SEE ALSO
 
 ubertooth-btle(1)

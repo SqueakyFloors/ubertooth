@@ -31,7 +31,15 @@ static struct {
 	int api_version_was_read;
 	int inits, frees, closes, connects, api_checks, bdaddr_sets;
 	int library_closes; /* closes done inside the library, not by the tool */
+	int stops, registrations, tx_syms, timeout_set;
+	int tx_syms_rc;      /* what cmd_tx_syms() returns */
+	/* 1 for the cases that are meant to run a whole transmit; the fakes
+	 * below refuse to be reached without it. */
+	int reach_transmit;
 	char selector[64];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -78,12 +86,23 @@ int ubertooth_check_api(ubertooth_t* ut)
 	return fake.api_rc;
 }
 
-/* Reached only on the transmit path, which no test here takes. They exist so
- * the test links, and each one fails loudly if a test ever gets that far. */
+/* Reached only on the transmit path. Only a case that sets
+ * fake.reach_transmit may take it; the rest fail loudly if they get that far,
+ * which is how a reordering that opens the device too early shows up. */
 void ubertooth_stop(ubertooth_t* ut)
 {
 	(void)ut;
-	mu_assert(0, "no test should reach the transmit path");
+	fake.stops++;
+	mu_assert(fake.reach_transmit, "no test should reach the transmit path");
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 /* The real one folds the signal handler's own flag into the handle; the
@@ -95,16 +114,19 @@ int ubertooth_stopping(ubertooth_t* ut)
 
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 {
-	(void)ut;
 	(void)do_exit;
-	mu_assert(0, "no test should reach the transmit path");
+	fake.registrations++;
+	mu_assert(fake.reach_transmit, "no test should reach the transmit path");
+	/* The real handler ends the wait on a signal; here it ends it at once,
+	 * so a case can run the whole transmit without waiting a second. */
+	ut->stop_ubertooth = 1;
 }
 
 void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 {
 	(void)ut;
-	(void)seconds;
-	mu_assert(0, "no test should reach the transmit path");
+	fake.timeout_set = seconds;
+	mu_assert(fake.reach_transmit, "no test should reach the transmit path");
 }
 
 void ubertooth_close(ubertooth_t* ut)
@@ -125,8 +147,9 @@ int cmd_set_bdaddr(struct libusb_device_handle* devh, uint64_t address)
 int cmd_tx_syms(struct libusb_device_handle* devh)
 {
 	(void)devh;
-	mu_assert(0, "nothing in this test transmits");
-	return -1;
+	fake.tx_syms++;
+	mu_assert(fake.reach_transmit, "nothing in this test transmits");
+	return fake.tx_syms_rc;
 }
 
 void print_version(void)
@@ -354,6 +377,34 @@ MU_TEST(a_version_that_cannot_be_read_closes_and_frees)
 	mu_assert_int_eq(1, fake.frees);
 }
 
+/* A transmit the board would not stop leaves that board sending, and no other
+ * tool can open it until it is reset or re-plugged, so the run did not do what
+ * was asked. libubertooth has already named the refused request. */
+MU_TEST(a_transmit_whose_teardown_was_refused_exits_one)
+{
+	char* argv[] = { "ubertooth-tx", "-l", "123456", "-u", "11", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.set_bdaddr_rc = 0;
+	fake.reach_transmit = 1;
+	fake.stop_refused = 1;
+	run_main(&r, 5, argv);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.tx_syms);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* The same transmit on a board that takes the stop. */
+	reset();
+	fake.connect_rc = 0;
+	fake.set_bdaddr_rc = 0;
+	fake.reach_transmit = 1;
+	run_main(&r, 5, argv);
+	mu_assert_int_eq(0, r.rc);
+}
+
 /* The last exit before the tool starts transmitting: the board is open and
  * compatible, but it would not take the address. No signal handler holds the
  * handle yet, so this one does release the board as well as the handle. */
@@ -385,6 +436,7 @@ int main(void)
 	MU_RUN(a_handle_that_cannot_be_allocated_stops_the_command);
 	MU_RUN(a_refused_firmware_version_is_closed_and_freed);
 	MU_RUN(a_version_that_cannot_be_read_closes_and_frees);
+	MU_RUN(a_transmit_whose_teardown_was_refused_exits_one);
 	MU_RUN(an_address_the_board_refuses_releases_it);
 	return mu_report();
 }

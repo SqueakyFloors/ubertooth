@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "../../../firmware/tests/minunit.h"
@@ -30,7 +31,16 @@ static struct {
 	int api_version_was_read;
 	int starts, closes, frees, api_checks, registrations, modulations;
 	int library_closes; /* closes done inside the library, not by the tool */
+	int dumps, stops;
+	int dump_rc;        /* what rx_dump() returns */
+	int stream_failed;  /* what ubertooth_stream_failed() reports */
+	/* 1 for the cases that are meant to run a whole dump; the fakes below
+	 * refuse to be reached without it. */
+	int reach_capture;
 	char selector[64];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -79,13 +89,15 @@ void ubertooth_free(ubertooth_t* ut)
 }
 
 /* Reached only once the capture is about to start, which no test here does.
- * They exist so the test links, and fail loudly if a test gets that far. */
+ * Only a case that sets fake.reach_capture may reach them; the rest fail
+ * loudly if they get that far, which is how a reordering that opens the
+ * device too early shows up. */
 void register_cleanup_handler(ubertooth_t* ut, int do_exit)
 {
 	(void)ut;
 	(void)do_exit;
 	fake.registrations++;
-	mu_assert(0, "no test should reach the capture");
+	mu_assert(fake.reach_capture, "no test should reach the capture");
 }
 
 int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
@@ -93,16 +105,17 @@ int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
 	(void)devh;
 	(void)mod;
 	fake.modulations++;
-	mu_assert(0, "no test should reach the capture");
-	return -1;
+	mu_assert(fake.reach_capture, "no test should reach the capture");
+	return 0;
 }
 
 int rx_dump(ubertooth_t* ut, int bitstream)
 {
 	(void)ut;
 	(void)bitstream;
-	mu_assert(0, "no test should reach the capture");
-	return -1;
+	fake.dumps++;
+	mu_assert(fake.reach_capture, "no test should reach the capture");
+	return fake.dump_rc;
 }
 
 /* The end-of-capture gap report, which the tool calls and no case here reads:
@@ -115,14 +128,24 @@ void ubertooth_report_queue_gaps(ubertooth_t* ut)
 int ubertooth_stream_failed(ubertooth_t* ut)
 {
 	(void)ut;
-	mu_assert(0, "no test should reach the end of a capture");
-	return 0;
+	mu_assert(fake.reach_capture, "no test should reach the end of a capture");
+	return fake.stream_failed;
 }
 
 void ubertooth_stop(ubertooth_t* ut)
 {
 	(void)ut;
-	mu_assert(0, "no test should reach the end of a capture");
+	fake.stops++;
+	mu_assert(fake.reach_capture, "no test should reach the end of a capture");
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 /* ---- running main() --------------------------------------------------- */
@@ -268,6 +291,60 @@ MU_TEST(the_refusals_never_open_a_device)
 
 /* The -d file is named on the command line but only opened once every check
  * has passed, so a refused command line creates nothing. */
+/* A dump the board would not stop leaves that board running the capture mode,
+ * and no other tool can open it until it is reset or re-plugged, so the run
+ * did not do what was asked. What was dumped stays written out, and
+ * libubertooth has already named the refused request. */
+MU_TEST(a_dump_whose_teardown_was_refused_exits_one)
+{
+	char* argv[] = { "ubertooth-dump", NULL };
+	struct run r;
+
+	reset();
+	fake.api_rc = 0;
+	fake.reach_capture = 1;
+	fake.stop_refused = 1;
+	run_main(&r, 1, argv);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.dumps);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* The same dump on a board that takes the stop. */
+	reset();
+	fake.api_rc = 0;
+	fake.reach_capture = 1;
+	run_main(&r, 1, argv);
+	mu_assert_int_eq(0, r.rc);
+}
+
+/* A run refused for its firmware creates no -d file: an empty one left behind
+ * is a file the user then has to tell apart from a dump that caught nothing. */
+MU_TEST(a_run_refused_for_its_firmware_opens_no_dump_file)
+{
+	char path[64];
+	char* argv[] = { "ubertooth-dump", "-d", path, NULL };
+	struct run r;
+	struct stat info;
+	int fd;
+
+	reset();
+	fake.api_rc = -1;
+	fake.api_version_was_read = 1;
+	snprintf(path, sizeof(path), "/tmp/dump-main-XXXXXX");
+	fd = mkstemp(path);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	unlink(path);
+
+	run_main(&r, 3, argv);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.api_checks);
+	mu_assert(stat(path, &info) != 0, path);
+	mu_assert(dumpfile == NULL, "no dump file was opened");
+	unlink(path);
+}
+
 MU_TEST(a_refused_command_line_opens_no_dump_file)
 {
 	char* argv[] = { "ubertooth-dump", "-d", "/dev/null", "spare", NULL };
@@ -306,6 +383,8 @@ int main(void)
 	MU_RUN(a_version_that_cannot_be_read_closes_and_frees);
 	MU_RUN(a_device_that_cannot_be_opened_frees_nothing);
 	MU_RUN(the_refusals_never_open_a_device);
+	MU_RUN(a_dump_whose_teardown_was_refused_exits_one);
+	MU_RUN(a_run_refused_for_its_firmware_opens_no_dump_file);
 	MU_RUN(a_refused_command_line_opens_no_dump_file);
 	MU_RUN(the_device_selector_is_passed_through);
 	return mu_report();

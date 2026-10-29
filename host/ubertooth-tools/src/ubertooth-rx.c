@@ -270,14 +270,24 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	/* A capture bound for standard output must not go to a terminal. That
+	 * is a problem with the command line, so it is refused here, before a
+	 * board is opened; the stream itself is taken over further down, where
+	 * the file is created. */
+	if (opt_check_capture_destination(pcap_name, "capture data") < 0 ||
+	    opt_check_capture_destination(dump_name, "dump data") < 0)
+		return 1;
+
 	/* Every check has passed, so the handle and its 72 MB fifo can be
 	 * allocated: the capture files below are kept on it. */
 	ut = ubertooth_init();
 	if (ut == NULL)
 		return 1;
 
-	/* And the files can be opened: a refused command line creates and
-	 * truncates nothing. */
+	/* And the replay's input can be opened: a refused command line creates
+	 * and truncates nothing. It is read, not written, so it comes before
+	 * the board; the files this run writes are opened further down, once
+	 * the board is known to be usable. */
 	if (infile_name != NULL) {
 		infile = fopen(infile_name, "r");
 		if (infile == NULL) {
@@ -290,6 +300,38 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 	}
+	if (infile == NULL) {
+		r = ubertooth_connect_select(ut, ubertooth_device);
+		if (r < 0) {
+			/* The library has closed whatever it opened; the close
+			 * here is what ends the libusb session it started. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
+
+		r = ubertooth_check_api(ut);
+		if (r < 0) {
+			/* A refused version was released inside
+			 * ubertooth_check_api(); one it could not read at all
+			 * leaves the board open. Closing covers both, because
+			 * closing a board already released does nothing, and it
+			 * sends no STOP to a firmware this host will not
+			 * drive. */
+			ubertooth_close(ut);
+			ubertooth_free(ut);
+			return 1;
+		}
+	}
+
+	/* The board is open and usable, or this is a replay, so the files this
+	 * run writes can be opened. Not before: a run refused for its firmware
+	 * used to leave an empty capture behind, which a user then had to tell
+	 * apart from a capture that caught nothing.
+	 *
+	 * A lone "-" redirects this process's standard output, which is why
+	 * nothing may be printed there after this point except the capture
+	 * itself, and why the per-packet report goes to report_stream. */
 	errno = 0;
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
@@ -341,33 +383,8 @@ int main(int argc, char* argv[])
 			report_stream = stderr;
 		if (dumpfile == NULL) {
 			/* The capture files are on the handle, so the close is
-			 * what gets them written out and shut; it opened no
-			 * board yet, and does nothing on a handle that has
-			 * none. */
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
-		}
-	}
-
-	if (infile == NULL) {
-		r = ubertooth_connect_select(ut, ubertooth_device);
-		if (r < 0) {
-			/* The library has closed whatever it opened; this is
-			 * what shuts the capture files on the handle. */
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
-		}
-
-		r = ubertooth_check_api(ut);
-		if (r < 0) {
-			/* A refused version was released inside
-			 * ubertooth_check_api(); one it could not read at all
-			 * leaves the board open. Closing covers both, because
-			 * closing a board already released does nothing, and it
-			 * sends no STOP to a firmware this host will not
-			 * drive. */
+			 * what gets them written out and shut, and it gives the
+			 * board back. */
 			ubertooth_close(ut);
 			ubertooth_free(ut);
 			return 1;
@@ -508,8 +525,12 @@ int main(int argc, char* argv[])
 		 * teardown, because cancelling the transfer can be what brings the
 		 * failure out. The survey results below are still printed, since
 		 * they are what did arrive, and libubertooth has already printed
-		 * what failed. */
-		if (ubertooth_stream_failed(ut))
+		 * what failed.
+		 *
+		 * A teardown the board refused counts the same way: that board
+		 * is left running the mode this capture started, and no other
+		 * tool can open it until it is reset or re-plugged. */
+		if (ubertooth_stream_failed(ut) || ubertooth_stop_failed(ut))
 			exit_status = 1;
 	} else {
 		/* A read error or a last record cut short is reported and ends

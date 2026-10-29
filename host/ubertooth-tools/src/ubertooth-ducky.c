@@ -154,6 +154,9 @@ int main(int argc, char *argv[])
 	uint8_t adv_data[16+2] = { 0, };
 	char* ubertooth_device = NULL;
 	ubertooth_t* ut = NULL;
+	/* 1 once the board was left in a state this tool could not undo, so
+	 * the exit status says the quack did not finish. */
+	int status = 0;
 
 	int r;
 
@@ -344,7 +347,13 @@ int main(int argc, char *argv[])
 
 		sleep(2);
 		ubertooth_stop(ut);
+		/* A teardown the board refused left it advertising, and no
+		 * other tool can open it until it is reset or re-plugged, so
+		 * the quack did not finish. libubertooth has already named the
+		 * refused request. */
+		if (ubertooth_stop_failed(ut))
+			status = 1;
 	}
 	ubertooth_free(ut);
-	return 0;
+	return status;
 }

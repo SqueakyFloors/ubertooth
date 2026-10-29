@@ -193,7 +193,7 @@ That includes \fB\-i\fR on its own: it says more than listing every major mode w
 .P
 A command line with no work in it is refused the same way\. \fB\-U\fR, \fB\-A\fR, \fB\-x\fR and the capture options only shape work another option asks for, so a command made up of those alone, or a bare \fBubertooth\-btle\fR, gives \fBerror: nothing to do: choose a major mode (\-f, \-n or \-p), or \-a, \-v, \-s or \-t\fR, on standard error with nothing on standard output\. A bare \fBubertooth\-btle\fR is the one refusal the usage text follows, also on standard error; every other refused command line is the \fBerror:\fR line alone, and \fB\-h\fR prints the usage text on standard output\.
 .P
-A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-c\fR name their file while the command line is read, and it is opened only once every check has passed\.
+A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-c\fR name their file while the command line is read, and it is opened only once every check has passed\. The board is opened and its firmware is checked before that, so a run refused for either reason leaves no empty file behind either\.
 .SH "DIAGNOSTICS"
 Standard output carries only what was asked for: either the decoded packets or the capture data of \fB\-q \-\fR or \fB\-c \-\fR, plus the lines that answer \fB\-a\fR, \fB\-v\fR and \fB\-t\fR and the parameters \fB\-p\fR recovers\. With the capture on standard output, standard output belongs to the capture for the whole run: those lines move to standard error, and the decoded packets are not printed at all\.
 .P
@@ -212,6 +212,10 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 0 when the command did what was asked, including \fB\-h\fR, and after a capture is interrupted (Ctrl\-C) having polled cleanly to that point\.
 .P
 1 for a command line the tool will not take or with nothing to do, for a capture file that cannot be created, when the selected Ubertooth is not found or cannot be opened, when the board refuses the jam mode, a \fB\-t\fR target, a sniffing or faux slave mode, or an access address or CRC verify request, and when a capture stops short because a poll failed\. No device is opened for a refused command line\.
+.P
+1 as well when the board refuses the request that ends a capture: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was captured stays written out, and libubertooth names the refused request on standard error\.
+.P
+A \fB\-q\fR, \fB\-c\fR or \fB\-r\fR file is created once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty capture behind\. A file the tool then cannot create is reported with the name the user gave, and the board is given back\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

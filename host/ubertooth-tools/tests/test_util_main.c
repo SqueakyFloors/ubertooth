@@ -108,6 +108,9 @@ static struct {
 	int loud_starts_after_reset;
 	/* libusb default-context references taken by ubertooth-util itself */
 	int libusb_refs, libusb_refs_min_during_wait, libusb_init_rc;
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 /* Every select returns fake_ut, except that the select after a reset returns
@@ -294,6 +297,24 @@ void ubertooth_stop(ubertooth_t *ut)
 	}
 	fake.stop_calls++;
 	fake.current_index = -1;
+}
+
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t *ut)
+{
+	(void)ut;
+	return fake.stop_refused;
 }
 
 void ubertooth_close(ubertooth_t *ut)

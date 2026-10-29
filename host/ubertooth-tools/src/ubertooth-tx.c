@@ -50,6 +50,7 @@ int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
 	int r;
+	int status;
 	int timeout = 0;
 	/* -h and -V both end the command once the whole command line has
 	 * parsed, and a command line with both prints both (see below). */
@@ -191,7 +192,11 @@ int main(int argc, char* argv[])
 		sleep(1);
 
 	ubertooth_stop(ut);
+	/* A teardown the board refused left it transmitting, and no other tool
+	 * can open it until it is reset or re-plugged, so the run did not do
+	 * what was asked. libubertooth has already named the refused request. */
+	status = ubertooth_stop_failed(ut) ? 1 : 0;
 	ubertooth_free(ut);
 
-	return 0;
+	return status;
 }

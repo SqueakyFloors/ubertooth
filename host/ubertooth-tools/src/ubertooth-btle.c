@@ -438,17 +438,41 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* A capture bound for standard output must not go to a terminal. That
+	 * is a problem with the command line, so it is refused here, before a
+	 * board is opened; the stream itself is taken over further down, where
+	 * the file is created. */
+	if (opt_check_capture_destination(pcap_name, "capture data") < 0)
+		return 1;
+
 	/* Every check has passed, so the handle and its 72 MB fifo can be
-	 * allocated: the capture files below are kept on it. */
+	 * allocated: the capture files further down are kept on it. */
 	ut = ubertooth_init();
 	if (ut == NULL)
 		return 1;
 
-	/* And the capture files can be opened: a refused command line creates
-	 * and truncates nothing. A bare "-" redirects this process's stdout,
-	 * which is why nothing may be printed to stdout after this point except
-	 * the capture itself, and why the lines that answer an option go to
-	 * report_stream rather than straight to stdout. */
+	r = ubertooth_connect_select(ut, ubertooth_device);
+	if (r < 0) {
+		return release_handle(ut, 1);
+	}
+
+	r = ubertooth_check_api(ut);
+	if (r < 0) {
+		/* release_handle() closes the board, which covers both of the
+		 * check's failures: it released a refused version itself, and a
+		 * version it could not read at all leaves the board open. */
+		return release_handle(ut, 1);
+	}
+
+	/* The board is open and usable, so the capture files can be opened. Not
+	 * before: a run refused for its firmware used to leave an empty capture
+	 * behind, which a user then had to tell apart from a capture that caught
+	 * nothing.
+	 *
+	 * A bare "-" redirects this process's stdout, which is why nothing may
+	 * be printed to stdout after this point except the capture itself, and
+	 * why the lines that answer an option go to report_stream rather than
+	 * straight to stdout. */
 	if (pcapng_name != NULL) {
 		if (lell_pcapng_create_file(pcapng_name, "Ubertooth",
 		                            &ut->h_pcapng_le)) {
@@ -487,19 +511,6 @@ int main(int argc, char *argv[])
 			        strerror(errno));
 			return release_handle(ut, 1);
 		}
-	}
-
-	r = ubertooth_connect_select(ut, ubertooth_device);
-	if (r < 0) {
-		return release_handle(ut, 1);
-	}
-
-	r = ubertooth_check_api(ut);
-	if (r < 0) {
-		/* release_handle() closes the board, which covers both of the
-		 * check's failures: it released a refused version itself, and a
-		 * version it could not read at all leaves the board open. */
-		return release_handle(ut, 1);
 	}
 
 	/* Stop on Ctrl-C, and on the other signals that mean the run is over
@@ -646,6 +657,13 @@ int main(int argc, char *argv[])
 			usleep(500);
 		}
 		ubertooth_stop(ut);
+		/* A teardown the board refused left it running the capture mode
+		 * this tool started, and no other tool can open it until it is
+		 * reset or re-plugged, so the run did not do what was asked.
+		 * libubertooth has already named the refused request; what was
+		 * captured stays written out. */
+		if (ubertooth_stop_failed(ut))
+			status = 1;
 	}
 
 	if (do_get_aa) {

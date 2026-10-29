@@ -104,6 +104,9 @@ static struct {
 	 * p started the poll thread, m set the AFH map, c cleared it, h told
 	 * the board to start hopping. */
 	char calls[16];
+	/* 1 to have the teardown's STOP refused, so the board is left running
+	 * the mode the capture started. */
+	int stop_refused;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -385,6 +388,24 @@ void ubertooth_stop(ubertooth_t* ut)
 	fake.stops++;
 }
 
+/* The report about a refused request asks whether the board has left the bus
+ * before it blames the board's firmware. Nothing here unplugs a board, so it
+ * is always still there. */
+int ubertooth_device_gone(const void* board)
+{
+	(void)board;
+	return 0;
+}
+
+/* Whether the teardown's STOP was refused, which leaves the board running the
+ * mode the capture started. Scripted, because the fake board above always
+ * takes it. */
+int ubertooth_stop_failed(ubertooth_t* ut)
+{
+	(void)ut;
+	return fake.stop_refused;
+}
+
 void ubertooth_close(ubertooth_t* ut)
 {
 	ut->devh = NULL;
@@ -510,6 +531,25 @@ MU_TEST(a_follow_the_board_took_exits_0)
  * started. Each gives the board and the handle back, rather than leaving them
  * to process exit. One close covers both firmware failures, because closing a
  * board the library has already released does nothing. */
+/* A follow the board would not stop leaves that board running the capture
+ * mode, and no other tool can open it until it is reset or re-plugged, so the
+ * run did not do what was asked. What was captured stays written out, and
+ * libubertooth has already named the refused request. */
+MU_TEST(a_follow_whose_teardown_was_refused_exits_1)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.stop_refused = 1;
+	r = RUN(TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.stops);
+	/* The follow itself ran: every block the board sent was taken. */
+	mu_assert_int_eq(fake.blocks_to_end, fake.receives);
+	/* Nothing of this tool's own about it. */
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+}
+
 MU_TEST(a_firmware_the_tool_cannot_use_gives_the_board_back)
 {
 	struct run_result r;
@@ -1008,6 +1048,7 @@ int main(void)
 	MU_RUN(the_clock_is_set_before_the_receive_transfer);
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
+	MU_RUN(a_follow_whose_teardown_was_refused_exits_1);
 	MU_RUN(a_firmware_the_tool_cannot_use_gives_the_board_back);
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
