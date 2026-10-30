@@ -233,6 +233,28 @@ on standard error, stops following that clock and goes back to recovering
 one. It keeps the LAP it has, so the search starts from what is already
 known, and the capture carries on throughout.
 
+A wrong guess can also show up as silence instead. Clock recovery only offers
+candidates that agree about the low clock bits, so a guess that is wrong in the
+high ones still unwhitens and checks out every header it receives; what it gets
+wrong is which channel to listen on. Such a follow lands on the piconet's
+channel in about one slot pair in eighteen, so nothing fails and there is
+nothing for the report above to count. A follow that hears no packet of its
+piconet for ten seconds therefore has that clock given up as well, with
+
+    warning: nothing of this piconet has been heard on the clock being followed; searching for it again
+
+on standard error and the same return to recovering a clock. Ten seconds is
+long enough that a working follow does not reach it: on the right clock the
+receiver is on the piconet's channel in every slot pair, so even a link
+carrying four packets a second is heard from forty times in that span.
+
+A clock given up either way is ruled out, so the search does not come back to
+it. That is the point for a clock that was wrong, and the cost for a piconet
+that was being followed correctly and then stopped talking for ten seconds, by
+ending its connection or going out of range: the capture goes on and the search
+for a clock restarts, but that piconet will not be followed again on the clock
+it just gave up. Run the command again to follow it afresh.
+
 To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse
 of the above. For example, if the tool recovers a LAP of 36A2B4 and a
 UAP of 98, the associated Bluetooth address is `??:??:98:36:A2:B4`. Any

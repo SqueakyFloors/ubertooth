@@ -71,6 +71,38 @@ uint64_t ubertooth_packet_arrival_ns(void);
  * the agreement above is only ever to within that second. */
 uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
 
+/* How many packets of the piconet cb_rx() has heard since the library handed
+ * this capture the clock it is following, or -1 when it is not following one.
+ *
+ * For a capture tool to tell a follow that has gone quiet from one that is
+ * working. A clock that is not the piconet's does not fail: clock discovery
+ * only offers candidates that carry the same CLK1-6, so a wrong CLK1-27
+ * dewhitens and checks out every header it receives, and what it gets wrong is
+ * which channel to listen on. Measured in libbtbb over the wrong locks of a
+ * 400-value sweep, such a receiver lands on the piconet's channel in 5.7% of
+ * slot pairs against 100% for the right clock, so it is heard from about one
+ * packet in eighteen and no run of failing headers ever arrives for the
+ * library to act on.
+ *
+ * The count standing still is the whole of the evidence, and how long it has
+ * stood still is the caller's to measure: cb_rx() runs when a record arrives
+ * rather than on a clock, and only the tool knows it asked the board to hop
+ * with the piconet. It starts again at zero each time a clock is handed
+ * over. */
+long ubertooth_follow_heard(void);
+
+/* Gives up the clock this capture is following, for a caller that has decided
+ * the follow has gone quiet, and leaves the capture as a clock the library
+ * gives up itself does: the warning once on standard error, the board back on
+ * the plain symbol capture and the channel this capture asked for, and
+ * discovery running again.
+ *
+ * Returns 1 if a clock was given up, and 0 if there was none to give up: this
+ * capture is not following one, or it is following a clock its own tool set,
+ * which the library leaves alone. Nothing is printed in that case, so a caller
+ * may ask whenever it thinks the follow is quiet. */
+int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn);
+
 void cb_afh_initial(ubertooth_t* ut, void* args);
 void cb_afh_monitor(ubertooth_t* ut, void* args);
 void cb_afh_r(ubertooth_t* ut, void* args);

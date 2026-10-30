@@ -146,6 +146,9 @@ target_sources(ubertooth-ego PRIVATE ego_options.c)
 # The shared wording for a capture that could not be started, for the tools
 # that check the requests and the thread setting one up.
 target_sources(ubertooth-rx PRIVATE request_report.c)
+# ubertooth-rx times how long a piconet follow has been quiet by the same
+# monotonic clock.
+target_sources(ubertooth-rx PRIVATE util_clock.c)
 target_sources(ubertooth-specan PRIVATE request_report.c)
 if ( ${LIBBLUETOOTH_FOUND} )
 	target_sources(ubertooth-scan PRIVATE request_report.c)

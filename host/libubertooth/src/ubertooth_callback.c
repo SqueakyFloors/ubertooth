@@ -1373,6 +1373,86 @@ static int drift_ppm( int32_t correction_100ns, uint32_t clkn_ticks )
 	return (int) ppm;
 }
 
+/* ---- following a piconet's clock ---------------------------------------- */
+
+/* Whether the library has handed this capture a clock of the piconet's that it
+ * has not since given up. Only then is there a clock to be told about losing,
+ * and a board to take off its offset. */
+static int br_following;
+
+/* Whether the clock trim has been measured against the offset being followed.
+ * A clock handed over, or given up, starts that again. */
+static int br_calibrated;
+
+/* How many packets of the piconet have been heard since the library handed
+ * this capture the clock it is following, for a capture tool to watch.
+ *
+ * A clock that is not the piconet's is heard from about one packet in
+ * eighteen rather than failing: clock discovery only offers candidates that
+ * carry the same CLK1-6, so a wrong CLK1-27 dewhitens and checks out every
+ * header it does receive, and what it gets wrong is which channel to listen
+ * on. Silence is the only symptom, and nothing here can judge it, because
+ * this runs when a record arrives rather than on a clock. */
+static unsigned long br_heard;
+
+/* Takes the board off the clock offset it was hopping on, once that clock has
+ * been given up. The plain symbol capture is what takes it off, and it leaves
+ * the receive running, which is what discovery needs. It is a mode start,
+ * though, so the board has forgotten its hop state with it and is sitting on
+ * the channel the last piconet hop chose: the channel or sweep this capture
+ * asked for has to be stated again, exactly as the tool states it after its
+ * own mode start, or discovery looks for a piconet on one channel in 79. A
+ * replay has no board to take off anything.
+ *
+ * The caller has already said why. br_following is cleared once the board is
+ * off the offset; a board that refused leaves it set, so the next report tries
+ * again rather than being read as a repeat of one already dealt with. */
+static void br_stop_following(ubertooth_t* ut)
+{
+	br_calibrated = 0;
+
+	if (infile != NULL) {
+		br_following = 0;
+		return;
+	}
+
+	if (cmd_rx_syms(ut->devh) < 0) {
+		/* The board refused, so it is still hopping on the offset that
+		 * is gone -- the request itself has said why. */
+		fprintf(stderr, "warning: the board is still following that "
+		        "clock; this capture may decode nothing from here "
+		        "on\n");
+		return;
+	}
+
+	br_following = 0;
+	/* Only when this capture set a channel. A caller that set none --
+	 * ubertooth-follow, which shares this callback -- leaves the field
+	 * zero, and zero is not a channel: it would be clamped to the bottom
+	 * of the band and pin the capture there. */
+	if (ut->capture_channel != 0 &&
+	    cmd_set_channel(ut->devh, ut->capture_channel) < 0)
+		fprintf(stderr, "warning: the board is left receiving on one "
+		        "channel, so this capture may not find the piconet "
+		        "again\n");
+}
+
+long ubertooth_follow_heard(void)
+{
+	return br_following ? (long)br_heard : -1;
+}
+
+int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
+{
+	if (!br_following || btbb_piconet_drop_clock(pn) <= 0)
+		return 0;
+
+	fprintf(stderr, "warning: nothing of this piconet has been heard on "
+	        "the clock being followed; searching for it again\n");
+	br_stop_following(ut);
+	return 1;
+}
+
 void cb_rx(ubertooth_t* ut, void* args)
 {
 	btbb_packet* pkt = NULL;
@@ -1389,12 +1469,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	uint8_t uap = UAP_ANY;
 
 	static int trim_counter = 0;
-	static int calibrated = 0;
 	static uint32_t clkn_trim = 0;
-	/* Whether the library has handed this capture a clock of the piconet's
-	 * that it has not since given up. Only then is there a clock to be
-	 * told about losing, and a board to take off its offset. */
-	static int following = 0;
 	static int pcap_bredr_warned = 0;
 	static int pcapng_bredr_warned = 0;
 
@@ -1468,6 +1543,14 @@ void cb_rx(ubertooth_t* ut, void* args)
 	       snr_text
 	);
 
+	/* A packet of the piconet heard, which is the line just printed.
+	 * Counted here rather than where the decoder takes the packet,
+	 * because the clock trim below keeps some packets back from it: a
+	 * tool watching a follow for silence has to see what its user sees.
+	 * See ubertooth_follow_heard(). */
+	if (br_following)
+		br_heard++;
+
 	/* calibrate Ubertooth clock such that the first bit of the AC
 	 * arrives CLK_TUNE_TIME after the rising edge of CLKN */
 	if (pn != NULL && infile == NULL) {
@@ -1483,7 +1566,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 		if (trim_counter < -CLOCK_TRIM_THRESHOLD
 		    || trim_counter > CLOCK_TRIM_THRESHOLD
-		    || (correction != 0 && !calibrated)) {
+		    || (correction != 0 && !br_calibrated)) {
 			/* Which way the clock is about to move, read from the
 			 * correction and not from the raw offset. The offset
 			 * runs through one slot and starts over, so an offset
@@ -1497,7 +1580,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 			fprintf(stderr, "note: CLK100ns trim: %d\n", correction);
 			cmd_trim_clock(ut->devh, clock_trim_field(correction));
 			trim_counter = 0;
-			if (calibrated) {
+			if (br_calibrated) {
 				int ppm = drift_ppm(correction, since_trim);
 
 				fprintf(stderr, "note: clock drifted %d in %f s, "
@@ -1508,7 +1591,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 				cmd_fix_clock_drift(ut->devh, (int16_t) ppm);
 			}
 			clkn_trim = clkn;
-			calibrated = 1;
+			br_calibrated = 1;
 			goto out;
 		}
 
@@ -1590,9 +1673,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 		if (infile == NULL)
 			cmd_start_hopping(ut->devh,
 			                  btbb_piconet_get_clk_offset(pn), 0);
-		calibrated = 0;
-		following = 1;
-	} else if (r == BTBB_PROCESS_LOCK_LOST && following) {
+		br_calibrated = 0;
+		br_following = 1;
+		br_heard = 0;
+	} else if (r == BTBB_PROCESS_LOCK_LOST && br_following) {
 		/* The clock being followed was not this piconet's. The library
 		 * has given it up and started discovery again, so a board put
 		 * on that offset has to come off it. The clock the library
@@ -1601,53 +1685,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * One warning per lost clock, not one per packet. The library
 		 * reports a loss once -- the headers that failed are counted
 		 * inside it, and giving the clock up resets that count -- and
-		 * `following` keeps it that way here regardless: one warning
+		 * br_following keeps it that way here regardless: one warning
 		 * per clock the library handed over, and none until it hands
 		 * over another. A replay warns too; it is the same silence for
 		 * the reader of a capture file as for the user of a board. */
 		fprintf(stderr, "warning: the clock being followed was not "
 		        "this piconet's; searching for it again\n");
-		calibrated = 0;
-
-		if (infile != NULL) {
-			/* A replay has no board to take off anything. */
-			following = 0;
-		} else if (cmd_rx_syms(ut->devh) < 0) {
-			/* The board refused, so it is still hopping on the
-			 * offset that is gone -- the request itself has said
-			 * why. `following` stays set, so the next report tries
-			 * again rather than being read as a repeat of one
-			 * already dealt with. */
-			fprintf(stderr, "warning: the board is still following "
-			        "that clock; this capture may decode nothing "
-			        "from here on\n");
-		} else {
-			/* The plain symbol capture has taken the board off the
-			 * offset and left the receive running, which is what
-			 * discovery needs. There is nothing left to undo.
-			 *
-			 * It is a mode start, though, so the board has
-			 * forgotten its hop state with it and is sitting on
-			 * the channel the last piconet hop chose. The channel
-			 * or sweep this capture asked for has to be stated
-			 * again, exactly as the tool states it after its own
-			 * mode start, or discovery looks for a piconet on one
-			 * channel in 79. The reporting form, so a board that
-			 * refuses it says why.
-			 *
-			 * Only when this capture set one. A caller that set no
-			 * channel -- ubertooth-follow, which shares this
-			 * callback -- leaves the field zero, and zero is not a
-			 * channel: it would be clamped to the bottom of the
-			 * band and pin the capture there. */
-			following = 0;
-			if (ut->capture_channel != 0 &&
-			    cmd_set_channel(ut->devh, ut->capture_channel) < 0)
-				fprintf(stderr, "warning: the board is left "
-				        "receiving on one channel, so this "
-				        "capture may not find the piconet "
-				        "again\n");
-		}
+		br_stop_following(ut);
 	}
 
 out:

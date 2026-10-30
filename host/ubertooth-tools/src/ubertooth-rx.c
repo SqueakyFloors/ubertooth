@@ -23,6 +23,7 @@
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
 #include "request_report.h"
+#include "util_clock.h"
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h>
@@ -168,6 +169,65 @@ static void replay_decode(ubertooth_t* ut, void* args)
 {
 	replay_read_a_record = 1;
 	cb_rx(ut, args);
+}
+
+/* How long a follow may hear nothing of its piconet before the clock it is
+ * following is given up, in milliseconds.
+ *
+ * A clock that is not the piconet's gets only the channel to listen on wrong,
+ * so it checks out every header it does receive and is heard from about one
+ * packet in eighteen instead of failing (see ubertooth_follow_heard()).
+ * Silence is all there is to go on, and it is weighed like this: ten seconds
+ * is 8000 slot pairs, in which the right clock is on the piconet's channel for
+ * every one and a wrong one for about 455. A link carrying four packets a
+ * second, the slow link the library's own give-up rule is sized for, would
+ * have been heard from 40 times by the end of the wait.
+ *
+ * The wait is this long because giving a clock up rules it out, so the search
+ * does not come back to it: a follow that was right and went quiet does not
+ * get that clock again in the same run, where a wrong clock kept a little
+ * longer costs only time. Ten seconds without one packet of a piconet whose
+ * packets arrive every few slots is a link that has stopped rather than a
+ * sparse one. A wrong clock on that four-packet-a-second link is then given up
+ * after about 40 s of following. */
+#define FOLLOW_QUIET_MS 10000u
+
+/* The wait check_quiet_follow() is timing: the count of packets heard it last
+ * looked at, and when it looked. One capture, one of these. */
+struct follow_watch {
+	long heard;        /* -1 before the first look, and while not following */
+	uint64_t since_ms;
+};
+#define FOLLOW_WATCH_START { -1, 0 }
+
+/* Gives up a clock this capture has heard nothing on. The callback counts the
+ * packets of the piconet heard since the library handed the clock over; how
+ * long that count has stood still is measured here, because the callback runs
+ * when a record arrives rather than on a clock, and it is this tool that asked
+ * the board to hop with the piconet. */
+static void check_quiet_follow(ubertooth_t* ut, btbb_piconet* pn,
+                               struct follow_watch* watch)
+{
+	long heard = ubertooth_follow_heard();
+	uint64_t now_ms = util_clock_now_ms();
+
+	/* A packet heard, a clock just handed over, or one just given up: the
+	 * follow is not silent, so the wait starts from here. */
+	if (heard != watch->heard) {
+		watch->heard = heard;
+		watch->since_ms = now_ms;
+		return;
+	}
+	/* Not following anything, or not quiet for long enough yet. */
+	if (heard < 0 || now_ms - watch->since_ms < FOLLOW_QUIET_MS)
+		return;
+
+	/* The wait starts again whether or not the library had a clock to give
+	 * up, so a capture following a clock that did not come from the
+	 * library asks once per wait rather than once per record. The warning
+	 * belongs to the drop, which says it once per clock. */
+	watch->since_ms = now_ms;
+	ubertooth_follow_drop_clock(ut, pn);
 }
 
 int main(int argc, char* argv[])
@@ -652,9 +712,16 @@ int main(int argc, char* argv[])
 		 * library gives up a clock and has to restate this. */
 		ut->capture_channel = channel;
 
+		struct follow_watch watch = FOLLOW_WATCH_START;
+
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {
 			ubertooth_bulk_receive(ut, cb_rx, pn);
+			/* A follow that locked onto the wrong clock hears next
+			 * to nothing rather than failing, so nothing in the
+			 * packets that do arrive reports it: the wait for one
+			 * is timed here. */
+			check_quiet_follow(ut, pn, &watch);
 		}
 
 		ubertooth_bulk_thread_stop();
