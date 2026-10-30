@@ -131,7 +131,7 @@ The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets cann
 .IP "\(bu" 4
 Encryption is not implemented\. Packets sent after a connection turns encryption on are reported as raw data, and the AFH map stops being followed, because the LMP packet carrying it is encrypted too\.
 .IP "\(bu" 4
-The link layer carries Asynchronous Connection\-Less (ACL) traffic only, and does not do role switching or the LMP procedures around it\. A peer asking to send multi\-slot packets is refused as well, and the feature mask this end sends does not offer them, so a connection stays on single\-slot ones: the firmware decodes the multi\-slot kinds, but no capture has exercised that over the air\.
+The link layer carries Asynchronous Connection\-Less (ACL) traffic only, and does not do role switching or the LMP procedures around it\. A peer asking to send multi\-slot packets is refused as well, and the feature mask this end sends does not offer them, so a connection stays on single\-slot ones: the firmware decodes the multi\-slot kinds, but no capture has exercised that over the air\. A request for any other procedure there is no handler for is refused too, rather than left unanswered, so the peer can get on with the link instead of waiting out a 30\-second LMP response timeout; a PDU that expects no answer is ignored\. Either way the opcode is named in a \fBwarning:\fR line, once per opcode for the life of the connection\.
 .IP "\(bu" 4
 As the central, it polls the peripheral hard enough to drain its battery\.
 .IP "\(bu" 4
@@ -154,6 +154,13 @@ That time is the only timing a session has\. An inquiry response is the response
 .IP "" 0
 .P
 A session holding a connection \-\- \fBpage\fR, \fBl2ping\fR, \fBpage_scan\fR, \fBdiscoverable\fR \-\- reports each LMP packet the same way, with the baseband header and the PDU named and in hex\. It also traces the same exchange on standard error, where the link manager adds the state it was in and the seconds since the connection came up; that trace is a diagnostic, and the capture is what standard output holds\.
+.P
+A connection the peer hangs up ends with the reason the peer gave, on standard error with the rest of the link manager's trace:
+.IP "" 4
+.nf
+Peer detached: reason 0x13, the peer's user ended the connection
+.fi
+.IP "" 0
 .P
 The prompt, the \fBType ? to list commands\fR line and what \fB?\fR and \fB? <command>\fR print are on standard error, with the progress a command makes, as plain lines carrying neither the time nor a level\. The prompt has no newline of its own, so the first progress line after it lands on its end, as it does on a terminal:
 .IP "" 4

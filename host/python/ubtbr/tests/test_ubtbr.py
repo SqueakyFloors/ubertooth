@@ -37,6 +37,14 @@ What is checked:
     every later command was refused as still running, and the tool ended in
     a traceback.
 
+  * the LMP PDUs a link manager names, answers, and reports: that both name
+    tables match the current specification's table 5.1, where opcodes 31 and
+    32 used to carry the extended pair's names; that a peer's detach is
+    reported with the reason it gives and ends the link on either side, where
+    the central called it an unhandled opcode and then waited for link
+    supervision; and that a request no handler names is refused rather than
+    left silent, which used to cost the peer a 30-second response timeout.
+
   * a board that takes none of the requests the session opens with is reported
     with the firmware that behaves that way named, whichever of those requests
     it stops taking at, and a setup failure of another kind is not.
@@ -478,6 +486,27 @@ assert records.said("BTCtlInquiryCmd stopped: USBErrorTimeout: timeout"), \
     records.messages
 print("ubtbr: a command the device will not start is reported, not raised")
 
+class RecordingConnection:
+    """A connection that keeps the PDUs the link manager hands it.
+
+    It counts the stops asked of it too, which is how a link ends here.
+    """
+
+    def __init__(self):
+        self.sent = []
+        self.stops = 0
+
+    def send_acl(self, llid, data, flow=1):
+        assert llid == btctl.LLID_LMP, llid
+        self.sent.append(bytes(data))
+
+    def stop(self):
+        self.stops += 1
+
+    def handle_setup_complete(self):
+        pass
+
+
 # ---- a diagnostic is one line on standard error ---------------------------
 
 # The module used to report its own warnings and failures as log lines,
@@ -512,13 +541,13 @@ assert said.getvalue() == "", said.getvalue()
 # and the LMP decoder's one warning, which reaches warn() through an import
 # inside the function: btctl imports lmp, so lmp cannot import it back at
 # module scope, and a test is what catches that import going wrong.
-link_manager = lmp.LMPMaster(None)
+link_manager = lmp.LMPMaster(RecordingConnection())
 unknown, said = io.StringIO(), io.StringIO()
 with contextlib.redirect_stderr(unknown), contextlib.redirect_stdout(said):
     # Opcode 0, which no state handles.
     assert link_manager.receive(0, b"\x00") is False
 assert unknown.getvalue() == \
-    "warning: LMP opcode 0x0 is not handled in state 1\n", \
+    "warning: LMP opcode 0x0 is not handled in state 1, refused\n", \
     repr(unknown.getvalue())
 assert said.getvalue() == "", said.getvalue()
 print("ubtbr: a warning and a failure are each one line on standard error")
@@ -531,17 +560,6 @@ print("ubtbr: a warning and a failure are each one line on standard error")
 # detaches the link, which is what used to end every connection to a real
 # Classic device. The answer also has to carry the transaction ID the request
 # arrived with, or the peer cannot match it to what it asked (2.4).
-
-class RecordingConnection:
-    """A connection that keeps the PDUs the link manager hands it."""
-
-    def __init__(self):
-        self.sent = []
-
-    def send_acl(self, llid, data, flow=1):
-        assert llid == btctl.LLID_LMP, llid
-        self.sent.append(bytes(data))
-
 
 def lmp_pdu(op, payload, tid):
     """One received LMP PDU: the opcode, its transaction ID, the parameters."""
@@ -634,7 +652,8 @@ assert answers(central, lmp.EXT_OPCODE | lmp.LMP_IO_CAPABILITY_REQ,
 # the link with the transaction ID it came in with. The requests each side
 # answers are spelled out, so dropping one, or adding a handler without a
 # case here, fails rather than passing quietly. (A request the tables do not
-# handle still only warns; that is the gap this does not cover.)
+# handle is refused by the default branch instead, which the cases further
+# down cover.)
 CENTRAL_REQUESTS = ["LMP_FEATURES_REQ", "LMP_FEATURES_REQ_EXT",
                     "LMP_IO_CAPABILITY_REQ", "LMP_MAX_SLOT_REQ",
                     "LMP_NAME_REQ", "LMP_SWITCH_REQ", "LMP_VERSION_REQ"]
@@ -657,6 +676,154 @@ for link_manager, expected in zip(link_managers(),
         assert sent[0][0] & 1 == 1, (name, sent)
     assert sorted(answered) == expected, sorted(answered)
 print("ubtbr: every LMP request the link manager handles is answered")
+# ---- the LMP PDUs a link manager names, answers, and reports --------------
+
+# Both name tables against Core v5.4 | Vol 2, Part C, table 5.1: the plain
+# opcodes 31 and 32 used to carry the extended pair's names and the extended
+# pair theirs, so each named the other's PDU.
+assert lmp.LMP_OP2STR[31] == "LMP_INCR_POWER_REQ", lmp.LMP_OP2STR[31]
+assert lmp.LMP_OP2STR[32] == "LMP_DECR_POWER_REQ", lmp.LMP_OP2STR[32]
+assert lmp.LMP_OPEXT2STR[31] == "LMP_POWER_CONTROL_REQ", lmp.LMP_OPEXT2STR[31]
+assert lmp.LMP_OPEXT2STR[32] == "LMP_POWER_CONTROL_RES", lmp.LMP_OPEXT2STR[32]
+assert not hasattr(lmp, "LMP_POWER_CONTROL_INC"), "the 1.1 names are gone"
+assert not hasattr(lmp, "LMP_POWER_CONTROL_DEC"), "the 1.1 names are gone"
+
+# and as a capture reads them. "4100" is a PDU a real peer sent, measured on
+# the bench: opcode 32 with transaction ID 1, and one Reserved parameter byte.
+DECR_POWER_REQ = bytes.fromhex("4100")
+assert "LMP_DECR_POWER_REQ" in lmp.pdu2str(DECR_POWER_REQ), \
+    lmp.pdu2str(DECR_POWER_REQ)
+assert "POWER_CONTROL" not in lmp.pdu2str(DECR_POWER_REQ), \
+    lmp.pdu2str(DECR_POWER_REQ)
+# the extended pair, 127/31 and 127/32, under the names that are theirs
+assert "LMP_POWER_CONTROL_REQ" in lmp.pdu2str(bytes.fromhex("fe1f00"))
+assert "LMP_POWER_CONTROL_RES" in lmp.pdu2str(bytes.fromhex("fe2000"))
+# and an opcode this tool cannot name is its number rather than "None"
+assert "LMP opcode 66" in lmp.pdu2str(bytes.fromhex("8400")), \
+    lmp.pdu2str(bytes.fromhex("8400"))
+assert "LMP extended opcode 100" in lmp.pdu2str(bytes.fromhex("fe6400")), \
+    lmp.pdu2str(bytes.fromhex("fe6400"))
+print("ubtbr: a capture names the power control PDUs as table 5.1 does")
+
+
+def received(link_manager_class, pdu):
+    """Hand one PDU to a link manager, and return the link and what it said.
+
+    The PDU is taken as written, with no padding added: a board pads what it
+    sends to the 17 bytes a DM1 carries, but the payload header is what says
+    how long a received one is, so a shorter PDU reaches here too.
+    """
+    link = RecordingConnection()
+    records.messages = []
+    warned = io.StringIO()
+    with contextlib.redirect_stderr(warned):
+        link_manager_class(link).receive(0, bytes.fromhex(pdu))
+    return link, warned.getvalue()
+
+
+# A peer's LMP_DETACH says why the link ended, which is the one line a user
+# wants. The central's table had no entry for it, so a `page` or `l2ping`
+# session called it an unhandled opcode and then held the connection open
+# until link supervision ended it. Both sides now report the reason and end
+# the link (Vol 2, Part C, 4.1.2). "0f22" is a PDU the bench measured.
+for side in (lmp.LMPMaster, lmp.LMPSlave):
+    link, warned = received(side, "0f22")
+    assert link.stops == 1, (side, link.stops)
+    assert link.sent == [], (side, link.sent)
+    assert warned == "", (side, warned)
+    assert records.said("Peer detached: reason 0x22, LMP response timeout"), \
+        (side, records.messages)
+    # the other reason the bench saw: the peer's own user closing the link
+    link, warned = received(side, "0f13")
+    assert link.stops == 1, (side, link.stops)
+    assert records.said(
+        "Peer detached: reason 0x13, the peer's user ended the connection"), \
+        (side, records.messages)
+    # a reason outside the detach procedure's list is still reported, as is a
+    # PDU too short to carry one
+    link, warned = received(side, "0f77")
+    assert link.stops == 1 and records.said("reason 0x77"), records.messages
+    link, warned = received(side, "0f")
+    assert link.stops == 1 and records.said("giving no reason"), records.messages
+print("ubtbr: a peer's detach is reported with its reason and ends the link")
+
+# A request no handler names used to get a warning and nothing on the link,
+# which costs the peer a 30-second LMP response timeout and then the link
+# (2.4.1). Vol 2, Part C, 2.5 has the answer: LMP_NOT_ACCEPTED with Unknown
+# LMP PDU (0x19) for an opcode the link manager does not know, Unsupported LMP
+# Feature (0x1A) for one it knows and does not support, and nothing at all for
+# a PDU that expects no reply.
+#
+# Each case is the PDU received, then the PDU that must go out, byte for byte:
+# the opcode byte with the transaction ID in its low bit, the opcode refused,
+# and the reason, padded to the 17 bytes a DM1 carries.
+REFUSALS = (
+    # opcode 0, which is no PDU at all
+    ("00", "080019"),
+    # opcode 66, which table 5.1 does not assign either
+    ("8400", "084219"),
+    # LMP_DECR_POWER_REQ, transaction ID 1: the request a real peer sent five
+    # times a second. A device with no power control has to answer it even
+    # though it expects no reply in general (4.1.3), which is why it is not on
+    # the ignore list, and the answer echoes that transaction ID
+    ("4100", "09201a"),
+    ("3f00", "091f1a"),  # and LMP_INCR_POWER_REQ
+    # LMP_ENCRYPTION_KEY_SIZE_MASK_REQ, which a central may ask a page_scan
+    # session for and which no handler names
+    ("74", "083a1a"),
+    # an extended opcode is refused with LMP_NOT_ACCEPTED_EXT, which carries
+    # the escape opcode 127 as well as the extended one: here
+    # LMP_PACKET_TYPE_TABLE_REQ, 127/11, transaction ID 1
+    ("ff0b", "ff027f0b1a"),
+    # and an extended opcode table 5.1 does not assign
+    ("fe64", "fe027f6419"),
+    # an escape names no PDU of its own, so one arriving as a plain opcode is
+    # unknown rather than unsupported
+    ("f800", "087c19"),
+)
+for side in (lmp.LMPMaster, lmp.LMPSlave):
+    for pdu, answer in REFUSALS:
+        link, warned = received(side, pdu)
+        assert link.sent == [bytes.fromhex(answer).ljust(17, b"\x00")], \
+            (side, pdu, link.sent)
+        assert link.stops == 0, (side, pdu)
+        assert ", refused\n" in warned, (side, pdu, warned)
+
+# A PDU that expects no reply is ignored rather than refused, so a response or
+# a notification with no handler draws nothing. The same rule stops two link
+# managers trading refusals over a PDU neither names.
+IGNORED = (
+    "0400",   # LMP_NAME_RES, a response
+    "6800",   # LMP_SLOT_OFFSET, a notification
+    "4200",   # LMP_MAX_POWER
+    "08201a",  # a peer's own LMP_NOT_ACCEPTED
+    "fe04",   # LMP_FEATURES_RES_EXT, a response
+    "fe2000",  # LMP_POWER_CONTROL_RES
+)
+for pdu in IGNORED:
+    link, warned = received(lmp.LMPSlave, pdu)
+    assert link.sent == [], (pdu, link.sent)
+    assert link.stops == 0, pdu
+    assert warned.endswith("is not handled in state 1\n"), (pdu, warned)
+
+# The warning is said once per opcode for the life of the connection, where
+# the answer goes out every time: a real peer repeated one request 300 times
+# in a minute, and 300 identical lines bury the rest of a session. The PDUs
+# themselves are all in the capture on standard output. A 15-bit opcode is
+# named as table 5.1 writes it, 127/11, not as the number this code keys it by.
+peripheral = lmp.LMPSlave(RecordingConnection())
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    for _ in range(5):
+        peripheral.receive(0, bytes.fromhex("4100"))
+    for _ in range(3):
+        peripheral.receive(0, bytes.fromhex("ff0b"))
+assert warned.getvalue() == (
+    "warning: LMP opcode 0x20 is not handled in state 1, refused\n"
+    "warning: LMP opcode 127/11 is not handled in state 1, refused\n"), \
+    repr(warned.getvalue())
+assert len(peripheral._con.sent) == 8, peripheral._con.sent
+print("ubtbr: a request no handler names is refused rather than left silent")
 
 # ---- a command of a super command that will not stop ----------------------
 
@@ -1450,9 +1617,10 @@ def fhs_message(bdaddr):
     return received_message(0, (0, btctl.FHS, 0, 0), body)
 
 
-def lmp_message(opcode):
+def lmp_message(opcode, parameters=b"", tid=0):
     """The packet a device sends for one received LMP PDU, 17 bytes long."""
-    return acl_message(btctl.LLID_LMP, bytes((opcode << 1,)) + bytes(16))
+    pdu = bytes((((opcode << 1) | tid),)) + bytes(parameters)
+    return acl_message(btctl.LLID_LMP, pdu.ljust(17, b"\x00"))
 
 
 def canned_session(typed, packets, until, then=""):
@@ -1655,11 +1823,16 @@ CONNECTED_LT_ADDR_1 = (btctl.BTCTL_STATE_CONNECTED,
                        (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
 NAME_REQ = (r"\d\d:\d\d:\d\d RX LMP: BBHdr\(lt_addr=1, type=DM1, flags=\)"
             r" \| \(tid 0\) LMP_NAME_REQ +\| 02(00){16}")
+# The detach rides along in the same session: the line it adds is the link
+# manager's, so it belongs with the rest of that trace on standard error and
+# not in the capture, which is what the man page says.
+DETACHED = "Peer detached: reason 0x13, the peer's user ended the connection"
 for typed in ("page_scan", "page 11:22:33:44:55:66"):
     output, errors = canned_session(typed, [
         state_message(*CONNECTED_LT_ADDR_1),
         lmp_message(btctl.LMP_NAME_REQ),
-    ], until="RX LMP")
+        lmp_message(btctl.LMP_DETACH, b"\x13", tid=1),
+    ], until="LMP_DETACH")
     assert re.fullmatch(NAME_REQ, timed_lines(output, "RX LMP")[0]), output
     # and in plain text: a capture carries no terminal color
     assert "\x1b" not in output, output
@@ -1667,6 +1840,8 @@ for typed in ("page_scan", "page 11:22:33:44:55:66"):
     assert "Connection ready, lt_addr=1\n" in errors, errors
     assert "lmp_rx" in errors, errors
     assert time_prefixed(errors) == [], errors
+    assert DETACHED in errors, errors
+    assert DETACHED not in output, output
 print("ubtbr: a connection's LMP packets go to standard output as well")
 
 # What the tool says when standard output has gone away, whichever write

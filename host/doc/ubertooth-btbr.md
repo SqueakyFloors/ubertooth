@@ -192,7 +192,11 @@ If no FHS appears, the peripheral won the race; try again.
   send multi-slot packets is refused as well, and the feature mask this end
   sends does not offer them, so a connection stays on single-slot ones: the
   firmware decodes the multi-slot kinds, but no capture has exercised that
-  over the air.
+  over the air. A request for any other procedure there is no handler for is
+  refused too, rather than left unanswered, so the peer can get on with the
+  link instead of waiting out a 30-second LMP response timeout; a PDU that
+  expects no answer is ignored. Either way the opcode is named in a `warning:`
+  line, once per opcode for the life of the connection.
 - As the central, it polls the peripheral hard enough to drain its battery.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
@@ -216,6 +220,11 @@ header and the PDU named and in hex. It also traces the same exchange on
 standard error, where the link manager adds the state it was in and the
 seconds since the connection came up; that trace is a diagnostic, and the
 capture is what standard output holds.
+
+A connection the peer hangs up ends with the reason the peer gave, on standard
+error with the rest of the link manager's trace:
+
+    Peer detached: reason 0x13, the peer's user ended the connection
 
 The prompt, the `Type ? to list commands` line and what `?` and `? <command>`
 print are on standard error, with the progress a command makes, as plain lines

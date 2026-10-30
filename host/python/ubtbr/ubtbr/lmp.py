@@ -41,8 +41,8 @@ LMP_SET_BROADCAST_SCAN_WINDOW    = 27
 LMP_MODIFY_BEACON                = 28
 LMP_UNPARK_BD_ADDR_REQ           = 29
 LMP_UNPARK_PM_ADDR_REQ           = 30
-LMP_POWER_CONTROL_REQ            = 31
-LMP_POWER_CONTROL_RES            = 32
+LMP_INCR_POWER_REQ               = 31
+LMP_DECR_POWER_REQ               = 32
 LMP_MAX_POWER                    = 33
 LMP_MIN_POWER                    = 34
 LMP_AUTO_RATE                    = 35
@@ -86,7 +86,7 @@ LMP_ACCEPTED_EXT                = 1
 LMP_NOT_ACCEPTED_EXT            = 2
 LMP_FEATURES_REQ_EXT            = 3
 LMP_FEATURES_RES_EXT            = 4
-LMP_CLK_ADJ						= 5
+LMP_CLK_ADJ                     = 5
 LMP_PACKET_TYPE_TABLE_REQ       = 11
 LMP_ESCO_LINK_REQ               = 12
 LMP_REMOVE_ESCO_LINK_REQ        = 13
@@ -102,8 +102,26 @@ LMP_NUMERIC_COMPARISON_FAILED   = 27
 LMP_PASSKEY_FAILED              = 28
 LMP_OOB_FAILED                  = 29
 LMP_KEYPRESS_NOTIFICATION       = 30
-LMP_POWER_CONTROL_INC           = 31
-LMP_POWER_CONTROL_DEC           = 32
+LMP_POWER_CONTROL_REQ           = 31
+LMP_POWER_CONTROL_RES           = 32
+
+# Error codes a refusal carries (Core v5.4 | Vol 1, Part F, 1.3).
+LMP_ERR_UNKNOWN_LMP_PDU         = 0x19
+LMP_ERR_UNSUPPORTED_LMP_FEATURE = 0x1a
+
+# Why a peer says it is hanging up: the reasons a detach is seen carrying, as
+# Core v5.4 | Vol 1, Part F, 1.3 names them. Any other code is reported as
+# itself.
+LMP_DETACH_REASON2STR = {
+	0x05: "authentication failure",
+	0x13: "the peer's user ended the connection",
+	0x14: "the peer is low on resources",
+	0x15: "the peer is about to power off",
+	0x16: "the peer's own host ended the connection",
+	0x1a: "unsupported remote feature",
+	0x22: "LMP response timeout",
+	0x29: "pairing with a unit key is not supported",
+}
 
 # The reasons an LMP_NOT_ACCEPTED carries here
 # (Core v5.4 | Vol 1, Part F, 1.3)
@@ -141,8 +159,8 @@ LMP_OP2STR = {
 	LMP_MODIFY_BEACON: "LMP_MODIFY_BEACON",
 	LMP_UNPARK_BD_ADDR_REQ: "LMP_UNPARK_BD_ADDR_REQ",
 	LMP_UNPARK_PM_ADDR_REQ: "LMP_UNPARK_PM_ADDR_REQ",
-	LMP_POWER_CONTROL_REQ: "LMP_POWER_CONTROL_REQ",
-	LMP_POWER_CONTROL_RES: "LMP_POWER_CONTROL_RES",
+	LMP_INCR_POWER_REQ: "LMP_INCR_POWER_REQ",
+	LMP_DECR_POWER_REQ: "LMP_DECR_POWER_REQ",
 	LMP_MAX_POWER: "LMP_MAX_POWER",
 	LMP_MIN_POWER: "LMP_MIN_POWER",
 	LMP_AUTO_RATE: "LMP_AUTO_RATE",
@@ -187,6 +205,7 @@ LMP_OPEXT2STR = {
 	LMP_NOT_ACCEPTED_EXT: "LMP_NOT_ACCEPTED_EXT",
 	LMP_FEATURES_REQ_EXT: "LMP_FEATURES_REQ_EXT",
 	LMP_FEATURES_RES_EXT: "LMP_FEATURES_RES_EXT",
+	LMP_CLK_ADJ: "LMP_CLK_ADJ",
 	LMP_PACKET_TYPE_TABLE_REQ: "LMP_PACKET_TYPE_TABLE_REQ",
 	LMP_ESCO_LINK_REQ: "LMP_ESCO_LINK_REQ",
 	LMP_REMOVE_ESCO_LINK_REQ: "LMP_REMOVE_ESCO_LINK_REQ",
@@ -202,9 +221,40 @@ LMP_OPEXT2STR = {
 	LMP_PASSKEY_FAILED: "LMP_PASSKEY_FAILED",
 	LMP_OOB_FAILED: "LMP_OOB_FAILED",
 	LMP_KEYPRESS_NOTIFICATION: "LMP_KEYPRESS_NOTIFICATION",
-	LMP_POWER_CONTROL_INC: "LMP_POWER_CONTROL_INC",
-	LMP_POWER_CONTROL_DEC: "LMP_POWER_CONTROL_DEC",
+	LMP_POWER_CONTROL_REQ: "LMP_POWER_CONTROL_REQ",
+	LMP_POWER_CONTROL_RES: "LMP_POWER_CONTROL_RES",
 }
+
+# PDUs that normally expect no reply: responses and the notifications this
+# end has no handler for. Vol 2,
+# Part C, 2.5 asks the LM to ignore such a PDU rather than refuse it, so none
+# of these puts anything on the air. Anything else with no handler is refused,
+# which is the safe way round: a PDU missing from here costs one needless
+# refusal, where one wrongly listed would cost the link.
+#
+# The power control requests are not here on purpose. They too are answered
+# only at the ends of the range, but 4.1.3 requires a device that does not
+# support power control, as this one does not, to answer them anyway: with
+# LMP_MAX_POWER or LMP_MIN_POWER, or with Unsupported LMP Feature, which is
+# the honest one here.
+LMP_NO_REPLY_EXPECTED = frozenset((
+	# with a 7-bit opcode
+	LMP_NAME_RES, LMP_ACCEPTED, LMP_NOT_ACCEPTED, LMP_CLKOFFSET_RES,
+	LMP_SRES, LMP_TEMP_KEY, LMP_HOLD,
+	LMP_SET_BROADCAST_SCAN_WINDOW, LMP_MODIFY_BEACON,
+	LMP_MAX_POWER, LMP_MIN_POWER,
+	LMP_AUTO_RATE, LMP_PREFERRED_RATE, LMP_VERSION_RES, LMP_FEATURES_RES,
+	LMP_QUALITY_OF_SERVICE, LMP_MAX_SLOT, LMP_TIMING_ACCURACY_RES,
+	LMP_SLOT_OFFSET, LMP_SUPERVISION_TIMEOUT,
+	LMP_ENCRYPTION_KEY_SIZE_MASK_RES,
+	# and with a 15-bit one
+	EXT_OPCODE|LMP_ACCEPTED_EXT, EXT_OPCODE|LMP_NOT_ACCEPTED_EXT,
+	EXT_OPCODE|LMP_FEATURES_RES_EXT,
+	EXT_OPCODE|LMP_CHANNEL_CLASSIFICATION, EXT_OPCODE|LMP_SNIFF_SUBRATING_RES,
+	EXT_OPCODE|LMP_IO_CAPABILITY_RES, EXT_OPCODE|LMP_NUMERIC_COMPARISON_FAILED,
+	EXT_OPCODE|LMP_PASSKEY_FAILED, EXT_OPCODE|LMP_OOB_FAILED,
+	EXT_OPCODE|LMP_KEYPRESS_NOTIFICATION, EXT_OPCODE|LMP_POWER_CONTROL_RES,
+))
 
 def u8(d):	return d
 def u16(d):
@@ -216,16 +266,24 @@ def p16(n):	return pack("<H", n)
 def p32(n):	return pack("<I", n)
 def p64(n):	return pack("<Q", n)
 
+def opcode2str(op):
+	"""An opcode as table 5.1 writes it: 0x20, or 127/11 for a 15-bit one."""
+	if op & EXT_OPCODE:
+		return "%d/%d"%(LMP_ESCAPE_4, op & ~EXT_OPCODE)
+	return "0x%x"%op
+
 def pdu2str(pdu):
 	opcode = u8(pdu[0])
 	tid = opcode & 1
 	opcode >>= 1
 
+	# An opcode with no name is reported as its number: a capture of a PDU
+	# this tool does not know should still say which one it was.
 	if opcode == LMP_ESCAPE_4:
 		op = u8(pdu[1])
-		opstr = LMP_OPEXT2STR.get(op)
+		opstr = LMP_OPEXT2STR.get(op, "LMP extended opcode %d"%op)
 	else:
-		opstr = LMP_OP2STR.get(opcode)
+		opstr = LMP_OP2STR.get(opcode, "LMP opcode %d"%opcode)
 	# Plain text, no terminal color: this goes into the packets a capture
 	# holds on standard output, where escapes are something for a reader of
 	# that capture to strip.
@@ -244,6 +302,9 @@ class LMP:
 		self._con = con
 		self._start_time = time()
 		self._clkn = 0
+		# The opcodes already reported as unhandled, so each is said once for
+		# the life of the connection rather than once per PDU.
+		self._unhandled = set()
 		self._rx_tid = 0
 
 	def time(self):
@@ -277,8 +338,18 @@ class LMP:
 		fsm = self._FSM[self._state]
 		reg = fsm.get(op)
 		if reg is None:
-			warn("LMP opcode 0x%x is not handled in state %d"
-				%(op, self._state))
+			# A request this link manager does not handle still has to be
+			# answered: silence costs the peer a 30-second LMP response
+			# timeout and then the link (Vol 2, Part C, 2.4.1).
+			refused = self.lmp_refuse(op, tid)
+			# Said once per opcode: a real peer repeats a request several
+			# times a second, and every one of them is in the capture on
+			# standard output already.
+			if op not in self._unhandled:
+				self._unhandled.add(op)
+				warn("LMP opcode %s is not handled in state %d%s"
+					%(opcode2str(op), self._state,
+						", refused" if refused else ""))
 			return False
 		else:
 			handler = reg[0]
@@ -312,6 +383,22 @@ class LMP:
 		if self._debug:
 			log.info("%.2f sec | >>> lmp_tx (state=%d): %s"%(self.time(),self._state, pdu2str(pdu)))
 		return self.lmp_down(pdu)
+
+	def handle_detach(self, op, data):
+		# The peer is hanging up, and the reason it gives is the one line
+		# that says why a session ended. Vol 2, Part C, 4.1.2 asks the
+		# receiver to detach rather than hold the connection open until
+		# link supervision ends it some seconds later. The grace timer that
+		# section describes, 6 x Tpoll here, is skipped: it is there so the
+		# detach can be acknowledged, and this end sends nothing more.
+		if data:
+			reason = u8(data[0])
+			log.info("Peer detached: reason 0x%02x, %s"%(reason,
+				LMP_DETACH_REASON2STR.get(reason,
+					"a reason this tool does not name")))
+		else:
+			log.info("Peer detached, giving no reason")
+		self._con.stop()
 
 	def handle_name_req(self, op, data):
 		offset = u8(data[0])
@@ -402,6 +489,45 @@ class LMP:
 	def lmp_send_not_accepted(self, opcode, data=b'', **kwargs):
 		return self.lmp_send(LMP_NOT_ACCEPTED, p8(opcode)+data, **kwargs)
 
+	def lmp_send_not_accepted_ext(self, ext_opcode, reason, **kwargs):
+		# A 15-bit opcode is refused with LMP_NOT_ACCEPTED_EXT, which
+		# carries the escape opcode as well as the extended one
+		# (Vol 2, Part C, 2.7).
+		data = (p8(LMP_NOT_ACCEPTED_EXT) + p8(LMP_ESCAPE_4)
+			+ p8(ext_opcode) + p8(reason))
+		return self.lmp_send(LMP_ESCAPE_4, data, **kwargs)
+
+	def lmp_refuse(self, op, tid):
+		"""Refuse a PDU no handler of this state's table names.
+
+		Vol 2, Part C, 2.5: an opcode the LM does not know is refused with
+		Unknown LMP PDU (0x19), and a PDU it knows but does not support with
+		Unsupported LMP Feature (0x1A). This tool can name nearly all of
+		LMP, so the second is what a real device's request gets.
+
+		The refusal carries the transaction ID of what it answers: the two
+		are one transaction (2.4), and a peer cannot match an answer sent
+		under the other ID to what it asked.
+
+		Returns True if a refusal went out, False for a PDU 2.5 asks to be
+		ignored because it expects no reply.
+		"""
+		if op in LMP_NO_REPLY_EXPECTED:
+			return False
+		if op & EXT_OPCODE:
+			ext_op = op & ~EXT_OPCODE
+			self.lmp_send_not_accepted_ext(ext_op,
+				LMP_ERR_UNSUPPORTED_LMP_FEATURE if ext_op in LMP_OPEXT2STR
+				else LMP_ERR_UNKNOWN_LMP_PDU, tid=tid)
+		else:
+			# An escape names no PDU of its own, so one arriving as a plain
+			# opcode is a PDU this end cannot know.
+			named = op in LMP_OP2STR and op < LMP_ESCAPE_1
+			self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_UNSUPPORTED_LMP_FEATURE if named
+					else LMP_ERR_UNKNOWN_LMP_PDU), tid=tid)
+		return True
+
 	def lmp_send_io_cap(self, is_req, **kwargs):
 		# ext opcode
 		if is_req:
@@ -457,6 +583,7 @@ class LMPMaster(LMP):
 		self._FSM = {
 			# First state: fetch device infos
 			1: {
+				LMP_DETACH: 		(self.handle_detach,),
 				LMP_VERSION_REQ: 	(self.handle_vers_req,),
 				LMP_FEATURES_REQ:	(self.handle_feat_req,),
 				EXT_OPCODE|LMP_FEATURES_REQ_EXT:	(self.handle_feat_req_ext,),
@@ -563,10 +690,6 @@ class LMPSlave(LMP):
 
 	def handle_host_connection_req(self, op, data):
 		self.lmp_send_accepted(op, tid=self._rx_tid)
-
-	def handle_detach(self, op, data):
-		self._con.stop()
-		pass
 
 	def handle_setup_complete(self, op, data):
 		self.lmp_send_setup_complete()
