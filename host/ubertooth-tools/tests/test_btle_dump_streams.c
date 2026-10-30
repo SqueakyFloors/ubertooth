@@ -14,8 +14,13 @@
  * buffer is faked. The stream cases cover both directions: an ordinary run
  * prints the dump on standard output and the complaint on standard error, and
  * a run whose capture took standard output prints neither while the capture
- * still gets the packet. A last case reads the signal level out of both the
+ * still gets the packet. A later case reads the signal level out of both the
  * dump and the capture of one packet, which must be the same number.
+ *
+ * The last two cases are about the gap printed beside a packet, which the
+ * low-energy and the eGo callbacks both take from the capture's own
+ * reconstructed times. The eGo one is here rather than in a file of its own
+ * because it needs this same faked ring buffer, arrival readings and all.
  */
 #include <fcntl.h>
 #include <limits.h>
@@ -557,6 +562,87 @@ MU_TEST(a_quiet_gap_longer_than_a_period_is_reported_whole)
 	ubertooth_free(ut);
 }
 
+/* ubertooth-ego reports its gap from the same reconstruction, so a quiet gap
+ * longer than one period is whole there too.
+ *
+ * Its packets are stamped with the CLKN-derived clock, which starts over
+ * every 327.68 s, and an eGo record carries no period count to say when that
+ * happened. Two packets 700 s apart therefore read only 44.64 s apart - the
+ * gap less the two whole periods in it - and the second reads higher than the
+ * first, so there is not even a drop to go on. The host clock is what settles
+ * it, through the arrival readings the records carry.
+ */
+MU_TEST(the_ego_gap_holds_a_quiet_period_too)
+{
+	ubertooth_t* ut = ubertooth_init();
+	/* How many bytes of each packet the tool prints, as its -l option sets
+	 * it; the gap is what this case is about. */
+	uint8_t len = 4;
+	usb_pkt_rx rx;
+	/* 100 s into the period, then a gap inside one period, then 700 s:
+	 * two periods on, plus 44.64 s, which is where the reading lands. */
+	const uint64_t first_ticks = 1000000000ull;
+	const uint64_t short_gap_ns = 1500000000ull;
+	const uint64_t gap_ns = 700000000000ull;
+	const uint64_t arrived_ns = 5000000000ull;
+	char out[4096] = "";
+	char err[2048] = "";
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	memset(&rx, 0, sizeof(rx));
+	rx.pkt_type = EGO_PACKET;
+	rx.channel = 10;
+
+	/* The first packet of a capture has nothing to measure from. It used
+	 * to report its own clock reading as a duration. */
+	rx.clk100ns = htole32((uint32_t) first_ticks);
+	fifo_push(ut->fifo, &rx, arrived_ns);
+	capture_output();
+	cb_ego(ut, &len);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	mu_assert(strstr(out, "delta_t=0.000000 ms") != NULL, out);
+
+	/* A gap inside one period reads as it always did. */
+	rx.clk100ns = htole32((uint32_t) (first_ticks + short_gap_ns / 100));
+	fifo_push(ut->fifo, &rx, arrived_ns + short_gap_ns);
+	capture_output();
+	cb_ego(ut, &len);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	mu_assert(strstr(out, "delta_t=1500.000000 ms") != NULL, out);
+
+	/* A gap holding two wraps comes out whole. */
+	rx.clk100ns = htole32((uint32_t)
+	                      ((first_ticks + (short_gap_ns + gap_ns) / 100)
+	                       % CLK100NS_PERIOD));
+	fifo_push(ut->fifo, &rx, arrived_ns + short_gap_ns + gap_ns);
+	capture_output();
+	cb_ego(ut, &len);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+	mu_assert(strstr(out, "delta_t=700000.000000 ms") != NULL, out);
+	/* Not the gap with its wraps dropped, which is what the readings alone
+	 * come to. */
+	mu_assert(strstr(out, "delta_t=44640.000000 ms") == NULL, out);
+	/* A gap this long is also what the lost-wrap report looks for, so a
+	 * wrap counted wrongly would show up here as well as in the figure. */
+	mu_assert(err[0] == '\0', err);
+
+	/* The capture ends, which is where a handle's clock state goes back to
+	 * where a capture starts, and the handle is used again. The first
+	 * packet of the second capture reports no gap, rather than the time
+	 * since the capture before it. */
+	ubertooth_capture_clock_reset(ut);
+	rx.clk100ns = htole32((uint32_t) first_ticks);
+	fifo_push(ut->fifo, &rx, arrived_ns + 2 * gap_ns);
+	capture_output();
+	cb_ego(ut, &len);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+	mu_assert(strstr(out, "delta_t=0.000000 ms") != NULL, out);
+
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -568,5 +654,6 @@ int main(void)
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
 	MU_RUN(the_dump_reports_the_level_the_capture_records);
 	MU_RUN(a_quiet_gap_longer_than_a_period_is_reported_whole);
+	MU_RUN(the_ego_gap_holds_a_quiet_period_too);
 	return mu_report();
 }

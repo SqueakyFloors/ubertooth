@@ -725,6 +725,12 @@
   packet of a capture reports no gap rather than its own clock reading.
   [#974](https://github.com/SqueakyFloors/ubertooth/issues/974)
 
+- The `delta_t` beside each `ubertooth-ego` packet comes from the same
+  capture times, so it too holds the whole of a quiet gap rather than losing
+  whole 327.68 s periods of the clock, and the first packet of a capture
+  reports no gap.
+  [#981](https://github.com/SqueakyFloors/ubertooth/issues/981)
+
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
   using the whole band instead of a handful of channels. The channel removal
   threshold `-m` counts packets, not seconds, and with 79 channels in use a
