@@ -154,15 +154,16 @@ static int capture_failed(ubertooth_t* ut, const struct rx_files* files,
 	return 1;
 }
 
-/* Set once a replay has handed a whole record to the decoder, which
- * stream_rx_file() does for each record it reads. Before the first one the
- * capture files hold their headers and nothing else; from it they hold the
- * replay's output. */
+/* Set once a replay has read a whole record from its input. That is the line
+ * its capture files are kept from, the same line a capture draws at its first
+ * packet: the replay ran, and what the decoder made of the record -- a packet,
+ * or nothing it recognized -- is the result. Before the first record the files
+ * hold their headers and nothing else. */
 static int replay_read_a_record;
 
 /* A replay's decode: notes the record, then decodes it like any other. The
- * decode is libubertooth's cb_rx() and keeps no count of its own, and a live
- * capture needs none, so only a replay goes through here. */
+ * decode is libubertooth's cb_rx() and notes nothing itself, and a live
+ * capture needs no note, so only a replay goes through here. */
 static void replay_decode(ubertooth_t* ut, void* args)
 {
 	replay_read_a_record = 1;
@@ -665,11 +666,12 @@ int main(int argc, char* argv[])
 		fclose(infile);
 		exit_status = rx_file_report(r, infile_name);
 
-		/* An input not one whole record could be read from leaves the
-		 * capture files holding their headers and nothing else, so they
-		 * go the way a refused capture's files do. Once a record has
-		 * been read they stay, however little of the input came after
-		 * it: they hold what the replay decoded. */
+		/* An input no whole record could be read from leaves the
+		 * capture files holding their headers and nothing else, so
+		 * they go the way a refused capture's files do. From the first
+		 * record on they stay, however little of the input came after
+		 * it. An input read to its end is no failure, an empty one
+		 * included, and never reaches here: that replay ran. */
 		if (exit_status != 0 && !replay_read_a_record)
 			rx_discard_files(ut, &files);
 

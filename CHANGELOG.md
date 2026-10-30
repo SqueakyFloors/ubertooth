@@ -791,8 +791,9 @@
   capture files removed again, so a header-only capture is no longer left
   behind there either. A capture that ran keeps its file, however little
   arrived, and a name the user had set up as something else -- `/dev/null`, a
-  pipe, or a symbolic link -- is left where it is. A replay (`-i`) whose input
-  not one record could be read from no longer leaves one either.
+  pipe, or a symbolic link -- is left where it is. A replay (`-i`) that could
+  not read one whole record from its input no longer leaves a header-only
+  capture behind either.
   [#993](https://github.com/SqueakyFloors/ubertooth/issues/993)
   [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013)
 

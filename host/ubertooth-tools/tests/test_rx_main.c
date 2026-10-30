@@ -1348,9 +1348,9 @@ MU_TEST(a_refused_run_leaves_a_link_and_dev_null_alone)
 /* A replay whose input yielded not one whole record is the same case on the
  * replay path: the files hold their headers and nothing else, and used to be
  * left behind for the user to tell apart from a replay that decoded nothing.
- * Both shapes of unreadable input are checked -- a read error, and a file too
- * short to hold a record -- since the tool decides on the records, not on
- * which way the read ended. */
+ * Both ways an input can fail are checked -- a read error, and an input that
+ * ends partway through its first record -- since the tool decides on the
+ * records read, not on which way the read ended. */
 MU_TEST(a_replay_that_read_no_record_removes_its_files)
 {
 	static const int results[] = {
@@ -1406,6 +1406,31 @@ MU_TEST(a_replay_that_read_records_keeps_its_files)
 	mu_assert(info.st_size > 0, "the PCAP file holds its header");
 	mu_assert(stat(pcapng, &info) == 0, pcapng);
 	mu_assert(info.st_size > 0, "the PcapNG file holds its header");
+	mu_assert(stat(dump, &info) == 0, dump);
+	unlink(pcap);
+	unlink(pcapng);
+	unlink(dump);
+}
+
+/* An input read to its end is no failure, even when there was nothing in it to
+ * read: that replay ran and decoded nothing, which is a result of its own, and
+ * the files say so. This is the case right next to the removal above, and the
+ * one a change to its condition would take with it. */
+MU_TEST(a_replay_of_an_empty_input_keeps_its_files)
+{
+	struct run_result r;
+	struct stat info;
+	char pcap[80], pcapng[80], dump[80];
+
+	/* The scripted read ends at once, with no record and no error. */
+	reset_device();
+	capture_names("rx-replay-empty", pcap, pcapng, dump, sizeof(pcap));
+
+	r = RUN_RX("-i", "/dev/null", "-q", pcap, "-r", pcapng, "-d", dump);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(stat(pcap, &info) == 0, pcap);
+	mu_assert(stat(pcapng, &info) == 0, pcapng);
 	mu_assert(stat(dump, &info) == 0, dump);
 	unlink(pcap);
 	unlink(pcapng);
@@ -1633,6 +1658,7 @@ int main(void)
 	MU_RUN(a_refused_run_leaves_a_link_and_dev_null_alone);
 	MU_RUN(a_replay_that_read_no_record_removes_its_files);
 	MU_RUN(a_replay_that_read_records_keeps_its_files);
+	MU_RUN(a_replay_of_an_empty_input_keeps_its_files);
 	MU_RUN(a_replay_whose_input_cannot_be_opened_creates_no_file);
 	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
