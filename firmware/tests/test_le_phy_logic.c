@@ -74,6 +74,8 @@
  * firmware's register name resolves to here. */
 volatile uint32_t fake_t1ir, fake_t1tcr, fake_t1tc, fake_t1pr, fake_t1mcr;
 volatile uint32_t fake_t1mr0, fake_t1mr1, fake_t1mr2, fake_t1mr3;
+volatile uint32_t fake_t2tcr, fake_t2tc, fake_t2pr, fake_t2mcr;
+volatile uint32_t fake_pconp;
 volatile uint32_t fake_iser0, fake_icer0, fake_icpr0;
 volatile uint32_t fake_dmac_int_stat, fake_dmac_int_tc_stat;
 volatile uint32_t fake_dmac_int_tc_clear;
@@ -260,6 +262,11 @@ static void start_fresh(void)
 	fake_t1mr2 = 0;
 	fake_t1mr3 = 0;
 	fake_t1tc = 0;
+	fake_t2tcr = 0;
+	fake_t2tc = 0;
+	fake_t2pr = 0;
+	fake_t2mcr = 0;
+	fake_pconp = 0;
 	fake_iser0 = 0;
 	fake_icer0 = 0;
 	fake_dmac_int_err_stat = 0;
@@ -641,30 +648,132 @@ static void clear_the_buffer_the_engine_holds(void)
 }
 
 /*
- * The LED blink runs in the main loop, once for every packet handed to the
- * host, and arms its own match in the same register the receive path's waits
- * live in. A blink that wrote back a value read before the byte interrupt ran
- * un-armed the wait the interrupt had just armed, and nothing was left to arm
- * receive: the capture went silent while the loop went on answering the host,
- * until the mode was restarted.
+ * The LED blink runs in the mode's loop, once for every packet handed to the
+ * host. It has a counter of its own, timer2, so the loop never writes the
+ * timer the radio's own deadlines live in.
+ *
+ * The three tests below pin that: the blink leaves timer1 exactly as it was,
+ * its counter arms no match of its own, and it still lasts the 10 ms it
+ * always did.
  */
-MU_TEST(a_blink_cannot_un_arm_the_wait_an_interrupt_armed)
+MU_TEST(the_blink_leaves_the_radios_timer_alone)
 {
 	start_fresh();
+	timer2_start();
 	fake_t1tc = 1000;
 
-	irq_pending_hook = arm_a_wait_for_the_synthesizer;
-	blink(1, 0, 0);
+	/* A synthesizer wait, as the byte interrupt leaves one. */
+	arm_a_wait_for_the_synthesizer();
+	mu_assert_fatal(fake_t1mcr & TMCR_MR2I, "the wait was not armed");
 
-	mu_assert(irq_pending_hook == NULL,
-	          "the interrupt never got in, so the blink changed the match "
-	          "register without holding interrupts off");
-	mu_assert(fake_t1mcr & TMCR_MR1I,
-	          "the blink's own match was not armed");
-	mu_assert(fake_t1mcr & TMCR_MR2I,
-	          "the blink lost the synthesizer wait the interrupt armed, so "
-	          "nothing is left to arm receive and the capture goes silent");
+	{
+		uint32_t mcr = fake_t1mcr, mr1 = fake_t1mr1;
+
+		blink(1, 0, 0);
+
+		mu_assert_int_eq((int)mcr, (int)fake_t1mcr);
+		mu_assert_int_eq((int)mr1, (int)fake_t1mr1);
+		mu_assert(fake_t1mcr & TMCR_MR2I,
+		          "the blink lost the synthesizer wait, so nothing is left "
+		          "to arm receive and the capture goes silent");
+	}
+
+	/* Nothing to guard, because nothing shared is read and written back. */
 	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
+MU_TEST(the_blinks_counter_arms_no_match)
+{
+	start_fresh();
+
+	timer2_start();
+
+	mu_assert(fake_pconp & PCONP_PCTIM2, "timer2 was left unpowered");
+	mu_assert_int_eq(TCR_Counter_Enable, (int)fake_t2tcr);
+	/* Timer2's clock is cclk/2 on this board, as timer1's is, so the same
+	 * prescaler makes one tick 100 ns and MSEC() means the same on both. */
+	mu_assert_int_eq(4, (int)fake_t2pr);
+	mu_assert_int_eq(0, (int)fake_t2mcr);
+	mu_assert(!(fake_iser0 & ISER0_ISE_TIMER2),
+	          "timer2's interrupt was unmasked, which would put the blink "
+	          "back into a handler that can cut into the radio's timing");
+
+	timer2_stop();
+	mu_assert(!(fake_pconp & PCONP_PCTIM2), "timer2 was left powered");
+}
+
+MU_TEST(the_blink_still_lasts_ten_milliseconds)
+{
+	start_fresh();
+	timer2_start();
+	fake_t2tc = 7000;
+
+	blink(0, 1, 0);
+	mu_assert_int_eq((int)PIN_RXLED, (int)fake_fio1set);
+
+	/* The clear registers here are write-only, as the part's are: only the
+	 * last mask written to one is visible, so what a test can read is
+	 * whether anything was cleared, and when. */
+	fake_fio1clr = 0;
+
+	/* A tick short of 10 ms: still on. */
+	fake_t2tc = 7000 + MSEC(10) - 1;
+	blink_expire();
+	mu_assert_int_eq(0, (int)fake_fio1clr);
+
+	fake_t2tc = 7000 + MSEC(10);
+	blink_expire();
+	mu_assert(fake_fio1clr != 0, "the blink was never turned off");
+
+	/* And once off, it stays off until the next packet. */
+	fake_fio1clr = 0;
+	fake_t2tc += MSEC(100);
+	blink_expire();
+	mu_assert_int_eq(0, (int)fake_fio1clr);
+}
+
+/* A packet arriving during a blink puts the full 10 ms back, as re-arming the
+ * match did. */
+MU_TEST(a_second_packet_puts_the_blink_back_to_full_length)
+{
+	start_fresh();
+	timer2_start();
+	fake_t2tc = 0;
+
+	blink(0, 1, 0);
+	fake_t2tc = MSEC(9);
+	blink(0, 1, 0);
+
+	fake_fio1clr = 0;
+	fake_t2tc = MSEC(10);
+	blink_expire();
+	mu_assert_int_eq(0, (int)fake_fio1clr);
+
+	fake_t2tc = MSEC(19);
+	blink_expire();
+	mu_assert(fake_fio1clr != 0, "the blink outlasted its own deadline");
+}
+
+/* The counter is 32 bits of 100 ns ticks, so it wraps every 429 seconds. A
+ * blink armed just before the wrap must not be read as already over, which
+ * would leave it a few microseconds long instead of 10 ms. */
+MU_TEST(a_blink_survives_the_counters_wrap)
+{
+	start_fresh();
+	timer2_start();
+	fake_t2tc = 0xffffffffu - MSEC(5);
+
+	blink(0, 1, 0);
+	fake_fio1clr = 0;
+
+	/* Past the wrap, but only 5 ms in. */
+	fake_t2tc = MSEC(4);
+	blink_expire();
+	mu_assert_int_eq(0, (int)fake_fio1clr);
+
+	fake_t2tc = MSEC(5);
+	blink_expire();
+	mu_assert(fake_fio1clr != 0, "the blink was never turned off");
 }
 
 /* The same register, the other way round: disarming one match may not lose
@@ -701,18 +810,16 @@ MU_TEST(each_match_is_armed_on_its_own)
 	timer1_set_match(1);
 	timer1_wait_fs_lock();
 	timer1_wait_buffer();
-	blink(0, 0, 1);
-	mu_assert_int_eq(TMCR_MR0I | TMCR_MR1I | TMCR_MR2I | TMCR_MR3I,
-	                 (int)fake_t1mcr);
+	mu_assert_int_eq(TMCR_MR0I | TMCR_MR2I | TMCR_MR3I, (int)fake_t1mcr);
 
 	timer1_cancel_fs_lock();
-	mu_assert_int_eq(TMCR_MR0I | TMCR_MR1I | TMCR_MR3I, (int)fake_t1mcr);
+	mu_assert_int_eq(TMCR_MR0I | TMCR_MR3I, (int)fake_t1mcr);
 
 	timer1_cancel_wait_buffer();
-	mu_assert_int_eq(TMCR_MR0I | TMCR_MR1I, (int)fake_t1mcr);
+	mu_assert_int_eq(TMCR_MR0I, (int)fake_t1mcr);
 
 	timer1_clear_match();
-	mu_assert_int_eq(TMCR_MR1I, (int)fake_t1mcr);
+	mu_assert_int_eq(0, (int)fake_t1mcr);
 }
 
 /*
@@ -3399,7 +3506,11 @@ int main(void)
 
 	MU_RUN(the_pool_hands_out_each_buffer_once_and_then_nothing);
 	MU_RUN(a_released_buffer_comes_back_clean);
-	MU_RUN(a_blink_cannot_un_arm_the_wait_an_interrupt_armed);
+	MU_RUN(the_blink_leaves_the_radios_timer_alone);
+	MU_RUN(the_blinks_counter_arms_no_match);
+	MU_RUN(the_blink_still_lasts_ten_milliseconds);
+	MU_RUN(a_second_packet_puts_the_blink_back_to_full_length);
+	MU_RUN(a_blink_survives_the_counters_wrap);
 	MU_RUN(disarming_one_match_cannot_lose_another);
 	MU_RUN(each_match_is_armed_on_its_own);
 	MU_RUN(two_contexts_cannot_be_handed_the_same_buffer);

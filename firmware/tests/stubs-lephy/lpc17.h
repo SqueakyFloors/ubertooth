@@ -55,6 +55,27 @@ extern volatile uint32_t fake_t1mr3;
 #define T1MR2 fake_t1mr2
 #define T1MR3 fake_t1mr3
 
+/* timer2: the LED blink's own counter. le_phy.c reads its counter (BLINK_NOW)
+ * and writes its prescaler, control and match control registers, and asks for
+ * its power in PCONP. No match of it is ever armed, which is what a test
+ * reads the match control register to confirm. */
+extern volatile uint32_t fake_t2tcr;
+extern volatile uint32_t fake_t2tc;
+extern volatile uint32_t fake_t2pr;
+extern volatile uint32_t fake_t2mcr;
+extern volatile uint32_t fake_pconp;
+
+#undef T2TCR
+#undef T2TC
+#undef T2PR
+#undef T2MCR
+#undef PCONP
+#define T2TCR fake_t2tcr
+#define T2TC  fake_t2tc
+#define T2PR  fake_t2pr
+#define T2MCR fake_t2mcr
+#define PCONP fake_pconp
+
 /* The interrupt controller: set-enable, clear-enable and clear-pending. A
  * write is a bitmask of the lines it affects, so a test reads which bits
  * arrived. */
