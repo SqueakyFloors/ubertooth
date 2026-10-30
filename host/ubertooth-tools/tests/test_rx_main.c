@@ -1386,15 +1386,19 @@ MU_TEST(a_follow_that_hears_nothing_gives_the_clock_up_once)
 	mu_assert_int_eq(1, device.drops);
 }
 
-/* And the wait is not up until the whole of it has passed. */
-MU_TEST(a_follow_quiet_for_less_than_the_wait_keeps_its_clock)
+/* And the wait is ten seconds, pinned either side of the moment it is up: a
+ * follow whose clock was right is dropped if this fires early, and that clock
+ * is then ruled out for the rest of the run, so the value is worth a test of
+ * its own. */
+MU_TEST(the_wait_is_ten_seconds)
 {
 	struct run_result r;
 
+	/* One block, which takes a millisecond less than the wait. */
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 1000;
-	device.blocks_to_end = 9;
+	device.block_ms = 9999;
+	device.blocks_to_end = 1;
 	device.now_ms = 1000;
 	device.follow_heard_ms = 1000;
 
@@ -1402,6 +1406,19 @@ MU_TEST(a_follow_quiet_for_less_than_the_wait_keeps_its_clock)
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, device.drops);
+
+	/* And one that takes exactly the wait. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.block_ms = 10000;
+	device.blocks_to_end = 1;
+	device.now_ms = 1000;
+	device.follow_heard_ms = 1000;
+
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "60");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.drops);
 }
 
 /* A follow that is hearing its piconet keeps its clock however long it runs:
@@ -1489,7 +1506,7 @@ int main(void)
 	MU_RUN(a_replay_sends_no_setup_request);
 	MU_RUN(a_live_capture_and_a_replay_both_report_their_gaps);
 	MU_RUN(a_follow_that_hears_nothing_gives_the_clock_up_once);
-	MU_RUN(a_follow_quiet_for_less_than_the_wait_keeps_its_clock);
+	MU_RUN(the_wait_is_ten_seconds);
 	MU_RUN(a_working_follow_and_a_capture_with_no_clock_keep_going);
 	MU_RUN(a_follow_that_stays_quiet_is_asked_about_once_per_wait);
 	return mu_report();
