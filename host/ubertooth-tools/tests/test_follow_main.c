@@ -988,23 +988,43 @@ MU_TEST(a_refused_clock_set_exits_1)
 MU_TEST(a_refused_request_creates_no_file)
 {
 	static const char* const options[] = { "-q", "-r", "-d" };
+	/* The whole range the removal covers, from the first failure after the
+	 * files exist to the last before the capture loop, named by the
+	 * requests that went out before each. The five are the five shapes of
+	 * exit the tool has here: the two synchronous requests, the two steps
+	 * that start the capture and give the board back themselves, and
+	 * everything after the poll thread. */
+	static const char* const reached[] = {
+		"a", "ak", "aki", "akip", "akipdh"
+	};
 	struct run_result r;
 	struct stat info;
 	char path[64];
-	size_t i;
+	size_t i, which;
 
 	for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
-		int which;
-
-		/* The address request, then the clock request. */
-		for (which = 0; which < 2; which++) {
+		for (which = 0; which < sizeof(reached) / sizeof(reached[0]);
+		     which++) {
 			int fd;
 
 			reset_fake();
-			if (which == 0)
+			switch (which) {
+			case 0:
 				fake.bdaddr_rc = -9; /* LIBUSB_ERROR_PIPE */
-			else
+				break;
+			case 1:
 				fake.clock_rc = -9;
+				break;
+			case 2:
+				fake.bulk_init_rc = -1;
+				break;
+			case 3:
+				fake.thread_start_rc = EAGAIN;
+				break;
+			default:
+				fake.hopping_rc = -9;
+				break;
+			}
 			snprintf(path, sizeof(path), "/tmp/follow-main-XXXXXX");
 			fd = mkstemp(path);
 			mu_assert_fatal(fd >= 0, "temp name taken");
@@ -1013,34 +1033,13 @@ MU_TEST(a_refused_request_creates_no_file)
 
 			r = RUN(options[i], path, TARGET);
 			mu_assert_int_eq(1, r.rc);
-			/* The run did reach the request, so the file had been
-			 * created by then: the check above it would otherwise
+			/* The run did reach that failure, so the file had been
+			 * created by then: the check below would otherwise
 			 * pass without the fix. */
-			mu_assert(strcmp(fake.calls, which == 0 ? "a" : "ak")
-			          == 0, fake.calls);
+			mu_assert(strcmp(fake.calls, reached[which]) == 0,
+			          fake.calls);
 			mu_assert(stat(path, &info) != 0, path);
 			mu_assert_int_eq(0, fake.receives);
-			unlink(path);
-		}
-
-		/* The far end of the same range: start-hopping, the last
-		 * request before the capture loop, by when the receive
-		 * transfer and the thread are both running. */
-		{
-			int fd;
-
-			reset_fake();
-			fake.hopping_rc = -9;
-			snprintf(path, sizeof(path), "/tmp/follow-main-XXXXXX");
-			fd = mkstemp(path);
-			mu_assert_fatal(fd >= 0, "temp name taken");
-			close(fd);
-			unlink(path);
-
-			r = RUN(options[i], path, TARGET);
-			mu_assert_int_eq(1, r.rc);
-			mu_assert(strcmp(fake.calls, "akipdh") == 0, fake.calls);
-			mu_assert(stat(path, &info) != 0, path);
 			unlink(path);
 		}
 	}
@@ -1068,8 +1067,8 @@ MU_TEST(a_piconet_that_cannot_be_allocated_exits_one)
 	mu_assert_int_eq(0, fake.frees);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 
-	/* Which is also why -h still answers: the piconet is allocated once
-	 * the command line has been accepted, not before it is read. */
+	/* Which is also why -h and -V still answer: the piconet is allocated
+	 * once the command line has been accepted, not before it is read. */
 	reset_fake();
 	fake.no_memory = 1;
 
@@ -1077,6 +1076,15 @@ MU_TEST(a_piconet_that_cannot_be_allocated_exits_one)
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "ubertooth-follow") != NULL, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	reset_fake();
+	fake.no_memory = 1;
+
+	r = RUN("-V");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "version (test)") != NULL, r.out);
 	mu_assert(r.err[0] == '\0', r.err);
 }
 

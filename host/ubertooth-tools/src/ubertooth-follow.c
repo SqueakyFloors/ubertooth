@@ -24,6 +24,8 @@
 #include <bluetooth/hci_lib.h>
 #include <sys/ioctl.h>
 
+#include <sys/stat.h>
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -97,17 +99,33 @@ struct follow_files {
 	const char* dump;
 };
 
+/* One capture file, gone again. Only a regular file: a run given -q /dev/null
+ * or the name of a pipe opened something the user already had, which is not
+ * this tool's to remove. A removal that will not go is said once, because a
+ * capture file left behind in silence is what this avoids. */
+static void follow_remove_file(const char* name)
+{
+	struct stat info;
+
+	if (lstat(name, &info) < 0 || !S_ISREG(info.st_mode))
+		return;
+	errno = 0;
+	if (unlink(name) < 0)
+		fprintf(stderr, "warning: cannot remove %s: %s\n", name,
+		        strerror(errno));
+}
+
 /* Removes the capture files this run created, so that a follow the board or
- * the adapter refused leaves no file behind: a header-only capture is one the
- * user then has to tell apart from a capture that ran and caught nothing. The
- * files cannot simply be created later instead, because the clock the board
- * stamps its records with is zeroed after them and everything between that
- * request and start-hopping is error in the followed clock.
+ * the adapter refused leaves no file behind. The files cannot simply be
+ * created later instead: the clock the board stamps its records with is
+ * zeroed after them, and everything between that request and start-hopping is
+ * error in the followed clock.
  *
- * The handles say which files exist: each is set only once its writer has the
- * file open. They are removed by name while the writers still hold them, and
- * the bytes a writer had buffered go nowhere when the handles are closed with
- * the board. A capture on standard output is not a file of ours to remove.
+ * The handles say which files exist, since each is set only once its writer
+ * has the file open. The files are removed by name while the writers still
+ * hold them, and the bytes a writer had buffered go nowhere when the handles
+ * are closed with the board. A capture on standard output is not a file of
+ * ours to remove.
  *
  * Called from the two helpers below, which all but two failures go through,
  * so a path added later cannot forget it; the two that start the capture give
@@ -117,13 +135,13 @@ static void follow_discard_files(ubertooth_t* ut,
                                  const struct follow_files* files)
 {
 	if (files->pcapng != NULL && ut->h_pcapng_bredr != NULL)
-		unlink(files->pcapng);
+		follow_remove_file(files->pcapng);
 	if (files->pcap != NULL && ut->h_pcap_bredr != NULL &&
 	    !opt_writes_to_stdout(files->pcap))
-		unlink(files->pcap);
+		follow_remove_file(files->pcap);
 	if (files->dump != NULL && dumpfile != NULL &&
 	    !opt_writes_to_stdout(files->dump))
-		unlink(files->dump);
+		follow_remove_file(files->dump);
 }
 
 /* Gives the local adapter back. First it drops the link this command made to
