@@ -38,6 +38,12 @@
 
 static usb_pkt_rx pending;
 static int pending_count;
+/* When the record the callback is about to take arrived, read from the
+ * monotonic clock as its transfer completed. A live capture carries one of
+ * these with every record, and it is the only thing that says how long a
+ * quiet gap was. The cases that do not care pass zero, as a capture with no
+ * reading at all does. */
+static uint64_t pending_arrival_ns;
 
 fifo_t* fifo_init(void) { return (fifo_t*)malloc(1); }
 usb_pkt_rx* fifo_get_write_element(fifo_t* fifo) { (void)fifo; return &pending; }
@@ -46,12 +52,13 @@ void fifo_inc_write_ptr(fifo_t* fifo, uint64_t arrival_ns)
 void fifo_push(fifo_t* fifo, const usb_pkt_rx* packet, uint64_t arrival_ns)
 {
 	(void)fifo;
-	(void)arrival_ns;
 	pending = *packet;
+	pending_arrival_ns = arrival_ns;
 	pending_count = 1;
 }
 uint8_t fifo_empty(fifo_t* fifo) { (void)fifo; return pending_count == 0; }
-uint64_t fifo_popped_arrival_ns(const fifo_t* fifo) { (void)fifo; return 0; }
+uint64_t fifo_popped_arrival_ns(const fifo_t* fifo)
+{ (void)fifo; return pending_arrival_ns; }
 usb_pkt_rx fifo_pop(fifo_t* fifo)
 {
 	(void)fifo;
@@ -477,6 +484,59 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	ubertooth_free(ut);
 }
 
+/* The gap the dump reports is the one the capture's own times have, so it
+ * holds the whole of a quiet gap however many times the clock started over
+ * inside it.
+ *
+ * ubertooth-btle stamps from timer1, which starts over every 429.4967 s and
+ * tells the host nothing when it does. Two records 905.605 s apart therefore
+ * read only 46.6115 s apart - the gap less the two whole periods in it - and
+ * the second reads higher than the first, so there is not even a drop to go
+ * on. Working the gap out from the two readings alone reported those 46.6 s,
+ * beside a capture record that had the full 905.6 s, which is the shape this
+ * case pins. The host clock is what settles it, through the arrival readings
+ * the records carry.
+ */
+MU_TEST(a_quiet_gap_longer_than_a_period_is_reported_whole)
+{
+	ubertooth_t* ut = ubertooth_init();
+	btle_options opts = { .allowed_access_address_errors = 32 };
+	usb_pkt_rx rx = advertisement_with_an_unreadable_field();
+	/* 100 s into the period, then 905.605 s later: two periods on, plus
+	 * 46.6115408 s, which is where the reading lands. */
+	const uint64_t first_ticks = 1000000000ull;
+	const uint64_t gap_ns = 905605000000ull;
+	const uint64_t arrived_ns = 5000000000ull;
+	char out[8192] = "";
+	char err[2048] = "";
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	ut->clk100ns_period = CLK100NS_TIMER1_PERIOD;
+
+	/* The first record of a capture has nothing to measure from. */
+	rx.clk100ns = htole32((uint32_t) first_ticks);
+	fifo_push(ut->fifo, &rx, arrived_ns);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	mu_assert(strstr(out, "delta_t=0.000 ms") != NULL, out);
+
+	/* The second, after a gap holding two wraps. */
+	rx.clk100ns = htole32((uint32_t) ((first_ticks + gap_ns / 100)
+	                                  % CLK100NS_TIMER1_PERIOD));
+	fifo_push(ut->fifo, &rx, arrived_ns + gap_ns);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+	mu_assert(strstr(out, "delta_t=905605.000 ms") != NULL, out);
+	/* Not the gap with its wraps dropped, which is what the readings alone
+	 * come to. */
+	mu_assert(strstr(out, "delta_t=46611.541 ms") == NULL, out);
+
+	ubertooth_free(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -487,5 +547,6 @@ int main(void)
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
 	MU_RUN(the_dump_reports_the_level_the_capture_records);
+	MU_RUN(a_quiet_gap_longer_than_a_period_is_reported_whole);
 	return mu_report();
 }

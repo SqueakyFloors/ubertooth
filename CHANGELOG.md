@@ -689,6 +689,14 @@
 
 ### Reliability fixes
 
+- The `delta_t` beside each `ubertooth-btle` packet is the gap the capture's
+  own times have, so it holds the whole of a quiet gap instead of losing whole
+  periods of the clock the packets are stamped with. A measured gap of 905.6 s
+  was printed as `delta_t=46611.718 ms` -- that gap less the two 429.4967 s
+  periods inside it -- beside a capture record that had it right. The first
+  packet of a capture reports no gap rather than its own clock reading.
+  [#974](https://github.com/SqueakyFloors/ubertooth/issues/974)
+
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
   using the whole band instead of a handful of channels. The channel removal
   threshold `-m` counts packets, not seconds, and with 79 channels in use a

@@ -1022,7 +1022,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 	uint64_t le_arrival_ns;
 	// u32 access_address = 0; // Build warning
 
-	static uint64_t prev_ts = 0;
+	/* The last packet's reconstructed time, and the capture it belonged to.
+	 * A handle used for a second capture is anchored afresh, which is what
+	 * the second of these notices, so the first packet of each capture
+	 * reports no gap rather than the time since the capture before it. */
+	static uint64_t prev_packet_ns = 0;
+	static uint64_t prev_capture_ns = 0;
 	/* Each warning below is said once for the whole capture: the condition
 	 * it reports holds for every packet that follows, and a line per packet
 	 * would bury the capture's own output. */
@@ -1205,18 +1210,30 @@ void cb_btle(ubertooth_t* ut, void* args)
 		return;
 	}
 
-	// rollover
-	uint64_t rx_ts = le32toh( rx->clk100ns );
-	if (rx_ts < prev_ts)
-		rx_ts += ut->clk100ns_period;
-	uint64_t ts_diff = rx_ts - prev_ts;
-	prev_ts = le32toh( rx->clk100ns );
+	/* How long since the previous packet, taken from the capture's own
+	 * times. Those have already accounted for every time the clock started
+	 * over, including the wraps a quiet gap leaves nowhere in the records,
+	 * so this line and the capture record written just above agree about
+	 * one packet.
+	 *
+	 * Taking the difference of the two raw readings instead added a period
+	 * where the reading had dropped and nothing where it had risen, which
+	 * is right only for a gap shorter than one period. A gap of 905.6 s
+	 * measured on a board came out as 46.6 s, that gap less the two whole
+	 * periods inside it, beside a record that had it right. */
+	if (prev_capture_ns != ut->abs_start_ns) {
+		prev_capture_ns = ut->abs_start_ns;
+		prev_packet_ns = 0;
+	}
+	uint64_t ts_diff_ns = (prev_packet_ns != 0 && nowns > prev_packet_ns) ?
+	                      nowns - prev_packet_ns : 0;
+	prev_packet_ns = nowns;
 	/* `sig`, so this line and the capture record above report one level for
 	 * one packet. What a reader wants beside a packet is how loud that
 	 * packet was. */
 	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
 	       systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
-	       ts_diff / 10000.0, sig);
+	       ts_diff_ns / 1000000.0, sig);
 
 	/* The bytes of the packet itself: the PDU header, the payload the
 	 * decoder found and the CRC, after the four-byte access address. Never
