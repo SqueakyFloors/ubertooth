@@ -584,7 +584,8 @@ $(BINDIR)/test_device_id: test_device_id.c minunit.h source_scan.h \
 		$(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
-		-DFW_COMMON_DIR='"$(FW_COMMON)"' -o $@ test_device_id.c
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='"$(FW_DIR)"' \
+		-o $@ test_device_id.c
 
 # A control transfer is only answered after its handler has returned, which is
 # why a reset has to be deferred and waited for. The real control transfer

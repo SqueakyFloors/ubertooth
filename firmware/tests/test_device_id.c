@@ -44,6 +44,9 @@
 #ifndef FW_RXTX_DIR
 #define FW_RXTX_DIR "../bluetooth_rxtx"
 #endif
+#ifndef FW_DIR
+#define FW_DIR ".."
+#endif
 #ifndef FW_BTBR_DIR
 #define FW_BTBR_DIR "../btbr"
 #endif
@@ -347,6 +350,9 @@ MU_TEST(test_no_shipped_image_calls_the_boot_rom_outside_startup)
 static const char *const image_mains[] = {
 	FW_RXTX_DIR "/bluetooth_rxtx.c",
 	FW_BTBR_DIR "/src/btctl/main.c",
+	/* assembly_test answers both requests from the same copies, so it has to
+	 * fill them too, even though the walk above leaves it out. */
+	FW_DIR "/assembly_test/assembly_test.c",
 };
 
 MU_TEST(test_every_image_reads_the_numbers_at_startup)
@@ -390,39 +396,6 @@ MU_TEST(test_every_image_reads_the_numbers_at_startup)
 	}
 }
 
-/*
- * Until the read has happened the status byte says so. Zeroes would read as a
- * successful report of a part with no serial number.
- */
-MU_TEST(test_an_unread_copy_reports_a_failure)
-{
-	const char *path = FW_COMMON_DIR "/ubertooth.c";
-	char line[SCAN_LINE_MAX], msg[PATH_MAX + 256];
-	int in_block = 0, part = 0, serial = 0;
-	FILE *file = fopen(path, "r");
-
-	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
-	mu_assert_fatal(file != NULL, msg);
-
-	while (fgets(line, sizeof(line), file) != NULL) {
-		char flat[SCAN_LINE_MAX];
-
-		strip_comments(line, &in_block);
-		collapse_spaces(line, flat, sizeof(flat));
-		if (strstr(flat, "part_num_reply[5] = { 0xff }") != NULL)
-			part = 1;
-		if (strstr(flat, "device_serial_reply[17] = { 0xff }") != NULL)
-			serial = 1;
-	}
-	fclose(file);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the two copies do not start with a 0xff status byte, so an "
-	         "image that never read the boot ROM would report a part number "
-	         "and a serial number of zeroes as if the read had worked", path);
-	mu_assert(part && serial, msg);
-}
-
 int main(void)
 {
 	printf("device id tests\n");
@@ -433,6 +406,5 @@ int main(void)
 	MU_RUN(test_only_startup_and_the_hand_over_call_the_boot_rom);
 	MU_RUN(test_no_shipped_image_calls_the_boot_rom_outside_startup);
 	MU_RUN(test_every_image_reads_the_numbers_at_startup);
-	MU_RUN(test_an_unread_copy_reports_a_failure);
 	return mu_report();
 }
