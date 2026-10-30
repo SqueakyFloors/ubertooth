@@ -705,9 +705,14 @@ enum usb_pkt_types {
 	/* A Basic Rate capture's symbols. MODE_RX_GENERIC sends its records
 	 * under this type too, and they are laid out differently: the four
 	 * bytes of the sync word the radio matched on, then one of the radio's
-	 * 32-byte FIFOs of what followed it, then a flags byte whose bit 0 says
-	 * the radio still held bytes when the record was taken -- so the packet
-	 * did not fit in one record and the rest of it is gone. */
+	 * 32-byte FIFOs of what followed it, then a flags byte. Bit 0 of that
+	 * byte says the radio still held bytes when the record was taken, so
+	 * the record is not all of what the radio heard -- read it as "do not
+	 * take this payload for the whole packet". It names no cause: a packet
+	 * longer than the record leaves bytes behind, and so does traffic that
+	 * arrived behind a short one. A packet that left exactly one byte
+	 * behind reads as whole, because the radio's FIFO-empty signal does not
+	 * distinguish one byte from none. */
 	BR_PACKET  = 0,
 	LE_PACKET  = 1,
 	MESSAGE    = 2,

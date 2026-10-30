@@ -4112,8 +4112,14 @@ static void rx_generic_wait_for_fifo(void)
  * tell one byte left from none ("in receive mode, FIFO_EMPTY goes low when
  * there is more than 1 byte in the FIFO"), so a drain guided by it would leave
  * exactly one byte. A read of a whole FIFO's worth, discarded, empties the
- * 32-byte FIFO whatever is in it and leaves the FIFO's one internal data
- * pointer where it started.
+ * 32-byte FIFO whatever is in it.
+ *
+ * It asks for more than the FIFO holds whenever the packet was short, and what
+ * the radio does with the surplus is not established: the FIFO has one
+ * internal data pointer, updated per byte written, and the datasheet does not
+ * say what an over-read leaves it on. The record's own read already over-reads
+ * in exactly the same way, so this adds no new question, and the bench run is
+ * what will answer it.
  *
  * It costs about half a millisecond of SPI, during which a packet that arrives
  * is missed. That is the price of the record after it being read from the
