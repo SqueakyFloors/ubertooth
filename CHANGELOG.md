@@ -766,6 +766,14 @@
   capture with it.
   [#960](https://github.com/SqueakyFloors/ubertooth/issues/960)
 
+- A `ubertooth-btbr` session also carries on through an LMP PDU that holds its
+  opcode but ends before its parameters: the name request, the extended
+  features request and the AFH set are refused with invalid LMP parameters,
+  and a short slot offset is traced. `monitor` reports such a PDU rather than
+  hopping over a channel map the central never sent. Each used to end the
+  session the same way.
+  [#971](https://github.com/SqueakyFloors/ubertooth/issues/971)
+
 - A `ubertooth-btbr` connection goes on when the peer refuses one of the five
   requests it opens with: the refusal is reported with the reason the peer
   gave, and the next request goes out. A refusal used to leave the session

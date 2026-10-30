@@ -123,6 +123,10 @@ LMP_DETACH_REASON2STR = {
 	0x29: "pairing with a unit key is not supported",
 }
 
+# What LMP_SET_AFH carries: a 4-byte instant, a 1-byte mode, and a 10-byte
+# channel map, one bit per channel (Core v5.4 | Vol 2, Part C, 5.2).
+AFH_PARAMETERS_LEN = 15
+
 # The reasons an LMP_NOT_ACCEPTED carries here
 # (Core v5.4 | Vol 1, Part F, 1.3)
 LMP_ERR_UNSUPPORTED_REMOTE_FEATURE	= 0x1a
@@ -451,6 +455,12 @@ class LMP:
 		self._con.stop()
 
 	def handle_name_req(self, op, data):
+		if not data:
+			# Too short to say which part of the name is wanted, which the
+			# answer says rather than raising on the read
+			# (Vol 2, Part C, 2.5).
+			return self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
 		offset = u8(data[0])
 		name = b"Ubertooth"
 		return self.lmp_send_name_res(offset, len(name),
@@ -462,6 +472,11 @@ class LMP:
 
 	def handle_feat_req_ext(self, op, data):
 		log.info("handle_feat_req_ext")
+		if not data:
+			# Too short to say which features page is wanted. The refusal
+			# of a 15-bit opcode is LMP_NOT_ACCEPTED_EXT (2.5, 2.7).
+			return self.lmp_send_not_accepted_ext(op & ~EXT_OPCODE,
+				LMP_ERR_INVALID_LMP_PARAMETERS, tid=self._rx_tid)
 		self.lmp_send_feat_ext(False, num=u8(data[0]), tid=self._rx_tid)
 
 	def handle_vers_req(self, op, data):	
@@ -761,6 +776,13 @@ class LMPMaster(LMP):
 		pass
 
 	def handle_slot_offset(self, op, data):
+		if len(data) < 8:
+			# Too short to hold the offset and the address. This PDU
+			# expects no reply, and 2.5 asks the LM to ignore such a one
+			# rather than refuse it, so the trace is the whole answer.
+			log.info("slot_offset too short to read: %s"%(
+				hexlify(data).decode()))
+			return
 		offset = u16(data[:2])
 		bdaddr = data[2:][::-1]
 		log.info("slot_offset from %s: %dusec\n"%(
@@ -830,6 +852,12 @@ class LMPSlave(LMP):
 		self._con.handle_setup_complete()
 
 	def handle_set_afh(self, op, data):
+		if len(data) < AFH_PARAMETERS_LEN:
+			# Too short to hold the instant, the mode, and the channel map,
+			# so there is nothing to hop by: the answer says so rather than
+			# passing a short map to the firmware (Vol 2, Part C, 2.5).
+			return self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
 		instant = u32(data[:4])
 		mode = data[4]
 		chan_map = data[5:]

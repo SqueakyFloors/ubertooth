@@ -910,8 +910,13 @@ class BTCtlMonitorCmd(BTCtlCmd):
 		pdu = pkt.bt_data.data
 		if not pdu: return
 		op = u8(pdu[0])>>1
-		if op == LMP_SET_AFH:
-			data = pdu[1:]
+		data = pdu[1:]
+		# Monitor follows a piconet it is not part of, so a PDU too short to
+		# hold its parameters is a damaged capture rather than a peer's
+		# mistake: there is nobody to refuse it to, and a short channel map
+		# would send the firmware hopping over a map the central never set.
+		# The line below still reports the PDU as it arrived.
+		if op == LMP_SET_AFH and len(data) >= AFH_PARAMETERS_LEN:
 			instant = u32(data[:4])
 			mode = data[4]
 			chan_map = data[5:]
