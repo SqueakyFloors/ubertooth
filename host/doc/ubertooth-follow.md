@@ -217,10 +217,12 @@ nothing this tool can trust.
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw symbols,
 for a pipe into another program. Either way the capture owns standard output
-for the whole run, so nothing else is printed there: not the decoded packets,
-and not the lines libbtbb prints about a clock it recovered. What the tool is
-following, the notes and the failures are on standard error and still arrive,
-and so is the `AFH map:` line of `-a`, which is the answer to that option.
+for the whole run, so the per-packet report is not printed: the capture
+itself is where those packets are.
+
+What the tool is following, the clock the decoder recovers, the notes and the
+failures are on standard error and still arrive, and so is the `AFH map:`
+line of `-a`, which is the answer to that option.
 
 Redirect standard output to a new file or a pipe, not to one being appended
 to: on Linux the capture is opened again through `/proc/self/fd`, which

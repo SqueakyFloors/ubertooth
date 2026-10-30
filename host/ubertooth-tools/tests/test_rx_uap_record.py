@@ -28,6 +28,11 @@ Three things each record is checked for here:
   the packet's own access code, while the reference LAP beside it is the
   address the tool was told to look for, and is empty when it was told none.
 
+A last case checks where the recovered UAP is reported when the capture owns
+standard output, `-q -`: the answer to `-l` without `-u` is that UAP, and a
+run that printed it on standard output would print it into the capture, or
+into the /dev/null that standard output becomes for such a run.
+
 The fixture is a replay of four records built from scratch here, so no board
 and no saved capture is needed: an ID packet with no header, a DH1 whose CRC
 leaves every clock candidate alive, the DH1 whose CRC settles the UAP, then
@@ -382,6 +387,27 @@ def replay(work, prefix, *options):
                      pcapng_records(work / (prefix + ".pcapng"))))
 
 
+def replay_to_stdout(work, prefix, *options):
+    """Replay the fixture with the PCAP capture on standard output.
+
+    `-q -` hands the capture this process's standard output, so the bytes
+    come back undecoded and go into a file for the record reader. Standard
+    output is a pipe here, not a terminal, which is what the tool requires
+    of a binary capture.
+    """
+    result = subprocess.run(
+        [BINARY, "-i", "piconet.bin", *options, "-q", "-"],
+        capture_output=True, timeout=RUN_TIMEOUT_S, check=False, cwd=work,
+        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"),
+    )
+    errors = result.stderr.decode(errors="replace")
+    assert result.returncode == 0, errors
+    assert "error" not in errors, errors
+    path = work / (prefix + ".pcap")
+    path.write_bytes(result.stdout)
+    return errors, result.stdout, capture_records(path)
+
+
 def show(name, records):
     """Print what each record says, so a run by hand shows the capture."""
     for index, rec in enumerate(records):
@@ -564,3 +590,20 @@ with tempfile.TemporaryDirectory() as workdir:
             assert not rec.flags & BREDR_REFLAP_VALID, (name, records)
             assert rec.uap == UAP_ANY, (name, records)
             assert rec.header == 0, (name, records)
+
+    # The follow again, with the capture on standard output instead of in a
+    # named file. The UAP is the answer to -l without -u, and it has to
+    # arrive: a run that reported it on standard output would write it into
+    # the capture, or into the /dev/null that standard output becomes once
+    # the capture has taken the real one.
+    errors, raw, records = replay_to_stdout(work, "stdout", "-l", "%06x" % LAP)
+    assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
+            in errors), errors
+    # Standard output holds the capture and nothing else. The per-packet
+    # report is the one thing such a run does not print, so none of its text
+    # is in these bytes; the packets it would have reported are the records.
+    assert b"systime=" not in raw, raw[:200]
+    assert len(records) == 4, records
+    show("stdout pcap", records)
+    assert records[3].uap == UAP, records
+    assert records[3].flags & BREDR_REFUAP_VALID, records

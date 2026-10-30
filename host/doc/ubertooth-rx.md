@@ -348,11 +348,15 @@ for "none", so a real one cannot be told from it.
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw records,
 for a pipe into another program. Either way the capture owns standard output
-for the whole run, so nothing else is printed there: not the per-packet
-report, and not the lines libbtbb prints when it recovers a UAP or a clock
-(`Correct CRC! UAP = 0x22 found after 31 total packets.`). Notes, warnings and failures are
-on standard error and still arrive, and so do the survey results of `-z`,
-which is what that mode was asked for.
+for the whole run, so the per-packet report is not printed: the capture
+itself is where those packets are.
+
+What the run works out still arrives, on standard error: the UAP the decoder
+recovers (`Correct CRC! UAP = 0x22 found after 31 total packets.`), the clock
+it goes on to recover from that UAP, the notes, the warnings, the failures,
+and the survey results of `-z`, which is what that mode was asked for. So
+`ubertooth-rx -l 446688 -q - > capture.pcap` reports the UAP it found while
+the capture goes to the file.
 
 Redirect standard output to a new file or a pipe, not to one being appended
 to: on Linux the capture is opened again through `/proc/self/fd`, which
