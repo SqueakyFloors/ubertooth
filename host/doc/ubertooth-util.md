@@ -774,14 +774,16 @@ One rule covers what a board holds from one command to the next:
   and no other way: `ubertooth-rx` after an `ubertooth-afh` hops across the
   whole channel set, not on the map that run found. This holds even when the
   earlier tool was killed and left the board streaming. The squelch and the
-  LEDs go with it, as above, and so does the access code `ubertooth-ego -a`
-  sets; the power amplifier level set with `-a` does not.
-- **A channel, a band sweep, an access code or an AFH channel map stated after
-  the mode request is kept.** It belongs to the mode that is starting, so the
-  reset above leaves it alone, whatever the board was doing before. That is
-  where a tool states what its capture needs — `ubertooth-rx`,
-  `ubertooth-scan`, `ubertooth-btle`, `ubertooth-ducky`, `ubertooth-ego` and
-  `ubertooth-follow` all do — and it is kept only for that mode: a setting
+  LEDs go with it, as above, and so do the modulation, which goes back to
+  Classic, and the access code `ubertooth-ego -a` sets; the power amplifier
+  level set with `-a` does not.
+- **A channel, a band sweep, a modulation, an access code or an AFH channel
+  map stated after the mode request is kept.** It belongs to the mode that is
+  starting, so the reset above leaves it alone, whatever the board was doing
+  before. That is where a tool states what its capture needs — `ubertooth-rx`,
+  `ubertooth-scan`, `ubertooth-dump`, `ubertooth-btle`, `ubertooth-ducky`,
+  `ubertooth-ego` and `ubertooth-follow` all do — and it is kept only for that
+  mode: a setting
   stated for a run the host has moved on from is dropped rather than carried
   into whatever starts next.
 - **A channel set on its own is kept, and the next mode starts on it.** `-c`/`-C`
@@ -814,6 +816,22 @@ A mode that tunes once reads a late setting a moment later than one that tunes
 on every hop: `ubertooth-ego -r` re-tunes when its channel or access code
 arrives after the capture has started, which costs the first millisecond of
 it.
+
+The modulation is stated the other way round, **before** the mode request:
+that is what the board programs its demodulator from as the mode comes up, and
+every reset leaves Classic, which is what `ubertooth-rx`, `ubertooth-scan`,
+`ubertooth-afh` and `ubertooth-follow` read. `ubertooth-dump -l` is the one
+run that wants another, so `ubertooth-dump` states it on both sides: the
+second request is what survives the reset on a board left in another mode.
+
+The board then programs the demodulator again, in the middle of the capture,
+and marks the block it was filling across that change as discarded, because
+part of it was received at the other setting. A tool that looks for packets
+skips such a block; `ubertooth-dump` writes it out with the mark in its
+record, except under `-b`, which writes the symbols alone. Blocks that were
+finished before the second request arrived carry no such mark, so the first
+millisecond of a `-l` dump on a board left in another mode can hold Classic
+symbols where the rest is low energy.
 
 ## EXIT STATUS
 

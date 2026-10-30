@@ -613,6 +613,21 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* The modulation this scan reads, Classic, stated before the capture
+	 * request and not after it as the sweep is: see ubertooth-util(1),
+	 * CARRY-OVER BETWEEN RUNS. Without it, a board an interrupted
+	 * `ubertooth-dump -l` had left set to low energy scanned at that
+	 * deviation, and the map it printed then meant nothing. */
+	r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
+	if (r < 0) {
+		report_refused_request("set the modulation", r);
+		ubertooth_bulk_thread_stop();
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+		close(dev_handle);
+		return 1;
+	}
+
 	// tell ubertooth to send packets
 	/* The quiet form, so this failure reads as the one "error: " line
 	 * report_refused_request() prints, like the sweep request below. The

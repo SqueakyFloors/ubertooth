@@ -393,17 +393,26 @@ static void forget_hop_state(void)
  * next ubertooth-rx captured while hopping adaptively on the old map.
  *
  * Only state a running receive can be reset under: the radio stays tuned and
- * receiving, so the channel it is on and the modulation it is receiving are
- * left alone. The channel is also the one the host set for the capture it is
- * starting, a request or two before this one.
+ * receiving, so the channel it is on is left alone. That channel is also the
+ * one the host set for the capture it is starting, a request or two before
+ * this one.
  *
- * The per-channel averages are left alone for the same reason, and unlike the
- * dispatch, which drops them. They are not something the mode configures: they
- * are what the radio has been hearing on each channel, and the three modes here
- * all receive the same modulation over the same 79 channels. The receive never
- * stopped, so the measurement still holds -- and dropping it would cost the new
- * capture the few hundred packets the filter needs to build up again, which it
- * would spend reporting the -55 dBm an empty filter gives.
+ * The modulation is put back, which it could not be while cc2400_rx() was the
+ * only thing that wrote MDMCTRL: a value set here would not have reached the
+ * radio. The capture loop writes that register when the modulation changes
+ * (program_stated_modulation()), so it does now, and each of the three modes
+ * absorbed here reads Basic Rate packets. Without it, a killed
+ * `ubertooth-dump -l` left the board demodulating low energy and the AFH
+ * detection or follow absorbed here ran on that, finding little and saying
+ * nothing. A tool that wants another modulation states it after its request.
+ *
+ * The per-channel averages are left alone, unlike in the dispatch, which drops
+ * them. They are not something the mode configures: they are what the radio
+ * has been hearing on each channel, and the three modes here all receive the
+ * same modulation over the same 79 channels. The receive never stopped, so the
+ * measurement still holds -- and dropping it would cost the new capture the
+ * few hundred packets the filter needs to build up again, which it would spend
+ * reporting the -55 dBm an empty filter gives.
  *
  * Call this before the request's own setup, which is what the absorbed mode
  * starts from. Re-sending the mode that is already streaming resets nothing:
@@ -425,6 +434,7 @@ static void reset_absorbed_mode_state(uint8_t requested)
 		return;
 
 	forget_hop_state();
+	modulation = MOD_BT_BASIC_RATE;
 }
 
 /* Declared here because the request handler calls it; defined with the rest of
@@ -486,10 +496,10 @@ static void set_channel_request(uint16_t requested)
  * starting.
  *
  * A mode start resets the board's mode state, so that one run cannot capture
- * with what another left behind: the hop mode, the channel, the AFH map and
- * the E-GO access code all go back to their defaults. A tool therefore states
- * its channel -- or its band sweep, or its access code -- after the request
- * that starts its mode, not before.
+ * with what another left behind: the hop mode, the channel, the modulation,
+ * the AFH map and the E-GO access code all go back to their defaults. A tool
+ * therefore states its channel -- or its band sweep, its modulation, or its
+ * access code -- after the request that starts its mode, not before.
  *
  * That only worked on a board that had been left capturing symbols, where the
  * reset runs inside the request handler, while the request is answered, so
@@ -501,7 +511,7 @@ static void set_channel_request(uint16_t requested)
  * ran on 2441 MHz, the channel the reset leaves behind, while the user had
  * asked for the whole band, and nothing said so.
  *
- * So the two requests that state one of these keep a copy, and the dispatch
+ * So the requests that state one of these keep a copy, and the dispatch
  * applies it again after the reset. The copy names the mode request it
  * followed, and is only applied to that mode: one left behind by a run the
  * host has moved on from is dropped rather than carried into whatever starts
@@ -510,10 +520,12 @@ static void set_channel_request(uint16_t requested)
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
 #define STATED_AFH_MAP     (1 << 2)
+#define STATED_MODULATION  (1 << 3)
 
 static volatile uint8_t  stated_what;       /* STATED_* bits, 0 for nothing */
 static volatile uint8_t  stated_for_mode;   /* the mode request it followed */
 static volatile uint16_t stated_channel;    /* as the host asked for it */
+static volatile uint8_t  stated_modulation;
 static volatile uint32_t stated_access_code;
 static volatile int      stated_access_code_len;
 /* The ten map bytes as the host sent them, one bit per channel. The map is
@@ -543,7 +555,8 @@ static void stated_for_starting_mode(uint8_t what)
  *
  * Called from the dispatch after the reset, and before the mode's own setup,
  * which still wins: a follow or an AFH detection asks for its hop mode there,
- * as it has to, since the reset clears that too.
+ * as it has to, since the reset clears that too, and the two low-energy modes
+ * set their own modulation there.
  *
  * A copy for another mode is dropped, unless that mode is still the one the
  * host is waiting for -- its mode start is yet to come. The dispatch reads the
@@ -572,8 +585,19 @@ static void apply_stated_settings(uint8_t starting_mode)
 	what = stated_what;
 	stated_what = 0;
 
+	/* A modulation is never left on an idle board. A stop is a mode request
+	 * like any other, so one answered between the stop and this -- a window
+	 * of a whole mode teardown -- would be applied here, after the reset
+	 * had put the modulation back, and a mode starting from idle runs no
+	 * reset of its own to undo it. The channel is deliberately kept across
+	 * a stop, which is what `ubertooth-util -S -c 2440` asks for. */
+	if (starting_mode == MODE_IDLE)
+		what &= ~STATED_MODULATION;
+
 	if (what & STATED_CHANNEL)
 		set_channel_request(stated_channel);
+	if (what & STATED_MODULATION)
+		modulation = stated_modulation;
 	if (what & STATED_ACCESS_CODE) {
 		access_code = stated_access_code;
 		access_code_len = stated_access_code_len;
@@ -595,22 +619,20 @@ static void apply_stated_settings(uint8_t starting_mode)
  * What the host stated *before* its mode request, kept for the mode that
  * request starts.
  *
- * Two settings are sent in that order rather than after the request: the jam
- * mode, which ubertooth-btle sends for -j, and the modulation, which
- * ubertooth-dump sends for -l. A mode start puts both back to their defaults,
- * no jamming and Basic Rate, so on a board left in a mode by a killed tool
- * they were thrown away -- after the request carrying them had been answered.
- * `ubertooth-btle -f -j` then followed the connection and never jammed, and
- * `ubertooth-dump -l` wrote Basic Rate records, neither of them saying so.
+ * One setting is sent in that order rather than after the request: the jam
+ * mode, which ubertooth-btle sends for -j. A mode start puts it back to no
+ * jamming, so on a board left in a mode by a killed tool it was thrown away --
+ * after the request carrying it had been answered -- and `ubertooth-btle -f -j`
+ * followed the connection and never jammed, without saying so.
  *
- * So each of the two requests leaves a copy, and the dispatch applies it again
- * after the reset: the shape the settings stated after a mode request use
- * above, with the difference that these name no mode, because the request that
- * names one has not arrived yet.
+ * So that request leaves a copy, and the dispatch applies it again after the
+ * reset: the shape the settings stated after a mode request use above, with
+ * the difference that this one names no mode, because the request that names
+ * one has not arrived yet.
  *
- * The mode request that follows is as far as a copy reaches, and it is dropped
- * there whether it was used or not, so a run that stated a setting cannot
- * reach a later run -- the carry-over the reset exists to prevent.
+ * The mode request that follows is as far as the copy reaches, and it is
+ * dropped there whether it was used or not, so a run that stated a jam mode
+ * cannot reach a later run -- the carry-over the reset exists to prevent.
  *
  * Which mode that is, the copy cannot say, because the request that names one
  * has not arrived yet, so the drop happens in both places a mode request can
@@ -621,18 +643,19 @@ static void apply_stated_settings(uint8_t starting_mode)
  * be absorbed drops it instead (drop_kept_settings()).
  *
  * What is left is a tool killed between the setting and its own mode request,
- * which leaves a copy for the next mode start; closing that would need the
- * tools to state these after their mode request, as they do the channel.
+ * which leaves a copy for the next mode start, whatever asked for that mode.
+ * The modulation used to be kept this way too and no longer is: the tools
+ * state it after their mode request, as they do the channel, so its copy names
+ * a mode and an orphan is dropped instead of applied. Closing it for the jam
+ * mode is the same move, and waits on the jamming work.
  *
  * Nothing is kept while the board is idle: a mode starting from idle runs no
  * teardown, so the value the host just set already survives.
  */
 #define KEEP_JAM_MODE   (1 << 0)
-#define KEEP_MODULATION (1 << 1)
 
 static volatile uint8_t keep_what;        /* KEEP_* bits, 0 for nothing */
 static volatile uint8_t keep_jam_mode;
-static volatile uint8_t keep_modulation;
 
 /* Keep what the request has just set, for the mode start it comes before. */
 static void keep_for_next_mode_start(uint8_t what)
@@ -641,8 +664,6 @@ static void keep_for_next_mode_start(uint8_t what)
 		return;
 	if (what & KEEP_JAM_MODE)
 		keep_jam_mode = jam_mode;
-	if (what & KEEP_MODULATION)
-		keep_modulation = modulation;
 	keep_what |= what;
 }
 
@@ -664,7 +685,7 @@ static void drop_kept_settings(uint8_t requested)
  * Put back what was stated before the mode request, and forget it.
  *
  * Called from the dispatch after the reset and before the mode's own setup,
- * which still wins: the two low-energy modes set their own modulation there.
+ * which still wins.
  *
  * A stop keeps nothing. It ends the run the setting was stated for, and a
  * value left on an idle board would reach the next mode whatever that mode
@@ -680,8 +701,6 @@ static void apply_kept_settings(uint8_t starting_mode)
 		return;
 	if (what & KEEP_JAM_MODE)
 		jam_mode = keep_jam_mode;
-	if (what & KEEP_MODULATION)
-		modulation = keep_modulation;
 }
 
 /*
@@ -876,10 +895,15 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		    request_params[0] != MOD_BT_LOW_ENERGY)
 			return 0;
 		modulation = request_params[0];
-		/* ubertooth-dump sends this before its mode request, so the
-		 * mode start would otherwise reset it; see
-		 * keep_for_next_mode_start(). */
-		keep_for_next_mode_start(KEEP_MODULATION);
+		/* Stated after the mode request, as the channel is, so a mode
+		 * start that is still to come keeps it; see
+		 * stated_for_starting_mode(). The radio is programmed from it
+		 * at the mode start and again by the capture loop, which is
+		 * what lets this arrive after the request. */
+		if (requested_mode != mode) {
+			stated_modulation = request_params[0];
+			stated_for_starting_mode(STATED_MODULATION);
+		}
 		break;
 
 	case UBERTOOTH_GET_CHANNEL:
@@ -1764,17 +1788,36 @@ void service_usb(void)
 	handle_usb(clkn);
 }
 
+/* Whether the Bluetooth receive below configures the radio for this
+ * modulation. The other values of enum modulations reach no modem register
+ * here: the generic receive is set up by the host, and spectrum analysis uses
+ * no demodulator at all. */
+static int programs_modulation(uint8_t m)
+{
+	return m == MOD_BT_BASIC_RATE || m == MOD_BT_LOW_ENERGY;
+}
+
+/*
+ * The frequency deviation the demodulator expects for one of those two, as
+ * MDMCTRL holds it.
+ *
+ * In one place rather than in each caller, so that the capture loop -- which
+ * writes this register again when the host states a modulation after its mode
+ * request -- writes what the mode start would have written.
+ */
+static u16 mdmctrl_deviation(uint8_t m)
+{
+	if (m == MOD_BT_BASIC_RATE)
+		return 0x0029; // 160 kHz frequency deviation
+	return 0x0040;         // 250 kHz frequency deviation
+}
+
 /* start un-buffered rx */
 static void cc2400_rx()
 {
-	u16 mdmctrl = 0;
+	if (programs_modulation(modulation)) {
+		u16 mdmctrl = mdmctrl_deviation(modulation);
 
-	if((modulation == MOD_BT_BASIC_RATE) || (modulation == MOD_BT_LOW_ENERGY)) {
-		if (modulation == MOD_BT_BASIC_RATE) {
-			mdmctrl = 0x0029; // 160 kHz frequency deviation
-		} else if (modulation == MOD_BT_LOW_ENERGY) {
-			mdmctrl = 0x0040; // 250 kHz frequency deviation
-		}
 		cc2400_set(MANAND,  0x7fff);
 		cc2400_set(LMTST,   0x2b22);
 		cc2400_set(MDMTST0, 0x134b); // without PRNG
@@ -2249,11 +2292,66 @@ void hop(void (*service)(void))
 	}
 }
 
+/*
+ * Program the demodulator for a modulation the host stated after its mode
+ * request, and return the modulation the radio now has.
+ *
+ * `programmed` is the one cc2400_rx() wrote MDMCTRL for as the mode came up.
+ * Every per-capture setting is stated after the mode request, because a mode
+ * start puts it back to its default, and the channel survives that order only
+ * because every hop writes FSDIV again. MDMCTRL is written once, so without
+ * this a modulation stated in the same order reached the global and not the
+ * radio: `ubertooth-dump -l` from an idle board dumped Basic Rate records and
+ * said nothing.
+ *
+ * The radio comes off the air for the write and back on afterwards, as a hop
+ * does, so the demodulator starts on the new deviation rather than taking it
+ * part-way through a packet. The buffer being filled goes with it: part of it
+ * was received at the other deviation, and a block marked discarded is a
+ * better answer than a block of two halves.
+ *
+ * Only between the two modulations the Bluetooth receive configures. A generic
+ * receive comes into the loop with MOD_NONE and its modem registers set by the
+ * host (ubertooth-debug), and those are not this function's to overwrite.
+ */
+static uint8_t program_stated_modulation(uint8_t programmed)
+{
+	/* One read of a value the request handler writes, so the register and
+	 * the return below cannot be for two different modulations. */
+	uint8_t wanted = modulation;
+
+	if (wanted == programmed || !programs_modulation(wanted) ||
+	    !programs_modulation(programmed))
+		return programmed;
+
+	/* IDLE mode, but leave the amplifier on, as hop() does. */
+	cc2400_strobe(SRFOFF);
+	cc2400_wait_fs(0, service_usb);
+
+	cc2400_set(MDMCTRL, mdmctrl_deviation(wanted));
+
+	cc2400_strobe(SFSON);
+	cc2400_wait_fs(1, service_usb);
+
+	dma_discard = 1;
+
+	cc2400_strobe(SRX);
+
+	return wanted;
+}
+
 /* Bluetooth packet monitoring */
 void bt_stream_rx()
 {
 	int8_t rssi;
 	int8_t rssi_at_trigger;
+	/* The modulation MDMCTRL has been written for, so that one stated after
+	 * the mode request reaches the radio; see program_stated_modulation().
+	 * Read after cc2400_rx() rather than before, because that is what it
+	 * programmed the radio from. This mode polls USB rather than taking it
+	 * on an interrupt, so the only places the host can change it are the
+	 * service calls below. */
+	uint8_t radio_modulation;
 
 	RXLED_CLR;
 
@@ -2263,6 +2361,7 @@ void bt_stream_rx()
 	dio_ssp_start();
 
 	cc2400_rx();
+	radio_modulation = modulation;
 
 	cs_trigger_enable();
 
@@ -2336,6 +2435,12 @@ void bt_stream_rx()
 			rssi_add(rssi);
 
 			service_usb();
+
+			/* A modulation the host has just stated, which the mode
+			 * start wrote no register for. Here rather than once per
+			 * block, so the capture spends microseconds on the
+			 * modulation it was not asked for instead of a block. */
+			radio_modulation = program_stated_modulation(radio_modulation);
 
 			/* If timer says time to hop, do it. The hop keeps servicing
 			 * USB while the synthesizer settles; without that, endpoint 0

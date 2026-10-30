@@ -153,17 +153,19 @@ the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was dumped stays written out, and libubertooth names the
 refused request on standard error.
 
-Also 1 when the board refuses the modulation `-c` or `-l` asks for:
-`error: modulation set failed` on standard error, after libubertooth's own line
-for the refused request. No capture is started, so the dump cannot come back on
-a modulation other than the one asked for. The modulation is asked for last,
-after a `-d` file has been opened, so a refusal here leaves that file there and
-empty, as a board that will not start the capture does. It is asked for last
-because the board can be left holding it: the firmware keeps the modulation
-until a mode ends, and ubertooth-rx(1), ubertooth-follow(1) and
-ubertooth-afh(1) do not set their own, so one left by a dump that never ran
-would reach the next of those. A `-d` the tool cannot open is found before
-anything is asked of the radio.
+Also 1 when the board refuses the modulation `-c` or `-l` asks for, with
+libubertooth's own line for the refused request on standard error and nothing
+of the dump on standard output: a dump that went ahead would hold whatever
+modulation the board had been left in, and nothing in its records says which
+that was.
+
+The dump states it on either side of the request that starts its capture, for
+the reason ubertooth-util(1), CARRY-OVER BETWEEN RUNS gives; that page also
+says what `-l` can hold at the very start of a dump on a board another run
+left in a mode. Nothing is asked of the radio until then, which is after a
+`-d` file has been opened, so a refusal leaves that file there and empty, as a
+board that will not start the capture does, and a `-d` the tool cannot open
+leaves the board as it was found.
 
 A `-d` file is opened once the board has been opened and its firmware
 accepted, not before, so a run refused for either reason leaves no empty file

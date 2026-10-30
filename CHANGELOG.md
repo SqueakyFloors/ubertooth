@@ -365,9 +365,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.55, last moved by the
-  packet's own power and the background in every capture record, which a host
-  tool of an earlier version would read the way the fields used to mean
+- **Reflash required:** the firmware API version is now 1.56, last moved by the
+  modulation a mode start keeps for the mode it was stated for, before that by
+  the packet's own power and the background in every capture record, which a
+  host tool of an earlier version would read the way the fields used to mean
   ([#77](https://github.com/SqueakyFloors/ubertooth/issues/77)), before that by
   the range test reporting a packet it discarded, before that by
   promiscuous mode reporting the access address of the connection it follows,
@@ -862,13 +863,28 @@
 
 - `ubertooth-btle -f -j` jams and `ubertooth-dump -l` writes low-energy
   records on a board left in another mode by a run that was interrupted
-  without stopping it. Both tools state the setting before the request that
-  starts their mode, and the mode start put it back to its default -- no
+  without stopping it. Each tool used to state the setting before the request
+  that starts its mode, and the mode start put it back to its default -- no
   jamming, Basic Rate -- after that request had already been answered, so the
   follow never jammed and the dump held Basic Rate records, neither of them
   saying so. The board now keeps what was stated for the mode it is starting
   and drops it there, so one run's setting is not carried into the next.
   [#828](https://github.com/SqueakyFloors/ubertooth/issues/828)
+
+- A modulation one run asked for cannot reach another run's capture. The board
+  keeps one stated for the mode that is starting and drops it there, and its
+  capture loop programs the demodulator again when a modulation arrives
+  mid-mode, so a tool can state what it reads around its mode request the way
+  it states its channel. A `ubertooth-dump -l` interrupted between its
+  requests used to leave low energy behind for whatever ran next, and
+  `ubertooth-rx`, `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow`
+  then read Classic traffic at that deviation while saying nothing. Each of
+  them now states the modulation it reads, and ends the run if the board
+  refuses it. One corner is left, for a host that is not these tools:
+  re-sending the mode a board is already streaming is not a mode start and
+  resets nothing, so such a run keeps whatever modulation the board had.
+  [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
+
 - The two-board range test (`ubertooth-util -n` against a `-e` repeater)
   ignores traffic that is not its own exchange instead of ending the run on
   it. The sender took any packet the radio's CRC accepted as the repeater's

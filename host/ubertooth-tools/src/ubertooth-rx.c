@@ -499,6 +499,16 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 
+		/* The modulation this capture reads, Classic, stated before the
+		 * capture request and not after it as the channel is: see
+		 * ubertooth-util(1), CARRY-OVER BETWEEN RUNS. Without it, a
+		 * board an interrupted `ubertooth-dump -l` had left set to low
+		 * energy captured here at that deviation, finding little and
+		 * saying nothing. */
+		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
+		if (r < 0)
+			return capture_failed(ut, "set the modulation", r);
+
 		// tell ubertooth to send packets
 		/* The quiet form, so this failure reads as the one "error: " line
 		 * capture_failed() prints, like the channel request below. The

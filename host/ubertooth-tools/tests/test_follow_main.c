@@ -72,6 +72,8 @@ static struct {
 	int clock_rc;         /* returned by cmd_set_clock_quiet() */
 	int thread_start_rc;  /* returned by ubertooth_bulk_thread_start() */
 	int hopping_rc;       /* returned by cmd_start_hopping() */
+	int modulation_rc;    /* returned by cmd_set_modulation() */
+	int modulation;       /* the modulation it was last given */
 	int clkn_offset;      /* the clock offset the board was told to hop on */
 	int closes;           /* ubertooth_close() */
 	int frees;            /* ubertooth_free() */
@@ -358,6 +360,14 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh)
 	return 0;
 }
 
+int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
+{
+	(void)devh;
+	fake.modulation = mod;
+	record('d');
+	return fake.modulation_rc;
+}
+
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
                       int clk100ns_offset)
 {
@@ -503,10 +513,13 @@ MU_TEST(the_clock_is_set_before_the_receive_transfer)
 	          " a record from before the reset carries the period count from"
 	          " before it");
 	/* The whole order, so a request that moves anywhere is caught: address,
-	 * clock, receive transfer, poll thread, hopping, AFH map cleared. The
-	 * map goes out after hopping has started because starting a mode forgets
-	 * it, so one sent first would be thrown away. */
-	mu_assert(strcmp(fake.calls, "akiphc") == 0, fake.calls);
+	 * clock, receive transfer, poll thread, modulation, hopping, AFH map
+	 * cleared. The map goes out after hopping has started because starting a
+	 * mode forgets it, so one sent first would be thrown away; the
+	 * modulation goes before it, because that is what the mode start
+	 * programs the demodulator from and every reset leaves Basic Rate. */
+	mu_assert(strcmp(fake.calls, "akipdhc") == 0, fake.calls);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation);
 }
 
 /* The asynchronous requests are completed by the poll thread, so they stay
@@ -519,7 +532,7 @@ MU_TEST(the_asynchronous_requests_stay_after_the_poll_thread)
 	reset_fake();
 	r = RUN("-a", WHOLE_TARGET);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "akiphm") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "akipdhm") == 0, fake.calls);
 	mu_assert(call_at('p') < call_at('m'),
 	          "the AFH map was set before the poll thread was running");
 	mu_assert(call_at('p') < call_at('h'),

@@ -59,6 +59,8 @@ static struct {
 	int closes;          /* ubertooth_close() */
 	int frees;           /* ubertooth_free() */
 	int channel_rc;      /* returned by cmd_set_channel_quiet() */
+	int modulation_rc;   /* returned by cmd_set_modulation_quiet() */
+	int last_modulation; /* the modulation the capture was set to */
 	int last_channel;    /* the channel the capture was set to, in MHz */
 	int timeout;         /* seconds passed to ubertooth_set_timeout() */
 	int stops;
@@ -479,6 +481,14 @@ int cmd_rx_syms_quiet(struct libusb_device_handle* devh)
 	return fake.rx_syms_rc;
 }
 
+int cmd_set_modulation_quiet(struct libusb_device_handle* devh, u16 mod)
+{
+	(void)devh;
+	record('m');
+	fake.last_modulation = mod;
+	return fake.modulation_rc;
+}
+
 /* The real one folds the signal handler's own flag into the handle; the
  * fake handler below sets the handle directly, so reading it is enough here. */
 int ubertooth_stopping(ubertooth_t* ut)
@@ -579,14 +589,17 @@ static struct run_result run_scan(const char* const* args)
 
 /* ---- tests -------------------------------------------------------------- */
 
-/* The scan the board took: the capture is asked for, then the sweep is stated
- * with a channel above the band, then the results. Nothing goes to standard
- * error.
+/* The scan the board took: the modulation it reads is stated, the capture is
+ * asked for, the sweep is stated with a channel above the band, then the
+ * results. Nothing goes to standard error.
  *
  * The order is the point. Stating the sweep first lost it whenever a mode was
  * already running, because a mode start puts the board's hop mode back to "no
  * hopping" -- so a scan after a killed tool listened to one channel and
- * printed an AFH map that means nothing. */
+ * printed an AFH map that means nothing. The modulation goes the other way
+ * round, before the capture request: that is what the mode start programs the
+ * demodulator from, on a board an interrupted `ubertooth-dump -l` had left set
+ * to low energy, and every reset that could throw it away leaves Basic Rate. */
 MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 {
 	struct run_result r;
@@ -594,7 +607,7 @@ MU_TEST(a_scan_the_board_took_sweeps_and_exits_0)
 	reset_fake();
 	r = RUN("-t", "5");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "sc") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "msc") == 0, fake.calls);
 	mu_assert_int_eq(9999, fake.last_channel);
 	mu_assert_int_eq(5, fake.timeout);
 	mu_assert_int_eq(1, fake.registrations);
@@ -674,7 +687,7 @@ MU_TEST(a_refused_sweep_is_named_and_exits_1)
 	fake.channel_rc = -9; /* LIBUSB_ERROR_PIPE, how a board refuses one */
 	r = RUN("-t", "5");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "sc") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "msc") == 0, fake.calls);
 	/* The capture had started, so it is stopped, which gives the board
 	 * back; the loop that would have gathered the results is never
 	 * reached. */
@@ -1067,14 +1080,14 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		/* The capture request is named the way the sweep request is, so
 		 * the line names the request rather than leaving it to
 		 * libubertooth's shared sink, which names none. */
-		{ "s", 0, 0, LIBUSB_ERROR_TIMEOUT,
+		{ "ms", 0, 0, LIBUSB_ERROR_TIMEOUT,
 		  "error: could not start the capture: the board did not answer "
 		  "in time (libusb -7)\n"
 		  "note: if a mode is running, stop it with ubertooth-util -S; "
 		  "a board that does not answer at all usually resets itself "
 		  "within a few seconds, so run the command again, and unplug "
 		  "it or power-cycle its hub port if it stays silent\n" },
-		{ "s", 0, 0, LIBUSB_ERROR_PIPE, STALLED("start the capture") },
+		{ "ms", 0, 0, LIBUSB_ERROR_PIPE, STALLED("start the capture") },
 	};
 	struct run_result r;
 	size_t i;

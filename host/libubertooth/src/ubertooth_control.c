@@ -594,17 +594,24 @@ int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial)
 	return 0;
 }
 
-int cmd_set_modulation(struct libusb_device_handle* devh, u16 mod)
+int cmd_set_modulation_quiet(struct libusb_device_handle* devh, u16 mod)
 {
 	int r;
 
 	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_SET_MOD, mod, 0,
 			NULL, 0, 1000);
-	if (r < 0) {
-		report_request_failed(r, UBERTOOTH_SET_MOD);
+	if (r < 0)
 		return r;
-	}
 	return 0;
+}
+
+int cmd_set_modulation(struct libusb_device_handle* devh, u16 mod)
+{
+	int r = cmd_set_modulation_quiet(devh, mod);
+
+	if (r < 0)
+		report_request_failed(r, UBERTOOTH_SET_MOD);
+	return r;
 }
 
 int cmd_set_isp(struct libusb_device_handle* devh)

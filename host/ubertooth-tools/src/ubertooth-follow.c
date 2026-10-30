@@ -826,6 +826,16 @@ int main(int argc, char *argv[])
 	btbb_piconet_set_flag(pn, BTBB_FOLLOWING, 1);
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
 
+	/* The modulation this follow reads, Classic, stated before the mode
+	 * request below and not after it as the AFH map is: see
+	 * ubertooth-util(1), CARRY-OVER BETWEEN RUNS. Without it, a board an
+	 * interrupted `ubertooth-dump -l` had left set to low energy followed
+	 * at that deviation, finding little and saying nothing. */
+	if (cmd_set_modulation(ut->devh, MOD_BT_BASIC_RATE) < 0) {
+		follow_cleanup(ut, sock, handle, cc);
+		return 1;
+	}
+
 	// tell ubertooth to start hopping and send packets
 	r = cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
 	if (r < 0) {

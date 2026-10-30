@@ -1547,6 +1547,18 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return -1;
 	}
 
+	/* The modulation this capture reads, stated before the mode request so
+	 * that the board programs its demodulator from it as the mode comes up.
+	 * A board left idle by an earlier tool holds whatever modulation that
+	 * tool set, because a mode starting from idle resets nothing, so this
+	 * is what keeps one run's modulation out of this capture. */
+	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
+		return r;
+	}
+
 	// tell ubertooth to send packets
 	r = start(ut->devh);
 	if (r < 0) {
@@ -1555,6 +1567,31 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		ubertooth_bulk_thread_stop();
 		ubertooth_bulk_stop(ut);
 		return r;
+	}
+
+	/* And again now the mode has started, for a capture that reads anything
+	 * other than Basic Rate -- `ubertooth-dump -l`, and nothing else. That
+	 * mode start put the modulation back to Basic Rate, so the request
+	 * above was thrown away on a board a killed tool had left in another
+	 * mode, and the dump wrote Basic Rate records without saying so. The
+	 * board keeps what is stated after the request for the mode it is
+	 * starting, and its capture loop programs the demodulator again, so
+	 * this reaches the radio whatever the board was doing before.
+	 *
+	 * A capture that does read Basic Rate needs no second request: every
+	 * reset that could throw the first one away leaves exactly that.
+	 *
+	 * A board that refuses either would stream the modulation it happened
+	 * to be left in, with nothing in the records to say which that was, so
+	 * the capture ends instead. The board is left in the mode `start()` put
+	 * it in; the caller gives it back, as it does when the stream fails. */
+	if (ut->capture_modulation != MOD_BT_BASIC_RATE) {
+		r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+		if (r < 0) {
+			ubertooth_bulk_thread_stop();
+			ubertooth_bulk_stop(ut);
+			return r;
+		}
 	}
 
 	// receive and process each packet
@@ -1748,6 +1785,17 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 		report_thread_failure(r);
 		ubertooth_bulk_stop(ut);
 		return -1;
+	}
+
+	/* The modulation this capture reads, before the mode request, for the
+	 * reason stream_rx_usb() gives. No second statement after it: every
+	 * caller of this path reads Basic Rate, which is what each of those
+	 * resets leaves. */
+	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
+		return r;
 	}
 
 	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)
@@ -2040,6 +2088,9 @@ ubertooth_t* ubertooth_init()
 	/* Which clock a mode stamps with is the tool's to say, and it says so
 	 * before it starts such a mode; until then, the CLKN-derived one. */
 	ut->clk100ns_period = CLK100NS_PERIOD;
+	/* And which modulation its captures read: Classic, which every stream
+	 * libubertooth starts is for, unless the tool asks for the other. */
+	ut->capture_modulation = MOD_BT_BASIC_RATE;
 	memset(&ut->le_reassembly, 0, sizeof(ut->le_reassembly));
 
 	ut->h_pcap_bredr = NULL;

@@ -110,6 +110,7 @@ struct scan {
 	 * clears the channel averages. */
 	int absorbed_reset_fn;
 	int absorbed_reset_fn_iir;
+	int absorbed_reset_fn_mod;  /* where it puts the modulation back */
 
 	int ego_reset_call;   /* ego_access_code_reset() in the dispatch */
 	int ego_reset_calls;  /* how many */
@@ -134,13 +135,21 @@ struct scan {
 	int stated_fn_match;  /* where it compares the two modes */
 	int stated_fn_pending; /* where it asks whether that mode is still asked for */
 
-	/* The two requests the host sends *before* the mode request they belong
-	 * to -- the jam mode and the modulation -- and the copy each keeps for
-	 * the mode that is starting. */
+	/* The modulation request, which the host sends after its mode request:
+	 * the copy it keeps for that mode, and the guard that keeps it to a
+	 * mode that is still to start. */
 	int setmod_case;
-	int setmod_keep;
+	int setmod_stated;
+	int setmod_guard;
+	/* The jam mode request, which the host sends *before* the mode request
+	 * it belongs to, and the copy it keeps for the mode that is starting. */
 	int jam_case;
 	int jam_keep;
+	/* program_stated_modulation(), which is what lets a modulation arrive
+	 * after the mode request: where it is defined, and where the capture
+	 * loop calls it. What it does there is the model's to check. */
+	int mod_fn;
+	int stream_mod_call;
 	int kept_call;        /* apply_kept_settings() in the dispatch */
 	int kept_calls;       /* how many */
 	/* keep_for_next_mode_start(): where it is defined, and where it leaves
@@ -349,23 +358,34 @@ static int scan_source(const char *path, struct scan *s)
 			in_case = 'j';
 		} else if (strstr(line, "case ") != NULL ||
 		           strstr(line, "break;") != NULL) {
-			if (in_case == 'm' &&
-			    strstr(line, "keep_for_next_mode_start(KEEP_MODULATION)")
-			    != NULL)
-				s->setmod_keep = lineno;
 			if (in_case == 'j' &&
 			    strstr(line, "keep_for_next_mode_start(KEEP_JAM_MODE)")
 			    != NULL)
 				s->jam_keep = lineno;
 			in_case = 0;
 		}
-		if (in_case == 'm' && s->setmod_keep == 0 &&
-		    strstr(line, "keep_for_next_mode_start(KEEP_MODULATION)")
+		if (in_case == 'm' && s->setmod_stated == 0 &&
+		    strstr(line, "stated_for_starting_mode(STATED_MODULATION)")
 		    != NULL)
-			s->setmod_keep = lineno;
+			s->setmod_stated = lineno;
+		if (in_case == 'm' && s->setmod_stated == 0 &&
+		    s->setmod_guard == 0 &&
+		    strstr(line, "if (requested_mode != mode)") != NULL)
+			s->setmod_guard = lineno;
 		if (in_case == 'j' && s->jam_keep == 0 &&
 		    strstr(line, "keep_for_next_mode_start(KEEP_JAM_MODE)") != NULL)
 			s->jam_keep = lineno;
+
+		/* program_stated_modulation(), and the capture loop's call to
+		 * it. The definition is the line that opens the function, so
+		 * the call inside the loop cannot be read as the definition. */
+		if (s->mod_fn == 0 &&
+		    strstr(line, "static uint8_t program_stated_modulation(")
+		    != NULL)
+			s->mod_fn = lineno;
+		else if (strstr(line, "program_stated_modulation(") != NULL &&
+		         s->stream_mod_call == 0)
+			s->stream_mod_call = lineno;
 
 		/* reset_absorbed_mode_state()'s body, scanned for the same reason
 		 * cc2400_idle()'s is: what it resets, and what it leaves alone. */
@@ -373,6 +393,9 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "rssi_iir_reset(") != NULL &&
 			    s->absorbed_reset_fn_iir == 0)
 				s->absorbed_reset_fn_iir = lineno;
+			if (is_assignment_to(line, "modulation") &&
+			    s->absorbed_reset_fn_mod == 0)
+				s->absorbed_reset_fn_mod = lineno;
 			if (line[0] == '}')
 				in_absorbed_fn = 0;
 			continue;
@@ -981,27 +1004,47 @@ MU_TEST(test_a_setting_stated_before_the_request_is_applied_in_that_window)
 }
 
 /*
- * Both requests that arrive before the mode request they belong to keep a
- * copy for it. ubertooth-btle sends the jam mode and ubertooth-dump the
- * modulation, each before the request that starts its mode, so without a copy
- * the mode start's reset threw the setting away after that request had been
- * answered: the follow never jammed and the dump held Basic Rate records.
+ * The modulation request keeps a copy for the mode it was stated for, and only
+ * for that mode. ubertooth-dump sends it after the request that starts its
+ * mode, as every tool sends its channel, so the mode start's reset would
+ * otherwise throw it away and the dump would hold Basic Rate records. The
+ * guard is the other half: a copy made while the mode it names is already
+ * running would wait for whatever mode started next.
  */
-MU_TEST(test_the_jam_mode_and_modulation_requests_keep_a_copy)
+MU_TEST(test_the_modulation_request_keeps_a_copy_for_its_own_mode)
 {
 	char msg[768];
 
 	snprintf(msg, sizeof(msg),
 	         "%s: the scan did not find the UBERTOOTH_SET_MOD case, so the "
-	         "check below would pass without reading anything", path);
+	         "checks below would pass without reading anything", path);
 	mu_assert_fatal(s.setmod_case > 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: the modulation request does not call "
-	         "keep_for_next_mode_start(KEEP_MODULATION), so `ubertooth-dump "
-	         "-l` writes Basic Rate records on a board left in another mode",
+	         "stated_for_starting_mode(STATED_MODULATION), so `ubertooth-dump "
+	         "-l` dumps Basic Rate records on a board left in another mode",
 	         path, s.setmod_case);
-	mu_assert(s.setmod_keep > s.setmod_case, msg);
+	mu_assert(s.setmod_stated > s.setmod_case, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the modulation request keeps its copy without asking "
+	         "whether the mode it names is still to start, so one stated "
+	         "under a running capture would reach an unrelated mode start",
+	         path, s.setmod_case);
+	mu_assert(s.setmod_guard > s.setmod_case &&
+	          s.setmod_guard < s.setmod_stated, msg);
+}
+
+/*
+ * The jam mode request arrives before the mode request it belongs to, so it
+ * keeps a copy of its own kind: one that names no mode. Without it the mode
+ * start's reset threw the setting away after that request had been answered,
+ * and `ubertooth-btle -f -j` followed the connection without jamming.
+ */
+MU_TEST(test_the_jam_mode_request_keeps_a_copy)
+{
+	char msg[768];
 
 	snprintf(msg, sizeof(msg),
 	         "%s: the scan did not find the UBERTOOTH_JAM_MODE case", path);
@@ -1013,6 +1056,29 @@ MU_TEST(test_the_jam_mode_and_modulation_requests_keep_a_copy)
 	         "-j` follows without jamming on a board left in another mode",
 	         path, s.jam_case);
 	mu_assert(s.jam_keep > s.jam_case, msg);
+}
+
+/*
+ * And the capture loop is what makes the modulation's order work. cc2400_rx()
+ * writes MDMCTRL once, as the mode comes up, which is before the host's next
+ * request can arrive: a modulation stated after the mode request reached the
+ * global and not the radio, so a plain `ubertooth-dump -l` from an idle board
+ * captured at Basic Rate and said nothing.
+ */
+MU_TEST(test_the_capture_loop_programs_a_stated_modulation)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find program_stated_modulation()'s "
+	         "definition", path);
+	mu_assert_fatal(s.mod_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: nothing calls program_stated_modulation(), so the "
+	         "modulation a capture asked for would only ever be the one the "
+	         "mode started with", path, s.mod_fn);
+	mu_assert(s.stream_mod_call > s.mod_fn, msg);
 }
 
 /*
@@ -1076,8 +1142,8 @@ MU_TEST(test_a_kept_setting_reaches_one_mode_start)
 }
 
 /*
- * The teardown still puts both settings back, which is what the copy is for:
- * a value one run stated reaches the mode it was stated for and no other.
+ * The teardown still puts both settings back, which is what a copy is for: a
+ * value one run stated reaches the mode it was stated for and no other.
  */
 MU_TEST(test_leaving_a_mode_puts_the_jam_mode_and_modulation_back)
 {
@@ -1215,6 +1281,32 @@ MU_TEST(test_an_absorbed_mode_start_keeps_the_channel_averages)
 	         "describe the band the absorbed capture is listening to",
 	         path, s.absorbed_reset_fn_iir);
 	mu_assert(s.absorbed_reset_fn_iir == 0, msg);
+}
+
+/*
+ * What an absorbed mode start does put back: the modulation. The three
+ * absorbable modes all read Basic Rate packets, and the request that starts
+ * one of them states no modulation, so without this a killed
+ * `ubertooth-dump -l` left the AFH detection or follow absorbed after it
+ * demodulating low energy -- finding little and saying nothing. It can be
+ * reset under a running receive because the capture loop writes MDMCTRL when
+ * the modulation changes.
+ */
+MU_TEST(test_an_absorbed_mode_start_puts_the_modulation_back)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: reset_absorbed_mode_state() was not found, so the check "
+	         "below cannot mean anything", path);
+	mu_assert_fatal(s.absorbed_reset_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: reset_absorbed_mode_state() does not put `modulation` "
+	         "back, so a mode absorbed after a low-energy dump would read "
+	         "Classic packets with the wrong demodulator",
+	         path, s.absorbed_reset_fn);
+	mu_assert(s.absorbed_reset_fn_mod > s.absorbed_reset_fn, msg);
 }
 
 /*
@@ -1786,12 +1878,15 @@ int main(void)
 	MU_RUN(test_a_stated_setting_is_dropped_unless_its_mode_is_still_asked_for);
 	MU_RUN(test_a_stated_setting_is_applied_only_to_the_mode_it_was_stated_for);
 	MU_RUN(test_a_setting_stated_before_the_request_is_applied_in_that_window);
-	MU_RUN(test_the_jam_mode_and_modulation_requests_keep_a_copy);
+	MU_RUN(test_the_modulation_request_keeps_a_copy_for_its_own_mode);
+	MU_RUN(test_the_jam_mode_request_keeps_a_copy);
+	MU_RUN(test_the_capture_loop_programs_a_stated_modulation);
 	MU_RUN(test_a_kept_setting_reaches_one_mode_start);
 	MU_RUN(test_leaving_a_mode_puts_the_jam_mode_and_modulation_back);
 	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
 	MU_RUN(test_leaving_a_mode_forgets_the_channel_averages);
 	MU_RUN(test_an_absorbed_mode_start_keeps_the_channel_averages);
+	MU_RUN(test_an_absorbed_mode_start_puts_the_modulation_back);
 	MU_RUN(test_the_queue_clear_holds_the_usb_interrupt_off);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
 	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);

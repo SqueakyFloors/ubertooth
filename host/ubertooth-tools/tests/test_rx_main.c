@@ -63,8 +63,11 @@ static struct {
 	int bulk_inits, thread_starts, thread_stops, rx_syms_calls, stops;
 	int channels_set;
 	int bdaddrs_set;
+	int modulations_set;
+	int last_modulation; /* the modulation the capture was set to */
 	int channel_rc;      /* returned by cmd_set_channel_quiet() */
 	int bdaddr_rc;       /* returned by cmd_set_bdaddr_quiet() */
+	int modulation_rc;   /* returned by cmd_set_modulation_quiet() */
 	/* Returned by the three steps that set a capture up: the receive
 	 * transfer, the poll thread that completes it, and the request that
 	 * starts the mode. */
@@ -91,7 +94,7 @@ static struct {
 	char selector[64];
 	/* Every request the tool sent, in order, one letter each: b the
 	 * Bluetooth address, s start sending symbols, c the channel or the
-	 * sweep. */
+	 * sweep, m the modulation. */
 	char calls[16];
 	ubertooth_t ut;
 	/* 1 to have the teardown's STOP refused, so the board is left running
@@ -251,6 +254,15 @@ int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
 	record('b');
 	device.bdaddrs_set++;
 	return device.bdaddr_rc;
+}
+
+int cmd_set_modulation_quiet(struct libusb_device_handle* devh, uint16_t mod)
+{
+	(void)devh;
+	record('m');
+	device.modulations_set++;
+	device.last_modulation = mod;
+	return device.modulation_rc;
 }
 
 int ubertooth_bulk_init(ubertooth_t* ut)
@@ -706,12 +718,15 @@ MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 }
 
 /* The order the requests go in, which is the whole of what the board keeps:
- * the capture is asked for first and the channel or the sweep stated after it.
- * Stating it first lost it to the reset a mode start runs, which puts the
- * board's hop mode back to "no hopping" -- so a capture started on a board a
- * killed ubertooth-afh had left capturing sat on one channel while the command
- * line asked for the whole band. The address request is not part of that and
- * still goes first. */
+ * the modulation before the capture request, and the channel or the sweep
+ * after it. Stating the channel first lost it to the reset a mode start runs
+ * -- which puts the board's hop mode back to "no hopping" -- so a capture
+ * started on a board a killed ubertooth-afh had left capturing sat on one
+ * channel while the command line asked for the whole band. The modulation goes
+ * the other way round: the mode start programs the demodulator from it, and
+ * every reset that could throw it away leaves Basic Rate, which is what this
+ * capture asks for. The address request is not part of either and still goes
+ * first. */
 MU_TEST(the_capture_is_asked_for_before_the_channel)
 {
 	struct run_result r;
@@ -719,18 +734,39 @@ MU_TEST(the_capture_is_asked_for_before_the_channel)
 	reset_device();
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "sc") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "msc") == 0, device.calls);
 
 	reset_device();
 	r = RUN_RX("-c", "39", "-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "sc") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "msc") == 0, device.calls);
 
 	reset_device();
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "bsc") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "bmsc") == 0, device.calls);
 }
+
+/*
+ * And the modulation it states is Basic Rate, the one this tool reads. It is
+ * also the board's default, but an idle board holds the last modulation a tool
+ * set, because a mode starting from idle runs no reset: a `ubertooth-dump -l`
+ * interrupted before its capture started left the board demodulating low
+ * energy, and this capture then found nothing and said nothing.
+ */
+MU_TEST(the_capture_states_basic_rate)
+{
+	struct run_result r;
+
+	reset_device();
+	r = RUN_RX("-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.modulations_set);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, device.last_modulation);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
+
 
 #ifndef TEST_REAL_API_REPORTS
 /* Built against an installed libubertooth, so there is no library source to
@@ -864,9 +900,32 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 	device.channel_rc = -9;
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(device.calls, "bsc") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "bmsc") == 0, device.calls);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
+}
+
+/*
+ * A refused modulation ends the run the same way: a capture that went ahead
+ * would demodulate whatever the board had been left in, and nothing in the
+ * packets says which that was. The first of the two is refused, which is
+ * before the capture has been asked for, so no mode starts at all.
+ */
+MU_TEST(a_refused_modulation_ends_the_capture)
+{
+	struct run_result r;
+
+	reset_device();
+	device.modulation_rc = -9;
+	r = RUN_RX("-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, STALLED("set the modulation")) == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(device.calls, "m") == 0, device.calls);
+	mu_assert_int_eq(0, device.blocks);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(1, device.stops);
 }
 
 /* A board that took only part of the address is a failed request too, and one
@@ -1123,7 +1182,9 @@ int main(void)
 	MU_RUN(a_refused_command_line_opens_no_device);
 	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);
 	MU_RUN(the_capture_is_asked_for_before_the_channel);
+	MU_RUN(the_capture_states_basic_rate);
 	MU_RUN(a_refused_setup_request_is_named_and_exits_one);
+	MU_RUN(a_refused_modulation_ends_the_capture);
 	MU_RUN(a_truncated_address_request_ends_the_run_too);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
 	MU_RUN(a_capture_that_cannot_start_exits_one);
