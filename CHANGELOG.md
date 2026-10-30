@@ -651,6 +651,12 @@
 
 ### Reliability fixes
 
+- A `ubertooth-btbr` session is text. It used to print one NUL per progress
+  line, the C string terminator the board's console puts on the end of each
+  one, which `grep` on a saved session answers with `Binary file matches`
+  instead of the lines asked for.
+  [#943](https://github.com/SqueakyFloors/ubertooth/issues/943)
+
 - Every answer `btle-extcap.py` gives reports a standard output that is not
   there, not only `-h`: the interface listing, the DLT, the configuration and
   a filter verdict that could not be printed are one `error: ` line and exit

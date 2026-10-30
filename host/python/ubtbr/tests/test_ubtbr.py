@@ -797,6 +797,33 @@ command = btctl.BTCtlInquiryCmd(bt)
 command.stop()
 print("ubtbr: a message that stopped part way ends the sending")
 
+# ---- a progress line from the board is text ------------------------------
+
+# A line printed as it arrives puts the board's C string terminator in the
+# middle of standard error, and a saved session is then a binary file to grep,
+# which answers "Binary file matches" instead of the lines asked for. A byte
+# that is not UTF-8 must not end the receive thread either.
+console_handle = StallingHandle()
+console_bt = btctl.BTCtl(console_handle)
+# the framed console messages a command's progress arrives in, and the raw
+# "P" packets of the board's own debug channel, which the receive loop hands
+# to the other print helper
+cases = (
+    (lambda data: console_bt._handle_msg(bytes([btctl.BTCTL_DEBUG, 0, 0, 0]) + data),
+     b"Paging started\n\x00", "Paging started"),
+    (lambda data: console_bt._handle_msg(bytes([btctl.BTCTL_DEBUG, 0, 0, 0]) + data),
+     b"Paging \xffstarted\n\x00", "Paging \ufffdstarted"),
+    (console_bt._print_debug, b"ID(3)\n" + bytes(40), "ID(3)"),
+    (console_bt._print_debug, b"ID(\xff)\n" + bytes(40), "ID(\ufffd)"),
+)
+for send, payload, wanted in cases:
+    said_from = len(records.messages)
+    send(payload)
+    said = records.messages[said_from:]
+    assert any(wanted in message for message in said), (wanted, said)
+    assert not any("\x00" in message for message in said), said
+print("ubtbr: a progress line from the board carries no NUL")
+
 # ---- a command that ends after the prompt gave up on it -------------------
 
 # Giving up has to be a pause, not the end of the session: a command that
