@@ -1459,8 +1459,8 @@ static void timer1_interrupt(void) {
 			// offset. if there's no offset, skip down to else block
 			if (!conn_event.opened && conn.win_offset > 0) {
 				timer1_set_match_ahead(conn.last_anchor +
-						conn.conn_interval + conn.win_offset +
-						USEC(1250) - RX_WARMUP_TIME);
+						conn.conn_interval + conn.win_offset -
+						RX_WARMUP_TIME);
 				conn_event.opened = 1;
 			}
 
@@ -1473,12 +1473,17 @@ static void timer1_interrupt(void) {
 				conn_event.opened = 1;
 
 				// The first transmit window under the new parameters
-				// opens 1.25 ms plus the window offset after the event
-				// that was next due on the old interval, as a connection
-				// request's first window does after the request. Taken
-				// before the new interval is, so the step is the old one.
+				// opens one window offset after the anchor point of the
+				// event the instant names. Taken before the new interval
+				// is, so the step from the event before it is the old one.
+				//
+				// No fixed delay here, where a connection request's first
+				// window has one: the request's 1.25 ms covers the gap
+				// between the request going out and the central's first
+				// packet, and an update's window is measured from an
+				// anchor point, with no packet before it to cover.
 				window_opens = conn.last_anchor + conn.conn_interval +
-						conn.win_offset + USEC(1250);
+						conn.win_offset;
 
 				// this is like a new connection, so set all values
 				// accordingly

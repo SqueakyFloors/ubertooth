@@ -734,6 +734,14 @@
   which modulation produced it.
   [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
 
+- `ubertooth-btle -f` keeps following a connection through a connection
+  parameter update. The transmit window the update names was placed 1.25 ms
+  late, so the capture listened 1.25 ms late for every event after the update
+  until a packet put it back on the connection's timing — and where the
+  update's own event caught nothing, there was nothing to put it back and the
+  follow stayed quiet for the rest of the connection.
+  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836)
+
 - Every answer `btle-extcap.py` gives reports a standard output that is not
   there, not only `-h`: the interface listing, the DLT, the configuration and
   a filter verdict that could not be printed are one `error: ` line and exit
