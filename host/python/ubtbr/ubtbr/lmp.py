@@ -233,8 +233,11 @@ def pdu2str(pdu):
 
 class LMP:
 	# Features supported (Core v5.2 | Vol 2, Part C, table 3.2 p585)
-	#FEATURES = b"\x03\x00\x00\x00\x08\x08\x19\x00" # With AFH
-	FEATURES = b"\x03\x00\x00\x00\x00\x00\x19\x00" # No AFH
+	# Byte 0's two lowest bits, 3-slot and 5-slot packets, stay clear: a
+	# peer's LMP_MAX_SLOT_REQ for more than one slot is refused, and the
+	# mask has to say what this end will really do.
+	#FEATURES = b"\x00\x00\x00\x00\x08\x08\x19\x00" # With AFH
+	FEATURES = b"\x00\x00\x00\x00\x00\x00\x19\x00" # No AFH
 
 	def __init__(self, con, debug=True):
 		self._debug = debug

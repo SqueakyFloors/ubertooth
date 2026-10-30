@@ -608,6 +608,14 @@ for link_manager in link_managers():
     # The notifications beside it are recognized and send nothing back.
     assert answers(link_manager, lmp.LMP_MAX_SLOT, b"\x05", tid=1) == [], \
         link_manager._con.sent
+    # The feature mask has to agree with those refusals: a peer told it may
+    # not send 3-slot or 5-slot packets must not have been offered them in
+    # the first place. They are bits 0 and 1 of byte 0 of the mask
+    # (Core v5.2 | Vol 2, Part C, table 3.2).
+    sent = answers(link_manager, lmp.LMP_FEATURES_REQ, bytes(8), tid=1)
+    assert sent == [pdu_sent(lmp.LMP_FEATURES_RES,
+                             tuple(lmp.LMP.FEATURES), 1)], sent
+    assert sent[0][1] & 0x03 == 0, sent
 
 peripheral = lmp.LMPSlave(RecordingConnection())
 assert answers(peripheral, lmp.LMP_SUPERVISION_TIMEOUT, b"\x00\x20",

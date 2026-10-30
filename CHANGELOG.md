@@ -679,7 +679,8 @@
   may use, and a request like that has to be answered; getting nothing back,
   it waited out its 30-second LMP response timeout and detached the link with
   `LMP_DETACH | 0f22`. The answer holds the link to single-slot packets,
-  which is where a connection starts anyway.
+  which is where a connection starts anyway, and the feature mask the tool
+  sends no longer offers 3-slot and 5-slot packets it goes on to refuse.
   [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
 
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
