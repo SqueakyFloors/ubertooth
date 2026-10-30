@@ -2079,6 +2079,18 @@ static void packet_handler(le_rx_t *buf) {
 					if (buf->data[1] == 8)
 						channel_map_update_handler(buf);
 					break;
+
+				// LL_TERMINATE_IND -- the peers are closing the
+				// connection. Ask for the teardown the host's cancel
+				// uses, so the next connection event to close ends the
+				// follow and tunes back to the advertising channels.
+				// Ending it here instead would rewrite, from this loop,
+				// the connection state the timer interrupt reads on
+				// every event.
+				case 0x2:
+					if (buf->data[1] == 2)
+						cancel_follow = 1;
+					break;
 			}
 		}
 	}
