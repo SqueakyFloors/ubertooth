@@ -38,7 +38,7 @@ Current frequency: 2426 MHz (Bluetooth channel 24)
 .fi
 .IP "" 0
 .P
-The same holds for \fB\-a\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR and \fB\-z\fR\. Two sets of the same value in one command keep the last one\.
+The same holds for \fB\-a\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR and \fB\-z\fR\. Two sets of the same value in one command are refused instead, before any device is opened: \fBerror: option '\-c' given more than once\fR\.
 .P
 Setting and reading are separate device operations here, which is why one command can do both; \fBubertooth\-btle \-a\fR refuses the combination instead, because there the access address parameterises the capture that command is about to start\. One exception to the read reporting the new value: a board already running a connection\-following BLE mode keeps a requested channel aside until that mode ends, so \fB\-c 2426 \-c\fR against such a board reports the frequency still in use\. \fBubertooth\-util\fR cannot enter that mode itself, so this only arises alongside another program\.
 .P
@@ -469,7 +469,7 @@ ubertooth\-util \-U <sender> \-m
 .fi
 .IP "" 0
 .P
-Both boards must be running firmware of this tree's API version, which is what every host tool requires of the board it opens\. The range test packets carry no version of their own, so two boards at the same API version work together whichever revision each was built from\.
+The exchange is between the two boards' firmware, so both need firmware that has the range test in it\. \fBubertooth\-util\fR does not check the version here, as it does for \fB\-I\fR: a board carrying older firmware is driven as it is\. The range test packets carry no version of their own, so two boards at the same API version work together whichever revision each was built from\.
 .P
 Before a range test has completed since the board started, \fB\-m\fR prints \fBno range test result yet\fR on standard output and exits 0: there is no result yet, which is not a failure\. A test that ran but whose packets came back corrupted has no result to report either, so it is a diagnostic rather than a value, from \fB\-n\fR as from \fB\-m\fR: \fBerror: invalid range test: mismatch on byte <n>\fR on standard error, with exit status 1 and no result line on standard output\. That means this board's own reply came back corrupted, so the levels it carries cannot be trusted; somebody else's packet is discarded with the warning above instead\. (\fB\-m\fR writes nothing at all to standard output there; \fB\-n\fR has already printed the progress lines of the test it was watching\.)
 .P
