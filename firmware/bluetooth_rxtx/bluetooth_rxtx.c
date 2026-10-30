@@ -4217,7 +4217,8 @@ void tx_generic(u8 prev_mode) {
 	 */
 	cc2400_set(FREND, FREND_RESERVED_ONE | (tx_pkt.pa_level & FREND_PA_LEVEL));
 	/* GIO6 reports the radio's FIFO empty, which is what the write loop
-	 * below waits on. */
+	 * below waits on. It must not be FIFO_FULL, which br_transmit() asks
+	 * for: that is a different signal with the opposite sense. */
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
 	/* Bounded without a service callback, as in le_transmit(): one packet,
@@ -4242,7 +4243,7 @@ void tx_generic(u8 prev_mode) {
 	 * The wait is for the FIFO to be empty. The modem takes bytes out of it
 	 * at the air rate, so between pieces it has nothing to send for as long
 	 * as the next write takes: cc2400_fifo_write() costs about 1 us a byte,
-	 * so under 20 us for the 18 bytes a 50-byte packet has left, against
+	 * so about 20 us for the 18 bytes a 50-byte packet has left, against
 	 * 8 us a byte on the air. Whether the radio carries a packet across
 	 * that gap, or the strobe below frames the rest as a second
 	 * transmission, is not known: an Ubertooth receiver reads one FIFO's

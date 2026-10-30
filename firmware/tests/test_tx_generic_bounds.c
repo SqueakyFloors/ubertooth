@@ -439,9 +439,9 @@ struct scan {
 	int chunked;          /* a piece bounded by the FIFO's size */
 	int drain_wait;       /* the wait for the radio between pieces */
 	int drain_wait_used;  /* ...with its result acted on */
-	int first_wait;       /* the first wait in the file, le_transmit()'s */
 	int gio_in_le;        /* le_transmit() puts FIFO-empty on GIO6 */
 	int gio_in_tx;        /* ...and so does tx_generic() */
+	int le_wait;          /* le_transmit()'s own wait */
 	int bare_gio6_spin;   /* an unbounded wait on GIO6, anywhere in the file */
 	int bare_gio6_line;
 	int wait_body;        /* where fifo_wait_empty() is defined */
@@ -496,11 +496,8 @@ static int scan_source(const char *path, struct scan *s)
 		/* Both transmit loops have to act on what the wait returned, not
 		 * only tx_generic()'s: le_transmit()'s call comes earlier in the
 		 * file, so the check above does not reach it. */
-		if (strstr(flat, "!fifo_wait_empty()") != NULL) {
+		if (strstr(flat, "!fifo_wait_empty()") != NULL)
 			s->waits_checked++;
-			if (s->first_wait == 0)
-				s->first_wait = lineno;
-		}
 
 		/*
 		 * The signal the two waits read. fifo_wait_empty() polls GIO6,
@@ -527,6 +524,9 @@ static int scan_source(const char *path, struct scan *s)
 			else if (in_fn == 2 && s->gio_in_tx == 0)
 				s->gio_in_tx = lineno;
 		}
+		if (in_fn == 1 && s->le_wait == 0 &&
+		    strstr(flat, "fifo_wait_empty()") != NULL)
+			s->le_wait = lineno;
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
 
@@ -714,11 +714,12 @@ MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 /*
  * The two loops that refill the FIFO wait for the radio to empty it, so each
  * has to put the FIFO-empty signal on the pin it polls. Waiting on a pin that
- * carries something else is the failure this catches: with FIFO_FULL on it the
- * sense is inverted, and the next piece goes into a FIFO the radio still
- * holds.
+ * carries something else is the failure these two catch: with FIFO_FULL on it
+ * the sense is inverted, and the next piece goes into a FIFO the radio still
+ * holds. One test each, so a loop that has lost its setup cannot keep the
+ * other from being checked.
  */
-MU_TEST(test_each_refill_loop_waits_on_the_fifo_being_empty)
+MU_TEST(test_le_transmit_waits_on_the_fifo_being_empty)
 {
 	char msg[640];
 
@@ -730,8 +731,13 @@ MU_TEST(test_each_refill_loop_waits_on_the_fifo_being_empty)
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: le_transmit() waits on GIO6 at line %d before asking "
-	         "for the FIFO-empty signal", path, s.gio_in_le, s.first_wait);
-	mu_assert(s.gio_in_le < s.first_wait, msg);
+	         "for the FIFO-empty signal", path, s.gio_in_le, s.le_wait);
+	mu_assert(s.le_wait > 0 && s.gio_in_le < s.le_wait, msg);
+}
+
+MU_TEST(test_tx_generic_waits_on_the_fifo_being_empty)
+{
+	char msg[640];
 
 	snprintf(msg, sizeof(msg),
 	         "%s: tx_generic() does not put the radio's FIFO-empty signal on "
@@ -769,6 +775,7 @@ int main(void)
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_the_handler_refuses_before_it_copies);
 	MU_RUN(test_the_fifo_write_is_clamped_and_chunked);
-	MU_RUN(test_each_refill_loop_waits_on_the_fifo_being_empty);
+	MU_RUN(test_le_transmit_waits_on_the_fifo_being_empty);
+	MU_RUN(test_tx_generic_waits_on_the_fifo_being_empty);
 	return mu_report();
 }
