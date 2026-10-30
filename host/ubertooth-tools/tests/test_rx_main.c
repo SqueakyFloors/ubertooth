@@ -1135,6 +1135,169 @@ MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
 	}
 }
 
+/* The failures that cannot be moved above the capture files, because they are
+ * the capture itself starting: the three requests it is built on, and the two
+ * steps that set the USB transfer up. Each of them left the created file
+ * behind, header and nothing else, for the user to tell apart from a capture
+ * that caught nothing. Each file option is checked against each failure,
+ * because each file is opened by a writer of its own. */
+MU_TEST(a_run_refused_after_the_files_exist_removes_them)
+{
+	enum { TRANSFER, THREAD, MODULATION, CAPTURE, SWEEP };
+	static const struct {
+		const char* message;  /* what the run must say, if the tool's own */
+	} failures[] = {
+		/* libubertooth's own line for the transfer, and the tool's for
+		 * the thread it would have been completed by. */
+		{ NULL },
+		{ NULL },
+		{ NO_ANSWER("set the modulation") },
+		{ NO_ANSWER("start the capture") },
+		/* No -c, so the request asked for the sweep. */
+		{ NO_ANSWER("set sweep mode") }
+	};
+	static const char* const options[] = { "-q", "-r", "-d" };
+	struct run_result r;
+	struct stat info;
+	char path[64];
+	size_t i, which;
+
+	for (which = 0; which < sizeof(failures) / sizeof(failures[0]); which++) {
+		for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
+			int fd;
+
+			reset_device();
+			switch (which) {
+			case TRANSFER:
+				device.bulk_init_rc = -1;
+				break;
+			case THREAD:
+				/* pthread_create()'s own errno, which is
+				 * positive where every libusb code is not. */
+				device.thread_start_rc = EAGAIN;
+				break;
+			case MODULATION:
+				device.modulation_rc = LIBUSB_ERROR_TIMEOUT;
+				break;
+			case CAPTURE:
+				device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
+				break;
+			default:
+				device.channel_rc = LIBUSB_ERROR_TIMEOUT;
+				break;
+			}
+
+			snprintf(path, sizeof(path), "/tmp/rx-discard-XXXXXX");
+			fd = mkstemp(path);
+			mu_assert_fatal(fd >= 0, "temp name taken");
+			close(fd);
+			unlink(path);
+
+			r = RUN_RX(options[i], path, "-t", "10");
+
+			mu_assert_int_eq(1, r.rc);
+			/* Nothing left under the name the user gave. */
+			mu_assert(stat(path, &info) != 0, path);
+			/* The run said why, and said it only once: a file this
+			 * run took back is not worth a line of its own. */
+			if (failures[which].message != NULL)
+				mu_assert(strcmp(r.err,
+				          failures[which].message) == 0, r.err);
+			else
+				mu_assert(strstr(r.err, "warning: cannot remove")
+				          == NULL, r.err);
+			mu_assert(r.out[0] == '\0', r.out);
+			mu_assert_int_eq(0, device.blocks);
+			mu_assert_int_eq(1, device.frees);
+			unlink(path);
+		}
+	}
+}
+
+/* The other half of it: a capture that ran keeps its file, however little
+ * arrived. A capture that caught nothing is a result -- the band was quiet --
+ * and the file holds the header that says so, so a run must not take back a
+ * file merely because no packet was decoded. The three writers are checked
+ * together, as one run can be asked for all three. */
+MU_TEST(a_capture_that_ran_keeps_its_files)
+{
+	struct run_result r;
+	struct stat info;
+	char base[64];
+	char pcap[80], pcapng[80], dump[80];
+	int fd;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 2;
+
+	snprintf(base, sizeof(base), "/tmp/rx-kept-XXXXXX");
+	fd = mkstemp(base);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	unlink(base);
+	snprintf(pcap, sizeof(pcap), "%s.pcap", base);
+	snprintf(pcapng, sizeof(pcapng), "%s.pcapng", base);
+	snprintf(dump, sizeof(dump), "%s.dump", base);
+
+	r = RUN_RX("-q", pcap, "-r", pcapng, "-d", dump, "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.err[0] == '\0', r.err);
+	/* Each file is there, and holds what its writer puts at the front of
+	 * it: an empty file would be the bug this run must not cause. */
+	mu_assert(stat(pcap, &info) == 0, pcap);
+	mu_assert(info.st_size > 0, "the PCAP file holds its header");
+	mu_assert(stat(pcapng, &info) == 0, pcapng);
+	mu_assert(info.st_size > 0, "the PcapNG file holds its header");
+	mu_assert(stat(dump, &info) == 0, dump);
+	unlink(pcap);
+	unlink(pcapng);
+	unlink(dump);
+}
+
+/* A capture file the user already had is not this run's to remove: only a
+ * regular file this run created goes, and a name that is something else --
+ * /dev/null, a pipe, a symbolic link -- wrote through what the user set up,
+ * so it stays. Checked on the link, because a link is the case where a
+ * refused run would otherwise delete the user's own name for a file. */
+MU_TEST(a_refused_run_leaves_a_link_and_dev_null_alone)
+{
+	struct run_result r;
+	struct stat info;
+	char target[64], link[80];
+	int fd;
+
+	reset_device();
+	device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
+
+	snprintf(target, sizeof(target), "/tmp/rx-link-XXXXXX");
+	fd = mkstemp(target);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	unlink(target);
+	snprintf(link, sizeof(link), "%s.link", target);
+	mu_assert_fatal(symlink(target, link) == 0, "cannot make the link");
+
+	r = RUN_RX("-q", link, "-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	/* The link is still there, and so is the file it names. */
+	mu_assert(lstat(link, &info) == 0, link);
+	mu_assert(stat(target, &info) == 0, target);
+	mu_assert(strstr(r.err, "warning: cannot remove") == NULL, r.err);
+	unlink(link);
+	unlink(target);
+
+	/* The same for a character device the user named. */
+	reset_device();
+	device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN_RX("-q", "/dev/null", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(stat("/dev/null", &info) == 0, "/dev/null is still there");
+	mu_assert(strstr(r.err, "warning: cannot remove") == NULL, r.err);
+}
+
 /* A capture that cannot be started at all exits 1 with one "error: " line on
  * standard error and nothing on standard output. Each of these used to hand
  * the failing call's own return value to the exit status, which a shell wraps
@@ -1329,6 +1492,9 @@ int main(void)
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
 	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
 	MU_RUN(a_run_that_fails_before_the_capture_creates_no_file);
+	MU_RUN(a_run_refused_after_the_files_exist_removes_them);
+	MU_RUN(a_capture_that_ran_keeps_its_files);
+	MU_RUN(a_refused_run_leaves_a_link_and_dev_null_alone);
 	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);

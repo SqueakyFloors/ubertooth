@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 int opt_parse_int(const char *text, long min, long max, int *value)
@@ -299,6 +300,31 @@ void opt_report_create_failure(const char *filename, int reason)
 {
 	fprintf(stderr, "error: %s: %s\n", filename == NULL ? "" : filename,
 	        reason != 0 ? strerror(reason) : "could not be created");
+}
+
+void opt_discard_capture_file(const char *filename)
+{
+	struct stat info;
+	int failed;
+
+	if (filename == NULL || opt_writes_to_stdout(filename))
+		return;
+
+	/* lstat(), not stat(): a capture written through a symbolic link went
+	 * into the file the link names, which the user had before this run and
+	 * which is not this run's to remove. */
+	if (lstat(filename, &info) == 0) {
+		if (!S_ISREG(info.st_mode))
+			return;
+		failed = unlink(filename) < 0;
+	} else {
+		/* Already gone, by another hand or because the writer never
+		 * got as far as creating it. */
+		failed = errno != ENOENT;
+	}
+	if (failed)
+		fprintf(stderr, "warning: cannot remove %s: %s\n", filename,
+		        strerror(errno));
 }
 
 FILE *opt_open_dump_file(const char *filename, const char *what)

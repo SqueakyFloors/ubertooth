@@ -178,6 +178,24 @@ FILE *opt_open_dump_file(const char *filename, const char *what);
 void opt_report_create_failure(const char *filename, int reason);
 
 /*
+ * Takes away a capture file this run created, for a run that fails after
+ * creating it: an empty capture left behind is one the user then has to tell
+ * apart from a capture that ran and caught nothing.
+ *
+ * Only a file of this run's to remove. A capture on standard output is not a
+ * file at all, and a name that is not a regular file -- /dev/null, a pipe, or
+ * a symbolic link -- wrote through something the user already had, so it
+ * stays. A name that is already gone is not worth a word; a removal that
+ * fails says so on standard error, since a file left behind in silence is
+ * what this avoids.
+ *
+ * Call it before the writer's handle is closed: the file goes by name while
+ * the writer still holds it, and whatever the writer had buffered then goes
+ * nowhere.
+ */
+void opt_discard_capture_file(const char *filename);
+
+/*
  * The one argument rule.
  *
  * No ubertooth-* tool takes operands, so a leftover word is always a mistake:

@@ -349,7 +349,11 @@ A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
 check has passed. The board is opened, its firmware is checked, and the capture
 is set up as far as it can be, all before that, so a run refused for any of
-those reasons leaves no empty file behind either (see EXIT STATUS).
+those reasons leaves no empty file behind either (see EXIT STATUS). The
+requests that start the capture itself are the one part that cannot come first,
+and a board that refuses one of those takes the files this run created away
+again, so a refused run leaves nothing to tell apart from a capture that caught
+nothing. A capture that ran keeps its file, however little arrived.
 
 `-` means standard output only as the whole value of `-q` or `-d`
 (ubertooth(7), OPTION VALUES). Any other value is a file name, including one
@@ -544,6 +548,16 @@ The decoder, the piconet `-l` names, and the address request that `-l` with
 empty capture behind. A replay (`-i`) creates them once its input file has
 been opened, since it needs no board. A terminal on standard output is still
 refused while the command line is read.
+
+What is left after that is the capture starting: the USB transfer, the thread
+that completes it, and the modulation, capture, and channel requests. A run
+that ends at one of those removes the files it created, naming any it cannot
+remove as `warning: cannot remove FILE: ...`. Only a regular file this run
+created is removed, so a name the user had already set up as something else --
+`/dev/null`, a pipe, or a symbolic link -- is left alone, as is a capture
+written to standard output. Once the first packet can arrive the file stays,
+because a capture that decoded nothing is a result of its own and its header
+says the capture ran.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
