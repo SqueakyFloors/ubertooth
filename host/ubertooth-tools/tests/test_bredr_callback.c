@@ -60,13 +60,33 @@ static struct {
 	int drifts;
 	int16_t drift_ppm_sent;
 	int hopping_restarts;
+	int symbol_captures;
+	int channels_set;
+	int pcap_writes;
+	int pcapng_writes;
+	uint16_t channel_set;
 	int afh_maps_sent;
-	int header_decodes;
 } seen;
 
 /* What the faked access-code search reports: where in the bank it found one,
  * or a negative number for nothing found. */
 static int find_ac_offset;
+
+/* What the faked plain symbol capture and the faked channel request report:
+ * a negative value is how the real ones say the board refused the request. */
+static int rx_syms_result;
+static int set_channel_result;
+
+/* The channel this capture asked for, which run_callback() puts on the handle
+ * the way a tool does beside its own channel request. */
+static uint16_t capture_channel;
+
+/* What the faked capture writers report: negative is a failed write. */
+static int pcap_write_result;
+static int pcapng_write_result;
+
+/* Whether run_callback() gives the handle capture files at all. */
+static int capture_files;
 
 /* What the faked decoder makes of the packet. A negative result is how the
  * real one says it could not place the packet in the piconet. */
@@ -129,6 +149,52 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
 	return 0;
 }
 
+/* Asking the board for a plain symbol capture is how the callback takes it off
+ * a clock offset it is hopping on, so this is what the lost-clock case
+ * counts. */
+int cmd_rx_syms(struct libusb_device_handle* devh)
+{
+	(void)devh;
+	seen.symbol_captures++;
+	return rx_syms_result;
+}
+
+/* The two BR/EDR capture writers, which report a failed write. Each returns
+ * what the case under way wants it to, and counts its calls, so a warning
+ * said once per capture can be told from one said once per packet. */
+int btbb_pcap_append_packet(btbb_pcap_handle* h, const uint64_t ns,
+                            const int8_t sigdbm, const int8_t noisedbm,
+                            const uint32_t reflap, const uint8_t refuap,
+                            const btbb_packet* pkt)
+{
+	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
+	(void)refuap; (void)pkt;
+	seen.pcap_writes++;
+	return pcap_write_result;
+}
+
+int btbb_pcapng_append_packet(btbb_pcapng_handle* h, const uint64_t ns,
+                              const int8_t sigdbm, const int8_t noisedbm,
+                              const uint32_t reflap, const uint8_t refuap,
+                              const btbb_packet* pkt)
+{
+	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)reflap;
+	(void)refuap; (void)pkt;
+	seen.pcapng_writes++;
+	return pcapng_write_result;
+}
+
+/* A mode start makes the board forget its hop state, so whatever restarts a
+ * mode has to state the channel or sweep again. This records what it was
+ * given, which is what the lost-clock case checks. */
+int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
+{
+	(void)devh;
+	seen.channels_set++;
+	seen.channel_set = channel;
+	return set_channel_result;
+}
+
 int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map)
 { (void)devh; (void)afh_map; seen.afh_maps_sent++; return 0; }
 
@@ -178,26 +244,6 @@ int btbb_process_packet(btbb_packet* pkt, btbb_piconet* pn)
 {
 	(void)pkt; (void)pn;
 	return process_packet_result;
-}
-
-/* Whether the faked decoder says the packet has a header to read. The real
- * one reads the symbols, which the faked btbb_packet_set_data() above does not
- * write, so the case says what it wants here. */
-static int header_present_result;
-
-int btbb_header_present(const btbb_packet* pkt)
-{
-	(void)pkt;
-	return header_present_result;
-}
-
-/* Stands in for decoding the header, which is what the clock handed over
- * above is for. It records that it was asked. */
-int btbb_decode_header(btbb_packet* pkt)
-{
-	(void)pkt;
-	seen.header_decodes++;
-	return 1;
 }
 
 /* ---- helpers ------------------------------------------------------------ */
@@ -276,6 +322,14 @@ static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
 {
 	memset(&last_ut, 0, sizeof(last_ut));
 	last_ut.clk100ns_period = CLK100NS_PERIOD;
+	last_ut.capture_channel = capture_channel;
+	/* Never dereferenced: the writers above are fakes. They only have to
+	 * be something other than NULL, which is what makes the callback
+	 * write. */
+	if (capture_files) {
+		last_ut.h_pcap_bredr = (btbb_pcap_handle*)&last_ut;
+		last_ut.h_pcapng_bredr = (btbb_pcapng_handle*)&last_ut;
+	}
 	next_index = 0;
 
 	capture_streams();
@@ -320,7 +374,12 @@ static void reset_state(void)
 	next_index = 0;
 	find_ac_offset = 0;
 	process_packet_result = 0;
-	header_present_result = 0;
+	rx_syms_result = 0;
+	set_channel_result = 0;
+	capture_channel = 0;
+	pcap_write_result = 0;
+	pcapng_write_result = 0;
+	capture_files = 0;
 	infile = NULL;
 	dumpfile = NULL;
 }
@@ -1142,70 +1201,230 @@ MU_TEST(a_capture_that_lost_nothing_reports_nothing)
 	mu_assert_int_eq(0, (int)strlen(last_stdout));
 }
 
-MU_TEST(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known)
+/* ---- what a capture says it could not do ------------------------------- */
+
+/* The line a lost clock prints, in full. The man page promises these words,
+ * and a test that pinned a fragment of it would let the page drift. */
+#define LOST_CLOCK_WARNING \
+	"warning: the clock being followed was not this piconet's; " \
+	"searching for it again\n"
+
+MU_TEST(a_capture_that_cannot_be_written_says_so_once)
+{
+	unsigned i;
+
+	/* Three packets, every write failing. A capture nobody could write to
+	 * used to look exactly like one that was being written; now each
+	 * writer says so once, because the condition holds for every packet
+	 * after the first and a line per packet would bury the capture. */
+	reset_state();
+	capture_files = 1;
+	pcap_write_result = -1;
+	pcapng_write_result = -1;
+	for (i = 0; i < 3; i++)
+		fill_packet(&next_packets[i], 40000 + 1000 * i, 0, 10);
+	next_count = 3;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(3, seen.pcap_writes);
+	mu_assert_int_eq(3, seen.pcapng_writes);
+	mu_assert_int_eq(1, stderr_lines_with("cannot write to the PCAP capture"));
+	mu_assert_int_eq(1, stderr_lines_with("cannot write to the PCAPNG capture"));
+
+	/* A capture that can be written says nothing at all. Both flags are
+	 * already set by the run above, which is what makes this a check that
+	 * the writers are being called rather than a repeat of it. */
+	reset_state();
+	capture_files = 1;
+	for (i = 0; i < 3; i++)
+		fill_packet(&next_packets[i], 40000 + 1000 * i, 0, 10);
+	next_count = 3;
+	run_callback(cb_rx, NULL);
+
+	mu_assert_int_eq(3, seen.pcap_writes);
+	mu_assert_int_eq(3, seen.pcapng_writes);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+}
+
+MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 {
 	btbb_piconet* pn = btbb_piconet_new();
-	/* How far the board's clock runs behind the piconet's, in slots. The
-	 * UAP search works this out, and one slot is two clock ticks. */
-	const int slots = 5;
-	uint32_t clk100ns = clk100ns_for_clk_offset(2100, 2);
-	uint32_t clkn = clkn_at_access_code(0, clk100ns, 0);
 
-	/* A replay, so no clock trim stands between the packet and the
-	 * decoder, following a piconet whose UAP and CLK1-6 are known but
-	 * whose whole clock is not: the window where nothing else reads the
-	 * packet's header. */
 	reset_state();
 	btbb_init_piconet(pn, 0x123456);
-	btbb_piconet_set_uap(pn, 0x5b);
-	btbb_piconet_set_flag(pn, BTBB_CLK6_VALID, 1);
-	btbb_piconet_set_clk_offset(pn, slots);
-	header_present_result = 1;
-	infile = stdin;
-	fill_packet(&next_packets[0], clk100ns, 0, 10);
+	/* An offset right on the tune time: the trim block has nothing to
+	 * correct, so the packet reaches the decoder, which is where the
+	 * library reports what it made of the piconet. */
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	/* How the library says it has just recovered the clock. */
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(1, seen.hopping_restarts);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_lost_clock_warns_once_and_takes_the_board_off_the_offset)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+	unsigned i;
+
+	/* The capture is following a clock, because the case above left it
+	 * hopping on one. Now the library gives that clock up: without this
+	 * the board went on hopping on an offset that was no longer the
+	 * piconet's, decoding nothing, and said nothing about it. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	/* Not the sweep, so the value the board is given is this capture's own
+	 * and not a constant the callback could have made up. */
+	capture_channel = 2450;
+	for (i = 0; i < 3; i++)
+		fill_packet(&next_packets[i],
+		            clk100ns_for_clk_offset(CLK_TUNE_TIME, 2 + 100 * i),
+		            0, 10);
+	next_count = 3;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	run_callback(cb_rx, pn);
+
+	/* One plain symbol capture, which is what takes the board off the
+	 * offset and leaves discovery running, and one warning however many
+	 * packets the report arrives with. */
+	mu_assert_int_eq(1, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.hopping_restarts);
+	mu_assert_int_eq(1, stderr_lines_with(LOST_CLOCK_WARNING));
+
+	/* And the channel this capture asked for is stated again, because that
+	 * mode start made the board forget it: without this the board sits on
+	 * the channel the last piconet hop chose and discovery looks for a
+	 * piconet on one channel in 79. */
+	mu_assert_int_eq(1, seen.channels_set);
+	mu_assert_int_eq(2450, (int)seen.channel_set);
+
+	/* And nothing more to undo until the library hands over another
+	 * clock. */
+	reset_state();
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	/* Put the capture back on a clock, since the case above took it off. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(1, seen.hopping_restarts);
+
+	/* The clock is lost and the board refuses to leave it. Nothing here
+	 * can fix that, but the next report must try again rather than be
+	 * taken for a repeat of one already dealt with: a board left on a
+	 * clock that is gone decodes nothing for the rest of the run, which is
+	 * the whole point of acting on the report. */
+	reset_state();
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	rx_syms_result = -7;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
 	next_count = 1;
 	run_callback(cb_rx, pn);
+	mu_assert_int_eq(1, seen.symbol_captures);
+	/* It says so, as well as whatever the request itself reported, and it
+	 * does not go on to state a channel on a board that is still on the
+	 * clock. */
+	mu_assert_int_eq(1, stderr_lines_with("still following"));
+	mu_assert_int_eq(0, seen.channels_set);
 
-	/* The header is read, and read at the piconet's clock rather than the
-	 * board's: the board's reading is what the decoder was given first.
-	 * Without the offset the header unwhitens at the wrong clock, and the
-	 * record carries bits that fail their own check. */
-	mu_assert_int_eq(1, seen.header_decodes);
-	mu_assert_int_eq(2, seen.set_data_calls);
-	mu_assert_int_eq((int)(clkn + 2 * slots), (int)seen.set_data_clkn);
-
-	/* A packet with no header to read is left alone, so an ID packet
-	 * records none. */
-	memset(&seen, 0, sizeof(seen));
-	header_present_result = 0;
-	next_index = 0;
+	/* So the next one asks again. This board takes the symbol capture and
+	 * refuses the channel, which is a different position: the capture is
+	 * off the clock, because that request is what takes it off, and left
+	 * receiving on one channel. Saying it was still following the clock
+	 * would send the reader after the wrong thing. */
+	reset_state();
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	capture_channel = 2450;
+	set_channel_result = -7;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
 	run_callback(cb_rx, pn);
-	mu_assert_int_eq(0, seen.header_decodes);
-	mu_assert_int_eq(1, seen.set_data_calls);
+	mu_assert_int_eq(1, seen.symbol_captures);
+	mu_assert_int_eq(1, seen.channels_set);
+	mu_assert_int_eq(0, stderr_lines_with("still following"));
+	mu_assert_int_eq(1, stderr_lines_with("receiving on one channel"));
 
-	/* A piconet whose UAP was given on the command line but whose clock
-	 * bits nothing has worked out yet: there is no offset to apply, so the
-	 * header would be read at the board's clock and recorded as the
-	 * packet's. It is left alone until a packet settles those bits. */
-	memset(&seen, 0, sizeof(seen));
-	header_present_result = 1;
-	btbb_piconet_set_flag(pn, BTBB_CLK6_VALID, 0);
-	next_index = 0;
+	/* And that clock is undone, whatever the channel did, so the next
+	 * report is a repeat and says nothing. */
+	reset_state();
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
 	run_callback(cb_rx, pn);
-	mu_assert_int_eq(0, seen.header_decodes);
-	mu_assert_int_eq(1, seen.set_data_calls);
-	btbb_piconet_set_flag(pn, BTBB_CLK6_VALID, 1);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
 
-	/* Once the whole clock is known the decoder reads the header itself,
-	 * and the board has been told to close the gap, so the offset must not
-	 * be applied a second time: this packet is left alone too. */
-	memset(&seen, 0, sizeof(seen));
-	header_present_result = 1;
-	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
-	next_index = 0;
+	/* And that one was taken, so there is nothing left to undo. */
+	reset_state();
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
 	run_callback(cb_rx, pn);
-	mu_assert_int_eq(0, seen.header_decodes);
-	mu_assert_int_eq(1, seen.set_data_calls);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	/* A follow reading a capture file. The library recovers a clock and
+	 * then gives it up, exactly as it would on a live capture; there is no
+	 * board here to put on an offset or take off one. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	infile = stdin;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0, seen.hopping_restarts);
+
+	infile = stdin;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	next_index = 0;
+	memset(&seen, 0, sizeof(seen));
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.hopping_restarts);
+	mu_assert_int_eq(0, seen.channels_set);
+	/* It still says so: the reader of a capture file is left with the same
+	 * silence as the user of a board, and the warning is what the report
+	 * is for in both. */
+	mu_assert_int_eq(1, stderr_lines_with(LOST_CLOCK_WARNING));
 
 	btbb_piconet_unref(pn);
 }
@@ -1239,10 +1458,18 @@ int main(void)
 	MU_RUN(a_keep_alive_does_not_count_as_symbols_written_over);
 	MU_RUN(the_end_of_a_capture_counts_every_kind_of_loss);
 	MU_RUN(a_capture_that_lost_nothing_reports_nothing);
-	/* These two run cb_rx() with a piconet, which keeps counters between
-	 * packets: they come last so nothing above is judged by them. */
+	/* These run cb_rx() with a piconet, which keeps state between packets
+	 * -- the clock trim's counters, and whether the library has handed
+	 * this capture a clock -- so they come last, and in this order,
+	 * because each leaves the next the state it expects. */
 	MU_RUN(a_replay_and_a_capture_with_no_piconet_send_no_trim);
-	MU_RUN(a_header_is_read_at_the_piconets_clock_until_the_whole_clock_is_known);
+	/* After the case above, because these reach the decoder through the
+	 * same trim counters it leaves behind. */
+	MU_RUN(a_capture_that_cannot_be_written_says_so_once);
+	MU_RUN(a_recovered_clock_puts_the_board_on_its_offset);
+	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
+	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);
+	MU_RUN(a_replay_warns_but_sends_no_request_when_the_clock_is_lost);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();
 }

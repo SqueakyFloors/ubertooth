@@ -116,6 +116,10 @@ BREDR_NOISEPOWER_VALID = 0x0004
 BREDR_REFLAP_VALID = 0x0010
 BREDR_PAYLOAD_PRESENT = 0x0020
 BREDR_REFUAP_VALID = 0x0080
+BREDR_HEC_CHECKED = 0x0100
+BREDR_HEC_VALID = 0x0200
+BREDR_CRC_CHECKED = 0x0400
+BREDR_CRC_VALID = 0x0800
 LAP_ANY = 0xFFFFFF              # what a record with no reference LAP carries
 UAP_ANY = 0xFF                  # what a record with no reference UAP carries
 
@@ -392,8 +396,11 @@ with tempfile.TemporaryDirectory() as workdir:
     # stopped settling it on a CRC -- by settling it some other way, or not at
     # all -- is a plain failure rather than a quiet one. It takes two packets:
     # the first DH1 leaves the candidates alive, the second settles it.
+    #
+    # On standard error, because that is where libbtbb reports its own notes:
+    # standard output belongs to the capture the tool was asked for.
     assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
-            in result.stdout), result
+            in result.stderr), result
 
     for name, records in captures:
         assert len(records) == 4, (name, records)
@@ -418,12 +425,16 @@ with tempfile.TemporaryDirectory() as workdir:
 
         # The packet that settles the UAP carries it, flag and all: this
         # record is the first evidence the UAP came from, and it used to go
-        # out saying nothing. Its payload passes its own CRC under the UAP the
-        # record gives and under no other, which is the check the reference
-        # UAP is recorded for and the one this record could not be put
-        # through before.
+        # out saying nothing.
         assert records[2].uap == UAP, (name, records)
         assert records[2].flags & BREDR_REFUAP_VALID, (name, records)
+        # It carries the payload whose CRC settled the UAP, and says that
+        # CRC was checked and came out. The payload passes that CRC under the
+        # UAP the record gives and under no other, which is the check the
+        # reference UAP is recorded for.
+        assert records[2].flags & BREDR_PAYLOAD_PRESENT, (name, records)
+        assert (records[2].flags & (BREDR_CRC_CHECKED | BREDR_CRC_VALID)
+                == BREDR_CRC_CHECKED | BREDR_CRC_VALID), (name, records)
         assert crc_recomputes(records[2].payload, records[2].uap), (name, records)
         assert not crc_recomputes(records[2].payload, UAP ^ 1), (name, records)
 
@@ -434,10 +445,12 @@ with tempfile.TemporaryDirectory() as workdir:
         # carry 18 zero bits, which read as an LT_ADDR of 0 and a NULL packet
         # type that were never sent.
         assert records[2].header != 0, (name, records)
+        assert (records[2].flags & (BREDR_HEC_CHECKED | BREDR_HEC_VALID)
+                == BREDR_HEC_CHECKED | BREDR_HEC_VALID), (name, records)
         assert hec_recomputes(records[2].header, records[2].uap), (name, records)
         assert not hec_recomputes(records[2].header, UAP ^ 1), (name, records)
         # The whole header, as the fixture sent it: this member of the
-        # piconet, a DH1 carrying data, flow and ARQN set and SEQN clear.
+        # piconet, a DH1 carrying data.
         assert records[2].header & 0x7 == LT_ADDR, (name, records)
         assert (records[2].header >> 3) & 0xF == DH1, (name, records)
 
@@ -456,18 +469,15 @@ with tempfile.TemporaryDirectory() as workdir:
         for rec in records:
             assert not rec.flags & BREDR_NOISEPOWER_VALID, (name, records)
 
-        # That mid-acquisition record is still wrong about its payload, and
-        # the same lack of a clock is why: it carries whatever bytes the
-        # last clock candidate left behind, under flags that say they are
-        # dewhitened payload data. They are not the payload that was sent,
-        # which is what its own CRC says -- the record of a packet nothing
-        # decoded should carry no payload at all. Pinned here because the
-        # flags are assembled inside libbtbb, which is where that half has
-        # to be put right.
+        # That mid-acquisition record now carries no payload, which is what a
+        # record of a packet nothing decoded should say. It used to carry
+        # whatever bytes the last clock candidate had left behind, under
+        # flags calling them dewhitened payload data: bytes that were not the
+        # payload sent, as their own CRC showed. The flags are assembled
+        # inside libbtbb, so that is where it was put right.
         assert records[1].flags & BREDR_DEWHITENED, (name, records)
-        assert records[1].flags & BREDR_PAYLOAD_PRESENT, (name, records)
-        assert records[1].payload, (name, records)
-        assert not crc_recomputes(records[1].payload, UAP), (name, records)
+        assert not records[1].flags & BREDR_PAYLOAD_PRESENT, (name, records)
+        assert records[1].payload == b"", (name, records)
 
         # The reference UAP outlives the packet that settled it, which is all
         # that ever worked.
@@ -479,8 +489,11 @@ with tempfile.TemporaryDirectory() as workdir:
     # records say: the LAP of every packet it found, and no reference
     # address, because there was none to configure.
     result, captures = replay(work, "survey", "-z")
+    # On standard error, as in the follow above: that is where libbtbb
+    # reports its own notes, and standard output belongs to the survey
+    # results the tool was asked for.
     assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
-            in result.stdout), result
+            in result.stderr), result
     # The survey reports the address it found, so the records below are
     # written by a run that knew it.
     assert "??:??:%02X:%02X:%02X:%02X" % (UAP, (LAP >> 16) & 0xFF,
@@ -504,14 +517,27 @@ with tempfile.TemporaryDirectory() as workdir:
             assert rec.lap == LAP_ANY, (name, records)
             assert not rec.flags & BREDR_REFLAP_VALID, (name, records)
 
-        # The UAP a survey settles is missing from the records all the same,
-        # and so is the header that needs its clock. The piconets a survey
-        # keeps are the decoder's own, one per LAP, and it hands out no way
-        # to read one without destroying the survey. Pinned here so that
-        # whoever gives it one sees these two lines fail.
+        # The UAP a survey settles is missing from the records all the same.
+        # The piconets a survey keeps are the decoder's own, one per LAP, and
+        # it hands out no way to read one without destroying the survey.
+        # Pinned here so that whoever gives it one sees this line fail.
         for rec in records:
             assert rec.uap == UAP_ANY, (name, records)
-            assert rec.header == 0, (name, records)
+
+        # The settling packet's own header and payload do reach the record,
+        # because the decoder writes them onto the packet itself when a
+        # candidate clock's CRC comes out. They cannot be checked by a reader
+        # without the UAP above, which is why that line matters: these are
+        # the bits a reader would check it against.
+        assert records[2].header != 0, (name, records)
+        assert records[2].header & 0x7 == LT_ADDR, (name, records)
+        assert (records[2].header >> 3) & 0xF == DH1, (name, records)
+        assert records[2].flags & BREDR_PAYLOAD_PRESENT, (name, records)
+        assert crc_recomputes(records[2].payload, UAP), (name, records)
+        # The other three settle nothing, so they carry neither.
+        for index in (0, 1, 3):
+            assert records[index].header == 0, (name, records)
+            assert not records[index].flags & BREDR_PAYLOAD_PRESENT, (name, records)
 
     # And the same fixture with neither option, which reads every packet it
     # can and works no piconet out: the LAP of each packet, and again no

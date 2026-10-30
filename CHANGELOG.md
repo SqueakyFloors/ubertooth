@@ -542,6 +542,23 @@
   gone from `ubertooth_interface.h` with it: a program that bounded a call by
   it wants `ADV_IND_MAX_DATA`. No shipped tool sets more than 18 bytes.
   [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
+- The tools are built against a newer libbtbb
+  ([`bf878df`](https://github.com/SqueakyFloors/libbtbb/commit/bf878df27e131dd8ab56bb3497918eb9a83f607b)),
+  which brings its own run of fixes to the Classic and BLE decoders and to the
+  capture file writers: a 255-octet advertising packet keeps its last three
+  octets instead of losing them to the CRC field, AUX1, DV, EV3, EV4 and EV5
+  payloads decode, a packet whose payload the decoder could not read is no
+  longer reported with the previous packet's bytes, a BLE capture records each
+  connection's parameters, and the library's own notes go to standard error
+  rather than into a capture on standard output. A Classic capture record also
+  carries more of the packet that settled the piconet's address: its header
+  and its payload, both checked and both recomputable from the reference
+  address in the same record, where that record used to carry one of them at
+  best. What that library is now tested against is in its
+  [TESTING.md](https://github.com/SqueakyFloors/libbtbb/blob/master/TESTING.md).
+  `install.sh` and the build guides check out the new commit; a libbtbb
+  without what the tools use is still refused at configure time, by name.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
@@ -948,6 +965,27 @@
   status register and the address of the refused access.
   [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
   [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
+- `ubertooth-rx` recovers from following the wrong clock. A clock recovered
+  from a handful of packets can be a guess, and a wrong one showed up as a
+  follow that decoded nothing and stayed that way for the rest of the run.
+  The tool now reports `warning: the clock being followed was not this
+  piconet's; searching for it again`, takes the board off that clock and
+  recovers one again, keeping the lower address part it has already found.
+  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- A Classic capture that cannot be written says so, once per capture, instead
+  of running to the end looking like one that was being written: `warning:
+  cannot write to the PCAP capture file`. `ubertooth-rx` and
+  `ubertooth-follow` also report a target address they could not record in a
+  PcapNG capture, and `ubertooth-follow -r` records that address at all now --
+  it was written to the capture file before the file was created, so no
+  capture ever carried it.
+  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- A long BLE capture says when it can no longer record connection parameters.
+  A PcapNG file has room for a few hundred connections' worth, and past that
+  Wireshark cannot follow the connections a capture still holds packets for.
+  `ubertooth-btle -r` now reports that once and carries on, so the remedy --
+  a new capture file -- is visible while the capture is running.
+  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
 - Every Classic capture finds the access codes that start at the last position
   of a bank of symbols. The search was given one position fewer than the bank
   holds, so an access code beginning 64 symbols before the bank's end -- with

@@ -173,18 +173,19 @@ static int holds_text(const char* bytes, size_t length, const char* text)
 	return 0;
 }
 
-/* The one complaint libbtbb makes about the packet above, and the first word
- * of the dump the callback writes itself. */
-#define DECODER_COMPLAINT "attempt to read past end of buffer"
+/* The first word of the dump the callback writes itself. */
 #define DUMP_LINE "systime="
 
 /* ---- an ordinary run ---------------------------------------------------- */
 
-/* The dump is what the user asked for, so it goes to standard output; the
- * decoder's complaint about a field it could not read goes to standard error,
- * where a user who redirected the dump to a file still sees it.
+/* The dump is what the user asked for, so it goes to standard output. A
+ * malformed field in the packet is not reported at all: the decoder counts
+ * malformed fields and a tool asks for the total, rather than writing a line
+ * per field. That is what keeps a good Wireshark capture from ending in an
+ * error message, and it means nothing about this packet reaches either stream
+ * beyond the dump.
  */
-MU_TEST(a_dump_prints_the_packet_and_the_complaint_on_standard_error)
+MU_TEST(a_dump_prints_the_packet_and_says_nothing_about_a_malformed_field)
 {
 	/* A handle as a capturing tool has it: no device, and the fifo above. */
 	ubertooth_t* ut = ubertooth_init();
@@ -201,10 +202,11 @@ MU_TEST(a_dump_prints_the_packet_and_the_complaint_on_standard_error)
 
 	mu_assert(strstr(out, DUMP_LINE) != NULL,
 	          "the dump names the packet on standard output");
-	mu_assert(strstr(err, DECODER_COMPLAINT) != NULL,
-	          "the decoder complains on standard error");
-	mu_assert(strstr(out, DECODER_COMPLAINT) == NULL,
-	          "the complaint is not on standard output");
+	/* The field the decoder could not read is counted, not printed, so
+	   neither stream carries a word about it. */
+	mu_assert(err[0] == '\0', "nothing on standard error");
+	mu_assert(lell_malformed_count(LELL_MALFORMED_ANY, 1) > 0,
+	          "the decoder counted the field it could not read");
 
 	ubertooth_free(ut);
 }
@@ -447,7 +449,7 @@ int main(void)
 	/* Nothing here should look for a board; make sure of it. */
 	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
 
-	MU_RUN(a_dump_prints_the_packet_and_the_complaint_on_standard_error);
+	MU_RUN(a_dump_prints_the_packet_and_says_nothing_about_a_malformed_field);
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
 	MU_RUN(the_dump_reports_the_level_the_capture_records);

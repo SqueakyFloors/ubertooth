@@ -1023,6 +1023,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	// u32 access_address = 0; // Build warning
 
 	static uint64_t prev_ts = 0;
+	/* Each warning below is said once for the whole capture: the condition
+	 * it reports holds for every packet that follows, and a line per packet
+	 * would bury the capture's own output. */
+	static int connect_info_warned = 0;
+	static int pcapng_le_write_warned = 0;
 	uint32_t refAA;
 	int8_t sig, noise;
 
@@ -1160,9 +1165,33 @@ void cb_btle(ubertooth_t* ut, void* args)
 		                            pkt);
 	}
 	if (ut->h_pcapng_le) {
-		lell_pcapng_append_packet(ut->h_pcapng_le, nowns,
-		                          sig, noise,
-		                          refAA, pkt);
+		/* A CONNECT_IND's parameters are recorded as an option of the
+		 * PCAPNG interface description block, and the room set aside
+		 * for them when the file was created runs out after a few
+		 * hundred connections. Past that the packets still reach the
+		 * file but their parameters do not, so Wireshark cannot follow
+		 * those connections. Said once, because every connection after
+		 * the first one is in the same position.
+		 *
+		 * Tested for "< 0" and not for non-zero: this report is
+		 * positive, because the packet was written, while a failed
+		 * write is negative. */
+		int written = lell_pcapng_append_packet(ut->h_pcapng_le, nowns,
+		                                        sig, noise,
+		                                        refAA, pkt);
+
+		if (written == LELL_PCAPNG_CONNECT_INFO_NOT_RECORDED &&
+		    !connect_info_warned) {
+			connect_info_warned = 1;
+			fprintf(stderr, "warning: the capture file has no more "
+			        "room for connection parameters; the packets "
+			        "are still recorded, but later connections "
+			        "cannot be followed in Wireshark\n");
+		} else if (written < 0 && !pcapng_le_write_warned) {
+			pcapng_le_write_warned = 1;
+			fprintf(stderr, "warning: cannot write to the PCAPNG "
+			        "capture file\n");
+		}
 	}
 
 	/* A capture on "-" owns standard output: this process's own standard
@@ -1343,6 +1372,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 	static int trim_counter = 0;
 	static int calibrated = 0;
 	static uint32_t clkn_trim = 0;
+	/* Whether the library has handed this capture a clock of the piconet's
+	 * that it has not since given up. Only then is there a clock to be
+	 * told about losing, and a board to take off its offset. */
+	static int following = 0;
+	static int pcap_bredr_warned = 0;
+	static int pcapng_bredr_warned = 0;
 
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
@@ -1482,63 +1517,97 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
 		uap = btbb_piconet_get_uap(pn);
 
-	/* The packet's own 18-bit header, for the capture record below. Nothing
-	 * else reads it while the decoder is still working the piconet's clock
-	 * out: the UAP search unwhitens the header into a scratch buffer, takes
-	 * the UAP out of its check bits and throws the header away. Such a
-	 * record carried 18 zero bits, which a reader cannot tell from a header
-	 * of zeros that was really sent.
-	 *
-	 * Reading it needs the piconet's clock rather than the Ubertooth's. The
-	 * two differ by the offset the UAP search worked out, which counts in
-	 * 625 us slots and so in two clock ticks each, until the whole clock is
-	 * known. From then on libbtbb reads the header itself and the offset
-	 * the piconet reports counts in clock ticks, hence the guard: those
-	 * packets are the decoder's.
-	 *
-	 * A header the error correction could decode but whose check bits do
-	 * not match this piconet's UAP -- a packet of another piconet whose
-	 * access code matched, say -- is written into the packet before the
-	 * decoder compares them, and goes into the record. A reader finds that
-	 * out the way it checks any recorded header, by recomputing the check
-	 * bits from the reference UAP in the same record. */
-	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)
-	       && btbb_piconet_get_flag(pn, BTBB_CLK6_VALID)
-	       && !btbb_piconet_get_flag(pn, BTBB_CLK27_VALID)
-	       && btbb_header_present(pkt)) {
-		/* Setting the data again is what carries that clock into the
-		 * packet, and leaves it there: the capture writers below do not
-		 * read it, and the Ubertooth's own reading has already been
-		 * printed. The UAP goes in as well, so that the decoder's
-		 * comparison is against the piconet's UAP rather than against
-		 * nothing; the record carries the header bits either way. */
-		uint32_t piconet_clkn = (clkn + 2 * (uint32_t)
-		        btbb_piconet_get_clk_offset(pn)) & CLKN_MASK;
-
-		btbb_packet_set_uap(pkt, uap);
-		btbb_packet_set_flag(pkt, BTBB_CLK6_VALID, 1);
-		btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
-		                     rx->channel, piconet_clkn);
-		btbb_decode_header(pkt);
-	}
-
-	/* Dump to PCAP/PCAPNG if specified. The noise figure is the unmeasured
-	 * one: the level printed above is derived from the packet's own power,
-	 * which is not what a record's noise field means. */
+	/* Dump to PCAP/PCAPNG if specified. Each said once per capture if it
+	 * cannot be written: the condition holds for every packet after it,
+	 * and a capture nobody could write to otherwise looks exactly like one
+	 * that is being written. */
 	if (ut->h_pcap_bredr) {
-		btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
-		                        signal_level, NOISE_NOT_MEASURED,
-		                        lap, uap, pkt);
+		if (btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
+		                            signal_level, NOISE_NOT_MEASURED,
+		                            lap, uap, pkt) < 0 &&
+		    !pcap_bredr_warned) {
+			pcap_bredr_warned = 1;
+			fprintf(stderr, "warning: cannot write to the PCAP "
+			        "capture file\n");
+		}
 	}
 	if (ut->h_pcapng_bredr) {
-		btbb_pcapng_append_packet(ut->h_pcapng_bredr, nowns,
-		                          signal_level, NOISE_NOT_MEASURED,
-		                          lap, uap, pkt);
+		if (btbb_pcapng_append_packet(ut->h_pcapng_bredr, nowns,
+		                              signal_level, NOISE_NOT_MEASURED,
+		                              lap, uap, pkt) < 0 &&
+		    !pcapng_bredr_warned) {
+			pcapng_bredr_warned = 1;
+			fprintf(stderr, "warning: cannot write to the PCAPNG "
+			        "capture file\n");
+		}
 	}
 
-	if(infile == NULL && r < 0) {
-		cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
+	if (r < 0) {
+		/* The library has recovered the piconet's clock. A live capture
+		 * puts the board on the offset it reports, so it hops with the
+		 * piconet from here on; a replay has no board to put anywhere,
+		 * but the library is following either way. */
+		if (infile == NULL)
+			cmd_start_hopping(ut->devh,
+			                  btbb_piconet_get_clk_offset(pn), 0);
 		calibrated = 0;
+		following = 1;
+	} else if (r == BTBB_PROCESS_LOCK_LOST && following) {
+		/* The clock being followed was not this piconet's. The library
+		 * has given it up and started discovery again, so a board put
+		 * on that offset has to come off it. The clock the library
+		 * finds next arrives through the branch above.
+		 *
+		 * One warning per lost clock, not one per packet. The library
+		 * reports a loss once -- the headers that failed are counted
+		 * inside it, and giving the clock up resets that count -- and
+		 * `following` keeps it that way here regardless: one warning
+		 * per clock the library handed over, and none until it hands
+		 * over another. A replay warns too; it is the same silence for
+		 * the reader of a capture file as for the user of a board. */
+		fprintf(stderr, "warning: the clock being followed was not "
+		        "this piconet's; searching for it again\n");
+		calibrated = 0;
+
+		if (infile != NULL) {
+			/* A replay has no board to take off anything. */
+			following = 0;
+		} else if (cmd_rx_syms(ut->devh) < 0) {
+			/* The board refused, so it is still hopping on the
+			 * offset that is gone -- the request itself has said
+			 * why. `following` stays set, so the next report tries
+			 * again rather than being read as a repeat of one
+			 * already dealt with. */
+			fprintf(stderr, "warning: the board is still following "
+			        "that clock; this capture may decode nothing "
+			        "from here on\n");
+		} else {
+			/* The plain symbol capture has taken the board off the
+			 * offset and left the receive running, which is what
+			 * discovery needs. There is nothing left to undo.
+			 *
+			 * It is a mode start, though, so the board has
+			 * forgotten its hop state with it and is sitting on
+			 * the channel the last piconet hop chose. The channel
+			 * or sweep this capture asked for has to be stated
+			 * again, exactly as the tool states it after its own
+			 * mode start, or discovery looks for a piconet on one
+			 * channel in 79. The reporting form, so a board that
+			 * refuses it says why.
+			 *
+			 * Only when this capture set one. A caller that set no
+			 * channel -- ubertooth-follow, which shares this
+			 * callback -- leaves the field zero, and zero is not a
+			 * channel: it would be clamped to the bottom of the
+			 * band and pin the capture there. */
+			following = 0;
+			if (ut->capture_channel != 0 &&
+			    cmd_set_channel(ut->devh, ut->capture_channel) < 0)
+				fprintf(stderr, "warning: the board is left "
+				        "receiving on one channel, so this "
+				        "capture may not find the piconet "
+				        "again\n");
+		}
 	}
 
 out:

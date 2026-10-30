@@ -15,7 +15,7 @@
 # it. It is repeated here so the failure below can name the commit to rebuild
 # at, which is the one thing a reader needs and cannot guess.
 set(LIBBTBB_PINNED_REPO "SqueakyFloors/libbtbb")
-set(LIBBTBB_PINNED_REF "2fd0d391d99e9b0620146f63f439c1ec74f79861")
+set(LIBBTBB_PINNED_REF "bf878df27e131dd8ab56bb3497918eb9a83f607b")
 
 # Every libbtbb function this tree calls. libbtbb carries no version macro, so
 # "new enough" is decided by asking the installed one for the declarations the
@@ -33,12 +33,10 @@ set(LIBBTBB_PINNED_REF "2fd0d391d99e9b0620146f63f439c1ec74f79861")
 # machine would mean a libbtbb that satisfies a macOS build and fails a Linux
 # one later.
 set(LIBBTBB_REQUIRED_FUNCTIONS
-  btbb_decode_header
   btbb_find_ac
   btbb_gen_syncword
   btbb_get_release
   btbb_get_version
-  btbb_header_present
   btbb_init
   btbb_init_piconet
   btbb_init_survey
@@ -48,10 +46,8 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_packet_get_clkn
   btbb_packet_get_lap
   btbb_packet_set_data
-  btbb_packet_set_flag
   btbb_packet_set_modulation
   btbb_packet_set_transport
-  btbb_packet_set_uap
   btbb_packet_unref
   btbb_pcap_append_packet
   btbb_pcap_close
@@ -94,6 +90,16 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   lell_print
 )
 
+# The libbtbb macros this tree reads. Two of its functions report something a
+# tool has to act on through a named value rather than a return code of its
+# own, so a libbtbb without them is as unusable here as one missing a
+# function, and the probe below asks about both together. An address cannot be
+# taken of a macro, so each one is a compile-time check in the probe instead.
+set(LIBBTBB_REQUIRED_MACROS
+  BTBB_PROCESS_LOCK_LOST
+  LELL_PCAPNG_CONNECT_INFO_NOT_RECORDED
+)
+
 # Fail the configure step when the libbtbb that was found is missing any of
 # them, saying which ones and how to install one that has them.
 #
@@ -128,6 +134,13 @@ function(btbb_require_functions)
   # -Wcast-function-type -Werror refuses: either would turn a correct libbtbb
   # into a refusal that has nothing to do with it.
   set(body "#include <btbb.h>\n")
+  # The macros first, so a libbtbb without one fails the same compile.
+  foreach(macro ${LIBBTBB_REQUIRED_MACROS})
+    string(APPEND body
+      "#if !defined(${macro})\n"
+      "#error ${macro}\n"
+      "#endif\n")
+  endforeach()
   string(APPEND body
     "static int btbb_probe_sink(int n, ...) { (void)n; return 0; }\n"
     "static int (*volatile btbb_probe_call)(int, ...) = btbb_probe_sink;\n"
@@ -185,7 +198,7 @@ function(btbb_require_functions)
   # compile accepted.
   file(READ "${LIBBTBB_INCLUDE_DIR}/btbb.h" header)
   set(missing "")
-  foreach(function ${LIBBTBB_REQUIRED_FUNCTIONS})
+  foreach(function ${LIBBTBB_REQUIRED_FUNCTIONS} ${LIBBTBB_REQUIRED_MACROS})
     # Surrounded by something that cannot be part of a C identifier, so a
     # function whose name is the start of another's is not found in it.
     string(REGEX MATCH "[^A-Za-z0-9_]${function}[^A-Za-z0-9_]" declared
@@ -201,8 +214,8 @@ function(btbb_require_functions)
     # library cannot be linked where it is. Reinstalling the pinned one is
     # still the likely fix, so the commands come too.
     message(FATAL_ERROR
-      "the libbtbb found at ${LIBBTBB_INCLUDE_DIR} declares the functions the "
-      "Ubertooth host tools call, but a program that uses all of them and "
+      "the libbtbb found at ${LIBBTBB_INCLUDE_DIR} has everything the "
+      "Ubertooth host tools use, but a program that uses all of them and "
       "links ${LIBBTBB_LIBRARIES} does not build. The attempt is in "
       "${CMAKE_BINARY_DIR}/CMakeFiles/CMakeConfigureLog.yaml (CMake older "
       "than 3.26: CMakeFiles/CMakeError.log).\n" "${fix}")
@@ -212,7 +225,7 @@ function(btbb_require_functions)
   string(REPLACE ";" ", " missing_names "${missing}")
   message(FATAL_ERROR
     "the libbtbb found at ${LIBBTBB_INCLUDE_DIR} does not have "
-    "${missing_names}, which the Ubertooth host tools call.\n" "${fix}")
+    "${missing_names}, which the Ubertooth host tools use.\n" "${fix}")
 endfunction()
 
 

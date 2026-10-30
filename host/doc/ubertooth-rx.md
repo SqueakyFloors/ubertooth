@@ -175,6 +175,16 @@ and attempt to calculate the UAP from those. It will go on to follow the
 piconet if it can recover the clock value. In survey mode, the tool will
 simply recover LAP and UAP values.
 
+A clock recovered from a handful of packets is a guess, and a wrong guess
+shows up as packet after packet of the piconet arriving and none of them
+decoding. When that happens the tool reports
+
+    warning: the clock being followed was not this piconet's; searching for it again
+
+on standard error, stops following that clock and goes back to recovering
+one. It keeps the LAP it has, so the search starts from what is already
+known, and the capture carries on throughout.
+
 To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse
 of the above. For example, if the tool recovers a LAP of 36A2B4 and a
 UAP of 98, the associated Bluetooth address is `??:??:98:36:A2:B4`. Any
