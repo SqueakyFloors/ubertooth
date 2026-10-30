@@ -7,11 +7,11 @@ arithmetic lives in the same module as the refusals.
 Run as: test_specan_ui_streams.py <path to the specan package's directory>
                                  [<path to ubertooth-specan-ui>]
 
-The checks live in specan/limits.py, which imports nothing but sys, so these
-cases run wherever the Python tools are built -- no Qt binding, no numpy, no
-window and no board. Each refusal writes one line starting "error: " to
-standard error, nothing to standard output, and raises ValueError, which the
-script turns into exit 1.
+The checks live in specan/limits.py, which imports nothing outside the
+standard library, so these cases run wherever the Python tools are built --
+no Qt binding, no numpy, no window and no board. Each refusal writes one line
+starting "error: " to standard error, nothing to standard output, and raises
+ValueError, which the script turns into exit 1.
 
 With the script named as well, the same cases are run through it end to end,
 along with -h and -V. The script reads its whole command line before the

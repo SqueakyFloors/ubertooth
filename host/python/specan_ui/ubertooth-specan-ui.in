@@ -39,13 +39,15 @@ if os.path.isdir(_module_dir) and _module_dir not in sys.path:
 
 from argparse import ArgumentParser
 
-# specan/limits.py imports nothing but sys, so the whole command line can be
-# read -- and -V and -h answered -- up here, ahead of the window's own imports
-# further down, which need numpy and a Qt binding. -V is the call that has to
-# work without those: it is how a user says which tools they have, and a Qt
-# binding that is missing or broken is exactly when they would be asked.
+# specan/limits.py imports nothing outside the standard library, so the whole
+# command line can be read -- and -V and -h answered -- up here, ahead of the
+# window's own imports further down, which need numpy and a Qt binding. The
+# writes the diagnostics go through live there for the same reason. -V is the
+# call that has to work without those: it is how a user says which tools they
+# have, and a Qt binding that is missing or broken is exactly when they would
+# be asked.
 from specan.limits import (MIN_FREQ, MAX_FREQ, check_freq_pair, convert_wifi,
-                           eprint, parse_wifi_range)
+                           eprint, parse_wifi_range, point_at_the_bin)
 
 DEFAULT_LOWER_FREQ = 2402
 DEFAULT_UPPER_FREQ = 2480
@@ -57,26 +59,6 @@ DEFAULT_UPPER_FREQ = 2480
 # installed together, so it is the answer the user would get from
 # ubertooth-util themselves. ubertooth(7), COMMON OPTIONS, has the lines.
 VERSION_TOOL = "ubertooth-util"
-
-
-def point_at_the_bin(stream):
-    """Send a stream that cannot be written to the bin, so writing it is safe.
-
-    The interpreter flushes both streams as it exits, where no handler can
-    reach a failure: a write that fails there ends the tool in status 120
-    and a message of its own. ubtbr/streams.py does the same for
-    ubertooth-btbr, and has the longer note.
-    """
-    try:
-        nowhere = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(nowhere, stream.fileno())
-        finally:
-            os.close(nowhere)
-    except (OSError, ValueError, AttributeError):
-        # There is no such stream to point anywhere: it was closed before the
-        # tool started. Nothing is written to it either way.
-        pass
 
 
 def can_be_written(stream):

@@ -94,6 +94,10 @@ class Ubertooth(object):
                 self.proc.kill()
         self.proc = None
 
+# A bare frame dump, for working on this module. Run it as part of the
+# package, "python3 -m specan.Ubertooth" from the directory above: the
+# imports above are the package's own, and a file run as a script does not
+# have it on the path.
 if __name__ == '__main__':
     ubertooth = Ubertooth()
     frame_source = ubertooth.specan(2.402e9, 2.480e9)

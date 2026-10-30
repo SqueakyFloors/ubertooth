@@ -19,7 +19,7 @@ from time import strftime
 def eprint(msg):
 	"""Write a diagnostic to standard error, or drop it if it cannot go there.
 
-	Every error, warning and note the tool gives goes through here, so that
+	Every error, warning and note the tool writes goes through here, so that
 	losing the stream costs the lines and nothing else: a write that fails
 	must not raise in the middle of a session and end a capture that was
 	running.

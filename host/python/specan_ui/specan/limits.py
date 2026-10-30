@@ -23,12 +23,37 @@ MIN_WIFI_CHANNEL = 1
 MAX_WIFI_CHANNEL = 14
 
 
+def point_at_the_bin(stream):
+    """Send a stream that cannot be written to the bin, so writing it is safe.
+
+    The interpreter flushes both streams as it exits, where no handler can
+    reach a failure: a write that fails there ends the tool in status 120 and
+    a message of its own. ubtbr/streams.py does the same for ubertooth-btbr,
+    and has the longer note.
+    """
+    try:
+        nowhere = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(nowhere, stream.fileno())
+        finally:
+            os.close(nowhere)
+    except (OSError, ValueError, AttributeError):
+        # There is no such stream to point anywhere: it was closed before the
+        # tool started. Nothing is written to it either way.
+        pass
+
+
 def eprint(text):
     """Write a diagnostic to standard error, or drop it if it cannot go there.
 
+    Every error, warning and note this tool writes goes through here.
     Losing that stream must cost the lines and nothing else: a write that
     fails must not raise where it was written from and end a command, or a
     capture thread, that was otherwise working.
+
+    The argument parser's own refusals are the exception, because argparse
+    writes them itself, and before Python 3.11 it does so unguarded; see
+    issue #934, which owns that parser's wording and its exit status.
 
     The state this is for is a pipe whose reader has left. The tool's startup
     check cannot see one on Linux, where a write of nothing to such a pipe
@@ -42,16 +67,7 @@ def eprint(text):
         sys.stderr.write(text)
         sys.stderr.flush()
     except (OSError, ValueError, AttributeError):
-        try:
-            nowhere = os.open(os.devnull, os.O_WRONLY)
-            try:
-                os.dup2(nowhere, sys.stderr.fileno())
-            finally:
-                os.close(nowhere)
-        except (OSError, ValueError, AttributeError):
-            # There is no such stream to point anywhere: it was closed before
-            # the tool started. Nothing is written to it either way.
-            pass
+        point_at_the_bin(sys.stderr)
 
 
 def _refuse(message):

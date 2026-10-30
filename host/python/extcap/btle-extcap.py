@@ -186,7 +186,7 @@ def flush_the_streams():
 def eprint(text):
     """Write a diagnostic to standard error, or drop it if it cannot go there.
 
-    Every error, warning and note this script gives goes through here, so
+    Every error, warning and note this script writes goes through here, so
     that losing the stream costs the lines and nothing else: a write that
     fails must not raise in the middle of a call and turn a listing or a
     capture that was going to work into a failure.

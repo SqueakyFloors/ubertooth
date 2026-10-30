@@ -86,16 +86,16 @@ def report_versions(selector=None):
 		# whatever that turned out to be.
 		output_lost()
 		return 1
-	# The same for standard error, which the child writes to as well. The
-	# empty text adds nothing to the buffer, so this is the flush alone, and
-	# eprint() is how it is made: one that fails bins the stream rather than
-	# raising here.
+	# The same for standard error, which the child writes to as well. Nothing
+	# of this tool's is pending there either, because eprint() flushes every
+	# line it writes, so this cannot fail; it is here for the ordering, as
+	# the other two tools have it.
 	#
 	# The child inherits that descriptor, which is what it should have: a
 	# stream this tool could not use was pointed at the bin at startup and
 	# marked inheritable, so the child gets the bin rather than a closed
 	# descriptor whose number the first file it opened would take.
-	eprint("")
+	sys.stderr.flush()
 	try:
 		status = subprocess.call(command)
 	except OSError as e:
