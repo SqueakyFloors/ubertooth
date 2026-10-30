@@ -1182,16 +1182,17 @@ class BTCtl:
 			raise BTCtlBusyError("another command holds the message handler")
 		self._msg_handler = None
 
+	# Both of these print a line the board sent. The board's console ends
+	# each line with a C string terminator and counts that byte in the
+	# message, so it has to come off: a NUL on standard error makes a saved
+	# session a binary file to grep. A byte that is not UTF-8 is replaced
+	# rather than raising, which would end the receive thread.
 	def _print_console(self, msg):
-		# The board's console ends each line with a C string terminator and
-		# counts that byte in the message, so it has to come off here: a NUL
-		# written to standard error makes a saved session a binary file to
-		# grep. The other way into these two helpers strips it already.
-		msg = "\x1b[32;1m%s\x1b[0m"%msg.strip(b"\x00").decode()
+		msg = "\x1b[32;1m%s\x1b[0m"%msg.strip(b"\x00").decode("utf-8", "replace")
 		eprint(msg)
 
 	def _print_debug(self, msg):
-		msg = "\x1b[31;1m%s\x1b[0m"%msg.decode()
+		msg = "\x1b[31;1m%s\x1b[0m"%msg.strip(b"\x00").decode("utf-8", "replace")
 		eprint(msg)
 
 	def _handle_default(self, t, msg):
@@ -1222,7 +1223,7 @@ class BTCtl:
 				continue
 			t = data[:1]
 			if t == b'P':
-				self._print_debug(data[1:].strip(b"\x00"))
+				self._print_debug(data[1:])
 			else:
 				if  msg is None:
 					if t != b'S' or len(data) < 4:

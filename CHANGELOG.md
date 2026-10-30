@@ -651,10 +651,10 @@
 
 ### Reliability fixes
 
-- A `ubertooth-btbr` session is text: the progress lines the board sends no
-  longer carry the C string terminator the firmware's console puts on the end
-  of each one. A saved session held one NUL per line, which `grep` answers
-  with `Binary file matches` instead of the lines asked for.
+- A `ubertooth-btbr` session is text. It used to print one NUL per progress
+  line, the C string terminator the board's console puts on the end of each
+  one, which `grep` on a saved session answers with `Binary file matches`
+  instead of the lines asked for.
   [#943](https://github.com/SqueakyFloors/ubertooth/issues/943)
 
 - Every answer `btle-extcap.py` gives reports a standard output that is not
