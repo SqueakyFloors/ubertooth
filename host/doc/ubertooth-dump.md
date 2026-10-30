@@ -12,6 +12,13 @@ demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
 
+The dump is one record per block of symbols the board sends. Without `-b` a
+record is 68 bytes: the host time the block arrived, 4 bytes big-endian, then
+the whole 64-byte USB receive packet, 50 bytes of which are the symbols packed
+8 per byte. With `-b` a record is one 401-byte line: the block's 400 symbols as
+ASCII `0` and `1`, then a newline. Nothing separates the records otherwise, and
+nothing marks a gap, so a reader counts from the start of the dump.
+
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
 board was idle, and the firmware resets it on every mode change, so it never
@@ -142,9 +149,14 @@ the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was dumped stays written out, and libubertooth names the
 refused request on standard error.
 
-A `-d` file is opened once the board has been opened and its firmware
-accepted, not before, so a run refused for either reason leaves no empty file
-behind. A terminal on standard output is still refused while the command line
+Also 1 when the board refuses the modulation `-c` or `-l` asks for:
+`error: modulation set failed` on standard error, after libubertooth's own line
+for the refused request. No capture is started, so the dump cannot come back on
+a modulation other than the one asked for.
+
+A `-d` file is opened once the board has been opened, its firmware accepted and
+its modulation set, not before, so a run refused for any of those reasons
+leaves no empty file behind. A terminal on standard output is still refused while the command line
 is read, with or without `-d -`, because that is a problem with the command
 rather than with the board.
 

@@ -10,6 +10,8 @@ ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename\.bin>]
 .SH "DESCRIPTION"
 This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.
 .P
+The dump is one record per block of symbols the board sends\. Without \fB\-b\fR a record is 68 bytes: the host time the block arrived, 4 bytes big\-endian, then the whole 64\-byte USB receive packet, 50 bytes of which are the symbols packed 8 per byte\. With \fB\-b\fR a record is one 401\-byte line: the block's 400 symbols as ASCII \fB0\fR and \fB1\fR, then a newline\. Nothing separates the records otherwise, and nothing marks a gap, so a reader counts from the start of the dump\.
+.P
 The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .SH "OPTIONS"
 .TP
@@ -64,7 +66,9 @@ Also 1 when the dump's USB stream fails part\-way: the board stopped answering o
 .P
 Also 1 when the board refuses the request that ends the dump: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was dumped stays written out, and libubertooth names the refused request on standard error\.
 .P
-A \fB\-d\fR file is opened once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
+Also 1 when the board refuses the modulation \fB\-c\fR or \fB\-l\fR asks for: \fBerror: modulation set failed\fR on standard error, after libubertooth's own line for the refused request\. No capture is started, so the dump cannot come back on a modulation other than the one asked for\.
+.P
+A \fB\-d\fR file is opened once the board has been opened, its firmware accepted and its modulation set, not before, so a run refused for any of those reasons leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"
