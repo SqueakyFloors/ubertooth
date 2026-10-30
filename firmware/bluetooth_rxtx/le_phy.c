@@ -2033,8 +2033,33 @@ static void packet_handler(le_rx_t *buf) {
 		switch (buf->data[0] & 0xf) {
 			// CONNECT_REQ
 			case 0x05:
+				// Ignored while a connection is being followed. The
+				// packet queue holds ten packets and this loop takes one
+				// per pass, so a connection request reaches here after
+				// the follow it opened has already begun, and a request
+				// from another pair of devices reaches here during a
+				// healthy follow.
+				//
+				// Acting on it would rebuild the connection state from
+				// this loop: le_connect_handler() clears all of `conn`
+				// and writes it field by field, while the timer interrupt
+				// is free to take a connection event in the middle of
+				// that and hop on half-written state. It would also move
+				// the capture onto a different connection part way
+				// through. So the follow runs to its end -- its
+				// supervision timeout, or the host's cancel -- and the
+				// packet still reaches the host, which happens before
+				// this runs.
+				//
+				// The advertising access address is what reset_conn()
+				// leaves behind, so it means "not following", the same
+				// test change_channel() makes. Only this loop starts a
+				// follow, so no interrupt can turn that answer from no to
+				// yes between the test and the call.
+				//
 				// TODO validate length
-				le_connect_handler(buf);
+				if (conn.access_address == ADVERTISING_AA)
+					le_connect_handler(buf);
 				break;
 		}
 	}
