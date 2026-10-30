@@ -46,7 +46,7 @@ A refused command line creates and truncates nothing: \fB\-d\fR names its file w
 .SH "DIAGNOSTICS"
 Without \fB\-d\fR, standard output carries the symbol stream and nothing else, and so does \fB\-d \-\fR\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\. That line comes after the board has been selected and its firmware accepted, because that is when the file is opened\.
 .P
-A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. A dump is thousands of records a second, written for a file or another program: without \fB\-b\fR it is binary and fills a terminal with control characters, and with \fB\-b\fR it scrolls 401 characters per record past faster than anything can be read\. Redirect or pipe standard output instead, or give \fB\-d\fR a file\. That line is the wording every tool shares for a capture stream it will not write to a terminal, so it says \fBbinary\fR for \fB\-b\fR too\.
+A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. A dump is written for a file or another program, not for a screen, and \fB\-b\fR is refused too although it is text\. Redirect or pipe standard output instead, or give \fB\-d\fR a file\.
 .P
 A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P
@@ -66,9 +66,9 @@ Also 1 when the dump's USB stream fails part\-way: the board stopped answering o
 .P
 Also 1 when the board refuses the request that ends the dump: it is left in the capture mode, and no other tool can open it until it is reset or re\-plugged\. What was dumped stays written out, and libubertooth names the refused request on standard error\.
 .P
-Also 1 when the board refuses the modulation \fB\-c\fR or \fB\-l\fR asks for: \fBerror: modulation set failed\fR on standard error, after libubertooth's own line for the refused request\. No capture is started, so the dump cannot come back on a modulation other than the one asked for\.
+Also 1 when the board refuses the modulation \fB\-c\fR or \fB\-l\fR asks for: \fBerror: modulation set failed\fR on standard error, after libubertooth's own line for the refused request\. No capture is started, so the dump cannot come back on a modulation other than the one asked for\. The modulation is the last thing asked of the board, after a \fB\-d\fR file has been opened, so this is the one refusal that can leave an empty one behind; the board's radio is as the dump found it\.
 .P
-A \fB\-d\fR file is opened once the board has been opened, its firmware accepted and its modulation set, not before, so a run refused for any of those reasons leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
+A \fB\-d\fR file is opened once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"

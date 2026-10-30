@@ -36,7 +36,7 @@ static void usage(FILE *file)
 	fprintf(file, "\t-c classic modulation\n");
 	fprintf(file, "\t-l LE modulation\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
-	fprintf(file, "\t-d filename dump to this file instead of standard output ('-' is standard output)\n");
+	fprintf(file, "\t-d <filename> write the dump here ('-' is standard output)\n");
 	fprintf(file, "\nA dump is written for a file or another program, so a terminal on standard\n");
 	fprintf(file, "output is refused: redirect it, pipe it, or give -d a file.\n");
 }
@@ -182,27 +182,11 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	/* The modulation decides what the dump holds, so a board that would not
-	 * take it ends the run. Letting the request fail quietly dumped
-	 * whatever modulation the board had been left in: -l on a board still
-	 * set to Classic gave Classic symbols and exit 0, and nothing in the
-	 * output says which modulation produced it. No mode is running yet --
-	 * the request only stores the value the radio setup reads -- so the
-	 * board is given back the way a refused firmware version gives it back.
-	 */
-	if (cmd_set_modulation(ut->devh, modulation) < 0) {
-		fprintf(stderr, "error: modulation set failed\n");
-		ubertooth_close(ut);
-		ubertooth_free(ut);
-		return 1;
-	}
-
-	/* The board is open, usable and set to the right modulation, so the
-	 * dump file can be opened: a run refused for any of those leaves no
-	 * empty file behind for the user to tell apart from a dump that caught
-	 * nothing. The file is left to process exit from here on, as on every
-	 * other exit of this tool: libubertooth owns that global, not the
-	 * tool. */
+	/* The board is open and usable, so the dump file can be opened: a run
+	 * refused for its firmware leaves no empty file behind for the user to
+	 * tell apart from a dump that caught nothing. The file is left to
+	 * process exit from here on, as on every other exit of this tool:
+	 * libubertooth owns that global, not the tool. */
 	if (dump_name != NULL) {
 		dumpfile = opt_open_dump_file(dump_name, "dump data");
 		if (dumpfile == NULL) {
@@ -210,6 +194,28 @@ int main(int argc, char *argv[])
 			ubertooth_free(ut);
 			return 1;
 		}
+	}
+
+	/* The modulation decides what the dump holds, so a board that would not
+	 * take it ends the run. Letting the request fail quietly dumped
+	 * whatever modulation the board had been left in: -l on a board still
+	 * set to Classic gave Classic symbols and exit 0, and nothing in the
+	 * output says which modulation produced it.
+	 *
+	 * This is the last thing asked of the board before the capture, and it
+	 * stays there: the firmware keeps the value until a mode ends, and the
+	 * tools that never set their own modulation (ubertooth-rx, -follow,
+	 * -afh) would then demodulate with it. So nothing between here and the
+	 * capture may fail -- an unwritable -d is checked above, which costs an
+	 * empty file on this path and leaves the radio as the dump found it.
+	 *
+	 * No mode is running yet, so the board is given back the way a refused
+	 * firmware version gives it back. */
+	if (cmd_set_modulation(ut->devh, modulation) < 0) {
+		fprintf(stderr, "error: modulation set failed\n");
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 1;
 	}
 
 	/* A dump that could not start, or whose stream died part-way, holds

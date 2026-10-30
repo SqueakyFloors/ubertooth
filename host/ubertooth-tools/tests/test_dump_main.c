@@ -404,8 +404,9 @@ MU_TEST(a_refused_command_line_opens_no_dump_file)
 
 /* A board that will not take the modulation ends the run: a dump started
  * anyway would hold whatever modulation that board was left in, and nothing in
- * the output says which one produced it. The -d file is opened after the
- * modulation, so a run refused here leaves no empty one behind either. */
+ * the output says which one produced it. The modulation is asked for after the
+ * -d file has been opened, so this is the one refusal that leaves an empty one
+ * behind, and in exchange a refused -d never changes the board's modulation. */
 MU_TEST(a_refused_modulation_dumps_nothing)
 {
 	char path[64];
@@ -421,7 +422,6 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 	fd = mkstemp(path);
 	mu_assert_fatal(fd >= 0, "temp name taken");
 	close(fd);
-	unlink(path);
 
 	run_main(&r, 4, argv);
 
@@ -433,8 +433,12 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
-	mu_assert(stat(path, &info) != 0, path);
-	mu_assert(dumpfile == NULL, "no dump file was opened");
+	mu_assert(stat(path, &info) == 0 && info.st_size == 0,
+	          "the -d file is there and empty");
+	if (dumpfile != NULL) {
+		fclose(dumpfile);
+		dumpfile = NULL;
+	}
 	unlink(path);
 }
 

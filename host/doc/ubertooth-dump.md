@@ -80,12 +80,9 @@ when the file is opened.
 
 A terminal is refused either way, before any device is opened:
 `error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
-A dump is thousands of records a second, written for a file or another program:
-without `-b` it is binary and fills a terminal with control characters, and
-with `-b` it scrolls 401 characters per record past faster than anything can be
-read. Redirect or pipe standard output instead, or give `-d` a file. That line
-is the wording every tool shares for a capture stream it will not write to a
-terminal, so it says `binary` for `-b` too.
+A dump is written for a file or another program, not for a screen, and `-b` is
+refused too although it is text. Redirect or pipe standard output instead, or
+give `-d` a file.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the
@@ -157,11 +154,14 @@ refused request on standard error.
 Also 1 when the board refuses the modulation `-c` or `-l` asks for:
 `error: modulation set failed` on standard error, after libubertooth's own line
 for the refused request. No capture is started, so the dump cannot come back on
-a modulation other than the one asked for.
+a modulation other than the one asked for. The modulation is the last thing
+asked of the board, after a `-d` file has been opened, so this is the one
+refusal that can leave an empty one behind; the board's radio is as the dump
+found it.
 
-A `-d` file is opened once the board has been opened, its firmware accepted and
-its modulation set, not before, so a run refused for any of those reasons
-leaves no empty file behind. A terminal on standard output is still refused
+A `-d` file is opened once the board has been opened and its firmware
+accepted, not before, so a run refused for either reason leaves no empty file
+behind. A terminal on standard output is still refused
 while the command line is read, with or without `-d -`, because that is a
 problem with the command rather than with the board.
 
