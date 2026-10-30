@@ -80,9 +80,11 @@ extern uint8_t rssi_count;
  * and rssi_noise_reset() the background. */
 void rssi_reset(void);
 
-/* The packet's own power: the mean of the readings taken while it was on the
- * air, in power, over the readings within RSSI_POWER_SPAN dB of the
- * strongest. INT8_MIN if the mode took no reading. */
+/* The packet's own power: the mean, in power, of the readings within
+ * RSSI_POWER_SPAN dB of the strongest taken in this receive window. The window
+ * is a fixed stretch of air time rather than the packet, so leaving the
+ * quieter readings out is what makes the figure the packet's. INT8_MIN if the
+ * mode took no reading. */
 int8_t rssi_get_signal(void);
 
 /*

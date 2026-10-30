@@ -140,10 +140,13 @@ noise-power-valid flag says the noise field holds the board's estimate, so a
 reader shows a signal-to-noise ratio wherever the estimate sits below the
 packet. The ratio is as good as the estimate it rests on.
 
-A channel the board never heard both loud and quiet in one receive window
-leaves it with no estimate. Such a record leaves the flag clear, Wireshark
-shows the field as `Invalid Noise Power`, and the screen prints `n=none
-snr=none`.
+Where the board has admitted no reading since it last started counting -- a
+channel it has heard loud but never quiet, or quiet but never loud -- there is
+no estimate. Such a record leaves the flag clear, Wireshark shows the field as
+`Invalid Noise Power`, and the screen prints `n=none snr=none`. A record whose
+own window admitted none still carries the figure if an earlier window since
+the last reset did: the estimate belongs to the channel over that stretch, not
+to one window.
 
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at

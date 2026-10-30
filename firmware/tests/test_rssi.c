@@ -667,6 +667,9 @@ MU_TEST(test_a_reading_exactly_the_span_down_is_not_the_background)
 	rssi_add(-40);
 	rssi_add(-50);
 	mu_assert_int_eq(0, rssi_noise_estimated());
+	/* It counts towards the packet instead: the mean of -40 and -50 in
+	 * power, which is 3 dB below the louder of the two. */
+	mu_assert_int_eq(-43, rssi_get_signal());
 
 	rssi_add(-51);
 	mu_assert_int_eq(1, rssi_noise_estimated());

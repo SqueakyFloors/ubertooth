@@ -66,7 +66,7 @@ USB delay in 625us timeslots (default: 5)\.
 \fB\-h\fR
 show help\.
 .P
-A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power and the board's estimate of the background on its channel, and the screen shows the two as \fBs=\fR and \fBn=\fR with \fBsnr=\fR the difference\. A record whose receive window held no reading well below its loudest carries no estimate: the capture's noise\-power\-valid flag stays clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\. ubertooth\-rx(1) describes both figures and what the estimate rests on\.
+A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power and the board's estimate of the background on its channel, and the screen shows the two as \fBs=\fR and \fBn=\fR with \fBsnr=\fR the difference\. Where the board has admitted no quiet reading since it last started counting there is no estimate: the capture's noise\-power\-valid flag stays clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\. ubertooth\-rx(1) describes both figures and what the estimate rests on\.
 .P
 The board has one reading of the channel to work from, so both figures are of whatever is on it\. A transmitter louder than the packet, on the same channel at the same moment, is what the signal figure describes, and the packet is then part of the background\.
 .SH "AFH"

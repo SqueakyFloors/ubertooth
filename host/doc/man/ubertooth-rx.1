@@ -101,7 +101,7 @@ The background is an estimate because the board cannot time the quiet between pa
 .P
 The screen shows the two as \fBs=\fR and \fBn=\fR, in dBm, with \fBsnr=\fR the difference\. A capture record carries them as its signal power and noise power, and the noise\-power\-valid flag says the noise field holds the board's estimate, so a reader shows a signal\-to\-noise ratio wherever the estimate sits below the packet\. The ratio is as good as the estimate it rests on\.
 .P
-A channel the board never heard both loud and quiet in one receive window leaves it with no estimate\. Such a record leaves the flag clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\.
+Where the board has admitted no reading since it last started counting \-\- a channel it has heard loud but never quiet, or quiet but never loud \-\- there is no estimate\. Such a record leaves the flag clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\. A record whose own window admitted none still carries the figure if an earlier window since the last reset did: the estimate belongs to the channel over that stretch, not to one window\.
 .P
 The board has one reading of the channel to work from, so both figures are of whatever is on it\. A transmitter louder than the packet, on the same channel at the same moment, is what the signal figure describes, and the packet is then part of the background\.
 .P

@@ -269,14 +269,14 @@ each.
 A `-q` or `-r` capture record carries the packet's own power, which is the
 figure printed as `rssi=` as well. Follow and advertising capture (`-f`, `-n`)
 average the readings of the packet in power rather than in dBm, which is what
-the average of a set of dBm readings means; promiscuous capture (`-p`) has one
-reading a packet, taken as the packet ends.
+the average of a set of dBm readings means. A promiscuous record (`-p`) carries
+no average of its own, so the figure is the strongest reading the board took
+around the packet.
 
-No low-energy mode carries a figure for the background. Each of them has the
-radio deliver whole packets rather than polling through the air, so the board
-reads the channel only while a packet is arriving and has nothing to estimate
-the background from. Those records leave the noise-power-valid flag clear,
-Wireshark shows the field as `Unused signed byte`, and no reader computes a
+No low-energy record carries a figure for the background, whatever the mode
+read: the two status bits that would make one readable are set on Classic
+records alone. Those records leave the noise-power-valid flag clear, Wireshark
+shows the field as `Unused signed byte`, and no reader computes a
 signal-to-noise ratio from them. Classic capture does carry one, which
 ubertooth-rx(1) describes.
 
@@ -442,7 +442,7 @@ standard error, and the decoded packets are not printed at all.
 The `rssi=` figure on each packet's `systime=` line is that packet's own level
 in dBm, through a piecewise-linear model of the CC2400 datasheet's RSSI curve:
 the mean power of the packet's readings where the record carries that figure,
-and the strongest reading the board reports for the packet where it does not --
+and the strongest reading the board took around the packet where it does not --
 a promiscuous record, or one from a board older than the figure. It is the same
 number the signal field of a `-q` or `-r` capture carries for that packet, so a
 dump and a capture of one run agree. A `-c` PPI capture carries the board's raw

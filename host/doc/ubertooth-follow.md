@@ -84,8 +84,8 @@ Requires BlueZ (Linux only).
 
 A record of a `-q` or `-r` capture carries the packet's own power and the
 board's estimate of the background on its channel, and the screen shows the two
-as `s=` and `n=` with `snr=` the difference. A record whose receive window held
-no reading well below its loudest carries no estimate: the capture's
+as `s=` and `n=` with `snr=` the difference. Where the board has admitted no quiet
+reading since it last started counting there is no estimate: the capture's
 noise-power-valid flag stays clear, Wireshark shows the field as `Invalid Noise
 Power`, and the screen prints `n=none snr=none`. ubertooth-rx(1) describes both
 figures and what the estimate rests on.
