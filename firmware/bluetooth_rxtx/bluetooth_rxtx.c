@@ -2119,8 +2119,8 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	cc2400_set(SYNCH,   (sync >> 16) & 0xffff);
 
 	// GIO6 reports the radio's FIFO empty, which is what the write loop
-	// below waits on. FIFO_FULL is a different signal with the opposite
-	// sense.
+	// below waits on. It must not be FIFO_FULL, which br_transmit() asks
+	// for: that is a different signal with the opposite sense.
 	gio_save = cc2400_get(IOCFG);
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
@@ -4235,21 +4235,22 @@ void tx_generic(u8 prev_mode) {
 	 * The payload goes into the radio's FIFO a FIFO's worth at a time,
 	 * waiting for the radio to send what it has between pieces, as
 	 * le_transmit() does. The FIFO holds CC2400_FIFO_SIZE bytes and a
-	 * generic transmit packet may carry up to DMA_SIZE, half again as much,
-	 * so a single write would push the rest past the end of the FIFO and
-	 * what went on the air would be undefined.
+	 * generic transmit packet may carry DMA_SIZE, 50 bytes against the
+	 * FIFO's 32, so a single write would push the rest past the end of the
+	 * FIFO and what went on the air would be undefined.
 	 *
-	 * The wait is for the FIFO to be empty, which is what GIO6 is
-	 * configured above to report. The modem takes bytes out of the FIFO at
-	 * the air rate, so between pieces it has nothing to send for as long as
-	 * the next write takes: about 33 us, four byte-times at 1 Mbit/s.
-	 * Whether the radio carries a packet across that gap or frames the rest
-	 * as a second transmission is not known -- an Ubertooth receiver reads
-	 * one FIFO's worth per sync word, so it cannot see the difference --
-	 * and the alternative, refilling at the threshold in INT before the
-	 * FIFO runs dry, needs both that measurement and a reading of what the
-	 * radio asserts its FIFO signals on. Waiting on empty is the shape both
-	 * transmit loops use until someone has those.
+	 * The wait is for the FIFO to be empty. The modem takes bytes out of it
+	 * at the air rate, so between pieces it has nothing to send for as long
+	 * as the next write takes: cc2400_fifo_write() costs about 1 us a byte,
+	 * so under 20 us for the 18 bytes a 50-byte packet has left, against
+	 * 8 us a byte on the air. Whether the radio carries a packet across
+	 * that gap, or the strobe below frames the rest as a second
+	 * transmission, is not known: an Ubertooth receiver reads one FIFO's
+	 * worth per sync word, so it cannot see the difference. The
+	 * alternative, refilling at the threshold in INT before the FIFO runs
+	 * dry, needs that measurement and a reading of what the radio asserts
+	 * its FIFO signals on, so waiting on empty is what both refill loops
+	 * do until someone has those.
 	 *
 	 * The length is clamped as well as chunked, because this is where a
 	 * length reaches the radio: the vendor request already refuses a longer

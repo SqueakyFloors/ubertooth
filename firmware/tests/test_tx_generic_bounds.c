@@ -439,10 +439,9 @@ struct scan {
 	int chunked;          /* a piece bounded by the FIFO's size */
 	int drain_wait;       /* the wait for the radio between pieces */
 	int drain_wait_used;  /* ...with its result acted on */
-	int gio_empty_setups; /* GIO6 set to the FIFO-empty signal, in a loop */
-	int gio_empty_first;  /* ...the first of them, le_transmit()'s */
-	int gio_empty_last;   /* ...the last, tx_generic()'s */
 	int first_wait;       /* the first wait in the file, le_transmit()'s */
+	int gio_in_le;        /* le_transmit() puts FIFO-empty on GIO6 */
+	int gio_in_tx;        /* ...and so does tx_generic() */
 	int bare_gio6_spin;   /* an unbounded wait on GIO6, anywhere in the file */
 	int bare_gio6_line;
 	int wait_body;        /* where fifo_wait_empty() is defined */
@@ -454,7 +453,7 @@ struct scan {
 static int scan_source(const char *path, struct scan *s)
 {
 	char line[512], flat[512];
-	int lineno = 0, in_block = 0, in_case = 0;
+	int lineno = 0, in_block = 0, in_case = 0, in_fn = 0;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -503,17 +502,30 @@ static int scan_source(const char *path, struct scan *s)
 				s->first_wait = lineno;
 		}
 
-		/* The signal the two waits read. fifo_wait_empty() polls GIO6,
+		/*
+		 * The signal the two waits read. fifo_wait_empty() polls GIO6,
 		 * and GIO6 carries whatever IOCFG was told to put on it, so a
 		 * loop that waits for the FIFO to empty has to ask for the
 		 * FIFO-empty signal: FIFO_FULL is a different one with the
-		 * opposite sense, and the threshold in INT is a third. */
+		 * opposite sense, and the threshold in INT is a third.
+		 *
+		 * Looked for inside each of the two functions rather than across
+		 * the file, because br_transmit() asks for FIFO_FULL on purpose
+		 * and never waits on the pin at all: it writes 16 bytes once per
+		 * pair of slots, which the FIFO always has room for.
+		 */
+		if (strstr(flat, "void le_transmit(") != NULL)
+			in_fn = 1;
+		else if (strstr(flat, "void tx_generic(") != NULL)
+			in_fn = 2;
+		else if (in_fn != 0 && line[0] == '}')
+			in_fn = 0;  /* a closing brace in column 0 ends it */
 		if (strstr(flat, "cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9)") !=
 		    NULL) {
-			s->gio_empty_setups++;
-			if (s->gio_empty_first == 0)
-				s->gio_empty_first = lineno;
-			s->gio_empty_last = lineno;
+			if (in_fn == 1 && s->gio_in_le == 0)
+				s->gio_in_le = lineno;
+			else if (in_fn == 2 && s->gio_in_tx == 0)
+				s->gio_in_tx = lineno;
 		}
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
@@ -700,34 +712,37 @@ MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
 }
 
 /*
- * Both loops refill when the radio has emptied its FIFO, so both have to put
- * the FIFO-empty signal on the pin their wait polls. Waiting on a pin that
+ * The two loops that refill the FIFO wait for the radio to empty it, so each
+ * has to put the FIFO-empty signal on the pin it polls. Waiting on a pin that
  * carries something else is the failure this catches: with FIFO_FULL on it the
  * sense is inverted, and the next piece goes into a FIFO the radio still
  * holds.
  */
-MU_TEST(test_both_transmit_loops_wait_on_the_fifo_being_empty)
+MU_TEST(test_each_refill_loop_waits_on_the_fifo_being_empty)
 {
 	char msg[640];
 
 	snprintf(msg, sizeof(msg),
-	         "%s: both transmit loops must put the radio's FIFO-empty signal "
-	         "on GIO6, which is the pin their wait polls; the scan found %d "
-	         "of the two doing it", path, s.gio_empty_setups);
-	mu_assert(s.gio_empty_setups == 2, msg);
+	         "%s: le_transmit() does not put the radio's FIFO-empty signal "
+	         "on GIO6, which is the pin fifo_wait_empty() polls, so its wait "
+	         "reads whatever signal was on the pin", path);
+	mu_assert_fatal(s.gio_in_le > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: le_transmit() waits on GIO6 at line %d before it has "
-	         "asked for the FIFO-empty signal, so the wait reads whatever "
-	         "signal was on the pin", path, s.gio_empty_first, s.first_wait);
-	mu_assert(s.gio_empty_first < s.first_wait, msg);
+	         "%s:%d: le_transmit() waits on GIO6 at line %d before asking "
+	         "for the FIFO-empty signal", path, s.gio_in_le, s.first_wait);
+	mu_assert(s.gio_in_le < s.first_wait, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: tx_generic() waits on GIO6 at line %d before it has "
-	         "asked for the FIFO-empty signal, so the wait reads whatever "
-	         "signal was on the pin", path, s.gio_empty_last, s.drain_wait);
-	mu_assert(s.gio_empty_last > s.first_wait &&
-	          s.gio_empty_last < s.drain_wait, msg);
+	         "%s: tx_generic() does not put the radio's FIFO-empty signal on "
+	         "GIO6, which is the pin fifo_wait_empty() polls, so its wait "
+	         "reads whatever signal was on the pin", path);
+	mu_assert_fatal(s.gio_in_tx > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() waits on GIO6 at line %d before asking for "
+	         "the FIFO-empty signal", path, s.gio_in_tx, s.drain_wait);
+	mu_assert(s.gio_in_tx < s.drain_wait, msg);
 }
 
 int main(void)
@@ -754,6 +769,6 @@ int main(void)
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_the_handler_refuses_before_it_copies);
 	MU_RUN(test_the_fifo_write_is_clamped_and_chunked);
-	MU_RUN(test_both_transmit_loops_wait_on_the_fifo_being_empty);
+	MU_RUN(test_each_refill_loop_waits_on_the_fifo_being_empty);
 	return mu_report();
 }
