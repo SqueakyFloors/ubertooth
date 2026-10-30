@@ -94,6 +94,9 @@
 #define FS_LOCK_FAST_RECHECKS   512
 #define FS_LOCK_SLOW_RESTROBE   16
 
+// How long an LED stays on for one packet handed to the host. See BLINK_NOW.
+#define LE_BLINK_LENGTH MSEC(10)
+
 // Reads before emptying the symbol buffer gives up.
 //
 // The drains below empty the SSP's receive buffer after the radio has been
@@ -1511,9 +1514,6 @@ static void timer1_interrupt(void) {
 		}
 	}
 }
-
-// How long an LED stays on for one packet.
-#define LE_BLINK_LENGTH MSEC(10)
 
 // The blink's own counter, timer2, and the moment the LEDs go off again.
 //

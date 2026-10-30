@@ -74,8 +74,8 @@ struct le_phy_scan {
 	 * guard that arms it. */
 	int bare_moment_from_counter;
 	/* The LED blink, which is on timer2: any mention of timer1's match 1,
-	 * which the blink used to arm; where blink() takes its deadline from;
-	 * and any unmasking of timer2's own interrupt. */
+	 * which the blink used to arm, and any unmasking of timer2's own
+	 * interrupt. */
 	int timer1_blink_match;
 	int timer2_unmask;
 	/* In le_phy_main(): where the blink's counter is started and stopped,
@@ -127,8 +127,6 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 
 		if (contains_identifier(line, "ISER0_ISE_TIMER2"))
 			s->timer2_unmask = lineno;
-
-
 
 		/* Every mention of T1MCR in the file, and whether it is inside one
 		 * of the helpers that hold interrupts off. A write of the whole
