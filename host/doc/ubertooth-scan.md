@@ -110,12 +110,11 @@ that say which half of the scan is running (`HCI scan`, `Ubertooth scan` and
 warning and failure (see EXIT STATUS). Earlier releases mixed those in with
 the results, so a scan piped into another program carried them along.
 
-Some lines on standard output come from libbtbb rather than from this tool, and
-are still mixed in with the results: what it says while it recovers a piconet's
-clock, such as `12 initial CLK1-27 candidates`, `got CLK1-27` and `clock offset
-= 3.`. A library must not write to standard output at all; moving those lines
-is tracked in
-[issue #323](https://github.com/SqueakyFloors/ubertooth/issues/323).
+Earlier releases also had lines from libbtbb among the results, because the
+library wrote them to standard output: what it says while it recovers a
+piconet's clock, such as `12 initial CLK1-27 candidates`, `got CLK1-27` and
+`clock offset = 3.`. The library reports those on standard error now, so a
+scan's standard output holds the results and nothing else.
 
 ## GAPS IN A CAPTURE
 
