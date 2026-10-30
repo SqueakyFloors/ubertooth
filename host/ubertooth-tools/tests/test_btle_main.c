@@ -1114,11 +1114,11 @@ MU_TEST(a_failed_target_set_and_jamming_are_reported_on_stderr)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(JAM_ONCE, fake.last_jam_mode);
 	mu_assert_int_eq(0, fake.polls); /* no capture was started */
-	/* The warning that interference does nothing yet comes first, then the
-	 * request the board refused. */
+	/* The warning that interference is not yet confirmed on hardware comes
+	 * first, then the request the board refused. */
 	mu_assert(strcmp(r.err,
-	                 "warning: interference (-i, -I, -j, -J) is accepted but"
-	                 " no capture mode acts on it yet; see KNOWN BROKEN"
+	                 "warning: interference (-i, -I, -j, -J) transmits but is"
+	                 " not yet confirmed on hardware; see KNOWN BROKEN"
 	                 " FEATURES in ubertooth-btle(1)\n"
 	                 "error: jamming not supported by this firmware\n") == 0,
 	          r.err);
@@ -1637,8 +1637,8 @@ MU_TEST(interference_warns_once_when_the_run_proceeds)
 {
 	struct run_result r;
 	static const char warning[] =
-		"warning: interference (-i, -I, -j, -J) is accepted but no capture"
-		" mode acts on it yet; see KNOWN BROKEN FEATURES in"
+		"warning: interference (-i, -I, -j, -J) transmits but is not yet"
+		" confirmed on hardware; see KNOWN BROKEN FEATURES in"
 		" ubertooth-btle(1)\n";
 
 	reset_fake();

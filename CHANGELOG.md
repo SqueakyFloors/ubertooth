@@ -819,6 +819,18 @@
   [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
   [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007)
 
+- Fixed: `ubertooth-btle` interference (`-i`, `-I`, and their original jam
+  spellings `-j` and `-J`) accepted the option but transmitted nothing, so a
+  run that asked to disrupt a connection was no different from one that did
+  not. The firmware now transmits on a followed connection's events to disrupt
+  it, in both follow (`-f`) and promiscuous (`-p`) modes; a single-shot jam
+  (`-i`/`-j`) stops once that connection is lost, and a continuous one
+  (`-I`/`-J`) stays to catch the next. A jam mode stated for a capture that
+  never started no longer reaches the next one. The tool still warns and the
+  man page still lists this under KNOWN BROKEN FEATURES until a hardware test
+  confirms the effect.
+  [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
+
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as
   `delta_t=46611.718 ms` -- that gap less the two 429.4967 s periods inside it

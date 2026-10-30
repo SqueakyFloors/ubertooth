@@ -141,36 +141,24 @@ struct scan {
 	int setmod_case;
 	int setmod_stated;
 	int setmod_guard;
-	/* The jam mode request, which the host sends *before* the mode request
-	 * it belongs to, and the copy it keeps for the mode that is starting. */
+	/* The jam mode request. The host sends it after its mode request, as it
+	 * does the modulation, so it keeps a copy for that mode (jam_stated)
+	 * under the same guard (jam_guard). */
 	int jam_case;
-	int jam_keep;
+	int jam_stated;
+	int jam_guard;
 	/* program_stated_modulation(), which is what lets a modulation arrive
 	 * after the mode request: where it is defined, and where the capture
 	 * loop calls it. What it does there is the model's to check. */
 	int mod_fn;
 	int stream_mod_call;
-	int kept_call;        /* apply_kept_settings() in the dispatch */
-	int kept_calls;       /* how many */
-	/* keep_for_next_mode_start(): where it is defined, and where it leaves
-	 * an idle board's value alone. */
-	int keep_fn;
-	int keep_fn_idle;
-	/* apply_kept_settings(): where it is defined, where it clears the copy,
-	 * how often, and where a stop is left with nothing. */
-	int kept_fn;
-	int kept_fn_clear;
-	int kept_fn_clears;
-	int kept_fn_idle;
-	/* drop_kept_settings(): its definition, and how many of the requests
-	 * that can be absorbed call it. */
-	int drop_fn;
-	int drop_calls;
-	/* What the teardown puts back, so the copy is the only way either
-	 * setting reaches the mode that is starting. */
-	int idle_fn_jam;
+	/* What the teardown resets. The modulation goes back in cc2400_idle(),
+	 * but the jam mode does not: cc2400_idle() runs in the middle of the
+	 * promiscuous mode, so the jam mode is reset in the dispatch instead
+	 * (dispatch_jam), the one place a capture has actually ended. */
 	int idle_fn_modulation;
 	int idle_fn_manand;   /* cc2400_set(MANAND, ...) inside cc2400_idle() */
+	int dispatch_jam;     /* jam_mode reset in the dispatch teardown */
 
 	/* The modes the dispatch runs by calling bt_stream_rx(), and the
 	 * condition of the loop that is meant to run them. Room for more modes
@@ -299,7 +287,6 @@ static int scan_source(const char *path, struct scan *s)
 	int lineno = 0, in_block = 0, in_main = 0, in_loop = 0, in_idle_fn = 0;
 	int in_absorbed_fn = 0;
 	int in_stated_fn = 0;
-	int in_keep_fn = 0, in_kept_fn = 0;
 	char in_case = 0;   /* 'm' or 'j' inside the two settings' cases */
 	char fn[64] = "", name[64];
 	struct request_case current;
@@ -346,10 +333,9 @@ static int scan_source(const char *path, struct scan *s)
 		 * `in_case` is which of the two the lines below belong to, so a
 		 * keep call in some later case cannot stand in for a missing
 		 * one here. A `case` label or a `break;` ends it. */
-		/* The call sites, which pass the mode the request asks for; the
-		 * declaration and the definition pass a parameter name. */
-		if (strstr(line, "drop_kept_settings(MODE_") != NULL)
-			s->drop_calls++;
+		/* Both requests state a setting after a mode request, so each
+		 * keeps a copy for that mode under the `requested_mode != mode`
+		 * guard. */
 		if (strstr(line, "case UBERTOOTH_SET_MOD:") != NULL) {
 			s->setmod_case = lineno;
 			in_case = 'm';
@@ -358,10 +344,6 @@ static int scan_source(const char *path, struct scan *s)
 			in_case = 'j';
 		} else if (strstr(line, "case ") != NULL ||
 		           strstr(line, "break;") != NULL) {
-			if (in_case == 'j' &&
-			    strstr(line, "keep_for_next_mode_start(KEEP_JAM_MODE)")
-			    != NULL)
-				s->jam_keep = lineno;
 			in_case = 0;
 		}
 		if (in_case == 'm' && s->setmod_stated == 0 &&
@@ -372,9 +354,13 @@ static int scan_source(const char *path, struct scan *s)
 		    s->setmod_guard == 0 &&
 		    strstr(line, "if (requested_mode != mode)") != NULL)
 			s->setmod_guard = lineno;
-		if (in_case == 'j' && s->jam_keep == 0 &&
-		    strstr(line, "keep_for_next_mode_start(KEEP_JAM_MODE)") != NULL)
-			s->jam_keep = lineno;
+		if (in_case == 'j' && s->jam_stated == 0 &&
+		    strstr(line, "stated_for_starting_mode(STATED_JAM_MODE)")
+		    != NULL)
+			s->jam_stated = lineno;
+		if (in_case == 'j' && s->jam_stated == 0 && s->jam_guard == 0 &&
+		    strstr(line, "if (requested_mode != mode)") != NULL)
+			s->jam_guard = lineno;
 
 		/* program_stated_modulation(), and the capture loop's call to
 		 * it. The definition is the line that opens the function, so
@@ -398,40 +384,6 @@ static int scan_source(const char *path, struct scan *s)
 				s->absorbed_reset_fn_mod = lineno;
 			if (line[0] == '}')
 				in_absorbed_fn = 0;
-			continue;
-		}
-
-		/*
-		 * keep_for_next_mode_start()'s body. An idle board keeps
-		 * nothing: a mode starting from idle runs no teardown, so the
-		 * value the host just set already survives, and a copy left on
-		 * an idle board would reach whatever mode started next.
-		 */
-		if (in_keep_fn) {
-			if (contains_identifier(line, "MODE_IDLE") &&
-			    s->keep_fn_idle == 0)
-				s->keep_fn_idle = lineno;
-			if (line[0] == '}')
-				in_keep_fn = 0;
-			continue;
-		}
-
-		/*
-		 * apply_kept_settings()'s body. The copy is cleared on the way
-		 * in, before the stop that keeps nothing returns, so one mode
-		 * start is as far as it reaches.
-		 */
-		if (in_kept_fn) {
-			if (is_assignment_to(line, "keep_what")) {
-				if (s->kept_fn_clear == 0)
-					s->kept_fn_clear = lineno;
-				s->kept_fn_clears++;
-			}
-			if (contains_identifier(line, "MODE_IDLE") &&
-			    s->kept_fn_idle == 0)
-				s->kept_fn_idle = lineno;
-			if (line[0] == '}')
-				in_kept_fn = 0;
 			continue;
 		}
 
@@ -482,23 +434,6 @@ static int scan_source(const char *path, struct scan *s)
 		}
 
 		if (!in_main && !in_idle_fn) {
-			if (strstr(line, "keep_for_next_mode_start(") != NULL &&
-			    strchr(line, ';') == NULL) {
-				in_keep_fn = 1;
-				s->keep_fn = lineno;
-				continue;
-			}
-			if (strstr(line, "apply_kept_settings(") != NULL &&
-			    strchr(line, ';') == NULL) {
-				in_kept_fn = 1;
-				s->kept_fn = lineno;
-				continue;
-			}
-			if (strstr(line, "drop_kept_settings(") != NULL &&
-			    strchr(line, ';') == NULL && s->drop_fn == 0) {
-				s->drop_fn = lineno;
-				continue;
-			}
 			if (strstr(line, "apply_stated_settings(") != NULL &&
 			    strchr(line, ';') == NULL) {
 				in_stated_fn = 1;
@@ -640,9 +575,6 @@ static int scan_source(const char *path, struct scan *s)
 			if (is_assignment_to(line, "ego_mode") &&
 			    s->idle_fn_ego_mode == 0)
 				s->idle_fn_ego_mode = lineno;
-			if (is_assignment_to(line, "jam_mode") &&
-			    s->idle_fn_jam == 0)
-				s->idle_fn_jam = lineno;
 			if (is_assignment_to(line, "modulation") &&
 			    s->idle_fn_modulation == 0)
 				s->idle_fn_modulation = lineno;
@@ -697,11 +629,11 @@ static int scan_source(const char *path, struct scan *s)
 			if (s->stated_call == 0)
 				s->stated_call = lineno;
 		}
-		if (strstr(line, "apply_kept_settings(") != NULL) {
-			s->kept_calls++;
-			if (s->kept_call == 0)
-				s->kept_call = lineno;
-		}
+		/* The jam mode is reset in the dispatch teardown, not in
+		 * cc2400_idle(), because that runs in the middle of the
+		 * promiscuous mode. */
+		if (is_assignment_to(line, "jam_mode") && s->dispatch_jam == 0)
+			s->dispatch_jam = lineno;
 		if (strstr(line, "usb_irq_hold(") != NULL) {
 			if (s->irq_hold == 0)
 				s->irq_hold = lineno;
@@ -971,39 +903,6 @@ MU_TEST(test_a_stated_setting_is_applied_only_to_the_mode_it_was_stated_for)
 }
 
 /*
- * What the host stated *before* its mode request is put back in the same
- * window as what it stated after: after the reset that would otherwise have
- * thrown it away, and before the cases, whose own setup still wins -- the two
- * low-energy modes choose their own modulation there.
- */
-MU_TEST(test_a_setting_stated_before_the_request_is_applied_in_that_window)
-{
-	char msg[512];
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the dispatch calls apply_kept_settings() %d times; a mode "
-	         "start applies the copy once",
-	         path, s.kept_calls);
-	mu_assert(s.kept_calls == 1, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: apply_kept_settings() is called outside the window "
-	         "between the `mode =` at line %d and the first "
-	         "`case MODE_...:` at line %d, so it would run before the reset "
-	         "it undoes or after the mode's own setup",
-	         path, s.kept_call, s.mode_assign, s.first_case);
-	mu_assert(s.kept_call > s.mode_assign && s.kept_call < s.first_case, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the apply_kept_settings() at line %d is not inside the "
-	         "hold at lines %d-%d, so it runs with the request handler -- "
-	         "which is what writes the copy -- live",
-	         path, s.kept_call, s.irq_hold_2, s.irq_release_2);
-	mu_assert(s.irq_hold_2 < s.kept_call && s.kept_call < s.irq_release_2,
-	          msg);
-}
-
-/*
  * The modulation request keeps a copy for the mode it was stated for, and only
  * for that mode. ubertooth-dump sends it after the request that starts its
  * mode, as every tool sends its channel, so the mode start's reset would
@@ -1037,12 +936,15 @@ MU_TEST(test_the_modulation_request_keeps_a_copy_for_its_own_mode)
 }
 
 /*
- * The jam mode request arrives before the mode request it belongs to, so it
- * keeps a copy of its own kind: one that names no mode. Without it the mode
- * start's reset threw the setting away after that request had been answered,
- * and `ubertooth-btle -f -j` followed the connection without jamming.
+ * The jam mode request keeps a copy for the mode it was stated for, and only
+ * for that mode. ubertooth-btle sends it after the request that starts its
+ * follow or promiscuous mode -- as it does the modulation -- so a jam mode
+ * left by a tool killed before its mode started names that mode and is
+ * dropped rather than reaching the next capture (#872). The copy is under the
+ * `requested_mode != mode` guard, so a jam mode stated under a running capture
+ * is applied live and keeps no copy.
  */
-MU_TEST(test_the_jam_mode_request_keeps_a_copy)
+MU_TEST(test_the_jam_mode_request_keeps_a_copy_for_its_own_mode)
 {
 	char msg[768];
 
@@ -1052,10 +954,18 @@ MU_TEST(test_the_jam_mode_request_keeps_a_copy)
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: the jam mode request does not call "
-	         "keep_for_next_mode_start(KEEP_JAM_MODE), so `ubertooth-btle -f "
-	         "-j` follows without jamming on a board left in another mode",
+	         "stated_for_starting_mode(STATED_JAM_MODE), so a jam mode is "
+	         "not carried across the mode start it was stated for and "
+	         "`ubertooth-btle -f -j` follows without jamming on a board left "
+	         "in another mode", path, s.jam_case);
+	mu_assert(s.jam_stated > s.jam_case, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the jam mode request keeps its copy without asking "
+	         "whether the mode it names is still to start, so one stated "
+	         "under a running capture would reach an unrelated mode start",
 	         path, s.jam_case);
-	mu_assert(s.jam_keep > s.jam_case, msg);
+	mu_assert(s.jam_guard > s.jam_case && s.jam_guard < s.jam_stated, msg);
 }
 
 /*
@@ -1082,84 +992,38 @@ MU_TEST(test_the_capture_loop_programs_a_stated_modulation)
 }
 
 /*
- * And one mode start is as far as such a copy reaches. The model in
- * test_mode_state_reset.c checks what that rule does; this checks that the
- * firmware still has the two halves it rests on -- the copy cleared on the way
- * in, before the stop that keeps nothing returns, and nothing kept at all
- * while the board is idle. Without them a jam mode one run asked for could
- * make a later run transmit.
+ * Leaving a mode puts the modulation back, which is what a stated copy is for:
+ * a value one run stated reaches the mode it was stated for and no other. The
+ * modulation goes back in cc2400_idle(), which the teardown runs.
+ *
+ * The jam mode does not: cc2400_idle() runs in the middle of the promiscuous
+ * mode, inside bt_generic_le(), before bt_le_sync() has read the jam mode, so
+ * resetting it there left `ubertooth-btle -J` silent. The jam mode is reset in
+ * the dispatch instead, the one place a capture has actually ended, so a jam
+ * mode one run asked for is still not carried into the next.
  */
-MU_TEST(test_a_kept_setting_reaches_one_mode_start)
-{
-	char msg[768];
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the scan did not find apply_kept_settings()'s definition",
-	         path);
-	mu_assert_fatal(s.kept_fn > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: apply_kept_settings() clears the copy %d times; once, "
-	         "on the way in, is what makes the copy good for one mode start",
-	         path, s.kept_fn, s.kept_fn_clears);
-	mu_assert(s.kept_fn_clears == 1, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: the copy is cleared at line %d, which is not before the "
-	         "MODE_IDLE case at line %d: a stop would then leave it for the "
-	         "next mode, which starts from idle and so runs no reset",
-	         path, s.kept_fn, s.kept_fn_clear, s.kept_fn_idle);
-	mu_assert(s.kept_fn_clear > 0 && s.kept_fn_idle > 0 &&
-	          s.kept_fn_clear < s.kept_fn_idle, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: the scan did not find keep_for_next_mode_start()'s "
-	         "definition", path);
-	mu_assert_fatal(s.keep_fn > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: keep_for_next_mode_start() does not ask whether the "
-	         "board is idle, so it would leave a copy on a board that is "
-	         "running nothing", path, s.keep_fn);
-	mu_assert(s.keep_fn_idle > 0, msg);
-
-	/* And the other place a mode request can end up. A request the running
-	 * loop absorbs never reaches the dispatch, so without this the copy
-	 * would sit through the whole run and reach whatever started after it.
-	 * Four requests can be absorbed and state one of these two settings
-	 * between them: the symbol capture and the three low-energy modes. */
-	snprintf(msg, sizeof(msg),
-	         "%s: the scan did not find drop_kept_settings()'s definition",
-	         path);
-	mu_assert_fatal(s.drop_fn > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: drop_kept_settings() is called from %d places; the four "
-	         "mode requests a running loop can absorb each have to drop the "
-	         "copy, or it waits for an unrelated mode start",
-	         path, s.drop_calls);
-	mu_assert(s.drop_calls == 4, msg);
-}
-
-/*
- * The teardown still puts both settings back, which is what a copy is for: a
- * value one run stated reaches the mode it was stated for and no other.
- */
-MU_TEST(test_leaving_a_mode_puts_the_jam_mode_and_modulation_back)
+MU_TEST(test_leaving_a_mode_puts_the_modulation_and_jam_mode_back)
 {
 	char msg[512];
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: cc2400_idle() no longer puts `jam_mode` back, so a jam "
-	         "mode one run asked for would be carried into the next",
-	         path, s.idle_fn);
-	mu_assert(s.idle_fn_jam > 0, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: cc2400_idle() no longer puts `modulation` back, so a "
 	         "capture would inherit the modulation of the run before it",
 	         path, s.idle_fn);
 	mu_assert(s.idle_fn_modulation > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the dispatch teardown no longer resets `jam_mode`, so a jam "
+	         "mode one run asked for would be carried into the next", path);
+	mu_assert(s.dispatch_jam > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the dispatch resets `jam_mode` at line %d, which is not "
+	         "before the `mode =` at line %d, so the reset would run after "
+	         "the mode it belongs to had been recorded",
+	         path, s.dispatch_jam, s.dispatch_jam, s.mode_assign);
+	mu_assert(s.dispatch_jam > 0 && s.mode_assign > 0 &&
+	          s.dispatch_jam < s.mode_assign, msg);
 }
 
 /*
@@ -1877,12 +1741,11 @@ int main(void)
 	MU_RUN(test_the_mode_record_and_the_copy_hold_the_usb_interrupt_off);
 	MU_RUN(test_a_stated_setting_is_dropped_unless_its_mode_is_still_asked_for);
 	MU_RUN(test_a_stated_setting_is_applied_only_to_the_mode_it_was_stated_for);
-	MU_RUN(test_a_setting_stated_before_the_request_is_applied_in_that_window);
+
 	MU_RUN(test_the_modulation_request_keeps_a_copy_for_its_own_mode);
-	MU_RUN(test_the_jam_mode_request_keeps_a_copy);
+	MU_RUN(test_the_jam_mode_request_keeps_a_copy_for_its_own_mode);
 	MU_RUN(test_the_capture_loop_programs_a_stated_modulation);
-	MU_RUN(test_a_kept_setting_reaches_one_mode_start);
-	MU_RUN(test_leaving_a_mode_puts_the_jam_mode_and_modulation_back);
+	MU_RUN(test_leaving_a_mode_puts_the_modulation_and_jam_mode_back);
 	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
 	MU_RUN(test_leaving_a_mode_forgets_the_channel_averages);
 	MU_RUN(test_an_absorbed_mode_start_keeps_the_channel_averages);
