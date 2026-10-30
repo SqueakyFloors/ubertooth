@@ -1113,6 +1113,46 @@ assert str(eir) == "SHORTENED_LOCAL_NAME: 'Ubertoot\ufffd'", str(eir)
 btctl.BTCtlEIR.forget_warnings()
 print("ubtbr: an EIR field that ends early is dropped, and a name is printable")
 
+# ---- an inquiry response's EIR padded with zeros -------------------------
+
+# A length of zero is where the significant part of an EIR ends, and what
+# follows is non-significant padding a sender may leave as zeros (Core v5.4 |
+# Vol 3, Part C, 8). So an ordinary padded response is nothing to report: the
+# fields before the padding are the whole of it.
+warned, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(warned), contextlib.redirect_stdout(said):
+    eir = btctl.BTCtlEIR.unpack(NAME_FIELD + bytes(8))
+assert warned.getvalue() == "", repr(warned.getvalue())
+assert said.getvalue() == "", repr(said.getvalue())
+assert str(eir) == "COMPLETE_LOCAL_NAME: 'Ubertooth'", str(eir)
+
+# One zero byte is padding as much as eight are, where a lone byte of any
+# other value is a length with no type under it and so is reported.
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    eir = btctl.BTCtlEIR.unpack(NAME_FIELD + b"\x00")
+assert warned.getvalue() == "", repr(warned.getvalue())
+assert str(eir) == "COMPLETE_LOCAL_NAME: 'Ubertooth'", str(eir)
+
+# A zero in the middle of what looks like more data ends the EIR there just
+# the same, because that is what the length means: the bytes behind it are
+# not read as a field.
+eir = btctl.BTCtlEIR.unpack(NAME_FIELD + b"\x00" + bytes((3, 1)) + b"\xaa\xbb")
+assert str(eir) == "COMPLETE_LOCAL_NAME: 'Ubertooth'", str(eir)
+
+# and a field whose length runs past what arrived is still reported, padding
+# or no padding
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    eir = btctl.BTCtlEIR.unpack(bytes((10, 9)) + b"Ubertoo")
+assert warned.getvalue() == ("warning: malformed EIR: a field runs past the"
+                             " end of the response, so the rest of it is"
+                             " dropped\n"), repr(warned.getvalue())
+assert str(eir) == "", str(eir)
+# Left as a command that has not warned yet would leave it, as above.
+btctl.BTCtlEIR.forget_warnings()
+print("ubtbr: an EIR padded with zeros ends there, and is no fault")
+
 # ---- a peer that refuses one of the requests a connection opens with ------
 #
 # The central opens a connection by asking the peer for its features, its
@@ -2355,6 +2395,18 @@ assert "malformed EIR" not in output, output
 assert "BTCtlInquiryCmd stopped" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: an inquiry response the air cut short still prints, inquiry on")
+
+# An inquiry response padded with zeros after its last field. Nothing is
+# wrong with it, so the name prints and the session says nothing at all.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    acl_message(btctl.LLID_L2CAP_START, EIR_NAME + bytes(8)),
+], until="COMPLETE_LOCAL_NAME")
+assert timed_lines(output, "COMPLETE_LOCAL_NAME: 'Ubertooth'"), output
+assert "malformed EIR" not in errors, errors
+assert "BTCtlInquiryCmd stopped" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a padded inquiry response prints with no warning")
 
 # What the tool says when standard output has gone away, whichever write
 # found it gone.
