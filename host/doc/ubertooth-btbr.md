@@ -205,6 +205,11 @@ If no FHS appears, the peripheral won the race; try again.
   connection goes on. There is nothing to answer in one: an escape opcode
   says the opcode is in the PDU's second byte, and a PDU of one byte has
   none.
+- A PDU that does carry its opcode but ends before its parameters is answered
+  instead: the name request, the extended features request, and the AFH set
+  are refused with invalid LMP parameters, and a short slot offset is ignored,
+  since that PDU expects no answer. `monitor` has no peer to answer, so it
+  reports such a PDU and leaves the AFH map as it was.
 - As the central, it polls the peripheral hard enough to drain its battery.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
