@@ -1569,28 +1569,29 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return r;
 	}
 
-	/* And again now the mode has started, because that mode start put the
-	 * modulation back to Basic Rate: on a board a killed tool had left in
-	 * another mode, the one stated above was thrown away and
-	 * `ubertooth-dump -l` wrote Basic Rate records without saying so. The
+	/* And again now the mode has started, for a capture that reads anything
+	 * other than Basic Rate -- `ubertooth-dump -l`, and nothing else. That
+	 * mode start put the modulation back to Basic Rate, so the request
+	 * above was thrown away on a board a killed tool had left in another
+	 * mode, and the dump wrote Basic Rate records without saying so. The
 	 * board keeps what is stated after the request for the mode it is
 	 * starting, and its capture loop programs the demodulator again, so
 	 * this reaches the radio whatever the board was doing before.
 	 *
-	 * This is the request `-l` rests on. A capture that reads Basic Rate,
-	 * which is what every one of those resets leaves, sends it again for
-	 * nothing -- it is kept for all of them so that one rule covers the
-	 * streams this function starts.
+	 * A capture that does read Basic Rate needs no second request: every
+	 * reset that could throw the first one away leaves exactly that.
 	 *
 	 * A board that refuses either would stream the modulation it happened
 	 * to be left in, with nothing in the records to say which that was, so
 	 * the capture ends instead. The board is left in the mode `start()` put
 	 * it in; the caller gives it back, as it does when the stream fails. */
-	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
-	if (r < 0) {
-		ubertooth_bulk_thread_stop();
-		ubertooth_bulk_stop(ut);
-		return r;
+	if (ut->capture_modulation != MOD_BT_BASIC_RATE) {
+		r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+		if (r < 0) {
+			ubertooth_bulk_thread_stop();
+			ubertooth_bulk_stop(ut);
+			return r;
+		}
 	}
 
 	// receive and process each packet
@@ -1786,11 +1787,10 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 		return -1;
 	}
 
-	/* The modulation, before the mode request, for the reason
-	 * stream_rx_usb() gives. This path only ever reads Basic Rate, which is
-	 * what every reset leaves, so it needs no second statement after the
-	 * request: `ubertooth-dump -l`, which does, goes through
-	 * stream_rx_usb(). */
+	/* The modulation this capture reads, before the mode request, for the
+	 * reason stream_rx_usb() gives. No second statement after it: every
+	 * caller of this path reads Basic Rate, which is what each of those
+	 * resets leaves. */
 	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
 	if (r < 0) {
 		ubertooth_bulk_thread_stop();

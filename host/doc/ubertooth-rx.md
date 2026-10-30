@@ -193,7 +193,9 @@ away leaves Classic anyway. It is the board's own default, but an idle board
 holds the last modulation a tool set, because a mode starting from idle resets
 nothing. A `ubertooth-dump -l` interrupted before its capture started used to
 leave the board demodulating low energy, and a capture here then found little
-and said nothing about why.
+and said nothing about why. The board can still be streaming the previous
+mode's records when the request arrives, so the first few packets of a capture
+started on a board another run left going are that run's.
 
 ## DISCOVERING UNDISCOVERABLE DEVICES
 

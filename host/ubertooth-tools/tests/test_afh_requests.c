@@ -585,7 +585,7 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 {
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_SET_MOD, UBERTOOTH_STOP
+		UBERTOOTH_STOP
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -625,8 +625,7 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 {
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_SET_MOD, UBERTOOTH_STOP,
-		UBERTOOTH_SET_MOD, UBERTOOTH_AFH, UBERTOOTH_SET_MOD
+		UBERTOOTH_STOP, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -660,8 +659,7 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 MU_TEST(the_monitor_alone_asks_for_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_SET_MOD
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -728,8 +726,7 @@ MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
 {
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_SET_MOD, UBERTOOTH_STOP,
-		UBERTOOTH_SET_MOD, UBERTOOTH_AFH, UBERTOOTH_SET_MOD
+		UBERTOOTH_STOP, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -768,7 +765,7 @@ MU_TEST(an_interrupt_during_detection_ends_the_run)
 {
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_SET_MOD, UBERTOOTH_STOP
+		UBERTOOTH_STOP
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -857,8 +854,9 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
-	/* Three: the modulation on either side of the mode request. */
-	mu_assert_int_eq(3, fake.n);
+	/* Two: the modulation it reads, then the mode request. A capture that
+	 * reads Basic Rate needs no second statement after the request. */
+	mu_assert_int_eq(2, fake.n);
 	mu_assert_int_eq(1, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert_int_eq(0, sent(UBERTOOTH_AFH));
 	mu_assert(err[0] == '\0', err);

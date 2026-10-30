@@ -46,8 +46,10 @@ static struct {
 	int library_closes; /* closes done inside the library, not by the tool */
 	int dumps, stops;
 	/* The modulation the tool left on the handle for the library to state
-	 * once the capture had started, as the fake rx_dump() below found it.
-	 * -1, as ubertooth_init() leaves it, means the tool asked for none. */
+	 * around the capture request, as the fake rx_dump() below found it.
+	 * NO_MODULATION where the tool set none; MOD_BT_BASIC_RATE is 0, so a
+	 * run that asked for Classic cannot be told from one that asked for
+	 * nothing without it. */
 	int capture_modulation;
 	int dump_rc;        /* what rx_dump() returns */
 	int stream_failed;  /* what ubertooth_stream_failed() reports */
@@ -59,6 +61,10 @@ static struct {
 	 * the mode the capture started. */
 	int stop_refused;
 } fake;
+
+/* No modulation: outside enum modulations, so it cannot be mistaken for one
+ * the tool asked for. */
+#define NO_MODULATION (-1)
 
 static ubertooth_t fake_ut;
 
@@ -75,9 +81,9 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 	/* As the real one leaves it. Not a real handle: nothing here
 	 * dereferences devh, it is passed through and tested for NULL. */
 	fake_ut.devh = (struct libusb_device_handle*)&fake_ut;
-	/* And as ubertooth_init() leaves this: no capture has stated a
-	 * modulation yet, which zero would read as Basic Rate. */
-	fake_ut.capture_modulation = -1;
+	/* As ubertooth_init() leaves this: the modulation every stream it
+	 * starts reads unless the tool asks for the other. */
+	fake_ut.capture_modulation = MOD_BT_BASIC_RATE;
 	return &fake_ut;
 }
 
@@ -216,9 +222,7 @@ static void reset(void)
 {
 	memset(&fake, 0, sizeof(fake));
 	fake.api_rc = -1; /* so no test runs into the capture loop */
-	/* Not zero: zero is Basic Rate, so a run that asked for nothing would
-	 * read as one that asked for Classic. */
-	fake.capture_modulation = -1;
+	fake.capture_modulation = NO_MODULATION;
 	dumpfile = NULL;
 }
 
@@ -433,6 +437,11 @@ MU_TEST(a_dump_the_board_refused_exits_one)
 	mu_assert_int_eq(1, fake.dumps);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(r.err[0] == '\0', r.err);
+	/* The board goes back with a STOP, since the capture mode may be
+	 * running by the time the dump fails, and is freed rather than closed
+	 * twice. */
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(0, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
 	mu_assert(dumpfile != NULL, "the -d file was opened before the dump");
 	mu_assert(stat(path, &info) == 0 && info.st_size == 0,
@@ -480,8 +489,6 @@ MU_TEST(the_modulation_options_reach_the_board)
 	fake.reach_capture = 1;
 	run_main(&r, 2, classic);
 	mu_assert_int_eq(0, r.rc);
-	/* MOD_BT_BASIC_RATE is 0 and the handle starts at -1, so this says the
-	 * tool asked for Classic rather than for nothing. */
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.capture_modulation);
 
 	reset();

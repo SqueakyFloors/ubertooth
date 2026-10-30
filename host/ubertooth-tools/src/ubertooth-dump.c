@@ -196,12 +196,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* The modulation this dump wants, which libubertooth states once the
-	 * capture has started -- after the mode request, not before it. A mode
-	 * start puts the modulation back to Basic Rate, so one stated first was
-	 * thrown away on a board a killed tool had left in a mode: -l then
-	 * dumped Classic symbols and exit 0, with nothing in the output to say
-	 * which modulation produced it.
+	/* The modulation this dump wants. libubertooth states it on either side
+	 * of the request that starts the capture: before, so the board programs
+	 * its demodulator from it, and after, because the mode start puts it
+	 * back to Basic Rate. Stated only before, -l dumped Classic symbols and
+	 * exit 0 on a board a killed tool had left in a mode, with nothing in
+	 * the output to say which modulation produced it.
 	 *
 	 * Nothing is asked of the radio until the dump starts, which is after
 	 * the -d file has been opened above, so a dump that never ran leaves

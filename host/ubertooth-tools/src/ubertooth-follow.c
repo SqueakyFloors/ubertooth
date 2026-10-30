@@ -827,12 +827,10 @@ int main(int argc, char *argv[])
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
 
 	/* The modulation this follow reads, Classic, stated before the mode
-	 * request below rather than after it as the AFH map is: the board
-	 * programs its demodulator from it as the mode comes up, and every
-	 * reset that could throw this away leaves Basic Rate anyway. It is the
-	 * board's own default, but a board another tool left holding low energy
-	 * -- a killed `ubertooth-dump -l` -- would otherwise have this follow
-	 * demodulating that, finding little and saying nothing. */
+	 * request below and not after it as the AFH map is: see
+	 * ubertooth-util(1), CARRY-OVER BETWEEN RUNS. Without it, a board an
+	 * interrupted `ubertooth-dump -l` had left set to low energy followed
+	 * at that deviation, finding little and saying nothing. */
 	if (cmd_set_modulation(ut->devh, MOD_BT_BASIC_RATE) < 0) {
 		follow_cleanup(ut, sock, handle, cc);
 		return 1;

@@ -877,24 +877,18 @@
   and drops it there, so one run's setting is not carried into the next.
   [#828](https://github.com/SqueakyFloors/ubertooth/issues/828)
 
-- A modulation one run asked for cannot reach another run's capture.
-  `ubertooth-dump` states it after the request that starts its mode, which is
-  the order every tool uses for its channel, so the board keeps it for that
-  mode and drops it there; the board programs its demodulator again when the
-  request arrives, which is what makes that order work. A `ubertooth-dump -l`
-  interrupted between its two requests used to leave the setting behind for
-  whatever mode started next, and that capture then read low energy while
-  saying nothing. A mode the running capture absorbs -- an `ubertooth-afh` or
-  `ubertooth-follow` started while a killed dump's stream is still going --
-  reads Basic Rate again as well, where it used to detect and follow on the
-  dump's low energy. `ubertooth-rx`, `ubertooth-scan`, `ubertooth-afh` and
-  `ubertooth-follow` state the modulation they read, which covers the way in
-  the firmware cannot: an idle board holds the last modulation a tool set,
-  because a mode starting from idle resets nothing. A board that refuses the
-  request ends the run in every one of them. One corner is left, for a host
-  that is not these tools: re-sending the mode a board is already streaming is
-  not a mode start and resets nothing, so such a run keeps whatever modulation
-  the board had.
+- A modulation one run asked for cannot reach another run's capture. The board
+  keeps one stated for the mode that is starting and drops it there, and its
+  capture loop programs the demodulator again when a modulation arrives
+  mid-mode, so a tool can state what it reads around its mode request the way
+  it states its channel. A `ubertooth-dump -l` interrupted between its
+  requests used to leave low energy behind for whatever ran next, and
+  `ubertooth-rx`, `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow`
+  then read Classic traffic at that deviation while saying nothing. Each of
+  them now states the modulation it reads, and ends the run if the board
+  refuses it. One corner is left, for a host that is not these tools:
+  re-sending the mode a board is already streaming is not a mode start and
+  resets nothing, so such a run keeps whatever modulation the board had.
   [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
 
 - The two-board range test (`ubertooth-util -n` against a `-e` repeater)

@@ -500,16 +500,11 @@ int main(int argc, char* argv[])
 		}
 
 		/* The modulation this capture reads, Classic, stated before the
-		 * capture request rather than after it as the channel below is:
-		 * the board programs its demodulator from it as the mode comes
-		 * up, and every reset that could throw this away leaves Basic
-		 * Rate anyway, which is what it asks for.
-		 *
-		 * It is the board's own default, but a board left idle holds the
-		 * last modulation a tool set -- a mode starting from idle runs
-		 * no reset -- so without this a `ubertooth-dump -l` that was
-		 * interrupted left this capture demodulating low energy, finding
-		 * little and saying nothing. */
+		 * capture request and not after it as the channel is: see
+		 * ubertooth-util(1), CARRY-OVER BETWEEN RUNS. Without it, a
+		 * board an interrupted `ubertooth-dump -l` had left set to low
+		 * energy captured here at that deviation, finding little and
+		 * saying nothing. */
 		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
 		if (r < 0)
 			return capture_failed(ut, "set the modulation", r);
