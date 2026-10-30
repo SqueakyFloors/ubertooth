@@ -1028,6 +1028,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * reports no gap rather than the time since the capture before it. */
 	static uint64_t prev_packet_ns = 0;
 	static uint64_t prev_capture_ns = 0;
+	/* Whether there has been a packet in this capture to measure from. Kept
+	 * apart from the reading above rather than read off it, because a
+	 * reconstructed time of zero is a legitimate one: the first record of a
+	 * replayed file carrying a host time of zero gives it. */
+	static int had_a_packet = 0;
 	/* Each warning below is said once for the whole capture: the condition
 	 * it reports holds for every packet that follows, and a line per packet
 	 * would bury the capture's own output. */
@@ -1223,11 +1228,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * periods inside it, beside a record that had it right. */
 	if (prev_capture_ns != ut->abs_start_ns) {
 		prev_capture_ns = ut->abs_start_ns;
-		prev_packet_ns = 0;
+		had_a_packet = 0;
 	}
-	uint64_t ts_diff_ns = (prev_packet_ns != 0 && nowns > prev_packet_ns) ?
+	uint64_t ts_diff_ns = (had_a_packet && nowns > prev_packet_ns) ?
 	                      nowns - prev_packet_ns : 0;
 	prev_packet_ns = nowns;
+	had_a_packet = 1;
 	/* `sig`, so this line and the capture record above report one level for
 	 * one packet. What a reader wants beside a packet is how loud that
 	 * packet was. */

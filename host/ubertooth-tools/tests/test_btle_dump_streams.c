@@ -533,6 +533,24 @@ MU_TEST(a_quiet_gap_longer_than_a_period_is_reported_whole)
 	/* Not the gap with its wraps dropped, which is what the readings alone
 	 * come to. */
 	mu_assert(strstr(out, "delta_t=46611.541 ms") == NULL, out);
+	/* A gap this long is also what the lost-wrap report looks for, so a
+	 * wrap counted wrongly would show up here as well as in the figure. */
+	mu_assert(err[0] == '\0', err);
+
+	/* A second capture starts over: its first packet reports no gap, rather
+	 * than the time since the capture before it. */
+	ubertooth_free(ut);
+	ut = ubertooth_init();
+	mu_assert_fatal(ut != NULL, "a second handle");
+	ut->clk100ns_period = CLK100NS_TIMER1_PERIOD;
+	rx.clk100ns = htole32((uint32_t) first_ticks);
+	fifo_push(ut->fifo, &rx, arrived_ns + 2 * gap_ns);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+	mu_assert(strstr(out, "delta_t=0.000 ms") != NULL, out);
+	mu_assert(strstr(out, "delta_t=905605.000 ms") == NULL, out);
 
 	ubertooth_free(ut);
 }
