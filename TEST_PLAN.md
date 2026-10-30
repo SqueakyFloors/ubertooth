@@ -585,18 +585,16 @@ before the first step so nothing is carried over.*
 streaming, so the piconet is transmitting throughout*
 - [ ] Find the piconet's LAP and UAP with `ubertooth-rx`
 - [ ] Run `ubertooth-afh -l <lap> -u <uap> -t 30`
-- [ ] Confirm: the detection phase prints a map with many channels set, and the
-      monitor phase that follows prints `+ channel N is used now` /
-      `- channel N is not used any more` lines naming several different
-      channels — the board is hopping, not parked on one channel (parked, only
-      one channel number can ever appear, and the map holds one bit)
+- [ ] Confirm: the detection phase prints a map that fills in across many
+      different channels, and the monitor phase that follows holds it — the
+      board is hopping, not parked on one channel (parked, only one channel
+      number can ever appear, and the map holds one bit)
 - [ ] Run `ubertooth-afh -l <lap> -u <uap> -r -m 30` and confirm the
       once-a-second binary map has bits in different places over successive
       lines, not a single 1 in the same place every time (individual bits
-      coming and going is expected, see
-      [#194](https://github.com/SqueakyFloors/ubertooth/issues/194); `-m 30`
-      makes a channel take
-      longer to be dropped than the default 5)
+      coming and going is expected here: `-m 30` drops a channel far sooner
+      than the default of 800, see
+      [#194](https://github.com/SqueakyFloors/ubertooth/issues/194))
 - [ ] Interrupt each run with Ctrl-C, confirm exit status 0, then confirm
       `ubertooth-util -d -C -z` reports LEDs 0 0 0, channel 2441 MHz,
       squelch -120

@@ -64,7 +64,7 @@ static void reset_fake(void)
 
 /* libubertooth defines these; the tool reads and sets them. */
 int max_ac_errors = 2;
-unsigned int packet_counter_max = 5;
+unsigned int packet_counter_max;
 
 ubertooth_t *ubertooth_start_select(const char *u_arg)
 {

@@ -81,9 +81,8 @@ int main(int argc, char* argv[])
 	/* Default for -m. It counts packets, not seconds, so it has to be a
 	 * good few times the number of channels in use for a channel that is
 	 * still used to be seen again within it: a piconet on the whole band
-	 * puts about one packet in 79 on any given channel. 800 is the lowest
-	 * value measured to hold a 79-channel map without dropping channels
-	 * the piconet was using. */
+	 * puts about one packet in 79 on any given channel. See
+	 * ubertooth-afh(1), THE REMOVAL THRESHOLD. */
 	packet_counter_max = 800;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
