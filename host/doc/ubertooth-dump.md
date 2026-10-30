@@ -16,9 +16,10 @@ The dump is one record per block of symbols the board sends. Without `-b` a
 record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4
 bytes big-endian, then the whole 64-byte USB receive packet, 50 bytes of which
 are the symbols packed 8 per byte. With `-b` a record is one 401-byte line: the
-block's 400 symbols as ASCII `0` and `1`, then a newline. Nothing separates the
-records otherwise, and nothing marks a gap, so a reader counts from the start of
-the dump.
+block's 400 symbols as ASCII `0` and `1`, then a newline. The records are back
+to back with nothing between them, so a reader counts from the start of the
+dump. A keep-alive, which a quiet capture sends and which carries no symbols,
+writes no record either way.
 
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
@@ -80,9 +81,10 @@ when the file is opened.
 
 A terminal is refused either way, before any device is opened:
 `error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
-A dump is written for a file or another program, not for a screen, and `-b` is
-refused too although it is text. Redirect or pipe standard output instead, or
-give `-d` a file.
+A dump is written for a file or another program, not for a screen. `-b` is
+refused too although it writes text: that line is the one every tool shares for
+a capture stream it will not put on a terminal. Redirect or pipe standard
+output instead, or give `-d` a file.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the

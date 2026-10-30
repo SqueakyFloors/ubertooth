@@ -42,8 +42,8 @@ static void usage(FILE *file)
 }
 
 /*
- * The normal output is one 68-byte record per block the board sends: the host
- * time it arrived, as Unix epoch seconds in 4 bytes big-endian, then the whole
+ * The normal output is one 68-byte record per block of symbols: the host time
+ * it arrived, as Unix epoch seconds in 4 bytes big-endian, then the whole
  * 64-byte USB receive packet, 50 bytes of which are the received symbols
  * packed 8 per byte.
  *
@@ -202,14 +202,11 @@ int main(int argc, char *argv[])
 	 * set to Classic gave Classic symbols and exit 0, and nothing in the
 	 * output says which modulation produced it.
 	 *
-	 * This is the last thing asked of the board before the capture, and the
-	 * firmware keeps the value until a mode ends, while ubertooth-rx,
-	 * -follow and -afh never set their own and would demodulate with it. So
-	 * it is asked for as late as possible: an unwritable -d is found above,
-	 * where nothing has been asked of the radio yet. A failure here can
-	 * still leave the board holding it, because a transfer that fails may
-	 * have reached the firmware all the same; what it costs is an empty -d
-	 * file, which is why that file is opened first.
+	 * It is asked for after the -d file is opened, and that order matters:
+	 * the firmware keeps a modulation until a mode ends, and ubertooth-rx,
+	 * -follow and -afh never set their own, so one left here by a dump that
+	 * never ran would reach the next of those. The file is the thing that
+	 * can fail, so it fails first, before anything is asked of the radio.
 	 *
 	 * No mode is running, so the board is given back the way a refused
 	 * firmware version gives it back. */
