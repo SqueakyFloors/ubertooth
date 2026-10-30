@@ -18,7 +18,7 @@ Architecture
 
 * `CC2400 <https://www.ti.com/product/CC2400>`__ wireless transceiver.
 
-* `LPC175x <http://www.nxp.com/products/microcontrollers-and-processors/arm-processors/lpc-cortex-m-mcus/lpc1700-cortex-m3:MC_1403790745385>`__ ARM Cortex-M3 microcontroller with Full-Speed USB 2.0.
+* `LPC175x <https://www.nxp.com/products/processors-and-microcontrollers/arm-microcontrollers/general-purpose-mcus/lpc1700-arm-cortex-m3:MC_1403790745385>`__ ARM Cortex-M3 microcontroller with Full-Speed USB 2.0.
 
 * USB A plug: connects to a host computer running the Ubertooth tools.
 
@@ -115,4 +115,4 @@ These measurements were taken using Ubertooth One running firmware revision 2014
 Demonstration
 ~~~~~~~~~~~~~
 
-Michael Ossmann presented `Project Ubertooth: Building a Better Bluetooth Adapter <http://www.shmoocon.org/schedule#ubertooth>`__ at `ShmooCon <http://www.shmoocon.org/>`__ 2011.
+Michael Ossmann presented `Project Ubertooth: Building a Better Bluetooth Adapter <https://archive.org/details/sc2011_Project_Ubertooth>`__ at ShmooCon 2011. The recording is on the Internet Archive.

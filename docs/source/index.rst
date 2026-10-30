@@ -51,8 +51,9 @@ Ubertooth
 
 .. toctree::
   :maxdepth: 1
-  :caption: Release Notes  
+  :caption: Releases
 
+  release_procedure
   Release_2015-10-R1
   Release_2017_03_R2
   Release_2018-08-R1
@@ -66,5 +67,4 @@ Ubertooth
   :caption: Retired Content
 
   to_do
-  release_procedure   
   ubertooth_two_wishlist
