@@ -765,6 +765,25 @@
   table names is now its number rather than `None`.
   [#950](https://github.com/SqueakyFloors/ubertooth/issues/950)
 
+- A `ubertooth-btbr` session carries on through an LMP PDU too short to carry
+  an opcode, reporting it in a `warning:` line. One used to end the session in
+  `error: BTCtlPagingCmd stopped: IndexError: index out of range` and take the
+  capture with it.
+  [#960](https://github.com/SqueakyFloors/ubertooth/issues/960)
+
+- A `ubertooth-btbr` connection goes on when the peer refuses one of the five
+  requests it opens with: the refusal is reported with the reason the peer
+  gave, and the next request goes out. A refusal used to leave the session
+  asking nothing further, so the link sat there until link supervision ended
+  it with no line saying why.
+  [#957](https://github.com/SqueakyFloors/ubertooth/issues/957)
+
+- `ubertooth-btbr` refuses a session, and `-V`, whose standard output was not
+  opened to be written: one line, no board opened, exit 1. On some builds of
+  Python a whole session used to run with its capture going into a descriptor
+  that was not its standard output.
+  [#959](https://github.com/SqueakyFloors/ubertooth/issues/959)
+
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
   line, the C string terminator the board's console puts on the end of each
   one, which `grep` on a saved session answers with `Binary file matches`

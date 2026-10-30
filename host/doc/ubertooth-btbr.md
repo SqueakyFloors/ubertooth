@@ -197,6 +197,14 @@ If no FHS appears, the peripheral won the race; try again.
   link instead of waiting out a 30-second LMP response timeout; a PDU that
   expects no answer is ignored. Either way the opcode is named in a `warning:`
   line, once per opcode for the life of the connection.
+- A peer may refuse any of the five things a connection opens by asking it
+  for: its features, extended features, version, name, and encryption key
+  size mask. Each refusal is reported with the reason the peer gave, and the
+  next request goes out as it would after an answer.
+- A PDU too short to carry an opcode is reported in a `warning:` line and the
+  connection goes on. There is nothing to answer in one: an escape opcode
+  says the opcode is in the PDU's second byte, and a PDU of one byte has
+  none.
 - As the central, it polls the peripheral hard enough to drain its battery.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
@@ -300,13 +308,12 @@ something that stops reading, as `ubertooth-btbr | head -5` does, therefore
 leaves the prompt up with nothing more printed, and the session ends with
 exit 1; so does a `-h` or `-V` whose answer could not be delivered, whether
 its reader left or there was no standard output to print to at all, as
-`ubertooth-btbr -h >&-` leaves. A session whose standard output is a
-descriptor open for reading only, which is what `ubertooth-btbr 1<&0` leaves,
-is that same line and status, the capture's first packet being what finds it.
-A session asked for with no standard output is refused in that same line,
-before any board is opened: the stream carries the capture, and the prompt
-cannot be read without it either. A session that had printed nothing when the
-reader left has lost nothing and ends as it otherwise would. If standard
+`ubertooth-btbr -h >&-` leaves. A session asked for with no standard output,
+or with one that was not opened to be written, as `ubertooth-btbr 1<&0`
+leaves, is refused in that same line, before any board is opened: the stream
+carries the capture, and the prompt cannot be read without it either. A
+session that had printed nothing when the reader left has lost nothing and
+ends as it otherwise would. If standard
 error has gone the same way, the exit status is all that is left to say it
 with.
 

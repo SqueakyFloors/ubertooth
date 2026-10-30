@@ -21,7 +21,7 @@ from getopt import getopt, GetoptError
 # imports further down, which need the Python libusb1 package. -V is the call
 # that has to work without it: it is how a user says which tools they have.
 from ubtbr.streams import (bin_an_unusable_standard_error, error, eprint,
-	flush_the_streams, output_gone, output_lost)
+	flush_the_streams, opened_for_writing, output_gone, output_lost)
 
 # The options the tool takes, in getopt's form: a ':' marks one that takes a
 # value. report_bad_option() reads the same string to find the word a stray
@@ -72,20 +72,21 @@ def report_versions(selector=None):
 		# it was given: what an empty value means is that tool's to say, as
 		# it is for the session this tool opens without -V.
 		command += ["-U", selector]
-	# Nothing of this tool's is waiting in the buffers here, and this keeps
-	# it that way: a line written before the child starts must not land
-	# after the child's.
-	try:
-		sys.stdout.flush()
-	except (AttributeError, ValueError):
-		# There is no standard output at all: a descriptor closed before the
-		# tool started leaves the interpreter without one, so the answer
-		# cannot be printed. Reported as the loss it is, and the child is
-		# not started: with that descriptor closed, the first file the child
-		# opens takes its number, and the answer would be written into
-		# whatever that turned out to be.
+	if not opened_for_writing(sys.stdout):
+		# There is nowhere to print the answer, so the child is not started:
+		# with that descriptor closed, the first file the child opens takes
+		# its number, and the answer would be written into whatever that
+		# turned out to be -- for a tool that opens USB device nodes, one of
+		# those. A descriptor opened for reading is the same loss, and one
+		# interpreter leaves a closed one looking exactly like that.
 		output_lost()
 		return 1
+	# Nothing of this tool's is waiting in the buffers here, and this keeps
+	# it that way: a line written before the child starts must not land
+	# after the child's. A failure here is the reader of a pipe having left
+	# since the check above, which the check cannot see: through() reports
+	# that one and ends the command, so there is nothing to catch.
+	sys.stdout.flush()
 	# The same for standard error, which the child writes to as well. Nothing
 	# of this tool's is pending there either, because eprint() flushes every
 	# line it writes, so this cannot fail; it is here for the ordering, as
@@ -713,13 +714,13 @@ def main(selector, settings):
 	`settings` are the (option, value) pairs read from the command line that
 	are sent to the board once it is open.
 	"""
-	if sys.stdout is None:
+	if not opened_for_writing(sys.stdout):
 		# A session needs this stream twice over: the capture is printed to
 		# it, and the interpreter's own input() refuses to read a line
-		# without it. A descriptor closed before the tool started leaves it
-		# missing, so the session is refused here, before any board is
-		# opened, rather than ending in a traceback once the prompt first
-		# reads. Standard error closed is the same rule of the
+		# without it. So it is refused here, before any board is opened,
+		# rather than ending in a traceback once the prompt first reads, or
+		# printing a capture into a descriptor that is not this tool's
+		# standard output. Standard error closed is the same rule of the
 		# interpreter's, and there not even the line can be said.
 		output_lost()
 		return

@@ -396,14 +396,20 @@ class BTCtlACLPkt:
 			raise BTCtlFramingError("packet of unknown type %d"%type_)
 		bt_type,hlen,plen,fec = tp
 		if len(inp) < hlen:
-			hdr = 0
+			# Not even the payload header this packet kind starts with, so
+			# there is nothing to read it as. Reported as the framing error
+			# it is, where it used to leave the payload unset and end the
+			# receive thread in an UnboundLocalError.
+			raise BTCtlFramingError(
+				"%s packet of %d bytes, too short for its %d-byte payload "
+				"header"%(ACL_TYPES_TO_STR.get(bt_type, bt_type),
+					len(inp), hlen))
+		if hlen == 1:
+			hdr = inp[0]
+			data=inp[1:]
 		else:
-			if hlen == 1:
-				hdr = inp[0]
-				data=inp[1:]
-			else:
-				hdr, = unpack("<H", inp[:2])
-				data=inp[2:]
+			hdr, = unpack("<H", inp[:2])
+			data=inp[2:]
 		llid = 3&hdr
 		flow = 1&(hdr>>2)
 		size = hdr>>3
