@@ -575,8 +575,10 @@ def main():
         signal.signal(signal.SIGINT, sig_handler)
         sys.exit(capture(interface, fifo, channel))
     else:
-        # a capture filter and nothing to do with it: Wireshark verifying the
-        # filter the user typed, before it starts a capture with it
+        # A capture filter and nothing to do with it: Wireshark verifying the
+        # filter the user typed, before it starts a capture with it. The gate
+        # above refused every other way of asking for nothing, so a filter is
+        # what is left here, and there is none to verify without one.
         sys.exit(verify_capture_filter(capture_filter))
 
 

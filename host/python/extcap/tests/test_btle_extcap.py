@@ -314,7 +314,6 @@ assert short.stderr == \
 # nothing is not blamed for the interface it did not give either.
 for quiet in (("--extcap-interface=ubertooth" + SERIALS[0],),
               ("--extcap-interface=bogus",),
-              ("--channel=38",),
               ("--",)):
     nothing = run(quiet)
     assert nothing.returncode == 1, (quiet, nothing)

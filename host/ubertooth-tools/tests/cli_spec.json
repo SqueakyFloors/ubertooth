@@ -894,7 +894,7 @@
          "error": "error: unexpected argument 'extra'"},
         {"args": ["--"], "verdict": "refused",
          "error_contains": "nothing to do",
-         "why": "a lone \"--\" ends the options and leaves nothing behind it, so the call did say something: it gets a bare call's error line without a bare call's usage line (cli-output.md). Generated for every other tool; listed here because this one's cases are listed."},
+         "why": "a lone \"--\" ends the options and leaves nothing behind it, so the call did say something: it gets a bare call's error line without a bare call's usage line (cli-output.md). The wording is pinned by the bare call above, so this case asks only for the line it shares."},
         {"args": ["--extcap-config"], "verdict": "refused",
          "error": "error: --extcap-interface must be ubertooth<serial>, as --extcap-interfaces lists it"},
         {"args": ["--extcap-interface=ubertooth0"], "verdict": "refused",
