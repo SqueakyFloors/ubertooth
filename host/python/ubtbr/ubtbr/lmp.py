@@ -123,6 +123,10 @@ LMP_DETACH_REASON2STR = {
 	0x29: "pairing with a unit key is not supported",
 }
 
+# What LMP_SET_AFH carries: a 4-byte instant, a 1-byte mode, and a 10-byte
+# channel map, one bit per channel (Core v5.4 | Vol 2, Part C, 5.2).
+AFH_PARAMETERS_LEN = 15
+
 # The reasons an LMP_NOT_ACCEPTED carries here
 # (Core v5.4 | Vol 1, Part F, 1.3)
 LMP_ERR_UNSUPPORTED_REMOTE_FEATURE	= 0x1a
@@ -451,6 +455,12 @@ class LMP:
 		self._con.stop()
 
 	def handle_name_req(self, op, data):
+		if not data:
+			# Too short to say which part of the name is wanted, which the
+			# answer says rather than raising on the read
+			# (Vol 2, Part C, 2.5).
+			return self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
 		offset = u8(data[0])
 		name = b"Ubertooth"
 		return self.lmp_send_name_res(offset, len(name),
@@ -462,6 +472,11 @@ class LMP:
 
 	def handle_feat_req_ext(self, op, data):
 		log.info("handle_feat_req_ext")
+		if not data:
+			# Too short to say which features page is wanted. The refusal
+			# of a 15-bit opcode is LMP_NOT_ACCEPTED_EXT (2.5, 2.7).
+			return self.lmp_send_not_accepted_ext(op & ~EXT_OPCODE,
+				LMP_ERR_INVALID_LMP_PARAMETERS, tid=self._rx_tid)
 		self.lmp_send_feat_ext(False, num=u8(data[0]), tid=self._rx_tid)
 
 	def handle_vers_req(self, op, data):	
@@ -761,6 +776,17 @@ class LMPMaster(LMP):
 		pass
 
 	def handle_slot_offset(self, op, data):
+		if len(data) < 8:
+			# Too short to hold the offset and the address. 2.5 gives two
+			# answers for a PDU too short for its parameters: carry on with
+			# values of the implementation's own, or refuse it with Invalid
+			# LMP Parameters. Nothing here acts on these two numbers, and
+			# the PDU expects no reply of any kind (it is in
+			# LMP_NO_REPLY_EXPECTED above), so the first answer costs
+			# nothing and the trace is all there is to say.
+			log.info("slot_offset too short to read: %s"%(
+				hexlify(data).decode()))
+			return
 		offset = u16(data[:2])
 		bdaddr = data[2:][::-1]
 		log.info("slot_offset from %s: %dusec\n"%(
@@ -830,9 +856,21 @@ class LMPSlave(LMP):
 		self._con.handle_setup_complete()
 
 	def handle_set_afh(self, op, data):
+		if len(data) < AFH_PARAMETERS_LEN:
+			# Too short to hold the instant, the mode, and the channel map.
+			# 2.5's other answer, a value of the implementation's own, is no
+			# use here: these parameters leave the host for the firmware,
+			# which hops over whatever map it is given, and no invented map
+			# is the one the central set. So this PDU is refused with
+			# Invalid LMP Parameters, which is the same transaction the full
+			# one gets its LMP_ACCEPTED in.
+			return self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
 		instant = u32(data[:4])
 		mode = data[4]
-		chan_map = data[5:]
+		# A real PDU is padded to the 17 bytes a DM1 carries, so the map is
+		# taken by its own length rather than to the end of the PDU.
+		chan_map = data[5:AFH_PARAMETERS_LEN]
 		log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 			instant<<1, self._clkn, mode))
 		self.lmp_send_accepted(op, tid=self._rx_tid)

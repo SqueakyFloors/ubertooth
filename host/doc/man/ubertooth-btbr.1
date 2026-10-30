@@ -137,6 +137,8 @@ A peer may refuse any of the five things a connection opens by asking it for: it
 .IP "\(bu" 4
 A PDU too short to carry an opcode is reported in a \fBwarning:\fR line and the connection goes on\. There is nothing to answer in one: an escape opcode says the opcode is in the PDU's second byte, and a PDU of one byte has none\.
 .IP "\(bu" 4
+A PDU that does carry its opcode but ends before its parameters is answered instead: the name request, the extended features request, and the AFH set are refused with invalid LMP parameters, and a short slot offset is ignored, since that PDU expects no answer\. \fBmonitor\fR has no peer to answer, so it reports such a PDU and leaves the AFH map as it was\.
+.IP "\(bu" 4
 As the central, it polls the peripheral hard enough to drain its battery\.
 .IP "\(bu" 4
 \fBmonitor\fR is a race against the real peripheral and often takes several attempts\. Packets are lost: get closer, use a better antenna\.

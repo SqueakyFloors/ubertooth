@@ -676,6 +676,142 @@ for link_manager, expected in zip(link_managers(),
         assert sent[0][0] & 1 == 1, (name, sent)
     assert sorted(answered) == expected, sorted(answered)
 print("ubtbr: every LMP request the link manager handles is answered")
+
+# ---- a PDU that ends before its parameters -------------------------------
+
+# A message from the board that ended early reaches a handler with fewer
+# parameter bytes than the PDU has: what goes over the air is padded to the
+# 17 bytes a DM1 carries, so this is the board's message, not the air. The
+# handlers used to read the parameter anyway: the shortest PDUs raised and
+# ended the whole session, "error: BTCtlPagingCmd stopped: IndexError", and
+# the ones in between were read as though the missing bytes were there -- a
+# truncated address in a line, or a channel map of fewer than ten bytes
+# passed to the firmware, which reads ten either way. Vol 2, Part C, 2.5
+# gives two answers for a PDU too short for its parameters: carry on with
+# values of the implementation's own, or refuse it with Invalid LMP
+# Parameters. Which each of the five takes is pinned here.
+
+
+class RecordingBoard:
+    """A board that keeps the AFH commands it is sent."""
+
+    def __init__(self):
+        self.afh = []
+
+    def send_set_afh_cmd(self, instant, mode, afh_map):
+        self.afh.append((instant, mode, bytes(afh_map)))
+
+
+class AFHConnection(RecordingConnection):
+    """A connection with such a board behind it."""
+
+    def __init__(self):
+        super().__init__()
+        self._bt = RecordingBoard()
+
+
+for link_manager in link_managers():
+    # A name request with no name offset in it. Both tables handle this one.
+    assert answers(link_manager, lmp.LMP_NAME_REQ, b"", tid=1) == \
+        [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_NAME_REQ, 0x1e), 1)], \
+        link_manager._con.sent
+    # One that does carry an offset is answered with the name as before.
+    sent = answers(link_manager, lmp.LMP_NAME_REQ, b"\x00", tid=1)
+    assert len(sent) == 1 and sent[0][0] == (lmp.LMP_NAME_RES << 1) | 1, sent
+    assert b"Ubertooth" in sent[0], sent
+    # An extended request with no features page in it. The refusal of a
+    # 15-bit opcode carries the escape opcode as well (2.7), so this is the
+    # one answer of the five that is an LMP_NOT_ACCEPTED_EXT.
+    assert answers(link_manager, lmp.EXT_OPCODE | lmp.LMP_FEATURES_REQ_EXT,
+                   b"", tid=1) == \
+        [pdu_sent(lmp.LMP_ESCAPE_4, (lmp.LMP_NOT_ACCEPTED_EXT,
+                                     lmp.LMP_ESCAPE_4,
+                                     lmp.LMP_FEATURES_REQ_EXT, 0x1e), 1)], \
+        link_manager._con.sent
+
+# LMP_set_AFH is the peripheral's, and the one whose parameters leave the
+# host: the firmware reads ten map bytes whatever it is sent, so a short PDU
+# used to set it hopping over channels the central never named. It is refused
+# instead, and no command goes to the board.
+AFH_PARAMETERS = b"\x08\x00\x00\x00\x01" + b"\xff" * 10
+peripheral = lmp.LMPSlave(AFHConnection())
+assert answers(peripheral, lmp.LMP_SET_AFH, AFH_PARAMETERS[:14], tid=1) == \
+    [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_SET_AFH, 0x1e), 1)], \
+    peripheral._con.sent
+assert peripheral._con._bt.afh == [], peripheral._con._bt.afh
+# and the whole PDU is accepted and passed on, instant doubled as the
+# firmware counts clock ticks
+assert answers(peripheral, lmp.LMP_SET_AFH, AFH_PARAMETERS, tid=1) == \
+    [pdu_sent(lmp.LMP_ACCEPTED, (lmp.LMP_SET_AFH,), 1)], \
+    peripheral._con.sent
+assert peripheral._con._bt.afh == [(16, 1, b"\xff" * 10)], \
+    peripheral._con._bt.afh
+
+# LMP_slot_offset is the central's, and nothing here acts on its two numbers
+# or expects to answer it at all, so a short one is traced and let go: that
+# is 2.5's implementation-value answer, where the AFH set above takes the
+# refusal because its parameters reach the firmware.
+central = lmp.LMPMaster(RecordingConnection())
+records.messages = []
+assert answers(central, lmp.LMP_SLOT_OFFSET, b"\x96\x00\x11\x22", tid=0) == \
+    [], central._con.sent
+assert records.said("slot_offset too short to read: 96001122"), \
+    records.messages
+assert answers(central, lmp.LMP_SLOT_OFFSET,
+               b"\x96\x00" + bytes.fromhex("112233445566"), tid=0) == [], \
+    central._con.sent
+assert records.said("slot_offset from 665544332211: 150usec"), \
+    records.messages
+print("ubtbr: an LMP PDU that ends before its parameters is answered, not raised on")
+
+# The fifth is monitor's own reader, which follows a piconet it is not part
+# of: there is nobody to refuse a short PDU to. It keeps the channel map it
+# has, says so, and still reports the PDU.
+
+
+class MonitorPacket:
+    """One received ACL packet, as a monitor session's reader takes it."""
+
+    class ACL:
+        def __init__(self, pdu):
+            self.data = pdu
+
+    def __init__(self, pdu):
+        self.clkn = 0
+        self.bb_hdr = "BB_HDR"
+        self.bt_data = self.ACL(pdu)
+
+
+class MonitorStandIn:
+    """Just enough of a monitor session for its LMP reader."""
+
+    def __init__(self):
+        self._bt = RecordingBoard()
+
+    def read(self, pdu):
+        """What the reader printed, and what it warned, for one PDU."""
+        said, warned = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(said), \
+                contextlib.redirect_stderr(warned):
+            btctl.BTCtlMonitorCmd._handle_lmp(self, MonitorPacket(pdu))
+        return said.getvalue(), warned.getvalue()
+
+
+SET_AFH_PDU = lmp.p8(lmp.LMP_SET_AFH << 1) + AFH_PARAMETERS
+monitor = MonitorStandIn()
+said, warned = monitor.read(SET_AFH_PDU[:15])
+assert "LMP_SET_AFH" in said, said
+assert warned == ("warning: an LMP_SET_AFH too short to read, so the capture"
+                  " keeps the channel map it has:"
+                  " 0800000001ffffffffffffffffff\n"), repr(warned)
+assert monitor._bt.afh == [], monitor._bt.afh
+# and the whole one is followed, as it was before, with nothing warned
+monitor = MonitorStandIn()
+said, warned = monitor.read(SET_AFH_PDU)
+assert "LMP_SET_AFH" in said, said
+assert warned == "", repr(warned)
+assert monitor._bt.afh == [(16, 1, b"\xff" * 10)], monitor._bt.afh
+print("ubtbr: monitor keeps its channel map on a short LMP_SET_AFH, and says so")
 # ---- the LMP PDUs a link manager names, answers, and reports --------------
 
 # Both name tables against Core v5.4 | Vol 2, Part C, table 5.1: the plain

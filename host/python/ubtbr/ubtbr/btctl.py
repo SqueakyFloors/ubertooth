@@ -910,14 +910,25 @@ class BTCtlMonitorCmd(BTCtlCmd):
 		pdu = pkt.bt_data.data
 		if not pdu: return
 		op = u8(pdu[0])>>1
+		data = pdu[1:]
+		# Monitor follows a piconet it is not part of, so a PDU too short to
+		# hold its parameters is a damaged capture rather than a peer's
+		# mistake: there is nobody to refuse it to, and a short channel map
+		# would send the firmware hopping over a map the central never set.
+		# So the map is left as it was, and the note says why the capture
+		# stays on it. The line below reports the PDU either way.
 		if op == LMP_SET_AFH:
-			data = pdu[1:]
-			instant = u32(data[:4])
-			mode = data[4]
-			chan_map = data[5:]
-			self._bt.send_set_afh_cmd(instant<<1, mode, chan_map)
-			log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
-				instant<<1, pkt.clkn, mode))
+			if len(data) < AFH_PARAMETERS_LEN:
+				warn("an LMP_SET_AFH too short to read, so the capture"
+					" keeps the channel map it has: %s"%(
+						hexlify(data).decode()))
+			else:
+				instant = u32(data[:4])
+				mode = data[4]
+				chan_map = data[5:AFH_PARAMETERS_LEN]
+				self._bt.send_set_afh_cmd(instant<<1, mode, chan_map)
+				log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
+					instant<<1, pkt.clkn, mode))
 		role = "slave" if (pkt.clkn & 2) else "master"
 		result("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
 
