@@ -68,7 +68,7 @@ Also 1 when the board refuses the request that ends the dump: it is left in the 
 .P
 Also 1 when the board refuses the modulation \fB\-c\fR or \fB\-l\fR asks for, with libubertooth's own line for the refused request on standard error and nothing of the dump on standard output: a dump that went ahead would hold whatever modulation the board had been left in, and nothing in its records says which that was\.
 .P
-The dump states it on either side of the request that starts its capture, for the reason ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS gives\. Nothing is asked of the radio until then, which is after a \fB\-d\fR file has been opened, so a refusal leaves that file there and empty, as a board that will not start the capture does, and a \fB\-d\fR the tool cannot open leaves the board as it was found\.
+The dump states it on either side of the request that starts its capture, for the reason ubertooth\-util(1), CARRY\-OVER BETWEEN RUNS gives; that page also says what \fB\-l\fR can hold at the very start of a dump on a board another run left in a mode\. Nothing is asked of the radio until then, which is after a \fB\-d\fR file has been opened, so a refusal leaves that file there and empty, as a board that will not start the capture does, and a \fB\-d\fR the tool cannot open leaves the board as it was found\.
 .P
 A \fB\-d\fR file is opened once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty file behind\. A terminal on standard output is still refused while the command line is read, with or without \fB\-d \-\fR, because that is a problem with the command rather than with the board\.
 .P

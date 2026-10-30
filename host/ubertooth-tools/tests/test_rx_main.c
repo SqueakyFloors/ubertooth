@@ -718,14 +718,15 @@ MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 }
 
 /* The order the requests go in, which is the whole of what the board keeps:
- * the channel or the sweep is stated after the capture request, and the
- * modulation on either side of it. Stating the channel first lost it to the
- * reset a mode start runs -- which puts the board's hop mode back to "no
- * hopping" -- so a capture started on a board a killed ubertooth-afh had left
- * capturing sat on one channel while the command line asked for the whole
- * band. The modulation is stated twice because the same reset puts it back to
- * Basic Rate, while an idle board, which runs no reset, keeps whatever a tool
- * set before. The address request is not part of that and still goes first. */
+ * the modulation before the capture request, and the channel or the sweep
+ * after it. Stating the channel first lost it to the reset a mode start runs
+ * -- which puts the board's hop mode back to "no hopping" -- so a capture
+ * started on a board a killed ubertooth-afh had left capturing sat on one
+ * channel while the command line asked for the whole band. The modulation goes
+ * the other way round: the mode start programs the demodulator from it, and
+ * every reset that could throw it away leaves Basic Rate, which is what this
+ * capture asks for. The address request is not part of either and still goes
+ * first. */
 MU_TEST(the_capture_is_asked_for_before_the_channel)
 {
 	struct run_result r;
@@ -733,17 +734,17 @@ MU_TEST(the_capture_is_asked_for_before_the_channel)
 	reset_device();
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "mscm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "msc") == 0, device.calls);
 
 	reset_device();
 	r = RUN_RX("-c", "39", "-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "mscm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "msc") == 0, device.calls);
 
 	reset_device();
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "bmscm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "bmsc") == 0, device.calls);
 }
 
 /*
@@ -760,7 +761,7 @@ MU_TEST(the_capture_states_basic_rate)
 	reset_device();
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(2, device.modulations_set);
+	mu_assert_int_eq(1, device.modulations_set);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, device.last_modulation);
 	mu_assert(r.err[0] == '\0', r.err);
 }

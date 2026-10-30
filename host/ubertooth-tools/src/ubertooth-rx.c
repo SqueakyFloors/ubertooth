@@ -500,12 +500,16 @@ int main(int argc, char* argv[])
 		}
 
 		/* The modulation this capture reads, Classic, stated before the
-		 * capture request so that the board programs its demodulator
-		 * from it as the mode comes up. It is the board's own default,
-		 * but a board left idle holds the last modulation a tool set --
-		 * a mode starting from idle runs no reset -- so without this a
-		 * `ubertooth-dump -l` that was interrupted left this capture
-		 * demodulating low energy, finding little and saying nothing. */
+		 * capture request rather than after it as the channel below is:
+		 * the board programs its demodulator from it as the mode comes
+		 * up, and every reset that could throw this away leaves Basic
+		 * Rate anyway, which is what it asks for.
+		 *
+		 * It is the board's own default, but a board left idle holds the
+		 * last modulation a tool set -- a mode starting from idle runs
+		 * no reset -- so without this a `ubertooth-dump -l` that was
+		 * interrupted left this capture demodulating low energy, finding
+		 * little and saying nothing. */
 		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
 		if (r < 0)
 			return capture_failed(ut, "set the modulation", r);
@@ -547,18 +551,6 @@ int main(int argc, char* argv[])
 		/* Kept for the callback, which starts a mode again when the
 		 * library gives up a clock and has to restate this. */
 		ut->capture_channel = channel;
-
-		/* And the modulation again, now the mode has started: that mode
-		 * start put it back to Basic Rate, which is what this capture
-		 * wants, but on a board that was streaming symbols the request
-		 * above was answered without a mode start and the board kept
-		 * what it had. The two carry the same value, so on the common
-		 * path the second changes nothing. The callback's restart needs
-		 * no repeat: its request is absorbed by the running capture,
-		 * whose mode state the board puts back itself. */
-		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
-		if (r < 0)
-			return capture_failed(ut, "set the modulation", r);
 
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {

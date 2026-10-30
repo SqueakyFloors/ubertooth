@@ -513,12 +513,12 @@ MU_TEST(the_clock_is_set_before_the_receive_transfer)
 	          " a record from before the reset carries the period count from"
 	          " before it");
 	/* The whole order, so a request that moves anywhere is caught: address,
-	 * clock, receive transfer, poll thread, modulation, hopping, modulation
-	 * again, AFH map cleared. The map goes out after hopping has started
-	 * because starting a mode forgets it, so one sent first would be thrown
-	 * away; the modulation goes on both sides of it, because the mode start
-	 * puts it back while an idle board keeps what it was given. */
-	mu_assert(strcmp(fake.calls, "akipdhdc") == 0, fake.calls);
+	 * clock, receive transfer, poll thread, modulation, hopping, AFH map
+	 * cleared. The map goes out after hopping has started because starting a
+	 * mode forgets it, so one sent first would be thrown away; the
+	 * modulation goes before it, because that is what the mode start
+	 * programs the demodulator from and every reset leaves Basic Rate. */
+	mu_assert(strcmp(fake.calls, "akipdhc") == 0, fake.calls);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation);
 }
 
@@ -532,7 +532,7 @@ MU_TEST(the_asynchronous_requests_stay_after_the_poll_thread)
 	reset_fake();
 	r = RUN("-a", WHOLE_TARGET);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "akipdhdm") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "akipdhm") == 0, fake.calls);
 	mu_assert(call_at('p') < call_at('m'),
 	          "the AFH map was set before the poll thread was running");
 	mu_assert(call_at('p') < call_at('h'),

@@ -240,6 +240,11 @@ static void apply_stated_settings(u8 starting_mode)
 	what = stated_what;
 	stated_what = 0;
 
+	/* A modulation is never left on an idle board; the channel deliberately
+	 * is, for `ubertooth-util -S -c 2440`. */
+	if (starting_mode == MODE_IDLE)
+		what &= ~STATED_MODULATION;
+
 	if (what & STATED_CHANNEL)
 		set_channel_request(stated_channel);
 	if (what & STATED_MODULATION)
@@ -1312,6 +1317,35 @@ MU_TEST(an_absorbed_mode_reads_basic_rate)
 	the_board_runs();
 
 	mu_assert_int_eq(MODE_AFH, requested_mode);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
+}
+
+/*
+ * A stop leaves no modulation behind, where it does leave a channel. The stop
+ * is a mode request like any other, so one answered while the mode it stops is
+ * still running -- a window as long as that mode's teardown -- would be put
+ * back after the reset had cleared it, and the next mode starts from idle and
+ * runs no reset of its own to undo that.
+ */
+MU_TEST(a_modulation_stated_after_a_stop_is_dropped)
+{
+	board_reset();
+	request_rx_symbols();
+	mu_assert(streaming, "the symbol capture streams");
+
+	/* the stop, and a modulation answered before the dispatch reaches idle */
+	dispatch_held = 1;
+	request_stop();
+	request_modulation(MOD_BT_LOW_ENERGY);
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_IDLE, mode);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
+
+	/* So the next capture, which starts from idle and resets nothing, is
+	 * Basic Rate. */
+	request_rx_symbols();
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
 }
@@ -2433,6 +2467,7 @@ int main(void)
 	MU_RUN(a_capture_after_a_low_energy_dump_is_basic_rate);
 	MU_RUN(a_modulation_stated_under_a_running_capture_reaches_the_radio);
 	MU_RUN(an_absorbed_mode_reads_basic_rate);
+	MU_RUN(a_modulation_stated_after_a_stop_is_dropped);
 	MU_RUN(a_modulation_stated_for_a_mode_that_never_started_is_dropped);
 	MU_RUN(a_setting_stated_with_no_mode_running_needs_no_copy);
 	MU_RUN(an_absorbed_capture_request_keeps_nothing);

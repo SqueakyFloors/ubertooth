@@ -2332,9 +2332,10 @@ static uint8_t program_stated_modulation(uint8_t programmed)
 
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, service_usb);
-	cc2400_strobe(SRX);
 
 	dma_discard = 1;
+
+	cc2400_strobe(SRX);
 
 	return wanted;
 }

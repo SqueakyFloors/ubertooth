@@ -817,16 +817,21 @@ on every hop: `ubertooth-ego -r` re-tunes when its channel or access code
 arrives after the capture has started, which costs the first millisecond of
 it.
 
-The modulation is the one setting a tool states on **both** sides of its mode
-request, and `ubertooth-rx`, `ubertooth-dump`, `ubertooth-afh` and
-`ubertooth-follow` all do. The one before the request is what the board
-programs its demodulator from as the mode comes up; the one after it is what
-survives the reset. Where the two differ — a board left in another mode, so
-the first was thrown away — the board programs the demodulator again when the
-second arrives, and marks the block it was filling across that change as
-discarded, because part of it was received at the other setting. A tool that
-looks for packets skips such a block, and `ubertooth-dump` writes it out with
-the mark in its record.
+The modulation is stated the other way round, **before** the mode request:
+that is what the board programs its demodulator from as the mode comes up, and
+every reset leaves Classic, which is what `ubertooth-rx`, `ubertooth-scan`,
+`ubertooth-afh` and `ubertooth-follow` read. `ubertooth-dump -l` is the one
+run that wants another, so `ubertooth-dump` states it on both sides: the
+second request is what survives the reset on a board left in another mode.
+
+The board then programs the demodulator again, in the middle of the capture,
+and marks the block it was filling across that change as discarded, because
+part of it was received at the other setting. A tool that looks for packets
+skips such a block; `ubertooth-dump` writes it out with the mark in its
+record, except under `-b`, which writes the symbols alone. Blocks that were
+finished before the second request arrived carry no such mark, so the first
+millisecond of a `-l` dump on a board left in another mode can hold Classic
+symbols where the rest is low energy.
 
 ## EXIT STATUS
 

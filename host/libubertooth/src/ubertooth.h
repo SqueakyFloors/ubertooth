@@ -111,10 +111,10 @@ typedef struct {
 
 	/* The modulation this capture wants the board to receive, for the
 	 * streams libubertooth starts itself (rx_dump(), rx_afh()). It is
-	 * stated twice, on either side of the mode request: before it, so that
-	 * the mode start programs the demodulator from it, and after it,
-	 * because a mode start puts the modulation back to Basic Rate and would
-	 * otherwise throw away the one stated first.
+	 * stated on either side of the mode request: before it, so that the
+	 * mode start programs the demodulator from it, and after it, because a
+	 * mode start puts the modulation back to Basic Rate and would otherwise
+	 * throw away the one stated first.
 	 *
 	 * MOD_BT_BASIC_RATE unless a tool asks for the other, which only
 	 * `ubertooth-dump -l` does. Every capture states one: a board that has

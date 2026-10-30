@@ -887,11 +887,16 @@
   saying nothing. A mode the running capture absorbs -- an `ubertooth-afh` or
   `ubertooth-follow` started while a killed dump's stream is still going --
   reads Basic Rate again as well, where it used to detect and follow on the
-  dump's low energy. `ubertooth-rx` states Basic Rate of its own, which covers
-  the last way in: an idle board holds the last modulation a tool set, because
-  a mode starting from idle resets nothing. A board that refuses the request
-  ends the run in both tools.
+  dump's low energy. `ubertooth-rx`, `ubertooth-scan`, `ubertooth-afh` and
+  `ubertooth-follow` state the modulation they read, which covers the way in
+  the firmware cannot: an idle board holds the last modulation a tool set,
+  because a mode starting from idle resets nothing. A board that refuses the
+  request ends the run in every one of them. One corner is left, for a host
+  that is not these tools: re-sending the mode a board is already streaming is
+  not a mode start and resets nothing, so such a run keeps whatever modulation
+  the board had.
   [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
+
 - The two-board range test (`ubertooth-util -n` against a `-e` repeater)
   ignores traffic that is not its own exchange instead of ending the run on
   it. The sender took any packet the radio's CRC accepted as the repeater's

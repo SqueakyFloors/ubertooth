@@ -1575,9 +1575,12 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 	 * `ubertooth-dump -l` wrote Basic Rate records without saying so. The
 	 * board keeps what is stated after the request for the mode it is
 	 * starting, and its capture loop programs the demodulator again, so
-	 * this reaches the radio whatever the board was doing before. On the
-	 * common path the two requests carry the same value and the second one
-	 * changes nothing.
+	 * this reaches the radio whatever the board was doing before.
+	 *
+	 * This is the request `-l` rests on. A capture that reads Basic Rate,
+	 * which is what every one of those resets leaves, sends it again for
+	 * nothing -- it is kept for all of them so that one rule covers the
+	 * streams this function starts.
 	 *
 	 * A board that refuses either would stream the modulation it happened
 	 * to be left in, with nothing in the records to say which that was, so
@@ -1783,8 +1786,11 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 		return -1;
 	}
 
-	/* The modulation, on either side of the mode request, for the reason
-	 * stream_rx_usb() gives. */
+	/* The modulation, before the mode request, for the reason
+	 * stream_rx_usb() gives. This path only ever reads Basic Rate, which is
+	 * what every reset leaves, so it needs no second statement after the
+	 * request: `ubertooth-dump -l`, which does, goes through
+	 * stream_rx_usb(). */
 	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
 	if (r < 0) {
 		ubertooth_bulk_thread_stop();
@@ -1796,13 +1802,6 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 	r = cmd_afh(ut->devh);
 	if (r < 0) {
 		/* as in stream_rx_usb(): the poll thread has to be joined here */
-		ubertooth_bulk_thread_stop();
-		ubertooth_bulk_stop(ut);
-		return r;
-	}
-
-	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
-	if (r < 0) {
 		ubertooth_bulk_thread_stop();
 		ubertooth_bulk_stop(ut);
 		return r;

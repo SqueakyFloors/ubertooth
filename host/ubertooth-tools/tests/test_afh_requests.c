@@ -688,12 +688,13 @@ MU_TEST(the_monitor_alone_asks_for_afh)
 	btbb_piconet_unref(pn);
 }
 
-/* The -r output format has its own receive loop, which starts the same way. */
+/* The -r output format has its own receive loop, which starts the same way,
+ * except that it reads Basic Rate and nothing else: it states the modulation
+ * before the mode request and needs no second statement after it. */
 MU_TEST(the_r_format_loop_asks_for_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_SET_MOD
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;

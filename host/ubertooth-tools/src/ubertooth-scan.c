@@ -613,6 +613,24 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* The modulation this scan reads, Classic, stated before the capture
+	 * request rather than after it as the sweep below is: the board programs
+	 * its demodulator from it as the mode comes up, and every reset that
+	 * could throw this away leaves Basic Rate anyway. It is the board's own
+	 * default, but an idle board holds the last modulation a tool set -- a
+	 * mode starting from idle runs no reset -- so without this a
+	 * `ubertooth-dump -l` that was interrupted left this scan demodulating
+	 * low energy, and the map it printed then meant nothing. */
+	r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
+	if (r < 0) {
+		report_refused_request("set the modulation", r);
+		ubertooth_bulk_thread_stop();
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+		close(dev_handle);
+		return 1;
+	}
+
 	// tell ubertooth to send packets
 	/* The quiet form, so this failure reads as the one "error: " line
 	 * report_refused_request() prints, like the sweep request below. The
