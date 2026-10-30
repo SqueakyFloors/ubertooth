@@ -143,13 +143,13 @@ everything a follower needs: the connection's access address, the CRCInit, the
 transmit window, the connection interval (Interval × 1.25 ms), the 37-bit
 used-channel map and the hop increment ([Vol 6] Part B, 2.3.3.1, 4.5.1).
 
-**Why following LE is easier.** Channel selection algorithm #1 is one line:
+**Why following LE is easier.** Channel selection algorithm 1 is one line:
 the next unmapped channel is (last + hopIncrement) mod 37, with the hop
 increment a value from 5 to 16, and unused channels remapped into the used set
 ([Vol 6] Part B, 4.5.8.2). Nothing has to be recovered — catch the
 `CONNECT_IND` and the rest follows. The costs are that you must be listening
 on the right advertising channel at the right moment, and that Bluetooth 5
-devices often negotiate channel selection algorithm #2 ([Vol 6] Part B,
+devices often negotiate channel selection algorithm 2 ([Vol 6] Part B,
 4.5.8.3), which Ubertooth does not implement.
 
 **Whitening by channel, not clock.** LE whitening uses the same kind of 7-bit

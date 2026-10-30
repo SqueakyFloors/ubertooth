@@ -320,7 +320,7 @@ like this:
     4 + O | X | 1
       +---+---+
 
-PIN #1, marked X, is square.
+Pin 1, marked X, is square.
 
 With Ubertooth unplugged, bridge pins 1 and 3, then plug the device in
 while keeping the bridge in place. Wait for the distinctive LED sequence or

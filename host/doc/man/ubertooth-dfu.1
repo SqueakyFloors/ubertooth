@@ -164,7 +164,7 @@ The expansion header is a 2x3 pin header between the two largest chips on the bo
 .fi
 .IP "" 0
 .P
-PIN #1, marked X, is square\.
+Pin 1, marked X, is square\.
 .P
 With Ubertooth unplugged, bridge pins 1 and 3, then plug the device in while keeping the bridge in place\. Wait for the distinctive LED sequence or confirm that USB ID \fB1d50:6003\fR is present\. The bootloader samples the entry pin only during reset, so once DFU is active you may remove the bridge without exiting DFU\. Run \fBubertooth\-dfu\fR promptly because pin\-entry DFU times out after a few seconds if no DFU request begins; the board then resets, and with the bridge still fitted that reset lands in the bootloader again\.
 .P
