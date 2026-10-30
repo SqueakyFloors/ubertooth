@@ -674,6 +674,19 @@
 
 ### Reliability fixes
 
+- **Script-visible change:** `ubertooth-afh` reports the map of a piconet
+  using the whole band instead of a handful of channels. The channel removal
+  threshold `-m` counts packets, not seconds, and with 79 channels in use a
+  given channel carries about one packet in 79, so the old default of 5 pruned
+  channels the piconet was using: the map flapped rather than settling, and
+  the example in the tool's own help text, which has no `-t` and so no
+  detection phase, settled on about five channels of the 79. The default is
+  now 800 packets, which holds that map at 79 of 79 with no channel added or
+  removed. The cost is at the other end of the trade-off: a channel the
+  piconet really has given up takes 800 packets to leave the map. See
+  ubertooth-afh(1), THE REMOVAL THRESHOLD.
+  [#194](https://github.com/SqueakyFloors/ubertooth/issues/194)
+
 - A `ubertooth-btbr` connection to a real Classic device is no longer cut
   short after exactly 30 seconds. The peer asks how many slots its packets
   may use, and a request like that has to be answered; getting nothing back,
@@ -2147,8 +2160,9 @@
   between `bluetooth_rxtx` and `btbr`.
   [#530](https://github.com/SqueakyFloors/ubertooth/issues/530)
 - ubertooth-afh(1) says what `-m` trades off. It counts packets rather than
-  time, so the default of 5 cannot settle the map of a piconet using the whole
-  band, and a value that does settle it is in the hundreds.
+  time, so what a threshold means depends on how many channels the piconet is
+  using: a small one notices a dropped channel quickly and prunes channels
+  still in use, a large one settles and is slow to notice.
   [#194](https://github.com/SqueakyFloors/ubertooth/issues/194)
 
 ### Under the hood

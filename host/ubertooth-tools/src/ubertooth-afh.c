@@ -41,7 +41,7 @@ static void usage(FILE *file)
 	fprintf(file, "Main options:\n");
 	fprintf(file, "\t-l <LAP> LAP of target piconet (3 bytes / 6 hex digits)\n");
 	fprintf(file, "\t-u <UAP> UAP of target piconet (1 byte / 2 hex digits)\n");
-	fprintf(file, "\t-m <packets> mark a channel unused after this many packets without it (default: 5)\n");
+	fprintf(file, "\t-m <packets> mark a channel unused after this many packets without it (default: 800)\n");
 	fprintf(file, "\t-r print AFH channel map once every second (default: print on update)\n");
 	fprintf(file, "\n");
 	fprintf(file, "Other options\n");
@@ -78,8 +78,12 @@ int main(int argc, char* argv[])
 	int r;
 	int status = 0;
 
-	// default value for '-m' channel timeout
-	packet_counter_max = 5;
+	/* Default for -m. It counts packets, not seconds, so it has to be a
+	 * good few times the number of channels in use for a channel that is
+	 * still used to be seen again within it: a piconet on the whole band
+	 * puts about one packet in 79 on any given channel. See
+	 * ubertooth-afh(1), THE REMOVAL THRESHOLD. */
+	packet_counter_max = 800;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option

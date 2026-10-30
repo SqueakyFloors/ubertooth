@@ -64,7 +64,7 @@ static void reset_fake(void)
 
 /* libubertooth defines these; the tool reads and sets them. */
 int max_ac_errors = 2;
-unsigned int packet_counter_max = 5;
+unsigned int packet_counter_max;
 
 ubertooth_t *ubertooth_start_select(const char *u_arg)
 {
@@ -575,6 +575,27 @@ MU_TEST(every_exit_path_gives_the_handle_back)
 	mu_assert_int_eq(0, fake.frees);
 }
 
+/* The removal threshold counts packets, not seconds, so it has to be a good
+ * few times the number of channels in use or the monitor prunes channels the
+ * piconet is still using: a piconet on the whole band puts about one packet
+ * in 79 on any given channel. */
+MU_TEST(the_removal_threshold_defaults_to_800_packets)
+{
+	struct run_result r;
+
+	reset_fake();
+	packet_counter_max = 0;
+	r = RUN("-l", "446688", "-u", "22");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(800, (int)packet_counter_max);
+
+	/* -m still has the last word. */
+	reset_fake();
+	r = RUN("-l", "446688", "-u", "22", "-m", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(5, (int)packet_counter_max);
+}
+
 int main(void)
 {
 	MU_RUN(no_packets_in_the_detection_phase_is_reported_and_exits_2);
@@ -594,5 +615,6 @@ int main(void)
 	MU_RUN(the_usage_text_documents_the_monitoring_and_the_exit_status);
 	MU_RUN(a_missing_piconet_address_is_refused_on_standard_error);
 	MU_RUN(a_bare_command_line_is_refused_with_the_usage_text);
+	MU_RUN(the_removal_threshold_defaults_to_800_packets);
 	return mu_report();
 }

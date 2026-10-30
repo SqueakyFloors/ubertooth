@@ -30,8 +30,8 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
    UAP of target piconet (1 byte / 2 hex digits)
  - `-m <int>` :
    threshold for channel removal: a channel is marked unused once this many packets
-   arrive without it being seen; 1 or more (default: 5). It counts packets, not
-   seconds, and the default of 5 is at the low end; see THE REMOVAL THRESHOLD
+   arrive without it being seen; 1 or more (default: 800). It counts packets, not
+   seconds; see THE REMOVAL THRESHOLD
  - `-r` :
    print AFH channel map once every second (default: print on update)
 
@@ -127,20 +127,22 @@ notices quickly when the piconet really does stop using a channel, and reports
 channels it is still using as dropped. A large one settles into a map that
 stops changing, and is slow to notice a channel the piconet has given up.
 
-The default of 5 is at the small end, far enough that the map does not settle
-at all for a piconet on the whole band. A piconet hops to a different channel
-each slot, so with 79 channels in use a given channel carries about one packet
-in 79: five packets almost never include it, and the monitor output is a stream
-of `+ channel N is used now` and `- channel N is not used any more` lines
-rather than a map that holds still. A threshold has to be a good few times the
-number of channels in use before a used channel is reliably seen again within
-it, which puts a settling value for the whole band in the hundreds.
+The default is 800, which is chosen to hold the map of a piconet using the
+whole band. A piconet hops to a different channel each slot, so with 79
+channels in use a given channel carries about one packet in 79, and a threshold
+has to be a good few times the number of channels in use before a channel that
+is still used is reliably seen again within it: 800 packets give each of 79
+channels about ten chances to appear. Below that, channels the piconet is using
+are pruned: the monitor output becomes a stream of `+ channel N is used now`
+and `- channel N is not used any more` lines, and the map it holds falls short
+of the real one. Against a piconet using all 79, a threshold of 5 settles on a
+handful of channels, 50 on about half of them, and 200 is still a few short.
 
-That arithmetic is the shape of it, not a measurement. The default is still 5
-because no measured value has replaced it: choosing one means running against a
-real piconet whose map is known, and seeing both how long a map takes to settle
-and how quickly a channel the piconet drops is noticed. Until then, raise `-m`
-yourself if the map matters more than the reaction time.
+The cost is the other end of the trade-off. A channel the piconet really has
+given up stays in the map until 800 more packets have arrived without it, and
+how long that takes depends on how busy the piconet is. Lower `-m` if the
+piconet is known to use few channels, or if noticing a dropped channel quickly
+matters more than a map that holds still.
 
 ## ARGUMENTS
 
