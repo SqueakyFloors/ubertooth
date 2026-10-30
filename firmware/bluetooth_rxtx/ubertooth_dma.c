@@ -20,6 +20,7 @@
  */
 
 #include "ubertooth_dma.h"
+#include "irq.h"
 
 volatile uint8_t rxbuf1[DMA_SIZE];
 volatile uint8_t rxbuf2[DMA_SIZE];
@@ -182,30 +183,66 @@ void dma_init_le(volatile uint8_t* dest, unsigned len) {
 			DMACCxConfig_ITC; /* allow terminal count interrupts */
 }
 
+/*
+ * Arming receive sets one bit in each of three registers that carry other
+ * settings too, so each is a read-modify-write, and three contexts reach them
+ * while the low-energy engine runs: that mode's loop, its timer interrupt on
+ * every hop, and its byte interrupt at the end of every packet. The timer
+ * interrupt preempts the byte interrupt, so the guard is what stops a write
+ * carrying a value another context has moved on from.
+ *
+ * The receive request is the bit that costs a capture if it goes missing: the
+ * radio is strobed into receive right after this, and the receiver then clocks
+ * symbols into the SSP with nothing asking the controller to collect them, so
+ * no byte reaches a buffer and no interrupt is raised while the loop goes on
+ * answering the host.
+ *
+ * The slave select pin stays outside the guard: it has its own set and clear
+ * registers, so writing it reads nothing back.
+ */
 void dio_ssp_start()
 {
+	uint32_t primask;
+
 	/* make sure the (active low) slave select signal is not active */
 	DIO_SSEL_SET;
 
+	primask = irq_save_disable();
 	/* enable rx DMA on DIO_SSP */
 	DIO_SSP_DMACR |= SSPDMACR_RXDMAE;
 	DIO_SSP_CR1 |= SSPCR1_SSE;
 
 	// enable channel
 	DMACC0Config |= 1;
+	irq_restore(primask);
 
 	/* activate slave select pin */
 	DIO_SSEL_CLR;
 }
 
+/* Stop the SSP asking the controller for bytes, leaving the SSP and the
+ * channel as they are. Its own function because the low-energy engine does
+ * this much on its own, wherever it stops receiving. */
+void dio_ssp_rx_dma_disable(void)
+{
+	uint32_t primask = irq_save_disable();
+
+	DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+	irq_restore(primask);
+}
+
 void dio_ssp_stop()
 {
+	uint32_t primask;
+
 	// disable CC2400's output (active low)
 	DIO_SSEL_SET;
 
 	// disable DMA on SSP; disable SSP ; disable DMA channel
+	primask = irq_save_disable();
 	DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
 	DIO_SSP_CR1 &= ~SSPCR1_SSE;
+	irq_restore(primask);
 	DMACC0Config = 0;
 	dma_clear_interrupts(0);
 

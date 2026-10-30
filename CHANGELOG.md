@@ -2103,6 +2103,19 @@ Fixes with no visible change in normal use.
   capture loop no longer writes that timer to light an LED. The blink is the
   same length as before.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- A followed connection keeps its event grid when a packet arrives at the very
+  end of a connection event, which the specification allows. Such a packet was
+  counted into the event that followed it: that armed a 300 microsecond timeout
+  over the next event's own start, and left the connection's event counter one
+  ahead of the peer's, so every later connection update and channel map change
+  was applied an event early.
+  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
+- A channel map or connection parameter change is marked as waiting for its
+  instant only once all of it has been read, so the event that applies it
+  cannot pick up a half-read map or a mixture of two updates. A map applied
+  half-read left the receiver tuned where the peer was not for the rest of the
+  connection.
+  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
 - A request that carries more data to the board than the buffer its handler
   registered is refused, instead of having the rest of it written over whatever
   follows that buffer. The length a request may declare is sixteen bits and the

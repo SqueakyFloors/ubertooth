@@ -92,6 +92,22 @@ struct le_phy_scan {
 	int handover_mask;      /* irq_save_disable() */
 	int handover_queue;     /* queue_insert() */
 	int handover_restore;   /* irq_restore() */
+	/* Also in le_dma_interrupt(): reaching the connection event's own state,
+	 * and dropping the match the event is timed by, which the timer
+	 * interrupt owns the other half of. */
+	int bare_event_use;     /* conn_event outside a guard */
+	int guarded_event_uses; /* conn_event inside one */
+	int bare_deadline_clear;/* the event's deadline, dropped unguarded */
+	/* Reaching the SSP's receive request for one bit: le_phy.c goes through
+	 * the guarded helper in ubertooth_dma.c instead. */
+	int bare_rx_request_use;
+	/* Where the two handlers that run in the mode's loop publish a change
+	 * for the timer interrupt to apply, and whether each write is inside a
+	 * guarded section. None of these fields is volatile, so the guard's
+	 * memory clobber is what orders the stores as well as what keeps the
+	 * interrupt out. */
+	int map_writes_bare, map_writes_guarded;
+	int update_writes_bare, update_writes_guarded;
 };
 
 static int scan_le_phy(const char *path, struct le_phy_scan *s)
@@ -99,7 +115,9 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
 	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0, in_loop = 0;
-	char name[64];
+	int in_map_handler = 0, in_update_handler = 0, dma_guard_depth = 0;
+	int handler_depth = 0;
+	char name[64], flat[SCAN_LINE_MAX];
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
@@ -183,9 +201,19 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 			in_grid_caller = 0;
 		}
 
-		/* The handover of a finished packet, in the byte interrupt. */
-		if (strstr(line, "void le_dma_interrupt(") != NULL &&
-		    strchr(line, ';') == NULL)
+		/* The SSP's receive request, which three contexts change a bit at
+		 * a time. le_phy.c reaches it only through the guarded helper, so
+		 * the register's name does not belong in this file at all. */
+		if (contains_identifier(line, "DIO_SSP_DMACR") &&
+		    s->bare_rx_request_use == 0)
+			s->bare_rx_request_use = lineno;
+
+		/* The handover of a finished packet, in the byte interrupt, and
+		 * the rest of what that interrupt does with state the timer
+		 * interrupt shares. */
+		if ((strstr(line, "void le_dma_interrupt(") != NULL ||
+		     strstr(line, "void note_the_event_and_drop_its_deadline(")
+		     != NULL) && strchr(line, ';') == NULL)
 			in_dma = 1;
 		if (in_dma) {
 			if (calls_identifier(line, "buffer_get") &&
@@ -200,8 +228,80 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 			if (calls_identifier(line, "irq_restore") &&
 			    s->handover_restore == 0)
 				s->handover_restore = lineno;
+
+			/* Whether this line sits inside a guarded section. The
+			 * calls are on lines of their own, so counting them
+			 * before and after the test below keeps the boundary
+			 * lines out of the section. */
+			if (calls_identifier(line, "irq_restore") &&
+			    dma_guard_depth > 0)
+				dma_guard_depth--;
+			if (contains_identifier(line, "conn_event")) {
+				if (dma_guard_depth > 0)
+					s->guarded_event_uses++;
+				else if (s->bare_event_use == 0)
+					s->bare_event_use = lineno;
+			}
+			/* Dropping the deadline belongs inside the guard that
+			 * notes the event in the same breath; the call to that
+			 * helper is of course outside one. */
+			if (calls_identifier(line, "timer1_clear_match") &&
+			    dma_guard_depth == 0 && s->bare_deadline_clear == 0)
+				s->bare_deadline_clear = lineno;
+			if (calls_identifier(line, "irq_save_disable"))
+				dma_guard_depth++;
+
 			if (line[0] == '}')
 				in_dma = 0;
+		}
+
+		/* The two update handlers, which run in the mode's loop while the
+		 * timer interrupt reads what they write. */
+		/* These two handlers line their assignments up on the '=', which
+		 * is more than the one space is_assignment_to() looks for. */
+		collapse_spaces(line, flat, sizeof(flat));
+
+		if (strstr(line, "static void channel_map_update_handler(") != NULL &&
+		    strchr(line, ';') == NULL)
+			in_map_handler = 1;
+		else if (in_map_handler) {
+			if (calls_identifier(line, "irq_restore") && handler_depth > 0)
+				handler_depth--;
+			if (is_assignment_to(flat, "conn.channel_map_update_pending") ||
+			    is_assignment_to(flat, "conn.channel_map_update_instant")) {
+				if (handler_depth > 0)
+					s->map_writes_guarded++;
+				else if (s->map_writes_bare == 0)
+					s->map_writes_bare = lineno;
+			}
+			if (calls_identifier(line, "irq_save_disable"))
+				handler_depth++;
+			if (line[0] == '}')
+				in_map_handler = 0;
+		}
+
+		if (strstr(line, "static void connection_update_handler(") != NULL &&
+		    strchr(line, ';') == NULL)
+			in_update_handler = 1;
+		else if (in_update_handler) {
+			if (calls_identifier(line, "irq_restore") && handler_depth > 0)
+				handler_depth--;
+			if (is_assignment_to(flat, "conn.conn_update_pending") ||
+			    is_assignment_to(flat, "conn.conn_update_instant") ||
+			    is_assignment_to(flat, "conn.conn_update_pending_interval") ||
+			    is_assignment_to(flat,
+			                     "conn.conn_update_pending_supervision_timeout") ||
+			    is_assignment_to(flat, "conn.win_size") ||
+			    is_assignment_to(flat, "conn.win_offset")) {
+				if (handler_depth > 0)
+					s->update_writes_guarded++;
+				else if (s->update_writes_bare == 0)
+					s->update_writes_bare = lineno;
+			}
+			if (calls_identifier(line, "irq_save_disable"))
+				handler_depth++;
+			if (line[0] == '}')
+				in_update_handler = 0;
 		}
 
 		if (in_timer1_start) {
@@ -287,9 +387,67 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 	return 1;
 }
 
+/*
+ * The other half of the receive request: the driver that owns the register.
+ * le_phy.c calling a named function says nothing about whether that function
+ * holds interrupts off, so this reads the driver too. No count of the sites,
+ * only that none of them is outside a guard.
+ */
+struct ssp_scan {
+	int bare_use;  /* a partial write outside a guarded section */
+	int guards;    /* guarded sections found, so an empty scan shows up */
+};
+
+static int scan_ssp_driver(const char *file, struct ssp_scan *s)
+{
+	char line[SCAN_LINE_MAX];
+	int lineno = 0, in_block = 0, depth = 0;
+	FILE *f = fopen(file, "r");
+
+	if (f == NULL)
+		return 0;
+
+	memset(s, 0, sizeof(*s));
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		int partial;
+
+		lineno++;
+		strip_comments(line, &in_block);
+
+		/* As in le_dma_interrupt() above: the calls are on lines of their
+		 * own, so counting them either side of the test keeps the
+		 * boundary lines outside the section. */
+		if (calls_identifier(line, "irq_restore") && depth > 0)
+			depth--;
+
+		/* The two SSP registers only. The channel configuration register
+		 * is also written a bit at a time, in dma_init_rx_symbols(), but
+		 * that one belongs to the loop of whichever legacy mode called it
+		 * and no handler of those modes touches it, so it needs no
+		 * guard. */
+		partial = (contains_identifier(line, "DIO_SSP_DMACR") ||
+		           contains_identifier(line, "DIO_SSP_CR1")) &&
+		          (strstr(line, "|=") != NULL || strstr(line, "&=") != NULL);
+		if (partial && depth == 0 && s->bare_use == 0)
+			s->bare_use = lineno;
+
+		if (calls_identifier(line, "irq_save_disable")) {
+			depth++;
+			s->guards++;
+		}
+	}
+
+	fclose(f);
+	return 1;
+}
+
 static struct le_phy_scan s;
 static int scanned;
 static const char *path = FW_RXTX_DIR "/le_phy.c";
+static struct ssp_scan d;
+static int scanned_dma;
+static const char *dma_path = FW_RXTX_DIR "/ubertooth_dma.c";
 
 /*
  * The scan runs once, in main(), and every test below reads its result. It
@@ -618,10 +776,142 @@ MU_TEST(test_a_finished_packet_is_handed_over_in_one_guarded_step)
 	mu_assert(s.handover_take < s.handover_queue, msg);
 }
 
+/*
+ * Counting a received packet into the connection event it arrived in is done
+ * with interrupts held off, and the event's deadline is never dropped from
+ * here without first asking whether the event is still open.
+ *
+ * Both halves of the event's bookkeeping belong to two contexts. The byte
+ * interrupt counts packets into the event and anchors it; the timer interrupt
+ * closes it through finish_conn_event(), which resets the count and arms the
+ * next event in the same match register. The timer interrupt preempts the byte
+ * interrupt, and a packet is allowed to begin as late as its event's deadline,
+ * so a packet can reach the end of this handler with its event already closed.
+ *
+ * Counted into the event that follows, such a packet put its own time into an
+ * anchor that event had not reached and armed a 300 microsecond inter-frame
+ * timeout over that event's own match, which cost the follow the event and
+ * left the connection's event counter one ahead of the peer's -- so every
+ * connection update and channel map instant after it was matched an event
+ * early.
+ *
+ * A scan because the interrupt priorities are hardware. What the engine does
+ * with a packet that arrives after its event has closed is run in
+ * test_le_phy_logic.c.
+ */
+MU_TEST(test_a_packet_is_counted_into_its_event_with_interrupts_held_off)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found %d guarded mentions of conn_event in the "
+	         "byte interrupt and the helper that notes a packet's event, so "
+	         "it has stopped reading them", path, s.guarded_event_uses);
+	mu_assert_fatal(s.guarded_event_uses >= 3, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the byte interrupt reaches the connection event here "
+	         "without holding interrupts off; the timer interrupt closes the "
+	         "same event and arms the next one, so a count or an anchor set "
+	         "here can land in an event this packet did not arrive in",
+	         path, s.bare_event_use);
+	mu_assert(s.bare_event_use == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: le_dma_interrupt() drops the connection event's "
+	         "deadline here without holding interrupts off; go through "
+	         "note_the_event_and_drop_its_deadline(), which also notes which "
+	         "event the packet is in, or a packet that began at its deadline "
+	         "drops the next event's own match",
+	         path, s.bare_deadline_clear);
+	mu_assert(s.bare_deadline_clear == 0, msg);
+}
+
+/*
+ * A change the mode's loop schedules for the timer interrupt to apply is
+ * published by its flag, and the flag goes up only once everything the
+ * interrupt will read is in place -- and goes down first, so an update already
+ * waiting for its instant is not applied part way through being replaced.
+ *
+ * The connection update and the channel map update are both read on every
+ * connection event by the timer interrupt, which preempts the loop. With the
+ * flag set first, that interrupt could reach an instant left over from an
+ * earlier update, or the zero a connection starts from, which every event
+ * counter under 32768 has already reached. The channel map is the worse of the
+ * two: le_parse_channel_map() clears the map before filling it, so what the
+ * follow would hop on is a map holding some of the update's channels and
+ * missing the rest, and the receiver tunes where the peer is not for the rest
+ * of the connection.
+ */
+MU_TEST(test_a_scheduled_change_is_written_with_interrupts_held_off)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found %d guarded writes in "
+	         "channel_map_update_handler() and %d in "
+	         "connection_update_handler(), so it has stopped reading them",
+	         path, s.map_writes_guarded, s.update_writes_guarded);
+	mu_assert_fatal(s.map_writes_guarded >= 3 &&
+	                s.update_writes_guarded >= 6, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the channel map update writes this without holding "
+	         "interrupts off; none of these fields is volatile, so the "
+	         "compiler may order the stores as it likes and may drop a flag "
+	         "that is cleared and set again with only ordinary stores in "
+	         "between", path, s.map_writes_bare);
+	mu_assert(s.map_writes_bare == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the connection update writes this without holding "
+	         "interrupts off, so the timer interrupt can apply a mixture of "
+	         "this update and the one it replaced", path,
+	         s.update_writes_bare);
+	mu_assert(s.update_writes_bare == 0, msg);
+}
+
+/*
+ * le_phy.c does not reach the SSP's receive request itself.
+ *
+ * That register carries the transmit request alongside the receive one, so
+ * changing one bit is a read-modify-write, and the mode's loop, its timer
+ * interrupt and its byte interrupt all change it. Both directions live in one
+ * guarded place each in ubertooth_dma.c, which is where the reasoning is; this
+ * is the part a scan can see.
+ */
+MU_TEST(test_the_receive_request_is_not_reached_from_here)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the SSP's receive request is changed here a bit at a "
+	         "time; call dio_ssp_rx_dma_disable() or dio_ssp_start(), which "
+	         "hold interrupts off, or an interrupt landing in the middle "
+	         "leaves receive armed with nothing collecting the bytes",
+	         path, s.bare_rx_request_use);
+	mu_assert(s.bare_rx_request_use == 0, msg);
+
+	snprintf(msg, sizeof(msg), "cannot open %s to scan", dma_path);
+	mu_assert_fatal(scanned_dma, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found no guarded section in the file, so it has "
+	         "stopped reading it", dma_path);
+	mu_assert_fatal(d.guards > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: an SSP register is changed a bit at a time here without "
+	         "holding interrupts off, so the bit another context set can be "
+	         "written away", dma_path, d.bare_use);
+	mu_assert(d.bare_use == 0, msg);
+}
+
 int main(void)
 {
 	printf("le_phy bring-up and teardown order tests\n");
 	scanned = scan_le_phy(path, &s);
+	scanned_dma = scan_ssp_driver(dma_path, &d);
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_a_run_starts_with_no_dropped_packet_to_report);
 	MU_RUN(test_the_run_starts_with_nothing_pending);
@@ -631,5 +921,8 @@ int main(void)
 	MU_RUN(test_every_match_bit_is_changed_with_interrupts_held_off);
 	MU_RUN(test_the_blink_is_not_on_the_radios_timer);
 	MU_RUN(test_a_finished_packet_is_handed_over_in_one_guarded_step);
+	MU_RUN(test_a_packet_is_counted_into_its_event_with_interrupts_held_off);
+	MU_RUN(test_a_scheduled_change_is_written_with_interrupts_held_off);
+	MU_RUN(test_the_receive_request_is_not_reached_from_here);
 	return mu_report();
 }

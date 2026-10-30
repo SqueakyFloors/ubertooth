@@ -115,6 +115,16 @@ int cc2400_wait_xosc_stable(void (*service)(void))
 void dio_ssp_init(void) { ssp_starts++; }
 void dio_ssp_start(void) { ssp_starts++; }
 void dio_ssp_stop(void) { ssp_starts++; }
+
+/* Stop the SSP asking the controller for bytes, which the firmware does in one
+ * guarded place because the loop and both handlers change that register a bit
+ * at a time (ubertooth_dma.c). That file is not compiled here, so this stands
+ * in for its effect, and test_le_phy_order.c's scan is what refuses a site
+ * that reaches the register directly. */
+void dio_ssp_rx_dma_disable(void)
+{
+	fake_ssp1dmacr &= ~SSPDMACR_RXDMAE;
+}
 void dma_clear_interrupts(unsigned channel) { (void)channel; dma_clear_calls++; }
 void clkn_init(void) {}
 void clkn_disable(void) {}
@@ -2037,6 +2047,124 @@ MU_TEST(a_channel_map_update_is_scheduled_for_its_instant)
 	mu_assert_int_eq(0, conn.remapping.total_channels);
 }
 
+/* What the timer interrupt does on every connection event: ask whether a
+ * change is waiting, and read it if its instant has come. Both hooks below
+ * stand in for that, run where the hardware would run the handler -- as the
+ * guard the loop was inside ends. */
+static int the_update_the_timer_saw_was_whole;
+static void the_timer_reads_the_pending_update(void)
+{
+	the_update_the_timer_saw_was_whole =
+		conn.conn_update_pending == 1 &&
+		conn.conn_update_instant == 7 &&
+		conn.conn_update_pending_interval == 40 * USEC(1250) &&
+		conn.conn_update_pending_supervision_timeout == 20 * MSEC(10) &&
+		conn.win_size == 2 * USEC(1250) &&
+		conn.win_offset == 3 * USEC(1250);
+}
+
+static int the_map_was_pending_while_it_was_written = -1;
+static int the_map_was_pending_once_it_was_whole = -1;
+static unsigned the_channels_the_timer_saw;
+static uint16_t the_instant_the_timer_saw;
+
+static void the_timer_reads_the_map_once_it_is_whole(void)
+{
+	the_map_was_pending_once_it_was_whole = conn.channel_map_update_pending;
+	the_instant_the_timer_saw = conn.channel_map_update_instant;
+	the_channels_the_timer_saw = conn.pending_remapping.total_channels;
+}
+
+static void the_timer_reads_the_map_while_it_is_written(void)
+{
+	the_map_was_pending_while_it_was_written =
+		conn.channel_map_update_pending;
+	/* The map is parsed next, and then the guard that publishes it ends:
+	 * look again there. */
+	irq_pending_hook = the_timer_reads_the_map_once_it_is_whole;
+}
+
+/*
+ * An update that replaces one still waiting for its instant is never seen as
+ * a mixture of the two.
+ *
+ * This handler runs in the mode's loop, and the timer interrupt reads these
+ * five fields on every connection event. Written one at a time, a new update
+ * landing on top of a waiting one could be applied with the old instant and
+ * the new interval, or the new window and the old timeout, and every deadline
+ * the follow uses is built from them.
+ *
+ * Interrupts held off rather than the pending flag written last, because none
+ * of these fields is volatile: the compiler may order ordinary stores as it
+ * likes, and a flag cleared and set again with only ordinary stores in
+ * between is a store it may drop. The guard's memory clobber is what settles
+ * both.
+ */
+MU_TEST(an_update_is_never_seen_as_a_mixture_of_two)
+{
+	le_rx_t buf;
+	struct conn_update u = valid_conn_update();
+
+	start_fresh();
+	/* One is already waiting, for an instant this connection is nowhere
+	 * near. */
+	conn.conn_update_pending = 1;
+	conn.conn_update_instant = 900;
+	conn.conn_update_pending_interval = 24 * USEC(1250);
+	conn.win_size = USEC(1250);
+
+	build_conn_update(&buf, &u);
+	the_update_the_timer_saw_was_whole = -1;
+	irq_pending_hook = the_timer_reads_the_pending_update;
+	connection_update_handler(&buf);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the update is written without "
+	          "holding interrupts off");
+	mu_assert_int_eq(1, the_update_the_timer_saw_was_whole);
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
+/*
+ * ...and a channel map update is not pending while its map is being written.
+ *
+ * le_parse_channel_map() clears the map before filling it, so an update
+ * applied while it ran gave the follow a map with some of the update's
+ * channels in it and the rest missing, and the receiver tuned where the peer
+ * was not for the rest of the connection.
+ */
+MU_TEST(a_channel_map_is_not_pending_while_it_is_being_written)
+{
+	le_rx_t buf;
+
+	start_fresh();
+	/* One is already waiting, with a map of its own. */
+	conn.channel_map_update_pending = 1;
+	conn.channel_map_update_instant = 900;
+	conn.pending_remapping.total_channels = 37;
+
+	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	/* Two channels left in use: indices 0 and 9. */
+	buf.data[3] = 0x01;
+	buf.data[4] = 0x02;
+	put_le(&buf.data[8], 1234, 2);
+
+	the_map_was_pending_while_it_was_written = -1;
+	the_map_was_pending_once_it_was_whole = -1;
+	irq_pending_hook = the_timer_reads_the_map_while_it_is_written;
+	channel_map_update_handler(&buf);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "an interrupt never got in, so the flag and the instant are "
+	          "written without holding interrupts off");
+	mu_assert_int_eq(0, the_map_was_pending_while_it_was_written);
+	mu_assert_int_eq(1, the_map_was_pending_once_it_was_whole);
+	mu_assert_int_eq(1234, the_instant_the_timer_saw);
+	mu_assert_int_eq(2, (int)the_channels_the_timer_saw);
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
 /*
  * A channel map with no channels in it cannot be followed: the remapping
  * divides by the number of channels in use, and the processor's
@@ -2376,6 +2504,125 @@ static void anchored_connection(uint32_t last_anchor)
 	conn.last_packet_ts = 1000;
 	fake_t1tc = 1000;
 	conn.conn_event_counter = 5;
+}
+
+/*
+ * The first packet of an open connection event is counted into it, anchors it,
+ * and starts the inter-frame timeout that waits for the event's second packet.
+ */
+MU_TEST(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second)
+{
+	le_rx_t *packet;
+
+	anchored_connection(1000000);
+	conn_event.opened = 1;
+
+	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+
+	mu_assert_fatal(packet != NULL, "the packet never reached the host");
+	mu_assert_int_eq(1, conn_event.num_packets);
+	mu_assert_int_eq(packet->timestamp, conn_event.anchor);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "nothing waits for the event's second packet");
+	mu_assert_int_eq(fake_t1tc + IFS_TIMEOUT, fake_t1mr0);
+	buffer_release(packet);
+}
+
+/*
+ * A packet that arrived after its connection event closed leaves the next
+ * event's own match alone.
+ *
+ * A packet may begin as late as its event's deadline -- the peripheral's
+ * answer is allowed a whole PERIPHERAL_REPLY_LATEST after the anchor -- so the
+ * deadline can expire in the microseconds between the packet's first symbol
+ * and the interrupt that reports its first byte. The timer interrupt, which
+ * preempts that one, has then closed the event and armed the next one in the
+ * same match register.
+ *
+ * The packet is still whole and still goes to the host. What must not happen
+ * is its bookkeeping landing in the event that follows: counted there, it put
+ * its own time into an anchor that event had not reached and armed a 300
+ * microsecond inter-frame timeout over the event's own match. The event after
+ * then opened behind a packet instead of on the connection's grid, and the
+ * event counter every instant is matched against was one ahead of the peer's.
+ */
+/* What the timer interrupt does when a connection event's deadline expires:
+ * close the event, which counts it and arms the next one. The match it armed
+ * is kept, so a test can say the packet still arriving left it alone. */
+static uint32_t the_match_the_timer_armed;
+static void the_timer_closes_the_connection_event(void)
+{
+	finish_conn_event();
+	the_match_the_timer_armed = fake_t1mr0;
+}
+
+/*
+ * A deadline that expires as a packet's first byte arrives closes the event
+ * and leaves the next one armed, and the rest of that packet does not disturb
+ * it.
+ *
+ * Disarming the deadline is the first thing the byte handler does with a
+ * data-channel packet, and it asks whether the event is still open before it
+ * does. But a match the timer has already latched is taken the instant the
+ * guard around that question ends, so the event can close immediately
+ * afterwards and the packet carries on inside an event that has been counted.
+ * The guard at the end of the packet is what catches that: it finds the event
+ * closed and leaves the next event's match and anchor alone.
+ */
+MU_TEST(a_deadline_that_expires_as_a_packet_starts_leaves_the_next_event_armed)
+{
+	le_rx_t *packet;
+
+	anchored_connection(1000000);
+	conn_event.opened = 1;
+	/* The event is running to its own deadline, which the timer is about to
+	 * take. */
+	timer1_set_match(fake_t1tc + MSEC(1));
+
+	/* The buffer is taken before the hook is set, so the first guarded
+	 * section the packet runs into is the one that notes its event. */
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+
+	the_match_the_timer_armed = 0;
+	irq_pending_hook = the_timer_closes_the_connection_event;
+	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the event's deadline is "
+	          "dropped without holding interrupts off");
+	mu_assert_fatal(packet != NULL, "the packet never reached the host");
+	mu_assert_int_eq(0, conn_event.num_packets);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "the packet that was arriving as the event closed disarmed the "
+	          "next event, so nothing opens it");
+	mu_assert_int_eq(the_match_the_timer_armed, fake_t1mr0);
+	buffer_release(packet);
+}
+
+MU_TEST(a_packet_from_a_closed_event_leaves_the_next_event_armed)
+{
+	const uint32_t next_event = 2000000;
+	le_rx_t *packet;
+
+	anchored_connection(1000000);
+	/* The event this packet belongs to has been closed and the next one
+	 * armed, which is what finish_conn_event() leaves behind. The event
+	 * counter is left where a packet that noted no event would leave its
+	 * own, so only "no event was open" tells the two apart. */
+	reset_conn_event();
+	conn.conn_event_counter = 0;
+	timer1_set_match(next_event);
+
+	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+
+	mu_assert_fatal(packet != NULL, "the packet never reached the host");
+	mu_assert_int_eq(0, conn_event.num_packets);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "a packet from the event before it disarmed the next "
+	          "connection event, so nothing opens it");
+	mu_assert_int_eq(next_event, fake_t1mr0);
+	buffer_release(packet);
 }
 
 MU_TEST(two_packets_in_an_event_anchor_it_where_they_arrived)
@@ -3555,10 +3802,15 @@ int main(void)
 	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
 	MU_RUN(the_first_event_of_a_connection_waits_out_the_whole_window);
 	MU_RUN(a_channel_map_update_is_scheduled_for_its_instant);
+	MU_RUN(an_update_is_never_seen_as_a_mixture_of_two);
+	MU_RUN(a_channel_map_is_not_pending_while_it_is_being_written);
 	MU_RUN(a_channel_map_update_with_no_channels_is_refused);
 	MU_RUN(an_empty_map_does_not_divide_by_zero_in_the_remapping);
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);
 	MU_RUN(a_target_filters_advertising_packets_only);
+	MU_RUN(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second);
+	MU_RUN(a_deadline_that_expires_as_a_packet_starts_leaves_the_next_event_armed);
+	MU_RUN(a_packet_from_a_closed_event_leaves_the_next_event_armed);
 	MU_RUN(two_packets_in_an_event_anchor_it_where_they_arrived);
 	MU_RUN(one_packet_anchors_the_event_only_near_the_prediction);
 	MU_RUN(a_silent_event_moves_the_anchor_on_by_one_interval);
