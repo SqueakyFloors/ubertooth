@@ -1660,7 +1660,8 @@ MU_TEST(a_connection_request_is_ignored_until_the_host_asks_to_follow)
 }
 
 /*
- * Each parameter outside its range puts the engine back on the advertising
+ * Each parameter outside the range the specification allows, and an access
+ * address a connection may not use, puts the engine back on the advertising
  * channels instead of following. One case per field, each one value past the
  * boundary, so a check removed or a comparison turned round fails here.
  */
@@ -1672,7 +1673,7 @@ MU_TEST(a_connection_request_outside_the_specification_is_refused)
 	struct bad_case {
 		const char *what;
 		struct connect_req r;
-	} cases[9];
+	} cases[10];
 
 	memset(cases, 0, sizeof(cases));
 
@@ -1706,6 +1707,12 @@ MU_TEST(a_connection_request_outside_the_specification_is_refused)
 	r = valid_connect_req(); r.supervision_timeout = 43000;
 	cases[8].what = "a supervision timeout that overflows the scaled count";
 	cases[8].r = r;
+	/* The engine reads the advertising access address as "no connection is
+	 * being followed", so a follow opened on one would stay on the
+	 * advertising channels and be restarted by the next request it heard. */
+	r = valid_connect_req(); r.access_address = ADV_AA;
+	cases[9].what = "the advertising access address as a connection's";
+	cases[9].r = r;
 
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		char msg[256];
@@ -1800,12 +1807,8 @@ MU_TEST(a_connection_request_with_no_follow_running_opens_one)
  * and a request from another pair of devices reaches here during a follow
  * that is running well. Both are ignored until the follow ends.
  *
- * Acting on one would rebuild the connection from the loop: le_connect_handler()
- * clears all of `conn` and then writes it field by field, with the timer
- * interrupt free to take a connection event part way through and hop on
- * half-written state. It would also move the capture onto a different
- * connection. So every field of the connection is expected to survive this,
- * and so is the armed deadline of its next event.
+ * So every field of the connection is expected to survive one, and so is the
+ * armed deadline of its next event.
  */
 MU_TEST(a_connection_request_during_a_follow_leaves_the_follow_alone)
 {

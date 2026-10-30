@@ -2392,6 +2392,11 @@
 
 ### Under the hood
 
+- A low-energy connection request that names the advertising access address as
+  the connection's own, which the specification does not allow, is refused
+  rather than followed. Following one left the board tuned to the advertising
+  channels instead of the connection's data channels.
+
 Fixes with no visible change in normal use.
 
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing

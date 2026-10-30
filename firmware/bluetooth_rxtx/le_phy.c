@@ -1827,13 +1827,23 @@ static int le_scale_conn_timing(le_conn_timing_t *t) {
 }
 
 static void le_connect_handler(le_rx_t *buf) {
-	uint32_t aa, crc_init;
+	uint32_t aa;
 	le_conn_timing_t timing;
 
 	if (!le.do_follow)
 		return;
 
 	if (buf->size != 2 + 6 + 6 + 22 + 3)
+		return;
+
+	// A connection's access address cannot be the advertising one. The
+	// specification forbids it (Core 6.0, Vol 6, Part B, 2.1.2), and this
+	// engine reads that value as "no connection is being followed", so a
+	// follow opened on it would stay tuned to the advertising channels and
+	// never reach the connection's data channels. Refused, like a
+	// parameter outside its range.
+	aa = extract_field(buf, 14, 4);
+	if (aa == ADVERTISING_AA)
 		return;
 
 	// FIXME ugly hack
@@ -1853,7 +1863,7 @@ static void le_connect_handler(le_rx_t *buf) {
 	// instants a connection names are counted in.
 	reset_conn();
 
-	conn.access_address     = extract_field(buf, 14, 4);
+	conn.access_address     = aa;
 	conn.crc_init           = extract_field(buf, 18, 3);
 	// CRCInit is a 24-bit field. rbit() reverses all 32 bits of the word, so
 	// its result sits a byte too high: 0x123456 has to become 0x6a2c48, and
@@ -2033,31 +2043,20 @@ static void packet_handler(le_rx_t *buf) {
 		switch (buf->data[0] & 0xf) {
 			// CONNECT_REQ
 			case 0x05:
-				// Ignored while a connection is being followed. The
-				// packet queue holds ten packets and this loop takes one
-				// per pass, so a connection request reaches here after
-				// the follow it opened has already begun, and a request
-				// from another pair of devices reaches here during a
-				// healthy follow.
-				//
-				// Acting on it would rebuild the connection state from
-				// this loop: le_connect_handler() clears all of `conn`
-				// and writes it field by field, while the timer interrupt
-				// is free to take a connection event in the middle of
-				// that and hop on half-written state. It would also move
-				// the capture onto a different connection part way
-				// through. So the follow runs to its end -- its
-				// supervision timeout, or the host's cancel -- and the
-				// packet still reaches the host, which happens before
-				// this runs.
+				// Only while no connection is being followed. Acting on a
+				// request mid-follow would rebuild the whole connection
+				// from this loop, with the timer interrupt free to take a
+				// connection event part way through and hop on
+				// half-written state, and it would move the capture onto
+				// a different connection. The packet still reaches the
+				// host, which happens before this runs.
 				//
 				// The advertising access address is what reset_conn()
 				// leaves behind, so it means "not following", the same
 				// test change_channel() makes. Only this loop starts a
-				// follow, so no interrupt can turn that answer from no to
-				// yes between the test and the call.
-				//
-				// TODO validate length
+				// follow, so no interrupt can make this test too
+				// permissive. One can end a follow just after it, which
+				// costs this single request; the next one opens a follow.
 				if (conn.access_address == ADVERTISING_AA)
 					le_connect_handler(buf);
 				break;
