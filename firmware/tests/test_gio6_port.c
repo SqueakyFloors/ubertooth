@@ -114,19 +114,19 @@ MU_TEST(test_the_read_macro_asks_the_port_the_pin_is_on)
 	 * high with the pin low still reads low. */
 	drive_every_port_except(GIO6_PORT, ~(uint32_t)PIN_GIO6);
 	mu_assert(!GIO6, BOARD_NAME ": GIO6 read a bit that is not the pin");
-}
 
-MU_TEST(test_the_write_macros_drive_the_same_port_as_the_read)
-{
+	/*
+	 * GIO6_SET and GIO6_CLR drive the same port. No firmware code calls
+	 * either -- GIO6 is an input on all three boards -- but they are the
+	 * port the read is meant to agree with, which is how the read's port
+	 * was wrong in the first place, so they are checked beside it.
+	 */
 	clear_registers();
 	GIO6_SET;
 	mu_assert_int_eq(PIN_GIO6, (int)fake_fio_set[GIO6_PORT]);
-
-	clear_registers();
 	GIO6_CLR;
 	mu_assert_int_eq(PIN_GIO6, (int)fake_fio_clr[GIO6_PORT]);
 
-	/* Nothing on any other port moved either way. */
 	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
 		if (port == GIO6_PORT)
 			continue;
@@ -148,16 +148,24 @@ MU_TEST(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other)
 
 #if GIO6_HAS_INTERRUPT
 	/* The falling edge the radio signals carrier sense with, armed on the
-	 * pin's own port, and EINT3 let through to the core. */
-	mu_assert_int_eq(PIN_GIO6, (int)(fake_io_int_en_f[GIO6_PORT] & PIN_GIO6));
+	 * pin's own port and nowhere else, the pending edge cleared on that
+	 * same port, and EINT3 let through to the core. The rising edge is
+	 * left alone, because carrier sense is active low. */
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
+		int mine = (port == GIO6_PORT);
+		mu_assert_int_eq(mine ? PIN_GIO6 : 0, (int)fake_io_int_en_f[port]);
+		mu_assert_int_eq(mine ? PIN_GIO6 : 0, (int)fake_io_int_clr[port]);
+		mu_assert_int_eq(0, (int)fake_io_int_en_r[port]);
+	}
 	mu_assert_int_eq(ISER0_ISE_EINT3, (int)fake_iser0);
-
-	/* The rising edge is not armed: carrier sense is active low. */
-	mu_assert_int_eq(0, (int)fake_io_int_en_r[GIO6_PORT]);
 
 	clear_registers();
 	cs_trigger_disable();
-	mu_assert_int_eq(0, (int)fake_io_int_en_f[GIO6_PORT]);
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
+		mu_assert_int_eq(0, (int)fake_io_int_en_f[port]);
+		mu_assert_int_eq((port == GIO6_PORT) ? PIN_GIO6 : 0,
+		                 (int)fake_io_int_clr[port]);
+	}
 	mu_assert_int_eq(ICER0_ICE_EINT3, (int)fake_icer0);
 #else
 	/*
@@ -195,9 +203,11 @@ MU_TEST(test_the_carrier_sense_trigger_starts_clear_either_way)
 static void scan_for_a_named_gpio_interrupt_register(const char *path)
 {
 	static const char *const named[] = {
-		"IO0IntClr",  "IO2IntClr",
-		"IO0IntEnF",  "IO2IntEnF",
-		"IO0IntEnR",  "IO2IntEnR",
+		"IO0IntClr",   "IO2IntClr",
+		"IO0IntEnF",   "IO2IntEnF",
+		"IO0IntEnR",   "IO2IntEnR",
+		"IO0IntStatF", "IO2IntStatF",
+		"IO0IntStatR", "IO2IntStatR",
 	};
 	char line[SCAN_LINE_MAX];
 	int in_block = 0;
@@ -230,7 +240,6 @@ MU_TEST(test_the_carrier_sense_code_names_no_gpio_interrupt_register)
 int main(void)
 {
 	MU_RUN(test_the_read_macro_asks_the_port_the_pin_is_on);
-	MU_RUN(test_the_write_macros_drive_the_same_port_as_the_read);
 	MU_RUN(test_the_interrupt_is_claimed_only_where_the_part_has_one);
 	MU_RUN(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other);
 	MU_RUN(test_the_carrier_sense_trigger_starts_clear_either_way);

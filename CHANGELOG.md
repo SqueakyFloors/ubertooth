@@ -772,9 +772,10 @@
   buffer holds went out as its first 32 bytes. Reads now follow the board.
   Carrier sense armed an interrupt on the same wrong port; the part raises a
   GPIO interrupt on ports 0 and 2 only, so on those two boards it now arms
-  nothing rather than an unrelated pin, and the receive loop marks a packet
-  from its own RSSI comparison as before. The Ubertooth One, whose GIO6 is
-  P2.2, is unaffected.
+  nothing rather than an unrelated pin. No board loses a carrier-sense trigger
+  it was getting, because the pin that was armed is not one the radio drives,
+  and the receive loop marks a packet from its own RSSI comparison as before.
+  The Ubertooth One, whose GIO6 is P2.2, is unaffected.
   [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
   [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007)
 
