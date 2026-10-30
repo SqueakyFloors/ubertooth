@@ -30,7 +30,8 @@ touches code:
 | --- | --- |
 | `Build` / `host` | Builds the host tools and runs the host test suite, a strict-C-standard build, and a smoke test of each binary |
 | `Build` / `firmware` | Builds the ARM firmware images and the bootloader, runs the firmware test suite, and checks that a flag or linker-script change rebuilds the images. The ToorCon 13 badge (`firmware/tc13badge`, a Renesas R8C part) is not among the images built: nothing here has that toolchain, so the test suite compiles its C for syntax only and the rest of a change to it is checked by reading the source |
-| `Build` / `scripts` | shellcheck, plus a self-test of each `tools/check-*.sh` that proves the check still catches what it is for |
+| `Build` / `host-installed-libubertooth` | Builds the tools against an installed libubertooth instead of the copy in the build tree, so what a packager ships keeps working |
+| `Build` / `scripts` | shellcheck, a self-test of each `tools/check-*.sh` that proves the check still catches what it is for, and the two checks that need nothing built: that the documentation does not pin the firmware API version, and that the list of libbtbb entry points the tools call is still the list libbtbb has |
 | `Build` / `issue-references` | No issue or pull request number in source, tests or build files: the reason for a line belongs in its comment, the link in the commit message or the pull request |
 | `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
 | `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
@@ -52,10 +53,11 @@ request.
 A change to documentation only builds nothing, but every `Build` name still
 reports. The `changes` job sees that each changed file is a Markdown file,
 under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
-`firmware` and `scripts`; `image-revision` and `dfu-package` skip with the
-firmware job they read. The cheap Linux checks (`issue-references`,
-`api-version` and `libbtbb-pin`) run as they always do, and `Man pages` runs
-whenever `host/doc/` changes, which is where the man page sources live.
+`host-installed-libubertooth`, `firmware` and `scripts`; `image-revision` and
+`dfu-package` skip with the firmware job they read. The cheap Linux checks
+(`issue-references`, `api-version` and `libbtbb-pin`) run as they always do,
+and `Man pages` runs whenever `host/doc/` changes, which is where the man page
+sources live.
 `install.sh` asks for its own two paths and is not reached.
 
 `libbtbb pin` has no path filter at all, because the commit it checks is
@@ -84,12 +86,14 @@ failure.
 ### They are required
 
 `main` carries a branch-protection rule, and eleven of the names above are
-required status checks on it: both `host` legs, both `firmware` legs, both
-`scripts` legs, `issue-references`, `image-revision`, `api-version`,
-`dfu-package` and `libbtbb-pin`. A pull request with one of them red, or with
-one still to report, cannot be merged. `install-sh` and `refresh` are not
-required, because each runs only when its own paths change and a required
-check that does not run leaves a pull request pending forever.
+required status checks on it: `host (ubuntu-24.04)` and `host (macos-26)`,
+both `firmware` legs, both `scripts` legs, `issue-references`,
+`image-revision`, `api-version`, `dfu-package` and `libbtbb-pin`. A pull
+request with one of them red, or with one still to report, cannot be merged.
+`install-sh` and `refresh` are not required, because each runs only when its
+own paths change and a required check that does not run leaves a pull request
+pending forever. The third host leg, `host (ubuntu-22.04)`, and
+`host-installed-libubertooth` report like the rest but do not gate a merge.
 
 The rule is not strict, so a branch need not be up to date with `main` to
 merge, and it requires no reviews: the project's own rules say who reviews

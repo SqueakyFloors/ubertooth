@@ -70,7 +70,8 @@ that `install.sh`, CI and the build guide all use, so a push to libbtbb cannot
 change an Ubertooth build. The fork builds with current CMake and Python
 tooling, so no extra policy or compatibility flags are needed.
 
-Instructions for flashing the firmware can be found [on the corresponding readthedocs.io firmware page](https://ubertooth.readthedocs.io/en/latest/firmware.html).
+Instructions for flashing the firmware are in this tree's
+[firmware page](docs/source/firmware.rst).
 
 The host tools require firmware built from the same source tree (the same
 firmware API version), so flash the firmware whenever you update the tools:
@@ -265,7 +266,12 @@ See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 
 # Documentation
 
-Documentation for Ubertooth can be viewed on [Read the Docs](https://ubertooth.readthedocs.io/en/latest/). The raw documenation files for Ubertooth are in the [docs folder](https://github.com/greatscottgadgets/ubertooth/tree/master/docs) in this repository. Documentation changes can be submitted through pull request and suggestions can be made as GitHub issues. 
+The documentation files are in the [docs folder](docs) of this repository:
+[docs/source](docs/source) holds the chapters and `host/doc` the manual pages.
+The [Read the Docs site](https://ubertooth.readthedocs.io/en/latest/) is built
+from upstream, so it describes upstream rather than this fork. Documentation
+changes can be submitted through pull request and suggestions can be made as
+GitHub issues.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers what a change to this fork needs:
 the tests to run, and the CI checks a pull request has to pass.
@@ -282,13 +288,22 @@ cmake --build build --target refresh-manpages
 
 # Getting Help
 
-Before asking for help with Ubertooth, check to see if your question is listed in the [FAQ](https://ubertooth.readthedocs.io/en/latest/faq.html).
+Before asking for help with Ubertooth, check to see if your question is listed
+in the [FAQ](docs/source/faq.rst).
 
-For assistance with Ubertooth general use or development, please look at the [issues on the GitHub project](https://github.com/greatscottgadgets/ubertooth/issues). This is the preferred place to ask questions or open issues so that others may locate the answer to your question in the future.
+For something this fork does, or does not do, open an
+[issue here](https://github.com/SqueakyFloors/ubertooth/issues); searching the
+closed ones first often answers the question. For Ubertooth in general, the
+[upstream issues](https://github.com/greatscottgadgets/ubertooth/issues) are
+where most questions have already been asked and answered.
 
-We invite you to join our community discussions on [Discord](https://discord.gg/rsfMw3rsU8). Note that while technical support requests are welcome here, we do not have support staff on duty at all times. Be sure to also submit an issue on GitHub if you’ve found a bug or if you want to ensure that your request will be tracked and not overlooked.
-
-GitHub issues on this repository that are labelled "technical support" by Great Scott Gadgets employees can expect a response time of two weeks. We currently do not have expected response times for other GitHub issues or pull requests for this repository. 
+Great Scott Gadgets hosts the project's community discussions on
+[Discord](https://discord.gg/rsfMw3rsU8). Technical support requests are
+welcome there, but there is no support staff on duty at all times, so open an
+issue as well if you have found a bug or want your request tracked. Response
+times on this fork's issues are whatever the maintainer can manage; the
+two-week response time Great Scott Gadgets offers for "technical support"
+issues applies to the upstream repository, not to this one.
 
 --------------------
 

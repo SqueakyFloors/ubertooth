@@ -49,7 +49,7 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     * Bump the firmware API version to the release's own number.
       ``UBERTOOTH_API_VERSION`` in
       ``host/libubertooth/src/ubertooth_interface.h`` already moves in every
-      development pull request that changes firmware behaviour the host relies
+      development pull request that changes firmware behavior the host relies
       on; the release moves it to the next major version to mark that its host
       tools and firmware only work with each other, whether or not this cycle
       changed the firmware. The first fork release takes ``0x0200``. It is
@@ -114,9 +114,12 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Export gerbers from KiCad (or copy from previous release if unchanged)
 
-    * Write release notes, save to top level of archive, add to the wiki and send to the mailing list
+    * Write the release notes in ``tools/RELEASENOTES``, which
+      ``tools/ubertooth-release.sh`` copies to the top level of the archive,
+      and put them on the GitHub release page as well. This fork has no wiki
+      and no mailing list.
 
-    * Write/update the build instructions on the wiki as needed
+    * Write or update the build instructions in :doc:`build_guide` as needed
     
     * Perhaps we should branch and do some of this on the branch before tagging, this seems like good practice.
 
