@@ -89,6 +89,43 @@ static void afh_hci_wait(void* ctx __attribute__((unused)))
 	usleep(FOLLOW_AFH_RETRY_DELAY_US);
 }
 
+/* The files a run writes, as the command line named them. Carried to the
+ * failure paths below, which remove what this run created. */
+struct follow_files {
+	const char* pcapng;
+	const char* pcap;
+	const char* dump;
+};
+
+/* Removes the capture files this run created, so that a follow the board or
+ * the adapter refused leaves no file behind: a header-only capture is one the
+ * user then has to tell apart from a capture that ran and caught nothing. The
+ * files cannot simply be created later instead, because the clock the board
+ * stamps its records with is zeroed after them and everything between that
+ * request and start-hopping is error in the followed clock.
+ *
+ * The handles say which files exist: each is set only once its writer has the
+ * file open. They are removed by name while the writers still hold them, and
+ * the bytes a writer had buffered go nowhere when the handles are closed with
+ * the board. A capture on standard output is not a file of ours to remove.
+ *
+ * Called from the two helpers below, which all but two failures go through,
+ * so a path added later cannot forget it; the two that start the capture give
+ * the board back themselves and call this by hand. Before the files are
+ * created the handles are NULL and this does nothing. */
+static void follow_discard_files(ubertooth_t* ut,
+                                 const struct follow_files* files)
+{
+	if (files->pcapng != NULL && ut->h_pcapng_bredr != NULL)
+		unlink(files->pcapng);
+	if (files->pcap != NULL && ut->h_pcap_bredr != NULL &&
+	    !opt_writes_to_stdout(files->pcap))
+		unlink(files->pcap);
+	if (files->dump != NULL && dumpfile != NULL &&
+	    !opt_writes_to_stdout(files->dump))
+		unlink(files->dump);
+}
+
 /* Gives the local adapter back. First it drops the link this command made to
  * the target, so a failure does not leave the target connected until its
  * controller times the link out, and then it closes the adapter handle, as
@@ -104,8 +141,10 @@ static void follow_release_adapter(int sock, uint16_t handle, int cc)
 
 /* The same, for a failure once the receive thread is running: stop the thread
  * and put the board back first. */
-static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
+static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc,
+                           const struct follow_files* files)
 {
+	follow_discard_files(ut, files);
 	ubertooth_bulk_thread_stop();
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
@@ -128,47 +167,23 @@ static void follow_cleanup(ubertooth_t* ut, int sock, uint16_t handle, int cc)
  * other image -- and firmware it could not read at all leaves the board open,
  * so closing a board that is already released does nothing. */
 static void follow_release_board(ubertooth_t* ut, int sock, uint16_t handle,
-                                 int cc)
+                                 int cc, const struct follow_files* files)
 {
+	follow_discard_files(ut, files);
 	ubertooth_close(ut);
 	ubertooth_free(ut);
 	follow_release_adapter(sock, handle, cc);
-}
-
-/* Removes the capture files this run created. Every failure below the block
- * that creates them calls this, so a follow the board or the adapter refused
- * leaves no file behind: a header-only capture is one the user then has to
- * tell apart from a capture that ran and caught nothing. The files cannot be
- * created any later than they are, because the clock the board stamps its
- * records with is zeroed just below them and everything between that request
- * and start-hopping is error in the followed clock.
- *
- * The handles say which files exist: each is set only once its writer has the
- * file open. They are removed by name while the writers still hold them, and
- * the bytes a writer had buffered go nowhere when the board is given back and
- * the handles are closed with it. A capture on standard output is not a file
- * of ours to remove. */
-static void follow_discard_files(ubertooth_t* ut, const char* pcapng_name,
-                                 const char* pcap_name, const char* dump_name)
-{
-	if (pcapng_name != NULL && ut->h_pcapng_bredr != NULL)
-		unlink(pcapng_name);
-	if (pcap_name != NULL && ut->h_pcap_bredr != NULL &&
-	    !opt_writes_to_stdout(pcap_name))
-		unlink(pcap_name);
-	if (dump_name != NULL && dumpfile != NULL &&
-	    !opt_writes_to_stdout(dump_name))
-		unlink(dump_name);
 }
 
 /* A board that refused one of the requests the follow is built on. One line
  * names the request, and the board and the adapter both go back, so a follow
  * that cannot be set up leaves nothing behind. */
 static int follow_request_failed(ubertooth_t* ut, int sock, uint16_t handle,
-                                 int cc, const char* what, int code)
+                                 int cc, const struct follow_files* files,
+                                 const char* what, int code)
 {
 	report_refused_request(what, code);
-	follow_release_board(ut, sock, handle, cc);
+	follow_release_board(ut, sock, handle, cc, files);
 	return 1;
 }
 
@@ -418,6 +433,12 @@ int main(int argc, char *argv[])
 	capture_took_stdout = opt_writes_to_stdout(pcap_name)
 	                      || opt_writes_to_stdout(dump_name);
 
+	/* The files this run will write, for the failure paths that have to
+	 * remove them again: see follow_discard_files(). */
+	const struct follow_files files = {
+		pcapng_name, pcap_name, dump_name
+	};
+
 	/* The piconet this follow is keyed on, allocated here rather than
 	 * before the command line is read: -h and -V still answer on a machine
 	 * that has no memory for one, and nothing has been opened yet that a
@@ -512,7 +533,7 @@ int main(int argc, char *argv[])
 		if (hci_read_bd_addr(sock, &bdaddr, HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the address of %s failed: %s\n",
 			        bt_dev, strerror(errno));
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 		lap = bdaddr.b[0] | bdaddr.b[1] << 8 | bdaddr.b[2] << 16;
@@ -536,7 +557,7 @@ int main(int argc, char *argv[])
 		if (hci_devinfo(dev_id, &di) < 0) {
 			fprintf(stderr, "error: reading the settings of %s failed: %s\n",
 			        bt_dev, strerror(errno));
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 
@@ -578,7 +599,7 @@ int main(int argc, char *argv[])
 				        "a guess: give the whole target address "
 				        "with -t xx:xx:xx:xx:xx:xx\n",
 				        addr, reason);
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 		cc = 1;
@@ -600,7 +621,7 @@ int main(int argc, char *argv[])
 		refusal = follow_afh_handle_refusal(have_target, cc);
 		if (refusal != NULL) {
 			fprintf(stderr, "error: %s\n", refusal);
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 
@@ -644,7 +665,7 @@ int main(int argc, char *argv[])
 			/* No board has been opened yet, so the adapter is all
 			 * there is to give back. */
 			fprintf(stderr, "error: %s\n", line);
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 	} else {
@@ -669,7 +690,7 @@ int main(int argc, char *argv[])
 	 * back on the way out, dropping the link to the target with it; the
 	 * receive thread is not running yet, so there is nothing else to undo. */
 	if (ubertooth_connect_select(ut, ubertooth_device) < 0) {
-		follow_release_board(ut, sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc, &files);
 		/* A selection the user stopped opened no board, which is not a
 		 * failure to find one. */
 		return ubertooth_open_stopped() ? 0 : 1;
@@ -678,7 +699,7 @@ int main(int argc, char *argv[])
 	/* A firmware this host will not drive. The library has reported it. */
 	int r = ubertooth_check_api(ut);
 	if (r < 0) {
-		follow_release_board(ut, sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc, &files);
 		return 1;
 	}
 
@@ -686,7 +707,7 @@ int main(int argc, char *argv[])
 	 * board and the adapter given back, rather than starting a mode and
 	 * stopping it again. */
 	if (ubertooth_stop_requested()) {
-		follow_release_board(ut, sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc, &files);
 		return 0;
 	}
 
@@ -704,7 +725,7 @@ int main(int argc, char *argv[])
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
 		opt_report_create_failure(pcapng_name, errno);
-		follow_release_board(ut, sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc, &files);
 		return 1;
 	}
 	if (ut->h_pcapng_bredr) {
@@ -737,9 +758,7 @@ int main(int argc, char *argv[])
 		if (file == NULL) {
 			if (saved_fd >= 0)
 				close(saved_fd);
-			follow_discard_files(ut, pcapng_name, pcap_name,
-			                     dump_name);
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 		errno = 0;
@@ -754,18 +773,14 @@ int main(int argc, char *argv[])
 			/* The name the user gave, not the /dev/fd path a lone
 			 * "-" is opened through. */
 			opt_report_create_failure(pcap_name, create_errno);
-			follow_discard_files(ut, pcapng_name, pcap_name,
-			                     dump_name);
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 	}
 	if (dump_name != NULL) {
 		dumpfile = opt_open_dump_file(dump_name, "dump data");
 		if (dumpfile == NULL) {
-			follow_discard_files(ut, pcapng_name, pcap_name,
-			                     dump_name);
-			follow_release_board(ut, sock, handle, cc);
+			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
 	}
@@ -774,8 +789,7 @@ int main(int argc, char *argv[])
 	 * -e above has already caught, and it says so itself. */
 	r = btbb_init(max_ac_errors);
 	if (r < 0) {
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		follow_release_board(ut, sock, handle, cc);
+		follow_release_board(ut, sock, handle, cc, &files);
 		return 1;
 	}
 
@@ -804,18 +818,14 @@ int main(int argc, char *argv[])
 	 * that window: a few of the 312.5 us ticks the hop clock counts, against
 	 * timestamps that were hours out. */
 	r = cmd_set_bdaddr_quiet(ut->devh, btbb_piconet_get_bdaddr(pn));
-	if (r < 0) {
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		return follow_request_failed(ut, sock, handle, cc,
+	if (r < 0)
+		return follow_request_failed(ut, sock, handle, cc, &files,
 		                             "set the Bluetooth address", r);
-	}
 
 	r = cmd_set_clock_quiet(ut->devh, 0);
-	if (r < 0) {
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		return follow_request_failed(ut, sock, handle, cc,
+	if (r < 0)
+		return follow_request_failed(ut, sock, handle, cc, &files,
 		                             "zero the board's clock", r);
-	}
 
 	// init USB transfer
 	/* Each of the three steps that set the capture up exits 1, like every
@@ -825,8 +835,9 @@ int main(int argc, char *argv[])
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
 		/* nothing is in flight, but the board is still open and in
-		 * whatever mode an earlier command left it */
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
+		 * whatever mode an earlier command left it. The two helpers
+		 * above do not fit here, so the files are discarded by hand. */
+		follow_discard_files(ut, &files);
 		ubertooth_stop(ut);
 		ubertooth_free(ut);
 		follow_release_adapter(sock, handle, cc);
@@ -842,7 +853,7 @@ int main(int argc, char *argv[])
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back. Not follow_cleanup(), which
 		 * would join a thread that was never created. */
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
+		follow_discard_files(ut, &files);
 		ubertooth_stop(ut);
 		ubertooth_free(ut);
 		follow_release_adapter(sock, handle, cc);
@@ -857,8 +868,7 @@ int main(int argc, char *argv[])
 	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, HCI_TIMEOUT_MS) < 0) {
 		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
 		        bt_dev, strerror(errno));
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		follow_cleanup(ut, sock, handle, cc);
+		follow_cleanup(ut, sock, handle, cc, &files);
 		return 1;
 	}
 	/* The controller answers in little-endian order, which has to be
@@ -870,9 +880,7 @@ int main(int argc, char *argv[])
 		                         HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the clock offset of the "
 			        "target failed: %s\n", strerror(errno));
-			follow_discard_files(ut, pcapng_name, pcap_name,
-			                     dump_name);
-			follow_cleanup(ut, sock, handle, cc);
+			follow_cleanup(ut, sock, handle, cc, &files);
 			return 1;
 		}
 		clock += (btohs(offset) << 2);   // Correct offset
@@ -891,16 +899,14 @@ int main(int argc, char *argv[])
 	 * interrupted `ubertooth-dump -l` had left set to low energy followed
 	 * at that deviation, finding little and saying nothing. */
 	if (cmd_set_modulation(ut->devh, MOD_BT_BASIC_RATE) < 0) {
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		follow_cleanup(ut, sock, handle, cc);
+		follow_cleanup(ut, sock, handle, cc, &files);
 		return 1;
 	}
 
 	// tell ubertooth to start hopping and send packets
 	r = cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
 	if (r < 0) {
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		follow_cleanup(ut, sock, handle, cc);
+		follow_cleanup(ut, sock, handle, cc, &files);
 		return 1;
 	}
 
@@ -920,8 +926,7 @@ int main(int argc, char *argv[])
 	if (r < 0) {
 		fprintf(stderr, "error: %s the board's AFH map failed\n",
 		        afh_enabled ? "setting" : "clearing");
-		follow_discard_files(ut, pcapng_name, pcap_name, dump_name);
-		follow_cleanup(ut, sock, handle, cc);
+		follow_cleanup(ut, sock, handle, cc, &files);
 		return 1;
 	}
 

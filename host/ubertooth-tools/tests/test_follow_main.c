@@ -506,7 +506,11 @@ static struct run_result run_follow(const char* const* args)
  * the allocation to fail gets a real piconet, looked up past this definition.
  * A process only fails to allocate when it is out of memory, which a test
  * cannot reach without putting the whole run at risk, so the failure is
- * scripted. Same shape as test_rx_main.c's. */
+ * scripted. Same shape as test_rx_main.c's.
+ *
+ * This needs the shared libbtbb: against a static one the definition here is
+ * either a duplicate symbol at link time or the only one there is, and then
+ * dlsym() finds nothing and every case gets a NULL piconet. */
 btbb_piconet* btbb_piconet_new(void)
 {
 	static btbb_piconet* (*real_btbb_piconet_new)(void);
@@ -1016,6 +1020,27 @@ MU_TEST(a_refused_request_creates_no_file)
 			          == 0, fake.calls);
 			mu_assert(stat(path, &info) != 0, path);
 			mu_assert_int_eq(0, fake.receives);
+			unlink(path);
+		}
+
+		/* The far end of the same range: start-hopping, the last
+		 * request before the capture loop, by when the receive
+		 * transfer and the thread are both running. */
+		{
+			int fd;
+
+			reset_fake();
+			fake.hopping_rc = -9;
+			snprintf(path, sizeof(path), "/tmp/follow-main-XXXXXX");
+			fd = mkstemp(path);
+			mu_assert_fatal(fd >= 0, "temp name taken");
+			close(fd);
+			unlink(path);
+
+			r = RUN(options[i], path, TARGET);
+			mu_assert_int_eq(1, r.rc);
+			mu_assert(strcmp(fake.calls, "akipdh") == 0, fake.calls);
+			mu_assert(stat(path, &info) != 0, path);
 			unlink(path);
 		}
 	}

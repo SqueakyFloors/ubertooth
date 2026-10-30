@@ -809,7 +809,7 @@
   old connection's supervision timeout has run out; see ubertooth-btle(1).
   [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
 - A `ubertooth-follow` run that is refused before it captures anything leaves
-  no empty capture file behind. The `-q`, `-r` and `-d` files are created once
+  no empty capture file behind. The `-q`, `-r`, and `-d` files are created once
   the board is open and its firmware accepted, and every failure after that --
   an address or clock request the board refused, a clock the local adapter
   would not read, or a capture that would not start -- removes them again, so
