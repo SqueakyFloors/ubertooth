@@ -37,10 +37,11 @@ connection is being followed is recorded in the capture like any other packet,
 but is not acted on: the follow stays with the connection it started on until
 that connection ends. Ubertooth sees a connection end in one of two ways. A
 pair of devices that closes the connection says so on the air, and the follow
-ends at the next connection event. A connection that simply goes quiet ends at
-its supervision timeout, which the connection itself sets anywhere from 100 ms
-to 32 s; until that has passed, a new connection between the same devices is
-not followed.
+ends a connection event or two later; the packet that closes the connection is
+in the capture, but an acknowledgment of it that arrives after the follow has
+ended is not. A connection that simply goes quiet ends at its supervision
+timeout, which the connection itself sets anywhere from 100 ms to 32 s; until
+that has passed, a new connection between the same devices is not followed.
 
 Follow mode hops with whichever of the two channel selection algorithms the
 connection uses. Which one that is was settled when the connection was made:
