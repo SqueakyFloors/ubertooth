@@ -84,8 +84,10 @@ void rssi_reset(void);
 int8_t rssi_get_signal(void);
 
 /*
- * The background on the channel: the mean power of the readings taken while
- * nothing was being received.
+ * The estimate of the background on the channel: the mean power of the
+ * readings that look as though nothing was being received when they were
+ * taken. See rssi_add() for how it tells those, and what that costs in
+ * certainty.
  *
  * rssi_add() collects them from the readings it is given, and a mode that can
  * tell the clear air from a packet by itself -- one whose radio delivers whole
@@ -99,7 +101,7 @@ int8_t rssi_get_signal(void);
  */
 void rssi_noise_reset(void);
 void rssi_noise_add(int8_t v);
-int rssi_noise_measured(void);
+int rssi_noise_estimated(void);
 int8_t rssi_get_noise(void);
 
 /* Forget every channel's running average, where a capture ends. */

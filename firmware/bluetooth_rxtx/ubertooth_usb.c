@@ -440,7 +440,7 @@ int usb_enqueue_le_packet(const le_pkt_meta *meta, const uint8_t *aa,
 		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
 		LE_FRAG_FLAGS(f) = ((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 			((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT);
-		f->status &= (uint8_t) ~NOISE_VALID;
+		f->status &= (uint8_t) ~NOISE_ESTIMATE;
 		fill_le_chunk(f, aa, rest, offset, chunk);
 	}
 

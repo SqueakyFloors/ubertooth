@@ -88,10 +88,11 @@ address, with the NAP unknown, and the channel map the scan built for it:
     ??:??:??:9E:8B:33
     AFH map: 0x0123456789abcdef1234
 
-`s=` is the packet's own power and `n=` the background the board read between
-packets on that channel, both in dBm, with `snr=` the difference. A channel the
-board never heard clear gives no background, and the line reads `n=none
-snr=none`; ubertooth-rx(1) describes both figures.
+`s=` is the packet's own power and `n=` the board's estimate of the background
+on that channel, both in dBm, with `snr=` the difference. A channel the board
+never heard quiet leaves it with no estimate, and the line reads `n=none
+snr=none`; ubertooth-rx(1) describes both figures and what the estimate rests
+on.
 
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and

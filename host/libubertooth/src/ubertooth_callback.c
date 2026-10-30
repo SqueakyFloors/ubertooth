@@ -81,8 +81,8 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 	}
 }
 
-/* The noise figure handed to the capture writers, which means "nothing
- * measured the background around this packet".
+/* The noise figure handed to the capture writers, which means "no background
+ * figure for this packet".
  *
  * libbtbb sets the noise-power-valid flag of a record only when the noise
  * figure it is given is below that record's signal figure, so a figure no
@@ -93,8 +93,9 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  * safe one to write there. */
 #define NOISE_NOT_MEASURED INT8_MAX
 
-/* What the board measured for this packet: the packet's own power, and the
- * background on its channel where the mode it came from could measure one.
+/* What the board reports for this packet: the packet's own power, measured,
+ * and an estimate of the background on its channel where the mode it came
+ * from has one.
  *
  * Both figures are the board's, one record at a time. The signal used to be
  * worked out here instead, as the loudest reading in the last ten records of
@@ -112,18 +113,17 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
 	 * that such a record carries. */
 	*sig = cc2400_rssi_to_dbm( (rx->status & SIGNAL_VALID) ? rx->rssi_avg
 	                                                       : rx->rssi_max );
-	*noise = (rx->status & NOISE_VALID)
+	*noise = (rx->status & NOISE_ESTIMATE)
 	       ? cc2400_rssi_to_dbm( (int8_t) rx->rssi_noise )
 	       : NOISE_NOT_MEASURED;
 }
 
-/* Room for a dBm figure or the word that stands for one that was not
- * measured. */
+/* Room for a dBm figure or the word that stands for a missing one. */
 #define RSSI_FIELD_LEN 8
 
 /* The noise column and the signal-to-noise ratio beside it, as the per-packet
- * lines print them. A mode that cannot measure the background leaves both
- * absent rather than printing a figure derived from the packet itself. */
+ * lines print them. A mode with no background estimate leaves both absent
+ * rather than printing a figure derived from the packet itself. */
 static void format_noise_and_snr( int8_t sig, int8_t noise,
                                   char n[RSSI_FIELD_LEN],
                                   char snr[RSSI_FIELD_LEN] )

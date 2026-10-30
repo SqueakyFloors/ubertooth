@@ -267,9 +267,9 @@ static int enqueue(uint8_t type, uint8_t* buf)
 		 * packet for a signal figure to belong to. */
 		if (type == BR_PACKET && rssi_count != 0) {
 			status |= SIGNAL_VALID;
-			if (rssi_noise_measured()) {
+			if (rssi_noise_estimated()) {
 				f->rssi_noise = (uint8_t) rssi_get_noise();
-				status |= NOISE_VALID;
+				status |= NOISE_ESTIMATE;
 			}
 		}
 	}
@@ -3006,9 +3006,9 @@ void bt_le_sync(u8 active_mode)
 		meta.rssi_noise = 0;
 		if (rssi_count != 0) {
 			meta.status |= SIGNAL_VALID;
-			if (rssi_noise_measured()) {
+			if (rssi_noise_estimated()) {
 				meta.rssi_noise = (uint8_t) rssi_get_noise();
-				meta.status |= NOISE_VALID;
+				meta.status |= NOISE_ESTIMATE;
 			}
 		}
 

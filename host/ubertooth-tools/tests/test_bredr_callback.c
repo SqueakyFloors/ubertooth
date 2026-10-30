@@ -631,7 +631,7 @@ MU_TEST(a_noise_figure_is_reported_only_where_the_board_measured_one)
 	mu_assert_int_eq(INT8_MAX, noise);
 
 	/* With it, the record's own figure. */
-	rx.status |= NOISE_VALID;
+	rx.status |= NOISE_ESTIMATE;
 	determine_signal_and_noise(&rx, &sig, &noise);
 	mu_assert_int_eq(-91, noise);
 }

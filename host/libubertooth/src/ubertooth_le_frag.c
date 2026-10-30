@@ -101,12 +101,12 @@ int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
 		/* The reassembled packet is handed on as an ordinary one, so it
 		 * carries neither a fragment type nor fragment metadata. The two
 		 * bytes the fragments used are where a noise figure would sit, and
-		 * the mode that fragments measures none, so they are cleared and
-		 * the status says nothing was measured. */
+		 * the mode that fragments has none, so they are cleared and the
+		 * status says there is no estimate. */
 		state->metadata.pkt_type = LE_PACKET;
 		state->metadata.rssi_noise = 0;
 		state->metadata.reserved = 0;
-		state->metadata.status &= (uint8_t) ~NOISE_VALID;
+		state->metadata.status &= (uint8_t) ~NOISE_ESTIMATE;
 		state->expected = total;
 		state->received = 0;
 		state->next_index = 1;

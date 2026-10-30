@@ -2,19 +2,19 @@
  * What a capture record says about the noise power of the packet it holds.
  *
  * Every record of both capture formats carries a signal figure, a noise
- * figure, and a flag for each saying whether that figure is a measurement. A
+ * figure, and a flag for each saying whether that figure is there at all. A
  * reader that finds the noise flag clear does not take the byte for a reading:
  * Wireshark labels it `Invalid Noise Power` on a Basic Rate record and
  * `Unused signed byte` on a low-energy one. A reader that finds the flag set
  * shows the figure, and computes a signal-to-noise ratio from the pair.
  *
- * The background is a measurement the board makes with nothing being received,
- * and not every mode can make it. A record says whether it did, so the flag
- * follows that: set where the board measured the background, clear where it
- * did not. Earlier releases had no such measurement at all, and the records
+ * The background figure is the board's estimate, and not every mode has one. A
+ * record says whether it does, so the flag follows that: set where the board
+ * estimated the background, clear where it had nothing to estimate it from.
+ * Earlier releases had no figure for the background at all, and the records
  * went out claiming a noise power of -128 dBm on the low-energy path and the
  * packet's own average on the Basic Rate one, both with the flag set, which a
- * reader could not tell from a measurement.
+ * reader could not tell from a figure for the channel.
  *
  * libbtbb assembles the flags itself, from the figures it is handed: it sets
  * the noise-power-valid flag when the noise figure is below the signal figure.
@@ -135,7 +135,7 @@ usb_pkt_rx fifo_pop(fifo_t* fifo)
 #define RECORD_RSSI_AVG (-43)
 #define RECORD_RSSI_MIN (-50)
 
-/* The background the board reports, and whether it says it measured one. The
+/* The background the board reports, and whether it says it has one. The
  * cases set these before building a record. */
 static uint8_t record_noise_raw;
 static uint8_t record_noise_valid;
@@ -159,7 +159,7 @@ static void advertising_record(usb_pkt_rx* rx)
 	rx->rssi_noise = record_noise_raw;
 	rx->status |= SIGNAL_VALID;
 	if (record_noise_valid)
-		rx->status |= NOISE_VALID;
+		rx->status |= NOISE_ESTIMATE;
 	rx->data[0] = 0xd6;
 	rx->data[1] = 0xbe;
 	rx->data[2] = 0x89;
@@ -221,7 +221,7 @@ static void basic_rate_record(usb_pkt_rx* rx)
 	rx->rssi_noise = record_noise_raw;
 	rx->status |= SIGNAL_VALID;
 	if (record_noise_valid)
-		rx->status |= NOISE_VALID;
+		rx->status |= NOISE_ESTIMATE;
 
 	/* The preamble is the two symbols that lead into the sync word's first
 	 * bit, so which pair it is follows that bit. */
@@ -474,7 +474,7 @@ static void capture_bredr_packet(struct record_powers* pcap_record,
  * averaged it, converted to dBm. */
 #define RECORDED_SIGNAL_DBM (-94)
 
-/* The background the board measured, in dBm. */
+/* The background the board estimated, in dBm. */
 #define RECORDED_NOISE_DBM (-102)
 
 static void check_noise_is_absent(const char* name,
@@ -491,20 +491,20 @@ static void check_noise_is_absent(const char* name,
 	          "the signal power is recorded as not measured");
 	mu_assert_int_eq(RECORDED_SIGNAL_DBM, record->signal);
 
-	/* The noise figure is not, and now says so too. A reader that finds
-	 * this flag clear does not take the byte for a reading, and computes no
-	 * signal-to-noise ratio from it. */
+	/* There is no background figure, and the record now says so. A reader
+	 * that finds this flag clear does not take the byte for a reading, and
+	 * computes no signal-to-noise ratio from it. */
 	mu_assert(!(record->flags & noise_valid),
-	          "the noise power is recorded as measured");
+	          "the noise power is recorded as present");
 
 	/* Why it is clear: libbtbb sets the flag when the noise figure it is
-	 * handed is below that record's signal figure, so an unmeasured figure
-	 * is one no signal can reach. */
+	 * handed is below that record's signal figure, so a missing figure is
+	 * one no signal can reach. */
 	mu_assert(record->noise >= record->signal,
 	          "the recorded noise power is below the signal power");
 
 	/* Whatever stands in the field, it is neither of the two figures that
-	 * used to be claimed there as measurements. */
+	 * used to be claimed there as readings of the channel. */
 	mu_assert(record->noise != INT8_MIN,
 	          "the record still carries -128 dBm as its noise power");
 }
@@ -521,15 +521,15 @@ static void check_noise_is_recorded(const char* name,
 	          "the signal power is recorded as not measured");
 	mu_assert_int_eq(RECORDED_SIGNAL_DBM, record->signal);
 
-	/* The board measured the background, so the record says so and carries
+	/* The board estimated the background, so the record says so and carries
 	 * the figure, and a reader computes a signal-to-noise ratio from the
 	 * pair. */
 	mu_assert(record->flags & noise_valid,
-	          "the measured noise power is recorded as not measured");
+	          "the noise power is recorded as absent");
 	mu_assert_int_eq(RECORDED_NOISE_DBM, record->noise);
 }
 
-MU_TEST(a_low_energy_record_claims_no_measured_noise)
+MU_TEST(a_low_energy_record_claims_no_noise_estimate)
 {
 	struct record_powers pcap_record, pcapng_record;
 
@@ -546,7 +546,7 @@ MU_TEST(a_low_energy_record_claims_no_measured_noise)
 	                      LE_SIGPOWER_VALID, LE_NOISEPOWER_VALID);
 }
 
-MU_TEST(a_basic_rate_record_claims_no_measured_noise)
+MU_TEST(a_basic_rate_record_claims_no_noise_estimate)
 {
 	struct record_powers pcap_record, pcapng_record;
 
@@ -563,7 +563,7 @@ MU_TEST(a_basic_rate_record_claims_no_measured_noise)
 	                      BREDR_SIGPOWER_VALID, BREDR_NOISEPOWER_VALID);
 }
 
-MU_TEST(a_low_energy_record_carries_a_measured_noise_figure)
+MU_TEST(a_low_energy_record_carries_its_noise_estimate)
 {
 	struct record_powers pcap_record, pcapng_record;
 
@@ -580,7 +580,7 @@ MU_TEST(a_low_energy_record_carries_a_measured_noise_figure)
 	                        LE_SIGPOWER_VALID, LE_NOISEPOWER_VALID);
 }
 
-MU_TEST(a_basic_rate_record_carries_a_measured_noise_figure)
+MU_TEST(a_basic_rate_record_carries_its_noise_estimate)
 {
 	struct record_powers pcap_record, pcapng_record;
 
@@ -602,9 +602,9 @@ int main(void)
 	/* Nothing here should look for a board; make sure of it. */
 	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
 
-	MU_RUN(a_low_energy_record_claims_no_measured_noise);
-	MU_RUN(a_basic_rate_record_claims_no_measured_noise);
-	MU_RUN(a_low_energy_record_carries_a_measured_noise_figure);
-	MU_RUN(a_basic_rate_record_carries_a_measured_noise_figure);
+	MU_RUN(a_low_energy_record_claims_no_noise_estimate);
+	MU_RUN(a_basic_rate_record_claims_no_noise_estimate);
+	MU_RUN(a_low_energy_record_carries_its_noise_estimate);
+	MU_RUN(a_basic_rate_record_carries_its_noise_estimate);
 	return mu_report();
 }

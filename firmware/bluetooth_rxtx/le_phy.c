@@ -1737,8 +1737,8 @@ static int usb_enqueue_le(le_rx_t *packet)
 	meta.rssi_max = packet->rssi_max;
 	meta.rssi_count = 0;
 	meta.status |= SIGNAL_VALID;
-	/* This engine takes a reading only while a packet is arriving, so it
-	 * measures no background and the records say so. */
+	/* This engine takes a reading only while a packet is arriving, so it has
+	 * nothing to estimate the background from and the records say so. */
 	meta.rssi_noise = 0;
 
 	/* The access address is what the board synchronized on, so it is held

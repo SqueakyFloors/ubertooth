@@ -579,7 +579,7 @@ MU_TEST(test_a_window_with_a_packet_in_it_gives_both_figures)
 		rssi_add(-80);
 
 	mu_assert_int_eq(-50, rssi_get_signal());
-	mu_assert_int_eq(1, rssi_noise_measured());
+	mu_assert_int_eq(1, rssi_noise_estimated());
 	mu_assert_int_eq(-80, rssi_get_noise());
 }
 
@@ -595,7 +595,7 @@ MU_TEST(test_a_quiet_window_claims_no_background)
 		rssi_add(-80);
 
 	mu_assert_int_eq(-80, rssi_get_signal());
-	mu_assert_int_eq(0, rssi_noise_measured());
+	mu_assert_int_eq(0, rssi_noise_estimated());
 }
 
 /* The background is kept apart from the packet's readings and from the
@@ -605,11 +605,11 @@ MU_TEST(test_a_quiet_window_claims_no_background)
 MU_TEST(test_the_background_outlives_a_packet_and_not_a_hop)
 {
 	rssi_noise_reset();
-	mu_assert_int_eq(0, rssi_noise_measured());
+	mu_assert_int_eq(0, rssi_noise_estimated());
 
 	rssi_noise_add(-90);
 	rssi_noise_add(-90);
-	mu_assert_int_eq(1, rssi_noise_measured());
+	mu_assert_int_eq(1, rssi_noise_estimated());
 	mu_assert_int_eq(-90, rssi_get_noise());
 
 	/* Packets come and go; the channel's background stays. */
@@ -619,7 +619,7 @@ MU_TEST(test_the_background_outlives_a_packet_and_not_a_hop)
 	mu_assert_int_eq(-40, rssi_get_signal());
 
 	rssi_noise_reset();
-	mu_assert_int_eq(0, rssi_noise_measured());
+	mu_assert_int_eq(0, rssi_noise_estimated());
 	mu_assert_int_eq(INT8_MIN, rssi_get_noise());
 }
 

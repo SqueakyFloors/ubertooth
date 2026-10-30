@@ -192,17 +192,22 @@ void rssi_add(int8_t v)
 	rssi_power_add(&rssi_signal_power, v);
 
 	/*
-	 * The background, from the readings of this receive window that were
-	 * taken between packets rather than during one.
+	 * The estimate of the background, from the readings of this receive
+	 * window that are far enough below the loudest to look like air rather
+	 * than packet.
 	 *
-	 * Which those are is told by their level, not by their timing. A
-	 * receive window is a fixed stretch of air time -- the radio hands over
-	 * a block of symbols whether or not a packet arrived in it -- and the
-	 * carrier-sense line cannot say either, because the squelch it shares
-	 * defaults to the bottom of the radio's range, where carrier sense is
-	 * asserted the whole time. What does say is the reading itself: a
-	 * packet is tens of dB above the air around it, so a reading this far
-	 * below the loudest of the window was taken with the channel clear.
+	 * It is an estimate because the board cannot time the quiet. A receive
+	 * window is a fixed stretch of air time -- the radio hands over a block
+	 * of symbols whether or not a packet arrived in it -- so the window
+	 * does not say when within it the packet was, and the carrier-sense
+	 * line cannot say either, because the squelch it shares defaults to the
+	 * bottom of the radio's range, where carrier sense is asserted the
+	 * whole time. The level is the only evidence there is: a packet is tens
+	 * of dB above the air around it, so a reading this far below the
+	 * loudest of the window was most likely taken between packets. A
+	 * deeply faded part of a packet can be counted in, which is why the
+	 * figure is reported as an estimate and never as a measurement of
+	 * clear air.
 	 *
 	 * The comparison is against the window's own loudest reading, so one
 	 * burst of interference costs at most the window it lands in, and the
@@ -228,7 +233,7 @@ void rssi_noise_add(int8_t v)
 	rssi_power_add(&rssi_noise_power, v);
 }
 
-int rssi_noise_measured(void)
+int rssi_noise_estimated(void)
 {
 	return rssi_power_measured(&rssi_noise_power);
 }

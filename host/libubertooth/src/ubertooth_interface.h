@@ -717,8 +717,8 @@ enum usb_pkt_types {
  * from zero. 264 bytes needs nine length bits and six positions, so both fit.
  *
  * Nothing reads a noise figure from a fragment record: the low-energy engine
- * that sends these is the one mode that measures no background, so NOISE_VALID
- * is never set on one. */
+ * that sends these is the one mode with no background estimate, so
+ * NOISE_ESTIMATE is never set on one. */
 #define LE_FRAG_TOTAL_HIGH_MASK 0x01
 #define LE_FRAG_INDEX_SHIFT 1
 #define LE_FRAG_TOTAL_LOW(f) ((f)->rssi_noise)
@@ -741,18 +741,24 @@ enum usb_pkt_status {
 	RSSI_TRIGGER  = 0x10,
 	DISCARD       = 0x20,
 	/*
-	 * The two power figures, each set only where the board measured that one.
+	 * The two power figures, each set only where the board has that one.
 	 *
-	 * Without NOISE_VALID the rssi_noise byte says nothing: the mode took no
-	 * reading with the channel clear. Without SIGNAL_VALID the rssi_avg byte
-	 * is not this packet's power: it is either a record that carries no
-	 * packet, or one from a board or a `.dump` file older than the
-	 * measurement, where the field held the board's running average for the
-	 * channel instead. A reader of such a record falls back to rssi_max,
-	 * which is the nearest thing to a packet's own level it carries.
+	 * NOISE_ESTIMATE says the rssi_noise byte holds the board's estimate of
+	 * the background on this record's channel. It is an estimate and not a
+	 * measurement of clear air: the board picks the readings it averages by
+	 * their level, tens of dB below the loudest of a receive window, rather
+	 * than by timing a channel it knows nothing was being sent on. Without
+	 * the bit the byte says nothing at all.
+	 *
+	 * Without SIGNAL_VALID the rssi_avg byte is not this packet's power: it
+	 * is either a record that carries no packet, or one from a board or a
+	 * `.dump` file older than the measurement, where the field held the
+	 * board's running average for the channel instead. A reader of such a
+	 * record falls back to rssi_max, which is the nearest thing to a
+	 * packet's own level it carries.
 	 */
-	NOISE_VALID   = 0x40,
-	SIGNAL_VALID  = 0x80,
+	NOISE_ESTIMATE = 0x40,
+	SIGNAL_VALID   = 0x80,
 };
 
 /*
@@ -792,9 +798,9 @@ typedef struct {
 	 * signal. */
 	int8_t   rssi_avg;
 	uint8_t  rssi_count; // Number of ... (0 means RSSI stats are invalid)
-	/* The background power on this record's channel, measured with nothing
-	 * being received, when status carries NOISE_VALID; meaningless without
-	 * it. A raw reading like the three above.
+	/* The board's estimate of the background power on this record's
+	 * channel, when status carries NOISE_ESTIMATE; meaningless without it.
+	 * A raw reading like the three above.
 	 *
 	 * On the records of a fragmented low-energy packet these two bytes carry
 	 * the fragment's own length and index instead (LE_FRAG_* above). */

@@ -1432,11 +1432,11 @@ MU_TEST(the_signal_figure_is_the_mean_power_of_the_samples)
 
 /*
  * The records of a packet carry no noise figure: this engine reads RSSI only
- * while a packet is arriving, so it measures no background and the status says
- * so. A reader then shows the field as absent rather than taking the packet's
+ * while a packet is arriving, so it has nothing to estimate the background
+ * from and the status says so. A reader then shows the field as absent rather than taking the packet's
  * own power for the level around it.
  */
-MU_TEST(a_low_energy_record_says_no_background_was_measured)
+MU_TEST(a_low_energy_record_says_it_has_no_background_estimate)
 {
 	le_rx_t buf;
 	usb_pkt_rx *record;
@@ -1446,7 +1446,7 @@ MU_TEST(a_low_energy_record_says_no_background_was_measured)
 	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
 	record = dequeue();
 	mu_assert_fatal(record != NULL, "no record came back");
-	mu_assert_int_eq(0, record->status & NOISE_VALID);
+	mu_assert_int_eq(0, record->status & NOISE_ESTIMATE);
 	mu_assert_int_eq(0, record->rssi_noise);
 }
 
@@ -3979,7 +3979,7 @@ int main(void)
 	MU_RUN(a_drop_does_not_carry_into_the_next_capture);
 	MU_RUN(a_chain_that_does_not_fit_is_not_started);
 	MU_RUN(the_signal_figure_is_the_mean_power_of_the_samples);
-	MU_RUN(a_low_energy_record_says_no_background_was_measured);
+	MU_RUN(a_low_energy_record_says_it_has_no_background_estimate);
 	MU_RUN(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble);
 	MU_RUN(a_packet_carries_the_access_address_it_was_received_with);
 	MU_RUN(a_full_ring_refuses_the_packet);
