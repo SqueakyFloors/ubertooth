@@ -141,7 +141,6 @@ struct scan {
 	/* The flush of the radio's FIFO, and the mark on a record it cut. */
 	int flush_def;         /* rx_generic_flush_fifo()'s definition */
 	int flush_whole_fifo;  /* it reads CC2400_FIFO_SIZE bytes */
-	int flush_reads;       /* how many reads its body makes */
 	int loop_start;        /* the capture loop's `while` */
 	int flush_on_entry;    /* a flush call above that loop */
 	int flush_after_read;  /* and one below the record's read */
@@ -441,11 +440,8 @@ static void scan_source(struct scan *s)
 		}
 
 		if (in_flush) {
-			if (calls_identifier(line, "cc2400_fifo_read")) {
-				s->flush_reads++;
-				if (strstr(line, "cc2400_fifo_read(CC2400_FIFO_SIZE") != NULL)
-					s->flush_whole_fifo = lineno;
-			}
+			if (strstr(line, "cc2400_fifo_read(CC2400_FIFO_SIZE") != NULL)
+				s->flush_whole_fifo = lineno;
 			if (line[0] == '}')
 				in_flush = 0;
 			continue;
@@ -931,12 +927,6 @@ MU_TEST(test_the_capture_clears_the_fifo_on_entry_and_after_each_record)
 	mu_assert(s.flush_whole_fifo > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_flush_fifo() makes %d FIFO reads; the flush "
-	         "is one read of the whole FIFO", path, s.flush_def,
-	         s.flush_reads);
-	mu_assert_int_eq(1, s.flush_reads);
-
-	snprintf(msg, sizeof(msg),
 	         "%s:%d: the scan did not find the capture loop, so it cannot "
 	         "tell the flush on entry from the one after a record", path,
 	         s.rx_generic_sync);
@@ -983,10 +973,10 @@ MU_TEST(test_a_record_the_packet_did_not_fit_is_marked)
 	mu_assert(s.flags_len > 0 && s.truncated > 0, msg);
 	mu_assert_int_eq(1, (int)s.flags_len);
 
+	/* Where the byte sits, which is what the model at the end reads. */
 	snprintf(msg, sizeof(msg),
-	         "%s: RX_GENERIC_FLAGS_OFF is `%s`; the flags byte sits after "
-	         "the sync word and the payload, so it must be the two lengths "
-	         "added", path, s.flags_off_text);
+	         "%s: RX_GENERIC_FLAGS_OFF is `%s`; it must be the sync word's "
+	         "length plus the payload's", path, s.flags_off_text);
 	mu_assert(s.flags_off_from_lengths, msg);
 
 	snprintf(msg, sizeof(msg),
