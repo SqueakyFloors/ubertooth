@@ -1609,48 +1609,105 @@ MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
 	"followed; searching for it again\n"
 
 /* A clock that is not the piconet's fails no header, so the library has
- * nothing to count and the silence is the tool's to judge. What the tool
- * watches is this count. */
-MU_TEST(the_packets_a_follow_hears_are_counted_for_the_tool)
+ * nothing to act on and the silence is the tool's to judge. What the tool
+ * reads is the moment a packet of the piconet last arrived. The cases that
+ * follow carry on from the replay case above, which left this capture
+ * following nothing. */
+MU_TEST(the_moment_a_follow_last_heard_its_piconet_is_there_for_the_tool)
 {
 	btbb_piconet* pn = btbb_piconet_new();
+	uint64_t at_clock, after_quiet, after_packet;
 
-	/* Nothing to watch before the library hands a clock over. */
+	/* Nothing to read before the library hands a clock over. */
 	reset_state();
 	btbb_init_piconet(pn, 0x123456);
-	mu_assert_int_eq(-1, (int)ubertooth_follow_heard());
+	mu_assert_int_eq(0, (int)ubertooth_follow_heard_ms());
 
-	/* The clock arrives with a packet, and that packet was heard before
-	 * the follow began, so the count starts at zero. */
+	/* The clock arrives with a packet; the reading is the moment it did,
+	 * because nothing has been heard on that clock yet. */
 	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
 	            0, 10);
 	next_count = 1;
 	process_packet_result = -1;
 	run_callback(cb_rx, pn);
-	mu_assert_int_eq(0, (int)ubertooth_follow_heard());
+	at_clock = ubertooth_follow_heard_ms();
+	mu_assert(at_clock != 0, "a clock was handed over");
 
-	/* Two more packets of the piconet, heard on that clock. */
+	/* A record with no access code in it is not this piconet, so the
+	 * reading stands still however many arrive: that is the silence the
+	 * tool is waiting out. */
 	reset_state();
+	usleep(3000);
+	find_ac_offset = -1;
 	fill_packet(&next_packets[0],
 	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 200), 0, 10);
-	fill_packet(&next_packets[1],
-	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 300), 0, 10);
-	next_count = 2;
+	next_count = 1;
 	run_callback(cb_rx, pn);
-	mu_assert_int_eq(2, (int)ubertooth_follow_heard());
+	after_quiet = ubertooth_follow_heard_ms();
+	mu_assert(after_quiet == at_clock, "the reading stood still");
 
-	/* And nothing to watch once that clock has been given up. */
+	/* A packet of the piconet moves it on. */
+	reset_state();
+	usleep(3000);
+	fill_packet(&next_packets[0],
+	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 300), 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, pn);
+	after_packet = ubertooth_follow_heard_ms();
+	mu_assert(after_packet > at_clock, "the reading moved on");
+
+	/* And there is nothing to read once that clock has been given up. */
 	mu_assert_int_eq(1, run_drop_clock(pn));
-	mu_assert_int_eq(-1, (int)ubertooth_follow_heard());
+	mu_assert_int_eq(0, (int)ubertooth_follow_heard_ms());
 
 	btbb_piconet_unref(pn);
 }
 
 /* A clock the library keeps -- one the caller set itself, which it leaves
  * alone because it has nothing better to fall back on -- leaves the capture
- * exactly as it was, and says nothing, so a tool may ask whenever it thinks
- * the follow has gone quiet. */
+ * exactly as it was and says nothing. The reading still moves on, so a tool
+ * whose follow stays quiet asks once per wait and not once per record. */
 MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+	uint64_t at_clock;
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	at_clock = ubertooth_follow_heard_ms();
+
+	memset(&seen, 0, sizeof(seen));
+	drop_clock_result = 0;
+	usleep(3000);
+	mu_assert_int_eq(0, run_drop_clock(pn));
+
+	mu_assert_int_eq(1, seen.clocks_dropped);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.channels_set);
+	mu_assert_int_eq(0, (int)strlen(last_stderr));
+	/* The follow is still there to be watched, and the wait starts
+	 * again. */
+	mu_assert(ubertooth_follow_heard_ms() > at_clock, "the wait started again");
+
+	/* Put the capture back where the next case expects it: off the
+	 * clock. */
+	drop_clock_result = 1;
+	mu_assert_int_eq(1, run_drop_clock(pn));
+
+	btbb_piconet_unref(pn);
+}
+
+/* A board that refuses to come off the offset leaves this capture following a
+ * clock the library has already given up. The next ask must try the request
+ * again rather than read as a repeat: a board left on a clock that is gone
+ * decodes nothing for the rest of the run. */
+MU_TEST(a_board_that_will_not_come_off_a_quiet_clock_is_asked_again)
 {
 	btbb_piconet* pn = btbb_piconet_new();
 
@@ -1664,15 +1721,27 @@ MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
 	run_callback(cb_rx, pn);
 
 	memset(&seen, 0, sizeof(seen));
-	drop_clock_result = 0;
-	mu_assert_int_eq(0, run_drop_clock(pn));
-
+	rx_syms_result = -7;
+	mu_assert_int_eq(1, run_drop_clock(pn));
 	mu_assert_int_eq(1, seen.clocks_dropped);
-	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(1, seen.symbol_captures);
+	mu_assert_int_eq(1, stderr_lines_with(QUIET_CLOCK_WARNING));
+	mu_assert_int_eq(1, stderr_lines_with("still following"));
 	mu_assert_int_eq(0, seen.channels_set);
-	mu_assert_int_eq(0, (int)strlen(last_stderr));
-	/* And the follow is still there to be watched. */
-	mu_assert_int_eq(0, (int)ubertooth_follow_heard());
+
+	/* The next wait asks again. The board takes it this time, so the
+	 * capture comes off the offset and states its channel again -- and the
+	 * library is not asked for a clock it has already given up, nor is the
+	 * warning said twice. */
+	memset(&seen, 0, sizeof(seen));
+	rx_syms_result = 0;
+	mu_assert_int_eq(1, run_drop_clock(pn));
+	mu_assert_int_eq(0, seen.clocks_dropped);
+	mu_assert_int_eq(1, seen.symbol_captures);
+	mu_assert_int_eq(1, seen.channels_set);
+	mu_assert_int_eq(2450, (int)seen.channel_set);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+	mu_assert_int_eq(0, (int)ubertooth_follow_heard_ms());
 
 	btbb_piconet_unref(pn);
 }
@@ -1768,8 +1837,9 @@ int main(void)
 	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
 	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);
 	MU_RUN(a_replay_warns_but_sends_no_request_when_the_clock_is_lost);
-	MU_RUN(the_packets_a_follow_hears_are_counted_for_the_tool);
+	MU_RUN(the_moment_a_follow_last_heard_its_piconet_is_there_for_the_tool);
 	MU_RUN(a_clock_the_library_will_not_give_up_leaves_the_capture_alone);
+	MU_RUN(a_board_that_will_not_come_off_a_quiet_clock_is_asked_again);
 	MU_RUN(a_clock_given_up_for_silence_warns_once_and_frees_the_board);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();

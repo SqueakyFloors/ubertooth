@@ -1384,16 +1384,20 @@ static int br_following;
  * A clock handed over, or given up, starts that again. */
 static int br_calibrated;
 
-/* How many packets of the piconet have been heard since the library handed
- * this capture the clock it is following, for a capture tool to watch.
- *
- * A clock that is not the piconet's is heard from about one packet in
- * eighteen rather than failing: clock discovery only offers candidates that
- * carry the same CLK1-6, so a wrong CLK1-27 dewhitens and checks out every
- * header it does receive, and what it gets wrong is which channel to listen
- * on. Silence is the only symptom, and nothing here can judge it, because
- * this runs when a record arrives rather than on a clock. */
-static unsigned long br_heard;
+/* When a packet of that piconet was last heard, on the monotonic clock. A
+ * clock handed over starts it, because nothing has been heard on that clock
+ * yet. See ubertooth_follow_heard_ms(). */
+static uint64_t br_heard_ms;
+
+/* Whether the library has no clock for this piconet any more while the board
+ * may still be hopping on the old offset, which is where a board that refused
+ * the request below leaves this capture. */
+static int br_clock_gone;
+
+static uint64_t monotonic_ms(void)
+{
+	return clock_ns(CLOCK_MONOTONIC) / 1000000ull;
+}
 
 /* Takes the board off the clock offset it was hopping on, once that clock has
  * been given up. The plain symbol capture is what takes it off, and it leaves
@@ -1405,14 +1409,16 @@ static unsigned long br_heard;
  * replay has no board to take off anything.
  *
  * The caller has already said why. br_following is cleared once the board is
- * off the offset; a board that refused leaves it set, so the next report tries
- * again rather than being read as a repeat of one already dealt with. */
+ * off the offset; a board that refused leaves it set, so the capture is still
+ * one whose silence means something and the request is made again when the
+ * next report arrives or the next wait is up. */
 static void br_stop_following(ubertooth_t* ut)
 {
 	br_calibrated = 0;
 
 	if (infile != NULL) {
 		br_following = 0;
+		br_clock_gone = 0;
 		return;
 	}
 
@@ -1426,6 +1432,7 @@ static void br_stop_following(ubertooth_t* ut)
 	}
 
 	br_following = 0;
+	br_clock_gone = 0;
 	/* Only when this capture set a channel. A caller that set none --
 	 * ubertooth-follow, which shares this callback -- leaves the field
 	 * zero, and zero is not a channel: it would be clamped to the bottom
@@ -1437,18 +1444,33 @@ static void br_stop_following(ubertooth_t* ut)
 		        "again\n");
 }
 
-long ubertooth_follow_heard(void)
+uint64_t ubertooth_follow_heard_ms(void)
 {
-	return br_following ? (long)br_heard : -1;
+	return br_following ? br_heard_ms : 0;
 }
 
 int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 {
-	if (!br_following || btbb_piconet_drop_clock(pn) <= 0)
+	if (!br_following)
 		return 0;
 
-	fprintf(stderr, "warning: nothing of this piconet has been heard on "
-	        "the clock being followed; searching for it again\n");
+	/* The wait starts again whatever comes of this, so a caller whose
+	 * follow stays quiet asks once per wait rather than once per record:
+	 * for a clock the library will not give up, and for a board that will
+	 * not come off one it has. */
+	br_heard_ms = monotonic_ms();
+
+	if (!br_clock_gone) {
+		if (btbb_piconet_drop_clock(pn) <= 0)
+			return 0;
+		br_clock_gone = 1;
+		fprintf(stderr, "warning: nothing of this piconet has been "
+		        "heard on the clock being followed; searching for it "
+		        "again\n");
+	}
+	/* So the warning is said once per clock, and a board that refused the
+	 * request is asked again at the next wait without it being
+	 * repeated. */
 	br_stop_following(ut);
 	return 1;
 }
@@ -1543,13 +1565,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 	       snr_text
 	);
 
-	/* A packet of the piconet heard, which is the line just printed.
-	 * Counted here rather than where the decoder takes the packet,
-	 * because the clock trim below keeps some packets back from it: a
-	 * tool watching a follow for silence has to see what its user sees.
-	 * See ubertooth_follow_heard(). */
+	/* A packet of the piconet heard, stamped here rather than where the
+	 * decoder takes the packet, because the clock trim below keeps some
+	 * packets back from it: what a tool watching for silence has to see is
+	 * every packet that arrived, which is also what the report above
+	 * prints. */
 	if (br_following)
-		br_heard++;
+		br_heard_ms = monotonic_ms();
 
 	/* calibrate Ubertooth clock such that the first bit of the AC
 	 * arrives CLK_TUNE_TIME after the rising edge of CLKN */
@@ -1675,7 +1697,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 			                  btbb_piconet_get_clk_offset(pn), 0);
 		br_calibrated = 0;
 		br_following = 1;
-		br_heard = 0;
+		br_clock_gone = 0;
+		br_heard_ms = monotonic_ms();
 	} else if (r == BTBB_PROCESS_LOCK_LOST && br_following) {
 		/* The clock being followed was not this piconet's. The library
 		 * has given it up and started discovery again, so a board put
@@ -1691,6 +1714,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * the reader of a capture file as for the user of a board. */
 		fprintf(stderr, "warning: the clock being followed was not "
 		        "this piconet's; searching for it again\n");
+		br_clock_gone = 1;
 		br_stop_following(ut);
 	}
 
