@@ -49,9 +49,10 @@ traffic.
   extended-advertising data, and it loses a connection that switches to
   2M. Most current phones, computers and peripherals switch to 2M right
   after connecting.
-- **Classic Bluetooth: Basic Rate only.** EDR payloads, which carry most
-  audio and fast data, are not captured, and following a piconet is slow
-  and partial.
+- **Classic Bluetooth: Basic Rate only.** The CC2400 radio demodulates only
+  GFSK, so no firmware can capture EDR payloads, which use phase modulation
+  and carry most audio and fast data. Their access code and header are still
+  seen. Following a piconet is slow and partial.
 - **No decryption** of encrypted links without their keys.
 
 To sniff Bluetooth 5 traffic, use a sniffer built on a Bluetooth 5 radio,

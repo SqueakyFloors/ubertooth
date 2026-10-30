@@ -42,7 +42,7 @@ What the radio can and cannot do
 
 * BLE on the 1M PHY only. The CC2400 cannot receive the Bluetooth 5 LE 2M or Coded (long range) PHYs, so it cannot capture extended advertising data, and it loses a connection that switches to 2M.
 
-* Classic Bluetooth at Basic Rate only. EDR payloads, which carry most audio and fast data, are not captured.
+* Classic Bluetooth at Basic Rate only. The CC2400 radio demodulates only GFSK, so no firmware can capture EDR payloads, which use phase modulation and carry most audio and fast data; their access code and header are still seen.
 
 
 
