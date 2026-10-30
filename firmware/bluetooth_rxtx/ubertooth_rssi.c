@@ -38,6 +38,108 @@ static inline int32_t round_div(int32_t n, int32_t d)
 	return (n >= 0) ? (n + half) / d : (n - half) / d;
 }
 
+/*
+ * Power, relative to a reading 0..RSSI_POWER_SPAN dB stronger, in units of
+ * RSSI_POWER_ONE: 10^(-d/10) scaled by RSSI_POWER_ONE.
+ */
+static const uint16_t rssi_power_down[RSSI_POWER_SPAN + 1] = {
+	32768, 26029, 20675, 16423, 13045, 10362,
+	 8231,  6538,  5193,  4125,  3277,
+};
+
+/* The most readings one step of the window holds before every step is halved.
+ * Halving keeps their proportions, and so the mean, to within the one reading
+ * each step can lose -- a part in 134 million, far below the dB the readings
+ * themselves are quantized to. A capture reaches it after 268 million readings
+ * on one channel without a hop, which is hours of a quiet channel. */
+#define RSSI_POWER_STEP_MAX (1u << 28)
+
+void rssi_power_reset(rssi_power_t* p)
+{
+	p->ref = INT8_MIN;
+	memset(p->at, 0, sizeof(p->at));
+}
+
+void rssi_power_add(rssi_power_t* p, int8_t v)
+{
+	unsigned d, i, rise;
+
+	if (v > p->ref) {
+		/* A stronger reading becomes the reference, which puts every reading
+		 * already counted that much further below it. Those that fall past
+		 * the window are forgotten, which is what keeps the mean a mean of
+		 * the readings the window holds: a reading counted while the
+		 * reference was low must stop counting once a loud one has left it
+		 * outside. An empty accumulator takes this path too, because every
+		 * reading is more than the window above INT8_MIN. */
+		rise = (unsigned)((int)v - (int)p->ref);
+		if (rise > RSSI_POWER_SPAN) {
+			memset(p->at, 0, sizeof(p->at));
+		} else {
+			for (i = RSSI_POWER_SPAN + 1; i-- > rise; )
+				p->at[i] = p->at[i - rise];
+			for (i = 0; i < rise; i++)
+				p->at[i] = 0;
+		}
+		p->ref = v;
+		d = 0;
+	} else {
+		d = (unsigned)((int)p->ref - (int)v);
+		if (d > RSSI_POWER_SPAN)
+			return;
+	}
+
+	if (p->at[d] >= RSSI_POWER_STEP_MAX)
+		for (i = 0; i <= RSSI_POWER_SPAN; i++)
+			p->at[i] >>= 1;
+	p->at[d]++;
+}
+
+int rssi_power_measured(const rssi_power_t* p)
+{
+	unsigned i;
+
+	for (i = 0; i <= RSSI_POWER_SPAN; i++)
+		if (p->at[i] != 0)
+			return 1;
+	return 0;
+}
+
+int8_t rssi_power_mean(const rssi_power_t* p)
+{
+	uint64_t sum = 0, count = 0;
+	uint32_t mean;
+	unsigned d;
+
+	for (d = 0; d <= RSSI_POWER_SPAN; d++) {
+		sum += (uint64_t) p->at[d] * rssi_power_down[d];
+		count += p->at[d];
+	}
+	if (count == 0)
+		return INT8_MIN;
+
+	/* The mean power of the readings, relative to the strongest of them. It
+	 * cannot exceed RSSI_POWER_ONE, the weight of a reading at that level. */
+	mean = (uint32_t)(sum / count);
+
+	/* How far below the strongest reading that is. Every counted reading is
+	 * inside the window, so their mean is too, and the search ends inside the
+	 * table. */
+	for (d = 0; d < RSSI_POWER_SPAN; ++d) {
+		if (mean >= rssi_power_down[d + 1])
+			break;
+	}
+	/* Between two whole dB, take the nearer in dB rather than in power: the
+	 * halfway point of the two is their geometric mean. */
+	if (d < RSSI_POWER_SPAN &&
+	    mean * mean < (uint32_t) rssi_power_down[d] * rssi_power_down[d + 1])
+		++d;
+
+	if ((int)p->ref - (int)d < INT8_MIN)
+		return INT8_MIN;
+	return (int8_t)((int)p->ref - (int)d);
+}
+
 int8_t rssi_max;
 int8_t rssi_min;
 uint8_t rssi_count;
@@ -45,9 +147,23 @@ uint8_t rssi_count;
 int32_t rssi_sum;
 int16_t rssi_iir[NUM_BREDR_CHANNELS] = {0};
 
+/* The packet's own power, and the background on the channel it arrived on. */
+static rssi_power_t rssi_signal_power = { INT8_MIN, { 0 } };
+static rssi_power_t rssi_noise_power = { INT8_MIN, { 0 } };
+
+/* The loudest reading taken so far on this channel in this receive window,
+ * which is what rssi_add() tells a background reading by. It belongs to both:
+ * the window, because a packet's loudness says nothing about the next one, and
+ * the channel, because a reading on one channel must not be judged against
+ * another channel's packet. So rssi_reset() and rssi_noise_reset() both clear
+ * it. */
+static int8_t rssi_window_ref = INT8_MIN;
+
 /*
- * Start a new packet's readings. The mode loops call this once per DMA bank,
- * so only the four per-packet figures belong here.
+ * Start a new packet's readings: the four per-packet figures, the accumulator
+ * behind the signal figure, and the reference rssi_add() tells a background
+ * reading by, which belongs to one receive window. The mode loops call this
+ * once per DMA bank.
  *
  * The per-channel average does not: it is an infinite impulse response filter
  * that blends 3/256 of each bank's average into the channel's running value,
@@ -64,6 +180,8 @@ void rssi_reset(void)
 	rssi_sum = 0;
 	rssi_max = INT8_MIN;
 	rssi_min = INT8_MAX;
+	rssi_power_reset(&rssi_signal_power);
+	rssi_window_ref = INT8_MIN;
 }
 
 /*
@@ -82,6 +200,48 @@ void rssi_add(int8_t v)
 	rssi_min = (v < rssi_min) ? v : rssi_min;
 	rssi_sum += ((int32_t)v * 256);  // scaled int math (x256)
 	rssi_count += 1;
+	rssi_power_add(&rssi_signal_power, v);
+
+	/*
+	 * The estimate of the background: the readings that sit more than
+	 * RSSI_POWER_SPAN dB below the loudest taken so far on this channel in
+	 * this window, which is as close to "nothing was being received" as
+	 * this radio can get. It cannot time the quiet, and the carrier-sense
+	 * line cannot say either, because the squelch it shares defaults to the
+	 * bottom of the radio's range, where carrier sense is asserted the
+	 * whole time. ubertooth_rssi.h says what the figure that comes out is
+	 * worth.
+	 *
+	 * The reference is the readings' own loudest, not a fixed level, so a
+	 * channel that is simply loud still yields an estimate. It is a running
+	 * loudest, so quiet taken before the window's packet is not admitted: a
+	 * window whose packet arrives last contributes nothing.
+	 */
+	if (v > rssi_window_ref)
+		rssi_window_ref = v;
+	else if ((int)rssi_window_ref - (int)v > RSSI_POWER_SPAN)
+		rssi_power_add(&rssi_noise_power, v);
+}
+
+int8_t rssi_get_signal(void)
+{
+	return rssi_power_mean(&rssi_signal_power);
+}
+
+void rssi_noise_reset(void)
+{
+	rssi_power_reset(&rssi_noise_power);
+	rssi_window_ref = INT8_MIN;
+}
+
+int rssi_noise_estimated(void)
+{
+	return rssi_power_measured(&rssi_noise_power);
+}
+
+int8_t rssi_get_noise(void)
+{
+	return rssi_power_mean(&rssi_noise_power);
 }
 
 /* For sweep mode, update IIR per channel. Otherwise, use single value. */

@@ -262,8 +262,8 @@ MU_TEST(a_long_packet_decodes_once_with_every_byte)
 		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 		                           (i << LE_FRAG_INDEX_SHIFT));
 		memcpy(f->data, packet + offset, chunk);
 	}
@@ -293,8 +293,8 @@ MU_TEST(a_chain_with_a_record_missing_decodes_nothing)
 		f->pkt_type = offset ? LE_PACKET_CONT : LE_PACKET_START;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 		                           ((offset / DMA_SIZE) << LE_FRAG_INDEX_SHIFT));
 		memcpy(f->data, packet + offset, DMA_SIZE);
 	}
@@ -357,8 +357,8 @@ MU_TEST(a_long_packet_after_a_gap_counts_one_gap)
 		f->status = FIFO_OVERFLOW;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 		                           (i << LE_FRAG_INDEX_SHIFT));
 	}
 	next_count = i;
@@ -451,8 +451,8 @@ MU_TEST(a_long_packet_marked_by_a_transfer_error_counts_one)
 		f->status = DMA_ERROR;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 		                           (i << LE_FRAG_INDEX_SHIFT));
 	}
 	next_count = i;
@@ -527,8 +527,8 @@ MU_TEST(a_long_packet_marked_by_symbols_written_over_counts_one)
 		f->status |= DMA_OVERFLOW;
 		f->channel = 4;
 		f->clk100ns = htole32(1234);
-		f->reserved[0] = total & 0xff;
-		f->reserved[1] = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
+		LE_FRAG_TOTAL_LOW(f) = total & 0xff;
+		LE_FRAG_FLAGS(f) = (uint8_t)(((total >> 8) & LE_FRAG_TOTAL_HIGH_MASK) |
 		                           (i << LE_FRAG_INDEX_SHIFT));
 	}
 	next_count = i;

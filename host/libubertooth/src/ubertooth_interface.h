@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0154
+#define UBERTOOTH_API_VERSION 0x0155
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -710,13 +710,19 @@ enum usb_pkt_types {
 	LE_PACKET_CONT  = 8,
 };
 
-/* Where a fragment's own metadata sits in usb_pkt_rx.reserved, which no other
- * record type uses. reserved[0] is the low 8 bits of the whole packet's
- * length; bit 0 of reserved[1] is its 9th bit, and bits 7..1 are the
- * fragment's position in the chain, counting up from zero. 264 bytes needs
- * nine length bits and six positions, so both fit. */
+/* Where a fragment's own metadata sits: the two bytes a fragment record has no
+ * other use for, usb_pkt_rx.rssi_noise and usb_pkt_rx.reserved. The first is
+ * the low 8 bits of the whole packet's length; bit 0 of the second is its 9th
+ * bit, and bits 7..1 are the fragment's position in the chain, counting up
+ * from zero. 264 bytes needs nine length bits and six positions, so both fit.
+ *
+ * Nothing reads a noise figure from a fragment record: the low-energy engine
+ * that sends these is the one mode with no background estimate, so
+ * NOISE_ESTIMATE is never set on one. */
 #define LE_FRAG_TOTAL_HIGH_MASK 0x01
 #define LE_FRAG_INDEX_SHIFT 1
+#define LE_FRAG_TOTAL_LOW(f) ((f)->rssi_noise)
+#define LE_FRAG_FLAGS(f)     ((f)->reserved)
 
 enum hop_mode {
 	HOP_NONE      = 0,
@@ -734,6 +740,33 @@ enum usb_pkt_status {
 	CS_TRIGGER    = 0x08,
 	RSSI_TRIGGER  = 0x10,
 	DISCARD       = 0x20,
+	/*
+	 * The two power figures, each set only where the board has that one.
+	 *
+	 * NOISE_ESTIMATE says the rssi_noise byte holds the board's estimate of
+	 * the background on this record's channel. It is an estimate and not a
+	 * measurement of clear air: the board cannot time the quiet between
+	 * packets, so it goes by level, averaging the readings that sat more
+	 * than 10 dB below the loudest it had taken since it last started
+	 * counting, which it does afresh at each receive window and at every
+	 * hop -- and a mode on a fixed channel still takes the hop timer's
+	 * tick, 25 times a second. A faded part of a packet is counted in,
+	 * quiet taken
+	 * before a packet is not, and the mean is over the loudest 10 dB of
+	 * what is admitted, so the figure sits above the floor. The firmware
+	 * decides all of this in rssi_add(), where the 10 dB is
+	 * RSSI_POWER_SPAN; this header mirrors the number because it cannot
+	 * include that one. Without the bit the byte says nothing at all.
+	 *
+	 * Without SIGNAL_VALID the rssi_avg byte is not this packet's power: it
+	 * is either a record that carries no packet, or one from a board or a
+	 * `.dump` file older than the measurement, where the field held the
+	 * board's running average for the channel instead. A reader of such a
+	 * record falls back to rssi_max, which is the nearest thing to a
+	 * packet's own level it carries.
+	 */
+	NOISE_ESTIMATE = 0x40,
+	SIGNAL_VALID   = 0x80,
 };
 
 /*
@@ -766,9 +799,21 @@ typedef struct {
 	uint32_t clk100ns;
 	int8_t   rssi_max;   // Max RSSI seen while collecting symbols in this packet
 	int8_t   rssi_min;   // Min ...
-	int8_t   rssi_avg;   // Average ...
+	/* The packet's own power: the mean of the readings taken while it was on
+	 * the air, averaged in power rather than in dBm and over the readings
+	 * within 10 dB of the strongest, so the quiet either side of a short
+	 * packet does not drag it down. This is what a reader shows as the
+	 * signal. */
+	int8_t   rssi_avg;
 	uint8_t  rssi_count; // Number of ... (0 means RSSI stats are invalid)
-	uint8_t  reserved[2];
+	/* The board's estimate of the background power on this record's
+	 * channel, when status carries NOISE_ESTIMATE; meaningless without it.
+	 * A raw reading like the three above.
+	 *
+	 * On the records of a fragmented low-energy packet these two bytes carry
+	 * the fragment's own length and index instead (LE_FRAG_* above). */
+	uint8_t  rssi_noise;
+	uint8_t  reserved;
 	uint8_t  data[DMA_SIZE];
 } usb_pkt_rx;
 

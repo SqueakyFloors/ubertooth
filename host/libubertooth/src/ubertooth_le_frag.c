@@ -26,14 +26,14 @@
 /* The whole packet's length, as this record states it. */
 static uint16_t fragment_total(const usb_pkt_rx *frame)
 {
-	return (uint16_t) frame->reserved[0] |
-	       ((uint16_t) (frame->reserved[1] & LE_FRAG_TOTAL_HIGH_MASK) << 8);
+	return (uint16_t) LE_FRAG_TOTAL_LOW(frame) |
+	       ((uint16_t) (LE_FRAG_FLAGS(frame) & LE_FRAG_TOTAL_HIGH_MASK) << 8);
 }
 
 /* This record's position in the chain, counting up from zero. */
 static uint8_t fragment_index(const usb_pkt_rx *frame)
 {
-	return frame->reserved[1] >> LE_FRAG_INDEX_SHIFT;
+	return LE_FRAG_FLAGS(frame) >> LE_FRAG_INDEX_SHIFT;
 }
 
 /* Copies this record's bytes onto the end of what has arrived so far, and
@@ -99,10 +99,14 @@ int le_usb_reassemble(le_usb_reassembly *state, const usb_pkt_rx *frame,
 		 * this one's. */
 		state->metadata_arrival_ns = arrival_ns;
 		/* The reassembled packet is handed on as an ordinary one, so it
-		 * carries neither a fragment type nor fragment metadata. */
+		 * carries neither a fragment type nor fragment metadata. The two
+		 * bytes the fragments used are where a noise figure would sit, and
+		 * the mode that fragments has none, so they are cleared and the
+		 * status says there is no estimate. */
 		state->metadata.pkt_type = LE_PACKET;
-		state->metadata.reserved[0] = 0;
-		state->metadata.reserved[1] = 0;
+		state->metadata.rssi_noise = 0;
+		state->metadata.reserved = 0;
+		state->metadata.status &= (uint8_t) ~NOISE_ESTIMATE;
 		state->expected = total;
 		state->received = 0;
 		state->next_index = 1;

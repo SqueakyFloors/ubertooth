@@ -305,6 +305,16 @@ static void start_fresh(void)
 
 /* Fill a receive buffer the way the DMA handler leaves one: a PDU of
  * `pdu_len` bytes, plus the two-byte header and the three-byte CRC. */
+/* The readings a buffer's power accumulator holds: `n` of them, all at `v`. A
+ * packet's own power is the mean of what the receive interrupt added, so a case
+ * that wants a particular figure in the record puts the readings in. */
+static void prime_power(le_rx_t *buf, int8_t v, unsigned n)
+{
+	rssi_power_reset(&buf->power);
+	while (n--)
+		rssi_power_add(&buf->power, v);
+}
+
 static void fill_packet(le_rx_t *buf, unsigned pdu_len, unsigned channel)
 {
 	unsigned i;
@@ -317,7 +327,7 @@ static void fill_packet(le_rx_t *buf, unsigned pdu_len, unsigned channel)
 	buf->timestamp = 0x11223344;
 	buf->rssi_min = -70;
 	buf->rssi_max = -40;
-	buf->rssi_sum = 0;
+	prime_power(buf, -40, 1);
 	for (i = 0; i < buf->size && i < sizeof(buf->data); i++)
 		buf->data[i] = (uint8_t)(i + 1);
 }
@@ -581,7 +591,7 @@ MU_TEST(a_released_buffer_comes_back_clean)
 	/* Leave it as a received packet does. */
 	first->pos = 17;
 	first->size = 42;
-	first->rssi_sum = -500;
+	prime_power(first, -10, 4);
 	first->rssi_min = -90;
 	first->rssi_max = -10;
 	memset(first->data, 0xa5, sizeof(first->data));
@@ -596,7 +606,7 @@ MU_TEST(a_released_buffer_comes_back_clean)
 
 	mu_assert_int_eq(0, again->pos);
 	mu_assert_int_eq(0, again->size);
-	mu_assert_int_eq(0, again->rssi_sum);
+	mu_assert_int_eq(0, rssi_power_measured(&again->power));
 	mu_assert_int_eq(INT8_MAX, again->rssi_min);
 	mu_assert_int_eq(INT8_MIN, again->rssi_max);
 	for (i = 0; i < (int)sizeof(again->data); i++)
@@ -1100,7 +1110,7 @@ static void dirty_the_ring(void)
 	mu_assert_int_eq(DMA_SIZE, 4 + filler.size);
 	memset(filler.data, 0xa5, sizeof(filler.data));
 	filler.access_address = 0xa5a5a5a5;
-	filler.rssi_sum = (int)filler.size;
+	prime_power(&filler, -40, 1);
 
 	/* Once around the whole ring, one record at a time, which leaves every
 	 * record full and the queue's read and write positions back where they
@@ -1160,7 +1170,7 @@ MU_TEST(every_packet_length_survives_the_round_trip)
 		dirty_the_ring();
 		fill_packet(&buf, pdu_len, DATA_CHANNEL_MHZ);
 		buf.access_address = 0x12345678;
-		buf.rssi_sum = 46;       /* these cases are about the bytes */
+		prime_power(&buf, -40, 1);  /* these cases are about the bytes */
 
 		result = round_trip(&buf, &data, &length, &metadata, &records);
 
@@ -1219,7 +1229,9 @@ MU_TEST(every_packet_length_survives_the_round_trip)
 		mu_assert_int_eq(buf.rssi_min, metadata->rssi_min);
 		mu_assert_int_eq(buf.rssi_max, metadata->rssi_max);
 		mu_assert_int_eq(0, metadata->rssi_count);
-		mu_assert_int_eq(0, metadata->status);
+		/* Nothing went wrong, and the record says its average is the
+		 * packet's own power. */
+		mu_assert_int_eq(SIGNAL_VALID, metadata->status);
 		mu_assert_int_eq(0, radio_touched);
 	}
 }
@@ -1359,7 +1371,7 @@ MU_TEST(a_chain_that_does_not_fit_is_not_started)
 
 	start_fresh();
 	fill_packet(&buf, 255, DATA_CHANNEL_MHZ);
-	buf.rssi_sum = 46;
+	prime_power(&buf, -40, 1);
 	fragments = (4 + buf.size + DMA_SIZE - 1) / DMA_SIZE;
 
 	/* Fill the ring until one fragment less than the packet needs is left. */
@@ -1377,38 +1389,21 @@ MU_TEST(a_chain_that_does_not_fit_is_not_started)
 }
 
 /*
- * The average RSSI in the record is the mean of the samples taken while the
- * packet arrived. The CC2400 reports RSSI as a negative number, so every real
- * capture has a negative sum and the division has to be a signed one. The
- * host puts the result in the per-packet header of a PCAP written with -c,
- * between the minimum and the maximum of the same packet.
+ * The record's signal figure is the mean power of the readings taken while the
+ * packet arrived. The host puts it in the per-packet header of a PCAP written
+ * with -c, between the minimum and the maximum of the same packet, and prints
+ * it beside the packet.
  */
-MU_TEST(the_average_rssi_is_the_mean_of_the_samples)
+MU_TEST(the_signal_figure_is_the_mean_power_of_the_samples)
 {
 	le_rx_t buf;
 	usb_pkt_rx *record;
 
-	start_fresh();
-	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);   /* size 10 */
-	buf.rssi_sum = 200;
-	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
-	record = dequeue();
-	mu_assert_fatal(record != NULL, "no record came back");
-	mu_assert_int_eq(20, record->rssi_avg);
-
+	/* Every reading the same, so the mean is that reading, and it sits on
+	 * the minimum and the maximum. */
 	start_fresh();
 	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
-	buf.rssi_sum = -200;
-	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
-	record = dequeue();
-	mu_assert_fatal(record != NULL, "no record came back");
-	mu_assert_int_eq(-20, record->rssi_avg);
-
-	/* A real packet: every sample the same, so the mean is that value and
-	 * sits on the minimum and the maximum. */
-	start_fresh();
-	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
-	buf.rssi_sum = -70 * (int) buf.size;
+	prime_power(&buf, -70, 10);
 	buf.rssi_min = -70;
 	buf.rssi_max = -70;
 	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
@@ -1417,7 +1412,42 @@ MU_TEST(the_average_rssi_is_the_mean_of_the_samples)
 	mu_assert_int_eq(-70, record->rssi_avg);
 	mu_assert(record->rssi_avg >= record->rssi_min &&
 	          record->rssi_avg <= record->rssi_max,
-	          "the average RSSI is outside the minimum and the maximum");
+	          "the signal figure is outside the minimum and the maximum");
+
+	/* Two readings 10 dB apart. Their mean power is 55% of the stronger
+	 * one, which is 2.6 dB below it, so the figure is 3 dB down -- not the
+	 * 5 dB that averaging the two dBm figures would give. */
+	start_fresh();
+	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
+	rssi_power_reset(&buf.power);
+	rssi_power_add(&buf.power, -40);
+	rssi_power_add(&buf.power, -50);
+	buf.rssi_min = -50;
+	buf.rssi_max = -40;
+	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "no record came back");
+	mu_assert_int_eq(-43, record->rssi_avg);
+}
+
+/*
+ * The records of a packet carry no noise figure: this engine reads RSSI only
+ * while a packet is arriving, so it has nothing to estimate the background
+ * from and the status says so. A reader then shows the field as absent rather
+ * than taking the packet's own power for the level around it.
+ */
+MU_TEST(a_low_energy_record_says_it_has_no_background_estimate)
+{
+	le_rx_t buf;
+	usb_pkt_rx *record;
+
+	start_fresh();
+	fill_packet(&buf, 5, DATA_CHANNEL_MHZ);
+	mu_assert_fatal(usb_enqueue_le(&buf) == 1, "the queue refused a packet");
+	record = dequeue();
+	mu_assert_fatal(record != NULL, "no record came back");
+	mu_assert_int_eq(0, record->status & NOISE_ESTIMATE);
+	mu_assert_int_eq(0, record->rssi_noise);
 }
 
 /*
@@ -1500,7 +1530,7 @@ MU_TEST(a_full_ring_refuses_the_packet)
 
 	start_fresh();
 	fill_packet(&buf, 20, DATA_CHANNEL_MHZ);
-	buf.rssi_sum = 25;
+	prime_power(&buf, -40, 1);
 
 	while (usb_enqueue_le(&buf) == 1) {
 		queued++;
@@ -3948,7 +3978,8 @@ int main(void)
 	MU_RUN(a_dropped_packet_marks_the_next_one_that_gets_through);
 	MU_RUN(a_drop_does_not_carry_into_the_next_capture);
 	MU_RUN(a_chain_that_does_not_fit_is_not_started);
-	MU_RUN(the_average_rssi_is_the_mean_of_the_samples);
+	MU_RUN(the_signal_figure_is_the_mean_power_of_the_samples);
+	MU_RUN(a_low_energy_record_says_it_has_no_background_estimate);
 	MU_RUN(a_packets_timestamp_is_back_dated_to_the_start_of_the_preamble);
 	MU_RUN(a_packet_carries_the_access_address_it_was_received_with);
 	MU_RUN(a_full_ring_refuses_the_packet);

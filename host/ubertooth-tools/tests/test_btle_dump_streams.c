@@ -447,10 +447,12 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
 	                "a capture file");
 
-	/* 70 raw counts apart, which the model puts 63 dB apart: -28 dBm for
-	 * the strongest reading of the packet, -91 dBm for the weakest. */
+	/* 70 raw counts apart, which the model puts 63 dB apart: the packet's
+	 * own power reads -28 dBm, the weakest reading of the window -91 dBm. */
+	rx.rssi_avg = 30;
 	rx.rssi_max = 30;
 	rx.rssi_min = -40;
+	rx.status |= SIGNAL_VALID;
 	/* 2480 MHz, advertising channel 39, so the channel byte the check
 	 * below reads is a value nothing else in the record could be. */
 	rx.channel = 78;
@@ -469,7 +471,7 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	          "the capture holds a record to read a level from");
 	mu_assert_int_eq(recorded, level);
 	/* And it is the packet's own level, not the floor of the window: the
-	 * weakest reading through the old approximation would read -94. */
+	 * weakest reading would read -91. */
 	mu_assert_int_eq(-28, level);
 
 	unlink(capture);

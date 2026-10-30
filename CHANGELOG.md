@@ -23,6 +23,24 @@
   spotted before it writes over something.
   [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
 
+- Capture records carry two figures for the packet's channel: the packet's own
+  power, measured, and the board's estimate of the background around it. The
+  signal is that one packet's, where the host used to report the loudest of the
+  channel's last ten packets; both are averaged in power rather than in dBm,
+  which is what the average of a set of dBm readings means. Wireshark now shows
+  a noise power and a signal-to-noise ratio instead of `Invalid Noise Power`,
+  and `ubertooth-rx` and `ubertooth-scan` print `n=` with `snr=` beside it. A
+  mode with no estimate — `ubertooth-btle -f` and `-n` read the radio only
+  while a packet is arriving — prints `n=none snr=none` rather than a figure
+  taken from the packet itself. The background is an estimate because the board
+  picks the readings it averages by their level rather than by timing the quiet
+  between packets, and the man pages say so. Firmware API 1.55.
+  Credit: Hannes Ellinger ([@el-han](https://github.com/el-han)) for the
+  per-packet signal figure, and [@orgua](https://github.com/orgua) for
+  pointing out that dBm readings have to be averaged in power.
+  [#77](https://github.com/SqueakyFloors/ubertooth/issues/77)
+  [upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)
+
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
   `ubertooth-specan-ui` — answer `-V` with the same lines as every other tool:
   the host tools' version, then the firmware version and build of the board
@@ -347,8 +365,11 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.54, last moved by the
-  range test reporting a packet it discarded, before that by
+- **Reflash required:** the firmware API version is now 1.55, last moved by the
+  packet's own power and the background in every capture record, which a host
+  tool of an earlier version would read the way the fields used to mean
+  ([#77](https://github.com/SqueakyFloors/ubertooth/issues/77)), before that by
+  the range test reporting a packet it discarded, before that by
   promiscuous mode reporting the access address of the connection it follows,
   before that by the
   board reporting a low-energy packet it had to drop for want of queue room and

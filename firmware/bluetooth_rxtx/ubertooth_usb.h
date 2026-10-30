@@ -120,6 +120,11 @@ typedef struct {
 	int8_t   rssi_min;
 	int8_t   rssi_avg;
 	uint8_t  rssi_count;
+	/* The estimate of the background on the channel, carried only when
+	 * status says NOISE_ESTIMATE, and only on a packet that fits one
+	 * record: the two bytes it would travel in are the ones a fragment
+	 * states its own length and index in. */
+	uint8_t  rssi_noise;
 } le_pkt_meta;
 
 /* Queues one captured low-energy packet, splitting it across records when it

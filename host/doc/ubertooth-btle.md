@@ -266,11 +266,22 @@ packet times are behind the host clock by more than half the capture clock's
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
-A `-q` or `-r` capture record carries the signal power of its packet and no
-measured noise power: nothing measures the background between packets, so the
-record's noise-power-valid flag stays clear and the byte beside it is not a
-reading. Wireshark shows it as `Unused signed byte`. A `-c` PPI record carries
-the board's own RSSI readings instead, as described below.
+A `-q` or `-r` capture record carries the packet's own power, which is the
+figure printed as `rssi=` as well. Follow and advertising capture (`-f`, `-n`)
+average the readings of the packet in power rather than in dBm, which is what
+the average of a set of dBm readings means. A promiscuous record (`-p`) carries
+no average of its own, so the figure is the strongest reading the board took
+around the packet.
+
+No low-energy record carries a figure for the background, whatever the mode
+read: the two status bits that would make one readable are set on Classic
+records alone. Those records leave the noise-power-valid flag clear, Wireshark
+shows the field as `Unused signed byte`, and no reader computes a
+signal-to-noise ratio from them. Classic capture does carry one, which
+ubertooth-rx(1) describes.
+
+A `-c` PPI record carries the board's own RSSI readings instead, as described
+below.
 
 Miscellaneous:
 
@@ -429,8 +440,10 @@ standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.
 
 The `rssi=` figure on each packet's `systime=` line is that packet's own level
-in dBm: the strongest RSSI reading the board reports for the packet, through a
-piecewise-linear model of the CC2400 datasheet's RSSI curve. It is the same
+in dBm, through a piecewise-linear model of the CC2400 datasheet's RSSI curve:
+the mean power of the packet's readings where the record carries that figure,
+and the strongest reading the board took around the packet where it does not --
+a promiscuous record, or one from a board older than the figure. It is the same
 number the signal field of a `-q` or `-r` capture carries for that packet, so a
 dump and a capture of one run agree. A `-c` PPI capture carries the board's raw
 counts instead, which are not dBm. The model has ends, so `rssi=0` means "at

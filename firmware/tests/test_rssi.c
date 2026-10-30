@@ -401,6 +401,334 @@ MU_TEST(test_the_band_fills_the_array_and_outside_it_shares_slot_zero)
 	mu_assert(rssi_iir[0] != 0, "an out-of-band update must land in slot zero");
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Averaging in power
+ * ------------------------------------------------------------------ */
+
+/* One reading is its own mean, and so is any number of equal readings. */
+MU_TEST(test_a_mean_of_equal_readings_is_that_reading)
+{
+	rssi_power_t p;
+	int i;
+
+	rssi_power_reset(&p);
+	mu_assert_int_eq(0, rssi_power_measured(&p));
+	mu_assert_int_eq(INT8_MIN, rssi_power_mean(&p));
+
+	rssi_power_add(&p, -45);
+	mu_assert_int_eq(1, rssi_power_measured(&p));
+	mu_assert_int_eq(-45, rssi_power_mean(&p));
+
+	for (i = 0; i < 200; i++)
+		rssi_power_add(&p, -45);
+	mu_assert_int_eq(-45, rssi_power_mean(&p));
+}
+
+/*
+ * The whole point of averaging in power: two readings 10 dB apart have a mean
+ * power 55% of the stronger one, which is 2.6 dB below it, so the mean is 3 dB
+ * down. Averaging the two dBm figures would say 5 dB down.
+ */
+MU_TEST(test_the_mean_is_of_the_power_not_of_the_dbm_figures)
+{
+	rssi_power_t p;
+	int i;
+
+	rssi_power_reset(&p);
+	rssi_power_add(&p, -40);
+	rssi_power_add(&p, -50);
+	mu_assert_int_eq(-43, rssi_power_mean(&p));
+
+	/* Four quiet readings and one loud one, 10 dB apart: a fifth of the loud
+	 * one's power plus four fifths of a tenth of it, which is 5.5 dB below
+	 * the loud one. The dBm average would say 8 dB below. */
+	rssi_power_reset(&p);
+	for (i = 0; i < 4; i++)
+		rssi_power_add(&p, -50);
+	rssi_power_add(&p, -40);
+	mu_assert_int_eq(-46, rssi_power_mean(&p));
+
+	/* And the other way round, which is the same set of readings. */
+	rssi_power_reset(&p);
+	rssi_power_add(&p, -40);
+	for (i = 0; i < 4; i++)
+		rssi_power_add(&p, -50);
+	mu_assert_int_eq(-46, rssi_power_mean(&p));
+}
+
+/* The order the readings arrive in does not change the mean, even though a
+ * louder reading rescales everything already added. */
+MU_TEST(test_the_order_of_the_readings_does_not_matter)
+{
+	rssi_power_t up, down;
+	int i;
+
+	rssi_power_reset(&up);
+	rssi_power_reset(&down);
+	for (i = 0; i < 8; i++) {
+		rssi_power_add(&up, (int8_t)(-50 + i));
+		rssi_power_add(&down, (int8_t)(-43 - i));
+	}
+	mu_assert_int_eq(rssi_power_mean(&down), rssi_power_mean(&up));
+}
+
+/*
+ * A reading further below the strongest than the window is left out, and so is
+ * its share of the count. That is what makes the figure the packet's own power:
+ * the readings of a receive window span the packet and the quiet either side
+ * of it, and with the quiet counted in a packet filling a third of the window
+ * would read 5 dB below its real level.
+ */
+MU_TEST(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down)
+{
+	rssi_power_t p;
+	int i;
+
+	/* A packet 30 dB above the background, filling a third of the window. */
+	rssi_power_reset(&p);
+	for (i = 0; i < 10; i++)
+		rssi_power_add(&p, -40);
+	for (i = 0; i < 20; i++)
+		rssi_power_add(&p, -70);
+	mu_assert_int_eq(-40, rssi_power_mean(&p));
+
+	/* The quiet first, so the packet's readings arrive after the background
+	 * has been counted and have to displace it. */
+	rssi_power_reset(&p);
+	for (i = 0; i < 20; i++)
+		rssi_power_add(&p, -70);
+	for (i = 0; i < 10; i++)
+		rssi_power_add(&p, -40);
+	mu_assert_int_eq(-40, rssi_power_mean(&p));
+}
+
+/*
+ * A reading that a later, stronger one leaves outside the window stops
+ * counting, however many steps the reference climbed in. A thousand readings
+ * at the floor, then two 10 dB apart above it: the mean is of the two, not
+ * dragged down by the thousand that are now 20 dB below the strongest.
+ */
+MU_TEST(test_a_reading_the_window_has_left_behind_stops_counting)
+{
+	rssi_power_t p;
+	int i;
+
+	rssi_power_reset(&p);
+	for (i = 0; i < 1000; i++)
+		rssi_power_add(&p, -100);
+	rssi_power_add(&p, -90);
+	rssi_power_add(&p, -80);
+	/* The mean power of -90 and -80 is 2.6 dB below the stronger. */
+	mu_assert_int_eq(-83, rssi_power_mean(&p));
+}
+
+/* However many readings arrive, the mean stays the mean: a capture on a quiet
+ * channel can add millions of them without a packet ever completing. */
+MU_TEST(test_the_mean_survives_any_number_of_readings)
+{
+	rssi_power_t p;
+	int i;
+
+	rssi_power_reset(&p);
+	for (i = 0; i < 2000000; i++)
+		rssi_power_add(&p, -45);
+	mu_assert_int_eq(-45, rssi_power_mean(&p));
+
+	rssi_power_reset(&p);
+	for (i = 0; i < 2000000; i++)
+		rssi_power_add(&p, (int8_t)((i & 1) ? -40 : -50));
+	mu_assert_int_eq(-43, rssi_power_mean(&p));
+}
+
+/* The signal figure the loops report is the mean of the readings of this
+ * packet, and starting a packet forgets the last one's. */
+MU_TEST(test_the_signal_figure_is_this_packets_readings)
+{
+	rssi_reset();
+	mu_assert_int_eq(INT8_MIN, rssi_get_signal());
+
+	rssi_add(-40);
+	rssi_add(-50);
+	mu_assert_int_eq(-43, rssi_get_signal());
+
+	rssi_reset();
+	mu_assert_int_eq(INT8_MIN, rssi_get_signal());
+	rssi_add(-70);
+	mu_assert_int_eq(-70, rssi_get_signal());
+}
+
+/*
+ * A receive window holding a packet and the air after it is split by level:
+ * the packet's readings make the signal figure, the ones more than
+ * RSSI_POWER_SPAN dB below it make the background, and neither is an average
+ * of the other.
+ */
+MU_TEST(test_a_window_with_a_packet_in_it_gives_both_figures)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+
+	/* A packet 30 dB up, then the air after it. The 20 readings of air
+	 * before it would make no difference: see the ordering case below. */
+	for (i = 0; i < 20; i++)
+		rssi_add(-80);
+	for (i = 0; i < 10; i++)
+		rssi_add(-50);
+	for (i = 0; i < 20; i++)
+		rssi_add(-80);
+
+	mu_assert_int_eq(-50, rssi_get_signal());
+	mu_assert_int_eq(1, rssi_noise_estimated());
+	mu_assert_int_eq(-80, rssi_get_noise());
+}
+
+/* A window with nothing in it but the air gives no background figure: there is
+ * no packet to measure it against, so nothing says the readings are not one. */
+MU_TEST(test_a_quiet_window_claims_no_background)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+	for (i = 0; i < 40; i++)
+		rssi_add(-80);
+
+	mu_assert_int_eq(-80, rssi_get_signal());
+	mu_assert_int_eq(0, rssi_noise_estimated());
+}
+
+/* The background is kept apart from the packet's readings and from the
+ * per-packet reset, because a receive window on a quiet channel may hold no
+ * packet at all and one that starts with a packet already detected holds no
+ * background reading. It starts again where the channel changes. */
+MU_TEST(test_the_background_outlives_a_packet_and_not_a_hop)
+{
+	rssi_noise_reset();
+	rssi_reset();
+	mu_assert_int_eq(0, rssi_noise_estimated());
+
+	/* A window holding a packet and the air under it: the quiet readings
+	 * are the ones the background figure is made of. */
+	rssi_add(-40);
+	rssi_add(-90);
+	rssi_add(-90);
+	mu_assert_int_eq(1, rssi_noise_estimated());
+	mu_assert_int_eq(-90, rssi_get_noise());
+
+	/* Packets come and go; the channel's background stays. */
+	rssi_reset();
+	rssi_add(-40);
+	mu_assert_int_eq(-90, rssi_get_noise());
+	mu_assert_int_eq(-40, rssi_get_signal());
+
+	rssi_noise_reset();
+	mu_assert_int_eq(0, rssi_noise_estimated());
+	mu_assert_int_eq(INT8_MIN, rssi_get_noise());
+}
+
+/* A reading is admitted by comparison with the loudest taken so far, not with
+ * the loudest of the whole window, because the board decides one reading at a
+ * time. So the air before a packet is not background and the air after it is,
+ * and a window whose packet arrives last yields no figure at all. */
+MU_TEST(test_the_air_before_a_packet_is_not_the_background)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+	for (i = 0; i < 20; i++)
+		rssi_add(-80);
+	rssi_add(-50);
+
+	mu_assert_int_eq(-50, rssi_get_signal());
+	mu_assert_int_eq(0, rssi_noise_estimated());
+
+	/* The same readings the other way round do give one. */
+	rssi_noise_reset();
+	rssi_reset();
+	rssi_add(-50);
+	for (i = 0; i < 20; i++)
+		rssi_add(-80);
+
+	mu_assert_int_eq(1, rssi_noise_estimated());
+	mu_assert_int_eq(-80, rssi_get_noise());
+}
+
+/* The boundary is more than RSSI_POWER_SPAN dB below the loudest, which is
+ * where the docs put it: a reading exactly that far down is part of the packet,
+ * because the span is how far a packet's own readings fade. */
+MU_TEST(test_a_reading_exactly_the_span_down_is_not_the_background)
+{
+	rssi_noise_reset();
+	rssi_reset();
+	rssi_add(-40);
+	rssi_add(-50);
+	mu_assert_int_eq(0, rssi_noise_estimated());
+	/* It counts towards the packet instead: the mean of -40 and -50 in
+	 * power, which is 3 dB below the louder of the two. */
+	mu_assert_int_eq(-43, rssi_get_signal());
+
+	rssi_add(-51);
+	mu_assert_int_eq(1, rssi_noise_estimated());
+	mu_assert_int_eq(-51, rssi_get_noise());
+}
+
+/* Each receive window starts the comparison again, so a packet in one window
+ * does not admit the air of the next as background. Without that, a quiet
+ * window after a loud one reports a figure it has no evidence for: every
+ * reading in it sits far below the packet the board has finished with. */
+MU_TEST(test_each_window_starts_the_comparison_again)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+
+	/* A packet, and one quiet reading under it: that one is the figure. */
+	rssi_add(-40);
+	rssi_add(-80);
+	mu_assert_int_eq(-80, rssi_get_noise());
+
+	/* A new window of readings, none of them far below the others. */
+	rssi_reset();
+	for (i = 0; i < 20; i++)
+		rssi_add(-75);
+
+	/* Nothing was admitted, so the figure is still the one reading from
+	 * the window before. Judged against that window's packet instead,
+	 * every -75 would have been admitted and taken the figure up to -75. */
+	mu_assert_int_eq(-80, rssi_get_noise());
+	mu_assert_int_eq(-75, rssi_get_signal());
+}
+
+/* A hop starts the comparison again, so the new channel's packet is not read
+ * against the old channel's. Without that, the first readings after a hop are
+ * judged against a packet on a channel the board has left: a quieter packet on
+ * the new channel sits far enough below it to be taken for background. */
+MU_TEST(test_a_hop_starts_the_comparison_again)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+
+	/* A loud packet on the channel the board is leaving. */
+	rssi_add(-40);
+
+	rssi_noise_reset();   /* the hop */
+
+	/* A quieter packet on the new channel, and the air under it. */
+	rssi_add(-65);
+	for (i = 0; i < 10; i++)
+		rssi_add(-90);
+
+	/* The air, not the packet: -65 is 25 dB under the old channel's -40. */
+	mu_assert_int_eq(-90, rssi_get_noise());
+}
+
 int main(void)
 {
 	printf("RSSI rounding and LED specan threshold tests\n");
@@ -420,5 +748,19 @@ int main(void)
 	MU_RUN(test_a_lit_reading_stays_lit_as_n_grows);
 	MU_RUN(test_accepted_range_matches_the_host);
 	MU_RUN(test_the_band_fills_the_array_and_outside_it_shares_slot_zero);
+	MU_RUN(test_a_mean_of_equal_readings_is_that_reading);
+	MU_RUN(test_the_mean_is_of_the_power_not_of_the_dbm_figures);
+	MU_RUN(test_the_order_of_the_readings_does_not_matter);
+	MU_RUN(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down);
+	MU_RUN(test_a_reading_the_window_has_left_behind_stops_counting);
+	MU_RUN(test_the_mean_survives_any_number_of_readings);
+	MU_RUN(test_the_signal_figure_is_this_packets_readings);
+	MU_RUN(test_a_window_with_a_packet_in_it_gives_both_figures);
+	MU_RUN(test_a_quiet_window_claims_no_background);
+	MU_RUN(test_the_background_outlives_a_packet_and_not_a_hop);
+	MU_RUN(test_the_air_before_a_packet_is_not_the_background);
+	MU_RUN(test_a_reading_exactly_the_span_down_is_not_the_background);
+	MU_RUN(test_each_window_starts_the_comparison_again);
+	MU_RUN(test_a_hop_starts_the_comparison_again);
 	return mu_report();
 }

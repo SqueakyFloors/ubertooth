@@ -174,6 +174,7 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		$(FW_COMMON)/cc2400_wait.h $(FW_COMMON)/usb_irq.h $(FW_COMMON)/irq.h \
 		$(FW_RXTX)/ubertooth_clock.h $(FW_RXTX)/ubertooth_dma.h \
 		$(HOST_LIB)/ubertooth_le_frag.c $(HOST_LIB)/ubertooth_le_frag.h \
+		$(FW_RXTX)/ubertooth_rssi.c $(FW_RXTX)/ubertooth_rssi.h \
 		| $(BINDIR)
 # Two kinds of noise come from compiling le_phy.c on a 64-bit host. It
 # declares two locals in the connection-request handler that nothing reads,
@@ -184,7 +185,8 @@ $(BINDIR)/test_le_phy_logic: test_le_phy_logic.c minunit.h \
 		-I$(FW_COMMON) -DUBERTOOTH_ONE -DFW_HOST_TEST \
 		-Wno-unused-variable -Wno-pointer-to-int-cast \
 		-o $@ test_le_phy_logic.c $(FW_RXTX)/queue.c \
-		$(FW_RXTX)/bluetooth_le.c $(HOST_LIB)/ubertooth_le_frag.c
+		$(FW_RXTX)/bluetooth_le.c $(HOST_LIB)/ubertooth_le_frag.c \
+		$(FW_RXTX)/ubertooth_rssi.c
 
 # How long a low-energy capture waits for the rest of a packet. The two
 # helpers the deadline is built from are pure logic in bluetooth_le.h, so they

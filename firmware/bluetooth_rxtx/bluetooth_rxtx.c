@@ -246,6 +246,11 @@ static int enqueue(uint8_t type, uint8_t* buf)
 	}
 
 	f->pkt_type = type;
+	/* No power figures unless the branch below puts them in, and the status
+	 * bits that would make them readable stay clear: a record comes off the
+	 * ring with whatever the last one left in it. */
+	f->rssi_noise = 0;
+	f->reserved = 0;
 	if(type == SPECAN) {
 		f->clkn_high = (clkn >> 20) & 0xff;
 		f->clk100ns = CLK100NS;
@@ -255,8 +260,18 @@ static int enqueue(uint8_t type, uint8_t* buf)
 		f->channel = ubertooth_channel_byte(idle_buf_channel);
 		f->rssi_min = rssi_min;
 		f->rssi_max = rssi_max;
-		f->rssi_avg = rssi_get_avg(idle_buf_channel);
+		f->rssi_avg = rssi_get_signal();
 		f->rssi_count = rssi_count;
+		/* Only a record that carries a packet gets the power figures. The
+		 * others this builds -- a state change, a message -- carry no
+		 * packet for a signal figure to belong to. */
+		if (type == BR_PACKET && rssi_count != 0) {
+			status |= SIGNAL_VALID;
+			if (rssi_noise_estimated()) {
+				f->rssi_noise = (uint8_t) rssi_get_noise();
+				status |= NOISE_ESTIMATE;
+			}
+		}
 	}
 
 	memcpy(f->data, buf, DMA_SIZE);
@@ -285,6 +300,10 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 	f->channel = ubertooth_channel_byte(channel);
 	f->rssi_avg = 0;
 	f->rssi_count = 0;
+	/* This path takes no readings, so the record carries no noise figure and
+	 * the status bit that would make one readable stays clear. */
+	f->rssi_noise = 0;
+	f->reserved = 0;
 
 	memcpy(f->data, buf, DMA_SIZE);
 
@@ -2322,6 +2341,8 @@ void bt_stream_rx()
 			 * USB while the synthesizer settles; without that, endpoint 0
 			 * went unserviced for the whole retune. */
 			if (do_hop) {
+				/* A background level belongs to one channel. */
+				rssi_noise_reset();
 				hop(service_usb);
 			} else {
 				TXLED_CLR;
@@ -2635,6 +2656,8 @@ void bt_generic_le(u8 active_mode)
 			/* RX mode */
 			cc2400_strobe(SRX);
 
+			/* A background level belongs to one channel. */
+			rssi_noise_reset();
 			requested_channel = 0;
 		}
 
@@ -2642,6 +2665,8 @@ void bt_generic_le(u8 active_mode)
 		 * it enabled on the way in, so endpoint 0 is serviced during the
 		 * hop without the loop doing anything. */
 		if (do_hop) {
+			/* A background level belongs to one channel. */
+			rssi_noise_reset();
 			hop(NULL);
 		} else {
 			TXLED_CLR;
@@ -2805,6 +2830,8 @@ void bt_le_sync(u8 active_mode)
 			/* RX mode */
 			cc2400_strobe(SRX);
 
+			/* A background level belongs to one channel. */
+			rssi_noise_reset();
 			requested_channel = 0;
 		}
 
@@ -2822,8 +2849,12 @@ void bt_le_sync(u8 active_mode)
 			watchdog_usb_ready();
 		watchdog_mark(site);
 
+		/* One reading for the whole packet, taken as it ends: this mode has
+		 * the radio deliver whole packets rather than polling through them,
+		 * so there is one moment at which the packet's power can be read.
+		 * rssi_reset() above has already emptied the per-packet figures. */
 		rssi = (int8_t)(cc2400_get(RSSI) >> 8);
-		rssi_min = rssi_max = rssi;
+		rssi_add(rssi);
 
 		if (requested_mode != active_mode) {
 			goto cleanup;
@@ -2970,8 +3001,16 @@ void bt_le_sync(u8 active_mode)
 		meta.clk100ns = idle_buf_clk100ns;
 		meta.rssi_min = rssi_min;
 		meta.rssi_max = rssi_max;
-		meta.rssi_avg = rssi_get_avg(idle_buf_channel);
+		meta.rssi_avg = rssi_get_signal();
 		meta.rssi_count = rssi_count;
+		meta.rssi_noise = 0;
+		if (rssi_count != 0) {
+			meta.status |= SIGNAL_VALID;
+			if (rssi_noise_estimated()) {
+				meta.rssi_noise = (uint8_t) rssi_get_noise();
+				meta.status |= NOISE_ESTIMATE;
+			}
+		}
 
 		// hold the USB interrupt off while we touch USB data structures:
 		// UBERTOOTH_POLL dequeues from the vendor request handler, which
@@ -3037,8 +3076,11 @@ void bt_le_sync(u8 active_mode)
 
 		/* No service callback, as in bt_generic_le(): USB runs off its
 		 * interrupt here. */
-		if (do_hop)
+		if (do_hop) {
+			/* A background level belongs to one channel. */
+			rssi_noise_reset();
 			hop(NULL);
+		}
 
 		/* The terminal count is cleared by dma_init_le() below, before it
 		 * arms the channel, so nothing clears it here: a count raised after
@@ -4372,6 +4414,10 @@ int main()
 			 * the threshold from the handler.
 			 */
 			rssi_iir_reset();
+			/* And what the last capture heard with its channels clear, so
+			 * the next one's first records report its own measurement or
+			 * none. */
+			rssi_noise_reset();
 			usb_irq_release(usb_irq);
 
 			/*

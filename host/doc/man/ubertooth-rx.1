@@ -93,7 +93,17 @@ Capture packets to PCAP\. \fB\-q \-\fR writes the capture to standard output; se
 \fB\-d <file\.bin>\fR
 Capture packets to binary file suitable for use with \fB\-i\fR\. \fB\-d \-\fR writes the records to standard output; see CAPTURING TO STANDARD OUTPUT
 .P
-A record of a \fB\-q\fR or \fB\-r\fR capture carries the signal power of its packet and no measured noise power: nothing measures the background between packets, so the record's noise\-power\-valid flag stays clear and the byte beside it is not a reading\. Wireshark shows it as \fBInvalid Noise Power\fR\. The \fBn=\fR column on the screen is the RSSI average the board took over the packet itself, which is mostly the packet's own power, and \fBsnr=\fR is the signal beside it less that average\.
+A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power and an estimate of the background around it\. Both are averaged in power rather than in dBm, which is what the average of a set of dBm readings means\.
+.P
+The signal figure is the mean power of the loudest 10 dB of the readings the board took across the receive window the packet arrived in\. The window is a fixed stretch of air time, not the packet, so leaving the quieter readings out is what makes the figure the packet's: without it a packet filling a third of the window would read 5 dB low\.
+.P
+The background is an estimate because the board cannot time the quiet between packets, so it goes by level: it averages the readings that sat more than 10 dB below the loudest it had taken since it last started counting\. It starts counting again on every hop, and 25 times a second even on a fixed channel, so the figure describes the last few tens of milliseconds of air\. Three things follow\. A faded part of a packet sits that far down too and is counted in\. Quiet taken before a packet is not admitted, so a window whose packet arrives last contributes nothing\. And the mean is over the loudest 10 dB of what is admitted, so on a channel that is mostly silent the figure sits well above the floor\.
+.P
+The screen shows the two as \fBs=\fR and \fBn=\fR, in dBm, with \fBsnr=\fR the difference\. A capture record carries them as its signal power and noise power, and the noise\-power\-valid flag says the noise field holds the board's estimate, so a reader shows a signal\-to\-noise ratio wherever the estimate sits below the packet\. The ratio is as good as the estimate it rests on\.
+.P
+Where the board has admitted no reading since it last started counting \-\- a channel it has heard loud but never quiet, or quiet but never loud \-\- there is no estimate\. Such a record leaves the flag clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\. A record whose own window admitted none still carries the figure if an earlier window since the last reset did: the estimate belongs to the channel over that stretch, not to one window\.
+.P
+The board has one reading of the channel to work from, so both figures are of whatever is on it\. A transmitter louder than the packet, on the same channel at the same moment, is what the signal figure describes, and the packet is then part of the background\.
 .P
 Miscellaneous:
 .TP

@@ -82,13 +82,18 @@ Requires BlueZ (Linux only).
  - `-h` :
    show help.
 
-A record of a `-q` or `-r` capture carries the signal power of its packet and
-no measured noise power: nothing measures the background between packets, so
-the record's noise-power-valid flag stays clear and the byte beside it is not
-a reading. Wireshark shows it as `Invalid Noise Power`. The `n=` column on the
-screen is the RSSI average the board took over the packet itself, which is
-mostly the packet's own power, and `snr=` is the signal beside it less that
-average.
+A record of a `-q` or `-r` capture carries the packet's own power and the
+board's estimate of the background on its channel, and the screen shows the two
+as `s=` and `n=` with `snr=` the difference. Where the board has admitted no quiet
+reading since it last started counting there is no estimate: the capture's
+noise-power-valid flag stays clear, Wireshark shows the field as `Invalid Noise
+Power`, and the screen prints `n=none snr=none`. ubertooth-rx(1) describes both
+figures and what the estimate rests on.
+
+The board has one reading of the channel to work from, so both figures are of
+whatever is on it. A transmitter louder than the packet, on the same channel at
+the same moment, is what the signal figure describes, and the packet is then
+part of the background.
 
 ## AFH
 

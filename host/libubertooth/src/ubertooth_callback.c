@@ -81,8 +81,8 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 	}
 }
 
-/* The noise figure handed to the capture writers, which means "nothing
- * measured the background between these packets".
+/* The noise figure handed to the capture writers, which means "no background
+ * figure for this packet".
  *
  * libbtbb sets the noise-power-valid flag of a record only when the noise
  * figure it is given is below that record's signal figure, so a figure no
@@ -90,67 +90,51 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  * for a measurement. +127 dBm is such a figure: the signal field is derived
  * from the board's RSSI and tops out at 0 dBm. With the flag clear the byte
  * itself means nothing, which is why a value no receiver could report is the
- * safe one to write there.
+ * safe one to write there. */
+#define NOISE_ABSENT INT8_MAX
+
+/* What the board reports for this packet: the packet's own power, measured,
+ * and an estimate of the background on its channel where the mode it came
+ * from has one.
  *
- * The board sends an RSSI average taken over the packet itself, which is
- * mostly the packet's own power rather than the background around it, so it is
- * not a noise measurement to record. */
-#define NOISE_NOT_MEASURED INT8_MAX
-
-#define RSSI_HISTORY_LEN 10
-
-/* The ten most recent RSSI maxima of each Basic Rate channel, newest last, and
- * whether the table has been filled with the value that stands for a slot no
- * packet has written yet.
- *
- * That value is INT8_MIN, because determine_signal_and_noise() reports the
- * largest of a channel's ten entries and a slot nothing has written must not
- * be able to win. The fill happens on first use: C can only initialise a whole
- * array to zero, and `= {{INT8_MIN}}` sets the first entry of the first
- * channel and leaves the other 789 at zero. Raw 0 is about -55 dBm, so every
- * channel used to report at least that for its first ten packets - a packet
- * whose own maximum was -91 dBm read -55 dBm, in the signal field of the
- * record written to a capture file as well as on screen, and the
- * signal-to-noise ratio printed beside it was out by the same amount. */
-static int8_t rssi_history[NUM_BREDR_CHANNELS][RSSI_HISTORY_LEN];
-static int rssi_history_filled = 0;
-
-static void determine_signal_and_noise( usb_pkt_rx *rx, int8_t * sig, int8_t * noise )
+ * Both figures are the board's, one record at a time. The signal used to be
+ * worked out here instead, as the loudest reading in the last ten records of
+ * the packet's channel, which reported the loudest of ten packets rather than
+ * this one -- a quiet packet arriving after a loud one read as loud as the
+ * loud one, in the capture file as well as on screen.
+ */
+static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
+                                        int8_t *noise )
 {
-	int8_t * channel_rssi_history = rssi_history[rx->channel];
-	int8_t rssi;
-	int i;
+	/* A record that does not say its average is this packet's power is one
+	 * from a board or a `.dump` file older than the measurement, where the
+	 * field held the board's running average for the channel. Its strongest
+	 * reading of the packet is the nearest thing to the packet's own level
+	 * that such a record carries. */
+	*sig = cc2400_rssi_to_dbm( (rx->status & SIGNAL_VALID) ? rx->rssi_avg
+	                                                       : rx->rssi_max );
+	*noise = (rx->status & NOISE_ESTIMATE)
+	       ? cc2400_rssi_to_dbm( (int8_t) rx->rssi_noise )
+	       : NOISE_ABSENT;
+}
 
-	if (!rssi_history_filled) {
-		/* One byte per entry, so a byte fill reaches all of them. */
-		memset(rssi_history, INT8_MIN, sizeof(rssi_history));
-		rssi_history_filled = 1;
+/* Room for a dBm figure or the word that stands for a missing one. */
+#define RSSI_FIELD_LEN 8
+
+/* The noise column and the signal-to-noise ratio beside it, as the per-packet
+ * lines print them. A mode with no background estimate leaves both absent
+ * rather than printing a figure derived from the packet itself. */
+static void format_noise_and_snr( int8_t sig, int8_t noise,
+                                  char n[RSSI_FIELD_LEN],
+                                  char snr[RSSI_FIELD_LEN] )
+{
+	if (noise == NOISE_ABSENT) {
+		snprintf(n, RSSI_FIELD_LEN, "none");
+		snprintf(snr, RSSI_FIELD_LEN, "none");
+	} else {
+		snprintf(n, RSSI_FIELD_LEN, "%d", noise);
+		snprintf(snr, RSSI_FIELD_LEN, "%d", sig - noise);
 	}
-
-	/* Shift rssi max history and append current max */
-	memmove(channel_rssi_history,
-	        channel_rssi_history+1,
-	        RSSI_HISTORY_LEN-1);
-	channel_rssi_history[RSSI_HISTORY_LEN-1] = rx->rssi_max;
-
-#if 0
-	/* Signal starts in oldest bank, but may cross into second
-	 * oldest bank.  Take the max or the 2 maxs. */
-	rssi = MAX(channel_rssi_history[0], channel_rssi_history[1]);
-#else
-	/* Alternatively, use all banks in history. */
-	rssi = channel_rssi_history[0];
-	for (i = 1; i < RSSI_HISTORY_LEN; i++)
-		rssi = MAX(rssi, channel_rssi_history[i]);
-#endif
-	*sig = cc2400_rssi_to_dbm( rssi );
-
-	/* The board's RSSI average over the packet, which is an estimate of the
-	 * noise only in that a quiet channel makes it low. It goes in the
-	 * screen column beside the signal, and not into a capture record: a
-	 * record's noise field says what the background measured, and nothing
-	 * measures that. */
-	*noise = cc2400_rssi_to_dbm( rx->rssi_avg );
 }
 
 static uint64_t clock_ns( clockid_t clock_id )
@@ -776,7 +760,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	btbb_packet* pkt = NULL;
 	int8_t signal_level;
 	int8_t noise_level;
-	int8_t snr;
+	char noise_text[RSSI_FIELD_LEN], snr_text[RSSI_FIELD_LEN];
 	int offset;
 	uint32_t clkn;
 
@@ -795,7 +779,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 		goto out;
 
 	determine_signal_and_noise( rx, &signal_level, &noise_level );
-	snr = signal_level - noise_level;
+	format_noise_and_snr( signal_level, noise_level, noise_text, snr_text );
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
@@ -814,7 +798,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	 * was recorded with. */
 	systime = ubertooth_packet_systime( arrival_ns );
 
-	printf("systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%d snr=%d\n",
+	printf("systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%s snr=%s\n",
 	       systime,
 	       btbb_packet_get_channel(pkt),
 	       btbb_packet_get_lap(pkt),
@@ -822,8 +806,8 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	       rx->clk100ns,
 	       btbb_packet_get_clkn(pkt),
 	       signal_level,
-	       noise_level,
-	       snr);
+	       noise_text,
+	       snr_text);
 
 	btbb_process_packet(pkt, NULL);
 
@@ -1148,8 +1132,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 
 	/* Dump to PCAP/PCAPNG if specified */
 	refAA = lell_packet_is_data(pkt) ? 0 : 0x8e89bed6;
-	sig = cc2400_rssi_to_dbm( rx->rssi_max );
-	noise = NOISE_NOT_MEASURED;
+	determine_signal_and_noise( rx, &sig, &noise );
 
 	if (ut->h_pcap_le) {
 		/* only one of these two will succeed, depending on
@@ -1418,8 +1401,9 @@ void cb_rx(ubertooth_t* ut, void* args)
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx, arrival_ns );
 
 	int8_t signal_level, noise_level;
+	char noise_text[RSSI_FIELD_LEN], snr_text[RSSI_FIELD_LEN];
 	determine_signal_and_noise( rx, &signal_level, &noise_level );
-	int8_t snr = signal_level - noise_level;
+	format_noise_and_snr( signal_level, noise_level, noise_text, snr_text );
 
 	/* Look for packets with specified LAP, if given. Otherwise
 	 * search for any packet. */
@@ -1447,7 +1431,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
-	printf("systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%d snr=%d\n",
+	printf("systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%s snr=%s\n",
 	       systime,
 	       btbb_packet_get_channel(pkt),
 	       btbb_packet_get_lap(pkt),
@@ -1455,8 +1439,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 	       clkn,
 	       clk_offset,
 	       signal_level,
-	       noise_level,
-	       snr
+	       noise_text,
+	       snr_text
 	);
 
 	/* calibrate Ubertooth clock such that the first bit of the AC
@@ -1546,7 +1530,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * that is being written. */
 	if (ut->h_pcap_bredr) {
 		if (btbb_pcap_append_packet(ut->h_pcap_bredr, nowns,
-		                            signal_level, NOISE_NOT_MEASURED,
+		                            signal_level, noise_level,
 		                            lap, uap, pkt) < 0 &&
 		    !pcap_bredr_warned) {
 			pcap_bredr_warned = 1;
@@ -1556,7 +1540,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	}
 	if (ut->h_pcapng_bredr) {
 		if (btbb_pcapng_append_packet(ut->h_pcapng_bredr, nowns,
-		                              signal_level, NOISE_NOT_MEASURED,
+		                              signal_level, noise_level,
 		                              lap, uap, pkt) < 0 &&
 		    !pcapng_bredr_warned) {
 			pcapng_bredr_warned = 1;
