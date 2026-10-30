@@ -347,8 +347,9 @@ so it cannot be given -l or -u`.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
-check has passed. The board is opened and its firmware is checked before that,
-so a run refused for either reason leaves no empty file behind either.
+check has passed. The board is opened, its firmware is checked, and the capture
+is set up as far as it can be, all before that, so a run refused for any of
+those reasons leaves no empty file behind either (see EXIT STATUS).
 
 `-` means standard output only as the whole value of `-q` or `-d`
 (ubertooth(7), OPTION VALUES). Any other value is a file name, including one
@@ -536,9 +537,11 @@ survey still prints its results, and libubertooth names the refused request on
 standard error. This is what a `-t` run that reported success and then left a
 board nothing could open used to look like.
 
-The `-q`, `-r` and `-d` files are created once the board has been opened and
-its firmware accepted, not before, so a run refused for either reason leaves
-no empty capture behind. A replay (`-i`) creates them once its input file has
+The `-q`, `-r` and `-d` files are created once the board has been opened, its
+firmware accepted, and the capture set up as far as it can be without them:
+the decoder, the piconet `-l` names, and the address request `-l` and `-u`
+together send all come first. So a run refused at any of those steps leaves no
+empty capture behind. A replay (`-i`) creates them once its input file has
 been opened, since it needs no board. A terminal on standard output is still
 refused while the command line is read.
 

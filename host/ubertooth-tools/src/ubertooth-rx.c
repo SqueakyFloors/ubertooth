@@ -347,10 +347,68 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	/* The board is open and usable, or this is a replay, so the files this
-	 * run writes can be opened. Not before: a run refused for its firmware
-	 * used to leave an empty capture behind, which a user then had to tell
-	 * apart from a capture that caught nothing.
+	/* libbtbb refuses only a -e out of its own range, which the check on -e
+	 * above has already caught, and it says so itself. The status is 1, as
+	 * every failure here is: the failing call's own return value used to go
+	 * out as the exit status, which a shell wraps into a byte (-9 read as
+	 * 247), so a script could not tell a failure from anything else. */
+	r = btbb_init(max_ac_errors);
+	if (r < 0) {
+		/* A capture has a board open, in whatever mode an earlier
+		 * command left it, so it is given back here rather than left
+		 * claimed, as ubertooth-scan does on the same failure. A replay
+		 * opened none, and the stop then does nothing. */
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+		return 1;
+	}
+
+	if(survey_mode) {
+		// auto-flush stdout so that wrapper scripts work
+		setvbuf(stdout, NULL, _IONBF, 0);
+		btbb_init_survey();
+	} else {
+		if (have_lap) {
+			pn = btbb_piconet_new();
+			if (pn == NULL) {
+				/* Out of memory, which the next line would
+				 * dereference. A capture with no piconet to
+				 * follow has nothing to do, so the run ends
+				 * here, and the STOP covers a mode an earlier
+				 * command left running. */
+				fputs("error: out of memory\n", stderr);
+				ubertooth_stop(ut);
+				ubertooth_free(ut);
+				return 1;
+			}
+			btbb_init_piconet(pn, lap);
+			if (have_uap) {
+				btbb_piconet_set_uap(pn, uap);
+				/* A board that refused this would follow
+				 * whatever address it was left on, so the
+				 * capture does not start. It is sent here,
+				 * with the rest of the setup that can fail,
+				 * so a board that refuses it leaves no empty
+				 * capture behind either. A replay sends no
+				 * request at all. */
+				if (infile == NULL) {
+					r = cmd_set_bdaddr_quiet(ut->devh,
+					        btbb_piconet_get_bdaddr(pn));
+					if (r < 0)
+						return request_failed(ut,
+						        "set the Bluetooth address",
+						        r);
+				}
+			}
+		}
+	}
+
+	/* The board is open and usable, or this is a replay, and every step of
+	 * the setup that can fail is behind us, so the files this run writes
+	 * can be opened. Not before: a run refused for its firmware, or one
+	 * libbtbb or the board would not set up, used to leave an empty capture
+	 * behind, which a user then had to tell apart from a capture that
+	 * caught nothing.
 	 *
 	 * A lone "-" redirects this process's standard output, which is why
 	 * nothing may be printed there after this point except the capture
@@ -415,71 +473,17 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	/* libbtbb refuses only a -e out of its own range, which the check on -e
-	 * above has already caught, and it says so itself. The status is 1, as
-	 * every failure here is: the failing call's own return value used to go
-	 * out as the exit status, which a shell wraps into a byte (-9 read as
-	 * 247), so a script could not tell a failure from anything else. */
-	r = btbb_init(max_ac_errors);
-	if (r < 0) {
-		/* A capture has a board open, in whatever mode an earlier
-		 * command left it, so it is given back here rather than left
-		 * claimed, as ubertooth-scan does on the same failure. A replay
-		 * opened none, and the stop then does nothing. */
-		ubertooth_stop(ut);
-		ubertooth_free(ut);
-		return 1;
-	}
-
-	if(survey_mode) {
-		// auto-flush stdout so that wrapper scripts work
-		setvbuf(stdout, NULL, _IONBF, 0);
-		btbb_init_survey();
-	} else {
-		if (have_lap) {
-			pn = btbb_piconet_new();
-			if (pn == NULL) {
-				/* Out of memory, which the next line would
-				 * dereference. A capture with no piconet to
-				 * follow has nothing to do, so the run ends
-				 * here, and the STOP covers a mode an earlier
-				 * command left running. */
-				fputs("error: out of memory\n", stderr);
-				ubertooth_stop(ut);
-				ubertooth_free(ut);
-				return 1;
-			}
-			btbb_init_piconet(pn, lap);
-			if (have_uap) {
-				btbb_piconet_set_uap(pn, uap);
-				/* A board that refused this would follow
-				 * whatever address it was left on, so the
-				 * capture does not start. A replay sends no
-				 * request at all. */
-				if (infile == NULL) {
-					r = cmd_set_bdaddr_quiet(ut->devh,
-					        btbb_piconet_get_bdaddr(pn));
-					if (r < 0)
-						return request_failed(ut,
-						        "set the Bluetooth address",
-						        r);
-				}
-			}
-			if (ut->h_pcapng_bredr) {
-				/* The address being followed, recorded once so
-				 * a reader of the capture knows whose packets
-				 * these are. Reported when it cannot be
-				 * written: the capture goes on either way, but
-				 * without this the packets in it have nothing
-				 * to say which piconet they belong to. */
-				if (btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
-				        (((uint32_t)uap)<<24)|lap,
-				        have_uap ? 0xff : 0x00, 0) < 0)
-					fprintf(stderr, "warning: cannot record "
-					        "the target address in the "
-					        "capture file\n");
-			}
-		}
+	/* The address being followed, recorded once so a reader of the capture
+	 * knows whose packets these are. It needs the PcapNG file, so it is the
+	 * one part of the setup above that has to wait for it. Reported when it
+	 * cannot be written: the capture goes on either way, but without this
+	 * the packets in it have nothing to say which piconet they belong to. */
+	if (have_lap && ut->h_pcapng_bredr) {
+		if (btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
+		        (((uint32_t)uap)<<24)|lap,
+		        have_uap ? 0xff : 0x00, 0) < 0)
+			fprintf(stderr, "warning: cannot record the target "
+			        "address in the capture file\n");
 	}
 
 	if (infile == NULL) {

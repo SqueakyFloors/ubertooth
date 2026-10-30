@@ -1049,6 +1049,62 @@ MU_TEST(a_piconet_that_cannot_be_allocated_exits_one)
 	mu_assert_int_eq(1, device.frees);
 }
 
+/* The two failures that sit between the board being accepted and the capture
+ * being asked for leave no file behind either: libbtbb refusing its own setup,
+ * and a piconet that cannot be allocated. Both report themselves and exit 1,
+ * and both used to do it with the capture file already created, so the run
+ * left a header-only file the user had to tell apart from a capture that
+ * caught nothing. Each of the three file options is checked, because each is
+ * opened by a writer of its own. */
+MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
+{
+	static const char* const options[] = { "-q", "-r", "-d" };
+	struct run_result r;
+	struct stat info;
+	char path[64];
+	size_t i;
+	int libbtbb_refuses;
+
+	for (libbtbb_refuses = 1; libbtbb_refuses >= 0; libbtbb_refuses--) {
+		for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
+			int fd;
+
+			reset_device();
+			if (libbtbb_refuses)
+				/* Outside libbtbb's own range, which is all it
+				 * refuses. The tool's -e check keeps a command
+				 * line from reaching this, so the global the
+				 * tool passes is set here instead. */
+				max_ac_errors = MAX_AC_ERRORS + 1;
+			else
+				device.no_memory = 1;
+
+			snprintf(path, sizeof(path), "/tmp/rx-order-XXXXXX");
+			fd = mkstemp(path);
+			mu_assert_fatal(fd >= 0, "temp name taken");
+			close(fd);
+			unlink(path);
+
+			r = RUN_RX("-l", "446688", options[i], path, "-t", "10");
+			max_ac_errors = 2;
+
+			mu_assert_int_eq(1, r.rc);
+			/* Nothing on disk under the name the user gave. */
+			mu_assert(stat(path, &info) != 0, path);
+			/* The failure said so, on standard error, and the
+			 * capture never started. */
+			mu_assert(r.err[0] != '\0', "a reason on standard error");
+			mu_assert(r.out[0] == '\0', r.out);
+			mu_assert_int_eq(0, device.rx_syms_calls);
+			/* The board was open, so it is given back with a STOP
+			 * for whatever mode an earlier command left running. */
+			mu_assert_int_eq(1, device.stops);
+			mu_assert_int_eq(1, device.frees);
+			unlink(path);
+		}
+	}
+}
+
 /* A capture that cannot be started at all exits 1 with one "error: " line on
  * standard error and nothing on standard output. Each of these used to hand
  * the failing call's own return value to the exit status, which a shell wraps
@@ -1242,6 +1298,7 @@ int main(void)
 	MU_RUN(a_truncated_address_request_ends_the_run_too);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
 	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
+	MU_RUN(a_run_that_fails_before_the_capture_creates_no_file);
 	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);
