@@ -159,18 +159,12 @@ of the dump on standard output: a dump that went ahead would hold whatever
 modulation the board had been left in, and nothing in its records says which
 that was.
 
-The modulation is stated once the dump has started, not before it, which is
-the order every tool uses for its channel: starting a mode puts the board's
-modulation back to Classic, so one stated first was thrown away on a board
-another run had left in a mode, and the dump held Classic records while `-l`
-had asked for low energy. The board programs its demodulator from the request
-as it arrives, so the dump reads the modulation that was asked for either way.
-
-Nothing is asked of the radio before the dump starts, which is after a `-d`
-file has been opened, so a refusal here leaves that file there and empty, as a
-board that will not start the capture does. A `-d` the tool cannot open is
-found before anything is asked of the radio, so the board keeps the modulation
-it had.
+The dump states it on either side of the request that starts its capture, for
+the reason ubertooth-util(1), CARRY-OVER BETWEEN RUNS gives. Nothing is asked
+of the radio until then, which is after a `-d` file has been opened, so a
+refusal leaves that file there and empty, as a board that will not start the
+capture does, and a `-d` the tool cannot open leaves the board as it was
+found.
 
 A `-d` file is opened once the board has been opened and its firmware
 accepted, not before, so a run refused for either reason leaves no empty file

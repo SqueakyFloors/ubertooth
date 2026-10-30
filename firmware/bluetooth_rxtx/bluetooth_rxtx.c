@@ -585,6 +585,15 @@ static void apply_stated_settings(uint8_t starting_mode)
 	what = stated_what;
 	stated_what = 0;
 
+	/* A modulation is never left on an idle board. A stop is a mode request
+	 * like any other, so one answered between the stop and this -- a window
+	 * of a whole mode teardown -- would be applied here, after the reset
+	 * had put the modulation back, and a mode starting from idle runs no
+	 * reset of its own to undo it. The channel is deliberately kept across
+	 * a stop, which is what `ubertooth-util -S -c 2440` asks for. */
+	if (starting_mode == MODE_IDLE)
+		what &= ~STATED_MODULATION;
+
 	if (what & STATED_CHANNEL)
 		set_channel_request(stated_channel);
 	if (what & STATED_MODULATION)
@@ -1779,10 +1788,18 @@ void service_usb(void)
 	handle_usb(clkn);
 }
 
+/* Whether the Bluetooth receive below configures the radio for this
+ * modulation. The other values of enum modulations reach no modem register
+ * here: the generic receive is set up by the host, and spectrum analysis uses
+ * no demodulator at all. */
+static int programs_modulation(uint8_t m)
+{
+	return m == MOD_BT_BASIC_RATE || m == MOD_BT_LOW_ENERGY;
+}
+
 /*
- * The frequency deviation the demodulator expects for a modulation the
- * Bluetooth receive configures, as MDMCTRL holds it, or 0 for a modulation it
- * does not configure.
+ * The frequency deviation the demodulator expects for one of those two, as
+ * MDMCTRL holds it.
  *
  * In one place rather than in each caller, so that the capture loop -- which
  * writes this register again when the host states a modulation after its mode
@@ -1792,17 +1809,15 @@ static u16 mdmctrl_deviation(uint8_t m)
 {
 	if (m == MOD_BT_BASIC_RATE)
 		return 0x0029; // 160 kHz frequency deviation
-	if (m == MOD_BT_LOW_ENERGY)
-		return 0x0040; // 250 kHz frequency deviation
-	return 0;
+	return 0x0040;         // 250 kHz frequency deviation
 }
 
 /* start un-buffered rx */
 static void cc2400_rx()
 {
-	u16 mdmctrl = mdmctrl_deviation(modulation);
+	if (programs_modulation(modulation)) {
+		u16 mdmctrl = mdmctrl_deviation(modulation);
 
-	if (mdmctrl != 0) {
 		cc2400_set(MANAND,  0x7fff);
 		cc2400_set(LMTST,   0x2b22);
 		cc2400_set(MDMTST0, 0x134b); // without PRNG
@@ -2304,17 +2319,16 @@ static uint8_t program_stated_modulation(uint8_t programmed)
 	/* One read of a value the request handler writes, so the register and
 	 * the return below cannot be for two different modulations. */
 	uint8_t wanted = modulation;
-	u16 mdmctrl = mdmctrl_deviation(wanted);
 
-	if (wanted == programmed || mdmctrl == 0 ||
-	    mdmctrl_deviation(programmed) == 0)
+	if (wanted == programmed || !programs_modulation(wanted) ||
+	    !programs_modulation(programmed))
 		return programmed;
 
 	/* IDLE mode, but leave the amplifier on, as hop() does. */
 	cc2400_strobe(SRFOFF);
 	cc2400_wait_fs(0, service_usb);
 
-	cc2400_set(MDMCTRL, mdmctrl);
+	cc2400_set(MDMCTRL, mdmctrl_deviation(wanted));
 
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, service_usb);

@@ -186,12 +186,11 @@ The board stays on whatever it was tuned to until the request arrives and the
 next hop acts on it, which takes up to 40 ms. Packets captured in that window
 are reported on the channel they were captured on, as every packet is.
 
-The modulation this capture reads, Classic, is stated in the same place and
-for the same reason. It is the board's own default, so a board that has just
-been plugged in needs no such request; an idle board, though, holds the last
-modulation a tool set, because a mode starting from idle resets nothing. A
-`ubertooth-dump -l` interrupted before its capture started used to leave the
-board demodulating low energy, and a capture here then found nothing and said
+The modulation this capture reads, Classic, is stated on either side of the
+capture request: it is the board's own default, but an idle board holds the
+last modulation a tool set, because a mode starting from idle resets nothing.
+A `ubertooth-dump -l` interrupted before its capture started used to leave the
+board demodulating low energy, and a capture here then found little and said
 nothing about why.
 
 ## DISCOVERING UNDISCOVERABLE DEVICES

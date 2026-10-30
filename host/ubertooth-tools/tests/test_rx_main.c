@@ -718,13 +718,14 @@ MU_TEST(a_capture_the_board_took_sets_up_and_exits_zero)
 }
 
 /* The order the requests go in, which is the whole of what the board keeps:
- * the capture is asked for first, and the channel or the sweep and the
- * modulation stated after it. Stating either first lost it to the reset a mode
- * start runs -- which puts the board's hop mode back to "no hopping" and its
- * modulation back to Basic Rate -- so a capture started on a board a killed
- * ubertooth-afh had left capturing sat on one channel while the command line
- * asked for the whole band. The address request is not part of that and still
- * goes first. */
+ * the channel or the sweep is stated after the capture request, and the
+ * modulation on either side of it. Stating the channel first lost it to the
+ * reset a mode start runs -- which puts the board's hop mode back to "no
+ * hopping" -- so a capture started on a board a killed ubertooth-afh had left
+ * capturing sat on one channel while the command line asked for the whole
+ * band. The modulation is stated twice because the same reset puts it back to
+ * Basic Rate, while an idle board, which runs no reset, keeps whatever a tool
+ * set before. The address request is not part of that and still goes first. */
 MU_TEST(the_capture_is_asked_for_before_the_channel)
 {
 	struct run_result r;
@@ -732,17 +733,17 @@ MU_TEST(the_capture_is_asked_for_before_the_channel)
 	reset_device();
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "scm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "mscm") == 0, device.calls);
 
 	reset_device();
 	r = RUN_RX("-c", "39", "-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "scm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "mscm") == 0, device.calls);
 
 	reset_device();
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(device.calls, "bscm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "bmscm") == 0, device.calls);
 }
 
 /*
@@ -759,7 +760,7 @@ MU_TEST(the_capture_states_basic_rate)
 	reset_device();
 	r = RUN_RX("-t", "10");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, device.modulations_set);
+	mu_assert_int_eq(2, device.modulations_set);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, device.last_modulation);
 	mu_assert(r.err[0] == '\0', r.err);
 }
@@ -898,7 +899,7 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 	device.channel_rc = -9;
 	r = RUN_RX("-l", "112233", "-u", "ab", "-t", "10");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(device.calls, "bsc") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "bmsc") == 0, device.calls);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
@@ -906,8 +907,8 @@ MU_TEST(a_refused_setup_request_is_named_and_exits_one)
 /*
  * A refused modulation ends the run the same way: a capture that went ahead
  * would demodulate whatever the board had been left in, and nothing in the
- * packets says which that was. It is stated last, so the mode is running by
- * then and the board is stopped rather than closed.
+ * packets says which that was. The first of the two is refused, which is
+ * before the capture has been asked for, so no mode starts at all.
  */
 MU_TEST(a_refused_modulation_ends_the_capture)
 {
@@ -920,11 +921,10 @@ MU_TEST(a_refused_modulation_ends_the_capture)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, STALLED("set the modulation")) == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strcmp(device.calls, "scm") == 0, device.calls);
+	mu_assert(strcmp(device.calls, "m") == 0, device.calls);
 	mu_assert_int_eq(0, device.blocks);
-	mu_assert_int_eq(1, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.rx_syms_calls);
 	mu_assert_int_eq(1, device.stops);
-	mu_assert_int_eq(0, device.closes);
 }
 
 /* A board that took only part of the address is a failed request too, and one

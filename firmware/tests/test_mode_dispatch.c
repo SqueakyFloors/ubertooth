@@ -146,12 +146,9 @@ struct scan {
 	int jam_case;
 	int jam_keep;
 	/* program_stated_modulation(), which is what lets a modulation arrive
-	 * after the mode request: where it is defined, where it writes MDMCTRL,
-	 * where it discards the block it interrupted, and where the capture
-	 * loop calls it. */
+	 * after the mode request: where it is defined, and where the capture
+	 * loop calls it. What it does there is the model's to check. */
 	int mod_fn;
-	int mod_fn_mdmctrl;
-	int mod_fn_discard;
 	int stream_mod_call;
 	int kept_call;        /* apply_kept_settings() in the dispatch */
 	int kept_calls;       /* how many */
@@ -389,14 +386,6 @@ static int scan_source(const char *path, struct scan *s)
 		else if (strstr(line, "program_stated_modulation(") != NULL &&
 		         s->stream_mod_call == 0)
 			s->stream_mod_call = lineno;
-		if (s->mod_fn > 0 && s->stream_mod_call == 0) {
-			if (s->mod_fn_mdmctrl == 0 &&
-			    strstr(line, "cc2400_set(MDMCTRL, mdmctrl)") != NULL)
-				s->mod_fn_mdmctrl = lineno;
-			if (s->mod_fn_discard == 0 &&
-			    is_assignment_to(line, "dma_discard"))
-				s->mod_fn_discard = lineno;
-		}
 
 		/* reset_absorbed_mode_state()'s body, scanned for the same reason
 		 * cc2400_idle()'s is: what it resets, and what it leaves alone. */
@@ -1084,19 +1073,6 @@ MU_TEST(test_the_capture_loop_programs_a_stated_modulation)
 	         "%s: the scan did not find program_stated_modulation()'s "
 	         "definition", path);
 	mu_assert_fatal(s.mod_fn > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: program_stated_modulation() does not write MDMCTRL, so "
-	         "a modulation stated after the mode request would not reach the "
-	         "demodulator", path, s.mod_fn);
-	mu_assert(s.mod_fn_mdmctrl > s.mod_fn, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: program_stated_modulation() does not discard the block "
-	         "it interrupted, so part of a block received at the other "
-	         "deviation would be sent to the host as a whole one",
-	         path, s.mod_fn);
-	mu_assert(s.mod_fn_discard > s.mod_fn, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: nothing calls program_stated_modulation(), so the "

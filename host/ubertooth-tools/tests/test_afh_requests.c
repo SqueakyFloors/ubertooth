@@ -584,7 +584,8 @@ static void assert_transfer_lifetimes(void)
 MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH, UBERTOOTH_STOP
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
+		UBERTOOTH_SET_MOD, UBERTOOTH_STOP
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -623,7 +624,9 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
+		UBERTOOTH_SET_MOD, UBERTOOTH_STOP,
+		UBERTOOTH_SET_MOD, UBERTOOTH_AFH, UBERTOOTH_SET_MOD
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -657,7 +660,8 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 MU_TEST(the_monitor_alone_asks_for_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
+		UBERTOOTH_SET_MOD
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -688,7 +692,8 @@ MU_TEST(the_monitor_alone_asks_for_afh)
 MU_TEST(the_r_format_loop_asks_for_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
+		UBERTOOTH_SET_MOD
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -721,7 +726,9 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
+		UBERTOOTH_SET_MOD, UBERTOOTH_STOP,
+		UBERTOOTH_SET_MOD, UBERTOOTH_AFH, UBERTOOTH_SET_MOD
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -759,7 +766,8 @@ MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
 MU_TEST(an_interrupt_during_detection_ends_the_run)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH, UBERTOOTH_STOP
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
+		UBERTOOTH_SET_MOD, UBERTOOTH_STOP
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -848,7 +856,8 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
-	mu_assert_int_eq(1, fake.n);
+	/* Three: the modulation on either side of the mode request. */
+	mu_assert_int_eq(3, fake.n);
 	mu_assert_int_eq(1, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert_int_eq(0, sent(UBERTOOTH_AFH));
 	mu_assert(err[0] == '\0', err);
@@ -859,12 +868,13 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 
 /*
  * A capture that wants a particular modulation -- `ubertooth-dump -l` -- has
- * it stated after the mode request, not before. A mode start puts the board's
- * modulation back to Basic Rate, so one stated first was thrown away on a
- * board a killed tool had left in a mode, and the dump held Basic Rate records
- * without saying so.
+ * it stated on either side of the mode request. Before it, so the board
+ * programs its demodulator from it as the mode comes up; after it, because a
+ * mode start puts the modulation back to Basic Rate, so the one stated first
+ * was thrown away on a board a killed tool had left in a mode and the dump
+ * held Basic Rate records without saying so.
  */
-MU_TEST(a_dump_states_its_modulation_after_the_mode_request)
+MU_TEST(a_dump_states_its_modulation_on_both_sides_of_the_mode_request)
 {
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -880,10 +890,12 @@ MU_TEST(a_dump_states_its_modulation_after_the_mode_request)
 	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
-	mu_assert_int_eq(2, fake.n);
-	mu_assert_int_eq(UBERTOOTH_RX_SYMBOLS, fake.requests[0]);
-	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[1]);
-	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[1]);
+	mu_assert_int_eq(3, fake.n);
+	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[0]);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[0]);
+	mu_assert_int_eq(UBERTOOTH_RX_SYMBOLS, fake.requests[1]);
+	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[2]);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[2]);
 	mu_assert(err[0] == '\0', err);
 
 	assert_transfer_lifetimes();
@@ -892,8 +904,9 @@ MU_TEST(a_dump_states_its_modulation_after_the_mode_request)
 
 /*
  * And a board that refuses it ends the dump there, with the poll thread
- * joined: a dump that went ahead would hold whatever modulation the board was
- * left in, and nothing in its records says which that was.
+ * joined and no capture asked for: a dump that went ahead would hold whatever
+ * modulation the board was left in, and nothing in its records says which that
+ * was.
  */
 MU_TEST(a_refused_modulation_ends_the_dump)
 {
@@ -914,7 +927,8 @@ MU_TEST(a_refused_modulation_ends_the_dump)
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
-	mu_assert_int_eq(2, fake.n);
+	mu_assert_int_eq(1, fake.n);
+	mu_assert_int_eq(0, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert_int_eq(1, do_exit); /* the poll thread was stopped */
 	/* the library reports the refusal; the caller adds nothing */
 	mu_assert(strstr(err, "firmware does not support it (stalled") != NULL,
@@ -931,7 +945,7 @@ MU_TEST(a_refused_modulation_ends_the_dump)
 MU_TEST(a_refused_mode_request_joins_the_poll_thread)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -1585,7 +1599,7 @@ int main(void)
 	MU_RUN(an_interrupt_during_detection_ends_the_run);
 	MU_RUN(a_packet_after_the_timer_does_not_re_arm_the_transfer);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
-	MU_RUN(a_dump_states_its_modulation_after_the_mode_request);
+	MU_RUN(a_dump_states_its_modulation_on_both_sides_of_the_mode_request);
 	MU_RUN(a_refused_modulation_ends_the_dump);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);
 	MU_RUN(a_refused_band_sweep_ends_the_receive_phase);

@@ -499,6 +499,17 @@ int main(int argc, char* argv[])
 			return 1;
 		}
 
+		/* The modulation this capture reads, Classic, stated before the
+		 * capture request so that the board programs its demodulator
+		 * from it as the mode comes up. It is the board's own default,
+		 * but a board left idle holds the last modulation a tool set --
+		 * a mode starting from idle runs no reset -- so without this a
+		 * `ubertooth-dump -l` that was interrupted left this capture
+		 * demodulating low energy, finding little and saying nothing. */
+		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
+		if (r < 0)
+			return capture_failed(ut, "set the modulation", r);
+
 		// tell ubertooth to send packets
 		/* The quiet form, so this failure reads as the one "error: " line
 		 * capture_failed() prints, like the channel request below. The
@@ -537,15 +548,14 @@ int main(int argc, char* argv[])
 		 * library gives up a clock and has to restate this. */
 		ut->capture_channel = channel;
 
-		/* And the modulation this capture reads, Basic Rate, stated in
-		 * the same place for the same reason. It is the board's own
-		 * default, but a board left idle holds the last modulation a
-		 * tool set -- a mode starting from idle runs no reset -- so a
-		 * `ubertooth-dump -l` that was interrupted before its capture
-		 * started left this one demodulating low energy and reporting
-		 * nothing. Only the callback's restart needs no repeat: that
-		 * request is absorbed by the running capture, which keeps the
-		 * modulation it has. */
+		/* And the modulation again, now the mode has started: that mode
+		 * start put it back to Basic Rate, which is what this capture
+		 * wants, but on a board that was streaming symbols the request
+		 * above was answered without a mode start and the board kept
+		 * what it had. The two carry the same value, so on the common
+		 * path the second changes nothing. The callback's restart needs
+		 * no repeat: its request is absorbed by the running capture,
+		 * whose mode state the board puts back itself. */
 		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
 		if (r < 0)
 			return capture_failed(ut, "set the modulation", r);

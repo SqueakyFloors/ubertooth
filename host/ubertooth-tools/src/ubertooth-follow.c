@@ -826,9 +826,27 @@ int main(int argc, char *argv[])
 	btbb_piconet_set_flag(pn, BTBB_FOLLOWING, 1);
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
 
+	/* The modulation this follow reads, Classic, stated on either side of
+	 * the mode request below: before it, so the board programs its
+	 * demodulator from it as the mode comes up, and after it, because that
+	 * mode start puts the modulation back and a board already streaming
+	 * symbols answers the first request without starting a mode at all.
+	 * It is the board's own default, but a board another tool left holding
+	 * low energy -- a killed `ubertooth-dump -l` -- would otherwise have
+	 * this follow demodulating that, finding little and saying nothing. */
+	if (cmd_set_modulation(ut->devh, MOD_BT_BASIC_RATE) < 0) {
+		follow_cleanup(ut, sock, handle, cc);
+		return 1;
+	}
+
 	// tell ubertooth to start hopping and send packets
 	r = cmd_start_hopping(ut->devh, btbb_piconet_get_clk_offset(pn), 0);
 	if (r < 0) {
+		follow_cleanup(ut, sock, handle, cc);
+		return 1;
+	}
+
+	if (cmd_set_modulation(ut->devh, MOD_BT_BASIC_RATE) < 0) {
 		follow_cleanup(ut, sock, handle, cc);
 		return 1;
 	}

@@ -1547,6 +1547,18 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return -1;
 	}
 
+	/* The modulation this capture reads, stated before the mode request so
+	 * that the board programs its demodulator from it as the mode comes up.
+	 * A board left idle by an earlier tool holds whatever modulation that
+	 * tool set, because a mode starting from idle resets nothing, so this
+	 * is what keeps one run's modulation out of this capture. */
+	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
+		return r;
+	}
+
 	// tell ubertooth to send packets
 	r = start(ut->devh);
 	if (r < 0) {
@@ -1557,24 +1569,25 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return r;
 	}
 
-	/* The modulation this capture asked for, stated after the mode request
-	 * and not before it: a mode start puts the modulation back to Basic
-	 * Rate, so on a board a killed tool left in a mode one stated first was
-	 * thrown away and `ubertooth-dump -l` wrote Basic Rate records without
-	 * saying so. The board programs the radio from it as the mode comes up
-	 * and again while the capture runs, so this order reaches the
-	 * demodulator either way.
+	/* And again now the mode has started, because that mode start put the
+	 * modulation back to Basic Rate: on a board a killed tool had left in
+	 * another mode, the one stated above was thrown away and
+	 * `ubertooth-dump -l` wrote Basic Rate records without saying so. The
+	 * board keeps what is stated after the request for the mode it is
+	 * starting, and its capture loop programs the demodulator again, so
+	 * this reaches the radio whatever the board was doing before. On the
+	 * common path the two requests carry the same value and the second one
+	 * changes nothing.
 	 *
-	 * A board that refused it would stream the modulation it happened to be
-	 * left in, and nothing in the records says which that was, so the
-	 * capture ends instead. */
-	if (ut->capture_modulation >= 0) {
-		r = cmd_set_modulation(ut->devh, (uint16_t)ut->capture_modulation);
-		if (r < 0) {
-			ubertooth_bulk_thread_stop();
-			ubertooth_bulk_stop(ut);
-			return r;
-		}
+	 * A board that refuses either would stream the modulation it happened
+	 * to be left in, with nothing in the records to say which that was, so
+	 * the capture ends instead. The board is left in the mode `start()` put
+	 * it in; the caller gives it back, as it does when the stream fails. */
+	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
+		return r;
 	}
 
 	// receive and process each packet
@@ -1770,10 +1783,26 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 		return -1;
 	}
 
+	/* The modulation, on either side of the mode request, for the reason
+	 * stream_rx_usb() gives. */
+	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+	if (r < 0) {
+		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
+		return r;
+	}
+
 	// tell ubertooth to send packets, in the AFH detection mode (see rx_afh)
 	r = cmd_afh(ut->devh);
 	if (r < 0) {
 		/* as in stream_rx_usb(): the poll thread has to be joined here */
+		ubertooth_bulk_thread_stop();
+		ubertooth_bulk_stop(ut);
+		return r;
+	}
+
+	r = cmd_set_modulation(ut->devh, ut->capture_modulation);
+	if (r < 0) {
 		ubertooth_bulk_thread_stop();
 		ubertooth_bulk_stop(ut);
 		return r;
@@ -2060,9 +2089,9 @@ ubertooth_t* ubertooth_init()
 	/* Which clock a mode stamps with is the tool's to say, and it says so
 	 * before it starts such a mode; until then, the CLKN-derived one. */
 	ut->clk100ns_period = CLK100NS_PERIOD;
-	/* And which modulation it wants: no capture states one until a tool
-	 * asks for it, and 0 is a modulation (Basic Rate) rather than "none". */
-	ut->capture_modulation = -1;
+	/* And which modulation its captures read: Classic, which every stream
+	 * libubertooth starts is for, unless the tool asks for the other. */
+	ut->capture_modulation = MOD_BT_BASIC_RATE;
 	memset(&ut->le_reassembly, 0, sizeof(ut->le_reassembly));
 
 	ut->h_pcap_bredr = NULL;
