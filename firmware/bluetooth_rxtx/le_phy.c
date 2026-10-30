@@ -2051,12 +2051,12 @@ static void packet_handler(le_rx_t *buf) {
 				// a different connection. The packet still reaches the
 				// host, which happens before this runs.
 				//
-				// The advertising access address is what reset_conn()
-				// leaves behind, so it means "not following", the same
-				// test change_channel() makes. Only this loop starts a
-				// follow, so no interrupt can make this test too
-				// permissive. One can end a follow just after it, which
-				// costs this single request; the next one opens a follow.
+				// The advertising access address means "not following":
+				// see le_connect_handler(), which keeps it that way.
+				// Only this loop starts a follow, so no interrupt can
+				// make this test too permissive. One can end a follow
+				// just after it, which costs this single request; the
+				// next one opens a follow.
 				if (conn.access_address == ADVERTISING_AA)
 					le_connect_handler(buf);
 				break;

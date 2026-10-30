@@ -1851,8 +1851,13 @@ MU_TEST(a_connection_request_during_a_follow_leaves_the_follow_alone)
 	mu_assert_int_eq(0, radio_touched);
 }
 
-/* Ignored until the follow ends, not forever: once the host's cancel has
- * taken the follow down, the next request on the air is followed. */
+/*
+ * Ignored until the follow ends, not forever: after each of the two ways a
+ * follow ends, the next request on the air is followed. The supervision
+ * timeout is the one that ends a follow in the field, because the engine does
+ * not read LL_TERMINATE_IND; the host's cancel is what `ubertooth-btle` asks
+ * for.
+ */
 MU_TEST(a_connection_request_after_a_follow_ends_is_followed)
 {
 	struct connect_req r = valid_connect_req();
@@ -1863,7 +1868,7 @@ MU_TEST(a_connection_request_after_a_follow_ends_is_followed)
 	build_connect_req(&buf, &r);
 	le_connect_handler(&buf);
 
-	/* Well inside the supervision timeout, so the cancel is what ends the
+	/* Well inside the supervision timeout, so the cancel is what ends this
 	 * follow rather than the timeout. */
 	fake_t1tc = conn.last_packet_ts + conn.supervision_timeout / 2;
 	cancel_follow = 1;
@@ -1873,12 +1878,24 @@ MU_TEST(a_connection_request_after_a_follow_ends_is_followed)
 
 	r.access_address = 0x11223344;
 	build_connect_req(&buf, &r);
-
 	packet_handler(&buf);
-
 	mu_assert_int_eq(0x11223344, conn.access_address);
 	mu_assert(fake_t1mcr & TMCR_MR0I,
 	          "the new connection's first event was not armed");
+
+	/* And the other way: nothing arrives until the connection's supervision
+	 * timeout has run out. */
+	fake_t1tc = conn.last_packet_ts + conn.supervision_timeout + 1;
+	finish_conn_event();
+	mu_assert(connection_was_reset(),
+	          "the follow is still running past its supervision timeout");
+
+	r.access_address = 0x55667788;
+	build_connect_req(&buf, &r);
+	packet_handler(&buf);
+	mu_assert_int_eq(0x55667788, conn.access_address);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "the next connection's first event was not armed");
 }
 
 /* ------------------------------------------------------------------ *

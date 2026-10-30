@@ -796,7 +796,9 @@
   state that way could also leave it half written under the connection event
   that arrived next. A request heard during a follow is now ignored until that
   follow ends, at its supervision timeout or when the host stops it, and the
-  request still reaches the capture.
+  request still reaches the capture. The cost is that a pair of devices which
+  disconnects cleanly and reconnects at once is not followed again until the
+  old connection's supervision timeout has run out; see ubertooth-btle(1).
   [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
@@ -2392,12 +2394,13 @@
 
 ### Under the hood
 
+Fixes with no visible change in normal use.
+
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising
   channels instead of the connection's data channels.
-
-Fixes with no visible change in normal use.
+  [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
 
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing
   it over in silence, answers a request to pair under the extended opcode it
