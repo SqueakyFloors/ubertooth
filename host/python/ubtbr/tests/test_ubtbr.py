@@ -1006,6 +1006,113 @@ else:
 assert btctl.BTCtlACLPkt.unpack(btctl.DM1, b"\x03").data == b"", "no PDU"
 print("ubtbr: an ACL packet with no payload header is a framing error")
 
+# ---- a received-packet message that ends early ---------------------------
+
+# An FHS payload is a fixed 18 bytes whatever it carries, and every field in
+# it is read by its own offset, the last of them byte 17. A message carrying
+# fewer was read past the end of, which raised an IndexError and took the
+# thread reading the board with it; it is the framing error the ACL packet
+# above is instead.
+for short, counted in ((b"", "0 bytes"), (b"\x01", "1 byte"),
+                       (bytes(17), "17 bytes")):
+    try:
+        btctl.BTCtlFHSPkt.unpack(short)
+    except btctl.BTCtlFramingError as problem:
+        assert str(problem) == "FHS packet of %s, too short for the 18 an" \
+            " FHS carries"%counted, problem
+        # and all three are the one kind, so the line is said once however
+        # many lengths a board sends them in
+        assert problem.kind == "FHS packet too short for an FHS", problem.kind
+    else:
+        assert False, "a short FHS must be a framing error"
+# and the whole 18 are read as they were
+whole = bytearray(18)
+whole[8] = 0x44
+assert btctl.BTCtlFHSPkt.unpack(bytes(whole)).bdaddr == 0x44000000, "a whole FHS"
+
+# The record under it is the same class: the clock, channel, flags and size
+# the firmware fills in, then the baseband header, 12 bytes before the packet
+# itself. A message that ends inside those used to raise from the struct
+# unpack or from the baseband header's own unpacking, neither of which says
+# what arrived.
+for short in (b"", bytes(11)):
+    try:
+        btctl.BTCtlRxPkt.unpack(short)
+    except btctl.BTCtlFramingError as problem:
+        assert str(problem) == "received packet of %d bytes, too short for" \
+            " its 12-byte header"%len(short), problem
+        assert problem.kind == "received packet too short for its header", \
+            problem.kind
+    else:
+        assert False, "a short received-packet message must be a framing error"
+# The kind is what a message is reported once per, so two packet types too
+# short for their payload header must not share one: the lengths in the
+# wording vary with what arrived, the type does not.
+kinds = set()
+for type_, named in ((btctl.DM1, "DM1"), (btctl.DM3, "DM3"),
+                     (btctl.DH5, "DH5")):
+    try:
+        btctl.BTCtlACLPkt.unpack(type_, b"")
+    except btctl.BTCtlFramingError as problem:
+        assert problem.kind == "%s packet too short for its payload" \
+            " header"%named, problem.kind
+        kinds.add(problem.kind)
+assert len(kinds) == 3, kinds
+# and the type of a packet no table names is the fault itself, so it stays in
+# the kind
+for type_ in (0, 1, 9):
+    try:
+        btctl.BTCtlACLPkt.unpack(type_, b"\x03")
+    except btctl.BTCtlFramingError as problem:
+        assert problem.kind == "unknown packet type %d"%type_, problem.kind
+    else:
+        assert False, "a packet of unknown type must be a framing error"
+print("ubtbr: a received-packet message that ends early is a framing error")
+
+# ---- an inquiry response's EIR that ends early ---------------------------
+
+# The EIR comes off the air, so its fields can be cut anywhere. One byte left
+# is a length with no type under it, which runs past the end of the response
+# as surely as a short field does and is dropped the same way: reading it
+# raised a ValueError, which ended the inquiry that was decoding it.
+NAME_FIELD = bytes((10, 9)) + b"Ubertooth"
+warned, said = io.StringIO(), io.StringIO()
+with contextlib.redirect_stderr(warned), contextlib.redirect_stdout(said):
+    eir = btctl.BTCtlEIR.unpack(NAME_FIELD + b"\x05")
+assert warned.getvalue() == ("warning: malformed EIR: a field runs past the"
+                             " end of the response, so the rest of it is"
+                             " dropped\n"), repr(warned.getvalue())
+# nothing of it in the capture on standard output
+assert said.getvalue() == "", repr(said.getvalue())
+# and said once per command: a device whose response is cut re-sends it every
+# inquiry cycle, and identical lines bury the rest of a session
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    btctl.BTCtlEIR.unpack(NAME_FIELD + b"\x05")
+assert warned.getvalue() == "", repr(warned.getvalue())
+# The next inquiry says it again, because what is malformed belongs to
+# whichever device answered rather than to the board: BTCtlInquiryCmd._start
+# calls this as it sends the request.
+btctl.BTCtlEIR.forget_warnings()
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    btctl.BTCtlEIR.unpack(NAME_FIELD + b"\x05")
+assert "malformed EIR" in warned.getvalue(), repr(warned.getvalue())
+# the field before it is kept, and said
+assert str(eir) == "COMPLETE_LOCAL_NAME: 'Ubertooth'", str(eir)
+
+# A name off the air need not be UTF-8 at all, let alone whole: a shortened
+# one can be cut mid-character. Such a byte is shown as the replacement
+# character, where decoding it strictly raised and ended the command printing
+# the response.
+cut = b"Ubertoot\xc3"
+eir = btctl.BTCtlEIR.unpack(bytes((len(cut) + 1, 8)) + cut)
+assert str(eir) == "SHORTENED_LOCAL_NAME: 'Ubertoot\ufffd'", str(eir)
+# Left as a command that has not warned yet would leave it, so a case added
+# after this one is not handed a latch that is already set.
+btctl.BTCtlEIR.forget_warnings()
+print("ubtbr: an EIR field that ends early is dropped, and a name is printable")
+
 # ---- a peer that refuses one of the requests a connection opens with ------
 #
 # The central opens a connection by asking the peer for its features, its
@@ -1889,10 +1996,19 @@ READS_FILE = os.path.join(WORK.name, "reads")
 FAKE_BDADDR = 0x112233445566
 
 
-def framed(code, body):
-    """One message from the device, as the packet carrying it, in hex."""
-    message = struct.pack("<I", code) + bytes(body)
+def framed_raw(message):
+    """One message from the device, as the packet carrying it, in hex.
+
+    Whatever is in the message, so that the cases about a message the tool
+    cannot read can send one the tool would never build itself.
+    """
+    message = bytes(message)
     return (b"S\x00" + struct.pack("<H", len(message)) + message).hex()
+
+
+def framed(code, body):
+    """One message from the device: the word naming its type, then its body."""
+    return framed_raw(struct.pack("<I", code) + bytes(body))
 
 
 def state_message(state, reason=0):
@@ -2159,6 +2275,86 @@ for typed in ("page_scan", "page 11:22:33:44:55:66"):
     assert DETACHED in errors, errors
     assert DETACHED not in output, output
 print("ubtbr: a connection's LMP packets go to standard output as well")
+
+# A message from the board that ends before the packet it says it carries.
+# The packet is dropped with a warning naming what arrived, and the session
+# goes on to the next one: reading a short FHS anyway raised an IndexError on
+# the thread reading the board, and that ended the thread, so an inquiry lost
+# every packet after it and the session exited 1. canned_session() asserts
+# the exit status, so a dropped packet costing it is caught here too.
+#
+# Two of the short FHS arrive, and one line is printed: it is said once per
+# reason for the life of the session, because a board sending one bad record
+# is usually sending many and identical lines bury the rest of a session,
+# which is why the LMP unhandled-opcode warning is held down the same way.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    received_message(0, (0, btctl.FHS, 0, 0), bytearray(17)),
+    received_message(0, (0, btctl.FHS, 0, 0), bytearray(17)),
+    fhs_message(FAKE_BDADDR),
+    acl_message(btctl.LLID_L2CAP_START, EIR_NAME),
+], until="COMPLETE_LOCAL_NAME")
+assert errors.count("warning: a message from the device was dropped: FHS"
+                    " packet of 17 bytes, too short for the 18 an FHS"
+                    " carries\n") == 1, errors
+# the whole FHS behind them is decoded, and the inquiry response behind that
+assert len(timed_lines(output, "RX FHS")) == 1, output
+assert "bdaddr=112233445566" in timed_lines(output, "RX FHS")[0], output
+assert timed_lines(output, "COMPLETE_LOCAL_NAME"), output
+# nothing of the dropped packet in the capture, and the reader stayed up
+assert "dropped" not in output, output
+assert "the receive thread stopped" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: a packet from the board that ends early is dropped, session on")
+
+# The message around the record is read the same way. One too short to name
+# its type at all used to end the thread reading the board in an IndexError,
+# and a state response carrying no reason for the state ended the command
+# waiting on that state, in `error: BTCtlInquiryCmd stopped: TypeError`. Both
+# are dropped, and the whole state response behind them starts the inquiry.
+# A state response of any other length goes the same way, because the readers
+# take exactly the two arguments it carries: three bytes raised the TypeError
+# too, from the other end.
+STATE_RESP = struct.pack("<I", btctl.BTCTL_STATE_RESP)
+output, errors = canned_session("inquiry", [
+    framed_raw(b""),
+    framed_raw(STATE_RESP + b"\x01"),
+    framed_raw(STATE_RESP + b"\x01\x00\x00"),
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(FAKE_BDADDR),
+], until="RX FHS")
+assert ("warning: a message from the device was dropped: message of 0 bytes,"
+        " too short to name its type\n") in errors, errors
+assert ("warning: a message from the device was dropped: state response of 1"
+        " byte, where the state and its reason are 2\n") in errors, errors
+# said once, because the two bad state responses are the one reason: what
+# makes them distinct is their length, which is what arrived rather than what
+# is wrong with them
+assert errors.count("warning: a message from the device was dropped: state"
+                    " response of") == 1, errors
+assert "dropped" not in output, output
+assert "the receive thread stopped" not in errors, errors
+assert "Exception in thread" not in errors and "Traceback" not in errors, errors
+print("ubtbr: a message with no type, or a state of the wrong size, is dropped")
+
+# An inquiry response whose EIR ends mid-field, and whose device name is cut
+# mid-character. Both come off the air, and reading either strictly ended the
+# inquiry: `error: BTCtlInquiryCmd stopped: ValueError` for the first and a
+# UnicodeDecodeError for the second. The response is still printed, with what
+# could be read of the name.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    acl_message(btctl.LLID_L2CAP_START, bytes((10, 8)) + b"Ubertoot\xc3"),
+    acl_message(btctl.LLID_L2CAP_START, EIR_NAME + b"\x05"),
+], until="COMPLETE_LOCAL_NAME")
+assert timed_lines(output, "SHORTENED_LOCAL_NAME: 'Ubertoot\ufffd'"), output
+assert timed_lines(output, "COMPLETE_LOCAL_NAME: 'Ubertooth'"), output
+assert ("warning: malformed EIR: a field runs past the end of the response,"
+        " so the rest of it is dropped\n") in errors, errors
+assert "malformed EIR" not in output, output
+assert "BTCtlInquiryCmd stopped" not in errors, errors
+assert "Traceback" not in errors, errors
+print("ubtbr: an inquiry response the air cut short still prints, inquiry on")
 
 # What the tool says when standard output has gone away, whichever write
 # found it gone.
