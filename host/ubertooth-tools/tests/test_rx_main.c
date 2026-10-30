@@ -23,6 +23,14 @@
  * so no board is opened and no 72 MB ring buffer is allocated; libbtbb is the
  * real one, since the tool hands it the piconet and the survey.
  */
+
+/* RTLD_NEXT, used below to reach libbtbb's real btbb_piconet_new(), is a GNU
+ * extension, and nothing in the build asks for the GNU set. This has to come
+ * before any include, because the first one pulls in <features.h>, where the
+ * choice is read. Same reason as in test_stream_failure.c. */
+#define _GNU_SOURCE 1
+
+#include <dlfcn.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -90,6 +98,9 @@ static struct {
 	 * the board is being found does. */
 	int interrupt_the_open;
 	int stream_failed;
+	/* 1 to have btbb_piconet_new() fail, as it does when the machine is out
+	 * of memory. */
+	int no_memory;
 	enum capture_end end;
 	char selector[64];
 	/* Every request the tool sent, in order, one letter each: b the
@@ -406,6 +417,26 @@ static struct run_result run_rx(const char* const* args)
 	 * installed, and the rest of the test run must not be caught by it. */
 	signal(SIGINT, SIG_DFL);
 	return result;
+}
+
+/* libbtbb is the real library here, so this stands in front of its
+ * btbb_piconet_new() rather than replacing it: a case that has not asked for
+ * the allocation to fail gets a real piconet, looked up past this definition.
+ * A process only fails to allocate when it is out of memory, which a test
+ * cannot reach without putting the whole run at risk, so the failure is
+ * scripted. Same shape as test_stream_failure.c's pthread_create(). */
+btbb_piconet* btbb_piconet_new(void)
+{
+	static btbb_piconet* (*real_btbb_piconet_new)(void);
+
+	if (device.no_memory)
+		return NULL;
+	if (real_btbb_piconet_new == NULL)
+		real_btbb_piconet_new = (btbb_piconet* (*)(void))
+		                        dlsym(RTLD_NEXT, "btbb_piconet_new");
+	if (real_btbb_piconet_new == NULL)
+		return NULL;
+	return real_btbb_piconet_new();
 }
 
 #define RUN_RX(...) \
@@ -995,6 +1026,29 @@ MU_TEST(a_firmware_the_tool_cannot_use_exits_one)
 	mu_assert_int_eq(1, device.closes); /* the board is not left claimed */
 }
 
+/* A piconet that cannot be allocated ends the run with its reason, rather
+ * than being dereferenced on the next line: the tool used to crash, and a
+ * crash says nothing about why. */
+MU_TEST(a_piconet_that_cannot_be_allocated_exits_one)
+{
+	struct run_result r;
+
+	reset_device();
+	device.no_memory = 1;
+
+	r = RUN_RX("-l", "446688", "-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: out of memory\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	/* No capture was asked for, and the board is given back once. */
+	mu_assert_int_eq(0, device.bulk_inits);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	mu_assert_int_eq(0, device.channels_set);
+	mu_assert_int_eq(1, device.stops);
+	mu_assert_int_eq(1, device.frees);
+}
+
 /* A capture that cannot be started at all exits 1 with one "error: " line on
  * standard error and nothing on standard output. Each of these used to hand
  * the failing call's own return value to the exit status, which a shell wraps
@@ -1187,6 +1241,7 @@ int main(void)
 	MU_RUN(a_refused_modulation_ends_the_capture);
 	MU_RUN(a_truncated_address_request_ends_the_run_too);
 	MU_RUN(a_refused_sweep_leaves_survey_mode_with_no_results);
+	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
 	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);

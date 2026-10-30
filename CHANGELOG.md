@@ -2445,6 +2445,10 @@ Fixes with no visible change in normal use.
   [#705](https://github.com/SqueakyFloors/ubertooth/issues/705)
 - A board selection that ran out of memory exited 1 with no line at all,
   whether it was asked for by index or by serial.
+- `ubertooth-rx -l` crashed instead of saying anything when the piconet it
+  follows could not be allocated. It now reports `error: out of memory` and
+  exits 1, as `ubertooth-afh` already did.
+  [#987](https://github.com/SqueakyFloors/ubertooth/issues/987)
 - The `ubertooth-btle` that `btle-extcap.py` runs for a Wireshark capture no
   longer writes its text decode of every packet, some 560 kB for 8 seconds of
   advertising, onto the script's own output: the capture goes to Wireshark's
