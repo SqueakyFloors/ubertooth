@@ -110,6 +110,7 @@ struct scan {
 	 * clears the channel averages. */
 	int absorbed_reset_fn;
 	int absorbed_reset_fn_iir;
+	int absorbed_reset_fn_mod;  /* where it puts the modulation back */
 
 	int ego_reset_call;   /* ego_access_code_reset() in the dispatch */
 	int ego_reset_calls;  /* how many */
@@ -403,6 +404,9 @@ static int scan_source(const char *path, struct scan *s)
 			if (strstr(line, "rssi_iir_reset(") != NULL &&
 			    s->absorbed_reset_fn_iir == 0)
 				s->absorbed_reset_fn_iir = lineno;
+			if (is_assignment_to(line, "modulation") &&
+			    s->absorbed_reset_fn_mod == 0)
+				s->absorbed_reset_fn_mod = lineno;
 			if (line[0] == '}')
 				in_absorbed_fn = 0;
 			continue;
@@ -1304,6 +1308,32 @@ MU_TEST(test_an_absorbed_mode_start_keeps_the_channel_averages)
 }
 
 /*
+ * What an absorbed mode start does put back: the modulation. The three
+ * absorbable modes all read Basic Rate packets, and the request that starts
+ * one of them states no modulation, so without this a killed
+ * `ubertooth-dump -l` left the AFH detection or follow absorbed after it
+ * demodulating low energy -- finding little and saying nothing. It can be
+ * reset under a running receive because the capture loop writes MDMCTRL when
+ * the modulation changes.
+ */
+MU_TEST(test_an_absorbed_mode_start_puts_the_modulation_back)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: reset_absorbed_mode_state() was not found, so the check "
+	         "below cannot mean anything", path);
+	mu_assert_fatal(s.absorbed_reset_fn > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: reset_absorbed_mode_state() does not put `modulation` "
+	         "back, so a mode absorbed after a low-energy dump would read "
+	         "Classic packets with the wrong demodulator",
+	         path, s.absorbed_reset_fn);
+	mu_assert(s.absorbed_reset_fn_mod > s.absorbed_reset_fn, msg);
+}
+
+/*
  * The E-GO mode request is a mode start the dispatch never sees: ego_main()'s
  * loop runs while MODE_EGO is the mode asked for, so a second request for it
  * is absorbed there, the way a running symbol stream absorbs one of its three.
@@ -1880,6 +1910,7 @@ int main(void)
 	MU_RUN(test_leaving_a_mode_drops_what_it_queued);
 	MU_RUN(test_leaving_a_mode_forgets_the_channel_averages);
 	MU_RUN(test_an_absorbed_mode_start_keeps_the_channel_averages);
+	MU_RUN(test_an_absorbed_mode_start_puts_the_modulation_back);
 	MU_RUN(test_the_queue_clear_holds_the_usb_interrupt_off);
 	MU_RUN(test_cc2400_idle_does_not_choose_the_mode);
 	MU_RUN(test_cc2400_idle_does_not_drop_queued_packets);

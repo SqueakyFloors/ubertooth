@@ -393,17 +393,26 @@ static void forget_hop_state(void)
  * next ubertooth-rx captured while hopping adaptively on the old map.
  *
  * Only state a running receive can be reset under: the radio stays tuned and
- * receiving, so the channel it is on and the modulation it is receiving are
- * left alone. The channel is also the one the host set for the capture it is
- * starting, a request or two before this one.
+ * receiving, so the channel it is on is left alone. That channel is also the
+ * one the host set for the capture it is starting, a request or two before
+ * this one.
  *
- * The per-channel averages are left alone for the same reason, and unlike the
- * dispatch, which drops them. They are not something the mode configures: they
- * are what the radio has been hearing on each channel, and the three modes here
- * all receive the same modulation over the same 79 channels. The receive never
- * stopped, so the measurement still holds -- and dropping it would cost the new
- * capture the few hundred packets the filter needs to build up again, which it
- * would spend reporting the -55 dBm an empty filter gives.
+ * The modulation is put back, which it could not be while cc2400_rx() was the
+ * only thing that wrote MDMCTRL: a value set here would not have reached the
+ * radio. The capture loop writes that register when the modulation changes
+ * (program_stated_modulation()), so it does now, and each of the three modes
+ * absorbed here reads Basic Rate packets. Without it, a killed
+ * `ubertooth-dump -l` left the board demodulating low energy and the AFH
+ * detection or follow absorbed here ran on that, finding little and saying
+ * nothing. A tool that wants another modulation states it after its request.
+ *
+ * The per-channel averages are left alone, unlike in the dispatch, which drops
+ * them. They are not something the mode configures: they are what the radio
+ * has been hearing on each channel, and the three modes here all receive the
+ * same modulation over the same 79 channels. The receive never stopped, so the
+ * measurement still holds -- and dropping it would cost the new capture the
+ * few hundred packets the filter needs to build up again, which it would spend
+ * reporting the -55 dBm an empty filter gives.
  *
  * Call this before the request's own setup, which is what the absorbed mode
  * starts from. Re-sending the mode that is already streaming resets nothing:
@@ -425,6 +434,7 @@ static void reset_absorbed_mode_state(uint8_t requested)
 		return;
 
 	forget_hop_state();
+	modulation = MOD_BT_BASIC_RATE;
 }
 
 /* Declared here because the request handler calls it; defined with the rest of

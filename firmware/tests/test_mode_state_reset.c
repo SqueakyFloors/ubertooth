@@ -334,7 +334,9 @@ static void forget_hop_state(void)
 	clear_afh_map();
 }
 
-/* reset_absorbed_mode_state(): note it does not touch the channel averages. */
+/* reset_absorbed_mode_state(): it puts the modulation back, because each of
+ * the three modes absorbed here reads Basic Rate packets, and does not touch
+ * the channel averages. */
 static void reset_absorbed_mode_state(u8 requested)
 {
 	if (requested == requested_mode || !streams_symbols(mode) ||
@@ -342,6 +344,7 @@ static void reset_absorbed_mode_state(u8 requested)
 		return;
 
 	forget_hop_state();
+	modulation = MOD_BT_BASIC_RATE;
 }
 
 /*
@@ -1285,6 +1288,32 @@ MU_TEST(a_modulation_stated_under_a_running_capture_reaches_the_radio)
 	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
+}
+
+/*
+ * A mode the running capture absorbs reads Basic Rate, whatever the capture it
+ * replaces was reading. `ubertooth-afh` and `ubertooth-follow` state no
+ * modulation of their own and their requests never reach the dispatch, so on a
+ * board a killed `ubertooth-dump -l` had left streaming they used to detect and
+ * follow with the demodulator set for low energy.
+ */
+MU_TEST(an_absorbed_mode_reads_basic_rate)
+{
+	board_reset();
+
+	/* ubertooth-dump -l, then killed without stopping the board */
+	request_rx_symbols();
+	request_modulation(MOD_BT_LOW_ENERGY);
+	the_board_runs();
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
+
+	/* ubertooth-afh, absorbed by that stream */
+	request_afh();
+	the_board_runs();
+
+	mu_assert_int_eq(MODE_AFH, requested_mode);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
 }
 
 /*
@@ -2403,6 +2432,7 @@ int main(void)
 	MU_RUN(a_modulation_stated_after_the_capture_request_survives);
 	MU_RUN(a_capture_after_a_low_energy_dump_is_basic_rate);
 	MU_RUN(a_modulation_stated_under_a_running_capture_reaches_the_radio);
+	MU_RUN(an_absorbed_mode_reads_basic_rate);
 	MU_RUN(a_modulation_stated_for_a_mode_that_never_started_is_dropped);
 	MU_RUN(a_setting_stated_with_no_mode_running_needs_no_copy);
 	MU_RUN(an_absorbed_capture_request_keeps_nothing);

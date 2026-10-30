@@ -883,10 +883,13 @@
   request arrives, which is what makes that order work. A `ubertooth-dump -l`
   interrupted between its two requests used to leave the setting behind for
   whatever mode started next, and that capture then read low energy while
-  saying nothing. `ubertooth-rx` states Basic Rate of its own, which covers
-  the other way in: an idle board holds the last modulation a tool set,
-  because a mode starting from idle resets nothing. A board that refuses the
-  request ends the run in both tools.
+  saying nothing. A mode the running capture absorbs -- an `ubertooth-afh` or
+  `ubertooth-follow` started while a killed dump's stream is still going --
+  reads Basic Rate again as well, where it used to detect and follow on the
+  dump's low energy. `ubertooth-rx` states Basic Rate of its own, which covers
+  the last way in: an idle board holds the last modulation a tool set, because
+  a mode starting from idle resets nothing. A board that refuses the request
+  ends the run in both tools.
   [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
 - The two-board range test (`ubertooth-util -n` against a `-e` repeater)
   ignores traffic that is not its own exchange instead of ending the run on
