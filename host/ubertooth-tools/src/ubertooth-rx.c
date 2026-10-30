@@ -437,6 +437,19 @@ int main(int argc, char* argv[])
 	} else {
 		if (have_lap) {
 			pn = btbb_piconet_new();
+			if (pn == NULL) {
+				/* Out of memory, which the next line would
+				 * dereference. Reported and given up on, as
+				 * ubertooth-afh and ubertooth-follow do: a
+				 * capture with no piconet to follow has
+				 * nothing to do. The board is given back the
+				 * same way the btbb_init() failure above gives
+				 * it back. */
+				fputs("error: out of memory\n", stderr);
+				ubertooth_stop(ut);
+				ubertooth_free(ut);
+				return 1;
+			}
 			btbb_init_piconet(pn, lap);
 			if (have_uap) {
 				btbb_piconet_set_uap(pn, uap);
