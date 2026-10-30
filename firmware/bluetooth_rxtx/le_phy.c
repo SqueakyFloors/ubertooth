@@ -1176,6 +1176,10 @@ static void le_cc2400_init_rf(void) {
 
 // strobe RX and enable PA
 static void le_cc2400_strobe_rx(void) {
+	// Clear the transmit LED: a continuous jam (-J) lights it while jamming a
+	// connection and comes back here to listen for the next one, so this is
+	// where it goes off again.
+	TXLED_CLR;
 	cc2400_strobe(SRX);
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
@@ -1185,11 +1189,12 @@ static void le_cc2400_strobe_rx(void) {
 
 // strobe TX and enable PA, to jam the connection event the radio is tuned to.
 // No DMA or receive buffer: the carrier runs until the next hop's SRFOFF.
+// Only PAEN, not HGM: HGM is the receive path's gain control and means nothing
+// while transmitting, which is why le_jam() leaves it alone too.
 static void le_cc2400_strobe_tx(void) {
 	cc2400_strobe(STX);
 #ifdef UBERTOOTH_ONE
 	PAEN_SET;
-	HGM_SET;
 #endif
 	TXLED_SET;
 }
