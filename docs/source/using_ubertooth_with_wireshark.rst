@@ -52,6 +52,11 @@ would for any other interface. Advertising packets appear decoded as Bluetooth
 LE Link Layer, and the stop button ends the capture with the packets still in
 the window.
 
+The capture runs ``ubertooth-btle`` in follow mode, so a connection whose setup
+the board hears is followed across the data channels and its packets arrive in
+the same window. :doc:`capturing_BLE_Wireshark` explains what that mode can and
+cannot follow.
+
 The gear icon next to the interface opens the options dialog, which offers
 one setting: **Advertising Channel**, 37, 38 or 39. Ubertooth has a single
 radio and listens on one channel at a time, so a device advertising on the

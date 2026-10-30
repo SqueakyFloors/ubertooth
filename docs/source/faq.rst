@@ -4,7 +4,14 @@ FAQ
 
 **Question: What is the latest release?**
 
-**Answer:** The latest release is 2018-08-R1: the DEFCON release, but you should check `this repo's releases <https://github.com/greatscottgadgets/ubertooth/releases>`__ for the most up to date information. See the `Build Guide <https://ubertooth.readthedocs.io/en/latest/build_guide.html>`__ for instructions on how to download and build the software.
+**Answer:** The most recent upstream release is `2020-12-R1
+<https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1>`__;
+check `the upstream releases
+<https://github.com/greatscottgadgets/ubertooth/releases>`__ and `this fork's
+releases <https://github.com/SqueakyFloors/ubertooth/releases>`__ for the most
+up to date information. See the `Build Guide
+<https://ubertooth.readthedocs.io/en/latest/build_guide.html>`__ for
+instructions on how to download and build the software.
 
 ----------
 
@@ -61,5 +68,7 @@ The following may be possible:
 
 **Answer:** In ``ubertooth-btle -f`` and ``-n``, a whole packet, up to the
 251-byte payload Bluetooth 4.2 Data Length Extension allows. That is 260 bytes
-with the access address, the PDU header and the CRC. Older firmware cut every
-packet to 50 bytes, and the promiscuous mode, ``-p``, still does.
+with the access address, the PDU header, and the CRC. Older firmware cut every
+packet to 50 bytes. Promiscuous mode, ``-p``, still does while it is working
+out the connection's access address by listening; once it has one and is
+following the connection, it too delivers whole packets.

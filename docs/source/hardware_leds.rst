@@ -92,9 +92,10 @@ Blinks       Meaning
 
 The ``bluetooth_rxtx`` image uses the same four numbers for the four faults. It
 has no panic code, and after the fault's own run it blinks a second run, of the
-same length of blink, saying which bit of the processor's fault status register
-was set: one to six blinks, and none at all when no bit it looks at is set.
-Its blinks are a rough busy loop rather than a timed one, nearer 150 ms than
-the 30 the code claims, so the longer sequences do not finish before the board
-resets: treat a count from that image as a hint, and use
-``ubertooth-util -w``.
+same length of blink, saying what that fault's status register held. For a hard
+fault that is 3 for a vector table read and 4 for one escalated from another
+fault; for the other three it is one to six blinks for the first bit it finds
+set. Either way there is no second run when no bit it looks at is set. Its
+blinks are a rough busy loop rather than a timed one, nearer 150 ms than the 30
+the code claims, so the longer sequences do not finish before the board resets:
+treat a count from that image as a hint, and use ``ubertooth-util -w``.
