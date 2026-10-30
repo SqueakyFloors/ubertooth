@@ -257,6 +257,12 @@
   `ubertooth-rx` and `ubertooth-dfu` also prefix the refusals they were
   missing one on.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- **Script-visible change:** `ubertooth-specan-ui` refuses a command line it
+  cannot read instead of running it, as `error: unrecognized option
+  '--bogus'` or `error: unexpected argument 'extra'` on standard error with
+  exit 1. A mistyped option used to be dropped without a word and the window
+  opened and swept; a bad value ended the command in 2 with the usage text.
+  [#934](https://github.com/SqueakyFloors/ubertooth/issues/934)
 - **Script-visible change:** the rest of `ubertooth-dfu`'s progress moved to
   standard error too: the DFU entry, the flash an image or a read-back covers,
   the dot per block, and `Detached`. Standard output now carries one line, the

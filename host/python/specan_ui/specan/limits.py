@@ -46,14 +46,13 @@ def point_at_the_bin(stream):
 def eprint(text):
     """Write a diagnostic to standard error, or drop it if it cannot go there.
 
-    Every error, warning and note this tool writes goes through here.
-    Losing that stream must cost the lines and nothing else: a write that
-    fails must not raise where it was written from and end a command, or a
-    capture thread, that was otherwise working.
-
-    The argument parser's own refusals are the exception: argparse writes
-    those itself, and before Python 3.11 it does so without catching
-    anything, so one of them can still raise.
+    Every error, warning and note this tool writes goes through here, the
+    argument parser's own refusals among them: the script gives the parser
+    an error() that writes through this, because before Python 3.11 argparse
+    writes its messages without catching anything and one of them could
+    otherwise raise. Losing that stream must cost the lines and nothing
+    else: a write that fails must not raise where it was written from and
+    end a command, or a capture thread, that was otherwise working.
 
     The state this is for is a pipe whose reader has left. The tool's startup
     check cannot see one on Linux, where a write of nothing to such a pipe
