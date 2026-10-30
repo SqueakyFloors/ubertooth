@@ -71,8 +71,10 @@ uint64_t ubertooth_packet_arrival_ns(void);
  * the agreement above is only ever to within that second. */
 uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
 
-/* How many packets of the piconet cb_rx() has heard since the library handed
- * this capture the clock it is following, or -1 when it is not following one.
+/* When cb_rx() last heard a packet of the piconet whose clock this capture is
+ * following, as a monotonic millisecond reading, and 0 when it is following no
+ * clock the library gave it. A clock just handed over reads as the moment it
+ * arrived, because nothing has been heard on it yet.
  *
  * For a capture tool to tell a follow that has gone quiet from one that is
  * working. A clock that is not the piconet's does not fail: clock discovery
@@ -84,12 +86,10 @@ uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
  * packet in eighteen and no run of failing headers ever arrives for the
  * library to act on.
  *
- * The count standing still is the whole of the evidence, and how long it has
- * stood still is the caller's to measure: cb_rx() runs when a record arrives
- * rather than on a clock, and only the tool knows it asked the board to hop
- * with the piconet. It starts again at zero each time a clock is handed
- * over. */
-long ubertooth_follow_heard(void);
+ * How long a silence is long enough is the caller's: only the tool knows it
+ * asked the board to hop with the piconet, and what its user wants of a
+ * piconet that has stopped talking. */
+uint64_t ubertooth_follow_heard_ms(void);
 
 /* Gives up the clock this capture is following, for a caller that has decided
  * the follow has gone quiet, and leaves the capture as a clock the library
@@ -100,7 +100,12 @@ long ubertooth_follow_heard(void);
  * Returns 1 if a clock was given up, and 0 if there was none to give up: this
  * capture is not following one, or it is following a clock its own tool set,
  * which the library leaves alone. Nothing is printed in that case, so a caller
- * may ask whenever it thinks the follow is quiet. */
+ * may ask whenever it thinks the follow is quiet.
+ *
+ * Either way the reading above starts again, so a caller that asks on a wait
+ * asks once per wait and not once per record. A board that refuses to come off
+ * the old offset says so and is asked again at the caller's next wait, without
+ * the warning being repeated. */
 int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn);
 
 void cb_afh_initial(ubertooth_t* ut, void* args);
