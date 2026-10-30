@@ -38,7 +38,7 @@ lower frequency in MHz (default 2402)
 upper frequency in MHz (default 2480); must not be lower than \fB\-l\fR\. The plot is drawn 2 MHz wider than the scanned range on each side, within 2400\-2483 MHz, so the edge channels can be marked
 .TP
 \fB\-\-wifi[=<channel(s)>]\fR
-show the band around one Wi\-Fi channel (for example \fB\-\-wifi=6\fR) or a range of channels (\fB\-\-wifi=1\-11\fR); \fB\-\-wifi\fR alone shows channel 1\. Channel 14 is centred on 2484 MHz, above the 2480 MHz the board can tune, so \fB\-\-wifi=14\fR shows the part of that channel below 2480 MHz \-\- and with a \fB\-\-padding\fR under 4 it is refused, because then the whole band asked for is above the range
+show the band around one Wi\-Fi channel (for example \fB\-\-wifi=6\fR) or a range of channels (\fB\-\-wifi=1\-11\fR); \fB\-\-wifi\fR alone shows channel 1\. Channel 14 is centered on 2484 MHz, above the 2480 MHz the board can tune, so \fB\-\-wifi=14\fR shows the part of that channel below 2480 MHz \-\- and with a \fB\-\-padding\fR under 4 it is refused, because then the whole band asked for is above the range
 .TP
 \fB\-\-padding <MHz>\fR
 extra band shown on each side with \fB\-\-wifi\fR (default 10), limited to 2402\-2480 MHz
@@ -58,9 +58,9 @@ White trace: the current sweep\.
 .IP "\(bu" 4
 Green trace: the highest level seen recently (max hold)\.
 .IP "\(bu" 4
-Red dotted lines: the strongest peak, labelled with its frequency and level\.
+Red dotted lines: the strongest peak, labeled with its frequency and level\.
 .IP "\(bu" 4
-Cyan dotted line, labelled "Avg: N dBm": the average of the green trace across the band, smoothed so it moves slowly\.
+Cyan dotted line, labeled "Avg: N dBm": the average of the green trace across the band, smoothed so it moves slowly\.
 .IP "\(bu" 4
 Yellow and magenta lines: points marked with the left and right mouse buttons, with the frequency differences to the peak and to each other\.
 .IP "" 0

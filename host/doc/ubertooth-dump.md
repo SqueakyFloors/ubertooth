@@ -2,7 +2,9 @@
 
 ## SYNOPSIS
 
-    ubertooth-dump [-b] [-c | -l] [-d <filename.bin>]
+    ubertooth-dump [-b] [-c | -l] [-d <filename.bin>|-] [-U <index|serial>]
+    ubertooth-dump [-U <index|serial>] -V
+    ubertooth-dump -h
 
 ## DESCRIPTION
 

@@ -2,7 +2,14 @@
 
 ## SYNOPSIS
 
-    ubertooth-btle -f [-A 37|38|39] [-r output.pcapng]
+    ubertooth-btle {-f | -n | -p} [-A 37|38|39] [-t <BD ADDR>] [-i | -I]
+    [-k [01]] [-v] [-x <0-32>] [-r <output.pcapng>] [-q <output.pcap>|-]
+    [-c <output.pcap>|-] [-U <index|serial>]
+    ubertooth-btle -s <BD ADDR> [-A 37|38|39] [-U <index|serial>]
+    ubertooth-btle [-a [<address>]] [-k [01]] [-t <BD ADDR>]
+    [-U <index|serial>]
+    ubertooth-btle [-U <index|serial>] -V
+    ubertooth-btle -h
 
 ## DESCRIPTION
 
@@ -57,8 +64,8 @@ is `22:44:66:88:AA:CC`:
     ubertooth-btle -f -t 22:44:66:88:AA:CC
 
 `-t` can also take a mask length in CIDR-like notation. Masks can be
-between 1 and 48 bits long, with a 48 bit mask matching the entire
-address. Using a /24 mask will filter on just the OUI. For example, to
+0 to 48 bits long: 48 matches the entire address, and 0 clears the target as
+`-t none` does. Using a /24 mask will filter on just the OUI. For example, to
 limit sniffing to just TI devices with the OUI 00:1A:7D, use the
 following:
 
@@ -150,8 +157,8 @@ Major modes:
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
    Promiscuous mode: sniff already-established connections. It sets no channel
-   of its own: it listens on the one the board is holding, 2440 MHz unless
-   `ubertooth-util -c` left it on another even frequency. It discovers the
+   of its own: it listens on the one the board is holding, 2441 MHz unless
+   `ubertooth-util -c` left it on another frequency. It discovers the
    access address of a connection on that channel, unless an earlier
    `ubertooth-btle -a <address>` command gave the board one to follow; nothing
    else makes it skip discovery, and `-t` is refused with it. As it works a

@@ -5,10 +5,13 @@
 \fBubertooth\-specan\fR \- a spectrum analyzer for Ubertooth
 .SH "SYNOPSIS"
 .nf
-ubertooth\-specan [\-l <freq>] [\-u <freq>] [\-g|G] [\-d <filename>|\-]
+ubertooth\-specan [\-l <freq>] [\-u <freq>] [\-g|G] [\-d <filename>|\-] [\-v]
+[\-U <index|serial>]
+ubertooth\-specan [\-U <index|serial>] \-V
+ubertooth\-specan \-h
 .fi
 .SH "DESCRIPTION"
-ubertooth\-specan(1) is a tool for using Ubertooth as a spectrum analyzer in the 2\.4GHz band\. It is often used as a helper for GUI tools, such as ubertooth\-specan\-ui(1) or Spectools\. It can also produce output suitable for user with the feedgnuplot tool\.
+ubertooth\-specan(1) is a tool for using Ubertooth as a spectrum analyzer in the 2\.4GHz band\. It is often used as a helper for GUI tools, such as ubertooth\-specan\-ui(1) or Spectools\. It can also produce output suitable for use with the feedgnuplot tool\.
 .P
 Other options allow upper and lower bounds to be set on the frequencies monitored\. Refer to the \fIOPTIONS\fR section for full details\.
 .SH "OPTIONS"
@@ -42,12 +45,18 @@ print the version: the host tools, then the firmware version and build of each a
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "EXAMPLES"
 To monitor the 2\.4GHz band and produce a file suitable for feedgnuplot:
-.P
+.IP "" 4
+.nf
 ubertooth\-specan \-g \-d output\.dat
+.fi
+.IP "" 0
 .P
 To monitor the upper half of the 2\.4GHz band, use:
-.P
+.IP "" 4
+.nf
 ubertooth\-specan \-l 2440
+.fi
+.IP "" 0
 .SH "ARGUMENTS"
 \fBubertooth\-specan\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P
@@ -80,7 +89,7 @@ Writing raw samples to standard output
 .P
 The board's serial number is read from the board, so it is the one that was selected even when \fB\-U\fR named an enumeration index\. A board that does not answer gives \fBUsing an Ubertooth whose serial number could not be read\fR instead, and the sweep goes on\.
 .P
-While the sweep runs, one summary line a second, and one more when it ends:
+While the sweep runs, one summary line a second, and one more when it ends, labeled \fBTotal after\fR so it is not read as another periodic line:
 .IP "" 4
 .nf
 After 1\.0 s: 12 sweeps, 948 samples, 0 out of range

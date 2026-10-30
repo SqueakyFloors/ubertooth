@@ -5,7 +5,9 @@
 \fBubertooth\-dump\fR \- output a continuous stream of received bits
 .SH "SYNOPSIS"
 .nf
-ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename\.bin>]
+ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename\.bin>|\-] [\-U <index|serial>]
+ubertooth\-dump [\-U <index|serial>] \-V
+ubertooth\-dump \-h
 .fi
 .SH "DESCRIPTION"
 This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.

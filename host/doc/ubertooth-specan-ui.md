@@ -37,7 +37,7 @@ To pick one of several Ubertooths, run:
  - `--wifi[=<channel(s)>]` :
    show the band around one Wi-Fi channel (for example `--wifi=6`) or a range
    of channels (`--wifi=1-11`); `--wifi` alone shows channel 1. Channel 14 is
-   centred on 2484 MHz, above the 2480 MHz the board can tune, so `--wifi=14`
+   centered on 2484 MHz, above the 2480 MHz the board can tune, so `--wifi=14`
    shows the part of that channel below 2480 MHz -- and with a `--padding`
    under 4 it is refused, because then the whole band asked for is above the
    range
@@ -70,8 +70,8 @@ and no Qt binding. Only opening the window needs those.
 
  - White trace: the current sweep.
  - Green trace: the highest level seen recently (max hold).
- - Red dotted lines: the strongest peak, labelled with its frequency and level.
- - Cyan dotted line, labelled "Avg: N dBm": the average of the green trace
+ - Red dotted lines: the strongest peak, labeled with its frequency and level.
+ - Cyan dotted line, labeled "Avg: N dBm": the average of the green trace
    across the band, smoothed so it moves slowly.
  - Yellow and magenta lines: points marked with the left and right mouse
    buttons, with the frequency differences to the peak and to each other.

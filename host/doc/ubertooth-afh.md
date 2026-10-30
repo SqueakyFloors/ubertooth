@@ -2,7 +2,10 @@
 
 ## SYNOPSIS
 
-    ubertooth-afh -u <uap> -l <lap> [-r] [-m <count>]
+    ubertooth-afh -u <uap> -l <lap> [-r] [-m <count>] [-t <seconds>]
+    [-e <0-5>] [-U <index|serial>]
+    ubertooth-afh [-U <index|serial>] -V
+    ubertooth-afh -h
 
 ## DESCRIPTION
 
@@ -33,7 +36,9 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
    arrive without it being seen; 1 or more (default: 800). It counts packets, not
    seconds; see THE REMOVAL THRESHOLD
  - `-r` :
-   print AFH channel map once every second (default: print on update)
+   print AFH channel map once every second (default: print on update). Each
+   line is the host time in Unix epoch seconds, then 80 digits, one per
+   channel from 0 upwards, with the last unused because Basic Rate has 79
 
 Other options:
 
