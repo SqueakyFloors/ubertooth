@@ -50,21 +50,30 @@
  * be shown to catch one. No shipped image defines STACK_GUARD_TEST: build it
  * by hand to run the check, then flash a normal image back.
  *
- * UBERTOOTH_STOP sets the flag and the dispatch loop runs the recursion.
- * frame[] is read after the call so that the compiler cannot turn this into a
- * loop, and every word of it is written so that the overflow cannot step over
- * the guard.
+ * UBERTOOTH_STOP sets the flag and the dispatch loop makes the first call.
+ * Every word of each frame is written, so the descent cannot step over the
+ * 32-byte guard.
+ *
+ * The recursive call goes through a volatile pointer because the compiler is
+ * entitled to recognise plain self-recursion: at -Os it inlined the first call
+ * into the dispatch loop and turned the rest into a loop over one frame, so the
+ * stack never grew and the board just stopped feeding the watchdog.
  */
 static volatile uint8_t overflow_the_stack_now = 0;
 
-static unsigned long overflow_the_stack(unsigned long depth)
+static unsigned long overflow_the_stack(unsigned long depth);
+static unsigned long (*volatile overflow_next)(unsigned long) =
+	overflow_the_stack;
+
+static __attribute__((noinline)) unsigned long
+overflow_the_stack(unsigned long depth)
 {
 	volatile unsigned long frame[8];
 	unsigned i;
 
 	for (i = 0; i < 8; i++)
 		frame[i] = depth;
-	return frame[depth & 7] + overflow_the_stack(depth + 1);
+	return frame[depth & 7] + overflow_next(depth + 1);
 }
 #endif
 
@@ -4372,7 +4381,7 @@ int main()
 		/* From here, not from the request handler, so the fault is taken
 		 * in thread mode where the memory management handler can run. */
 		if (overflow_the_stack_now)
-			overflow_the_stack(0);
+			overflow_next(0);
 #endif
 
 		/*
