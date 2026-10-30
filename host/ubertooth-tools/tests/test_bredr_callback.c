@@ -613,13 +613,13 @@ MU_TEST(a_packets_signal_is_its_own_and_comes_from_the_record)
 	mu_assert_int_eq(-82, sig);
 }
 
-MU_TEST(a_noise_figure_is_reported_only_where_the_board_measured_one)
+MU_TEST(a_noise_figure_is_reported_only_where_the_record_carries_one)
 {
 	usb_pkt_rx rx;
 	int8_t sig, noise;
 
 	/* Without the flag the byte says nothing, whatever is in it: a board or
-	 * a capture file from before the measurement leaves it at zero, which
+	 * a capture file from before the estimate leaves it at zero, which
 	 * would otherwise read as a background of -55 dBm. */
 	fill_packet(&rx, 40000, 0, 3);
 	rx.rssi_noise = 0;
@@ -636,7 +636,7 @@ MU_TEST(a_noise_figure_is_reported_only_where_the_board_measured_one)
 	mu_assert_int_eq(-91, noise);
 }
 
-MU_TEST(the_noise_and_snr_columns_are_absent_where_nothing_was_measured)
+MU_TEST(the_noise_and_snr_columns_are_absent_where_there_is_no_estimate)
 {
 	char n[RSSI_FIELD_LEN], snr[RSSI_FIELD_LEN];
 
@@ -645,7 +645,7 @@ MU_TEST(the_noise_and_snr_columns_are_absent_where_nothing_was_measured)
 	mu_assert(strcmp(snr, "40") == 0, "the ratio is the difference");
 
 	format_noise_and_snr(-50, INT8_MAX, n, snr);
-	mu_assert(strcmp(n, "none") == 0, "an unmeasured background is absent");
+	mu_assert(strcmp(n, "none") == 0, "a missing background is absent");
 	mu_assert(strcmp(snr, "none") == 0, "and so is the ratio from it");
 }
 
@@ -1573,8 +1573,8 @@ int main(void)
 	MU_RUN(the_clkn_counts_from_the_access_code_not_the_bank);
 	MU_RUN(the_callbacks_hand_the_decoder_that_clkn);
 	MU_RUN(a_packets_signal_is_its_own_and_comes_from_the_record);
-	MU_RUN(a_noise_figure_is_reported_only_where_the_board_measured_one);
-	MU_RUN(the_noise_and_snr_columns_are_absent_where_nothing_was_measured);
+	MU_RUN(a_noise_figure_is_reported_only_where_the_record_carries_one);
+	MU_RUN(the_noise_and_snr_columns_are_absent_where_there_is_no_estimate);
 	MU_RUN(a_lone_unused_channel_between_used_ones_is_marked_used);
 	MU_RUN(the_channels_at_the_edges_of_the_band_need_a_packet_of_their_own);
 	MU_RUN(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less);

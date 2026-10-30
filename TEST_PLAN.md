@@ -554,12 +554,13 @@ before the first step so nothing is carried over.*
 ### 5a. Basic BR/EDR capture
 - [ ] Run `ubertooth-rx` for 10 seconds
 - [ ] Confirm: no crash, some output
-- [ ] Look at the `n=` noise figure: over a capture long enough to visit many
-      channels it should move, not sit at one value in every record. The
-      per-channel average behind it takes a few hundred packets to build up, so
-      a short capture, or one spent on a few channels, can legitimately show the
-      same figure throughout. A single value across hundreds of records on many
-      channels is the fault to report
+- [ ] Look at the `s=` and `n=` columns: `s=` is the packet's own power and
+      `n=` the board's estimate of the background on that channel, with `snr=`
+      the difference. `n=none snr=none` is normal on a record whose channel the
+      board never heard quiet, including the first packet after a hop. The
+      fault to report is `n=` sitting at one value across hundreds of records
+      on many channels, or every record reading `n=none` over a capture long
+      enough to visit many channels
 
 ### 5b. Paging
 *Requires: the board carrying the `btbr` image*

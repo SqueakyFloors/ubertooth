@@ -605,10 +605,14 @@ MU_TEST(test_a_quiet_window_claims_no_background)
 MU_TEST(test_the_background_outlives_a_packet_and_not_a_hop)
 {
 	rssi_noise_reset();
+	rssi_reset();
 	mu_assert_int_eq(0, rssi_noise_estimated());
 
-	rssi_noise_add(-90);
-	rssi_noise_add(-90);
+	/* A window holding a packet and the air under it: the quiet readings
+	 * are the ones the background figure is made of. */
+	rssi_add(-40);
+	rssi_add(-90);
+	rssi_add(-90);
 	mu_assert_int_eq(1, rssi_noise_estimated());
 	mu_assert_int_eq(-90, rssi_get_noise());
 

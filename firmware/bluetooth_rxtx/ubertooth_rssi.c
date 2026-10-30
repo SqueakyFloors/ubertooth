@@ -203,14 +203,19 @@ void rssi_add(int8_t v)
 	 * line cannot say either, because the squelch it shares defaults to the
 	 * bottom of the radio's range, where carrier sense is asserted the
 	 * whole time. The level is the only evidence there is: a packet is tens
-	 * of dB above the air around it, so a reading this far below the
-	 * loudest of the window was most likely taken between packets. A
-	 * deeply faded part of a packet can be counted in, which is why the
-	 * figure is reported as an estimate and never as a measurement of
-	 * clear air.
+	 * of dB above the air around it, so a reading more than
+	 * RSSI_POWER_SPAN dB below the loudest of the window was most likely
+	 * taken between packets. Two things follow, which is why the figure is
+	 * reported as an estimate and never as a measurement of clear air. A
+	 * deeply faded part of a packet can be counted in. And the readings
+	 * admitted keep their own window, so a loud one -- a burst of
+	 * interference, or that faded packet -- becomes their reference and
+	 * leaves the true floor outside it until the next hop clears the
+	 * accumulator, which holds the figure up at the burst's level for the
+	 * rest of the dwell.
 	 *
-	 * The comparison is against the window's own loudest reading, so one
-	 * burst of interference costs at most the window it lands in, and the
+	 * What the comparison is against is the window's own loudest reading,
+	 * so it costs nothing to a channel that is simply loud, and the
 	 * readings it collects outlive the window because a quiet one holds
 	 * nothing but background and a busy one may hold nothing but packet.
 	 */
@@ -226,11 +231,6 @@ int8_t rssi_get_signal(void)
 void rssi_noise_reset(void)
 {
 	rssi_power_reset(&rssi_noise_power);
-}
-
-void rssi_noise_add(int8_t v)
-{
-	rssi_power_add(&rssi_noise_power, v);
 }
 
 int rssi_noise_estimated(void)

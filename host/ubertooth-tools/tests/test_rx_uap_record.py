@@ -487,11 +487,12 @@ with tempfile.TemporaryDirectory() as workdir:
         for index in (0, 1, 3):
             assert records[index].header == 0, (name, records)
 
-        # No record claims a measured noise power, because nothing measures
-        # the background between packets: the board sends an RSSI average
-        # taken over the packet itself. A reader that finds this flag clear
-        # marks the field invalid instead of computing a signal-to-noise
-        # ratio from a figure that is mostly the packet's own power.
+        # No record claims a noise power: these records come from a capture
+        # file recorded before the board sent a figure for the background, so
+        # the byte holds the RSSI average it used to carry. A reader that
+        # finds this flag clear marks the field invalid instead of computing a
+        # signal-to-noise ratio from a figure that is mostly the packet's own
+        # power.
         for rec in records:
             assert not rec.flags & BREDR_NOISEPOWER_VALID, (name, records)
 

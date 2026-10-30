@@ -91,7 +91,7 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  * from the board's RSSI and tops out at 0 dBm. With the flag clear the byte
  * itself means nothing, which is why a value no receiver could report is the
  * safe one to write there. */
-#define NOISE_NOT_MEASURED INT8_MAX
+#define NOISE_ABSENT INT8_MAX
 
 /* What the board reports for this packet: the packet's own power, measured,
  * and an estimate of the background on its channel where the mode it came
@@ -115,7 +115,7 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
 	                                                       : rx->rssi_max );
 	*noise = (rx->status & NOISE_ESTIMATE)
 	       ? cc2400_rssi_to_dbm( (int8_t) rx->rssi_noise )
-	       : NOISE_NOT_MEASURED;
+	       : NOISE_ABSENT;
 }
 
 /* Room for a dBm figure or the word that stands for a missing one. */
@@ -128,7 +128,7 @@ static void format_noise_and_snr( int8_t sig, int8_t noise,
                                   char n[RSSI_FIELD_LEN],
                                   char snr[RSSI_FIELD_LEN] )
 {
-	if (noise == NOISE_NOT_MEASURED) {
+	if (noise == NOISE_ABSENT) {
 		snprintf(n, RSSI_FIELD_LEN, "none");
 		snprintf(snr, RSSI_FIELD_LEN, "none");
 	} else {

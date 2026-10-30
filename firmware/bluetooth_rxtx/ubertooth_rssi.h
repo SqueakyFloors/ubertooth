@@ -86,13 +86,11 @@ int8_t rssi_get_signal(void);
 /*
  * The estimate of the background on the channel: the mean power of the
  * readings that look as though nothing was being received when they were
- * taken. See rssi_add() for how it tells those, and what that costs in
+ * taken, over the loudest RSSI_POWER_SPAN dB of those, as every mean here is.
+ * That last part biases the figure up where the channel is mostly silent: one
+ * candidate at -85 dBm among a hundred at -110 reports about -85. See
+ * rssi_add() for how it tells a candidate, and what else that costs in
  * certainty.
- *
- * rssi_add() collects them from the readings it is given, and a mode that can
- * tell the clear air from a packet by itself -- one whose radio delivers whole
- * packets, so that no bytes having arrived means nothing is on the channel --
- * adds them with rssi_noise_add() instead.
  *
  * It does not follow rssi_reset(), because the readings of one receive window
  * need not include any of either kind, and it starts again on a hop, because a
@@ -100,7 +98,6 @@ int8_t rssi_get_signal(void);
  * collected on its channel so far.
  */
 void rssi_noise_reset(void);
-void rssi_noise_add(int8_t v);
 int rssi_noise_estimated(void);
 int8_t rssi_get_noise(void);
 

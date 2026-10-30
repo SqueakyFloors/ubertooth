@@ -1433,8 +1433,8 @@ MU_TEST(the_signal_figure_is_the_mean_power_of_the_samples)
 /*
  * The records of a packet carry no noise figure: this engine reads RSSI only
  * while a packet is arriving, so it has nothing to estimate the background
- * from and the status says so. A reader then shows the field as absent rather than taking the packet's
- * own power for the level around it.
+ * from and the status says so. A reader then shows the field as absent rather
+ * than taking the packet's own power for the level around it.
  */
 MU_TEST(a_low_energy_record_says_it_has_no_background_estimate)
 {

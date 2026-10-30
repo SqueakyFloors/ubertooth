@@ -138,7 +138,7 @@ usb_pkt_rx fifo_pop(fifo_t* fifo)
 /* The background the board reports, and whether it says it has one. The
  * cases set these before building a record. */
 static uint8_t record_noise_raw;
-static uint8_t record_noise_valid;
+static uint8_t record_has_noise;
 
 /* A background well below the packet, as a quiet channel reads. */
 #define RECORD_RSSI_NOISE ((uint8_t)(int8_t) -45)
@@ -158,7 +158,7 @@ static void advertising_record(usb_pkt_rx* rx)
 	rx->rssi_count = 1;
 	rx->rssi_noise = record_noise_raw;
 	rx->status |= SIGNAL_VALID;
-	if (record_noise_valid)
+	if (record_has_noise)
 		rx->status |= NOISE_ESTIMATE;
 	rx->data[0] = 0xd6;
 	rx->data[1] = 0xbe;
@@ -220,7 +220,7 @@ static void basic_rate_record(usb_pkt_rx* rx)
 	rx->rssi_count = 1;
 	rx->rssi_noise = record_noise_raw;
 	rx->status |= SIGNAL_VALID;
-	if (record_noise_valid)
+	if (record_has_noise)
 		rx->status |= NOISE_ESTIMATE;
 
 	/* The preamble is the two symbols that lead into the sync word's first
@@ -534,7 +534,7 @@ MU_TEST(a_low_energy_record_claims_no_noise_estimate)
 	struct record_powers pcap_record, pcapng_record;
 
 	record_noise_raw = RECORD_RSSI_NOISE;
-	record_noise_valid = 0;
+	record_has_noise = 0;
 	memset(&pcap_record, 0, sizeof(pcap_record));
 	memset(&pcapng_record, 0, sizeof(pcapng_record));
 	capture_le_packet(&pcap_record, &pcapng_record);
@@ -551,7 +551,7 @@ MU_TEST(a_basic_rate_record_claims_no_noise_estimate)
 	struct record_powers pcap_record, pcapng_record;
 
 	record_noise_raw = RECORD_RSSI_NOISE;
-	record_noise_valid = 0;
+	record_has_noise = 0;
 	memset(&pcap_record, 0, sizeof(pcap_record));
 	memset(&pcapng_record, 0, sizeof(pcapng_record));
 	capture_bredr_packet(&pcap_record, &pcapng_record);
@@ -568,7 +568,7 @@ MU_TEST(a_low_energy_record_carries_its_noise_estimate)
 	struct record_powers pcap_record, pcapng_record;
 
 	record_noise_raw = RECORD_RSSI_NOISE;
-	record_noise_valid = 1;
+	record_has_noise = 1;
 	memset(&pcap_record, 0, sizeof(pcap_record));
 	memset(&pcapng_record, 0, sizeof(pcapng_record));
 	capture_le_packet(&pcap_record, &pcapng_record);
@@ -585,7 +585,7 @@ MU_TEST(a_basic_rate_record_carries_its_noise_estimate)
 	struct record_powers pcap_record, pcapng_record;
 
 	record_noise_raw = RECORD_RSSI_NOISE;
-	record_noise_valid = 1;
+	record_has_noise = 1;
 	memset(&pcap_record, 0, sizeof(pcap_record));
 	memset(&pcapng_record, 0, sizeof(pcapng_record));
 	capture_bredr_packet(&pcap_record, &pcapng_record);
