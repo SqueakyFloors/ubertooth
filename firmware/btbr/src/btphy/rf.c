@@ -38,13 +38,14 @@ volatile rf_state_t rf_state = {0};
  * The part has a GPIO interrupt on ports 0 and 2 only (LPC176x/5x user manual
  * UM10360, section 9.5), so a board whose GIO6 is on another port cannot raise
  * one. Say so here rather than build an image that truncates everything it
- * sends; firmware/Makefile leaves btbr out of `all` on such a board, and the
- * interrupt registers below are reached through the board's own macros so they
- * land on the port the pin is on.
+ * sends; firmware/Makefile leaves btbr out of `all` on such a board. The
+ * three functions below are the ones that touch that interrupt, and they reach
+ * its registers through the board's own macros so a write lands on the port
+ * the pin is on. They are inside the #if so that a board that cannot have the
+ * interrupt gets the one message that explains it, rather than that message
+ * followed by every macro it does not define.
  */
-#if !GIO6_HAS_INTERRUPT
-#error "btbr needs a GPIO interrupt on the radio's GIO6 pin, and this board's GIO6 is on a port that has none"
-#endif
+#if GIO6_HAS_INTERRUPT
 
 /* Interrupt handler for GIO6 */
 void EINT3_IRQHandler(void)
@@ -90,6 +91,10 @@ void btphy_rf_disable_int(void)
 	GIO6_INT_CLR;
 	ICPR0 = ISER0_ISE_EINT3;
 }
+
+#else
+#error "btbr needs a GPIO interrupt on the radio's GIO6 pin, and this board's GIO6 is on a port that has none"
+#endif
 
 void btphy_rf_set_freq_off(uint8_t off)
 {

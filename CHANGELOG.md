@@ -782,6 +782,20 @@
   The Ubertooth One, whose GIO6 is P2.2, is unaffected.
   [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
   [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007)
+- Fixed: the `btbr` BR/EDR image asked port 2 for the radio's GIO6 interrupt
+  whatever the board, and GIO6 is on port 1 on the Ubertooth Zero and the
+  ToorCon badge. Its PHY refills the radio's 32-byte transmit buffer from that
+  interrupt, which is how a packet longer than the buffer reaches the air at
+  all, and the part raises a GPIO interrupt on ports 0 and 2 only: on those
+  boards nothing could arm it, and every page, inquiry and answer to a scan
+  would have gone out as its first 28 bytes. The image now says so when it is
+  built rather than on the air. It does not build for a board whose GIO6
+  cannot raise that interrupt, and a build of all the images for such a board
+  leaves it out with a note instead of failing, so the rest build as before.
+  On the badge that replaces a link failure, because `btbr` and the firmware
+  it shares with the other images both claimed the handler for that interrupt.
+  The Ubertooth One builds and runs `btbr` as before.
+  [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
 
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as
@@ -2454,6 +2468,9 @@ Fixes with no visible change in normal use.
   rather than followed. Following one left the board tuned to the advertising
   channels instead of the connection's data channels.
   [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
+- `btbr` clears the radio's pending interrupt by writing the pin's bit, rather
+  than reading a register that clears whichever bits are written to it and
+  writing the answer back.
 
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing
   it over in silence, answers a request to pair under the extended opcode it
