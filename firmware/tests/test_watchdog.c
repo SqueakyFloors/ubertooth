@@ -1364,6 +1364,107 @@ MU_TEST(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it)
 	          "the breadcrumb no longer fits below bootloader_ctrl");
 }
 
+/*
+ * The guard at the bottom of the stack is a memory protection region, and a
+ * region the part will accept has to be aligned to its own size. The two cases
+ * below read the script that places it and the startup code that programs it,
+ * because neither can be run here: a host test has no such unit, and the
+ * addresses come from the link.
+ *
+ * What they are guarding against is a guard that quietly stops working. A
+ * misaligned base, the wrong size field, or a paint that runs over the guard
+ * would all leave the firmware looking right and catching nothing.
+ */
+MU_TEST(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it)
+{
+	const char *path = FW_COMMON_DIR "/sections.ld";
+	char line[512];
+	int in_block = 0;
+	int aligned = 0, stack_above = 0, room_from_bottom = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read sections.ld");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (strstr(line, "_stack_guard") != NULL &&
+		    strstr(line, "ALIGN(_stack_limit, 32)") != NULL)
+			aligned = 1;
+		if (strstr(line, "_stack_bottom") != NULL &&
+		    strstr(line, "_stack_guard + 32") != NULL)
+			stack_above = 1;
+		if (strstr(line, "ASSERT") != NULL &&
+		    strstr(line, "_StackTop - _stack_bottom") != NULL)
+			room_from_bottom = 1;
+	}
+	fclose(f);
+
+	mu_assert(aligned == 1,
+	          "sections.ld no longer puts _stack_guard on a 32-byte boundary: "
+	          "the part refuses a region that is not aligned to its own size, "
+	          "so the guard would not be in force");
+	mu_assert(stack_above == 1,
+	          "sections.ld no longer starts the usable stack above the guard, "
+	          "so the stack's own first frames would fault");
+	mu_assert(room_from_bottom == 1,
+	          "the link-time room check no longer measures from _stack_bottom, "
+	          "so it counts the guard as room the stack can use");
+}
+
+MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
+{
+	const char *path = FW_COMMON_DIR "/LPC17xx_Startup.c";
+	char line[512];
+	int in_block = 0;
+	int size_field = 0, no_access = 0, default_map = 0, absent_unit = 0;
+	int paints_from_bottom = 0, measures_from_bottom = 0, names_limit = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read LPC17xx_Startup.c");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (strstr(line, "MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD)") != NULL)
+			size_field = 1;
+		if (strstr(line, "MPU_RASR_AP_NONE") != NULL)
+			no_access = 1;
+		if (strstr(line, "MPU_CTRL") != NULL &&
+		    strstr(line, "MPU_CTRL_PRIVDEFENA") != NULL)
+			default_map = 1;
+		if (strstr(line, "MPU_TYPE_DREGION") != NULL)
+			absent_unit = 1;
+		if (strstr(line, "word = &_stack_bottom") != NULL)
+			paints_from_bottom = 1;
+		if (strstr(line, "stack_used_between(&_stack_bottom") != NULL)
+			measures_from_bottom = 1;
+		if (strstr(line, "_stack_limit") != NULL)
+			names_limit = 1;
+	}
+	fclose(f);
+
+	mu_assert(size_field == 1,
+	          "the guard region's size is no longer the one stack_check.h "
+	          "encodes, so it may cover more or less than the 32 bytes "
+	          "sections.ld set aside");
+	mu_assert(no_access == 1,
+	          "the guard region allows some access, so an overflow into it "
+	          "would not fault");
+	mu_assert(default_map == 1,
+	          "the unit is enabled without PRIVDEFENA, which leaves every "
+	          "address outside the guard with no rule of its own: the first "
+	          "access to flash or a peripheral would fault");
+	mu_assert(absent_unit == 1,
+	          "the startup code no longer asks how many regions the part has, "
+	          "so a part without a unit would be written to as if it had one");
+	mu_assert(paints_from_bottom == 1,
+	          "the startup paint no longer starts above the guard, so booting "
+	          "would fault on its own paint");
+	mu_assert(measures_from_bottom == 1,
+	          "the high-water measurement no longer starts above the guard, so "
+	          "reading it would fault");
+	mu_assert(names_limit == 0,
+	          "the startup code still reads _stack_limit, which is below the "
+	          "guard: it has to use _stack_bottom");
+}
+
 MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
 {
 	static const char *const sources[] = {
@@ -1735,6 +1836,8 @@ int main(void)
 	MU_RUN(test_nothing_is_raised_above_the_usb_interrupt);
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
+	MU_RUN(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it);
+	MU_RUN(test_startup_programs_the_guard_and_paints_above_it);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	MU_RUN(test_every_fault_handler_records_the_fault);

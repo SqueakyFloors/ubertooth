@@ -588,6 +588,31 @@
 #define SCB_MMFAR   LPC17_REG(0xE000ED34) /* Memory Management Fault Address Register */
 #define SCB_BFAR    LPC17_REG(0xE000ED38) /* Bus Fault Address Register */
 
+/* Memory protection unit. The part includes the Cortex-M3 unit with eight
+ * regions (LPC1759/58/56/54/52/51 datasheet, section 1); the registers
+ * themselves are the processor's, in the Cortex-M3 chapter of UM10360. */
+#define MPU_TYPE    LPC17_REG(0xE000ED90) /* MPU Type Register */
+#define MPU_CTRL    LPC17_REG(0xE000ED94) /* MPU Control Register */
+#define MPU_RNR     LPC17_REG(0xE000ED98) /* MPU Region Number Register */
+#define MPU_RBAR    LPC17_REG(0xE000ED9C) /* MPU Region Base Address Register */
+#define MPU_RASR    LPC17_REG(0xE000EDA0) /* MPU Region Attribute and Size Register */
+
+/* How many regions this part's unit has. Zero means it has none. */
+#define MPU_TYPE_DREGION(x) (((x) >> 8) & 0xff)
+
+/* In MPU_CTRL */
+#define MPU_CTRL_ENABLE     (1 << 0)
+/* The part's default memory map still applies to privileged accesses, so the
+ * regions below only add rules rather than replacing the whole map. */
+#define MPU_CTRL_PRIVDEFENA (1 << 2)
+
+/* In MPU_RASR: the region is in use, its size is 2^(SIZE+1) bytes, no access
+ * at any privilege level, and nothing in it may be executed. */
+#define MPU_RASR_ENABLE     (1 << 0)
+#define MPU_RASR_SIZE(x)    ((x) << 1)
+#define MPU_RASR_AP_NONE    (0 << 24)
+#define MPU_RASR_XN         (1 << 28)
+
 /* System Control Register (SCB_SCR - 0xE000 ED10) */
 #define SCB_SCR_SEVONPEND   (0x1 << 4)
 #define SCB_SCR_SLEEPDEEP   (0x1 << 2)

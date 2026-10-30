@@ -59,8 +59,10 @@ extern unsigned long _ebss;
  * flash, so it is zeroed here like .bss. See sections.ld. */
 extern unsigned long _ahb_sram;
 extern unsigned long _ahb_sram_end;
-/* The bottom of the stack region and the top of RAM; see stack_check.h. */
-extern unsigned long _stack_limit;
+/* The guard, the bottom of the usable stack and the top of RAM; see
+ * stack_check.h. */
+extern unsigned long _stack_guard;
+extern unsigned long _stack_bottom;
 extern unsigned long _StackTop;
 
 extern void __libc_init_array(void);
@@ -79,19 +81,46 @@ static void stack_paint(void)
 	 * needs. A function on this architecture is given nothing below its
 	 * stack pointer, so everything below is free to write.
 	 */
-	for (word = &_stack_limit; word < (unsigned long *)sp; word++)
+	for (word = &_stack_bottom; word < (unsigned long *)sp; word++)
 		*word = STACK_PAINT;
+}
+
+/*
+ * Refuse every access to the guard, and leave the part's default memory map in
+ * place for everything else, so this adds one rule rather than describing the
+ * whole map.
+ *
+ * The other region attributes stay zero: nothing may read, write or execute
+ * here, so how the bus would treat an access that is refused does not arise.
+ */
+static void stack_guard_enable(void)
+{
+	/* A part whose unit is absent reports no regions. Writing its registers
+	 * would be writing into the reserved space where they would be. */
+	if (MPU_TYPE_DREGION(MPU_TYPE) == 0)
+		return;
+
+	MPU_RNR = 0;
+	MPU_RBAR = (uint32_t)&_stack_guard;
+	MPU_RASR = MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
+	           MPU_RASR_AP_NONE | MPU_RASR_XN;
+	MPU_CTRL = MPU_CTRL_ENABLE | MPU_CTRL_PRIVDEFENA;
+
+	/* The rules have to be in force before the next memory access, which
+	 * the processor does not guarantee on its own. */
+	__asm__ volatile ("dsb" ::: "memory");
+	__asm__ volatile ("isb");
 }
 
 unsigned stack_used(void)
 {
-	return stack_used_between(&_stack_limit, &_StackTop);
+	return stack_used_between(&_stack_bottom, &_StackTop);
 }
 
 unsigned stack_size(void)
 {
 	return (unsigned)((const unsigned char *)&_StackTop -
-	                  (const unsigned char *)&_stack_limit);
+	                  (const unsigned char *)&_stack_bottom);
 }
 
 /* Reset Handler */
@@ -101,6 +130,10 @@ void Reset_Handler(void)
 
 	/* First, while the stack is no deeper than this function. */
 	stack_paint();
+
+	/* Before anything else runs, so that whatever overflows is caught,
+	 * including the copying below. */
+	stack_guard_enable();
 
 	// Copy the data segment initializers from flash to SRAM
 	src = &_etext;

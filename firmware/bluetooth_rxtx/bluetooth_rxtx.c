@@ -44,6 +44,30 @@
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
 
+#ifdef STACK_GUARD_TEST
+/*
+ * A stack overflow on demand, so that the guard at the bottom of the stack can
+ * be shown to catch one. No shipped image defines STACK_GUARD_TEST: build it
+ * by hand to run the check, then flash a normal image back.
+ *
+ * UBERTOOTH_STOP sets the flag and the dispatch loop runs the recursion.
+ * frame[] is read after the call so that the compiler cannot turn this into a
+ * loop, and every word of it is written so that the overflow cannot step over
+ * the guard.
+ */
+static volatile uint8_t overflow_the_stack_now = 0;
+
+static unsigned long overflow_the_stack(unsigned long depth)
+{
+	volatile unsigned long frame[8];
+	unsigned i;
+
+	for (i = 0; i < 8; i++)
+		frame[i] = depth;
+	return frame[depth & 7] + overflow_the_stack(depth + 1);
+}
+#endif
+
 /*
  * The build string reported by UBERTOOTH_GET_COMPILE_INFO, which is what
  * ubertooth-util -V prints: "ubertooth ", the revision, then who built it,
@@ -853,6 +877,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 
 	case UBERTOOTH_STOP:
 		requested_mode = MODE_IDLE;
+#ifdef STACK_GUARD_TEST
+		overflow_the_stack_now = 1;
+#endif
 		break;
 
 	case UBERTOOTH_GET_MOD:
@@ -4340,6 +4367,13 @@ int main()
 		u32 usb_irq;
 
 		handle_usb(clkn);
+
+#ifdef STACK_GUARD_TEST
+		/* From here, not from the request handler, so the fault is taken
+		 * in thread mode where the memory management handler can run. */
+		if (overflow_the_stack_now)
+			overflow_the_stack(0);
+#endif
 
 		/*
 		 * Read the request once. It is written by the control request

@@ -303,6 +303,32 @@ MU_TEST(run_application_checks_before_it_jumps)
 	mu_assert(check < jump, "run_application() jumps before it checks");
 }
 
+/*
+ * The bootloader's own stack guard is at the bottom of the bootloader's stack,
+ * which is a long way inside the application's data. An application built with
+ * a guard of its own reprograms the region at startup; one built before there
+ * were guards never touches it, and would fault on its own data. So the
+ * bootloader hands over with the unit off.
+ */
+MU_TEST(run_application_turns_the_protection_unit_off_before_it_jumps)
+{
+	static char source[200000];
+	const char *function, *off, *jump;
+
+	read_bootloader_source(source, sizeof(source));
+	function = strstr(source, "run_application() {");
+	mu_assert_fatal(function != NULL,
+	                "run_application()'s body is not in bootloader.cpp");
+	jump = strstr(function, "asm");
+	mu_assert_fatal(jump != NULL, "run_application() no longer jumps");
+	off = strstr(function, "MPU_CTRL = 0");
+	mu_assert_fatal(off != NULL,
+	                "run_application() hands over with the memory protection "
+	                "unit still enabled");
+	mu_assert(off < jump,
+	          "run_application() jumps before it turns the unit off");
+}
+
 /* The jump loads its address as a decimal number of its own, so the check has
  * to be about the same address. The instruction looked for here is built from
  * APP_IMAGE_BASE rather than written out, so the two cannot drift apart. The
@@ -428,6 +454,7 @@ int main(void)
 	MU_RUN(a_reset_vector_past_the_given_bound_is_not_startable);
 	MU_RUN(the_bootloaders_own_bound_is_the_familys_not_the_parts);
 	MU_RUN(run_application_checks_before_it_jumps);
+	MU_RUN(run_application_turns_the_protection_unit_off_before_it_jumps);
 	MU_RUN(the_check_and_the_jump_use_the_same_address);
 	MU_RUN(the_bound_and_the_sector_size_match_flash_h);
 	MU_RUN(the_hosts_sector_size_matches_the_firmwares);

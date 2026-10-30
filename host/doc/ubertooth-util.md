@@ -383,8 +383,10 @@ refused, and is printed only when the status says the board recorded one for
 this fault — zero is a real address, so the line says so rather than leaving
 it out. There is none for a hard fault or a usage fault, nor for an
 instruction fetch refused because the region cannot be executed — which is a
-branch through a corrupted pointer or return address, and the one way a memory
-management fault happens on a part with no memory protection unit. The line is
+branch through a corrupted pointer or return address. A memory management
+fault whose address is just below the stack is a stack overflow: the firmware
+keeps 32 bytes there that the part refuses, so a stack that runs out of room
+faults where it happens instead of writing over the data below. The line is
 absent until a fault happens, and a power-cycle clears it.
 
 The last line counts something else: the firmware's waits on the radio. Each

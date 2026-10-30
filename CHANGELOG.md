@@ -784,6 +784,14 @@
   that was not its standard output.
   [#959](https://github.com/SqueakyFloors/ubertooth/issues/959)
 
+- A stack that runs out of room is caught where it happens and reported. The
+  firmware now asks the part's memory protection unit to refuse the 32 bytes
+  at the bottom of the stack, so an overflow raises a memory management fault
+  instead of writing over the data below: the board blinks the fault code,
+  resets itself three seconds later, and `ubertooth-util -w` names the fault
+  and the address it refused. Both `bluetooth_rxtx` and `btbr` get this.
+  [#953](https://github.com/SqueakyFloors/ubertooth/issues/953)
+
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
   line, the C string terminator the board's console puts on the end of each
   one, which `grep` on a saved session answers with `Binary file matches`
@@ -904,9 +912,9 @@
 - The firmware has room for its stack. The largest capture and packet buffers
   now sit in the microcontroller's second RAM bank, which nothing else used,
   so the `bluetooth_rxtx` image leaves its stack about 11 KB where it left
-  about 730 bytes. The part has no memory protection unit, so a stack that ran
-  out of room would have written over the data below it and shown up later as
-  wrong capture data or a fault somewhere else. The link now fails if an image
+  about 730 bytes. A stack that ran out of room used to write over the data
+  below it and show up later as wrong capture data or a fault somewhere else.
+  The link now fails if an image
   leaves the stack less than 2 KB. A spectrum dump, the one capture that runs
   the board's USB queue flat out, gives up about 1% of its throughput for
   this; an advertising capture and a follow were unchanged on the bench.

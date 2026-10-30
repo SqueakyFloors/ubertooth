@@ -178,10 +178,20 @@ SECTIONS
 	} > ram
 
 	/* The lowest address the stack may reach: everything below it is
-	 * allocated. Reset_Handler fills the room between here and the stack
+	 * allocated. */
+	_stack_limit = ALIGN(., 4);
+
+	/* The guard: 32 bytes the memory protection unit is told to refuse, so
+	 * that a stack walking off the bottom faults there instead of writing
+	 * over the end of .bss. A region has to be aligned to its own size, so
+	 * the bottom of the usable stack is the first 32-byte boundary above
+	 * everything allocated, plus the guard itself.
+	 *
+	 * Reset_Handler fills the room between _stack_bottom and the stack
 	 * pointer with a known word at boot, and UBERTOOTH_GET_WATCHDOG reports
 	 * how much of it has ever been used; see firmware/common/stack_check.h. */
-	_stack_limit = ALIGN(., 4);
+	_stack_guard = ALIGN(_stack_limit, 32);
+	_stack_bottom = _stack_guard + 32;
 
 	/* Leave room above stack for IAP to run */
 	_StackTop = ORIGIN(ram) + LENGTH(ram) - 32;
@@ -209,15 +219,16 @@ SECTIONS
 }
 
 /* Up to four interrupt handlers can nest on the stack -- the two timers, the
- * capture transfer and USB -- and an overflow would be silent: it writes over
- * whatever .bss ends with and shows up later as wrong data or a processor
- * fault. So the link fails rather than shipping an image with no room.
+ * capture transfer and USB. The guard above catches an overflow that walks
+ * into it, but a single frame larger than 32 bytes can step over the guard and
+ * land on .bss, so the link still fails rather than shipping an image with no
+ * room.
  *
  * This is a floor on what the link leaves, not a safe depth. The deepest any
  * mode has been measured using is under 500 bytes, so 2 KB is several times
  * the worst case seen; ubertooth-util -w is what says whether an image still
  * has room. */
-ASSERT(_StackTop - _stack_limit >= 2048,
+ASSERT(_StackTop - _stack_bottom >= 2048,
 	"less than 2 KB of main SRAM is left for the stack: move a large buffer into AHB SRAM with the AHB_SRAM macro")
 
 /* The firmware info block has to stay where the host looks for it. These are

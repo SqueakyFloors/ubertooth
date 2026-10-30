@@ -298,6 +298,12 @@ static void run_application() {
 	if (!application_startable())
 		return;
 
+	/* Hand over with no memory protection rules in force. The guard this
+	 * image set up sits at the bottom of its own stack, which is a long way
+	 * inside the application's .bss; an application built before there was a
+	 * guard would never reprogram it and would fault on its own data. */
+	MPU_CTRL = 0;
+
 // disable interrupts, or perhaps do it on entry to the bootloader, since we're not using interrupts?
     asm(
         "movw    r3, #16384\n\t"

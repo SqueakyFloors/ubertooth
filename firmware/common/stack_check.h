@@ -24,14 +24,37 @@
 
 /*
  * How deep the stack has ever been since the board booted, reported in the
- * UBERTOOTH_GET_WATCHDOG reply. An overflow on this part is silent, so the
- * only way to know there is room is to measure what has been used.
+ * UBERTOOTH_GET_WATCHDOG reply. The guard below catches an overflow that walks
+ * into it, but not one that steps over it, so the measurement is still what
+ * says whether an image has room to spare.
  *
  * Both live in LPC17xx_Startup.c, the file that owns the stack at boot: it
  * fills the room below its own stack pointer with a known word, and
  * stack_used() looks for the lowest one still there. Every image links that
  * file, so every image can answer.
  */
+
+/*
+ * The guard: 32 bytes at the bottom of the stack that the memory protection
+ * unit is told to refuse, so a stack running off the bottom raises a memory
+ * management fault there instead of writing over the end of .bss. The fault
+ * handler records it, and ubertooth-util -w reads it back.
+ *
+ * The unit encodes a region size as a power of two, 2^(field + 1) bytes, and a
+ * region must be aligned to its own size. sections.ld places _stack_guard on a
+ * 32-byte boundary above everything allocated and puts the usable stack
+ * (_stack_bottom) above it, so neither the paint nor the measurement touches
+ * the guard.
+ *
+ * One frame larger than the guard can push past it in a single instruction and
+ * land on .bss unnoticed. This catches the ordinary case, where the stack walks
+ * down a frame at a time; the link-time check in sections.ld is what keeps the
+ * room there in the first place.
+ */
+#define STACK_GUARD_SIZE 32u
+#define STACK_GUARD_SIZE_FIELD 4u
+_Static_assert((2u << STACK_GUARD_SIZE_FIELD) == STACK_GUARD_SIZE,
+               "the guard's size field must encode STACK_GUARD_SIZE bytes");
 
 /*
  * The word untouched stack holds. Any value would do that code is unlikely to
@@ -72,8 +95,8 @@ static inline unsigned stack_used_between(const unsigned long *bottom,
 /* Bytes of the stack region that have ever been in use. */
 unsigned stack_used(void);
 
-/* How big the region is: from the lowest address the stack may reach to the
- * top of RAM, less the 32 bytes the on-chip programmer needs. */
+/* How big the region is: from the lowest address the stack may use, above the
+ * guard, to the top of RAM, less the 32 bytes the on-chip programmer needs. */
 unsigned stack_size(void);
 
 #endif /* __UBERTOOTH_STACK_CHECK_H */
