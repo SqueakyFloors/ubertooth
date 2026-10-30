@@ -1568,8 +1568,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* A packet of the piconet heard, stamped here rather than where the
 	 * decoder takes the packet, because the clock trim below keeps some
 	 * packets back from it: what a tool watching for silence has to see is
-	 * every packet that arrived, which is also what the report above
-	 * prints. */
+	 * every packet of the piconet that arrived. */
 	if (br_following)
 		br_heard_ms = monotonic_ms();
 
