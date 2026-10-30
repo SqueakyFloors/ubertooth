@@ -144,12 +144,11 @@ is the script's, so a `ubertooth-btle` that fails still says why. Wireshark
 keeps the first 1024 bytes of the capture call's standard error and shows
 them for the interface when the call fails.
 
-That 1024 bytes is now there for a real failure to use. The decoder counts the
-packets whose data it could not read and `ubertooth-btle` sums them up in one
-line on the stream the decode went to, so a capture of ambient advertising --
-where hundreds of such packets in ten seconds is ordinary -- leaves nothing on
-standard error, and a good capture no longer ends in `Error from extcap pipe`.
-A board unplugged mid-capture reaches the user instead.
+That 1024 bytes is there for a real failure to use: `ubertooth-btle` sums up
+the packets whose data could not be read on the stream the decode went to,
+which this call drops, so a good capture no longer ends in `Error from extcap
+pipe` and a board unplugged mid-capture reaches the user. See
+`ubertooth-btle(1)`, DIAGNOSTICS.
 
 `--fifo=-` is the one capture whose data is on standard output: it is the `-`
 every file option here takes, for a capture run by hand rather than one

@@ -4,20 +4,16 @@
 
 ### New features
 
-- A good Wireshark capture no longer ends in `Error from extcap pipe`. Data off
-  the air that does not hold what its own length fields describe is ordinary --
-  both a real packet with a corrupted byte and noise that decoded as a packet
-  produce one, and a busy bench gives hundreds in ten seconds -- and each one
-  used to put a line reading `Error: attempt to read past end of buffer` on
-  standard error. Wireshark keeps the first 1024 bytes of a capture's standard
-  error and shows them for the interface, so a capture that worked perfectly
-  was reported as an error and a real failure had its reason crowded out: a
-  board unplugged mid-capture never reached the user. The decoder now counts
-  those packets instead, `ubertooth-btle` sums them up in one line where the
-  decoded packets went (`note: 312 packets held data that could not be decoded;
-  -v describes each one`), and `-v` asks for each one's detail as the run goes.
-  Nothing about a malformed packet is called an error any more, and the
-  packets themselves are recorded as they arrived.
+- A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
+  packet whose data did not match its own length fields used to put a line
+  reading `Error: attempt to read past end of buffer` on standard error, which
+  is where Wireshark looks for the reason a capture failed, so a capture that
+  worked perfectly was reported as an error and a board unplugged mid-capture
+  never reached the user. `ubertooth-btle` now says how many such packets there
+  were in one line where the decoded packets went -- `note: 312 packets held
+  data that could not be decoded; -v describes each one` -- and `-v` asks for
+  each one's detail as the run goes. Nothing about a malformed packet is called
+  an error any more, and the packets themselves are recorded as they arrived.
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
@@ -517,9 +513,9 @@
   as in every other tool, so a command line that spells the setting the old
   way is refused with a line naming `-k` rather than read as something `-v`
   does not mean: `-v0` and `-v1` give `error: -v is verbose now and takes no
-  value (got 1); the CRC verify setting is -k`, and `-v` on its own gives
-  `error: -v needs -f, -n or -p: there is no decode for it to describe; the
-  CRC verify setting is -k now`.
+  value (got 1); the CRC verify setting it used to name is -k`, and `-v` on its
+  own gives `error: -v needs -f, -n or -p: there is no decode for it to
+  describe; the CRC verify setting is -k now`.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542),
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 

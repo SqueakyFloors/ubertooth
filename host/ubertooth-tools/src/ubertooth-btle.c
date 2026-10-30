@@ -326,8 +326,8 @@ int main(int argc, char *argv[])
 			 * unknown option. */
 			if (optarg != NULL) {
 				fprintf(stderr, "error: -v is verbose now and takes no"
-				        " value (got %s); the CRC verify setting is"
-				        " -k\n", optarg);
+				        " value (got %s); the CRC verify setting it used"
+				        " to name is -k\n", optarg);
 				return 1;
 			}
 			do_verbose = 1;
@@ -476,6 +476,17 @@ int main(int argc, char *argv[])
 	if (do_verbose && !(do_follow || do_no_follow || do_promisc)) {
 		fprintf(stderr, "error: -v needs -f, -n or -p: there is no decode"
 		        " for it to describe; the CRC verify setting is -k now\n");
+		return 1;
+	}
+
+	/* A capture on "-" takes standard output, and this run then prints no
+	 * packets at all (see the capture block below), so there is nothing for
+	 * -v to describe here either. Refused rather than accepted and ignored.
+	 * -r refuses "-" outright, so only -q and -c reach this. */
+	if (do_verbose && pcap_name != NULL && strcmp(pcap_name, "-") == 0) {
+		fprintf(stderr, "error: -v does not go with a capture on standard"
+		        " output: a run that hands the capture that stream prints"
+		        " no packets to describe\n");
 		return 1;
 	}
 

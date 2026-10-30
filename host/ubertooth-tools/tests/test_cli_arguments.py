@@ -105,10 +105,10 @@ CASES = {
         # written after it is a command line from before the move
         (("-v", "2"),
          "error: -v is verbose now and takes no value (got 2);"
-         " the crc verify setting is -k"),
+         " the crc verify setting it used to name is -k"),
         (("-vabc",),
          "error: -v is verbose now and takes no value (got abc);"
-         " the crc verify setting is -k"),
+         " the crc verify setting it used to name is -k"),
         # a word that is not a value for -v is not taken as one
         (("-v", "abc"), "error: unexpected argument 'abc'"),
         (("-x", "33"), "error: access address offenses must be 0-32 (got 33)"),

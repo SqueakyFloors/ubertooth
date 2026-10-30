@@ -554,7 +554,7 @@ MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, r.out);
 	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
-	                 "(got 1); the CRC verify setting is -k\n") == 0, r.err);
+	                 "(got 1); the CRC verify setting it used to name is -k\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
 
 	/* The same value written as the next word. */
@@ -562,7 +562,7 @@ MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
 	r = RUN("-v", "0");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
-	                 "(got 0); the CRC verify setting is -k\n") == 0, r.err);
+	                 "(got 0); the CRC verify setting it used to name is -k\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
 
 	/* -k beside it is the CRC verify setting and -v is verbose, so the two
@@ -927,17 +927,18 @@ MU_TEST(a_run_sums_up_the_packets_it_could_not_decode)
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(r.err[0] == '\0', r.err);
 
-	/* A capture that took standard output reports on standard error, as
-	 * every other line of this tool's does -- and it decodes nothing in
-	 * that case, so the count is the callback's to make, not this tool's
-	 * to guess. */
+	/* A capture that takes standard output prints no packets at all, so
+	 * there is nothing to sum up and nothing for -v to describe: that
+	 * command line is refused rather than run with -v doing nothing. */
 	reset_fake();
 	fake.poll_rc = (int)sizeof(usb_pkt_rx);
-	fake.malformed_packets = 2;
-	r = RUN("-n", "-q", "-");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.err, "note: 2 packets held data that could not be "
-	                 "decoded") != NULL, r.err);
+	r = RUN("-n", "-v", "-q", "-");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, "error: -v does not go with a capture on standard"
+	                 " output: a run that hands the capture that stream"
+	                 " prints no packets to describe\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.polls);
 }
 
 /* A Ctrl-C ends a sniffing capture, with the board taken out of its mode and

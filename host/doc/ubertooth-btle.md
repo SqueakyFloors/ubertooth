@@ -307,12 +307,16 @@ Miscellaneous:
    describes each packet whose data it could not read, on standard error, as
    the run goes. Without it a run counts those packets and says how many there
    were in one line when it ends (DIAGNOSTICS). It needs `-f`, `-n` or `-p`,
-   since there is no decode to describe otherwise, and it takes no value.
+   since there is no decode to describe otherwise, and it takes no value. A
+   capture on standard output (`-q -`, `-c -`) prints no packets at all, so
+   that too is refused: `error: -v does not go with a capture on standard
+   output: a run that hands the capture that stream prints no packets to
+   describe`.
 
    `-v` named the CRC verify setting until `-k` took that over, so a command
    line written that way is refused with a line naming `-k`: `-v 0` and `-v 1`
    give `error: -v is verbose now and takes no value (got 1); the CRC verify
-   setting is -k`, and `-v` on its own gives `error: -v needs -f, -n or -p:
+   setting it used to name is -k`, and `-v` on its own gives `error: -v needs -f, -n or -p:
    there is no decode for it to describe; the CRC verify setting is -k now`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on

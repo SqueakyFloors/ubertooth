@@ -29,13 +29,10 @@ stream a line is on.
   with, so both go to standard output. This is the one case; "Starting range
   test", which is the tool talking about itself, stays on standard error with
   the progress lines below. Do not read it as licence to move other progress.
-- A line that sums up the result just printed, rather than the tool or the
-  board: `ubertooth-btle`'s `note: 312 packets held data that could not be
-  decoded` is a trailer on the decode above it, counted only while that decode
-  is being printed, so it goes where the decode went. A run that prints no
-  decode prints no such line. This is why a Wireshark capture, which throws
-  the decode away, is not reported as an error. A `note: ` about the tool or
-  the board stays on standard error with the rest.
+- A line summing up the result just printed goes where that result went:
+  `ubertooth-btle`'s `note: 312 packets held data that could not be decoded` is
+  a trailer on the decode above it, so a run that prints no decode prints no
+  such line. A `note: ` about the tool or the board stays on standard error.
 - The usage text when the user asked for it with `-h`.
 - Nothing of an interactive prompt. `ubertooth-btbr`'s `bt> `, its intro line
   (#800) and what `?` and `? <command>` print (#874) are on standard error: a
