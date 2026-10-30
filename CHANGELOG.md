@@ -851,8 +851,8 @@
   so the capture sat on a closed connection until its supervision timeout, up
   to 32 s, and heard nothing in the meantime. The follow now ends a connection
   event or two after that packet and the board goes back to listening on the
-  advertising channel, so the same devices can be followed again as soon as
-  they reconnect.
+  advertising channel, where a new connection between the same devices can be
+  followed.
   [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet

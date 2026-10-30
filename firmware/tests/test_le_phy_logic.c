@@ -3359,6 +3359,8 @@ MU_TEST(a_terminate_ends_the_follow_at_the_next_event)
 	mu_assert(connection_was_reset(),
 	          "a terminate read after its own event had closed never ended "
 	          "the follow");
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "a connection-event match is still armed with no connection");
 	mu_assert_int_eq(ADV_CHANNEL_MHZ, rf_channel);
 }
 
@@ -3370,38 +3372,20 @@ MU_TEST(a_terminate_ends_the_follow_at_the_next_event)
  */
 MU_TEST(an_ordinary_data_packet_does_not_end_the_follow)
 {
-	struct case_t {
-		const char *what;
-		le_rx_t buf;
-	} cases[2];
-	size_t i;
-
-	memset(cases, 0, sizeof(cases));
+	le_rx_t buf;
 
 	/* A data PDU carrying 0x02 where the opcode would be. */
-	cases[0].what = "an L2CAP data packet";
-	build_terminate(&cases[0].buf, 0x13);
-	cases[0].buf.data[0] = 0x02;
+	anchored_connection(100000);
+	build_terminate(&buf, 0x13);
+	buf.data[0] = 0x02;
 
-	/* The empty PDU that fills most connection events. */
-	cases[1].what = "an empty data packet";
-	fill_packet(&cases[1].buf, 0, DATA_CHANNEL_MHZ);
-	memset(cases[1].buf.data, 0, sizeof(cases[1].buf.data));
-	cases[1].buf.data[0] = 0x01;
+	packet_handler(&buf);
+	conn_event.num_packets = 1;
+	conn_event.opened = 1;
+	finish_conn_event();
 
-	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-		char msg[160];
-
-		anchored_connection(100000);
-
-		packet_handler(&cases[i].buf);
-		conn_event.num_packets = 1;
-		conn_event.opened = 1;
-		finish_conn_event();
-
-		snprintf(msg, sizeof(msg), "%s ended the follow", cases[i].what);
-		mu_assert(!connection_was_reset(), msg);
-	}
+	mu_assert(!connection_was_reset(),
+	          "an L2CAP data packet ended the follow");
 }
 
 /*

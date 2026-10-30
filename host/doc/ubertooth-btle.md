@@ -35,13 +35,15 @@ for another connection.
 One connection is followed at a time. A connection request heard while a
 connection is being followed is recorded in the capture like any other packet,
 but is not acted on: the follow stays with the connection it started on until
-that connection ends. Ubertooth sees a connection end in one of two ways. A
-pair of devices that closes the connection says so on the air, and the follow
-ends a connection event or two later; the packet that closes the connection is
-in the capture, but an acknowledgment of it that arrives after the follow has
-ended is not. A connection that simply goes quiet ends at its supervision
-timeout, which the connection itself sets anywhere from 100 ms to 32 s; until
-that has passed, a new connection between the same devices is not followed.
+that connection ends.
+
+Ubertooth sees a connection end in one of two ways. A pair of devices that
+closes the connection says so on the air, and the follow ends a connection
+event or two later. The packet that closes the connection is in the capture;
+an acknowledgment of it that arrives after the follow has ended is not. A
+connection that dies without warning ends at its supervision timeout instead.
+The connection itself sets that timeout, anywhere from 100 ms to 32 s, and
+until it has passed a new connection between the same devices is not followed.
 
 No-follow mode is similar to follow mode, but it only logs advertising
 packets and will not follow connections as they are established.

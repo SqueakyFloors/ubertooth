@@ -259,6 +259,13 @@ typedef struct _le_conn_t {
 	// to the connection rather than being a flag of its own: reset_conn()
 	// then clears it, and a packet read just after a follow ended cannot
 	// reach into the follow that comes next.
+	//
+	// Written from the mode's loop without holding interrupts off, where
+	// the two updates above need a guard, because this is one word on its
+	// own: there is no second field the interrupt could read out of step
+	// with it. A write that lands after the interrupt has reset the
+	// connection leaves the note on a connection that is no longer
+	// followed, which is harmless for the same reason.
 	int      terminated;
 } le_conn_t;
 le_conn_t conn = { 0, };
