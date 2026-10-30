@@ -777,9 +777,13 @@ class LMPMaster(LMP):
 
 	def handle_slot_offset(self, op, data):
 		if len(data) < 8:
-			# Too short to hold the offset and the address. This PDU
-			# expects no reply, and 2.5 asks the LM to ignore such a one
-			# rather than refuse it, so the trace is the whole answer.
+			# Too short to hold the offset and the address. 2.5 gives two
+			# answers for a PDU too short for its parameters: carry on with
+			# values of the implementation's own, or refuse it with Invalid
+			# LMP Parameters. Nothing here acts on these two numbers, and
+			# the PDU expects no reply of any kind (it is in
+			# LMP_NO_REPLY_EXPECTED above), so the first answer costs
+			# nothing and the trace is all there is to say.
 			log.info("slot_offset too short to read: %s"%(
 				hexlify(data).decode()))
 			return
@@ -853,14 +857,20 @@ class LMPSlave(LMP):
 
 	def handle_set_afh(self, op, data):
 		if len(data) < AFH_PARAMETERS_LEN:
-			# Too short to hold the instant, the mode, and the channel map,
-			# so there is nothing to hop by: the answer says so rather than
-			# passing a short map to the firmware (Vol 2, Part C, 2.5).
+			# Too short to hold the instant, the mode, and the channel map.
+			# 2.5's other answer, a value of the implementation's own, is no
+			# use here: these parameters leave the host for the firmware,
+			# which hops over whatever map it is given, and no invented map
+			# is the one the central set. So this PDU is refused with
+			# Invalid LMP Parameters, which is the same transaction the full
+			# one gets its LMP_ACCEPTED in.
 			return self.lmp_send_not_accepted(op,
 				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
 		instant = u32(data[:4])
 		mode = data[4]
-		chan_map = data[5:]
+		# A real PDU is padded to the 17 bytes a DM1 carries, so the map is
+		# taken by its own length rather than to the end of the PDU.
+		chan_map = data[5:AFH_PARAMETERS_LEN]
 		log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 			instant<<1, self._clkn, mode))
 		self.lmp_send_accepted(op, tid=self._rx_tid)

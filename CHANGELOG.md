@@ -766,12 +766,14 @@
   capture with it.
   [#960](https://github.com/SqueakyFloors/ubertooth/issues/960)
 
-- A `ubertooth-btbr` session also carries on through an LMP PDU that holds its
-  opcode but ends before its parameters: the name request, the extended
-  features request and the AFH set are refused with invalid LMP parameters,
-  and a short slot offset is traced. `monitor` reports such a PDU rather than
-  hopping over a channel map the central never sent. Each used to end the
-  session the same way.
+- A `ubertooth-btbr` session answers an LMP PDU that holds its opcode but ends
+  before its parameters: the name request, the extended features request, and
+  the AFH set are refused with invalid LMP parameters, and a short slot offset
+  is traced and let go. `monitor` now says it is keeping the channel map it
+  has rather than hopping over one the central never sent. The shortest of
+  these PDUs used to end the session in `error: BTCtlPagingCmd stopped:
+  IndexError: index out of range`, and the rest were read as though the
+  missing bytes were there.
   [#971](https://github.com/SqueakyFloors/ubertooth/issues/971)
 
 - A `ubertooth-btbr` connection goes on when the peer refuses one of the five

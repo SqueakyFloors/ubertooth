@@ -682,25 +682,32 @@ print("ubtbr: every LMP request the link manager handles is answered")
 # A message from the board that ended early reaches a handler with fewer
 # parameter bytes than the PDU has: what goes over the air is padded to the
 # 17 bytes a DM1 carries, so this is the board's message, not the air. The
-# handlers used to read the parameter anyway and the exception ended the
-# whole session, "error: BTCtlPagingCmd stopped: IndexError". Each of them
-# now gives the answer Vol 2, Part C, 2.5 gives for a PDU too short to hold
-# its parameters.
+# handlers used to read the parameter anyway: the shortest PDUs raised and
+# ended the whole session, "error: BTCtlPagingCmd stopped: IndexError", and
+# the ones in between were read as though the missing bytes were there -- a
+# truncated address in a line, or a channel map of fewer than ten bytes
+# passed to the firmware, which reads ten either way. Vol 2, Part C, 2.5
+# gives two answers for a PDU too short for its parameters: carry on with
+# values of the implementation's own, or refuse it with Invalid LMP
+# Parameters. Which each of the five takes is pinned here.
+
+
+class RecordingBoard:
+    """A board that keeps the AFH commands it is sent."""
+
+    def __init__(self):
+        self.afh = []
+
+    def send_set_afh_cmd(self, instant, mode, afh_map):
+        self.afh.append((instant, mode, bytes(afh_map)))
 
 
 class AFHConnection(RecordingConnection):
-    """A connection whose board records the AFH commands it is sent."""
-
-    class Board:
-        def __init__(self):
-            self.afh = []
-
-        def send_set_afh_cmd(self, instant, mode, afh_map):
-            self.afh.append((instant, mode, bytes(afh_map)))
+    """A connection with such a board behind it."""
 
     def __init__(self):
         super().__init__()
-        self._bt = self.Board()
+        self._bt = RecordingBoard()
 
 
 for link_manager in link_managers():
@@ -723,9 +730,9 @@ for link_manager in link_managers():
         link_manager._con.sent
 
 # LMP_set_AFH is the peripheral's, and the one whose parameters leave the
-# host: a map shorter than the ten bytes it has would send the firmware
-# hopping over channels the central never set, so a short PDU is refused and
-# no command goes to the board.
+# host: the firmware reads ten map bytes whatever it is sent, so a short PDU
+# used to set it hopping over channels the central never named. It is refused
+# instead, and no command goes to the board.
 AFH_PARAMETERS = b"\x08\x00\x00\x00\x01" + b"\xff" * 10
 peripheral = lmp.LMPSlave(AFHConnection())
 assert answers(peripheral, lmp.LMP_SET_AFH, AFH_PARAMETERS[:14], tid=1) == \
@@ -740,8 +747,10 @@ assert answers(peripheral, lmp.LMP_SET_AFH, AFH_PARAMETERS, tid=1) == \
 assert peripheral._con._bt.afh == [(16, 1, b"\xff" * 10)], \
     peripheral._con._bt.afh
 
-# LMP_slot_offset is the central's, and it expects no reply, which 2.5 asks
-# the LM to ignore rather than refuse: the trace is the whole answer.
+# LMP_slot_offset is the central's, and nothing here acts on its two numbers
+# or expects to answer it at all, so a short one is traced and let go: that
+# is 2.5's implementation-value answer, where the AFH set above takes the
+# refusal because its parameters reach the firmware.
 central = lmp.LMPMaster(RecordingConnection())
 records.messages = []
 assert answers(central, lmp.LMP_SLOT_OFFSET, b"\x96\x00\x11\x22", tid=0) == \
@@ -756,43 +765,53 @@ assert records.said("slot_offset from 665544332211: 150usec"), \
 print("ubtbr: an LMP PDU that ends before its parameters is answered, not raised on")
 
 # The fifth is monitor's own reader, which follows a piconet it is not part
-# of: there is nobody to refuse a short PDU to, so it reports the PDU and
-# sends the board nothing.
+# of: there is nobody to refuse a short PDU to. It keeps the channel map it
+# has, says so, and still reports the PDU.
+
+
+class MonitorPacket:
+    """One received ACL packet, as a monitor session's reader takes it."""
+
+    class ACL:
+        def __init__(self, pdu):
+            self.data = pdu
+
+    def __init__(self, pdu):
+        self.clkn = 0
+        self.bb_hdr = "BB_HDR"
+        self.bt_data = self.ACL(pdu)
 
 
 class MonitorStandIn:
     """Just enough of a monitor session for its LMP reader."""
 
-    class Packet:
-        class ACL:
-            def __init__(self, pdu):
-                self.data = pdu
-
-        def __init__(self, pdu):
-            self.clkn = 0
-            self.bb_hdr = "BB_HDR"
-            self.bt_data = self.ACL(pdu)
-
     def __init__(self):
-        self._bt = AFHConnection.Board()
+        self._bt = RecordingBoard()
 
     def read(self, pdu):
-        said = io.StringIO()
-        with contextlib.redirect_stdout(said):
-            btctl.BTCtlMonitorCmd._handle_lmp(self, self.Packet(pdu))
-        return said.getvalue()
+        """What the reader printed, and what it warned, for one PDU."""
+        said, warned = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(said), \
+                contextlib.redirect_stderr(warned):
+            btctl.BTCtlMonitorCmd._handle_lmp(self, MonitorPacket(pdu))
+        return said.getvalue(), warned.getvalue()
 
 
-SET_AFH_PDU = bytes(((lmp.LMP_SET_AFH << 1),)) + AFH_PARAMETERS
+SET_AFH_PDU = lmp.p8(lmp.LMP_SET_AFH << 1) + AFH_PARAMETERS
 monitor = MonitorStandIn()
-assert "LMP_SET_AFH" in monitor.read(SET_AFH_PDU[:15]), \
-    monitor.read(SET_AFH_PDU[:15])
+said, warned = monitor.read(SET_AFH_PDU[:15])
+assert "LMP_SET_AFH" in said, said
+assert warned == ("warning: an LMP_SET_AFH too short to read, so the capture"
+                  " keeps the channel map it has:"
+                  " 0800000001ffffffffffffffffff\n"), repr(warned)
 assert monitor._bt.afh == [], monitor._bt.afh
-# and the whole one is followed, as it was before
+# and the whole one is followed, as it was before, with nothing warned
 monitor = MonitorStandIn()
-assert "LMP_SET_AFH" in monitor.read(SET_AFH_PDU), monitor.read(SET_AFH_PDU)
+said, warned = monitor.read(SET_AFH_PDU)
+assert "LMP_SET_AFH" in said, said
+assert warned == "", repr(warned)
 assert monitor._bt.afh == [(16, 1, b"\xff" * 10)], monitor._bt.afh
-print("ubtbr: monitor reports a short LMP PDU instead of hopping on it")
+print("ubtbr: monitor keeps its channel map on a short LMP_SET_AFH, and says so")
 # ---- the LMP PDUs a link manager names, answers, and reports --------------
 
 # Both name tables against Core v5.4 | Vol 2, Part C, table 5.1: the plain
