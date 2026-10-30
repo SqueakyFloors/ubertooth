@@ -523,6 +523,114 @@ assert unknown.getvalue() == \
 assert said.getvalue() == "", said.getvalue()
 print("ubtbr: a warning and a failure are each one line on standard error")
 
+# ---- an LMP request is answered ------------------------------------------
+
+# A request from the peer has to be answered, either with LMP_ACCEPTED or
+# with LMP_NOT_ACCEPTED and a reason (Core v5.4 | Vol 2, Part C, 2.7). A peer
+# that gets neither waits out its LMP response timeout, 30 seconds, and
+# detaches the link, which is what used to end every connection to a real
+# Classic device. The answer also has to carry the transaction ID the request
+# arrived with, or the peer cannot match it to what it asked (2.4).
+
+class RecordingConnection:
+    """A connection that keeps the PDUs the link manager hands it."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send_acl(self, llid, data, flow=1):
+        assert llid == btctl.LLID_LMP, llid
+        self.sent.append(bytes(data))
+
+
+def lmp_pdu(op, payload, tid):
+    """One received LMP PDU: the opcode, its transaction ID, the parameters."""
+    if op & lmp.EXT_OPCODE:
+        head = bytes(((lmp.LMP_ESCAPE_4 << 1) | tid, op & 0xff))
+    else:
+        head = bytes(((op << 1) | tid,))
+    return head + payload
+
+
+def answers(link_manager, op, payload=b"", tid=0):
+    """Hand one PDU to a link manager and return the PDUs it sent back."""
+    link_manager._con.sent.clear()
+    warned = io.StringIO()
+    with contextlib.redirect_stderr(warned):
+        link_manager.receive(0, lmp_pdu(op, payload, tid))
+    assert warned.getvalue() == "", warned.getvalue()
+    return link_manager._con.sent
+
+
+def pdu_sent(op, parameters, tid):
+    """The PDU the link manager puts on the link, padded as it pads it."""
+    return bytes(((op << 1) | tid,) + parameters).ljust(17, b"\x00")
+
+
+def link_managers():
+    """A central and a peripheral, each with a connection of its own."""
+    return [lmp.LMPMaster(RecordingConnection()),
+            lmp.LMPSlave(RecordingConnection())]
+
+
+for link_manager in link_managers():
+    # The request this is all about. Five slots is refused, because this end
+    # keeps the peer on the single-slot packets it decodes, and the reason
+    # says the value is what it cannot have.
+    assert answers(link_manager, lmp.LMP_MAX_SLOT_REQ, b"\x05", tid=1) == \
+        [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_MAX_SLOT_REQ, 0x20), 1)], \
+        link_manager._con.sent
+    # One slot is what a new connection runs at, so asking for it is granted.
+    assert answers(link_manager, lmp.LMP_MAX_SLOT_REQ, b"\x01", tid=0) == \
+        [pdu_sent(lmp.LMP_ACCEPTED, (lmp.LMP_MAX_SLOT_REQ,), 0)], \
+        link_manager._con.sent
+    # No slots, and a PDU too short to say how many, are both invalid rather
+    # than unsupported.
+    for payload in (b"\x00", b""):
+        assert answers(link_manager, lmp.LMP_MAX_SLOT_REQ, payload, tid=1) == \
+            [pdu_sent(lmp.LMP_NOT_ACCEPTED,
+                      (lmp.LMP_MAX_SLOT_REQ, 0x1e), 1)], \
+            link_manager._con.sent
+    # A role switch is refused the same way: this end cannot become the other
+    # side of the link, and its feature mask does not offer the feature.
+    assert answers(link_manager, lmp.LMP_SWITCH_REQ, bytes(4), tid=1) == \
+        [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_SWITCH_REQ, 0x1a), 1)], \
+        link_manager._con.sent
+    # The notifications beside it are recognized and send nothing back.
+    assert answers(link_manager, lmp.LMP_MAX_SLOT, b"\x05", tid=1) == [], \
+        link_manager._con.sent
+
+peripheral = lmp.LMPSlave(RecordingConnection())
+assert answers(peripheral, lmp.LMP_SUPERVISION_TIMEOUT, b"\x00\x20",
+               tid=0) == [], peripheral._con.sent
+
+# The IO capability request arrives under an extended opcode, so the central's
+# table has to be keyed by one. Keyed by the plain number it answered opcode
+# 25, a different PDU, and left the request itself to the warning.
+central = lmp.LMPMaster(RecordingConnection())
+assert answers(central, lmp.EXT_OPCODE | lmp.LMP_IO_CAPABILITY_REQ,
+               b"\x01\x00\x03", tid=1)[0][:2] == \
+    bytes(((lmp.LMP_ESCAPE_4 << 1) | 1, lmp.LMP_IO_CAPABILITY_RES)), \
+    central._con.sent
+
+# and no request either side handles can go unanswered: every opcode in the
+# tables whose PDU is a request is fed in, and each one has to put a PDU on
+# the link with the transaction ID it came in with.
+for link_manager in link_managers():
+    requests = 0
+    for op in link_manager._FSM[1]:
+        # Looking the name up is itself a check: every key has to be an
+        # opcode of the right kind, plain or extended.
+        names = lmp.LMP_OPEXT2STR if op & lmp.EXT_OPCODE else lmp.LMP_OP2STR
+        if not names[op & 0xff].endswith("_REQ"):
+            continue
+        requests += 1
+        sent = answers(link_manager, op, bytes(16), tid=1)
+        assert len(sent) == 1, (names[op & 0xff], sent)
+        assert sent[0][0] & 1 == 1, (names[op & 0xff], sent)
+    assert requests >= 6, requests
+print("ubtbr: every LMP request the link manager handles is answered")
+
 # ---- a command of a super command that will not stop ----------------------
 
 # Driven through the pieces a super command uses on itself: the thread it

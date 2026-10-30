@@ -188,7 +188,9 @@ If no FHS appears, the peripheral won the race; try again.
   encryption on are reported as raw data, and the AFH map stops being
   followed, because the LMP packet carrying it is encrypted too.
 - The link layer carries Asynchronous Connection-Less (ACL) traffic only, and
-  does not do role switching or the LMP procedures around it.
+  does not do role switching or the LMP procedures around it. A peer asking to
+  send multi-slot packets is refused as well, so a connection stays on the
+  single-slot packets this board decodes.
 - As the central, it polls the peripheral hard enough to drain its battery.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.

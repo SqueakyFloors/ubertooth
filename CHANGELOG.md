@@ -674,6 +674,17 @@
 
 ### Reliability fixes
 
+- A `ubertooth-btbr` connection to a real Classic device lasts as long as the
+  command does, instead of ending after exactly 30 seconds. The peer asks how
+  many slots its packets may use, and a request like that has to be answered;
+  getting nothing back, it waited out its 30-second LMP response timeout and
+  detached the link with `LMP_DETACH | 0f22`. The answer keeps the link on
+  the single-slot packets this board decodes. A role switch is refused rather
+  than passed over in silence, an IO capability request is answered under the
+  extended opcode it arrives with, and every answer now carries the
+  transaction ID of the request, so the peer can match it to what it asked.
+  [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
+
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
   line, the C string terminator the board's console puts on the end of each
   one, which `grep` on a saved session answers with `Binary file matches`
