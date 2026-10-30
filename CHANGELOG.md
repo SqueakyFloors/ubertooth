@@ -602,6 +602,19 @@
   `install.sh` and the build guides check out the new commit; a libbtbb
   without what the tools use is still refused at configure time, by name.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+- Fixed: `ubertooth-rx -l <lap> -u <uap>` never settled on a clock for a
+  piconet that was hopping adaptively. It heard the piconet, started a
+  CLK1-27 search, ruled out every candidate, started over, and did that for
+  as long as the capture ran. The tools are now built against a libbtbb
+  ([`4b7f8d7`](https://github.com/SqueakyFloors/libbtbb/commit/4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d))
+  that reads the evidence of adapted hopping before the candidate list it
+  arrives with is emptied, so the candidates are chosen from the adapted
+  sequence the piconet is really using. That library also no longer leaves an
+  unfinished PcapNG capture file behind when one cannot be written, so a
+  capture that could not start leaves nothing to tell apart from a capture
+  that caught nothing. `install.sh` and the build guides check out the new
+  commit.
+  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
