@@ -239,34 +239,36 @@ high ones still unwhitens and checks out every header it receives; what it gets
 wrong is which channel to listen on. Such a follow lands on the piconet's
 channel in about one slot pair in eighteen, so nothing fails and there is
 nothing for the report above to count. A follow that hears no packet of its
-piconet for ten seconds therefore has that clock given up as well, with
+piconet for a minute therefore has that clock given up as well, with
 
     warning: nothing of this piconet has been heard on the clock being followed; searching for it again
 
-on standard error and the same return to recovering a clock. Ten seconds is
-long enough that a follow which is working does not reach it on an ordinary
-link: on the right clock the receiver is on the piconet's channel in every slot
-pair, so even a link carrying four packets a second is heard from forty times
-in that span.
+on standard error and the same return to recovering a clock. A minute is long
+enough that a follow which is working does not reach it: on the right clock the
+receiver is on the piconet's channel in every slot pair, so even a link carrying
+one packet a second is heard from sixty times in that span, and the longest
+interval the low-power sniff mode allows is about 41 s.
 
 Two limits come with that wait, and both are worth knowing before reading much
 into it.
 
-It is a wait, not a test of the clock, so a piconet that stops talking for ten
-seconds has its clock given up whether or not that clock was right: a
-connection that ended, a device that went out of range, and a link that has
-gone into a low-power mode whose interval is longer than the wait all look the
-same from here. And a clock given up either way is ruled out, so the search
+It is a wait, not a test of the clock, so a piconet that stops talking for a
+minute has its clock given up whether or not that clock was right: a connection
+that ended and a device that went out of range look the same from here. And a
+clock given up either way is ruled out, so the search
 does not come back to it. That is the point for a clock that was wrong, and the
 cost for one that was right: the capture goes on and the search for a clock
 restarts, but that piconet will not be followed again on the clock it just gave
 up. Run the command again to follow it afresh.
 
 The other limit is that silence is the only sign a wrong clock gives. On a link
-busy enough that one packet in eighteen still arrives inside the wait, a wrong
-clock keeps restarting the wait and is never given up, however little of the
-piconet's traffic reaches the capture. Nothing in those packets says the clock
-is wrong — they all check out — so there is nothing else to act on.
+busy enough that one packet in eighteen still arrives inside the wait — about
+one packet a second or more — a wrong clock keeps restarting the wait and is
+never given up, however little of the piconet's traffic reaches the capture.
+Nothing in those packets says the clock is wrong, since they all check out, so
+there is nothing else to act on. The wait is set where it is because a clock
+given up is ruled out, which makes dropping a clock that was right the more
+expensive mistake.
 
 To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse
 of the above. For example, if the tool recovers a LAP of 36A2B4 and a

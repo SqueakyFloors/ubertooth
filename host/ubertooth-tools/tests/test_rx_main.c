@@ -115,12 +115,11 @@ static struct {
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
 	int stop_refused;
-	/* The piconet follow, as the callback reports it to the tool, and the
-	 * clock the fake board runs on: how long each block takes, so a case
-	 * can let seconds pass without waiting for them. */
-	uint64_t now_ms;
-	unsigned block_ms;
-	uint64_t follow_heard_ms; /* 0 for a capture following no clock */
+	/* The piconet follow, as the callback reports it to the tool, and how
+	 * long each block takes, so a case can let seconds pass without
+	 * waiting for them. */
+	long block_ms;
+	long follow_quiet_ms; /* -1 for a capture following no clock */
 	int hear_per_block;  /* 1 to hear a packet of the piconet per block */
 	int drops;           /* clocks this capture asked to give up */
 	int drop_result;     /* what each of those asks reports */
@@ -148,7 +147,7 @@ static void reset_device(void)
 	device.blocks_to_end = 3;
 	/* Following no clock, and a board whose blocks take no time: a case
 	 * about something else cannot reach the quiet-follow wait. */
-	device.follow_heard_ms = 0;
+	device.follow_quiet_ms = -1;
 	device.drop_result = 1;
 	device.ut.devh = (struct libusb_device_handle*)&device;
 	/* Not a real ring buffer: the fake receive below never fills one, and
@@ -322,11 +321,12 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 {
 	cb(ut, cb_args);
 	device.blocks++;
-	device.now_ms += device.block_ms;
-	/* A packet of the followed piconet in this block, which is what the
-	 * callback stamps. */
-	if (device.hear_per_block && device.follow_heard_ms != 0)
-		device.follow_heard_ms = device.now_ms;
+	/* The time this block took, and a packet of the followed piconet in it
+	 * where the case asked for one, which is what the callback stamps. */
+	if (device.follow_quiet_ms >= 0)
+		device.follow_quiet_ms = device.hear_per_block
+		                       ? 0
+		                       : device.follow_quiet_ms + device.block_ms;
 	if (device.blocks < device.blocks_to_end)
 		return 0;
 	switch (device.end) {
@@ -396,20 +396,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 	(void)args;
 }
 
-/* The monotonic clock the wait for a quiet follow is timed by. util_clock.c is
- * not linked here, so the cases move time themselves instead of waiting for
- * it. */
-uint64_t util_clock_now_ms(void)
+/* What the callback reports about the follow: how long since it last heard a
+ * packet of the piconet whose clock is being followed, and -1 when it is
+ * following none. The cases move that reading on themselves rather than
+ * waiting for a clock. */
+long ubertooth_follow_quiet_ms(void)
 {
-	return device.now_ms;
-}
-
-/* What the callback reports about the follow: when it last heard a packet of
- * the piconet whose clock is being followed, and 0 when it is following
- * none. */
-uint64_t ubertooth_follow_heard_ms(void)
-{
-	return device.follow_heard_ms;
+	return device.follow_quiet_ms;
 }
 
 /* Giving that clock up. The real one warns on standard error and takes the
@@ -421,10 +414,10 @@ int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 	(void)ut;
 	(void)pn;
 	device.drops++;
-	device.follow_heard_ms = device.now_ms;
+	device.follow_quiet_ms = 0;
 	if (device.drop_result <= 0)
 		return 0;
-	device.follow_heard_ms = 0;
+	device.follow_quiet_ms = -1;
 	return 1;
 }
 
@@ -1370,39 +1363,38 @@ MU_TEST(a_follow_that_hears_nothing_gives_the_clock_up_once)
 
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 1000;
+	/* The library has handed this capture a clock, and nothing of the
+	 * piconet has been heard on it since. */
+	device.block_ms = 10000;
 	device.blocks_to_end = 20;
-	/* The library handed this capture a clock a second in, and nothing of
-	 * the piconet has been heard on it since. */
-	device.now_ms = 1000;
-	device.follow_heard_ms = 1000;
+	device.follow_quiet_ms = 0;
 
 	r = RUN_RX("-l", "112233", "-u", "22", "-t", "60");
 
 	mu_assert_int_eq(0, r.rc);
-	/* Once over the twenty seconds, not once per record: giving the clock
+	/* Once over the two hundred seconds, not once per record: giving the clock
 	 * up leaves the capture following nothing, and the wait starts again
 	 * only when the library hands another clock over. */
 	mu_assert_int_eq(1, device.drops);
 }
 
-/* And the wait is ten seconds, pinned either side of the moment it is up: a
+/* And the wait is a minute, pinned either side of the moment it is up: a
  * follow whose clock was right is dropped if this fires early, and that clock
  * is then ruled out for the rest of the run, so the value is worth a test of
  * its own. */
-MU_TEST(the_wait_is_ten_seconds)
+MU_TEST(the_wait_is_a_minute)
 {
 	struct run_result r;
 
-	/* One block, which takes a millisecond less than the wait. */
+	/* Two blocks, the first of which takes a millisecond less than the
+	 * wait. */
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 9999;
-	device.blocks_to_end = 1;
-	device.now_ms = 1000;
-	device.follow_heard_ms = 1000;
+	device.block_ms = 59999;
+	device.blocks_to_end = 2;
+	device.follow_quiet_ms = 0;
 
-	r = RUN_RX("-l", "112233", "-u", "22", "-t", "60");
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, device.drops);
@@ -1410,12 +1402,11 @@ MU_TEST(the_wait_is_ten_seconds)
 	/* And one that takes exactly the wait. */
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 10000;
-	device.blocks_to_end = 1;
-	device.now_ms = 1000;
-	device.follow_heard_ms = 1000;
+	device.block_ms = 60000;
+	device.blocks_to_end = 2;
+	device.follow_quiet_ms = 0;
 
-	r = RUN_RX("-l", "112233", "-u", "22", "-t", "60");
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, device.drops);
@@ -1431,10 +1422,9 @@ MU_TEST(a_working_follow_and_a_capture_with_no_clock_keep_going)
 
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 1000;
+	device.block_ms = 10000;
 	device.blocks_to_end = 30;
-	device.now_ms = 1000;
-	device.follow_heard_ms = 1000;
+	device.follow_quiet_ms = 0;
 	device.hear_per_block = 1;
 
 	r = RUN_RX("-l", "112233", "-u", "22", "-t", "60");
@@ -1444,10 +1434,10 @@ MU_TEST(a_working_follow_and_a_capture_with_no_clock_keep_going)
 
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 1000;
+	device.block_ms = 10000;
 	device.blocks_to_end = 30;
 
-	r = RUN_RX("-t", "60");
+	r = RUN_RX("-t", "600");
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, device.drops);
@@ -1455,8 +1445,8 @@ MU_TEST(a_working_follow_and_a_capture_with_no_clock_keep_going)
 
 /* A follow that stays quiet -- a clock the library will not give up, or a
  * board that will not come off one it has -- is asked about once per wait and
- * not once per record, so forty seconds at ten records a second is four asks
- * and not four hundred. */
+ * not once per record, so five minutes at ten records a second is four asks
+ * and not three thousand. */
 MU_TEST(a_follow_that_stays_quiet_is_asked_about_once_per_wait)
 {
 	struct run_result r;
@@ -1464,12 +1454,11 @@ MU_TEST(a_follow_that_stays_quiet_is_asked_about_once_per_wait)
 	reset_device();
 	device.end = END_BY_TIMEOUT;
 	device.block_ms = 100;
-	device.blocks_to_end = 400;   /* forty seconds */
-	device.now_ms = 1000;
-	device.follow_heard_ms = 1000;
+	device.blocks_to_end = 3000;   /* five minutes */
+	device.follow_quiet_ms = 0;
 	device.drop_result = 0;
 
-	r = RUN_RX("-l", "112233", "-u", "22", "-t", "60");
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(4, device.drops);
@@ -1506,7 +1495,7 @@ int main(void)
 	MU_RUN(a_replay_sends_no_setup_request);
 	MU_RUN(a_live_capture_and_a_replay_both_report_their_gaps);
 	MU_RUN(a_follow_that_hears_nothing_gives_the_clock_up_once);
-	MU_RUN(the_wait_is_ten_seconds);
+	MU_RUN(the_wait_is_a_minute);
 	MU_RUN(a_working_follow_and_a_capture_with_no_clock_keep_going);
 	MU_RUN(a_follow_that_stays_quiet_is_asked_about_once_per_wait);
 	return mu_report();

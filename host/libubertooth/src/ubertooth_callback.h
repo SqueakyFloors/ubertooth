@@ -71,10 +71,10 @@ uint64_t ubertooth_packet_arrival_ns(void);
  * the agreement above is only ever to within that second. */
 uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
 
-/* When cb_rx() last heard a packet of the piconet whose clock this capture is
- * following, as a monotonic millisecond reading, and 0 when it is following no
- * clock the library gave it. A clock just handed over reads as the moment it
- * arrived, because nothing has been heard on it yet.
+/* How long since cb_rx() heard a packet of the piconet whose clock this
+ * capture is following, in milliseconds, and -1 when it is following no clock
+ * the library gave it. A clock just handed over reads as no time at all,
+ * because nothing has been heard on it yet.
  *
  * For a capture tool to tell a follow that has gone quiet from one that is
  * working. A clock that is not the piconet's does not fail: clock discovery
@@ -86,10 +86,12 @@ uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
  * packet in eighteen and no run of failing headers ever arrives for the
  * library to act on.
  *
- * How long a silence is long enough is the caller's: only the tool knows it
- * asked the board to hop with the piconet, and what its user wants of a
- * piconet that has stopped talking. */
-uint64_t ubertooth_follow_heard_ms(void);
+ * Measured here, on the monotonic clock, so a caller compares one reading
+ * against its own threshold rather than two clocks against each other. How
+ * long a silence is long enough is the caller's: only the tool knows it asked
+ * the board to hop with the piconet, and what its user wants of a piconet that
+ * has stopped talking. */
+long ubertooth_follow_quiet_ms(void);
 
 /* Gives up the clock this capture is following, for a caller that has decided
  * the follow has gone quiet, and leaves the capture as a clock the library
@@ -99,8 +101,11 @@ uint64_t ubertooth_follow_heard_ms(void);
  *
  * Returns 1 if a clock was given up, and 0 if there was none to give up: this
  * capture is not following one, or it is following a clock its own tool set,
- * which the library leaves alone. Nothing is printed in that case, so a caller
- * may ask whenever it thinks the follow is quiet.
+ * which the library leaves alone because it has nothing better to fall back
+ * on. Nothing is printed in that case, so a caller may ask whenever it thinks
+ * the follow is quiet. Of the tools sharing this callback, only
+ * ubertooth-follow sets a clock of its own, and it does not watch for silence,
+ * so today that answer is for a caller that does not exist yet.
  *
  * Either way the reading above starts again, so a caller that asks on a wait
  * asks once per wait and not once per record. A board that refuses to come off

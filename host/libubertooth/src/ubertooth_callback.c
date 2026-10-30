@@ -1382,7 +1382,7 @@ static int br_calibrated;
 
 /* When a packet of that piconet was last heard, on the monotonic clock. A
  * clock handed over starts it, because nothing has been heard on that clock
- * yet. See ubertooth_follow_heard_ms(). */
+ * yet. See ubertooth_follow_quiet_ms(). */
 static uint64_t br_heard_ms;
 
 /* Whether the library has no clock for this piconet any more while the board
@@ -1440,9 +1440,11 @@ static void br_stop_following(ubertooth_t* ut)
 		        "again\n");
 }
 
-uint64_t ubertooth_follow_heard_ms(void)
+long ubertooth_follow_quiet_ms(void)
 {
-	return br_following ? br_heard_ms : 0;
+	if (!br_following)
+		return -1;
+	return (long)(monotonic_ms() - br_heard_ms);
 }
 
 int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)

@@ -23,7 +23,6 @@
 #include "ubertooth_callback.h"
 #include "opt_parse.h"
 #include "request_report.h"
-#include "util_clock.h"
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h>
@@ -105,36 +104,23 @@ static int capture_failed(ubertooth_t* ut, const char* what, int code)
  * following is given up, in milliseconds.
  *
  * Silence is the only symptom a wrong clock has, rather than anything that
- * fails (see ubertooth_follow_heard_ms()), so the value is a judgement about
- * what a silence means. Ten seconds is 8000 slot pairs: the right clock is on
- * the piconet's channel for every one of them, so a link carrying even four
- * packets a second would have been heard from forty times. It is several times
- * the longest gap a Classic link in sniff mode leaves in practice, and it
- * cannot be much shorter than that, because giving a clock up rules it out: a
- * follow that was right and merely went quiet does not get that clock back in
- * the same run, where a wrong clock kept a little longer costs only time. */
-#define FOLLOW_QUIET_MS 10000u
-
-/* Gives up a clock this capture has heard nothing on. The callback stamps when
- * a packet of the followed piconet last arrived; the judgement about how long
- * a silence is too long is made here, because the callback runs when a record
- * arrives rather than on a clock, and it is this tool that asked the board to
- * hop with the piconet. */
-static void check_quiet_follow(ubertooth_t* ut, btbb_piconet* pn)
-{
-	uint64_t heard_ms = ubertooth_follow_heard_ms();
-
-	/* Zero where no clock from the library is being followed: there is
-	 * nothing to give up, and nothing a silence would mean. */
-	if (heard_ms == 0)
-		return;
-	if (util_clock_now_ms() - heard_ms < FOLLOW_QUIET_MS)
-		return;
-
-	/* The wait starts again inside this call whatever comes of it, so a
-	 * follow that stays quiet asks once per wait. */
-	ubertooth_follow_drop_clock(ut, pn);
-}
+ * fails (see ubertooth_follow_quiet_ms()), so the value is a judgement about
+ * what a silence means, and it is made here because only this tool knows it
+ * asked the board to hop with the piconet.
+ *
+ * A minute is 48000 slot pairs, and the right clock is on the piconet's
+ * channel for every one of them, so a link carrying even one packet a second
+ * would have been heard from sixty times before the wait is up. Nothing a
+ * working link does leaves a gap that long either: the longest interval the
+ * low-power sniff mode allows is about 41 s.
+ *
+ * It has to be that long, because giving a clock up rules it out: a follow
+ * that was right and merely went quiet does not get that clock back in the
+ * same run, where a wrong clock kept longer costs only time. The price of the
+ * length is that a wrong clock is given up only on a link slow enough for one
+ * packet in eighteen to leave a minute's gap, which is about one packet a
+ * second or less. */
+#define FOLLOW_QUIET_MS 60000
 
 int main(int argc, char* argv[])
 {
@@ -603,12 +589,18 @@ int main(int argc, char* argv[])
 
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {
-			ubertooth_bulk_receive(ut, cb_rx, pn);
 			/* A follow that locked onto the wrong clock hears next
 			 * to nothing rather than failing, so nothing in the
-			 * packets that do arrive reports it: the wait for one
-			 * is timed here. */
-			check_quiet_follow(ut, pn);
+			 * packets that do arrive reports it: the clock is given
+			 * up on the wait above instead. A negative reading is a
+			 * capture following no clock the library gave it, and
+			 * the drop starts the wait again whatever comes of it,
+			 * so a follow that stays quiet asks once per wait.
+			 * Before the receive, so a capture that has just been
+			 * stopped sends no request on its way out. */
+			if (ubertooth_follow_quiet_ms() >= FOLLOW_QUIET_MS)
+				ubertooth_follow_drop_clock(ut, pn);
+			ubertooth_bulk_receive(ut, cb_rx, pn);
 		}
 
 		ubertooth_bulk_thread_stop();
