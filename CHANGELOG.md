@@ -2616,7 +2616,12 @@ Fixes with no visible change in normal use.
   than reading a register that clears whichever bits are written to it and
   writing the answer back.
   [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
-
+- Fixed: the generic receive left in the radio's FIFO whatever a packet too
+  long for one record had put there, and those bytes came out in front of the
+  next packet. It now clears the FIFO on entry to the mode and after each
+  record, and a record the packet did not fit in says so instead of looking
+  like a whole packet. No shipped tool asks for the mode.
+  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing
   it over in silence, answers a request to pair under the extended opcode it
   really arrives with, and sends each answer under the request's own

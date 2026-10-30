@@ -702,6 +702,12 @@ enum modulations {
 };
 
 enum usb_pkt_types {
+	/* A Basic Rate capture's symbols. MODE_RX_GENERIC sends its records
+	 * under this type too, and they are laid out differently: the four
+	 * bytes of the sync word the radio matched on, then one of the radio's
+	 * 32-byte FIFOs of what followed it, then a flags byte whose bit 0 says
+	 * the radio still held bytes when the record was taken -- so the packet
+	 * did not fit in one record and the rest of it is gone. */
 	BR_PACKET  = 0,
 	LE_PACKET  = 1,
 	MESSAGE    = 2,

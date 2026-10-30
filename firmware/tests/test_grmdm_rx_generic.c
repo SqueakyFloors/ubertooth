@@ -17,11 +17,18 @@
  * test_frend.c do: the choice goes through the helper, and no truth test
  * against a bit mask is left in the file.
  *
- * The last part scans the packet-mode receive, rx_generic_sync(), for the size
- * of the buffer it builds each record in. enqueue() takes no length and copies
- * DMA_SIZE bytes out of whatever it is handed, and that buffer was 36 bytes:
- * every record carried 14 bytes read past the end of a stack buffer out to the
- * host.
+ * The rest scans the packet-mode receive, rx_generic_sync(). First the size of
+ * the buffer it builds each record in: enqueue() takes no length and copies
+ * DMA_SIZE bytes out of whatever it is handed, and that buffer was 36 bytes,
+ * so every record carried 14 bytes read past the end of a stack buffer out to
+ * the host. Then the wait that lets the radio write byte 0, and the clearing
+ * of the radio's FIFO: a record holds one FIFO's worth, and bytes a longer
+ * packet left behind came out in front of the next packet, which arrived
+ * shifted by as many as were left.
+ *
+ * The last part is a model of the loop's bookkeeping that does run here: what
+ * a record takes out of the FIFO, what the mark on a record cut short is read
+ * from, and what is left for the next packet with the flush and without it.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,6 +135,26 @@ struct scan {
 	char record_buffer_decl[SCAN_LINE_MAX];
 	long syncword_len;     /* RX_GENERIC_SYNCWORD_LEN, -1 when not found */
 	long data_len;         /* RX_GENERIC_DATA_LEN, -1 when not found */
+	long flags_len;        /* RX_GENERIC_FLAGS_LEN */
+	long truncated;        /* RX_GENERIC_TRUNCATED */
+
+	/* The flush of the radio's FIFO, and the mark on a record it cut. */
+	int flush_def;         /* rx_generic_flush_fifo()'s definition */
+	int flush_whole_fifo;  /* it reads CC2400_FIFO_SIZE bytes */
+	int flush_reads;       /* how many reads its body makes */
+	int loop_start;        /* the capture loop's `while` */
+	int flush_on_entry;    /* a flush call above that loop */
+	int flush_after_read;  /* and one below the record's read */
+	int mark_line;         /* the record's flags byte written */
+	char mark_text[SCAN_LINE_MAX];
+	int enqueue_line;      /* the record handed to enqueue() */
+	char flags_off_text[SCAN_LINE_MAX];  /* RX_GENERIC_FLAGS_OFF as written */
+	int flags_off_from_lengths;          /* it is the two lengths added */
+	int iocfg_save;        /* IOCFG read into a variable */
+	char iocfg_saved_in[64];
+	int iocfg_set_empty;   /* FIFO_EMPTY put on the pin */
+	int iocfg_restores;    /* how many writes put the saved value back */
+	int returns;           /* `return` statements in the function */
 
 	/* The wait before the record's own FIFO read. */
 	int wait_call;         /* its call inside the capture loop */
@@ -149,8 +176,8 @@ struct scan {
 	int reg_count;
 };
 
-/* The value of a plain decimal #define in the scanned file. -1 when the file
- * has no such line. */
+/* The value of a #define in the scanned file that names a plain number,
+ * decimal or hexadecimal. -1 when the file has no such line. */
 static long read_define(const char *name)
 {
 	char line[SCAN_LINE_MAX];
@@ -170,7 +197,8 @@ static long read_define(const char *name)
 		if ((p != line && is_ident_char(p[-1])) ||
 		    is_ident_char(p[strlen(name)]))
 			continue;
-		value = strtol(p + strlen(name), NULL, 10);
+		/* Base 0, so a flag written 0x01 reads as 1 rather than 0. */
+		value = strtol(p + strlen(name), NULL, 0);
 		break;
 	}
 	fclose(f);
@@ -307,12 +335,15 @@ static void scan_source(struct scan *s)
 	char line[512];
 	char name[64];
 	int lineno = 0, in_block = 0, in_rx_generic = 0, in_rx_generic_sync = 0;
-	int in_wait = 0, in_tx_generic = 0;
+	int in_wait = 0, in_tx_generic = 0, in_flush = 0;
+	const char *set_value;
 	FILE *f = fopen(path, "r");
 
 	memset(s, 0, sizeof(*s));
 	s->syncword_len = read_define("RX_GENERIC_SYNCWORD_LEN");
 	s->data_len = read_define("RX_GENERIC_DATA_LEN");
+	s->flags_len = read_define("RX_GENERIC_FLAGS_LEN");
+	s->truncated = read_define("RX_GENERIC_TRUNCATED");
 	s->lead_bytes = read_define("RX_GENERIC_LEAD_BYTES");
 	s->byte_100ns = read_define("RX_GENERIC_BYTE_100NS");
 	if (f == NULL)
@@ -327,6 +358,16 @@ static void scan_source(struct scan *s)
 			s->truth_test++;
 			if (s->truth_test_line == 0)
 				s->truth_test_line = lineno;
+		}
+
+		if (strstr(line, "define RX_GENERIC_FLAGS_OFF") != NULL) {
+			collapse_spaces(line, s->flags_off_text,
+			                sizeof(s->flags_off_text));
+			if (contains_identifier(s->flags_off_text,
+			                        "RX_GENERIC_SYNCWORD_LEN") &&
+			    contains_identifier(s->flags_off_text,
+			                        "RX_GENERIC_DATA_LEN"))
+				s->flags_off_from_lengths = 1;
 		}
 
 		if (strstr(line, "define RX_GENERIC_LEAD_100NS") != NULL) {
@@ -399,6 +440,17 @@ static void scan_source(struct scan *s)
 			continue;
 		}
 
+		if (in_flush) {
+			if (calls_identifier(line, "cc2400_fifo_read")) {
+				s->flush_reads++;
+				if (strstr(line, "cc2400_fifo_read(CC2400_FIFO_SIZE") != NULL)
+					s->flush_whole_fifo = lineno;
+			}
+			if (line[0] == '}')
+				in_flush = 0;
+			continue;
+		}
+
 		if (in_rx_generic_sync) {
 			if (s->wait_call == 0 &&
 			    contains_identifier(line, "rx_generic_wait_for_fifo"))
@@ -406,6 +458,49 @@ static void scan_source(struct scan *s)
 			if (s->packet_read == 0 &&
 			    strstr(line, "cc2400_fifo_read(RX_GENERIC_DATA_LEN") != NULL)
 				s->packet_read = lineno;
+			if (s->loop_start == 0 &&
+			    strstr(line, "while") != NULL &&
+			    contains_identifier(line, "requested_mode") &&
+			    contains_identifier(line, "MODE_RX_GENERIC"))
+				s->loop_start = lineno;
+			if (calls_identifier(line, "rx_generic_flush_fifo")) {
+				if (s->loop_start == 0)
+					s->flush_on_entry = lineno;
+				else if (s->packet_read != 0 &&
+				         s->flush_after_read == 0)
+					s->flush_after_read = lineno;
+			}
+			if (s->mark_line == 0 &&
+			    contains_identifier(line, "RX_GENERIC_TRUNCATED")) {
+				s->mark_line = lineno;
+				collapse_spaces(line, s->mark_text,
+				                sizeof(s->mark_text));
+			}
+			/* The call, not the _Static_assert above it that names
+			 * enqueue() inside a string. */
+			if (s->enqueue_line == 0 &&
+			    strstr(line, "enqueue(BR_PACKET") != NULL)
+				s->enqueue_line = lineno;
+			if (s->iocfg_save == 0 &&
+			    register_touched(line, "cc2400_get(", name,
+			                     sizeof(name), NULL) != NULL &&
+			    strcmp(name, "IOCFG") == 0) {
+				s->iocfg_save = lineno;
+				assignment_target(line, s->iocfg_saved_in,
+				                  sizeof(s->iocfg_saved_in));
+			}
+			if (register_touched(line, "cc2400_set(", name,
+			                     sizeof(name), &set_value) != NULL &&
+			    strcmp(name, "IOCFG") == 0) {
+				if (contains_identifier(set_value, "GIO_FIFO_EMPTY"))
+					s->iocfg_set_empty = lineno;
+				else if (s->iocfg_saved_in[0] != '\0' &&
+				         contains_identifier(set_value,
+				                             s->iocfg_saved_in))
+					s->iocfg_restores++;
+			}
+			if (contains_identifier(line, "return"))
+				s->returns++;
 			/* The buffer the record is built in: the first local
 			 * array declared in the function. */
 			if (s->record_buffer == 0 &&
@@ -441,6 +536,9 @@ static void scan_source(struct scan *s)
 			} else if (strcmp(name, "rx_generic_wait_for_fifo") == 0) {
 				in_wait = 1;
 				s->wait_def = lineno;
+			} else if (strcmp(name, "rx_generic_flush_fifo") == 0) {
+				in_flush = 1;
+				s->flush_def = lineno;
 			} else if (strcmp(name, "tx_generic") == 0) {
 				in_tx_generic = 1;
 				s->tx_generic = lineno;
@@ -497,18 +595,25 @@ MU_TEST(test_the_generic_record_fits_what_enqueue_copies)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg),
-	         "%s: RX_GENERIC_SYNCWORD_LEN and RX_GENERIC_DATA_LEN not "
-	         "found (read %ld and %ld)", path, s.syncword_len, s.data_len);
-	mu_assert(s.syncword_len > 0 && s.data_len > 0, msg);
+	         "%s: RX_GENERIC_SYNCWORD_LEN, RX_GENERIC_DATA_LEN and "
+	         "RX_GENERIC_FLAGS_LEN not found (read %ld, %ld and %ld)", path,
+	         s.syncword_len, s.data_len, s.flags_len);
+	mu_assert(s.syncword_len > 0 && s.data_len > 0 && s.flags_len > 0, msg);
 
 	mu_assert_int_eq(4, (int)s.syncword_len);
 	mu_assert_int_eq(32, (int)s.data_len);
-	mu_assert_int_eq(36, (int)(s.syncword_len + s.data_len));
+	mu_assert_int_eq(1, (int)s.flags_len);
+	mu_assert_int_eq(37,
+	                 (int)(s.syncword_len + s.data_len + s.flags_len));
 
 	snprintf(msg, sizeof(msg),
 	         "the record is %ld bytes but enqueue() copies %d",
-	         s.syncword_len + s.data_len, DMA_SIZE);
-	mu_assert(s.syncword_len + s.data_len <= DMA_SIZE, msg);
+	         s.syncword_len + s.data_len + s.flags_len, DMA_SIZE);
+	mu_assert(s.syncword_len + s.data_len + s.flags_len <= DMA_SIZE, msg);
+
+	/* The payload is one FIFO's worth, which is what makes the flush after
+	 * each record a flush: a shorter read would leave part of the FIFO. */
+	mu_assert_int_eq(CC2400_FIFO_SIZE, (int)s.data_len);
 }
 
 /*
@@ -792,6 +897,334 @@ MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
 	}
 }
 
+/* ---- the flush of the radio's FIFO ------------------------------------- */
+
+/*
+ * A record holds one FIFO's worth, and the radio goes on writing into the same
+ * FIFO while that read runs. Bytes left behind came out in front of the next
+ * packet, which arrived shifted by as many as were left.
+ *
+ * So the capture clears the FIFO on entry to the mode and again after each
+ * record. The radio has no flush command -- FIFO_FLUSH is a signal a GIO pin
+ * can report, not one the host can assert -- so the flush is a read of a whole
+ * FIFO's worth, discarded.
+ */
+MU_TEST(test_the_capture_clears_the_fifo_on_entry_and_after_each_record)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find rx_generic_sync()'s definition, so "
+	         "the checks below would pass without reading anything", path);
+	mu_assert(s.opened && s.rx_generic_sync > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: rx_generic_flush_fifo() is not defined, so nothing clears "
+	         "what the radio still holds", path);
+	mu_assert(s.flush_def > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_flush_fifo() does not read "
+	         "CC2400_FIFO_SIZE bytes; a shorter read leaves the rest of the "
+	         "FIFO to come out in front of the next packet", path,
+	         s.flush_def);
+	mu_assert(s.flush_whole_fifo > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_flush_fifo() makes %d FIFO reads; the flush "
+	         "is one read of the whole FIFO", path, s.flush_def,
+	         s.flush_reads);
+	mu_assert_int_eq(1, s.flush_reads);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the scan did not find the capture loop, so it cannot "
+	         "tell the flush on entry from the one after a record", path,
+	         s.rx_generic_sync);
+	mu_assert(s.loop_start > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: nothing flushes the FIFO before the capture loop, so "
+	         "what an earlier mode left in it comes out in front of the "
+	         "first packet", path, s.loop_start);
+	mu_assert(s.flush_on_entry > 0 && s.flush_on_entry < s.loop_start, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: nothing flushes the FIFO after the record is read, so "
+	         "a packet longer than the record leaves bytes to shift the "
+	         "next one", path, s.packet_read);
+	mu_assert(s.flush_after_read > s.packet_read, msg);
+}
+
+/*
+ * The mark on a record the packet did not fit in.
+ *
+ * The record carries one FIFO's worth, which is all the mode can read back,
+ * and the radio reports no length to read a longer packet by. A reader has to
+ * be able to tell such a record from a whole one, so the capture asks the
+ * radio's FIFO_EMPTY signal whether anything was left and writes the answer
+ * into the record's flags byte.
+ *
+ * It has to be asked after the record's own read, which is what leaves the
+ * tail behind, and before the flush, which empties the FIFO whatever was in
+ * it; and it has to be written before enqueue(), which copies the buffer.
+ */
+MU_TEST(test_a_record_the_packet_did_not_fit_is_marked)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find rx_generic_sync()'s definition, so "
+	         "the checks below would pass without reading anything", path);
+	mu_assert(s.opened && s.rx_generic_sync > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: RX_GENERIC_FLAGS_LEN and RX_GENERIC_TRUNCATED not found "
+	         "(read %ld and %ld)", path, s.flags_len, s.truncated);
+	mu_assert(s.flags_len > 0 && s.truncated > 0, msg);
+	mu_assert_int_eq(1, (int)s.flags_len);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: RX_GENERIC_FLAGS_OFF is `%s`; the flags byte sits after "
+	         "the sync word and the payload, so it must be the two lengths "
+	         "added", path, s.flags_off_text);
+	mu_assert(s.flags_off_from_lengths, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the capture loop never writes RX_GENERIC_TRUNCATED, so "
+	         "a record cut short looks like a whole packet", path,
+	         s.rx_generic_sync);
+	mu_assert(s.mark_line > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the mark is `%s`; it must read the FIFO-empty pin, "
+	         "which is the only thing that says whether the radio still "
+	         "held bytes", path, s.mark_line, s.mark_text);
+	mu_assert(contains_identifier(s.mark_text, "GIO6"), msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the mark is written into `%s`, not the record's flags "
+	         "byte", path, s.mark_line, s.mark_text);
+	mu_assert(contains_identifier(s.mark_text, "RX_GENERIC_FLAGS_OFF"), msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the mark is taken before the record's own FIFO read at "
+	         "line %d, so it answers about the packet before it", path,
+	         s.mark_line, s.packet_read);
+	mu_assert(s.mark_line > s.packet_read, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the mark is taken after the flush at line %d, which "
+	         "has already emptied the FIFO, so it always reads empty", path,
+	         s.mark_line, s.flush_after_read);
+	mu_assert(s.mark_line < s.flush_after_read, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the mark is written after enqueue() at line %d, which "
+	         "has already copied the buffer, so the record goes out with "
+	         "the previous packet's mark", path, s.mark_line,
+	         s.enqueue_line);
+	mu_assert(s.enqueue_line > s.mark_line, msg);
+}
+
+/*
+ * IOCFG is the one radio register this mode writes: it puts the FIFO-empty
+ * signal on GIO6, which the mark above reads. The generic modes otherwise take
+ * the radio as the host left it, and cc2400_idle() does not touch IOCFG, so
+ * the mode has to put it back itself -- on the way out of the loop and on the
+ * early return that leaves when the host stops the mode.
+ */
+MU_TEST(test_the_capture_puts_iocfg_back_on_every_way_out)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find rx_generic_sync()'s definition, so "
+	         "the checks below would pass without reading anything", path);
+	mu_assert(s.opened && s.rx_generic_sync > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_sync() does not save IOCFG with "
+	         "cc2400_get(), so it cannot put it back", path,
+	         s.rx_generic_sync);
+	mu_assert(s.iocfg_save > 0 && s.iocfg_saved_in[0] != '\0', msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_sync() does not put GIO_FIFO_EMPTY on the "
+	         "pin, so the mark reads whatever signal the host left there",
+	         path, s.rx_generic_sync);
+	mu_assert(s.iocfg_set_empty > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: IOCFG is saved at line %d, after it has already been "
+	         "written: what the mode puts back is then its own value", path,
+	         s.iocfg_set_empty, s.iocfg_save);
+	mu_assert(s.iocfg_save < s.iocfg_set_empty, msg);
+
+	/* One for each way out: the `return` in the wait for a sync word, and
+	 * the end of the function. A path added later needs one too. */
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: rx_generic_sync() has %d `return` statement(s) but "
+	         "puts `%s` back %d time(s); every way out has to restore IOCFG",
+	         path, s.rx_generic_sync, s.returns, s.iocfg_saved_in,
+	         s.iocfg_restores);
+	mu_assert(s.iocfg_restores == s.returns + 1, msg);
+}
+
+/* ---- a runnable model of the record, the mark and the flush ------------- */
+
+/*
+ * The capture loop is hardware code, so what runs here is a model of the
+ * bookkeeping its correctness turns on: how much of the FIFO a record takes,
+ * what the mark is read from, and what is left behind for the next packet.
+ *
+ * The model does not try to reproduce the radio -- the race between the air
+ * and the read, or the 32-byte ceiling on what the FIFO can hold at once. It
+ * is given the bytes the radio has written and the capture has not read, which
+ * is the state the shift came out of.
+ */
+#define MODEL_FIFO_MAX 256
+
+static uint8_t model_fifo[MODEL_FIFO_MAX];
+static unsigned model_fifo_len;
+
+/* The byte a read gets when it asks the FIFO for more than it holds. The
+ * hardware returns whatever its data pointer was left on; the value does not
+ * matter here, only that it is not payload. */
+#define MODEL_STRAY 0xff
+
+static void model_fifo_write(unsigned first, unsigned n)
+{
+	unsigned i;
+
+	for (i = 0; i < n && model_fifo_len < MODEL_FIFO_MAX; i++)
+		model_fifo[model_fifo_len++] = (uint8_t)(first + i);
+}
+
+/* cc2400_fifo_read(): the oldest bytes the radio holds, oldest first. */
+static void model_fifo_read(unsigned n, uint8_t *out)
+{
+	unsigned have = n < model_fifo_len ? n : model_fifo_len;
+	unsigned i;
+
+	memcpy(out, model_fifo, have);
+	for (i = have; i < n; i++)
+		out[i] = MODEL_STRAY;
+	memmove(model_fifo, model_fifo + have, model_fifo_len - have);
+	model_fifo_len -= have;
+}
+
+/* GIO6 with the FIFO-empty signal on it. In receive the signal goes low only
+ * above one byte, so one byte left reads as empty: the firmware says so too. */
+static int model_fifo_empty_pin(void)
+{
+	return model_fifo_len <= 1;
+}
+
+/*
+ * One turn of the capture loop, with the flush under a switch so the test can
+ * run the same two packets with and without it.
+ */
+static void model_capture_one(uint8_t *record, int flush)
+{
+	const unsigned data = (unsigned)s.data_len;
+	const unsigned off = (unsigned)(s.syncword_len + s.data_len);
+	uint8_t waste[MODEL_FIFO_MAX];
+
+	model_fifo_read(data, record + s.syncword_len);
+	record[off] = model_fifo_empty_pin() ? 0 : (uint8_t)s.truncated;
+	if (flush)
+		model_fifo_read(CC2400_FIFO_SIZE, waste);
+}
+
+MU_TEST(test_a_packet_that_fits_is_whole_and_unmarked)
+{
+	uint8_t record[DMA_SIZE] = { 0 };
+	unsigned i;
+
+	mu_assert(s.data_len == 32 && s.syncword_len == 4 && s.truncated > 0,
+	          "the model needs the record's lengths and the mark from the "
+	          "firmware");
+
+	model_fifo_len = 0;
+	model_fifo_write(1, 32);
+	model_capture_one(record, 1);
+
+	for (i = 0; i < 32; i++)
+		mu_assert_int_eq((int)(i + 1), record[4 + i]);
+	mu_assert_int_eq(0, record[36]);
+	mu_assert_int_eq(0, (int)model_fifo_len);
+}
+
+/*
+ * A packet longer than the record: the record holds what fitted, says so, and
+ * the next packet is still read from its own first byte. Without the flush
+ * that next record starts in the middle of the packet before it, which is the
+ * shift this is about.
+ */
+MU_TEST(test_a_packet_too_long_is_marked_and_does_not_shift_the_next)
+{
+	uint8_t first[DMA_SIZE] = { 0 };
+	uint8_t second[DMA_SIZE] = { 0 };
+	unsigned i;
+
+	mu_assert(s.data_len == 32 && s.truncated > 0,
+	          "the model needs the record's lengths and the mark from the "
+	          "firmware");
+
+	/* 40 bytes of payload, 1..40, against a 32-byte record. */
+	model_fifo_len = 0;
+	model_fifo_write(1, 40);
+	model_capture_one(first, 1);
+
+	for (i = 0; i < 32; i++)
+		mu_assert_int_eq((int)(i + 1), first[4 + i]);
+	mu_assert_int_eq((int)s.truncated, first[36]);
+	mu_assert_int_eq(0, (int)model_fifo_len);
+
+	/* The next packet, 101 upwards so a leftover is obvious. */
+	model_fifo_write(101, 32);
+	model_capture_one(second, 1);
+	mu_assert_int_eq(101, second[4]);
+	mu_assert_int_eq(0, second[36]);
+
+	/* The same two packets with no flush: the second record starts on byte
+	 * 33 of the first packet. */
+	memset(second, 0, sizeof(second));
+	model_fifo_len = 0;
+	model_fifo_write(1, 40);
+	model_capture_one(first, 0);
+	mu_assert_int_eq(8, (int)model_fifo_len);
+	model_fifo_write(101, 32);
+	model_capture_one(second, 0);
+	mu_assert_int_eq(33, second[4]);
+	mu_assert(second[4] != 101,
+	          "without the flush the next record must start late, which is "
+	          "the shift the flush is for");
+}
+
+/*
+ * A packet that left exactly one byte behind is the case the radio cannot
+ * report: its FIFO-empty signal does not distinguish one byte from none. The
+ * flush still clears the byte, so only the mark is missing, not the fix.
+ */
+MU_TEST(test_one_byte_left_behind_reads_as_whole_and_is_still_cleared)
+{
+	uint8_t record[DMA_SIZE] = { 0 };
+	uint8_t next[DMA_SIZE] = { 0 };
+
+	mu_assert(s.data_len == 32, "the model needs the record's lengths");
+
+	model_fifo_len = 0;
+	model_fifo_write(1, 33);
+	model_capture_one(record, 1);
+	mu_assert_int_eq(0, record[36]);
+	mu_assert_int_eq(0, (int)model_fifo_len);
+
+	model_fifo_write(101, 32);
+	model_capture_one(next, 1);
+	mu_assert_int_eq(101, next[4]);
+}
+
 /* ---- the registers tx_generic() puts back ------------------------------ */
 
 /*
@@ -900,6 +1333,12 @@ int main(void)
 	MU_RUN(test_the_wait_is_a_bounded_wait_on_the_counter);
 	MU_RUN(test_the_lead_is_a_few_byte_times);
 	MU_RUN(test_the_wait_adds_up_steps_across_the_counters_reset);
+	MU_RUN(test_the_capture_clears_the_fifo_on_entry_and_after_each_record);
+	MU_RUN(test_a_record_the_packet_did_not_fit_is_marked);
+	MU_RUN(test_the_capture_puts_iocfg_back_on_every_way_out);
+	MU_RUN(test_a_packet_that_fits_is_whole_and_unmarked);
+	MU_RUN(test_a_packet_too_long_is_marked_and_does_not_shift_the_next);
+	MU_RUN(test_one_byte_left_behind_reads_as_whole_and_is_still_cleared);
 	MU_RUN(test_tx_generic_puts_every_register_it_touches_back);
 	return mu_report();
 }
