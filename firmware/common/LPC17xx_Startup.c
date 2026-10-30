@@ -66,13 +66,6 @@ extern unsigned long _StackTop;
 extern void __libc_init_array(void);
 extern int main(void);
 
-/*
- * The word untouched stack holds. Any value would do that code is unlikely to
- * leave behind: this one is not zero, not a small count and not an address in
- * this part's memory map.
- */
-#define STACK_PAINT 0xa5e71f3bul
-
 static void stack_paint(void)
 {
 	unsigned long *word;
@@ -92,23 +85,7 @@ static void stack_paint(void)
 
 unsigned stack_used(void)
 {
-	const unsigned long *word;
-
-	/*
-	 * Down from the top, to the last word the stack has reached. Searching
-	 * up from the bottom would give the same answer but read the whole
-	 * region every time, and this runs while a capture does: a USB request
-	 * preempts the transfer interrupt, so a scan of 11 KB could cost the
-	 * capture a buffer. Down from the top it reads only what has been used.
-	 */
-	for (word = &_StackTop; word > &_stack_limit; word--)
-		if (word[-1] != STACK_PAINT)
-			break;
-
-	/* A stack that ran past the bottom of the region reads as the whole of
-	 * it, which is as much as the word can say. */
-	return (unsigned)((const unsigned char *)&_StackTop -
-	                  (const unsigned char *)word);
+	return stack_used_between(&_stack_limit, &_StackTop);
 }
 
 unsigned stack_size(void)

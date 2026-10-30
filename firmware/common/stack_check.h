@@ -33,9 +33,39 @@
  * file, so every image can answer.
  */
 
-/* Bytes of the stack region that have ever been in use. A stack that ran past
- * the bottom of the region reads as the whole of it, which is as much as the
- * word can say. */
+/*
+ * The word untouched stack holds. Any value would do that code is unlikely to
+ * leave behind: this one is not zero, not a small count and not an address in
+ * this part's memory map.
+ */
+#define STACK_PAINT 0xa5e71f3bul
+
+/*
+ * How many bytes of [bottom, top) the stack has written over: the words are
+ * read down from the top until one of them is still painted.
+ *
+ * Down from the top rather than up from the bottom, because this runs while a
+ * capture does -- a USB request preempts the transfer interrupt -- so it reads
+ * only what the stack has used instead of the whole region every time.
+ *
+ * Here rather than beside its caller so that a host test can run it over an
+ * array it painted itself; the arithmetic is the part worth pinning.
+ */
+static inline unsigned stack_used_between(const unsigned long *bottom,
+                                          const unsigned long *top)
+{
+	const unsigned long *word = top;
+
+	while (word > bottom && word[-1] != STACK_PAINT)
+		word--;
+
+	/* A stack that ran past the bottom reads as the whole region, which is
+	 * as much as the word can say. */
+	return (unsigned)((const unsigned char *)top -
+	                  (const unsigned char *)word);
+}
+
+/* Bytes of the stack region that have ever been in use. */
 unsigned stack_used(void);
 
 /* How big the region is: from the lowest address the stack may reach to the
