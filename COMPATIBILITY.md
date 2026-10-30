@@ -97,8 +97,9 @@ Modern CMake (4.x) removed compatibility with `cmake_minimum_required < 3.5`.
 This fork declares `cmake_minimum_required(VERSION 3.5...3.27)`, and the
 pinned `libbtbb` fork commit declares a range too, so neither needs
 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` any more. Upstream `libbtbb` still
-declares `VERSION 2.8` and does need it; building against upstream instead of
-the pin (`install.sh --libbtbb-url`/`--libbtbb-ref`) is on you.
+declares `VERSION 2.8` and does need it. That is moot for these tools now:
+they call entry points only the fork's libbtbb has, so upstream's does not
+configure at all (see below).
 
 ### libbtbb comes from this project's fork, at a pinned commit
 CI, `install.sh` and the build guide all build the same
@@ -111,11 +112,12 @@ head whose branch has been deleted is still served to CI by its hash, but is
 in nobody's clone. Only the C library is built (`-DENABLE_PYTHON=OFF`): the
 Ubertooth tools link nothing else from libbtbb.
 
-The pin changes no part of `btbb.h`, so the interface these tools compile and
-link against is the same as upstream's, and upstream master — which CI built
-until this change — should keep working. It is simply no longer what gets
-tested. Older upstream releases, `2020-12-R1` included, have not been
-exercised here.
+These tools call entry points the fork's libbtbb adds to `btbb.h`, so the pin
+is what they build against and upstream master — which CI built until the pin
+— no longer configures: the configure-time check in the table above names the
+functions a libbtbb is missing and stops there, which no CMake option
+settles. Older upstream releases, `2020-12-R1` included, have not been
+exercised here either.
 
 ### Firmware API version: exact match, bumped for a breaking change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,

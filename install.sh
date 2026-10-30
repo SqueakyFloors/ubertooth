@@ -45,8 +45,10 @@
 #   --libbtbb-url <u> git URL to clone libbtbb from
 #   --libbtbb-ref <r> git commit, tag or branch of libbtbb to build. These two
 #                     default to a pinned commit of this project's fork (both
-#                     defaults are printed below); an older libbtbb may need
-#                     CMake options this script does not pass.
+#                     defaults are printed below). A libbtbb without the entry
+#                     points the tools call, upstream's included, is refused
+#                     when the tools are configured, naming what it is
+#                     missing.
 #   --prefix <path>   install prefix (default: /usr/local on Debian/Ubuntu,
 #                     the Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present

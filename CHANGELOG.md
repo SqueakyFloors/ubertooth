@@ -995,6 +995,12 @@
   `ubertooth-btle -r` now reports that once and carries on, so the remedy --
   a new capture file -- is visible while the capture is running.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- A survey's capture records carry the UAP it recovered. `ubertooth-rx -z`
+  works out a UAP for each LAP it hears, but every record it wrote carried the
+  decoder's `ff` for "none", leaving a reader nothing to check a recorded
+  header or payload against. From the packet that settles a LAP's UAP onwards,
+  that LAP's records carry it.
+  [#842](https://github.com/SqueakyFloors/ubertooth/issues/842)
 - Every Classic capture finds the access codes that start at the last position
   of a bank of symbols. The search was given one position fewer than the bank
   holds, so an access code beginning 64 symbols before the bank's end -- with

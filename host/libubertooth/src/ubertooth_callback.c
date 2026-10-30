@@ -1513,9 +1513,21 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * the call above, so reading it beforehand left that one packet -- the
 	 * first evidence a reader has for the UAP, and the record that most
 	 * needs it -- written as if nothing was known, with its CRC left with
-	 * nothing to check it against. */
-	if (pn && btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
-		uap = btbb_piconet_get_uap(pn);
+	 * nothing to check it against.
+	 *
+	 * A survey (`ubertooth-rx -z`) is given no piconet of its own: the
+	 * decoder keeps one per LAP it hears, and btbb_survey_piconet() reads
+	 * the one for this packet's LAP without taking it out of the survey.
+	 * Outside a survey that table is empty, so the lookup answers NULL and
+	 * the record carries no reference UAP, as before.
+	 *
+	 * The two never arrive together: the only tool that surveys through
+	 * this callback refuses a survey beside an address. */
+	btbb_piconet* uap_pn = pn ? pn
+	                          : btbb_survey_piconet(btbb_packet_get_lap(pkt));
+
+	if (uap_pn && btbb_piconet_get_flag(uap_pn, BTBB_UAP_VALID))
+		uap = btbb_piconet_get_uap(uap_pn);
 
 	/* Dump to PCAP/PCAPNG if specified. Each said once per capture if it
 	 * cannot be written: the condition holds for every packet after it,
