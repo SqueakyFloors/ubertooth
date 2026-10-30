@@ -4276,6 +4276,10 @@ int main()
 	watchdog_boot();
 
 	ubertooth_init();
+	/* Before the USB stack, which reads the serial number for its own
+	 * descriptor, and well before a mode could be running: the boot-ROM
+	 * calls this makes must not happen while one is. */
+	device_id_init();
 	clkn_init();
 	ubertooth_usb_init(vendor_request_handler);
 	cc2400_idle();
