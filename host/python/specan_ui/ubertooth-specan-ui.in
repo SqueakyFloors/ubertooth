@@ -174,7 +174,8 @@ def refuse_a_leftover_word(extras):
             continue
         if not options_ended and word.startswith("-") and word != "-":
             refuse("unrecognized option '%s'" % word)
-        refuse("unexpected argument '%s'" % word)
+        else:
+            refuse("unexpected argument '%s'" % word)
 
 
 def output_lost():
