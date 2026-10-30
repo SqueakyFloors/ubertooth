@@ -150,6 +150,11 @@ extern le_state_t le;
 extern volatile uint16_t le_adv_channel;
 extern volatile int cancel_follow;
 
+// The interference mode the host asked for, JAM_NONE unless `ubertooth-btle`
+// was given -j (JAM_ONCE) or -J (JAM_CONTINUOUS). Owned by bluetooth_rxtx.c,
+// read here to decide whether to transmit on a followed connection's events.
+extern volatile uint8_t jam_mode;
+
 ////////////////////
 // buffers
 
@@ -272,6 +277,19 @@ le_conn_event_t conn_event;
 static void reset_conn(void) {
 	memset(&conn, 0, sizeof(conn));
 	conn.access_address = ADVERTISING_AA;
+}
+
+// Should this connection event be jammed rather than received?
+//
+// Jamming interferes with a connection the capture is already following, so it
+// transmits only once a CONNECT_IND has been read and conn.access_address is
+// the connection's own, not the advertising value every capture starts on.
+// While listening on the advertising channels there is nothing to jam, so an
+// advertising event is always received. The host asks for this with
+// `ubertooth-btle -j`/`-J`, which sets jam_mode; nothing sets it on firmware
+// built without transmit support, so this is always false there.
+static int le_jam_event(void) {
+	return jam_mode != JAM_NONE && conn.access_address != ADVERTISING_AA;
 }
 
 
@@ -623,6 +641,19 @@ static void finish_conn_event(void) {
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout) {
 		reset_conn();
 		timer1_clear_match();
+
+		// A single-shot jam (ubertooth-btle -j) interferes with one
+		// connection and then returns to idle. Jamming transmits in place
+		// of receiving, so no packet has refreshed last_packet_ts and this
+		// is where that connection ends: drop the jam mode and ask for
+		// idle. A continuous jam (-J) and a plain follow go back to the
+		// advertising channels below for the next connection.
+		if (jam_mode == JAM_ONCE) {
+			jam_mode = JAM_NONE;
+			requested_mode = MODE_IDLE;
+			return;
+		}
+
 		change_channel();
 	}
 
@@ -1068,6 +1099,30 @@ static void le_cc2400_init_rf(void) {
 	// the packets it receives were received with.
 	le_sync_aa = conn.access_address;
 
+	// Jamming a connection event transmits instead of receiving: a
+	// pseudo-random carrier on the event's channel, with no sync word and
+	// no CRC, so neither peer's packet decodes. Same radio setup as le_jam()
+	// in bluetooth_rxtx.c -- the PRNG drives the modem (MDMTST0) and GRMDM
+	// turns sync-word detection and the CRC off -- but it hands over to the
+	// engine's own non-blocking FS_LOCK wait rather than spinning, so the
+	// mode's loop keeps servicing USB. The strobe that starts the carrier is
+	// in the FS_LOCK handler, as the receive strobe is. FSDIV is the channel
+	// itself here, with no 1 MHz offset, because that offset is for the
+	// receive IF.
+	if (le_jam_event()) {
+		cc2400_set(MANAND,  0x7fff);
+		cc2400_set(LMTST,   0x2b22);
+		cc2400_set(MDMTST0, 0x234b); // PRNG on, 1 MHz offset
+		cc2400_set(GRMDM,   0x0c01); // buffered, packet mode, CRC off
+		cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
+		cc2400_set(FSDIV,   rf_channel);
+		cc2400_set(MDMCTRL, 0x0040); // 250 kHz frequency deviation
+		cc2400_wait_xosc_stable(NULL);
+		cc2400_strobe(SFSON);
+		timer1_wait_fs_lock();
+		return;
+	}
+
 	mdmctrl = 0x0040; // 250 kHz frequency deviation
 	grmdm = 0x44E1; // un-buffered mode, packet w/ sync word detection
 	// 0 10 00 1 001 11 0 00 0 1
@@ -1128,6 +1183,17 @@ static void le_cc2400_strobe_rx(void) {
 #endif
 }
 
+// strobe TX and enable PA, to jam the connection event the radio is tuned to.
+// No DMA or receive buffer: the carrier runs until the next hop's SRFOFF.
+static void le_cc2400_strobe_tx(void) {
+	cc2400_strobe(STX);
+#ifdef UBERTOOTH_ONE
+	PAEN_SET;
+	HGM_SET;
+#endif
+	TXLED_SET;
+}
+
 // change channel and init rx
 static void change_channel(void) {
 	uint8_t channel_idx = 0;
@@ -1143,12 +1209,18 @@ static void change_channel(void) {
 	// buffer if one has since been freed; without one, do not re-arm DMA or
 	// the SSP either. le_cc2400_init_rf() below hands over to the timer1
 	// FS_LOCK path, which waits for a buffer before arming them.
-	if (current_rxbuf == NULL)
-		current_rxbuf = buffer_get();
-	if (current_rxbuf != NULL) {
-		buffer_clear(current_rxbuf);
-		le_dma_init();
-		dio_ssp_start();
+	//
+	// A jammed event transmits instead of receiving, so it arms neither: the
+	// FS_LOCK path strobes TX directly. Any buffer already held is kept for
+	// the next received event.
+	if (!le_jam_event()) {
+		if (current_rxbuf == NULL)
+			current_rxbuf = buffer_get();
+		if (current_rxbuf != NULL) {
+			buffer_clear(current_rxbuf);
+			le_dma_init();
+			dio_ssp_start();
+		}
 	}
 
 	if (conn.access_address == ADVERTISING_AA) {
@@ -1546,13 +1618,18 @@ static void timer1_interrupt(void) {
 	if (T1IR & TIR_MR2_Interrupt) {
 		T1IR = TIR_MR2_Interrupt;
 
-		// if FS is locked, strobe RX and clear interrupt
+		// if FS is locked, start the event and clear the interrupt
 		if (cc2400_status() & FS_LOCK) {
 			timer1_disarm_match_interrupt(TMCR_MR2I);
 
+			if (le_jam_event()) {
+				// Jamming transmits a carrier; it needs no DMA, no SSP and
+				// no receive buffer, so none of the arming below applies.
+				le_cc2400_strobe_tx();
+			}
 			// Never arm RX without a packet buffer: le_DMA_IRQHandler()
 			// would have nowhere to put the bytes. Wait for one instead.
-			if (current_rxbuf == NULL) {
+			else if (current_rxbuf == NULL) {
 				timer1_wait_buffer();
 			} else {
 				// restart DMA and SSP
@@ -1573,6 +1650,20 @@ static void timer1_interrupt(void) {
 	// check if an rxbuf is available and transition to FS_LOCK/RX
 	if (T1IR & TIR_MR3_Interrupt) {
 		T1IR = TIR_MR3_Interrupt;
+
+		// A buffer wait left armed from receiving can still fire once a
+		// connection event has turned to jamming: the pool ran dry during
+		// advertising, then a connection opened. Jamming needs no buffer, so
+		// drop the wait and transmit once FS has locked rather than arming
+		// receive on the event that was meant to be jammed.
+		if (le_jam_event()) {
+			timer1_cancel_wait_buffer();
+			if (cc2400_status() & FS_LOCK)
+				le_cc2400_strobe_tx();
+			else
+				timer1_wait_fs_lock();
+			return;
+		}
 
 		// only take a buffer if we do not already hold one: change_channel()
 		// can also acquire one while this wait is armed, and overwriting the

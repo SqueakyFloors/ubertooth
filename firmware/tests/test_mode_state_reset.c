@@ -93,31 +93,23 @@ static u32 access_code;
 
 /*
  * What the host stated after its mode request, which a mode start keeps: the
- * copy the two requests leave, and the mode request it followed.
+ * copy each of those requests leaves, and the mode request it followed. The
+ * channel, access code, AFH map, modulation, and jam mode are all stated this
+ * way.
  */
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
 #define STATED_AFH_MAP     (1 << 2)
 #define STATED_MODULATION  (1 << 3)
+#define STATED_JAM_MODE    (1 << 4)
 
 static u8 stated_what;
 static u8 stated_for_mode;
 static u16 stated_channel;
 static u8 stated_modulation;
+static u8 stated_jam_mode;
 static u32 stated_access_code;
 static u8 stated_afh_map[10];
-
-/*
- * And what the host stated *before* its mode request, which the same mode
- * start keeps. One setting is sent that way round: the jam mode, which
- * ubertooth-btle sends for -j. The copy names no mode, because the request
- * that names one has not arrived yet, so it is good for one mode start and no
- * further.
- */
-#define KEEP_JAM_MODE   (1 << 0)
-
-static u8 keep_what;
-static u8 keep_jam_mode;
 
 /* Whether the board would transmit over the connection it is following, and
  * which modulation the host has asked the radio to receive. */
@@ -170,14 +162,15 @@ static int streams_symbols(u8 m)
 	return m == MODE_RX_SYMBOLS || m == MODE_BT_FOLLOW || m == MODE_AFH;
 }
 
-/* cc2400_idle(), as far as the carry-over rule is concerned. */
+/* cc2400_idle(), as far as the carry-over rule is concerned. The jam mode is
+ * not reset here: cc2400_idle() runs in the middle of the promiscuous mode, so
+ * the dispatch resets it instead (see dispatch_with()). */
 static void cc2400_idle(void)
 {
 	hop_mode = HOP_NONE;
 	channel = IDLE_CHANNEL;
 	le_adv_channel = IDLE_ADV_CHANNEL;
 	clear_afh_map();
-	jam_mode = JAM_NONE;
 	modulation = MOD_BT_BASIC_RATE;
 	/* The radio stops receiving with the mode, so nothing is programmed
 	 * until the next mode brings it up. */
@@ -240,50 +233,21 @@ static void apply_stated_settings(u8 starting_mode)
 	what = stated_what;
 	stated_what = 0;
 
-	/* A modulation is never left on an idle board; the channel deliberately
-	 * is, for `ubertooth-util -S -c 2440`. */
+	/* Neither a modulation nor a jam mode is ever left on an idle board;
+	 * the channel deliberately is, for `ubertooth-util -S -c 2440`. */
 	if (starting_mode == MODE_IDLE)
-		what &= ~STATED_MODULATION;
+		what &= ~(STATED_MODULATION | STATED_JAM_MODE);
 
 	if (what & STATED_CHANNEL)
 		set_channel_request(stated_channel);
 	if (what & STATED_MODULATION)
 		modulation = stated_modulation;
+	if (what & STATED_JAM_MODE)
+		jam_mode = stated_jam_mode;
 	if (what & STATED_ACCESS_CODE)
 		access_code = stated_access_code;
 	if (what & STATED_AFH_MAP)
 		bluetooth_set_afh_map(stated_afh_map);
-}
-
-/* keep_for_next_mode_start() */
-static void keep_for_next_mode_start(u8 what)
-{
-	if (mode == MODE_IDLE)
-		return;
-	if (what & KEEP_JAM_MODE)
-		keep_jam_mode = jam_mode;
-	keep_what |= what;
-}
-
-/* drop_kept_settings(), which a request the running loop absorbs runs instead
- * of the dispatch. */
-static void drop_kept_settings(u8 requested)
-{
-	if (requested == mode)
-		keep_what = 0;
-}
-
-/* apply_kept_settings(), which the dispatch runs after the reset. */
-static void apply_kept_settings(u8 starting_mode)
-{
-	u8 what = keep_what;
-
-	keep_what = 0;
-
-	if (starting_mode == MODE_IDLE)
-		return;
-	if (what & KEEP_JAM_MODE)
-		jam_mode = keep_jam_mode;
 }
 
 /* cc2400_rx(), as far as the modulation is concerned: the radio is programmed
@@ -426,9 +390,11 @@ static void dispatch_with(u8 next_mode)
 		cc2400_idle();
 		rssi_iir_reset();
 		ego_access_code_reset();
+		/* The jam mode is reset here, not in cc2400_idle(), because that
+		 * runs in the middle of the promiscuous mode. */
+		jam_mode = JAM_NONE;
 	}
 	mode = next_mode;
-	apply_kept_settings(next_mode);
 	apply_stated_settings(next_mode);
 
 	switch (next_mode) {
@@ -537,7 +503,6 @@ static void the_old_mode_loop_returns_while(void (*arriving)(void))
 static void request_rx_symbols(void)
 {
 	reset_absorbed_mode_state(MODE_RX_SYMBOLS);
-	drop_kept_settings(MODE_RX_SYMBOLS);
 	requested_mode = MODE_RX_SYMBOLS;
 	board_poll();
 }
@@ -624,7 +589,6 @@ static int request_ego(u8 ego)
 static void request_btle_promisc(void)
 {
 	hop_mode = HOP_NONE;
-	drop_kept_settings(MODE_BT_PROMISC_LE);
 	requested_mode = MODE_BT_PROMISC_LE;
 	board_poll();
 }
@@ -633,7 +597,6 @@ static void request_btle_promisc(void)
  * advertising channel rather than from the channel. */
 static void request_btle_follow(void)
 {
-	drop_kept_settings(MODE_BT_FOLLOW_LE);
 	requested_mode = MODE_BT_FOLLOW_LE;
 	board_poll();
 }
@@ -671,11 +634,15 @@ static void request_modulation(u8 mod)
 	board_poll();
 }
 
-/* UBERTOOTH_JAM_MODE, which ubertooth-btle sends before its mode request. */
+/* UBERTOOTH_JAM_MODE, which ubertooth-btle sends after its mode request, as
+ * every tool sends its channel. */
 static void request_jam_mode(u8 jam)
 {
 	jam_mode = jam;
-	keep_for_next_mode_start(KEEP_JAM_MODE);
+	if (requested_mode != mode) {
+		stated_jam_mode = jam;
+		stated_for_starting_mode(STATED_JAM_MODE);
+	}
 	board_poll();
 }
 
@@ -760,7 +727,7 @@ static void board_reset(void)
 	dispatch_held = 0;
 	stated_what = 0;
 	stated_for_mode = MODE_IDLE;
-	keep_what = 0;
+	jam_mode = JAM_NONE;
 	cc2400_idle();
 	rssi_iir_reset();
 	ego_access_code_reset();
@@ -1198,23 +1165,28 @@ MU_TEST(a_setting_stated_for_a_mode_still_to_start_survives)
  * tool called 630f9ffe the default.
  */
 /*
- * A jam mode stated before the mode request survives the mode start, on a
- * board left in another mode by a run that was interrupted without stopping
- * it. ubertooth-btle sends the jam mode first and the mode request second, and
- * the mode start's reset ran after that request had been answered, so
- * `ubertooth-btle -f -j` followed the connection and never jammed.
+ * A jam mode stated after the mode request survives the mode start, as the
+ * modulation does, on a board left in another mode by a run interrupted
+ * without stopping it. ubertooth-btle sends the follow or promiscuous request
+ * and then the jam mode; the mode start's reset runs on the way out of the old
+ * mode, after the jam request has been answered, so the copy is what carries
+ * it to the mode it was stated for. Stating it this way is what keeps a jam
+ * mode from reaching a mode it was not stated for (#872).
  */
-MU_TEST(a_jam_mode_stated_before_the_mode_request_survives)
+MU_TEST(a_jam_mode_stated_after_the_mode_request_survives)
 {
 	board_reset();
 
-	/* a killed ubertooth-specan: the board is still in that mode */
+	/* a killed ubertooth-specan: the board is still in that mode, and its
+	 * loop takes a pass to notice the follow request */
 	request_specan();
 	mu_assert_int_eq(MODE_SPECAN, mode);
 
 	/* ubertooth-btle -f -j */
-	request_jam_mode(JAM_CONTINUOUS);
+	dispatch_held = 1;
 	request_btle_follow();
+	request_jam_mode(JAM_CONTINUOUS);
+	the_old_mode_loop_returns();
 
 	mu_assert_int_eq(MODE_BT_FOLLOW_LE, mode);
 	mu_assert_int_eq(JAM_CONTINUOUS, jam_mode);
@@ -1223,7 +1195,7 @@ MU_TEST(a_jam_mode_stated_before_the_mode_request_survives)
 /* And the run after it does not inherit the jamming. */
 MU_TEST(a_jam_mode_one_run_asked_for_does_not_reach_the_next)
 {
-	a_jam_mode_stated_before_the_mode_request_survives();
+	a_jam_mode_stated_after_the_mode_request_survives();
 
 	/* the jamming run is killed, and a plain capture follows it */
 	request_rx_symbols();
@@ -1391,7 +1363,6 @@ MU_TEST(a_setting_stated_with_no_mode_running_needs_no_copy)
 	board_reset();
 
 	request_modulation(MOD_BT_LOW_ENERGY);
-	mu_assert_int_eq(0, keep_what);
 	mu_assert_int_eq(0, stated_what);
 
 	request_rx_symbols();
@@ -1429,7 +1400,6 @@ MU_TEST(an_absorbed_capture_request_keeps_nothing)
 	the_board_runs();
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
-	mu_assert_int_eq(0, keep_what);
 	mu_assert_int_eq(0, stated_what);
 
 	/* So the next mode start is Basic Rate, as a capture that asked for
@@ -1439,49 +1409,47 @@ MU_TEST(an_absorbed_capture_request_keeps_nothing)
 }
 
 /* The same for a jam mode, on a board already following: `ubertooth-btle -f
- * -j` after a killed `-f` jams the run it asked for, and leaves no copy for a
- * later mode to transmit on. */
+ * -j` after a killed `-f` jams the run it asked for, because the jam mode is
+ * absorbed live by the running follow, and leaves no copy for a later mode to
+ * transmit on. */
 MU_TEST(an_absorbed_follow_request_keeps_nothing)
 {
 	board_reset();
 	request_btle_follow();
 	mu_assert_int_eq(MODE_BT_FOLLOW_LE, mode);
 
-	request_jam_mode(JAM_CONTINUOUS);
+	/* The follow is already running, so the jam mode is applied live and
+	 * keeps no copy. */
 	request_btle_follow();
+	request_jam_mode(JAM_CONTINUOUS);
 	mu_assert_int_eq(JAM_CONTINUOUS, jam_mode);
-	mu_assert_int_eq(0, keep_what);
+	mu_assert_int_eq(0, stated_what);
 
 	request_rx_symbols();
 	mu_assert_int_eq(JAM_NONE, jam_mode);
 }
 
 /*
- * A copy reaches the next mode start and no further.
- *
- * This is the whole of its scope, and the test says so both ways round. A tool
- * that stated a jam mode and then asked for no mode -- it was interrupted in
- * between -- leaves a copy behind, and the next mode start applies it whatever
- * mode that is, because nothing in the request named one. That mode start is
- * also where the copy is dropped, so the one after it starts with no jamming:
- * a run that completed cannot reach a later run.
+ * A jam mode stated for a mode that never started is dropped, instead of being
+ * applied to whatever starts next (#872). ubertooth-btle sends the jam mode
+ * after its follow or promiscuous request, so the copy names that mode; a tool
+ * killed before its mode started leaves the copy behind, and the capture
+ * another tool then asks for does not transmit.
  */
-MU_TEST(a_kept_setting_reaches_the_next_mode_start_and_no_more)
+MU_TEST(a_jam_mode_stated_for_a_mode_that_never_started_is_dropped)
 {
 	board_reset();
 	request_specan();
 
-	/* stated, and then nothing asked for a mode */
-	request_jam_mode(JAM_CONTINUOUS);
-	the_board_runs();
-	mu_assert_int_eq(MODE_SPECAN, mode);
-
-	/* The next mode start takes it, whichever mode that is. */
+	dispatch_held = 1;
 	request_btle_follow();
-	mu_assert_int_eq(JAM_CONTINUOUS, jam_mode);
-
-	/* And the one after it does not. */
+	request_jam_mode(JAM_CONTINUOUS);
+	/* That jamming follow is gone before it started. The next tool asks for
+	 * a plain symbol capture and states no jam mode. */
 	request_rx_symbols();
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
 	mu_assert_int_eq(JAM_NONE, jam_mode);
 }
 
@@ -2461,7 +2429,7 @@ int main(void)
 	MU_RUN(an_access_code_set_with_no_mode_running_is_kept);
 	MU_RUN(a_channel_stated_after_a_stop_is_kept);
 	MU_RUN(a_mode_start_puts_the_access_code_back);
-	MU_RUN(a_jam_mode_stated_before_the_mode_request_survives);
+	MU_RUN(a_jam_mode_stated_after_the_mode_request_survives);
 	MU_RUN(a_jam_mode_one_run_asked_for_does_not_reach_the_next);
 	MU_RUN(a_modulation_stated_after_the_capture_request_survives);
 	MU_RUN(a_capture_after_a_low_energy_dump_is_basic_rate);
@@ -2472,7 +2440,7 @@ int main(void)
 	MU_RUN(a_setting_stated_with_no_mode_running_needs_no_copy);
 	MU_RUN(an_absorbed_capture_request_keeps_nothing);
 	MU_RUN(an_absorbed_follow_request_keeps_nothing);
-	MU_RUN(a_kept_setting_reaches_the_next_mode_start_and_no_more);
+	MU_RUN(a_jam_mode_stated_for_a_mode_that_never_started_is_dropped);
 	MU_RUN(an_access_code_stated_after_the_mode_request_survives);
 	MU_RUN(an_absorbed_ego_request_resets_the_access_code);
 	MU_RUN(an_afh_map_stated_after_the_hopping_request_survives_a_slow_mode_exit);
