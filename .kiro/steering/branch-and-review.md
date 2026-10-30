@@ -38,8 +38,8 @@ the stricter requirement.
 - Research, support, hardware-blocked, and other issues that produce no
   repository change do not require a PR.
 - The PR description MUST summarize user impact and scope, validation results,
-  both independent agent-review verdicts, and whether
-  the merge is low-stakes or requires maintainer approval.
+  each independent agent-review verdict, and whether the merge is low-stakes or
+  requires maintainer approval.
 - Direct merges are exceptions only for emergency recovery or when GitHub PRs
   are unavailable. The merge commit and reason MUST be recorded on the issue.
   MUST NOT manufacture retrospective PRs for changes already merged.
@@ -60,13 +60,23 @@ without waiting for maintainer approval.
 Every other merge candidate containing code, configuration, workflow, policy,
 or non-trivial operational documentation changes:
 
-- MUST receive at least two independent read-only agent reviews.
+- MUST receive at least one independent read-only agent review. A small
+  host-only or test-only change (under roughly 150 changed lines, no firmware,
+  no libbtbb) may have one; everything else, and every firmware or libbtbb
+  change, MUST have two, on different model families so they do not share the
+  same blind spots.
 - MUST give each reviewer the same final merge-base diff and acceptance criteria
   without sharing the other reviewer's conclusions.
 - SHOULD run reviewers in parallel.
+- MUST tell every reviewer that read-only includes hardware: a reviewer MUST
+  NOT run a built tool against an attached board, and MUST NOT flash one.
 - MUST resolve every blocker and rerun affected validation.
 - If any candidate content changes after a blocker is reported, both reviewers
   MUST review the resulting final diff again.
+- SHOULD run a further round while a round still finds real bugs relevant to
+  the code changed or the issue's topic, and stop after a round that finds only
+  minor, out-of-scope, or already-deferred items. Pin every round to the exact
+  commit SHA and name each reviewer's model in the PR.
 
 ## CI results
 
@@ -351,26 +361,50 @@ squashing beforehand; never open a new branch or PR only to squash. Determine th
 repository documentation/configuration; if missing or ambiguous, stop and ask
 rather than guessing.
 
-Maintainer review MAY be omitted only when every changed path is limited to one
-or more of these low-stakes categories:
+Maintainer review MAY be omitted when the change is low-stakes. A change is
+low-stakes when its correct behavior is already decided and it is one of:
 
-- prose-only spelling, formatting, link, or clarity corrections that do not
-  change documented commands, safety guidance, compatibility claims, or
-  promised behavior;
-- changelog condensation that preserves every distinct user-facing change,
-  useful issue/pull-request links, and external credit;
-- comments-only changes with no generated or compiled output; or
-- additive tests, or any change limited to repository-local agent rules
-  (`.kiro/steering/`), that cannot alter shipped artifacts, runtime behavior,
-  or security controls.
+- a bug fix whose right answer is settled by the documentation, a man page,
+  `.kiro/steering/cli-output.md`, or a maintainer decision recorded on the
+  issue;
+- tests;
+- documentation, comments, changelog wording, or repository-local agent rules
+  (`.kiro/steering/`), including changelog condensation that keeps every
+  distinct user-facing change, the useful links, and external credit;
+- a small consistency fix that brings one tool in line with the rest.
 
-The issue or review record MUST state why the candidate qualifies. A candidate
-is NOT low-stakes if it changes source or firmware, build/install/package
-behavior, configuration, automation workflows, dependencies, generated
-artifacts, security or privacy behavior, release contents, or any operational
-command. If classification is uncertain, MUST treat it as requiring maintainer
-review.
+A change is NOT low-stakes, and MUST be left open with the `needs maintainer`
+label and one line saying what to decide, when it:
+
+- asks a design or behavior question the issue or the maintainer has not
+  already answered, or picks between real alternatives;
+- adds, removes, or changes an option, a feature, or a default;
+- changes the firmware API version, or a dependency such as the libbtbb pin;
+- touches the bootloader or the flash layout, the USB protocol, or firmware API
+  policy;
+- is large firmware rework (the USB stack, interrupt or SPI atomicity, radio
+  timing);
+- adds tooling or process: a script under `tools/`, a CI job or workflow, a new
+  check or test framework, or more than roughly 300 lines that are not the fix
+  itself;
+- or would merge past a red required check.
+
+If classification is uncertain, MUST treat it as requiring maintainer review.
+A red required check is never a maintainer question: fix it, or wait for the
+fix. Never use `--admin`, and never change branch protection.
+
+Some questions are settled for every change and MUST NOT be asked again: a bad
+or meaningless request is an error, never silently accepted; the least
+surprising behavior for the user wins; an honest report beats a quiet success.
+
+A low-stakes change still passes every other gate in this document before it
+merges: a clean tree, rebased on the latest `main`, the tests and the
+independent reviews, the required checks green, and the hardware run on that
+rebased head where the change can reach a board. A low-stakes classification
+removes the maintainer-review stop and nothing else.
 
 For every candidate outside that exception, fetch the authoritative remote,
 present the exact final diff to the maintainer, and MUST wait for explicit
-maintainer approval of that candidate.
+maintainer approval of that candidate. Remove the `needs maintainer` label, and
+the question at the top of the description, in the same step as the answer that
+settles it.
