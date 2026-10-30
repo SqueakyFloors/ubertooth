@@ -170,9 +170,9 @@ SECTIONS
 	} > ram
 
 	/* Where we put the heap with cr_clib. It has at most a few bytes before
-	 * the stack's guard, which starts on the next 32-byte boundary. No image
-	 * allocates -- there is no _sbrk in the tree, so a malloc() would not
-	 * even link. */
+	 * the stack's guard, which starts on the next 32-byte boundary. Neither
+	 * image that arms a guard links an _sbrk, so a malloc() in either would
+	 * not even link. */
 	.cr_heap :
 	{
 		end = .;
@@ -234,6 +234,13 @@ SECTIONS
  * mode has been measured using is under 500 bytes, so 2 KB is several times
  * the worst case seen; ubertooth-util -w is what says whether an image still
  * has room. */
+/* The part accepts a protection region only at a multiple of its own size, and
+ * this is the address the link really chose rather than the arithmetic above. A
+ * misaligned region is simply not in force, which nothing at run time would
+ * report. */
+ASSERT((_stack_guard & (32 - 1)) == 0,
+	"the stack guard is not 32-byte aligned, so the part would not enforce it")
+
 ASSERT(_StackTop - _stack_bottom >= 2048,
 	"less than 2 KB of main SRAM is left for the stack: move a large buffer into AHB SRAM with the AHB_SRAM macro")
 

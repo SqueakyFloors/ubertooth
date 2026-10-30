@@ -90,7 +90,13 @@ static void stack_paint(void)
  * beside UBERTOOTH_NO_WATCHDOG). It runs for a moment with 12 KB of stack to
  * itself, so a guard buys it nothing, and it is the image a board is recovered
  * through: the one place where a fault of our making would need someone at the
- * bench with the entry pin bridged.
+ * bench with the entry pin bridged. usb_test and assembly_test ask for the same
+ * thing, the second because it hands the board back to the programmer itself.
+ *
+ * The other development images -- blinky, cc2400_test, clock_test -- do take
+ * the region, and none of them enables the fault handlers, so an overflow
+ * there arrives as a hard fault rather than as the record a shipped image
+ * makes.
  */
 #ifndef UBERTOOTH_NO_STACK_GUARD
 

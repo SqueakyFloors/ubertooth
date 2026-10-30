@@ -388,11 +388,11 @@ address. A hard fault that is one of the other three escalated reports that
 fault's status and address instead of its own, so it can carry one.
 
 A refused address just below the stack is a stack overflow: the firmware keeps
-32 bytes there that the part refuses, so a stack that runs out of room faults
-where it happens instead of writing over the data below. That one reads as a
-memory management fault, or as an escalated hard fault where the processor
-could not stack the fault's own frame clear of those 32 bytes. The line is
-absent until a fault happens, and a power-cycle clears it.
+32 bytes there that the part refuses, so a stack that runs out of room is
+caught and reported where it happens rather than running on unnoticed. That one
+reads as a memory management fault, or as an escalated hard fault where the
+processor could not stack the fault's own frame clear of those 32 bytes. The
+line is absent until a fault happens, and a power-cycle clears it.
 
 The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio
