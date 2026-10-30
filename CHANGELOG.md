@@ -717,6 +717,23 @@
 
 ### Reliability fixes
 
+- Fixed: a clock search on a piconet that hops adaptively made no headway.
+  `ubertooth-rx -l <lap> -u <uap>` heard the piconet, started a CLK1-27
+  search, ruled out every candidate within a few packets, and began the
+  search again, for as long as the capture ran: the candidates came from the
+  basic hopping sequence, which that piconet is not using. The tools are now
+  built against a libbtbb
+  ([`4b7f8d7`](https://github.com/SqueakyFloors/libbtbb/commit/4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d))
+  that reads the evidence of adapted hopping before the candidate list it
+  arrives with is emptied, so the search follows the sequence the piconet is
+  really using and narrows toward a clock instead of starting over.
+  Confirming a clock on such a piconet still takes more agreeing hops than
+  the captures tried so far have offered. The same library also removes a
+  PcapNG capture file it could not write, so a capture that failed to start
+  leaves no part-written file to be mistaken for an empty one. `install.sh`
+  and the build guides check out the new commit.
+  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
+
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as
   `delta_t=46611.718 ms` -- that gap less the two 429.4967 s periods inside it
