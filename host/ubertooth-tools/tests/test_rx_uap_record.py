@@ -28,10 +28,8 @@ Three things each record is checked for here:
   the packet's own access code, while the reference LAP beside it is the
   address the tool was told to look for, and is empty when it was told none.
 
-A last case checks where the recovered UAP is reported when the capture owns
-standard output, `-q -`: the answer to `-l` without `-u` is that UAP, and a
-run that printed it on standard output would print it into the capture, or
-into the /dev/null that standard output becomes for such a run.
+A last case runs the same replay with the capture on standard output, `-q -`,
+and checks which stream each half of that run lands on.
 
 The fixture is a replay of four records built from scratch here, so no board
 and no saved capture is needed: an ID packet with no header, a DH1 whose CRC
@@ -390,10 +388,9 @@ def replay(work, prefix, *options):
 def replay_to_stdout(work, prefix, *options):
     """Replay the fixture with the PCAP capture on standard output.
 
-    `-q -` hands the capture this process's standard output, so the bytes
-    come back undecoded and go into a file for the record reader. Standard
-    output is a pipe here, not a terminal, which is what the tool requires
-    of a binary capture.
+    The bytes come back undecoded, and go into a file for the record reader.
+    Standard output is a pipe here, not a terminal, which is what the tool
+    requires of a binary capture.
     """
     result = subprocess.run(
         [BINARY, "-i", "piconet.bin", *options, "-q", "-"],
@@ -592,16 +589,14 @@ with tempfile.TemporaryDirectory() as workdir:
             assert rec.header == 0, (name, records)
 
     # The follow again, with the capture on standard output instead of in a
-    # named file. The UAP is the answer to -l without -u, and it has to
-    # arrive: a run that reported it on standard output would write it into
-    # the capture, or into the /dev/null that standard output becomes once
-    # the capture has taken the real one.
+    # named file. The UAP is the answer to -l without -u, so it has to arrive
+    # even though the capture owns the stream a result would be printed on.
     errors, raw, records = replay_to_stdout(work, "stdout", "-l", "%06x" % LAP)
     assert ("Correct CRC! UAP = 0x%x found after 2 total packets" % UAP
             in errors), errors
-    # Standard output holds the capture and nothing else. The per-packet
+    # And standard output holds the capture and nothing else: the per-packet
     # report is the one thing such a run does not print, so none of its text
-    # is in these bytes; the packets it would have reported are the records.
+    # is among these bytes.
     assert b"systime=" not in raw, raw[:200]
     assert len(records) == 4, records
     show("stdout pcap", records)

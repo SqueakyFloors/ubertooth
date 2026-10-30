@@ -217,8 +217,8 @@ nothing this tool can trust.
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw symbols,
 for a pipe into another program. Either way the capture owns standard output
-for the whole run, so the per-packet report is not printed: the capture
-itself is where those packets are.
+for the whole run, so the per-packet report is not printed; the packets
+themselves are in the capture.
 
 What the tool is following, the clock the decoder recovers, the notes and the
 failures are on standard error and still arrive, and so is the `AFH map:`

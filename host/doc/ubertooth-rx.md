@@ -348,8 +348,8 @@ for "none", so a real one cannot be told from it.
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw records,
 for a pipe into another program. Either way the capture owns standard output
-for the whole run, so the per-packet report is not printed: the capture
-itself is where those packets are.
+for the whole run, so the per-packet report is not printed; the packets
+themselves are in the capture.
 
 What the run works out still arrives, on standard error: the UAP the decoder
 recovers (`Correct CRC! UAP = 0x22 found after 31 total packets.`), the clock
