@@ -4506,12 +4506,13 @@ int main()
 
 			/*
 			 * Jamming stops with the capture that asked for it, so no run
-			 * carries another's interference. The clear is here and not in
-			 * cc2400_idle() for the reason the queue clear above is: that
-			 * reset runs in the middle of the promiscuous mode, inside
-			 * bt_generic_le(), before bt_le_sync() has read the jam mode,
-			 * so clearing it there left `ubertooth-btle -J` silent. This is
-			 * the one place a capture has actually ended.
+			 * carries another's interference. The clear is here, on the way
+			 * out of a running mode, and not in cc2400_idle() for the reason
+			 * the queue clear above is: that reset also runs in the middle of
+			 * the promiscuous mode, inside bt_generic_le(), before
+			 * bt_le_sync() has read the jam mode, so clearing it there left
+			 * `ubertooth-btle -J` silent. apply_stated_settings() below puts
+			 * it back for a capture that stated one.
 			 */
 			jam_mode = JAM_NONE;
 		}
