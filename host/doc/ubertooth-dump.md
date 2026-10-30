@@ -71,8 +71,8 @@ refused for either reason leaves no empty file behind either.
 
 ## DIAGNOSTICS
 
-Without `-d`, standard output carries the binary symbol stream and nothing
-else, and so does `-d -`. Errors, warnings and the per-block timestamp go to
+Without `-d`, standard output carries the symbol stream and nothing else, and
+so does `-d -`. Errors, warnings and the per-block timestamp go to
 standard error, each error as one line starting `error: `, for example
 `error: /no/such/dir/capture.bin: No such file or directory`. That line comes
 after the board has been selected and its firmware accepted, because that is
@@ -83,7 +83,9 @@ A terminal is refused either way, before any device is opened:
 A dump is thousands of records a second, written for a file or another program:
 without `-b` it is binary and fills a terminal with control characters, and
 with `-b` it scrolls 401 characters per record past faster than anything can be
-read. Redirect or pipe standard output instead, or give `-d` a file.
+read. Redirect or pipe standard output instead, or give `-d` a file. That line
+is the wording every tool shares for a capture stream it will not write to a
+terminal, so it says `binary` for `-b` too.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the
