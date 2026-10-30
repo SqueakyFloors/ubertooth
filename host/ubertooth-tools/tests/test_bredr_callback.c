@@ -74,7 +74,12 @@ static struct {
 	int survey_lookups;
 	uint16_t channel_set;
 	int afh_maps_sent;
+	int clocks_dropped;
 } seen;
+
+/* What the faked drop reports: 1 for a clock given up, 0 for none the library
+ * could give up. */
+static int drop_clock_result;
 
 /* What the faked access-code search reports: where in the bank it found one,
  * or a negative number for nothing found. */
@@ -270,6 +275,18 @@ btbb_piconet* btbb_survey_piconet(uint32_t lap)
 	return survey_piconet;
 }
 
+/* Stands in for the library giving the followed clock up on being asked.
+ * Scripted, because what the real one does with the piconet's candidate list
+ * is libbtbb's own business and has its tests there; what matters here is
+ * whether a clock was given up, which decides what the callback says and
+ * sends. */
+int btbb_piconet_drop_clock(btbb_piconet* pn)
+{
+	(void)pn;
+	seen.clocks_dropped++;
+	return drop_clock_result;
+}
+
 /* ---- helpers ------------------------------------------------------------ */
 
 /* A Basic Rate record with the given timestamp, period count and channel. */
@@ -374,6 +391,18 @@ static void run_report(void)
 	collect_streams();
 }
 
+/* Giving the followed clock up on the tool's word that the follow has gone
+ * quiet, with both streams collected the way a run is. */
+static int run_drop_clock(btbb_piconet* pn)
+{
+	int given_up;
+
+	capture_streams();
+	given_up = ubertooth_follow_drop_clock(&last_ut, pn);
+	collect_streams();
+	return given_up;
+}
+
 /* How many times `needle` appears in what the last run wrote to standard
  * error: a warning that is meant to be said once has to be counted, not just
  * found. */
@@ -400,6 +429,7 @@ static void reset_state(void)
 	find_ac_offset = 0;
 	process_packet_result = 0;
 	survey_piconet = NULL;
+	drop_clock_result = 1;
 	rx_syms_result = 0;
 	set_channel_result = 0;
 	capture_channel = 0;
@@ -1563,6 +1593,127 @@ MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
 	btbb_piconet_unref(pn);
 }
 
+/* The line a clock given up for silence prints, in full. The man page promises
+ * these words, as it does the lost-clock line above. */
+#define QUIET_CLOCK_WARNING \
+	"warning: nothing of this piconet has been heard on the clock being " \
+	"followed; searching for it again\n"
+
+/* A clock that is not the piconet's fails no header, so the library has
+ * nothing to count and the silence is the tool's to judge. What the tool
+ * watches is this count. */
+MU_TEST(the_packets_a_follow_hears_are_counted_for_the_tool)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	/* Nothing to watch before the library hands a clock over. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	mu_assert_int_eq(-1, (int)ubertooth_follow_heard());
+
+	/* The clock arrives with a packet, and that packet was heard before
+	 * the follow began, so the count starts at zero. */
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0, (int)ubertooth_follow_heard());
+
+	/* Two more packets of the piconet, heard on that clock. */
+	reset_state();
+	fill_packet(&next_packets[0],
+	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 200), 0, 10);
+	fill_packet(&next_packets[1],
+	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 300), 0, 10);
+	next_count = 2;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(2, (int)ubertooth_follow_heard());
+
+	/* And nothing to watch once that clock has been given up. */
+	mu_assert_int_eq(1, run_drop_clock(pn));
+	mu_assert_int_eq(-1, (int)ubertooth_follow_heard());
+
+	btbb_piconet_unref(pn);
+}
+
+/* A clock the library keeps -- one the caller set itself, which it leaves
+ * alone because it has nothing better to fall back on -- leaves the capture
+ * exactly as it was, and says nothing, so a tool may ask whenever it thinks
+ * the follow has gone quiet. */
+MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+
+	memset(&seen, 0, sizeof(seen));
+	drop_clock_result = 0;
+	mu_assert_int_eq(0, run_drop_clock(pn));
+
+	mu_assert_int_eq(1, seen.clocks_dropped);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.channels_set);
+	mu_assert_int_eq(0, (int)strlen(last_stderr));
+	/* And the follow is still there to be watched. */
+	mu_assert_int_eq(0, (int)ubertooth_follow_heard());
+
+	btbb_piconet_unref(pn);
+}
+
+MU_TEST(a_clock_given_up_for_silence_warns_once_and_frees_the_board)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	/* The capture is following a clock the library recovered. */
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	/* Not the sweep, so the value the board is given is this capture's own
+	 * and not a constant the callback could have made up. */
+	capture_channel = 2450;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(1, seen.hopping_restarts);
+
+	/* The tool has decided the follow has gone quiet. The clock is given
+	 * up and the capture is left as a clock the library gives up itself
+	 * leaves it: off the offset, back on the channel it asked for, with
+	 * one line to say so. */
+	memset(&seen, 0, sizeof(seen));
+	mu_assert_int_eq(1, run_drop_clock(pn));
+
+	mu_assert_int_eq(1, seen.clocks_dropped);
+	mu_assert_int_eq(1, seen.symbol_captures);
+	mu_assert_int_eq(0, seen.hopping_restarts);
+	mu_assert_int_eq(1, seen.channels_set);
+	mu_assert_int_eq(2450, (int)seen.channel_set);
+	mu_assert_int_eq(1, stderr_lines_with(QUIET_CLOCK_WARNING));
+	/* On standard error, where a capture that owns standard output is not
+	 * corrupted by it. */
+	mu_assert(strstr(last_stdout, "warning") == NULL, last_stdout);
+
+	/* Asked again, because the tool's wait starts over whatever came of
+	 * it: there is nothing left to give up, so the library is not asked
+	 * and nothing is said. One warning per clock. */
+	memset(&seen, 0, sizeof(seen));
+	mu_assert_int_eq(0, run_drop_clock(pn));
+	mu_assert_int_eq(0, seen.clocks_dropped);
+	mu_assert_int_eq(0, seen.symbol_captures);
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	btbb_piconet_unref(pn);
+}
+
 int main(void)
 {
 	MU_RUN(the_decoder_is_told_only_the_symbols_the_record_holds);
@@ -1608,6 +1759,9 @@ int main(void)
 	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
 	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);
 	MU_RUN(a_replay_warns_but_sends_no_request_when_the_clock_is_lost);
+	MU_RUN(the_packets_a_follow_hears_are_counted_for_the_tool);
+	MU_RUN(a_clock_the_library_will_not_give_up_leaves_the_capture_alone);
+	MU_RUN(a_clock_given_up_for_silence_warns_once_and_frees_the_board);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();
 }

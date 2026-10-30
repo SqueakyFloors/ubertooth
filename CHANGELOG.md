@@ -1220,6 +1220,15 @@
   piconet's; searching for it again`, takes the board off that clock and
   recovers one again, keeping the lower address part it has already found.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- `ubertooth-rx` also gives up a clock its follow has gone quiet on. A clock
+  that is wrong only in the high bits checks out every header it receives and
+  gets the channel to listen on wrong instead, so it is heard from about one
+  packet in eighteen and no header ever fails: such a follow decoded next to
+  nothing and kept the clock forever. A follow that hears no packet of its
+  piconet for ten seconds now reports `warning: nothing of this piconet has
+  been heard on the clock being followed; searching for it again` and recovers
+  a clock again, as it does for a clock the decoder gives up.
+  [#903](https://github.com/SqueakyFloors/ubertooth/issues/903)
 - A Classic capture that cannot be written says so, once per capture, instead
   of running to the end looking like one that was being written: `warning:
   cannot write to the PCAP capture file`. `ubertooth-rx` and
