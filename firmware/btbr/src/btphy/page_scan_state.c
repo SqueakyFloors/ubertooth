@@ -38,10 +38,13 @@
 struct {
 	fhs_info_t fhs_info;
 	uint32_t clkn_start;
-	/* Has the page this board answered been re-read as the central's second
-	 * page message, with the clock moved to match? See
+	/* The native clock of this board's answer to the page, which pagerespTO
+	 * runs from. */
+	uint32_t clkn_answer;
+	/* Which of the central's two page messages the next window reads the
+	 * answered page as: 0 the first, 1 the second. See
 	 * page_scan_fhs_missed(). */
-	uint8_t second_reading_tried;
+	uint8_t second_reading;
 } page_scan_state;
 
 static void page_scan_schedule(unsigned delay);
@@ -52,7 +55,16 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset);
  * what its frequency is computed from. */
 static void page_scan_fhs_schedule(void)
 {
-	rx_task_schedule(3&(RX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX()),
+	unsigned delay = 3&(RX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
+
+	/* A window is tuned in the tick before it listens, so a slot that
+	 * starts in the very next tick cannot be tuned for: take the central
+	 * transmit slot after it, 1.25 ms later. This is the case when the
+	 * clock has just moved back from the second reading of the page, which
+	 * puts the next slot of the first reading one tick away. */
+	if (delay == 0)
+		delay = 4;
+	rx_task_schedule(delay,
 		page_scan_rx_fhs_cb, NULL,
 		1<<RX_F_PAYLOAD			// FHS packet has payload
 		);
@@ -71,26 +83,41 @@ static void page_scan_fhs_schedule(void)
  *
  * An empty window is therefore also what a page heard second looks like: the
  * response went by a tick earlier, while the radio was still turning round from
- * this board's answer. Take that reading once -- move the clock the tick it
- * would be behind by, which is what every frequency and transmit after it is
- * computed from -- and wait for the next page response, which 8.3.3.2 has the
- * central repeat every 1.25 ms until pagerespTO.
+ * this board's answer. Taking that reading is the same thing as moving this
+ * clock the one tick it would be behind by, which is what every frequency and
+ * transmit after it is computed from.
  *
  * 8.3.3.1 asks for the receiver to be on from 312.5 usec after the answer, so
  * that one window covers both arrival times on the one frequency of that
  * 1.25 ms. This radio cannot: a receive is tuned in the tick before it listens,
- * and that tick is the one the answer goes out in. Hence the wait for the
- * repeat, which costs 1.25 ms on a page heard second. The same section has the
- * board listen until pagerespTO; it still gives up after these two windows. */
+ * and that tick is the one the answer goes out in. So only one of the two
+ * readings can be listened on at a time, and which one is right cannot be told
+ * from the page message.
+ *
+ * 8.3.3.1 also has the paged device keep listening until pagerespTO, and 8.3.3.2
+ * has the central repeat its page response every 1.25 ms over that time, with
+ * the clock updated. So an empty window is followed by a window for the next
+ * repeat, taking the two readings in turn until pagerespTO passes, after which
+ * the central has stopped repeating too. Taking them in turn rather than
+ * settling on one matters because which reading is right holds for 1.28 seconds
+ * at a time: a scanning board's frequency comes from CLKN16-12 of its own clock
+ * and the pager's sweep from CLK16-12 of its own, so for that long either every
+ * page this board answers is the central's first message or every one is its
+ * second. */
 static void page_scan_fhs_missed(void)
 {
-	if (page_scan_state.second_reading_tried)
+	if (clkn_elapsed(MASTER_CLKN, page_scan_state.clkn_answer,
+				PAGE_RESP_TO_TICKS))
 	{
 		page_scan_schedule(0);
 		return;
 	}
-	page_scan_state.second_reading_tried = 1;
-	btphy.slave_clkn++;
+	/* The other reading of the page, as the one tick the two differ by. */
+	if (page_scan_state.second_reading)
+		btphy.slave_clkn--;
+	else
+		btphy.slave_clkn++;
+	page_scan_state.second_reading ^= 1;
 	page_scan_fhs_schedule();
 }
 
@@ -191,9 +218,13 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 			NULL, NULL,	// no tx callback
 			NULL, NULL); 	// no header / no payload
 
+		/* The answer goes out in the tick after the one that tunes the
+		 * transmit, and pagerespTO runs from it. */
+		page_scan_state.clkn_answer = MASTER_CLKN+delay+1;
+
 		/* Schedule rx FHS, reading the page just heard as the first of
 		 * the central's two (see page_scan_fhs_missed()) */
-		page_scan_state.second_reading_tried = 0;
+		page_scan_state.second_reading = 0;
 		page_scan_fhs_schedule();
 	}
 	else

@@ -54,8 +54,7 @@ static int paging_canceled(void)
 
 static int page_response_timeout_exceeded()
 {
-	enum { PAGE_RESP_TO = 8*2 }; // Spec  pagerespTO = 8
-	return((btphy.master_clkn-paging_state.clkn_got_id2) > PAGE_RESP_TO);
+	return((btphy.master_clkn-paging_state.clkn_got_id2) > PAGE_RESP_TO_TICKS);
 }
 
 static void paging_schedule(unsigned delay);

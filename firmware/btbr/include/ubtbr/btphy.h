@@ -16,6 +16,12 @@
 #define MASTER_CLKN	T1TC
 #define CLKN_OFFSET	T0TC
 
+/* pagerespTO, the 8 slots a page response has to complete in (BT Core | Vol 2,
+ * Part B, Section 8.3.3), in clock ticks of 312.5 usec.  Both ends of the
+ * exchange count it from the same tick -- the paged device's answer to the page
+ * -- so they stop retransmitting and stop listening together. */
+#define PAGE_RESP_TO_TICKS	(8*2)
+
 /*
  * One value per hop substate of BT Core v5.4 | Vol 2, Part B, Table 2.2.  The
  * table gives each substate its own X, Y1 and Y2 inputs, so a substate that
