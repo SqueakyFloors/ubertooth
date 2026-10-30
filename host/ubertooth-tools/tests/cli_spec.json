@@ -91,6 +91,7 @@
     "replay": "replays a capture from a file instead of taking one",
     "filter": "narrows what the capture keeps",
     "verify": "checks the packets it captured rather than only recording them",
+    "verbose": "describes what the run could not read, rather than only counting it",
     "survey": "collects a survey of what is on the air rather than printing packets",
     "afh_read": "reads the target's hop pattern rather than following it",
     "faux_slave": "answers as a slave rather than listening",
@@ -157,7 +158,7 @@
       "man": "ubertooth-btle.md",
       "report_marker": "libubertooth",
       "optstring": ":a::r:hVfnpU:k::v::A:s:t:x:c:q:jJiI",
-      "work_options": ["-f", "-n", "-p", "-a", "-k", "-v", "-s", "-t"],
+      "work_options": ["-f", "-n", "-p", "-a", "-k", "-s", "-t"],
       "nothing_to_do": "error: nothing to do: choose a major mode (-f, -n or -p), or -a, -k, -s or -t",
       "stdout_on_failure": ["-q -", "-c -"],
       "options": {
@@ -188,9 +189,10 @@
                            ["11:22:33:44:55/24", "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55/24)"]]},
         "-k": {"value": "optional", "role": "verify", "valid": ["0", "1"],
                "invalid": [["2", "error: CRC verify mode must be 0-1 (got 2)"]]},
-        "-v": {"value": "optional", "role": "verify", "valid": ["0", "1"],
-               "doc": "the older spelling of -k, deprecated: it warns and does what -k does",
-               "invalid": [["2", "error: CRC verify mode must be 0-1 (got 2)"]]},
+        "-v": {"value": "optional", "role": "verbose", "valid": [],
+               "doc": "verbose: it describes each packet whose data the decoder could not read, so it needs a capture mode and takes no value. It still accepts one in the parser so that a command line from before -k took over the CRC verify setting is refused with a line naming -k",
+               "invalid": [["0", "error: -v is verbose now and takes no value (got 0); the CRC verify setting is -k"],
+                           ["1", "error: -v is verbose now and takes no value (got 1); the CRC verify setting is -k"]]},
         "-A": {"value": "required", "role": "modifier", "valid": ["37", "38", "39"],
                "invalid": [["40", "error: advertising channel index must be 37-39 (got 40)"],
                            ["abc", "error: advertising channel index must be 37-39 (got abc)"]]},
@@ -213,6 +215,9 @@
         {"args": ["-a", "-a", "8e89bed6"], "verdict": "refused",
          "error": "error: -a cannot both read and set the access address",
          "source": "ubertooth-btle.md ARGUMENTS"},
+        {"args": ["-v"], "verdict": "refused",
+         "error": "error: -v needs -f, -n or -p: there is no decode for it to describe; the CRC verify setting is -k now",
+         "source": "ubertooth-btle.md OPTIONS, -v: verbose describes the packets a capture decodes, and -v on its own read the CRC verify setting before -k took that over, so the line names -k as well as the modes"},
         {"args": ["-i"], "verdict": "refused",
          "error": "error: -i needs -f or -p: there is no connection to interfere with otherwise",
          "source": "ubertooth-btle.md OPTIONS, -i: the page promises this message for \"-i or -I without -f or -p\", and the bare case is one of those. Naming the two modes that can carry interference says more than listing every major mode."},
@@ -236,9 +241,6 @@
          "source": "ubertooth-btle.md OPTIONS: -s and -t each name their own address, so clearing the target leaves the address the faux slave advertises from alone. They shared one address, and this line advertised from 00:00:00:00:00:00. Which address each request carries is checked against a fake board by test_btle_main.c"}
       ],
       "pair_rules": [
-        {"a": "-k", "b": "-v", "verdict": "refused",
-         "error_contains": "cannot be combined with", "names_the_other": true,
-         "source": "ubertooth-btle.md OPTIONS, -k: -v is its older spelling, so a command line that gives both names one setting twice, and the refusal names them as they were written"},
         {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
          "error": "error: choose one of -f, -n or -p",
          "source": "ubertooth-btle.md ARGUMENTS"},
@@ -258,7 +260,13 @@
         {"a": "role:interfere", "b": "-p", "verdict": "device"},
         {"a": "role:interfere", "b": "any", "verdict": "refused",
          "error_contains": "needs -f or -p: there is no connection to interfere with otherwise",
-         "source": "ubertooth-btle.md OPTIONS: interference needs the mode that has a connection, so anything but -f or -p beside it gets this line -- including nothing else at all, and -n, the mode that only logs advertising packets"}
+         "source": "ubertooth-btle.md OPTIONS: interference needs the mode that has a connection, so anything but -f or -p beside it gets this line -- including nothing else at all, and -n, the mode that only logs advertising packets"},
+        {"a": "role:verbose", "b": "-f", "verdict": "device"},
+        {"a": "role:verbose", "b": "-n", "verdict": "device"},
+        {"a": "role:verbose", "b": "-p", "verdict": "device"},
+        {"a": "role:verbose", "b": "any", "verdict": "refused",
+         "error_contains": "needs -f, -n or -p: there is no decode for it to describe",
+         "source": "ubertooth-btle.md OPTIONS, -v: verbose describes the packets a capture decodes, so anything but a capture mode beside it gets this line -- including nothing else at all, which is what a command line that used -v to read the CRC verify setting gets now"}
       ]
     },
 

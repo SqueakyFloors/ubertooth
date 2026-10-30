@@ -1230,7 +1230,18 @@ void cb_btle(ubertooth_t* ut, void* args)
 		printf("%02x ", le_data[i]);
 	printf("\n");
 
+	/* lell_print() counts the fields it cannot read rather than writing a
+	 * line about each one, so the dump stays readable on a busy bench,
+	 * where hundreds of packets in ten seconds carry data that does not
+	 * match its own length fields. The count moving over this one packet
+	 * is how the tool knows to include it in the summary it prints when
+	 * the run ends; libbtbb's count is per field, so the comparison here
+	 * is what makes the summary per packet. */
+	uint64_t malformed_before = lell_malformed_count(LELL_MALFORMED_ANY, 0);
 	lell_print(pkt);
+	if (opts != NULL &&
+	    lell_malformed_count(LELL_MALFORMED_ANY, 0) != malformed_before)
+		opts->malformed_packets++;
 	printf("\n");
 
 	lell_packet_unref(pkt);

@@ -33,6 +33,9 @@ static struct {
 	int last_crc_set;
 	int poll_rc;         /* returned by cmd_poll(): < 0 fails the capture */
 	int polls;
+	/* How many packets the fake callback reports as holding data the
+	 * decoder could not read, each time it runs. */
+	unsigned malformed_packets;
 	/* How many times the tool asked the library to report the capture's
 	 * gaps, which it does once, when the capture ends. */
 	int gap_reports;
@@ -422,10 +425,17 @@ void cb_btle(ubertooth_t *ut, void *args)
 	btle_options *opts = (btle_options *)args;
 
 	(void)ut;
+	if (opts == NULL)
+		return;
 	/* The stream the tool told the callback to report on, which is what
 	 * decides whether the promiscuous mode's lines stay visible once a
 	 * capture has taken standard output. */
-	fake.callback_report_stream = opts != NULL ? opts->report_stream : NULL;
+	fake.callback_report_stream = opts->report_stream;
+	/* As the real callback does for a packet whose data the decoder could
+	 * not read all of: the tool reports the total when the run ends.
+	 * test_btle_dump_streams.c checks the counting itself against the real
+	 * decoder; here it is how many the tool was given. */
+	opts->malformed_packets += fake.malformed_packets;
 }
 
 void ubertooth_warn_if_poll_reply_short(ubertooth_t *ut, int len)
@@ -515,66 +525,67 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 }
 
 /*
- * -v was this setting's spelling until -k took over, so it still works for
- * one release: it warns, on standard error, and does what -k does. The two
- * spellings in one command line are one setting named twice, which is
- * refused.
+ * -v is verbose: it describes each packet whose data the decoder could not
+ * read, so it needs one of the capture modes and takes no value. It named the
+ * CRC verify setting until -k took that over, so each of the command lines
+ * that used it that way is refused with a line naming -k, rather than read as
+ * something -v does not mean.
  */
-MU_TEST(the_older_spelling_of_crc_verify_warns_and_still_works)
+MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
 {
 	struct run_result r;
-	static const char warning[] = "warning: -v for the CRC verify setting is "
-		"deprecated and will be removed; use -k\n";
+	static const char needs_a_mode[] = "error: -v needs -f, -n or -p: there "
+		"is no decode for it to describe; the CRC verify setting is -k now\n";
 
+	/* "-v" read the setting. It is now a verbose option with nothing to be
+	 * verbose about, and the board is not opened to read anything. */
 	reset_fake();
 	fake.crc = 1;
 	r = RUN("-v");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "g") == 0, fake.calls);
-	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
-	mu_assert(strcmp(r.err, warning) == 0, r.err);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, needs_a_mode) == 0, r.err);
+	mu_assert_int_eq(0, fake.crc_gets);
 
-	/* Once per command line, however many times -v was written. */
+	/* "-v1" set it. -v takes no value at all now, and the refusal quotes
+	 * the value back so a script's own line is recognizable in it. */
 	reset_fake();
-	r = RUN("-v1", "-v");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
-	mu_assert_int_eq(1, fake.last_crc_set);
-	mu_assert(strcmp(r.err, warning) == 0, r.err);
+	r = RUN("-v1");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
+	                 "(got 1); the CRC verify setting is -k\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.crc_sets);
 
-	/* Nothing is warned about for a command line that never reaches the
-	 * setting: -h and -V end it first. */
+	/* The same value written as the next word. */
+	reset_fake();
+	r = RUN("-v", "0");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
+	                 "(got 0); the CRC verify setting is -k\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.crc_sets);
+
+	/* -k beside it is the CRC verify setting and -v is verbose, so the two
+	 * are no longer one setting named twice -- but a read of the setting is
+	 * not a mode, so this command line has nothing for -v to describe. */
+	reset_fake();
+	r = RUN("-k", "-v");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strcmp(r.err, needs_a_mode) == 0, r.err);
+	mu_assert_int_eq(0, fake.crc_gets);
+
+	/* -h ends the command line before any of that is reached. */
 	reset_fake();
 	r = RUN("-v", "-h");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
-	/* Both spellings in one command line: the refusal names them as they
-	 * were written, and says nothing else -- not even the deprecation
-	 * warning, which belongs to a command line that runs. */
-	reset_fake();
-	r = RUN("-k", "-v");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "") == 0, r.out);
-	mu_assert(strcmp(r.err, "error: -v cannot be combined with -k; they are "
-	                 "the same CRC verify setting written two ways\n") == 0,
-	          r.err);
-	mu_assert_int_eq(0, fake.crc_sets);
-	mu_assert_int_eq(0, fake.crc_gets);
-
-	reset_fake();
-	r = RUN("-v", "-k");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, "error: -k cannot be combined with -v; they are "
-	                 "the same CRC verify setting written two ways\n") == 0,
-	          r.err);
-
-	/* A command line that is refused for another reason gets that line
-	 * alone, with no warning in front of it. */
+	/* A command line refused for another reason gets that line alone. */
 	reset_fake();
 	r = RUN("-v", "-i");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "warning:") == NULL, r.err);
+	mu_assert(strstr(r.err, "-i needs -f or -p") != NULL, r.err);
 }
 
 /* A set on its own, and a read on its own, are unchanged. */
@@ -874,6 +885,59 @@ MU_TEST(the_callback_reports_on_the_same_stream_as_the_tool)
 	mu_assert(fake.callback_report_stream == stderr,
 	          "the capture took standard output, but the callback was still "
 	          "given it, so the promiscuous lines would go to /dev/null");
+}
+
+/*
+ * Data off the air that does not hold what its own length fields describe is
+ * ordinary, and a busy bench gives hundreds of such packets in ten seconds.
+ * So a run says how many it met in one line when it ends, rather than a line
+ * per packet, and the line goes on the stream the dump went to: a caller that
+ * threw the dump away threw this away with it, which is what keeps a good
+ * Wireshark capture from being reported as an error.
+ */
+MU_TEST(a_run_sums_up_the_packets_it_could_not_decode)
+{
+	struct run_result r;
+
+	/* One packet the decoder could not read all of. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	fake.malformed_packets = 1;
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "note: 1 packet held data that could not be "
+	                 "decoded; -v describes each one\n") == 0, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	/* More than one, and -v, which has already described each of them. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	fake.malformed_packets = 3;
+	r = RUN("-n", "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "note: 3 packets held data that could not be "
+	                 "decoded\n") == 0, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	/* A run that decoded everything says nothing. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	r = RUN("-n");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	/* A capture that took standard output reports on standard error, as
+	 * every other line of this tool's does -- and it decodes nothing in
+	 * that case, so the count is the callback's to make, not this tool's
+	 * to guess. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	fake.malformed_packets = 2;
+	r = RUN("-n", "-q", "-");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "note: 2 packets held data that could not be "
+	                 "decoded") != NULL, r.err);
 }
 
 /* A Ctrl-C ends a sniffing capture, with the board taken out of its mode and
@@ -1640,7 +1704,7 @@ int main(void)
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
 	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(a_set_alone_and_a_read_alone_are_unchanged);
-	MU_RUN(the_older_spelling_of_crc_verify_warns_and_still_works);
+	MU_RUN(v_is_verbose_and_sends_the_old_crc_spelling_to_k);
 	MU_RUN(a_failed_set_is_reported_and_the_read_does_not_run);
 	MU_RUN(a_failed_read_is_reported_once);
 	MU_RUN(a_sniffing_mode_sets_and_reads_after_the_mode_starts);
@@ -1650,6 +1714,7 @@ int main(void)
 	MU_RUN(the_faux_slave_and_target_addresses_are_separate);
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
 	MU_RUN(the_callback_reports_on_the_same_stream_as_the_tool);
+	MU_RUN(a_run_sums_up_the_packets_it_could_not_decode);
 	MU_RUN(an_interrupted_capture_stops_and_exits_zero);
 	MU_RUN(a_capture_whose_teardown_was_refused_exits_1);
 	MU_RUN(an_interrupt_while_the_board_is_opened_ends_the_run);

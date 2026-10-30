@@ -153,7 +153,9 @@ static void usage(FILE *out)
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
 	fprintf(out, "\t-k [01] verify CRC mode, read status (-k) or enable/disable (-k 1, -k 0);\n");
 	fprintf(out, "\t       both in one command sets first, then reports the new value\n");
-	fprintf(out, "\t-v [01] the older spelling of -k, deprecated; -v will become verbose\n");
+	fprintf(out, "\t-v verbose: describe each packet whose data could not be read,\n");
+	fprintf(out, "\t       which a run otherwise sums up in one line at the end;\n");
+	fprintf(out, "\t       needs -f, -n or -p, and takes no value (it named -k's setting once)\n");
 	fprintf(out, "\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
@@ -192,9 +194,9 @@ int main(int argc, char *argv[])
 	 * do_get_crc is a plain flag. They shared one variable, so -k1 -k read
 	 * only and -k -k1 set only, dropping the other half with exit 0. */
 	int do_set_crc, do_get_crc;
-	/* -k or -v, whichever named the CRC verify setting: one setting written
-	 * two ways, so a command line may give only one of them. */
-	int crc_option = 0;
+	/* -v: describe every packet whose data the decoder cannot
+	 * read, rather than only counting it for the summary at the end. */
+	int do_verbose = 0;
 	int do_adv_index;
 	/* Whether -A was written, as against left at its default: the default
 	 * is harmless with any mode, an explicit one is refused with -p. */
@@ -312,23 +314,27 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'v':
-			/* The older spelling of -k, kept working for one release so that
-			 * existing scripts are not broken by the move. The warning about
-			 * it comes below, once the command line is known to use the
-			 * setting at all. */
-			/* fall through */
-		case 'k':
-			/* -k reads the CRC verify setting; -k0 / -k1 sets it, written
-			 * attached or as the next word (taken above). One setting
-			 * written two ways: a command line that gives both is refused
-			 * rather than one of them being dropped. */
-			if (crc_option != 0 && crc_option != opt) {
-				fprintf(stderr, "error: -%c cannot be combined with -%c; they"
-				        " are the same CRC verify setting written two ways\n",
-				        opt, crc_option);
+			/* -v is verbose, as it is in every other tool: it asks the
+			 * decoder to describe each packet whose data it cannot read,
+			 * instead of only counting it for the summary at the end of
+			 * the run. It named the CRC verify setting until -k took
+			 * that over, so a value written after it is a command line
+			 * from before the move: refused, naming -k, rather than
+			 * read as a verbosity level it would not mean. The option
+			 * still takes an optional value so that this refusal is what
+			 * such a command line gets, instead of a stray word or an
+			 * unknown option. */
+			if (optarg != NULL) {
+				fprintf(stderr, "error: -v is verbose now and takes no"
+				        " value (got %s); the CRC verify setting is"
+				        " -k\n", optarg);
 				return 1;
 			}
-			crc_option = opt;
+			do_verbose = 1;
+			break;
+		case 'k':
+			/* -k reads the CRC verify setting; -k0 / -k1 sets it, written
+			 * attached or as the next word (taken above). */
 			if (optarg) {
 				if (opt_require_int(optarg, 0, 1, "CRC verify mode", "",
 				                    &do_set_crc) < 0)
@@ -461,6 +467,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Verbose describes the packets a capture mode decodes, so without one
+	 * of those modes it has nothing to describe. Refused rather than
+	 * accepted and ignored, and before the "nothing to do" check below, so
+	 * that "ubertooth-btle -v" -- which read the CRC verify setting while
+	 * -v was that setting's older spelling -- says what -v is now instead
+	 * of listing every major mode. */
+	if (do_verbose && !(do_follow || do_no_follow || do_promisc)) {
+		fprintf(stderr, "error: -v needs -f, -n or -p: there is no decode"
+		        " for it to describe; the CRC verify setting is -k now\n");
+		return 1;
+	}
+
 	/* A command line with no work in it: refused here, before a device is
 	 * opened and before any capture file is created. It used to open the
 	 * selected board, check its API version, send nothing, print the usage
@@ -492,14 +510,6 @@ int main(int argc, char *argv[])
 	 * the file is created. */
 	if (opt_check_capture_destination(pcap_name, "capture data") < 0)
 		return 1;
-
-	/* -v named the CRC verify setting, which is -k now: -v means verbose in
-	 * every other tool, and will here too. Said once, however many times -v
-	 * was written, and only for a command line that is going to run: -h and
-	 * -V end the command above, and a refused one is its error line alone. */
-	if (crc_option == 'v')
-		fprintf(stderr, "warning: -v for the CRC verify setting is deprecated "
-		        "and will be removed; use -k\n");
 
 	/* Interference is accepted but no capture mode acts on it yet, so an
 	 * honest run says so once rather than reporting a clean capture for
@@ -705,6 +715,16 @@ int main(int argc, char *argv[])
 		 * move the stream, so there is one source for it. */
 		cb_opts.report_stream = report_stream;
 
+		/* Data off the air that does not hold what its own length
+		 * fields describe is ordinary: both a real packet with a
+		 * corrupted byte and noise that decoded as a packet produce
+		 * one, and a busy bench gives hundreds in ten seconds. So the
+		 * decoder counts them and this run prints one line at the end;
+		 * -v asks it to describe each one on standard error as it
+		 * goes. */
+		if (do_verbose)
+			lell_set_malformed_verbose(1);
+
 		while (!ubertooth_stopping(ut)) {
 			if (cancel_follow) {
 				cmd_cancel_follow(ut->devh);
@@ -744,6 +764,20 @@ int main(int argc, char *argv[])
 		/* What the capture is missing, once, where the user will see it
 		 * after the packets have scrolled past. */
 		ubertooth_report_capture_losses(ut);
+
+		/* How much of the decode could not be read, in one line after
+		 * the packets it summarizes. It goes on the dump's own stream,
+		 * because that is what it is about: a run that writes a capture
+		 * file and no dump decodes nothing and counts nothing, and a
+		 * caller that threw the dump away -- btle-extcap.py, which
+		 * sends it to /dev/null -- threw this away with it, instead of
+		 * leaving Wireshark to report a good capture as an error. */
+		if (cb_opts.malformed_packets > 0)
+			fprintf(report_stream, "note: %u packet%s held data that"
+			        " could not be decoded%s\n",
+			        cb_opts.malformed_packets,
+			        cb_opts.malformed_packets == 1 ? "" : "s",
+			        do_verbose ? "" : "; -v describes each one");
 	}
 
 	if (do_get_aa) {

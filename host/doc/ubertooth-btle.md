@@ -302,15 +302,18 @@ Miscellaneous:
    run once the mode has started, because entering a mode clears the setting,
    and the firmware then turns verification on and off itself as it recovers a
    connection.
- - `-v [01]` :
-   The older spelling of `-k`, **deprecated**. It still does what `-k` does
-   and prints one line on standard error -- `warning: -v for the CRC verify
-   setting is deprecated and will be removed; use -k` -- so a script that uses
-   it keeps working for this release. After that `-v` means verbose here as it
-   does in every other tool (ubertooth(7), COMMON OPTIONS). A command line
-   that gives both spellings names one setting twice and is refused:
-   `error: -k cannot be combined with -v; they are the same CRC verify setting
-   written two ways`.
+ - `-v` :
+   Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder
+   describes each packet whose data it could not read, on standard error, as
+   the run goes. Without it a run counts those packets and says how many there
+   were in one line when it ends (DIAGNOSTICS). It needs `-f`, `-n` or `-p`,
+   since there is no decode to describe otherwise, and it takes no value.
+
+   `-v` named the CRC verify setting until `-k` took that over, so a command
+   line written that way is refused with a line naming `-k`: `-v 0` and `-v 1`
+   give `error: -v is verbose now and takes no value (got 1); the CRC verify
+   setting is -k`, and `-v` on its own gives `error: -v needs -f, -n or -p:
+   there is no decode for it to describe; the CRC verify setting is -k now`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -498,6 +501,18 @@ Of this tool's capture modes only `-p` can report this loss, because it is the
 one that has the board search a stream of symbols. Under `-f` and `-n` the
 board receives one whole packet at a time, arming each receive and waiting for
 it, so there is no unread block for the next one to go over.
+
+Packets whose data the decoder could not read are summed up in one line when
+the run ends: `note: 312 packets held data that could not be decoded; -v
+describes each one`, where `-v` is what asks for that description as the run
+goes. Data off the air that does not hold what its own length fields describe
+is ordinary, not a failure -- both a real packet with a corrupted byte and
+noise that decoded as a packet produce one, and a busy bench gives hundreds in
+ten seconds -- so the run says how many rather than a line per packet, and the
+packets are recorded as they arrived. The line goes where the decoded packets
+went, because that is what it is about: a run that writes a capture file and
+shows no packets decodes nothing and says nothing, which is why a capture
+through btle-extcap(1) leaves Wireshark's error output empty.
 
 A poll the board does not answer is tried again, up to three attempts, before
 the capture gives up: a board busy elsewhere for a moment no longer ends a

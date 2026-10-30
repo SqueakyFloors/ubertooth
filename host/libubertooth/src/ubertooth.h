@@ -281,6 +281,20 @@ typedef struct {
 	 * once a capture has taken standard output and those lines stay
 	 * visible. NULL means standard output, for a caller that sets none. */
 	FILE* report_stream;
+	/* How many packets the dump met whose data the decoder could not read
+	 * all of: an advertising element running past the end of the payload,
+	 * or a PDU shorter than its own type needs. Data off the air that does
+	 * not hold what its length fields describe is ordinary -- both a real
+	 * packet with a corrupted byte and noise that decoded as a packet
+	 * produce one -- so the callback counts the packets and the tool
+	 * reports one line when the run ends.
+	 *
+	 * Per packet, where libbtbb's own lell_malformed_count() is per
+	 * element, so a packet carrying two unreadable elements counts once
+	 * here and twice there. Only a dump counts: libbtbb keeps its counts
+	 * in lell_print(), so a run whose packets go only to a capture file
+	 * counts nothing. */
+	uint32_t malformed_packets;
 } btle_options;
 
 extern uint32_t systime;
