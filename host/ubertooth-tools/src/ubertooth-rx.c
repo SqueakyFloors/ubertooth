@@ -87,18 +87,15 @@ struct rx_files {
 	const char* dump;    /* -d */
 };
 
-/* Takes away the capture files this run created, for a failure between
- * creating them and the first packet: a refused run then leaves no empty
- * capture behind.
+/* Takes the capture files away again, for a failure between creating them and
+ * the first packet: a refused run then leaves no empty capture behind.
  *
  * The handles say which files exist, since each is set only once its writer
- * has the file open, so before the files are created this does nothing. Call
- * it before the board goes back, which is what closes those writers: the
- * files go by name while the writers still hold them, and the header bytes a
- * writer had buffered then go nowhere.
- *
- * A capture on standard output is nothing of ours to remove, which
- * opt_discard_capture_file() decides from the name. */
+ * has the file open, so before the files are created this does nothing. It
+ * runs before the board goes back, because that is what closes those writers:
+ * the files go by name while the writers still hold them, and the header
+ * bytes a writer had buffered then go nowhere. Which names are left alone is
+ * opt_discard_capture_file()'s decision. */
 static void rx_discard_files(ubertooth_t* ut, const struct rx_files* files)
 {
 	if (ut->h_pcapng_bredr != NULL)
@@ -117,6 +114,20 @@ static int setup_failed(ubertooth_t* ut, const struct rx_files* files)
 {
 	rx_discard_files(ut, files);
 	ubertooth_close(ut);
+	ubertooth_free(ut);
+	return 1;
+}
+
+/* The same for a failure while the receive transfer is being set up, which the
+ * board is given back from with a STOP: by then it may be left in the mode an
+ * earlier command started. libubertooth or the caller has already said what
+ * failed. Every failure from the files down to the capture loop goes through
+ * one of these three helpers, so a path added between them cannot forget the
+ * files. */
+static int transfer_failed(ubertooth_t* ut, const struct rx_files* files)
+{
+	rx_discard_files(ut, files);
+	ubertooth_stop(ut);
 	ubertooth_free(ut);
 	return 1;
 }
@@ -540,13 +551,8 @@ int main(int argc, char* argv[])
 		if (r < 0) {
 			/* nothing is in flight, but the board is still open and in
 			 * whatever mode an earlier command left it. libubertooth has
-			 * already said what failed, so the status is all this adds.
-			 * The board goes back with a STOP here, which the helpers
-			 * above do not do, so the files are taken by hand. */
-			rx_discard_files(ut, &files);
-			ubertooth_stop(ut);
-			ubertooth_free(ut);
-			return 1;
+			 * already said what failed, so the status is all this adds. */
+			return transfer_failed(ut, &files);
 		}
 
 		r = ubertooth_bulk_thread_start();
@@ -557,12 +563,8 @@ int main(int argc, char* argv[])
 			 * waited forever with nothing arriving. */
 			report_capture_thread_failure(r);
 			/* The receive transfer is in flight and the board is about to
-			 * be left in its mode: give both back before returning, and
-			 * take this run's files with them. */
-			rx_discard_files(ut, &files);
-			ubertooth_stop(ut);
-			ubertooth_free(ut);
-			return 1;
+			 * be left in its mode: give both back before returning. */
+			return transfer_failed(ut, &files);
 		}
 
 		/* The modulation this capture reads, Classic, stated before the

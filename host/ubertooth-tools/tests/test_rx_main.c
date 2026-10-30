@@ -1139,8 +1139,8 @@ MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
  * the capture itself starting: the three requests it is built on, and the two
  * steps that set the USB transfer up. Each of them left the created file
  * behind, header and nothing else, for the user to tell apart from a capture
- * that caught nothing. Each file option is checked against each failure,
- * because each file is opened by a writer of its own. */
+ * that caught nothing. One file option is enough here, since the removal is
+ * decided per writer; the case below asks for all three at once. */
 MU_TEST(a_run_refused_after_the_files_exist_removes_them)
 {
 	enum { TRANSFER, THREAD, MODULATION, CAPTURE, SWEEP };
@@ -1156,62 +1156,94 @@ MU_TEST(a_run_refused_after_the_files_exist_removes_them)
 		/* No -c, so the request asked for the sweep. */
 		{ NO_ANSWER("set sweep mode") }
 	};
-	static const char* const options[] = { "-q", "-r", "-d" };
 	struct run_result r;
 	struct stat info;
 	char path[64];
-	size_t i, which;
+	size_t which;
 
 	for (which = 0; which < sizeof(failures) / sizeof(failures[0]); which++) {
-		for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
-			int fd;
+		int fd;
 
-			reset_device();
-			switch (which) {
-			case TRANSFER:
-				device.bulk_init_rc = -1;
-				break;
-			case THREAD:
-				/* pthread_create()'s own errno, which is
-				 * positive where every libusb code is not. */
-				device.thread_start_rc = EAGAIN;
-				break;
-			case MODULATION:
-				device.modulation_rc = LIBUSB_ERROR_TIMEOUT;
-				break;
-			case CAPTURE:
-				device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
-				break;
-			default:
-				device.channel_rc = LIBUSB_ERROR_TIMEOUT;
-				break;
-			}
-
-			snprintf(path, sizeof(path), "/tmp/rx-discard-XXXXXX");
-			fd = mkstemp(path);
-			mu_assert_fatal(fd >= 0, "temp name taken");
-			close(fd);
-			unlink(path);
-
-			r = RUN_RX(options[i], path, "-t", "10");
-
-			mu_assert_int_eq(1, r.rc);
-			/* Nothing left under the name the user gave. */
-			mu_assert(stat(path, &info) != 0, path);
-			/* The run said why, and said it only once: a file this
-			 * run took back is not worth a line of its own. */
-			if (failures[which].message != NULL)
-				mu_assert(strcmp(r.err,
-				          failures[which].message) == 0, r.err);
-			else
-				mu_assert(strstr(r.err, "warning: cannot remove")
-				          == NULL, r.err);
-			mu_assert(r.out[0] == '\0', r.out);
-			mu_assert_int_eq(0, device.blocks);
-			mu_assert_int_eq(1, device.frees);
-			unlink(path);
+		reset_device();
+		switch (which) {
+		case TRANSFER:
+			device.bulk_init_rc = -1;
+			break;
+		case THREAD:
+			/* pthread_create()'s own errno, which is positive
+			 * where every libusb code is not. */
+			device.thread_start_rc = EAGAIN;
+			break;
+		case MODULATION:
+			device.modulation_rc = LIBUSB_ERROR_TIMEOUT;
+			break;
+		case CAPTURE:
+			device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
+			break;
+		default:
+			device.channel_rc = LIBUSB_ERROR_TIMEOUT;
+			break;
 		}
+
+		snprintf(path, sizeof(path), "/tmp/rx-discard-XXXXXX");
+		fd = mkstemp(path);
+		mu_assert_fatal(fd >= 0, "temp name taken");
+		close(fd);
+		unlink(path);
+
+		r = RUN_RX("-q", path, "-t", "10");
+
+		mu_assert_int_eq(1, r.rc);
+		/* Nothing left under the name the user gave. */
+		mu_assert(stat(path, &info) != 0, path);
+		/* The run said why, and said it only once: a file this run
+		 * took back is not worth a line of its own. */
+		if (failures[which].message != NULL)
+			mu_assert(strcmp(r.err, failures[which].message) == 0,
+			          r.err);
+		else
+			mu_assert(strstr(r.err, "warning: cannot remove")
+			          == NULL, r.err);
+		mu_assert(r.out[0] == '\0', r.out);
+		mu_assert_int_eq(0, device.blocks);
+		mu_assert_int_eq(1, device.frees);
+		unlink(path);
 	}
+}
+
+/* All three writers at once, since each file is opened by a writer of its own
+ * and each is decided by a handle of its own: one refused run asked for every
+ * file option must leave none of the three behind. */
+MU_TEST(a_refused_run_removes_every_file_it_was_asked_for)
+{
+	struct run_result r;
+	struct stat info;
+	char base[64];
+	char pcap[80], pcapng[80], dump[80];
+	int fd;
+
+	reset_device();
+	device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
+
+	snprintf(base, sizeof(base), "/tmp/rx-discard3-XXXXXX");
+	fd = mkstemp(base);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	unlink(base);
+	snprintf(pcap, sizeof(pcap), "%s.pcap", base);
+	snprintf(pcapng, sizeof(pcapng), "%s.pcapng", base);
+	snprintf(dump, sizeof(dump), "%s.dump", base);
+
+	r = RUN_RX("-q", pcap, "-r", pcapng, "-d", dump, "-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(stat(pcap, &info) != 0, pcap);
+	mu_assert(stat(pcapng, &info) != 0, pcapng);
+	mu_assert(stat(dump, &info) != 0, dump);
+	mu_assert(strcmp(r.err, NO_ANSWER("start the capture")) == 0, r.err);
+	unlink(pcap);
+	unlink(pcapng);
+	unlink(dump);
 }
 
 /* The other half of it: a capture that ran keeps its file, however little
@@ -1493,6 +1525,7 @@ int main(void)
 	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
 	MU_RUN(a_run_that_fails_before_the_capture_creates_no_file);
 	MU_RUN(a_run_refused_after_the_files_exist_removes_them);
+	MU_RUN(a_refused_run_removes_every_file_it_was_asked_for);
 	MU_RUN(a_capture_that_ran_keeps_its_files);
 	MU_RUN(a_refused_run_leaves_a_link_and_dev_null_alone);
 	MU_RUN(a_capture_that_cannot_start_exits_one);

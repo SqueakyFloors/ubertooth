@@ -310,9 +310,9 @@ void opt_discard_capture_file(const char *filename)
 	if (filename == NULL || opt_writes_to_stdout(filename))
 		return;
 
-	/* lstat(), not stat(): a capture written through a symbolic link went
-	 * into the file the link names, which the user had before this run and
-	 * which is not this run's to remove. */
+	/* lstat(), not stat(): what a symbolic link names was the user's choice
+	 * of where the capture goes, and removing the link would take that
+	 * choice away. The file it names keeps whatever the writer put there. */
 	if (lstat(filename, &info) == 0) {
 		if (!S_ISREG(info.st_mode))
 			return;
