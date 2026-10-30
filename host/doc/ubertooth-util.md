@@ -35,7 +35,8 @@ the read reports the new value. The order they are written in does not matter:
     Current frequency: 2426 MHz (Bluetooth channel 24)
 
 The same holds for `-a`, `-C`, `-d`, `-l` and `-z`. Two sets of the same value
-in one command keep the last one.
+in one command are refused instead, before any device is opened:
+`error: option '-c' given more than once`.
 
 Setting and reading are separate device operations here, which is why one
 command can do both; `ubertooth-btle -a` refuses the combination instead,
@@ -719,10 +720,11 @@ again at any time, and that is all `-m` does:
 
     ubertooth-util -U <sender> -m
 
-Both boards must be running firmware of this tree's API version, which is what
-every host tool requires of the board it opens. The range test packets carry no
-version of their own, so two boards at the same API version work together
-whichever revision each was built from.
+The exchange is between the two boards' firmware, so both need firmware that
+has the range test in it. `ubertooth-util` does not check the version here, as
+it does for `-I`: a board carrying older firmware is driven as it is. The range
+test packets carry no version of their own, so two boards at the same API
+version work together whichever revision each was built from.
 
 Before a range test has completed since the board started, `-m` prints
 `no range test result yet` on standard output and exits 0: there is no result

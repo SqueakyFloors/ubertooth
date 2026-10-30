@@ -9,9 +9,14 @@
 Intended to retransmit symbols captured with ubertooth-dump toward a target
 piconet identified by LAP/UAP.
 
-**Status: non-functional.** The tool transmits nothing today, and says so in
-its own usage output ("This tool currently does nothing"). It is kept as the
-entry point for that work; do not rely on it to transmit.
+**Status: it sends no dump.** Handing the dumped symbols to the board is not
+written yet, and the usage text says so ("This tool currently does nothing").
+The board does transmit meanwhile. The firmware sends one fixed 16-byte packet
+per pair of slots, holding the target's access code, a trailer byte, and seven
+bytes of filler, and hops along the target piconet's sequence until the run is
+interrupted or its `-t` timeout passes. So the command puts a signal on the
+air, carrying the address it was given and nothing from a dump. Do not rely on
+it to retransmit a capture.
 
 ## OPTIONS
 
