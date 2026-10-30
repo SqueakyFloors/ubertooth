@@ -213,7 +213,7 @@ void rssi_add(int8_t v)
 	 * The reference is the readings' own loudest, not a fixed level, so a
 	 * channel that is simply loud still yields an estimate. It is a running
 	 * loudest, so quiet taken before the window's packet is not admitted: a
-	 * window whose packet arrives last gives no estimate at all.
+	 * window whose packet arrives last contributes nothing.
 	 */
 	if (v > rssi_window_ref)
 		rssi_window_ref = v;

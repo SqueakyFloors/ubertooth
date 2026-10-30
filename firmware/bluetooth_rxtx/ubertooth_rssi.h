@@ -86,27 +86,31 @@ int8_t rssi_get_signal(void);
 /*
  * The estimate of the background on the channel: the mean power of the
  * readings that sat more than RSSI_POWER_SPAN dB below the loudest taken so
- * far on this channel in the same receive window. rssi_add() decides that, one
- * reading at a time.
+ * far. rssi_add() decides that, one reading at a time, and "so far" runs from
+ * the later of rssi_reset() and rssi_noise_reset(), so the comparison never
+ * spans a receive window or a channel.
  *
- * It is an estimate, and these are the three things it is not:
+ * The readings admitted outlive the window, unlike the packet's, because a
+ * quiet window holds nothing but background and a busy one may hold nothing
+ * but packet. rssi_noise_reset() is what ends their collection, and the mode
+ * loops run it wherever they act on the hop timer: on every hop, and 25 times
+ * a second even on a fixed channel, where hop() then retunes nothing. So a
+ * record reports the readings of the last few tens of milliseconds of air on
+ * its channel.
+ *
+ * What comes out is an estimate, and these are the three things it is not:
  *
  * It is not a measurement of clear air. A deeply faded part of a packet sits
  * that far down too and is counted in.
  *
  * It is not the floor. The mean is over the loudest RSSI_POWER_SPAN dB of the
  * readings admitted, as every mean here is, so one reading at -85 dBm among a
- * hundred at -110 reports about -85. A loud reading admitted once holds the
- * figure up at its own level until the channel changes.
+ * hundred at -110 reports about -85, and a loud reading admitted once holds
+ * the figure up at its own level until the next reset.
  *
- * It is not every quiet reading of the window. The reference is a running
- * loudest, so quiet taken before the window's packet is not admitted, and a
- * window whose packet arrives last yields nothing.
- *
- * It does not follow rssi_reset(), because the readings of one receive window
- * need not include any of either kind, and it starts again on a hop, because a
- * background level belongs to one channel. A record reports whatever has been
- * collected on its channel so far.
+ * It is not every quiet reading. The reference is a running loudest, so quiet
+ * taken before a window's packet is not admitted, and a window whose packet
+ * arrives last contributes nothing.
  */
 void rssi_noise_reset(void);
 int rssi_noise_estimated(void);

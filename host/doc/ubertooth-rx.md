@@ -121,12 +121,14 @@ packet's figure down.
 
 The background is an estimate because the board cannot time the quiet between
 packets, so it goes by level: it averages the readings that sat more than 10 dB
-below the loudest it had taken on that channel in the same receive window, and
-starts again on each hop. Three things follow. A faded part of a packet sits
-that far down too and is counted in. Quiet taken before the window's packet is
-not admitted, so a window whose packet arrives last yields nothing. And the
-mean is over the loudest 10 dB of what is admitted, so on a channel that is
-mostly silent the figure sits well above the floor.
+below the loudest it had taken since it last started counting. It starts
+counting again on every hop, and 25 times a second even on a fixed channel, so
+the figure describes the last few tens of milliseconds of air. Three things
+follow. A faded part of a packet sits that far down too and is counted in.
+Quiet taken before a packet is not admitted, so a window whose packet arrives
+last contributes nothing. And the mean is over the loudest 10 dB of what is
+admitted, so on a channel that is mostly silent the figure sits well above the
+floor.
 
 The screen shows the two as `s=` and `n=`, in dBm, with `snr=` the difference.
 A capture record carries them as its signal power and noise power, and the

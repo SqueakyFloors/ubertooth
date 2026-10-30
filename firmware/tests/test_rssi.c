@@ -657,6 +657,34 @@ MU_TEST(test_the_air_before_a_packet_is_not_the_background)
 	mu_assert_int_eq(-80, rssi_get_noise());
 }
 
+/* Each receive window starts the comparison again, so a packet in one window
+ * does not admit the air of the next as background. Without that, a quiet
+ * window after a loud one reports a figure it has no evidence for: every
+ * reading in it sits far below the packet the board has finished with. */
+MU_TEST(test_each_window_starts_the_comparison_again)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+
+	/* A packet, and one quiet reading under it: that one is the figure. */
+	rssi_add(-40);
+	rssi_add(-80);
+	mu_assert_int_eq(-80, rssi_get_noise());
+
+	/* A new window of readings, none of them far below the others. */
+	rssi_reset();
+	for (i = 0; i < 20; i++)
+		rssi_add(-75);
+
+	/* Nothing was admitted, so the figure is still the one reading from
+	 * the window before. Judged against that window's packet instead,
+	 * every -75 would have been admitted and taken the figure up to -75. */
+	mu_assert_int_eq(-80, rssi_get_noise());
+	mu_assert_int_eq(-75, rssi_get_signal());
+}
+
 /* A hop starts the comparison again, so the new channel's packet is not read
  * against the old channel's. Without that, the first readings after a hop are
  * judged against a packet on a channel the board has left: a quieter packet on
@@ -712,6 +740,7 @@ int main(void)
 	MU_RUN(test_a_quiet_window_claims_no_background);
 	MU_RUN(test_the_background_outlives_a_packet_and_not_a_hop);
 	MU_RUN(test_the_air_before_a_packet_is_not_the_background);
+	MU_RUN(test_each_window_starts_the_comparison_again);
 	MU_RUN(test_a_hop_starts_the_comparison_again);
 	return mu_report();
 }
