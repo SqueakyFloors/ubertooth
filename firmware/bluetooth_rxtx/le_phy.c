@@ -287,8 +287,8 @@ static void le_dma_interrupt(uint32_t timestamp);
 static void timer1_interrupt(void);
 static void timer1_wait_buffer(void);
 static void timer1_cancel_wait_buffer(void);
-static void timer2_start(void);
-static void timer2_stop(void);
+static void blink_timer_start(void);
+static void blink_timer_stop(void);
 static void blink(int tx, int rx, int usr);
 static void blink_expire(void);
 static void le_dma_init(void);
@@ -1161,8 +1161,8 @@ static void timer1_enable_interrupt(void) {
 // together -- or disarm one.
 //
 // T1MCR holds the enable bit of all three matches this engine uses: the
-// connection event (MR0), the synthesizer-lock wait (MR2) and the buffer wait
-// (MR3). Setting or clearing one bit of it is a read-modify-write, and the
+// connection event (MR0), the synthesizer-lock wait (MR2), and the buffer
+// wait (MR3). Setting or clearing one bit of it is a read-modify-write, and the
 // three matches do not belong to one context: the main loop arms the event
 // and lock matches on the connection-following path, while both interrupt
 // handlers arm and disarm the lock and buffer waits.
@@ -1519,22 +1519,26 @@ static void timer1_interrupt(void) {
 //
 // The blink marks a packet handed to the host, so it is armed from the mode's
 // loop, and it used to arm a fourth match of timer1. Timer1 is the radio's
-// clock: the connection event, the synthesizer-lock wait and the buffer wait
+// clock: the connection event, the synthesizer-lock wait, and the buffer wait
 // are all matches of it, and its counter is what every deadline in this file
-// is measured against. Giving the LED a counter of its own keeps the loop out
-// of that register altogether.
+// is measured against. So the loop wrote that register once for every packet
+// it handed to the host, which is what giving the LED a counter of its own
+// stops. The connection-following path still arms the event and the lock
+// match from the loop, under the guards timer1_arm_match() describes.
 //
 // Timer2 is free while this mode runs: the only other user is the xmas LED
 // demo, which is a mode of its own and cannot be running at the same time.
-// The prescaler below is timer1's, so one tick is 100 ns here too and the
-// file's USEC() and MSEC() mean the same on both counters.
 //
 // No interrupt is enabled, so this costs the radio's timing nothing: the
 // deadline is polled from the loop, which is a plain counter read, and the
 // loop comes round every few microseconds -- far oftener than the 10 ms the
-// LED is on. Leaving the match control register at 0 also means timer2's line
-// stays quiet, so the xmas demo's TIMER2_IRQHandler() is never reached from
+// LED is on. Leaving the match control register at 0, and clearing whatever
+// the xmas demo latched, means nothing of timer2 reaches the interrupt
+// controller, so its TIMER2_IRQHandler() over in xmas.c is never entered from
 // here.
+//
+// Note the name: NOW above is timer1's counter, and this is timer2's. The
+// blink measures its deadline against this one.
 #define BLINK_NOW T2TC
 
 // Both are the loop's alone: blink() and blink_expire() are called from it
@@ -1542,17 +1546,21 @@ static void timer1_interrupt(void) {
 static uint32_t blink_until;
 static int blink_armed;
 
-static void timer2_start(void) {
+static void blink_timer_start(void) {
 	PCONP |= PCONP_PCTIM2;
 	T2TCR = TCR_Counter_Reset;
-	T2PR = 4; // 100 ns, as timer1
-	T2MCR = 0; // no match, so nothing of timer2 reaches the interrupt controller
+	// clock_start() puts timer2 on the same peripheral clock divider as
+	// timer1, so timer1's prescaler makes a tick of the same length here and
+	// the file's USEC() and MSEC() mean the same on either counter.
+	T2PR = 4;
+	T2MCR = 0;
+	T2IR = 0xff; // write-1-to-clear: every match and capture flag
 	T2TCR = TCR_Counter_Enable;
 
 	blink_armed = 0;
 }
 
-static void timer2_stop(void) {
+static void blink_timer_stop(void) {
 	T2TCR = TCR_Counter_Reset;
 
 	PCONP &= ~PCONP_PCTIM2;
@@ -1995,7 +2003,7 @@ void le_phy_main(void) {
 	timer1_start();
 
 	// The LED blink's counter. See BLINK_NOW.
-	timer2_start();
+	blink_timer_start();
 
 	current_rxbuf = buffer_get();
 	rf_channel = le_adv_channel; // FIXME
@@ -2116,7 +2124,7 @@ void le_phy_main(void) {
 
 	// The LED blink's counter goes back off, and its power with it. The LEDs
 	// themselves are cleared below, whatever the blink was in the middle of.
-	timer2_stop();
+	blink_timer_stop();
 
 	// kill the CC2400: synthesizer off, and the Ubertooth One amplifier with it
 	cc2400_strobe(SRFOFF);

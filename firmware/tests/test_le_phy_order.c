@@ -77,12 +77,15 @@ struct le_phy_scan {
 	 * which the blink used to arm; where blink() takes its deadline from;
 	 * and any unmasking of timer2's own interrupt. */
 	int timer1_blink_match;
-	int blink_deadline_from_timer2;
 	int timer2_unmask;
-	/* In le_phy_main(): where the blink's counter is started, and where the
-	 * loop turns a finished blink off. */
-	int timer2_start;
-	int blink_expire;
+	/* In le_phy_main(): where the blink's counter is started and stopped,
+	 * and where a finished blink is turned off. The last is counted only
+	 * inside the mode's own loop: called after the loop instead, it would
+	 * leave the LED latched on from the first packet to the end of the
+	 * mode. */
+	int blink_timer_start;
+	int blink_timer_stop;
+	int blink_expire_in_loop;
 	/* In le_dma_interrupt(), where a finished packet is handed over: the
 	 * first of each of these after the function starts. */
 	int handover_take;      /* buffer_get() */
@@ -95,7 +98,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
-	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0, in_blink = 0;
+	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0, in_loop = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -113,10 +116,9 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		    contains_identifier(line, "ISER0_ISE_TIMER1"))
 			s->unmask_writes++;
 
-		/* The LED blink's three marks, anywhere in the file. Timer1's match
-		 * 1 is what the blink used to arm; timer2's interrupt is what it
-		 * must not start using instead; and BLINK_NOW inside blink() is
-		 * where the deadline now comes from. */
+		/* The LED blink's two marks, anywhere in the file: timer1's match 1,
+		 * which the blink used to arm, and timer2's interrupt, which it
+		 * must not start using instead. */
 		if (s->timer1_blink_match == 0 &&
 		    (contains_identifier(line, "T1MR1") ||
 		     contains_identifier(line, "TMCR_MR1I") ||
@@ -126,16 +128,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		if (contains_identifier(line, "ISER0_ISE_TIMER2"))
 			s->timer2_unmask = lineno;
 
-		if (strstr(line, "void blink(int tx") != NULL &&
-		    strchr(line, ';') == NULL) {
-			in_blink = 1;
-		} else if (in_blink) {
-			if (contains_identifier(line, "BLINK_NOW") &&
-			    s->blink_deadline_from_timer2 == 0)
-				s->blink_deadline_from_timer2 = lineno;
-			if (line[0] == '}')
-				in_blink = 0;
-		}
+
 
 		/* Every mention of T1MCR in the file, and whether it is inside one
 		 * of the helpers that hold interrupts off. A write of the whole
@@ -255,11 +248,26 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 				s->unmask = lineno;
 			if (strcmp(name, "timer1_stop") == 0 && s->timer1_stop == 0)
 				s->timer1_stop = lineno;
-			if (strcmp(name, "timer2_start") == 0 && s->timer2_start == 0)
-				s->timer2_start = lineno;
-			if (strcmp(name, "blink_expire") == 0 && s->blink_expire == 0)
-				s->blink_expire = lineno;
+			if (strcmp(name, "blink_timer_start") == 0 &&
+			    s->blink_timer_start == 0)
+				s->blink_timer_start = lineno;
+			if (strcmp(name, "blink_timer_stop") == 0 &&
+			    s->blink_timer_stop == 0)
+				s->blink_timer_stop = lineno;
+			if (in_loop && strcmp(name, "blink_expire") == 0 &&
+			    s->blink_expire_in_loop == 0)
+				s->blink_expire_in_loop = lineno;
 		}
+
+		/* The mode's own loop, so a call can be placed inside it rather
+		 * than merely somewhere in the function. The loop is written at one
+		 * tab and its body at two, so its closing brace is the next line
+		 * that is a tab and a brace alone. */
+		if (!in_loop && strstr(line, "while (requested_mode") != NULL)
+			in_loop = 1;
+		else if (in_loop && strncmp(line, "\t}", 2) == 0)
+			in_loop = 0;
+
 		if (is_assignment_of(line, "le_packet_dropped", "0") &&
 		    s->dropped_cleared == 0)
 			s->dropped_cleared = lineno;
@@ -460,7 +468,7 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
  * it.
  *
  * All three matches live in that one register -- the connection event, the
- * synthesizer-lock wait and the buffer wait -- and no single context owns
+ * synthesizer-lock wait, and the buffer wait -- and no single context owns
  * them: the main loop arms the event and the lock wait while a connection is
  * being followed, and both interrupt handlers arm and disarm the waits.
  * Setting a bit is a read-modify-write, so an interrupt
@@ -544,11 +552,6 @@ MU_TEST(test_the_blink_is_not_on_the_radios_timer)
 	mu_assert(s.timer1_blink_match == 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: blink() does not take its deadline from BLINK_NOW, so the "
-	         "scan can no longer tell which counter the blink is on", path);
-	mu_assert(s.blink_deadline_from_timer2 != 0, msg);
-
-	snprintf(msg, sizeof(msg),
 	         "%s:%d: timer2's interrupt is unmasked here; the blink is polled "
 	         "from the loop on purpose, so no handler of its own can cut into "
 	         "the capture", path, s.timer2_unmask);
@@ -558,12 +561,18 @@ MU_TEST(test_the_blink_is_not_on_the_radios_timer)
 	         "%s: le_phy_main() never starts the blink's counter, so the "
 	         "deadline is measured against a counter that is not running",
 	         path);
-	mu_assert(s.timer2_start != 0, msg);
+	mu_assert(s.blink_timer_start != 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: le_phy_main() never calls blink_expire(), so nothing turns "
-	         "the LED off and it stays on for the rest of the capture", path);
-	mu_assert(s.blink_expire != 0, msg);
+	         "%s: le_phy_main() never stops the blink's counter, so timer2 is "
+	         "left running and powered for the modes that follow", path);
+	mu_assert(s.blink_timer_stop != 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the mode's loop never calls blink_expire(), so nothing "
+	         "turns the LED off and it stays on from the first packet to the "
+	         "end of the mode", path);
+	mu_assert(s.blink_expire_in_loop != 0, msg);
 }
 
 /*

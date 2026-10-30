@@ -74,7 +74,7 @@
  * firmware's register name resolves to here. */
 volatile uint32_t fake_t1ir, fake_t1tcr, fake_t1tc, fake_t1pr, fake_t1mcr;
 volatile uint32_t fake_t1mr0, fake_t1mr1, fake_t1mr2, fake_t1mr3;
-volatile uint32_t fake_t2tcr, fake_t2tc, fake_t2pr, fake_t2mcr;
+volatile uint32_t fake_t2ir, fake_t2tcr, fake_t2tc, fake_t2pr, fake_t2mcr;
 volatile uint32_t fake_pconp;
 volatile uint32_t fake_iser0, fake_icer0, fake_icpr0;
 volatile uint32_t fake_dmac_int_stat, fake_dmac_int_tc_stat;
@@ -262,6 +262,7 @@ static void start_fresh(void)
 	fake_t1mr2 = 0;
 	fake_t1mr3 = 0;
 	fake_t1tc = 0;
+	fake_t2ir = 0;
 	fake_t2tcr = 0;
 	fake_t2tc = 0;
 	fake_t2pr = 0;
@@ -659,7 +660,7 @@ static void clear_the_buffer_the_engine_holds(void)
 MU_TEST(the_blink_leaves_the_radios_timer_alone)
 {
 	start_fresh();
-	timer2_start();
+	blink_timer_start();
 	fake_t1tc = 1000;
 
 	/* A synthesizer wait, as the byte interrupt leaves one. */
@@ -686,26 +687,30 @@ MU_TEST(the_blinks_counter_arms_no_match)
 {
 	start_fresh();
 
-	timer2_start();
+	blink_timer_start();
 
 	mu_assert(fake_pconp & PCONP_PCTIM2, "timer2 was left unpowered");
 	mu_assert_int_eq(TCR_Counter_Enable, (int)fake_t2tcr);
-	/* Timer2's clock is cclk/2 on this board, as timer1's is, so the same
-	 * prescaler makes one tick 100 ns and MSEC() means the same on both. */
+	/* clock_start() puts timer2 on the same peripheral clock divider as
+	 * timer1, so timer1's prescaler makes a tick of the same length here
+	 * and MSEC() means the same on either counter. */
 	mu_assert_int_eq(4, (int)fake_t2pr);
 	mu_assert_int_eq(0, (int)fake_t2mcr);
+	/* A flag the xmas demo latched before this mode started is cleared, so
+	 * nothing of timer2 is left waiting at the interrupt controller. */
+	mu_assert_int_eq(0xff, (int)fake_t2ir);
 	mu_assert(!(fake_iser0 & ISER0_ISE_TIMER2),
 	          "timer2's interrupt was unmasked, which would put the blink "
 	          "back into a handler that can cut into the radio's timing");
 
-	timer2_stop();
+	blink_timer_stop();
 	mu_assert(!(fake_pconp & PCONP_PCTIM2), "timer2 was left powered");
 }
 
 MU_TEST(the_blink_still_lasts_ten_milliseconds)
 {
 	start_fresh();
-	timer2_start();
+	blink_timer_start();
 	fake_t2tc = 7000;
 
 	blink(0, 1, 0);
@@ -737,7 +742,7 @@ MU_TEST(the_blink_still_lasts_ten_milliseconds)
 MU_TEST(a_second_packet_puts_the_blink_back_to_full_length)
 {
 	start_fresh();
-	timer2_start();
+	blink_timer_start();
 	fake_t2tc = 0;
 
 	blink(0, 1, 0);
@@ -760,7 +765,7 @@ MU_TEST(a_second_packet_puts_the_blink_back_to_full_length)
 MU_TEST(a_blink_survives_the_counters_wrap)
 {
 	start_fresh();
-	timer2_start();
+	blink_timer_start();
 	fake_t2tc = 0xffffffffu - MSEC(5);
 
 	blink(0, 1, 0);
