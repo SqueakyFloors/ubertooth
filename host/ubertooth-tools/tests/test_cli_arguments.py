@@ -99,8 +99,16 @@ CASES = {
         (("-f", "-n"), "error: choose one of -f, -n or -p"),
         (("-n", "-p"), "error: choose one of -f, -n or -p"),
         (("-f", "-n", "-p"), "error: choose one of -f, -n or -p"),
-        (("-v", "2"), "error: crc verify mode must be 0-1 (got 2)"),
-        (("-vabc",), "error: crc verify mode must be 0-1 (got abc)"),
+        (("-k", "2"), "error: crc verify mode must be 0-1 (got 2)"),
+        (("-kabc",), "error: crc verify mode must be 0-1 (got abc)"),
+        # -v named the crc verify setting before -k took it over, so a value
+        # written after it is a command line from before the move
+        (("-v", "2"),
+         "error: -v is verbose now and takes no value (got 2);"
+         " the crc verify setting it used to name is -k"),
+        (("-vabc",),
+         "error: -v is verbose now and takes no value (got abc);"
+         " the crc verify setting it used to name is -k"),
         # a word that is not a value for -v is not taken as one
         (("-v", "abc"), "error: unexpected argument 'abc'"),
         (("-x", "33"), "error: access address offenses must be 0-32 (got 33)"),
@@ -128,7 +136,7 @@ CASES = {
          " (got 11:22:33:44:55:66/24)"),
         # optional values as the next word: consumed, so "extra" is the stray
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
-        (("-v", "1", "extra"), "error: unexpected argument 'extra'"),
+        (("-k", "1", "extra"), "error: unexpected argument 'extra'"),
         # "-" is still the stdout value of the capture options
         (("-q", "-", "extra"), "error: unexpected argument 'extra'"),
         (("-c", "-", "extra"), "error: unexpected argument 'extra'"),

@@ -106,11 +106,13 @@ version it reports, which is what makes `-V` the way to identify an unknown
 board.
 
 `-v` means verbose, where a tool has verbose output: ubertooth-specan(1) `-v`,
-and ubertooth-debug(1) `-v <0-2>`. Two tools spell something else `-v`, and
-both are older spellings kept so that existing scripts keep working:
+ubertooth-debug(1) `-v <0-2>`, and ubertooth-btle(1) `-v`, which describes each
+packet whose data the decoder could not read. One tool spells something else
+`-v`, an older spelling kept so that existing scripts keep working:
 ubertooth-util(1) `-v` prints the `Firmware version:` line on its own
-(deprecated, and unchanged: use `-V`), and ubertooth-btle(1) `-v` is the older
-spelling of `-k`, its CRC verify setting, which warns and will be removed.
+(deprecated, and unchanged: use `-V`). ubertooth-btle(1) `-v` named that tool's
+CRC verify setting until `-k` took it over, so a value written after it is
+refused with a line naming `-k`.
 
 ## OPTION VALUES
 

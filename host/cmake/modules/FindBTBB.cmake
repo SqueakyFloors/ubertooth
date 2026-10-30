@@ -78,6 +78,7 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   lell_get_access_address
   lell_get_access_address_offenses
   lell_get_payload_length
+  lell_malformed_count
   lell_packet_is_data
   lell_packet_unref
   lell_pcap_append_packet
@@ -89,6 +90,7 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   lell_pcapng_close
   lell_pcapng_create_file
   lell_print
+  lell_set_malformed_verbose
 )
 
 # The libbtbb macros this tree reads. Two of its functions report something a

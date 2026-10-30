@@ -4,6 +4,18 @@
 
 ### New features
 
+- A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
+  packet whose data did not match its own length fields used to put a line
+  reading `Error: attempt to read past end of buffer` on standard error, which
+  is where Wireshark looks for the reason a capture failed, so a capture that
+  worked perfectly was reported as an error and a board unplugged mid-capture
+  never reached the user. `ubertooth-btle` now says how many such packets there
+  were in one line where the decoded packets went -- `note: 312 packets held
+  data that could not be decoded; -v describes each one` -- and `-v` asks for
+  each one's detail as the run goes. Nothing about a malformed packet is called
+  an error any more, and the packets themselves are recorded as they arrived.
+  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
+
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
   stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
   known word over the unused stack at startup and counts how much of it has
@@ -497,12 +509,15 @@
   that parse it are undisturbed.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-btle`'s CRC verify setting moves from
-  `-v` to `-k`: `-k` reads it, `-k0` and `-k1` set it. `-v`, `-v0` and `-v1`
-  keep working for this release and print `warning: -v for the CRC verify
-  setting is deprecated and will be removed; use -k`; after it, `-v` means
-  verbose there as in every other tool. Giving both spellings in one command
-  is refused.
-  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
+  `-v` to `-k`: `-k` reads it, `-k0` and `-k1` set it. `-v` is verbose there,
+  as in every other tool, so a command line that spells the setting the old
+  way is refused with a line naming `-k` rather than read as something `-v`
+  does not mean: `-v0` and `-v1` give `error: -v is verbose now and takes no
+  value (got 1); the CRC verify setting it used to name is -k`, and `-v` on its
+  own gives `error: -v needs -f, -n or -p: there is no decode for it to
+  describe; the CRC verify setting is -k now`.
+  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542),
+  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
 ### Build and compatibility
 

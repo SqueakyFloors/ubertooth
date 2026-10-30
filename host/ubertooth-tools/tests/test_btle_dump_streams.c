@@ -207,6 +207,39 @@ MU_TEST(a_dump_prints_the_packet_and_says_nothing_about_a_malformed_field)
 	mu_assert(err[0] == '\0', "nothing on standard error");
 	mu_assert(lell_malformed_count(LELL_MALFORMED_ANY, 1) > 0,
 	          "the decoder counted the field it could not read");
+	/* And the callback counted the packet, which is what the tool reports
+	   in one line when the run ends. One packet, however many of its
+	   fields the decoder could not read. */
+	mu_assert_int_eq(1, (int)opts.malformed_packets);
+
+	ubertooth_free(ut);
+}
+
+/* -v asks the decoder to describe each field it cannot read, as it goes. The
+ * description is the decoder's, on standard error, and the packet is still
+ * counted, so the line at the end of the run says the same thing either way.
+ */
+MU_TEST(verbose_describes_the_field_the_decoder_could_not_read)
+{
+	ubertooth_t* ut = ubertooth_init();
+	btle_options opts = { .allowed_access_address_errors = 32 };
+	usb_pkt_rx rx = advertisement_with_an_unreadable_field();
+	char out[8192] = "";
+	char err[2048] = "";
+	int was;
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	was = lell_set_malformed_verbose(1);
+	fifo_push(ut->fifo, &rx, 0);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	lell_set_malformed_verbose(was);
+
+	mu_assert(strstr(out, DUMP_LINE) != NULL, "the dump is unchanged");
+	mu_assert(err[0] != '\0', "the decoder describes the field");
+	mu_assert_int_eq(1, (int)opts.malformed_packets);
+	(void)lell_malformed_count(LELL_MALFORMED_ANY, 1);
 
 	ubertooth_free(ut);
 }
@@ -450,6 +483,7 @@ int main(void)
 	setenv("UBERTOOTH_TEST_NO_DEVICES", "1", 1);
 
 	MU_RUN(a_dump_prints_the_packet_and_says_nothing_about_a_malformed_field);
+	MU_RUN(verbose_describes_the_field_the_decoder_could_not_read);
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
 	MU_RUN(the_dump_reports_the_level_the_capture_records);
