@@ -21,8 +21,13 @@
  * the cases below feed it known boot-ROM words and check every byte. The
  * second cannot run here -- reading the numbers needs the ROM -- so it is read
  * out of the sources as text, the way test_reset_order.c reads set_isp().
+ *
+ * PATH_MAX is used for the directory walk, so this test is POSIX, as the
+ * source-scanning tests beside it are.
  */
 #include <ctype.h>
+#include <dirent.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -252,80 +257,170 @@ MU_TEST(test_only_startup_and_the_hand_over_call_the_boot_rom)
 	}
 }
 
+/* Every .c file under a directory, scanned. Returns the number scanned. */
+static int scan_tree(const char *dir, char *culprit, size_t culprit_size)
+{
+	char path[PATH_MAX];
+	struct dirent *entry;
+	struct rom_calls calls;
+	int scanned = 0;
+	DIR *d = opendir(dir);
+
+	if (d == NULL)
+		return 0;
+
+	while ((entry = readdir(d)) != NULL) {
+		const char *dot;
+
+		if (entry->d_name[0] == '.')
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+		dot = strrchr(entry->d_name, '.');
+		if (dot == NULL || strcmp(dot, ".c") != 0) {
+			int sub = scan_tree(path, culprit, culprit_size);
+
+			scanned += sub;
+			if (culprit[0] != '\0')
+				break;
+			continue;
+		}
+		if (!scan_rom_calls(path, &calls))
+			continue;
+		scanned++;
+		if (calls.count > 0) {
+			snprintf(culprit, culprit_size, "%s:%d: %s()",
+			         path, calls.first_line, calls.first_function);
+			break;
+		}
+	}
+	closedir(d);
+	return scanned;
+}
+
 /*
  * And nowhere else in either shipped image: not in a request handler, not in a
- * mode. The test-only images (assembly_test, usb_test) are not scanned; they
- * are not what a user runs.
+ * mode, not in anything they reach. Both image directories are walked rather
+ * than a list of files being named, so a boot-ROM call added to a file nobody
+ * thought of is caught too.
+ *
+ * assembly_test is not walked. It answers both requests from the same copies
+ * now, but its SET_ISP case hands the board over to the on-chip programmer
+ * where it stands, which is a boot-ROM call this check would report; the
+ * shipped images hand over from set_isp() instead.
  */
-static const char *const shipped_sources[] = {
-	FW_RXTX_DIR "/bluetooth_rxtx.c",
-	FW_RXTX_DIR "/cc2400_rangetest.c",
-	FW_RXTX_DIR "/ubertooth_usb.c",
-	FW_RXTX_DIR "/le_phy.c",
-	FW_RXTX_DIR "/ego.c",
-	FW_BTBR_DIR "/src/btctl/vendor_request_handler.c",
-	FW_BTBR_DIR "/src/drivers/ubertooth_usb.c",
-};
-
-MU_TEST(test_no_request_handler_or_mode_calls_the_boot_rom)
+MU_TEST(test_no_shipped_image_calls_the_boot_rom_outside_startup)
 {
-	struct rom_calls calls;
-	char msg[512];
+	static const char *const trees[] = { FW_RXTX_DIR, FW_BTBR_DIR };
+	char culprit[PATH_MAX + 128];
+	char msg[PATH_MAX + 512];
 	size_t i;
 
-	for (i = 0; i < sizeof(shipped_sources) / sizeof(shipped_sources[0]); i++) {
-		const char *path = shipped_sources[i];
+	for (i = 0; i < sizeof(trees) / sizeof(trees[0]); i++) {
+		int scanned;
 
-		snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
-		mu_assert_fatal(scan_rom_calls(path, &calls), msg);
+		culprit[0] = '\0';
+		scanned = scan_tree(trees[i], culprit, sizeof(culprit));
 
 		snprintf(msg, sizeof(msg),
-		         "%s:%d: %s() calls the boot ROM. The host can reach this "
-		         "file while a mode is running, and a boot-ROM call that "
-		         "does not come back stops the mode loop until the "
-		         "watchdog resets the board (#505): read the number from "
-		         "the copy device_id_init() made at startup instead",
-		         path, calls.first_line, calls.first_function);
-		mu_assert(calls.count == 0, msg);
+		         "no sources found under %s, so this check would pass "
+		         "without reading anything", trees[i]);
+		mu_assert_fatal(scanned > 0, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s calls the boot ROM. The host can reach this while a "
+		         "mode is running, and a boot-ROM call that does not come "
+		         "back stops the mode loop until the watchdog resets the "
+		         "board (#505): read the number from the copy "
+		         "device_id_init() made at startup instead", culprit);
+		mu_assert(culprit[0] == '\0', msg);
 	}
 }
 
 /*
- * The copy is made before the host can ask for it. ubertooth_init() runs first
- * in every image's main(), ahead of the USB stack and of anything that arms
- * the watchdog, so the one slow read happens where nothing is waiting on it.
+ * The copy is made before the host can ask for it. Each image calls
+ * device_id_init() from main() ahead of its USB stack -- which reads the serial
+ * number for its own descriptor -- and well ahead of anything that arms the
+ * watchdog, so the one slow read happens where nothing is waiting on it. The
+ * bootloader is deliberately not among them: it needs neither number, and it is
+ * the path a board is recovered on.
  */
-MU_TEST(test_startup_makes_the_copy)
+static const char *const image_mains[] = {
+	FW_RXTX_DIR "/bluetooth_rxtx.c",
+	FW_BTBR_DIR "/src/btctl/main.c",
+};
+
+MU_TEST(test_every_image_reads_the_numbers_at_startup)
+{
+	char line[SCAN_LINE_MAX], msg[PATH_MAX + 512];
+	size_t i;
+
+	for (i = 0; i < sizeof(image_mains) / sizeof(image_mains[0]); i++) {
+		const char *path = image_mains[i];
+		int lineno = 0, in_block = 0, in_main = 0, read = 0, usb = 0;
+		FILE *file = fopen(path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
+		mu_assert_fatal(file != NULL, msg);
+
+		while (fgets(line, sizeof(line), file) != NULL) {
+			lineno++;
+			strip_comments(line, &in_block);
+			if (!in_main) {
+				if (strstr(line, "int main(") != NULL)
+					in_main = 1;
+				continue;
+			}
+			if (calls_identifier(line, "device_id_init") && read == 0)
+				read = lineno;
+			if (calls_identifier(line, "ubertooth_usb_init") && usb == 0)
+				usb = lineno;
+		}
+		fclose(file);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: main() does not call device_id_init(), so both "
+		         "numbers would be reported as a failed read", path);
+		mu_assert_fatal(read > 0, msg);
+
+		snprintf(msg, sizeof(msg),
+		         "%s:%d: main() starts the USB stack before it reads the "
+		         "two numbers at line %d, so the serial number in the USB "
+		         "descriptor would be the unread value", path, usb, read);
+		mu_assert(usb > read, msg);
+	}
+}
+
+/*
+ * Until the read has happened the status byte says so. Zeroes would read as a
+ * successful report of a part with no serial number.
+ */
+MU_TEST(test_an_unread_copy_reports_a_failure)
 {
 	const char *path = FW_COMMON_DIR "/ubertooth.c";
-	char line[SCAN_LINE_MAX], msg[512];
-	int lineno = 0, in_block = 0, in_init = 0, call = 0;
+	char line[SCAN_LINE_MAX], msg[PATH_MAX + 256];
+	int in_block = 0, part = 0, serial = 0;
 	FILE *file = fopen(path, "r");
 
 	snprintf(msg, sizeof(msg), "cannot open %s to scan", path);
 	mu_assert_fatal(file != NULL, msg);
 
 	while (fgets(line, sizeof(line), file) != NULL) {
-		lineno++;
+		char flat[SCAN_LINE_MAX];
+
 		strip_comments(line, &in_block);
-		if (!in_init) {
-			if (strstr(line, "void ubertooth_init(") != NULL)
-				in_init = 1;
-			continue;
-		}
-		if (calls_identifier(line, "device_id_init") && call == 0)
-			call = lineno;
-		if (line[0] == '}')
-			break;
+		collapse_spaces(line, flat, sizeof(flat));
+		if (strstr(flat, "part_num_reply[5] = { 0xff }") != NULL)
+			part = 1;
+		if (strstr(flat, "device_serial_reply[17] = { 0xff }") != NULL)
+			serial = 1;
 	}
 	fclose(file);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: ubertooth_init() does not call device_id_init(), so the "
-	         "first request for either number would read the boot ROM "
-	         "whenever it arrived -- including while a capture is running",
-	         path);
-	mu_assert(call > 0, msg);
+	         "%s: the two copies do not start with a 0xff status byte, so an "
+	         "image that never read the boot ROM would report a part number "
+	         "and a serial number of zeroes as if the read had worked", path);
+	mu_assert(part && serial, msg);
 }
 
 int main(void)
@@ -336,7 +431,8 @@ int main(void)
 	MU_RUN(test_a_failed_read_keeps_the_status_byte);
 	MU_RUN(test_the_range_test_sends_each_word_most_significant_byte_first);
 	MU_RUN(test_only_startup_and_the_hand_over_call_the_boot_rom);
-	MU_RUN(test_no_request_handler_or_mode_calls_the_boot_rom);
-	MU_RUN(test_startup_makes_the_copy);
+	MU_RUN(test_no_shipped_image_calls_the_boot_rom_outside_startup);
+	MU_RUN(test_every_image_reads_the_numbers_at_startup);
+	MU_RUN(test_an_unread_copy_reports_a_failure);
 	return mu_report();
 }

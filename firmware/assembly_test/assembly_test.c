@@ -341,15 +341,14 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 			CC1V8_CLR;
 		break;
 
+	/*
+	 * Both numbers come from the copy device_id_init() read at startup. This
+	 * image serves requests from inside its receive and spectrum loops, as
+	 * the shipped one does, so a boot-ROM call here would stop the loop until
+	 * the watchdog reset the board.
+	 */
 	case UBERTOOTH_GET_PARTNUM:
-		command[0] = 54; /* read part number */
-		iap_entry(command, result);
-		pbData[0] = result[0] & 0xFF; /* status */
-		pbData[1] = result[1] & 0xFF;
-		pbData[2] = (result[1] >> 8) & 0xFF;
-		pbData[3] = (result[1] >> 16) & 0xFF;
-		pbData[4] = (result[1] >> 24) & 0xFF;
-		*piLen = 5;
+		get_part_num(pbData, piLen);
 		break;
 
 	case UBERTOOTH_RESET:
@@ -357,26 +356,7 @@ static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **pp
 		break;
 
 	case UBERTOOTH_GET_SERIAL:
-		command[0] = 58; /* read device serial number */
-		iap_entry(command, result);
-		pbData[0] = result[0] & 0xFF; /* status */
-		pbData[1] = result[1] & 0xFF;
-		pbData[2] = (result[1] >> 8) & 0xFF;
-		pbData[3] = (result[1] >> 16) & 0xFF;
-		pbData[4] = (result[1] >> 24) & 0xFF;
-		pbData[5] = result[2] & 0xFF;
-		pbData[6] = (result[2] >> 8) & 0xFF;
-		pbData[7] = (result[2] >> 16) & 0xFF;
-		pbData[8] = (result[2] >> 24) & 0xFF;
-		pbData[9] = result[3] & 0xFF;
-		pbData[10] = (result[3] >> 8) & 0xFF;
-		pbData[11] = (result[3] >> 16) & 0xFF;
-		pbData[12] = (result[3] >> 24) & 0xFF;
-		pbData[13] = result[4] & 0xFF;
-		pbData[14] = (result[4] >> 8) & 0xFF;
-		pbData[15] = (result[4] >> 16) & 0xFF;
-		pbData[16] = (result[4] >> 24) & 0xFF;
-		*piLen = 17;
+		get_device_serial(pbData, piLen);
 		break;
 
 #ifdef UBERTOOTH_ONE
@@ -1033,6 +1013,7 @@ int main()
 	 * Now we function like bluetooth_rxtx so that the USB interface can be
 	 * tested.
 	 */
+	device_id_init();
 	ubertooth_usb_init();
 
 	while (1) {

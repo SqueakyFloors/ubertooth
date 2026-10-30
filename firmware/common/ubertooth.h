@@ -346,9 +346,9 @@ void cc2400_reset(void);
 void clock_start(void);
 void reset(void);
 void r8c_takeover(void);
-/* The part number and serial number come from the boot ROM, which is too slow
- * to call while a mode is running: read them once at startup, then answer every
- * request from that copy. */
+/* The part number and serial number come from the boot ROM, which must not be
+ * called while a mode is running: every image reads them at startup, from
+ * main(), and answers every later request from that copy. */
 void device_id_init(void);
 void get_part_num(uint8_t *buffer, int *len);
 void get_device_serial(uint8_t *buffer, int *len);

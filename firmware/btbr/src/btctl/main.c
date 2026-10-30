@@ -40,6 +40,10 @@ int main()
 	watchdog_mode(MODE_UNKNOWN);
 
 	ubertooth_init();
+	/* Before the USB stack, which reads the serial number for its own
+	 * descriptor, and well before this image is running a connection: the
+	 * boot-ROM calls this makes must not happen then. */
+	device_id_init();
 	ubertooth_usb_init(vendor_request_handler);
 
 	/* Initialize memory */
