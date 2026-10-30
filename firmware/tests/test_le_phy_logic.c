@@ -246,6 +246,9 @@ volatile uint8_t requested_mode;
 le_state_t le;
 volatile uint16_t le_adv_channel = 2402;
 volatile int cancel_follow;
+/* The interference mode ubertooth-btle sets for -j/-J. le_phy.c reads it to
+ * decide whether to transmit on a followed connection's events. */
+volatile uint8_t jam_mode;
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -297,6 +300,7 @@ static void start_fresh(void)
 	rf_channel = ADV_CHANNEL_MHZ;
 	le_sync_aa = ADV_AA;
 	cancel_follow = 0;
+	jam_mode = JAM_NONE;
 	reset_conn();
 	reset_conn_event();
 	irq_mask_depth = 0;
@@ -3130,6 +3134,104 @@ MU_TEST(a_connection_that_times_out_leaves_no_match_armed)
 	          "a connection-event match is still armed with no connection");
 }
 
+/* ------------------------------------------------------------------ *
+ * Jamming a followed connection (ubertooth-btle -j / -J)
+ * ------------------------------------------------------------------ */
+
+/*
+ * A connection event is transmitted rather than received when the host has
+ * asked to interfere and the capture is following a connection. This is the
+ * decision the engine keys the whole transmit path on -- it is what
+ * le_cc2400_init_rf() and the synthesizer-lock handlers read -- so it is
+ * checked on its own here; that the radio then transmits is checked on
+ * hardware. le_jam_event() reads only the jam mode and the access address, so
+ * it touches no radio, which is what the count below asserts.
+ */
+MU_TEST(an_event_is_jammed_only_while_following_with_interference_on)
+{
+	start_fresh();
+
+	/* Following a connection (its own access address), interference off:
+	 * receive, do not transmit. */
+	conn.access_address = 0x12345678;
+	jam_mode = JAM_NONE;
+	mu_assert(!le_jam_event(),
+	          "a followed connection would be jammed with interference off");
+
+	/* The same connection with each interference mode on: transmit. */
+	jam_mode = JAM_ONCE;
+	mu_assert(le_jam_event(),
+	          "a single-shot jam does not transmit on a followed connection");
+	jam_mode = JAM_CONTINUOUS;
+	mu_assert(le_jam_event(),
+	          "a continuous jam does not transmit on a followed connection");
+
+	/* Interference on, but still listening on the advertising address:
+	 * there is no connection to jam, so receive. */
+	conn.access_address = ADV_AA;
+	mu_assert(!le_jam_event(),
+	          "an advertising event would be jammed, but there is nothing to "
+	          "interfere with until a connection is followed");
+
+	mu_assert_int_eq(0, radio_touched);
+}
+
+/*
+ * A single-shot jam (ubertooth-btle -j) interferes with one connection and
+ * then returns to idle. Jamming transmits in place of receiving, so no packet
+ * refreshes the supervision timer, and the connection ends when that timer
+ * expires: the mode ends there, and the jam mode is dropped so it cannot reach
+ * the next capture. This path returns before change_channel(), so no radio
+ * access is made.
+ */
+MU_TEST(a_single_shot_jam_ends_the_mode_when_its_connection_is_lost)
+{
+	anchored_connection(100000);
+	conn.supervision_timeout = MSEC(100);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+	jam_mode = JAM_ONCE;
+	requested_mode = MODE_BT_FOLLOW_LE;
+	/* Nothing received for longer than the supervision timeout. */
+	fake_t1tc = conn.last_packet_ts + MSEC(200);
+
+	finish_conn_event();
+
+	mu_assert(connection_was_reset(), "the connection was not dropped");
+	mu_assert_int_eq(MODE_IDLE, requested_mode);
+	mu_assert_int_eq(JAM_NONE, jam_mode);
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "a connection-event match is still armed with no connection");
+	mu_assert_int_eq(0, radio_touched);
+}
+
+/*
+ * A continuous jam (ubertooth-btle -J) stays after a connection ends, to catch
+ * and jam the next one. So when its connection is lost it goes back to the
+ * advertising channels like a plain follow -- the mode keeps running and the
+ * jam mode is kept -- rather than ending.
+ */
+MU_TEST(a_continuous_jam_keeps_following_after_its_connection_is_lost)
+{
+	anchored_connection(100000);
+	conn.supervision_timeout = MSEC(100);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+	jam_mode = JAM_CONTINUOUS;
+	requested_mode = MODE_BT_FOLLOW_LE;
+	fake_t1tc = conn.last_packet_ts + MSEC(200);
+
+	finish_conn_event();
+
+	mu_assert(connection_was_reset(), "the connection was not dropped");
+	mu_assert_int_eq(MODE_BT_FOLLOW_LE, requested_mode);
+	mu_assert_int_eq(JAM_CONTINUOUS, jam_mode);
+	/* Back to the advertising channels: change_channel() retuned the radio. */
+	mu_assert(radio_touched > 0,
+	          "a continuous jam did not return to listening for the next "
+	          "connection");
+}
+
 /*
  * A capture transfer that fails is counted, so that a capture losing packets
  * to the hardware tells itself apart from a quiet channel.
@@ -4014,6 +4116,9 @@ int main(void)
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
 	MU_RUN(the_overdue_test_holds_across_the_counters_wrap);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
+	MU_RUN(an_event_is_jammed_only_while_following_with_interference_on);
+	MU_RUN(a_single_shot_jam_ends_the_mode_when_its_connection_is_lost);
+	MU_RUN(a_continuous_jam_keeps_following_after_its_connection_is_lost);
 	MU_RUN(a_moment_already_past_is_armed_just_ahead_of_the_counter);
 	MU_RUN(an_instant_the_counter_stepped_over_still_applies);
 	MU_RUN(the_recorded_access_address_follows_the_radio);

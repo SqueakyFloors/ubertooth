@@ -522,14 +522,15 @@ int main(int argc, char *argv[])
 	if (opt_check_capture_destination(pcap_name, "capture data") < 0)
 		return 1;
 
-	/* Interference is accepted but no capture mode acts on it yet, so an
-	 * honest run says so once rather than reporting a clean capture for
-	 * something it did not do. Said here, beside the -v warning and after
-	 * every refusal, so a command that will not run gets its error line
-	 * alone. The man page's KNOWN BROKEN FEATURES section has the detail. */
+	/* Interference now drives the transmitter, but it has not yet been
+	 * confirmed on hardware, so an honest run says so once rather than
+	 * letting the user assume a connection was disrupted. Said here, beside
+	 * the -v warning and after every refusal, so a command that will not run
+	 * gets its error line alone. The man page's KNOWN BROKEN FEATURES section
+	 * has the detail, and both go once a hardware test confirms the effect. */
 	if (jam_mode != JAM_NONE)
-		fprintf(stderr, "warning: interference (-i, -I, -j, -J) is accepted"
-		        " but no capture mode acts on it yet; see KNOWN BROKEN"
+		fprintf(stderr, "warning: interference (-i, -I, -j, -J) transmits"
+		        " but is not yet confirmed on hardware; see KNOWN BROKEN"
 		        " FEATURES in ubertooth-btle(1)\n");
 
 	/* Every check has passed, so the handle and its 72 MB fifo can be
@@ -638,11 +639,6 @@ int main(int argc, char *argv[])
 	if (do_follow || do_no_follow || do_promisc) {
 		usb_pkt_rx rx;
 
-		r = cmd_set_jam_mode(ut->devh, jam_mode);
-		if (jam_mode != JAM_NONE && r != 0) {
-			fprintf(stderr, "error: jamming not supported by this firmware\n");
-			return release_handle(ut, 1);
-		}
 		/* A mode the board would not enter must not be followed by a
 		 * capture loop that reports a clean run, so each request below
 		 * is checked. Each failure stops the board first: the mode
@@ -704,6 +700,20 @@ int main(int argc, char *argv[])
 				ubertooth_stop(ut);
 				return release_handle(ut, 1);
 			}
+		}
+
+		/* The jam mode is stated after the mode request, as the channel
+		 * and modulation are: the engine reads it as it runs, so it takes
+		 * effect on this capture, and a board left in a mode by a killed
+		 * tool does not carry a jam mode stated for a request that never
+		 * came into the next capture (#872). The mode is running by now,
+		 * so a firmware that cannot jam is reported after stopping it. */
+		r = cmd_set_jam_mode(ut->devh, jam_mode);
+		if (jam_mode != JAM_NONE && r != 0) {
+			fprintf(stderr, "error: jamming not supported by this"
+			        " firmware\n");
+			ubertooth_stop(ut);
+			return release_handle(ut, 1);
 		}
 
 		// The -v options run *after* the mode has started (mode entry runs
