@@ -1071,8 +1071,7 @@ MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
 		/* libbtbb's own line, not the tool's. */
 		{ 1, 0, NULL },
 		{ 1, 0, "error: out of memory\n" },
-		/* libubertooth's report of the refused request. */
-		{ 0, 1, NULL }
+		{ 0, 1, NO_ANSWER("set the Bluetooth address") }
 	};
 	static const char* const options[] = { "-q", "-r", "-d" };
 	const int default_max_ac_errors = max_ac_errors;
@@ -1095,9 +1094,12 @@ MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
 			else if (which == NO_MEMORY)
 				device.no_memory = 1;
 			else
-				/* LIBUSB_ERROR_PIPE: a request the board's
-				 * firmware will not take. */
-				device.bdaddr_rc = -9;
+				/* LIBUSB_ERROR_TIMEOUT: the board took the
+				 * request and said nothing. Not the stalled
+				 * code, whose report comes from libubertooth
+				 * and is a stub in the build against an
+				 * installed library (see STALLED above). */
+				device.bdaddr_rc = LIBUSB_ERROR_TIMEOUT;
 
 			snprintf(path, sizeof(path), "/tmp/rx-order-XXXXXX");
 			fd = mkstemp(path);
