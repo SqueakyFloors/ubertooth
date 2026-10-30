@@ -131,7 +131,10 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `inquiry_scan` :
    answer inquiries, so nearby devices discover this board
  - `page_scan` :
-   accept a connection from a device that pages this board
+   accept a connection from a device that pages this board; a standard
+   Classic controller usually gets through in a few seconds, while another
+   Ubertooth paging this one is much less reliable
+   ([issue #807](https://github.com/SqueakyFloors/ubertooth/issues/807))
  - `discoverable` :
    `inquiry_scan` and `page_scan` together
  - `page <BD_ADDR>` :
