@@ -38,8 +38,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 # Two tiers, to keep pull requests fast and cheap:
-# - Minimal (pull requests, pushes to main): host and firmware on one Linux
-#   and one macOS runner.
+# - Minimal (pull requests, pushes to main): host on Ubuntu 22.04, the oldest
+#   glibc a hosted runner offers, and 24.04 and on macOS; firmware on one
+#   Linux and one macOS runner.
 # - Full (weekly schedule, published release, manual run): the whole supported
 #   matrix, the *-latest canary, the Ubuntu 20.04 containers and Fedora. The
 #   release run is a record after publishing, not a gate: run the full tier
@@ -134,14 +135,15 @@ jobs:
       fail-fast: false
       matrix:
         # Full tier: the pinned supported matrix plus the ubuntu-latest canary
-        # (early warning for OS/toolchain breaks). Minimal tier: one Linux and
-        # one macOS runner.
+        # (early warning for OS/toolchain breaks). Minimal tier: Ubuntu 22.04,
+        # the oldest glibc a hosted runner offers, and 24.04, and one macOS
+        # runner.
         #
         # A runner added to or renamed in the minimal tier renames a required
         # check on main, so it has to be carried to three other places: the
         # host-skipped stand-in below, the protection rule on main, and the
         # table in CONTRIBUTING.md.
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     # Above the bounded install step below plus the build and the tests, so a
     # step that overruns fails itself and names what stalled rather than being
@@ -935,7 +937,7 @@ jobs:
     if: needs.changes.outputs.host != 'true'
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-26]
+        os: [ubuntu-22.04, ubuntu-24.04, macos-26]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

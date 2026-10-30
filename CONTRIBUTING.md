@@ -39,8 +39,10 @@ touches code:
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
 
-On a pull request, `host`, `firmware`, `scripts` and `install-sh` run on one
-Ubuntu and one macOS runner and report once per runner: `host (ubuntu-24.04)`,
+On a pull request, `firmware`, `scripts` and `install-sh` run on one Ubuntu and
+one macOS runner, and `host` runs on two Ubuntu runners and one macOS runner:
+Ubuntu 22.04, the oldest glibc a hosted runner offers, as well as 24.04. Each
+reports once per runner: `host (ubuntu-22.04)`, `host (ubuntu-24.04)`,
 `host (macos-26)`. The weekly, release and on-request runs are a fuller tier:
 those jobs cover more runners, and three more jobs
 (`host-ubuntu-20_04`, `firmware-ubuntu-20_04`, `host-fedora`) build on the
