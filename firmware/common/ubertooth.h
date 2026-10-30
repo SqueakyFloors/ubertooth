@@ -39,7 +39,6 @@ extern const IAP_ENTRY iap_entry;
  * an initializer would be dropped. The transfer controller reaches it -- the
  * bank is on the same bus matrix, and the part's user manual UM10360 names
  * DMA among what these banks are for -- so a capture can receive into one.
- *
  */
 #define AHB_SRAM __attribute__((section(".ahb_sram")))
 

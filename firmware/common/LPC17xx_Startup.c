@@ -94,14 +94,19 @@ unsigned stack_used(void)
 {
 	const unsigned long *word;
 
-	/* The lowest word still painted says how far down the stack has ever
-	 * reached. Measured from the top, so a region whose first word is
-	 * already gone -- an overflow, or a stack deeper than the paint could
-	 * record -- reads as the whole region. */
-	for (word = &_stack_limit; word < &_StackTop; word++)
-		if (*word != STACK_PAINT)
+	/*
+	 * Down from the top, to the last word the stack has reached. Searching
+	 * up from the bottom would give the same answer but read the whole
+	 * region every time, and this runs while a capture does: a USB request
+	 * preempts the transfer interrupt, so a scan of 11 KB could cost the
+	 * capture a buffer. Down from the top it reads only what has been used.
+	 */
+	for (word = &_StackTop; word > &_stack_limit; word--)
+		if (word[-1] != STACK_PAINT)
 			break;
 
+	/* A stack that ran past the bottom of the region reads as the whole of
+	 * it, which is as much as the word can say. */
 	return (unsigned)((const unsigned char *)&_StackTop -
 	                  (const unsigned char *)word);
 }

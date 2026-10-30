@@ -366,7 +366,10 @@ the link leaves it, and it is worth reading after a long capture or a mode
 that is rarely exercised. The firmware writes a known word over the unused
 stack when it starts and counts how much of it has gone, so the number is
 measured and not estimated. Unlike the counters above it is since the last
-boot, because a reset writes that word again.
+boot, because a reset writes that word again. The second number is whatever
+the build left over, so it moves by a few hundred bytes between compilers and
+between the two images; compare a board against itself, not against the figure
+above.
 
 A board that has faulted adds one more line, above that count:
 
