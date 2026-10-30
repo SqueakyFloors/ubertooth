@@ -57,6 +57,7 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_pcapng_create_file
   btbb_pcapng_record_bdaddr
   btbb_piconet_clear_channel_seen
+  btbb_piconet_drop_clock
   btbb_piconet_get_afh_map
   btbb_piconet_get_bdaddr
   btbb_piconet_get_channel_seen
