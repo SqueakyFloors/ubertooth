@@ -108,6 +108,18 @@ opens, with one line starting `error: ` on standard error and exit status 1:
 `error: lower frequency of <n> MHz is above upper frequency of <n> MHz`. They
 used to be `ERROR: ...` on standard output.
 
+A command line the argument parser will not read is refused the same way, in
+the lines every other tool here gives for the same mistakes:
+`error: unrecognized option '--bogus'` for an option this tool does not have,
+`error: unexpected argument 'extra'` for a word that is neither an option nor
+an option's value, and `error: option '-l' requires a value` for an option
+given none. The word is quoted as it was typed. A `--` ends the options, so
+what follows it is read as a word however it is spelled, and `--` on its own
+asks for nothing beyond the defaults and runs. No usage text follows any of
+these lines, which say what was wrong; `-h` prints it. These command lines
+used to open the window and start a sweep, the unreadable part dropped
+without a word.
+
 A failure to start `ubertooth-specan` is reported the same way, as
 `error: could not open an Ubertooth device` followed by a `note: ` naming the
 command, and whatever `ubertooth-specan` itself said on standard error.

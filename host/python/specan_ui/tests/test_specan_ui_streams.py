@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ubertooth-specan-ui refuses a bad range on standard error, with exit 1.
+"""ubertooth-specan-ui refuses a bad command line on standard error, exit 1.
 
 It also pins the frequency each Wi-Fi channel number converts to, since that
 arithmetic lives in the same module as the refusals.
@@ -14,10 +14,12 @@ starting "error: " to standard error, nothing to standard output, and raises
 ValueError, which the script turns into exit 1.
 
 With the script named as well, the same cases are run through it end to end,
-along with -h and -V. The script reads its whole command line before the
-window's own imports, so none of those calls needs numpy or a Qt binding, and
-one case shadows both with modules that refuse to import to prove it. Only
-opening the window needs them.
+along with -h, -V, and the command lines the argument parser will not take:
+an option the tool does not know, a stray word, and an option given no
+value. The script reads its whole command line before the window's own
+imports, so none of those calls needs numpy or a Qt binding, and one case
+shadows both with modules that refuse to import to prove it. Only opening the
+window needs them.
 """
 
 import contextlib
@@ -174,6 +176,55 @@ for arguments, _call, expected in CASES:
 
 print("ubertooth-specan-ui: the same %d refusals through the script"
       % len(CASES))
+
+
+# ---- a command line the argument parser will not take --------------------
+#
+# The parser used to hand back what it did not recognize and the tool dropped
+# it, so a mistyped option opened the window and started a sweep the user
+# never asked for. Each of these is now the one line the other tools give for
+# the same mistake, on standard error, with exit 1 and no usage text after a
+# line that says what was wrong.
+
+BAD_COMMAND_LINES = (
+    (("--bogus",), "error: unrecognized option '--bogus'\n"),
+    # The value is quoted back with the option, as the C tools quote the word
+    # the user typed.
+    (("--bogus=1",), "error: unrecognized option '--bogus=1'\n"),
+    (("-Z",), "error: unrecognized option '-Z'\n"),
+    # A run of letters is refused as the word it was typed as: the parser
+    # does not say which letter of it was the unknown one.
+    (("-Zx",), "error: unrecognized option '-Zx'\n"),
+    (("extra",), "error: unexpected argument 'extra'\n"),
+    # A lone dash is an operand, not an option, as it is for every other tool
+    (("-",), "error: unexpected argument '-'\n"),
+    (("-l", "2402", "stray"), "error: unexpected argument 'stray'\n"),
+    # A "--" ends the options, so what follows is an operand however it is
+    # spelled
+    (("--", "extra"), "error: unexpected argument 'extra'\n"),
+    (("--", "--bogus"), "error: unexpected argument '--bogus'\n"),
+    # Refused ahead of -h and -V, which a command line the parser could not
+    # read says nothing for
+    (("-h", "stray"), "error: unexpected argument 'stray'\n"),
+    (("--bogus", "-h"), "error: unrecognized option '--bogus'\n"),
+    (("-V", "extra"), "error: unexpected argument 'extra'\n"),
+    # An option given no value, in the wording the other tools use for it:
+    # the parser calls it "argument -l: expected one argument" and ends the
+    # command in 2
+    (("-l",), "error: option '-l' requires a value\n"),
+    (("--padding",), "error: option '--padding' requires a value\n"),
+)
+
+for arguments, expected in BAD_COMMAND_LINES:
+    result = run(arguments)
+    assert result.returncode == 1, (arguments, result)
+    assert result.stdout == "", (arguments, result)
+    assert result.stderr == expected, (arguments, expected, result)
+    assert "usage:" not in result.stderr, (arguments, result)
+    assert "Traceback" not in result.stderr, (arguments, result)
+
+print("ubertooth-specan-ui: %d command lines the parser will not take"
+      % len(BAD_COMMAND_LINES))
 
 
 # ---- -V, which the script answers by running ubertooth-util ---------------
@@ -503,6 +554,21 @@ def broken_pipe(*numbers):
 status, output, errors = ran_with(("-l", "2000"), broken_pipe(2))
 assert status == 1, (status, output, errors)
 assert output == "", output
+
+# the same for a command line the argument parser will not take. The parser
+# writes its own messages without catching anything before Python 3.11, so
+# one of these used to raise past it: the tool takes them over and writes
+# them the way it writes every other diagnostic, so the line is lost and the
+# command keeps its own status.
+status, output, errors = ran_with(("--bogus",), broken_pipe(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+
+# and with no standard error at all the line is lost rather than moved: it
+# must not land on standard output among what the user asked for
+status, output, errors = ran_with(("--bogus",), lambda: os.close(2))
+assert status == 1, (status, output, errors)
+assert output == "" and errors == "", (output, errors)
 
 # and that stream going does not cost the answer: -h still prints the usage
 # text, on standard output, and exits 0

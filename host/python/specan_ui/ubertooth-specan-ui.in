@@ -112,6 +112,74 @@ def flush_the_streams():
                 pass
 
 
+def refuse(message):
+    """Report a command line this tool will not take, and end the command.
+
+    One "error: " line on standard error and exit 1, with no usage text after
+    a line that already says what was wrong: the user can run -h
+    (.kiro/steering/cli-output.md). eprint() carries it, so a standard error
+    that cannot be written costs the line and nothing else.
+    """
+    eprint("error: %s\n" % message)
+    sys.exit(1)
+
+
+class Parser(ArgumentParser):
+    """The argument parser, refusing a command line in this fork's words.
+
+    Left to itself the parser prints the usage text, then a message of its
+    own naming the program, and ends the command in 2. Here every refusal is
+    the one "error: " line the C tools and btle-extcap.py give, and the exit
+    status is 1 like every other usage error. Before Python 3.11 the parser
+    writes its messages without catching anything, so taking them over also
+    keeps a standard error that cannot be written from raising past it and
+    ending the command with nothing printed at all.
+    """
+
+    def error(self, message):
+        # The parser calls an option given no value "argument -l: expected
+        # one argument". The tools have one wording for that
+        # (opt_report_bad_option() in opt_parse.c), so it is rewritten here.
+        missing_value = ": expected one argument"
+        if message.startswith("argument ") and message.endswith(missing_value):
+            option = message[len("argument "):-len(missing_value)]
+            message = "option '%s' requires a value" % option
+        # Anything else the parser refuses keeps its own words, which name
+        # the option and what was wrong with its value, and gains the prefix
+        # and the status every refusal here has.
+        refuse(message)
+
+
+def refuse_a_leftover_word(extras):
+    """Refuse a word the parser could not place, as the other tools do.
+
+    The parser hands back what it did not recognize instead of refusing it,
+    so a mistyped option would otherwise open the window and start a sweep
+    the user never asked for. An unknown option and a stray word get the two
+    lines opt_report_bad_option() and opt_check_no_operands() print for them.
+    The C tools add "the tools take single-letter options" to an unknown long
+    option; this tool has long options of its own, so that part is left off,
+    as it is in btle-extcap.py.
+    """
+    # A "--" ends the options and asks for nothing itself, so a command line
+    # that is only "--" has work to do here and runs, as it does for every
+    # tool that needs no options (.kiro/steering/cli-output.md).
+    leftover = next((word for word in extras if word != "--"), None)
+    if leftover is None:
+        return
+
+    # Where the word was typed says what to call it: an option before a
+    # "--", an operand after one however it is spelled. A word the parser
+    # rewrote rather than handing back as it was typed is read as an option,
+    # which is what the word it came from was.
+    words = sys.argv[1:]
+    typed_at = words.index(leftover) if leftover in words else 0
+    if ("--" not in words[:typed_at]
+            and leftover.startswith("-") and leftover != "-"):
+        refuse("unrecognized option '%s'" % leftover)
+    refuse("unexpected argument '%s'" % leftover)
+
+
 def output_lost():
     """Report that standard output has gone away, and end the command.
 
@@ -234,7 +302,7 @@ def read_command_line():
     # parser answers it the moment it reads it: -h would then end the command
     # ahead of -V and ahead of a range the tool will not take, where every
     # other tool here reports those first and prints the usage text last.
-    parser = ArgumentParser(add_help=False)
+    parser = Parser(add_help=False)
     parser.add_argument("-h", "--help", action="store_true", dest="help",
                       help="print this help")
     parser.add_argument("-V", action="store_true", dest="version",
@@ -249,6 +317,10 @@ def read_command_line():
     parser.add_argument("--padding", type=int, dest="padding", help="padding on both ends when using --wifi, measured in MHz (default 10)", default=10)
 
     (options, extras) = parser.parse_known_args()
+
+    # Before -h, before -V and before the range checks: a command line the
+    # parser could not read says nothing for those to answer.
+    refuse_a_leftover_word(extras)
 
     ubertooth_device = options.device
 
