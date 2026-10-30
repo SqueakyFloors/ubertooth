@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -326,6 +326,31 @@ $(BINDIR)/test_btbr_rx_deadline: test_btbr_rx_deadline.c minunit.h \
 		-Wno-unused-but-set-variable -Wno-address-of-packed-member \
 		-o $@ test_btbr_rx_deadline.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
+
+# The two state machines of a page -- the pager's and the paged device's -- are
+# included into this test (see its header comment), because their slot
+# callbacks are static. Everything under them is faked there except the hop
+# sequence: hop.c and the PERM5 table are linked, so the channels the two sides
+# have to agree on are the firmware's own. stubs-btbr/ supplies the diagnostics
+# stand-in and stubs-btbr-rx/ the interrupt-mask one the message queue headers
+# pull in. The last case scans rx_task.c and tx_task.c as text, so FW_BTBR_DIR
+# points at the image.
+$(BINDIR)/test_btbr_page_response: test_btbr_page_response.c minunit.h \
+		source_scan.h stubs-btbr/ubtbr/debug.h \
+		stubs-btbr-rx/ubtbr/system.h \
+		$(FW_BTBR)/src/btphy/page_scan_state.c \
+		$(FW_BTBR)/src/btphy/paging_state.c \
+		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c \
+		$(FW_BTBR)/include/ubtbr/hop.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# The slot tasks take three parameters most of them do not read, which the two
+# state machines and the fakes that stand in for them both carry. That is the
+# only warning class waived, so a mistake of the test's own still shows.
+	$(CC) $(CFLAGS) -Istubs-btbr -Istubs-btbr-rx -I$(FW_BTBR)/include \
+		$(CPPFLAGS) -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-Wno-unused-parameter \
+		-o $@ test_btbr_page_response.c \
+		$(FW_BTBR)/src/btphy/hop.c $(FW_BTBR)/src/codec/perm5.c
 
 # The btbr image's bitstream codec is pure logic, so the real one is linked
 # here and its offsets are exercised at the sizes a long Classic packet

@@ -33,13 +33,66 @@
 
 #define PAGE_SCAN_MAX_TICKS (CLKN_RATE*60)
 #define TX_PREPARE_IDX	1  // We will transmit at clkn1_0 = 2
+#define RX_PREPARE_IDX	3  // We will receive at clkn1_0 = 0
 
 struct {
 	fhs_info_t fhs_info;
 	uint32_t clkn_start;
+	/* Has the page this board answered been re-read as the central's second
+	 * page message, with the clock moved to match? See
+	 * page_scan_fhs_missed(). */
+	uint8_t second_reading_tried;
 } page_scan_state;
 
 static void page_scan_schedule(unsigned delay);
+static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset);
+
+/* Open a window for the central's page response, the FHS packet, at the next
+ * start of a central transmit slot: that slot, and the response phase, are
+ * what its frequency is computed from. */
+static void page_scan_fhs_schedule(void)
+{
+	rx_task_schedule(3&(RX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX()),
+		page_scan_rx_fhs_cb, NULL,
+		1<<RX_F_PAYLOAD			// FHS packet has payload
+		);
+}
+
+/* The central's page response did not arrive in the window this board opened.
+ *
+ * A central sends two page messages in a transmit slot, and this board answers
+ * 625 usec after the one it heard, but the page response comes an exact
+ * 1250 usec after the FIRST of the two whichever one was answered (Vol 2,
+ * Part B, Section 2.4.4). So it follows this board's own answer by 625 usec for
+ * a page heard first and by 312.5 usec for a page heard second, and a page
+ * message says nothing about which of the two it is. The scan set this clock to
+ * the message it heard, so the second reading of that page is the same thing as
+ * "this clock is one tick behind the central's".
+ *
+ * An empty window is therefore also what a page heard second looks like: the
+ * response went by a tick earlier, while the radio was still turning round from
+ * this board's answer. Take that reading once -- move the clock the tick it
+ * would be behind by, which is what every frequency and transmit after it is
+ * computed from -- and wait for the next page response, which 8.3.3.2 has the
+ * central repeat every 1.25 ms until pagerespTO.
+ *
+ * 8.3.3.1 asks for the receiver to be on from 312.5 usec after the answer, so
+ * that one window covers both arrival times on the one frequency of that
+ * 1.25 ms. This radio cannot: a receive is tuned in the tick before it listens,
+ * and that tick is the one the answer goes out in. Hence the wait for the
+ * repeat, which costs 1.25 ms on a page heard second. The same section has the
+ * board listen until pagerespTO; it still gives up after these two windows. */
+static void page_scan_fhs_missed(void)
+{
+	if (page_scan_state.second_reading_tried)
+	{
+		page_scan_schedule(0);
+		return;
+	}
+	page_scan_state.second_reading_tried = 1;
+	btphy.slave_clkn++;
+	page_scan_fhs_schedule();
+}
 
 static int page_scan_canceled(void)
 {
@@ -76,7 +129,9 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 			/* Not the packet this leg waits for, so there is no
 			 * page to answer. Go back to scanning rather than
 			 * leave the board in page scan with nothing left to
-			 * run, which would wait forever. */
+			 * run, which would wait forever. A stray multi-slot
+			 * packet also reaches here several ticks late, which
+			 * is too late to re-read the page. */
 			cprintf("(bad type %d)", pkt->bb_hdr.type);
 			page_scan_schedule(0);
 			goto end;
@@ -96,7 +151,7 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 		
 	}
 	else{
-		page_scan_schedule(0);
+		page_scan_fhs_missed();
 	}
 end:
 	msg_free(msg);
@@ -124,9 +179,9 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 		 *
 		 * The slot comes from the clock the scan just set to the page
 		 * it heard, so the two ends agree on it: this board answers in
-		 * the slot that pairs with the one the page arrived in, and
-		 * waits for the FHS in the next one. The board's own untouched
-		 * clock shares no slot boundary with the pager. */
+		 * the slot that pairs with the one the page arrived in. The
+		 * board's own untouched clock shares no slot boundary with the
+		 * pager. */
 		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
 		hop_start_response();
 
@@ -136,11 +191,10 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 			NULL, NULL,	// no tx callback
 			NULL, NULL); 	// no header / no payload
 
-		/* Schedule rx FHS */
-		rx_task_schedule(delay+2,
-			page_scan_rx_fhs_cb, NULL,	// ID rx callback
-			1<<RX_F_PAYLOAD			// FHS packet has payload
-			);
+		/* Schedule rx FHS, reading the page just heard as the first of
+		 * the central's two (see page_scan_fhs_missed()) */
+		page_scan_state.second_reading_tried = 0;
+		page_scan_fhs_schedule();
 	}
 	else
 	{

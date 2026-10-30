@@ -731,6 +731,17 @@
   stream closed runs and captures instead of being refused.
   [#930](https://github.com/SqueakyFloors/ubertooth/issues/930)
 
+- A board running `ubertooth-btbr`'s `page_scan` completes the connection for
+  a page it hears in either half of the pager's transmit slot. A pager sends
+  two page messages per slot and its answering FHS packet comes a fixed time
+  after the first of them, so a board that answered the second one waited for
+  that packet 312.5 us too late and the page went nowhere: about half of all
+  pages were answered and then led to nothing, in runs lasting a whole
+  1.28-second page interval. An empty window is now re-read as a page heard
+  second, and the board waits for the pager's next FHS 1.25 ms later. This is
+  what `page`, `page_scan` and `l2ping` between two boards needed.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
   package is not installed, instead of ending in a `ModuleNotFoundError`
   traceback: the command line is now read before the `usb1` module is
