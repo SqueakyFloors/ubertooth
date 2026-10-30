@@ -387,6 +387,11 @@ so both reach its record, with the UAP they settled beside them. A piconet
 whose UAP is `ff` records no reference UAP either: the decoder uses that value
 for "none", so a real one cannot be told from it.
 
+A record also carries flags for what the decoder verified, whether the header
+check and the payload CRC were checked and whether each passed. The format of
+a PcapNG capture's own options is specified in
+`docs/source/bluetooth_captures_PCAP.rst`.
+
 ## CAPTURING TO STANDARD OUTPUT
 
 `-q -` writes the PCAP capture to standard output and `-d -` the raw records,
