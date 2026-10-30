@@ -1074,17 +1074,16 @@ MU_TEST(test_the_capture_puts_iocfg_back_on_every_way_out)
 
 /*
  * The capture loop is hardware code, so what runs here is a model of the
- * bookkeeping its correctness turns on: how much of the FIFO a record takes,
- * what the mark is read from, and what is left behind for the next packet.
+ * bookkeeping, which is all this change is: how much of the FIFO a record
+ * takes, what the mark is read from, and what is left for the next packet.
  *
- * The model does not try to reproduce the radio -- the race between the air
- * and the read, or the 32-byte ceiling on what the FIFO can hold at once. It
- * is given the bytes the radio has written and the capture has not read, which
- * is the state the shift came out of.
+ * It is not a model of the radio and proves nothing about the air. How many
+ * bytes the radio puts in the FIFO while a record is read out of it is given
+ * to the model, not worked out by it; the FIFO holds CC2400_FIFO_SIZE bytes
+ * here as on the board, so no case it runs is one the hardware could not be
+ * in.
  */
-#define MODEL_FIFO_MAX 256
-
-static uint8_t model_fifo[MODEL_FIFO_MAX];
+static uint8_t model_fifo[CC2400_FIFO_SIZE];
 static unsigned model_fifo_len;
 
 /* The byte a read gets when it asks the FIFO for more than it holds. The
@@ -1092,11 +1091,13 @@ static unsigned model_fifo_len;
  * matter here, only that it is not payload. */
 #define MODEL_STRAY 0xff
 
+/* The radio writing `n` received bytes, counting up from `first` so a shift
+ * shows in the value. It stops at the FIFO's size, as the radio does. */
 static void model_fifo_write(unsigned first, unsigned n)
 {
 	unsigned i;
 
-	for (i = 0; i < n && model_fifo_len < MODEL_FIFO_MAX; i++)
+	for (i = 0; i < n && model_fifo_len < CC2400_FIFO_SIZE; i++)
 		model_fifo[model_fifo_len++] = (uint8_t)(first + i);
 }
 
@@ -1121,33 +1122,46 @@ static int model_fifo_empty_pin(void)
 }
 
 /*
- * One turn of the capture loop, with the flush under a switch so the test can
- * run the same two packets with and without it.
+ * One turn of the capture loop: the record's read, then the bytes the radio
+ * wrote while that read ran (`during` of them, counting up from `first`), then
+ * the mark, then the flush. The flush is under a switch so the test can run
+ * the same packets with it and without it.
  */
-static void model_capture_one(uint8_t *record, int flush)
+static void model_capture_one(uint8_t *record, unsigned during, unsigned first,
+                              int flush)
 {
 	const unsigned data = (unsigned)s.data_len;
 	const unsigned off = (unsigned)(s.syncword_len + s.data_len);
-	uint8_t waste[MODEL_FIFO_MAX];
+	uint8_t waste[CC2400_FIFO_SIZE];
 
 	model_fifo_read(data, record + s.syncword_len);
+	model_fifo_write(first, during);
 	record[off] = model_fifo_empty_pin() ? 0 : (uint8_t)s.truncated;
 	if (flush)
 		model_fifo_read(CC2400_FIFO_SIZE, waste);
 }
 
+/* The record's lengths and the mark come from the firmware, so a model run
+ * against a tree whose scan found neither would assert nothing. */
+static void model_needs_the_firmware(void)
+{
+	mu_assert(s.syncword_len == 4 && s.data_len == 32 && s.truncated > 0,
+	          "the model needs the record's lengths and the mark from the "
+	          "firmware");
+}
+
+/* Nothing left in the FIFO when the record was taken: the record holds the
+ * packet and says it is whole. */
 MU_TEST(test_a_packet_that_fits_is_whole_and_unmarked)
 {
 	uint8_t record[DMA_SIZE] = { 0 };
 	unsigned i;
 
-	mu_assert(s.data_len == 32 && s.syncword_len == 4 && s.truncated > 0,
-	          "the model needs the record's lengths and the mark from the "
-	          "firmware");
+	model_needs_the_firmware();
 
 	model_fifo_len = 0;
 	model_fifo_write(1, 32);
-	model_capture_one(record, 1);
+	model_capture_one(record, 0, 0, 1);
 
 	for (i = 0; i < 32; i++)
 		mu_assert_int_eq((int)(i + 1), record[4 + i]);
@@ -1156,10 +1170,11 @@ MU_TEST(test_a_packet_that_fits_is_whole_and_unmarked)
 }
 
 /*
- * A packet longer than the record: the record holds what fitted, says so, and
- * the next packet is still read from its own first byte. Without the flush
- * that next record starts in the middle of the packet before it, which is the
- * shift this is about.
+ * A packet the record did not hold all of: the radio wrote eight more bytes
+ * while the record was read out of the FIFO. The record says it is cut short,
+ * and the next packet is still read from its own first byte. Without the flush
+ * that next record starts eight bytes into the packet before it, which is the
+ * shift.
  */
 MU_TEST(test_a_packet_too_long_is_marked_and_does_not_shift_the_next)
 {
@@ -1167,35 +1182,31 @@ MU_TEST(test_a_packet_too_long_is_marked_and_does_not_shift_the_next)
 	uint8_t second[DMA_SIZE] = { 0 };
 	unsigned i;
 
-	mu_assert(s.data_len == 32 && s.truncated > 0,
-	          "the model needs the record's lengths and the mark from the "
-	          "firmware");
+	model_needs_the_firmware();
 
-	/* 40 bytes of payload, 1..40, against a 32-byte record. */
 	model_fifo_len = 0;
-	model_fifo_write(1, 40);
-	model_capture_one(first, 1);
+	model_fifo_write(1, 32);
+	model_capture_one(first, 8, 33, 1);
 
 	for (i = 0; i < 32; i++)
 		mu_assert_int_eq((int)(i + 1), first[4 + i]);
 	mu_assert_int_eq((int)s.truncated, first[36]);
 	mu_assert_int_eq(0, (int)model_fifo_len);
 
-	/* The next packet, 101 upwards so a leftover is obvious. */
+	/* The next packet, 101 upwards so a leftover shows in the value. */
 	model_fifo_write(101, 32);
-	model_capture_one(second, 1);
+	model_capture_one(second, 0, 0, 1);
 	mu_assert_int_eq(101, second[4]);
 	mu_assert_int_eq(0, second[36]);
 
-	/* The same two packets with no flush: the second record starts on byte
-	 * 33 of the first packet. */
+	/* The same two packets with no flush. */
 	memset(second, 0, sizeof(second));
 	model_fifo_len = 0;
-	model_fifo_write(1, 40);
-	model_capture_one(first, 0);
+	model_fifo_write(1, 32);
+	model_capture_one(first, 8, 33, 0);
 	mu_assert_int_eq(8, (int)model_fifo_len);
 	model_fifo_write(101, 32);
-	model_capture_one(second, 0);
+	model_capture_one(second, 0, 0, 0);
 	mu_assert_int_eq(33, second[4]);
 	mu_assert(second[4] != 101,
 	          "without the flush the next record must start late, which is "
@@ -1203,25 +1214,25 @@ MU_TEST(test_a_packet_too_long_is_marked_and_does_not_shift_the_next)
 }
 
 /*
- * A packet that left exactly one byte behind is the case the radio cannot
- * report: its FIFO-empty signal does not distinguish one byte from none. The
- * flush still clears the byte, so only the mark is missing, not the fix.
+ * One byte left behind is the case the radio cannot report: its FIFO-empty
+ * signal does not distinguish one byte from none. The flush still clears the
+ * byte, so only the mark is missing, not the fix.
  */
 MU_TEST(test_one_byte_left_behind_reads_as_whole_and_is_still_cleared)
 {
 	uint8_t record[DMA_SIZE] = { 0 };
 	uint8_t next[DMA_SIZE] = { 0 };
 
-	mu_assert(s.data_len == 32, "the model needs the record's lengths");
+	model_needs_the_firmware();
 
 	model_fifo_len = 0;
-	model_fifo_write(1, 33);
-	model_capture_one(record, 1);
+	model_fifo_write(1, 32);
+	model_capture_one(record, 1, 33, 1);
 	mu_assert_int_eq(0, record[36]);
 	mu_assert_int_eq(0, (int)model_fifo_len);
 
 	model_fifo_write(101, 32);
-	model_capture_one(next, 1);
+	model_capture_one(next, 0, 0, 1);
 	mu_assert_int_eq(101, next[4]);
 }
 

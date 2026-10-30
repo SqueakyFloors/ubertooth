@@ -3987,16 +3987,13 @@ void bt_slave_le() {
  * the record is not all of what it heard.
  *
  * A record carries one FIFO's worth, which is as much as the mode can read
- * back. The radio ends reception when the FIFO fills (CC2400 datasheet,
- * buffered mode) and reports no length the capture could read a longer packet
- * by, so a packet that does not fit is delivered cut short. This bit is how a
- * reader tells such a record from a whole one, instead of taking a short
- * payload for the whole packet.
+ * back: the radio reports no length the capture could read a longer packet by.
+ * So the bit is what tells a reader not to take a record's payload for the
+ * whole packet.
  *
- * It says what it measures and not why: the mode has no length to stop
- * receiving on, so traffic that arrived behind a short packet can leave bytes
- * in the FIFO as well as a long packet's own tail. Either way the record is
- * not the whole of what the radio heard, which is what a reader needs to know.
+ * It states what it measures rather than a cause, because the mode has no
+ * length to stop receiving on either: traffic that arrived behind a short
+ * packet leaves bytes in the FIFO as a long packet's own tail does.
  *
  * The test is the radio's FIFO_EMPTY signal, which in receive goes low only
  * above one byte, so a packet that left exactly one byte behind reads as whole.
@@ -4107,12 +4104,7 @@ static void rx_generic_wait_for_fifo(void)
 
 /*
  * Drop whatever the radio still holds, so the next packet is read from its own
- * first byte.
- *
- * The capture reads RX_GENERIC_DATA_LEN bytes once the sync word has matched,
- * and the radio goes on writing received bytes into the FIFO while that read
- * runs. Bytes left there come out in front of the next packet, which arrives
- * shifted by as many as were left behind.
+ * first byte rather than shifted by the bytes left in front of it.
  *
  * The radio has no flush command: FIFO_FLUSH is one of the signals a GIO pin
  * can report, not one the host can assert, and the FIFO_EMPTY signal cannot
