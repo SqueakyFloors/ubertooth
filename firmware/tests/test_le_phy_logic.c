@@ -571,6 +571,22 @@ static void build_conn_update(le_rx_t *buf, const struct conn_update *u)
 	put_le(&buf->data[12], u->instant, 2);
 }
 
+/*
+ * Lay an LL_TERMINATE_IND out as it arrives on a data channel: the PDU header,
+ * the opcode, then the one-byte reason the connection is ending. Two payload
+ * bytes is the whole packet, so the length is also what tells it from any
+ * other control PDU.
+ */
+static void build_terminate(le_rx_t *buf, uint8_t error_code)
+{
+	fill_packet(buf, 2, DATA_CHANNEL_MHZ);
+	memset(buf->data, 0, sizeof(buf->data));
+	buf->data[0] = 0x03;    /* LL control PDU */
+	buf->data[1] = 2;       /* payload length */
+	buf->data[2] = 0x02;    /* LL_TERMINATE_IND */
+	buf->data[3] = error_code;
+}
+
 /* Is the connection state back to what reset_conn() leaves: nothing followed,
  * listening on the advertising address? */
 static int connection_was_reset(void)
@@ -2819,7 +2835,7 @@ MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
  * ------------------------------------------------------------------ */
 
 /*
- * The engine acts on three packets and ignores the rest. Getting the length
+ * The engine acts on four packets and ignores the rest. Getting the length
  * guards wrong is the dangerous half: each handler reads fields at fixed
  * offsets, so a control PDU of the wrong length read as an update would take
  * its parameters from whatever followed the packet in the buffer.
@@ -2912,6 +2928,19 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	buf.data[2] = 0x01;
 	packet_handler(&buf);
 	mu_assert_int_eq(0, conn.channel_map_update_pending);
+
+	/* A terminate of the right length asks for the follow to end... */
+	start_fresh();
+	build_terminate(&buf, 0x13);
+	packet_handler(&buf);
+	mu_assert_int_eq(1, cancel_follow);
+
+	/* ...and one of the wrong length does not. */
+	start_fresh();
+	build_terminate(&buf, 0x13);
+	buf.data[1] = 1;       /* one byte short */
+	packet_handler(&buf);
+	mu_assert_int_eq(0, cancel_follow);
 
 	/*
 	 * A data PDU that is not an LL control PDU is left alone, whatever its
@@ -3533,6 +3562,97 @@ MU_TEST(a_connection_that_times_out_leaves_no_match_armed)
 	mu_assert(connection_was_reset(), "the connection was not dropped");
 	mu_assert(!(fake_t1mcr & TMCR_MR0I),
 	          "a connection-event match is still armed with no connection");
+}
+
+/*
+ * A connection closed cleanly ends the follow at its next connection event
+ * rather than at its supervision timeout, which can be 32 seconds away. Once
+ * the peers have exchanged LL_TERMINATE_IND they stop talking, so a follow
+ * left on that connection captures nothing until the timeout.
+ *
+ * The teardown is the one the supervision timeout and the host's cancel use.
+ * The request is recorded here, in the mode's loop, and finish_conn_event()
+ * carries it out in the interrupt that owns the connection state.
+ */
+MU_TEST(a_terminate_ends_the_follow_at_the_next_event)
+{
+	le_rx_t buf;
+
+	anchored_connection(100000);
+	rf_channel = DATA_CHANNEL_MHZ;
+	build_terminate(&buf, 0x13);   /* the remote user ended it */
+
+	packet_handler(&buf);
+
+	mu_assert_int_eq(1, cancel_follow);
+	mu_assert(!connection_was_reset(),
+	          "the follow was torn down from the mode's loop, where the "
+	          "timer interrupt can take a connection event part way "
+	          "through it");
+
+	/* The event the terminate arrived in closes, well inside the
+	 * supervision timeout, so only the cancel can end the follow. */
+	conn_event.num_packets = 1;
+	conn_event.opened = 1;
+
+	finish_conn_event();
+
+	mu_assert(connection_was_reset(),
+	          "the follow did not end, so the capture would wait out the "
+	          "supervision timeout");
+	mu_assert_int_eq(0, cancel_follow);
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "a connection-event match is still armed with no connection");
+	mu_assert_int_eq(ADV_CHANNEL_MHZ, rf_channel);
+}
+
+/*
+ * Nothing else ends the follow. CRC verification is off by default, so any
+ * data packet whose first bytes happen to look like a terminate reaches this
+ * dispatch: were the opcode read without the LLID and length guards, an
+ * ordinary packet would stop a healthy capture mid-connection.
+ */
+MU_TEST(an_ordinary_data_packet_does_not_end_the_follow)
+{
+	struct case_t {
+		const char *what;
+		le_rx_t buf;
+	} cases[4];
+	size_t i;
+
+	memset(cases, 0, sizeof(cases));
+
+	/* A data PDU carrying 0x02 where the opcode would be. */
+	cases[0].what = "an L2CAP data packet";
+	build_terminate(&cases[0].buf, 0x13);
+	cases[0].buf.data[0] = 0x02;
+
+	/* A terminate is two payload bytes and no other length. */
+	cases[1].what = "a control PDU of the wrong length";
+	build_terminate(&cases[1].buf, 0x13);
+	cases[1].buf.data[1] = 3;
+
+	/* The empty PDU that fills most connection events. */
+	cases[2].what = "an empty data packet";
+	fill_packet(&cases[2].buf, 0, DATA_CHANNEL_MHZ);
+	memset(cases[2].buf.data, 0, sizeof(cases[2].buf.data));
+	cases[2].buf.data[0] = 0x01;
+
+	/* A control PDU of the right length under a different opcode. */
+	cases[3].what = "a control PDU with another opcode";
+	build_terminate(&cases[3].buf, 0x13);
+	cases[3].buf.data[2] = 0x09;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		char msg[160];
+
+		anchored_connection(100000);
+
+		packet_handler(&cases[i].buf);
+
+		snprintf(msg, sizeof(msg), "%s ended the follow", cases[i].what);
+		mu_assert(cancel_follow == 0 && !connection_was_reset(), msg);
+	}
 }
 
 /*
@@ -4425,6 +4545,8 @@ int main(void)
 	MU_RUN(an_overdue_estimate_skips_whole_intervals_and_counts_them);
 	MU_RUN(the_overdue_test_holds_across_the_counters_wrap);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
+	MU_RUN(a_terminate_ends_the_follow_at_the_next_event);
+	MU_RUN(an_ordinary_data_packet_does_not_end_the_follow);
 	MU_RUN(a_moment_already_past_is_armed_just_ahead_of_the_counter);
 	MU_RUN(an_instant_the_counter_stepped_over_still_applies);
 	MU_RUN(the_recorded_access_address_follows_the_radio);
