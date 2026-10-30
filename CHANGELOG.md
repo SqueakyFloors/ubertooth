@@ -720,6 +720,30 @@
   that copy, byte for byte as before.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 
+- A `ubertooth-btbr` connection says why a peer hung up -- `Peer detached:
+  reason 0x13, the peer's user ended the connection` -- and ends the link
+  there. As the central it used to call the detach an unhandled opcode and
+  hold the connection open until link supervision ended it.
+  [#951](https://github.com/SqueakyFloors/ubertooth/issues/951)
+
+- A `ubertooth-btbr` connection answers an LMP request it has no handler for,
+  rather than leaving the peer to wait out a 30-second response timeout and
+  drop the link. A PDU that expects no reply is ignored instead, so the
+  answers go only where one is due: against a peer that asked for less
+  transmit power five times a second, that was 302 refusals in a connection
+  carrying 18987 packets, and the link was no shorter for them. The
+  `warning: LMP opcode ... is not handled` line is now said once per opcode
+  for the life of a connection, not once per PDU.
+  [#949](https://github.com/SqueakyFloors/ubertooth/issues/949)
+
+- A `ubertooth-btbr` capture names LMP opcodes 31 and 32 as the current
+  specification does, `LMP_INCR_POWER_REQ` and `LMP_DECR_POWER_REQ`; the
+  extended pair 127/31 and 127/32 carries `LMP_POWER_CONTROL_REQ` and
+  `LMP_POWER_CONTROL_RES`. Each table held the other's names, so a peer asking
+  for less transmit power read as a response to something else. An opcode no
+  table names is now its number rather than `None`.
+  [#950](https://github.com/SqueakyFloors/ubertooth/issues/950)
+
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
   line, the C string terminator the board's console puts on the end of each
   one, which `grep` on a saved session answers with `Binary file matches`
