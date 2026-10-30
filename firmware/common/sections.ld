@@ -169,7 +169,9 @@ SECTIONS
 		__bss_end__ = .;
 	} > ram
 
-	/* Where we put the heap with cr_clib */
+	/* Where we put the heap with cr_clib. It has nowhere to grow: the stack's
+	 * guard is immediately above it, so a first malloc() would fault. No
+	 * image calls one. */
 	.cr_heap :
 	{
 		end = .;
@@ -177,13 +179,16 @@ SECTIONS
 		_pvHeapStart = .;
 	} > ram
 
-	/* The lowest address the stack may reach: everything below it is
-	 * allocated. */
+	/* The end of everything allocated. The stack does not start here: the
+	 * guard below comes first. */
 	_stack_limit = ALIGN(., 4);
 
 	/* The guard: 32 bytes the memory protection unit is told to refuse, so
 	 * that a stack walking off the bottom faults there instead of writing
-	 * over the end of .bss. A region has to be aligned to its own size, so
+	 * over the end of .bss. The bootloader leaves the unit alone, for the
+	 * reason in LPC17xx_Startup.c, and the room is reserved either way.
+	 *
+	 * A region has to be aligned to its own size, so
 	 * the bottom of the usable stack is the first 32-byte boundary above
 	 * everything allocated, plus the guard itself.
 	 *

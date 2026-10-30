@@ -1422,23 +1422,46 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 {
 	const char *path = FW_COMMON_DIR "/LPC17xx_Startup.c";
 	char line[512];
-	int in_block = 0;
-	int size_field = 0, no_access = 0, default_map = 0, absent_unit = 0;
+	int in_block = 0, in_enable = 0;
+	int region = 0, base = 0, size_field = 0, no_access = 0, enabled = 0;
+	int executable = 1, default_map = 0, absent_unit = 0, fenced = 0;
 	int paints_from_bottom = 0, measures_from_bottom = 0, names_limit = 0;
 	FILE *f = fopen(path, "r");
 
 	mu_assert(f != NULL, "cannot read LPC17xx_Startup.c");
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
-		if (strstr(line, "MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD)") != NULL)
-			size_field = 1;
-		if (strstr(line, "MPU_RASR_AP_NONE") != NULL)
-			no_access = 1;
-		if (strstr(line, "MPU_CTRL") != NULL &&
-		    strstr(line, "MPU_CTRL_PRIVDEFENA") != NULL)
-			default_map = 1;
-		if (strstr(line, "MPU_TYPE_DREGION") != NULL)
-			absent_unit = 1;
+		/* Only what stack_guard_enable() itself does: the compile-time
+		 * assertions above it name the same macros, and matching those
+		 * would let a broken setup pass. */
+		if (strstr(line, "void stack_guard_enable(void)") != NULL)
+			in_enable = 1;
+		else if (in_enable && line[0] == '}')
+			in_enable = 0;
+
+		if (in_enable) {
+			if (strstr(line, "MPU_RNR = 0") != NULL)
+				region = 1;
+			if (strstr(line, "MPU_RBAR = (uint32_t)&_stack_guard") != NULL)
+				base = 1;
+			if (strstr(line, "MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD)") != NULL)
+				size_field = 1;
+			if (strstr(line, "MPU_RASR_AP_NONE") != NULL)
+				no_access = 1;
+			if (strstr(line, "MPU_RASR_ENABLE") != NULL)
+				enabled = 1;
+			if (strstr(line, "MPU_RASR_XN") != NULL)
+				executable = 0;
+			if (strstr(line, "MPU_CTRL = MPU_CTRL_ENABLE") != NULL &&
+			    strstr(line, "MPU_CTRL_PRIVDEFENA") != NULL)
+				default_map = 1;
+			if (strstr(line, "MPU_TYPE_DREGION") != NULL)
+				absent_unit = 1;
+			if (strstr(line, "dsb") != NULL)
+				fenced = 1;
+			if (fenced && strstr(line, "isb") != NULL)
+				fenced = 2;
+		}
 		if (strstr(line, "word = &_stack_bottom") != NULL)
 			paints_from_bottom = 1;
 		if (strstr(line, "stack_used_between(&_stack_bottom") != NULL)
@@ -1448,13 +1471,17 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 	}
 	fclose(f);
 
+	mu_assert(region == 1 && base == 1,
+	          "stack_guard_enable() no longer programs region 0 with "
+	          "_stack_guard as its base: the region would cover some other "
+	          "address, and nothing at boot would notice");
 	mu_assert(size_field == 1,
 	          "the guard region's size is no longer the one stack_check.h "
 	          "encodes, so it may cover more or less than the 32 bytes "
 	          "sections.ld set aside");
-	mu_assert(no_access == 1,
-	          "the guard region allows some access, so an overflow into it "
-	          "would not fault");
+	mu_assert(no_access == 1 && enabled == 1 && executable == 0,
+	          "the guard region is not an enabled, no-access, no-execute one, "
+	          "so an overflow into it would not fault");
 	mu_assert(default_map == 1,
 	          "the unit is enabled without PRIVDEFENA, which leaves every "
 	          "address outside the guard with no rule of its own: the first "
@@ -1462,6 +1489,9 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 	mu_assert(absent_unit == 1,
 	          "the startup code no longer asks how many regions the part has, "
 	          "so a part without a unit would be written to as if it had one");
+	mu_assert(fenced == 2,
+	          "stack_guard_enable() does not end with dsb then isb, so the "
+	          "rules are not guaranteed to be in force for the next access");
 	mu_assert(paints_from_bottom == 1,
 	          "the startup paint no longer starts above the guard, so booting "
 	          "would fault on its own paint");

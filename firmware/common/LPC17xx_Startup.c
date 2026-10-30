@@ -86,13 +86,16 @@ static void stack_paint(void)
 }
 
 /*
- * Refuse every access to the guard, and leave the part's default memory map in
- * place for everything else, so this adds one rule rather than describing the
- * whole map.
- *
- * The other region attributes stay zero: nothing may read, write or execute
- * here, so how the bus would treat an access that is refused does not arise.
+ * The bootloader asks for no guard (UBERTOOTH_NO_STACK_GUARD in its Makefile,
+ * beside UBERTOOTH_NO_WATCHDOG). It runs for a moment with 12 KB of stack to
+ * itself, so a guard buys it nothing, and it is the image a board is recovered
+ * through: the one place where a fault of our making would need someone at the
+ * bench with the entry pin bridged. Leaving it alone also means it hands an
+ * application the memory map it has always handed it, whatever that
+ * application was built from.
  */
+#ifndef UBERTOOTH_NO_STACK_GUARD
+
 /* The words below, against the part's own encoding (the Cortex-M3 chapter of
  * UM10360). A wrong bit position would leave a region the part ignores, which
  * nothing else would notice. */
@@ -102,6 +105,14 @@ _Static_assert((MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
 _Static_assert((MPU_CTRL_ENABLE | MPU_CTRL_PRIVDEFENA) == 0x5ul,
                "the control word is not the part's encoding");
 
+/*
+ * Refuse every access to the guard, and leave the part's default memory map in
+ * place for everything else, so this adds one rule rather than describing the
+ * whole map.
+ *
+ * The other region attributes stay zero: nothing may read, write or execute
+ * here, so how the bus would treat an access that is refused does not arise.
+ */
 static void stack_guard_enable(void)
 {
 	/* A part whose unit is absent reports no regions, and writing its
@@ -123,6 +134,12 @@ static void stack_guard_enable(void)
 	__asm__ volatile ("isb");
 }
 
+#else
+static void stack_guard_enable(void)
+{
+}
+#endif
+
 unsigned stack_used(void)
 {
 	return stack_used_between(&_stack_bottom, &_StackTop);
@@ -142,8 +159,11 @@ void Reset_Handler(void)
 	/* First, while the stack is no deeper than this function. */
 	stack_paint();
 
-	/* Before anything else runs, so that whatever overflows is caught,
-	 * including the copying below. */
+	/* Armed from here, so the copying below is covered too. A fault this
+	 * early is not recorded: the vector table is still the previous stage's
+	 * until the end of this function, and main() is what turns the fault
+	 * handlers on. The 2 KB the link leaves is what makes that acceptable --
+	 * startup cannot run the stack out. */
 	stack_guard_enable();
 
 	// Copy the data segment initializers from flash to SRAM

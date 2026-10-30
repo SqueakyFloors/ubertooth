@@ -137,7 +137,7 @@ CSTANDARD = -std=gnu99
 # watchdog.c, and must not write to the breadcrumb at all -- it runs after
 # every reset, before the firmware has read what the last run left there. The
 # marks in those files compile to nothing here; see firmware/common/watchdog.h.
-CDEFS  = -D$(BOARD) -D$(LPCUSB_TARGET) -DUBERTOOTH_NO_WATCHDOG $(COMPILE_OPTS) -Wa,-a,-ad
+CDEFS  = -D$(BOARD) -D$(LPCUSB_TARGET) -DUBERTOOTH_NO_WATCHDOG -DUBERTOOTH_NO_STACK_GUARD $(COMPILE_OPTS) -Wa,-a,-ad
 
 # Place -D or -U options here for ASM sources
 ADEFS =

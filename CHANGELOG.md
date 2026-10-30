@@ -792,7 +792,9 @@
   address just below the stack. It arrives as a memory management fault, or as
   a hard fault carrying the same status and address where the processor could
   not stack the fault's own frame clear of the guard. Both `bluetooth_rxtx`
-  and `btbr` get this.
+  and `btbr` get this; the bootloader does not, since it runs for a moment
+  with the whole stack to itself and is the image a board is recovered
+  through.
   [#953](https://github.com/SqueakyFloors/ubertooth/issues/953)
 
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress

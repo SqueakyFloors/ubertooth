@@ -130,8 +130,8 @@ static void dump_debug_registers(void)
 	early_printf("\nStack dump (~%p):\n", _stk);
 	stk = (uint32_t*)((uint32_t)&_stk&~0xf);
 	/* A fault from a stack overflow leaves this function's own frame below
-	 * the guard at the bottom of the stack. Reading the guard would fault
-	 * again, inside this handler, and lose the record it has just made. */
+	 * the guard at the bottom of the stack, and the dump must not read an
+	 * address the unit refuses while the unit is on. */
 	if (stk < &_stack_bottom)
 		stk = &_stack_bottom;
 	for (;stk<&_StackTop;stk+=4)

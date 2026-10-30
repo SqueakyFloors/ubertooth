@@ -381,15 +381,18 @@ four it was, and this line says where it went wrong. `status` is the part's
 fault status register for that fault. The address is the access the processor
 refused, and is printed only when the status says the board recorded one for
 this fault — zero is a real address, so the line says so rather than leaving
-it out. There is none for a hard fault or a usage fault, nor for an
-instruction fetch refused because the region cannot be executed — which is a
-branch through a corrupted pointer or return address. A refused address just
-below the stack is a stack overflow: the firmware keeps 32 bytes there that
-the part refuses, so a stack that runs out of room faults where it happens
-instead of writing over the data below. That one reads as a memory management
-fault, or as a hard fault carrying the same status and address where the
-processor could not stack the fault's own frame clear of those 32 bytes. The
-line is absent until a fault happens, and a power-cycle clears it.
+it out. There is none for a usage fault, for a hard fault the processor took
+in its own right, nor for an instruction fetch refused because the region
+cannot be executed — which is a branch through a corrupted pointer or return
+address. A hard fault that is one of the other three escalated reports that
+fault's status and address instead of its own, so it can carry one.
+
+A refused address just below the stack is a stack overflow: the firmware keeps
+32 bytes there that the part refuses, so a stack that runs out of room faults
+where it happens instead of writing over the data below. That one reads as a
+memory management fault, or as an escalated hard fault where the processor
+could not stack the fault's own frame clear of those 32 bytes. The line is
+absent until a fault happens, and a power-cycle clears it.
 
 The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio

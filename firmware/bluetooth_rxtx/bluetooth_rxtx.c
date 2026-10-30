@@ -46,20 +46,15 @@
 
 #ifdef STACK_GUARD_TEST
 /*
- * A stack overflow on demand, so that the guard at the bottom of the stack can
- * be shown to catch one. No shipped image defines STACK_GUARD_TEST: build it
- * by hand to run the check, then flash a normal image back.
+ * A stack overflow on demand, so the guard at the bottom of the stack can be
+ * shown to catch one. No shipped image defines STACK_GUARD_TEST; the bench
+ * procedure is in TEST_PLAN.md. UBERTOOTH_STOP is the trigger because every
+ * tool sends it as it exits.
  *
- * UBERTOOTH_STOP sets the flag and the dispatch loop makes the first call.
- * Every tool sends that request as it exits, so such a build overflows on any
- * ordinary command, which is what makes `ubertooth-util -S` enough to run the
- * check. Every word of each frame is written, so the descent cannot step over
- * the 32-byte guard.
- *
- * The recursive call goes through a volatile pointer because the compiler is
- * entitled to recognise plain self-recursion: at -Os it inlined the first call
- * into the dispatch loop and turned the rest into a loop over one frame, so the
- * stack never grew and the board just stopped feeding the watchdog.
+ * Every word of each frame is written, so the descent cannot step over the
+ * 32-byte guard, and the recursive call goes through a volatile pointer: at
+ * -Os the compiler otherwise turns plain self-recursion into a loop over one
+ * frame and the stack never grows.
  */
 static volatile uint8_t overflow_the_stack_now = 0;
 

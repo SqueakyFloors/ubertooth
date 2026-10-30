@@ -464,10 +464,11 @@ MU_TEST(a_wedged_board_reports_where_it_was_stuck)
 }
 
 /*
- * How deep the stack has ever been, out of the room it has. An overflow on
- * this part is silent -- it writes over the data below the stack and the
- * damage turns up later somewhere else -- so this is the line that says
- * whether an image has room, and it is read after a long capture.
+ * How deep the stack has ever been, out of the room it has. The guard at the
+ * bottom of the stack catches an overflow that walks into it, but a single
+ * large frame can step over the guard and write over the data below, so this
+ * is still the line that says whether an image has room, and it is read after
+ * a long capture.
  */
 MU_TEST(the_report_says_how_much_stack_has_been_used)
 {
