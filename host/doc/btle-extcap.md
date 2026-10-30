@@ -173,9 +173,11 @@ unexpected argument 'extra'`, since no call here takes an operand. The rest
 are `error: --extcap-interface must be ubertooth<serial>, as
 --extcap-interfaces lists it`, `error: --capture needs --fifo=PATH` and
 `error: advertising channel index must be 37-39 (got 40)`, which is
-ubertooth-btle(1)'s own wording for the same mistake. A call with an interface
-and no operation in it gives the same `error: nothing to do: ...` line as a
-bare call. Each is that one line: the usage line follows only a bare
+ubertooth-btle(1)'s own wording for the same mistake. A call with no operation
+in it gives the same `error: nothing to do: ...` line as a bare call, whether
+or not it named an interface, and a lone `--` is such a call; the interface is
+read, and the first of those three lines given, only for a call that did ask
+for an operation. Each is that one line: the usage line follows only a bare
 `btle-extcap.py`, and `-h` prints it on standard output.
 
 Whatever ubertooth-util(1) and ubertooth-btle(1) write to standard error is

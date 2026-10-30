@@ -523,6 +523,18 @@ def main():
     if do_list_interfaces:
         sys.exit(list_interfaces())
 
+    # A command line with no operation in it. Answered here, above the
+    # interface, so the same line comes back whether or not one was named:
+    # without this, a call that asked for nothing was blamed for the interface
+    # it had not given either. The usage line follows only a bare call, so a
+    # lone "--", which did say something, gets this line alone
+    # (.kiro/steering/cli-output.md). The call used to exit 0 having done
+    # nothing, which Wireshark reads as a call that worked.
+    if not (do_list_dlts or do_config or do_capture
+            or capture_filter is not None):
+        eprint(NOTHING_TO_DO + "\n")
+        sys.exit(1)
+
     # every operation down here depends on having an interface. Its value is
     # "ubertooth<serial>", as --extcap-interfaces lists it; an older
     # "ubertooth<index>" still works, because ubertooth-btle -U reads an
@@ -562,15 +574,12 @@ def main():
         signal.signal(signal.SIGTERM, sig_handler)
         signal.signal(signal.SIGINT, sig_handler)
         sys.exit(capture(interface, fifo, channel))
-    elif capture_filter is not None:
-        # a capture filter and nothing to do with it: Wireshark verifying the
-        # filter the user typed, before it starts a capture with it
-        sys.exit(verify_capture_filter(capture_filter))
     else:
-        # An interface and nothing to do with it: the call used to exit 0
-        # having done nothing, which Wireshark reads as a call that worked.
-        eprint(NOTHING_TO_DO + "\n")
-        sys.exit(1)
+        # A capture filter and nothing to do with it: Wireshark verifying the
+        # filter the user typed, before it starts a capture with it. The gate
+        # above refused every other way of asking for nothing, so a filter is
+        # what is left here, and there is none to verify without one.
+        sys.exit(verify_capture_filter(capture_filter))
 
 
 def usage(as_a_diagnostic=False):
