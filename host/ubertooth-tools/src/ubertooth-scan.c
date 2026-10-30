@@ -51,33 +51,33 @@
 #error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
 #endif
 
-static void usage()
+static void usage(FILE *file)
 {
-	printf("ubertooth-scan - active(Bluez) device scan and inquiry supported by Ubertooth\n");
-	printf("\n");
-	printf("This tool uses a normal Bluetooth dongle to perform Inquiry Scans and\n");
-	printf("Extended Inquiry scans of Bluetooth devices. It uses Ubertooth to\n");
-	printf("discover undiscoverable devices and can use BlueZ to scan for\n");
-	printf("discoverable devices.\n");
-	printf("\n");
-	printf("Usage:\n");
-	printf("    ubertooth-scan\n");
-	printf("        Use Ubertooth to discover devices and perform Inquiry Scan.\n");
-	printf("\n");
-	printf("    ubertooth-scan -s -x\n");
-	printf("        Use BlueZ and Ubertooth to discover devices and perform Inquiry Scan\n");
-	printf("        and Extended Inquiry Scan.\n");
-	printf("\n");
-	printf("Options:\n");
-	printf("\t-h this help\n");
-	printf("\t-V print version information\n");
-	printf("\t-s hci Scan - use BlueZ to scan for discoverable devices\n");
-	printf("\t-x eXtended scan - retrieve additional information about target devices\n");
-	printf("\t-t scan Time (seconds) - length of time to sniff packets. [Default: 20s]\n");
-	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
-	       max_ac_errors, MAX_AC_ERRORS);
-	printf("\t-b Bluetooth device (hci0)\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
+	fprintf(file, "ubertooth-scan - active(Bluez) device scan and inquiry supported by Ubertooth\n");
+	fprintf(file, "\n");
+	fprintf(file, "This tool uses a normal Bluetooth dongle to perform Inquiry Scans and\n");
+	fprintf(file, "Extended Inquiry scans of Bluetooth devices. It uses Ubertooth to\n");
+	fprintf(file, "discover undiscoverable devices and can use BlueZ to scan for\n");
+	fprintf(file, "discoverable devices.\n");
+	fprintf(file, "\n");
+	fprintf(file, "Usage:\n");
+	fprintf(file, "    ubertooth-scan\n");
+	fprintf(file, "        Use Ubertooth to discover devices and perform Inquiry Scan.\n");
+	fprintf(file, "\n");
+	fprintf(file, "    ubertooth-scan -s -x\n");
+	fprintf(file, "        Use BlueZ and Ubertooth to discover devices and perform Inquiry Scan\n");
+	fprintf(file, "        and Extended Inquiry Scan.\n");
+	fprintf(file, "\n");
+	fprintf(file, "Options:\n");
+	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-V print version information\n");
+	fprintf(file, "\t-s hci Scan - use BlueZ to scan for discoverable devices\n");
+	fprintf(file, "\t-x eXtended scan - retrieve additional information about target devices\n");
+	fprintf(file, "\t-t scan Time (seconds) - length of time to sniff packets. [Default: 20s]\n");
+	fprintf(file, "\t-e max_ac_errors (default: %d, range: 0-%d)\n",
+	        max_ac_errors, MAX_AC_ERRORS);
+	fprintf(file, "\t-b Bluetooth device (hci0)\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
 }
 
 /* One "error: " line for a call that failed, on standard error, naming what
@@ -431,7 +431,7 @@ int main(int argc, char *argv[])
 	if (do_version)
 		version_status = ubertooth_print_versions(stdout, ubertooth_device);
 	if (first_exit_option == 'h')
-		usage();
+		usage(stdout);
 	if (do_version || first_exit_option == 'h')
 		return version_status;
 

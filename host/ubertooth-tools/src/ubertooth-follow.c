@@ -146,27 +146,26 @@ static int follow_request_failed(ubertooth_t* ut, int sock, uint16_t handle,
 	return 1;
 }
 
-static void usage()
+static void usage(FILE *file)
 {
-	printf("ubertooth-follow - active(bluez) CLK discovery and follow for a target address\n");
-	printf("Usage:\n");
-	printf("\t-h this help\n");
-	printf("\t-V print version information\n");
-	printf("\t-t <BD_ADDR> target address (xx:xx:xx:xx:xx:xx), which gives the\n");
-	printf("\t   LAP and UAP to follow; once, not with -l or -u\n");
-	printf("\t-l <LAP> (3 bytes / 6 hex digits), once, with -u, not with -t\n");
-	printf("\t-u <UAP> (1 byte / 2 hex digits), once, with -l, not with -t\n");
-	fputs(OPT_USAGE_SELECT_DEVICE, stdout);
-	printf("\t-r <filename> capture packets to PCAPNG file\n");
-	printf("\t-q <filename> capture packets to PCAP file\n");
-	printf("\t-e max_ac_errors (default: %d, range: 0-%d)\n",
-	       max_ac_errors, MAX_AC_ERRORS);
-	printf("\t-d filename\n");
-	printf("\t-a Enable AFH (needs the whole target address: -t)\n");
-	printf("\t-b Bluetooth device (hci0)\n");
-	printf("\t-w USB delay in 625us timeslots (default:5)\n");
-	printf("\nGive the target as -t, or as -l and -u together. With no target they are read from the local device, in some cases this may give the incorrect address.\n");
-//	printf("If an input file is not specified, an Ubertooth device is used for live capture.\n");
+	fprintf(file, "ubertooth-follow - active(bluez) CLK discovery and follow for a target address\n");
+	fprintf(file, "Usage:\n");
+	fprintf(file, "\t-h this help\n");
+	fprintf(file, "\t-V print version information\n");
+	fprintf(file, "\t-t <BD_ADDR> target address (xx:xx:xx:xx:xx:xx), which gives the\n");
+	fprintf(file, "\t   LAP and UAP to follow; once, not with -l or -u\n");
+	fprintf(file, "\t-l <LAP> (3 bytes / 6 hex digits), once, with -u, not with -t\n");
+	fprintf(file, "\t-u <UAP> (1 byte / 2 hex digits), once, with -l, not with -t\n");
+	fputs(OPT_USAGE_SELECT_DEVICE, file);
+	fprintf(file, "\t-r <filename> capture packets to PCAPNG file\n");
+	fprintf(file, "\t-q <filename> capture packets to PCAP file\n");
+	fprintf(file, "\t-e max_ac_errors (default: %d, range: 0-%d)\n",
+	        max_ac_errors, MAX_AC_ERRORS);
+	fprintf(file, "\t-d filename\n");
+	fprintf(file, "\t-a Enable AFH (needs the whole target address: -t)\n");
+	fprintf(file, "\t-b Bluetooth device (hci0)\n");
+	fprintf(file, "\t-w USB delay in 625us timeslots (default:5)\n");
+	fprintf(file, "\nGive the target as -t, or as -l and -u together. With no target they are read from the local device, in some cases this may give the incorrect address.\n");
 }
 
 int main(int argc, char *argv[])
@@ -321,7 +320,7 @@ int main(int argc, char *argv[])
 	if (do_version)
 		version_status = ubertooth_print_versions(stdout, ubertooth_device);
 	if (first_exit_option == 'h')
-		usage();
+		usage(stdout);
 	if (do_version || first_exit_option == 'h')
 		return version_status;
 

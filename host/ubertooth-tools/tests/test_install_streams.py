@@ -11,7 +11,12 @@ cannot succeed.
   * --help is what the user asked for, so it goes to standard output and
     exits 0;
   * a command line the script will not take goes to standard error, as one
-    "error: " line, and exits 1, with nothing on standard output.
+    "error: " line, and exits 1, with nothing on standard output, in the
+    wording every tool in this project uses;
+  * a lone "--" ends the options and leaves nothing behind it, so the run
+    goes ahead with the defaults rather than being refused;
+  * -h is answered once the option loop has read the whole command line, so a
+    bad option, a missing value or a stray word beside it is still reported.
 
 The "==> ..." progress lines, which used to go to standard output, are on
 standard error now, so "./install.sh > log" no longer swallows them. The two
@@ -47,19 +52,58 @@ assert result.returncode == 0, result
 assert "install.sh" in result.stdout, result
 assert result.stderr == "", result
 
-# an option the script does not take: one "error: " line on standard error,
-# nothing on standard output, exit 1
-result = run(["--bogus"])
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr.startswith("error: "), result
-assert "\n" not in result.stderr.rstrip(), result
+# A command line the script will not take: one "error: " line on standard
+# error, nothing on standard output, exit 1. The line is the one every tool in
+# this project prints for the same mistake (.kiro/steering/cli-output.md), so
+# a script reading standard error sees the same words whatever it called.
+#
+# A word that does not start with "-", and a lone "-", are operands rather
+# than options the script is missing, and are reported as such.
+REFUSALS = {
+    "--bogus": "error: unrecognized option '--bogus'\n",
+    "--flash-device": "error: option '--flash-device' requires a value\n",
+    "--prefix": "error: option '--prefix' requires a value\n",
+    "--venv": "error: option '--venv' requires a value\n",
+    "--libbtbb-url": "error: option '--libbtbb-url' requires a value\n",
+    "--libbtbb-ref": "error: option '--libbtbb-ref' requires a value\n",
+    "extra": "error: unexpected argument 'extra'\n",
+    "-": "error: unexpected argument '-'\n",
+}
+for argument, line in REFUSALS.items():
+    result = run([argument])
+    assert result.returncode == 1, (argument, result)
+    assert result.stdout == "", (argument, result)
+    assert result.stderr == line, (argument, result)
 
-# a value the script checks and refuses, which is reported the same way
-result = run(["--flash-device"])
+# -h on its own is what the user asked for: the help on standard output,
+# nothing on standard error, exit 0, the same as --help.
+result = run(["-h"])
+assert result.returncode == 0, result
+assert "install.sh" in result.stdout, result
+assert result.stderr == "", result
+
+# -h is answered once the option loop has read the whole command line, as it
+# is for every tool here, so a bad option, a missing value or a stray word
+# beside it is still reported, in either order, with nothing on standard
+# output.
+for arguments in (["-h", "--bogus"], ["--bogus", "-h"]):
+    result = run(arguments)
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr == "error: unrecognized option '--bogus'\n", result
+result = run(["-h", "extra"])
 assert result.returncode == 1, result
 assert result.stdout == "", result
-assert result.stderr.startswith("error: "), result
+assert result.stderr == "error: unexpected argument 'extra'\n", result
+
+# A lone "--" ends the options and leaves nothing behind it, so the run goes
+# ahead with the defaults rather than being refused. It is checked against the
+# fakes further down, where the run installs nothing; here only a word behind
+# it is refused, as a stray word.
+result = run(["--", "extra"])
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == "error: unexpected argument 'extra'\n", result
 
 
 # The slow quiet steps announce themselves before they run.
@@ -160,6 +204,16 @@ assert stdout == "", stdout
 in_order(lines, ["==> Checking Homebrew for an ubertooth or libbtbb",
                  "ran: brew list --formula --versions ubertooth",
                  "ran: brew list --formula --versions libbtbb"])
+
+# The same run with a lone "--" behind the options reaches the same steps: the
+# "--" is taken as the end of the options and nothing else. The in_order check
+# is what pins that; the non-zero status only says the faked clone failed, as
+# it does in the run above, and a "--" that was refused would give that too.
+status, lines, stdout = run_with_fakes(["--skip-deps", "--"])
+assert status != 0, lines
+assert stdout == "", stdout
+in_order(lines, ["==> Checking Homebrew for an ubertooth or libbtbb",
+                 "ran: brew list --formula --versions ubertooth"])
 
 # So is each read of the device list that resolves the flash target: the one
 # in the pre-flight check, which a --flash with no selector goes through, and

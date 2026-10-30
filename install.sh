@@ -83,6 +83,8 @@ LIBBTBB_REF="2fd0d391d99e9b0620146f63f439c1ec74f79861"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
+# Set by -h, answered after the whole command line has parsed (see below).
+HELP=0
 
 # A failure that does not end the run, one file of many: the "error: " line
 # the output rules ask for, without info()'s progress prefix. Warnings carry
@@ -212,7 +214,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
-		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index, serial, or 'all'" ;;
+		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "option '--flash-device' requires a value" ;;
 		--uninstall) UNINSTALL=1 ;;
 		--keep-libbtbb)
 			[ "$LIBBTBB_ACTION" != remove ] || die "--keep-libbtbb cannot be combined with --remove-libbtbb"
@@ -220,23 +222,50 @@ while [ $# -gt 0 ]; do
 		--remove-libbtbb)
 			[ "$LIBBTBB_ACTION" != keep ] || die "--remove-libbtbb cannot be combined with --keep-libbtbb"
 			LIBBTBB_ACTION=remove ;;
-		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
-		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_URL" ] || die "--libbtbb-url needs a git URL" ;;
-		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
-		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "--prefix needs a path" ;;
+		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "option '--venv' requires a value" ;;
+		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_URL" ] || die "option '--libbtbb-url' requires a value" ;;
+		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_REF" ] || die "option '--libbtbb-ref' requires a value" ;;
+		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "option '--prefix' requires a value" ;;
 		--skip-deps) SKIP_DEPS=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
-		-h|--help)
-			sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
-			# Printed rather than written in the comment above, so the pin
-			# itself lives in exactly one place in this script.
-			printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
-				"$LIBBTBB_URL" "$LIBBTBB_REF"
-			exit 0 ;;
-		*) die "unknown option: $1 (use --help)" ;;
+		-h|--help) HELP=1 ;;
+		--)
+			# A lone "--" ends the options and leaves nothing behind it, so
+			# the run goes ahead with the defaults, as a command line with no
+			# options does. This script takes no operands, so a word after
+			# "--" is one it cannot use.
+			#
+			# "break" rather than falling out of the loop: "set -e" is on, and
+			# the "shift" at the end of the body returns 1 once the argument
+			# list is empty, which would end the run with no message at all.
+			shift
+			[ $# -eq 0 ] || die "unexpected argument '$1'"
+			break ;;
+		# The wording the tools share for a command line the option parser
+		# will not take (.kiro/steering/cli-output.md). A word that does not
+		# start with "-" is not an option the script is missing, so it is
+		# reported as the stray word it is, and so is a lone "-", which is an
+		# operand the tools spell the same way.
+		-) die "unexpected argument '-'" ;;
+		-*) die "unrecognized option '$1'" ;;
+		*) die "unexpected argument '$1'" ;;
 	esac
 	shift
 done
+
+# -h answers and ends the run, but only once the option loop has read the
+# whole command line, as it does for every tool here: an option the script
+# does not know, a missing value or a stray word is reported even beside it.
+# The combination checks below come after, so -h beside two options that
+# cannot both run answers rather than refusing, which is what the tools do.
+if [ "$HELP" -eq 1 ]; then
+	sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
+	# Printed rather than written in the comment above, so the pin itself
+	# lives in exactly one place in this script.
+	printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
+		"$LIBBTBB_URL" "$LIBBTBB_REF"
+	exit 0
+fi
 
 # An uninstall builds and installs nothing, so a command line that asks for
 # both says two things and means one. --prefix says where to look and
