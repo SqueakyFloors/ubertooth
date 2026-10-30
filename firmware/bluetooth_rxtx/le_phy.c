@@ -145,7 +145,7 @@ extern volatile uint8_t mode;
 extern volatile uint8_t requested_mode;
 
 // Shared LE state owned by bluetooth_rxtx.c. We only read le.crc_verify here,
-// which the host toggles via UBERTOOTH_SET_CRC_VERIFY (ubertooth-btle -k1).
+// which the host toggles via UBERTOOTH_SET_CRC_VERIFY (ubertooth-btle -k).
 extern le_state_t le;
 extern volatile uint16_t le_adv_channel;
 extern volatile int cancel_follow;
@@ -1860,7 +1860,7 @@ static void le_connect_handler(le_rx_t *buf) {
 	// rbit() alone gives 0x6a2c4800, which btle_crcgen_lut() masks down to
 	// 0x2c4800. Without the shift every data packet of a followed connection
 	// is checked against a CRC from the wrong starting value, so
-	// `ubertooth-btle -f -k1` drops all of them.
+	// `ubertooth-btle -f -k` drops all of them.
 	conn.crc_init_reversed  = rbit(conn.crc_init) >> 8;
 	conn.hop_increment      = extract_field(buf, 35, 1) & 0x1f;
 
@@ -2177,7 +2177,7 @@ void le_phy_main(void) {
 
 			// On-device CRC validation. This modern LE engine previously
 			// forwarded every packet including bit-errored ones, so the
-			// host's UBERTOOTH_SET_CRC_VERIFY (ubertooth-btle -k1) had no
+			// host's UBERTOOTH_SET_CRC_VERIFY (ubertooth-btle -k) had no
 			// effect on advertising/follow captures and bit-flipped
 			// "phantom" advertisers leaked to the host. Advertising-channel
 			// PDUs use the fixed CRCInit (reversed: 0xAAAAAA); data-channel

@@ -39,9 +39,9 @@ in one command are refused instead, before any device is opened:
 `error: option '-c' given more than once`.
 
 Setting and reading are separate device operations here, which is why one
-command can do both; `ubertooth-btle -a` refuses the combination instead,
-because there the access address parameterises the capture that command is
-about to start. One exception to the read reporting the new value: a board
+command can do both. `ubertooth-btle -a` only sets: there the access address
+parameterises the capture a later command is about to start, and the tool has
+no read of it. One exception to the read reporting the new value: a board
 already running a connection-following BLE mode keeps a requested channel
 aside until that mode ends, so `-c 2426 -c` against such a board reports the
 frequency still in use. `ubertooth-util` cannot enter that mode itself, so this

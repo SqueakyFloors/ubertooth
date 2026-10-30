@@ -26,9 +26,10 @@
 
 static struct {
 	int set_crc_rc;      /* returned by cmd_set_crc_verify() */
-	int get_crc_rc;      /* returned by cmd_get_crc_verify(), or the value */
 	int crc;             /* what the board holds, changed by a set */
 	int crc_sets;
+	/* The two reads the tool no longer makes, counted so a case can show
+	 * it does not: the board is told what to do and not asked. */
 	int crc_gets;
 	int last_crc_set;
 	int poll_rc;         /* returned by cmd_poll(): < 0 fails the capture */
@@ -162,7 +163,6 @@ static void reset_fake(void)
 	memset(&fake_fifo, 0, sizeof(fake_fifo));
 	fake_ut.devh = (struct libusb_device_handle *)&fake_devh;
 	fake_ut.fifo = &fake_fifo;
-	fake.get_crc_rc = -2; /* -2: report what the board holds */
 	fake.last_jam_mode = -1; /* -1: cmd_set_jam_mode was not called */
 	fake.access_address = 0x8e89bed6;
 	/* main() leaves these where a previous run put them. */
@@ -276,8 +276,6 @@ int cmd_get_crc_verify(struct libusb_device_handle *devh)
 	(void)devh;
 	record('g');
 	fake.crc_gets++;
-	if (fake.get_crc_rc != -2)
-		return fake.get_crc_rc;
 	return fake.crc;
 }
 
@@ -474,64 +472,56 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 
 /* ---- tests -------------------------------------------------------------- */
 
-/* A set and a read of CRC verify in one command both happen, the set first,
- * so the read reports the new value. They shared one variable, so whichever
- * was written last won and the other half was dropped with exit 0. */
-MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
+/* -k turns CRC verification on and takes no value. It read the setting when
+ * written bare and set it when written "-k0"/"-k1", which getopt could only
+ * take attached to the option. */
+MU_TEST(k_turns_crc_verify_on_and_takes_no_value)
 {
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-k1", "-k");
+	r = RUN("-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.last_crc_set);
+	mu_assert_int_eq(0, fake.crc_gets);
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 	mu_assert(r.err[0] == '\0', r.err);
 
-	/* the read written first is the same command */
+	/* It takes none, so a second one says the same thing twice and the
+	 * board is asked once (ubertooth(7), OPTION VALUES). */
 	reset_fake();
-	r = RUN("-k", "-k1");
+	r = RUN("-k", "-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
-	mu_assert_int_eq(1, fake.last_crc_set);
+	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 
-	/* a separate-word value too */
+	/* A value written as the next word is a word the tool has no use for,
+	 * and one attached to the option is a letter it does not have. Both
+	 * are refused before the board is opened, so an older "-k 1" or "-k1"
+	 * command line stops rather than quietly doing something else. */
 	reset_fake();
-	r = RUN("-k", "1", "-k");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
-	mu_assert_int_eq(1, fake.last_crc_set);
-	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
-
-	/* switching it off is a set, not a missing value */
-	reset_fake();
-	fake.crc = 1;
-	r = RUN("-k0", "-k");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
-	mu_assert_int_eq(0, fake.last_crc_set);
-	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
-
-	/* Two values for one setting are refused: the last one used to win and
-	 * the other was dropped without a word. */
-	reset_fake();
-	r = RUN("-k1", "-k0", "-k");
+	r = RUN("-k", "1");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "") == 0, r.out);
-	mu_assert(strcmp(r.err, "error: option '-k' given more than once\n") == 0,
-	          r.err);
+	mu_assert(strcmp(r.err, "error: unexpected argument '1'\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.connects);
+
+	reset_fake();
+	r = RUN("-k0");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: unrecognized option '-0'\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.connects);
 }
 
 /*
  * -v is verbose: it describes each packet whose data the decoder could not
  * read, so it needs one of the capture modes and takes no value. It named the
- * CRC verify setting until -k took that over, so each of the command lines
- * that used it that way is refused with a line naming -k, rather than read as
- * something -v does not mean.
+ * CRC verify setting until -k took that over, so the line that refuses it
+ * without a mode names -k, and a value written with it is refused.
  */
-MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
+MU_TEST(v_is_verbose_and_takes_no_value)
 {
 	struct run_result r;
 	static const char needs_a_mode[] = "error: -v needs -f, -n or -p: there "
@@ -547,33 +537,41 @@ MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
 	mu_assert(strcmp(r.err, needs_a_mode) == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_gets);
 
-	/* "-v1" set it. -v takes no value at all now, and the refusal quotes
-	 * the value back so a script's own line is recognizable in it. */
+	/* "-v1" set it. The option takes no value at all now, so the digit
+	 * reads as a letter the tool does not have. */
 	reset_fake();
 	r = RUN("-v1");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, r.out);
-	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
-	                 "(got 1); the CRC verify setting it used to name is -k\n") == 0, r.err);
+	mu_assert(strcmp(r.err, "error: unrecognized option '-1'\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.connects);
 
-	/* The same value written as the next word. */
+	/* The same value written as the next word is a word with no option to
+	 * belong to, and this tool takes no operands. */
 	reset_fake();
 	r = RUN("-v", "0");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
-	                 "(got 0); the CRC verify setting it used to name is -k\n") == 0, r.err);
+	mu_assert(strcmp(r.err, "error: unexpected argument '0'\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.connects);
+
+	/* Repeating it says verbose twice, which is what it said once: the run
+	 * goes ahead rather than being refused (ubertooth(7), OPTION VALUES). */
+	reset_fake();
+	r = RUN("-n", "-v", "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.calls, "mp") == 0, fake.calls);
 
 	/* -k beside it is the CRC verify setting and -v is verbose, so the two
-	 * are no longer one setting named twice -- but a read of the setting is
-	 * not a mode, so this command line has nothing for -v to describe. */
+	 * are no longer one setting named twice -- but turning the setting on
+	 * is not a mode, so this command line has nothing for -v to describe. */
 	reset_fake();
 	r = RUN("-k", "-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, r.out);
 	mu_assert(strcmp(r.err, needs_a_mode) == 0, r.err);
-	mu_assert_int_eq(0, fake.crc_gets);
+	mu_assert_int_eq(0, fake.crc_sets);
 
 	/* -h ends the command line before any of that is reached. */
 	reset_fake();
@@ -588,148 +586,79 @@ MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
 	mu_assert(strstr(r.err, "-i needs -f or -p") != NULL, r.err);
 }
 
-/* A set on its own, and a read on its own, are unchanged. */
-MU_TEST(a_set_alone_and_a_read_alone_are_unchanged)
-{
-	struct run_result r;
-
-	reset_fake();
-	r = RUN("-k1");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
-	mu_assert_int_eq(0, fake.crc_gets);
-	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
-
-	reset_fake();
-	fake.crc = 1;
-	r = RUN("-k");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "g") == 0, fake.calls);
-	mu_assert_int_eq(0, fake.crc_sets);
-	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
-
-	reset_fake();
-	r = RUN("-k");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
-}
-
-/* A failed set is reported and ends the command, so the read cannot report a
- * value the set never reached. */
-MU_TEST(a_failed_set_is_reported_and_the_read_does_not_run)
+/* A failed set is reported and ends the command, which it used to ignore. */
+MU_TEST(a_failed_crc_verify_set_is_reported)
 {
 	struct run_result r;
 
 	reset_fake();
 	fake.set_crc_rc = -1;
-	r = RUN("-k1", "-k");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
-	mu_assert_int_eq(0, fake.crc_gets);
-	mu_assert(strcmp(r.err, "error: CRC verify set failed\n") == 0, r.err);
-	mu_assert(r.out[0] == '\0', r.out);
-
-	/* the same for a set on its own, which used to ignore the result */
-	reset_fake();
-	fake.set_crc_rc = -1;
-	r = RUN("-k0");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, "error: CRC verify set failed\n") == 0, r.err);
-	mu_assert(r.out[0] == '\0', r.out);
-}
-
-/* A failed read is reported and exits 1, and a short reply, whose whole line
- * the library has already printed, gets no second line. */
-MU_TEST(a_failed_read_is_reported_once)
-{
-	struct run_result r;
-
-	reset_fake();
-	fake.get_crc_rc = -1;
-	r = RUN("-k1", "-k");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "sg") == 0, fake.calls);
-	mu_assert(strcmp(r.err, "error: CRC verify read failed\n") == 0, r.err);
-	mu_assert(r.out[0] == '\0', r.out);
-
-	reset_fake();
-	fake.get_crc_rc = UBERTOOTH_ERROR_SHORT_REPLY;
 	r = RUN("-k");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert(strcmp(fake.calls, "s") == 0, fake.calls);
+	mu_assert(strcmp(r.err, "error: CRC verify set failed\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 }
 
-/* In a sniffing mode both halves run after the mode has started, where mode
- * entry has just cleared the setting, and before the capture loop. */
-MU_TEST(a_sniffing_mode_sets_and_reads_after_the_mode_starts)
+/* In a sniffing mode -k runs after the mode has started, where mode entry
+ * has just cleared the setting, and before the capture loop. */
+MU_TEST(a_sniffing_mode_sets_crc_verify_after_the_mode_starts)
 {
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-n", "-k1", "-k");
+	r = RUN("-n", "-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "msgp") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "msp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.sniffing_calls);
 	mu_assert_int_eq(0, fake.follow_requested);
+	mu_assert_int_eq(1, fake.last_crc_set);
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 	mu_assert_int_eq(1, fake.stops);
 
-	/* A read on its own in a sniffing mode used to be dropped silently. It
-	 * reports what mode entry left, not what the board held before: the
-	 * board starts at 1 here and the read says it is off. */
 	reset_fake();
-	fake.crc = 1;
 	r = RUN("-f", "-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "mgp") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "msp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.follow_requested);
-	mu_assert(strcmp(r.out, "CRC: DO NOT verify\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 
 	reset_fake();
-	r = RUN("-p", "-k1");
+	r = RUN("-p", "-k");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.calls, "msp") == 0, fake.calls);
 	mu_assert_int_eq(1, fake.promisc_calls);
 	mu_assert(strcmp(r.out, "CRC: verify\n") == 0, r.out);
 }
 
-/* The mode is running by the time the -k options go out, so a failure there
- * has to stop it before giving up: a board abandoned in a low-energy mode is
- * the state it stops answering control requests in. */
+/* The mode is running by the time -k goes out, so a failure there has to stop
+ * it before giving up: a board abandoned in a low-energy mode is the state it
+ * stops answering control requests in. */
 MU_TEST(a_failure_in_a_sniffing_mode_still_stops_the_board)
 {
 	struct run_result r;
 
 	reset_fake();
 	fake.set_crc_rc = -1;
-	r = RUN("-f", "-k1");
+	r = RUN("-f", "-k");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "ms") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.polls); /* no capture was started */
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert(strcmp(r.err, "error: CRC verify set failed\n") == 0, r.err);
-
-	reset_fake();
-	fake.get_crc_rc = -1;
-	r = RUN("-p", "-k");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "mg") == 0, fake.calls);
-	mu_assert_int_eq(1, fake.stops);
-	mu_assert(strcmp(r.err, "error: CRC verify read failed\n") == 0, r.err);
 }
 
-/* -k alongside an access address read, which the tool carries on after. */
-MU_TEST(an_access_address_read_and_the_crc_options_all_run)
+/* An access address and -k in one command: both requests go out. */
+MU_TEST(an_access_address_set_and_crc_verify_both_run)
 {
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-a", "-k1", "-k");
+	r = RUN("-a", "8e89bed6", "-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "rsg") == 0, fake.calls);
-	mu_assert(strcmp(r.out, "Access address: 8e89bed6\nCRC: verify\n") == 0,
-	          r.out);
+	mu_assert(strcmp(fake.calls, "ws") == 0, fake.calls);
+	mu_assert(strcmp(r.out, "access address set to: 8e89bed6\n"
+	                        "CRC: verify\n") == 0, r.out);
 }
 
 /* The target report is a result, so it is on standard output. */
@@ -833,14 +762,14 @@ MU_TEST(the_reports_move_to_stderr_when_the_capture_takes_stdout)
 	struct run_result r;
 
 	reset_fake();
-	r = RUN("-q", "-", "-a", "-k1", "-k");
+	r = RUN("-q", "-", "-a", "8e89bed6", "-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "rsg") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "ws") == 0, fake.calls);
 	/* the capture was created on the saved stdout, not on a file */
 	mu_assert(strstr(fake.capture_file, "/fd/") != NULL, fake.capture_file);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strcmp(r.err, "Access address: 8e89bed6\nCRC: verify\n") == 0,
-	          r.err);
+	mu_assert(strcmp(r.err, "access address set to: 8e89bed6\n"
+	                        "CRC: verify\n") == 0, r.err);
 
 	/* the -c format, and the target line, which the tool sends before a
 	 * sniffing mode starts */
@@ -854,10 +783,10 @@ MU_TEST(the_reports_move_to_stderr_when_the_capture_takes_stdout)
 
 	/* a capture to a named file leaves the reports on standard output */
 	reset_fake();
-	r = RUN("-q", "/dev/null", "-a");
+	r = RUN("-q", "/dev/null", "-a", "8e89bed6");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(fake.capture_file, "/dev/null") == 0, fake.capture_file);
-	mu_assert(strcmp(r.out, "Access address: 8e89bed6\n") == 0, r.out);
+	mu_assert(strcmp(r.out, "access address set to: 8e89bed6\n") == 0, r.out);
 	mu_assert(r.err[0] == '\0', r.err);
 }
 
@@ -1146,7 +1075,7 @@ MU_TEST(the_interference_options_are_refused_without_f_or_p)
 
 	/* not only with -n: any command without -f or -p */
 	reset_fake();
-	r = RUN("-a", "-i");
+	r = RUN("-a", "8e89bed6", "-i");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: -i needs -f or -p") == r.err, r.err);
 	mu_assert_int_eq(0, fake.connects);
@@ -1169,7 +1098,7 @@ MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
 {
 	struct run_result r;
 	const char *const modes[] = { "-f", "-n", "-p" };
-	const char *const after[] = { "-a", "-a8e89bed6", "-s22:44:66:88:aa:cc" };
+	const char *const after[] = { "-a8e89bed6", "-s22:44:66:88:aa:cc" };
 	const char *expected = "error: -a and -s do not go with -f, -n or -p:"
 	        " a sniffing mode runs until it is interrupted\n";
 	unsigned mode, option;
@@ -1197,13 +1126,13 @@ MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
 	reset_fake();
 	r = RUN("-f", "-t22:44:66:88:aa:cc", "-k");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "tmgp") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "tmsp") == 0, fake.calls);
 
 	/* and on their own, -a and -s still run */
 	reset_fake();
-	r = RUN("-a", "-s22:44:66:88:aa:cc");
+	r = RUN("-a", "8e89bed6", "-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "rS") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "wS") == 0, fake.calls);
 }
 
 /* A target names a device, and the connections promiscuous mode finds carry
@@ -1449,18 +1378,19 @@ MU_TEST(a_capture_file_that_cannot_be_created_is_named)
 	mu_assert_int_eq(1, fake.closes);
 }
 
-/* The usage text says what a set and a read in one command do. */
-MU_TEST(the_usage_text_documents_the_set_and_the_read)
+/* The usage text gives each option's value the shape the parser takes: -a
+ * needs one and -k takes none. */
+MU_TEST(the_usage_text_documents_the_option_values)
 {
 	struct run_result r;
 
 	reset_fake();
 	r = RUN("-h");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.out, "-k [01]") != NULL, r.out);
-	mu_assert(strstr(r.out, "reports the new value") != NULL, r.out);
+	mu_assert(strstr(r.out, "-a <address>") != NULL, r.out);
+	mu_assert(strstr(r.out, "-k verify the CRC") != NULL, r.out);
+	mu_assert(strstr(r.out, "[01]") == NULL, r.out);
 	mu_assert_int_eq(0, fake.crc_sets);
-	mu_assert_int_eq(0, fake.crc_gets);
 }
 
 /* The usage text names the -j/-J jam aliases alongside -i/-I. */
@@ -1695,22 +1625,20 @@ MU_TEST(the_gaps_in_a_capture_are_reported_when_it_ends)
 
 	/* A command that captures nothing has no capture to report on. */
 	reset_fake();
-	r = RUN("-a");
+	r = RUN("-a", "8e89bed6");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, fake.gap_reports);
 }
 
 int main(void)
 {
-	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
+	MU_RUN(k_turns_crc_verify_on_and_takes_no_value);
 	MU_RUN(every_exit_path_gives_the_handle_back);
-	MU_RUN(a_set_alone_and_a_read_alone_are_unchanged);
-	MU_RUN(v_is_verbose_and_sends_the_old_crc_spelling_to_k);
-	MU_RUN(a_failed_set_is_reported_and_the_read_does_not_run);
-	MU_RUN(a_failed_read_is_reported_once);
-	MU_RUN(a_sniffing_mode_sets_and_reads_after_the_mode_starts);
+	MU_RUN(v_is_verbose_and_takes_no_value);
+	MU_RUN(a_failed_crc_verify_set_is_reported);
+	MU_RUN(a_sniffing_mode_sets_crc_verify_after_the_mode_starts);
 	MU_RUN(a_failure_in_a_sniffing_mode_still_stops_the_board);
-	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
+	MU_RUN(an_access_address_set_and_crc_verify_both_run);
 	MU_RUN(the_target_report_is_on_standard_output);
 	MU_RUN(the_faux_slave_and_target_addresses_are_separate);
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
@@ -1726,7 +1654,7 @@ int main(void)
 	MU_RUN(the_interference_options_are_refused_without_f_or_p);
 	MU_RUN(a_sniffing_mode_refuses_the_access_address_and_slave_options);
 	MU_RUN(promiscuous_mode_refuses_a_target);
-	MU_RUN(the_usage_text_documents_the_set_and_the_read);
+	MU_RUN(the_usage_text_documents_the_option_values);
 	MU_RUN(the_usage_text_names_the_jam_aliases);
 	MU_RUN(the_help_option_exits_0_with_the_usage_text_on_stdout);
 	MU_RUN(a_bad_command_line_is_reported_on_stderr);

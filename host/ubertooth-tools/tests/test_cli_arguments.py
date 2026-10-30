@@ -99,18 +99,15 @@ CASES = {
         (("-f", "-n"), "error: choose one of -f, -n or -p"),
         (("-n", "-p"), "error: choose one of -f, -n or -p"),
         (("-f", "-n", "-p"), "error: choose one of -f, -n or -p"),
-        (("-k", "2"), "error: crc verify mode must be 0-1 (got 2)"),
-        (("-kabc",), "error: crc verify mode must be 0-1 (got abc)"),
-        # -v named the crc verify setting before -k took it over, so a value
-        # written after it is a command line from before the move
-        (("-v", "2"),
-         "error: -v is verbose now and takes no value (got 2);"
-         " the crc verify setting it used to name is -k"),
-        (("-vabc",),
-         "error: -v is verbose now and takes no value (got abc);"
-         " the crc verify setting it used to name is -k"),
-        # a word that is not a value for -v is not taken as one
+        # -k and -v take no value, so a word written after either is a stray
+        # one and the refusal names it
+        (("-k", "1"), "error: unexpected argument '1'"),
+        (("-v", "1"), "error: unexpected argument '1'"),
         (("-v", "abc"), "error: unexpected argument 'abc'"),
+        # and a value attached to either is read as a letter the tool does
+        # not have, which is what the older -k1 and -v1 spellings now get
+        (("-k1",), "error: unrecognized option '-1'"),
+        (("-v1",), "error: unrecognized option '-1'"),
         (("-x", "33"), "error: access address offenses must be 0-32 (got 33)"),
         (("-x", "abc"), "error: access address offenses must be 0-32 (got abc)"),
         (("-azzzz",), "error: access address must be 1-8 hex digits (got zzzz)"),
@@ -134,9 +131,10 @@ CASES = {
         (("-s", "11:22:33:44:55:66/24"),
          "error: faux slave address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55:66/24)"),
-        # optional values as the next word: consumed, so "extra" is the stray
+        # -a's value is the next word: consumed, so "extra" is the stray one
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
-        (("-k", "1", "extra"), "error: unexpected argument 'extra'"),
+        # -a needs a value, and a missing one is named as such
+        (("-a",), "error: option '-a' requires a value"),
         # "-" is still the stdout value of the capture options
         (("-q", "-", "extra"), "error: unexpected argument 'extra'"),
         (("-c", "-", "extra"), "error: unexpected argument 'extra'"),
