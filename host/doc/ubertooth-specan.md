@@ -2,14 +2,17 @@
 
 ## SYNOPSIS
 
-    ubertooth-specan [-l <freq>] [-u <freq>] [-g|G] [-d <filename>|-]
+    ubertooth-specan [-l <freq>] [-u <freq>] [-g|G] [-d <filename>|-] [-v]
+    [-U <index|serial>]
+    ubertooth-specan [-U <index|serial>] -V
+    ubertooth-specan -h
 
 ## DESCRIPTION
 
 ubertooth-specan(1) is a tool for using Ubertooth as a spectrum analyzer
 in the 2.4GHz band. It is often used as a helper for GUI tools, such as
 ubertooth-specan-ui(1) or Spectools. It can also produce output suitable for
-user with the feedgnuplot tool.
+use with the feedgnuplot tool.
 
 Other options allow upper and lower bounds to be set on the frequencies
 monitored. Refer to the [OPTIONS][] section for full details.
@@ -50,11 +53,11 @@ Options:
 
 To monitor the 2.4GHz band and produce a file suitable for feedgnuplot:
 
-   ubertooth-specan -g -d output.dat
+    ubertooth-specan -g -d output.dat
 
 To monitor the upper half of the 2.4GHz band, use:
 
-   ubertooth-specan -l 2440
+    ubertooth-specan -l 2440
 
 ## ARGUMENTS
 
@@ -123,7 +126,8 @@ selected even when `-U` named an enumeration index. A board that does not
 answer gives `Using an Ubertooth whose serial number could not be read`
 instead, and the sweep goes on.
 
-While the sweep runs, one summary line a second, and one more when it ends:
+While the sweep runs, one summary line a second, and one more when it ends,
+labeled `Total after` so it is not read as another periodic line:
 
     After 1.0 s: 12 sweeps, 948 samples, 0 out of range
 
