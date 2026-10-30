@@ -869,8 +869,10 @@ void set_isp(void)
 	 * vector, where it arms a guard of its own.
 	 *
 	 * Saved rather than just cleared, because this call can come back: see
-	 * below.
+	 * below. Left out of an image that arms no guard, so that image carries
+	 * no write to these registers at all.
 	 */
+#ifndef UBERTOOTH_NO_STACK_GUARD
 	int has_mpu = MPU_TYPE_DREGION(MPU_TYPE) != 0;
 	u32 mpu_ctrl = has_mpu ? MPU_CTRL : 0;
 
@@ -879,6 +881,7 @@ void set_isp(void)
 		__asm__ volatile ("dsb" ::: "memory");
 		__asm__ volatile ("isb");
 	}
+#endif
 
 	command[0] = 57;
 	iap_entry(command, result);
@@ -886,11 +889,13 @@ void set_isp(void)
 	/* Not reached, unless the programmer refuses: then the board must not be
 	 * left running with every interrupt masked, nor with the rest of this
 	 * boot spent without a stack guard. */
+#ifndef UBERTOOTH_NO_STACK_GUARD
 	if (has_mpu) {
 		MPU_CTRL = mpu_ctrl;
 		__asm__ volatile ("dsb" ::: "memory");
 		__asm__ volatile ("isb");
 	}
+#endif
 	irq_restore(flags);
 }
 

@@ -1508,6 +1508,55 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 }
 
 /*
+ * And that Reset_Handler calls it. Everything above describes a region that is
+ * programmed correctly; this is what says it is programmed at all. Without
+ * this, deleting the one call leaves every image unguarded with the whole
+ * suite green.
+ */
+MU_TEST(test_reset_handler_arms_the_guard_before_it_copies_anything)
+{
+	const char *path = FW_COMMON_DIR "/LPC17xx_Startup.c";
+	char line[512], name[64];
+	int in_block = 0, in_reset = 0, lineno = 0;
+	int armed = 0, painted = 0, copied = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read LPC17xx_Startup.c");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (!in_reset) {
+			if (strstr(line, "void Reset_Handler(void)") != NULL)
+				in_reset = 1;
+			continue;
+		}
+		if (call_name(line, name, sizeof(name))) {
+			if (strcmp(name, "stack_guard_enable") == 0 && armed == 0)
+				armed = lineno;
+			if (strcmp(name, "stack_paint") == 0 && painted == 0)
+				painted = lineno;
+		}
+		/* The .bss zero loop, the last thing before the C library and
+		 * main(), and the furthest the startup writes reach. */
+		if (strstr(line, "&_ebss") != NULL && copied == 0)
+			copied = lineno;
+		if (line[0] == '}')
+			break;
+	}
+	fclose(f);
+
+	mu_assert(armed > 0,
+	          "Reset_Handler no longer calls stack_guard_enable(), so no image "
+	          "has a guard at all however well the region is described");
+	mu_assert(painted > 0 && painted < armed,
+	          "the stack is painted after the guard is armed, so boot would "
+	          "fault on its own paint");
+	mu_assert(copied > armed,
+	          "the guard is armed after startup has finished writing memory, "
+	          "which leaves the copying it is meant to cover unguarded");
+}
+
+/*
  * Which images take the guard. One define in the wrong Makefile turns the whole
  * thing off in both shipped images, and every check above would stay green.
  */
@@ -1704,6 +1753,96 @@ MU_TEST(test_every_fault_handler_records_the_fault)
 		         handlers[i].path, handlers[i].function);
 		mu_assert(records, msg);
 	}
+}
+
+/*
+ * A stack overflow arrives at the hard fault handler whenever the processor
+ * could not stack the fault's own frame clear of the guard, and the hard fault
+ * status says only "forced". So both images have to read the configurable
+ * status and its address register there, or that half of the overflows is
+ * reported as a bare 0x40000000 with no address.
+ *
+ * btbr's handlers also dump the stack over the debug console, from the
+ * handler's own frame upwards. After an overflow that frame is below the
+ * guard, so the dump has to stop short of an address the unit refuses.
+ */
+MU_TEST(test_a_forced_hard_fault_reports_the_fault_underneath_it)
+{
+	static const char *const paths[] = {
+		FW_RXTX_DIR "/fault.c",
+		FW_BTBR_DIR "/src/util/fault.c",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		char line[512], msg[512];
+		int in_block = 0, in_hard = 0;
+		int tests_forced = 0, reads_cfsr = 0, reads_mmfar = 0;
+		FILE *f = fopen(paths[i], "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", paths[i]);
+		mu_assert_fatal(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (!in_hard) {
+				if (line[0] != ' ' && line[0] != '\t' &&
+				    calls_identifier(line, "HardFault_Handler"))
+					in_hard = 1;
+				continue;
+			}
+			if (strstr(line, "SCB_HFSR_FORCED") != NULL)
+				tests_forced = 1;
+			if (strstr(line, "SCB_CFSR") != NULL)
+				reads_cfsr = 1;
+			if (strstr(line, "SCB_MMFAR") != NULL)
+				reads_mmfar = 1;
+			if (line[0] == '}')
+				break;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: HardFault_Handler() does not tell a forced fault from "
+		         "one the processor took in its own right, so an overflow "
+		         "that escalated is reported with no status of its own and "
+		         "no address", paths[i]);
+		mu_assert(tests_forced && reads_cfsr && reads_mmfar, msg);
+	}
+}
+
+MU_TEST(test_btbrs_stack_dump_stops_above_the_guard)
+{
+	const char *path = FW_BTBR_DIR "/src/util/fault.c";
+	char line[512];
+	int in_block = 0, in_dump = 0, clamped = 0, walks = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert_fatal(f != NULL, "cannot read btbr's fault.c");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (!in_dump) {
+			if (strstr(line, "dump_debug_registers(void)") != NULL)
+				in_dump = 1;
+			continue;
+		}
+		if (strstr(line, "_stack_bottom") != NULL)
+			clamped++;
+		if (strstr(line, "&_StackTop") != NULL)
+			walks = 1;
+		if (line[0] == '}')
+			break;
+	}
+	fclose(f);
+
+	mu_assert(walks == 1,
+	          "btbr's dump_debug_registers() no longer walks the stack, so "
+	          "this case read nothing");
+	/* The extern and the comparison. */
+	mu_assert(clamped >= 2,
+	          "btbr's stack dump is not held above _stack_bottom, so after an "
+	          "overflow it reads the guard and faults again inside the "
+	          "handler");
 }
 
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
@@ -1924,10 +2063,13 @@ int main(void)
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it);
 	MU_RUN(test_startup_programs_the_guard_and_paints_above_it);
+	MU_RUN(test_reset_handler_arms_the_guard_before_it_copies_anything);
 	MU_RUN(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	MU_RUN(test_every_fault_handler_records_the_fault);
+	MU_RUN(test_a_forced_hard_fault_reports_the_fault_underneath_it);
+	MU_RUN(test_btbrs_stack_dump_stops_above_the_guard);
 	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);
 	return mu_report();
 }

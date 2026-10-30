@@ -137,6 +137,10 @@ CSTANDARD = -std=gnu99
 # watchdog.c, and must not write to the breadcrumb at all -- it runs after
 # every reset, before the firmware has read what the last run left there. The
 # marks in those files compile to nothing here; see firmware/common/watchdog.h.
+#
+# UBERTOOTH_NO_STACK_GUARD: no memory protection region at the bottom of this
+# image's stack; see firmware/common/LPC17xx_Startup.c for why the recovery
+# image does without one.
 CDEFS  = -D$(BOARD) -D$(LPCUSB_TARGET) -DUBERTOOTH_NO_WATCHDOG -DUBERTOOTH_NO_STACK_GUARD $(COMPILE_OPTS) -Wa,-a,-ad
 
 # Place -D or -U options here for ASM sources

@@ -99,7 +99,9 @@ static void stack_paint(void)
  * nothing else would notice. */
 _Static_assert((MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
                 MPU_RASR_AP_NONE | MPU_RASR_XN) == 0x10000009ul,
-               "the guard region's attribute word is not the part's encoding");
+               "the guard region's attribute word is not the part's encoding "
+               "for an enabled, no-access, no-execute, 32-byte region -- the "
+               "constant moves with STACK_GUARD_SIZE_FIELD");
 _Static_assert((MPU_CTRL_ENABLE | MPU_CTRL_PRIVDEFENA) == 0x5ul,
                "the control word is not the part's encoding");
 
@@ -161,10 +163,11 @@ void Reset_Handler(void)
 	stack_paint();
 
 	/* Armed from here, so the copying below is covered too. A fault this
-	 * early is not recorded: the vector table is still the previous stage's
-	 * until the end of this function, and main() is what turns the fault
-	 * handlers on. The 2 KB the link leaves is what makes that acceptable --
-	 * startup cannot run the stack out. */
+	 * early would hang the board rather than blink and reset: the vector
+	 * table is still the previous stage's until the end of this function,
+	 * the fault handlers are not on until main(), and nor is the watchdog.
+	 * The 2 KB the link leaves is what makes that acceptable -- startup's
+	 * stack is a few frames deep and cannot reach the guard. */
 	stack_guard_enable();
 
 	// Copy the data segment initializers from flash to SRAM
