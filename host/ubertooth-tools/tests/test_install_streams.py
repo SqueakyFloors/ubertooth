@@ -14,7 +14,9 @@ cannot succeed.
     "error: " line, and exits 1, with nothing on standard output, in the
     wording every tool in this project uses;
   * a lone "--" ends the options and leaves nothing behind it, so the run
-    goes ahead with the defaults rather than being refused.
+    goes ahead with the defaults rather than being refused;
+  * -h answers once the whole command line has parsed, so a bad option or a
+    stray word beside it is still reported.
 
 The "==> ..." progress lines, which used to go to standard output, are on
 standard error now, so "./install.sh > log" no longer swallows them. The two
@@ -76,6 +78,19 @@ assert result.stderr == ("error: option '--flash-device' requires a value:"
 # A word that is not an option at all is reported as the stray word it is,
 # rather than as an option the script does not have.
 result = run(["extra"])
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == "error: unexpected argument 'extra'\n", result
+
+# -h answers once the whole command line has parsed, as it does for every tool
+# here, so a bad option or a stray word beside it is still reported, in either
+# order, and nothing is written to standard output.
+for arguments in (["-h", "--bogus"], ["--bogus", "-h"]):
+    result = run(arguments)
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr == "error: unrecognized option '--bogus'\n", result
+result = run(["-h", "extra"])
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == "error: unexpected argument 'extra'\n", result

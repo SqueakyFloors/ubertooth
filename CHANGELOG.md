@@ -561,7 +561,10 @@
   value: a path`, and `error: unexpected argument 'extra'` for a word that is
   not an option at all, where every one of those used to be `unknown option`.
   A lone `--` ends the options and the install goes ahead with the defaults,
-  instead of being refused as an option the script does not have.
+  instead of being refused as an option the script does not have. `-h` answers
+  once the whole command line has parsed, as it does for every tool, so
+  `install.sh -h --bogus` reports the bad option instead of printing the help
+  and exiting 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - On macOS, `cmake -S host -B build && cmake --build build` builds the whole
   tree. It used to stop on one test unless the configure was given

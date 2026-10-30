@@ -83,6 +83,8 @@ LIBBTBB_REF="2fd0d391d99e9b0620146f63f439c1ec74f79861"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
+# Set by -h, answered after the whole command line has parsed (see below).
+HELP=0
 
 # A failure that does not end the run, one file of many: the "error: " line
 # the output rules ask for, without info()'s progress prefix. Warnings carry
@@ -226,13 +228,7 @@ while [ $# -gt 0 ]; do
 		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "option '--prefix' requires a value: a path" ;;
 		--skip-deps) SKIP_DEPS=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
-		-h|--help)
-			sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
-			# Printed rather than written in the comment above, so the pin
-			# itself lives in exactly one place in this script.
-			printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
-				"$LIBBTBB_URL" "$LIBBTBB_REF"
-			exit 0 ;;
+		-h|--help) HELP=1 ;;
 		--)
 			# A lone "--" ends the options and leaves nothing behind it, so
 			# the run goes ahead with the defaults, as a command line with no
@@ -250,6 +246,18 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
+
+# -h answers and ends the run, but only once the whole command line has
+# parsed, as it does for every tool here: an option the script does not know
+# or a stray word is reported even beside it.
+if [ "$HELP" -eq 1 ]; then
+	sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
+	# Printed rather than written in the comment above, so the pin itself
+	# lives in exactly one place in this script.
+	printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
+		"$LIBBTBB_URL" "$LIBBTBB_REF"
+	exit 0
+fi
 
 # An uninstall builds and installs nothing, so a command line that asks for
 # both says two things and means one. --prefix says where to look and
