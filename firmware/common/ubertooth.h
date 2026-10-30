@@ -206,7 +206,7 @@ extern volatile uint8_t requested_mode;
 #define SCLK_CLR   (FIO1CLR = PIN_SCLK)
 #define MOSI_SET   (FIO1SET = PIN_MOSI)
 #define MOSI_CLR   (FIO1CLR = PIN_MOSI)
-#define GIO6       (FIO2PIN & PIN_GIO6)
+#define GIO6       (FIO1PIN & PIN_GIO6)
 #define GIO6_SET   (FIO1SET = PIN_GIO6)
 #define GIO6_CLR   (FIO1CLR = PIN_GIO6)
 #define BTGR_SET   (FIO1SET = PIN_BTGR)
@@ -242,10 +242,37 @@ extern volatile uint8_t requested_mode;
 #define SCLK_CLR   (FIO1CLR = PIN_SCLK)
 #define MOSI_SET   (FIO1SET = PIN_MOSI)
 #define MOSI_CLR   (FIO1CLR = PIN_MOSI)
-#define GIO6       (FIO2PIN & PIN_GIO6)
+#define GIO6       (FIO1PIN & PIN_GIO6)
 #define GIO6_SET   (FIO1SET = PIN_GIO6)
 #define GIO6_CLR   (FIO1CLR = PIN_GIO6)
 #define MISO       (FIO1PIN & PIN_MISO)
+#endif
+
+/*
+ * Carrier sense arrives as a falling edge on GIO6, through the GPIO interrupt
+ * on the port the pin is on. The part has that interrupt on ports 0 and 2
+ * only, both on the EINT3 vector (LPC176x/5x user manual UM10360, section
+ * 9.5), so a board whose GIO6 is on port 1 has no edge to arm at all. The
+ * macros below exist only on the board that has one, and GIO6_HAS_INTERRUPT
+ * says which board that is, so code that arms the edge cannot silently arm an
+ * unrelated port 2 pin instead.
+ */
+#ifdef UBERTOOTH_ZERO
+#define GIO6_HAS_INTERRUPT 0
+#endif
+#ifdef UBERTOOTH_ONE
+#define GIO6_HAS_INTERRUPT 1
+#define GIO6_INT_CLR       (IO2IntClr = PIN_GIO6)
+#define GIO6_INT_FALL_SET  (IO2IntEnF |= PIN_GIO6)
+#define GIO6_INT_FALL_CLR  (IO2IntEnF &= ~PIN_GIO6)
+#endif
+#ifdef TC13BADGE
+#define GIO6_HAS_INTERRUPT 0
+#endif
+/* Undefined would read as 0 in the #if that picks the code, which is a silent
+ * answer to a question a new board has to answer out loud. */
+#ifndef GIO6_HAS_INTERRUPT
+#error "this board has no GIO6_HAS_INTERRUPT: say whether its GIO6 pin can raise a GPIO interrupt"
 #endif
 
 /*

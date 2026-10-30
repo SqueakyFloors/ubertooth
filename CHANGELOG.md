@@ -764,6 +764,19 @@
   leaves no part-written file to be mistaken for an empty one. `install.sh`
   and the build guides check out the new commit.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
+- Fixed: on the Ubertooth Zero and the ToorCon badge the firmware looked for
+  the radio's GIO6 status pin on the wrong GPIO port. That pin is P1.15 on the
+  Zero and P1.10 on the badge, and the firmware asked port 2 for all three
+  boards, so every read answered 0: the wait for the radio's transmit buffer to
+  drain always ran to its bound, and a packet longer than the 32 bytes that
+  buffer holds went out as its first 32 bytes. Reads now follow the board.
+  Carrier sense armed an interrupt on the same wrong port; the part raises a
+  GPIO interrupt on ports 0 and 2 only, so on those two boards it now arms
+  nothing rather than an unrelated pin, and the receive loop marks a packet
+  from its own RSSI comparison as before. The Ubertooth One, whose GIO6 is
+  P2.2, is unaffected.
+  [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
+  [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007)
 
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as

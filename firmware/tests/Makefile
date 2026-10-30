@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_device_id
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -76,6 +76,31 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -o $@ test_frend.c
+
+# Which GPIO port the GIO6 macros reach for. The macros are chosen by the
+# board define, so one binary can only see one board and the same source is
+# built once for each of the three. stubs-gio6/ubertooth.h is the real header
+# with the register file under it replaced, so a write through a macro lands
+# in a variable the test can look at; ubertooth_cs.c comes along because
+# arming carrier sense on that pin is the other half of the question.
+GIO6_PORT_TEST_DEPS := test_gio6_port.c minunit.h source_scan.h \
+		stubs-gio6/ubertooth.h stubs-gio6/lpc17.h \
+		$(FW_COMMON)/ubertooth.h $(FW_COMMON)/lpc17.h \
+		$(FW_RXTX)/ubertooth_cs.c $(FW_RXTX)/ubertooth_cs.h
+
+# $(1) is the board the binary is built for.
+gio6_port_test = $(CC) $(CFLAGS) -Istubs-gio6 $(CPPFLAGS) -D$(1) \
+		-DFW_RXTX_DIR='"$(FW_RXTX)"' -o $@ test_gio6_port.c \
+		$(FW_RXTX)/ubertooth_cs.c
+
+$(BINDIR)/test_gio6_port_zero: $(GIO6_PORT_TEST_DEPS) | $(BINDIR)
+	$(call gio6_port_test,UBERTOOTH_ZERO)
+
+$(BINDIR)/test_gio6_port_one: $(GIO6_PORT_TEST_DEPS) | $(BINDIR)
+	$(call gio6_port_test,UBERTOOTH_ONE)
+
+$(BINDIR)/test_gio6_port_badge: $(GIO6_PORT_TEST_DEPS) | $(BINDIR)
+	$(call gio6_port_test,TC13BADGE)
 
 # cc2400_wait.c reaches the radio only through cc2400_status()/cc2400_strobe();
 # stubs-radio/ubertooth.h declares them and the test supplies fake
