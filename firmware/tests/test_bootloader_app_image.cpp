@@ -281,14 +281,16 @@ static void read_bootloader_source(char *out, size_t size)
 }
 
 /* The whole point of the predicate is that it runs before the jump. The jump
- * is the asm() block in run_application(), so the check has to appear between
- * the start of that function and that block. */
+ * is the load of the application's reset vector into the program counter, so
+ * the check has to appear between the start of that function and that load. */
 MU_TEST(run_application_checks_before_it_jumps)
 {
 	static char source[200000];
 	const char *function, *check, *jump;
 
-	read_bootloader_source(source, sizeof(source));
+	/* Keeping the string literals, because the jump is inside an asm()
+	 * block. */
+	read_bootloader_source_keeping(source, sizeof(source), 1);
 	/* Fatal, not plain: every line below reads what the one before it
 	 * found, so a miss here has to end the test rather than be recorded and
 	 * walked past. */
@@ -296,7 +298,10 @@ MU_TEST(run_application_checks_before_it_jumps)
 	mu_assert_fatal(function != NULL,
 	                "run_application()'s body is not in bootloader.cpp");
 	check = strstr(function, "application_startable");
-	jump = strstr(function, "asm");
+	/* The load of the application's reset vector into the program counter,
+	 * not the first asm() in the function: the hand-over has other asm()
+	 * blocks before it now. */
+	jump = strstr(function, "pc, [r3");
 	mu_assert_fatal(jump != NULL, "run_application() no longer jumps");
 	mu_assert_fatal(check != NULL,
 	                "run_application() does not check the image");
@@ -315,11 +320,13 @@ MU_TEST(run_application_turns_the_protection_unit_off_before_it_jumps)
 	static char source[200000];
 	const char *function, *off, *jump, *dsb, *isb;
 
-	read_bootloader_source(source, sizeof(source));
+	/* Keeping the string literals, because the barriers and the jump are
+	 * inside asm() blocks. */
+	read_bootloader_source_keeping(source, sizeof(source), 1);
 	function = strstr(source, "run_application() {");
 	mu_assert_fatal(function != NULL,
 	                "run_application()'s body is not in bootloader.cpp");
-	jump = strstr(function, "asm");
+	jump = strstr(function, "pc, [r3");
 	mu_assert_fatal(jump != NULL, "run_application() no longer jumps");
 	off = strstr(function, "MPU_CTRL = 0");
 	mu_assert_fatal(off != NULL,
@@ -332,12 +339,15 @@ MU_TEST(run_application_turns_the_protection_unit_off_before_it_jumps)
 	 * before the application's first access, which is the one thing this
 	 * line exists for. */
 	dsb = strstr(off, "dsb");
-	isb = strstr(off, "isb");
-	mu_assert_fatal(dsb != NULL && isb != NULL,
+	mu_assert_fatal(dsb != NULL,
 	                "run_application() does not fence the write to MPU_CTRL");
-	mu_assert(dsb < isb && isb < jump,
-	          "run_application()'s barriers after MPU_CTRL are out of order "
-	          "or after the jump");
+	isb = strstr(dsb, "isb");
+	mu_assert_fatal(isb != NULL,
+	                "run_application() has no instruction barrier after the "
+	                "write to MPU_CTRL");
+	mu_assert(isb < jump,
+	          "run_application()'s barriers after MPU_CTRL come after the "
+	          "jump");
 }
 
 /* The jump loads its address as a decimal number of its own, so the check has

@@ -917,10 +917,10 @@
   so the `bluetooth_rxtx` image leaves its stack about 11 KB where it left
   about 730 bytes. A stack that ran out of room used to write over the data
   below it and show up later as wrong capture data or a fault somewhere else.
-  The link now fails if an image
-  leaves the stack less than 2 KB. A spectrum dump, the one capture that runs
-  the board's USB queue flat out, gives up about 1% of its throughput for
-  this; an advertising capture and a follow were unchanged on the bench.
+  The link now fails if an image leaves the stack less than 2 KB. A spectrum
+  dump, the one capture that runs the board's USB queue flat out, gives up
+  about 1% of its throughput for this; an advertising capture and a follow
+  were unchanged on the bench.
   [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
 
 - A firmware download that stops part way through -- a cable pulled, a board
