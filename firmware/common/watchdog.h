@@ -180,13 +180,18 @@ void watchdog_count_transfer_error(void);
 
 /*
  * Record a processor fault for the breadcrumb: the fault status register the
- * handler read, and the address the access was to, or zero where the part
- * records none.
+ * handler read, and one address.
+ *
+ * Which address depends on what the part recorded, and the status says which
+ * it is: the access the processor refused, where the part keeps a register for
+ * it, and otherwise the instruction the processor was running, which the
+ * handler reads from the exception frame (fault_frame.h). Zero means there was
+ * nothing to report.
  *
  * The four fault handlers never return -- they blink a code until the
- * watchdog resets the board -- so this is the only record of what the access
- * was. Which of the four it was is the site the handler marks; this says
- * where it went wrong. Kept until the next power-on, like the reset count.
+ * watchdog resets the board -- so this is the only record of where the fault
+ * was. Which of the four it was is the site the handler marks. Kept until the
+ * next power-on, like the reset count.
  */
 void watchdog_fault(uint32_t status, uint32_t addr);
 

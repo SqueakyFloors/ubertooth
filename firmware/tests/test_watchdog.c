@@ -38,6 +38,9 @@
  * records. */
 #include "ubertooth.h"
 
+/* The exception frame the fault handlers read the faulting address from. */
+#include "fault_frame.h"
+
 /* ---- the fake registers the stub header points at ---- */
 
 uint32_t fake_wdmod;
@@ -1706,14 +1709,14 @@ MU_TEST(test_every_fault_handler_records_the_fault)
 		const char *path;
 		const char *function;
 	} handlers[] = {
-		{ FW_RXTX_DIR "/fault.c", "HardFault_Handler" },
-		{ FW_RXTX_DIR "/fault.c", "MemManagement_Handler" },
-		{ FW_RXTX_DIR "/fault.c", "BusFault_Handler" },
-		{ FW_RXTX_DIR "/fault.c", "UsageFault_Handler" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "HardFault_Handler" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "MemManagement_Handler" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "BusFault_Handler" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "UsageFault_Handler" },
+		{ FW_RXTX_DIR "/fault.c", "hard_fault_at" },
+		{ FW_RXTX_DIR "/fault.c", "mem_fault_at" },
+		{ FW_RXTX_DIR "/fault.c", "bus_fault_at" },
+		{ FW_RXTX_DIR "/fault.c", "usage_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_hard_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_mem_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_bus_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_usage_fault_at" },
 	};
 	size_t i;
 
@@ -1768,26 +1771,29 @@ MU_TEST(test_every_fault_handler_records_the_fault)
  */
 MU_TEST(test_a_forced_hard_fault_reports_the_fault_underneath_it)
 {
-	static const char *const paths[] = {
-		FW_RXTX_DIR "/fault.c",
-		FW_BTBR_DIR "/src/util/fault.c",
+	static const struct {
+		const char *path;
+		const char *handler;
+	} images[] = {
+		{ FW_RXTX_DIR "/fault.c", "hard_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_hard_fault_at" },
 	};
 	size_t i;
 
-	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+	for (i = 0; i < sizeof(images) / sizeof(images[0]); i++) {
 		char line[512], msg[512];
 		int in_block = 0, in_hard = 0;
 		int tests_forced = 0, reads_cfsr = 0, reads_mmfar = 0;
-		FILE *f = fopen(paths[i], "r");
+		FILE *f = fopen(images[i].path, "r");
 
-		snprintf(msg, sizeof(msg), "cannot read %s", paths[i]);
+		snprintf(msg, sizeof(msg), "cannot read %s", images[i].path);
 		mu_assert_fatal(f != NULL, msg);
 
 		while (fgets(line, sizeof(line), f) != NULL) {
 			strip_comments(line, &in_block);
 			if (!in_hard) {
 				if (line[0] != ' ' && line[0] != '\t' &&
-				    calls_identifier(line, "HardFault_Handler"))
+				    calls_identifier(line, images[i].handler))
 					in_hard = 1;
 				continue;
 			}
@@ -1803,10 +1809,10 @@ MU_TEST(test_a_forced_hard_fault_reports_the_fault_underneath_it)
 		fclose(f);
 
 		snprintf(msg, sizeof(msg),
-		         "%s: HardFault_Handler() does not tell a forced fault from "
+		         "%s: the hard fault handler does not tell a forced fault from "
 		         "one the processor took in its own right, so an overflow "
 		         "that escalated is reported with no status of its own and "
-		         "no address", paths[i]);
+		         "no address", images[i].path);
 		mu_assert(tests_forced && reads_cfsr && reads_mmfar, msg);
 	}
 }
@@ -1845,6 +1851,116 @@ MU_TEST(test_btbrs_stack_dump_stops_above_the_guard)
 	          "handler");
 }
 
+/*
+ * The four names in the vector table still reach the four handlers above, and
+ * reach them through the shim that hands on the exception frame.
+ *
+ * The handlers are named *_at() because they take the frame, and the vector
+ * table does not know those names: it knows HardFault_Handler and the other
+ * three. UBERTOOTH_FAULT_ENTRY() is what joins the two, and a handler whose
+ * entry point went missing would simply never run -- the weak alias in
+ * LPC17xx_Interrupts.c would send the fault to Default_Handler instead, which
+ * records a different site and no fault at all.
+ */
+MU_TEST(test_each_fault_vector_reaches_its_handler_through_the_frame_shim)
+{
+	static const struct {
+		const char *path;
+		const char *vector;
+		const char *handler;
+	} entries[] = {
+		{ FW_RXTX_DIR "/fault.c", "HardFault_Handler",
+		  "hard_fault_at" },
+		{ FW_RXTX_DIR "/fault.c", "MemManagement_Handler",
+		  "mem_fault_at" },
+		{ FW_RXTX_DIR "/fault.c", "BusFault_Handler", "bus_fault_at" },
+		{ FW_RXTX_DIR "/fault.c", "UsageFault_Handler",
+		  "usage_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "HardFault_Handler",
+		  "btbr_hard_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "MemManagement_Handler",
+		  "btbr_mem_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "BusFault_Handler",
+		  "btbr_bus_fault_at" },
+		{ FW_BTBR_DIR "/src/util/fault.c", "UsageFault_Handler",
+		  "btbr_usage_fault_at" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) {
+		char line[512], msg[512], wanted[256];
+		int in_block = 0, found = 0;
+		FILE *f = fopen(entries[i].path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", entries[i].path);
+		mu_assert(f != NULL, msg);
+
+		snprintf(wanted, sizeof(wanted),
+		         "UBERTOOTH_FAULT_ENTRY(%s, %s)", entries[i].vector,
+		         entries[i].handler);
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (strstr(line, wanted) != NULL)
+				found = 1;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: there is no %s, so the %s vector does not reach "
+		         "%s() and the fault would be recorded as an unhandled "
+		         "interrupt", entries[i].path, wanted,
+		         entries[i].vector, entries[i].handler);
+		mu_assert(found, msg);
+	}
+}
+
+/*
+ * The frame pointer is checked before it is read.
+ *
+ * A fault taken while the stack pointer is wrong is one of the things this
+ * record exists to catch, and a handler that read through such a pointer would
+ * fault again and leave no record at all. So anything that is not a whole
+ * frame inside the stack region reads as "nothing to report".
+ */
+MU_TEST(test_the_frame_pointer_is_checked_before_it_is_read)
+{
+	uint32_t region[16];
+	const uintptr_t bottom = (uintptr_t)&region[0];
+	const uintptr_t top = (uintptr_t)&region[16];
+	size_t i;
+
+	/* The architecture decides these two, not us: the frame is r0 to r3,
+	 * r12, the link register, the program counter, and the program status,
+	 * in that order. Written as literals so that changing the header has
+	 * to be argued for here rather than quietly agreeing with itself --
+	 * every case below reads the word the header names. */
+	mu_assert_int_eq(8, FAULT_FRAME_WORDS);
+	mu_assert_int_eq(6, FAULT_FRAME_PC_WORD);
+
+	for (i = 0; i < 16; i++)
+		region[i] = 0x1000 + (uint32_t)i;
+
+	/* A frame at the bottom: word 6 of it is the program counter. */
+	mu_assert_int_eq(0x1006,
+	                 fault_frame_pc_between(&region[0], bottom, top));
+	/* And the last place a whole frame fits, eight words below the top. */
+	mu_assert_int_eq(0x100e,
+	                 fault_frame_pc_between(&region[8], bottom, top));
+
+	/* One word further up and the frame would run past the end. */
+	mu_assert_int_eq(0, fault_frame_pc_between(&region[9], bottom, top));
+	/* Below the region, and at the very top of it. */
+	mu_assert_int_eq(0, fault_frame_pc_between(&region[0], bottom + 4,
+	                                           top));
+	mu_assert_int_eq(0, fault_frame_pc_between(&region[16], bottom, top));
+	/* A pointer that is not on a four-byte boundary. */
+	mu_assert_int_eq(0, fault_frame_pc_between(
+	                         (const uint32_t *)(bottom + 2), bottom, top));
+	/* A null pointer, which is what a frame pointer read from a board
+	 * that has never faulted would look like. */
+	mu_assert_int_eq(0, fault_frame_pc_between(NULL, bottom, top));
+}
+
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 {
 	static const struct {
@@ -1852,21 +1968,21 @@ MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 		const char *function;
 		const char *site;
 	} paths[] = {
-		{ FW_RXTX_DIR "/fault.c", "HardFault_Handler",
+		{ FW_RXTX_DIR "/fault.c", "hard_fault_at",
 		  "WATCHDOG_SITE_FAULT_HARD" },
-		{ FW_RXTX_DIR "/fault.c", "MemManagement_Handler",
+		{ FW_RXTX_DIR "/fault.c", "mem_fault_at",
 		  "WATCHDOG_SITE_FAULT_MEM" },
-		{ FW_RXTX_DIR "/fault.c", "BusFault_Handler",
+		{ FW_RXTX_DIR "/fault.c", "bus_fault_at",
 		  "WATCHDOG_SITE_FAULT_BUS" },
-		{ FW_RXTX_DIR "/fault.c", "UsageFault_Handler",
+		{ FW_RXTX_DIR "/fault.c", "usage_fault_at",
 		  "WATCHDOG_SITE_FAULT_USAGE" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "HardFault_Handler",
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_hard_fault_at",
 		  "WATCHDOG_SITE_FAULT_HARD" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "MemManagement_Handler",
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_mem_fault_at",
 		  "WATCHDOG_SITE_FAULT_MEM" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "BusFault_Handler",
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_bus_fault_at",
 		  "WATCHDOG_SITE_FAULT_BUS" },
-		{ FW_BTBR_DIR "/src/util/fault.c", "UsageFault_Handler",
+		{ FW_BTBR_DIR "/src/util/fault.c", "btbr_usage_fault_at",
 		  "WATCHDOG_SITE_FAULT_USAGE" },
 		{ FW_BTBR_DIR "/src/util/fault.c", "die",
 		  "WATCHDOG_SITE_PANIC" },
@@ -2068,6 +2184,8 @@ int main(void)
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	MU_RUN(test_every_fault_handler_records_the_fault);
+	MU_RUN(test_each_fault_vector_reaches_its_handler_through_the_frame_shim);
+	MU_RUN(test_the_frame_pointer_is_checked_before_it_is_read);
 	MU_RUN(test_a_forced_hard_fault_reports_the_fault_underneath_it);
 	MU_RUN(test_btbrs_stack_dump_stops_above_the_guard);
 	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);

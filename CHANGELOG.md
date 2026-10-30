@@ -41,6 +41,21 @@
   [#77](https://github.com/SqueakyFloors/ubertooth/issues/77)
   [upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)
 
+- `ubertooth-util -w` says where a processor fault was, even for the faults the
+  part records no access address for, as `Last processor fault: status
+  0x00000001, the instruction was at 0x4001f0a4`. A hard fault and a usage
+  fault keep no address register, and nor does an instruction fetch the part
+  refuses to execute — a branch through a corrupted pointer — so for those the
+  only record used to be which of the four faults it was. The board now reads
+  the address out of the exception frame, which for that fetch is where the
+  pointer pointed. Because the record means something new, the breadcrumb starts
+  again on the first boot of this firmware: a board's reset, boot, and transfer
+  error counts restart once, as they do after a power cycle. Firmware API 1.57,
+  so a release build of the host tools refuses a board carrying older firmware
+  and a development build warns about it, which is what keeps either from
+  reading an older record's leftover address register as an instruction.
+  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
+
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
   `ubertooth-specan-ui` — answer `-V` with the same lines as every other tool:
   the host tools' version, then the firmware version and build of the board
@@ -371,10 +386,13 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.56, last moved by the
-  modulation a mode start keeps for the mode it was stated for, before that by
-  the packet's own power and the background in every capture record, which a
-  host tool of an earlier version would read the way the fields used to mean
+- **Reflash required:** the firmware API version is now 1.57, last moved by the
+  address a processor fault is recorded at
+  ([#764](https://github.com/SqueakyFloors/ubertooth/issues/764)), before that
+  by the modulation a mode start keeps for the mode it was stated for, before
+  that by the packet's own power and the background in every capture record,
+  which a host tool of an earlier version would read the way the fields used to
+  mean
   ([#77](https://github.com/SqueakyFloors/ubertooth/issues/77)), before that by
   the range test reporting a packet it discarded, before that by
   promiscuous mode reporting the access address of the connection it follows,

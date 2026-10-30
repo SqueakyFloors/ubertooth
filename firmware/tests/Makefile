@@ -633,7 +633,8 @@ $(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
 $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		stubs-watchdog/ubertooth.h stubs/ubertooth.h \
 		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
-		$(FW_COMMON)/stack_check.h $(FW_COMMON)/LPC17xx_Startup.c \
+		$(FW_COMMON)/stack_check.h $(FW_COMMON)/fault_frame.h \
+		$(FW_COMMON)/LPC17xx_Startup.c \
 		$(FW_COMMON)/usb_irq.h $(FW_COMMON)/sections.ld \
 		$(FW_COMMON)/../common.mk $(FW_BOOT)/Makefile \
 		$(FW_RXTX)/Makefile $(FW_BTBR)/Makefile \

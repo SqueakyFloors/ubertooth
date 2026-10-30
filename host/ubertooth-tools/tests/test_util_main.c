@@ -741,7 +741,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.56)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.57)\n"
 #define BUILD_LINE "Firmware build: compile-test\n"
 /* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
@@ -759,7 +759,7 @@ static struct run_result run_util(const char *const *args)
 /* The same lines as the multi-device listing prints them: the report's own
  * label with the board's index in it. i is the index, as a string. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
-#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.56)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.57)\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
@@ -912,7 +912,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.56)\n") == 0,
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.57)\n") == 0,
 	          r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -1063,17 +1063,62 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	          != NULL, r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
-	/* A fault the part records no address for: a hard fault, a usage fault,
-	 * or an instruction fetch refused because the region cannot be
-	 * executed. */
+	/* A fault the part keeps no access address for, where the board
+	 * recorded where the processor was instead. 0x01 is an instruction
+	 * fetch from a region that cannot be executed -- a branch through a
+	 * corrupted pointer -- and the address is the one it refused to run. */
 	reset_fake();
 	fake.watchdog.armed = 1;
 	fake.watchdog.boots = 1;
-	fake.watchdog.fault_status = 0x40000000;
+	fake.watchdog.fault_status = 0x01;
+	fake.watchdog.fault_addr = 0x4001f0a4;
 	r = RUN("-w");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.out, "Last processor fault: status 0x40000000, "
+	mu_assert(strstr(r.out, "Last processor fault: status 0x00000001, "
+	                 "the instruction was at 0x4001f0a4\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	/* A fault with nothing to name: 0x1000 is a bus fault on stacking, so
+	 * the exception frame was never written and the board records no
+	 * address. Zero is not printed as an address here, because address zero
+	 * is the start of flash and no fault names it. */
+	reset_fake();
+	fake.watchdog.armed = 1;
+	fake.watchdog.boots = 1;
+	fake.watchdog.fault_status = 0x1000;
+	r = RUN("-w");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Last processor fault: status 0x00001000, "
 	                 "no address recorded\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	/* A record with an address and no status bit at all, which a memory
+	 * management fault can leave: the address is the whole of what
+	 * happened, so the line is printed rather than the fault going
+	 * unreported for want of a status. */
+	reset_fake();
+	fake.watchdog.armed = 1;
+	fake.watchdog.boots = 1;
+	fake.watchdog.fault_status = 0;
+	fake.watchdog.fault_addr = 0x00002f18;
+	r = RUN("-w");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Last processor fault: status 0x00000000, "
+	                 "the instruction was at 0x00002f18\n") != NULL, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	/* The other address-valid bit, which a bus fault sets: both halves of
+	 * the host's discriminator are read, not just the memory management
+	 * one. */
+	reset_fake();
+	fake.watchdog.armed = 1;
+	fake.watchdog.boots = 1;
+	fake.watchdog.fault_status = 0x8400;
+	fake.watchdog.fault_addr = 0x2007c0d0;
+	r = RUN("-w");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "Last processor fault: status 0x00008400, "
+	                 "the access was at 0x2007c0d0\n") != NULL, r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
 	reset_fake();

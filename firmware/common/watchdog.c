@@ -55,15 +55,20 @@ typedef struct {
 /* Says the fields below mean something. Any other value, and the region holds
  * whatever RAM came up with.
  *
- * It changes whenever the fields do. A reflash leaves the region alone, so a
- * board coming up on this firmware finds what the firmware before it wrote;
- * with the same magic over a different set of fields, the fields this
- * firmware added would be read out of whatever was in that RAM. The counts
- * start again once per layout change, which is the price of them starting
- * right: a board flashed from an earlier firmware reported a processor fault
- * that had never happened, at an address that was never accessed, and tens of
- * thousands of transfer errors. */
-#define WATCHDOG_CRUMB_MAGIC 0x57443032 /* "WD02" */
+ * It changes whenever the fields do, and whenever one of them comes to mean
+ * something else. A reflash leaves the region alone, so a board coming up on
+ * this firmware finds what the firmware before it wrote; with the same magic
+ * over a different set of fields, the fields this firmware added would be read
+ * out of whatever was in that RAM. The counts start again once per change,
+ * which is the price of them starting right: a board flashed from an earlier
+ * firmware reported a processor fault that had never happened, at an address
+ * that was never accessed, and tens of thousands of transfer errors.
+ *
+ * "WD03" is "WD02" with fault_addr able to hold the instruction the processor
+ * was running, where before it held an address register the fault status had
+ * already said was meaningless. An older record read under the new meaning
+ * would name an instruction that never ran. */
+#define WATCHDOG_CRUMB_MAGIC 0x57443033 /* "WD03" */
 
 extern volatile watchdog_crumb_t watchdog_crumb;
 

@@ -54,7 +54,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0156
+#define UBERTOOTH_API_VERSION 0x0157
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -643,12 +643,17 @@ typedef struct {
 	 * reporting. */
 	uint16_t transfer_errors;
 	/* The last processor fault, which reset_site names: the fault status
-	 * register the handler read, and the part's fault address register.
-	 * Both zero until a fault happens. The address means something only
-	 * when the status has UBERTOOTH_FAULT_ADDR_VALID set: two of the four
-	 * faults keep no address register, and the two that do say in that bit
-	 * whether it holds this fault's address. Zero is a real address, so
-	 * that bit and not the address is what has to be read. */
+	 * register the handler read, and one address. Both zero until a fault
+	 * happens.
+	 *
+	 * Which address depends on the status. With UBERTOOTH_FAULT_ADDR_VALID
+	 * or UBERTOOTH_FAULT_BUS_ADDR_VALID set it is the access the processor
+	 * refused, from the part's own fault address register. With neither set
+	 * the part recorded no access address -- two of the four faults keep no
+	 * register for one at all -- and the address is the instruction the
+	 * processor was running, read from the exception frame, with zero for
+	 * "nothing to report". So the status has to be read before the address
+	 * means anything. */
 	uint32_t fault_status;
 	uint32_t fault_addr;
 	/* How deep the stack has ever been since the board booted, and how much
