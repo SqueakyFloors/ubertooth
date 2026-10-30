@@ -1477,15 +1477,11 @@ static void timer1_interrupt(void) {
 				// event the instant names. Taken before the new interval
 				// is, so the step from the event before it is the old one.
 				//
-				// No fixed delay is added here. A connection request's
-				// first window has one -- 1.25 ms, which covers the gap
+				// No fixed delay here, where a connection request's first
+				// window has one: the request's 1.25 ms covers the gap
 				// between the request going out and the central's first
-				// packet -- and an update has nothing to cover: its window
-				// is measured from an anchor point, not from the end of a
-				// packet. Adding that delay put every window after an
-				// update 1.25 ms late, and the window offset is itself a
-				// multiple of 1.25 ms, so the mistake was the size of a
-				// whole step.
+				// packet, and an update's window is measured from an
+				// anchor point, with no packet before it to cover.
 				window_opens = conn.last_anchor + conn.conn_interval +
 						conn.win_offset;
 
