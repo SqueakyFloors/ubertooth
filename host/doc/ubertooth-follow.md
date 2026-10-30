@@ -82,11 +82,15 @@ Requires BlueZ (Linux only).
  - `-h` :
    show help.
 
-A record of a `-q` or `-r` capture carries the packet's own power, measured
-over the readings the board took while the packet was on the air, and an
-estimate of the background around it. Both figures are averaged in power rather
-than in dBm, so a quiet stretch inside a receive window does not drag the
-packet's figure down.
+A record of a `-q` or `-r` capture carries the packet's own power and an
+estimate of the background around it. Both are averaged in power rather than in
+dBm, which is what the average of a set of dBm readings means.
+
+The signal figure is the mean power of the loudest 10 dB of the readings the
+board took across the receive window the packet arrived in. The window is a
+fixed stretch of air time, not the packet, so leaving the quieter readings out
+is what makes the figure the packet's: without it a packet filling a third of
+the window would read 5 dB low.
 
 The background is an estimate because the board cannot time the quiet between
 packets, so it goes by level: it averages the readings that sat more than 10 dB

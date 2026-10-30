@@ -93,7 +93,9 @@ Capture packets to PCAP\. \fB\-q \-\fR writes the capture to standard output; se
 \fB\-d <file\.bin>\fR
 Capture packets to binary file suitable for use with \fB\-i\fR\. \fB\-d \-\fR writes the records to standard output; see CAPTURING TO STANDARD OUTPUT
 .P
-A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power, measured over the readings the board took while the packet was on the air, and an estimate of the background around it\. Both figures are averaged in power rather than in dBm, so a quiet stretch inside a receive window does not drag the packet's figure down\.
+A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power and an estimate of the background around it\. Both are averaged in power rather than in dBm, which is what the average of a set of dBm readings means\.
+.P
+The signal figure is the mean power of the loudest 10 dB of the readings the board took across the receive window the packet arrived in\. The window is a fixed stretch of air time, not the packet, so leaving the quieter readings out is what makes the figure the packet's: without it a packet filling a third of the window would read 5 dB low\.
 .P
 The background is an estimate because the board cannot time the quiet between packets, so it goes by level: it averages the readings that sat more than 10 dB below the loudest it had taken since it last started counting\. It starts counting again on every hop, and 25 times a second even on a fixed channel, so the figure describes the last few tens of milliseconds of air\. Three things follow\. A faded part of a packet sits that far down too and is counted in\. Quiet taken before a packet is not admitted, so a window whose packet arrives last contributes nothing\. And the mean is over the loudest 10 dB of what is admitted, so on a channel that is mostly silent the figure sits well above the floor\.
 .P
