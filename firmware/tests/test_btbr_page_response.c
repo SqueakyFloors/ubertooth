@@ -16,8 +16,8 @@
  * These tests drive both state machines over a faked air and check that a
  * window the paged device opens lands on the tick and the frequency of a page
  * response the pager really sends, for a page heard in either half of the slot,
- * and that it keeps opening one for every repeat the pager sends until
- * pagerespTO. The frequency is the half that matters most: both ends compute it
+ * and that it keeps opening one for every repeat that falls inside pagerespTO.
+ * The frequency is the half that matters most: both ends compute it
  * from the same page response phase and the same slot, so one end reading the
  * slot differently puts its window on another channel as well as another tick.
  *
@@ -764,7 +764,8 @@ MU_TEST(paged_second_half_window_meets_the_page_response)
  * Section 8.3.3.1: the paged device keeps listening for the central's page
  * response until pagerespTO, which is 8 slots, and 8.3.3.2 has the central
  * repeat that packet every 1.25 ms over the same time. So an empty window is
- * followed by a window for the next repeat until pagerespTO passes.
+ * followed by a window for the next repeat, for as long as a window still falls
+ * inside pagerespTO.
  *
  * The windows take the two readings of the answered page in turn -- 1.25 ms
  * apart on one reading, which is 3 ticks and then 5 ticks as the clock moves
@@ -774,21 +775,27 @@ MU_TEST(paged_second_half_window_meets_the_page_response)
  */
 MU_TEST(paged_listens_for_every_repeat_until_pageresp_to)
 {
-	/* The pager's last page response, so that the two ends can be shown to
-	 * stop together. Its page is answered in the first half, which is the
-	 * reading the first window takes. */
-	const struct air_event *last_fhs;
 	unsigned i;
-	/* The ticks of the windows, on the pager's time: the first page
-	 * response and then its repeats, taking the first reading of the page
-	 * (ticks 4, 12 and 20) and the second (7 and 15) in turn. */
-	static const uint32_t window_tick[] = { 4, 7, 12, 15, 20 };
+	/* The ticks of the windows, on the pager's time, for a page answered in
+	 * the first half: the first page response and then its repeats, taking
+	 * the first reading of the page (ticks 4 and 12) and the second (7 and
+	 * 15) in turn. */
+	static const uint32_t window_tick[] = { 4, 7, 12, 15 };
+	/* The answer, which pagerespTO runs from. */
+	static const uint32_t answer_tick = 2;
+	uint8_t scan_phase, repeat_chan[4];
+	uint32_t fifth_repeat_tick;
 
+	/* The pager's own page responses: the first and the third are the two
+	 * this board's windows can meet when the page it heard was the pager's
+	 * first message. */
 	run_pager(1);
-	last_fhs = air_nth(pager_log, pager_log_count, AIR_TX,
-				2+ARRAY_LEN(window_tick));
+	scan_phase = pager_page_phase(1);
+	repeat_chan[0] = air_nth(pager_log, pager_log_count, AIR_TX, 3)->chan;
+	repeat_chan[2] = air_nth(pager_log, pager_log_count, AIR_TX, 5)->chan;
+	fifth_repeat_tick = air_nth(pager_log, pager_log_count, AIR_TX, 7)->tick;
 
-	run_paged(0, 1, 0, 0);
+	run_paged(scan_phase, 1, 0, 0);
 
 	mu_assert_int_eq(ARRAY_LEN(window_tick), air_window_count);
 	mu_assert_int_eq(ARRAY_LEN(window_tick),
@@ -799,15 +806,27 @@ MU_TEST(paged_listens_for_every_repeat_until_pageresp_to)
 
 		mu_assert_int_eq(window_tick[i], paged_air_tick(w));
 		/* One central transmit slot further along the phase per
-		 * window, the phase the central's own kth repeat goes out
-		 * on. */
-		mu_assert_int_eq(chan_of_phase(i+1), w->chan);
+		 * window, which is the phase the pager's own kth repeat goes
+		 * out on. The odd-numbered windows are checked against the
+		 * channels this pager really transmitted the first and third
+		 * on; the even-numbered ones take the other reading of the
+		 * page, which paged_completes_on_a_later_repeat() checks
+		 * against a pager whose second message was the one heard. */
+		mu_assert_int_eq(chan_of_phase(scan_phase+i+1), w->chan);
+		if ((i & 1) == 0)
+			mu_assert_int_eq(repeat_chan[i], w->chan);
 	}
 
-	/* The two ends stop together: the last window is the tick of the last
-	 * page response the pager sends. */
-	mu_assert_int_eq(window_tick[ARRAY_LEN(window_tick)-1],
-			last_fhs->tick - pager_t0);
+	/* The last window is the last one pagerespTO allows, which is why the
+	 * board stops there: the pager's fifth page response falls outside it,
+	 * so there is nothing to wait for. */
+	mu_assert(window_tick[ARRAY_LEN(window_tick)-1] - answer_tick
+					<= PAGE_RESP_TO_TICKS,
+		"the last window falls outside pagerespTO");
+	mu_assert(fifth_repeat_tick - pager_t0 - answer_tick
+					> PAGE_RESP_TO_TICKS,
+		"the pager's fifth page response is inside pagerespTO, so the "
+		"board stops one repeat too early");
 
 	/* Nothing arrived, so the board goes back to scanning rather than
 	 * sitting in page scan with no task left to run. */
@@ -828,10 +847,13 @@ MU_TEST(paged_listens_for_every_repeat_until_pageresp_to)
 MU_TEST(paged_completes_on_a_later_repeat)
 {
 	const struct air_event *fhs, *ack_window, *window, *ack;
+	uint8_t second_repeat_chan;
 
 	run_pager(2);
 	/* The pager's fourth page response, after its two page messages, and
 	 * the window it listens for the acknowledgement in. */
+	second_repeat_chan = air_nth(pager_log, pager_log_count,
+					AIR_TX, 4)->chan;
 	fhs = air_nth(pager_log, pager_log_count, AIR_TX, 6);
 	ack_window = air_nth(pager_log, pager_log_count, AIR_RX, 6);
 	mu_assert_int_eq(16, fhs->tick - pager_t0);
@@ -842,6 +864,15 @@ MU_TEST(paged_completes_on_a_later_repeat)
 	mu_assert_int_eq(4, air_window_count);
 	window = air_nth(paged_log, paged_log_count, AIR_RX, 4);
 	ack = air_nth(paged_log, paged_log_count, AIR_TX, 2);
+
+	/* The even-numbered windows are the ones that meet a pager whose second
+	 * page message was the one heard: this run's second window is on the
+	 * channel that pager sent its second page response on, and its fourth
+	 * on the fourth's. */
+	mu_assert_int_eq(8, paged_air_tick(air_nth(paged_log, paged_log_count,
+							AIR_RX, 2)));
+	mu_assert_int_eq(second_repeat_chan,
+			air_nth(paged_log, paged_log_count, AIR_RX, 2)->chan);
 
 	/* The fourth window is the fourth repeat's own tick and frequency. */
 	mu_assert_int_eq(16, paged_air_tick(window));

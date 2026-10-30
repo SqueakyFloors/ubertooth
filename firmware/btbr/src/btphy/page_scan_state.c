@@ -52,18 +52,34 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset);
 
 /* Open a window for the central's page response, the FHS packet, at the next
  * start of a central transmit slot: that slot, and the response phase, are
- * what its frequency is computed from. */
+ * what its frequency is computed from.
+ *
+ * Where pagerespTO leaves no repeat to wait for, go back to scanning instead,
+ * rather than leave the board in page scan with nothing left to run, which
+ * would wait forever. */
 static void page_scan_fhs_schedule(void)
 {
 	unsigned delay = 3&(RX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
 
-	/* A window is tuned in the tick before it listens, so a slot that
-	 * starts in the very next tick cannot be tuned for: take the central
-	 * transmit slot after it, 1.25 ms later. This is the case when the
-	 * clock has just moved back from the second reading of the page, which
-	 * puts the next slot of the first reading one tick away. */
+	/* Every window advances the page response phase once (rx_task.c), so
+	 * window number k is on the phase the central's kth repeat goes out on.
+	 * A slot starting in the very next tick carries that same kth repeat,
+	 * read as the other half of the slot, and a window there would already
+	 * be a phase further on and so on the wrong frequency. Take the central
+	 * transmit slot after it. This is the case when the clock has just
+	 * moved back from the second reading of the page, which puts the next
+	 * slot of the first reading one tick away. */
 	if (delay == 0)
 		delay = 4;
+
+	/* 8.3.3.1 has the paged device listen until pagerespTO and no longer,
+	 * so a window whose own tick falls past it is not opened at all. */
+	if (clkn_elapsed(MASTER_CLKN+delay+1, page_scan_state.clkn_answer,
+				PAGE_RESP_TO_TICKS+1))
+	{
+		page_scan_schedule(0);
+		return;
+	}
 	rx_task_schedule(delay,
 		page_scan_rx_fhs_cb, NULL,
 		1<<RX_F_PAYLOAD			// FHS packet has payload
@@ -94,20 +110,24 @@ static void page_scan_fhs_schedule(void)
  * readings can be listened on at a time, and which one is right cannot be told
  * from the page message.
  *
- * 8.3.3.1 also has the paged device keep listening until pagerespTO, and 8.3.3.2
- * has the central repeat its page response every 1.25 ms over that time, with
- * the clock updated. So an empty window is followed by a window for the next
- * repeat, taking the two readings in turn until pagerespTO passes, after which
- * the central has stopped repeating too. Taking them in turn rather than
- * settling on one matters because which reading is right holds for 1.28 seconds
- * at a time: a scanning board's frequency comes from CLKN16-12 of its own clock
- * and the pager's sweep from CLK16-12 of its own, so for that long either every
- * page this board answers is the central's first message or every one is its
- * second. */
-static void page_scan_fhs_missed(void)
+ * 8.3.3.1 also has the paged device keep listening until pagerespTO, and
+ * 8.3.3.2 has the central repeat its page response every 1.25 ms over that
+ * time. So an empty window is followed by a window for the next repeat, taking
+ * the two readings in turn. Taking them in turn rather than settling on one
+ * matters because which reading is right stays the same for 1.28 seconds at a
+ * time, the period of CLK12 on both clocks: over that stretch either every page
+ * this board answers is the central's first message or every one is its second,
+ * so a board settled on one reading would hear nothing at all for the whole
+ * stretch. */
+static void page_scan_fhs_missed(uint32_t window_clkn)
 {
-	if (clkn_elapsed(MASTER_CLKN, page_scan_state.clkn_answer,
-				PAGE_RESP_TO_TICKS))
+	/* A packet that took two or more ticks to decode -- a stray multi-slot
+	 * packet that shared the window's frequency -- leaves this clock
+	 * reading a slot the page response has nothing to do with, so the
+	 * windows computed from it would be on the wrong frequency. Nothing is
+	 * left to wait for, as for a packet of the wrong type. One tick is
+	 * normal: that is where a one-slot packet's decode ends. */
+	if (btphy.slave_clkn-window_clkn >= 2)
 	{
 		page_scan_schedule(0);
 		return;
@@ -178,7 +198,7 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 		
 	}
 	else{
-		page_scan_fhs_missed();
+		page_scan_fhs_missed(pkt->clkn);
 	}
 end:
 	msg_free(msg);

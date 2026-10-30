@@ -18,8 +18,8 @@
 
 /* pagerespTO, the 8 slots a page response has to complete in (BT Core | Vol 2,
  * Part B, Section 8.3.3), in clock ticks of 312.5 usec.  Both ends of the
- * exchange count it from the same tick -- the paged device's answer to the page
- * -- so they stop retransmitting and stop listening together. */
+ * exchange count it from the same tick, the paged device's answer to the
+ * page. */
 #define PAGE_RESP_TO_TICKS	(8*2)
 
 /*

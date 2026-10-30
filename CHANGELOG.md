@@ -969,10 +969,9 @@
 
 - A board in `ubertooth-btbr`'s `page_scan` gave up on the pager's page
   response after two windows, so one lost packet ended the page and no
-  connection was made. It now listens for every repeat the pager sends until
-  pagerespTO, which is 8 slots, as the specification asks, and takes the two
-  readings of the answered page in turn so that neither is starved over the
-  1.28 seconds that one of them stays the right one.
+  connection was made. It now opens a window for each repeat the pager can
+  still send inside pagerespTO, taking the two readings of the answered page
+  in turn.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
