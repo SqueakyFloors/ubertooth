@@ -928,9 +928,9 @@ if(libubertooth_SOURCE_DIR)
 	# cb_scan() run and their static helpers can be called directly. Nothing
 	# else of the library is linked: the test defines the fifo calls, the
 	# symbol unpacking, the control requests and the libbtbb entry points it
-	# wants to watch, which is what lets it see what each of them was
-	# given. libbtbb is
-	# linked for the packet and piconet the callbacks really allocate.
+	# wants to watch, which is what lets it see what each of them was given.
+	# libbtbb is linked for the packet and piconet the callbacks really
+	# allocate.
 	add_executable(test-bredr-callback test_bredr_callback.c)
 	target_include_directories(test-bredr-callback PRIVATE
 		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
