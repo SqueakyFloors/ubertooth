@@ -105,6 +105,12 @@ LMP_KEYPRESS_NOTIFICATION       = 30
 LMP_POWER_CONTROL_INC           = 31
 LMP_POWER_CONTROL_DEC           = 32
 
+# The reasons an LMP_NOT_ACCEPTED carries here
+# (Core v5.4 | Vol 1, Part F, 1.3)
+LMP_ERR_UNSUPPORTED_REMOTE_FEATURE	= 0x1a
+LMP_ERR_INVALID_LMP_PARAMETERS		= 0x1e
+LMP_ERR_UNSUPPORTED_PARAM_VALUE		= 0x20
+
 LMP_OP2STR = {
 	LMP_NAME_REQ: "LMP_NAME_REQ",
 	LMP_NAME_RES: "LMP_NAME_RES",
@@ -227,14 +233,18 @@ def pdu2str(pdu):
 
 class LMP:
 	# Features supported (Core v5.2 | Vol 2, Part C, table 3.2 p585)
-	#FEATURES = b"\x03\x00\x00\x00\x08\x08\x19\x00" # With AFH
-	FEATURES = b"\x03\x00\x00\x00\x00\x00\x19\x00" # No AFH
+	# Byte 0's two lowest bits, 3-slot and 5-slot packets, stay clear: a
+	# peer's LMP_MAX_SLOT_REQ for more than one slot is refused, and the
+	# mask has to say what this end will really do.
+	#FEATURES = b"\x00\x00\x00\x00\x08\x08\x19\x00" # With AFH
+	FEATURES = b"\x00\x00\x00\x00\x00\x00\x19\x00" # No AFH
 
 	def __init__(self, con, debug=True):
 		self._debug = debug
 		self._con = con
 		self._start_time = time()
 		self._clkn = 0
+		self._rx_tid = 0
 
 	def time(self):
 		return time()-self._start_time
@@ -246,6 +256,13 @@ class LMP:
 		opcode = u8(pdu[0])
 		tid = opcode & 1
 		opcode >>= 1
+
+		# An answer belongs to the transaction that asked for it, so the
+		# handlers below send it back with this PDU's transaction ID: 0 for
+		# one the central started, 1 for the peripheral's
+		# (Core v5.4 | Vol 2, Part C, 2.4). A peer cannot match an answer
+		# carrying the other one, and goes on waiting.
+		self._rx_tid = tid
 
 		if opcode == LMP_ESCAPE_4:
 			op = u8(pdu[1]) | EXT_OPCODE
@@ -299,23 +316,74 @@ class LMP:
 	def handle_name_req(self, op, data):
 		offset = u8(data[0])
 		name = b"Ubertooth"
-		return self.lmp_send_name_res(offset, len(name), name[offset:offset+14])
+		return self.lmp_send_name_res(offset, len(name),
+			name[offset:offset+14], tid=self._rx_tid)
 
 	def handle_feat_req(self, op, data):	
 		log.info("handle_feat_req")
-		self.lmp_send_feat(False)
+		self.lmp_send_feat(False, tid=self._rx_tid)
 
 	def handle_feat_req_ext(self, op, data):
 		log.info("handle_feat_req_ext")
-		self.lmp_send_feat_ext(False, num=u8(data[0]))
+		self.lmp_send_feat_ext(False, num=u8(data[0]), tid=self._rx_tid)
 
 	def handle_vers_req(self, op, data):	
 		log.info("handle_vers_req")
-		self.lmp_send_version(False)
+		self.lmp_send_version(False, tid=self._rx_tid)
 
 	def handle_io_cap_req(self, op, data):
 		log.info("handle_io_cap_req")
-		self.lmp_send_io_cap(False)
+		self.lmp_send_io_cap(False, tid=self._rx_tid)
+
+	def handle_notification(self, op, data):
+		# Nothing to send back. These PDUs tell this end what the peer
+		# allows -- how many slots a packet of ours may take, how long the
+		# link may go quiet -- rather than ask it for anything, so being
+		# recognized is all they need. The PDU itself is already in the
+		# capture and in the trace.
+		pass
+
+	def handle_max_slot_req(self, op, data):
+		# The peer asks to send packets of that many slots. Both answers
+		# are an answer; silence is not. A peer that gets neither
+		# LMP_ACCEPTED nor LMP_NOT_ACCEPTED waits out its LMP response
+		# timeout, 30 seconds, and then detaches the link
+		# (Core v5.4 | Vol 2, Part C, 2.4.1 and 2.7).
+		#
+		# One slot is where a new connection starts (Vol 2, Part C, 4.1.10)
+		# and where this tool keeps the link. The firmware does decode the
+		# multi-slot packet kinds, but no capture has exercised that over
+		# the air. So one slot is accepted and anything larger refused, and
+		# the reason names the value rather than the procedure: multi-slot
+		# control is mandatory for both devices (table 4.11), so it is the
+		# count that is declined, not the PDU.
+		slots = u8(data[0]) if data else 0
+		if slots == 1:
+			return self.lmp_send_accepted(op, tid=self._rx_tid)
+		if slots == 0:
+			# No slots at all is not a packet size, and a PDU too short to
+			# hold the parameter is the same answer (Vol 2, Part C, 2.5).
+			reason = LMP_ERR_INVALID_LMP_PARAMETERS
+		else:
+			reason = LMP_ERR_UNSUPPORTED_PARAM_VALUE
+		return self.lmp_send_not_accepted(op, p8(reason), tid=self._rx_tid)
+
+	def handle_switch_req(self, op, data):
+		if len(data) < 4:
+			# Too short to hold the switch instant, which the answer
+			# below says rather than raising on the unpack
+			# (Vol 2, Part C, 2.5).
+			return self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
+		instant = u32(data[:4])
+		log.info("switch req: instant: %d (in %d ticks)"%(
+			instant, (instant<<1)-self._clkn))
+		# A role switch would make this end the other side of the link,
+		# which it cannot do, and its feature mask does not offer the
+		# feature. Refusing is an answer, and the request needs one as much
+		# as the one above does (Vol 2, Part C, 4.4.2).
+		return self.lmp_send_not_accepted(op,
+			p8(LMP_ERR_UNSUPPORTED_REMOTE_FEATURE), tid=self._rx_tid)
 
 	def lmp_send_conn_req(self, **kwargs):
 		return self.lmp_send(LMP_HOST_CONNECTION_REQ, b'', **kwargs)
@@ -392,15 +460,17 @@ class LMPMaster(LMP):
 				LMP_VERSION_REQ: 	(self.handle_vers_req,),
 				LMP_FEATURES_REQ:	(self.handle_feat_req,),
 				EXT_OPCODE|LMP_FEATURES_REQ_EXT:	(self.handle_feat_req_ext,),
-				LMP_IO_CAPABILITY_REQ: 	(self.handle_io_cap_req,),
+				EXT_OPCODE|LMP_IO_CAPABILITY_REQ: (self.handle_io_cap_req,),
 				LMP_NAME_REQ: 		(self.handle_name_req,),
 				LMP_FEATURES_RES:	(self.handle_info_res,),
 				EXT_OPCODE|LMP_FEATURES_RES_EXT: (self.handle_info_res,),
 				LMP_VERSION_RES: 	(self.handle_info_res,),
-				LMP_IO_CAPABILITY_RES: 	(self.handle_info_res,),
+				EXT_OPCODE|LMP_IO_CAPABILITY_RES: (self.handle_info_res,),
 				LMP_NAME_RES: 		(self.handle_info_res,),
 				LMP_SLOT_OFFSET:	(self.handle_slot_offset,),
 				LMP_SWITCH_REQ:		(self.handle_switch_req,),
+				LMP_MAX_SLOT:		(self.handle_notification,),
+				LMP_MAX_SLOT_REQ:	(self.handle_max_slot_req,),
 				LMP_ACCEPTED:		(self.handle_accepted,),
 				LMP_NOT_ACCEPTED:		(self.handle_not_accepted,),
 				LMP_SETUP_COMPLETE:	(self.handle_setup_complete,),
@@ -431,11 +501,6 @@ class LMPMaster(LMP):
 		log.info("slot_offset from %s: %dusec\n"%(
 			hexlify(bdaddr).decode(),offset))
 
-	def handle_switch_req(self, op, data):
-		instant = u32(data)
-		log.info("switch req: instant: %d (in %d ticks)"%(
-			instant, (instant<<1)-self._clkn))
-		
 	def send_info_req(self):
 		if self.rmt_features is None:
 			self.lmp_send_feat(True)
@@ -484,13 +549,20 @@ class LMPSlave(LMP):
 				LMP_HOST_CONNECTION_REQ: (self.handle_host_connection_req,),
 				LMP_SETUP_COMPLETE: 	(self.handle_setup_complete,),
 				LMP_SET_AFH:		(self.handle_set_afh,),
+				LMP_SWITCH_REQ:		(self.handle_switch_req,),
+				LMP_MAX_SLOT:		(self.handle_notification,),
+				LMP_MAX_SLOT_REQ:	(self.handle_max_slot_req,),
+				# Only the central sets the supervision timeout, so this
+				# one belongs to the peripheral's table alone
+				# (Core v5.4 | Vol 2, Part C, table 5.1).
+				LMP_SUPERVISION_TIMEOUT: (self.handle_notification,),
 			},
 		}
 		self._state = 1
 		super().__init__(con)
 
 	def handle_host_connection_req(self, op, data):
-		self.lmp_send_accepted(op)
+		self.lmp_send_accepted(op, tid=self._rx_tid)
 
 	def handle_detach(self, op, data):
 		self._con.stop()
@@ -506,7 +578,7 @@ class LMPSlave(LMP):
 		chan_map = data[5:]
 		log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 			instant<<1, self._clkn, mode))
-		self.lmp_send_accepted(op)
+		self.lmp_send_accepted(op, tid=self._rx_tid)
 		self._con._bt.send_set_afh_cmd(instant<<1, mode, chan_map)
 
 	def start(self):
