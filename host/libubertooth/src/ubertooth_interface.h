@@ -748,8 +748,10 @@ enum usb_pkt_status {
 	 * measurement of clear air: the board cannot time the quiet between
 	 * packets, so it goes by level, averaging the readings that sat more
 	 * than 10 dB below the loudest it had taken since it last started
-	 * counting, which it does afresh on every hop and 25 times a second
-	 * regardless. A faded part of a packet is counted in, quiet taken
+	 * counting, which it does afresh at each receive window and at every
+	 * hop -- and a mode on a fixed channel still takes the hop timer's
+	 * tick, 25 times a second. A faded part of a packet is counted in,
+	 * quiet taken
 	 * before a packet is not, and the mean is over the loudest 10 dB of
 	 * what is admitted, so the figure sits above the floor. The firmware
 	 * decides all of this in rssi_add(), where the 10 dB is

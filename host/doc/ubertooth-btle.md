@@ -266,18 +266,19 @@ packet times are behind the host clock by more than half the capture clock's
 forwards`. Both causes look the same from here, which is why the message names
 each.
 
-A `-q` or `-r` capture record carries the packet's own power, averaged in power
-rather than in dBm over the readings the board took while the packet was on the
-air. That is the figure printed as `rssi=` as well.
+A `-q` or `-r` capture record carries the packet's own power, which is the
+figure printed as `rssi=` as well. Follow and advertising capture (`-f`, `-n`)
+average the readings of the packet in power rather than in dBm, which is what
+the average of a set of dBm readings means; promiscuous capture (`-p`) has one
+reading a packet, taken as the packet ends.
 
-Whether it also carries a figure for the background depends on the mode.
-Promiscuous capture (`-p`) reads the channel right through a receive window,
-packet or no packet, so its records can carry the board's estimate of the
-background and a reader then shows a signal-to-noise ratio; ubertooth-rx(1)
-says what that estimate rests on. Follow and advertising capture (`-f`, `-n`)
-read the radio only while a packet is arriving, so those records carry nothing
-for the background: the noise-power-valid flag stays clear and Wireshark shows
-the field as `Unused signed byte`.
+No low-energy mode carries a figure for the background. Each of them has the
+radio deliver whole packets rather than polling through the air, so the board
+reads the channel only while a packet is arriving and has nothing to estimate
+the background from. Those records leave the noise-power-valid flag clear,
+Wireshark shows the field as `Unused signed byte`, and no reader computes a
+signal-to-noise ratio from them. Classic capture does carry one, which
+ubertooth-rx(1) describes.
 
 A `-c` PPI record carries the board's own RSSI readings instead, as described
 below.
@@ -439,8 +440,10 @@ standard output belongs to the capture for the whole run: those lines move to
 standard error, and the decoded packets are not printed at all.
 
 The `rssi=` figure on each packet's `systime=` line is that packet's own level
-in dBm: the strongest RSSI reading the board reports for the packet, through a
-piecewise-linear model of the CC2400 datasheet's RSSI curve. It is the same
+in dBm, through a piecewise-linear model of the CC2400 datasheet's RSSI curve:
+the mean power of the packet's readings where the record carries that figure,
+and the strongest reading the board reports for the packet where it does not --
+a promiscuous record, or one from a board older than the figure. It is the same
 number the signal field of a `-q` or `-r` capture carries for that packet, so a
 dump and a capture of one run agree. A `-c` PPI capture carries the board's raw
 counts instead, which are not dBm. The model has ends, so `rssi=0` means "at

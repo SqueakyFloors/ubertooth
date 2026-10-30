@@ -73,9 +73,11 @@ extern int8_t rssi_max;
 extern int8_t rssi_min;
 extern uint8_t rssi_count;
 
-/* Start a new packet: the minimum, maximum, sum and count only. The
- * per-channel average has to survive this, because it is built from hundreds
- * of packets; rssi_iir_reset() is what clears it. */
+/* Start a new receive window: the minimum, maximum, sum and count, the
+ * accumulator behind the signal figure, and the reference rssi_add() tells a
+ * background reading by. The per-channel average has to survive this, because
+ * it is built from hundreds of packets; rssi_iir_reset() is what clears it,
+ * and rssi_noise_reset() the background. */
 void rssi_reset(void);
 
 /* The packet's own power: the mean of the readings taken while it was on the

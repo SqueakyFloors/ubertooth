@@ -657,6 +657,22 @@ MU_TEST(test_the_air_before_a_packet_is_not_the_background)
 	mu_assert_int_eq(-80, rssi_get_noise());
 }
 
+/* The boundary is more than RSSI_POWER_SPAN dB below the loudest, which is
+ * where the docs put it: a reading exactly that far down is part of the packet,
+ * because the span is how far a packet's own readings fade. */
+MU_TEST(test_a_reading_exactly_the_span_down_is_not_the_background)
+{
+	rssi_noise_reset();
+	rssi_reset();
+	rssi_add(-40);
+	rssi_add(-50);
+	mu_assert_int_eq(0, rssi_noise_estimated());
+
+	rssi_add(-51);
+	mu_assert_int_eq(1, rssi_noise_estimated());
+	mu_assert_int_eq(-51, rssi_get_noise());
+}
+
 /* Each receive window starts the comparison again, so a packet in one window
  * does not admit the air of the next as background. Without that, a quiet
  * window after a loud one reports a figure it has no evidence for: every
@@ -740,6 +756,7 @@ int main(void)
 	MU_RUN(test_a_quiet_window_claims_no_background);
 	MU_RUN(test_the_background_outlives_a_packet_and_not_a_hop);
 	MU_RUN(test_the_air_before_a_packet_is_not_the_background);
+	MU_RUN(test_a_reading_exactly_the_span_down_is_not_the_background);
 	MU_RUN(test_each_window_starts_the_comparison_again);
 	MU_RUN(test_a_hop_starts_the_comparison_again);
 	return mu_report();

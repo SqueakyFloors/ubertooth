@@ -82,37 +82,13 @@ Requires BlueZ (Linux only).
  - `-h` :
    show help.
 
-A record of a `-q` or `-r` capture carries the packet's own power and an
-estimate of the background around it. Both are averaged in power rather than in
-dBm, which is what the average of a set of dBm readings means.
-
-The signal figure is the mean power of the loudest 10 dB of the readings the
-board took across the receive window the packet arrived in. The window is a
-fixed stretch of air time, not the packet, so leaving the quieter readings out
-is what makes the figure the packet's: without it a packet filling a third of
-the window would read 5 dB low.
-
-The background is an estimate because the board cannot time the quiet between
-packets, so it goes by level: it averages the readings that sat more than 10 dB
-below the loudest it had taken since it last started counting. It starts
-counting again on every hop, and 25 times a second even on a fixed channel, so
-the figure describes the last few tens of milliseconds of air. Three things
-follow. A faded part of a packet sits that far down too and is counted in.
-Quiet taken before a packet is not admitted, so a window whose packet arrives
-last contributes nothing. And the mean is over the loudest 10 dB of what is
-admitted, so on a channel that is mostly silent the figure sits well above the
-floor.
-
-The screen shows the two as `s=` and `n=`, in dBm, with `snr=` the difference.
-A capture record carries them as its signal power and noise power, and the
-noise-power-valid flag says the noise field holds the board's estimate, so a
-reader shows a signal-to-noise ratio wherever the estimate sits below the
-packet. The ratio is as good as the estimate it rests on.
-
-A channel the board never heard both loud and quiet in one receive window
-leaves it with no estimate. Such a record leaves the flag clear, Wireshark
-shows the field as `Invalid Noise Power`, and the screen prints `n=none
-snr=none`.
+A record of a `-q` or `-r` capture carries the packet's own power and the
+board's estimate of the background on its channel, and the screen shows the two
+as `s=` and `n=` with `snr=` the difference. A record whose receive window held
+no reading well below its loudest carries no estimate: the capture's
+noise-power-valid flag stays clear, Wireshark shows the field as `Invalid Noise
+Power`, and the screen prints `n=none snr=none`. ubertooth-rx(1) describes both
+figures and what the estimate rests on.
 
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at

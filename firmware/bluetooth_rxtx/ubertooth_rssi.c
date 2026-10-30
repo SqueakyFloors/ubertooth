@@ -160,8 +160,10 @@ static rssi_power_t rssi_noise_power = { INT8_MIN, { 0 } };
 static int8_t rssi_window_ref = INT8_MIN;
 
 /*
- * Start a new packet's readings. The mode loops call this once per DMA bank,
- * so only the four per-packet figures belong here.
+ * Start a new packet's readings: the four per-packet figures, the accumulator
+ * behind the signal figure, and the reference rssi_add() tells a background
+ * reading by, which belongs to one receive window. The mode loops call this
+ * once per DMA bank.
  *
  * The per-channel average does not: it is an infinite impulse response filter
  * that blends 3/256 of each bank's average into the channel's running value,
