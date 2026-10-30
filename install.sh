@@ -253,9 +253,11 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-# -h answers and ends the run, but only once the whole command line has
-# parsed, as it does for every tool here: an option the script does not know
-# or a stray word is reported even beside it.
+# -h answers and ends the run, but only once the option loop has read the
+# whole command line, as it does for every tool here: an option the script
+# does not know, a missing value or a stray word is reported even beside it.
+# The combination checks below come after, so -h beside two options that
+# cannot both run answers rather than refusing, which is what the tools do.
 if [ "$HELP" -eq 1 ]; then
 	sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
 	# Printed rather than written in the comment above, so the pin itself
