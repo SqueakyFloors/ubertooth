@@ -633,7 +633,11 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
  * beside a record that had it right.
  *
  * The first packet of a capture reports no gap: there is nothing to measure
- * from, and its own clock reading printed as a duration measured nothing. */
+ * from, and its own clock reading printed as a duration measured nothing.
+ *
+ * Call this once for each packet that is reported: it moves the handle on to
+ * the packet it was given, so a second call for the same packet would say the
+ * gap was nothing. */
 static uint64_t ns_since_the_last_packet( ubertooth_t* ut, uint64_t nowns )
 {
 	uint64_t since = (ut->prev_packet_seen && nowns > ut->prev_packet_ns) ?
