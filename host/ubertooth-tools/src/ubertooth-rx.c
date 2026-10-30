@@ -154,6 +154,21 @@ static int capture_failed(ubertooth_t* ut, const struct rx_files* files,
 	return 1;
 }
 
+/* Set once a replay has handed a whole record to the decoder, which
+ * stream_rx_file() does for each record it reads. Before the first one the
+ * capture files hold their headers and nothing else; from it they hold the
+ * replay's output. */
+static int replay_read_a_record;
+
+/* A replay's decode: notes the record, then decodes it like any other. The
+ * decode is libubertooth's cb_rx() and keeps no count of its own, and a live
+ * capture needs none, so only a replay goes through here. */
+static void replay_decode(ubertooth_t* ut, void* args)
+{
+	replay_read_a_record = 1;
+	cb_rx(ut, args);
+}
+
 int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
@@ -646,9 +661,17 @@ int main(int argc, char* argv[])
 	} else {
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */
-		r = stream_rx_file(ut, infile, cb_rx, pn);
+		r = stream_rx_file(ut, infile, replay_decode, pn);
 		fclose(infile);
 		exit_status = rx_file_report(r, infile_name);
+
+		/* An input not one whole record could be read from leaves the
+		 * capture files holding their headers and nothing else, so they
+		 * go the way a refused capture's files do. Once a record has
+		 * been read they stay, however little of the input came after
+		 * it: they hold what the replay decoded. */
+		if (exit_status != 0 && !replay_read_a_record)
+			rx_discard_files(ut, &files);
 
 		/* A recorded capture carries the losses it was recorded with, in
 		 * the status of its own records, and the replay is where a reader

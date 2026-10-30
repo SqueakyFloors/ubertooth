@@ -562,6 +562,12 @@ case; `-r` refuses such a name outright and never reaches this. Once the first
 packet can arrive the file stays, because a capture that decoded nothing is a
 result of its own and its header says the capture ran.
 
+A replay is the same with its input in place of the board: an input that not
+one whole record could be read from -- a read error, or a file too short to
+hold a record -- leaves no capture file behind. From the first record on the
+files hold what the replay decoded and they stay, however little of the input
+could be read after it.
+
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.

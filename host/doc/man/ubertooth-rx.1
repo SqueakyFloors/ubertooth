@@ -255,6 +255,8 @@ The \fB\-q\fR, \fB\-r\fR and \fB\-d\fR files are created once the board has been
 .P
 What is left after that is the capture starting: the USB transfer, the thread that completes it, and the modulation, capture, and channel requests\. A run that ends at one of those removes the capture files it had created, naming any it cannot remove as \fBwarning: cannot remove FILE: \|\.\|\.\|\.\fR\. Only a regular file at that name is removed: a name the user had set up as something else \-\- \fB/dev/null\fR, a pipe, or a symbolic link \-\- is left where it is, so no run takes away a path the user arranged, and a capture written to standard output is no file at all\. A \fB\-q\fR or \fB\-d\fR name that already held a file of the user's is removed along with the rest, since creating the capture had truncated it in any case; \fB\-r\fR refuses such a name outright and never reaches this\. Once the first packet can arrive the file stays, because a capture that decoded nothing is a result of its own and its header says the capture ran\.
 .P
+A replay is the same with its input in place of the board: an input that not one whole record could be read from \-\- a read error, or a file too short to hold a record \-\- leaves no capture file behind\. From the first record on the files hold what the replay decoded and they stay, however little of the input could be read after it\.
+.P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts

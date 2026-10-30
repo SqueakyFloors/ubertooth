@@ -101,6 +101,13 @@ static struct {
 	/* 1 to have btbb_piconet_new() fail, as it does when the machine is out
 	 * of memory. */
 	int no_memory;
+	/* What a replay's read of its input ends with, in stream_rx_file()'s own
+	 * terms: 0 a clean end of file, minus an errno a read error, and a
+	 * positive number the bytes of a last record that was cut short. */
+	int replay_result;
+	/* How many whole records it hands to the decoder before that, which is
+	 * what decides whether the capture files hold anything. */
+	int replay_records;
 	enum capture_end end;
 	char selector[64];
 	/* Every request the tool sent, in order, one letter each: b the
@@ -384,20 +391,26 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 	return 0;
 }
 
+/* The replay's read of its input, scripted: the records it hands to the
+ * decoder, then how it ended. No file is read, so a case can ask for an
+ * error the test's own input could not produce. */
 int stream_rx_file(ubertooth_t* ut, FILE* fp, rx_callback cb, void* cb_args)
 {
-	(void)ut;
+	int record;
+
 	(void)fp;
-	(void)cb;
-	(void)cb_args;
-	return 0;
+	for (record = 0; record < device.replay_records; record++)
+		(*cb)(ut, cb_args);
+	return device.replay_result;
 }
 
+/* The real one prints the reason and turns anything but a clean end into the
+ * exit status 1. The message is libubertooth's and has its own test; the
+ * status is what the cases here read. */
 int rx_file_report(int result, const char* filename)
 {
-	(void)result;
 	(void)filename;
-	return 0;
+	return result != 0;
 }
 
 /* ---- running the tool --------------------------------------------------- */
@@ -410,6 +423,9 @@ static struct run_result run_rx(const char* const* args)
 	 * would otherwise hand the next run a stale handle. */
 	infile = NULL;
 	dumpfile = NULL;
+	/* The same for what the last replay read: the tool runs once per
+	 * process, these cases run many times in one. */
+	replay_read_a_record = 0;
 
 	result = run_tool_main(ubertooth_rx_main, args);
 
@@ -1135,6 +1151,25 @@ MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
 	}
 }
 
+/* Three unused capture-file names, for the cases below that ask one run for
+ * all three: each writer opens a file of its own, so each has to be looked
+ * for by name. */
+static void capture_names(const char* prefix, char* pcap, char* pcapng,
+                          char* dump, size_t size)
+{
+	char base[64];
+	int fd;
+
+	snprintf(base, sizeof(base), "/tmp/%s-XXXXXX", prefix);
+	fd = mkstemp(base);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	unlink(base);
+	snprintf(pcap, size, "%s.pcap", base);
+	snprintf(pcapng, size, "%s.pcapng", base);
+	snprintf(dump, size, "%s.dump", base);
+}
+
 /* The failures that cannot be moved above the capture files, because they are
  * the capture itself starting: the three requests it is built on, and the two
  * steps that set the USB transfer up. Each of them left the created file
@@ -1218,21 +1253,11 @@ MU_TEST(a_refused_run_removes_every_file_it_was_asked_for)
 {
 	struct run_result r;
 	struct stat info;
-	char base[64];
 	char pcap[80], pcapng[80], dump[80];
-	int fd;
 
 	reset_device();
 	device.rx_syms_rc = LIBUSB_ERROR_TIMEOUT;
-
-	snprintf(base, sizeof(base), "/tmp/rx-discard3-XXXXXX");
-	fd = mkstemp(base);
-	mu_assert_fatal(fd >= 0, "temp name taken");
-	close(fd);
-	unlink(base);
-	snprintf(pcap, sizeof(pcap), "%s.pcap", base);
-	snprintf(pcapng, sizeof(pcapng), "%s.pcapng", base);
-	snprintf(dump, sizeof(dump), "%s.dump", base);
+	capture_names("rx-discard3", pcap, pcapng, dump, sizeof(pcap));
 
 	r = RUN_RX("-q", pcap, "-r", pcapng, "-d", dump, "-t", "10");
 
@@ -1255,22 +1280,12 @@ MU_TEST(a_capture_that_ran_keeps_its_files)
 {
 	struct run_result r;
 	struct stat info;
-	char base[64];
 	char pcap[80], pcapng[80], dump[80];
-	int fd;
 
 	reset_device();
 	device.end = END_BY_TIMEOUT;
 	device.blocks_to_end = 2;
-
-	snprintf(base, sizeof(base), "/tmp/rx-kept-XXXXXX");
-	fd = mkstemp(base);
-	mu_assert_fatal(fd >= 0, "temp name taken");
-	close(fd);
-	unlink(base);
-	snprintf(pcap, sizeof(pcap), "%s.pcap", base);
-	snprintf(pcapng, sizeof(pcapng), "%s.pcapng", base);
-	snprintf(dump, sizeof(dump), "%s.dump", base);
+	capture_names("rx-kept", pcap, pcapng, dump, sizeof(pcap));
 
 	r = RUN_RX("-q", pcap, "-r", pcapng, "-d", dump, "-t", "10");
 
@@ -1328,6 +1343,94 @@ MU_TEST(a_refused_run_leaves_a_link_and_dev_null_alone)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(stat("/dev/null", &info) == 0, "/dev/null is still there");
 	mu_assert(strstr(r.err, "warning: cannot remove") == NULL, r.err);
+}
+
+/* A replay whose input yielded not one whole record is the same case on the
+ * replay path: the files hold their headers and nothing else, and used to be
+ * left behind for the user to tell apart from a replay that decoded nothing.
+ * Both shapes of unreadable input are checked -- a read error, and a file too
+ * short to hold a record -- since the tool decides on the records, not on
+ * which way the read ended. */
+MU_TEST(a_replay_that_read_no_record_removes_its_files)
+{
+	static const int results[] = {
+		-EIO,  /* a read error, which stream_rx_file() returns negated */
+		10     /* the bytes of a first record that was cut short */
+	};
+	struct run_result r;
+	struct stat info;
+	char pcap[80], pcapng[80], dump[80];
+	size_t which;
+
+	for (which = 0; which < sizeof(results) / sizeof(results[0]); which++) {
+		reset_device();
+		device.replay_result = results[which];
+		capture_names("rx-replay-gone", pcap, pcapng, dump,
+		              sizeof(pcap));
+
+		r = RUN_RX("-i", "/dev/null", "-q", pcap, "-r", pcapng,
+		           "-d", dump);
+
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(stat(pcap, &info) != 0, pcap);
+		mu_assert(stat(pcapng, &info) != 0, pcapng);
+		mu_assert(stat(dump, &info) != 0, dump);
+		/* The reason is libubertooth's own line, and a file this run
+		 * took back is not worth one of its own. */
+		mu_assert(strstr(r.err, "warning: cannot remove") == NULL,
+		          r.err);
+		unlink(pcap);
+		unlink(pcapng);
+		unlink(dump);
+	}
+}
+
+/* The other half of it, as for a capture: an input that ended badly after
+ * some of it had been read leaves files holding what was decoded, so they
+ * stay even though the run exits 1. */
+MU_TEST(a_replay_that_read_records_keeps_its_files)
+{
+	struct run_result r;
+	struct stat info;
+	char pcap[80], pcapng[80], dump[80];
+
+	reset_device();
+	device.replay_result = -EIO;
+	device.replay_records = 3;
+	capture_names("rx-replay-kept", pcap, pcapng, dump, sizeof(pcap));
+
+	r = RUN_RX("-i", "/dev/null", "-q", pcap, "-r", pcapng, "-d", dump);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(stat(pcap, &info) == 0, pcap);
+	mu_assert(info.st_size > 0, "the PCAP file holds its header");
+	mu_assert(stat(pcapng, &info) == 0, pcapng);
+	mu_assert(info.st_size > 0, "the PcapNG file holds its header");
+	mu_assert(stat(dump, &info) == 0, dump);
+	unlink(pcap);
+	unlink(pcapng);
+	unlink(dump);
+}
+
+/* An input that cannot be opened at all is refused before the capture files
+ * are created, so there is nothing to remove and nothing is left behind. */
+MU_TEST(a_replay_whose_input_cannot_be_opened_creates_no_file)
+{
+	struct run_result r;
+	struct stat info;
+	char missing[80], pcap[80], pcapng[80], dump[80];
+
+	reset_device();
+	capture_names("rx-replay-missing", pcap, pcapng, dump, sizeof(pcap));
+	snprintf(missing, sizeof(missing), "%s.input", pcap);
+
+	r = RUN_RX("-i", missing, "-q", pcap, "-r", pcapng, "-d", dump);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, missing) != NULL, r.err);
+	mu_assert(stat(pcap, &info) != 0, pcap);
+	mu_assert(stat(pcapng, &info) != 0, pcapng);
+	mu_assert(stat(dump, &info) != 0, dump);
 }
 
 /* A capture that cannot be started at all exits 1 with one "error: " line on
@@ -1528,6 +1631,9 @@ int main(void)
 	MU_RUN(a_refused_run_removes_every_file_it_was_asked_for);
 	MU_RUN(a_capture_that_ran_keeps_its_files);
 	MU_RUN(a_refused_run_leaves_a_link_and_dev_null_alone);
+	MU_RUN(a_replay_that_read_no_record_removes_its_files);
+	MU_RUN(a_replay_that_read_records_keeps_its_files);
+	MU_RUN(a_replay_whose_input_cannot_be_opened_creates_no_file);
 	MU_RUN(a_capture_that_cannot_start_exits_one);
 	MU_RUN(a_firmware_the_tool_cannot_use_exits_one);
 	MU_RUN(a_replay_sends_no_setup_request);

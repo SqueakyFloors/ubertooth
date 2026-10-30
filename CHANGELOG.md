@@ -791,8 +791,10 @@
   capture files removed again, so a header-only capture is no longer left
   behind there either. A capture that ran keeps its file, however little
   arrived, and a name the user had set up as something else -- `/dev/null`, a
-  pipe, or a symbolic link -- is left where it is.
+  pipe, or a symbolic link -- is left where it is. A replay (`-i`) whose input
+  not one record could be read from no longer leaves one either.
   [#993](https://github.com/SqueakyFloors/ubertooth/issues/993)
+  [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013)
 
 - Fixed: `ubertooth-btle -f` could abandon the connection it was following and
   jump to another one. Any connection request the board heard on an
