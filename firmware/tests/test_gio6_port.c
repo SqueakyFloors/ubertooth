@@ -149,6 +149,81 @@ MU_TEST(test_the_interrupt_is_claimed_only_where_the_part_has_one)
 	                 GIO6_HAS_INTERRUPT);
 }
 
+#if GIO6_HAS_INTERRUPT
+/* The pin's own port holds `value` in this register file and every other port
+ * is untouched. */
+static void only_the_pins_port_holds(volatile uint32_t *regs, uint32_t value,
+                                     const char *what)
+{
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
+		mu_assert((regs[port] == ((port == GIO6_PORT) ? value : 0)),
+		          what);
+	}
+}
+
+MU_TEST(test_each_edge_macro_arms_the_pins_own_port_and_no_other)
+{
+	/*
+	 * btbr's PHY arms the rising edge to refill the transmit FIFO and the
+	 * falling edge to be told a receive has started, and clears the
+	 * pending edge on both sides of that. Carrier sense in the other image
+	 * uses the falling pair, reached through cs_trigger_enable() in the
+	 * test below; these are the macros themselves, because a wrong
+	 * register or a wrong port in one of them is a packet that never
+	 * finishes going out.
+	 */
+	clear_registers();
+	GIO6_INT_RISE_SET;
+	only_the_pins_port_holds(fake_io_int_en_r, PIN_GIO6,
+	                         BOARD_NAME ": the rising edge was armed on "
+	                                    "another port");
+	only_the_pins_port_holds(fake_io_int_en_f, 0,
+	                         BOARD_NAME ": arming the rising edge also "
+	                                    "armed a falling one");
+
+	clear_registers();
+	GIO6_INT_FALL_SET;
+	only_the_pins_port_holds(fake_io_int_en_f, PIN_GIO6,
+	                         BOARD_NAME ": the falling edge was armed on "
+	                                    "another port");
+	only_the_pins_port_holds(fake_io_int_en_r, 0,
+	                         BOARD_NAME ": arming the falling edge also "
+	                                    "armed a rising one");
+
+	/* Every bit of both edge registers armed on every port, so a clear
+	 * that reaches the wrong port or the wrong edge leaves its mark. */
+	clear_registers();
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
+		fake_io_int_en_r[port] = 0xffffffffu;
+		fake_io_int_en_f[port] = 0xffffffffu;
+	}
+	GIO6_INT_RISE_CLR;
+	GIO6_INT_FALL_CLR;
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
+		uint32_t left = (port == GIO6_PORT)
+		              ? ~(uint32_t)PIN_GIO6 : 0xffffffffu;
+		mu_assert_int_eq(left, fake_io_int_en_r[port]);
+		mu_assert_int_eq(left, fake_io_int_en_f[port]);
+	}
+
+	/*
+	 * Clearing the pending edge writes the bit on its own. IOxIntClr
+	 * clears whichever bits are written to it and is not a value to read
+	 * back, so or-ing the bit into what a read answered with would hand
+	 * the pins of that port whatever the read happened to give.
+	 */
+	clear_registers();
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++)
+		fake_io_int_clr[port] = 0xffffffffu;
+	GIO6_INT_CLR;
+	for (int port = 0; port < FAKE_GPIO_PORTS; port++) {
+		mu_assert_int_eq((port == GIO6_PORT)
+		                 ? (uint32_t)PIN_GIO6 : 0xffffffffu,
+		                 fake_io_int_clr[port]);
+	}
+}
+#endif
+
 MU_TEST(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other)
 {
 	clear_registers();
@@ -192,10 +267,10 @@ MU_TEST(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other)
 }
 
 /*
- * The two files that arm and service the carrier-sense edge must reach the
- * registers through the board's macros, never by name: a named register is a
- * port number written into code that is built for all three boards, which is
- * the mistake these tests are here to keep out.
+ * The files that arm and service an edge on GIO6 must reach the registers
+ * through the board's macros, never by name: a named register is a port number
+ * written into code that is built for more than one board, which is the
+ * mistake these tests are here to keep out.
  */
 static void scan_for_a_named_gpio_interrupt_register(const char *path)
 {
@@ -228,17 +303,22 @@ static void scan_for_a_named_gpio_interrupt_register(const char *path)
 	fclose(source);
 }
 
-MU_TEST(test_the_carrier_sense_code_names_no_gpio_interrupt_register)
+MU_TEST(test_the_code_that_arms_an_edge_names_no_gpio_interrupt_register)
 {
 	scan_for_a_named_gpio_interrupt_register(FW_RXTX_DIR "/ubertooth_cs.c");
 	scan_for_a_named_gpio_interrupt_register(FW_RXTX_DIR "/bluetooth_rxtx.c");
+	/* btbr's PHY arms and services the same pin for its transmit FIFO. */
+	scan_for_a_named_gpio_interrupt_register(FW_BTBR_DIR "/src/btphy/rf.c");
 }
 
 int main(void)
 {
 	MU_RUN(test_the_read_macro_asks_the_port_the_pin_is_on);
 	MU_RUN(test_the_interrupt_is_claimed_only_where_the_part_has_one);
+#if GIO6_HAS_INTERRUPT
+	MU_RUN(test_each_edge_macro_arms_the_pins_own_port_and_no_other);
+#endif
 	MU_RUN(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other);
-	MU_RUN(test_the_carrier_sense_code_names_no_gpio_interrupt_register);
+	MU_RUN(test_the_code_that_arms_an_edge_names_no_gpio_interrupt_register);
 	return mu_report();
 }

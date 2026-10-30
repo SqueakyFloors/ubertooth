@@ -21,7 +21,24 @@
 
 DIRS = blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr
 
-all: $(DIRS)
+# btbr's PHY refills the radio's transmit FIFO from the GPIO interrupt on the
+# radio's GIO6 pin, and the part has that interrupt on ports 0 and 2 only
+# (LPC176x/5x user manual UM10360, section 9.5). GIO6 is on port 1 on the
+# boards below, so the image cannot be built for them at all -- btbr's rf.c
+# says so with an #error -- and `all` leaves it out rather than fail for the
+# images that do build. Building btbr directly still gives that message.
+#
+# This names the boards that cannot have it, not the one that can, so a board
+# added later stays in `all` and gets the #error if its GIO6 is on the wrong
+# port, instead of being dropped from `all` without anyone noticing.
+BOARDS_WITHOUT_GIO6_INTERRUPT = UBERTOOTH_ZERO TC13BADGE
+ALL_DIRS = $(DIRS)
+ifneq ($(filter $(BOARD),$(BOARDS_WITHOUT_GIO6_INTERRUPT)),)
+ALL_DIRS := $(filter-out btbr,$(ALL_DIRS))
+$(info note: btbr is left out for $(BOARD): its PHY needs a GPIO interrupt on the radio's GIO6 pin, and that pin is on a port without one on this board)
+endif
+
+all: $(ALL_DIRS)
 
 # The bootloader, which is not in DIRS: it is the one image written in C++, so
 # `make` here would need the ARM C++ runtime on every machine that builds

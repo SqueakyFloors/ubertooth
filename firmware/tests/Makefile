@@ -86,12 +86,13 @@ $(BINDIR)/test_frend: test_frend.c minunit.h $(FW_COMMON)/cc2400.h \
 GIO6_PORT_TEST_DEPS := test_gio6_port.c minunit.h source_scan.h \
 		stubs-gio6/ubertooth.h stubs-gio6/lpc17.h \
 		$(FW_COMMON)/ubertooth.h $(FW_COMMON)/lpc17.h \
-		$(FW_RXTX)/ubertooth_cs.c $(FW_RXTX)/ubertooth_cs.h
+		$(FW_RXTX)/ubertooth_cs.c $(FW_RXTX)/ubertooth_cs.h \
+		$(FW_BTBR)/src/btphy/rf.c
 
 # $(1) is the board the binary is built for.
 gio6_port_test = $(CC) $(CFLAGS) -Istubs-gio6 $(CPPFLAGS) -D$(1) \
-		-DFW_RXTX_DIR='"$(FW_RXTX)"' -o $@ test_gio6_port.c \
-		$(FW_RXTX)/ubertooth_cs.c
+		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-o $@ test_gio6_port.c $(FW_RXTX)/ubertooth_cs.c
 
 $(BINDIR)/test_gio6_port_zero: $(GIO6_PORT_TEST_DEPS) | $(BINDIR)
 	$(call gio6_port_test,UBERTOOTH_ZERO)
