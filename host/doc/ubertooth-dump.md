@@ -13,11 +13,12 @@ Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
 
 The dump is one record per block of symbols the board sends. Without `-b` a
-record is 68 bytes: the host time the block arrived, 4 bytes big-endian, then
-the whole 64-byte USB receive packet, 50 bytes of which are the symbols packed
-8 per byte. With `-b` a record is one 401-byte line: the block's 400 symbols as
-ASCII `0` and `1`, then a newline. Nothing separates the records otherwise, and
-nothing marks a gap, so a reader counts from the start of the dump.
+record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4
+bytes big-endian, then the whole 64-byte USB receive packet, 50 bytes of which
+are the symbols packed 8 per byte. With `-b` a record is one 401-byte line: the
+block's 400 symbols as ASCII `0` and `1`, then a newline. Nothing separates the
+records otherwise, and nothing marks a gap, so a reader counts from the start of
+the dump.
 
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
@@ -79,8 +80,10 @@ when the file is opened.
 
 A terminal is refused either way, before any device is opened:
 `error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
-The stream is binary, so a terminal fills with control characters and the
-dump is lost. Redirect or pipe standard output instead.
+A dump is thousands of records a second, written for a file or another program:
+without `-b` it is binary and fills a terminal with control characters, and
+with `-b` it scrolls 401 characters per record past faster than anything can be
+read. Redirect or pipe standard output instead, or give `-d` a file.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the
@@ -156,9 +159,9 @@ a modulation other than the one asked for.
 
 A `-d` file is opened once the board has been opened, its firmware accepted and
 its modulation set, not before, so a run refused for any of those reasons
-leaves no empty file behind. A terminal on standard output is still refused while the command line
-is read, with or without `-d -`, because that is a problem with the command
-rather than with the board.
+leaves no empty file behind. A terminal on standard output is still refused
+while the command line is read, with or without `-d -`, because that is a
+problem with the command rather than with the board.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),

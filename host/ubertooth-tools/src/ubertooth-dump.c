@@ -37,14 +37,15 @@ static void usage(FILE *file)
 	fprintf(file, "\t-l LE modulation\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 	fprintf(file, "\t-d filename dump to this file instead of standard output ('-' is standard output)\n");
-	fprintf(file, "\nThe dump is binary, so a terminal on standard output is refused: redirect\n");
-	fprintf(file, "it, pipe it, or give -d a file.\n");
+	fprintf(file, "\nA dump is written for a file or another program, so a terminal on standard\n");
+	fprintf(file, "output is refused: redirect it, pipe it, or give -d a file.\n");
 }
 
 /*
  * The normal output is one 68-byte record per block the board sends: the host
- * time it arrived, 4 bytes big-endian, then the whole 64-byte USB receive
- * packet, 50 bytes of which are the received symbols packed 8 per byte.
+ * time it arrived, as Unix epoch seconds in 4 bytes big-endian, then the whole
+ * 64-byte USB receive packet, 50 bytes of which are the received symbols
+ * packed 8 per byte.
  *
  * The -b output is one line per block: 400 characters, each the ASCII '0' or
  * '1' the demodulator decided (GnuRadio style), then a newline.

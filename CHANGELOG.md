@@ -1987,11 +1987,12 @@
   to offer writing as well, which no option of any tool does, so a reader went
   looking for one that is not there.
   [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
-- `ubertooth-dump(1)` says what a dump holds: 68-byte records of the host
-  arrival time and the whole USB receive packet, or with `-b` one 401-byte
-  line of ASCII `0` and `1` per block. Its `-h` text says the same, and no
-  longer calls a terminal on standard output merely unwise when the tool
-  refuses one outright.
+- `ubertooth-dump(1)` says what a dump holds, which it did not say at all:
+  68-byte records of the host arrival time, as Unix epoch seconds, and the
+  whole USB receive packet, or with `-b` one 401-byte line of ASCII `0` and
+  `1` per block. Its `-h` text says what `-d` does, and both it and the man
+  page stop giving the dump's binary-ness as the reason a terminal on standard
+  output is refused: `-b` is text, and is refused too.
   [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
 - `ubertooth-util(1)` says when the firmware API version moves: during
   development only for a change that breaks older host tools, not for every

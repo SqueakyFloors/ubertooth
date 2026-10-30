@@ -452,6 +452,9 @@ MU_TEST(the_modulation_options_reach_the_board)
 	fake.reach_capture = 1;
 	run_main(&r, 2, classic);
 	mu_assert_int_eq(0, r.rc);
+	/* Counted as well as compared: MOD_BT_BASIC_RATE is 0, so the value
+	 * alone would also match a request that was never sent. */
+	mu_assert_int_eq(1, fake.modulations);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation_set);
 
 	reset();
@@ -459,6 +462,7 @@ MU_TEST(the_modulation_options_reach_the_board)
 	fake.reach_capture = 1;
 	run_main(&r, 2, low_energy);
 	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.modulations);
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.modulation_set);
 
 	reset();
@@ -466,6 +470,7 @@ MU_TEST(the_modulation_options_reach_the_board)
 	fake.reach_capture = 1;
 	run_main(&r, 1, neither);
 	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.modulations);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation_set);
 }
 

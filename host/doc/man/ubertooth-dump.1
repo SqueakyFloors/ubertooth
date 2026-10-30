@@ -10,7 +10,7 @@ ubertooth\-dump [\-b] [\-c | \-l] [\-d <filename\.bin>]
 .SH "DESCRIPTION"
 This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.
 .P
-The dump is one record per block of symbols the board sends\. Without \fB\-b\fR a record is 68 bytes: the host time the block arrived, 4 bytes big\-endian, then the whole 64\-byte USB receive packet, 50 bytes of which are the symbols packed 8 per byte\. With \fB\-b\fR a record is one 401\-byte line: the block's 400 symbols as ASCII \fB0\fR and \fB1\fR, then a newline\. Nothing separates the records otherwise, and nothing marks a gap, so a reader counts from the start of the dump\.
+The dump is one record per block of symbols the board sends\. Without \fB\-b\fR a record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4 bytes big\-endian, then the whole 64\-byte USB receive packet, 50 bytes of which are the symbols packed 8 per byte\. With \fB\-b\fR a record is one 401\-byte line: the block's 400 symbols as ASCII \fB0\fR and \fB1\fR, then a newline\. Nothing separates the records otherwise, and nothing marks a gap, so a reader counts from the start of the dump\.
 .P
 The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .SH "OPTIONS"
@@ -46,7 +46,7 @@ A refused command line creates and truncates nothing: \fB\-d\fR names its file w
 .SH "DIAGNOSTICS"
 Without \fB\-d\fR, standard output carries the binary symbol stream and nothing else, and so does \fB\-d \-\fR\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\. That line comes after the board has been selected and its firmware accepted, because that is when the file is opened\.
 .P
-A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. The stream is binary, so a terminal fills with control characters and the dump is lost\. Redirect or pipe standard output instead\.
+A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. A dump is thousands of records a second, written for a file or another program: without \fB\-b\fR it is binary and fills a terminal with control characters, and with \fB\-b\fR it scrolls 401 characters per record past faster than anything can be read\. Redirect or pipe standard output instead, or give \fB\-d\fR a file\.
 .P
 A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P
