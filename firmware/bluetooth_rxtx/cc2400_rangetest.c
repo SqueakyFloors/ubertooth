@@ -298,7 +298,7 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	/* The serial number, from the copy the boot ROM was read into at startup.
 	 * Reading it here instead would call the boot ROM from inside a running
 	 * mode, which can stop the mode's loop for long enough that the watchdog
-	 * resets the board (#505). */
+	 * resets the board. */
 	get_device_serial(serial, &serial_len);
 	if (serial[0] != 0) /* the boot ROM could not read it */
 		return;

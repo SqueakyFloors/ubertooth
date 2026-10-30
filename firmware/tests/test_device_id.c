@@ -7,8 +7,8 @@
  * mode loop is running, so a boot-ROM call that does not return promptly stops
  * that loop: a live capture asked for its serial number was measured answering
  * nothing at all for the watchdog's whole 3000 ms and then being reset, which
- * is what a user meets when any tool is started with `-U` while a capture runs
- * (#505). Starting a tool with `-U` reads every attached board's serial number.
+ * is what a user meets when any tool is started with `-U` while a capture runs:
+ * matching a board that way reads every attached board's serial number.
  *
  * So the numbers are read once at startup and every later request is answered
  * from that copy. Two things have to hold for that to be a fix rather than a
@@ -250,7 +250,7 @@ MU_TEST(test_only_startup_and_the_hand_over_call_the_boot_rom)
 		         "%s: %s() calls the boot ROM. Only device_id_init(), at "
 		         "startup, and set_isp(), which hands the board over, may: "
 		         "a call the host or a mode can reach stops the mode loop "
-		         "and the watchdog resets the board (#505)",
+		         "and the watchdog resets the board",
 		         path, calls.functions[i]);
 		mu_assert(strcmp(calls.functions[i], "device_id_init") == 0 ||
 		          strcmp(calls.functions[i], "set_isp") == 0, msg);
@@ -330,8 +330,8 @@ MU_TEST(test_no_shipped_image_calls_the_boot_rom_outside_startup)
 		         "%s calls the boot ROM. The host can reach this while a "
 		         "mode is running, and a boot-ROM call that does not come "
 		         "back stops the mode loop until the watchdog resets the "
-		         "board (#505): read the number from the copy "
-		         "device_id_init() made at startup instead", culprit);
+		         "board: read the number from the copy device_id_init() "
+		         "made at startup instead", culprit);
 		mu_assert(culprit[0] == '\0', msg);
 	}
 }
