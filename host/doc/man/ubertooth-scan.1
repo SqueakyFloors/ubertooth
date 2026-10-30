@@ -68,7 +68,7 @@ AFH map: 0x0123456789abcdef1234
 .fi
 .IP "" 0
 .P
-\fBs=\fR is the packet's own power and \fBn=\fR the board's estimate of the background on that channel, both in dBm, with \fBsnr=\fR the difference\. A channel the board never heard quiet leaves it with no estimate, and the line reads \fBn=none snr=none\fR; ubertooth\-rx(1) describes both figures and what the estimate rests on\.
+\fBs=\fR is the packet's own power and \fBn=\fR the board's estimate of the background on that channel, both in dBm, with \fBsnr=\fR the difference\. A channel the board never heard both loud and quiet in one receive window leaves it with no estimate, and the line reads \fBn=none snr=none\fR; ubertooth\-rx(1) describes both figures and what the estimate rests on\.
 .P
 \fB\-x\fR adds the extended report of a device under its line, indented, as \fBhcitool info\fR shows one: its address and name, the LMP version and manufacturer, its features, its clock offset, and its channel map as an \fBAFH Map:\fR line, the field name \fBhcitool info\fR gives it\. A device that reports AFH off has no map to report, and standard error carries a \fBnote:\fR line saying so\. A survey result's map is the \fBAFH map:\fR line above, the spelling it has always had\.
 .P

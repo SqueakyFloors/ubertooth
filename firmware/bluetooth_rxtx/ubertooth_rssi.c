@@ -151,6 +151,14 @@ int16_t rssi_iir[NUM_BREDR_CHANNELS] = {0};
 static rssi_power_t rssi_signal_power = { INT8_MIN, { 0 } };
 static rssi_power_t rssi_noise_power = { INT8_MIN, { 0 } };
 
+/* The loudest reading taken so far on this channel in this receive window,
+ * which is what rssi_add() tells a background reading by. It belongs to both:
+ * the window, because a packet's loudness says nothing about the next one, and
+ * the channel, because a reading on one channel must not be judged against
+ * another channel's packet. So rssi_reset() and rssi_noise_reset() both clear
+ * it. */
+static int8_t rssi_window_ref = INT8_MIN;
+
 /*
  * Start a new packet's readings. The mode loops call this once per DMA bank,
  * so only the four per-packet figures belong here.
@@ -171,6 +179,7 @@ void rssi_reset(void)
 	rssi_max = INT8_MIN;
 	rssi_min = INT8_MAX;
 	rssi_power_reset(&rssi_signal_power);
+	rssi_window_ref = INT8_MIN;
 }
 
 /*
@@ -192,34 +201,23 @@ void rssi_add(int8_t v)
 	rssi_power_add(&rssi_signal_power, v);
 
 	/*
-	 * The estimate of the background, from the readings of this receive
-	 * window that are far enough below the loudest to look like air rather
-	 * than packet.
-	 *
-	 * It is an estimate because the board cannot time the quiet. A receive
-	 * window is a fixed stretch of air time -- the radio hands over a block
-	 * of symbols whether or not a packet arrived in it -- so the window
-	 * does not say when within it the packet was, and the carrier-sense
+	 * The estimate of the background: the readings that sit more than
+	 * RSSI_POWER_SPAN dB below the loudest taken so far on this channel in
+	 * this window, which is as close to "nothing was being received" as
+	 * this radio can get. It cannot time the quiet, and the carrier-sense
 	 * line cannot say either, because the squelch it shares defaults to the
 	 * bottom of the radio's range, where carrier sense is asserted the
-	 * whole time. The level is the only evidence there is: a packet is tens
-	 * of dB above the air around it, so a reading more than
-	 * RSSI_POWER_SPAN dB below the loudest of the window was most likely
-	 * taken between packets. Two things follow, which is why the figure is
-	 * reported as an estimate and never as a measurement of clear air. A
-	 * deeply faded part of a packet can be counted in. And the readings
-	 * admitted keep their own window, so a loud one -- a burst of
-	 * interference, or that faded packet -- becomes their reference and
-	 * leaves the true floor outside it until the next hop clears the
-	 * accumulator, which holds the figure up at the burst's level for the
-	 * rest of the dwell.
+	 * whole time. ubertooth_rssi.h says what the figure that comes out is
+	 * worth.
 	 *
-	 * What the comparison is against is the window's own loudest reading,
-	 * so it costs nothing to a channel that is simply loud, and the
-	 * readings it collects outlive the window because a quiet one holds
-	 * nothing but background and a busy one may hold nothing but packet.
+	 * The reference is the readings' own loudest, not a fixed level, so a
+	 * channel that is simply loud still yields an estimate. It is a running
+	 * loudest, so quiet taken before the window's packet is not admitted: a
+	 * window whose packet arrives last gives no estimate at all.
 	 */
-	if ((int)rssi_signal_power.ref - (int)v > RSSI_POWER_SPAN)
+	if (v > rssi_window_ref)
+		rssi_window_ref = v;
+	else if ((int)rssi_window_ref - (int)v > RSSI_POWER_SPAN)
 		rssi_power_add(&rssi_noise_power, v);
 }
 
@@ -231,6 +229,7 @@ int8_t rssi_get_signal(void)
 void rssi_noise_reset(void)
 {
 	rssi_power_reset(&rssi_noise_power);
+	rssi_window_ref = INT8_MIN;
 }
 
 int rssi_noise_estimated(void)

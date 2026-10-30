@@ -85,12 +85,23 @@ int8_t rssi_get_signal(void);
 
 /*
  * The estimate of the background on the channel: the mean power of the
- * readings that look as though nothing was being received when they were
- * taken, over the loudest RSSI_POWER_SPAN dB of those, as every mean here is.
- * That last part biases the figure up where the channel is mostly silent: one
- * candidate at -85 dBm among a hundred at -110 reports about -85. See
- * rssi_add() for how it tells a candidate, and what else that costs in
- * certainty.
+ * readings that sat more than RSSI_POWER_SPAN dB below the loudest taken so
+ * far on this channel in the same receive window. rssi_add() decides that, one
+ * reading at a time.
+ *
+ * It is an estimate, and these are the three things it is not:
+ *
+ * It is not a measurement of clear air. A deeply faded part of a packet sits
+ * that far down too and is counted in.
+ *
+ * It is not the floor. The mean is over the loudest RSSI_POWER_SPAN dB of the
+ * readings admitted, as every mean here is, so one reading at -85 dBm among a
+ * hundred at -110 reports about -85. A loud reading admitted once holds the
+ * figure up at its own level until the channel changes.
+ *
+ * It is not every quiet reading of the window. The reference is a running
+ * loudest, so quiet taken before the window's packet is not admitted, and a
+ * window whose packet arrives last yields nothing.
  *
  * It does not follow rssi_reset(), because the readings of one receive window
  * need not include any of either kind, and it starts again on a hop, because a

@@ -559,9 +559,10 @@ MU_TEST(test_the_signal_figure_is_this_packets_readings)
 }
 
 /*
- * A receive window holding a packet and the clear air around it is split by
- * level: the packet's readings make the signal figure, the ones tens of dB
- * below it make the background, and neither is an average of the other.
+ * A receive window holding a packet and the air after it is split by level:
+ * the packet's readings make the signal figure, the ones more than
+ * RSSI_POWER_SPAN dB below it make the background, and neither is an average
+ * of the other.
  */
 MU_TEST(test_a_window_with_a_packet_in_it_gives_both_figures)
 {
@@ -570,7 +571,8 @@ MU_TEST(test_a_window_with_a_packet_in_it_gives_both_figures)
 	rssi_noise_reset();
 	rssi_reset();
 
-	/* Clear air, then a packet 30 dB up, then clear air again. */
+	/* A packet 30 dB up, then the air after it. The 20 readings of air
+	 * before it would make no difference: see the ordering case below. */
 	for (i = 0; i < 20; i++)
 		rssi_add(-80);
 	for (i = 0; i < 10; i++)
@@ -627,6 +629,59 @@ MU_TEST(test_the_background_outlives_a_packet_and_not_a_hop)
 	mu_assert_int_eq(INT8_MIN, rssi_get_noise());
 }
 
+/* A reading is admitted by comparison with the loudest taken so far, not with
+ * the loudest of the whole window, because the board decides one reading at a
+ * time. So the air before a packet is not background and the air after it is,
+ * and a window whose packet arrives last yields no figure at all. */
+MU_TEST(test_the_air_before_a_packet_is_not_the_background)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+	for (i = 0; i < 20; i++)
+		rssi_add(-80);
+	rssi_add(-50);
+
+	mu_assert_int_eq(-50, rssi_get_signal());
+	mu_assert_int_eq(0, rssi_noise_estimated());
+
+	/* The same readings the other way round do give one. */
+	rssi_noise_reset();
+	rssi_reset();
+	rssi_add(-50);
+	for (i = 0; i < 20; i++)
+		rssi_add(-80);
+
+	mu_assert_int_eq(1, rssi_noise_estimated());
+	mu_assert_int_eq(-80, rssi_get_noise());
+}
+
+/* A hop starts the comparison again, so the new channel's packet is not read
+ * against the old channel's. Without that, the first readings after a hop are
+ * judged against a packet on a channel the board has left: a quieter packet on
+ * the new channel sits far enough below it to be taken for background. */
+MU_TEST(test_a_hop_starts_the_comparison_again)
+{
+	int i;
+
+	rssi_noise_reset();
+	rssi_reset();
+
+	/* A loud packet on the channel the board is leaving. */
+	rssi_add(-40);
+
+	rssi_noise_reset();   /* the hop */
+
+	/* A quieter packet on the new channel, and the air under it. */
+	rssi_add(-65);
+	for (i = 0; i < 10; i++)
+		rssi_add(-90);
+
+	/* The air, not the packet: -65 is 25 dB under the old channel's -40. */
+	mu_assert_int_eq(-90, rssi_get_noise());
+}
+
 int main(void)
 {
 	printf("RSSI rounding and LED specan threshold tests\n");
@@ -656,5 +711,7 @@ int main(void)
 	MU_RUN(test_a_window_with_a_packet_in_it_gives_both_figures);
 	MU_RUN(test_a_quiet_window_claims_no_background);
 	MU_RUN(test_the_background_outlives_a_packet_and_not_a_hop);
+	MU_RUN(test_the_air_before_a_packet_is_not_the_background);
+	MU_RUN(test_a_hop_starts_the_comparison_again);
 	return mu_report();
 }

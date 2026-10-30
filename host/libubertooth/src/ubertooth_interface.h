@@ -745,12 +745,15 @@ enum usb_pkt_status {
 	 *
 	 * NOISE_ESTIMATE says the rssi_noise byte holds the board's estimate of
 	 * the background on this record's channel. It is an estimate and not a
-	 * measurement of clear air: the board picks the readings it averages by
-	 * their level, more than 10 dB below the loudest of a receive window,
-	 * rather than by timing a channel it knows nothing was being sent on,
-	 * and it averages the loudest 10 dB of those, which holds the figure up
-	 * where the channel is mostly silent. Without the bit the byte says
-	 * nothing at all.
+	 * measurement of clear air: the board cannot time the quiet between
+	 * packets, so it goes by level, averaging the readings that sat more
+	 * than 10 dB below the loudest taken so far on that channel in the same
+	 * receive window. A faded part of a packet is counted in, quiet taken
+	 * before the window's packet is not, and the mean is over the loudest
+	 * 10 dB of what is admitted, so the figure sits above the floor. The
+	 * firmware decides this in rssi_add(), where the 10 dB is
+	 * RSSI_POWER_SPAN; this header mirrors the number because it cannot
+	 * include that one. Without the bit the byte says nothing at all.
 	 *
 	 * Without SIGNAL_VALID the rssi_avg byte is not this packet's power: it
 	 * is either a record that carries no packet, or one from a board or a

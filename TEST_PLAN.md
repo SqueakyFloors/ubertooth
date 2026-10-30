@@ -556,11 +556,11 @@ before the first step so nothing is carried over.*
 - [ ] Confirm: no crash, some output
 - [ ] Look at the `s=` and `n=` columns: `s=` is the packet's own power and
       `n=` the board's estimate of the background on that channel, with `snr=`
-      the difference. `n=none snr=none` is normal on a record whose channel the
-      board never heard quiet, including the first packet after a hop. The
-      fault to report is `n=` sitting at one value across hundreds of records
-      on many channels, or every record reading `n=none` over a capture long
-      enough to visit many channels
+      the difference. `n=none snr=none` is normal, on any record whose receive
+      window held no reading well below its loudest. The fault to report is
+      `n=` sitting at one value across hundreds of records on many channels, or
+      every record reading `n=none` over a capture long enough to visit many
+      channels
 
 ### 5b. Paging
 *Requires: the board carrying the `btbr` image*

@@ -84,12 +84,18 @@ Requires BlueZ (Linux only).
 
 A record of a `-q` or `-r` capture carries the packet's own power, measured
 over the readings the board took while the packet was on the air, and an
-estimate of the background around it. The estimate is the mean of the readings
-that sat far enough below the loudest of a receive window to look like air
-rather than packet: the board cannot time the quiet between packets, so it goes
-by level, and a deeply faded part of a packet can be counted in. Both figures
-are averaged in power rather than in dBm, so a quiet stretch inside a receive
-window does not drag the packet's figure down.
+estimate of the background around it. Both figures are averaged in power rather
+than in dBm, so a quiet stretch inside a receive window does not drag the
+packet's figure down.
+
+The background is an estimate because the board cannot time the quiet between
+packets, so it goes by level: it averages the readings that sat more than 10 dB
+below the loudest it had taken on that channel in the same receive window, and
+starts again on each hop. Three things follow. A faded part of a packet sits
+that far down too and is counted in. Quiet taken before the window's packet is
+not admitted, so a window whose packet arrives last yields nothing. And the
+mean is over the loudest 10 dB of what is admitted, so on a channel that is
+mostly silent the figure sits well above the floor.
 
 The screen shows the two as `s=` and `n=`, in dBm, with `snr=` the difference.
 A capture record carries them as its signal power and noise power, and the
@@ -97,10 +103,10 @@ noise-power-valid flag says the noise field holds the board's estimate, so a
 reader shows a signal-to-noise ratio wherever the estimate sits below the
 packet. The ratio is as good as the estimate it rests on.
 
-A channel the board never heard quiet -- traffic from the first reading after
-every hop, or a packet barely above the air around it -- leaves it with no
-estimate. Such a record leaves the flag clear, Wireshark shows the field as
-`Invalid Noise Power`, and the screen prints `n=none snr=none`.
+A channel the board never heard both loud and quiet in one receive window
+leaves it with no estimate. Such a record leaves the flag clear, Wireshark
+shows the field as `Invalid Noise Power`, and the screen prints `n=none
+snr=none`.
 
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at
