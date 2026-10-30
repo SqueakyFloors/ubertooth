@@ -140,7 +140,7 @@ tagged commit refuse a board carrying a different firmware API version, so
 flash the firmware from the same tag as the tools you installed.
 
 The current pre-release is
-[2026-10-DEV1](https://github.com/SqueakyFloors/ubertooth/releases/tag/2026-10-DEV1).
+[2026-10-DEV2](https://github.com/SqueakyFloors/ubertooth/releases/tag/2026-10-DEV2).
 
 --------------------
 
