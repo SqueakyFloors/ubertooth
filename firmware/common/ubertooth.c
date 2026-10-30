@@ -20,6 +20,7 @@
  */
 
 #include "ubertooth.h"
+#include "device_id.h"
 #include "irq.h"
 
 #define IAP_LOCATION 0x1FFF1FF1
@@ -166,6 +167,9 @@ void ubertooth_init()
 	gpio_init();
 	cc2400_init();
 	clock_start();
+	/* Last, with the clocks up, which is where the USB serial-number
+	 * descriptor has always read it from. */
+	device_id_init();
 }
 
 /* configure SSP for CC2400's secondary serial data interface */
@@ -768,45 +772,80 @@ void EINT3_IRQHandler(void)
 }
 #endif
 
-void get_part_num(uint8_t *buffer, int *len)
+/*
+ * The part number and the device serial number, as the boot ROM reported them
+ * once at startup: a status byte followed by the words the ROM returned, least
+ * significant byte of each word first.
+ *
+ * Reading either one means calling the part's In-Application Programming entry
+ * point in the boot ROM, and this firmware answers control requests from inside
+ * whichever mode loop is running. A boot-ROM call that does not return promptly
+ * therefore stops that loop: a live capture asked for its serial number has
+ * been seen to answer nothing at all for the watchdog's whole 3000 ms and then
+ * be reset. Neither number can change while the part is powered, so one read
+ * before USB comes up answers every later request, and no request made while a
+ * mode runs calls the boot ROM.
+ */
+static uint8_t part_num_reply[5];
+static uint8_t device_serial_reply[17];
+static int device_id_read;
+
+static void copy_reply(uint8_t *buffer, const uint8_t *reply, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i++)
+		buffer[i] = reply[i];
+}
+
+/*
+ * Read both numbers from the boot ROM, once. ubertooth_init() calls this before
+ * any interrupt is enabled, so the flag below is written while nothing else can
+ * be reading it. The readers underneath call it as well, so an image that does
+ * not run ubertooth_init() reports what the part says rather than zeroes.
+ */
+void device_id_init(void)
 {
 	u32 command[5];
 	u32 result[5];
+	u32 flags;
+
+	if (device_id_read)
+		return;
+
+	/*
+	 * Interrupts off for the two calls, as in set_isp() below and for the
+	 * same reason: the boot ROM neither uses nor masks interrupts, so a
+	 * handler that fires while it is running vectors back into the image.
+	 * Nothing is running yet when ubertooth_init() calls this, so the mask
+	 * costs nothing there; it is what makes a later first call safe.
+	 */
+	flags = irq_save_disable();
+
 	command[0] = 54; /* read part number */
 	iap_entry(command, result);
-	buffer[0] = result[0] & 0xFF; /* status */
-	buffer[1] = result[1] & 0xFF;
-	buffer[2] = (result[1] >> 8) & 0xFF;
-	buffer[3] = (result[1] >> 16) & 0xFF;
-	buffer[4] = (result[1] >> 24) & 0xFF;
-	*len = 5;
-	
+	device_id_pack(part_num_reply, result, 1);
+
+	command[0] = 58; /* read device serial number */
+	iap_entry(command, result);
+	device_id_pack(device_serial_reply, result, 4);
+
+	device_id_read = 1;
+	irq_restore(flags);
+}
+
+void get_part_num(uint8_t *buffer, int *len)
+{
+	device_id_init();
+	copy_reply(buffer, part_num_reply, sizeof(part_num_reply));
+	*len = sizeof(part_num_reply);
 }
 
 void get_device_serial(uint8_t *buffer, int *len)
 {
-	u32 command[5];
-	u32 result[5];
-	command[0] = 58; /* read device serial number */
-	iap_entry(command, result);
-	buffer[0] = result[0] & 0xFF; /* status */
-	buffer[1] = result[1] & 0xFF;
-	buffer[2] = (result[1] >> 8) & 0xFF;
-	buffer[3] = (result[1] >> 16) & 0xFF;
-	buffer[4] = (result[1] >> 24) & 0xFF;
-	buffer[5] = result[2] & 0xFF;
-	buffer[6] = (result[2] >> 8) & 0xFF;
-	buffer[7] = (result[2] >> 16) & 0xFF;
-	buffer[8] = (result[2] >> 24) & 0xFF;
-	buffer[9] = result[3] & 0xFF;
-	buffer[10] = (result[3] >> 8) & 0xFF;
-	buffer[11] = (result[3] >> 16) & 0xFF;
-	buffer[12] = (result[3] >> 24) & 0xFF;
-	buffer[13] = result[4] & 0xFF;
-	buffer[14] = (result[4] >> 8) & 0xFF;
-	buffer[15] = (result[4] >> 16) & 0xFF;
-	buffer[16] = (result[4] >> 24) & 0xFF;
-	*len = 17;
+	device_id_init();
+	copy_reply(buffer, device_serial_reply, sizeof(device_serial_reply));
+	*len = sizeof(device_serial_reply);
 }
 
 void set_isp(void)

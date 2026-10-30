@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_device_id
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -575,6 +575,16 @@ $(BINDIR)/test_rangetest_radio: test_rangetest_radio.c minunit.h source_scan.h \
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='"$(FW_DIR)"' \
 		-o $@ test_rangetest_radio.c
+
+# The layout of the two boot-ROM numbers is pure arithmetic in a header, so it
+# runs here; where the boot ROM is read needs the ROM, so those sources are
+# scanned as text.
+$(BINDIR)/test_device_id: test_device_id.c minunit.h source_scan.h \
+		$(FW_COMMON)/device_id.h $(FW_COMMON)/ubertooth.c \
+		$(FW_RXTX)/cc2400_rangetest.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(FW_COMMON) \
+		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' -o $@ test_device_id.c
 
 # A control transfer is only answered after its handler has returned, which is
 # why a reset has to be deferred and waited for. The real control transfer

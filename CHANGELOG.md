@@ -696,6 +696,15 @@
   sends no longer offers 3-slot and 5-slot packets it goes on to refuse.
   [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
 
+- A running capture is no longer ended by another tool being started with
+  `-U`. Matching a board by serial number reads the serial from every attached
+  board, and the board read it out of its boot ROM on the spot, from inside the
+  mode loop that was capturing: the capture then stopped answering the host and
+  the watchdog reset the board a few seconds later. The serial number and the
+  part number are now read once at startup and every request is answered from
+  that copy, byte for byte as before.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
   line, the C string terminator the board's console puts on the end of each
   one, which `grep` on a saved session answers with `Binary file matches`

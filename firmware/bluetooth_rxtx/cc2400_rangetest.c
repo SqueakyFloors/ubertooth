@@ -21,6 +21,7 @@
 
 #include "cc2400_rangetest.h"
 #include "cc2400_wait.h"
+#include "device_id.h"
 #include "ubertooth_clock.h"
 #include "ubertooth_usb.h"
 
@@ -271,8 +272,8 @@ static int rangetest_foreign_packet(const u8 *rxbuf, const u8 *expected)
 
 void cc2400_rangetest(volatile u16 *chan_ptr)
 {
-	u32 command[5];
-	u32 result[5];
+	u8 serial[17];
+	int serial_len;
 	int i;
 	u8 len = 22;
 	u8 pa = 0;
@@ -294,27 +295,14 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	txbuf[0] = len - 1; // length of data (rest of payload)
 	txbuf[1] = 0; // request
 
-	// read device serial number
-	command[0] = 58;
-	iap_entry(command, result);
-	if ((result[0] & 0xFF) != 0) //status check
+	/* The serial number, from the copy the boot ROM was read into at startup.
+	 * Reading it here instead would call the boot ROM from inside a running
+	 * mode, which can stop the mode's loop for long enough that the watchdog
+	 * resets the board (#505). */
+	get_device_serial(serial, &serial_len);
+	if (serial[0] != 0) /* the boot ROM could not read it */
 		return;
-	txbuf[2] = (result[1] >> 24) & 0xFF;
-	txbuf[3] = (result[1] >> 16) & 0xFF;
-	txbuf[4] = (result[1] >> 8) & 0xFF;
-	txbuf[5] = result[1] & 0xFF;
-	txbuf[6] = (result[2] >> 24) & 0xFF;
-	txbuf[7] = (result[2] >> 16) & 0xFF;
-	txbuf[8] = (result[2] >> 8) & 0xFF;
-	txbuf[9] = result[2] & 0xFF;
-	txbuf[10] = (result[3] >> 24) & 0xFF;
-	txbuf[11] = (result[3] >> 16) & 0xFF;
-	txbuf[12] = (result[3] >> 8) & 0xFF;
-	txbuf[13] = result[3] & 0xFF;
-	txbuf[14] = (result[4] >> 24) & 0xFF;
-	txbuf[15] = (result[4] >> 16) & 0xFF;
-	txbuf[16] = (result[4] >> 8) & 0xFF;
-	txbuf[17] = result[4] & 0xFF;
+	device_serial_msb_first(&txbuf[2], &serial[1]);
 
 	txbuf[18] = pa; // request pa
 	txbuf[19] = 0; // request number

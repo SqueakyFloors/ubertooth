@@ -64,7 +64,7 @@ struct scan {
 	int repeater_grmdm;     /* cc2400_set(GRMDM, ...) in the repeater */
 
 	int rr_cleared_early;   /* `rr.valid = 0` before the serial-number read */
-	int iap_read;           /* where that read is */
+	int serial_read;        /* where that read is */
 
 	int countdowns;         /* body-less countdown loops, which compile away */
 	int first_countdown;
@@ -565,18 +565,19 @@ static int scan_source(const char *path, struct scan *s)
 			s->repeater_grmdm = lineno;
 
 		if (in_rangetest) {
-			if (contains_identifier(line, "iap_entry") && s->iap_read == 0)
-				s->iap_read = lineno;
-			if (is_assignment_of(line, "rr.valid", "0") && s->iap_read == 0 &&
+			if (calls_identifier(line, "get_device_serial") &&
+			    s->serial_read == 0)
+				s->serial_read = lineno;
+			if (is_assignment_of(line, "rr.valid", "0") && s->serial_read == 0 &&
 			    s->rr_cleared_early == 0)
 				s->rr_cleared_early = lineno;
 			/* The same two writes on the exit that reports no result,
 			 * which is the one after the serial-number read. */
-			if (is_assignment_of(line, "rr.valid", "0") && s->iap_read > 0 &&
+			if (is_assignment_of(line, "rr.valid", "0") && s->serial_read > 0 &&
 			    s->rangetest_valid_clear_late == 0)
 				s->rangetest_valid_clear_late = lineno;
 			if (is_assignment_of(line, "rr.discarded", "0") &&
-			    s->iap_read > 0 && s->rangetest_discard_clear_late == 0)
+			    s->serial_read > 0 && s->rangetest_discard_clear_late == 0)
 				s->rangetest_discard_clear_late = lineno;
 		}
 
@@ -1075,7 +1076,7 @@ MU_TEST(test_the_result_is_cleared_before_the_test_can_return_early)
 	snprintf(msg, sizeof(msg),
 	         "%s: cc2400_rangetest() does not clear rr.valid before the "
 	         "serial-number read at line %d, which can return without "
-	         "measuring anything", path, s.iap_read);
+	         "measuring anything", path, s.serial_read);
 	mu_assert(s.rr_cleared_early > 0, msg);
 }
 
