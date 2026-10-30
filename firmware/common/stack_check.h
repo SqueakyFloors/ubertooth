@@ -41,12 +41,16 @@
 #define STACK_PAINT 0xa5e71f3bul
 
 /*
- * How many bytes of [bottom, top) the stack has written over: the words are
- * read down from the top until one of them is still painted.
+ * How deep into [bottom, top) the stack has ever reached: the lowest word
+ * that no longer holds the pattern, measured from the top.
  *
- * Down from the top rather than up from the bottom, because this runs while a
- * capture does -- a USB request preempts the transfer interrupt -- so it reads
- * only what the stack has used instead of the whole region every time.
+ * The whole region is read, from the bottom, and it has to be. Searching down
+ * from the top for the first word still holding the pattern would be a tenth
+ * of the work and give the wrong answer, because a function that reserves
+ * room for its locals does not write all of it: on a board that version
+ * reported 48 bytes and never moved, where this one reported 296 at boot
+ * rising to 480 under a capture. A read of 11 KB costs about 0.2 ms, and it
+ * happens only when the host asks for the record.
  *
  * Here rather than beside its caller so that a host test can run it over an
  * array it painted itself; the arithmetic is the part worth pinning.
@@ -54,13 +58,13 @@
 static inline unsigned stack_used_between(const unsigned long *bottom,
                                           const unsigned long *top)
 {
-	const unsigned long *word = top;
+	const unsigned long *word = bottom;
 
-	while (word > bottom && word[-1] != STACK_PAINT)
-		word--;
+	while (word < top && *word == STACK_PAINT)
+		word++;
 
 	/* A stack that ran past the bottom reads as the whole region, which is
-	 * as much as the word can say. */
+	 * as much as the pattern can say. */
 	return (unsigned)((const unsigned char *)top -
 	                  (const unsigned char *)word);
 }

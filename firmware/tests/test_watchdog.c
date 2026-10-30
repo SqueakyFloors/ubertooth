@@ -524,11 +524,11 @@ MU_TEST(test_the_usb_interrupt_still_names_what_it_interrupted)
 /*
  * The arithmetic behind the reply's stack figure, over an array this test
  * paints itself. It is worth pinning because the answer is a subtraction
- * between two ends of a region and the search runs from the far end: a
- * version of this that searched for the wrong word reported 0 bytes used on a
- * board, which reads as "no stack at all has been touched".
+ * between the two ends of a region: versions of this that searched for the
+ * wrong word, or from the wrong end, reported 0 and 48 bytes used on a board,
+ * both of which read as a stack that has barely been touched.
  */
-MU_TEST(the_stack_measure_counts_down_from_the_top)
+MU_TEST(the_stack_measure_finds_the_deepest_word_written)
 {
 	unsigned long region[64];
 	unsigned i;
@@ -547,12 +547,12 @@ MU_TEST(the_stack_measure_counts_down_from_the_top)
 	mu_assert_int_eq(5 * sizeof(unsigned long),
 	                 stack_used_between(region, region + 64));
 
-	/* A word that still holds the pattern ends the search, even with
-	 * written words below it: what the pattern can say is where the stack
-	 * last reached, and a word it happens to leave behind reads as
-	 * untouched. */
+	/* A word still holding the pattern inside the part that has been used
+	 * does not shorten the answer. A function reserves room for its locals
+	 * and writes some of it, so gaps like this are the normal case -- which
+	 * is why the search runs from the bottom. */
 	region[61] = STACK_PAINT;
-	mu_assert_int_eq(2 * sizeof(unsigned long),
+	mu_assert_int_eq(5 * sizeof(unsigned long),
 	                 stack_used_between(region, region + 64));
 
 	/* Every word written: the whole region, which is as much as it can
@@ -1720,7 +1720,7 @@ int main(void)
 	MU_RUN(test_a_wait_inside_a_handler_claims_no_outer_site);
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_every_inner_mark_is_given_back);
-	MU_RUN(the_stack_measure_counts_down_from_the_top);
+	MU_RUN(the_stack_measure_finds_the_deepest_word_written);
 	MU_RUN(test_the_reply_is_the_documented_bytes);
 	MU_RUN(test_an_older_breadcrumb_layout_starts_every_field_again);
 	MU_RUN(test_a_transfer_error_is_counted_and_kept_across_a_reset);
