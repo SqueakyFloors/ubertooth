@@ -52,35 +52,25 @@ assert result.returncode == 0, result
 assert "install.sh" in result.stdout, result
 assert result.stderr == "", result
 
-# an option the script does not take: one "error: " line on standard error,
-# nothing on standard output, exit 1
-result = run(["--bogus"])
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr.startswith("error: "), result
-assert "\n" not in result.stderr.rstrip(), result
-
-# a value the script checks and refuses, which is reported the same way
-result = run(["--flash-device"])
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr.startswith("error: "), result
-
-# The wording for those two is the one every tool in this project uses
-# (.kiro/steering/cli-output.md), so a script reading standard error sees the
-# same line whatever it called.
-result = run(["--bogus"])
-assert result.stderr == "error: unrecognized option '--bogus'\n", result
-result = run(["--flash-device"])
-assert result.stderr == ("error: option '--flash-device' requires a value:"
-                         " an index, serial, or 'all'\n"), result
-
-# A word that is not an option at all is reported as the stray word it is,
-# rather than as an option the script does not have.
-result = run(["extra"])
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr == "error: unexpected argument 'extra'\n", result
+# A command line the script will not take: one "error: " line on standard
+# error, nothing on standard output, exit 1. The line is the one every tool in
+# this project prints for the same mistake (.kiro/steering/cli-output.md), so
+# a script reading standard error sees the same words whatever it called.
+#
+# A word that does not start with "-", and a lone "-", are operands rather
+# than options the script is missing, and are reported as such.
+REFUSALS = {
+    "--bogus": "error: unrecognized option '--bogus'\n",
+    "--flash-device": "error: option '--flash-device' requires a value\n",
+    "--prefix": "error: option '--prefix' requires a value\n",
+    "extra": "error: unexpected argument 'extra'\n",
+    "-": "error: unexpected argument '-'\n",
+}
+for argument, line in REFUSALS.items():
+    result = run([argument])
+    assert result.returncode == 1, (argument, result)
+    assert result.stdout == "", (argument, result)
+    assert result.stderr == line, (argument, result)
 
 # -h answers once the whole command line has parsed, as it does for every tool
 # here, so a bad option or a stray word beside it is still reported, in either
@@ -205,7 +195,9 @@ in_order(lines, ["==> Checking Homebrew for an ubertooth or libbtbb",
                  "ran: brew list --formula --versions libbtbb"])
 
 # The same run with a lone "--" behind the options reaches the same steps: the
-# "--" is taken as the end of the options and nothing else.
+# "--" is taken as the end of the options and nothing else. The in_order check
+# is what pins that; the non-zero status only says the faked clone failed, as
+# it does in the run above, and a "--" that was refused would give that too.
 status, lines, stdout = run_with_fakes(["--skip-deps", "--"])
 assert status != 0, lines
 assert stdout == "", stdout
