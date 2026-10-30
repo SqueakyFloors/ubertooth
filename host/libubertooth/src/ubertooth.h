@@ -97,6 +97,13 @@ typedef struct {
 	 * the real gap was. */
 	uint64_t last_arrival_ns;
 
+	/* The reconstructed time of the previous packet of this capture, which
+	 * is what the gap printed beside each packet is measured from: see
+	 * ns_since_the_last_packet(). On the handle rather than in the callback
+	 * so that each capture starts afresh and two handles cannot measure
+	 * each other's gaps. */
+	uint64_t prev_packet_ns;
+
 	/* The channel or the sweep this capture asked for, as the request that
 	 * set it carried. A mode start makes the board forget its hop state,
 	 * so a callback that starts a mode again has to say this once more or
@@ -164,6 +171,12 @@ typedef struct {
 	/* Whether the host clock running ahead of the reconstructed times has
 	 * already been reported, so it is said once per capture. */
 	uint8_t clk100ns_gap_warned;
+
+	/* Whether a packet of this capture has been printed yet, so that
+	 * prev_packet_ns above holds something to measure a gap from. A flag
+	 * of its own, because a reconstructed time of zero is a legitimate
+	 * reading. */
+	uint8_t prev_packet_seen;
 
 	/* Set when the receive stream ended because its USB transfer failed. It
 	 * holds the libusb transfer status, or LIBUSB_TRANSFER_ERROR for a

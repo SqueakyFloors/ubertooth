@@ -230,6 +230,8 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->last_arrival_ns = 0;
 	ut->clk100ns_anchor_open = 0;
 	ut->clk100ns_gap_warned = 0;
+	ut->prev_packet_ns = 0;
+	ut->prev_packet_seen = 0;
 }
 
 /* How far what two packets' clock readings claim about the time between them
@@ -616,6 +618,34 @@ static uint64_t now_ns_from_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	             (int64_t) ut->start_clk100ns));
 	warn_if_a_wrap_was_lost( ut, packet_ns, host_ns );
 	return packet_ns;
+}
+
+/* How long since the previous packet, taken from the capture's own
+ * reconstructed times (now_ns_from_clk100ns() above). Those have already
+ * accounted for every time the clock started over, including the wraps a
+ * quiet gap leaves nowhere in the records, so the line printed beside a
+ * packet and the capture record written for it agree.
+ *
+ * Working the gap out from the two raw clock readings instead added a period
+ * where the reading had dropped and nothing where it had risen, which is
+ * right only for a gap shorter than one period. A gap of 905.6 s measured on
+ * a board came out as 46.6 s, that gap less the two whole periods inside it,
+ * beside a record that had it right.
+ *
+ * The first packet of a capture reports no gap: there is nothing to measure
+ * from, and its own clock reading printed as a duration measured nothing.
+ *
+ * Call this once for each packet that is reported: it moves the handle on to
+ * the packet it was given, so a second call for the same packet would say the
+ * gap was nothing. */
+static uint64_t ns_since_the_last_packet( ubertooth_t* ut, uint64_t nowns )
+{
+	uint64_t since = (ut->prev_packet_seen && nowns > ut->prev_packet_ns) ?
+	                 nowns - ut->prev_packet_ns : 0;
+
+	ut->prev_packet_ns = nowns;
+	ut->prev_packet_seen = 1;
+	return since;
 }
 
 /* The CLKN of the first bit of a packet's access code, from the stamp the
@@ -1006,17 +1036,6 @@ void cb_btle(ubertooth_t* ut, void* args)
 	uint64_t le_arrival_ns;
 	// u32 access_address = 0; // Build warning
 
-	/* The last packet's reconstructed time, and the capture it belonged to.
-	 * A handle used for a second capture is anchored afresh, which is what
-	 * the second of these notices, so the first packet of each capture
-	 * reports no gap rather than the time since the capture before it. */
-	static uint64_t prev_packet_ns = 0;
-	static uint64_t prev_capture_ns = 0;
-	/* Whether there has been a packet in this capture to measure from. Kept
-	 * apart from the reading above rather than read off it, because a
-	 * reconstructed time of zero is a legitimate one: the first record of a
-	 * replayed file carrying a host time of zero gives it. */
-	static int had_a_packet = 0;
 	/* Each warning below is said once for the whole capture: the condition
 	 * it reports holds for every packet that follows, and a line per packet
 	 * would bury the capture's own output. */
@@ -1198,25 +1217,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 		return;
 	}
 
-	/* How long since the previous packet, taken from the capture's own
-	 * times. Those have already accounted for every time the clock started
-	 * over, including the wraps a quiet gap leaves nowhere in the records,
-	 * so this line and the capture record written just above agree about
-	 * one packet.
-	 *
-	 * Taking the difference of the two raw readings instead added a period
-	 * where the reading had dropped and nothing where it had risen, which
-	 * is right only for a gap shorter than one period. A gap of 905.6 s
-	 * measured on a board came out as 46.6 s, that gap less the two whole
-	 * periods inside it, beside a record that had it right. */
-	if (prev_capture_ns != ut->abs_start_ns) {
-		prev_capture_ns = ut->abs_start_ns;
-		had_a_packet = 0;
-	}
-	uint64_t ts_diff_ns = (had_a_packet && nowns > prev_packet_ns) ?
-	                      nowns - prev_packet_ns : 0;
-	prev_packet_ns = nowns;
-	had_a_packet = 1;
+	uint64_t ts_diff_ns = ns_since_the_last_packet( ut, nowns );
 	/* `sig`, so this line and the capture record above report one level for
 	 * one packet. What a reader wants beside a packet is how loud that
 	 * packet was. */
@@ -1261,24 +1262,21 @@ void cb_ego(ubertooth_t* ut, void* args)
 {
 	int i;
 	uint8_t len = *(uint8_t *)args;
-	static uint64_t prev_ts = 0;
 	usb_pkt_rx usb = fifo_pop(ut->fifo);
 	usb_pkt_rx* rx = &usb;
+	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 
 	ubertooth_count_capture_losses(ut, rx);
 
-	/* Wide enough to hold a stamp plus a whole clock period, as the
-	 * low-energy callback above is: in 32 bits that sum wraps for any stamp
-	 * above 1018167295, and the delta is only right afterwards because the
-	 * subtraction wraps back. The stamp itself comes off the wire
-	 * little-endian. */
-	uint64_t rx_time = le32toh(rx->clk100ns);
-	if (rx_time < prev_ts)
-		rx_time += CLK100NS_PERIOD; // rollover
-	uint64_t ts_diff = rx_time - prev_ts;
-	prev_ts = le32toh(rx->clk100ns);
+	/* These packets are stamped with the CLKN-derived clock and carry no
+	 * period count of their own, so the reconstruction counts the clock's
+	 * wraps from the host time each record arrived with, as it does for the
+	 * other modes that send no count. */
+	uint64_t nowns = now_ns_from_clk100ns(ut, rx, arrival_ns);
+	uint64_t ts_diff_ns = ns_since_the_last_packet(ut, nowns);
+
 	printf("time=%u delta_t=%.06f ms freq=%d \n",
-	       le32toh(rx->clk100ns), ts_diff / 10000.0,
+	       le32toh(rx->clk100ns), ts_diff_ns / 1000000.0,
 	       rx->channel + BT_FREQ_MIN);
 
 	for (i = 0; i < len; ++i)

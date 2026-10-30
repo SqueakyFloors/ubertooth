@@ -268,6 +268,11 @@ a quiet gap keeps its time however long it was. Before, a gap longer than one
 period left every later time short by a period, since the clock then reads
 higher than it did and nothing in the capture shows it started over at all.
 
+The `delta_t` printed beside each packet is the gap between two of these
+times, so it too holds the whole of a quiet gap and a dump and a capture of
+one run agree about a packet. The first packet of a capture reports no gap,
+there being nothing to measure from.
+
 Times that still come out short are reported, on standard error: `warning:
 packet times are behind the host clock by more than half the capture clock's
 429.50 s period: a quiet gap lost a clock wrap, or the host clock was stepped
