@@ -181,6 +181,23 @@ does follow, on standard error with the `error: ` line.
 `-h` is what the user asked for, so the usage text goes to standard output and
 nothing goes to standard error.
 
+## THE GAP BESIDE A PACKET
+
+Each captured packet is printed with `delta_t`, how long since the previous
+packet of the capture. The figure is the gap between the capture's own times,
+which count every time the board's clock started over, so a quiet gap keeps
+its whole length however long it was. These packets are stamped with the
+CLKN-derived clock, which runs for 327.68 s and carries nothing in a record to
+say when it started over; what says how many of those periods lie between two
+clock readings is the time the host saw pass between the two packets. The
+first packet of a capture reports no gap, there being nothing to measure from.
+
+Times that still come out short are reported, on standard error: `warning:
+packet times are behind the host clock by more than half the capture clock's
+327.68 s period: a quiet gap lost a clock wrap, or the host clock was stepped
+forwards`. Both causes look the same from here, which is why the message names
+each.
+
 ## GAPS IN A CAPTURE
 
 A capture that is losing packets says so. The board holds captured packets in a

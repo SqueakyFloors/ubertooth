@@ -98,11 +98,10 @@ typedef struct {
 	uint64_t last_arrival_ns;
 
 	/* The reconstructed time of the previous packet of this capture, which
-	 * is what the gap printed beside each packet is measured from. Those
-	 * times have already accounted for every time the clock started over,
-	 * so a gap longer than one period of the clock is whole here. It lives
-	 * on the handle rather than in the callback so that each capture starts
-	 * afresh and two handles cannot measure each other's gaps. */
+	 * is what the gap printed beside each packet is measured from: see
+	 * ns_since_the_last_packet(). On the handle rather than in the callback
+	 * so that each capture starts afresh and two handles cannot measure
+	 * each other's gaps. */
 	uint64_t prev_packet_ns;
 
 	/* The channel or the sweep this capture asked for, as the request that
@@ -174,10 +173,9 @@ typedef struct {
 	uint8_t clk100ns_gap_warned;
 
 	/* Whether a packet of this capture has been printed yet, so that
-	 * prev_packet_ns above holds something to measure a gap from. Kept
-	 * apart from that reading rather than read off it, because a
-	 * reconstructed time of zero is a legitimate one: the first record of a
-	 * replayed file carrying a host time of zero gives it. */
+	 * prev_packet_ns above holds something to measure a gap from. A flag
+	 * of its own, because a reconstructed time of zero is a legitimate
+	 * reading. */
 	uint8_t prev_packet_seen;
 
 	/* Set when the receive stream ended because its USB transfer failed. It
