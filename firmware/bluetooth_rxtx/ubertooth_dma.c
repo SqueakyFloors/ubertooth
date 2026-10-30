@@ -184,28 +184,21 @@ void dma_init_le(volatile uint8_t* dest, unsigned len) {
 }
 
 /*
- * Arming and disarming receive change three registers a bit at a time, and
- * three contexts do it while the low-energy capture engine runs: that mode's
- * loop, its timer interrupt on every hop, and its byte interrupt at the end of
- * every packet. The timer interrupt preempts the byte interrupt, so each of
- * the three read-modify-writes below is held off from the others.
+ * Arming receive sets one bit in each of three registers that carry other
+ * settings too, so each is a read-modify-write, and three contexts reach them
+ * while the low-energy engine runs: that mode's loop, its timer interrupt on
+ * every hop, and its byte interrupt at the end of every packet. The timer
+ * interrupt preempts the byte interrupt, so the guard is what stops a write
+ * carrying a value another context has moved on from.
  *
- * Each register carries more than the one bit being changed -- SSPDMACR holds
- * the transmit request alongside the receive one, SSPCR1 the SSP's mode bits,
- * and the channel configuration register its peripheral and interrupt
- * settings -- so none of them can be written whole. Split by an interrupt, the
- * write carries a value the other context has already moved on from, and the
- * bit that context set goes missing.
+ * The receive request is the bit that costs a capture if it goes missing: the
+ * radio is strobed into receive right after this, and the receiver then clocks
+ * symbols into the SSP with nothing asking the controller to collect them, so
+ * no byte reaches a buffer and no interrupt is raised while the loop goes on
+ * answering the host.
  *
- * Losing the receive request is the one that costs a capture: the radio is
- * strobed into receive immediately after it is armed, so from there the
- * receiver clocks symbols into the SSP with nothing asking the controller to
- * collect them. No byte reaches a buffer and no interrupt is raised, while the
- * mode's loop goes on feeding the watchdog and answering the host, so the
- * board looks healthy and the capture is over until the mode is restarted.
- *
- * The slave select pin is left outside the guards: it has its own set and
- * clear registers, so writing it reads nothing back.
+ * The slave select pin stays outside the guard: it has its own set and clear
+ * registers, so writing it reads nothing back.
  */
 void dio_ssp_start()
 {

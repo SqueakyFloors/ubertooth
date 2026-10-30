@@ -171,6 +171,13 @@ typedef struct _le_rx_t {
 	int8_t rssi_min, rssi_max;  // min and max RSSI observed values
 	int rssi_sum;               // running sum of all RSSI values
 	int transfer_error;         // 1 if a capture transfer faulted during it
+
+	// Which connection event this packet started in, noted as its first
+	// byte arrives, so the bookkeeping done when it ends goes to that event
+	// and not to whichever one is open by then. in_open_event is 0 on an
+	// advertising channel and whenever no event was open.
+	int in_open_event;
+	uint16_t event_counter;
 } le_rx_t;
 
 // pool of all buffers, in the other RAM bank to leave main SRAM to the stack
@@ -281,7 +288,7 @@ static void timer1_set_match(uint32_t match);
 static void timer1_set_match_in(uint32_t delta);
 static void timer1_set_match_in_if_unarmed(uint32_t delta);
 static void timer1_clear_match(void);
-static void timer1_clear_match_if_event_open(void);
+static void note_the_event_and_drop_its_deadline(le_rx_t *buf);
 static void timer1_arm_conn_event(void);
 static void timer1_wait_fs_lock(void);
 static void timer1_recheck_fs_lock(void);
@@ -317,6 +324,8 @@ static void buffer_clear(le_rx_t *buf) {
 	buf->rssi_max = INT8_MIN;
 	buf->rssi_sum = 0;
 	buf->transfer_error = 0;
+	buf->in_open_event = 0;
+	buf->event_counter = 0;
 }
 
 // get a packet buffer
@@ -841,10 +850,12 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				current_rxbuf->channel = rf_channel;
 				current_rxbuf->access_address = le_sync_aa;
 
-				// data packet received: cancel timeout
-				// new timeout or hop timer will be set at end of packet RX
+				// data packet received: cancel the event's deadline,
+				// and remember the event. A new timeout or the hop
+				// timer is armed at the end of the packet.
 				if (btle_channel_index(rf_channel) < 37) {
-					timer1_clear_match_if_event_open();
+					note_the_event_and_drop_its_deadline(
+							current_rxbuf);
 				}
 			}
 
@@ -858,6 +869,8 @@ static void le_dma_interrupt(uint32_t timestamp) {
 			if (pos > 2 && pos >= current_rxbuf->size) {
 				le_rx_t *packet;
 				uint32_t packet_timestamp = current_rxbuf->timestamp;
+				int in_open_event = current_rxbuf->in_open_event;
+				uint16_t event_counter = current_rxbuf->event_counter;
 				uint32_t primask;
 
 				// stop the CC2400 before flushing SSP
@@ -926,37 +939,32 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				irq_restore(primask);
 
 				// Count this packet into the connection event it
-				// arrived in, while that event is still open and with
-				// interrupts held off over the count and the arming.
+				// arrived in -- noted on its buffer as its first byte
+				// arrived -- and only while the connection is still in
+				// that event. See
+				// note_the_event_and_drop_its_deadline() for what
+				// counting it into the wrong one cost.
 				//
-				// The timer interrupt closes the event and arms the next
-				// one in the same match register, and it preempts this
-				// interrupt, so a packet that began at its event's
-				// deadline can get this far with the event already closed.
-				// Counted into the event that followed, such a packet put
-				// its own time into an anchor that event had not reached
-				// and armed a 300 microsecond inter-frame timeout over
-				// that event's own match. It is still whole and still
-				// goes to the host; what is dropped is bookkeeping with
-				// nowhere to go, because its event has been counted.
-				//
-				// A packet not counted does not refresh
-				// conn.last_packet_ts either, so it buys the connection
-				// no time against its supervision timeout. That timeout
-				// is 100 ms at the shortest and connection events are
-				// milliseconds apart, so one event's worth makes no
-				// difference to it.
+				// A packet the connection has moved past is still sent
+				// to the host, unless the hop that opened the next event
+				// cleared the buffer it was arriving into, which is the
+				// residual recorded on #745. What is dropped is
+				// bookkeeping with nowhere to go, including the refresh
+				// of conn.last_packet_ts: the supervision timeout is 100
+				// ms at the shortest and events are milliseconds apart,
+				// so one event's worth makes no difference to it.
 				//
 				// Closing the event on the second packet stays outside
 				// the guard, because it reaches change_channel() and the
-				// radio. A second packet means the event was still open
-				// at this packet's first byte, which disarmed the event's
-				// match, so the timer interrupt has nothing to take.
-				if (btle_channel_index(rf_channel) < 37) {
+				// radio. Nothing can close the event in between: its
+				// deadline was dropped as this packet's first byte
+				// arrived, and the count below is only reached while the
+				// connection is still in it.
+				if (in_open_event && btle_channel_index(rf_channel) < 37) {
 					unsigned num_packets = 0;
 
 					primask = irq_save_disable();
-					if (conn_event.opened) {
+					if (conn.conn_event_counter == event_counter) {
 						num_packets = ++conn_event.num_packets;
 
 						// first packet: set connection anchor
@@ -1309,31 +1317,42 @@ static void timer1_set_match_in_if_unarmed(uint32_t delta) {
 	irq_restore(primask);
 }
 
-// Drop the deadline of the connection event that is open, if one still is.
+// Note which connection event a packet is starting in, and drop that event's
+// deadline, which the packet's arrival replaces.
 //
-// A packet's first byte ends the event's deadline: from there the inter-frame
-// timeout armed at the end of the packet is what closes the event. But a
+// The deadline is what closes an event that produced nothing. A packet's first
+// byte ends it, because from here the inter-frame timeout armed at the end of
+// the packet is what closes the event instead.
+//
+// Only while an event is open, and the event is remembered on the buffer so
+// that what is done when the packet ends goes to the event it arrived in. A
 // packet is allowed to begin as late as the deadline itself -- the
 // peripheral's answer may start a whole PERIPHERAL_REPLY_LATEST after the
-// anchor -- so the deadline can expire in the handful of microseconds between
-// the packet's first symbol and the interrupt that reports its first byte. The
-// timer interrupt, which preempts the byte interrupt, has then already closed
-// the event and armed the next one in this same match register.
+// anchor -- so the deadline can expire between the packet's first symbol and
+// this interrupt, and a match already latched is taken the instant the guard
+// below ends, which closes the event while the packet is still arriving.
+// Either way the connection has moved to another event by the time the packet
+// ends, and the event counter says so: every close advances it.
 //
-// Dropping the match there would drop that next event, and the only thing that
-// armed MR0 again was the inter-frame timeout at the end of this packet: the
-// event after would open 300 microseconds behind a packet instead of on the
-// connection's own grid, and the hop that opens it would be a hop the grid
-// knows nothing about.
+// Without that, the packet was counted as the first packet of an event it did
+// not arrive in, anchored that event from before it opened, and armed a 300
+// microsecond inter-frame timeout over the event's own match. The event after
+// opened behind a packet instead of on the connection's grid, and the counter
+// every connection update and channel map instant is matched against ended one
+// ahead of the peer's.
 //
-// The test and the disarm are one step, for the reason
+// The three steps are one guarded step, for the reason
 // timer1_set_match_in_if_unarmed() gives: the timer interrupt can close the
-// event between them.
-static void timer1_clear_match_if_event_open(void) {
+// event between any two of them, and dropping the match after it has closed
+// would drop the next event's own arming.
+static void note_the_event_and_drop_its_deadline(le_rx_t *buf) {
 	uint32_t primask = irq_save_disable();
 
-	if (conn_event.opened)
+	if (conn_event.opened) {
+		buf->in_open_event = 1;
+		buf->event_counter = conn.conn_event_counter;
 		timer1_clear_match();
+	}
 	irq_restore(primask);
 }
 
@@ -1951,6 +1970,7 @@ static int channel_map_is_empty(const uint8_t *map) {
 
 static void channel_map_update_handler(le_rx_t *buf) {
 	uint32_t primask;
+	uint16_t instant;
 
 	// A map with no channels in it is refused, as le_connect_handler() refuses
 	// the same field in a CONNECT_IND. The remapping divides by the number of
@@ -1990,8 +2010,10 @@ static void channel_map_update_handler(le_rx_t *buf) {
 	le_parse_channel_map(&buf->data[3], &conn.pending_remapping);
 
 	// The map is whole, so the instant and the flag go in together.
+	instant = extract_field(buf, 8, 2);
+
 	primask = irq_save_disable();
-	conn.channel_map_update_instant = extract_field(buf, 8, 2);
+	conn.channel_map_update_instant = instant;
 	conn.channel_map_update_pending = 1;
 	irq_restore(primask);
 }

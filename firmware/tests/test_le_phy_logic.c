@@ -2546,6 +2546,60 @@ MU_TEST(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second)
  * then opened behind a packet instead of on the connection's grid, and the
  * event counter every instant is matched against was one ahead of the peer's.
  */
+/* What the timer interrupt does when a connection event's deadline expires:
+ * close the event, which counts it and arms the next one. The match it armed
+ * is kept, so a test can say the packet still arriving left it alone. */
+static uint32_t the_match_the_timer_armed;
+static void the_timer_closes_the_connection_event(void)
+{
+	finish_conn_event();
+	the_match_the_timer_armed = fake_t1mr0;
+}
+
+/*
+ * A deadline that expires as a packet's first byte arrives closes the event
+ * and leaves the next one armed, and the rest of that packet does not disturb
+ * it.
+ *
+ * Disarming the deadline is the first thing the byte handler does with a
+ * data-channel packet, and it asks whether the event is still open before it
+ * does. But a match the timer has already latched is taken the instant the
+ * guard around that question ends, so the event can close immediately
+ * afterwards and the packet carries on inside an event that has been counted.
+ * The guard at the end of the packet is what catches that: it finds the event
+ * closed and leaves the next event's match and anchor alone.
+ */
+MU_TEST(a_deadline_that_expires_as_a_packet_starts_leaves_the_next_event_armed)
+{
+	le_rx_t *packet;
+
+	anchored_connection(1000000);
+	conn_event.opened = 1;
+	/* The event is running to its own deadline, which the timer is about to
+	 * take. */
+	timer1_set_match(fake_t1tc + MSEC(1));
+
+	/* The buffer is taken before the hook is set, so the first guarded
+	 * section the packet runs into is the one that notes its event. */
+	current_rxbuf = buffer_get();
+	mu_assert_fatal(current_rxbuf != NULL, "the pool gave out no buffer");
+
+	the_match_the_timer_armed = 0;
+	irq_pending_hook = the_timer_closes_the_connection_event;
+	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the event's deadline is "
+	          "dropped without holding interrupts off");
+	mu_assert_fatal(packet != NULL, "the packet never reached the host");
+	mu_assert_int_eq(0, conn_event.num_packets);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "the packet that was arriving as the event closed disarmed the "
+	          "next event, so nothing opens it");
+	mu_assert_int_eq(the_match_the_timer_armed, fake_t1mr0);
+	buffer_release(packet);
+}
+
 MU_TEST(a_packet_from_a_closed_event_leaves_the_next_event_armed)
 {
 	const uint32_t next_event = 2000000;
@@ -2553,8 +2607,11 @@ MU_TEST(a_packet_from_a_closed_event_leaves_the_next_event_armed)
 
 	anchored_connection(1000000);
 	/* The event this packet belongs to has been closed and the next one
-	 * armed, which is what finish_conn_event() leaves behind. */
+	 * armed, which is what finish_conn_event() leaves behind. The event
+	 * counter is left where a packet that noted no event would leave its
+	 * own, so only "no event was open" tells the two apart. */
 	reset_conn_event();
+	conn.conn_event_counter = 0;
 	timer1_set_match(next_event);
 
 	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
@@ -3752,6 +3809,7 @@ int main(void)
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);
 	MU_RUN(a_target_filters_advertising_packets_only);
 	MU_RUN(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second);
+	MU_RUN(a_deadline_that_expires_as_a_packet_starts_leaves_the_next_event_armed);
 	MU_RUN(a_packet_from_a_closed_event_leaves_the_next_event_armed);
 	MU_RUN(two_packets_in_an_event_anchor_it_where_they_arrived);
 	MU_RUN(one_packet_anchors_the_event_only_near_the_prediction);
