@@ -348,11 +348,12 @@ class LMP:
 		# (Core v5.4 | Vol 2, Part C, 2.4.1 and 2.7).
 		#
 		# One slot is where a new connection starts (Vol 2, Part C, 4.1.10)
-		# and where this tool stays. It is a receiver: it has nothing to
-		# gain from longer packets from the peer, and no capture has yet
-		# shown its multi-slot decode working on the air. So one slot is
-		# accepted and anything larger refused, which leaves the peer on
-		# the single-slot packets this end does decode.
+		# and where this tool keeps the link. The firmware does decode the
+		# multi-slot packet kinds, but no capture has exercised that over
+		# the air. So one slot is accepted and anything larger refused, and
+		# the reason names the value rather than the procedure: multi-slot
+		# control is mandatory for both devices (table 4.11), so it is the
+		# count that is declined, not the PDU.
 		slots = u8(data[0]) if data else 0
 		if slots == 1:
 			return self.lmp_send_accepted(op, tid=self._rx_tid)
@@ -365,6 +366,12 @@ class LMP:
 		return self.lmp_send_not_accepted(op, p8(reason), tid=self._rx_tid)
 
 	def handle_switch_req(self, op, data):
+		if len(data) < 4:
+			# Too short to hold the switch instant, which the answer
+			# below says rather than raising on the unpack
+			# (Vol 2, Part C, 2.5).
+			return self.lmp_send_not_accepted(op,
+				p8(LMP_ERR_INVALID_LMP_PARAMETERS), tid=self._rx_tid)
 		instant = u32(data[:4])
 		log.info("switch req: instant: %d (in %d ticks)"%(
 			instant, (instant<<1)-self._clkn))

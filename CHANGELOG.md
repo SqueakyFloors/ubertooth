@@ -674,15 +674,12 @@
 
 ### Reliability fixes
 
-- A `ubertooth-btbr` connection to a real Classic device lasts as long as the
-  command does, instead of ending after exactly 30 seconds. The peer asks how
-  many slots its packets may use, and a request like that has to be answered;
-  getting nothing back, it waited out its 30-second LMP response timeout and
-  detached the link with `LMP_DETACH | 0f22`. The answer keeps the link on
-  the single-slot packets this board decodes. A role switch is refused rather
-  than passed over in silence, an IO capability request is answered under the
-  extended opcode it arrives with, and every answer now carries the
-  transaction ID of the request, so the peer can match it to what it asked.
+- A `ubertooth-btbr` connection to a real Classic device is no longer cut
+  short after exactly 30 seconds. The peer asks how many slots its packets
+  may use, and a request like that has to be answered; getting nothing back,
+  it waited out its 30-second LMP response timeout and detached the link with
+  `LMP_DETACH | 0f22`. The answer holds the link to single-slot packets,
+  which is where a connection starts anyway.
   [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
 
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress
@@ -2139,6 +2136,12 @@
 ### Under the hood
 
 Fixes with no visible change in normal use.
+
+- A `ubertooth-btbr` session refuses a peer's role switch instead of passing
+  it over in silence, answers a request to pair under the extended opcode it
+  really arrives with, and sends each answer under the request's own
+  transaction number so the peer can match it.
+  [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
 
 - The low-energy capture engine changes its timer's match-enable register, its
   buffer pool and the buffer a finished packet is handed over from with

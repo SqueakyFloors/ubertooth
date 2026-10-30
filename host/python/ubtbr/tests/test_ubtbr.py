@@ -584,6 +584,10 @@ for link_manager in link_managers():
     assert answers(link_manager, lmp.LMP_MAX_SLOT_REQ, b"\x01", tid=0) == \
         [pdu_sent(lmp.LMP_ACCEPTED, (lmp.LMP_MAX_SLOT_REQ,), 0)], \
         link_manager._con.sent
+    # Three slots is refused the same way as five. A real peer asks for both.
+    assert answers(link_manager, lmp.LMP_MAX_SLOT_REQ, b"\x03", tid=1) == \
+        [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_MAX_SLOT_REQ, 0x20), 1)], \
+        link_manager._con.sent
     # No slots, and a PDU too short to say how many, are both invalid rather
     # than unsupported.
     for payload in (b"\x00", b""):
@@ -595,6 +599,11 @@ for link_manager in link_managers():
     # side of the link, and its feature mask does not offer the feature.
     assert answers(link_manager, lmp.LMP_SWITCH_REQ, bytes(4), tid=1) == \
         [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_SWITCH_REQ, 0x1a), 1)], \
+        link_manager._con.sent
+    # A switch request too short to hold the instant is answered, not raised
+    # on: reading it as a number used to end the session instead.
+    assert answers(link_manager, lmp.LMP_SWITCH_REQ, b"\x01", tid=1) == \
+        [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_SWITCH_REQ, 0x1e), 1)], \
         link_manager._con.sent
     # The notifications beside it are recognized and send nothing back.
     assert answers(link_manager, lmp.LMP_MAX_SLOT, b"\x05", tid=1) == [], \
@@ -613,22 +622,33 @@ assert answers(central, lmp.EXT_OPCODE | lmp.LMP_IO_CAPABILITY_REQ,
     bytes(((lmp.LMP_ESCAPE_4 << 1) | 1, lmp.LMP_IO_CAPABILITY_RES)), \
     central._con.sent
 
-# and no request either side handles can go unanswered: every opcode in the
+# and no request either table handles can go unanswered: every opcode in the
 # tables whose PDU is a request is fed in, and each one has to put a PDU on
-# the link with the transaction ID it came in with.
-for link_manager in link_managers():
-    requests = 0
+# the link with the transaction ID it came in with. The requests each side
+# answers are spelled out, so dropping one, or adding a handler without a
+# case here, fails rather than passing quietly. (A request the tables do not
+# handle still only warns; that is the gap this does not cover.)
+CENTRAL_REQUESTS = ["LMP_FEATURES_REQ", "LMP_FEATURES_REQ_EXT",
+                    "LMP_IO_CAPABILITY_REQ", "LMP_MAX_SLOT_REQ",
+                    "LMP_NAME_REQ", "LMP_SWITCH_REQ", "LMP_VERSION_REQ"]
+PERIPHERAL_REQUESTS = ["LMP_FEATURES_REQ", "LMP_FEATURES_REQ_EXT",
+                       "LMP_HOST_CONNECTION_REQ", "LMP_MAX_SLOT_REQ",
+                       "LMP_NAME_REQ", "LMP_SWITCH_REQ", "LMP_VERSION_REQ"]
+for link_manager, expected in zip(link_managers(),
+                                  [CENTRAL_REQUESTS, PERIPHERAL_REQUESTS]):
+    answered = []
     for op in link_manager._FSM[1]:
         # Looking the name up is itself a check: every key has to be an
         # opcode of the right kind, plain or extended.
         names = lmp.LMP_OPEXT2STR if op & lmp.EXT_OPCODE else lmp.LMP_OP2STR
-        if not names[op & 0xff].endswith("_REQ"):
+        name = names[op & 0xff]
+        if "_REQ" not in name:
             continue
-        requests += 1
+        answered.append(name)
         sent = answers(link_manager, op, bytes(16), tid=1)
-        assert len(sent) == 1, (names[op & 0xff], sent)
-        assert sent[0][0] & 1 == 1, (names[op & 0xff], sent)
-    assert requests >= 6, requests
+        assert len(sent) == 1, (name, sent)
+        assert sent[0][0] & 1 == 1, (name, sent)
+    assert sorted(answered) == expected, sorted(answered)
 print("ubtbr: every LMP request the link manager handles is answered")
 
 # ---- a command of a super command that will not stop ----------------------
