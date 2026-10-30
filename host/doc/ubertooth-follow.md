@@ -351,12 +351,20 @@ captured stays written out, and libubertooth names the refused request on
 standard error.
 
 The `-q`, `-r` and `-d` files are created once the board has been opened and
-its firmware accepted, not before, so a run refused for either reason leaves
-no empty capture behind. For this tool that is later than it sounds: the
-adapter, the connection to the target and the clock and AFH reads all come
-first, so a path that cannot be opened is reported after them. A terminal on
-standard output is still refused while the command line is read, and so is
-every other fault in the command line.
+its firmware accepted, not before, and a run that is refused after that
+removes them again, so a refused follow leaves no empty capture behind
+whatever refused it. For this tool the files are created later than it sounds:
+the adapter, the connection to the target and the AFH read all come first, so
+a path that cannot be opened is reported after them. A terminal on standard
+output is still refused while the command line is read, and so is every other
+fault in the command line.
+
+A capture on standard output (`-q -`) is not a file this tool created, so it
+is left as it is.
+
+A run that cannot allocate the piconet it follows exits 1 with `error: out of
+memory`, before the adapter or a board is opened; `-h` and `-V` are answered
+first and so still work on a machine with no memory for one.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that
