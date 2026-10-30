@@ -51,9 +51,9 @@ def eprint(text):
     fails must not raise where it was written from and end a command, or a
     capture thread, that was otherwise working.
 
-    The argument parser's own refusals are the exception, because argparse
-    writes them itself, and before Python 3.11 it does so unguarded; see
-    issue #934, which owns that parser's wording and its exit status.
+    The argument parser's own refusals are the exception: argparse writes
+    those itself, and before Python 3.11 it does so without catching
+    anything, so one of them can still raise.
 
     The state this is for is a pipe whose reader has left. The tool's startup
     check cannot see one on Linux, where a write of nothing to such a pipe
