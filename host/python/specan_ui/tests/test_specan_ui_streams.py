@@ -449,15 +449,15 @@ print("ubertooth-specan-ui: a descriptor open for reading only costs the"
 # rather than left to the read-only case above, which looks the same on both.
 
 def broken_pipe(*numbers):
-    """Point each of these descriptors at a pipe whose reader has already
-    left, which is `| <a reader that stops>`. Returns what Popen runs between
-    fork and exec."""
+    """Point these descriptors at one pipe whose reader has already left,
+    which is `2>&1 | <a reader that stops>` when both are named. Returns what
+    Popen runs between fork and exec."""
     def prepare():
+        reading, writing = os.pipe()
+        os.close(reading)
         for number in numbers:
-            reading, writing = os.pipe()
-            os.close(reading)
             os.dup2(writing, number)
-            os.close(writing)
+        os.close(writing)
     return prepare
 
 

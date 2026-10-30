@@ -674,13 +674,15 @@
   unaffected.
   [#929](https://github.com/SqueakyFloors/ubertooth/issues/929)
 
-- A standard error whose reader has left keeps all three Python tools' own
-  exit status, instead of ending them in 120 on Linux:
-  `btle-extcap.py --bogus 2>&1 | head -0`, and the same for
-  `ubertooth-specan-ui` and `ubertooth-btbr`, lose the `error: ` line and
-  nothing else. `ubertooth-btbr` also gains the check the other two have, so
-  a standard error open for reading only no longer ends it in 120, and a
-  session with that stream closed runs and captures instead of being refused.
+- A standard error that cannot be written costs all three Python tools their
+  diagnostics and nothing else. A pipe whose reader has left used to end
+  `btle-extcap.py` and `ubertooth-specan-ui` in status 120 on Linux, and the
+  write itself could raise part-way through a call that was going to work:
+  a `btle-extcap.py --extcap-interfaces` that passed a warning on exited 1
+  with no interfaces, leaving Wireshark nothing to capture with.
+  `ubertooth-btbr` gains the check the other two have, so a standard error
+  open for reading only no longer ends it in 120, and a session with that
+  stream closed runs and captures instead of being refused.
   [#930](https://github.com/SqueakyFloors/ubertooth/issues/930)
 
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`

@@ -736,15 +736,15 @@ def close_both():
 
 
 def broken_pipe(*numbers):
-    """Point each of these descriptors at a pipe whose reader has already
-    left, which is `| <a reader that stops>`. Returns what Popen runs between
-    fork and exec."""
+    """Point these descriptors at one pipe whose reader has already left,
+    which is `2>&1 | <a reader that stops>` when both are named. Returns what
+    Popen runs between fork and exec."""
     def prepare():
+        reading, writing = os.pipe()
+        os.close(reading)
         for number in numbers:
-            reading, writing = os.pipe()
-            os.close(reading)
             os.dup2(writing, number)
-            os.close(writing)
+        os.close(writing)
     return prepare
 
 
@@ -1001,12 +1001,43 @@ assert output.startswith("Usage:"), output
 
 # both streams the same pipe, which is `-h 2>&1 | <a reader that stops>`:
 # the usage text and the line reporting its loss both go nowhere, and the
-# status is all that is left
+# status is all that is left. One pipe for the two descriptors, as the
+# redirection leaves them.
 status, output, errors = ran_with(("-h",), broken_pipe(1, 2))
 assert status == 1, (status, output, errors)
 
+# A call that was going to work keeps its answer and its status: the
+# diagnostic is dropped where it cannot be written, and does not raise where
+# it was written from. These two are the calls that print to that stream and
+# carry on afterwards, so they are where a raise would cost the answer.
+#
+# the interface listing, which passes ubertooth-util's own lines on: the
+# listing is still printed and the call still exits 0, where the write used
+# to raise and leave Wireshark a failed call with no interfaces. Measured on
+# Linux as exit 1 and an empty listing before this; on macOS the startup
+# guard sees the broken pipe and bins the stream, so there was nothing left
+# to raise and this case only guards the Linux behavior.
+with open(OUTPUT_FILE, "w") as listing_file:
+    listing_file.write(LISTING_ONE % SERIALS[0])
+status, output, errors = ran_with(("--extcap-interfaces",), broken_pipe(2),
+                                  FAKE_UTIL_ERRORS="warning: a board was"
+                                  " not read\n")
+assert status == 0, (status, output, errors)
+assert output == ("interface {value=ubertooth%s}{display=Ubertooth One %s}\n"
+                  % (SERIALS[0], SERIALS[0])), output
+
+# and a capture whose filter cannot be honored, which warns and then runs:
+# the capture reaches the fifo and the call ends as the capture it was
+CAPTURE_FIFO = os.path.join(directory, "warned-capture.pcap")
+status, output, errors = ran_with(
+    ("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+     "--fifo=" + CAPTURE_FIFO, "--extcap-capture-filter=btle"),
+    broken_pipe(2))
+assert status == 0, (status, output, errors)
+assert os.path.exists(ARGS_FILE), "ubertooth-btle must still run"
+
 print("btle-extcap: a standard error whose reader has left leaves the call"
-      " its own exit status")
+      " its own exit status, and a call that works its answer")
 
 # ---- --capture --------------------------------------------------------------
 

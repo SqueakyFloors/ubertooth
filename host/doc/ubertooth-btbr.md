@@ -300,7 +300,7 @@ with.
 Standard error going away costs the tool its diagnostics and nothing else.
 One open for reading only (`ubertooth-btbr --bogus 2<&0`), closed
 (`ubertooth-btbr --bogus 2>&-`), or a pipe whose reader has left
-(`ubertooth-btbr --bogus 2>&1 | head -0`) all go the same way: the lines are
+(`ubertooth-btbr --bogus 2>&1 | true`) all go the same way: the lines are
 dropped, the capture on standard output is not, and the exit status is the
 command's own. It used to be 120 for the first of those, from the flush the
 interpreter makes as it exits, and a session with that stream closed used to

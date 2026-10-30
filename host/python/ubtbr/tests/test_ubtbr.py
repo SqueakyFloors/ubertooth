@@ -1743,14 +1743,14 @@ def read_only(*numbers):
 
 
 def broken_pipe(*numbers):
-    """Point each of these descriptors at a pipe whose reader has already
-    left, which is `| <a reader that stops>`."""
+    """Point these descriptors at one pipe whose reader has already left,
+    which is `2>&1 | <a reader that stops>` when both are named."""
     def prepare():
+        reading, writing = os.pipe()
+        os.close(reading)
         for number in numbers:
-            reading, writing = os.pipe()
-            os.close(reading)
             os.dup2(writing, number)
-            os.close(writing)
+        os.close(writing)
     return prepare
 
 

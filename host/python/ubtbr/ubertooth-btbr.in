@@ -86,18 +86,17 @@ def report_versions(selector=None):
 		# whatever that turned out to be.
 		output_lost()
 		return 1
-	child_streams = {}
+	# The same for standard error, which the child writes to as well. Nothing
+	# is written here: eprint() of nothing is the flush, and it is the one
+	# that cannot fail on a stream whose reader has left.
+	#
+	# The child inherits that descriptor, which is what it should have: a
+	# stream this tool could not use was pointed at the bin at startup and
+	# marked inheritable, so the child gets the bin rather than a closed
+	# descriptor whose number the first file it opened would take.
+	eprint("")
 	try:
-		sys.stderr.flush()
-	except (AttributeError, ValueError):
-		# Nor any standard error. That costs the child's diagnostics and not
-		# the answer, so nothing is said about it, but the child is handed
-		# the bin for them rather than the closed descriptor: the first file
-		# it opened would otherwise take that number and its lines would be
-		# written into whatever that turned out to be.
-		child_streams["stderr"] = subprocess.DEVNULL
-	try:
-		status = subprocess.call(command, **child_streams)
+		status = subprocess.call(command)
 	except OSError as e:
 		# Not on the PATH, or there and not executable. Reported in one line
 		# like every other failure here, rather than ending the tool in a
@@ -231,7 +230,7 @@ def through(stage):
 
 	Both stages come through here: the command line, which answers -V and -h
 	ahead of the imports below, and the session. Either can find the stream
-	gone -- `ubertooth-btbr -h | head -0` is the first -- and the interpreter
+	gone -- `ubertooth-btbr -h | true` is the first -- and the interpreter
 	flushes it as it exits, outside any handler, where a failed flush ends
 	the tool in status 120 and a message of its own.
 

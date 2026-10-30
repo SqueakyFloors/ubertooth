@@ -130,6 +130,26 @@ def flush_the_streams():
                 pass
 
 
+def eprint(text):
+    """Write a diagnostic to standard error, or drop it if it cannot go there.
+
+    Every error, warning and note this tool gives goes through here, so that
+    losing the stream costs the lines and nothing else: a write that fails
+    must not raise in the middle of a command and end one that was going to
+    work.
+
+    The state that reaches this is a pipe whose reader has left, which
+    can_be_written() cannot see at startup on Linux. The stream is pointed at
+    the bin so the writes to come are safe, and this line is let go: it had
+    nowhere to be read.
+    """
+    try:
+        sys.stderr.write(text)
+        sys.stderr.flush()
+    except (OSError, ValueError, AttributeError):
+        point_at_the_bin(sys.stderr)
+
+
 def output_lost():
     """Report that standard output has gone away, and end the command.
 
@@ -138,12 +158,7 @@ def output_lost():
     not a command that did what was asked (.kiro/steering/cli-output.md).
     """
     point_at_the_bin(sys.stdout)
-    try:
-        print("error: standard output has gone away", file=sys.stderr)
-    except (OSError, ValueError, AttributeError):
-        # Standard error went the same way, which is what `2>&1` into a reader
-        # that left leaves. The exit status is all there is to say it with.
-        point_at_the_bin(sys.stderr)
+    eprint("error: standard output has gone away\n")
     sys.exit(1)
 
 
@@ -167,7 +182,7 @@ def answer(text):
 def bin_an_unusable_standard_error():
     """Keep this tool's diagnostics out of the answer and out of its status.
 
-    With no such stream, print(..., file=sys.stderr) writes to standard output
+    With no such stream, a write meant for it lands on standard output
     instead, where a reader or a script is entitled to find only what it
     asked for -- including specan/limits.py's refusals. The bin takes them.
 
@@ -238,8 +253,8 @@ def report_versions(selector=None):
     except OSError as err:
         # Not on the PATH, or there and not executable. Reported in one line
         # like every other failure here, rather than in a traceback.
-        print("error: could not run %s: %s"
-              % (VERSION_TOOL, err.strerror or err), file=sys.stderr)
+        eprint("error: could not run %s: %s\n"
+               % (VERSION_TOOL, err.strerror or err))
         return 1
     # ubertooth-util exits 0 with the whole answer and 1 when part of it could
     # not be read; a child killed by a signal (a negative status here)
@@ -753,8 +768,7 @@ class Window(QtWidgets.QWidget):
             key = chr(event.key()).upper()
             event.accept()
         except:
-            print('note: unknown key pressed: 0x%x' % event.key(),
-                  file=sys.stderr)
+            eprint('note: unknown key pressed: 0x%x\n' % event.key())
             event.ignore()
             return
         if key == 'H':
@@ -777,7 +791,7 @@ class Window(QtWidgets.QWidget):
         if key == 'Q':
             self.close()
             return
-        print('note: unsupported key pressed:', key, file=sys.stderr)
+        eprint('note: unsupported key pressed: %s\n' % key)
 
 
 def sigint_handler(*args):

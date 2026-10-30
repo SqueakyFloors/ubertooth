@@ -17,8 +17,23 @@ from threading import Lock
 from time import strftime
 
 def eprint(msg):
-	sys.stderr.write(msg)
-	sys.stderr.flush()
+	"""Write a diagnostic to standard error, or drop it if it cannot go there.
+
+	Every error, warning and note the tool gives goes through here, so that
+	losing the stream costs the lines and nothing else: a write that fails
+	must not raise in the middle of a session and end a capture that was
+	running.
+
+	The state that reaches this is a pipe whose reader has left, which
+	can_be_written() cannot see at startup on Linux. The stream is pointed at
+	the bin so the writes to come are safe, and this line is let go: it had
+	nowhere to be read.
+	"""
+	try:
+		sys.stderr.write(msg)
+		sys.stderr.flush()
+	except (OSError, ValueError, AttributeError):
+		point_at_the_bin(sys.stderr)
 
 # Set once standard output has gone away, so the session can end with a
 # status that says what was asked for was not all printed. A command runs on
@@ -150,13 +165,11 @@ def output_lost():
 			return
 		_output_gone = True
 	point_at_the_bin(sys.stdout)
-	try:
-		error("standard output has gone away")
-	except (BrokenPipeError, AttributeError, ValueError):
-		# Standard error went the same way, which is what `2>&1` into a
-		# reader that left leaves, or a descriptor closed before the tool
-		# started. The exit status is then all there is to say it with.
-		point_at_the_bin(sys.stderr)
+	# Standard error may have gone the same way, which is what `2>&1` into a
+	# reader that left leaves, or a descriptor closed before the tool
+	# started. eprint() drops the line in that case, and the exit status is
+	# then all there is to say it with.
+	error("standard output has gone away")
 
 def result(msg):
 	"""Report what a command decoded: a packet, or an inquiry response.

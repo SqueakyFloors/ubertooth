@@ -141,7 +141,7 @@ moved: none of them falls back to standard output, where a reader or a script
 is entitled to find only what it asked for. A standard error open for reading
 only (`ubertooth-specan-ui -l 2000 2<&0`), closed
 (`ubertooth-specan-ui -l 2000 2>&-`), or a pipe whose reader has left
-(`ubertooth-specan-ui -l 2000 2>&1 | head -0`) all go the same way. The exit
+(`ubertooth-specan-ui -l 2000 2>&1 | true`) all go the same way. The exit
 status is then all that is left to say what happened, and it is the tool's
 own: it used to be 120, from the flush the interpreter makes as it exits.
 
