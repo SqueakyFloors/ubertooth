@@ -861,6 +861,20 @@ void set_isp(void)
 	 */
 	u32 flags = irq_save_disable();
 
+	/*
+	 * The one hand-over that inherits this firmware's memory map: the
+	 * programmer starts without a chip reset, so the stack's guard region
+	 * would still be in force while ROM code it knows nothing about runs.
+	 * Entering the bootloader goes through a reset instead, which clears
+	 * the unit, and the bootloader starts an application at its reset
+	 * vector, where it arms a guard of its own.
+	 */
+	if (MPU_TYPE_DREGION(MPU_TYPE) != 0) {
+		MPU_CTRL = 0;
+		__asm__ volatile ("dsb" ::: "memory");
+		__asm__ volatile ("isb");
+	}
+
 	command[0] = 57;
 	iap_entry(command, result);
 

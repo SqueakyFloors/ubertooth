@@ -635,6 +635,8 @@ $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
 		$(FW_COMMON)/stack_check.h $(FW_COMMON)/LPC17xx_Startup.c \
 		$(FW_COMMON)/usb_irq.h $(FW_COMMON)/sections.ld \
+		$(FW_COMMON)/../common.mk $(FW_BOOT)/Makefile \
+		$(FW_RXTX)/Makefile $(FW_BTBR)/Makefile \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c \
 		$(FW_RXTX)/ego.c $(FW_RXTX)/xmas.c $(FW_RXTX)/identify.c \

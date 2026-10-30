@@ -1424,6 +1424,7 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 	char line[512];
 	int in_block = 0, in_enable = 0;
 	int region = 0, base = 0, size_field = 0, no_access = 0, enabled = 0;
+	int written = 0;
 	int executable = 1, default_map = 0, absent_unit = 0, fenced = 0;
 	int paints_from_bottom = 0, measures_from_bottom = 0, names_limit = 0;
 	FILE *f = fopen(path, "r");
@@ -1444,6 +1445,8 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 				region = 1;
 			if (strstr(line, "MPU_RBAR = (uint32_t)&_stack_guard") != NULL)
 				base = 1;
+			if (strstr(line, "MPU_RASR = MPU_RASR_ENABLE") != NULL)
+				written = 1;
 			if (strstr(line, "MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD)") != NULL)
 				size_field = 1;
 			if (strstr(line, "MPU_RASR_AP_NONE") != NULL)
@@ -1479,9 +1482,10 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 	          "the guard region's size is no longer the one stack_check.h "
 	          "encodes, so it may cover more or less than the 32 bytes "
 	          "sections.ld set aside");
-	mu_assert(no_access == 1 && enabled == 1 && executable == 0,
-	          "the guard region is not an enabled, no-access, no-execute one, "
-	          "so an overflow into it would not fault");
+	mu_assert(written == 1 && no_access == 1 && enabled == 1 &&
+	          executable == 0,
+	          "the guard region is not written as an enabled, no-access, "
+	          "no-execute one, so an overflow into it would not fault");
 	mu_assert(default_map == 1,
 	          "the unit is enabled without PRIVDEFENA, which leaves every "
 	          "address outside the guard with no rule of its own: the first "
@@ -1501,6 +1505,50 @@ MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
 	mu_assert(names_limit == 0,
 	          "the startup code still reads _stack_limit, which is below the "
 	          "guard: it has to use _stack_bottom");
+}
+
+/*
+ * Which images take the guard. One define in the wrong Makefile turns the whole
+ * thing off in both shipped images, and every check above would stay green.
+ */
+MU_TEST(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not)
+{
+	static const struct { const char *path; int opts_out; } makefiles[] = {
+		{ FW_BOOTLOADER_DIR "/Makefile", 1 },
+		{ FW_RXTX_DIR "/Makefile", 0 },
+		{ FW_BTBR_DIR "/Makefile", 0 },
+		{ FW_COMMON_DIR "/../common.mk", 0 },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(makefiles) / sizeof(makefiles[0]); i++) {
+		char line[512], msg[384];
+		int found = 0;
+		FILE *f = fopen(makefiles[i].path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", makefiles[i].path);
+		mu_assert_fatal(f != NULL, msg);
+		while (fgets(line, sizeof(line), f) != NULL) {
+			/* A make comment, not a C one, so strip_comments() is no use
+			 * here; nothing in these files comments the define out. */
+			if (line[0] != '#' &&
+			    strstr(line, "UBERTOOTH_NO_STACK_GUARD") != NULL)
+				found = 1;
+		}
+		fclose(f);
+
+		if (makefiles[i].opts_out)
+			snprintf(msg, sizeof(msg),
+			         "%s no longer asks for UBERTOOTH_NO_STACK_GUARD: the "
+			         "bootloader would arm a guard in the image a board is "
+			         "recovered through", makefiles[i].path);
+		else
+			snprintf(msg, sizeof(msg),
+			         "%s defines UBERTOOTH_NO_STACK_GUARD, which turns the "
+			         "stack guard off in a shipped image",
+			         makefiles[i].path);
+		mu_assert(found == makefiles[i].opts_out, msg);
+	}
 }
 
 MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
@@ -1876,6 +1924,7 @@ int main(void)
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
 	MU_RUN(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it);
 	MU_RUN(test_startup_programs_the_guard_and_paints_above_it);
+	MU_RUN(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	MU_RUN(test_every_fault_handler_records_the_fault);

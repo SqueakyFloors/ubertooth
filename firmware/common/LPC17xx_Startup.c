@@ -90,9 +90,7 @@ static void stack_paint(void)
  * beside UBERTOOTH_NO_WATCHDOG). It runs for a moment with 12 KB of stack to
  * itself, so a guard buys it nothing, and it is the image a board is recovered
  * through: the one place where a fault of our making would need someone at the
- * bench with the entry pin bridged. Leaving it alone also means it hands an
- * application the memory map it has always handed it, whatever that
- * application was built from.
+ * bench with the entry pin bridged.
  */
 #ifndef UBERTOOTH_NO_STACK_GUARD
 
@@ -123,6 +121,9 @@ static void stack_guard_enable(void)
 		return;
 
 	MPU_RNR = 0;
+	/* The base's low five bits are the register's own region number and the
+	 * bit that says to use it. They are all zero because the address is
+	 * 32-byte aligned, which is what leaves MPU_RNR above in charge. */
 	MPU_RBAR = (uint32_t)&_stack_guard;
 	MPU_RASR = MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
 	           MPU_RASR_AP_NONE | MPU_RASR_XN;

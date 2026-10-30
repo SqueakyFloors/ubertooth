@@ -169,9 +169,10 @@ SECTIONS
 		__bss_end__ = .;
 	} > ram
 
-	/* Where we put the heap with cr_clib. It has nowhere to grow: the stack's
-	 * guard is immediately above it, so a first malloc() would fault. No
-	 * image calls one. */
+	/* Where we put the heap with cr_clib. It has at most a few bytes before
+	 * the stack's guard, which starts on the next 32-byte boundary. No image
+	 * allocates -- there is no _sbrk in the tree, so a malloc() would not
+	 * even link. */
 	.cr_heap :
 	{
 		end = .;
@@ -188,9 +189,9 @@ SECTIONS
 	 * over the end of .bss. The bootloader leaves the unit alone, for the
 	 * reason in LPC17xx_Startup.c, and the room is reserved either way.
 	 *
-	 * A region has to be aligned to its own size, so
-	 * the bottom of the usable stack is the first 32-byte boundary above
-	 * everything allocated, plus the guard itself.
+	 * A region has to be aligned to its own size, so the bottom of the
+	 * usable stack is the first 32-byte boundary above everything allocated,
+	 * plus the guard itself.
 	 *
 	 * Reset_Handler fills the room between _stack_bottom and the stack
 	 * pointer with a known word at boot, and UBERTOOTH_GET_WATCHDOG reports
