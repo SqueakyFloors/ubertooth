@@ -287,12 +287,15 @@ something that stops reading, as `ubertooth-btbr | head -5` does, therefore
 leaves the prompt up with nothing more printed, and the session ends with
 exit 1; so does a `-h` or `-V` whose answer could not be delivered, whether
 its reader left or there was no standard output to print to at all, as
-`ubertooth-btbr -h >&-` leaves. A session asked for with no standard output
-is refused in that same line, before any board is opened: the stream carries
-the capture, and the prompt cannot be read without it either. A session
-that had printed nothing when the reader left has lost nothing and ends as it
-otherwise would. If standard error has gone the same way, the exit status is
-all that is left to say it with.
+`ubertooth-btbr -h >&-` leaves. A session whose standard output is a
+descriptor open for reading only, which is what `ubertooth-btbr 1<&0` leaves,
+is that same line and status, the capture's first packet being what finds it.
+A session asked for with no standard output is refused in that same line,
+before any board is opened: the stream carries the capture, and the prompt
+cannot be read without it either. A session that had printed nothing when the
+reader left has lost nothing and ends as it otherwise would. If standard
+error has gone the same way, the exit status is all that is left to say it
+with.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused

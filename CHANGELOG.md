@@ -650,6 +650,13 @@
   status either.
   [#926](https://github.com/SqueakyFloors/ubertooth/issues/926)
 
+- A `ubertooth-btbr` session whose standard output is a descriptor that
+  cannot be written, which is what `ubertooth-btbr 1<&0` leaves, reports the
+  lost capture in the one `error: standard output has gone away` line. The
+  first packet used to end the command with a second line naming the errno,
+  as though the command itself had failed.
+  [#920](https://github.com/SqueakyFloors/ubertooth/issues/920)
+
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
   package is not installed, instead of ending in a `ModuleNotFoundError`
   traceback: the command line is now read before the `usb1` module is
