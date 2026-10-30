@@ -556,6 +556,13 @@
   Ubertooth to flash, before those slow steps run; on macOS its first line
   used to be a couple of seconds late, which looked like a hang.
   [#640](https://github.com/SqueakyFloors/ubertooth/issues/640)
+- `install.sh` refuses a command line in the same words as the tools:
+  `error: unrecognized option '--bogus'`, `error: option '--prefix' requires a
+  value: a path`, and `error: unexpected argument 'extra'` for a word that is
+  not an option at all, where every one of those used to be `unknown option`.
+  A lone `--` ends the options and the install goes ahead with the defaults,
+  instead of being refused as an option the script does not have.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - On macOS, `cmake -S host -B build && cmake --build build` builds the whole
   tree. It used to stop on one test unless the configure was given
   `-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`, because Homebrew keeps

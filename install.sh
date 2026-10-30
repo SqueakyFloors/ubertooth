@@ -212,7 +212,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
-		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "--flash-device needs an index, serial, or 'all'" ;;
+		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "option '--flash-device' requires a value: an index, serial, or 'all'" ;;
 		--uninstall) UNINSTALL=1 ;;
 		--keep-libbtbb)
 			[ "$LIBBTBB_ACTION" != remove ] || die "--keep-libbtbb cannot be combined with --remove-libbtbb"
@@ -220,10 +220,10 @@ while [ $# -gt 0 ]; do
 		--remove-libbtbb)
 			[ "$LIBBTBB_ACTION" != keep ] || die "--remove-libbtbb cannot be combined with --keep-libbtbb"
 			LIBBTBB_ACTION=remove ;;
-		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "--venv needs a path" ;;
-		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_URL" ] || die "--libbtbb-url needs a git URL" ;;
-		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_REF" ] || die "--libbtbb-ref needs a value" ;;
-		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "--prefix needs a path" ;;
+		--venv) shift; VENV="${1:-}"; [ -n "$VENV" ] || die "option '--venv' requires a value: a path" ;;
+		--libbtbb-url) shift; LIBBTBB_URL="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_URL" ] || die "option '--libbtbb-url' requires a value: a git URL" ;;
+		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_REF" ] || die "option '--libbtbb-ref' requires a value: a commit, tag or branch" ;;
+		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "option '--prefix' requires a value: a path" ;;
 		--skip-deps) SKIP_DEPS=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
 		-h|--help)
@@ -233,7 +233,20 @@ while [ $# -gt 0 ]; do
 			printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
 				"$LIBBTBB_URL" "$LIBBTBB_REF"
 			exit 0 ;;
-		*) die "unknown option: $1 (use --help)" ;;
+		--)
+			# A lone "--" ends the options and leaves nothing behind it, so
+			# the run goes ahead with the defaults, as a command line with no
+			# options does. This script takes no operands, so a word after
+			# "--" is one it cannot use.
+			shift
+			[ $# -eq 0 ] || die "unexpected argument '$1'"
+			break ;;
+		# The wording the tools share for a command line the option parser
+		# will not take (.kiro/steering/cli-output.md). A word that does not
+		# start with "-" is not an option the script is missing, so it is
+		# reported as the stray word it is.
+		-*) die "unrecognized option '$1'" ;;
+		*) die "unexpected argument '$1'" ;;
 	esac
 	shift
 done
