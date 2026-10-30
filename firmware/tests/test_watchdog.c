@@ -1961,6 +1961,48 @@ MU_TEST(test_the_frame_pointer_is_checked_before_it_is_read)
 	mu_assert_int_eq(0, fault_frame_pc_between(NULL, bottom, top));
 }
 
+/*
+ * The frame check is bounded above the stack guard, not below it.
+ *
+ * sections.ld puts _stack_limit below the 32 bytes the memory protection unit
+ * is told to refuse and _stack_bottom above them. Bounding the frame at
+ * _stack_limit would accept a frame pointer inside the guard, and reading one
+ * there is refused: the second fault would be taken inside the handler and
+ * lose the record, which is the one thing the bounds check is for. The
+ * arithmetic is pinned by the case above; this pins which region it is given.
+ */
+MU_TEST(test_the_frame_check_is_bounded_above_the_stack_guard)
+{
+	const char *path = FW_COMMON_DIR "/fault_frame.h";
+	char line[512];
+	int in_block = 0, in_pc = 0, uses_bottom = 0, uses_limit = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert_fatal(f != NULL, "cannot read fault_frame.h");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (!in_pc) {
+			if (strstr(line, "fault_frame_pc(const uint32_t") != NULL)
+				in_pc = 1;
+			continue;
+		}
+		if (strstr(line, "_stack_bottom") != NULL)
+			uses_bottom = 1;
+		if (strstr(line, "_stack_limit") != NULL)
+			uses_limit = 1;
+		if (line[0] == '}')
+			break;
+	}
+	fclose(f);
+
+	mu_assert(uses_bottom,
+	          "fault_frame_pc() does not bound the frame at _stack_bottom");
+	mu_assert(!uses_limit,
+	          "fault_frame_pc() bounds the frame at _stack_limit, which is "
+	          "below the guard, so a frame pointer in the guard would be "
+	          "read and fault again inside the handler");
+}
+
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
 {
 	static const struct {
@@ -2186,6 +2228,7 @@ int main(void)
 	MU_RUN(test_every_fault_handler_records_the_fault);
 	MU_RUN(test_each_fault_vector_reaches_its_handler_through_the_frame_shim);
 	MU_RUN(test_the_frame_pointer_is_checked_before_it_is_read);
+	MU_RUN(test_the_frame_check_is_bounded_above_the_stack_guard);
 	MU_RUN(test_a_forced_hard_fault_reports_the_fault_underneath_it);
 	MU_RUN(test_btbrs_stack_dump_stops_above_the_guard);
 	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);

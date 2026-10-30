@@ -156,7 +156,6 @@ UBERTOOTH_FAULT_ENTRY(HardFault_Handler, btbr_hard_fault_at)
 void btbr_hard_fault_at(uint32_t *frame)
 {
 	uint32_t val = SCB_HFSR;
-	uint32_t pc = fault_frame_pc(frame);
 	uint32_t reported;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
@@ -177,18 +176,21 @@ void btbr_hard_fault_at(uint32_t *frame)
 			reported = SCB_BFAR;
 		else if (cfsr & (FAULT_FRAME_STACKING_ERROR_CFSR_MEM |
 		                 FAULT_FRAME_STACKING_ERROR_CFSR_BUS))
+			/* The frame was never written, and on an overflow it
+			 * would sit in the guard, where reading it faults
+			 * again. So the frame is not touched at all here. */
 			reported = 0;
 		else
-			reported = pc;
+			reported = fault_frame_pc(frame);
 		watchdog_fault(cfsr, reported);
 	} else {
 		/* A vector table read that failed, or a debug event: the part
 		 * keeps no access address for either. */
-		reported = pc;
+		reported = fault_frame_pc(frame);
 		watchdog_fault(val, reported);
 	}
 	if (reported)
-		early_printf("HardFault at 0x%x\n", reported);
+		early_printf("HardFault, address 0x%x\n", reported);
 	else
 		/* A stacking error, or a frame that was not where a frame
 		 * can be: either way there is nothing to name, and zero
@@ -203,7 +205,6 @@ UBERTOOTH_FAULT_ENTRY(MemManagement_Handler, btbr_mem_fault_at)
 void btbr_mem_fault_at(uint32_t *frame)
 {
 	uint8_t mmsr = SCB_MMSR;
-	uint32_t pc = fault_frame_pc(frame);
 	uint32_t reported;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
@@ -216,12 +217,14 @@ void btbr_mem_fault_at(uint32_t *frame)
 	if (mmsr & UBERTOOTH_FAULT_ADDR_VALID)
 		reported = SCB_MMFAR;
 	else if (mmsr & FAULT_FRAME_STACKING_ERROR)
+		/* The frame was never written, and on an overflow it would sit
+		 * in the guard, where reading it faults again. */
 		reported = 0;
 	else
-		reported = pc;
+		reported = fault_frame_pc(frame);
 	watchdog_fault(mmsr, reported);
 	if (reported)
-		early_printf("MMFault at 0x%x\n", reported);
+		early_printf("MMFault, address 0x%x\n", reported);
 	else
 		/* A stacking error, or a frame that was not where a frame
 		 * can be: either way there is nothing to name, and zero
@@ -236,7 +239,6 @@ UBERTOOTH_FAULT_ENTRY(BusFault_Handler, btbr_bus_fault_at)
 void btbr_bus_fault_at(uint32_t *frame)
 {
 	uint8_t bfsr = SCB_BFSR;
-	uint32_t pc = fault_frame_pc(frame);
 	uint32_t reported;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
@@ -247,12 +249,14 @@ void btbr_bus_fault_at(uint32_t *frame)
 	if (bfsr & UBERTOOTH_FAULT_ADDR_VALID)
 		reported = SCB_BFAR;
 	else if (bfsr & FAULT_FRAME_STACKING_ERROR)
+		/* The frame was never written, and on an overflow it would sit
+		 * in the guard, where reading it faults again. */
 		reported = 0;
 	else
-		reported = pc;
+		reported = fault_frame_pc(frame);
 	watchdog_fault(bfsr, reported);
 	if (reported)
-		early_printf("BusFault at 0x%x\n", reported);
+		early_printf("BusFault, address 0x%x\n", reported);
 	else
 		/* A stacking error, or a frame that was not where a frame
 		 * can be: either way there is nothing to name, and zero
@@ -266,14 +270,18 @@ UBERTOOTH_FAULT_ENTRY(UsageFault_Handler, btbr_usage_fault_at)
 
 void btbr_usage_fault_at(uint32_t *frame)
 {
-	uint32_t pc = fault_frame_pc(frame);
+	uint32_t reported = fault_frame_pc(frame);
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
 	/* The part keeps no address register for this one, and for this fault
 	 * the instruction is the right thing to name anyway: what the processor
-	 * refused is the instruction itself. */
-	watchdog_fault(SCB_UFSR, pc);
-	early_printf("UsageFault at 0x%x\n", pc);
+	 * refused is the instruction itself. A stacking error is never a usage
+	 * fault, so there is always a frame to read. */
+	watchdog_fault(SCB_UFSR, reported);
+	if (reported)
+		early_printf("UsageFault, address 0x%x\n", reported);
+	else
+		early_printf("UsageFault, no address\n");
 	dump_debug_registers();
 	blink_fault_code(FAULT_CODE_USAGE);
 }

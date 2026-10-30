@@ -54,11 +54,11 @@ static void flash_leds(int count) {
  * the access the processor refused, where the part keeps a register for it,
  * and otherwise the instruction the processor was running, read from the
  * exception frame (fault_frame.h). The status says which of the two it is, and
- * ubertooth-util -w says so in words. Both are needed, because the one fault
- * this part can take without a memory protection unit -- an instruction fetch
- * from a region that cannot be executed, which is a branch through a corrupted
- * pointer or return address -- is one the part records no access address for,
- * and the address it refused to execute is the whole of what there is to go on.
+ * ubertooth-util -w says so in words. Both are needed: a write the part refuses
+ * records the address it refused, and the stack guard is caught that way, but an
+ * instruction fetch the part refuses to execute -- a branch through a corrupted
+ * pointer or return address -- records no access address at all, and then the
+ * address it would not run is the whole of what there is to go on.
  *
  * These run at a priority the USB interrupt cannot preempt -- HardFault above
  * everything, the other three at the same 0 as USB -- so the USB handler's feed

@@ -110,16 +110,24 @@ static inline uint32_t fault_frame_pc_between(const uint32_t *frame,
 	return frame[FAULT_FRAME_PC_WORD];
 }
 
-/* The bottom of the stack region and the top of RAM, both from sections.ld
- * and defined for C in LPC17xx_Startup.c, which is the file that owns the
- * stack at boot. stack_check.h measures the same region. */
-extern unsigned long _stack_limit;
+/*
+ * The stack the frame has to be in, from sections.ld: the lowest address the
+ * stack may use, and the top of RAM.
+ *
+ * _stack_bottom and not _stack_limit, which is lower. Between the two sits the
+ * guard the memory protection unit is told to refuse, so that a stack running
+ * out of room faults instead of writing over what is below it
+ * (stack_check.h). Reading a frame there would be refused as well, and the
+ * second fault would be taken inside this handler and lose the record
+ * altogether -- which is the one thing the bounds check exists to prevent.
+ */
+extern unsigned long _stack_bottom;
 extern unsigned long _StackTop;
 
 /* The same, over the stack this firmware runs on. */
 static inline uint32_t fault_frame_pc(const uint32_t *frame)
 {
-	return fault_frame_pc_between(frame, (uintptr_t)&_stack_limit,
+	return fault_frame_pc_between(frame, (uintptr_t)&_stack_bottom,
 	                              (uintptr_t)&_StackTop);
 }
 
