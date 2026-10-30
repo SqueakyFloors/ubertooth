@@ -1932,8 +1932,7 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	 * interval, with the radio left alone. */
 	fake_t1ir = TIR_MR0_Interrupt;
 	TIMER1_IRQHandler();
-	expected_match = 1000000 + 24 * 12500 + 3 * 12500 + USEC(1250) -
-	                 RX_WARMUP_TIME;
+	expected_match = 1000000 + 24 * 12500 + 3 * 12500 - RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
 
 	/* Then the event itself, on the new interval, with the whole window and
@@ -1952,8 +1951,8 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	 * which is what finish_conn_event() advances from. Without moving it
 	 * here, the estimate would carry on from the last event under the old
 	 * interval, which the new window is offset from. */
-	mu_assert_int_eq(1000000 + 24 * 12500 + 3 * 12500 + USEC(1250) -
-	                 40 * 12500, conn.last_anchor);
+	mu_assert_int_eq(1000000 + 24 * 12500 + 3 * 12500 - 40 * 12500,
+	                 conn.last_anchor);
 
 	/* Once an event measures the anchor, the window is no longer added: an
 	 * anchored event gets the longest packet alone, and a window-long
@@ -1965,6 +1964,135 @@ MU_TEST(the_first_event_after_an_update_waits_out_the_whole_window)
 	TIMER1_IRQHandler();
 	expected_match = fake_t1tc + PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME;
 	mu_assert_int_eq(expected_match, fake_t1mr0);
+}
+
+/*
+ * Where the transmit window really is, worked out from the specification
+ * rather than from le_phy.c.
+ *
+ * The two tests either side of this one check that the engine agrees with
+ * itself: they build the expected match out of the engine's own macros, so an
+ * engine that places the window in the wrong place places the expectation
+ * there too. This one spells the figures out in ticks of 100 ns and compares
+ * against those, so the engine is not its own oracle.
+ *
+ * The figures, from the Bluetooth Core Specification (version 5.4, Volume 6,
+ * Part B):
+ *
+ *   Section 5.1.1 -- after a connection update the transmit window starts one
+ *   connIntervalOLD plus one transmitWindowOffset after the anchor point of
+ *   the connection event before the instant.
+ *
+ *   Section 4.5.3 -- at connection setup the window starts one
+ *   transmitWindowDelay plus one transmitWindowOffset after the end of the
+ *   CONNECT_IND packet, and transmitWindowDelay is 1.25 ms for a CONNECT_IND.
+ *   That delay belongs to setup alone: the update's window is measured from an
+ *   anchor point, with no packet before it to allow for, and Section 5.1.1 has
+ *   no such term. Both cases are checked here so that the difference between
+ *   them is pinned rather than assumed.
+ *
+ *   Section 4.1.1 -- T_IFS, the gap between packets in an event, is 150 us.
+ *
+ *   Section 2.1 and Section 2.4 -- the longest packet on the LE 1M PHY is one
+ *   octet of preamble, four of access address, a 257-octet PDU and three of
+ *   CRC: 265 octets, 2120 us.
+ *
+ * So the first packet of the event the instant names may start anywhere from
+ * the window's opening to one transmitWindowSize later, and the peripheral's
+ * answer to it may start one longest packet and one T_IFS after that. The
+ * engine has to be listening across all of it.
+ */
+MU_TEST(the_window_after_an_update_is_where_the_specification_puts_it)
+{
+	/* Ticks of 100 ns, which is what timer1 counts in. */
+	const uint32_t us = 10;
+	const uint32_t step = 1250 * us;  /* the unit the wire carries */
+	const uint32_t t_ifs = 150 * us;
+	const uint32_t longest_packet = 2120 * us;
+
+	const uint32_t interval_old = 24 * step;  /* 30 ms */
+	const uint32_t interval_new = 40 * step;  /* 50 ms */
+	const uint32_t win_offset = 3 * step;     /* 3.75 ms */
+	const uint32_t win_size = 2 * step;       /* 2.5 ms */
+
+	const uint32_t anchor_before_instant = 1000000;
+	uint32_t window_opens, latest_start, event_opens, deadline;
+
+	struct connect_req r = valid_connect_req();
+	struct conn_update u = valid_conn_update();
+	le_rx_t buf;
+
+	/* A connection being followed, anchored, with the event before the
+	 * instant behind it. */
+	start_fresh();
+	le.do_follow = 1;
+	r.conn_interval = 24;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	mu_assert_fatal(conn.conn_interval == interval_old,
+	                "the connection was not followed on the old interval, "
+	                "so there is no update to apply");
+	conn.last_anchor = anchor_before_instant;
+	conn.anchor_error = 0;
+
+	u.conn_interval = 40;
+	u.win_offset = 3;
+	u.win_size = 2;
+	u.instant = 7;
+	build_conn_update(&buf, &u);
+	connection_update_handler(&buf);
+	conn.conn_event_counter = 7;
+	le_phy_active = 1;
+
+	/* Section 5.1.1: one old interval and one window offset after the
+	 * anchor point of the event before the instant. No delay term. */
+	window_opens = anchor_before_instant + interval_old + win_offset;
+	latest_start = window_opens + win_size + longest_packet + t_ifs;
+
+	/* The instant arrives. With a window offset to wait out, the engine
+	 * arms a second match for the moment the event opens and leaves the
+	 * radio alone until then. */
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+	event_opens = fake_t1mr0;
+	mu_assert(event_opens <= window_opens,
+	          "the event opens after the central may first transmit, so the "
+	          "start of the transmit window is not listened to");
+	mu_assert(event_opens + step > window_opens,
+	          "the event opens more than one 1.25 ms step early, which costs "
+	          "receive time for nothing");
+
+	/* That match arrives and the event opens for real. Its deadline has to
+	 * reach the latest a packet of this event can start. */
+	fake_t1tc = event_opens;
+	fake_t1ir = TIR_MR0_Interrupt;
+	TIMER1_IRQHandler();
+	deadline = fake_t1mr0;
+	mu_assert(deadline >= latest_start,
+	          "the event closes before the last moment a packet of it can "
+	          "start");
+
+	/* And the grid every later event is armed on: one new interval before
+	 * the window, because finish_conn_event() advances from the anchor of
+	 * the event that closed. */
+	mu_assert_int_eq(interval_new, conn.conn_interval);
+	mu_assert_int_eq(window_opens, conn.last_anchor + conn.conn_interval);
+
+	/* The setup case, for the contrast: here the 1.25 ms delay is right,
+	 * measured from the end of the CONNECT_IND rather than from an anchor
+	 * point. Section 4.5.3. */
+	start_fresh();
+	le.do_follow = 1;
+	r.win_offset = 3;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+
+	window_opens = buf.timestamp + PACKET_DURATION(&buf) + win_offset + step;
+	event_opens = fake_t1mr0;
+	mu_assert(event_opens <= window_opens,
+	          "the first event opens after the central may first transmit");
+	mu_assert(event_opens + step > window_opens,
+	          "the first event opens more than one 1.25 ms step early");
 }
 
 /*
@@ -3800,6 +3928,7 @@ int main(void)
 	MU_RUN(a_connection_update_outside_the_specification_is_ignored);
 	MU_RUN(an_updates_window_size_survives_being_scaled);
 	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
+	MU_RUN(the_window_after_an_update_is_where_the_specification_puts_it);
 	MU_RUN(the_first_event_of_a_connection_waits_out_the_whole_window);
 	MU_RUN(a_channel_map_update_is_scheduled_for_its_instant);
 	MU_RUN(an_update_is_never_seen_as_a_mixture_of_two);

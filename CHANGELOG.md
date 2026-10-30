@@ -725,6 +725,17 @@
   which modulation produced it.
   [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
 
+- `ubertooth-btle -f` keeps following a connection through a connection
+  parameter update. The transmit window the update names was placed 1.25 ms
+  later than the connection put it — one whole step of the units the
+  parameters arrive in — so every event after the update was listened for
+  1.25 ms late, and a follow that caught nothing in the update's own event
+  stayed that far off the connection's timing for the rest of its life. The
+  1.25 ms delay belongs to a connection request, whose window is measured
+  from the end of the request packet; an update's window is measured from a
+  connection event's anchor point and has no such delay.
+  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836)
+
 - Every answer `btle-extcap.py` gives reports a standard output that is not
   there, not only `-h`: the interface listing, the DLT, the configuration and
   a filter verdict that could not be printed are one `error: ` line and exit
