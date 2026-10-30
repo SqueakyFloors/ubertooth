@@ -2449,6 +2449,7 @@ Fixes with no visible change in normal use.
   record, and a record the packet did not fit in says so instead of looking
   like a whole packet. No shipped tool asks for the mode.
   [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
+
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing
   it over in silence, answers a request to pair under the extended opcode it
   really arrives with, and sends each answer under the request's own

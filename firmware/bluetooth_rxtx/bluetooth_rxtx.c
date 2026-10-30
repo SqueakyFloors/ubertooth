@@ -2148,11 +2148,8 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	{
 		// Wait for the radio to have sent what is in the FIFO. Bounded,
 		// so a radio that stops draining no longer takes the board with
-		// it; before the first piece there is nothing to drain, so on an
-		// Ubertooth One GIO6 already reads high and this returns at once.
-		// On an Ubertooth Zero the GIO6 macro reads the wrong port, so
-		// it runs to the bound instead and the packet is not sent -- the
-		// board that pin belongs to is not one anybody here has.
+		// it; before the first piece there is nothing to drain, so GIO6
+		// already reads high and this returns at once.
 		//
 		// A wait that gives up ends the packet rather than writing the
 		// next piece past the end of a FIFO the radio has not emptied.
