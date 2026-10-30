@@ -1049,35 +1049,55 @@ MU_TEST(a_piconet_that_cannot_be_allocated_exits_one)
 	mu_assert_int_eq(1, device.frees);
 }
 
-/* The two failures that sit between the board being accepted and the capture
+/* The three failures that sit between the board being accepted and the capture
  * being asked for leave no file behind either: libbtbb refusing its own setup,
- * and a piconet that cannot be allocated. Both report themselves and exit 1,
- * and both used to do it with the capture file already created, so the run
- * left a header-only file the user had to tell apart from a capture that
- * caught nothing. Each of the three file options is checked, because each is
+ * a piconet that cannot be allocated, and a board that refuses the address
+ * request. Each reports itself and exits 1, and each used to do it with the
+ * capture file already created, so the run left a header-only file the user
+ * had to tell apart from a capture that caught nothing. Every one of the three
+ * file options is checked against every one of them, because each file is
  * opened by a writer of its own. */
 MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
 {
+	enum { LIBBTBB_REFUSES, NO_MEMORY, ADDRESS_REFUSED };
+	static const struct {
+		/* How the board goes back: with a STOP for a mode an earlier
+		 * command may have left running, or, where the board has just
+		 * failed to answer, without one. */
+		int stops;
+		int closes;
+		const char* message;  /* what this failure must say, if ours */
+	} failures[] = {
+		/* libbtbb's own line, not the tool's. */
+		{ 1, 0, NULL },
+		{ 1, 0, "error: out of memory\n" },
+		/* libubertooth's report of the refused request. */
+		{ 0, 1, NULL }
+	};
 	static const char* const options[] = { "-q", "-r", "-d" };
+	const int default_max_ac_errors = max_ac_errors;
 	struct run_result r;
 	struct stat info;
 	char path[64];
-	size_t i;
-	int libbtbb_refuses;
+	size_t i, which;
 
-	for (libbtbb_refuses = 1; libbtbb_refuses >= 0; libbtbb_refuses--) {
+	for (which = 0; which < sizeof(failures) / sizeof(failures[0]); which++) {
 		for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
 			int fd;
 
 			reset_device();
-			if (libbtbb_refuses)
+			if (which == LIBBTBB_REFUSES)
 				/* Outside libbtbb's own range, which is all it
 				 * refuses. The tool's -e check keeps a command
 				 * line from reaching this, so the global the
 				 * tool passes is set here instead. */
 				max_ac_errors = MAX_AC_ERRORS + 1;
-			else
+			else if (which == NO_MEMORY)
 				device.no_memory = 1;
+			else
+				/* LIBUSB_ERROR_PIPE: a request the board's
+				 * firmware will not take. */
+				device.bdaddr_rc = -9;
 
 			snprintf(path, sizeof(path), "/tmp/rx-order-XXXXXX");
 			fd = mkstemp(path);
@@ -1085,20 +1105,28 @@ MU_TEST(a_run_that_fails_before_the_capture_creates_no_file)
 			close(fd);
 			unlink(path);
 
-			r = RUN_RX("-l", "446688", options[i], path, "-t", "10");
-			max_ac_errors = 2;
+			/* -u is given throughout: the first two failures happen
+			 * before the address request is reached, so it changes
+			 * nothing for them. */
+			r = RUN_RX("-l", "446688", "-u", "ab",
+			           options[i], path, "-t", "10");
+			max_ac_errors = default_max_ac_errors;
 
 			mu_assert_int_eq(1, r.rc);
 			/* Nothing on disk under the name the user gave. */
 			mu_assert(stat(path, &info) != 0, path);
-			/* The failure said so, on standard error, and the
+			/* The failure said why, on standard error, and the
 			 * capture never started. */
-			mu_assert(r.err[0] != '\0', "a reason on standard error");
+			if (failures[which].message != NULL)
+				mu_assert(strcmp(r.err,
+				          failures[which].message) == 0, r.err);
+			else
+				mu_assert(r.err[0] != '\0',
+				          "a reason on standard error");
 			mu_assert(r.out[0] == '\0', r.out);
 			mu_assert_int_eq(0, device.rx_syms_calls);
-			/* The board was open, so it is given back with a STOP
-			 * for whatever mode an earlier command left running. */
-			mu_assert_int_eq(1, device.stops);
+			mu_assert_int_eq(failures[which].stops, device.stops);
+			mu_assert_int_eq(failures[which].closes, device.closes);
 			mu_assert_int_eq(1, device.frees);
 			unlink(path);
 		}

@@ -477,8 +477,10 @@ int main(int argc, char* argv[])
 	 * knows whose packets these are. It needs the PcapNG file, so it is the
 	 * one part of the setup above that has to wait for it. Reported when it
 	 * cannot be written: the capture goes on either way, but without this
-	 * the packets in it have nothing to say which piconet they belong to. */
-	if (have_lap && ut->h_pcapng_bredr) {
+	 * the packets in it have nothing to say which piconet they belong to.
+	 * A piconet exists only where -l named one: a survey has no single
+	 * address to record. */
+	if (pn != NULL && ut->h_pcapng_bredr) {
 		if (btbb_pcapng_record_bdaddr(ut->h_pcapng_bredr,
 		        (((uint32_t)uap)<<24)|lap,
 		        have_uap ? 0xff : 0x00, 0) < 0)

@@ -538,9 +538,9 @@ standard error. This is what a `-t` run that reported success and then left a
 board nothing could open used to look like.
 
 The `-q`, `-r` and `-d` files are created once the board has been opened, its
-firmware accepted, and the capture set up as far as it can be without them:
-the decoder, the piconet `-l` names, and the address request `-l` and `-u`
-together send all come first. So a run refused at any of those steps leaves no
+firmware accepted, and the capture set up as far as it can be without them.
+The decoder, the piconet `-l` names, and the address request that `-l` with
+`-u` sends all come first, so a run refused at any of those steps leaves no
 empty capture behind. A replay (`-i`) creates them once its input file has
 been opened, since it needs no board. A terminal on standard output is still
 refused while the command line is read.
