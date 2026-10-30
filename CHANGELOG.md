@@ -767,9 +767,13 @@
 - Fixed: on the Ubertooth Zero and the ToorCon badge the firmware looked for
   the radio's GIO6 status pin on the wrong GPIO port. That pin is P1.15 on the
   Zero and P1.10 on the badge, and the firmware asked port 2 for all three
-  boards, so every read answered 0: the wait for the radio's transmit buffer to
-  drain always ran to its bound, and a packet longer than the 32 bytes that
-  buffer holds went out as its first 32 bytes. Reads now follow the board.
+  boards, so the signals it took for the radio's came from somewhere else: on
+  the Zero from bit 15 of port 2, which the part does not have, so every read
+  answered 0 and the wait for the radio's transmit buffer to drain ran to its
+  bound, which ends the packet, so a packet longer than the 32 bytes that
+  buffer holds went out as its first 32 bytes; on the badge from P2.10, a pin
+  that exists and carries no radio signal, so the wait answered whatever that
+  pin happened to read. Reads now follow the board.
   Carrier sense armed an interrupt on the same wrong port; the part raises a
   GPIO interrupt on ports 0 and 2 only, so on those two boards it now arms
   nothing rather than an unrelated pin. No board loses a carrier-sense trigger

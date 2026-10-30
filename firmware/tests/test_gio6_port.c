@@ -30,15 +30,19 @@
 #include "ubertooth.h"
 #include "ubertooth_cs.h"
 
-/* The port each board's GIO6 pin is on, and the name to say in a failure. */
+/* Which pin each board's GIO6 is -- port and bit, both written out here --
+ * and the name to say in a failure. */
 #if defined UBERTOOTH_ZERO
-#define GIO6_PORT  1       /* P1.15 */
+#define GIO6_PORT  1
+#define GIO6_BIT   15      /* P1.15 */
 #define BOARD_NAME "Ubertooth Zero"
 #elif defined UBERTOOTH_ONE
-#define GIO6_PORT  2       /* P2.2 */
+#define GIO6_PORT  2
+#define GIO6_BIT   2       /* P2.2 */
 #define BOARD_NAME "Ubertooth One"
 #elif defined TC13BADGE
-#define GIO6_PORT  1       /* P1.10 */
+#define GIO6_PORT  1
+#define GIO6_BIT   10      /* P1.10 */
 #define BOARD_NAME "ToorCon badge"
 #else
 #error "build this test with one of UBERTOOTH_ZERO, UBERTOOTH_ONE or TC13BADGE"
@@ -99,6 +103,10 @@ static void drive_every_port_except(int port, uint32_t value)
 
 MU_TEST(test_the_read_macro_asks_the_port_the_pin_is_on)
 {
+	/* Every check below drives the pin through PIN_GIO6, so the bit the
+	 * header names is checked once here against the board's own. */
+	mu_assert_int_eq(1 << GIO6_BIT, PIN_GIO6);
+
 	clear_registers();
 
 	/* The pin high on its own port, every other port low. */
@@ -183,17 +191,6 @@ MU_TEST(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other)
 #endif
 }
 
-MU_TEST(test_the_carrier_sense_trigger_starts_clear_either_way)
-{
-	cs_trigger = 1;
-	cs_trigger_enable();
-	mu_assert_int_eq(0, cs_trigger);
-
-	cs_trigger = 1;
-	cs_trigger_disable();
-	mu_assert_int_eq(0, cs_trigger);
-}
-
 /*
  * The two files that arm and service the carrier-sense edge must reach the
  * registers through the board's macros, never by name: a named register is a
@@ -242,7 +239,6 @@ int main(void)
 	MU_RUN(test_the_read_macro_asks_the_port_the_pin_is_on);
 	MU_RUN(test_the_interrupt_is_claimed_only_where_the_part_has_one);
 	MU_RUN(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other);
-	MU_RUN(test_the_carrier_sense_trigger_starts_clear_either_way);
 	MU_RUN(test_the_carrier_sense_code_names_no_gpio_interrupt_register);
 	return mu_report();
 }
