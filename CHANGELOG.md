@@ -770,7 +770,7 @@
   ends a packet longer than the radio's 32-byte FIFO after the first 32 bytes.
   It now reads the port the pin is on. The Ubertooth One was unaffected, and
   no Zero was on the bench to read this off.
-  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
+  [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
 
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as
