@@ -133,6 +133,9 @@ JTAG.
 - [ ] Run `ubertooth-util -r`, wait for the board, then `-w` again
 - [ ] Confirm: `Last boot cause: watchdog` (that is how the part resets) and
       the unrequested count is still 0
+- [ ] Confirm: `Most stack ever used since boot:` has started again from a few
+      hundred bytes — it is measured from a word written at every boot, so a
+      reset loses the figure
 - [ ] Reflash with `ubertooth-dfu -d <image>.dfu -r`, then `-w`
 - [ ] Confirm: the unrequested count is still 0 — a flash is not a wedge
 - [ ] Run `ubertooth-util -x`, leave it blinking for a minute, then `-S` and
@@ -154,6 +157,9 @@ JTAG.
       whose radio is working, before and after a capture, and that no
       `Last processor fault:` line is printed — a board that has faulted
       names the fault's status register and the address it refused
+- [ ] Confirm: `Most stack ever used since boot:` names a figure well under
+      the size beside it, after a capture and after each mode above. An image
+      anywhere near its size has a stack problem, whatever else it reports
 
 ### 2e-1. A mode starts from the same radio state every time
 

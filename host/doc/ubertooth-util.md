@@ -281,9 +281,9 @@ Miscellaneous:
  - `-s` :
    get microcontroller serial number
  - `-w` :
-   get the watchdog state, why the board last reset itself, and how many of
-   the firmware's waits on the radio gave up. See [WATCHDOG][]; exits
-   non-zero if either read fails
+   get the watchdog state, why the board last reset itself, how deep its
+   stack has been, and how many of the firmware's waits on the radio gave up.
+   See [WATCHDOG][]; exits non-zero if either read fails
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -330,6 +330,7 @@ was stuck:
       the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
     Now in idle mode, not in a wait
     Capture transfer errors since power-on: 0
+    Most stack ever used since boot: 432 of 11128 bytes
     Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
@@ -359,6 +360,16 @@ promiscuous mode drains the receiver and carries on; the mode behind `-f` and
 `-n` does not yet, and a capture that stops that way looks exactly like a quiet
 band, which is why this count is worth reading after a capture that came back
 short. It is since power-on and stops at 65535.
+
+`Most stack ever used` is how deep the board's stack has been, out of the room
+the link leaves it, and it is worth reading after a long capture or a mode
+that is rarely exercised. The firmware writes a known word over the unused
+stack when it starts and counts how much of it has gone, so the number is
+measured and not estimated. Unlike the counters above it is since the last
+boot, because a reset writes that word again. The second number is whatever
+the build left over, so it moves by a few hundred bytes between compilers and
+between the two images; compare a board against itself, not against the figure
+above.
 
 A board that has faulted adds one more line, above that count:
 

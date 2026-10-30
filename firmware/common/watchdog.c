@@ -20,6 +20,7 @@
  */
 
 #include "watchdog.h"
+#include "stack_check.h"
 #include "usb_irq.h"
 
 /*
@@ -337,4 +338,24 @@ void watchdog_report(uint8_t *data)
 	data[15] = (uint8_t)((watchdog_crumb.fault_addr >> 8) & 0xff);
 	data[16] = (uint8_t)((watchdog_crumb.fault_addr >> 16) & 0xff);
 	data[17] = (uint8_t)((watchdog_crumb.fault_addr >> 24) & 0xff);
+
+	/*
+	 * How deep the stack has ever been, and how much room it has. Read
+	 * here rather than kept in the breadcrumb, because the answer is a
+	 * scan of the word still in RAM.
+	 *
+	 * So this one field is since the last boot, where everything above it
+	 * is since power-on: a reset rewrites the word and the measurement
+	 * starts again. A fault recorded above therefore says nothing about
+	 * how deep the stack was when it happened.
+	 */
+	{
+		unsigned used = stack_used();
+		unsigned size = stack_size();
+
+		data[18] = (uint8_t)(used & 0xff);
+		data[19] = (uint8_t)((used >> 8) & 0xff);
+		data[20] = (uint8_t)(size & 0xff);
+		data[21] = (uint8_t)((size >> 8) & 0xff);
+	}
 }

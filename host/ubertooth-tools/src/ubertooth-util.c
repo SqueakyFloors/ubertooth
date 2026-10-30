@@ -1300,6 +1300,10 @@ int main(int argc, char *argv[])
 				(info.fault_addr >> 8) & 0xff,
 				(info.fault_addr >> 16) & 0xff,
 				(info.fault_addr >> 24) & 0xff,
+				info.stack_used & 0xff,
+				(info.stack_used >> 8) & 0xff,
+				info.stack_size & 0xff,
+				(info.stack_size >> 8) & 0xff,
 			};
 			status = util_status_merge(status,
 			        util_report_watchdog(stdout, raw, sizeof(raw)));

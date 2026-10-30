@@ -197,8 +197,11 @@ packet_cb_t packet_cb = NULL;
 /*
  * The receive buffer of a low-energy mode. The two halves of such a mode need
  * very different buffers, and share one because they never run at the same
- * time: the board has only a few hundred bytes of RAM to spare, which is not
- * enough for both.
+ * time.
+ *
+ * It is in the other RAM bank (AHB_SRAM), which the transfer controller
+ * reaches as it reaches main SRAM: bt_le_sync() receives straight into
+ * `packet`.
  *
  * bt_generic_le() fills `symbols` and hands it to its data callback, which
  * searches it for an access address. It has returned before bt_le_sync() is
@@ -206,7 +209,7 @@ packet_cb_t packet_cb = NULL;
  * into `packet` instead. bt_promisc_le() runs the two in that order, so a
  * packet never lands on symbols still being read, or the other way round.
  */
-static union {
+static AHB_SRAM union {
 	/* One byte per received symbol, two DMA buffers' worth: the previous
 	 * buffer followed by the one just received, so an access address that
 	 * straddles the two is still found. */

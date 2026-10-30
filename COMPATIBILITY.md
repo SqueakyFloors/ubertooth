@@ -149,6 +149,12 @@ by `ubertooth-util -v` beside the API version is what identifies a build. Host t
 same commit always match, so after pulling, rebuild and reflash both from the
 same commit (`./install.sh --flash`).
 
+The firmware keeps its largest buffers in the part's second RAM bank (AHB
+SRAM, at `0x2007C000`), so the microcontroller has to have that bank. The
+Ubertooth One's LPC1756 does. A part without it would fault at the first
+access to one of those buffers, so check the part's own memory map before
+building this firmware for anything else.
+
 ### Firmware build: GNU make 3.81 (macOS) and the generated version.h
 The firmware builds with the stock GNU make on macOS (**3.81**) as well as the
 modern make on Linux (4.3). The build intentionally avoids make ≥ 4.0 features

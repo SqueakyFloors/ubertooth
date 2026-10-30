@@ -171,7 +171,7 @@ get microcontroller Part ID (32\-bit, hexadecimal); exits non\-zero if the devic
 get microcontroller serial number
 .TP
 \fB\-w\fR
-get the watchdog state, why the board last reset itself, and how many of the firmware's waits on the radio gave up\. See \fIWATCHDOG\fR; exits non\-zero if either read fails
+get the watchdog state, why the board last reset itself, how deep its stack has been, and how many of the firmware's waits on the radio gave up\. See \fIWATCHDOG\fR; exits non\-zero if either read fails
 .TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
@@ -194,6 +194,7 @@ Unrequested watchdog resets since power\-on: 2 (in 3 boots)
   the last was in BLE follow mode, waiting for the 16 MHz crystal oscillator
 Now in idle mode, not in a wait
 Capture transfer errors since power\-on: 0
+Most stack ever used since boot: 432 of 11128 bytes
 Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
 .fi
 .IP "" 0
@@ -205,6 +206,8 @@ A board running the \fBbtbr\fR image reads \fBNow in a mode the board does not r
 Both counters are since power\-on and stop at 255\. Unplugging the board, or cutting power to its hub port, starts them again; \fB\-r\fR does not\. So does flashing a firmware that keeps more in that corner of RAM than the one before it: the record says which firmware wrote it, and a firmware that does not recognize what it finds starts the counts over rather than reading its own fields out of what was there\.
 .P
 \fBCapture transfer errors\fR counts the times the chip's transfer controller reported an error on the channel a capture receives into\. Each one costs the packet that was arriving, unless the error came with the byte that finished it: such a packet is whole, so the board keeps it and records the fault on it\. The promiscuous mode drains the receiver and carries on; the mode behind \fB\-f\fR and \fB\-n\fR does not yet, and a capture that stops that way looks exactly like a quiet band, which is why this count is worth reading after a capture that came back short\. It is since power\-on and stops at 65535\.
+.P
+\fBMost stack ever used\fR is how deep the board's stack has been, out of the room the link leaves it, and it is worth reading after a long capture or a mode that is rarely exercised\. The firmware writes a known word over the unused stack when it starts and counts how much of it has gone, so the number is measured and not estimated\. Unlike the counters above it is since the last boot, because a reset writes that word again\. The second number is whatever the build left over, so it moves by a few hundred bytes between compilers and between the two images; compare a board against itself, not against the figure above\.
 .P
 A board that has faulted adds one more line, above that count:
 .IP "" 4

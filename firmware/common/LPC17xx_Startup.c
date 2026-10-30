@@ -46,6 +46,8 @@
 
 #include <lpc17.h>
 
+#include "stack_check.h"
+
 /* Reset_Handler variables defined in linker script */
 extern unsigned long _interrupt_vector_table;
 extern unsigned long _data;
@@ -53,14 +55,52 @@ extern unsigned long _edata;
 extern unsigned long _etext;
 extern unsigned long _bss;
 extern unsigned long _ebss;
+/* The AHB SRAM bank, which holds the large buffers and is not loaded from
+ * flash, so it is zeroed here like .bss. See sections.ld. */
+extern unsigned long _ahb_sram;
+extern unsigned long _ahb_sram_end;
+/* The bottom of the stack region and the top of RAM; see stack_check.h. */
+extern unsigned long _stack_limit;
+extern unsigned long _StackTop;
 
 extern void __libc_init_array(void);
 extern int main(void);
+
+static void stack_paint(void)
+{
+	unsigned long *word;
+	unsigned long sp;
+
+	__asm__ volatile ("mov %0, sp" : "=r" (sp));
+
+	/*
+	 * Below this function's own stack pointer, not up to the top of RAM:
+	 * the words at and above it hold the return address this function
+	 * needs. A function on this architecture is given nothing below its
+	 * stack pointer, so everything below is free to write.
+	 */
+	for (word = &_stack_limit; word < (unsigned long *)sp; word++)
+		*word = STACK_PAINT;
+}
+
+unsigned stack_used(void)
+{
+	return stack_used_between(&_stack_limit, &_StackTop);
+}
+
+unsigned stack_size(void)
+{
+	return (unsigned)((const unsigned char *)&_StackTop -
+	                  (const unsigned char *)&_stack_limit);
+}
 
 /* Reset Handler */
 void Reset_Handler(void)
 {
 	unsigned long *src, *dest;
+
+	/* First, while the stack is no deeper than this function. */
+	stack_paint();
 
 	// Copy the data segment initializers from flash to SRAM
 	src = &_etext;
@@ -72,6 +112,13 @@ void Reset_Handler(void)
 	// Initialize the .bss segment of memory to zeros
 	src = &_bss;
 	while (src < &_ebss)
+	{
+		*src++ = 0;
+	}
+
+	// The same for the buffers in the other RAM bank
+	src = &_ahb_sram;
+	while (src < &_ahb_sram_end)
 	{
 		*src++ = 0;
 	}

@@ -811,6 +811,8 @@ static int watchdog(struct libusb_device_handle* devh, watchdog_info *info,
 	                     ((uint32_t)result[12] << 16) | ((uint32_t)result[13] << 24);
 	info->fault_addr   = (uint32_t)result[14] | ((uint32_t)result[15] << 8) |
 	                     ((uint32_t)result[16] << 16) | ((uint32_t)result[17] << 24);
+	info->stack_used = (uint16_t)result[18] | ((uint16_t)result[19] << 8);
+	info->stack_size = (uint16_t)result[20] | ((uint16_t)result[21] << 8);
 
 	return 0;
 }

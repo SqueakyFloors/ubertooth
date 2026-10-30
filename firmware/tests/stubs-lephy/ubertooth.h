@@ -34,6 +34,11 @@
 #include "../../common/ubertooth.h"
 #undef wait
 
+/* The board's second RAM bank, which a host test has no linker script for and
+ * whose section name is not even valid here. */
+#undef AHB_SRAM
+#define AHB_SRAM
+
 extern volatile uint8_t mode;
 
 #endif /* UBERTOOTH_FW_TESTS_STUB_LEPHY_UBERTOOTH_H */

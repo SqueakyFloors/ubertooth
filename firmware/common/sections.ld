@@ -177,10 +177,48 @@ SECTIONS
 		_pvHeapStart = .;
 	} > ram
 
+	/* The lowest address the stack may reach: everything below it is
+	 * allocated. Reset_Handler fills the room between here and the stack
+	 * pointer with a known word at boot, and UBERTOOTH_GET_WATCHDOG reports
+	 * how much of it has ever been used; see firmware/common/stack_check.h. */
+	_stack_limit = ALIGN(., 4);
+
 	/* Leave room above stack for IAP to run */
 	_StackTop = ORIGIN(ram) + LENGTH(ram) - 32;
 
+	/*
+	 * The part's second RAM bank, 16 KB at 0x2007C000, which nothing else
+	 * on this board uses: the USB controller needs it only when it is
+	 * driven by DMA, and this firmware drives it from the processor. The
+	 * large capture and packet buffers live here, so that main SRAM is left
+	 * for the stack. Put one there with the AHB_SRAM macro in
+	 * firmware/common/ubertooth.h.
+	 *
+	 * NOLOAD because nothing here is copied from flash: Reset_Handler
+	 * zeroes the region the way it zeroes .bss, so only objects that start
+	 * at zero belong in it.
+	 */
+	.ahb_sram (NOLOAD) :
+	{
+		_ahb_sram = .;
+		*(.ahb_sram*)
+		. = ALIGN(4);
+		_ahb_sram_end = .;
+	} > ahb_ram
+
 }
+
+/* Up to four interrupt handlers can nest on the stack -- the two timers, the
+ * capture transfer and USB -- and an overflow would be silent: it writes over
+ * whatever .bss ends with and shows up later as wrong data or a processor
+ * fault. So the link fails rather than shipping an image with no room.
+ *
+ * This is a floor on what the link leaves, not a safe depth. The deepest any
+ * mode has been measured using is under 500 bytes, so 2 KB is several times
+ * the worst case seen; ubertooth-util -w is what says whether an image still
+ * has room. */
+ASSERT(_StackTop - _stack_limit >= 2048,
+	"less than 2 KB of main SRAM is left for the stack: move a large buffer into AHB SRAM with the AHB_SRAM macro")
 
 /* The firmware info block has to stay where the host looks for it. These are
  * checked after allocation, so they read the addresses the link really chose. */

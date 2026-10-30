@@ -18,8 +18,8 @@
  *    not be counted or recorded as one;
  *  - power-on and brown-out mean the breadcrumb cannot be trusted, and the
  *    counters start again;
- *  - the reply the host reads is the eight bytes ubertooth_interface.h
- *    describes, in that order.
+ *  - the reply the host reads is the bytes ubertooth_interface.h describes,
+ *    in that order.
  *
  * The last cases scan the firmware sources as text, the way test_frend.c does,
  * to check the feed is called from the places USB is serviced and from the
@@ -58,6 +58,22 @@ void fake_wdfeed_write(uint32_t value)
 	fake_wdfeed_count++;
 }
 
+/* The stack high-water measurement the reply carries. On the board these scan
+ * the pattern startup wrote over the unused stack (stack_check.h); here the
+ * test says what they found. */
+unsigned fake_stack_used;
+unsigned fake_stack_size;
+
+unsigned stack_used(void)
+{
+	return fake_stack_used;
+}
+
+unsigned stack_size(void)
+{
+	return fake_stack_size;
+}
+
 /* The code under test, and the breadcrumb it works on. watchdog.c declares the
  * object and the linker script places it; here this file is its definition. */
 #include "watchdog.c"
@@ -80,6 +96,10 @@ static void boot_with(uint32_t cause)
 	 * this itself. */
 	fake_scb_icsr = 0;
 	fake_wdfeed_count = 0;
+	/* What a board read after a five-minute connection capture, so the
+	 * reply test carries the numbers a real one would. */
+	fake_stack_used = 432;
+	fake_stack_size = 11128;
 	/* .bss is zeroed on every boot, armed flag included. */
 	watchdog_armed = 0;
 }
@@ -499,6 +519,53 @@ MU_TEST(test_the_usb_interrupt_still_names_what_it_interrupted)
 }
 
 
+/* ---- the stack high-water measurement ---- */
+
+/*
+ * The arithmetic behind the reply's stack figure, over an array this test
+ * paints itself. It is worth pinning because the answer is a subtraction
+ * between the two ends of a region: versions of this that searched for the
+ * wrong word, or from the wrong end, reported 0 and 48 bytes used on a board,
+ * both of which read as a stack that has barely been touched.
+ */
+MU_TEST(the_stack_measure_finds_the_deepest_word_written)
+{
+	unsigned long region[64];
+	unsigned i;
+
+	for (i = 0; i < 64; i++)
+		region[i] = STACK_PAINT;
+
+	/* Untouched: nothing used. */
+	mu_assert_int_eq(0, stack_used_between(region, region + 64));
+
+	/* The stack grows down from the top, so the used words are the last
+	 * ones. The answer is in bytes, and a word is four on the board and
+	 * eight here. */
+	for (i = 59; i < 64; i++)
+		region[i] = 0x12345678;
+	mu_assert_int_eq(5 * sizeof(unsigned long),
+	                 stack_used_between(region, region + 64));
+
+	/* A word still holding the pattern inside the part that has been used
+	 * does not shorten the answer. A function reserves room for its locals
+	 * and writes some of it, so gaps like this are the normal case -- which
+	 * is why the search runs from the bottom. */
+	region[61] = STACK_PAINT;
+	mu_assert_int_eq(5 * sizeof(unsigned long),
+	                 stack_used_between(region, region + 64));
+
+	/* Every word written: the whole region, which is as much as it can
+	 * say -- a stack that ran past the bottom reads the same. */
+	for (i = 0; i < 64; i++)
+		region[i] = 0x12345678;
+	mu_assert_int_eq(64 * sizeof(unsigned long),
+	                 stack_used_between(region, region + 64));
+
+	/* An empty region is not a special case. */
+	mu_assert_int_eq(0, stack_used_between(region, region));
+}
+
 /* ---- the reply ---- */
 
 /* Every byte, in the order ubertooth_interface.h gives them: the host reads
@@ -537,6 +604,12 @@ MU_TEST(test_the_reply_is_the_documented_bytes)
 	mu_assert_int_eq(0, data[9]);
 	mu_assert_int_eq(0, data[10] | data[11] | data[12] | data[13]);
 	mu_assert_int_eq(0, data[14] | data[15] | data[16] | data[17]);
+
+	/* The stack high-water pair, also low byte first: 432 of 11128. */
+	mu_assert_int_eq(0xb0, data[18]);
+	mu_assert_int_eq(0x01, data[19]);
+	mu_assert_int_eq(0x78, data[20]);
+	mu_assert_int_eq(0x2b, data[21]);
 }
 
 /*
@@ -1647,6 +1720,7 @@ int main(void)
 	MU_RUN(test_a_wait_inside_a_handler_claims_no_outer_site);
 	MU_RUN(test_the_usb_interrupt_still_names_what_it_interrupted);
 	MU_RUN(test_every_inner_mark_is_given_back);
+	MU_RUN(the_stack_measure_finds_the_deepest_word_written);
 	MU_RUN(test_the_reply_is_the_documented_bytes);
 	MU_RUN(test_an_older_breadcrumb_layout_starts_every_field_again);
 	MU_RUN(test_a_transfer_error_is_counted_and_kept_across_a_reset);

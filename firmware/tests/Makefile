@@ -595,6 +595,7 @@ $(BINDIR)/test_firmware_object_paths: test_firmware_object_paths.c minunit.h \
 $(BINDIR)/test_watchdog: test_watchdog.c minunit.h source_scan.h \
 		stubs-watchdog/ubertooth.h stubs/ubertooth.h \
 		$(FW_COMMON)/watchdog.c $(FW_COMMON)/watchdog.h \
+		$(FW_COMMON)/stack_check.h \
 		$(FW_COMMON)/usb_irq.h $(FW_COMMON)/sections.ld \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_LPCUSB)/usbhw_lpc.c $(FW_LPCUSB)/usbcontrol.c \

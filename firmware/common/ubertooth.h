@@ -30,6 +30,18 @@
 typedef void (*IAP_ENTRY)(u32[], u32[]);
 extern const IAP_ENTRY iap_entry;
 
+/*
+ * Put a large buffer in the part's second RAM bank, 16 KB at 0x2007C000,
+ * which nothing else on this board uses, and leave main SRAM to the stack
+ * (sections.ld).
+ *
+ * Only for objects that start at zero: the bank is not loaded from flash, so
+ * an initializer would be dropped. The transfer controller reaches it -- the
+ * bank is on the same bus matrix, and the part's user manual UM10360 names
+ * DMA among what these banks are for -- so a capture can receive into one.
+ */
+#define AHB_SRAM __attribute__((section(".ahb_sram")))
+
 /* The operating modes are enum operating_modes in ubertooth_interface.h,
  * included above: the host reads the mode back out of the watchdog
  * breadcrumb, so the numbers are shared with it. */
