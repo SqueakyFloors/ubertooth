@@ -12,6 +12,15 @@ demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
 
+The dump is one record per block of symbols the board sends. Without `-b` a
+record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4
+bytes big-endian, then the whole 64-byte USB receive packet, 50 bytes of which
+are the symbols packed 8 per byte. With `-b` a record is one 401-byte line: the
+block's 400 symbols as ASCII `0` and `1`, then a newline. The records are back
+to back with nothing between them, so a reader counts from the start of the
+dump. A keep-alive, which a quiet capture sends and which carries no symbols,
+writes no record either way.
+
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
 board was idle, and the firmware resets it on every mode change, so it never
@@ -63,8 +72,8 @@ refused for either reason leaves no empty file behind either.
 
 ## DIAGNOSTICS
 
-Without `-d`, standard output carries the binary symbol stream and nothing
-else, and so does `-d -`. Errors, warnings and the per-block timestamp go to
+Without `-d`, standard output carries the symbol stream and nothing else, and
+so does `-d -`. Errors, warnings and the per-block timestamp go to
 standard error, each error as one line starting `error: `, for example
 `error: /no/such/dir/capture.bin: No such file or directory`. That line comes
 after the board has been selected and its firmware accepted, because that is
@@ -72,8 +81,10 @@ when the file is opened.
 
 A terminal is refused either way, before any device is opened:
 `error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
-The stream is binary, so a terminal fills with control characters and the
-dump is lost. Redirect or pipe standard output instead.
+A dump is written for a file or another program, not for a screen. `-b` is
+refused too although it writes text: that line is the one every tool shares for
+a capture stream it will not put on a terminal. Redirect or pipe standard
+output instead, or give `-d` a file.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the
@@ -142,11 +153,23 @@ the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was dumped stays written out, and libubertooth names the
 refused request on standard error.
 
+Also 1 when the board refuses the modulation `-c` or `-l` asks for:
+`error: modulation set failed` on standard error, after libubertooth's own line
+for the refused request. No capture is started, so the dump cannot come back on
+a modulation other than the one asked for. The modulation is asked for last,
+after a `-d` file has been opened, so a refusal here leaves that file there and
+empty, as a board that will not start the capture does. It is asked for last
+because the board can be left holding it: the firmware keeps the modulation
+until a mode ends, and ubertooth-rx(1), ubertooth-follow(1) and
+ubertooth-afh(1) do not set their own, so one left by a dump that never ran
+would reach the next of those. A `-d` the tool cannot open is found before
+anything is asked of the radio.
+
 A `-d` file is opened once the board has been opened and its firmware
 accepted, not before, so a run refused for either reason leaves no empty file
-behind. A terminal on standard output is still refused while the command line
-is read, with or without `-d -`, because that is a problem with the command
-rather than with the board.
+behind. A terminal on standard output is still refused
+while the command line is read, with or without `-d -`, because that is a
+problem with the command rather than with the board.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),

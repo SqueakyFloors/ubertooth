@@ -36,17 +36,19 @@ static void usage(FILE *file)
 	fprintf(file, "\t-c classic modulation\n");
 	fprintf(file, "\t-l LE modulation\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
-	fprintf(file, "\t-d filename\n");
-	fprintf(file, "\nThis program sends binary data to stdout.  You probably don't want to\n");
-	fprintf(file, "run it from a terminal without redirecting the output.\n");
+	fprintf(file, "\t-d <filename> write the dump here ('-' is standard output)\n");
+	fprintf(file, "\nA dump is written for a file or another program, so a terminal on standard\n");
+	fprintf(file, "output is refused: redirect it, pipe it, or give -d a file.\n");
 }
 
 /*
- * The normal output format is in chunks of 64 bytes in the USB RX packet format
- * 50 of those 64 bytes contain the received symbols (packed 8 per byte).
+ * The normal output is one 68-byte record per block of symbols: the host time
+ * it arrived, as Unix epoch seconds in 4 bytes big-endian, then the whole
+ * 64-byte USB receive packet, 50 bytes of which are the received symbols
+ * packed 8 per byte.
  *
- * The -b output format is a stream of bytes, each either 0x00 or 0x01
- * representing the symbol determined by the demodulator (GnuRadio style)
+ * The -b output is one line per block: 400 characters, each the ASCII '0' or
+ * '1' the demodulator decided (GnuRadio style), then a newline.
  */
 
 int main(int argc, char *argv[])
@@ -194,7 +196,27 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	cmd_set_modulation(ut->devh, modulation);
+	/* The modulation decides what the dump holds, so a board that would not
+	 * take it ends the run. Letting the request fail quietly dumped
+	 * whatever modulation the board had been left in: -l on a board still
+	 * set to Classic gave Classic symbols and exit 0, and nothing in the
+	 * output says which modulation produced it.
+	 *
+	 * It is asked for after the -d file is opened, and that order matters:
+	 * the firmware keeps a modulation until a mode ends, and ubertooth-rx,
+	 * -follow and -afh never set their own, so one left here by a dump that
+	 * never ran would reach the next of those. The file is the thing that
+	 * can fail, so it fails first, before anything is asked of the radio.
+	 *
+	 * No mode is running, so the board is given back the way a refused
+	 * firmware version gives it back. */
+	if (cmd_set_modulation(ut->devh, modulation) < 0) {
+		fprintf(stderr, "error: modulation set failed\n");
+		ubertooth_close(ut);
+		ubertooth_free(ut);
+		return 1;
+	}
+
 	/* A dump that could not start, or whose stream died part-way, holds
 	 * less than was asked for. The exit status has to say so, or a caller
 	 * cannot tell it from a Ctrl-C. The handle is read again after the

@@ -36,7 +36,7 @@ Utility commands:
 
 Less useful commands:
 
- - ubertooth-debug(1) : Peeking and poking registers on the CC2400
+ - ubertooth-debug(1) : Peeking at registers on the CC2400
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
 
 ## COMMON OPTIONS

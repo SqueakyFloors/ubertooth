@@ -657,6 +657,14 @@
   instead of the lines asked for.
   [#943](https://github.com/SqueakyFloors/ubertooth/issues/943)
 
+- `ubertooth-dump` ends the run when the board will not take the modulation
+  `-c` or `-l` asked for: `error: modulation set failed` and exit 1, with no
+  capture started. The request's result used to be dropped, so a board left in
+  another modulation was dumped as it stood -- `-l` on a board still set to
+  Classic gave Classic symbols and exit 0, with nothing in the output to say
+  which modulation produced it.
+  [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
+
 - Every answer `btle-extcap.py` gives reports a standard output that is not
   there, not only `-h`: the interface listing, the DLT, the configuration and
   a filter verdict that could not be printed are one `error: ` line and exit
@@ -1974,6 +1982,18 @@
 
 ### Documentation
 
+- `ubertooth-debug(1)` is titled "read CC2400 radio registers", and
+  `ubertooth(7)` lists it as "Peeking at registers on the CC2400". Both used
+  to offer writing as well, which no option of any tool does, so a reader went
+  looking for one that is not there.
+  [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
+- `ubertooth-dump(1)` says what a dump holds, which it did not say at all:
+  68-byte records of the host arrival time, as Unix epoch seconds, and the
+  whole USB receive packet, or with `-b` one 401-byte line of ASCII `0` and
+  `1` per block. Its `-h` text names `-d`'s value and says what `-` means, and
+  both it and the man page stop giving the dump's binary-ness as the reason a
+  terminal on standard output is refused: `-b` is text, and is refused too.
+  [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
 - `ubertooth-util(1)` says when the firmware API version moves: during
   development only for a change that breaks older host tools, not for every
   firmware change the host sees. It is what `COMPATIBILITY.md` already

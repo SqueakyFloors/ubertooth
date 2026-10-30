@@ -1,4 +1,4 @@
-# ubertooth-debug(1) -- read and write CC2400 radio registers
+# ubertooth-debug(1) -- read CC2400 radio registers
 
 ## SYNOPSIS
 
@@ -9,6 +9,9 @@
 ubertooth-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
+
+It reads and does not write: there is no option for setting a register, and no
+other tool has one either.
 
 Register reads are debugging work, so this tool drives whatever firmware
 revision a board is carrying and makes no version check. It does check which
