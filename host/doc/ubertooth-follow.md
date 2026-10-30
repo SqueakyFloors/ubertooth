@@ -363,10 +363,13 @@ output was redirected to is left as it is.
 
 A path given to `-q` or `-d` that already holds something is emptied when the
 file is opened, and removing it on a refusal does not bring the old contents
-back; `-r` refuses a path that exists rather than writing over it. Only a
-regular file is removed, so a device or a pipe named as the destination is
-left where it is, and a removal that will not go is reported as `warning:
-cannot remove <path>: <reason>`.
+back; `-r` refuses a path that exists rather than writing over it.
+
+Only a regular file is removed. A device, a pipe, or a symbolic link named as
+the destination is left where it is, along with whatever the run wrote through
+it, because the run did not create it. A removal that will not go is reported
+as `warning: cannot remove <path>: <reason>` and does not change the exit
+status.
 
 A run that cannot allocate the piconet it follows exits 1 with `error: out of
 memory`, before the adapter or a board is opened; `-h` and `-V` are answered

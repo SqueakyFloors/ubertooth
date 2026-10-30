@@ -178,7 +178,9 @@ A follow the board would not stop exits 1 as well: the request that takes the bo
 .P
 The \fB\-q\fR, \fB\-r\fR, and \fB\-d\fR files are created once the board has been opened and its firmware accepted, not before, and a run that is refused after that removes them again, so a refused follow leaves no empty capture behind whatever refused it\. For this tool the files are created later than it sounds: the adapter, the connection to the target, and the AFH read all come first, so a path that cannot be opened is reported after them\. A terminal on standard output is still refused while the command line is read, and so is every other fault in the command line\. A capture on standard output (\fB\-q \-\fR) is not a file this tool created, so there is nothing of it to remove: whatever standard output was redirected to is left as it is\.
 .P
-A path given to \fB\-q\fR or \fB\-d\fR that already holds something is emptied when the file is opened, and removing it on a refusal does not bring the old contents back; \fB\-r\fR refuses a path that exists rather than writing over it\. Only a regular file is removed, so a device or a pipe named as the destination is left where it is, and a removal that will not go is reported as \fBwarning: cannot remove <path>: <reason>\fR\.
+A path given to \fB\-q\fR or \fB\-d\fR that already holds something is emptied when the file is opened, and removing it on a refusal does not bring the old contents back; \fB\-r\fR refuses a path that exists rather than writing over it\.
+.P
+Only a regular file is removed\. A device, a pipe, or a symbolic link named as the destination is left where it is, along with whatever the run wrote through it, because the run did not create it\. A removal that will not go is reported as \fBwarning: cannot remove <path>: <reason>\fR and does not change the exit status\.
 .P
 A run that cannot allocate the piconet it follows exits 1 with \fBerror: out of memory\fR, before the adapter or a board is opened; \fB\-h\fR and \fB\-V\fR are answered first and so still work on a machine with no memory for one\.
 .P

@@ -99,27 +99,33 @@ struct follow_files {
 	const char* dump;
 };
 
-/* One capture file, gone again. Only a regular file: a run given -q /dev/null
- * or the name of a pipe opened something the user already had, which is not
- * this tool's to remove. A removal that will not go is said once, because a
- * capture file left behind in silence is what this avoids. */
+/* One capture file, gone again, with a word if it will not go: a file left
+ * behind in silence is what this avoids. A name that is already gone is not
+ * worth a word.
+ *
+ * Only a regular file. A run given -q /dev/null, the name of a pipe, or a
+ * symbolic link wrote through something the user already had, and that is not
+ * this tool's to remove; a capture written through a link stays, which
+ * ubertooth-follow(1) says. */
 static void follow_remove_file(const char* name)
 {
 	struct stat info;
+	int failed;
 
-	if (lstat(name, &info) < 0 || !S_ISREG(info.st_mode))
-		return;
-	errno = 0;
-	if (unlink(name) < 0)
+	if (lstat(name, &info) == 0) {
+		if (!S_ISREG(info.st_mode))
+			return;
+		failed = unlink(name) < 0;
+	} else {
+		failed = errno != ENOENT;
+	}
+	if (failed)
 		fprintf(stderr, "warning: cannot remove %s: %s\n", name,
 		        strerror(errno));
 }
 
 /* Removes the capture files this run created, so that a follow the board or
- * the adapter refused leaves no file behind. The files cannot simply be
- * created later instead: the clock the board stamps its records with is
- * zeroed after them, and everything between that request and start-hopping is
- * error in the followed clock.
+ * the adapter refused leaves no file behind.
  *
  * The handles say which files exist, since each is set only once its writer
  * has the file open. The files are removed by name while the writers still

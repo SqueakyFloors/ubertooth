@@ -122,8 +122,8 @@ static struct {
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
-	 * p started the poll thread, m set the AFH map, c cleared it, h told
-	 * the board to start hopping. */
+	 * p started the poll thread, d set the modulation, m set the AFH map,
+	 * c cleared it, h told the board to start hopping. */
 	char calls[16];
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
@@ -520,8 +520,13 @@ btbb_piconet* btbb_piconet_new(void)
 	if (real_btbb_piconet_new == NULL)
 		real_btbb_piconet_new = (btbb_piconet* (*)(void))
 		                        dlsym(RTLD_NEXT, "btbb_piconet_new");
-	if (real_btbb_piconet_new == NULL)
+	if (real_btbb_piconet_new == NULL) {
+		/* The static-libbtbb case above: say so, or every case fails
+		 * as "out of memory" and names no cause. */
+		fputs("test: libbtbb's btbb_piconet_new() was not found;"
+		      " this test needs the shared library\n", stderr);
 		return NULL;
+	}
 	return real_btbb_piconet_new();
 }
 
@@ -1045,6 +1050,42 @@ MU_TEST(a_refused_request_creates_no_file)
 	}
 }
 
+/* A destination the run did not create is left where it is: only a regular
+ * file is removed. A symbolic link stands for the whole class here, because a
+ * test can make one and take it away again, where a device node needs root
+ * and a pipe would block the writer that opens it. Nothing is said about it
+ * either: there was nothing to remove. */
+MU_TEST(a_destination_the_run_did_not_create_stays)
+{
+	struct run_result r;
+	struct stat info;
+	char target[64];
+	char link[80];
+	int fd;
+
+	reset_fake();
+	fake.clock_rc = -9; /* LIBUSB_ERROR_PIPE */
+	snprintf(target, sizeof(target), "/tmp/follow-main-XXXXXX");
+	fd = mkstemp(target);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	snprintf(link, sizeof(link), "%s-link", target);
+	unlink(link);
+	mu_assert_fatal(symlink(target, link) == 0, "cannot make a link");
+
+	r = RUN("-q", link, TARGET);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	/* The link is still there, and so is the file it names. */
+	mu_assert(lstat(link, &info) == 0 && S_ISLNK(info.st_mode), link);
+	mu_assert(stat(target, &info) == 0, target);
+	mu_assert(strstr(r.err, "cannot remove") == NULL, r.err);
+
+	unlink(link);
+	unlink(target);
+}
+
 /* A piconet that cannot be allocated ends the run with its reason, rather
  * than being dereferenced where the board is told what to follow: the tool
  * used to crash, and a crash says nothing about why. */
@@ -1279,6 +1320,7 @@ int main(void)
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);
 	MU_RUN(a_refused_request_creates_no_file);
+	MU_RUN(a_destination_the_run_did_not_create_stays);
 	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
 	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
 	MU_RUN(the_usb_delay_is_given_to_the_board_in_clock_ticks);
