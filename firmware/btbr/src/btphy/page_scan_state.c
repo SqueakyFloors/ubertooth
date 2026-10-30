@@ -38,7 +38,7 @@
 struct {
 	fhs_info_t fhs_info;
 	uint32_t clkn_start;
-	/* The native clock of this board's answer to the page, which pagerespTO
+	/* The slot clock of this board's answer to the page, which pagerespTO
 	 * runs from. */
 	uint32_t clkn_answer;
 	/* Which of the central's two page messages the next window reads the
@@ -73,9 +73,11 @@ static void page_scan_fhs_schedule(void)
 		delay = 4;
 
 	/* 8.3.3.1 has the paged device listen until pagerespTO and no longer,
-	 * so a window whose own tick falls past it is not opened at all. */
-	if (clkn_elapsed(MASTER_CLKN+delay+1, page_scan_state.clkn_answer,
-				PAGE_RESP_TO_TICKS+1))
+	 * so a window whose own tick falls outside it is not opened at all. The
+	 * pager stops on the same bound, counted from the same tick. */
+	if (clkn_elapsed(btphy.master_clkn+delay+1,
+				page_scan_state.clkn_answer,
+				PAGE_RESP_TO_TICKS))
 	{
 		page_scan_schedule(0);
 		return;
@@ -106,19 +108,15 @@ static void page_scan_fhs_schedule(void)
  * 8.3.3.1 asks for the receiver to be on from 312.5 usec after the answer, so
  * that one window covers both arrival times on the one frequency of that
  * 1.25 ms. This radio cannot: a receive is tuned in the tick before it listens,
- * and that tick is the one the answer goes out in. So only one of the two
- * readings can be listened on at a time, and which one is right cannot be told
- * from the page message.
- *
- * 8.3.3.1 also has the paged device keep listening until pagerespTO, and
- * 8.3.3.2 has the central repeat its page response every 1.25 ms over that
- * time. So an empty window is followed by a window for the next repeat, taking
- * the two readings in turn. Taking them in turn rather than settling on one
- * matters because which reading is right stays the same for 1.28 seconds at a
+ * and that tick is the one the answer goes out in. So one window can take only
+ * one of the two readings. The same section has the board listen until
+ * pagerespTO, and 8.3.3.2 has the central repeat the page response every
+ * 1.25 ms over that time, so an empty window is followed by a window for the
+ * next repeat, taking the two readings in turn. In turn, rather than settled on
+ * one, because which reading is right stays the same for 1.28 seconds at a
  * time, the period of CLK12 on both clocks: over that stretch either every page
- * this board answers is the central's first message or every one is its second,
- * so a board settled on one reading would hear nothing at all for the whole
- * stretch. */
+ * this board answers is the central's first message or every one is its
+ * second. */
 static void page_scan_fhs_missed(uint32_t window_clkn)
 {
 	/* A packet that took two or more ticks to decode -- a stray multi-slot
@@ -239,8 +237,10 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 			NULL, NULL); 	// no header / no payload
 
 		/* The answer goes out in the tick after the one that tunes the
-		 * transmit, and pagerespTO runs from it. */
-		page_scan_state.clkn_answer = MASTER_CLKN+delay+1;
+		 * transmit, and pagerespTO runs from it. The slot scheduler's
+		 * own tick count is what a delay is relative to, so it is the
+		 * clock a deadline this short has to be read on. */
+		page_scan_state.clkn_answer = btphy.master_clkn+delay+1;
 
 		/* Schedule rx FHS, reading the page just heard as the first of
 		 * the central's two (see page_scan_fhs_missed()) */
