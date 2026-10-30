@@ -44,7 +44,7 @@ the one link type the capture produces, \fBDLT_BLUETOOTH_LE_LL_WITH_PHDR\fR
 the configurable arguments, which is the advertising channel
 .TP
 \fB\-\-capture \-\-fifo=PATH [\-\-channel=37|38|39]\fR
-run ubertooth\-btle(1) on the selected board and write the capture into \fBPATH\fR (default channel 37)\. Wireshark names the fifo it opened; \fB\-\-fifo=\-\fR is standard output, for a capture run by hand
+run ubertooth\-btle(1) on the selected board and write the capture into \fBPATH\fR (default channel 37)\. Wireshark names the fifo it opened; \fB\-\-fifo=\-\fR is standard output, for a capture run by hand\. That one is refused when standard output would not take the capture; see DIAGNOSTICS
 .TP
 \fB\-\-extcap\-version[=<version>]\fR
 the calling Wireshark's version, appended to the \fB\-\-extcap\-interfaces\fR call by Wireshark 2\.9 and later\. Accepted and ignored: nothing here behaves differently for different versions\. The value may be written \fB\-\-extcap\-version=5\.0\fR, \fB\-\-extcap\-version 5\.0\fR or left off altogether
@@ -101,7 +101,9 @@ A \fB\-V\fR with no standard output to print the answer to, which is what \fBbtl
 .P
 An answer whose standard output has gone is that same line and exit 1, whichever call was answering: the usage line \fB\-h\fR prints, the interface listing, the DLT, the configuration, and a capture filter's verdict\. It covers both descriptors a shell can leave, one closed before the script started (\fBbtle\-extcap\.py \-h >&\-\fR) and one open for reading only (\fBbtle\-extcap\.py \-h 1<&0\fR), where the line reaches the buffer and the flush is what fails\. A \fB\-V \-h\fR that loses both halves of its answer says it once\. An answer with nothing in it loses nothing and is not reported: an interface listing with no board to name, and the empty answer that says a capture filter is good, still exit 0 with that stream gone\.
 .P
-With standard error gone, the \fBerror:\fR lines above are lost rather than moved: none of them falls back to standard output, which Wireshark reads as the answer to the call\. A standard error open for reading only (\fBbtle\-extcap\.py \-\-bogus 2<&0\fR) goes the same way as a closed one (\fBbtle\-extcap\.py \-\-bogus 2>&\-\fR)\. The exit status is then all that is left to say what happened, and it is the script's own\.
+A \fB\-\-fifo=\-\fR capture is the same line and exit 1, and starts no ubertooth\-btle(1): the capture is the child's to write to that stream, so with it closed (\fBbtle\-extcap\.py \-\-capture \-\-fifo=\- >&\-\fR) the first file the child opened would take its number and the capture would be written into that, and with it open for reading only every write would fail\. A capture named by Wireshark goes to a real fifo and is unaffected\.
+.P
+With standard error gone, the \fBerror:\fR lines above are lost rather than moved: none of them falls back to standard output, which Wireshark reads as the answer to the call\. A standard error open for reading only (\fBbtle\-extcap\.py \-\-bogus 2<&0\fR), closed (\fBbtle\-extcap\.py \-\-bogus 2>&\-\fR), or a pipe whose reader has left (\fBbtle\-extcap\.py \-\-bogus 2>&1 | true\fR) all go the same way\. The exit status is then all that is left to say what happened, and it is the script's own: it used to be 120, from the flush the interpreter makes as it exits\. A child the script starts is handed the bin for that stream rather than a closed descriptor, for the reason the capture above is refused one\.
 .SH "EXIT STATUS"
 The call either did what was asked, which is 0, or it did not, which is 1\. Nothing else is reported: Wireshark needs no more than non\-zero for a failed capture, so the script does not pass ubertooth\-btle(1)'s own status through or report the signal that killed it\.
 .TP

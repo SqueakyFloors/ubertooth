@@ -1,4 +1,5 @@
 #!@Python3_EXECUTABLE@
+import atexit
 import errno
 import os
 import signal
@@ -19,7 +20,8 @@ from getopt import getopt, GetoptError
 # command line can be read -- and -V and -h answered -- up here, ahead of the
 # imports further down, which need the Python libusb1 package. -V is the call
 # that has to work without it: it is how a user says which tools they have.
-from ubtbr.streams import error, eprint, output_gone, output_lost
+from ubtbr.streams import (bin_an_unusable_standard_error, error, eprint,
+	flush_the_streams, output_gone, output_lost)
 
 # The options the tool takes, in getopt's form: a ':' marks one that takes a
 # value. report_bad_option() reads the same string to find the word a stray
@@ -84,18 +86,18 @@ def report_versions(selector=None):
 		# whatever that turned out to be.
 		output_lost()
 		return 1
-	child_streams = {}
+	# The same for standard error, which the child writes to as well. Nothing
+	# of this tool's is pending there either, because eprint() flushes every
+	# line it writes, so this cannot fail; it is here for the ordering, as
+	# the other two tools have it.
+	#
+	# The child inherits that descriptor, which is what it should have: a
+	# stream this tool could not use was pointed at the bin at startup and
+	# marked inheritable, so the child gets the bin rather than a closed
+	# descriptor whose number the first file it opened would take.
+	sys.stderr.flush()
 	try:
-		sys.stderr.flush()
-	except (AttributeError, ValueError):
-		# Nor any standard error. That costs the child's diagnostics and not
-		# the answer, so nothing is said about it, but the child is handed
-		# the bin for them rather than the closed descriptor: the first file
-		# it opened would otherwise take that number and its lines would be
-		# written into whatever that turned out to be.
-		child_streams["stderr"] = subprocess.DEVNULL
-	try:
-		status = subprocess.call(command, **child_streams)
+		status = subprocess.call(command)
 	except OSError as e:
 		# Not on the PATH, or there and not executable. Reported in one line
 		# like every other failure here, rather than ending the tool in a
@@ -229,7 +231,7 @@ def through(stage):
 
 	Both stages come through here: the command line, which answers -V and -h
 	ahead of the imports below, and the session. Either can find the stream
-	gone -- `ubertooth-btbr -h | head -0` is the first -- and the interpreter
+	gone -- `ubertooth-btbr -h | true` is the first -- and the interpreter
 	flushes it as it exits, outside any handler, where a failed flush ends
 	the tool in status 120 and a message of its own.
 
@@ -242,15 +244,13 @@ def through(stage):
 	except SystemExit as leaving:
 		status = leaving.code or 0
 	except BrokenPipeError:
-		# A write that was not a packet: the usage text goes to standard
-		# output too, and result() is the only one that notices the stream
-		# going away by itself. A command line the tool refuses is the
-		# reachable case, since it writes before anything else does. A
-		# failed write to standard error from either stage arrives here as
-		# well and is reported as this; everything the prompt writes -- the
-		# intro, the prompt itself, and what `?` prints -- goes through
-		# BTCtlPrompt.say(), so a standard error nobody reads does not cost
-		# the capture.
+		# A lost standard output that was not a packet: result() is the only
+		# write that notices that stream going away by itself, and the usage
+		# text goes there too, so `ubertooth-btbr -h` into a reader that
+		# leaves is what arrives here. Standard error cannot: every
+		# diagnostic goes through eprint(), which drops a line it has
+		# nowhere to put, so a standard error nobody reads costs the lines
+		# and not the capture.
 		output_lost()
 		# Out without the interpreter's own teardown, for the reason the
 		# command that would not stop takes that way out: once a session is
@@ -293,6 +293,13 @@ def through(stage):
 	sys.exit(1 if output_gone() else status)
 
 if __name__ == '__main__':
+	# Before anything is printed, since what this does is decide where the
+	# diagnostics below go.
+	bin_an_unusable_standard_error()
+	# The last word on both streams, and the only handler the flush as the
+	# interpreter exits can be kept out of.
+	atexit.register(flush_the_streams)
+
 	# Read here, ahead of the imports below, so that -V, -h and a refused
 	# command line are answered on a host without the Python libusb1 package.
 	COMMAND_LINE = through(read_command_line)
@@ -421,22 +428,14 @@ class BTCtlPrompt(Cmd):
 			self.prompt = self.PROMPT
 
 	def say(self, text):
-		"""Write a note to standard error, giving up on a stream nobody reads.
+		"""Write a note to standard error.
 
-		The capture is on standard output and must not be lost because
-		nobody is reading the notes: a write that raised from here would
-		leave the prompt loop and be reported as standard output going away.
+		Named for what it is, and for say_prompt() to share: eprint() is
+		what makes it safe here, by dropping a line it cannot write. The
+		capture is on standard output and must not be lost because nobody is
+		reading the notes.
 		"""
-		try:
-			eprint(text)
-		except BrokenPipeError:
-			point_at_the_bin(sys.stderr)
-		except (AttributeError, ValueError):
-			# There is no standard error to write to: a descriptor closed
-			# before the tool started leaves the interpreter without one.
-			# Nothing is written to it either way, which is how
-			# output_lost() and the last flush treat the same case.
-			pass
+		eprint(text)
 
 	def say_prompt(self):
 		"""The prompt, where the line editor is not the one drawing it."""

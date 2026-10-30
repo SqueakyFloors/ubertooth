@@ -1567,19 +1567,21 @@ assert "Exception ignored" not in errors, errors
 assert "Traceback" not in errors, errors
 print("ubtbr: a reader that leaves before any packet costs the session nothing")
 
-# standard error closed before the tool started, which is `2>&-`: nothing
-# can be said, and the session fails. That is the interpreter's own rule and
-# not this tool's -- input() wants all three streams and raises "lost
-# sys.stderr" without one -- so the prompt never gets as far as being read.
-# Nothing on standard output and exit 1, which is all that is left to say it
-# with.
+# standard error closed before the tool started, which is `2>&-`: the
+# capture is on standard output and is not lost because nobody is reading
+# the diagnostics, so the session runs and ends as asked. Its own lines go
+# to the bin, which is also what the interpreter's input() needs: it wants
+# all three streams and raised "lost sys.stderr" without one, so the session
+# used to fail before the prompt was read at all.
 running = subprocess.Popen([sys.executable, WRAPPER], stdin=subprocess.PIPE,
                            stdout=subprocess.PIPE, text=True,
                            env=ENVIRONMENT, preexec_fn=lambda: os.close(2))
 output, _ = running.communicate("q\n", timeout=DEADLINE * 2)
-assert running.returncode == 1, (running.returncode, output)
+assert running.returncode == 0, (running.returncode, output)
+# and nothing of the prompt or the intro reached the capture: with no
+# standard error of its own, a write to it would have landed here
 assert output == "", output
-print("ubtbr: a session with standard error closed fails, saying nothing")
+print("ubtbr: a session with standard error closed still captures, exit 0")
 
 # the usage text has nowhere to go either: one line, and the 0 that -h would
 # have exited with becomes 1, because what was asked for was not printed
@@ -1709,6 +1711,83 @@ running.stdout.close()
 running.stdin.close()
 assert running.wait(timeout=DEADLINE) == 1, running.returncode
 print("ubtbr: both streams gone leaves the exit status to say it")
+
+
+# ---- a standard error the shell left unusable -----------------------------
+#
+# The other stream, in the three states a redirection leaves it in. Every
+# write to one open for reading only fails, including the flush the
+# interpreter does as it exits, where no handler can reach it: the command
+# used to end in status 120 and a message printed nowhere. A pipe whose
+# reader has left is the same loss reached a different way, and the one the
+# startup guard cannot see: on Linux a write of nothing to such a pipe
+# succeeds (fs/pipe.c, pipe_write(), "Null write succeeds"), so the
+# descriptor passes for writable there and only a real write finds the reader
+# gone, where macOS refuses both. So it is pinned alongside, rather than left
+# to the read-only case, which looks the same on the two platforms.
+#
+# The state has to be arranged between fork and exec, since it is about the
+# descriptors the tool is started with. That stream is no longer this test's
+# pipe in these cases, so the status is what each one pins; what matters
+# beside it is that standard output is left alone.
+
+def read_only(*numbers):
+    """Leave each of these descriptors open for reading only, which is
+    `1<&0` or `2<&0`. Returns what Popen runs between fork and exec."""
+    def prepare():
+        for number in numbers:
+            nowhere = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(nowhere, number)
+            os.close(nowhere)
+    return prepare
+
+
+def broken_pipe(*numbers):
+    """Point these descriptors at one pipe whose reader has already left,
+    which is `2>&1 | <a reader that stops>` when both are named."""
+    def prepare():
+        reading, writing = os.pipe()
+        os.close(reading)
+        for number in numbers:
+            os.dup2(writing, number)
+        os.close(writing)
+    return prepare
+
+
+def ran_with(arguments, prepare):
+    """Run the tool with one of its streams as a shell could have left it,
+    and return (exit status, what reached standard output)."""
+    running = subprocess.Popen([sys.executable, WRAPPER] + list(arguments),
+                               stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, text=True,
+                               env=ENVIRONMENT, preexec_fn=prepare)
+    output, _ = running.communicate(timeout=DEADLINE * 2)
+    return running.returncode, output
+
+
+for state, how in ((read_only(2), "open for reading only"),
+                   (lambda: os.close(2), "closed"),
+                   (broken_pipe(2), "a pipe whose reader has left")):
+    # a command line the tool will not take: the line is lost and the status
+    # is the tool's own 1, not 120
+    status, output = ran_with(("--bogus",), state)
+    assert status == 1, (how, status, output)
+    assert output == "", (how, output)
+
+    # and that stream going does not cost the answer: -h still prints the
+    # usage text, on standard output, and exits 0
+    status, output = ran_with(("-h",), state)
+    assert status == 0, (how, status, output)
+    assert output.startswith("Usage:"), (how, output)
+
+# with neither stream usable at once, which is `-h 1<&0 2<&0` and
+# `-h 2>&1 | <a reader that stops>`, the status is all that is left
+for state in (read_only(1, 2), broken_pipe(1, 2)):
+    status, output = ran_with(("-h",), state)
+    assert status == 1, (status, output)
+
+print("ubtbr: a standard error the shell left unusable costs the command"
+      " neither its status nor its answer")
 
 # a failure nobody handled, leaving past a standard output that has gone
 # away, ends in the traceback that failure deserves and nothing else: the

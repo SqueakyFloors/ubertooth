@@ -19,6 +19,7 @@
 # the Free Software Foundation, Inc., 51 Franklin Street,
 # Boston, MA 02110-1301, USA.
 
+import atexit
 import os
 import signal
 import subprocess
@@ -38,13 +39,15 @@ if os.path.isdir(_module_dir) and _module_dir not in sys.path:
 
 from argparse import ArgumentParser
 
-# specan/limits.py imports nothing but sys, so the whole command line can be
-# read -- and -V and -h answered -- up here, ahead of the window's own imports
-# further down, which need numpy and a Qt binding. -V is the call that has to
-# work without those: it is how a user says which tools they have, and a Qt
-# binding that is missing or broken is exactly when they would be asked.
+# specan/limits.py imports nothing outside the standard library, so the whole
+# command line can be read -- and -V and -h answered -- up here, ahead of the
+# window's own imports further down, which need numpy and a Qt binding. The
+# writes the diagnostics go through live there for the same reason. -V is the
+# call that has to work without those: it is how a user says which tools they
+# have, and a Qt binding that is missing or broken is exactly when they would
+# be asked.
 from specan.limits import (MIN_FREQ, MAX_FREQ, check_freq_pair, convert_wifi,
-                           parse_wifi_range)
+                           eprint, parse_wifi_range, point_at_the_bin)
 
 DEFAULT_LOWER_FREQ = 2402
 DEFAULT_UPPER_FREQ = 2480
@@ -58,39 +61,55 @@ DEFAULT_UPPER_FREQ = 2480
 VERSION_TOOL = "ubertooth-util"
 
 
-def point_at_the_bin(stream):
-    """Send a stream that cannot be written to the bin, so writing it is safe.
-
-    The interpreter flushes both streams as it exits, where no handler can
-    reach a failure: a write that fails there ends the tool in status 120
-    and a message of its own. ubtbr/streams.py does the same for
-    ubertooth-btbr, and has the longer note.
-    """
-    try:
-        nowhere = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(nowhere, stream.fileno())
-        finally:
-            os.close(nowhere)
-    except (OSError, ValueError, AttributeError):
-        # There is no such stream to point anywhere: it was closed before the
-        # tool started. Nothing is written to it either way.
-        pass
-
-
 def can_be_written(stream):
     """Say whether a stream's descriptor would take a write.
 
     An empty write asks the descriptor the question without putting anything
-    on it: one opened for reading only refuses it, as does a pipe whose
-    reader has left. A flush cannot ask, because an empty buffer flushes
-    whichever state the descriptor is in.
+    on it: one opened for reading only refuses it. A flush cannot ask,
+    because an empty buffer flushes whichever state the descriptor is in.
+
+    It is not the whole answer on Linux, where a pipe whose reader has left
+    takes a write of nothing and refuses the next real one (fs/pipe.c,
+    pipe_write(), "Null write succeeds"); macOS refuses both. So a true here
+    means the descriptor is open for writing, not that a reader is still
+    listening, and flush_the_streams() below is what covers the difference.
     """
     try:
         os.write(stream.fileno(), b"")
         return True
     except (OSError, ValueError, AttributeError):
         return False
+
+
+def flush_the_streams():
+    """Empty both standard streams while a failure can still be handled.
+
+    Registered with atexit, which the interpreter runs before the flush it
+    does as it exits. That last flush is outside every handler: one that
+    fails there ends the tool in status 120 and a message of its own,
+    whatever the command made of its work. So a stream that refuses the
+    flush here is pointed at the bin and flushed again, which empties the
+    buffer and leaves the interpreter's flush nothing to fail at. The exit
+    status is then the command's own, as it is for every other lost line.
+
+    This is the state can_be_written() cannot see: a pipe whose reader has
+    left, which on Linux passes for writable at startup and is found only by
+    a real write.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError, AttributeError):
+            # A failed flush leaves what it could not write in the buffer, so
+            # the bin has to be given it rather than only the writes to come.
+            point_at_the_bin(stream)
+            try:
+                stream.flush()
+            except (OSError, ValueError, AttributeError):
+                # There is no such stream to empty, or none the bin could be
+                # put under. Nothing more can be done here, and the exit
+                # status is what reports the loss.
+                pass
 
 
 def output_lost():
@@ -101,12 +120,7 @@ def output_lost():
     not a command that did what was asked (.kiro/steering/cli-output.md).
     """
     point_at_the_bin(sys.stdout)
-    try:
-        print("error: standard output has gone away", file=sys.stderr)
-    except (OSError, ValueError, AttributeError):
-        # Standard error went the same way, which is what `2>&1` into a reader
-        # that left leaves. The exit status is all there is to say it with.
-        point_at_the_bin(sys.stderr)
+    eprint("error: standard output has gone away\n")
     sys.exit(1)
 
 
@@ -130,7 +144,7 @@ def answer(text):
 def bin_an_unusable_standard_error():
     """Keep this tool's diagnostics out of the answer and out of its status.
 
-    With no such stream, print(..., file=sys.stderr) writes to standard output
+    With no such stream, a write meant for it lands on standard output
     instead, where a reader or a script is entitled to find only what it
     asked for -- including specan/limits.py's refusals. The bin takes them.
 
@@ -147,7 +161,15 @@ def bin_an_unusable_standard_error():
     """
     if sys.stderr is None:
         nowhere = os.open(os.devnull, os.O_WRONLY)
-        if nowhere != 2:
+        if nowhere == 2:
+            # The bin is standard error itself, and os.open gives a
+            # descriptor no child inherits (PEP 446), so it is marked as one
+            # a child does: handed back the closed descriptor, the first file
+            # the child opened would take that number.
+            os.set_inheritable(2, True)
+        else:
+            # dup2 marks what it writes to as inheritable, so the child gets
+            # the bin here too.
             os.dup2(nowhere, 2)
             os.close(nowhere)
         sys.stderr = open(2, "w", closefd=False)
@@ -193,8 +215,8 @@ def report_versions(selector=None):
     except OSError as err:
         # Not on the PATH, or there and not executable. Reported in one line
         # like every other failure here, rather than in a traceback.
-        print("error: could not run %s: %s"
-              % (VERSION_TOOL, err.strerror or err), file=sys.stderr)
+        eprint("error: could not run %s: %s\n"
+               % (VERSION_TOOL, err.strerror or err))
         return 1
     # ubertooth-util exits 0 with the whole answer and 1 when part of it could
     # not be read; a child killed by a signal (a negative status here)
@@ -282,6 +304,9 @@ if __name__ == '__main__':
     # Before anything is printed, since what this does is decide where the
     # diagnostics go -- including specan/limits.py's refusals.
     bin_an_unusable_standard_error()
+    # The last word on both streams, and the only handler the flush as the
+    # interpreter exits can be kept out of.
+    atexit.register(flush_the_streams)
 
     # Read here, ahead of the imports below, so that -V, -h and a refused
     # range are answered on a machine with no numpy and no Qt binding. The
@@ -705,8 +730,7 @@ class Window(QtWidgets.QWidget):
             key = chr(event.key()).upper()
             event.accept()
         except:
-            print('note: unknown key pressed: 0x%x' % event.key(),
-                  file=sys.stderr)
+            eprint('note: unknown key pressed: 0x%x\n' % event.key())
             event.ignore()
             return
         if key == 'H':
@@ -729,7 +753,7 @@ class Window(QtWidgets.QWidget):
         if key == 'Q':
             self.close()
             return
-        print('note: unsupported key pressed:', key, file=sys.stderr)
+        eprint('note: unsupported key pressed: %s\n' % key)
 
 
 def sigint_handler(*args):

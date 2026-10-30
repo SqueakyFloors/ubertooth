@@ -666,6 +666,25 @@
   as though the command itself had failed.
   [#920](https://github.com/SqueakyFloors/ubertooth/issues/920)
 
+- `btle-extcap.py --capture --fifo=-` reports a standard output that would not
+  take the capture and starts no `ubertooth-btle`, instead of exiting 0 as
+  though the capture had worked: with that descriptor closed the child's first
+  `open()` took its number and the capture was written into whatever that
+  turned out to be. A capture Wireshark names goes to a real fifo and is
+  unaffected.
+  [#929](https://github.com/SqueakyFloors/ubertooth/issues/929)
+
+- A standard error that cannot be written costs all three Python tools their
+  diagnostics and nothing else. A pipe whose reader has left used to end
+  `btle-extcap.py` and `ubertooth-specan-ui` in status 120 on Linux, and the
+  write itself could raise part-way through a call that was going to work:
+  a `btle-extcap.py --extcap-interfaces` that passed a warning on exited 1
+  with no interfaces, leaving Wireshark nothing to capture with.
+  `ubertooth-btbr` gains the check the other two have, so a standard error
+  open for reading only no longer ends it in 120, and a session with that
+  stream closed runs and captures instead of being refused.
+  [#930](https://github.com/SqueakyFloors/ubertooth/issues/930)
+
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
   package is not installed, instead of ending in a `ModuleNotFoundError`
   traceback: the command line is now read before the `usb1` module is

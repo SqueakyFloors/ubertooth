@@ -27,6 +27,8 @@ import time
 import subprocess
 import sys
 
+from specan.limits import eprint
+
 
 class Ubertooth(object):
 
@@ -60,11 +62,14 @@ class Ubertooth(object):
         if self.proc.poll() is not None:
             # The child's own diagnostic belongs on the stream it was
             # written to, not replayed on this process's standard output.
-            print("error: could not open an Ubertooth device", file=sys.stderr)
-            print("note: failed to run:", ' '.join(args), file=sys.stderr)
+            # Through eprint(), because this runs on the capture thread: a
+            # write that raised here would end the thread rather than the
+            # line.
+            eprint("error: could not open an Ubertooth device\n")
+            eprint("note: failed to run: " + ' '.join(args) + "\n")
             error = self.proc.stderr.read().decode(errors="replace").strip()
             if error:
-                print(error, file=sys.stderr)
+                eprint(error + "\n")
             return
         while self.proc.poll() is None:
             data = self.proc.stdout.read(buffer_size)
@@ -89,6 +94,10 @@ class Ubertooth(object):
                 self.proc.kill()
         self.proc = None
 
+# A bare frame dump, for working on this module. Run it as part of the
+# package, "python3 -m specan.Ubertooth" from the directory above: the
+# imports above are the package's own, and a file run as a script does not
+# have it on the path.
 if __name__ == '__main__':
     ubertooth = Ubertooth()
     frame_source = ubertooth.specan(2.402e9, 2.480e9)

@@ -65,7 +65,8 @@ worth running by hand when a board does not appear in Wireshark.
  - `--capture --fifo=PATH [--channel=37|38|39]` :
    run ubertooth-btle(1) on the selected board and write the capture into
    `PATH` (default channel 37). Wireshark names the fifo it opened;
-   `--fifo=-` is standard output, for a capture run by hand
+   `--fifo=-` is standard output, for a capture run by hand. That one is
+   refused when standard output would not take the capture; see DIAGNOSTICS
  - `--extcap-version[=<version>]` :
    the calling Wireshark's version, appended to the `--extcap-interfaces`
    call by Wireshark 2.9 and later. Accepted and ignored: nothing here
@@ -211,12 +212,23 @@ An answer with nothing in it loses nothing and is not reported: an interface
 listing with no board to name, and the empty answer that says a capture
 filter is good, still exit 0 with that stream gone.
 
+A `--fifo=-` capture is the same line and exit 1, and starts no
+ubertooth-btle(1): the capture is the child's to write to that stream, so
+with it closed (`btle-extcap.py --capture --fifo=- >&-`) the first file the
+child opened would take its number and the capture would be written into
+that, and with it open for reading only every write would fail. A capture
+named by Wireshark goes to a real fifo and is unaffected.
+
 With standard error gone, the `error: ` lines above are lost rather than
 moved: none of them falls back to standard output, which Wireshark reads as
 the answer to the call. A standard error open for reading only
-(`btle-extcap.py --bogus 2<&0`) goes the same way as a closed one
-(`btle-extcap.py --bogus 2>&-`). The exit status is then all that is left to
-say what happened, and it is the script's own.
+(`btle-extcap.py --bogus 2<&0`), closed
+(`btle-extcap.py --bogus 2>&-`), or a pipe whose reader has left
+(`btle-extcap.py --bogus 2>&1 | true`) all go the same way. The exit
+status is then all that is left to say what happened, and it is the script's
+own: it used to be 120, from the flush the interpreter makes as it exits.
+A child the script starts is handed the bin for that stream rather than a
+closed descriptor, for the reason the capture above is refused one.
 
 ## EXIT STATUS
 

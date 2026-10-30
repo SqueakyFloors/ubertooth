@@ -19,6 +19,7 @@
 # the Free Software Foundation, Inc., 51 Franklin Street,
 # Boston, MA 02110-1301, USA.
 
+import atexit
 import getopt
 import os
 import re
@@ -137,12 +138,71 @@ def can_be_written(stream):
     it: one opened for reading only refuses it, whatever the length. A flush
     cannot ask, because an empty buffer flushes whichever state the
     descriptor is in.
+
+    It is not the whole answer on Linux, where a pipe whose reader has left
+    takes a write of nothing and refuses the next real one (fs/pipe.c,
+    pipe_write(), "Null write succeeds"); macOS refuses both. So a true here
+    means the descriptor is open for writing, not that a reader is still
+    listening, and flush_the_streams() below is what covers the difference.
     """
     try:
         os.write(stream.fileno(), b"")
         return True
     except (OSError, ValueError, AttributeError):
         return False
+
+
+def flush_the_streams():
+    """Empty both standard streams while a failure can still be handled.
+
+    Registered with atexit, which the interpreter runs before the flush it
+    does as it exits. That last flush is outside every handler: one that
+    fails there ends the script in status 120 and a message of its own,
+    whatever the call made of its work. So a stream that refuses the flush
+    here is pointed at the bin and flushed again, which empties the buffer
+    and leaves the interpreter's flush nothing to fail at. The exit status is
+    then the call's own, as it is for every other lost line.
+
+    This is the state can_be_written() cannot see: a pipe whose reader has
+    left, which on Linux passes for writable at startup and is found only by
+    a real write.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError, AttributeError):
+            # A failed flush leaves what it could not write in the buffer, so
+            # the bin has to be given it rather than only the writes to come.
+            point_at_the_bin(stream)
+            try:
+                stream.flush()
+            except (OSError, ValueError, AttributeError):
+                # There is no such stream to empty, or none the bin could be
+                # put under. Nothing more can be done here, and the exit
+                # status is what reports the loss.
+                pass
+
+
+def eprint(text):
+    """Write a diagnostic to standard error, or drop it if it cannot go there.
+
+    Every error, warning and note this script writes goes through here, so
+    that losing the stream costs the lines and nothing else: a write that
+    fails must not raise in the middle of a call and turn a listing or a
+    capture that was going to work into a failure.
+
+    The state this is for is a pipe whose reader has left, which
+    can_be_written() cannot see at startup on Linux. Any other failure of the
+    stream is taken the same way, a full disk among them: there is nowhere
+    left to report the loss, so the line goes and the exit status is the
+    call's own. The stream is pointed at the bin so the writes to come are
+    safe.
+    """
+    try:
+        sys.stderr.write(text)
+        sys.stderr.flush()
+    except (OSError, ValueError, AttributeError):
+        point_at_the_bin(sys.stderr)
 
 
 def output_lost():
@@ -153,12 +213,7 @@ def output_lost():
     not a call that did what was asked (.kiro/steering/cli-output.md).
     """
     point_at_the_bin(sys.stdout)
-    try:
-        print("error: standard output has gone away", file=sys.stderr)
-    except (OSError, ValueError, AttributeError):
-        # Standard error went the same way, which is what `2>&1` into a reader
-        # that left leaves. The exit status is all there is to say it with.
-        point_at_the_bin(sys.stderr)
+    eprint("error: standard output has gone away\n")
     sys.exit(1)
 
 
@@ -181,7 +236,7 @@ def answer(text):
 def bin_an_unusable_standard_error():
     """Keep this script's diagnostics out of the answer and out of its status.
 
-    With no such stream, print(..., file=sys.stderr) writes to standard output
+    With no such stream, a write meant for it lands on standard output
     instead, which for an extcap program is the worst place for it: Wireshark
     reads standard output as the answer, so an error line there becomes a
     capture interface, a DLT or a filter verdict. The bin takes them.
@@ -199,7 +254,15 @@ def bin_an_unusable_standard_error():
     """
     if sys.stderr is None:
         nowhere = os.open(os.devnull, os.O_WRONLY)
-        if nowhere != 2:
+        if nowhere == 2:
+            # The bin is standard error itself, and os.open gives a
+            # descriptor no child inherits (PEP 446), so it is marked as one
+            # a child does: handed back the closed descriptor, the first file
+            # the child opened would take that number.
+            os.set_inheritable(2, True)
+        else:
+            # dup2 marks what it writes to as inheritable, so the child gets
+            # the bin here too.
             os.dup2(nowhere, 2)
             os.close(nowhere)
         sys.stderr = open(2, "w", closefd=False)
@@ -222,8 +285,8 @@ def run_tool(command, **options):
     try:
         return Popen(command, **options)
     except OSError as err:
-        print("error: could not run %s: %s"
-              % (command[0], err.strerror or err), file=sys.stderr)
+        eprint("error: could not run %s: %s\n"
+               % (command[0], err.strerror or err))
         return None
 
 
@@ -303,7 +366,7 @@ def report_bad_option(refusal):
     if not (refusal.msg.startswith("option --") or len(name) > 1):
         # The short options here take no value, so anything wrong with one is
         # an option this script does not have.
-        print("error: unrecognized option '-%s'" % name, file=sys.stderr)
+        eprint("error: unrecognized option '-%s'\n" % name)
         sys.exit(1)
 
     # getopt accepts any abbreviation that names one option, so what the word
@@ -323,7 +386,7 @@ def report_bad_option(refusal):
         message = "option '--%s' requires a value" % meanings[0].rstrip("=")
     else:
         message = "option '--%s' takes no value" % meanings[0]
-    print("error: %s" % message, file=sys.stderr)
+    eprint("error: %s\n" % message)
     sys.exit(1)
 
 
@@ -363,14 +426,17 @@ def main():
     # Before anything is printed, since what this does is decide where the
     # diagnostics below go.
     bin_an_unusable_standard_error()
+    # The last word on both streams, and the only handler the flush as the
+    # interpreter exits can be kept out of.
+    atexit.register(flush_the_streams)
 
     # A bare call has said nothing for a message about the command line to
     # answer, so the usage line is the answer, on standard error since it was
     # not asked for. Every other refusal is its one "error: " line alone
     # (.kiro/steering/cli-output.md).
     if not sys.argv[1:]:
-        print(NOTHING_TO_DO, file=sys.stderr)
-        usage(sys.stderr)
+        eprint(NOTHING_TO_DO + "\n")
+        usage(as_a_diagnostic=True)
         sys.exit(1)
 
     try:
@@ -392,7 +458,7 @@ def main():
         # the two lists have the same length and order, and what getopt did
         # not take is the tail of both.
         typed = sys.argv[1:][len(sys.argv[1:]) - len(args):]
-        print("error: unexpected argument '%s'" % typed[0], file=sys.stderr)
+        eprint("error: unexpected argument '%s'\n" % typed[0])
         sys.exit(1)
 
     interface = ''
@@ -463,8 +529,8 @@ def main():
     # all-digit value as an index.
     m = re.match(r'ubertooth([0-9a-fA-F]+)$', interface)
     if not m:
-        print("error: --extcap-interface must be ubertooth<serial>, as "
-              "--extcap-interfaces lists it", file=sys.stderr)
+        eprint("error: --extcap-interface must be ubertooth<serial>, as "
+               "--extcap-interfaces lists it\n")
         sys.exit(1)
     interface = m.group(1)
 
@@ -474,19 +540,19 @@ def main():
         config()
     elif do_capture:
         if fifo is None:
-            print("error: --capture needs --fifo=PATH", file=sys.stderr)
+            eprint("error: --capture needs --fifo=PATH\n")
             sys.exit(1)
         # Checked here rather than left to ubertooth-btle, so a refused
         # command line starts no child and writes nothing to the fifo. The
         # wording is ubertooth-btle's, so one message covers both.
         if channel not in ADVERTISING_CHANNELS:
-            print("error: advertising channel index must be %s-%s (got %s)"
-                  % (ADVERTISING_CHANNELS[0], ADVERTISING_CHANNELS[-1],
-                     channel), file=sys.stderr)
+            eprint("error: advertising channel index must be %s-%s "
+                   "(got %s)\n" % (ADVERTISING_CHANNELS[0],
+                                   ADVERTISING_CHANNELS[-1], channel))
             sys.exit(1)
         if capture_filter:
-            print("warning: %s (got %s)" % (NO_CAPTURE_FILTER, capture_filter),
-                  file=sys.stderr)
+            eprint("warning: %s (got %s)\n"
+                   % (NO_CAPTURE_FILTER, capture_filter))
         # A stop is only a capture's to report, so the handlers go up here and
         # not at the top of the command: every other call keeps the default,
         # where a signal ends it rather than being noted and ignored.
@@ -503,16 +569,16 @@ def main():
     else:
         # An interface and nothing to do with it: the call used to exit 0
         # having done nothing, which Wireshark reads as a call that worked.
-        print(NOTHING_TO_DO, file=sys.stderr)
+        eprint(NOTHING_TO_DO + "\n")
         sys.exit(1)
 
 
-def usage(out=None):
+def usage(as_a_diagnostic=False):
     """Print the usage line.
 
-    With no stream named it is the answer -h asked for, so it goes to
-    standard output and its loss is reported. A bare command line did not ask
-    for it, so that one names standard error and is not worth reporting: the
+    By default it is the answer -h asked for, so it goes to standard output
+    and its loss is reported. A bare command line did not ask for it, so that
+    one goes to standard error and its loss is not worth reporting: the
     "error: " line it follows has gone the same way, and the exit status says
     what happened.
     """
@@ -521,10 +587,10 @@ def usage(out=None):
             " (--extcap-dlts | --extcap-config |"
             " --capture --fifo=PATH [--channel=37|38|39]) |"
             " -V | -h\n" % sys.argv[0])
-    if out is None:
-        answer(line)
+    if as_a_diagnostic:
+        eprint(line)
     else:
-        print(line, end="", file=out)
+        answer(line)
 
 
 # One "Serial No (<index>): <serial>" line per attached board, which is what
@@ -583,7 +649,7 @@ def list_interfaces():
     no_devices = not serials and reported == [NO_DEVICES]
     for line in errors.splitlines():
         if not (no_devices and line == NO_DEVICES):
-            print(line, file=sys.stderr)
+            eprint(line + "\n")
 
     # The boards that could be named are listed even when another one could
     # not be, which is what ubertooth-util itself does with a partial
@@ -612,9 +678,9 @@ def list_interfaces():
                  if line.strip() and
                  not line.startswith(("note: ", "warning: "))]
     if not diagnosed:
-        print("error: ubertooth-util failed (%s)" % (
+        eprint("error: ubertooth-util failed (%s)\n" % (
             "killed by signal %d" % -proc.returncode if proc.returncode < 0
-            else "exit status %d" % proc.returncode), file=sys.stderr)
+            else "exit status %d" % proc.returncode))
     return 1
 
 
@@ -670,6 +736,15 @@ def capture(interface, fifo, channel):
     # ubertooth-btle.c). Wireshark always names a real fifo; "-" is for a
     # capture run by hand, where every file option here means standard output
     # by it (host/doc/ubertooth.md).
+    if fifo == "-" and not can_be_written(sys.stdout):
+        # The capture is the child's to write, so the descriptor it would be
+        # handed is asked about here, as report_versions() asks for the -V
+        # answer. With it closed the child's first open() takes its number
+        # and the capture goes into whatever that turns out to be, which for
+        # a tool that opens USB device nodes is one of those; open for
+        # reading only, every write fails and the capture is lost. Either way
+        # no child is started.
+        output_lost()
     child = run_tool([
         "ubertooth-btle", "-f",
         "-U", interface,
