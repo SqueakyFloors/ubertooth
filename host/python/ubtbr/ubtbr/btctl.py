@@ -1183,7 +1183,11 @@ class BTCtl:
 		self._msg_handler = None
 
 	def _print_console(self, msg):
-		msg = "\x1b[32;1m%s\x1b[0m"%msg.decode()
+		# The board's console ends each line with a C string terminator and
+		# counts that byte in the message, so it has to come off here: a NUL
+		# written to standard error makes a saved session a binary file to
+		# grep. The other way into these two helpers strips it already.
+		msg = "\x1b[32;1m%s\x1b[0m"%msg.strip(b"\x00").decode()
 		eprint(msg)
 
 	def _print_debug(self, msg):

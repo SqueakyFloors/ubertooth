@@ -797,6 +797,21 @@ command = btctl.BTCtlInquiryCmd(bt)
 command.stop()
 print("ubtbr: a message that stopped part way ends the sending")
 
+# ---- a progress line from the board is text ------------------------------
+
+# The board's console ends each line with a C string terminator and counts
+# that byte in the message, so a line printed as it arrives puts a NUL in
+# the middle of standard error. A saved session is then a binary file to
+# grep, which answers "Binary file matches" instead of the lines asked for.
+console_handle = StallingHandle()
+console_bt = btctl.BTCtl(console_handle)
+said_from = len(records.messages)
+console_bt._handle_msg(bytes([btctl.BTCTL_DEBUG, 0, 0, 0]) + b"Paging started\n\x00")
+console_said = records.messages[said_from:]
+assert any("Paging started" in message for message in console_said), console_said
+assert not any("\x00" in message for message in console_said), console_said
+print("ubtbr: a progress line from the board carries no NUL")
+
 # ---- a command that ends after the prompt gave up on it -------------------
 
 # Giving up has to be a pause, not the end of the session: a command that
