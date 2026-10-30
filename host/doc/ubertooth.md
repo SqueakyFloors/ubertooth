@@ -125,9 +125,13 @@ backward compatibility with existing scripts, so `-c 2440` and `-c2440` are the
 same. Where the value is optional, the next word
 is taken as the value only when it is a valid value, so an option never
 swallows the option after it: `-c -b` reads the channel and then the board ID,
-while `-z -90` sets the squelch to -90 dBm. A long option takes `--name value` or
-`--name=value`, never attached without the `=` (no long option takes a value
-today; this is for consistency with `getopt_long`). A lone `-` as the value of
+while `-z -90` sets the squelch to -90 dBm. The `ubertooth-*` tools written in
+C take single-letter options only, and refuse a long one with `error:
+unrecognized option '--bogus': the tools take single-letter options`, and so
+does ubertooth-btbr(1). The long options of the two tools that have them --
+`btle-extcap.py`, whose are Wireshark's, and ubertooth-specan-ui(1) `--wifi`
+and `--padding` -- take `--name value` or `--name=value`, never attached
+without the `=`. A lone `-` as the value of
 a file option means standard output, so `ubertooth-btle -q -` writes the
 capture to stdout. No option reads its input from a lone `-`: for those it is
 a file name like any other, and there is no such file. Any other value is a
@@ -259,7 +263,7 @@ board was in the last time.
 Not every board gets that self-reset, and where it does not the fallback is
 always the same: unplug the board or power-cycle its hub port. That is what the
 `note: ` line the tools print after the error names (see ubertooth-rx(1),
-DIAGNOSTICS). Firmware without the watchdog, such as `2020-12-R1`, has
+EXIT STATUS). Firmware without the watchdog, such as `2020-12-R1`, has
 no self-reset at all. Neither has anything that feeds the watchdog from its
 loop rather than from a USB service pass — the six modes that service USB from
 the interrupt, and the `btbr` image — because that loop keeps turning when the
@@ -378,9 +382,8 @@ refused.
 
 ## OUTPUT AND DIAGNOSTICS
 
-This is the split the tools are being brought to, tool by tool. Each tool's
-own page says what it does today, under DIAGNOSTICS and EXIT STATUS; where a
-page has neither section yet, that tool has not been converted.
+Every tool follows this split. Each tool's own page gives the lines it prints
+and the statuses it exits with, under DIAGNOSTICS, EXIT STATUS, or both.
 
 Standard output carries only what was asked for: the report a query returns,
 the packets or samples a capture decodes, the capture data itself when the
@@ -417,7 +420,7 @@ receive transfer that arrived with part of a packet cannot be read as a
 record, so it is dropped, and the capture reports it once per run, because
 such a fault usually repeats: `warning: a receive transfer arrived with 32 of
 a packet's 64 bytes and was dropped; the capture is losing packets`. That is
-the path `ubertooth-dump`, `ubertooth-rx`, `ubertooth-afh`,
+the path `ubertooth-dump`, `ubertooth-rx`, `ubertooth-scan`, `ubertooth-afh`,
 `ubertooth-follow` and `ubertooth-specan` read through. `ubertooth-btle` and
 `ubertooth-ego` poll for their packets one at a time instead, and report the
 same fault in the same way: `warning: a poll reply arrived with 32 of a

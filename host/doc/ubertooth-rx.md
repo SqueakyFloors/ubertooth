@@ -2,8 +2,13 @@
 
 ## SYNOPSIS
 
-    ubertooth-rx [ -l <lap> [ -u <uap> ] ]
-    ubertooth-rx -z
+    ubertooth-rx [-l <lap> [-u <uap>] | -z] [-c <0-78> | -s] [-e <0-5>]
+    [-t <seconds>] [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
+    [-U <index|serial>]
+    ubertooth-rx -i <file.bin> [-l <lap> [-u <uap>] | -z] [-e <0-5>]
+    [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
+    ubertooth-rx [-U <index|serial>] -V
+    ubertooth-rx -h
 
 ## DESCRIPTION
 
@@ -81,9 +86,9 @@ Major modes:
 Options:
 
  - `-i <input>` :
-   Replay a capture saved earlier with `-d` (or with `ubertooth-dump -f`)
-   instead of capturing live with an Ubertooth. See [REPLAYING A SAVED
-   CAPTURE][].
+   Replay a capture saved earlier with `-d` (or with `ubertooth-dump -d`
+   without `-b`, which writes the same records) instead of capturing live with
+   an Ubertooth. See [REPLAYING A SAVED CAPTURE][].
 
  - `-c <0-78>` :
    Fixed channel for all major modes. If not specified will sweep
@@ -474,10 +479,10 @@ CAPTURE). So does a run that cannot allocate the piconet `-l` names
 A live capture whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only
 what arrived before it. The failure is reported on standard error as it
-happens, as `error: receive transfer failed: <reason>`. A board that never
-hands the transfer back at all exits 1 too, reported by the `warning:` line
-ubertooth(7) describes rather than that error. A `-z` survey still prints the
-results it did get.
+happens, as `error: receive transfer failed: <reason> (<status>)`. A board
+that never hands the transfer back at all exits 1 too, reported by the
+`warning:` line ubertooth(7) describes rather than that error. A `-z` survey
+still prints the results it did get.
 
 A capture whose teardown the board refuses exits 1 too, even though the
 capture body itself ran to its timeout: the board is left in the mode this run
@@ -552,6 +557,8 @@ long it lasts
 
 ubertooth-scan(1): active device scanning and inquiry using Ubertooth
 and BlueZ
+
+ubertooth-dump(1): records the same packets `-i` reads back, with `-d`
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
 option values are written
