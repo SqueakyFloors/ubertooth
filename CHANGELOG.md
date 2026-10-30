@@ -1413,9 +1413,12 @@
   gets the channel to listen on wrong instead, so it is heard from about one
   packet in eighteen and no header ever fails: such a follow decoded next to
   nothing and kept the clock forever. A follow that hears no packet of its
-  piconet for ten seconds now reports `warning: nothing of this piconet has
-  been heard on the clock being followed; searching for it again` and recovers
-  a clock again, as it does for a clock the decoder gives up.
+  piconet for a minute now reports `warning: nothing of this piconet has been
+  heard on the clock being followed; searching for it again` and recovers a
+  clock again, as it does for a clock the decoder gives up. A minute is long
+  enough that no working link reaches it, and giving a clock up rules it out,
+  so a wrong clock is given up only on a link slow enough for its one packet
+  in eighteen to leave a gap that long.
   [#903](https://github.com/SqueakyFloors/ubertooth/issues/903)
 - A Classic capture that cannot be written says so, once per capture, instead
   of running to the end looking like one that was being written: `warning:
