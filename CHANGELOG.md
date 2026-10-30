@@ -717,18 +717,19 @@
 
 ### Reliability fixes
 
-- The `delta_t` beside each `ubertooth-btle` packet is the gap the capture's
-  own times have, so it holds the whole of a quiet gap instead of losing whole
-  periods of the clock the packets are stamped with. A measured gap of 905.6 s
-  was printed as `delta_t=46611.718 ms` -- that gap less the two 429.4967 s
-  periods inside it -- beside a capture record that had it right. The first
+- `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
+  clock the packets are stamped with. A measured gap of 905.6 s was printed as
+  `delta_t=46611.718 ms` -- that gap less the two 429.4967 s periods inside it
+  -- beside a capture record that had it right. The figure is now the gap the
+  capture's own times have, so it holds the whole of a quiet gap, and the first
   packet of a capture reports no gap rather than its own clock reading.
   [#974](https://github.com/SqueakyFloors/ubertooth/issues/974)
 
-- The `delta_t` beside each `ubertooth-ego` packet comes from the same
-  capture times, so it too holds the whole of a quiet gap rather than losing
-  whole 327.68 s periods of the clock, and the first packet of a capture
-  reports no gap.
+- `ubertooth-ego` no longer prints a `delta_t` short by whole 327.68 s periods
+  of the clock after a quiet spell. The gap now comes from the same capture
+  times the other tools use, which count every wrap, so the figure holds the
+  whole of the gap. The first packet of a capture reports no gap rather than
+  its own clock reading.
   [#981](https://github.com/SqueakyFloors/ubertooth/issues/981)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
