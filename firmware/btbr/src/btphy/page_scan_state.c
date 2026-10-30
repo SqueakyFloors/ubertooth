@@ -96,27 +96,19 @@ static void page_scan_fhs_schedule(void)
  * Part B, Section 2.4.4). So it follows this board's own answer by 625 usec for
  * a page heard first and by 312.5 usec for a page heard second, and a page
  * message says nothing about which of the two it is. The scan set this clock to
- * the message it heard, so the second reading of that page is the same thing as
- * "this clock is one tick behind the central's".
+ * the message it heard, so reading that page as the central's second is the
+ * same thing as moving this clock on the one tick it would be behind by -- and
+ * that clock is what every frequency and tick after it is computed from.
  *
- * An empty window is therefore also what a page heard second looks like: the
- * response went by a tick earlier, while the radio was still turning round from
- * this board's answer. Taking that reading is the same thing as moving this
- * clock the one tick it would be behind by, which is what every frequency and
- * transmit after it is computed from.
- *
- * 8.3.3.1 asks for the receiver to be on from 312.5 usec after the answer, so
- * that one window covers both arrival times on the one frequency of that
- * 1.25 ms. This radio cannot: a receive is tuned in the tick before it listens,
- * and that tick is the one the answer goes out in. So one window can take only
- * one of the two readings. The same section has the board listen until
- * pagerespTO, and 8.3.3.2 has the central repeat the page response every
- * 1.25 ms over that time, so an empty window is followed by a window for the
- * next repeat, taking the two readings in turn. In turn, rather than settled on
- * one, because which reading is right stays the same for 1.28 seconds at a
- * time, the period of CLK12 on both clocks: over that stretch either every page
- * this board answers is the central's first message or every one is its
- * second. */
+ * One window can take only one of the two readings. 8.3.3.1 asks for the
+ * receiver to be on from 312.5 usec after the answer, which would cover both
+ * arrival times; this radio cannot, because a receive is tuned in the tick
+ * before it listens and that tick is the one the answer goes out in. So an
+ * empty window is followed by a window for the central's next repeat -- 8.3.3.1
+ * has the board listen until pagerespTO and 8.3.3.2 has the central repeat
+ * every 1.25 ms over that time -- taking the two readings in turn. In turn,
+ * because which one is right holds for 1.28 seconds at a time, the period of
+ * CLK12 on both clocks (hop.h). */
 static void page_scan_fhs_missed(uint32_t window_clkn)
 {
 	/* A packet that took two or more ticks to decode -- a stray multi-slot
