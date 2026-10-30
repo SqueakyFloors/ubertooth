@@ -357,10 +357,9 @@ whatever refused it. For this tool the files are created later than it sounds:
 the adapter, the connection to the target and the AFH read all come first, so
 a path that cannot be opened is reported after them. A terminal on standard
 output is still refused while the command line is read, and so is every other
-fault in the command line.
-
-A capture on standard output (`-q -`) is not a file this tool created, so it
-is left as it is.
+fault in the command line. A capture on standard output (`-q -`) is not a file
+this tool created, so there is nothing of it to remove: whatever standard
+output was redirected to is left as it is.
 
 A run that cannot allocate the piconet it follows exits 1 with `error: out of
 memory`, before the adapter or a board is opened; `-h` and `-V` are answered

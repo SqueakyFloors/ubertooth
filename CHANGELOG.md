@@ -812,7 +812,7 @@
   no empty capture file behind. The `-q`, `-r` and `-d` files are created once
   the board is open and its firmware accepted, and every failure after that --
   an address or clock request the board refused, a clock the local adapter
-  would not read, a capture that would not start -- removes them again, so
+  would not read, or a capture that would not start -- removes them again, so
   there is nothing on disk to tell apart from a capture that caught nothing.
   [#995](https://github.com/SqueakyFloors/ubertooth/issues/995)
 
