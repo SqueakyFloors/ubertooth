@@ -860,7 +860,6 @@ void set_isp(void)
 	 * is masked here too rather than relied on.
 	 */
 	u32 flags = irq_save_disable();
-
 	/*
 	 * The one hand-over that inherits this firmware's memory map: the
 	 * programmer starts without a chip reset, so the stack's guard region
@@ -868,8 +867,14 @@ void set_isp(void)
 	 * Entering the bootloader goes through a reset instead, which clears
 	 * the unit, and the bootloader starts an application at its reset
 	 * vector, where it arms a guard of its own.
+	 *
+	 * Saved rather than just cleared, because this call can come back: see
+	 * below.
 	 */
-	if (MPU_TYPE_DREGION(MPU_TYPE) != 0) {
+	int has_mpu = MPU_TYPE_DREGION(MPU_TYPE) != 0;
+	u32 mpu_ctrl = has_mpu ? MPU_CTRL : 0;
+
+	if (has_mpu) {
 		MPU_CTRL = 0;
 		__asm__ volatile ("dsb" ::: "memory");
 		__asm__ volatile ("isb");
@@ -879,7 +884,13 @@ void set_isp(void)
 	iap_entry(command, result);
 
 	/* Not reached, unless the programmer refuses: then the board must not be
-	 * left running with every interrupt masked. */
+	 * left running with every interrupt masked, nor with the rest of this
+	 * boot spent without a stack guard. */
+	if (has_mpu) {
+		MPU_CTRL = mpu_ctrl;
+		__asm__ volatile ("dsb" ::: "memory");
+		__asm__ volatile ("isb");
+	}
 	irq_restore(flags);
 }
 
