@@ -16,14 +16,23 @@ In a terminal, run ``ubertooth-btle``:
 
 	.. code-block:: sh
 
-		ubertooth-btle -f -c /tmp/pipe
+		ubertooth-btle -f -q /tmp/pipe
 
 In the Wireshark window you should see packets scrolling by.
 
-Note: If you get the Data Link Type (DLT) error
+``-q`` writes ``LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR``, which Wireshark dissects
+itself, so nothing needs configuring first; it is also what the Wireshark
+plugin in :doc:`using_ubertooth_with_wireshark` uses. ``-c`` writes the older
+PPI layout instead, for tools that expect it, and ``-r`` writes PcapNG, which
+cannot go into a pipe because its writer seeks back over what it has written.
+:doc:`bluetooth_captures_PCAP` describes what each format records.
+
+Note: a capture whose link type Wireshark has no dissector mapped for gives a
+Data Link Type (DLT) error such as
 ``User encapsulation not handled: DLT=147, check your Preferences->Protocols->DLT_USER``
-(see `issue #61 <https://github.com/greatscottgadgets/ubertooth/issues/61>`__),
-follow these steps:
+(see `issue #61 <https://github.com/greatscottgadgets/ubertooth/issues/61>`__).
+The ``-q`` and ``-c`` captures above are not in that position, but if you meet
+the error on an older capture, follow these steps:
 
     #. Click Edit -> Preferences
     #. Click Protocols -> DLT_USER
@@ -121,7 +130,7 @@ follow mode:
 	.. code-block:: sh
 
 		ubertooth-btle -t aa:bb:cc:dd:ee:ff     # set the filter (stored on the device)
-		ubertooth-btle -f -c /tmp/pipe          # follow; only matching connections are followed
+		ubertooth-btle -f -q /tmp/pipe          # follow; only matching connections are followed
 
 ``-t`` can be combined with ``-f`` in one command and accepts a mask length.
 For example, ``-t 00:1A:7D:00:00:00/24`` matches an Organizationally Unique
@@ -148,7 +157,7 @@ with the following "remote capture command":
 
 	.. code-block:: sh
 
-		killall ubertooth-btle; unlink /tmp/btlepipe; mkfifo /tmp/btlepipe; ubertooth-btle -f -c /tmp/btlepipe &>/dev/null & cat /tmp/btlepipe
+		killall ubertooth-btle; unlink /tmp/btlepipe; mkfifo /tmp/btlepipe; ubertooth-btle -f -q /tmp/btlepipe &>/dev/null & cat /tmp/btlepipe
 
 The "remote interface" option is ignored and can be set to any value.
 

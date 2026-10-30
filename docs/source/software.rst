@@ -15,7 +15,8 @@ Command-line tools
 ~~~~~~~~~~~~~~~~~~
 
 The host tools, grouped by purpose. "Needs" lists what is required beyond the
-Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
+Ubertooth itself. Every tool has a manual page under ``host/doc/``, which is
+the full reference for its options.
 
 **BLE**
 
@@ -30,7 +31,8 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
 **Classic Bluetooth (BR/EDR)**
 
 - ``ubertooth-rx`` — Passive Classic BT discovery/decode; finds piconets and
-  their LAP/UAP. (Needs: a Classic BT peer.)
+  their LAP/UAP. Saves raw captures (``-d``) and replays them with their
+  recorded times, no board attached (``-i``). (Needs: a Classic BT peer.)
 - ``ubertooth-afh`` — Passively recover a piconet's AFH channel map. (Needs: an
   active piconet.)
 - ``ubertooth-follow`` — Active clock discovery and follow a piconet for a given
@@ -49,7 +51,7 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
   2.4 GHz. (Needs: nothing — reads ambient RF.)
 - ``ubertooth-specan-ui`` — Graphical live spectrum plot of 2.4 GHz, built on
   ``ubertooth-specan``; see :doc:`specan_ui`. (Needs: Python 3.8+ with numpy,
-  qtpy and PySide6 or PyQt5.)
+  qtpy, and PySide6 or PyQt5.)
 - ``ubertooth-dump`` — Raw stream of received bits/symbols off the radio.
 - ``ubertooth-debug`` — Low-level register reads from the CC2400 radio.
 
@@ -66,7 +68,8 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
 
 - ``ubertooth-ducky`` — Drive an Uberducky BLE HID-injection gadget. (Needs:
   Uberducky hardware.)
-- ``ubertooth-ego`` — Sniff a Yuneec E-GO skateboard. (Niche.)
+- ``ubertooth-ego`` — Sniff a Yuneec E-GO skateboard. (Niche; needs: a Yuneec
+  E-GO.)
 - ``ubertooth-tx`` — Retransmit symbols dumped with ``ubertooth-dump``.
   **Currently non-functional** (retained as a placeholder).
 
@@ -77,6 +80,11 @@ Developing Host Code
 
 Host code is the software running on a host computer to which an Ubertooth One is attached via USB.
 
-The Ubertooth developers use GCC on Linux. We aim to have the host code work on OSX systems, but we cannot guarantee it; if you find a bug, `please let us know <https://github.com/greatscottgadgets/ubertooth/issues>`__. Theoretically, host code could be written on or for other platforms, but it hasn't been done yet.
+The host code is built with GCC or Clang on Linux and macOS, and this fork's
+continuous integration builds and tests both on every change. ``COMPATIBILITY.md``
+in the top of the tree records which platforms, compilers, and Python versions
+have actually been exercised, and which are not supported. If you find a bug,
+`please let us know
+<https://github.com/SqueakyFloors/ubertooth/issues>`__.
 
-Although source can be found in the `release downloads <https://github.com/greatscottgadgets/ubertooth/releases>`__, you will probably want fresh code from `git <https://github.com/greatscottgadgets/ubertooth>`__ if you plan to develop new code.
+Although source can be found in the `release downloads <https://github.com/SqueakyFloors/ubertooth/releases>`__, you will probably want fresh code from `git <https://github.com/SqueakyFloors/ubertooth>`__ if you plan to develop new code.
