@@ -129,6 +129,16 @@ LMP_ERR_UNSUPPORTED_REMOTE_FEATURE	= 0x1a
 LMP_ERR_INVALID_LMP_PARAMETERS		= 0x1e
 LMP_ERR_UNSUPPORTED_PARAM_VALUE		= 0x20
 
+# The same codes in words, for the line a peer's refusal gets. Any other code
+# is reported as itself.
+LMP_ERR2STR = {
+	LMP_ERR_UNKNOWN_LMP_PDU: "unknown LMP PDU",
+	# The same words the detach table above gives this code.
+	LMP_ERR_UNSUPPORTED_LMP_FEATURE: "unsupported remote feature",
+	LMP_ERR_INVALID_LMP_PARAMETERS: "invalid LMP parameters",
+	LMP_ERR_UNSUPPORTED_PARAM_VALUE: "unsupported parameter value",
+}
+
 LMP_OP2STR = {
 	LMP_NAME_REQ: "LMP_NAME_REQ",
 	LMP_NAME_RES: "LMP_NAME_RES",
@@ -272,7 +282,23 @@ def opcode2str(op):
 		return "%d/%d"%(LMP_ESCAPE_4, op & ~EXT_OPCODE)
 	return "0x%x"%op
 
+def op2str(op):
+	"""An opcode's name, plain or extended, or its number where it has none.
+
+	The one place an opcode is named, so a capture and a warning about the
+	same PDU call it the same thing.
+	"""
+	if op & EXT_OPCODE:
+		ext = op & ~EXT_OPCODE
+		return LMP_OPEXT2STR.get(ext, "LMP extended opcode %d"%ext)
+	return LMP_OP2STR.get(op, "LMP opcode %d"%op)
+
 def pdu2str(pdu):
+	# A PDU of no bytes, which the ACL payload header can say the length of
+	# and a capture should still show as what arrived.
+	if not pdu:
+		return "(no tid) %-40s |"%"LMP PDU of no bytes"
+
 	opcode = u8(pdu[0])
 	tid = opcode & 1
 	opcode >>= 1
@@ -280,10 +306,15 @@ def pdu2str(pdu):
 	# An opcode with no name is reported as its number: a capture of a PDU
 	# this tool does not know should still say which one it was.
 	if opcode == LMP_ESCAPE_4:
-		op = u8(pdu[1])
-		opstr = LMP_OPEXT2STR.get(op, "LMP extended opcode %d"%op)
+		if len(pdu) < 2:
+			# The escape opcode says the real one is in the second byte,
+			# and this PDU has no second byte. Reading it anyway used to
+			# end the session in an IndexError.
+			opstr = "%s with no extended opcode"%op2str(LMP_ESCAPE_4)
+		else:
+			opstr = op2str(u8(pdu[1]) | EXT_OPCODE)
 	else:
-		opstr = LMP_OP2STR.get(opcode, "LMP opcode %d"%opcode)
+		opstr = op2str(opcode)
 	# Plain text, no terminal color: this goes into the packets a capture
 	# holds on standard output, where escapes are something for a reader of
 	# that capture to strip.
@@ -313,6 +344,19 @@ class LMP:
 	# FSM per LMP_state
 	def receive(self, clkn, pdu):
 		self._clkn = clkn
+		if self._debug:
+			log.info("%d|%.2f sec | <<< lmp_rx (state=%d): %s"%(clkn,self.time(),self._state, pdu2str(pdu)))
+
+		# A PDU with no opcode to act on, which is a message from the board
+		# that ended early: what goes over the air is padded to the 17 bytes
+		# a DM1 carries. There is no opcode to name in a refusal either
+		# (Vol 2, Part C, 2.5), so the packet is reported and the connection
+		# goes on.
+		if not pdu:
+			warn("an LMP PDU of no bytes arrived, so there is nothing to "
+				"answer")
+			return False
+
 		# Parse lmp message
 		opcode = u8(pdu[0])
 		tid = opcode & 1
@@ -326,14 +370,20 @@ class LMP:
 		self._rx_tid = tid
 
 		if opcode == LMP_ESCAPE_4:
+			if len(pdu) < 2:
+				# The escape says the opcode is 15 bits and this PDU holds
+				# only the first 7 of them, so which PDU it is cannot be
+				# known: a refusal has to name the extended opcode it
+				# refuses (2.7) and there is none here. Reading that byte
+				# anyway used to end the session in an IndexError.
+				warn("an LMP PDU of one byte under %s arrived, carrying no "
+					"extended opcode"%LMP_OP2STR[LMP_ESCAPE_4])
+				return False
 			op = u8(pdu[1]) | EXT_OPCODE
 			data = pdu[2:]
 		else:
 			op = opcode
 			data = pdu[1:]
-
-		if self._debug:
-			log.info("%d|%.2f sec | <<< lmp_rx (state=%d): %s"%(clkn,self.time(),self._state, pdu2str(pdu)))
 
 		fsm = self._FSM[self._state]
 		reg = fsm.get(op)
@@ -578,6 +628,11 @@ class LMP:
 			instant, self._clkn, mode))
 		return self.lmp_send(LMP_SET_AFH, p32(instant>>1)+p8(mode)+cmap)
 
+# What a request the peer refused is kept as, where an answer would be kept:
+# what the central asks of these is whether an answer arrived at all, and
+# anything that is not None says that one did.
+REFUSED = "refused by the peer"
+
 class LMPMaster(LMP):
 	def __init__(self, con):
 		self._FSM = {
@@ -600,6 +655,10 @@ class LMPMaster(LMP):
 				LMP_MAX_SLOT_REQ:	(self.handle_max_slot_req,),
 				LMP_ACCEPTED:		(self.handle_accepted,),
 				LMP_NOT_ACCEPTED:		(self.handle_not_accepted,),
+				# A 15-bit opcode is refused under this one, so the
+				# refusal of the extended features request arrives here
+				# (Vol 2, Part C, 2.7).
+				EXT_OPCODE|LMP_NOT_ACCEPTED_EXT: (self.handle_not_accepted,),
 				LMP_SETUP_COMPLETE:	(self.handle_setup_complete,),
 				LMP_ENCRYPTION_KEY_SIZE_MASK_RES: (self.handle_info_res,),
 			},
@@ -611,13 +670,92 @@ class LMPMaster(LMP):
 		self.rmt_version = None
 		self.rmt_name = None
 		self.rmt_enc_key_size_mask = None
+		# What a connection opens by asking the peer for, in the order the
+		# requests go out: the opcode, the attribute the answer is kept in,
+		# and how it is sent. One table, so that what to ask for next and
+		# what a refusal answers cannot come to disagree.
+		self._opening = (
+			(LMP_FEATURES_REQ, "rmt_features",
+				lambda: self.lmp_send_feat(True)),
+			(EXT_OPCODE|LMP_FEATURES_REQ_EXT, "rmt_features_ext",
+				lambda: self.lmp_send_feat_ext(True)),
+			(LMP_VERSION_REQ, "rmt_version",
+				lambda: self.lmp_send_version(True)),
+			(LMP_NAME_REQ, "rmt_name",
+				lambda: self.lmp_send_name_req(0)),
+			(LMP_ENCRYPTION_KEY_SIZE_MASK_REQ, "rmt_enc_key_size_mask",
+				lambda: self.lmp_send(LMP_ENCRYPTION_KEY_SIZE_MASK_REQ, b'')),
+		)
+		self._opening_field = dict(
+			(op, field) for op, field, send in self._opening)
+		# The request the peer has been asked for and has not answered.
+		# Only one is outstanding at a time, which is what lets a refusal
+		# be matched to what it answers.
+		self._awaiting = None
 		super().__init__(con)
 
 	def start(self):
 		self.send_info_req()
 
 	def handle_not_accepted(self, op, data):
-		pass
+		"""A peer refusing one of the requests this end made.
+
+		A connection opens by asking the peer for the five things
+		send_info_req() below goes through, one at a time, each answer
+		sending the next request. A refusal is an answer a peer can give to
+		any of them, whether or not the procedure is one it must support,
+		so it is recorded as that request's answer and the next request goes
+		out. Left unrecorded, it stopped the session asking anything
+		further, and the link then sat there until link supervision ended it
+		with no line saying why.
+		"""
+		if op & EXT_OPCODE:
+			# LMP_NOT_ACCEPTED_EXT carries the escape opcode as well as the
+			# extended opcode it refuses, so the opcode is the second of its
+			# three parameters (Vol 2, Part C, 2.7).
+			refused = (u8(data[1]) | EXT_OPCODE) if len(data) > 1 else None
+			reason = u8(data[2]) if len(data) > 2 else None
+		else:
+			refused = u8(data[0]) if data else None
+			reason = u8(data[1]) if len(data) > 1 else None
+		if refused is None:
+			# A PDU too short to say which request it refuses still answers
+			# the one outstanding, which is the only request this end is
+			# waiting for. Taking it as that one is what keeps the
+			# connection moving; leaving it would stall the session as
+			# surely as dropping a refusal that did say.
+			if self._awaiting is None:
+				warn("the peer refused a request in a PDU too short to say "
+					"which one")
+				return
+			warn("the peer refused a request without saying which; taking "
+				"it as %s, the one outstanding"%op2str(self._awaiting))
+			refused = self._awaiting
+		elif refused != self._awaiting:
+			# A refusal of something else: a repeat of one already
+			# answered, or a request this end never made. Recording it
+			# would mark that request answered and stop it ever being
+			# asked. The transaction ID it carries is not checked, because
+			# a peer that answers under the other one is still answering
+			# (2.4), and this end has only the one request outstanding.
+			warn("the peer refused %s, which this end is not waiting for"
+				%op2str(refused))
+			return
+		# A refusal that names the request but carries no reason is still
+		# that request's answer: 2.5 allows an implementation value for a
+		# parameter a PDU does not carry.
+		why = ("no reason given" if reason is None
+			else LMP_ERR2STR.get(reason, "reason 0x%02x"%reason))
+		field = self._opening_field.get(refused)
+		if field is None:
+			# Not one of the five, so it is the connection request they
+			# lead to: a peer refusing that is declining the connection
+			# itself, which is a warning rather than a line in the trace.
+			warn("the peer refused %s: %s"%(op2str(refused), why))
+			return
+		log.info("The peer refused %s: %s"%(op2str(refused), why))
+		setattr(self, field, REFUSED)
+		self.send_info_req()
 
 	def handle_accepted(self, op, data):
 		pass
@@ -629,21 +767,17 @@ class LMPMaster(LMP):
 			hexlify(bdaddr).decode(),offset))
 
 	def send_info_req(self):
-		if self.rmt_features is None:
-			self.lmp_send_feat(True)
-			return
-		if self.rmt_features_ext is None:
-			self.lmp_send_feat_ext(True)
-			return
-		if self.rmt_version is None:
-			self.lmp_send_version(True)
-			return
-		if self.rmt_name is None:
-			self.lmp_send_name_req(0)
-			return
-		if self.rmt_enc_key_size_mask is None:
-			self.lmp_send(LMP_ENCRYPTION_KEY_SIZE_MASK_REQ, b'')
-			return
+		"""Ask the peer for the first of the five it has not answered yet.
+
+		Called again by each answer, so the five go out one at a time, and
+		the connection request follows the last of them.
+		"""
+		for op, field, send in self._opening:
+			if getattr(self, field) is None:
+				self._awaiting = op
+				send()
+				return
+		self._awaiting = LMP_HOST_CONNECTION_REQ
 		self.lmp_send(LMP_HOST_CONNECTION_REQ,b'')
 
 	def handle_info_res(self, op, data):

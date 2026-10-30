@@ -825,6 +825,186 @@ assert warned.getvalue() == (
 assert len(peripheral._con.sent) == 8, peripheral._con.sent
 print("ubtbr: a request no handler names is refused rather than left silent")
 
+# A PDU too short to carry an opcode is reported, and the connection goes on.
+# An escape opcode says the real opcode is in the second byte, so one byte of
+# it names no PDU: reading that byte anyway ended the session in an
+# IndexError, both here and where the capture names the packet. A refusal
+# needs an opcode to name (2.5, 2.7) and there is none, so nothing goes out.
+TOO_SHORT = (
+    # LMP_ESCAPE_4 alone, here with transaction ID 1
+    ("ff", "warning: an LMP PDU of one byte under LMP_ESCAPE_4 arrived, "
+           "carrying no extended opcode\n"),
+    # and a PDU of no bytes, which a message from the board that ended after
+    # its payload header leaves
+    ("", "warning: an LMP PDU of no bytes arrived, so there is nothing to "
+         "answer\n"),
+)
+for side in (lmp.LMPMaster, lmp.LMPSlave):
+    for pdu, said in TOO_SHORT:
+        link, warned = received(side, pdu)
+        assert link.sent == [], (side, pdu, link.sent)
+        assert link.stops == 0, (side, pdu)
+        assert warned == said, (side, pdu, warned)
+        # and it is still traced, like every other PDU that arrives
+        assert records.said("<<< lmp_rx"), (side, pdu, records.messages)
+# as the capture names them, where the IndexError was raised before the link
+# manager was reached at all
+assert "LMP_ESCAPE_4 with no extended opcode" in lmp.pdu2str(b"\xfe"), \
+    lmp.pdu2str(b"\xfe")
+assert "LMP PDU of no bytes" in lmp.pdu2str(b""), lmp.pdu2str(b"")
+print("ubtbr: an LMP PDU too short to carry an opcode is reported, not raised")
+
+# The message that leaves such a PDU is one from the board that ended early,
+# and one that ends before the payload header is a framing error, the way the
+# rest of this module reports a message it cannot read. It used to leave the
+# payload unset and end the receive thread in an UnboundLocalError.
+try:
+    btctl.BTCtlACLPkt.unpack(btctl.DM1, b"")
+except btctl.BTCtlFramingError as problem:
+    assert str(problem) == "DM1 packet of 0 bytes, too short for its 1-byte " \
+        "payload header", problem
+else:
+    assert False, "a packet with no payload header must be a framing error"
+# one byte further on there is a header and no PDU under it, which is the
+# empty PDU the link manager reports above
+assert btctl.BTCtlACLPkt.unpack(btctl.DM1, b"\x03").data == b"", "no PDU"
+print("ubtbr: an ACL packet with no payload header is a framing error")
+
+# ---- a peer that refuses one of the requests a connection opens with ------
+#
+# The central opens a connection by asking the peer for its features, its
+# extended features, its version, its name, and its encryption key size mask,
+# one at a time, each answer sending the next request. A refusal is an answer
+# a peer can give to any of them. It used to be dropped, which
+# left the session with nothing more to send: no further request, no
+# LMP_HOST_CONNECTION_REQ, and no detach, so the link sat there until link
+# supervision ended it with no line saying why.
+
+OPENING = (
+    (lmp.LMP_FEATURES_REQ, 0x1a, "unsupported remote feature"),
+    (lmp.EXT_OPCODE | lmp.LMP_FEATURES_REQ_EXT, 0x19, "unknown LMP PDU"),
+    (lmp.LMP_VERSION_REQ, 0x1e, "invalid LMP parameters"),
+    (lmp.LMP_NAME_REQ, 0x20, "unsupported parameter value"),
+    # a code this tool does not name is reported as itself
+    (lmp.LMP_ENCRYPTION_KEY_SIZE_MASK_REQ, 0x11, "reason 0x11"),
+)
+
+
+def refusal(op, reason, tid=0):
+    """The PDU a peer sends to refuse one request, as it sends it.
+
+    Under transaction ID 0, which is the one a request the central made
+    carries: the answer belongs to that transaction (2.4).
+    """
+    if op & lmp.EXT_OPCODE:
+        # LMP_NOT_ACCEPTED_EXT carries the escape opcode as well as the
+        # extended opcode it refuses (2.7).
+        return bytes(((lmp.LMP_ESCAPE_4 << 1) | tid, lmp.LMP_NOT_ACCEPTED_EXT,
+                      lmp.LMP_ESCAPE_4, op & 0xff, reason))
+    return bytes(((lmp.LMP_NOT_ACCEPTED << 1) | tid, op, reason))
+
+
+def opcode_of(pdu):
+    """The opcode of a PDU the link manager sent, plain or extended."""
+    opcode = pdu[0] >> 1
+    if opcode == lmp.LMP_ESCAPE_4:
+        return pdu[1] | lmp.EXT_OPCODE
+    return opcode
+
+
+central = lmp.LMPMaster(RecordingConnection())
+records.messages = []
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    central.start()
+    for request, reason, why in OPENING:
+        asked = central._con.sent[-1]
+        assert opcode_of(asked) == request, (lmp.op2str(request), asked)
+        central.receive(0, refusal(request, reason))
+        # recorded as that request's answer, with the reason in words
+        assert records.said("The peer refused %s: %s"
+                            % (lmp.op2str(request), why)), records.messages
+# all five refused, and the session has asked for the connection anyway: what
+# the peer told this end about itself is what the five would have added.
+assert opcode_of(central._con.sent[-1]) == lmp.LMP_HOST_CONNECTION_REQ, \
+    central._con.sent
+assert len(central._con.sent) == len(OPENING) + 1, central._con.sent
+# A refusal of an optional request is not a warning: the peer is within its
+# rights, and the line above is the link manager's trace of the exchange.
+assert warned.getvalue() == "", warned.getvalue()
+# and nothing was asked for twice, which is what recording the refusal is for
+assert len(set(opcode_of(pdu) for pdu in central._con.sent)) == \
+    len(central._con.sent), central._con.sent
+
+
+def opened_with(received_pdu):
+    """A central that has sent its first request, then this PDU.
+
+    Returns the PDUs it sent after it and what it warned. The five go out
+    one at a time, so there is exactly one request outstanding when the
+    PDU arrives, which is what a refusal is matched against.
+    """
+    central = lmp.LMPMaster(RecordingConnection())
+    records.messages = []
+    warned = io.StringIO()
+    with contextlib.redirect_stderr(warned):
+        central.start()
+        central._con.sent.clear()
+        central.receive(0, bytes.fromhex(received_pdu))
+    return central, [opcode_of(pdu) for pdu in central._con.sent], \
+        warned.getvalue()
+
+# A refusal that names the request but carries no reason is still that
+# request's answer, so the next request goes out: 2.5 allows an
+# implementation value for a parameter a PDU does not carry.
+central, sent, warned = opened_with("0827")
+assert sent == [lmp.EXT_OPCODE | lmp.LMP_FEATURES_REQ_EXT], sent
+assert warned == "", warned
+assert records.said("The peer refused LMP_FEATURES_REQ: no reason given"), \
+    records.messages
+
+# and one that says nothing at all is taken as the request outstanding,
+# which is the only one it can be answering: saying so and sending the next
+# request leaves the connection moving, where dropping it stalled the
+# session the way an unrecorded refusal did. Both forms: the plain one with no
+# parameters, and the extended one carrying the escape opcode and no opcode
+# of its own.
+for pdu in ("08", "fe027f"):
+    central, sent, warned = opened_with(pdu)
+    assert sent == [lmp.EXT_OPCODE | lmp.LMP_FEATURES_REQ_EXT], (pdu, sent)
+    assert warned == "warning: the peer refused a request without saying " \
+        "which; taking it as LMP_FEATURES_REQ, the one outstanding\n", \
+        (pdu, warned)
+
+# A refusal of a request this end is not waiting for is reported and
+# nothing else: recording it would mark that request answered, and the
+# session would never ask for it. Here the features request is outstanding
+# and the peer refuses the name request.
+central, sent, warned = opened_with(refusal(lmp.LMP_NAME_REQ, 0x1a).hex())
+assert sent == [], sent
+assert warned == "warning: the peer refused LMP_NAME_REQ, which this end " \
+    "is not waiting for\n", warned
+assert central.rmt_name is None, central.rmt_name
+print("ubtbr: a peer's refusal is recorded and the next request still goes")
+
+# A refusal of the connection request the five lead to is a warning: the
+# peer is declining the connection itself, and there is nothing further to
+# ask it for.
+central = lmp.LMPMaster(RecordingConnection())
+for op, field, send in central._opening:
+    setattr(central, field, b"")
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    central.start()
+    assert [opcode_of(pdu) for pdu in central._con.sent] == \
+        [lmp.LMP_HOST_CONNECTION_REQ], central._con.sent
+    central._con.sent.clear()
+    central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
+assert central._con.sent == [], central._con.sent
+assert warned.getvalue() == "warning: the peer refused " \
+    "LMP_HOST_CONNECTION_REQ: reason 0x0d\n", warned.getvalue()
+print("ubtbr: a peer declining the connection itself is one warning line")
+
 # ---- a command of a super command that will not stop ----------------------
 
 # Driven through the pieces a super command uses on itself: the thread it
@@ -1991,51 +2171,35 @@ assert INTRO not in errors, errors
 assert not writes(), writes()
 print("ubtbr: a session with no standard output is refused, no board opened")
 
-# and a session over a standard output that cannot be written, which is
-# `ubertooth-btbr 1<&0` with a readable file on standard input: there is a
-# stream, so the session runs, and the capture's first packet is what finds
-# the descriptor refusing it. The line and the status are the reader-who-left
-# case's. Only the reader who left used to be caught here, so the first
-# packet ended the command instead, and the errno came out as a second line
-# blaming the command for a failure of its own.
-with open(READS_FILE, "w") as canned:
-    canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
-    for _ in range(100):
-        canned.write(fhs_message(FAKE_BDADDR) + "\n")
+# and a session asked for on a standard output that cannot be written, which
+# is `ubertooth-btbr 1<&0`: refused in the same line, with no board opened.
+# The capture has nowhere to go, so the session is not started for it, where
+# it used to run until the first packet found the descriptor refusing it.
+#
+# It is also the other face of a descriptor closed before the tool started,
+# and the reason the descriptor is asked rather than the stream: most
+# interpreters leave the tool without the stream, and one seen here filled
+# the slot with /dev/null opened for reading, which looks like a stream that
+# works. There the session ran with its capture going to a descriptor that
+# was not its standard output at all. Whether the descriptor was opened to be
+# written is a question the operating system answers the same way on all of
+# them, and it says nothing about a reader having left, which the case above
+# covers.
+if os.path.exists(WRITES_FILE):
+    os.remove(WRITES_FILE)
 running = subprocess.Popen(
     [sys.executable, WRAPPER], stdin=subprocess.PIPE,
-    stderr=subprocess.PIPE, text=True,
-    env=dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
-             UBTBR_FAKE_READS_AFTER="4", UBTBR_FAKE_READ_DELAY="0.05"),
+    stderr=subprocess.PIPE, text=True, env=ENVIRONMENT,
     preexec_fn=read_only_stdout)
-running.stdin.write("inquiry\n")
-running.stdin.flush()
-said = bytearray()
-
-
-def loss_reported():
-    """True once the loss has been reported, so `q` cannot race the report."""
-    try:
-        said.extend(os.read(running.stderr.fileno(), 4096))
-    except BlockingIOError:
-        pass
-    return OUTPUT_GONE.encode() in said
-
-
-os.set_blocking(running.stderr.fileno(), False)
-assert wait_until(loss_reported), (bytes(said), running.poll())
-os.set_blocking(running.stderr.fileno(), True)
 _, errors = running.communicate("q\n", timeout=DEADLINE * 2)
-# Decoded leniently because the part read above is raw pipe bytes, and a
-# failure must not turn into a decode error.
-errors = said.decode(errors="replace") + errors
 assert running.returncode == 1, (running.returncode, errors)
 assert errors.count(OUTPUT_GONE) == 1, errors
-# and the command was not ended, which is what the second line used to say
-assert "stopped: OSError" not in errors, errors
 assert "Traceback" not in errors, errors
 assert "Exception ignored" not in errors, errors
-print("ubtbr: a capture whose stream refuses it is reported as the same loss")
+assert INTRO not in errors, errors
+# nothing was sent to a board, so none was set up
+assert not writes(), writes()
+print("ubtbr: a session whose standard output refuses writes is refused too")
 
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
 # is all that is left: the error line has nowhere to go either, and saying so
@@ -2670,6 +2834,27 @@ assert errors.count(OUTPUT_GONE) == 1, errors
 assert "Traceback" not in errors, errors
 assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
 print("ubtbr: -V with no standard output at all is reported, not a traceback")
+
+# and with a standard output that cannot be written, which is `-V 1<&0` and
+# what one interpreter leaves a closed descriptor as: the answer has nowhere
+# to go, so it is reported and the child is not run. The flush this tool does
+# before starting the child cannot find that descriptor, because a buffer
+# with nothing in it flushes whatever state it is in.
+if os.path.exists(VERSION_ARGS_FILE):
+    os.remove(VERSION_ARGS_FILE)
+running = subprocess.Popen([sys.executable, WRAPPER, "-V"],
+                           stderr=subprocess.PIPE, text=True,
+                           env=dict(ENVIRONMENT, PATH=FAKE_UTIL_DIR,
+                                    FAKE_UTIL_ARGS=VERSION_ARGS_FILE,
+                                    FAKE_UTIL_ANSWER=VERSION_ANSWER,
+                                    FAKE_UTIL_STATUS="0"),
+                           preexec_fn=read_only_stdout)
+_, errors = running.communicate(timeout=DEADLINE)
+assert running.returncode == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Traceback" not in errors, errors
+assert not os.path.exists(VERSION_ARGS_FILE), "ubertooth-util must not run"
+print("ubtbr: -V on a standard output that refuses writes runs no child")
 
 # -V with standard error closed instead, which is `-V >out 2>&-`: the answer
 # is what was asked for, so it is still printed and the child still runs. It

@@ -11,6 +11,7 @@ Nothing here imports anything outside the standard library.
 """
 
 import errno
+import fcntl
 import os
 import sys
 from threading import Lock
@@ -66,6 +67,29 @@ def point_at_the_bin(stream):
 		# There is no such stream to point anywhere: it was closed before
 		# the tool started. Nothing is written to it either way.
 		pass
+
+def opened_for_writing(stream):
+	"""Say whether the descriptor under a stream was opened to be written.
+
+	The operating system's own answer about the descriptor, which is what a
+	session needs before it opens a board: a capture printed to one opened
+	for reading goes nowhere. It is asked of the descriptor rather than of
+	the stream because what an interpreter makes of a descriptor closed
+	before the tool started differs between builds of it. Most leave the tool
+	without the stream; one seen here filled the slot with /dev/null opened
+	for reading, which looks like a stream that works, and a shell asked to
+	hand over a readable descriptor (`1<&0`) leaves the same thing.
+
+	It says nothing about a reader at the other end: a pipe whose reader has
+	left is open for writing all the same, and that loss is found by a real
+	write, which is what can_be_written() and flush_the_streams() below are
+	for. A stream that is not there at all is not open for writing either.
+	"""
+	try:
+		flags = fcntl.fcntl(stream.fileno(), fcntl.F_GETFL)
+	except (OSError, ValueError, AttributeError):
+		return False
+	return flags & os.O_ACCMODE != os.O_RDONLY
 
 def can_be_written(stream):
 	"""Say whether a stream's descriptor would take what is written to it.
@@ -196,11 +220,13 @@ def result(msg):
 		# `ubertooth-btbr | head -5` does.
 		output_lost()
 	except OSError as problem:
-		# The stream is there and the descriptor under it refuses every
-		# write with EBADF, which is what `ubertooth-btbr 1<&0` leaves. The
-		# same loss, so it is reported the same way: anything let out of
-		# here is on the thread the command runs on, where it ends the
-		# capture and is reported as a failure of the command instead.
+		# The stream is there and the descriptor under it refuses the write
+		# with EBADF. A session asked for on such a descriptor is refused
+		# before any board is opened, so what is left to arrive here is one
+		# that stopped taking writes after that. Either way it is the same
+		# loss and reported the same way: anything let out of here is on the
+		# thread the command runs on, where it ends the capture and is
+		# reported as a failure of the command instead.
 		#
 		# Only that errno, which is the stream being unusable from the
 		# start. A write that failed for a reason of its own -- no space
