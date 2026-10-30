@@ -253,6 +253,13 @@ typedef struct _le_conn_t {
 	int      channel_map_update_pending;
 	uint16_t channel_map_update_instant;
 	le_channel_remapping_t pending_remapping;
+
+	// Set when a packet announcing the end of the connection has been read,
+	// so the next connection event to close stops following it. It belongs
+	// to the connection rather than being a flag of its own: reset_conn()
+	// then clears it, and a packet read just after a follow ended cannot
+	// reach into the follow that comes next.
+	int      terminated;
 } le_conn_t;
 le_conn_t conn = { 0, };
 
@@ -612,15 +619,18 @@ static void finish_conn_event(void) {
 	// increment connection event counter
 	++conn.conn_event_counter;
 
-	// supervision timeout reached - switch back to advertising
+	// The connection is over, either because it has gone quiet for longer
+	// than its supervision timeout or because the peers announced the end
+	// of it on the air - switch back to advertising
 	//
-	// Both paths that stop following disarm the match as well. Connection
+	// Every path that stops following disarms the match as well. Connection
 	// events are the only thing it is armed for, and the one left in it has
 	// just been taken, so it is behind the counter: left armed, it would be
 	// taken again when the counter wrapped 429 seconds later, in the middle
 	// of whatever the mode was doing by then -- retuning the radio under an
 	// advertising capture, or under another connection.
-	if (NOW - conn.last_packet_ts > conn.supervision_timeout) {
+	if (NOW - conn.last_packet_ts > conn.supervision_timeout ||
+	    conn.terminated) {
 		reset_conn();
 		timer1_clear_match();
 		change_channel();
@@ -634,7 +644,7 @@ static void finish_conn_event(void) {
 		change_channel();
 	}
 
-	// supervision timeout not reached - hop to next channel
+	// the connection is still running - hop to next channel
 	else {
 		timer1_arm_conn_event();
 	}
@@ -2081,15 +2091,21 @@ static void packet_handler(le_rx_t *buf) {
 					break;
 
 				// LL_TERMINATE_IND -- the peers are closing the
-				// connection. Ask for the teardown the host's cancel
-				// uses, so the next connection event to close ends the
-				// follow and tunes back to the advertising channels.
-				// Ending it here instead would rewrite, from this loop,
-				// the connection state the timer interrupt reads on
-				// every event.
+				// connection. Noted here and acted on by the next
+				// connection event to close, which is where the
+				// supervision timeout ends a follow too: the connection
+				// state belongs to the timer interrupt that reads it on
+				// every event, so this loop must not reset it.
+				//
+				// The control LLID and the length are all that stands
+				// between a bit-errored data packet and the end of a
+				// healthy follow, as they are for the two updates
+				// above. A capture that cannot afford that asks for
+				// CRC verification (`ubertooth-btle -k1`), which drops
+				// a damaged packet before it reaches this dispatch.
 				case 0x2:
 					if (buf->data[1] == 2)
-						cancel_follow = 1;
+						conn.terminated = 1;
 					break;
 			}
 		}

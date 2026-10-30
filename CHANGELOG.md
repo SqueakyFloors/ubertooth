@@ -848,10 +848,11 @@
 - Fixed: `ubertooth-btle -f` stayed on a connection the devices had already
   closed. The board read the connection update and channel map packets of a
   followed connection but not the one that announces the connection is ending,
-  so the capture sat on a dead connection until its supervision timeout, up to
-  32 s, and heard nothing in the meantime. It now ends the follow at the next
-  connection event and goes back to listening on the advertising channel, so
-  the same devices are followed again as soon as they reconnect.
+  so the capture sat on a closed connection until its supervision timeout, up
+  to 32 s, and heard nothing in the meantime. The follow now ends a connection
+  event or two after that packet and the board goes back to listening on the
+  advertising channel, so the same devices can be followed again as soon as
+  they reconnect.
   [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet

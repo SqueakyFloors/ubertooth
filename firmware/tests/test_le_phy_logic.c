@@ -2697,18 +2697,18 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	packet_handler(&buf);
 	mu_assert_int_eq(0, conn.channel_map_update_pending);
 
-	/* A terminate of the right length asks for the follow to end... */
+	/* A terminate of the right length ends the connection... */
 	start_fresh();
 	build_terminate(&buf, 0x13);
 	packet_handler(&buf);
-	mu_assert_int_eq(1, cancel_follow);
+	mu_assert_int_eq(1, conn.terminated);
 
 	/* ...and one of the wrong length does not. */
 	start_fresh();
 	build_terminate(&buf, 0x13);
 	buf.data[1] = 1;       /* one byte short */
 	packet_handler(&buf);
-	mu_assert_int_eq(0, cancel_follow);
+	mu_assert_int_eq(0, conn.terminated);
 
 	/*
 	 * A data PDU that is not an LL control PDU is left alone, whatever its
@@ -3304,20 +3304,22 @@ MU_TEST(a_terminate_ends_the_follow_at_the_next_event)
 {
 	le_rx_t buf;
 
+	/*
+	 * The mode's loop reads the terminate while the event it arrived in is
+	 * still open. That event closes well inside the supervision timeout,
+	 * so only the terminate can be ending the follow.
+	 */
 	anchored_connection(100000);
 	rf_channel = DATA_CHANNEL_MHZ;
 	build_terminate(&buf, 0x13);   /* the remote user ended it */
 
 	packet_handler(&buf);
 
-	mu_assert_int_eq(1, cancel_follow);
 	mu_assert(!connection_was_reset(),
 	          "the follow was torn down from the mode's loop, where the "
 	          "timer interrupt can take a connection event part way "
 	          "through it");
 
-	/* The event the terminate arrived in closes, well inside the
-	 * supervision timeout, so only the cancel can end the follow. */
 	conn_event.num_packets = 1;
 	conn_event.opened = 1;
 
@@ -3326,9 +3328,37 @@ MU_TEST(a_terminate_ends_the_follow_at_the_next_event)
 	mu_assert(connection_was_reset(),
 	          "the follow did not end, so the capture would wait out the "
 	          "supervision timeout");
-	mu_assert_int_eq(0, cancel_follow);
 	mu_assert(!(fake_t1mcr & TMCR_MR0I),
 	          "a connection-event match is still armed with no connection");
+	mu_assert_int_eq(ADV_CHANNEL_MHZ, rf_channel);
+
+	/*
+	 * The other order, which is the common one: the event closes before
+	 * the loop gets to the packet, because the terminate is the last thing
+	 * the peers send. The follow then ends one event later, and that event
+	 * is the silent one a closed connection leaves behind.
+	 */
+	anchored_connection(100000);
+	rf_channel = DATA_CHANNEL_MHZ;
+	build_terminate(&buf, 0x13);
+	conn_event.num_packets = 1;
+	conn_event.opened = 1;
+
+	finish_conn_event();
+
+	mu_assert_fatal(!connection_was_reset(),
+	                "the event closed before the terminate was read, so "
+	                "there is nothing left to end");
+
+	packet_handler(&buf);
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+
+	finish_conn_event();
+
+	mu_assert(connection_was_reset(),
+	          "a terminate read after its own event had closed never ended "
+	          "the follow");
 	mu_assert_int_eq(ADV_CHANNEL_MHZ, rf_channel);
 }
 
@@ -3343,7 +3373,7 @@ MU_TEST(an_ordinary_data_packet_does_not_end_the_follow)
 	struct case_t {
 		const char *what;
 		le_rx_t buf;
-	} cases[4];
+	} cases[2];
 	size_t i;
 
 	memset(cases, 0, sizeof(cases));
@@ -3353,21 +3383,11 @@ MU_TEST(an_ordinary_data_packet_does_not_end_the_follow)
 	build_terminate(&cases[0].buf, 0x13);
 	cases[0].buf.data[0] = 0x02;
 
-	/* A terminate is two payload bytes and no other length. */
-	cases[1].what = "a control PDU of the wrong length";
-	build_terminate(&cases[1].buf, 0x13);
-	cases[1].buf.data[1] = 3;
-
 	/* The empty PDU that fills most connection events. */
-	cases[2].what = "an empty data packet";
-	fill_packet(&cases[2].buf, 0, DATA_CHANNEL_MHZ);
-	memset(cases[2].buf.data, 0, sizeof(cases[2].buf.data));
-	cases[2].buf.data[0] = 0x01;
-
-	/* A control PDU of the right length under a different opcode. */
-	cases[3].what = "a control PDU with another opcode";
-	build_terminate(&cases[3].buf, 0x13);
-	cases[3].buf.data[2] = 0x09;
+	cases[1].what = "an empty data packet";
+	fill_packet(&cases[1].buf, 0, DATA_CHANNEL_MHZ);
+	memset(cases[1].buf.data, 0, sizeof(cases[1].buf.data));
+	cases[1].buf.data[0] = 0x01;
 
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		char msg[160];
@@ -3375,10 +3395,48 @@ MU_TEST(an_ordinary_data_packet_does_not_end_the_follow)
 		anchored_connection(100000);
 
 		packet_handler(&cases[i].buf);
+		conn_event.num_packets = 1;
+		conn_event.opened = 1;
+		finish_conn_event();
 
 		snprintf(msg, sizeof(msg), "%s ended the follow", cases[i].what);
-		mu_assert(cancel_follow == 0 && !connection_was_reset(), msg);
+		mu_assert(!connection_was_reset(), msg);
 	}
+}
+
+/*
+ * A terminate read when no connection is being followed cannot end the follow
+ * that comes next. The mode's loop drains packets the receive interrupt
+ * queued, so a data packet can be read a moment after the follow it belonged
+ * to has ended; were the request kept outside the connection, it would end
+ * the next connection at its first event.
+ */
+MU_TEST(a_terminate_with_nothing_followed_does_not_end_the_next_follow)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t terminate, request;
+
+	start_fresh();
+	le.do_follow = 1;
+	build_terminate(&terminate, 0x13);
+
+	packet_handler(&terminate);
+
+	build_connect_req(&request, &r);
+	le_connect_handler(&request);
+	mu_assert_fatal(conn.access_address == 0xdeadbeef,
+	                "the connection was not followed, so there is no "
+	                "follow to lose");
+
+	conn_event.num_packets = 1;
+	conn_event.opened = 1;
+	fake_t1tc = conn.last_packet_ts;
+
+	finish_conn_event();
+
+	mu_assert(!connection_was_reset(),
+	          "a terminate heard before the connection started ended it at "
+	          "its first event");
 }
 
 /*
@@ -4270,6 +4328,7 @@ int main(void)
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_terminate_ends_the_follow_at_the_next_event);
 	MU_RUN(an_ordinary_data_packet_does_not_end_the_follow);
+	MU_RUN(a_terminate_with_nothing_followed_does_not_end_the_next_follow);
 	MU_RUN(a_moment_already_past_is_armed_just_ahead_of_the_counter);
 	MU_RUN(an_instant_the_counter_stepped_over_still_applies);
 	MU_RUN(the_recorded_access_address_follows_the_radio);
