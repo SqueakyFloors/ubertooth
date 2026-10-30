@@ -2065,12 +2065,6 @@ Fixes with no visible change in normal use.
   half-read left the receiver tuned where the peer was not for the rest of the
   connection.
   [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
-- The SSP's receive request is armed and disarmed with interrupts held off,
-  the way the timer's matches already are. The low-energy engine's loop and
-  both of its interrupt handlers change that register a bit at a time, and
-  losing the bit that arms it would leave the radio receiving with nothing
-  collecting the bytes.
-  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
 - A request that carries more data to the board than the buffer its handler
   registered is refused, instead of having the rest of it written over whatever
   follows that buffer. The length a request may declare is sixteen bits and the

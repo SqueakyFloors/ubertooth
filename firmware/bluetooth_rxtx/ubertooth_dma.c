@@ -227,13 +227,9 @@ void dio_ssp_start()
 	DIO_SSEL_CLR;
 }
 
-/* Stop the SSP asking the controller for the bytes the receiver produces.
- *
- * Its own function because the low-energy engine does this on its own, from
- * three places in its byte interrupt and one in its timer interrupt, leaving
- * the SSP and the channel alone: the receiver keeps clocking symbols out until
- * the strobe that stops it takes effect, and those would otherwise be
- * collected as the head of the next packet. */
+/* Stop the SSP asking the controller for bytes, leaving the SSP and the
+ * channel as they are. Its own function because the low-energy engine does
+ * this much on its own, wherever it stops receiving. */
 void dio_ssp_rx_dma_disable(void)
 {
 	uint32_t primask = irq_save_disable();

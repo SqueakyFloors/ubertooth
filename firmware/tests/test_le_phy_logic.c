@@ -2047,6 +2047,124 @@ MU_TEST(a_channel_map_update_is_scheduled_for_its_instant)
 	mu_assert_int_eq(0, conn.remapping.total_channels);
 }
 
+/* What the timer interrupt does on every connection event: ask whether a
+ * change is waiting, and read it if its instant has come. Both hooks below
+ * stand in for that, run where the hardware would run the handler -- as the
+ * guard the loop was inside ends. */
+static int the_update_the_timer_saw_was_whole;
+static void the_timer_reads_the_pending_update(void)
+{
+	the_update_the_timer_saw_was_whole =
+		conn.conn_update_pending == 1 &&
+		conn.conn_update_instant == 7 &&
+		conn.conn_update_pending_interval == 40 * USEC(1250) &&
+		conn.conn_update_pending_supervision_timeout == 20 * MSEC(10) &&
+		conn.win_size == 2 * USEC(1250) &&
+		conn.win_offset == 3 * USEC(1250);
+}
+
+static int the_map_was_pending_while_it_was_written = -1;
+static int the_map_was_pending_once_it_was_whole = -1;
+static unsigned the_channels_the_timer_saw;
+static uint16_t the_instant_the_timer_saw;
+
+static void the_timer_reads_the_map_once_it_is_whole(void)
+{
+	the_map_was_pending_once_it_was_whole = conn.channel_map_update_pending;
+	the_instant_the_timer_saw = conn.channel_map_update_instant;
+	the_channels_the_timer_saw = conn.pending_remapping.total_channels;
+}
+
+static void the_timer_reads_the_map_while_it_is_written(void)
+{
+	the_map_was_pending_while_it_was_written =
+		conn.channel_map_update_pending;
+	/* The map is parsed next, and then the guard that publishes it ends:
+	 * look again there. */
+	irq_pending_hook = the_timer_reads_the_map_once_it_is_whole;
+}
+
+/*
+ * An update that replaces one still waiting for its instant is never seen as
+ * a mixture of the two.
+ *
+ * This handler runs in the mode's loop, and the timer interrupt reads these
+ * five fields on every connection event. Written one at a time, a new update
+ * landing on top of a waiting one could be applied with the old instant and
+ * the new interval, or the new window and the old timeout, and every deadline
+ * the follow uses is built from them.
+ *
+ * Interrupts held off rather than the pending flag written last, because none
+ * of these fields is volatile: the compiler may order ordinary stores as it
+ * likes, and a flag cleared and set again with only ordinary stores in
+ * between is a store it may drop. The guard's memory clobber is what settles
+ * both.
+ */
+MU_TEST(an_update_is_never_seen_as_a_mixture_of_two)
+{
+	le_rx_t buf;
+	struct conn_update u = valid_conn_update();
+
+	start_fresh();
+	/* One is already waiting, for an instant this connection is nowhere
+	 * near. */
+	conn.conn_update_pending = 1;
+	conn.conn_update_instant = 900;
+	conn.conn_update_pending_interval = 24 * USEC(1250);
+	conn.win_size = USEC(1250);
+
+	build_conn_update(&buf, &u);
+	the_update_the_timer_saw_was_whole = -1;
+	irq_pending_hook = the_timer_reads_the_pending_update;
+	connection_update_handler(&buf);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the update is written without "
+	          "holding interrupts off");
+	mu_assert_int_eq(1, the_update_the_timer_saw_was_whole);
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
+/*
+ * ...and a channel map update is not pending while its map is being written.
+ *
+ * le_parse_channel_map() clears the map before filling it, so an update
+ * applied while it ran gave the follow a map with some of the update's
+ * channels in it and the rest missing, and the receiver tuned where the peer
+ * was not for the rest of the connection.
+ */
+MU_TEST(a_channel_map_is_not_pending_while_it_is_being_written)
+{
+	le_rx_t buf;
+
+	start_fresh();
+	/* One is already waiting, with a map of its own. */
+	conn.channel_map_update_pending = 1;
+	conn.channel_map_update_instant = 900;
+	conn.pending_remapping.total_channels = 37;
+
+	fill_packet(&buf, 8, DATA_CHANNEL_MHZ);
+	memset(buf.data, 0, sizeof(buf.data));
+	/* Two channels left in use: indices 0 and 9. */
+	buf.data[3] = 0x01;
+	buf.data[4] = 0x02;
+	put_le(&buf.data[8], 1234, 2);
+
+	the_map_was_pending_while_it_was_written = -1;
+	the_map_was_pending_once_it_was_whole = -1;
+	irq_pending_hook = the_timer_reads_the_map_while_it_is_written;
+	channel_map_update_handler(&buf);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "an interrupt never got in, so the flag and the instant are "
+	          "written without holding interrupts off");
+	mu_assert_int_eq(0, the_map_was_pending_while_it_was_written);
+	mu_assert_int_eq(1, the_map_was_pending_once_it_was_whole);
+	mu_assert_int_eq(1234, the_instant_the_timer_saw);
+	mu_assert_int_eq(2, (int)the_channels_the_timer_saw);
+	mu_assert_int_eq(0, (int)irq_mask_depth);
+}
+
 /*
  * A channel map with no channels in it cannot be followed: the remapping
  * divides by the number of channels in use, and the processor's
@@ -3627,6 +3745,8 @@ int main(void)
 	MU_RUN(the_first_event_after_an_update_waits_out_the_whole_window);
 	MU_RUN(the_first_event_of_a_connection_waits_out_the_whole_window);
 	MU_RUN(a_channel_map_update_is_scheduled_for_its_instant);
+	MU_RUN(an_update_is_never_seen_as_a_mixture_of_two);
+	MU_RUN(a_channel_map_is_not_pending_while_it_is_being_written);
 	MU_RUN(a_channel_map_update_with_no_channels_is_refused);
 	MU_RUN(an_empty_map_does_not_divide_by_zero_in_the_remapping);
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);

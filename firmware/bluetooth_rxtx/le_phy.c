@@ -940,12 +940,18 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// goes to the host; what is dropped is bookkeeping with
 				// nowhere to go, because its event has been counted.
 				//
+				// A packet not counted does not refresh
+				// conn.last_packet_ts either, so it buys the connection
+				// no time against its supervision timeout. That timeout
+				// is 100 ms at the shortest and connection events are
+				// milliseconds apart, so one event's worth makes no
+				// difference to it.
+				//
 				// Closing the event on the second packet stays outside
 				// the guard, because it reaches change_channel() and the
-				// radio. Reaching two packets means the event was open
-				// when this one began, so its first byte disarmed the
-				// match and nothing has armed it since: no timer match is
-				// due until this path arms one.
+				// radio. A second packet means the event was still open
+				// at this packet's first byte, which disarmed the event's
+				// match, so the timer interrupt has nothing to take.
 				if (btle_channel_index(rf_channel) < 37) {
 					unsigned num_packets = 0;
 
@@ -1885,6 +1891,8 @@ err_out:
 
 static void connection_update_handler(le_rx_t *buf) {
 	le_conn_timing_t timing;
+	uint32_t primask;
+	uint16_t instant;
 
 	timing.win_size            = extract_field(buf, 3, 1);
 	timing.win_offset          = extract_field(buf, 4, 2);
@@ -1908,22 +1916,30 @@ static void connection_update_handler(le_rx_t *buf) {
 	if (!le_scale_conn_timing(&timing))
 		return;
 
-	// The flag goes down while the parameters are written and up only once
-	// all of them are there. This handler runs in the mode's loop and the
-	// timer interrupt reads the same fields on every connection event, so
-	// with the flag left up an update that arrives while an earlier one is
-	// still waiting for its instant would be applied as a mixture of the
-	// two: the old instant with the new interval, or the new window with the
-	// old timeout. Every deadline the follow uses is built from them.
-	conn.conn_update_pending = 0;
+	instant = extract_field(buf, 12, 2);
 
+	// The whole update goes in at once. This handler runs in the mode's
+	// loop, the timer interrupt reads these five fields on every connection
+	// event, and it preempts the loop: an update that arrives while an
+	// earlier one is still waiting for its instant would otherwise be
+	// applied as a mixture of the two -- the old instant with the new
+	// interval, or the new window with the old timeout -- and every deadline
+	// the follow uses is built from them.
+	//
+	// Interrupts held off rather than the flag written last, because none of
+	// these fields is volatile: the compiler may put the stores in whatever
+	// order it likes, and a flag cleared and set again with only ordinary
+	// stores in between is a store it may drop altogether. The guard carries
+	// a memory clobber, so it orders them as well as keeping the interrupt
+	// out.
+	primask = irq_save_disable();
 	conn.win_size            = timing.win_size;
 	conn.win_offset          = timing.win_offset;
 	conn.conn_update_pending_interval = timing.conn_interval;
 	conn.conn_update_pending_supervision_timeout = timing.supervision_timeout;
-	conn.conn_update_instant = extract_field(buf, 12, 2);
-
+	conn.conn_update_instant = instant;
 	conn.conn_update_pending = 1;
+	irq_restore(primask);
 }
 
 // Is every channel in a 37-bit channel map clear? The five bytes carry
@@ -1934,6 +1950,8 @@ static int channel_map_is_empty(const uint8_t *map) {
 }
 
 static void channel_map_update_handler(le_rx_t *buf) {
+	uint32_t primask;
+
 	// A map with no channels in it is refused, as le_connect_handler() refuses
 	// the same field in a CONNECT_IND. The remapping divides by the number of
 	// channels in use, and the processor's divide-by-zero trap is off at its
@@ -1952,25 +1970,30 @@ static void channel_map_update_handler(le_rx_t *buf) {
 	if (channel_map_is_empty(&buf->data[3]))
 		return;
 
-	// The flag goes up last, once the instant and the map are both there.
-	// This handler runs in the mode's loop and the timer interrupt reads the
-	// flag on every connection event, so with the flag set first the
-	// interrupt could reach an instant left over from an earlier update -- or
-	// none at all, which every event counter under 32768 has already reached
-	// -- and take the map while le_parse_channel_map() was still writing it.
-	// That map starts by clearing itself, so what the follow would hop on is
-	// a map with some of this update's channels in it and the rest missing:
-	// the receiver tunes where the peer is not, for the rest of the
-	// connection or until another update arrives.
+	// Nothing is pending while the map is being written. This handler runs
+	// in the mode's loop and the timer interrupt, which preempts it, reads
+	// the flag on every connection event; le_parse_channel_map() starts by
+	// clearing the map it is filling, so an update applied while it ran gave
+	// the follow a map with some of this update's channels in it and the rest
+	// missing, and the receiver tuned where the peer was not for the rest of
+	// the connection.
 	//
-	// Cleared first for the same reason, so an update already waiting for its
-	// instant is not applied part way through being replaced by this one.
+	// Two short guards rather than one around the parse: the parse clears and
+	// fills nearly 200 bytes, and that is longer than this engine wants to
+	// hold interrupts off for. Guards rather than the order of the stores,
+	// because none of these fields is volatile -- see
+	// connection_update_handler().
+	primask = irq_save_disable();
 	conn.channel_map_update_pending = 0;
+	irq_restore(primask);
 
-	conn.channel_map_update_instant = extract_field(buf, 8, 2);
 	le_parse_channel_map(&buf->data[3], &conn.pending_remapping);
 
+	// The map is whole, so the instant and the flag go in together.
+	primask = irq_save_disable();
+	conn.channel_map_update_instant = extract_field(buf, 8, 2);
 	conn.channel_map_update_pending = 1;
+	irq_restore(primask);
 }
 
 static void packet_handler(le_rx_t *buf) {
