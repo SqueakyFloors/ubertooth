@@ -307,13 +307,21 @@ assert short.returncode == 1, short
 assert short.stderr == \
     "error: option '--extcap-c' is short for more than one option\n", short
 
-# an interface and no operation to carry out with it: the one "error: " line,
-# and the call fails rather than exiting 0 having done nothing
-nothing = run(("--extcap-interface=ubertooth" + SERIALS[0],))
-assert nothing.returncode == 1, nothing
-assert nothing.stdout == "", nothing
-assert nothing.stderr.startswith("error: nothing to do: give"), nothing
-assert "Usage:" not in nothing.stderr, nothing
+# a call with no operation to carry out: the one "error: " line, and the call
+# fails rather than exiting 0 having done nothing. The same line whether or
+# not an interface was named, and whether the command line carried options
+# that ask for nothing or only the "--" that ends them: a call that asked for
+# nothing is not blamed for the interface it did not give either.
+for quiet in (("--extcap-interface=ubertooth" + SERIALS[0],),
+              ("--extcap-interface=bogus",),
+              ("--channel=38",),
+              ("--",)):
+    nothing = run(quiet)
+    assert nothing.returncode == 1, (quiet, nothing)
+    assert nothing.stdout == "", (quiet, nothing)
+    assert nothing.stderr.startswith("error: nothing to do: give"), \
+        (quiet, nothing)
+    assert "Usage:" not in nothing.stderr, (quiet, nothing)
 
 # a bare call is the one refusal the usage line follows, on standard error
 bare = run(())

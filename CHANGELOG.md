@@ -293,6 +293,12 @@
   exit 1. A mistyped option used to be dropped without a word and the window
   opened and swept; a bad value ended the command in 2 with the usage text.
   [#934](https://github.com/SqueakyFloors/ubertooth/issues/934)
+- `btle-extcap.py` refuses a call that asks for no operation in a bare call's
+  words, `error: nothing to do: give --extcap-interfaces, ...`, whether or not
+  the call named an interface. A lone `--`, and an option that asks for
+  nothing, used to be blamed on the interface the call had not given either:
+  `error: --extcap-interface must be ubertooth<serial>`.
+  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
 - **Script-visible change:** the rest of `ubertooth-dfu`'s progress moved to
   standard error too: the DFU entry, the flash an image or a read-back covers,
   the dot per block, and `Detached`. Standard output now carries one line, the
