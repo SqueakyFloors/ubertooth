@@ -597,6 +597,61 @@ MU_TEST(test_the_hand_over_masks_interrupts)
 	mu_assert(restore > iap, message);
 }
 
+/*
+ * The same for the stack's guard. The programmer starts without a chip reset,
+ * so it would run with a rule of this firmware's making still in force; and
+ * since the call can come back, clearing the rule has to be undone as the
+ * interrupts are.
+ */
+MU_TEST(test_the_hand_over_puts_the_stack_guard_back)
+{
+	const char *path = FW_COMMON_DIR "/ubertooth.c";
+	char line[512], name[64], message[1024];
+	int lineno = 0, in_block = 0, in_region = 0;
+	int cleared = 0, iap = 0, restored = 0;
+	FILE *file = fopen(path, "r");
+
+	snprintf(message, sizeof(message), "cannot open %s to scan", path);
+	mu_assert_fatal(file != NULL, message);
+
+	while (fgets(line, sizeof(line), file) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (!in_region) {
+			if (strstr(line, "void set_isp(void)") != NULL)
+				in_region = 1;
+			continue;
+		}
+		if (strstr(line, "MPU_CTRL = 0") != NULL && cleared == 0)
+			cleared = lineno;
+		if (strstr(line, "MPU_CTRL = mpu_ctrl") != NULL && restored == 0)
+			restored = lineno;
+		if (call_name(line, name, sizeof(name)) &&
+		    strcmp(name, "iap_entry") == 0 && iap == 0)
+			iap = lineno;
+		if (line[0] == '}')
+			break;
+	}
+	fclose(file);
+
+	snprintf(message, sizeof(message),
+	         "%s: the scan did not find the programmer call in set_isp(), "
+	         "so the checks below would pass without reading anything", path);
+	mu_assert_fatal(iap > 0, message);
+
+	snprintf(message, sizeof(message),
+	         "%s:%d: the hand-over to the on-chip programmer leaves the "
+	         "stack's guard region in force, so ROM code that knows nothing "
+	         "about it runs under it", path, iap);
+	mu_assert(cleared > 0 && cleared < iap, message);
+
+	snprintf(message, sizeof(message),
+	         "%s:%d: nothing puts the guard back after the hand-over, so a "
+	         "programmer that refused would leave the rest of the boot with "
+	         "no stack guard", path, iap);
+	mu_assert(restored > iap, message);
+}
+
 int main(void)
 {
 	printf("reset order tests\n");
@@ -607,5 +662,6 @@ int main(void)
 	MU_RUN(test_btbrs_delay_outlasts_a_usb_frame);
 	MU_RUN(test_neither_request_handler_resets_in_place);
 	MU_RUN(test_the_hand_over_masks_interrupts);
+	MU_RUN(test_the_hand_over_puts_the_stack_guard_back);
 	return mu_report();
 }

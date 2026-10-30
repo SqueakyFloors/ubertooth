@@ -109,14 +109,16 @@ void MemManagement_Handler(void) {
 	uint8_t mmsr = SCB_MMSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_MEM);
-	/* The address register as it stands: bit 7 of the status, which goes
+	/* A write into the guard at the bottom of the stack arrives here, and so
+	 * does an instruction fetch from an address the part refuses to execute
+	 * -- a branch through a corrupted pointer or return address.
+	 *
+	 * The address register as it stands: bit 7 of the status, which goes
 	 * with it, is what says whether it holds this fault's address. It does
-	 * not for an instruction fetch refused because the region is not
-	 * executable, which is the one way this part faults here without a
-	 * memory protection unit: a branch through a corrupted pointer or
-	 * return address. Passed rather than zeroed when that bit is clear,
-	 * because zero is also a real address -- a null pointer dereference,
-	 * which is what a fault in a capture mode is most likely to be. */
+	 * not for the instruction fetch. Passed rather than zeroed when that bit
+	 * is clear, because zero is also a real address -- a null pointer
+	 * dereference, which is what a fault in a capture mode is most likely to
+	 * be. */
 	watchdog_fault(mmsr, SCB_MMFAR);
 
 	while (1) {

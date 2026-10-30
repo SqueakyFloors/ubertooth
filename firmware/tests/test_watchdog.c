@@ -1364,6 +1364,242 @@ MU_TEST(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it)
 	          "the breadcrumb no longer fits below bootloader_ctrl");
 }
 
+/*
+ * The guard at the bottom of the stack is a memory protection region, and a
+ * region the part will accept has to be aligned to its own size. The two cases
+ * below read the script that places it and the startup code that programs it,
+ * because neither can be run here: a host test has no such unit, and the
+ * addresses come from the link.
+ *
+ * What they are guarding against is a guard that quietly stops working. A
+ * misaligned base, the wrong size field, or a paint that runs over the guard
+ * would all leave the firmware looking right and catching nothing.
+ */
+MU_TEST(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it)
+{
+	const char *path = FW_COMMON_DIR "/sections.ld";
+	char line[512], want_align[64], want_size[64];
+	int in_block = 0;
+	int aligned = 0, stack_above = 0, room_from_bottom = 0;
+	FILE *f = fopen(path, "r");
+
+	/* Built from the macro the firmware programs the region with, so the two
+	 * cannot drift: a region whose size field says 64 bytes on a 32-byte
+	 * boundary is one the part will not accept. */
+	snprintf(want_align, sizeof(want_align), "ALIGN(_stack_limit, %u)",
+	         (unsigned)STACK_GUARD_SIZE);
+	snprintf(want_size, sizeof(want_size), "_stack_guard + %u",
+	         (unsigned)STACK_GUARD_SIZE);
+
+	mu_assert(f != NULL, "cannot read sections.ld");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (strstr(line, "_stack_guard") != NULL &&
+		    strstr(line, want_align) != NULL)
+			aligned = 1;
+		if (strstr(line, "_stack_bottom") != NULL &&
+		    strstr(line, want_size) != NULL)
+			stack_above = 1;
+		if (strstr(line, "ASSERT") != NULL &&
+		    strstr(line, "_StackTop - _stack_bottom") != NULL)
+			room_from_bottom = 1;
+	}
+	fclose(f);
+
+	mu_assert(aligned == 1,
+	          "sections.ld no longer puts _stack_guard on a 32-byte boundary: "
+	          "the part refuses a region that is not aligned to its own size, "
+	          "so the guard would not be in force");
+	mu_assert(stack_above == 1,
+	          "sections.ld no longer starts the usable stack above the guard, "
+	          "so the stack's own first frames would fault");
+	mu_assert(room_from_bottom == 1,
+	          "the link-time room check no longer measures from _stack_bottom, "
+	          "so it counts the guard as room the stack can use");
+}
+
+MU_TEST(test_startup_programs_the_guard_and_paints_above_it)
+{
+	const char *path = FW_COMMON_DIR "/LPC17xx_Startup.c";
+	char line[512];
+	int in_block = 0, in_enable = 0;
+	int region = 0, base = 0, size_field = 0, no_access = 0, enabled = 0;
+	int written = 0;
+	int executable = 1, default_map = 0, absent_unit = 0, fenced = 0;
+	int paints_from_bottom = 0, measures_from_bottom = 0, names_limit = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read LPC17xx_Startup.c");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		/* Only what stack_guard_enable() itself does: the compile-time
+		 * assertions above it name the same macros, and matching those
+		 * would let a broken setup pass. */
+		if (strstr(line, "void stack_guard_enable(void)") != NULL)
+			in_enable = 1;
+		else if (in_enable && line[0] == '}')
+			in_enable = 0;
+
+		if (in_enable) {
+			if (strstr(line, "MPU_RNR = 0") != NULL)
+				region = 1;
+			if (strstr(line, "MPU_RBAR = (uint32_t)&_stack_guard") != NULL)
+				base = 1;
+			if (strstr(line, "MPU_RASR = MPU_RASR_ENABLE") != NULL)
+				written = 1;
+			if (strstr(line, "MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD)") != NULL)
+				size_field = 1;
+			if (strstr(line, "MPU_RASR_AP_NONE") != NULL)
+				no_access = 1;
+			if (strstr(line, "MPU_RASR_ENABLE") != NULL)
+				enabled = 1;
+			if (strstr(line, "MPU_RASR_XN") != NULL)
+				executable = 0;
+			if (strstr(line, "MPU_CTRL = MPU_CTRL_ENABLE") != NULL &&
+			    strstr(line, "MPU_CTRL_PRIVDEFENA") != NULL)
+				default_map = 1;
+			if (strstr(line, "MPU_TYPE_DREGION") != NULL)
+				absent_unit = 1;
+			if (strstr(line, "dsb") != NULL)
+				fenced = 1;
+			if (fenced && strstr(line, "isb") != NULL)
+				fenced = 2;
+		}
+		if (strstr(line, "word = &_stack_bottom") != NULL)
+			paints_from_bottom = 1;
+		if (strstr(line, "stack_used_between(&_stack_bottom") != NULL)
+			measures_from_bottom = 1;
+		if (strstr(line, "_stack_limit") != NULL)
+			names_limit = 1;
+	}
+	fclose(f);
+
+	mu_assert(region == 1 && base == 1,
+	          "stack_guard_enable() no longer programs region 0 with "
+	          "_stack_guard as its base: the region would cover some other "
+	          "address, and nothing at boot would notice");
+	mu_assert(size_field == 1,
+	          "the guard region's size is no longer the one stack_check.h "
+	          "encodes, so it may cover more or less than the 32 bytes "
+	          "sections.ld set aside");
+	mu_assert(written == 1 && no_access == 1 && enabled == 1 &&
+	          executable == 0,
+	          "the guard region is not written as an enabled, no-access, "
+	          "no-execute one, so an overflow into it would not fault");
+	mu_assert(default_map == 1,
+	          "the unit is enabled without PRIVDEFENA, which leaves every "
+	          "address outside the guard with no rule of its own: the first "
+	          "access to flash or a peripheral would fault");
+	mu_assert(absent_unit == 1,
+	          "the startup code no longer asks how many regions the part has, "
+	          "so a part without a unit would be written to as if it had one");
+	mu_assert(fenced == 2,
+	          "stack_guard_enable() does not end with dsb then isb, so the "
+	          "rules are not guaranteed to be in force for the next access");
+	mu_assert(paints_from_bottom == 1,
+	          "the startup paint no longer starts above the guard, so booting "
+	          "would fault on its own paint");
+	mu_assert(measures_from_bottom == 1,
+	          "the high-water measurement no longer starts above the guard, so "
+	          "reading it would fault");
+	mu_assert(names_limit == 0,
+	          "the startup code still reads _stack_limit, which is below the "
+	          "guard: it has to use _stack_bottom");
+}
+
+/*
+ * And that Reset_Handler calls it. Everything above describes a region that is
+ * programmed correctly; this is what says it is programmed at all. Without
+ * this, deleting the one call leaves every image unguarded with the whole
+ * suite green.
+ */
+MU_TEST(test_reset_handler_arms_the_guard_before_it_copies_anything)
+{
+	const char *path = FW_COMMON_DIR "/LPC17xx_Startup.c";
+	char line[512], name[64];
+	int in_block = 0, in_reset = 0, lineno = 0;
+	int armed = 0, painted = 0, copied = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert(f != NULL, "cannot read LPC17xx_Startup.c");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		lineno++;
+		strip_comments(line, &in_block);
+		if (!in_reset) {
+			if (strstr(line, "void Reset_Handler(void)") != NULL)
+				in_reset = 1;
+			continue;
+		}
+		if (call_name(line, name, sizeof(name))) {
+			if (strcmp(name, "stack_guard_enable") == 0 && armed == 0)
+				armed = lineno;
+			if (strcmp(name, "stack_paint") == 0 && painted == 0)
+				painted = lineno;
+		}
+		/* The .bss zero loop, the last thing before the C library and
+		 * main(), and the furthest the startup writes reach. */
+		if (strstr(line, "&_ebss") != NULL && copied == 0)
+			copied = lineno;
+		if (line[0] == '}')
+			break;
+	}
+	fclose(f);
+
+	mu_assert(armed > 0,
+	          "Reset_Handler no longer calls stack_guard_enable(), so no image "
+	          "has a guard at all however well the region is described");
+	mu_assert(painted > 0 && painted < armed,
+	          "the stack is painted after the guard is armed, so boot would "
+	          "fault on its own paint");
+	mu_assert(copied > armed,
+	          "the guard is armed after startup has finished writing memory, "
+	          "which leaves the copying it is meant to cover unguarded");
+}
+
+/*
+ * Which images take the guard. One define in the wrong Makefile turns the whole
+ * thing off in both shipped images, and every check above would stay green.
+ */
+MU_TEST(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not)
+{
+	static const struct { const char *path; int opts_out; } makefiles[] = {
+		{ FW_BOOTLOADER_DIR "/Makefile", 1 },
+		{ FW_RXTX_DIR "/Makefile", 0 },
+		{ FW_BTBR_DIR "/Makefile", 0 },
+		{ FW_COMMON_DIR "/../common.mk", 0 },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(makefiles) / sizeof(makefiles[0]); i++) {
+		char line[512], msg[384];
+		int found = 0;
+		FILE *f = fopen(makefiles[i].path, "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", makefiles[i].path);
+		mu_assert_fatal(f != NULL, msg);
+		while (fgets(line, sizeof(line), f) != NULL) {
+			/* A make comment, not a C one, so strip_comments() is no use
+			 * here; nothing in these files comments the define out. */
+			if (line[0] != '#' &&
+			    strstr(line, "UBERTOOTH_NO_STACK_GUARD") != NULL)
+				found = 1;
+		}
+		fclose(f);
+
+		if (makefiles[i].opts_out)
+			snprintf(msg, sizeof(msg),
+			         "%s no longer asks for UBERTOOTH_NO_STACK_GUARD: the "
+			         "bootloader would arm a guard in the image a board is "
+			         "recovered through", makefiles[i].path);
+		else
+			snprintf(msg, sizeof(msg),
+			         "%s defines UBERTOOTH_NO_STACK_GUARD, which turns the "
+			         "stack guard off in a shipped image",
+			         makefiles[i].path);
+		mu_assert(found == makefiles[i].opts_out, msg);
+	}
+}
+
 MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
 {
 	static const char *const sources[] = {
@@ -1517,6 +1753,96 @@ MU_TEST(test_every_fault_handler_records_the_fault)
 		         handlers[i].path, handlers[i].function);
 		mu_assert(records, msg);
 	}
+}
+
+/*
+ * A stack overflow arrives at the hard fault handler whenever the processor
+ * could not stack the fault's own frame clear of the guard, and the hard fault
+ * status says only "forced". So both images have to read the configurable
+ * status and its address register there, or that half of the overflows is
+ * reported as a bare 0x40000000 with no address.
+ *
+ * btbr's handlers also dump the stack over the debug console, from the
+ * handler's own frame upwards. After an overflow that frame is below the
+ * guard, so the dump has to stop short of an address the unit refuses.
+ */
+MU_TEST(test_a_forced_hard_fault_reports_the_fault_underneath_it)
+{
+	static const char *const paths[] = {
+		FW_RXTX_DIR "/fault.c",
+		FW_BTBR_DIR "/src/util/fault.c",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		char line[512], msg[512];
+		int in_block = 0, in_hard = 0;
+		int tests_forced = 0, reads_cfsr = 0, reads_mmfar = 0;
+		FILE *f = fopen(paths[i], "r");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", paths[i]);
+		mu_assert_fatal(f != NULL, msg);
+
+		while (fgets(line, sizeof(line), f) != NULL) {
+			strip_comments(line, &in_block);
+			if (!in_hard) {
+				if (line[0] != ' ' && line[0] != '\t' &&
+				    calls_identifier(line, "HardFault_Handler"))
+					in_hard = 1;
+				continue;
+			}
+			if (strstr(line, "SCB_HFSR_FORCED") != NULL)
+				tests_forced = 1;
+			if (strstr(line, "SCB_CFSR") != NULL)
+				reads_cfsr = 1;
+			if (strstr(line, "SCB_MMFAR") != NULL)
+				reads_mmfar = 1;
+			if (line[0] == '}')
+				break;
+		}
+		fclose(f);
+
+		snprintf(msg, sizeof(msg),
+		         "%s: HardFault_Handler() does not tell a forced fault from "
+		         "one the processor took in its own right, so an overflow "
+		         "that escalated is reported with no status of its own and "
+		         "no address", paths[i]);
+		mu_assert(tests_forced && reads_cfsr && reads_mmfar, msg);
+	}
+}
+
+MU_TEST(test_btbrs_stack_dump_stops_above_the_guard)
+{
+	const char *path = FW_BTBR_DIR "/src/util/fault.c";
+	char line[512];
+	int in_block = 0, in_dump = 0, clamped = 0, walks = 0;
+	FILE *f = fopen(path, "r");
+
+	mu_assert_fatal(f != NULL, "cannot read btbr's fault.c");
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (!in_dump) {
+			if (strstr(line, "dump_debug_registers(void)") != NULL)
+				in_dump = 1;
+			continue;
+		}
+		if (strstr(line, "_stack_bottom") != NULL)
+			clamped++;
+		if (strstr(line, "&_StackTop") != NULL)
+			walks = 1;
+		if (line[0] == '}')
+			break;
+	}
+	fclose(f);
+
+	mu_assert(walks == 1,
+	          "btbr's dump_debug_registers() no longer walks the stack, so "
+	          "this case read nothing");
+	/* The extern and the comparison. */
+	mu_assert(clamped >= 2,
+	          "btbr's stack dump is not held above _stack_bottom, so after an "
+	          "overflow it reads the guard and faults again inside the "
+	          "handler");
 }
 
 MU_TEST(test_every_path_that_never_returns_marks_where_it_was)
@@ -1735,9 +2061,15 @@ int main(void)
 	MU_RUN(test_nothing_is_raised_above_the_usb_interrupt);
 	MU_RUN(test_no_interrupt_handler_but_the_usb_one_feeds);
 	MU_RUN(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it);
+	MU_RUN(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it);
+	MU_RUN(test_startup_programs_the_guard_and_paints_above_it);
+	MU_RUN(test_reset_handler_arms_the_guard_before_it_copies_anything);
+	MU_RUN(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	MU_RUN(test_every_fault_handler_records_the_fault);
+	MU_RUN(test_a_forced_hard_fault_reports_the_fault_underneath_it);
+	MU_RUN(test_btbrs_stack_dump_stops_above_the_guard);
 	MU_RUN(test_each_caller_uses_the_pair_for_what_it_is);
 	return mu_report();
 }

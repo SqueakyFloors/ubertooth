@@ -29,6 +29,9 @@ SRC = $(TARGET).c \
 EXTRAINCDIRS = $(LIBS_PATH) $(LPCUSB_PATH)
 
 # Place -D or -U options here for C sources
-CDEFS  = -D$(BOARD) -D$(LPCUSB_TARGET) $(COMPILE_OPTS)
+# UBERTOOTH_NO_STACK_GUARD: a development image, with no main loop that would
+# arm the watchdog and so nothing to report a fault; see
+# firmware/common/LPC17xx_Startup.c.
+CDEFS  = -D$(BOARD) -D$(LPCUSB_TARGET) -DUBERTOOTH_NO_STACK_GUARD $(COMPILE_OPTS)
 
 include ../common.mk

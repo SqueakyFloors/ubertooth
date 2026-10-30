@@ -17,6 +17,12 @@ SRC = $(TARGET).c \
 	$(LPCUSB_PATH)/usbhw_lpc.c \
 	$(LPCUSB_PATH)/usbstdreq.c
 
+# No memory protection region at the bottom of this image's stack: a
+# development image with no main loop to arm the watchdog, so nothing here
+# would report a fault, and it hands the board back to the on-chip programmer
+# itself. See firmware/common/LPC17xx_Startup.c.
+COMPILE_OPTS += -DUBERTOOTH_NO_STACK_GUARD
+
 # The assembly_test firmware should be installed via ISP or JTAG without a
 # bootloader present.  After the test succeeds, install the bootloader with ISP
 # or JTAG.

@@ -160,6 +160,12 @@ JTAG.
 - [ ] Confirm: `Most stack ever used since boot:` names a figure well under
       the size beside it, after a capture and after each mode above. An image
       anywhere near its size has a stack problem, whatever else it reports
+- [ ] Force an overflow on a bench board: build `bluetooth_rxtx` with
+      `COMPILE_OPTS=-DSTACK_GUARD_TEST`, flash it, run `ubertooth-util -S`,
+      wait for the board to come back, then `-w`
+- [ ] Confirm: the board blinks a fault code, resets itself, and `-w` prints a
+      `Last processor fault:` line whose address is just below the stack. Flash
+      a normal image back afterwards
 
 ### 2e-1. A mode starts from the same radio state every time
 

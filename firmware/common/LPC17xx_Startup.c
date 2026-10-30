@@ -59,8 +59,10 @@ extern unsigned long _ebss;
  * flash, so it is zeroed here like .bss. See sections.ld. */
 extern unsigned long _ahb_sram;
 extern unsigned long _ahb_sram_end;
-/* The bottom of the stack region and the top of RAM; see stack_check.h. */
-extern unsigned long _stack_limit;
+/* The guard, the bottom of the usable stack and the top of RAM; see
+ * stack_check.h. */
+extern unsigned long _stack_guard;
+extern unsigned long _stack_bottom;
 extern unsigned long _StackTop;
 
 extern void __libc_init_array(void);
@@ -79,19 +81,83 @@ static void stack_paint(void)
 	 * needs. A function on this architecture is given nothing below its
 	 * stack pointer, so everything below is free to write.
 	 */
-	for (word = &_stack_limit; word < (unsigned long *)sp; word++)
+	for (word = &_stack_bottom; word < (unsigned long *)sp; word++)
 		*word = STACK_PAINT;
 }
 
+/*
+ * The bootloader asks for no guard (UBERTOOTH_NO_STACK_GUARD in its Makefile,
+ * beside UBERTOOTH_NO_WATCHDOG). It runs for a moment with 12 KB of stack to
+ * itself, so a guard buys it nothing, and it is the image a board is recovered
+ * through: the one place where a fault of our making would need someone at the
+ * bench with the entry pin bridged. usb_test and assembly_test ask for the same
+ * thing, the second because it hands the board back to the programmer itself.
+ *
+ * The other development images -- blinky, cc2400_test, clock_test -- do take
+ * the region, and none of them enables the fault handlers, so an overflow
+ * there arrives as a hard fault rather than as the record a shipped image
+ * makes.
+ */
+#ifndef UBERTOOTH_NO_STACK_GUARD
+
+/* The words below, against the part's own encoding (the Cortex-M3 chapter of
+ * UM10360). A wrong bit position would leave a region the part ignores, which
+ * nothing else would notice. */
+_Static_assert((MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
+                MPU_RASR_AP_NONE | MPU_RASR_XN) == 0x10000009ul,
+               "the guard region's attribute word is not the part's encoding "
+               "for an enabled, no-access, no-execute, 32-byte region -- the "
+               "constant moves with STACK_GUARD_SIZE_FIELD");
+_Static_assert((MPU_CTRL_ENABLE | MPU_CTRL_PRIVDEFENA) == 0x5ul,
+               "the control word is not the part's encoding");
+
+/*
+ * Refuse every access to the guard, and leave the part's default memory map in
+ * place for everything else, so this adds one rule rather than describing the
+ * whole map.
+ *
+ * The other region attributes stay zero: nothing may read, write or execute
+ * here, so how the bus would treat an access that is refused does not arise.
+ */
+static void stack_guard_enable(void)
+{
+	/* A part whose unit is absent reports no regions, and writing its
+	 * registers would be writing into the reserved space where they would
+	 * be. The LPC175x and LPC176x parts this firmware is built for all have
+	 * the unit; this is for a clone that does not. */
+	if (MPU_TYPE_DREGION(MPU_TYPE) == 0)
+		return;
+
+	MPU_RNR = 0;
+	/* The base's low five bits are the register's own region number and the
+	 * bit that says to use it. They are all zero because the address is
+	 * 32-byte aligned, which is what leaves MPU_RNR above in charge. */
+	MPU_RBAR = (uint32_t)&_stack_guard;
+	MPU_RASR = MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
+	           MPU_RASR_AP_NONE | MPU_RASR_XN;
+	MPU_CTRL = MPU_CTRL_ENABLE | MPU_CTRL_PRIVDEFENA;
+
+	/* The rules have to be in force before the next memory access, which
+	 * the processor does not guarantee on its own. */
+	__asm__ volatile ("dsb" ::: "memory");
+	__asm__ volatile ("isb");
+}
+
+#else
+static void stack_guard_enable(void)
+{
+}
+#endif
+
 unsigned stack_used(void)
 {
-	return stack_used_between(&_stack_limit, &_StackTop);
+	return stack_used_between(&_stack_bottom, &_StackTop);
 }
 
 unsigned stack_size(void)
 {
 	return (unsigned)((const unsigned char *)&_StackTop -
-	                  (const unsigned char *)&_stack_limit);
+	                  (const unsigned char *)&_stack_bottom);
 }
 
 /* Reset Handler */
@@ -101,6 +167,14 @@ void Reset_Handler(void)
 
 	/* First, while the stack is no deeper than this function. */
 	stack_paint();
+
+	/* Armed from here, so the copying below is covered too. A fault this
+	 * early would hang the board rather than blink and reset: the vector
+	 * table is still the previous stage's until the end of this function,
+	 * the fault handlers are not on until main(), and nor is the watchdog.
+	 * The 2 KB the link leaves is what makes that acceptable -- startup's
+	 * stack is a few frames deep and cannot reach the guard. */
+	stack_guard_enable();
 
 	// Copy the data segment initializers from flash to SRAM
 	src = &_etext;
