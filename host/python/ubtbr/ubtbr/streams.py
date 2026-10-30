@@ -101,8 +101,13 @@ def result(msg):
 		# write with EBADF, which is what `ubertooth-btbr 1<&0` leaves. The
 		# same loss, so it is reported the same way: anything let out of
 		# here is on the thread the command runs on, where it ends the
-		# capture and is reported as a failure of the command instead. Any
-		# other OSError is a failure of its own and is left to be raised.
+		# capture and is reported as a failure of the command instead.
+		#
+		# Only that errno, which is the stream being unusable from the
+		# start. A write that failed for a reason of its own -- no space
+		# left on the device it was redirected to, a terminal that went
+		# away -- is worth naming, and ends the command carrying its own
+		# message rather than this one.
 		if problem.errno != errno.EBADF:
 			raise
 		output_lost()

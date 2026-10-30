@@ -1675,7 +1675,7 @@ said = bytearray()
 
 
 def loss_reported():
-    """True once the lost capture has been reported, so there is one to stop."""
+    """True once the loss has been reported, so `q` cannot race the report."""
     try:
         said.extend(os.read(running.stderr.fileno(), 4096))
     except BlockingIOError:
@@ -1692,7 +1692,8 @@ _, errors = running.communicate("q\n", timeout=DEADLINE * 2)
 errors = said.decode(errors="replace") + errors
 assert running.returncode == 1, (running.returncode, errors)
 assert errors.count(OUTPUT_GONE) == 1, errors
-assert "Bad file descriptor" not in errors, errors
+# and the command was not ended, which is what the second line used to say
+assert "stopped: OSError" not in errors, errors
 assert "Traceback" not in errors, errors
 assert "Exception ignored" not in errors, errors
 print("ubtbr: a capture whose stream refuses it is reported as the same loss")
