@@ -898,6 +898,13 @@
   The Ubertooth One, whose GIO6 is P2.2, is unaffected.
   [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
   [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007)
+- Fixed, on the Ubertooth Zero: the firmware read the radio's FIFO signals
+  from a port the board does not carry them on, so every such read answered 0.
+  A transmit's wait for the radio to send what it had always timed out, which
+  ends a packet longer than the radio's 32-byte FIFO after the first 32 bytes.
+  It now reads the port the pin is on. The Ubertooth One was unaffected, and
+  no Zero was on the bench to read this off.
+  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
 
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as
