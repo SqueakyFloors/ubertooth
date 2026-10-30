@@ -2111,14 +2111,16 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	cc2400_set(FREND,   frend_keep_pa_level(cc2400_get(FREND)));
 	cc2400_set(MDMCTRL, 0x0040);    // 250 kHz frequency deviation
 	cc2400_set(INT,     0x0010);    // FIFO_THRESHOLD: 16 bytes
+	// Nothing waits on that threshold: the loop below refills when the
+	// radio reports its FIFO empty, which is a different signal.
 
 	// set sync word to bit-reversed AA
 	cc2400_set(SYNCL,   sync & 0xffff);
 	cc2400_set(SYNCH,   (sync >> 16) & 0xffff);
 
 	// GIO6 reports the radio's FIFO empty, which is what the write loop
-	// below waits on. The comment here used to say FIFO_FULL, which is a
-	// different signal and the opposite sense.
+	// below waits on. FIFO_FULL is a different signal with the opposite
+	// sense.
 	gio_save = cc2400_get(IOCFG);
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
@@ -4233,27 +4235,29 @@ void tx_generic(u8 prev_mode) {
 	 * The payload goes into the radio's FIFO a FIFO's worth at a time,
 	 * waiting for the radio to send what it has between pieces, as
 	 * le_transmit() does. The FIFO holds CC2400_FIFO_SIZE bytes and a
-	 * generic transmit packet may carry up to DMA_SIZE, so the one write
-	 * this used to make pushed the last 18 bytes of a 50-byte packet past
-	 * the end of the FIFO, and nothing reported a problem.
+	 * generic transmit packet may carry up to DMA_SIZE, half again as much,
+	 * so a single write would push the rest past the end of the FIFO and
+	 * what went on the air would be undefined.
 	 *
-	 * This bounds what the radio is handed. What it does not settle is how
-	 * a packet longer than the FIFO is framed: the wait is for the FIFO to
-	 * be empty, and the modem takes bytes out of it at the air rate, so it
-	 * has nothing to send while the next piece is written. Whether the
-	 * radio carries the packet on or frames the rest as a second
-	 * transmission has not been measured. Refilling at FIFO_THRESHOLD
-	 * instead, before the FIFO runs dry, is the alternative; le_transmit()
-	 * still writes a threshold into INT that nothing reads, from when the
-	 * loop there was meant to work that way.
+	 * The wait is for the FIFO to be empty, which is what GIO6 is
+	 * configured above to report. The modem takes bytes out of the FIFO at
+	 * the air rate, so between pieces it has nothing to send for as long as
+	 * the next write takes: about 33 us, four byte-times at 1 Mbit/s.
+	 * Whether the radio carries a packet across that gap or frames the rest
+	 * as a second transmission is not known -- an Ubertooth receiver reads
+	 * one FIFO's worth per sync word, so it cannot see the difference --
+	 * and the alternative, refilling at the threshold in INT before the
+	 * FIFO runs dry, needs both that measurement and a reading of what the
+	 * radio asserts its FIFO signals on. Waiting on empty is the shape both
+	 * transmit loops use until someone has those.
 	 *
 	 * The length is clamped as well as chunked, because this is where a
 	 * length reaches the radio: the vendor request already refuses a longer
 	 * packet, and a write of tx_pkt.length on its own would read past
 	 * tx_pkt.data.
 	 *
-	 * A zero-length packet still strobes once, which is what it did before:
-	 * the radio sends the preamble and sync word with no payload.
+	 * A zero-length packet still strobes once: the radio sends the preamble
+	 * and sync word with no payload.
 	 */
 	len = MIN(tx_pkt.length, DMA_SIZE);
 	sent = 0;
