@@ -88,6 +88,43 @@ for call in (lambda: limits.parse_wifi_range("1-11"),
 print("specan/limits.py: %d refusals, each one line on stderr" % len(CASES))
 
 
+# A refusal with nowhere to write it is still a refusal, and not a failure of
+# its own: the ValueError the caller turns into exit 1 comes out, where the
+# write used to raise BrokenPipeError straight past it and end the tool in a
+# traceback. The exit status was 1 either way, so this is pinned on the
+# exception rather than the status.
+#
+# Arranged in a child, because the state is a real descriptor: standard error
+# is a pipe whose reader has already left. Unlike the script's own cases
+# further down, this one bites on macOS too -- nothing has had the chance to
+# point the stream at the bin first.
+REFUSAL_IN_A_CHILD = """
+import os, sys
+sys.path.insert(0, PACKAGE)
+reading, writing = os.pipe()
+os.close(reading)
+os.dup2(writing, 2)
+os.close(writing)
+from specan import limits
+try:
+    limits.check_freq_pair(2000, limits.MAX_FREQ)
+except ValueError:
+    print("refused with ValueError, as the caller expects")
+except BaseException as problem:
+    print("raised " + type(problem).__name__ + " instead")
+else:
+    print("accepted a frequency below the minimum")
+""".replace("PACKAGE", repr(PACKAGE_DIR))
+
+refused = subprocess.run([sys.executable, "-c", REFUSAL_IN_A_CHILD],
+                         stdout=subprocess.PIPE, text=True, timeout=60)
+assert refused.returncode == 0, refused
+assert refused.stdout == "refused with ValueError, as the caller expects\n", \
+    refused.stdout
+
+print("specan/limits.py: a refusal it cannot write is still a refusal")
+
+
 # The centre frequency of each channel, with both ends of the evenly spaced
 # run and the one channel that breaks the spacing: 14 is 12 MHz above 13.
 CENTRES = ((1, 2412), (6, 2437), (11, 2462), (13, 2472), (14, 2484))

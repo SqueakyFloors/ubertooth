@@ -86,9 +86,10 @@ def report_versions(selector=None):
 		# whatever that turned out to be.
 		output_lost()
 		return 1
-	# The same for standard error, which the child writes to as well. Nothing
-	# is written here: eprint() of nothing is the flush, and it is the one
-	# that cannot fail on a stream whose reader has left.
+	# The same for standard error, which the child writes to as well. The
+	# empty text adds nothing to the buffer, so this is the flush alone, and
+	# eprint() is how it is made: one that fails bins the stream rather than
+	# raising here.
 	#
 	# The child inherits that descriptor, which is what it should have: a
 	# stream this tool could not use was pointed at the bin at startup and
@@ -243,15 +244,13 @@ def through(stage):
 	except SystemExit as leaving:
 		status = leaving.code or 0
 	except BrokenPipeError:
-		# A write that was not a packet: the usage text goes to standard
-		# output too, and result() is the only one that notices the stream
-		# going away by itself. A command line the tool refuses is the
-		# reachable case, since it writes before anything else does. A
-		# failed write to standard error from either stage arrives here as
-		# well and is reported as this; everything the prompt writes -- the
-		# intro, the prompt itself, and what `?` prints -- goes through
-		# BTCtlPrompt.say(), so a standard error nobody reads does not cost
-		# the capture.
+		# A lost standard output that was not a packet: result() is the only
+		# write that notices that stream going away by itself, and the usage
+		# text goes there too, so `ubertooth-btbr -h` into a reader that
+		# leaves is what arrives here. Standard error cannot: every
+		# diagnostic goes through eprint(), which drops a line it has
+		# nowhere to put, so a standard error nobody reads costs the lines
+		# and not the capture.
 		output_lost()
 		# Out without the interpreter's own teardown, for the reason the
 		# command that would not stop takes that way out: once a session is
@@ -429,22 +428,14 @@ class BTCtlPrompt(Cmd):
 			self.prompt = self.PROMPT
 
 	def say(self, text):
-		"""Write a note to standard error, giving up on a stream nobody reads.
+		"""Write a note to standard error.
 
-		The capture is on standard output and must not be lost because
-		nobody is reading the notes: a write that raised from here would
-		leave the prompt loop and be reported as standard output going away.
+		Named for what it is, and for say_prompt() to share: eprint() is
+		what makes it safe here, by dropping a line it cannot write. The
+		capture is on standard output and must not be lost because nobody is
+		reading the notes.
 		"""
-		try:
-			eprint(text)
-		except BrokenPipeError:
-			point_at_the_bin(sys.stderr)
-		except (AttributeError, ValueError):
-			# There is no standard error to write to: a descriptor closed
-			# before the tool started leaves the interpreter without one.
-			# Nothing is written to it either way, which is how
-			# output_lost() and the last flush treat the same case.
-			pass
+		eprint(text)
 
 	def say_prompt(self):
 		"""The prompt, where the line editor is not the one drawing it."""

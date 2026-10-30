@@ -5,8 +5,12 @@ range is refused by code that does not need a Qt binding or numpy, and so the
 refusals can be tested anywhere the Python tools are built. Each one writes a
 single line starting "error: " to standard error and raises ValueError; the
 caller exits 1 without opening a window or a device.
+
+eprint() is here for the same reason, and the rest of the package writes its
+diagnostics through it: this module is the one the command line can rely on.
 """
 
+import os
 import sys
 
 
@@ -19,8 +23,39 @@ MIN_WIFI_CHANNEL = 1
 MAX_WIFI_CHANNEL = 14
 
 
+def eprint(text):
+    """Write a diagnostic to standard error, or drop it if it cannot go there.
+
+    Losing that stream must cost the lines and nothing else: a write that
+    fails must not raise where it was written from and end a command, or a
+    capture thread, that was otherwise working.
+
+    The state this is for is a pipe whose reader has left. The tool's startup
+    check cannot see one on Linux, where a write of nothing to such a pipe
+    succeeds and only a real write finds the reader gone. Any other failure
+    of the stream is taken the same way, a full disk among them: there is
+    nowhere left to report the loss, so the line goes and the exit status is
+    the command's own. The descriptor is pointed at the bin so the writes to
+    come are safe.
+    """
+    try:
+        sys.stderr.write(text)
+        sys.stderr.flush()
+    except (OSError, ValueError, AttributeError):
+        try:
+            nowhere = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(nowhere, sys.stderr.fileno())
+            finally:
+                os.close(nowhere)
+        except (OSError, ValueError, AttributeError):
+            # There is no such stream to point anywhere: it was closed before
+            # the tool started. Nothing is written to it either way.
+            pass
+
+
 def _refuse(message):
-    print("error: " + message, file=sys.stderr)
+    eprint("error: " + message + "\n")
     raise ValueError(message)
 
 

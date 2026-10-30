@@ -45,7 +45,7 @@ from argparse import ArgumentParser
 # work without those: it is how a user says which tools they have, and a Qt
 # binding that is missing or broken is exactly when they would be asked.
 from specan.limits import (MIN_FREQ, MAX_FREQ, check_freq_pair, convert_wifi,
-                           parse_wifi_range)
+                           eprint, parse_wifi_range)
 
 DEFAULT_LOWER_FREQ = 2402
 DEFAULT_UPPER_FREQ = 2480
@@ -128,26 +128,6 @@ def flush_the_streams():
                 # put under. Nothing more can be done here, and the exit
                 # status is what reports the loss.
                 pass
-
-
-def eprint(text):
-    """Write a diagnostic to standard error, or drop it if it cannot go there.
-
-    Every error, warning and note this tool gives goes through here, so that
-    losing the stream costs the lines and nothing else: a write that fails
-    must not raise in the middle of a command and end one that was going to
-    work.
-
-    The state that reaches this is a pipe whose reader has left, which
-    can_be_written() cannot see at startup on Linux. The stream is pointed at
-    the bin so the writes to come are safe, and this line is let go: it had
-    nowhere to be read.
-    """
-    try:
-        sys.stderr.write(text)
-        sys.stderr.flush()
-    except (OSError, ValueError, AttributeError):
-        point_at_the_bin(sys.stderr)
 
 
 def output_lost():

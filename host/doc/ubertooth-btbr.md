@@ -301,12 +301,14 @@ Standard error going away costs the tool its diagnostics and nothing else.
 One open for reading only (`ubertooth-btbr --bogus 2<&0`), closed
 (`ubertooth-btbr --bogus 2>&-`), or a pipe whose reader has left
 (`ubertooth-btbr --bogus 2>&1 | true`) all go the same way: the lines are
-dropped, the capture on standard output is not, and the exit status is the
-command's own. It used to be 120 for the first of those, from the flush the
-interpreter makes as it exits, and a session with that stream closed used to
-be refused before the prompt was read. A child the tool starts for `-V` is
-handed the bin for that stream rather than a closed descriptor, whose number
-the first file it opened would take.
+dropped and the exit status is the command's own. A session keeps its capture
+through it, wherever standard output is going: a warning in the middle of one
+used to end it and take the rest of the capture with it, and a refused
+command line used to exit 120 rather than 1, from the flush the interpreter
+makes as it exits. A session with that stream closed used to be refused
+before the prompt was read. A child the tool starts for `-V` is handed the
+bin for that stream rather than a closed descriptor, whose number the first
+file it opened would take.
 
 With no Ubertooth attached the tool says `error: no Ubertooth devices found`
 and exits 1. A selection that names no board, or more than one, is refused

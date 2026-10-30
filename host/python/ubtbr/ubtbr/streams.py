@@ -24,10 +24,12 @@ def eprint(msg):
 	must not raise in the middle of a session and end a capture that was
 	running.
 
-	The state that reaches this is a pipe whose reader has left, which
-	can_be_written() cannot see at startup on Linux. The stream is pointed at
-	the bin so the writes to come are safe, and this line is let go: it had
-	nowhere to be read.
+	The state this is for is a pipe whose reader has left, which
+	can_be_written() cannot see at startup on Linux. Any other failure of the
+	stream is taken the same way, a full disk among them: there is nowhere
+	left to report the loss, so the line goes and the exit status is the
+	command's own. The stream is pointed at the bin so the writes to come are
+	safe.
 	"""
 	try:
 		sys.stderr.write(msg)
