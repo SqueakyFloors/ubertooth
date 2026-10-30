@@ -766,6 +766,17 @@ MU_TEST(a_blink_survives_the_counters_wrap)
 	blink(0, 1, 0);
 	fake_fio1clr = 0;
 
+	/* The deadline has wrapped and the counter has not, so it is now the
+	 * smaller of the two although it is 10 ms in the future. Comparing the
+	 * two as plain unsigned numbers reads the blink as already over here. */
+	blink_expire();
+	mu_assert_int_eq(0, (int)fake_fio1clr);
+
+	/* 1 ms in, still before the wrap. */
+	fake_t2tc = 0xffffffffu - MSEC(4);
+	blink_expire();
+	mu_assert_int_eq(0, (int)fake_fio1clr);
+
 	/* Past the wrap, but only 5 ms in. */
 	fake_t2tc = MSEC(4);
 	blink_expire();
