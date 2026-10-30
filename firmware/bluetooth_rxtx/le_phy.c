@@ -94,6 +94,9 @@
 #define FS_LOCK_FAST_RECHECKS   512
 #define FS_LOCK_SLOW_RESTROBE   16
 
+// How long an LED stays on for one packet handed to the host. See BLINK_NOW.
+#define LE_BLINK_LENGTH MSEC(10)
+
 // Reads before emptying the symbol buffer gives up.
 //
 // The drains below empty the SSP's receive buffer after the radio has been
@@ -287,7 +290,10 @@ static void le_dma_interrupt(uint32_t timestamp);
 static void timer1_interrupt(void);
 static void timer1_wait_buffer(void);
 static void timer1_cancel_wait_buffer(void);
+static void blink_timer_start(void);
+static void blink_timer_stop(void);
 static void blink(int tx, int rx, int usr);
+static void blink_expire(void);
 static void le_dma_init(void);
 static void le_cc2400_strobe_rx(void);
 static void change_channel(void);
@@ -1157,13 +1163,12 @@ static void timer1_enable_interrupt(void) {
 // Arm one of timer1's matches -- the moment and the interrupt that reports it
 // together -- or disarm one.
 //
-// T1MCR holds the enable bit of all four matches this engine uses: the
-// connection event (MR0), the LED blink (MR1), the synthesizer-lock wait
-// (MR2) and the buffer wait (MR3). Setting or clearing one bit of it is a
-// read-modify-write, and the four matches do not belong to one context: the
-// main loop arms the blink and, on the connection-following path, the event
-// and lock matches, while both interrupt handlers arm and disarm the lock and
-// buffer waits.
+// T1MCR holds the enable bit of all three matches this engine uses: the
+// connection event (MR0), the synthesizer-lock wait (MR2), and the buffer
+// wait (MR3). Setting or clearing one bit of it is a read-modify-write, and the
+// three matches do not belong to one context: the main loop arms the event
+// and lock matches on the connection-following path, while both interrupt
+// handlers arm and disarm the lock and buffer waits.
 //
 // So an interrupt landing between the read and the write costs the interrupt
 // its bit. The main loop writes back a value it read before the handler ran,
@@ -1217,9 +1222,9 @@ static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t b
 //
 // Every wait and timeout in the engine arms its match through this, so no
 // interval is measured from a counter reading that an interrupt has had time
-// to overtake. The shortest is the 3 microsecond synthesizer re-check and the
-// longest the 10 millisecond LED blink; the connection grid is the one thing
-// that does not come through here, and timer1_arm_match() above says why.
+// to overtake. The shortest is the 3 microsecond synthesizer re-check; the
+// connection grid is the one thing that does not come through here, and
+// timer1_arm_match() above says why.
 static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
@@ -1451,16 +1456,6 @@ static void timer1_interrupt(void) {
 		}
 	}
 
-	// LEDs
-	if (T1IR & TIR_MR1_Interrupt) {
-		T1IR = TIR_MR1_Interrupt;
-		timer1_disarm_match_interrupt(TMCR_MR1I);
-
-		TXLED_CLR;
-		RXLED_CLR;
-		USRLED_CLR;
-	}
-
 	// check FS_LOCK
 	if (T1IR & TIR_MR2_Interrupt) {
 		T1IR = TIR_MR2_Interrupt;
@@ -1520,6 +1515,57 @@ static void timer1_interrupt(void) {
 	}
 }
 
+// The blink's own counter, timer2, and the moment the LEDs go off again.
+//
+// The blink marks a packet handed to the host, so it is armed from the mode's
+// loop, and it used to arm a fourth match of timer1. Timer1 is the radio's
+// clock: the connection event, the synthesizer-lock wait, and the buffer wait
+// are all matches of it, and its counter is what every deadline in this file
+// is measured against. So the loop wrote that register once for every packet
+// it handed to the host, which is what giving the LED a counter of its own
+// stops. The connection-following path still arms the event and the lock
+// match from the loop, under the guards timer1_arm_match() describes.
+//
+// Timer2 is free while this mode runs: the only other user is the xmas LED
+// demo, which is a mode of its own and cannot be running at the same time.
+//
+// No interrupt is enabled, so this costs the radio's timing nothing: the
+// deadline is polled from the loop, which is a plain counter read, and the
+// loop comes round every few microseconds -- far oftener than the 10 ms the
+// LED is on. Leaving the match control register at 0, and clearing whatever
+// the xmas demo latched, means nothing of timer2 reaches the interrupt
+// controller, so its TIMER2_IRQHandler() over in xmas.c is never entered from
+// here.
+//
+// Note the name: NOW above is timer1's counter, and this is timer2's. The
+// blink measures its deadline against this one.
+#define BLINK_NOW T2TC
+
+// Both are the loop's alone: blink() and blink_expire() are called from it
+// and from nowhere else, so neither needs a guard.
+static uint32_t blink_until;
+static int blink_armed;
+
+static void blink_timer_start(void) {
+	PCONP |= PCONP_PCTIM2;
+	T2TCR = TCR_Counter_Reset;
+	// clock_start() puts timer2 on the same peripheral clock divider as
+	// timer1, so timer1's prescaler makes a tick of the same length here and
+	// the file's USEC() and MSEC() mean the same on either counter.
+	T2PR = 4;
+	T2MCR = 0;
+	T2IR = 0xff; // write-1-to-clear: every match and capture flag
+	T2TCR = TCR_Counter_Enable;
+
+	blink_armed = 0;
+}
+
+static void blink_timer_stop(void) {
+	T2TCR = TCR_Counter_Reset;
+
+	PCONP &= ~PCONP_PCTIM2;
+}
+
 static void blink(int tx, int rx, int usr) {
 	if (tx)
 		TXLED_SET;
@@ -1528,8 +1574,26 @@ static void blink(int tx, int rx, int usr) {
 	if (usr)
 		USRLED_SET;
 
-	// blink for 10 ms
-	timer1_arm_match_in(&T1MR1, MSEC(10), TMCR_MR1I);
+	blink_until = BLINK_NOW + LE_BLINK_LENGTH;
+	blink_armed = 1;
+}
+
+// Turn the LEDs off once a blink has had its 10 ms. Called every time round
+// the mode's loop.
+//
+// The comparison is on the signed difference, so a deadline that lands beyond
+// the counter's wrap is still in the future: the counter is 32 bits of 100 ns
+// ticks, which wraps every 429 seconds.
+static void blink_expire(void) {
+	if (!blink_armed)
+		return;
+	if ((int32_t)(BLINK_NOW - blink_until) < 0)
+		return;
+
+	blink_armed = 0;
+	TXLED_CLR;
+	RXLED_CLR;
+	USRLED_CLR;
 }
 
 // helper function to dewhiten length from whitened data (only used
@@ -1938,6 +2002,9 @@ void le_phy_main(void) {
 	// interrupt stays masked until the setup below is done.
 	timer1_start();
 
+	// The LED blink's counter. See BLINK_NOW.
+	blink_timer_start();
+
 	current_rxbuf = buffer_get();
 	rf_channel = le_adv_channel; // FIXME
 	// Not just the access address: the whole connection state, so a run
@@ -2006,6 +2073,8 @@ void le_phy_main(void) {
 			buffer_release(packet);
 		}
 
+		blink_expire();
+
 		// Polled USB handling, control requests only. The host for this
 		// mode (ubertooth-btle -n/-f) collects packets with UBERTOOTH_POLL
 		// and never reads the bulk IN endpoint, so handing packets to that
@@ -2046,13 +2115,16 @@ void le_phy_main(void) {
 	// on rx_tc from legacy_DMA_IRQHandler().
 	ISER0 = ISER0_ISE_DMA;
 
-	// drop every armed match, including MR1 (the LED blink), and any flag one
-	// of them has already latched, before stopping the timer, so the hardware
-	// is left quiet. The next entry clears all of this again rather than
-	// trusting it.
+	// drop every armed match, and any flag one of them has already latched,
+	// before stopping the timer, so the hardware is left quiet. The next
+	// entry clears all of this again rather than trusting it.
 	T1MCR = 0;
 	T1IR = 0xff; // write-1-to-clear: every match and capture flag
 	timer1_stop();
+
+	// The LED blink's counter goes back off, and its power with it. The LEDs
+	// themselves are cleared below, whatever the blink was in the middle of.
+	blink_timer_stop();
 
 	// kill the CC2400: synthesizer off, and the Ubertooth One amplifier with it
 	cc2400_strobe(SRFOFF);

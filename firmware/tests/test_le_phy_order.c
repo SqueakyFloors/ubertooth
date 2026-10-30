@@ -73,6 +73,19 @@ struct le_phy_scan {
 	/* Handing a match a moment worked out from the counter, from outside the
 	 * guard that arms it. */
 	int bare_moment_from_counter;
+	/* The LED blink, which is on timer2: any mention of timer1's match 1,
+	 * which the blink used to arm, and any unmasking of timer2's own
+	 * interrupt. */
+	int timer1_blink_match;
+	int timer2_unmask;
+	/* In le_phy_main(): where the blink's counter is started and stopped,
+	 * and where a finished blink is turned off. The last is counted only
+	 * inside the mode's own loop: called after the loop instead, it would
+	 * leave the LED latched on from the first packet to the end of the
+	 * mode. */
+	int blink_timer_start;
+	int blink_timer_stop;
+	int blink_expire_in_loop;
 	/* In le_dma_interrupt(), where a finished packet is handed over: the
 	 * first of each of these after the function starts. */
 	int handover_take;      /* buffer_get() */
@@ -85,7 +98,7 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 {
 	char line[512];
 	int lineno = 0, in_block = 0, in_main = 0, in_timer1_start = 0;
-	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0;
+	int in_mask_helper = 0, in_dma = 0, in_grid_caller = 0, in_loop = 0;
 	char name[64];
 	FILE *f = fopen(path, "r");
 
@@ -102,6 +115,18 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 		if (is_assignment_to(line, "ISER0") &&
 		    contains_identifier(line, "ISER0_ISE_TIMER1"))
 			s->unmask_writes++;
+
+		/* The LED blink's two marks, anywhere in the file: timer1's match 1,
+		 * which the blink used to arm, and timer2's interrupt, which it
+		 * must not start using instead. */
+		if (s->timer1_blink_match == 0 &&
+		    (contains_identifier(line, "T1MR1") ||
+		     contains_identifier(line, "TMCR_MR1I") ||
+		     contains_identifier(line, "TIR_MR1_Interrupt")))
+			s->timer1_blink_match = lineno;
+
+		if (contains_identifier(line, "ISER0_ISE_TIMER2"))
+			s->timer2_unmask = lineno;
 
 		/* Every mention of T1MCR in the file, and whether it is inside one
 		 * of the helpers that hold interrupts off. A write of the whole
@@ -221,7 +246,26 @@ static int scan_le_phy(const char *path, struct le_phy_scan *s)
 				s->unmask = lineno;
 			if (strcmp(name, "timer1_stop") == 0 && s->timer1_stop == 0)
 				s->timer1_stop = lineno;
+			if (strcmp(name, "blink_timer_start") == 0 &&
+			    s->blink_timer_start == 0)
+				s->blink_timer_start = lineno;
+			if (strcmp(name, "blink_timer_stop") == 0 &&
+			    s->blink_timer_stop == 0)
+				s->blink_timer_stop = lineno;
+			if (in_loop && strcmp(name, "blink_expire") == 0 &&
+			    s->blink_expire_in_loop == 0)
+				s->blink_expire_in_loop = lineno;
 		}
+
+		/* The mode's own loop, so a call can be placed inside it rather
+		 * than merely somewhere in the function. The loop is written at one
+		 * tab and its body at two, so its closing brace is the next line
+		 * that is a tab and a brace alone. */
+		if (!in_loop && strstr(line, "while (requested_mode") != NULL)
+			in_loop = 1;
+		else if (in_loop && strncmp(line, "\t}", 2) == 0)
+			in_loop = 0;
+
 		if (is_assignment_of(line, "le_packet_dropped", "0") &&
 		    s->dropped_cleared == 0)
 			s->dropped_cleared = lineno;
@@ -421,11 +465,11 @@ MU_TEST(test_active_is_cleared_before_the_teardown)
  * goes through one of the three helpers that hold interrupts off while they do
  * it.
  *
- * All four matches live in that one register -- the connection event, the LED
- * blink, the synthesizer-lock wait and the buffer wait -- and no single
- * context owns them: the main loop arms the blink and, while a connection is
- * being followed, the event and the lock wait, and both interrupt handlers arm
- * and disarm the waits. Setting a bit is a read-modify-write, so an interrupt
+ * All three matches live in that one register -- the connection event, the
+ * synthesizer-lock wait, and the buffer wait -- and no single context owns
+ * them: the main loop arms the event and the lock wait while a connection is
+ * being followed, and both interrupt handlers arm and disarm the waits.
+ * Setting a bit is a read-modify-write, so an interrupt
  * landing between the read and the write costs the interrupt its bit. When the
  * bit lost is the lock wait's, nothing arms receive again: the loop runs on,
  * feeding the watchdog and answering the host, while the capture stays silent
@@ -475,6 +519,58 @@ MU_TEST(test_every_match_bit_is_changed_with_interrupts_held_off)
 	         "between can outlast the interval and the match goes in behind "
 	         "the counter", path, s.bare_moment_from_counter);
 	mu_assert(s.bare_moment_from_counter == 0, msg);
+}
+
+/*
+ * The LED blink stays off timer1.
+ *
+ * Timer1 is the radio's clock: every deadline the capture keeps is a match of
+ * it, and its counter is what they are measured against. The blink marks a
+ * packet handed to the host, so it is armed from the mode's loop, and while it
+ * was a fourth match of timer1 that loop had to write the register the
+ * radio's three matches live in. It runs on timer2 now, which no other mode
+ * can be using at the same time.
+ *
+ * Timer2's own interrupt stays masked as well, so the blink costs the radio's
+ * timing nothing: a handler of its own could cut into the capture the same way
+ * the match did. The loop polls the counter instead, which is a plain read.
+ *
+ * What the blink does with that counter runs in test_le_phy_logic.c. This is
+ * the scan that notices it being put back on timer1, or given an interrupt.
+ */
+MU_TEST(test_the_blink_is_not_on_the_radios_timer)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: timer1's match 1 is named here, which is the LED blink's "
+	         "old home; the blink belongs on timer2 so the mode's loop never "
+	         "writes the register the radio's own matches live in",
+	         path, s.timer1_blink_match);
+	mu_assert(s.timer1_blink_match == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: timer2's interrupt is unmasked here; the blink is polled "
+	         "from the loop on purpose, so no handler of its own can cut into "
+	         "the capture", path, s.timer2_unmask);
+	mu_assert(s.timer2_unmask == 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_phy_main() never starts the blink's counter, so the "
+	         "deadline is measured against a counter that is not running",
+	         path);
+	mu_assert(s.blink_timer_start != 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: le_phy_main() never stops the blink's counter, so timer2 is "
+	         "left running and powered for the modes that follow", path);
+	mu_assert(s.blink_timer_stop != 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the mode's loop never calls blink_expire(), so nothing "
+	         "turns the LED off and it stays on from the first packet to the "
+	         "end of the mode", path);
+	mu_assert(s.blink_expire_in_loop != 0, msg);
 }
 
 /*
@@ -533,6 +629,7 @@ int main(void)
 	MU_RUN(test_the_interrupt_is_unmasked_last);
 	MU_RUN(test_active_is_cleared_before_the_teardown);
 	MU_RUN(test_every_match_bit_is_changed_with_interrupts_held_off);
+	MU_RUN(test_the_blink_is_not_on_the_radios_timer);
 	MU_RUN(test_a_finished_packet_is_handed_over_in_one_guarded_step);
 	return mu_report();
 }

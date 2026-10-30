@@ -2047,6 +2047,11 @@ Fixes with no visible change in normal use.
   could land between, which could lose a buffer or a timer match.
   [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- The LED that marks a packet in a low-energy capture is timed by a counter of
+  its own rather than by the timer the radio's own deadlines live on, so the
+  capture loop no longer writes that timer to light an LED. The blink is the
+  same length as before.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - A request that carries more data to the board than the buffer its handler
   registered is refused, instead of having the rest of it written over whatever
   follows that buffer. The length a request may declare is sixteen bits and the
