@@ -19,9 +19,9 @@ Ubertooth itself. Most tools also have a manual page under ``host/doc/``.
 
 **BLE**
 
-- ``ubertooth-btle`` — Passive BLE monitoring; follow connections / capture
-  advertising with ``-f``. (Needs: ambient BLE traffic.) The most commonly used
-  tool.
+- ``ubertooth-btle`` — Passive BLE monitoring: follow connections (``-f``),
+  capture advertising only (``-n``), or sniff a connection that is already up
+  (``-p``). (Needs: ambient BLE traffic.) The most commonly used tool.
 - ``btle-extcap.py`` — An external capture program that lets Wireshark capture
   BLE advertising from an Ubertooth directly, by running ``ubertooth-btle`` for
   it; see ``btle-extcap(1)`` (``host/doc/btle-extcap.md``). (Needs:
