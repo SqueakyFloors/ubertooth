@@ -20,6 +20,7 @@
  */
 
 #include "ubertooth_dma.h"
+#include "irq.h"
 
 volatile uint8_t rxbuf1[DMA_SIZE];
 volatile uint8_t rxbuf2[DMA_SIZE];
@@ -182,30 +183,77 @@ void dma_init_le(volatile uint8_t* dest, unsigned len) {
 			DMACCxConfig_ITC; /* allow terminal count interrupts */
 }
 
+/*
+ * Arming and disarming receive change three registers a bit at a time, and
+ * three contexts do it while the low-energy capture engine runs: that mode's
+ * loop, its timer interrupt on every hop, and its byte interrupt at the end of
+ * every packet. The timer interrupt preempts the byte interrupt, so each of
+ * the three read-modify-writes below is held off from the others.
+ *
+ * Each register carries more than the one bit being changed -- SSPDMACR holds
+ * the transmit request alongside the receive one, SSPCR1 the SSP's mode bits,
+ * and the channel configuration register its peripheral and interrupt
+ * settings -- so none of them can be written whole. Split by an interrupt, the
+ * write carries a value the other context has already moved on from, and the
+ * bit that context set goes missing.
+ *
+ * Losing the receive request is the one that costs a capture: the radio is
+ * strobed into receive immediately after it is armed, so from there the
+ * receiver clocks symbols into the SSP with nothing asking the controller to
+ * collect them. No byte reaches a buffer and no interrupt is raised, while the
+ * mode's loop goes on feeding the watchdog and answering the host, so the
+ * board looks healthy and the capture is over until the mode is restarted.
+ *
+ * The slave select pin is left outside the guards: it has its own set and
+ * clear registers, so writing it reads nothing back.
+ */
 void dio_ssp_start()
 {
+	uint32_t primask;
+
 	/* make sure the (active low) slave select signal is not active */
 	DIO_SSEL_SET;
 
+	primask = irq_save_disable();
 	/* enable rx DMA on DIO_SSP */
 	DIO_SSP_DMACR |= SSPDMACR_RXDMAE;
 	DIO_SSP_CR1 |= SSPCR1_SSE;
 
 	// enable channel
 	DMACC0Config |= 1;
+	irq_restore(primask);
 
 	/* activate slave select pin */
 	DIO_SSEL_CLR;
 }
 
+/* Stop the SSP asking the controller for the bytes the receiver produces.
+ *
+ * Its own function because the low-energy engine does this on its own, from
+ * three places in its byte interrupt and one in its timer interrupt, leaving
+ * the SSP and the channel alone: the receiver keeps clocking symbols out until
+ * the strobe that stops it takes effect, and those would otherwise be
+ * collected as the head of the next packet. */
+void dio_ssp_rx_dma_disable(void)
+{
+	uint32_t primask = irq_save_disable();
+
+	DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
+	irq_restore(primask);
+}
+
 void dio_ssp_stop()
 {
+	uint32_t primask;
+
 	// disable CC2400's output (active low)
 	DIO_SSEL_SET;
 
 	// disable DMA on SSP; disable SSP ; disable DMA channel
+	primask = irq_save_disable();
 	DIO_SSP_DMACR &= ~SSPDMACR_RXDMAE;
 	DIO_SSP_CR1 &= ~SSPCR1_SSE;
+	irq_restore(primask);
 	DMACC0Config = 0;
 	dma_clear_interrupts(0);
 

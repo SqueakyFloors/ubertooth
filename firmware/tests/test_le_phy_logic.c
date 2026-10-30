@@ -115,6 +115,16 @@ int cc2400_wait_xosc_stable(void (*service)(void))
 void dio_ssp_init(void) { ssp_starts++; }
 void dio_ssp_start(void) { ssp_starts++; }
 void dio_ssp_stop(void) { ssp_starts++; }
+
+/* Stop the SSP asking the controller for bytes, which the firmware does in one
+ * guarded place because the loop and both handlers change that register a bit
+ * at a time (ubertooth_dma.c). That file is not compiled here, so this stands
+ * in for its effect, and test_le_phy_order.c's scan is what refuses a site
+ * that reaches the register directly. */
+void dio_ssp_rx_dma_disable(void)
+{
+	fake_ssp1dmacr &= ~SSPDMACR_RXDMAE;
+}
 void dma_clear_interrupts(unsigned channel) { (void)channel; dma_clear_calls++; }
 void clkn_init(void) {}
 void clkn_disable(void) {}
@@ -2378,6 +2388,68 @@ static void anchored_connection(uint32_t last_anchor)
 	conn.conn_event_counter = 5;
 }
 
+/*
+ * The first packet of an open connection event is counted into it, anchors it,
+ * and starts the inter-frame timeout that waits for the event's second packet.
+ */
+MU_TEST(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second)
+{
+	le_rx_t *packet;
+
+	anchored_connection(1000000);
+	conn_event.opened = 1;
+
+	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+
+	mu_assert_fatal(packet != NULL, "the packet never reached the host");
+	mu_assert_int_eq(1, conn_event.num_packets);
+	mu_assert_int_eq(packet->timestamp, conn_event.anchor);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "nothing waits for the event's second packet");
+	mu_assert_int_eq(fake_t1tc + IFS_TIMEOUT, fake_t1mr0);
+	buffer_release(packet);
+}
+
+/*
+ * A packet that arrived after its connection event closed leaves the next
+ * event's own match alone.
+ *
+ * A packet may begin as late as its event's deadline -- the peripheral's
+ * answer is allowed a whole PERIPHERAL_REPLY_LATEST after the anchor -- so the
+ * deadline can expire in the microseconds between the packet's first symbol
+ * and the interrupt that reports its first byte. The timer interrupt, which
+ * preempts that one, has then closed the event and armed the next one in the
+ * same match register.
+ *
+ * The packet is still whole and still goes to the host. What must not happen
+ * is its bookkeeping landing in the event that follows: counted there, it put
+ * its own time into an anchor that event had not reached and armed a 300
+ * microsecond inter-frame timeout over the event's own match. The event after
+ * then opened behind a packet instead of on the connection's grid, and the
+ * event counter every instant is matched against was one ahead of the peer's.
+ */
+MU_TEST(a_packet_from_a_closed_event_leaves_the_next_event_armed)
+{
+	const uint32_t next_event = 2000000;
+	le_rx_t *packet;
+
+	anchored_connection(1000000);
+	/* The event this packet belongs to has been closed and the next one
+	 * armed, which is what finish_conn_event() leaves behind. */
+	reset_conn_event();
+	timer1_set_match(next_event);
+
+	packet = a_packet_arrives(10, DATA_CHANNEL_MHZ, 0);
+
+	mu_assert_fatal(packet != NULL, "the packet never reached the host");
+	mu_assert_int_eq(0, conn_event.num_packets);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "a packet from the event before it disarmed the next "
+	          "connection event, so nothing opens it");
+	mu_assert_int_eq(next_event, fake_t1mr0);
+	buffer_release(packet);
+}
+
 MU_TEST(two_packets_in_an_event_anchor_it_where_they_arrived)
 {
 	anchored_connection(100000);
@@ -3559,6 +3631,8 @@ int main(void)
 	MU_RUN(an_empty_map_does_not_divide_by_zero_in_the_remapping);
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);
 	MU_RUN(a_target_filters_advertising_packets_only);
+	MU_RUN(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second);
+	MU_RUN(a_packet_from_a_closed_event_leaves_the_next_event_armed);
 	MU_RUN(two_packets_in_an_event_anchor_it_where_they_arrived);
 	MU_RUN(one_packet_anchors_the_event_only_near_the_prediction);
 	MU_RUN(a_silent_event_moves_the_anchor_on_by_one_interval);

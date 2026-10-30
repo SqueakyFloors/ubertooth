@@ -56,4 +56,10 @@ void dma_init_le(volatile uint8_t* dest, unsigned len);
 void dio_ssp_start();
 void dio_ssp_stop();
 
+/* Stop the SSP raising a receive transfer request, leaving the SSP and the
+ * channel as they are. See the comment on it: every partial write of these
+ * registers holds interrupts off, because the capture engine's loop and both
+ * of its interrupt handlers reach them. */
+void dio_ssp_rx_dma_disable(void);
+
 #endif
