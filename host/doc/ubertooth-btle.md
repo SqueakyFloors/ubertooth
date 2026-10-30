@@ -89,7 +89,8 @@ long enough to fill it reports
     warning: the capture file has no more room for connection parameters; the packets are still recorded, but later connections cannot be followed in Wireshark
 
 once on standard error and carries on. Start a new capture file to record
-more.
+more. The format of a PcapNG capture's own options is specified in
+`docs/source/bluetooth_captures_PCAP.rst`.
 
 In every sniffing mode, a packet carrying a Bluetooth 4.2 Data Length
 Extension payload, up to its 251-byte maximum, is captured whole: on the
