@@ -437,6 +437,52 @@ print("ubertooth-specan-ui: a descriptor open for reading only costs the"
       " command neither its status nor its answer")
 
 
+# ---- and a pipe whose reader has left -------------------------------------
+#
+# The third state, and the one the startup guard cannot see: on Linux a write
+# of nothing to a pipe with no reader succeeds (fs/pipe.c, pipe_write(),
+# "Null write succeeds"), so the descriptor passes for writable there and
+# only a real write finds the reader gone. macOS refuses both. The flush the
+# interpreter does as it exits then failed where no handler could reach it,
+# which ended the command in status 120 on Linux and left the same command
+# line with a different status on the two platforms. So it is pinned here
+# rather than left to the read-only case above, which looks the same on both.
+
+def broken_pipe(*numbers):
+    """Point each of these descriptors at a pipe whose reader has already
+    left, which is `| <a reader that stops>`. Returns what Popen runs between
+    fork and exec."""
+    def prepare():
+        for number in numbers:
+            reading, writing = os.pipe()
+            os.close(reading)
+            os.dup2(writing, number)
+            os.close(writing)
+    return prepare
+
+
+# a refused range, which is `-l 2000 2> <a reader that stops>`: the line is
+# lost and the status is the command's own 1, not 120
+status, output, errors = ran_with(("-l", "2000"), broken_pipe(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+
+# and that stream going does not cost the answer: -h still prints the usage
+# text, on standard output, and exits 0
+status, output, errors = ran_with(("-h",), broken_pipe(2))
+assert status == 0, (status, output, errors)
+assert output.startswith("usage:"), output
+
+# both streams the same pipe, which is `-h 2>&1 | <a reader that stops>`:
+# the usage text and the line reporting its loss both go nowhere, and the
+# status is all that is left
+status, output, errors = ran_with(("-h",), broken_pipe(1, 2))
+assert status == 1, (status, output, errors)
+
+print("ubertooth-specan-ui: a standard error whose reader has left leaves"
+      " the command its own exit status")
+
+
 # ---- and none of that needs numpy or a Qt binding -------------------------
 #
 # The window does. The command line does not, and -V least of all: it is how a

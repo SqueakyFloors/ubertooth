@@ -50,6 +50,90 @@ def point_at_the_bin(stream):
 		# the tool started. Nothing is written to it either way.
 		pass
 
+def can_be_written(stream):
+	"""Say whether a stream's descriptor would take what is written to it.
+
+	A write of nothing asks the descriptor that question and puts no text on
+	it: one opened for reading only refuses it, whatever the length. A flush
+	cannot ask, because an empty buffer flushes whichever state the
+	descriptor is in.
+
+	It is not the whole answer on Linux, where a pipe whose reader has left
+	takes a write of nothing and refuses the next real one (fs/pipe.c,
+	pipe_write(), "Null write succeeds"); macOS refuses both. So a true here
+	means the descriptor is open for writing, not that a reader is still
+	listening, and flush_the_streams() below is what covers the difference.
+	"""
+	try:
+		os.write(stream.fileno(), b"")
+		return True
+	except (OSError, ValueError, AttributeError):
+		return False
+
+def bin_an_unusable_standard_error():
+	"""Keep this tool's diagnostics out of the capture and out of its status.
+
+	With no such stream, eprint() has nothing to write to and every
+	diagnostic the tool gives ends in a traceback. Descriptor 2 is pointed at
+	the bin instead, so a child -- ubertooth-util, for the -V answer --
+	inherits the bin rather than a closed descriptor whose number its next
+	open() would take. Taking a lower descriptor would be worse still:
+	standard output may be closed too, and a child handed a writable bin for
+	it would throw away what it was asked to write.
+
+	A descriptor opened for reading only leaves a stream whose every write
+	fails, including the flush the interpreter does as it exits, where no
+	handler can reach it: the bin takes those lines too, so the command ends
+	with its own exit status rather than status 120.
+	"""
+	if sys.stderr is None:
+		nowhere = os.open(os.devnull, os.O_WRONLY)
+		if nowhere == 2:
+			# The bin is standard error itself, and os.open gives a
+			# descriptor no child inherits (PEP 446), so it is marked
+			# as one a child does: handed back the closed descriptor,
+			# the first file the child opened would take that number.
+			os.set_inheritable(2, True)
+		else:
+			# dup2 marks what it writes to as inheritable, so the
+			# child gets the bin here too.
+			os.dup2(nowhere, 2)
+			os.close(nowhere)
+		sys.stderr = open(2, "w", closefd=False)
+	elif not can_be_written(sys.stderr):
+		point_at_the_bin(sys.stderr)
+
+def flush_the_streams():
+	"""Empty both standard streams while a failure can still be handled.
+
+	Registered with atexit, which the interpreter runs before the flush it
+	does as it exits. That last flush is outside every handler: one that
+	fails there ends the tool in status 120 and a message of its own,
+	whatever the session made of its work. So a stream that refuses the
+	flush here is pointed at the bin and flushed again, which empties the
+	buffer and leaves the interpreter's flush nothing to fail at. The exit
+	status is then the command's own, as it is for every other lost line.
+
+	This is the state can_be_written() cannot see: a pipe whose reader has
+	left, which on Linux passes for writable at startup and is found only by
+	a real write.
+	"""
+	for stream in (sys.stdout, sys.stderr):
+		try:
+			stream.flush()
+		except (OSError, ValueError, AttributeError):
+			# A failed flush leaves what it could not write in the
+			# buffer, so the bin has to be given it rather than only the
+			# writes to come.
+			point_at_the_bin(stream)
+			try:
+				stream.flush()
+			except (OSError, ValueError, AttributeError):
+				# There is no such stream to empty, or none the bin could
+				# be put under. Nothing more can be done here, and the
+				# exit status is what reports the loss.
+				pass
+
 def output_lost():
 	"""Note that standard output has gone away, and stop writing to it.
 

@@ -153,15 +153,17 @@ with open(os.environ["FAKE_UTIL_ARGS"], "w") as record:
 # What the child was handed for standard output, where a case asks. A capture
 # on "--fifo=-" writes its data there, so a descriptor the shell closed must
 # not have been reopened on something that swallows it.
-if os.environ.get("FAKE_UTIL_FD1"):
+for number, variable in ((1, "FAKE_UTIL_FD1"), (2, "FAKE_UTIL_FD2")):
+    if not os.environ.get(variable):
+        continue
     state = "closed"
     try:
         state = ("the bin"
-                 if os.fstat(1).st_rdev == os.stat(os.devnull).st_rdev
+                 if os.fstat(number).st_rdev == os.stat(os.devnull).st_rdev
                  else "something else")
     except OSError:
         pass
-    with open(os.environ["FAKE_UTIL_FD1"], "w") as record:
+    with open(os.environ[variable], "w") as record:
         record.write(state)
 with open(os.environ["FAKE_UTIL_OUTPUT"]) as listing:
     sys.stdout.write(listing.read())
@@ -733,6 +735,19 @@ def close_both():
     os.close(2)
 
 
+def broken_pipe(*numbers):
+    """Point each of these descriptors at a pipe whose reader has already
+    left, which is `| <a reader that stops>`. Returns what Popen runs between
+    fork and exec."""
+    def prepare():
+        for number in numbers:
+            reading, writing = os.pipe()
+            os.close(reading)
+            os.dup2(writing, number)
+            os.close(writing)
+    return prepare
+
+
 def ran_with(arguments, prepare, **environment):
     """Run the script with one of its streams as a shell could have left it."""
     settings = dict(ENVIRONMENT, FAKE_UTIL_STATUS="0", FAKE_UTIL_SIGNAL="",
@@ -788,6 +803,20 @@ assert status == 1, (status, output, errors)
 assert output == "", output
 assert errors == "", errors
 
+# and a child started in that state is handed the bin for it, rather than the
+# closed descriptor whose number its first open() would take -- for a tool
+# that opens USB device nodes, one of those. The bin this script opens for
+# itself is descriptor 2 here, and a descriptor Python opens is one no child
+# inherits, so it has to be marked as one that is.
+FD2_FILE = os.path.join(directory, "child-fd2")
+if os.path.exists(FD2_FILE):
+    os.remove(FD2_FILE)
+status, output, errors = ran_with(("-V",), lambda: os.close(2),
+                                 FAKE_UTIL_FD2=FD2_FILE)
+assert status == 0, (status, output, errors)
+with open(FD2_FILE) as record:
+    assert record.read() == "the bin", record
+
 # and that stream going does not cost the answer: -h still prints the usage
 # text, on standard output, and exits 0
 status, output, errors = ran_with(("-h",), lambda: os.close(2))
@@ -799,20 +828,47 @@ status, output, errors = ran_with(("-h",), close_both)
 assert status == 1, (status, output, errors)
 assert output == "" and errors == "", (output, errors)
 
-# and in that state a child gets no standard output either. A capture on
-# "--fifo=-" writes its data there, so one handed a writable descriptor the
-# user never asked for -- the bin this script opens for its own diagnostics
-# is the one at hand -- would throw the capture away and read as a capture
-# that worked.
+# A capture on "--fifo=-" writes its data to this script's own standard
+# output, so a descriptor that would not take it means the capture has
+# nowhere to go. It is asked about before the child starts, as the -V answer
+# is: closed, the child's first open() takes descriptor 1 and the capture is
+# written into whatever that turns out to be -- for a tool that opens USB
+# device nodes, one of those -- and the call used to exit 0 as though the
+# capture had worked. Both states a redirection leaves are checked, and in
+# neither is ubertooth-btle started.
+CAPTURE = ("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+           "--fifo=-")
+for prepare, reported in ((lambda: os.close(1), OUTPUT_GONE),
+                          (read_only(1), OUTPUT_GONE),
+                          # with no standard error either, the status is all
+                          # that is left to say it with
+                          (close_both, "")):
+    if os.path.exists(ARGS_FILE):
+        os.remove(ARGS_FILE)
+    status, output, errors = ran_with(CAPTURE, prepare)
+    assert status == 1, (status, output, errors)
+    assert output == "", output
+    assert errors == reported, (errors, reported)
+    assert "Traceback" not in errors, errors
+    assert "Exception ignored" not in errors, errors
+    assert not os.path.exists(ARGS_FILE), "ubertooth-btle must not run"
+
+# A capture to a real fifo is the call Wireshark makes, and it still runs
+# with both streams gone: its data goes to the fifo and not to standard
+# output, which the child is handed the bin for. The bin this script opens
+# for its own diagnostics must not be the descriptor the child reads as its
+# standard output, since one handed a writable descriptor the user never
+# asked for would throw away what it was asked to write.
 FD1_FILE = os.path.join(directory, "child-fd1")
 if os.path.exists(FD1_FILE):
     os.remove(FD1_FILE)
 status, output, errors = ran_with(
-    ("--capture", "--extcap-interface=ubertooth" + SERIALS[0], "--fifo=-"),
+    ("--capture", "--extcap-interface=ubertooth" + SERIALS[0],
+     "--fifo=" + os.path.join(directory, "capture.pcap")),
     close_both, FAKE_UTIL_FD1=FD1_FILE)
-assert status == 1, (status, output, errors)
+assert status == 0, (status, output, errors)
 with open(FD1_FILE) as record:
-    assert record.read() == "closed", record
+    assert record.read() == "the bin", record
 
 print("btle-extcap: a standard stream the shell closed is reported, not a"
       " traceback")
@@ -914,6 +970,43 @@ assert status == 1, (status, output, errors)
 
 print("btle-extcap: a standard error that cannot be written costs the call"
       " neither its status nor its answer")
+
+# ---- a standard error whose reader has left --------------------------------
+#
+# The third state, and the one the startup guard cannot see: on Linux a write
+# of nothing to a pipe with no reader succeeds (fs/pipe.c, pipe_write(),
+# "Null write succeeds"), so the descriptor passes for writable there and
+# only a real write finds the reader gone. macOS refuses both. The flush the
+# interpreter does as it exits then failed where no handler could reach it,
+# which ended the call in status 120 on Linux and left the same command line
+# with a different status on the two platforms. So it is pinned here rather
+# than left to the read-only case above, which looks the same on both.
+
+# a refused command line, which is `--bogus 2> <a reader that stops>`: the
+# line is lost and the status is the call's own 1, not 120
+status, output, errors = ran_with(("--bogus",), broken_pipe(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+
+# a bare call, whose usage line goes to that stream as well
+status, output, errors = ran_with((), broken_pipe(2))
+assert status == 1, (status, output, errors)
+assert output == "", output
+
+# and that stream going does not cost the answer: -h still prints the usage
+# text, on standard output, and exits 0
+status, output, errors = ran_with(("-h",), broken_pipe(2))
+assert status == 0, (status, output, errors)
+assert output.startswith("Usage:"), output
+
+# both streams the same pipe, which is `-h 2>&1 | <a reader that stops>`:
+# the usage text and the line reporting its loss both go nowhere, and the
+# status is all that is left
+status, output, errors = ran_with(("-h",), broken_pipe(1, 2))
+assert status == 1, (status, output, errors)
+
+print("btle-extcap: a standard error whose reader has left leaves the call"
+      " its own exit status")
 
 # ---- --capture --------------------------------------------------------------
 

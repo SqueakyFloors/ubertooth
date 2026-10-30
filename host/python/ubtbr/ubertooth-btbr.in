@@ -1,4 +1,5 @@
 #!@Python3_EXECUTABLE@
+import atexit
 import errno
 import os
 import signal
@@ -19,7 +20,8 @@ from getopt import getopt, GetoptError
 # command line can be read -- and -V and -h answered -- up here, ahead of the
 # imports further down, which need the Python libusb1 package. -V is the call
 # that has to work without it: it is how a user says which tools they have.
-from ubtbr.streams import error, eprint, output_gone, output_lost
+from ubtbr.streams import (bin_an_unusable_standard_error, error, eprint,
+	flush_the_streams, output_gone, output_lost)
 
 # The options the tool takes, in getopt's form: a ':' marks one that takes a
 # value. report_bad_option() reads the same string to find the word a stray
@@ -293,6 +295,13 @@ def through(stage):
 	sys.exit(1 if output_gone() else status)
 
 if __name__ == '__main__':
+	# Before anything is printed, since what this does is decide where the
+	# diagnostics below go.
+	bin_an_unusable_standard_error()
+	# The last word on both streams, and the only handler the flush as the
+	# interpreter exits can be kept out of.
+	atexit.register(flush_the_streams)
+
 	# Read here, ahead of the imports below, so that -V, -h and a refused
 	# command line are answered on a host without the Python libusb1 package.
 	COMMAND_LINE = through(read_command_line)
