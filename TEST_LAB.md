@@ -48,7 +48,7 @@ host build; the gap is **old + new** distros and firmware.
 | Linux "new" | Ubuntu 24.04 | +Fedora latest, Arch | Catches CMake4 / py3.12 / setuptools breakage |
 | Linux "old" | Ubuntu 20.04 | +Debian stable, 22.04 | Catches regressions that break old toolchains |
 | macOS | 1 current macOS | +1 Intel + 1 Apple-Silicon | libusb path differs; `/opt/homebrew` vs `/usr/local` |
-| Firmware build | any Linux w/ `arm-none-eabi-gcc` | pinned toolchain version | Firmware not in CI; `-O2`/gcc-version sensitive (upstream PR #191/#409) |
+| Firmware build | any Linux w/ `arm-none-eabi-gcc` | pinned toolchain version | Firmware not in CI; `-O2`/gcc-version sensitive ([upstream #191](https://github.com/greatscottgadgets/ubertooth/pull/191), [upstream #409](https://github.com/greatscottgadgets/ubertooth/pull/409)) |
 | Windows | *out of scope* | — | AI_CONTEXT: not supported (libusb/udev). Document as unsupported. |
 
 Minimum build tier = **effectively 0 dedicated machines** if you lean on CI +
@@ -81,8 +81,8 @@ not just sniffers. Minimum coverage:
 | Emitter type | Example | Exercises |
 |--------------|---------|-----------|
 | BLE advertiser | spare phone, BLE dev board (nRF52 dongle), fitness band | `ubertooth-btle`, RSSI, specan |
-| BLE connection | two nRF52 boards running a known connection | `-f` follow mode, CRC filter (PR #550) |
-| Classic BR/EDR | old BT headset / BT-classic dongle | `ubertooth-rx`, `ubertooth-btbr` paging (PR #540) |
+| BLE connection | two nRF52 boards running a known connection | `-f` follow mode, CRC filter ([upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)) |
+| Classic BR/EDR | old BT headset / BT-classic dongle | `ubertooth-rx`, `ubertooth-btbr` paging ([upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)) |
 | Controllable/scriptable | nRF52 + Zephyr, or a Linux host with BlueZ advertising | reproducible, scriptable traffic for CI assertions |
 
 Key point: for **repeatable automated assertions** you want a *scriptable*
@@ -99,7 +99,10 @@ relatively quiet RF area and treat counts as ranges, not exact values.
 ## 4. The 24-hour soak + data sampling
 
 Goal (from [TEST_PLAN.md](TEST_PLAN.md) section 8): run sniffers continuously, watch for
-memory growth (issues #542/#543), crashes, hangs, and USB dropouts.
+memory growth
+([upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542),
+[upstream #543](https://github.com/greatscottgadgets/ubertooth/issues/543)),
+crashes, hangs, and USB dropouts.
 
 Design:
 
@@ -173,7 +176,9 @@ The smallest thing that meaningfully tests this fork:
 
 That covers: build portability (CI), old+new OS radio behaviour (1 node can
 dual-boot or you add a 2nd later), the memory-leak soak, and the two-device case
-for the serial-number feature (PR #488). Everything else (macOS radio node, RF
+for the serial-number feature
+([upstream #488](https://github.com/greatscottgadgets/ubertooth/pull/488)).
+Everything else (macOS radio node, RF
 shielding, Grafana, multi-distro radio) is incremental.
 
 ---

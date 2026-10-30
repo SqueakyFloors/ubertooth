@@ -106,8 +106,7 @@ created or device opened, with
 A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
 the two most significant bytes zero, because a sniffer cannot see them.
 Whether that guess stops the page to a target whose address begins otherwise
-is unverified: it has not been measured on a bench, and these documents have
-claimed it both ways
+is not known
 ([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). When
 the page does fail, the command stops, saying what to do about it:
 

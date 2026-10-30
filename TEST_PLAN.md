@@ -282,7 +282,7 @@ bootloader needs the entry pin or a power cycle.*
       `bluetooth_rxtx.dfu` while it is capturing
 - [ ] Confirm: the same result, and the board does not stop answering
 
-### 2i. Two-board range test (issue #601)
+### 2i. Two-board range test ([issue #601](https://github.com/SqueakyFloors/ubertooth/issues/601))
 
 *Needs two Ubertooth boards a short distance apart, both running `bluetooth_rxtx`
 from this tree, so both are at the API version the host tools require. The
@@ -342,7 +342,7 @@ the same revision. The exchange completes within a couple of seconds.*
       other — and confirm the first two results again, so each board is seen
       transmitting
 
-### 2j. Flashing with the bootloader entry pin still bridged (issue #304)
+### 2j. Flashing with the bootloader entry pin still bridged ([issue #304](https://github.com/SqueakyFloors/ubertooth/issues/304))
 
 *Needs a board at the bench: the entry pin has to be bridged by hand, and the
 board is left in the bootloader at the end. Nothing here can wedge it; it comes
@@ -372,7 +372,7 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 
 ---
 
-## 3. BLE Sniffing (tests cherry-picked PR #550 — CRC fix)
+## 3. BLE Sniffing (tests the cherry-picked CRC fix, [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550))
 
 *Requires: a BLE advertising device nearby (phone with BT on is sufficient)*
 
@@ -381,7 +381,7 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 - [ ] Confirm: packets are captured (non-zero output)
 - [ ] Confirm: no hangs or crashes
 
-### 3b. CRC verification mode (the PR #550 fix)
+### 3b. CRC verification mode
 - [ ] Run `ubertooth-btle -k1 -f` for 10 seconds
 - [ ] Confirm: fewer packets than without `-k1` (bad-CRC packets are now filtered)
 - [ ] Confirm: no crash
@@ -547,7 +547,7 @@ before the first step so nothing is carried over.*
 
 ---
 
-## 5. Classic Bluetooth / BR/EDR (tests cherry-picked PR #540 — paging improvement)
+## 5. Classic Bluetooth / BR/EDR (tests the cherry-picked paging improvement, [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540))
 
 *Requires: a classic BT device (not BLE-only)*
 
@@ -561,7 +561,7 @@ before the first step so nothing is carried over.*
       same figure throughout. A single value across hundreds of records on many
       channels is the fault to report
 
-### 5b. Paging (PR #540 fix)
+### 5b. Paging
 *Requires: the board carrying the `btbr` image*
 - [ ] Run `ubertooth-btbr -U <serial>` targeting a known classic BT device
       BD_ADDR
@@ -580,7 +580,7 @@ before the first step so nothing is carried over.*
 - [ ] Confirm: Ctrl-C with a command running returns to the `bt>` prompt, and
       `q` then exits
 
-### 5c. AFH channel map detection (issue #238)
+### 5c. AFH channel map detection ([issue #238](https://github.com/SqueakyFloors/ubertooth/issues/238))
 *Requires: two classic BT devices with an active connection, for example audio
 streaming, so the piconet is transmitting throughout*
 - [ ] Find the piconet's LAP and UAP with `ubertooth-rx`
@@ -593,13 +593,15 @@ streaming, so the piconet is transmitting throughout*
 - [ ] Run `ubertooth-afh -l <lap> -u <uap> -r -m 30` and confirm the
       once-a-second binary map has bits in different places over successive
       lines, not a single 1 in the same place every time (individual bits
-      coming and going is expected, see #194; `-m 30` makes a channel take
+      coming and going is expected, see
+      [#194](https://github.com/SqueakyFloors/ubertooth/issues/194); `-m 30`
+      makes a channel take
       longer to be dropped than the default 5)
 - [ ] Interrupt each run with Ctrl-C, confirm exit status 0, then confirm
       `ubertooth-util -d -C -z` reports LEDs 0 0 0, channel 2441 MHz,
       squelch -120
 
-### 5d. What a board carries over between runs (issues #261, #312)
+### 5d. What a board carries over between runs ([issue #261](https://github.com/SqueakyFloors/ubertooth/issues/261), [issue #312](https://github.com/SqueakyFloors/ubertooth/issues/312))
 *Requires: the same active piconet as 5c. The channel a mode is on is sampled
 with `ubertooth-util -c`, which answers while a capture runs: a few dozen reads
 in a row show whether the board is hopping and over which channels.*
@@ -620,7 +622,7 @@ in a row show whether the board is hopping and over which channels.*
 
 ---
 
-## 6. RSSI (tests cherry-picked PR #481)
+## 6. RSSI (tests the cherry-picked channel bounds, [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481))
 
 - [ ] Run `ubertooth-btle -f` and observe RSSI values in output
 - [ ] Confirm: RSSI values are in a plausible range (-100 to 0 dBm)
@@ -628,7 +630,7 @@ in a row show whether the board is hopping and over which channels.*
 
 ---
 
-## 7. Scapy Integration (tests cherry-picked PR #519)
+## 7. Scapy Integration (tests the cherry-picked `PcapReader` update, [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519))
 
 *Requires: Python scapy installed (`pip3 install scapy`)*
 
@@ -640,7 +642,7 @@ in a row show whether the board is hopping and over which channels.*
 
 ## 8. Stress / Stability
 
-### 8a. Long-running BLE capture (tests memory leak issues #542, #543)
+### 8a. Long-running BLE capture (tests the reported memory leaks, [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542) and [upstream #543](https://github.com/greatscottgadgets/ubertooth/issues/543))
 - [ ] Run `ubertooth-btle -f` for 30 minutes
 - [ ] Monitor memory usage: `watch -n 5 'ps aux | grep ubertooth'`
 - [ ] Confirm: RSS memory does not grow unboundedly
@@ -651,7 +653,7 @@ in a row show whether the board is hopping and over which channels.*
 - [ ] Unplug and replug Ubertooth
 - [ ] Confirm: tool detects disconnect and exits cleanly (rather than hanging)
 
-### 8c. Recovering a board that answers nothing (issues #731, #239)
+### 8c. Recovering a board that answers nothing ([issue #731](https://github.com/SqueakyFloors/ubertooth/issues/731), [issue #239](https://github.com/SqueakyFloors/ubertooth/issues/239))
 A board that stops answering control requests is reached by killing a capture
 mid-stream; about one run in ten does it, so this may take several tries.
 - [ ] Run `ubertooth-btle -U <serial> -n`, kill it with `SIGKILL` after a few
@@ -673,12 +675,12 @@ mid-stream; about one run in ten does it, so this may take several tries.
 
 These branches exist in the repo but are NOT in master yet:
 
-### PR #488 — Serial number support (`feature/serial-number-support`)
+### Serial number support, [upstream #488](https://github.com/greatscottgadgets/ubertooth/pull/488) (`feature/serial-number-support`)
 - Allows selecting a specific Ubertooth by serial number with `-U <serial>`
 - Test: plug in two Ubertooth devices, confirm each can be addressed independently
 - Risk: large change (68 files), not yet reviewed
 
-### PR #362 — Capture to stdout (`feature/capture-to-stdout`)
+### Capture to stdout, [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362) (`feature/capture-to-stdout`)
 - Adds `-c -` to pipe PCAP to stdout (for piping into Wireshark live)
 - Test: `ubertooth-btle -f -c - | wireshark -k -i -`
 - Risk: large change (207 files) reaching beyond this feature — needs trimming before merge
@@ -697,7 +699,7 @@ Close the issue when every box is ticked, and file a bug for anything that
 fails.
 
 - [The Wireshark plugin in the Wireshark GUI](https://github.com/SqueakyFloors/ubertooth/issues/892)
-  (#892) — `btle-extcap.py` driven from Wireshark itself: the interface
+  — `btle-extcap.py` driven from Wireshark itself: the interface
   appears with the board's serial, the options dialog opens, a capture runs
   and stops cleanly, a capture filter is refused in the capture-filter box,
   a real failure is reported, and a second capture works without restarting

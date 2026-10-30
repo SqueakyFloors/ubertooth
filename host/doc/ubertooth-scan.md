@@ -113,9 +113,9 @@ the results, so a scan piped into another program carried them along.
 Some lines on standard output come from libbtbb rather than from this tool, and
 are still mixed in with the results: what it says while it recovers a piconet's
 clock, such as `12 initial CLK1-27 candidates`, `got CLK1-27` and `clock offset
-= 3.`. Moving those is
-[#323](https://github.com/SqueakyFloors/ubertooth/issues/323)'s remaining work,
-since a library must not write to standard output at all.
+= 3.`. A library must not write to standard output at all; moving those lines
+is tracked in
+[issue #323](https://github.com/SqueakyFloors/ubertooth/issues/323).
 
 ## GAPS IN A CAPTURE
 
@@ -196,8 +196,7 @@ run instead, with the board still open in whatever mode it was in.
 A piconet the Ubertooth half found is different: a sniffed piconet gives no
 NAP, so the address `-x` connects to has its two most significant bytes guessed
 as `00:00`. Whether that guess stops the connection to a device whose address
-begins otherwise is unverified: it has not been measured on a bench, and these
-documents have claimed it both ways
+begins otherwise is not known
 ([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). Either
 way, a connection that cannot be made to such an address is a `note:` and the
 run still exits 0. Give such a device to `ubertooth-scan -s -x`, or to

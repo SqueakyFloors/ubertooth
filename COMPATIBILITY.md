@@ -181,12 +181,15 @@ Older distros (e.g. Ubuntu 18.04 / Python 3.6) are out of scope — see above.
 longer invokes the deprecated ``setup.py install`` or requires setuptools for a
 normal CMake build/install. Configured launchers locate those modules relative
 to their own installed path, so custom prefixes and ``DESTDIR`` work without
-``PYTHONPATH`` and without modifying system Python (#33). Runtime dependencies
+``PYTHONPATH`` and without modifying system Python
+([#33](https://github.com/SqueakyFloors/ubertooth/issues/33)). Runtime dependencies
 remain external: NumPy/QtPy/PySide6 for specan_ui and ``libusb1`` for ubtbr.
 
 ### Wireshark extcap: interfaces are named by serial
 `btle-extcap.py` names each capture interface `ubertooth<serial>` rather than
-`ubertooth<index>` (#269), so a board keeps its interface across a replug. The
+`ubertooth<index>`
+([#269](https://github.com/SqueakyFloors/ubertooth/issues/269)), so a board
+keeps its interface across a replug. The
 name changed with it: an interface saved by an earlier Wireshark session is
 gone from the list and the Ubertooth has to be picked once more, after which
 Wireshark remembers it. An `ubertooth<index>` from such a profile is still
@@ -197,9 +200,11 @@ options Wireshark adds to its own calls, and refuses the ones Wireshark sends
 only to an extcap program that advertised the feature behind them. A word that
 is not an option or the value of one is refused, as the other host tools refuse
 one. A capture filter is not applied: Wireshark's verification call is answered
-with the reason, which turns the filter box red (#343).
+with the reason, which turns the filter box red.
 
-Every call now exits 0 or 1 (#343). `--capture` used to pass
+Every call exits 0 or 1
+([#343](https://github.com/SqueakyFloors/ubertooth/issues/343)). `--capture`
+used to pass
 `ubertooth-btle`'s own exit status through, and report 128 plus the number of
 the signal that killed it, so a script reading those statuses sees 1 instead.
 See `host/python/extcap/README.md`.
@@ -209,7 +214,8 @@ See `host/python/extcap/README.md`.
 ## Hardware validation
 
 Hardware evidence is not accumulated in this file. It is recorded per release in
-a validation report published with the release (tracked in #85). The "on
+a validation report published with the release (tracked in
+[#85](https://github.com/SqueakyFloors/ubertooth/issues/85)). The "on
 hardware" entries in the matrix above reflect the most recent runs, which
 covered the host tools only (build, unit tests, read-only device queries and
 firmware flashing), not radio capture.

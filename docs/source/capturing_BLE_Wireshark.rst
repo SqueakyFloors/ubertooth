@@ -100,9 +100,9 @@ Common reasons for seeing only advertising traffic:
 - **The connection request was sent on a different advertising channel.** Ubertooth listens on one channel (37 by default, selectable with ``-A 37|38|39``), and the central sends ``CONNECT_IND`` on whichever channel it heard the advertisement. Each connection attempt has roughly a one-in-three chance of happening on the channel being monitored, so you may need to reconnect several times.
 - **Weak signal.** Move Ubertooth closer to the devices; a missed ``CONNECT_IND`` or missed data packets cause the follow to fail.
 - **Unsupported link features.** Ubertooth implements the Bluetooth Low
-  Energy 1M physical layer (PHY) and Channel Selection Algorithm #1 only.
+  Energy 1M physical layer (PHY) and Channel Selection Algorithm 1 only.
   Connections that negotiate the 2M or Coded PHY, or Channel Selection
-  Algorithm #2 (common between Bluetooth 5 devices), hop or modulate
+  Algorithm 2 (common between Bluetooth 5 devices), hop or modulate
   differently and will not be followed.
 
 Encrypted connections are captured, but their payloads are encrypted. The
