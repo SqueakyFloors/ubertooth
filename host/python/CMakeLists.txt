@@ -99,12 +99,12 @@ add_subdirectory(specan_ui)
 add_subdirectory(ubtbr)
 
 # ubertooth-btbr and the ubtbr modules ending when they are asked to, against
-# a fake usb1 module: no board is involved. A minute and a half to two
+# a fake usb1 module: no board is involved. A minute and a quarter to two
 # minutes, nearly all of it waiting: several cases give a thread a bounded
 # time to stop, and each run of the tool spends a second settling the device it
 # thinks it opened. Those waits are wall-clock, so a loaded machine stretches
-# them; the budget is well clear of the slowest run seen (120 s) so that a busy
-# machine reports a timeout only when something is really stuck.
+# them, and the budget sits well above the slowest run seen, so that a timeout
+# means something is stuck.
 add_test(NAME ubtbr
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/ubtbr/tests/test_ubtbr.py
