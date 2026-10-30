@@ -202,14 +202,16 @@ int main(int argc, char *argv[])
 	 * set to Classic gave Classic symbols and exit 0, and nothing in the
 	 * output says which modulation produced it.
 	 *
-	 * This is the last thing asked of the board before the capture, and it
-	 * stays there: the firmware keeps the value until a mode ends, and the
-	 * tools that never set their own modulation (ubertooth-rx, -follow,
-	 * -afh) would then demodulate with it. So nothing between here and the
-	 * capture may fail -- an unwritable -d is checked above, which costs an
-	 * empty file on this path and leaves the radio as the dump found it.
+	 * This is the last thing asked of the board before the capture, and the
+	 * firmware keeps the value until a mode ends, while ubertooth-rx,
+	 * -follow and -afh never set their own and would demodulate with it. So
+	 * it is asked for as late as possible: an unwritable -d is found above,
+	 * where nothing has been asked of the radio yet. A failure here can
+	 * still leave the board holding it, because a transfer that fails may
+	 * have reached the firmware all the same; what it costs is an empty -d
+	 * file, which is why that file is opened first.
 	 *
-	 * No mode is running yet, so the board is given back the way a refused
+	 * No mode is running, so the board is given back the way a refused
 	 * firmware version gives it back. */
 	if (cmd_set_modulation(ut->devh, modulation) < 0) {
 		fprintf(stderr, "error: modulation set failed\n");

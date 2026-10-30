@@ -404,9 +404,12 @@ MU_TEST(a_refused_command_line_opens_no_dump_file)
 
 /* A board that will not take the modulation ends the run: a dump started
  * anyway would hold whatever modulation that board was left in, and nothing in
- * the output says which one produced it. The modulation is asked for after the
- * -d file has been opened, so this is the one refusal that leaves an empty one
- * behind, and in exchange a refused -d never changes the board's modulation. */
+ * the output says which one produced it.
+ *
+ * The -d file was opened first, so it is there and empty. The two assertions
+ * about it are what pin the order, so the path is removed before the run: a
+ * file left there by the test would satisfy them whichever way round the two
+ * steps were. */
 MU_TEST(a_refused_modulation_dumps_nothing)
 {
 	char path[64];
@@ -422,6 +425,7 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 	fd = mkstemp(path);
 	mu_assert_fatal(fd >= 0, "temp name taken");
 	close(fd);
+	unlink(path);
 
 	run_main(&r, 4, argv);
 
@@ -433,13 +437,35 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
+	mu_assert(dumpfile != NULL, "the -d file was opened before the request");
 	mu_assert(stat(path, &info) == 0 && info.st_size == 0,
 	          "the -d file is there and empty");
-	if (dumpfile != NULL) {
-		fclose(dumpfile);
-		dumpfile = NULL;
-	}
+	fclose(dumpfile);
+	dumpfile = NULL;
 	unlink(path);
+}
+
+/* The other half of that order: a -d the tool cannot open ends the run before
+ * the modulation is asked for, so the board keeps the modulation it had. The
+ * firmware holds that value until a mode ends, and ubertooth-rx, -follow and
+ * -afh never set their own, so one changed here for a dump that never ran
+ * would have reached the next of those. */
+MU_TEST(a_dump_file_that_cannot_be_opened_sets_no_modulation)
+{
+	char* argv[] = { "ubertooth-dump", "-l", "-d",
+	                 "/no/such/dir/dump.bin", NULL };
+	struct run r;
+
+	reset();
+	fake.api_rc = 0;
+	run_main(&r, 4, argv);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.modulations);
+	mu_assert_int_eq(0, fake.dumps);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+	mu_assert(dumpfile == NULL, "no dump file was opened");
 }
 
 /* Which modulation each option asks the board for. -c is the default, so a
@@ -508,6 +534,7 @@ int main(void)
 	MU_RUN(a_run_refused_for_its_firmware_opens_no_dump_file);
 	MU_RUN(a_refused_command_line_opens_no_dump_file);
 	MU_RUN(a_refused_modulation_dumps_nothing);
+	MU_RUN(a_dump_file_that_cannot_be_opened_sets_no_modulation);
 	MU_RUN(the_modulation_options_reach_the_board);
 	MU_RUN(the_device_selector_is_passed_through);
 	return mu_report();
