@@ -10,6 +10,7 @@ there, since it is how a user says which tools they have.
 Nothing here imports anything outside the standard library.
 """
 
+import errno
 import os
 import sys
 from threading import Lock
@@ -94,6 +95,16 @@ def result(msg):
 	except BrokenPipeError:
 		# Whatever was reading the capture has stopped, which is what
 		# `ubertooth-btbr | head -5` does.
+		output_lost()
+	except OSError as problem:
+		# The stream is there and the descriptor under it refuses every
+		# write with EBADF, which is what `ubertooth-btbr 1<&0` leaves. The
+		# same loss, so it is reported the same way: anything let out of
+		# here is on the thread the command runs on, where it ends the
+		# capture and is reported as a failure of the command instead. Any
+		# other OSError is a failure of its own and is left to be raised.
+		if problem.errno != errno.EBADF:
+			raise
 		output_lost()
 
 def warn(msg):

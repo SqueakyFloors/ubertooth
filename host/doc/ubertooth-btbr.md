@@ -285,7 +285,10 @@ Standard output going away is one line, `error: standard output has gone
 away`, said once however many writes find it gone. A capture piped into
 something that stops reading, as `ubertooth-btbr | head -5` does, therefore
 leaves the prompt up with nothing more printed, and the session ends with
-exit 1; so does a `-h` or `-V` whose answer could not be delivered, whether
+exit 1. A standard output over a descriptor open for reading only, which is
+what `ubertooth-btbr 1<&0` leaves, is the same line and the same status, the
+first packet of the capture being what finds it. So is a `-h` or `-V` whose
+answer could not be delivered, whether
 its reader left or there was no standard output to print to at all, as
 `ubertooth-btbr -h >&-` leaves. A session asked for with no standard output
 is refused in that same line, before any board is opened: the stream carries

@@ -1652,6 +1652,51 @@ assert INTRO not in errors, errors
 assert not writes(), writes()
 print("ubtbr: a session with no standard output is refused, no board opened")
 
+# and a session over a standard output that cannot be written, which is
+# `ubertooth-btbr 1<&0` with a readable file on standard input: there is a
+# stream, so the session runs, and the capture's first packet is what finds
+# the descriptor refusing it. The line and the status are the reader-who-left
+# case's. Only the reader who left used to be caught here, so the first
+# packet ended the command instead, and the errno came out as a second line
+# blaming the command for a failure of its own.
+with open(READS_FILE, "w") as canned:
+    canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
+    for _ in range(100):
+        canned.write(fhs_message(FAKE_BDADDR) + "\n")
+running = subprocess.Popen(
+    [sys.executable, WRAPPER], stdin=subprocess.PIPE,
+    stderr=subprocess.PIPE, text=True,
+    env=dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+             UBTBR_FAKE_READS_AFTER="4", UBTBR_FAKE_READ_DELAY="0.05"),
+    preexec_fn=read_only_stdout)
+running.stdin.write("inquiry\n")
+running.stdin.flush()
+said = bytearray()
+
+
+def loss_reported():
+    """True once the lost capture has been reported, so there is one to stop."""
+    try:
+        said.extend(os.read(running.stderr.fileno(), 4096))
+    except BlockingIOError:
+        pass
+    return OUTPUT_GONE.encode() in said
+
+
+os.set_blocking(running.stderr.fileno(), False)
+assert wait_until(loss_reported), (bytes(said), running.poll())
+os.set_blocking(running.stderr.fileno(), True)
+_, errors = running.communicate("q\n", timeout=DEADLINE * 2)
+# Decoded leniently because the part read above is raw pipe bytes, and a
+# failure must not turn into a decode error.
+errors = said.decode(errors="replace") + errors
+assert running.returncode == 1, (running.returncode, errors)
+assert errors.count(OUTPUT_GONE) == 1, errors
+assert "Bad file descriptor" not in errors, errors
+assert "Traceback" not in errors, errors
+assert "Exception ignored" not in errors, errors
+print("ubtbr: a capture whose stream refuses it is reported as the same loss")
+
 # and with both streams the same pipe, which is `2>&1 | head -1`, the status
 # is all that is left: the error line has nowhere to go either, and saying so
 # must not become an unhandled failure of its own.
