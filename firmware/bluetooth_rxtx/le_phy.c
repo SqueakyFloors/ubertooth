@@ -947,8 +947,8 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				//
 				// A packet the connection has moved past is still sent
 				// to the host, unless the hop that opened the next event
-				// cleared the buffer it was arriving into, which is the
-				// residual recorded on #745. What is dropped is
+				// cleared the buffer it was arriving into, which is a
+				// window this guard does not close. What is dropped is
 				// bookkeeping with nowhere to go, including the refresh
 				// of conn.last_packet_ts: the supervision timeout is 100
 				// ms at the shortest and events are milliseconds apart,
