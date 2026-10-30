@@ -857,6 +857,73 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	release_handle(ut);
 }
 
+/*
+ * A capture that wants a particular modulation -- `ubertooth-dump -l` -- has
+ * it stated after the mode request, not before. A mode start puts the board's
+ * modulation back to Basic Rate, so one stated first was thrown away on a
+ * board a killed tool had left in a mode, and the dump held Basic Rate records
+ * without saying so.
+ */
+MU_TEST(a_dump_states_its_modulation_after_the_mode_request)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+	ut->capture_modulation = MOD_BT_LOW_ENERGY;
+
+	capture_output();
+	rx_dump(ut, 1);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(2, fake.n);
+	mu_assert_int_eq(UBERTOOTH_RX_SYMBOLS, fake.requests[0]);
+	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[1]);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[1]);
+	mu_assert(err[0] == '\0', err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+}
+
+/*
+ * And a board that refuses it ends the dump there, with the poll thread
+ * joined: a dump that went ahead would hold whatever modulation the board was
+ * left in, and nothing in its records says which that was.
+ */
+MU_TEST(a_refused_modulation_ends_the_dump)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+	int r;
+
+	reset();
+	fake.refuse_request = UBERTOOTH_SET_MOD;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+	ut->capture_modulation = MOD_BT_LOW_ENERGY;
+
+	capture_output();
+	r = rx_dump(ut, 1);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
+	mu_assert_int_eq(2, fake.n);
+	mu_assert_int_eq(1, do_exit); /* the poll thread was stopped */
+	/* the library reports the refusal; the caller adds nothing */
+	mu_assert(strstr(err, "firmware does not support it (stalled") != NULL,
+	          err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+}
+
 /* A board that refuses the mode request leaves a poll thread running and a
  * libusb context about to be freed under it, so both paths have to join the
  * thread before they return. Nothing else here reaches those branches: every
@@ -1518,6 +1585,8 @@ int main(void)
 	MU_RUN(an_interrupt_during_detection_ends_the_run);
 	MU_RUN(a_packet_after_the_timer_does_not_re_arm_the_transfer);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
+	MU_RUN(a_dump_states_its_modulation_after_the_mode_request);
+	MU_RUN(a_refused_modulation_ends_the_dump);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);
 	MU_RUN(a_refused_band_sweep_ends_the_receive_phase);
 	MU_RUN(a_two_phase_run_frees_every_receive_transfer);

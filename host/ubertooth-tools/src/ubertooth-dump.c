@@ -196,26 +196,18 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* The modulation decides what the dump holds, so a board that would not
-	 * take it ends the run. Letting the request fail quietly dumped
-	 * whatever modulation the board had been left in: -l on a board still
-	 * set to Classic gave Classic symbols and exit 0, and nothing in the
-	 * output says which modulation produced it.
+	/* The modulation this dump wants, which libubertooth states once the
+	 * capture has started -- after the mode request, not before it. A mode
+	 * start puts the modulation back to Basic Rate, so one stated first was
+	 * thrown away on a board a killed tool had left in a mode: -l then
+	 * dumped Classic symbols and exit 0, with nothing in the output to say
+	 * which modulation produced it.
 	 *
-	 * It is asked for after the -d file is opened, and that order matters:
-	 * the firmware keeps a modulation until a mode ends, and ubertooth-rx,
-	 * -follow and -afh never set their own, so one left here by a dump that
-	 * never ran would reach the next of those. The file is the thing that
-	 * can fail, so it fails first, before anything is asked of the radio.
-	 *
-	 * No mode is running, so the board is given back the way a refused
-	 * firmware version gives it back. */
-	if (cmd_set_modulation(ut->devh, modulation) < 0) {
-		fprintf(stderr, "error: modulation set failed\n");
-		ubertooth_close(ut);
-		ubertooth_free(ut);
-		return 1;
-	}
+	 * Nothing is asked of the radio until the dump starts, which is after
+	 * the -d file has been opened above, so a dump that never ran leaves
+	 * the board's modulation as it found it. A board that refuses the
+	 * request ends the run; libubertooth says what failed. */
+	ut->capture_modulation = modulation;
 
 	/* A dump that could not start, or whose stream died part-way, holds
 	 * less than was asked for. The exit status has to say so, or a caller

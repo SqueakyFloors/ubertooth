@@ -98,31 +98,41 @@ static u32 access_code;
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
 #define STATED_AFH_MAP     (1 << 2)
+#define STATED_MODULATION  (1 << 3)
 
 static u8 stated_what;
 static u8 stated_for_mode;
 static u16 stated_channel;
+static u8 stated_modulation;
 static u32 stated_access_code;
 static u8 stated_afh_map[10];
 
 /*
  * And what the host stated *before* its mode request, which the same mode
- * start keeps. Two settings are sent that way round: the jam mode, which
- * ubertooth-btle sends for -j, and the modulation, which ubertooth-dump sends
- * for -l. The copy names no mode, because the request that names one has not
- * arrived yet, so it is good for one mode start and no further.
+ * start keeps. One setting is sent that way round: the jam mode, which
+ * ubertooth-btle sends for -j. The copy names no mode, because the request
+ * that names one has not arrived yet, so it is good for one mode start and no
+ * further.
  */
 #define KEEP_JAM_MODE   (1 << 0)
-#define KEEP_MODULATION (1 << 1)
 
 static u8 keep_what;
 static u8 keep_jam_mode;
-static u8 keep_modulation;
 
 /* Whether the board would transmit over the connection it is following, and
- * which modulation the radio is receiving. */
+ * which modulation the host has asked the radio to receive. */
 static u8 jam_mode;
 static u8 modulation;
+
+/*
+ * And which modulation the radio is actually receiving: MDMCTRL holds the
+ * frequency deviation the demodulator expects, and cc2400_rx() writes it as
+ * the mode comes up. A modulation stated after the mode request arrives after
+ * that, so the capture loop writes the register again when the two no longer
+ * agree -- which is what lets the modulation be stated in the same order as
+ * the channel.
+ */
+static u8 radio_modulation;
 
 /* The E-GO mode asked for, and the request handler's word to ego_main()'s loop
  * that a request has asked for one while it was running. */
@@ -169,6 +179,9 @@ static void cc2400_idle(void)
 	clear_afh_map();
 	jam_mode = JAM_NONE;
 	modulation = MOD_BT_BASIC_RATE;
+	/* The radio stops receiving with the mode, so nothing is programmed
+	 * until the next mode brings it up. */
+	radio_modulation = MOD_NONE;
 }
 
 /* ego_access_code_reset() */
@@ -229,6 +242,8 @@ static void apply_stated_settings(u8 starting_mode)
 
 	if (what & STATED_CHANNEL)
 		set_channel_request(stated_channel);
+	if (what & STATED_MODULATION)
+		modulation = stated_modulation;
 	if (what & STATED_ACCESS_CODE)
 		access_code = stated_access_code;
 	if (what & STATED_AFH_MAP)
@@ -242,8 +257,6 @@ static void keep_for_next_mode_start(u8 what)
 		return;
 	if (what & KEEP_JAM_MODE)
 		keep_jam_mode = jam_mode;
-	if (what & KEEP_MODULATION)
-		keep_modulation = modulation;
 	keep_what |= what;
 }
 
@@ -266,8 +279,28 @@ static void apply_kept_settings(u8 starting_mode)
 		return;
 	if (what & KEEP_JAM_MODE)
 		jam_mode = keep_jam_mode;
-	if (what & KEEP_MODULATION)
-		modulation = keep_modulation;
+}
+
+/* cc2400_rx(), as far as the modulation is concerned: the radio is programmed
+ * for whatever modulation is in force when the mode comes up. */
+static void cc2400_rx(void)
+{
+	radio_modulation = modulation;
+}
+
+/* program_stated_modulation(), which bt_stream_rx()'s loop runs on every pass:
+ * the radio follows a modulation stated after the mode request. Only between
+ * the two modulations cc2400_rx() programs -- a generic receive comes in with
+ * MOD_NONE and its modem registers set by the host. */
+static int programs_modulation(u8 m)
+{
+	return m == MOD_BT_BASIC_RATE || m == MOD_BT_LOW_ENERGY;
+}
+
+static void program_stated_modulation(void)
+{
+	if (programs_modulation(modulation) && programs_modulation(radio_modulation))
+		radio_modulation = modulation;
 }
 
 /* rssi_iir_reset(), which the dispatch runs on its way out of a mode. Each
@@ -412,6 +445,11 @@ static void dispatch_with(u8 next_mode)
 		break;
 	}
 	streaming = streams_symbols(next_mode);
+	/* The three modes that stream symbols bring the radio up through
+	 * cc2400_rx(), which programs the demodulator for whatever modulation
+	 * is in force by then. */
+	if (streaming)
+		cc2400_rx();
 }
 
 static void dispatch(void)
@@ -437,8 +475,14 @@ static void board_poll(void)
 {
 	if (dispatch_held)
 		return;
-	if (streaming && streams_symbols(mode) && streams_symbols(requested_mode))
-		return;
+	if (streaming) {
+		/* A pass of bt_stream_rx()'s loop: it follows a modulation the
+		 * host states while it runs, and absorbs a request for one of
+		 * its own three modes. */
+		program_stated_modulation();
+		if (streams_symbols(mode) && streams_symbols(requested_mode))
+			return;
+	}
 	if (ego_looping) {
 		ego_pass();
 		/* The loop ends by returning, and main() reaches the dispatch
@@ -607,11 +651,15 @@ static void request_clear_afh_map(void)
 	board_poll();
 }
 
-/* UBERTOOTH_SET_MOD, which ubertooth-dump sends before its capture request. */
+/* UBERTOOTH_SET_MOD, which ubertooth-dump and ubertooth-rx send after their
+ * capture request, as every tool sends its channel. */
 static void request_modulation(u8 mod)
 {
 	modulation = mod;
-	keep_for_next_mode_start(KEEP_MODULATION);
+	if (requested_mode != mode) {
+		stated_modulation = mod;
+		stated_for_starting_mode(STATED_MODULATION);
+	}
 	board_poll();
 }
 
@@ -1177,30 +1225,34 @@ MU_TEST(a_jam_mode_one_run_asked_for_does_not_reach_the_next)
 }
 
 /*
- * A modulation stated before the capture request survives the same way, so
- * `ubertooth-dump -l` dumps low-energy records after a killed capture rather
- * than Basic Rate ones.
+ * The modulation is stated after the capture request, as the channel is, and
+ * survives the same way: `ubertooth-dump -l` on a board left in a mode that
+ * captures nothing dumps low-energy records, and the radio is receiving them.
  */
-MU_TEST(a_modulation_stated_before_the_capture_request_survives)
+MU_TEST(a_modulation_stated_after_the_capture_request_survives)
 {
 	board_reset();
 
-	/* a killed ubertooth-btle: the board is still following */
-	request_btle_follow();
-	mu_assert_int_eq(MODE_BT_FOLLOW_LE, mode);
+	/* a killed ubertooth-specan: the board is still in that mode, and its
+	 * loop takes a pass to notice the capture request */
+	request_specan();
+	mu_assert_int_eq(MODE_SPECAN, mode);
 
 	/* ubertooth-dump -l */
-	request_modulation(MOD_BT_LOW_ENERGY);
+	dispatch_held = 1;
 	request_rx_symbols();
+	request_modulation(MOD_BT_LOW_ENERGY);
+	the_old_mode_loop_returns();
 
 	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
 }
 
 /* And a Classic capture after that dump is Basic Rate again. */
 MU_TEST(a_capture_after_a_low_energy_dump_is_basic_rate)
 {
-	a_modulation_stated_before_the_capture_request_survives();
+	a_modulation_stated_after_the_capture_request_survives();
 
 	/* the dump ends normally, then a plain Classic capture */
 	request_stop();
@@ -1208,6 +1260,56 @@ MU_TEST(a_capture_after_a_low_energy_dump_is_basic_rate)
 	request_rx_symbols();
 
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
+}
+
+/*
+ * The case the modulation's own order exists for. On an idle board the mode
+ * starts the moment its request arrives -- no teardown runs -- and the
+ * demodulator is programmed there, a millisecond before the modulation the
+ * tool states next. So the capture loop writes that register again: a plain
+ * `ubertooth-dump -l` receives low energy rather than the Basic Rate the mode
+ * came up on.
+ */
+MU_TEST(a_modulation_stated_under_a_running_capture_reaches_the_radio)
+{
+	board_reset();
+
+	/* ubertooth-dump -l on an idle board */
+	request_rx_symbols();
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
+
+	request_modulation(MOD_BT_LOW_ENERGY);
+	the_board_runs();
+
+	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
+}
+
+/*
+ * And a modulation stated for a mode that never started is dropped, instead of
+ * being applied to whatever starts next. A tool killed between its mode
+ * request and its mode starting leaves one behind; the capture another tool
+ * then asks for is Basic Rate, which is what it asked for.
+ */
+MU_TEST(a_modulation_stated_for_a_mode_that_never_started_is_dropped)
+{
+	board_reset();
+	request_specan();
+
+	dispatch_held = 1;
+	request_rx_symbols();
+	request_modulation(MOD_BT_LOW_ENERGY);
+	/* That dump is gone before its capture started. The next tool asks for
+	 * a mode of its own and states no modulation: AFH detection, which
+	 * reads Classic packets and would find nothing in low-energy ones. */
+	request_afh();
+	the_old_mode_loop_returns();
+
+	mu_assert_int_eq(MODE_AFH, mode);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, modulation);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
 }
 
 /*
@@ -1215,6 +1317,11 @@ MU_TEST(a_capture_after_a_low_energy_dump_is_basic_rate)
  * idle runs no teardown, so what the host set is still there. Nothing is kept
  * for it, which is what stops a value from sitting on an idle board waiting
  * for a mode it was never stated for.
+ *
+ * It does mean an idle board holds the last modulation a tool set, and the
+ * next mode starts on it. That is the firmware's only way round, since there
+ * is no reset to scope it to a mode, so the tools state the modulation they
+ * want: ubertooth-rx asks for Basic Rate even though that is the default.
  */
 MU_TEST(a_setting_stated_with_no_mode_running_needs_no_copy)
 {
@@ -1222,9 +1329,16 @@ MU_TEST(a_setting_stated_with_no_mode_running_needs_no_copy)
 
 	request_modulation(MOD_BT_LOW_ENERGY);
 	mu_assert_int_eq(0, keep_what);
+	mu_assert_int_eq(0, stated_what);
 
 	request_rx_symbols();
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
+
+	/* And a tool that states Basic Rate gets it, radio and all. */
+	request_modulation(MOD_BT_BASIC_RATE);
+	the_board_runs();
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, radio_modulation);
 }
 
 /*
@@ -1245,11 +1359,15 @@ MU_TEST(an_absorbed_capture_request_keeps_nothing)
 	request_rx_symbols();
 	mu_assert_int_eq(MODE_RX_SYMBOLS, mode);
 
-	/* ubertooth-dump -l, absorbed by that stream */
-	request_modulation(MOD_BT_LOW_ENERGY);
+	/* ubertooth-dump -l, absorbed by that stream: the modulation reaches
+	 * the radio through the loop, because no mode start follows it */
 	request_rx_symbols();
+	request_modulation(MOD_BT_LOW_ENERGY);
+	the_board_runs();
 	mu_assert_int_eq(MOD_BT_LOW_ENERGY, modulation);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, radio_modulation);
 	mu_assert_int_eq(0, keep_what);
+	mu_assert_int_eq(0, stated_what);
 
 	/* So the next mode start is Basic Rate, as a capture that asked for
 	 * nothing should be. */
@@ -2282,8 +2400,10 @@ int main(void)
 	MU_RUN(a_mode_start_puts_the_access_code_back);
 	MU_RUN(a_jam_mode_stated_before_the_mode_request_survives);
 	MU_RUN(a_jam_mode_one_run_asked_for_does_not_reach_the_next);
-	MU_RUN(a_modulation_stated_before_the_capture_request_survives);
+	MU_RUN(a_modulation_stated_after_the_capture_request_survives);
 	MU_RUN(a_capture_after_a_low_energy_dump_is_basic_rate);
+	MU_RUN(a_modulation_stated_under_a_running_capture_reaches_the_radio);
+	MU_RUN(a_modulation_stated_for_a_mode_that_never_started_is_dropped);
 	MU_RUN(a_setting_stated_with_no_mode_running_needs_no_copy);
 	MU_RUN(an_absorbed_capture_request_keeps_nothing);
 	MU_RUN(an_absorbed_follow_request_keeps_nothing);

@@ -537,6 +537,19 @@ int main(int argc, char* argv[])
 		 * library gives up a clock and has to restate this. */
 		ut->capture_channel = channel;
 
+		/* And the modulation this capture reads, Basic Rate, stated in
+		 * the same place for the same reason. It is the board's own
+		 * default, but a board left idle holds the last modulation a
+		 * tool set -- a mode starting from idle runs no reset -- so a
+		 * `ubertooth-dump -l` that was interrupted before its capture
+		 * started left this one demodulating low energy and reporting
+		 * nothing. Only the callback's restart needs no repeat: that
+		 * request is absorbed by the running capture, which keeps the
+		 * modulation it has. */
+		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
+		if (r < 0)
+			return capture_failed(ut, "set the modulation", r);
+
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {
 			ubertooth_bulk_receive(ut, cb_rx, pn);

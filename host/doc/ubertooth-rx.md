@@ -186,6 +186,14 @@ The board stays on whatever it was tuned to until the request arrives and the
 next hop acts on it, which takes up to 40 ms. Packets captured in that window
 are reported on the channel they were captured on, as every packet is.
 
+The modulation this capture reads, Classic, is stated in the same place and
+for the same reason. It is the board's own default, so a board that has just
+been plugged in needs no such request; an idle board, though, holds the last
+modulation a tool set, because a mode starting from idle resets nothing. A
+`ubertooth-dump -l` interrupted before its capture started used to leave the
+board demodulating low energy, and a capture here then found nothing and said
+nothing about why.
+
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
 Classic Bluetooth piconets are defined by the Lower Address Part (LAP)
@@ -480,12 +488,15 @@ libusb code. The status is 1 in every case, never the failing call's own
 return value: a negative libusb code handed to the exit status is wrapped into
 a byte, so `libusb -9` reached a script as 247.
 
-A board that refuses the channel request, or the address request `-l` and `-u`
-together name, exits 1 as well, and nothing is captured, so a board that will
-not leave the channel it is on cannot be mistaken for one that is sweeping.
-The channel request is sent once the capture has been asked for (see HOW THE
-CHANNEL IS SET), so a board that refuses it has the capture stopped and is
-given back. Standard output stays empty. Standard error names the request, why
+A board that refuses the channel request, the modulation request, or the
+address request `-l` and `-u` together name, exits 1 as well, and nothing is
+captured, so a board that will not leave the channel it is on cannot be
+mistaken for one that is sweeping. The channel and the modulation are stated
+once the capture has been asked for (see HOW THE CHANNEL IS SET), so a board
+that refuses either has the capture stopped and is given back, and the
+modulation reads `error: could not set the modulation: ...` in the same shape
+as the lines below. Standard output stays empty. Standard error names the
+request, why
 the board refused it and the libusb code, and adds a note where there is
 something to try:
 

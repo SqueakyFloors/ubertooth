@@ -42,11 +42,13 @@ static struct {
 	/* a refused version is closed inside ubertooth_check_api(); a version
 	 * that could not be read is not */
 	int api_version_was_read;
-	int starts, closes, frees, api_checks, registrations, modulations;
+	int starts, closes, frees, api_checks, registrations;
 	int library_closes; /* closes done inside the library, not by the tool */
 	int dumps, stops;
-	int modulation_rc;  /* what cmd_set_modulation() returns */
-	int modulation_set; /* the value it was last given */
+	/* The modulation the tool left on the handle for the library to state
+	 * once the capture had started, as the fake rx_dump() below found it.
+	 * -1, as ubertooth_init() leaves it, means the tool asked for none. */
+	int capture_modulation;
 	int dump_rc;        /* what rx_dump() returns */
 	int stream_failed;  /* what ubertooth_stream_failed() reports */
 	/* 1 for the cases that are meant to run a whole dump; the fakes below
@@ -73,6 +75,9 @@ ubertooth_t* ubertooth_start_select(const char* u_arg)
 	/* As the real one leaves it. Not a real handle: nothing here
 	 * dereferences devh, it is passed through and tested for NULL. */
 	fake_ut.devh = (struct libusb_device_handle*)&fake_ut;
+	/* And as ubertooth_init() leaves this: no capture has stated a
+	 * modulation yet, which zero would read as Basic Rate. */
+	fake_ut.capture_modulation = -1;
 	return &fake_ut;
 }
 
@@ -120,23 +125,13 @@ int ubertooth_open_stopped(void)
 	return 0;
 }
 
-int cmd_set_modulation(struct libusb_device_handle* devh, uint16_t mod)
-{
-	(void)devh;
-	fake.modulations++;
-	fake.modulation_set = mod;
-	/* A refused modulation ends the run here, so that case reaches this
-	 * without going on to the capture. */
-	mu_assert(fake.reach_capture || fake.modulation_rc < 0,
-	          "no test should reach the capture");
-	return fake.modulation_rc;
-}
-
 int rx_dump(ubertooth_t* ut, int bitstream)
 {
-	(void)ut;
 	(void)bitstream;
 	fake.dumps++;
+	/* The real one states this after it has asked for the capture mode; all
+	 * this fake does is record what the tool asked for. */
+	fake.capture_modulation = ut->capture_modulation;
 	mu_assert(fake.reach_capture, "no test should reach the capture");
 	return fake.dump_rc;
 }
@@ -221,6 +216,9 @@ static void reset(void)
 {
 	memset(&fake, 0, sizeof(fake));
 	fake.api_rc = -1; /* so no test runs into the capture loop */
+	/* Not zero: zero is Basic Rate, so a run that asked for nothing would
+	 * read as one that asked for Classic. */
+	fake.capture_modulation = -1;
 	dumpfile = NULL;
 }
 
@@ -242,7 +240,7 @@ MU_TEST(a_stop_while_the_board_was_opened_dumps_nothing)
 	run_main(&r, 3, argv);
 
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(0, fake.modulations);
+	mu_assert_int_eq(0, fake.dumps);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
 	mu_assert(dumpfile == NULL, "a stopped run opened no dump file");
@@ -402,15 +400,16 @@ MU_TEST(a_refused_command_line_opens_no_dump_file)
 	mu_assert_int_eq(0, fake.starts);
 }
 
-/* A board that will not take the modulation ends the run: a dump started
- * anyway would hold whatever modulation that board was left in, and nothing in
- * the output says which one produced it.
+/* A dump the board would not start exits 1 and writes nothing to standard
+ * output. The modulation is one of the requests that can fail there -- the
+ * library states it right after the capture request -- and libubertooth has
+ * already said what failed, so the tool adds no line of its own.
  *
  * The -d file was opened first, so it is there and empty. The two assertions
  * about it are what pin the order, so the path is removed before the run: a
  * file left there by the test would satisfy them whichever way round the two
  * steps were. */
-MU_TEST(a_refused_modulation_dumps_nothing)
+MU_TEST(a_dump_the_board_refused_exits_one)
 {
 	char path[64];
 	char* argv[] = { "ubertooth-dump", "-l", "-d", path, NULL };
@@ -420,7 +419,8 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 
 	reset();
 	fake.api_rc = 0;
-	fake.modulation_rc = -1;
+	fake.reach_capture = 1;
+	fake.dump_rc = -1;
 	snprintf(path, sizeof(path), "/tmp/dump-main-XXXXXX");
 	fd = mkstemp(path);
 	mu_assert_fatal(fd >= 0, "temp name taken");
@@ -430,14 +430,11 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 	run_main(&r, 4, argv);
 
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(1, fake.modulations);
-	mu_assert(strstr(r.err, "error: modulation set failed") != NULL, r.err);
+	mu_assert_int_eq(1, fake.dumps);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert_int_eq(0, fake.dumps);
-	mu_assert_int_eq(0, fake.stops);
-	mu_assert_int_eq(1, fake.closes);
+	mu_assert(r.err[0] == '\0', r.err);
 	mu_assert_int_eq(1, fake.frees);
-	mu_assert(dumpfile != NULL, "the -d file was opened before the request");
+	mu_assert(dumpfile != NULL, "the -d file was opened before the dump");
 	mu_assert(stat(path, &info) == 0 && info.st_size == 0,
 	          "the -d file is there and empty");
 	fclose(dumpfile);
@@ -446,11 +443,11 @@ MU_TEST(a_refused_modulation_dumps_nothing)
 }
 
 /* The other half of that order: a -d the tool cannot open ends the run before
- * the modulation is asked for, so the board keeps the modulation it had. The
- * firmware holds that value until a mode ends, and ubertooth-rx, -follow and
- * -afh never set their own, so one changed here for a dump that never ran
- * would have reached the next of those. */
-MU_TEST(a_dump_file_that_cannot_be_opened_sets_no_modulation)
+ * anything is asked of the board, so the board is left as it was found. The
+ * firmware holds a modulation until a mode ends, and ubertooth-follow and -afh
+ * never state their own, so one set here for a dump that never ran would have
+ * reached the next of those. */
+MU_TEST(a_dump_file_that_cannot_be_opened_starts_no_dump)
 {
 	char* argv[] = { "ubertooth-dump", "-l", "-d",
 	                 "/no/such/dir/dump.bin", NULL };
@@ -461,15 +458,16 @@ MU_TEST(a_dump_file_that_cannot_be_opened_sets_no_modulation)
 	run_main(&r, 4, argv);
 
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(0, fake.modulations);
 	mu_assert_int_eq(0, fake.dumps);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
 	mu_assert(dumpfile == NULL, "no dump file was opened");
 }
 
-/* Which modulation each option asks the board for. -c is the default, so a
- * command line with neither asks for the same one. */
+/* Which modulation each option asks for. The tool leaves it on the handle and
+ * the library states it after the capture request, because a mode start puts
+ * the board's modulation back to Basic Rate. -c is the default, so a command
+ * line with neither asks for the same one. */
 MU_TEST(the_modulation_options_reach_the_board)
 {
 	char* classic[] = { "ubertooth-dump", "-c", NULL };
@@ -482,26 +480,23 @@ MU_TEST(the_modulation_options_reach_the_board)
 	fake.reach_capture = 1;
 	run_main(&r, 2, classic);
 	mu_assert_int_eq(0, r.rc);
-	/* Counted as well as compared: MOD_BT_BASIC_RATE is 0, so the value
-	 * alone would also match a request that was never sent. */
-	mu_assert_int_eq(1, fake.modulations);
-	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation_set);
+	/* MOD_BT_BASIC_RATE is 0 and the handle starts at -1, so this says the
+	 * tool asked for Classic rather than for nothing. */
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.capture_modulation);
 
 	reset();
 	fake.api_rc = 0;
 	fake.reach_capture = 1;
 	run_main(&r, 2, low_energy);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.modulations);
-	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.modulation_set);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.capture_modulation);
 
 	reset();
 	fake.api_rc = 0;
 	fake.reach_capture = 1;
 	run_main(&r, 1, neither);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, fake.modulations);
-	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation_set);
+	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.capture_modulation);
 }
 
 /* The -U value reaches the library as the user wrote it. */
@@ -533,8 +528,8 @@ int main(void)
 	MU_RUN(a_dump_whose_teardown_was_refused_exits_one);
 	MU_RUN(a_run_refused_for_its_firmware_opens_no_dump_file);
 	MU_RUN(a_refused_command_line_opens_no_dump_file);
-	MU_RUN(a_refused_modulation_dumps_nothing);
-	MU_RUN(a_dump_file_that_cannot_be_opened_sets_no_modulation);
+	MU_RUN(a_dump_the_board_refused_exits_one);
+	MU_RUN(a_dump_file_that_cannot_be_opened_starts_no_dump);
 	MU_RUN(the_modulation_options_reach_the_board);
 	MU_RUN(the_device_selector_is_passed_through);
 	return mu_report();

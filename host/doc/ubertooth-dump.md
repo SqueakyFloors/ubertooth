@@ -153,17 +153,24 @@ the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was dumped stays written out, and libubertooth names the
 refused request on standard error.
 
-Also 1 when the board refuses the modulation `-c` or `-l` asks for:
-`error: modulation set failed` on standard error, after libubertooth's own line
-for the refused request. No capture is started, so the dump cannot come back on
-a modulation other than the one asked for. The modulation is asked for last,
-after a `-d` file has been opened, so a refusal here leaves that file there and
-empty, as a board that will not start the capture does. It is asked for last
-because the board can be left holding it: the firmware keeps the modulation
-until a mode ends, and ubertooth-rx(1), ubertooth-follow(1) and
-ubertooth-afh(1) do not set their own, so one left by a dump that never ran
-would reach the next of those. A `-d` the tool cannot open is found before
-anything is asked of the radio.
+Also 1 when the board refuses the modulation `-c` or `-l` asks for, with
+libubertooth's own line for the refused request on standard error and nothing
+of the dump on standard output: a dump that went ahead would hold whatever
+modulation the board had been left in, and nothing in its records says which
+that was.
+
+The modulation is stated once the dump has started, not before it, which is
+the order every tool uses for its channel: starting a mode puts the board's
+modulation back to Classic, so one stated first was thrown away on a board
+another run had left in a mode, and the dump held Classic records while `-l`
+had asked for low energy. The board programs its demodulator from the request
+as it arrives, so the dump reads the modulation that was asked for either way.
+
+Nothing is asked of the radio before the dump starts, which is after a `-d`
+file has been opened, so a refusal here leaves that file there and empty, as a
+board that will not start the capture does. A `-d` the tool cannot open is
+found before anything is asked of the radio, so the board keeps the modulation
+it had.
 
 A `-d` file is opened once the board has been opened and its firmware
 accepted, not before, so a run refused for either reason leaves no empty file

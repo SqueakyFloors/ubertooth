@@ -149,6 +149,11 @@ int cmd_get_partnum(struct libusb_device_handle* devh);
 /* serial must hold UBERTOOTH_SERIAL_LEN bytes. */
 int cmd_get_serial(struct libusb_device_handle* devh, u8 *serial);
 int cmd_set_modulation(struct libusb_device_handle* devh, u16 mod);
+/* The modulation request without a report of its own; see
+ * cmd_set_channel_quiet() below. A capture states the modulation it wants
+ * after its mode request, as it states its channel, and names the request
+ * itself in the one line it prints. */
+int cmd_set_modulation_quiet(struct libusb_device_handle* devh, u16 mod);
 int cmd_get_modulation(struct libusb_device_handle* devh);
 int cmd_set_isp(struct libusb_device_handle* devh);
 int cmd_reset(struct libusb_device_handle* devh);

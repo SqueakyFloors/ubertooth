@@ -109,6 +109,17 @@ typedef struct {
 	 * set one, which is also what a replay leaves it as. */
 	uint16_t capture_channel;
 
+	/* The modulation this capture wants the board to receive, for the
+	 * streams libubertooth starts itself (rx_dump()). It is stated after
+	 * the mode request, for the reason the channel is: a mode start puts
+	 * the modulation back to Basic Rate, so one stated first is thrown
+	 * away on a board a killed tool left in a mode.
+	 *
+	 * MOD_BT_BASIC_RATE or MOD_BT_LOW_ENERGY, or -1 for a capture that
+	 * states none and takes whatever the board has. ubertooth_init() leaves
+	 * it at -1; a tool that cares sets it before it starts the stream. */
+	int capture_modulation;
+
 	le_usb_reassembly le_reassembly;
 
 	btbb_pcap_handle* h_pcap_bredr;

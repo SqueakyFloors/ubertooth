@@ -1557,6 +1557,26 @@ static int stream_rx_usb(ubertooth_t* ut, rx_callback cb, void* cb_args,
 		return r;
 	}
 
+	/* The modulation this capture asked for, stated after the mode request
+	 * and not before it: a mode start puts the modulation back to Basic
+	 * Rate, so on a board a killed tool left in a mode one stated first was
+	 * thrown away and `ubertooth-dump -l` wrote Basic Rate records without
+	 * saying so. The board programs the radio from it as the mode comes up
+	 * and again while the capture runs, so this order reaches the
+	 * demodulator either way.
+	 *
+	 * A board that refused it would stream the modulation it happened to be
+	 * left in, and nothing in the records says which that was, so the
+	 * capture ends instead. */
+	if (ut->capture_modulation >= 0) {
+		r = cmd_set_modulation(ut->devh, (uint16_t)ut->capture_modulation);
+		if (r < 0) {
+			ubertooth_bulk_thread_stop();
+			ubertooth_bulk_stop(ut);
+			return r;
+		}
+	}
+
 	// receive and process each packet
 	while(!ubertooth_stopping(ut)) {
 		ubertooth_bulk_wait(ut);
@@ -2040,6 +2060,9 @@ ubertooth_t* ubertooth_init()
 	/* Which clock a mode stamps with is the tool's to say, and it says so
 	 * before it starts such a mode; until then, the CLKN-derived one. */
 	ut->clk100ns_period = CLK100NS_PERIOD;
+	/* And which modulation it wants: no capture states one until a tool
+	 * asks for it, and 0 is a modulation (Basic Rate) rather than "none". */
+	ut->capture_modulation = -1;
 	memset(&ut->le_reassembly, 0, sizeof(ut->le_reassembly));
 
 	ut->h_pcap_bredr = NULL;

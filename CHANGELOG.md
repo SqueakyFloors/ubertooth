@@ -868,13 +868,26 @@
 
 - `ubertooth-btle -f -j` jams and `ubertooth-dump -l` writes low-energy
   records on a board left in another mode by a run that was interrupted
-  without stopping it. Both tools state the setting before the request that
-  starts their mode, and the mode start put it back to its default -- no
+  without stopping it. Each tool used to state the setting before the request
+  that starts its mode, and the mode start put it back to its default -- no
   jamming, Basic Rate -- after that request had already been answered, so the
   follow never jammed and the dump held Basic Rate records, neither of them
   saying so. The board now keeps what was stated for the mode it is starting
   and drops it there, so one run's setting is not carried into the next.
   [#828](https://github.com/SqueakyFloors/ubertooth/issues/828)
+
+- A modulation one run asked for cannot reach another run's capture.
+  `ubertooth-dump` states it after the request that starts its mode, which is
+  the order every tool uses for its channel, so the board keeps it for that
+  mode and drops it there; the board programs its demodulator again when the
+  request arrives, which is what makes that order work. A `ubertooth-dump -l`
+  interrupted between its two requests used to leave the setting behind for
+  whatever mode started next, and that capture then read low energy while
+  saying nothing. `ubertooth-rx` states Basic Rate of its own, which covers
+  the other way in: an idle board holds the last modulation a tool set,
+  because a mode starting from idle resets nothing. A board that refuses the
+  request ends the run in both tools.
+  [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
 - The two-board range test (`ubertooth-util -n` against a `-e` repeater)
   ignores traffic that is not its own exchange instead of ending the run on
   it. The sender took any packet the radio's CRC accepted as the repeater's
