@@ -93,10 +93,21 @@ static void stack_paint(void)
  * The other region attributes stay zero: nothing may read, write or execute
  * here, so how the bus would treat an access that is refused does not arise.
  */
+/* The words below, against the part's own encoding (the Cortex-M3 chapter of
+ * UM10360). A wrong bit position would leave a region the part ignores, which
+ * nothing else would notice. */
+_Static_assert((MPU_RASR_ENABLE | MPU_RASR_SIZE(STACK_GUARD_SIZE_FIELD) |
+                MPU_RASR_AP_NONE | MPU_RASR_XN) == 0x10000009ul,
+               "the guard region's attribute word is not the part's encoding");
+_Static_assert((MPU_CTRL_ENABLE | MPU_CTRL_PRIVDEFENA) == 0x5ul,
+               "the control word is not the part's encoding");
+
 static void stack_guard_enable(void)
 {
-	/* A part whose unit is absent reports no regions. Writing its registers
-	 * would be writing into the reserved space where they would be. */
+	/* A part whose unit is absent reports no regions, and writing its
+	 * registers would be writing into the reserved space where they would
+	 * be. The LPC175x and LPC176x parts this firmware is built for all have
+	 * the unit; this is for a clone that does not. */
 	if (MPU_TYPE_DREGION(MPU_TYPE) == 0)
 		return;
 

@@ -301,8 +301,12 @@ static void run_application() {
 	/* Hand over with no memory protection rules in force. The guard this
 	 * image set up sits at the bottom of its own stack, which is a long way
 	 * inside the application's .bss; an application built before there was a
-	 * guard would never reprogram it and would fault on its own data. */
+	 * guard would never reprogram it and would fault on its own data. The
+	 * barriers are what makes that true before the application's first
+	 * instruction rather than at some point after it. */
 	MPU_CTRL = 0;
+	asm volatile ("dsb" ::: "memory");
+	asm volatile ("isb");
 
 // disable interrupts, or perhaps do it on entry to the bootloader, since we're not using interrupts?
     asm(

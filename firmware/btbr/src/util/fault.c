@@ -118,6 +118,7 @@ static void dump_debug_registers(void)
 {
 	int i;
 	extern uint32_t _StackTop;
+	extern uint32_t _stack_bottom;
 	volatile uint32_t _stk[1] = {0xdeadbeef}, *stk;
 	early_printf("CFSR=%08x\n", SCB_CFSR);
 	early_printf("HFSR=%08x\n", SCB_HFSR);
@@ -127,7 +128,13 @@ static void dump_debug_registers(void)
 	early_printf("BFAR=%08x\n", SCB_BFAR);
 
 	early_printf("\nStack dump (~%p):\n", _stk);
-	for (stk=(uint32_t*)((uint32_t)&_stk&~0xf);stk<&_StackTop;stk+=4)
+	stk = (uint32_t*)((uint32_t)&_stk&~0xf);
+	/* A fault from a stack overflow leaves this function's own frame below
+	 * the guard at the bottom of the stack. Reading the guard would fault
+	 * again, inside this handler, and lose the record it has just made. */
+	if (stk < &_stack_bottom)
+		stk = &_stack_bottom;
+	for (;stk<&_StackTop;stk+=4)
 	{
 		early_printf("%p: %08x %08x %08x %08x\n",
 			stk, stk[0], stk[1], stk[2], stk[3]);
@@ -136,9 +143,29 @@ static void dump_debug_registers(void)
 
 void HardFault_Handler(void)
 {
+	uint32_t val = SCB_HFSR;
+
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
-	/* The part keeps no address register for this one. */
-	watchdog_fault(SCB_HFSR, 0);
+	/* A forced hard fault is one of the other three escalated, and the hard
+	 * fault status says only "forced". So what gets recorded is the
+	 * configurable fault status, which says which of the three it was, and
+	 * the address register of whichever of them has one worth reading. A
+	 * stack overflow arrives this way whenever the processor could not stack
+	 * the exception frame clear of the guard. */
+	if (val & SCB_HFSR_FORCED) {
+		uint32_t cfsr = SCB_CFSR;
+		uint32_t addr = 0;
+
+		if (cfsr & UBERTOOTH_FAULT_ADDR_VALID)
+			addr = SCB_MMFAR;
+		else if (cfsr & UBERTOOTH_FAULT_BUS_ADDR_VALID)
+			addr = SCB_BFAR;
+		watchdog_fault(cfsr, addr);
+	} else {
+		/* No address register of its own, and neither address-valid bit is
+		 * set in this status, so no address is reported. */
+		watchdog_fault(val, 0);
+	}
 	early_printf("HardFault at 0x%x\n", get_lr());
 	dump_debug_registers();
 	blink_fault_code(FAULT_CODE_HARD);

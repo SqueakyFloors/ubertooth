@@ -652,12 +652,11 @@ typedef struct {
 	uint32_t fault_status;
 	uint32_t fault_addr;
 	/* How deep the stack has ever been since the board booted, and how much
-	 * room it has. A 32-byte guard at the bottom of the stack turns an
-	 * overflow that walks into it into a memory management fault, but a
-	 * single large frame can step over the guard and write over the data
-	 * below, so these two are still what says there is room. Both are since
-	 * the last boot: the firmware measures them from a pattern it writes at
-	 * startup. */
+	 * room it has. A 32-byte guard at the bottom of the stack makes an
+	 * overflow that walks into it fault, but a single large frame can step
+	 * over the guard and write over the data below, so these two are still
+	 * what says there is room. Both are since the last boot: the firmware
+	 * measures them from a pattern it writes at startup. */
 	uint16_t stack_used;
 	uint16_t stack_size;
 } watchdog_info;

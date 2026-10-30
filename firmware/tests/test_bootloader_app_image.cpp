@@ -313,7 +313,7 @@ MU_TEST(run_application_checks_before_it_jumps)
 MU_TEST(run_application_turns_the_protection_unit_off_before_it_jumps)
 {
 	static char source[200000];
-	const char *function, *off, *jump;
+	const char *function, *off, *jump, *dsb, *isb;
 
 	read_bootloader_source(source, sizeof(source));
 	function = strstr(source, "run_application() {");
@@ -327,6 +327,17 @@ MU_TEST(run_application_turns_the_protection_unit_off_before_it_jumps)
 	                "unit still enabled");
 	mu_assert(off < jump,
 	          "run_application() jumps before it turns the unit off");
+
+	/* Without both barriers the write is not guaranteed to have taken effect
+	 * before the application's first access, which is the one thing this
+	 * line exists for. */
+	dsb = strstr(off, "dsb");
+	isb = strstr(off, "isb");
+	mu_assert_fatal(dsb != NULL && isb != NULL,
+	                "run_application() does not fence the write to MPU_CTRL");
+	mu_assert(dsb < isb && isb < jump,
+	          "run_application()'s barriers after MPU_CTRL are out of order "
+	          "or after the jump");
 }
 
 /* The jump loads its address as a decimal number of its own, so the check has

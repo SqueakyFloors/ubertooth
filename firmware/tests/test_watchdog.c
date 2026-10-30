@@ -1378,19 +1378,27 @@ MU_TEST(test_the_breadcrumb_is_linked_where_a_reset_cannot_clear_it)
 MU_TEST(test_the_stack_guard_is_aligned_and_the_stack_starts_above_it)
 {
 	const char *path = FW_COMMON_DIR "/sections.ld";
-	char line[512];
+	char line[512], want_align[64], want_size[64];
 	int in_block = 0;
 	int aligned = 0, stack_above = 0, room_from_bottom = 0;
 	FILE *f = fopen(path, "r");
+
+	/* Built from the macro the firmware programs the region with, so the two
+	 * cannot drift: a region whose size field says 64 bytes on a 32-byte
+	 * boundary is one the part will not accept. */
+	snprintf(want_align, sizeof(want_align), "ALIGN(_stack_limit, %u)",
+	         (unsigned)STACK_GUARD_SIZE);
+	snprintf(want_size, sizeof(want_size), "_stack_guard + %u",
+	         (unsigned)STACK_GUARD_SIZE);
 
 	mu_assert(f != NULL, "cannot read sections.ld");
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
 		if (strstr(line, "_stack_guard") != NULL &&
-		    strstr(line, "ALIGN(_stack_limit, 32)") != NULL)
+		    strstr(line, want_align) != NULL)
 			aligned = 1;
 		if (strstr(line, "_stack_bottom") != NULL &&
-		    strstr(line, "_stack_guard + 32") != NULL)
+		    strstr(line, want_size) != NULL)
 			stack_above = 1;
 		if (strstr(line, "ASSERT") != NULL &&
 		    strstr(line, "_StackTop - _stack_bottom") != NULL)

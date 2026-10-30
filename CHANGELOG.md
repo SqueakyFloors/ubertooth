@@ -786,10 +786,13 @@
 
 - A stack that runs out of room is caught where it happens and reported. The
   firmware now asks the part's memory protection unit to refuse the 32 bytes
-  at the bottom of the stack, so an overflow raises a memory management fault
-  instead of writing over the data below: the board blinks the fault code,
-  resets itself three seconds later, and `ubertooth-util -w` names the fault
-  and the address it refused. Both `bluetooth_rxtx` and `btbr` get this.
+  at the bottom of the stack, so an overflow faults there instead of writing
+  over the data below: the board blinks the fault code, resets itself three
+  seconds later, and `ubertooth-util -w` reports the fault with the refused
+  address just below the stack. It arrives as a memory management fault, or as
+  a hard fault carrying the same status and address where the processor could
+  not stack the fault's own frame clear of the guard. Both `bluetooth_rxtx`
+  and `btbr` get this.
   [#953](https://github.com/SqueakyFloors/ubertooth/issues/953)
 
 - A `ubertooth-btbr` session is text. It used to print one NUL per progress

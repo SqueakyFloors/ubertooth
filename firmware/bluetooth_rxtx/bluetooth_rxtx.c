@@ -51,8 +51,10 @@
  * by hand to run the check, then flash a normal image back.
  *
  * UBERTOOTH_STOP sets the flag and the dispatch loop makes the first call.
- * Every word of each frame is written, so the descent cannot step over the
- * 32-byte guard.
+ * Every tool sends that request as it exits, so such a build overflows on any
+ * ordinary command, which is what makes `ubertooth-util -S` enough to run the
+ * check. Every word of each frame is written, so the descent cannot step over
+ * the 32-byte guard.
  *
  * The recursive call goes through a volatile pointer because the compiler is
  * entitled to recognise plain self-recursion: at -Os it inlined the first call
