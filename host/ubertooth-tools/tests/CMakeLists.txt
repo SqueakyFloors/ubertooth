@@ -533,7 +533,11 @@ endif()
 # request_report.c is the real one, so the cases pin the wording the tool
 # prints rather than a stub's.
 add_executable(test-rx-main test_rx_main.c ../src/request_report.c)
-target_link_libraries(test-rx-main opt-parse-for-tests ${LIBBTBB_LIBRARIES})
+# ${CMAKE_DL_LIBS} for dlsym(): the test defines btbb_piconet_new() so a case
+# can refuse the allocation, and looks the real one up past its own definition
+# so every other case gets a real piconet.
+target_link_libraries(test-rx-main opt-parse-for-tests ${LIBBTBB_LIBRARIES}
+	${CMAKE_DL_LIBS})
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-rx-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
 	# The real report for a request the board refused, so the cases pin the
