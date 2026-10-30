@@ -258,13 +258,10 @@
   missing one on.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-specan-ui` refuses a command line it
-  cannot read instead of running it: `error: unrecognized option '--bogus'`
-  for an option it does not have, `error: unexpected argument 'extra'` for a
-  stray word, and `error: option '-l' requires a value` for an option given
-  none, each one line on standard error with exit 1 and no usage text. A
-  mistyped option used to be dropped without a word and the window opened and
-  swept, and an option given no value ended the command in 2 with the usage
-  text ahead of the argument parser's own line.
+  cannot read instead of running it, as `error: unrecognized option
+  '--bogus'` or `error: unexpected argument 'extra'` on standard error with
+  exit 1. A mistyped option used to be dropped without a word and the window
+  opened and swept; a bad value ended the command in 2 with the usage text.
   [#934](https://github.com/SqueakyFloors/ubertooth/issues/934)
 - **Script-visible change:** the rest of `ubertooth-dfu`'s progress moved to
   standard error too: the DFU entry, the flash an image or a read-back covers,

@@ -109,16 +109,22 @@ opens, with one line starting `error: ` on standard error and exit status 1:
 used to be `ERROR: ...` on standard output.
 
 A command line the argument parser will not read is refused the same way, in
-the lines every other tool here gives for the same mistakes:
+the lines the other tools here give for the same mistakes:
 `error: unrecognized option '--bogus'` for an option this tool does not have,
 `error: unexpected argument 'extra'` for a word that is neither an option nor
 an option's value, and `error: option '-l' requires a value` for an option
-given none. The word is quoted as it was typed. A `--` ends the options, so
-what follows it is read as a word however it is spelled, and `--` on its own
-asks for nothing beyond the defaults and runs. No usage text follows any of
-these lines, which say what was wrong; `-h` prints it. These command lines
-used to open the window and start a sweep, the unreadable part dropped
-without a word.
+given none. The word is quoted as it was typed, so a run of letters is named
+whole (`error: unrecognized option '-Zx'`) where the C tools name the letter
+they stopped at. A `--` ends the options, so what follows it is read as a
+word however it is spelled, and `--` on its own asks for nothing beyond the
+defaults and runs. No usage text follows any of these lines, which say what
+was wrong; `-h` prints it. These command lines used to open the window and
+start a sweep, the unreadable part dropped without a word.
+
+A value the parser cannot read, as in `-l abc`, is one `error: ` line on
+standard error and exit 1 in the same way, but keeps the parser's own words
+(`error: argument -l: invalid int value: 'abc'`) rather than the C tools'.
+It used to print the usage text and exit 2.
 
 A failure to start `ubertooth-specan` is reported the same way, as
 `error: could not open an Ubertooth device` followed by a `note: ` naming the

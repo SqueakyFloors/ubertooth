@@ -37,7 +37,8 @@ install(PROGRAMS ${SPECAN_WRAPPER} DESTINATION ${INSTALL_DEFAULT_BINDIR})
 # Which stream a refused range lands on, the exit status, and the frequency
 # each Wi-Fi channel converts to. All three are in specan/limits.py, which
 # imports nothing outside the standard library, so they run everywhere; the
-# same cases are then run through the script itself, along with -h and -V.
+# same cases are then run through the script itself, along with -h, -V and
+# the command lines its argument parser will not take.
 # The script reads its whole command line before the window's own imports, so
 # those runs need neither numpy nor a Qt binding, and two of them shadow
 # those modules with ones that refuse to import to show it. No window opens

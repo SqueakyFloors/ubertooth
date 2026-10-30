@@ -203,6 +203,9 @@ BAD_COMMAND_LINES = (
     # spelled
     (("--", "extra"), "error: unexpected argument 'extra'\n"),
     (("--", "--bogus"), "error: unexpected argument '--bogus'\n"),
+    # Only the first "--" ends the options; a second one is a word like any
+    # other, and dropping it would be the mistake this change is about
+    (("--", "--"), "error: unexpected argument '--'\n"),
     # Refused ahead of -h and -V, which a command line the parser could not
     # read says nothing for
     (("-h", "stray"), "error: unexpected argument 'stray'\n"),
@@ -225,6 +228,27 @@ for arguments, expected in BAD_COMMAND_LINES:
 
 print("ubertooth-specan-ui: %d command lines the parser will not take"
       % len(BAD_COMMAND_LINES))
+
+
+# Two more the parser refuses in its own words, which the tool passes on with
+# the prefix, the stream and the status every refusal here has. The sentence
+# is the parser's and is not pinned: a bad value is said as
+# "argument -l: invalid int value: 'abc'", and an extra letter after a flag
+# that takes no value ("-hZ") as an unknown option on Python 3.12 but as an
+# ignored explicit argument on 3.8. What every version owes the user is the
+# same, and is what these pin: the command line is refused, on standard
+# error, with nothing on standard output and no usage text.
+for arguments in (("-l", "abc"), ("--padding", "x"), ("-hZ",)):
+    result = run(arguments)
+    assert result.returncode == 1, (arguments, result)
+    assert result.stdout == "", (arguments, result)
+    assert result.stderr.startswith("error: "), (arguments, result)
+    assert result.stderr.count("\n") == 1, (arguments, result)
+    assert "usage:" not in result.stderr, (arguments, result)
+    assert "Traceback" not in result.stderr, (arguments, result)
+
+print("ubertooth-specan-ui: a value the parser cannot read is refused in its"
+      " own words, on standard error, with exit 1")
 
 
 # ---- -V, which the script answers by running ubertooth-util ---------------

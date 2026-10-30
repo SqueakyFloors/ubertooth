@@ -161,23 +161,20 @@ def refuse_a_leftover_word(extras):
     option; this tool has long options of its own, so that part is left off,
     as it is in btle-extcap.py.
     """
-    # A "--" ends the options and asks for nothing itself, so a command line
-    # that is only "--" has work to do here and runs, as it does for every
-    # tool that needs no options (.kiro/steering/cli-output.md).
-    leftover = next((word for word in extras if word != "--"), None)
-    if leftover is None:
-        return
-
-    # Where the word was typed says what to call it: an option before a
-    # "--", an operand after one however it is spelled. A word the parser
-    # rewrote rather than handing back as it was typed is read as an option,
-    # which is what the word it came from was.
-    words = sys.argv[1:]
-    typed_at = words.index(leftover) if leftover in words else 0
-    if ("--" not in words[:typed_at]
-            and leftover.startswith("-") and leftover != "-"):
-        refuse("unrecognized option '%s'" % leftover)
-    refuse("unexpected argument '%s'" % leftover)
+    # The parser hands these back in the order they were typed, the first
+    # "--" among them: that one ends the options and asks for nothing
+    # itself, so a command line that is only "--" has work to do here and
+    # runs, as it does for every tool that needs no options
+    # (.kiro/steering/cli-output.md). Everything after it is a word however
+    # it is spelled, a second "--" included.
+    options_ended = False
+    for word in extras:
+        if word == "--" and not options_ended:
+            options_ended = True
+            continue
+        if not options_ended and word.startswith("-") and word != "-":
+            refuse("unrecognized option '%s'" % word)
+        refuse("unexpected argument '%s'" % word)
 
 
 def output_lost():
