@@ -99,14 +99,17 @@ add_subdirectory(specan_ui)
 add_subdirectory(ubtbr)
 
 # ubertooth-btbr and the ubtbr modules ending when they are asked to, against
-# a fake usb1 module: no board is involved. Around twenty seconds, nearly all
-# of it waiting: several cases give a thread a bounded time to stop, and each
-# run of the tool spends a second settling the device it thinks it opened.
+# a fake usb1 module: no board is involved. A minute and a quarter to two
+# minutes, nearly all of it waiting: several cases give a thread a bounded
+# time to stop, and each run of the tool spends a second settling the device it
+# thinks it opened. Those waits are wall-clock, so a loaded machine stretches
+# them, and the budget sits well above the slowest run seen, so that a timeout
+# means something is stuck.
 add_test(NAME ubtbr
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/ubtbr/tests/test_ubtbr.py
 		${UBTBR_WRAPPER})
-set_tests_properties(ubtbr PROPERTIES TIMEOUT 90)
+set_tests_properties(ubtbr PROPERTIES TIMEOUT 300)
 
 # ubertooth-btbr's command line, against the same contract as every other
 # installed tool (host/ubertooth-tools/tests/cli_spec.json). It is registered
