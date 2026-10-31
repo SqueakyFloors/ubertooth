@@ -11,7 +11,7 @@ The table below is written out rather than worked out, so that it is a second
 opinion on the module's arithmetic rather than the same arithmetic twice. It
 is the mapping in the Bluetooth Core specification, Volume 6, Part B, section
 1.4.1: 40 frequencies 2 MHz apart from 2402 MHz, three of them carrying the
-advertising channels 37, 38 and 39, and the data channels 0 to 36 filling the
+advertising channels 37, 38, and 39, and the data channels 0 to 36 filling the
 rest in frequency order.
 """
 
@@ -103,32 +103,51 @@ assert channels.difference_label(6, True) == '(+6 MHz)'
 print("specan/channels.py: both sets of labels, and the switch between them")
 
 
-# The axis. In MHz it is marked every tenth megahertz from the low end of the
-# plot, as it always has been; in channels the marks sit on channels, so a
-# line on the graph lines up with the number under it.
-assert channels.axis_ticks(2400, 2482, False) == [
-    (2400, '2400'), (2410, '2410'), (2420, '2420'), (2430, '2430'),
-    (2440, '2440'), (2450, '2450'), (2460, '2460'), (2470, '2470'),
-    (2480, '2480'),
-], channels.axis_ticks(2400, 2482, False)
-
-marks = channels.axis_ticks(2400, 2482, True)
+# The axis marks of the whole band: nine of them, every fifth channel, with
+# both ends of the band named.
+marks = channels.axis_ticks(2400, 2482)
 assert marks == [
     (2402, '37'), (2412, '4'), (2422, '9'), (2432, '13'), (2442, '18'),
     (2452, '23'), (2462, '28'), (2472, '33'), (2480, '39'),
 ], marks
-# Every mark names the channel that is really on that frequency, and both
-# ends of the band are marked.
-for frequency, text in marks:
-    assert int(text) == CHANNEL_OF_FREQUENCY[frequency], (frequency, text)
 assert marks[0][0] == 2402 and marks[-1][0] == 2480, marks
 
-# A narrower plot is marked only where it reaches: -l 2440 -u 2460 draws
-# 2438 to 2462.
-narrow = channels.axis_ticks(2438, 2462, True)
-assert narrow == [(2442, '18'), (2452, '23'), (2462, '28')], narrow
-assert channels.axis_ticks(2438, 2462, False) == [(2438, '2438'),
-                                                  (2448, '2448'),
-                                                  (2458, '2458')]
+# A narrower plot is marked only where it reaches, and a plot of a few
+# channels names every one of them rather than leaving the axis blank or
+# labeling only its ends: -l 2426 -u 2426 draws 2424 to 2428, where the whole
+# point of the mode is to see which of those is channel 38.
+for low, high, expected in (
+        # -l 2440 -u 2460, so the plot runs 2438 to 2462: twelve channels,
+        # thinned to every second one, with the top one named as well.
+        (2438, 2462, [(2438, '16'), (2442, '18'), (2446, '20'), (2450, '22'),
+                      (2454, '24'), (2458, '26'), (2460, '27')]),
+        (2424, 2428, [(2424, '10'), (2426, '38')]),
+        (2420, 2432, [(2420, '8'), (2422, '9'), (2424, '10'), (2426, '38'),
+                      (2428, '11'), (2430, '12')]),
+        # 25 channels, so every third one and then the top.
+        (2402, 2452, [(2402, '37'), (2408, '2'), (2414, '5'), (2420, '8'),
+                      (2426, '38'), (2432, '13'), (2438, '16'), (2444, '19'),
+                      (2450, '22')]),
+        # Nothing of the band in view at all. No command line reaches this --
+        # the tool will not tune below 2402 MHz -- so it is here to say the
+        # answer is an empty axis rather than a failure.
+        (2300, 2350, []),
+):
+    got = channels.axis_ticks(low, high)
+    assert got == expected, (low, high, got)
+    for frequency, text in got:
+        assert int(text) == CHANNEL_OF_FREQUENCY[frequency], (frequency, text)
 
-print("specan/channels.py: the axis marks in both modes")
+# However narrow or wide the plot, the axis is never crowded past what can be
+# read, and never blank while a channel is in view.
+for low in range(2398, 2484):
+    for high in range(low + 1, 2485):
+        got = channels.axis_ticks(low, high)
+        assert len(got) <= channels.MOST_CHANNEL_MARKS + 1, (low, high, got)
+        in_view = [mhz for mhz in CHANNEL_OF_FREQUENCY if low <= mhz < high]
+        assert bool(got) == bool(in_view), (low, high, got)
+        if got:
+            assert got[0][0] == min(in_view), (low, high, got)
+            assert got[-1][0] == max(in_view), (low, high, got)
+
+print("specan/channels.py: the channel marks of the axis")
