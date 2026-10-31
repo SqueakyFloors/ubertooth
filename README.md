@@ -279,6 +279,9 @@ GitHub issues.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers what a change to this fork needs:
 the tests to run, and the CI checks a pull request has to pass.
 
+The [validation folder](validation) describes the lab setup used for hardware
+validation and holds the validation reports from its test runs.
+
 After editing a man page source in `host/doc/`, regenerate its committed roff
 page and commit both, or the `Man pages` CI job fails:
 

@@ -4,8 +4,8 @@ This document states which platforms and tool versions this fork **requires**,
 which it has been **tested against**, and which are **not supported**.
 
 > **Honesty rule for this doc:** a cell is only marked *Verified* if it was
-> actually exercised — by a CI run or on real hardware (see [TEST_PLAN.md](TEST_PLAN.md) /
-> [TEST_LAB.md](TEST_LAB.md)). Requirements we intend to meet but have **not yet verified**
+> actually exercised — by a CI run or on real hardware (see [TEST_PLAN.md](TEST_PLAN.md) and
+> [validation/](validation/)). Requirements we intend to meet but have **not yet verified**
 > are marked *Target (unverified)*. We do not claim support we have not proven:
 > this fork exists to make the tree build and run on current systems, and the
 > matrix is the record of where that has actually been exercised.
