@@ -749,8 +749,8 @@
 ### Reliability fixes
 
 - Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
-  connection it was following. It hopped with channel selection algorithm #1
-  only, so a connection using algorithm #2 — which any pair of Bluetooth 5.0
+  connection it was following. It hopped with channel selection algorithm 1
+  only, so a connection using algorithm 2 — which any pair of Bluetooth 5.0
   devices uses, and both ends ask for in their advertising and connect
   packets — was listened for on the right microsecond and the wrong channel.
   What reached the user was the events where the two sequences happened to

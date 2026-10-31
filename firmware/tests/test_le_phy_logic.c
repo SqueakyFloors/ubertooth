@@ -2583,7 +2583,7 @@ MU_TEST(an_empty_map_does_not_divide_by_zero_in_the_remapping)
 }
 
 /* ------------------------------------------------------------------ *
- * Channel selection algorithm #2
+ * Channel selection algorithm 2
  * ------------------------------------------------------------------ */
 
 /*
@@ -2956,8 +2956,8 @@ static void anchored_connection(uint32_t last_anchor)
 }
 
 /*
- * An algorithm #2 connection is tuned by its event counter, so the events the
- * capture never saw cost it nothing: where algorithm #1 has to take the hops
+ * An algorithm 2 connection is tuned by its event counter, so the events the
+ * capture never saw cost it nothing: where algorithm 1 has to take the hops
  * of every skipped event to stay in step, this one is simply asked for the
  * channel of the event it is opening.
  */
@@ -2979,7 +2979,7 @@ MU_TEST(an_algorithm_2_connection_is_tuned_by_its_event_counter)
 	change_channel();
 	mu_assert_int_eq(btle_channel_index_to_phys(6), rf_channel);
 
-	/* Two events went by unobserved. Algorithm #1 would be two hops behind
+	/* Two events went by unobserved. Algorithm 1 would be two hops behind
 	 * by now; this one is where the counter says. */
 	conn.conn_event_counter = 3;
 	change_channel();

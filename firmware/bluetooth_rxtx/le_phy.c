@@ -216,7 +216,7 @@ typedef struct _le_conn_t {
 	uint8_t  channel_idx;
 	uint8_t  hop_increment;
 
-	// Set when this connection hops with channel selection algorithm #2,
+	// Set when this connection hops with channel selection algorithm 2,
 	// which is what both ends ask for in the ChSel bit of the advertisement
 	// and of the connection request. The hop increment then means nothing to
 	// it; see le_csa2_channel().
@@ -1840,7 +1840,7 @@ static int le_scale_conn_timing(le_conn_timing_t *t) {
 }
 
 // The ChSel bit of the last connectable advertisement, with the address that
-// sent it. A connection hops with channel selection algorithm #2 only if both
+// sent it. A connection hops with channel selection algorithm 2 only if both
 // ends said they support it, and the advertiser says so in the advertisement
 // rather than in the connection request: an initiator that supports the
 // algorithm is allowed to set its own bit either way when the advertiser does
@@ -1851,7 +1851,7 @@ static uint8_t adv_chan_sel_2;
 static uint8_t adv_chan_sel_2_addr[6]; // AdvA, as it arrives on the air
 static uint8_t adv_chan_sel_2_seen;
 
-// Did the advertiser this request answers say it supports algorithm #2?
+// Did the advertiser this request answers say it supports algorithm 2?
 //
 // Nothing was heard from that advertiser when the answer is no: the capture
 // may have missed its advertisement. The connection request's own bit is then
@@ -1912,7 +1912,7 @@ static void le_connect_handler(le_rx_t *buf) {
 	conn.hop_increment      = extract_field(buf, 35, 1) & 0x1f;
 
 	// Which algorithm this connection hops with. Both ends have to have
-	// said they support algorithm #2: the initiator in this request's ChSel
+	// said they support algorithm 2: the initiator in this request's ChSel
 	// bit, the advertiser in the advertisement this request answers (Core
 	// 5.4, Vol 6, Part B, 2.3.3.1 and 4.4.4). Where the advertisement was
 	// not captured there is nothing to check it against, and the request's

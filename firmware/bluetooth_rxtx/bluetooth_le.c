@@ -333,7 +333,7 @@ uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping) {
 }
 
 /*
- * The permutation channel selection algorithm #2 is built on: the bits inside
+ * The permutation channel selection algorithm 2 is built on: the bits inside
  * each octet are reversed and the two octets stay where they are. Reversing
  * all sixteen is the easy mistake and it matches none of the specification's
  * sample data.
@@ -364,10 +364,10 @@ static uint16_t le_csa2_prn_e(uint16_t event_counter, uint16_t channel_id) {
 }
 
 /*
- * The channel of one connection event under channel selection algorithm #2
+ * The channel of one connection event under channel selection algorithm 2
  * (4.5.8.3), which a connection uses when both ends said they support it.
  *
- * Algorithm #1's channel is a running sum of the hop increment, so a follower
+ * Algorithm 1's channel is a running sum of the hop increment, so a follower
  * has to count every event and stay in step. This one is a function of the
  * event counter and the access address alone: an event the follower never saw
  * costs it nothing, because there is no state to carry.
@@ -388,7 +388,7 @@ uint8_t le_csa2_channel(uint16_t event_counter, uint32_t access_address,
 	if (remapping->channel_in_use[unmapped])
 		return unmapped;
 
-	/* Where algorithm #1 reduces the channel it landed on, this one takes
+	/* Where algorithm 1 reduces the channel it landed on, this one takes
 	 * its place in the table from the whole pseudo-random number. */
 	return remapping->remapping_index[
 			(remapping->total_channels * (uint32_t)prn) >> 16];
