@@ -261,6 +261,7 @@ volatile int cancel_follow;
 
 static void start_fresh(void)
 {
+	forget_last_advertisement();
 	radio_touched = 0;
 	radio_status = 0;
 	transfer_errors_counted = 0;
@@ -501,6 +502,31 @@ static void put_le(uint8_t *at, uint32_t value, unsigned bytes)
  * header, the two addresses, then the connection parameters. The engine reads
  * each field at a fixed offset, so this is also what pins those offsets.
  */
+/*
+ * Lay out an ADV_IND or ADV_DIRECT_IND as it arrives on an advertising
+ * channel, with the CRC the air would carry: the engine checks it before it
+ * believes the ChSel bit, so a packet whose CRC does not check out says
+ * nothing about the advertiser.
+ */
+static void build_advertisement(le_rx_t *buf, uint8_t pdu_type,
+                                const uint8_t *adva, int chsel)
+{
+	unsigned payload = pdu_type == 0x01 ? 12 : 6;
+	unsigned pdu_len = 2 + payload;
+	uint32_t crc;
+
+	fill_packet(buf, payload, ADV_CHANNEL_MHZ);
+	memset(buf->data, 0, sizeof(buf->data));
+	buf->data[0] = (uint8_t)(pdu_type | (chsel ? 0x20 : 0));
+	buf->data[1] = (uint8_t)payload;
+	memcpy(&buf->data[2], adva, 6);
+
+	crc = btle_crcgen_lut(0xAAAAAA, buf->data, pdu_len);
+	buf->data[pdu_len + 0] = (uint8_t)(crc & 0xff);
+	buf->data[pdu_len + 1] = (uint8_t)((crc >> 8) & 0xff);
+	buf->data[pdu_len + 2] = (uint8_t)((crc >> 16) & 0xff);
+}
+
 static void build_connect_req(le_rx_t *buf, const struct connect_req *r)
 {
 	fill_packet(buf, 6 + 6 + 22, ADV_CHANNEL_MHZ);
@@ -2641,12 +2667,14 @@ MU_TEST(algorithm_2_matches_the_specification_sample_data)
 MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
 {
 	static const uint8_t adva[6] = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 };
-	struct { int advert; int adv_bit; int req_bit; int expected; } cases[] = {
-		{ 1, 1, 1, 1 },   /* both said yes */
-		{ 1, 0, 1, 0 },   /* the advertiser did not */
-		{ 1, 1, 0, 0 },   /* the initiator did not */
-		{ 0, 0, 1, 1 },   /* no advertisement captured: the request decides */
-		{ 0, 0, 0, 0 },
+	struct { int advert; uint8_t type; int adv_bit; int req_bit; int expected; }
+			cases[] = {
+		{ 1, 0x00, 1, 1, 1 },   /* both said yes */
+		{ 1, 0x00, 0, 1, 0 },   /* the advertiser did not */
+		{ 1, 0x00, 1, 0, 0 },   /* the initiator did not */
+		{ 1, 0x01, 0, 1, 0 },   /* a directed advertisement says so too */
+		{ 0, 0x00, 0, 1, 1 },   /* no advertisement captured: the request decides */
+		{ 0, 0x00, 0, 0, 0 },
 	};
 	unsigned i;
 
@@ -2656,17 +2684,10 @@ MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
 
 		start_fresh();
 		le.do_follow = 1;
-		/* Leave nothing from the case before behind. */
-		adv_chan_sel_2 = 0;
-		adv_chan_sel_2_seen = 0;
 
 		if (cases[i].advert) {
-			fill_packet(&buf, 6, ADV_CHANNEL_MHZ);
-			memset(buf.data, 0, sizeof(buf.data));
-			buf.data[0] = (uint8_t)(0x00 |
-					(cases[i].adv_bit ? 0x20 : 0));
-			buf.data[1] = 6;
-			memcpy(&buf.data[2], adva, sizeof(adva));
+			build_advertisement(&buf, cases[i].type, adva,
+			                    cases[i].adv_bit);
 			packet_handler(&buf);
 			/* An advertisement is not a connection request. */
 			mu_assert_int_eq(ADV_AA, conn.access_address);
@@ -2686,17 +2707,58 @@ MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
 	{
 		struct connect_req r = valid_connect_req();
 		le_rx_t buf;
+		uint8_t other[6] = { 0xee, 0xee, 0xee, 0xee, 0xee, 0xee };
 
 		start_fresh();
 		le.do_follow = 1;
-		adv_chan_sel_2 = 0;
-		adv_chan_sel_2_seen = 0;
 
-		fill_packet(&buf, 6, ADV_CHANNEL_MHZ);
-		memset(buf.data, 0, sizeof(buf.data));
-		buf.data[0] = 0x00;            /* ADV_IND, ChSel clear */
-		buf.data[1] = 6;
-		memset(&buf.data[2], 0xee, 6); /* a different advertiser */
+		build_advertisement(&buf, 0x00, other, 0);
+		packet_handler(&buf);
+
+		build_connect_req(&buf, &r);
+		buf.data[0] |= 0x20;
+		memcpy(&buf.data[8], adva, sizeof(adva));
+		packet_handler(&buf);
+
+		mu_assert_int_eq(1, conn.chan_sel_2);
+	}
+
+	/*
+	 * A cleared ChSel bit is the only thing an advertisement can say that
+	 * changes the hopping, and it would cost the whole connection, so it is
+	 * believed only from a packet whose CRC checks out. One bit error in
+	 * this header must not send the follow back to the other algorithm.
+	 */
+	{
+		struct connect_req r = valid_connect_req();
+		le_rx_t buf;
+
+		start_fresh();
+		le.do_follow = 1;
+
+		build_advertisement(&buf, 0x00, adva, 0);
+		buf.data[2] ^= 0x01;        /* now the CRC does not check out */
+		packet_handler(&buf);
+
+		build_connect_req(&buf, &r);
+		buf.data[0] |= 0x20;
+		memcpy(&buf.data[8], adva, sizeof(adva));
+		packet_handler(&buf);
+
+		mu_assert_int_eq(1, conn.chan_sel_2);
+	}
+
+	/* A directed advertisement too short to carry both addresses is not
+	 * read for the bit either. */
+	{
+		struct connect_req r = valid_connect_req();
+		le_rx_t buf;
+
+		start_fresh();
+		le.do_follow = 1;
+
+		build_advertisement(&buf, 0x01, adva, 0);
+		buf.size = 2 + 6 + 3;       /* one address, so not an ADV_DIRECT_IND */
 		packet_handler(&buf);
 
 		build_connect_req(&buf, &r);

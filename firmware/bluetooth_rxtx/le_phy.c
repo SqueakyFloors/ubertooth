@@ -505,8 +505,12 @@ static void timer1_arm_conn_event(void) {
 		// receiver would be tuned where the connection was `skipped`
 		// events ago and hear nothing from it until the supervision
 		// timeout ended the follow.
-		conn.channel_idx = (conn.channel_idx +
-				skipped * conn.hop_increment) % 37;
+		//
+		// Algorithm 2 has nothing to catch up: it is asked for the
+		// channel of the event it is opening. See le_csa2_channel().
+		if (!conn.chan_sel_2)
+			conn.channel_idx = (conn.channel_idx +
+					skipped * conn.hop_increment) % 37;
 	}
 
 	timer1_set_match(target);
@@ -1167,9 +1171,8 @@ static void change_channel(void) {
 		}
 	} else if (conn.chan_sel_2) {
 		// This algorithm's channel comes from the event counter rather
-		// than from the channel of the event before, so the hop
-		// timer1_arm_conn_event() takes for skipped events is not needed
-		// and conn.channel_idx goes unused.
+		// than from the channel of the event before, so conn.channel_idx
+		// is not kept for such a connection at all.
 		channel_idx = le_csa2_channel(conn.conn_event_counter,
 				conn.access_address, &conn.remapping);
 	} else {
@@ -1851,16 +1854,23 @@ static uint8_t adv_chan_sel_2;
 static uint8_t adv_chan_sel_2_addr[6]; // AdvA, as it arrives on the air
 static uint8_t adv_chan_sel_2_seen;
 
+// Start again with nothing heard from any advertiser.
+static void forget_last_advertisement(void) {
+	adv_chan_sel_2 = 0;
+	adv_chan_sel_2_seen = 0;
+	memset(adv_chan_sel_2_addr, 0, sizeof(adv_chan_sel_2_addr));
+}
+
 // Did the advertiser this request answers say it supports algorithm 2?
-//
-// Nothing was heard from that advertiser when the answer is no: the capture
-// may have missed its advertisement. The connection request's own bit is then
-// the best there is, which is what the caller falls back on.
-static int advertiser_asked_for_chan_sel_2(const uint8_t *adva, int *known) {
-	*known = adv_chan_sel_2_seen &&
+// 1 yes, 0 no, -1 nothing was heard from that address -- the capture may have
+// missed its advertisement, and the request's own bit is then the best there
+// is.
+static int advertiser_asked_for_chan_sel_2(const uint8_t *adva) {
+	if (!adv_chan_sel_2_seen ||
 			memcmp(adv_chan_sel_2_addr, adva,
-					sizeof(adv_chan_sel_2_addr)) == 0;
-	return *known ? adv_chan_sel_2 : 0;
+					sizeof(adv_chan_sel_2_addr)) != 0)
+		return -1;
+	return adv_chan_sel_2;
 }
 
 static void le_connect_handler(le_rx_t *buf) {
@@ -1920,11 +1930,9 @@ static void le_connect_handler(le_rx_t *buf) {
 	// the algorithm, and a peer old enough not to is rare.
 	{
 		int chsel_req = (buf->data[0] >> 5) & 1;
-		int adv_known;
-		int chsel_adv = advertiser_asked_for_chan_sel_2(&buf->data[8],
-				&adv_known);
+		int chsel_adv = advertiser_asked_for_chan_sel_2(&buf->data[8]);
 
-		conn.chan_sel_2 = chsel_req && (adv_known ? chsel_adv : 1);
+		conn.chan_sel_2 = chsel_req && chsel_adv != 0;
 	}
 
 	timing.win_size            = extract_field(buf, 21, 1);
@@ -2103,6 +2111,24 @@ static void channel_map_update_handler(le_rx_t *buf) {
 #define LE_ONE_ADDR_SIZE (LE_HEADER_LEN + LE_ADDR_LEN + LE_CRC_LEN)
 #define LE_TWO_ADDR_SIZE (LE_HEADER_LEN + 2 * LE_ADDR_LEN + LE_CRC_LEN)
 
+// Does this advertising-channel packet's CRC check out? Advertising PDUs are
+// checked against the fixed starting value the specification gives them
+// (reversed, 0xAAAAAA), the same one the mode's loop uses for -k1.
+static int advertising_crc_ok(le_rx_t *buf) {
+	unsigned pdu_len;
+	uint32_t wire_crc;
+
+	if (buf->size <= LE_CRC_LEN)
+		return 0;
+
+	pdu_len = buf->size - LE_CRC_LEN;
+	wire_crc = ((uint32_t)buf->data[pdu_len + 2] << 16) |
+			((uint32_t)buf->data[pdu_len + 1] << 8) |
+			buf->data[pdu_len];
+
+	return btle_crcgen_lut(0xAAAAAA, buf->data, pdu_len) == wire_crc;
+}
+
 static void packet_handler(le_rx_t *buf) {
 	// advertising packet
 	if (btle_channel_index(buf->channel) >= 37) {
@@ -2110,9 +2136,22 @@ static void packet_handler(le_rx_t *buf) {
 			// ADV_IND and ADV_DIRECT_IND, the two advertisements a
 			// connection request can answer. Only the ChSel bit is
 			// wanted, and only until that request arrives.
+			//
+			// The CRC is checked here whatever the host asked for,
+			// because of what this bit decides. A cleared bit is the
+			// only thing an advertisement can say that changes the
+			// hopping -- a set bit gives the same answer as having
+			// heard no advertisement at all -- so one bit error in
+			// this header would send the follow back to algorithm 1
+			// for the whole life of that connection, and no bit
+			// error can help. An ADV_DIRECT_IND carries two
+			// addresses, as the filter below also requires of it.
 			case 0x00:
 			case 0x01:
-				if (buf->size >= LE_ONE_ADDR_SIZE) {
+				if (buf->size >= (((buf->data[0] & 0xf) == 0x01)
+							? LE_TWO_ADDR_SIZE
+							: LE_ONE_ADDR_SIZE) &&
+						advertising_crc_ok(buf)) {
 					memcpy(adv_chan_sel_2_addr, &buf->data[2],
 							sizeof(adv_chan_sel_2_addr));
 					adv_chan_sel_2 = (buf->data[0] >> 5) & 1;
@@ -2236,8 +2275,7 @@ void le_phy_main(void) {
 	// one to follow with. What was last heard on an advertising channel
 	// goes with it.
 	reset_conn();
-	adv_chan_sel_2 = 0;
-	adv_chan_sel_2_seen = 0;
+	forget_last_advertisement();
 	le_sys_init();
 	le_cc2400_init_rf();
 
