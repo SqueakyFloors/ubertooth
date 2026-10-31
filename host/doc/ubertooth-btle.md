@@ -40,6 +40,15 @@ timeout runs out, and the connection itself sets that timeout, anywhere from
 100 ms to 32 s. So a pair of devices that disconnects cleanly and reconnects at
 once is not followed again until that timeout has passed.
 
+Follow mode hops with whichever of the two channel selection algorithms the
+connection uses. Which one that is was settled when the connection was made:
+both ends say in their advertising and connect packets whether they support
+algorithm #2, and a connection uses it only if both did. Ubertooth therefore
+needs the advertisement as well as the connection request. If it caught only
+the request, because the advertisement was lost, it follows the algorithm the
+request asks for. That is right unless the advertiser was an older device with
+no support for algorithm #2.
+
 No-follow mode is similar to follow mode, but it only logs advertising
 packets and will not follow connections as they are established.
 
