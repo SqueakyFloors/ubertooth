@@ -31,10 +31,9 @@ volatile rf_state_t rf_state = {0};
 /*
  * This PHY runs off the GPIO interrupt on the radio's GIO6 pin. The radio
  * reports its transmit FIFO there, and INT is set so the rising edge arrives
- * once the FIFO has fallen to the 16 of its 32 bytes that are about 64 us of
- * transmit -- the headroom the handler has to refill it in, which is the only
- * way a packet longer than that FIFO reaches the air. Every mode but passive
- * sniffing transmits -- a page, an inquiry, or the answer a scan owes -- so
+ * once the FIFO has fallen to 16 of its 32 bytes -- the headroom the handler
+ * has to refill it in, which is the only way a packet longer than that FIFO
+ * reaches the air. Every mode but passive sniffing transmits -- a page, an inquiry, or the answer a scan owes -- so
  * without that interrupt they would all go out as the 28 bytes the first fill
  * holds.
  *

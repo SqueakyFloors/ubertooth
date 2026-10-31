@@ -6,7 +6,8 @@
 #include "watchdog.h"
 #include <ubtbr/btphy.h>
 
-/* Num of bytes left in fifo when FIFO_EMPTY int trigger 64usec */
+/* Num of bytes left in fifo when FIFO_EMPTY int triggers: 16 bytes at the
+ * 1 Mbit/s symbol rate, so 128 usec of transmit to refill it in. */
 #define PHY_MIN_FIFO_BYTES 16
 #define PHY_FIFO_THRESHOLD (32-PHY_MIN_FIFO_BYTES)
 

@@ -28,9 +28,11 @@ DIRS = blinky bluetooth_rxtx cc2400_test clock_test usb_test assembly_test btbr
 # says so with an #error -- and `all` leaves it out rather than fail for the
 # images that do build. Building btbr directly still gives that message.
 #
-# This names the boards that cannot have it, not the one that can, so a board
-# added later stays in `all` and gets the #error if its GIO6 is on the wrong
-# port, instead of being dropped from `all` without anyone noticing.
+# GIO6_HAS_INTERRUPT in firmware/common/ubertooth.h is where the answer lives,
+# and make cannot read it, so this list has to track it. It names the boards
+# that cannot have the interrupt, not the one that can, so a board added later
+# stays in `all` and gets the #error if its GIO6 is on the wrong port, instead
+# of being dropped from `all` without anyone noticing.
 BOARDS_WITHOUT_GIO6_INTERRUPT = UBERTOOTH_ZERO TC13BADGE
 ALL_DIRS = $(DIRS)
 ifneq ($(filter $(BOARD),$(BOARDS_WITHOUT_GIO6_INTERRUPT)),)

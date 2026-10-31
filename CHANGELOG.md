@@ -737,14 +737,14 @@
   ToorCon badge. Its PHY refills the radio's 32-byte transmit buffer from that
   interrupt, which is how a packet longer than the buffer reaches the air at
   all, and the part raises a GPIO interrupt on ports 0 and 2 only: on those
-  boards nothing could arm it, and every page, inquiry and answer to a scan
+  boards nothing could arm it, and every page, inquiry, and answer to a scan
   would have gone out as its first 28 bytes. The image now says so when it is
   built rather than on the air. It does not build for a board whose GIO6
   cannot raise that interrupt, and a build of all the images for such a board
   leaves it out with a note instead of failing, so the rest build as before.
   On the badge that replaces a link failure, because `btbr` and the firmware
   it shares with the other images both claimed the handler for that interrupt.
-  The Ubertooth One builds and runs `btbr` as before.
+  The Ubertooth One builds `btbr` as before.
   [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
 
 ### Reliability fixes
@@ -2471,6 +2471,7 @@ Fixes with no visible change in normal use.
 - `btbr` clears the radio's pending interrupt by writing the pin's bit, rather
   than reading a register that clears whichever bits are written to it and
   writing the answer back.
+  [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
 
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing
   it over in silence, answers a request to pair under the extended opcode it

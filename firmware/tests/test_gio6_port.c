@@ -310,6 +310,47 @@ MU_TEST(test_the_code_that_arms_an_edge_names_no_gpio_interrupt_register)
 	scan_for_a_named_gpio_interrupt_register(FW_BTBR_DIR "/src/btphy/rf.c");
 }
 
+/*
+ * btbr's handler for that interrupt has to stay inside its
+ * GIO6_HAS_INTERRUPT guard. The firmware btbr shares with the other images
+ * defines EINT3_IRQHandler() for the ToorCon badge's button, and two
+ * definitions of it do not link, so taking btbr's out of the guard brings a
+ * link failure back for that board -- and no build here would catch it,
+ * because btbr is no longer built for the badge at all.
+ */
+MU_TEST(test_btbrs_interrupt_handler_stays_inside_the_guard)
+{
+	char line[SCAN_LINE_MAX];
+	int in_block = 0, number = 0;
+	int guard = 0, handler = 0, guard_ends = 0;
+	FILE *source = fopen(FW_BTBR_DIR "/src/btphy/rf.c", "r");
+
+	mu_assert_fatal(source != NULL, FW_BTBR_DIR "/src/btphy/rf.c");
+	while (fgets(line, sizeof(line), source)) {
+		number++;
+		strip_comments(line, &in_block);
+		if (guard == 0) {
+			if (strstr(line, "#if GIO6_HAS_INTERRUPT") != NULL)
+				guard = number;
+			continue;
+		}
+		if (guard_ends == 0 && (strstr(line, "#else") != NULL ||
+		                        strstr(line, "#endif") != NULL))
+			guard_ends = number;
+		if (handler == 0 &&
+		    contains_identifier(line, "EINT3_IRQHandler"))
+			handler = number;
+	}
+	fclose(source);
+
+	mu_assert(guard != 0, "btbr's rf.c has no #if GIO6_HAS_INTERRUPT");
+	mu_assert(handler != 0, "btbr's rf.c defines no EINT3_IRQHandler()");
+	mu_assert(guard_ends != 0, "btbr's #if GIO6_HAS_INTERRUPT does not end");
+	mu_assert(handler < guard_ends,
+	          "btbr's EINT3_IRQHandler() is outside the "
+	          "GIO6_HAS_INTERRUPT guard");
+}
+
 int main(void)
 {
 	MU_RUN(test_the_read_macro_asks_the_port_the_pin_is_on);
@@ -319,5 +360,6 @@ int main(void)
 #endif
 	MU_RUN(test_arming_carrier_sense_touches_the_pins_own_port_and_no_other);
 	MU_RUN(test_the_code_that_arms_an_edge_names_no_gpio_interrupt_register);
+	MU_RUN(test_btbrs_interrupt_handler_stays_inside_the_guard);
 	return mu_report();
 }
