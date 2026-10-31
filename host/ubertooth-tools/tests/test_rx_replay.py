@@ -200,6 +200,25 @@ with tempfile.TemporaryDirectory() as workdir:
     expected = [(ns // 1_000_000_000, ns % 1_000_000_000) for ns in ZERO_EXPECTED_NS]
     assert pcap_times(work / "zero.pcap") == expected, result
 
+    # A capture file that cannot be created: one line on standard error, which
+    # names the file the user asked for and the reason the create failed,
+    # nothing on standard output, nothing decoded, and no file left behind.
+    #
+    # The reason is the errno of the writer's own failed open, so this covers
+    # both halves of what a user sees. A writer that printed a line of its own
+    # would make the stream two lines, and a reason read after the close and
+    # the free that follow the create would be those calls' errno instead of
+    # this one's.
+    for option, name in (("-q", "cap.pcap"), ("-r", "cap.pcapng")):
+        inside_missing_dir = Path("nodir") / name
+        result = run("-i", "full.bin", option, str(inside_missing_dir),
+                     directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (
+            f"error: {inside_missing_dir}: No such file or directory\n"), result
+        assert not (work / inside_missing_dir).exists(), result
+
     # A file that cannot be read: reported, and exit 1 rather than looking
     # like an empty capture. fopen() succeeds on a directory, the first read
     # then fails; where it does not, the open error is reported instead.

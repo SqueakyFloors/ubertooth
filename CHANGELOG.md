@@ -173,8 +173,7 @@
   in one `error: ` line: `error: /no/such/dir/capture.pcapng: No such file or
   directory`, where they used to print
   `ubertooth-rx: create_bredr_capture_file: : File exists`, naming an internal
-  function and no file. A `-q` file's line carries no reason, because the PCAP
-  writer prints its own and leaves none that can be trusted.
+  function and no file.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
 - **Script-visible change:** `ubertooth-dump` refuses a terminal on standard
   output, with or without `-d -`, instead of filling it with the binary symbol
