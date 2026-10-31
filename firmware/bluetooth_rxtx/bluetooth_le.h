@@ -126,6 +126,8 @@ void le_dewhiten_from(uint8_t *data, unsigned size, unsigned channel,
                       unsigned offset);
 void le_parse_channel_map(uint8_t *channel_map, le_channel_remapping_t *remapping);
 uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping);
+uint8_t le_csa2_channel(uint16_t event_counter, uint32_t access_address,
+                        le_channel_remapping_t *remapping);
 
 /* The longest payload a PDU's length field may claim, which is what the
  * capture loops use to tell a length from noise.

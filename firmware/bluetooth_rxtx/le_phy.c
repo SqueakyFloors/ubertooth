@@ -215,6 +215,12 @@ typedef struct _le_conn_t {
 
 	uint8_t  channel_idx;
 	uint8_t  hop_increment;
+
+	// Set when this connection hops with channel selection algorithm 2,
+	// which is what both ends ask for in the ChSel bit of the advertisement
+	// and of the connection request. The hop increment then means nothing to
+	// it; see le_csa2_channel().
+	uint8_t  chan_sel_2;
 	uint32_t conn_interval; // in units of 100 ns
 	uint32_t supervision_timeout; // in units of 100 ns
 
@@ -499,6 +505,11 @@ static void timer1_arm_conn_event(void) {
 		// receiver would be tuned where the connection was `skipped`
 		// events ago and hear nothing from it until the supervision
 		// timeout ended the follow.
+		//
+		// A connection hopping with algorithm 2 never reads this, since
+		// that algorithm is asked for the channel of the event it is
+		// opening; the arithmetic is left unconditional because a branch
+		// here would cost as much as it saves.
 		conn.channel_idx = (conn.channel_idx +
 				skipped * conn.hop_increment) % 37;
 	}
@@ -1159,6 +1170,12 @@ static void change_channel(void) {
 			case BTLE_ADV_CHANNEL_39_MHZ: channel_idx = 39; break;
 			default:   channel_idx = 37; break;
 		}
+	} else if (conn.chan_sel_2) {
+		// This algorithm's channel comes from the event counter rather
+		// than from the channel of the event before, so conn.channel_idx
+		// is not kept for such a connection at all.
+		channel_idx = le_csa2_channel(conn.conn_event_counter,
+				conn.access_address, &conn.remapping);
 	} else {
 		conn.channel_idx = (conn.channel_idx + conn.hop_increment) % 37;
 		channel_idx = le_map_channel(conn.channel_idx, &conn.remapping);
@@ -1826,6 +1843,37 @@ static int le_scale_conn_timing(le_conn_timing_t *t) {
 	return 1;
 }
 
+// The ChSel bit of the last connectable advertisement, with the address that
+// sent it. A connection hops with channel selection algorithm 2 only if both
+// ends said they support it, and the advertiser says so in the advertisement
+// rather than in the connection request: an initiator that supports the
+// algorithm is allowed to set its own bit either way when the advertiser does
+// not (Core 5.4, Vol 6, Part B, 2.3.3.1). One slot is enough, because the
+// request follows the advertisement it answers by one inter-frame space on
+// the same channel.
+static uint8_t adv_chan_sel_2;
+static uint8_t adv_chan_sel_2_addr[6]; // AdvA, as it arrives on the air
+static uint8_t adv_chan_sel_2_seen;
+
+// Start again with nothing heard from any advertiser.
+static void forget_last_advertisement(void) {
+	adv_chan_sel_2 = 0;
+	adv_chan_sel_2_seen = 0;
+	memset(adv_chan_sel_2_addr, 0, sizeof(adv_chan_sel_2_addr));
+}
+
+// Did the advertiser this request answers say it supports algorithm 2?
+// 1 yes, 0 no, -1 nothing was heard from that address -- the capture may have
+// missed its advertisement, and the request's own bit is then the best there
+// is.
+static int advertiser_asked_for_chan_sel_2(const uint8_t *adva) {
+	if (!adv_chan_sel_2_seen ||
+			memcmp(adv_chan_sel_2_addr, adva,
+					sizeof(adv_chan_sel_2_addr)) != 0)
+		return -1;
+	return adv_chan_sel_2;
+}
+
 static void le_connect_handler(le_rx_t *buf) {
 	uint32_t aa;
 	le_conn_timing_t timing;
@@ -1873,6 +1921,27 @@ static void le_connect_handler(le_rx_t *buf) {
 	// `ubertooth-btle -f -k1` drops all of them.
 	conn.crc_init_reversed  = rbit(conn.crc_init) >> 8;
 	conn.hop_increment      = extract_field(buf, 35, 1) & 0x1f;
+
+	// Which algorithm this connection hops with. Both ends have to have
+	// said they support algorithm 2: the initiator in this request's ChSel
+	// bit, the advertiser in the advertisement this request answers (Core
+	// 5.4, Vol 6, Part B, 2.3.3.1 and 4.4.4). Where the advertisement was
+	// not captured there is nothing to check it against, and the request's
+	// own bit is the better guess: an initiator sets it when it supports
+	// the algorithm, and a peer old enough not to is rare.
+	{
+		int chsel_req = (buf->data[0] >> 5) & 1;
+		int chsel_adv = advertiser_asked_for_chan_sel_2(&buf->data[8]);
+
+		conn.chan_sel_2 = chsel_req && chsel_adv != 0;
+
+		// The specification ties the pair of bits to one exchange: the
+		// advertisement this request answered. So the record is used
+		// once and dropped, rather than left to decide a later
+		// connection from the same address whose own advertisement was
+		// missed.
+		forget_last_advertisement();
+	}
 
 	timing.win_size            = extract_field(buf, 21, 1);
 	timing.win_offset          = extract_field(buf, 22, 2);
@@ -2037,11 +2106,77 @@ static void channel_map_update_handler(le_rx_t *buf) {
 	irq_restore(primask);
 }
 
+// What a capture's size counts: the two-byte PDU header, the payload, and the
+// three CRC bytes the radio hands over behind the payload. A length check on
+// size therefore has to include the CRC, or it accepts a payload three bytes
+// shorter than it meant to and a reader of those bytes takes CRC bytes for the
+// tail of an address.
+#define LE_HEADER_LEN 2
+#define LE_ADDR_LEN   6
+#define LE_CRC_LEN    3
+
+// The shortest capture that carries the addresses the filter compares.
+#define LE_ONE_ADDR_SIZE (LE_HEADER_LEN + LE_ADDR_LEN + LE_CRC_LEN)
+#define LE_TWO_ADDR_SIZE (LE_HEADER_LEN + 2 * LE_ADDR_LEN + LE_CRC_LEN)
+
+// Does this advertising-channel packet's CRC check out? Advertising PDUs are
+// checked against the fixed starting value the specification gives them
+// (reversed, 0xAAAAAA), the same one the mode's loop uses for -k1.
+static int advertising_crc_ok(le_rx_t *buf) {
+	unsigned pdu_len;
+	uint32_t wire_crc;
+
+	if (buf->size <= LE_CRC_LEN)
+		return 0;
+
+	pdu_len = buf->size - LE_CRC_LEN;
+	wire_crc = ((uint32_t)buf->data[pdu_len + 2] << 16) |
+			((uint32_t)buf->data[pdu_len + 1] << 8) |
+			buf->data[pdu_len];
+
+	return btle_crcgen_lut(0xAAAAAA, buf->data, pdu_len) == wire_crc;
+}
+
 static void packet_handler(le_rx_t *buf) {
 	// advertising packet
 	if (btle_channel_index(buf->channel) >= 37) {
 		switch (buf->data[0] & 0xf) {
-			// CONNECT_REQ
+			// ADV_IND and ADV_DIRECT_IND, the two advertisements a
+			// connection request can answer. Only the ChSel bit is
+			// wanted, and only until that request arrives.
+			//
+			// The CRC is checked here whatever the host asked for,
+			// because of what this bit decides. A cleared bit is the
+			// only thing an advertisement can say that changes the
+			// hopping -- a set bit gives the same answer as having
+			// heard no advertisement at all -- so one bit error in
+			// this header would send the follow back to algorithm 1
+			// for the whole life of that connection, and no bit
+			// error can help. An ADV_DIRECT_IND carries two
+			// addresses, as the filter below also requires of it.
+			// Nothing reads the bit unless the host asked to follow,
+			// and a capture of advertising alone is busy, so the
+			// check is skipped there.
+			case 0x00:
+			case 0x01:
+				if (le.do_follow &&
+						buf->size >= (((buf->data[0] & 0xf) == 0x01)
+							? LE_TWO_ADDR_SIZE
+							: LE_ONE_ADDR_SIZE) &&
+						advertising_crc_ok(buf)) {
+					memcpy(adv_chan_sel_2_addr, &buf->data[2],
+							sizeof(adv_chan_sel_2_addr));
+					adv_chan_sel_2 = (buf->data[0] >> 5) & 1;
+					adv_chan_sel_2_seen = 1;
+				}
+				break;
+
+			// CONNECT_REQ, which le_connect_handler() checks the
+			// length of. Its own bits are taken on trust, as the
+			// access address, the CRC starting value and the timing
+			// in the same packet already are: a request this
+			// corrupt gives a follow that fails for larger reasons
+			// than which algorithm it hops with.
 			case 0x05:
 				// Only while no connection is being followed. Acting on a
 				// request mid-follow would rebuild the whole connection
@@ -2083,19 +2218,6 @@ static void packet_handler(le_rx_t *buf) {
 		}
 	}
 }
-
-// What a capture's size counts: the two-byte PDU header, the payload, and the
-// three CRC bytes the radio hands over behind the payload. A length check on
-// size therefore has to include the CRC, or it accepts a payload three bytes
-// shorter than it meant to and the comparison below reads CRC bytes as the
-// tail of an address.
-#define LE_HEADER_LEN 2
-#define LE_ADDR_LEN   6
-#define LE_CRC_LEN    3
-
-// The shortest capture that carries the addresses the filter compares.
-#define LE_ONE_ADDR_SIZE (LE_HEADER_LEN + LE_ADDR_LEN + LE_CRC_LEN)
-#define LE_TWO_ADDR_SIZE (LE_HEADER_LEN + 2 * LE_ADDR_LEN + LE_CRC_LEN)
 
 // compare a BD addr against target with mask
 static int bd_addr_cmp(uint8_t *bd_addr) {
@@ -2167,8 +2289,10 @@ void le_phy_main(void) {
 	rf_channel = le_adv_channel; // FIXME
 	// Not just the access address: the whole connection state, so a run
 	// stopped part way through a connection leaves nothing behind for this
-	// one to follow with.
+	// one to follow with. What was last heard on an advertising channel
+	// goes with it.
 	reset_conn();
+	forget_last_advertisement();
 	le_sys_init();
 	le_cc2400_init_rf();
 
