@@ -164,13 +164,12 @@ static void only_the_pins_port_holds(volatile uint32_t *regs, uint32_t value,
 MU_TEST(test_each_edge_macro_arms_the_pins_own_port_and_no_other)
 {
 	/*
-	 * btbr's PHY arms the rising edge to refill the transmit FIFO and the
-	 * falling edge to be told a receive has started, and clears the
-	 * pending edge on both sides of that. Carrier sense in the other image
-	 * uses the falling pair, reached through cs_trigger_enable() in the
-	 * test below; these are the macros themselves, because a wrong
-	 * register or a wrong port in one of them is a packet that never
-	 * finishes going out.
+	 * btbr's PHY arms the rising edge, to be told the radio's transmit
+	 * FIFO needs refilling, and carrier sense in the other image arms the
+	 * falling one. The test below reaches the falling pair the way the
+	 * firmware does, through cs_trigger_enable(); these are the macros
+	 * themselves, because a wrong register or a wrong port in one of them
+	 * is a packet that never finishes going out.
 	 */
 	clear_registers();
 	GIO6_INT_RISE_SET;

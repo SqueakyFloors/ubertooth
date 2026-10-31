@@ -35,10 +35,14 @@ BOARDS_WITHOUT_GIO6_INTERRUPT = UBERTOOTH_ZERO TC13BADGE
 ALL_DIRS = $(DIRS)
 ifneq ($(filter $(BOARD),$(BOARDS_WITHOUT_GIO6_INTERRUPT)),)
 ALL_DIRS := $(filter-out btbr,$(ALL_DIRS))
-$(info note: btbr is left out for $(BOARD): its PHY needs a GPIO interrupt on the radio's GIO6 pin, and that pin is on a port without one on this board)
 endif
 
+# The note belongs to this target and nothing else: it says what `all` did not
+# build, so it must not appear when the goal was `clean`, or `btbr` itself.
 all: $(ALL_DIRS)
+ifneq ($(filter $(BOARD),$(BOARDS_WITHOUT_GIO6_INTERRUPT)),)
+	@echo "note: btbr was left out for $(BOARD): its PHY needs a GPIO interrupt on the radio's GIO6 pin, and that pin is on a port without one on this board" >&2
+endif
 
 # The bootloader, which is not in DIRS: it is the one image written in C++, so
 # `make` here would need the ARM C++ runtime on every machine that builds

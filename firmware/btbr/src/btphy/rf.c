@@ -29,11 +29,14 @@
 volatile rf_state_t rf_state = {0};
 
 /*
- * This PHY runs off the GPIO interrupt on the radio's GIO6 pin: a rising edge
- * means the radio has drained its 32-byte transmit FIFO, and refilling it from
- * the handler is the only way a longer packet reaches the air. Every mode but
- * passive sniffing transmits -- a page, an inquiry, or the answer a scan owes
- * -- so without that interrupt they would all go out as their first 28 bytes.
+ * This PHY runs off the GPIO interrupt on the radio's GIO6 pin. The radio
+ * reports its transmit FIFO there, and INT is set so the rising edge arrives
+ * once the FIFO has fallen to the 16 of its 32 bytes that are about 64 us of
+ * transmit -- the headroom the handler has to refill it in, which is the only
+ * way a packet longer than that FIFO reaches the air. Every mode but passive
+ * sniffing transmits -- a page, an inquiry, or the answer a scan owes -- so
+ * without that interrupt they would all go out as the 28 bytes the first fill
+ * holds.
  *
  * The part has a GPIO interrupt on ports 0 and 2 only (LPC176x/5x user manual
  * UM10360, section 9.5), so a board whose GIO6 is on another port cannot raise
