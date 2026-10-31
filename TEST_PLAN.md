@@ -388,15 +388,15 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 - [ ] Confirm: no hangs or crashes
 
 ### 3b. CRC verification mode
-- [ ] Run `ubertooth-btle -k -f` for 10 seconds
-- [ ] Confirm: fewer packets than without `-k` (bad-CRC packets are now filtered)
+- [ ] Run `ubertooth-btle -k1 -f` for 10 seconds
+- [ ] Confirm: fewer packets than without `-k1` (bad-CRC packets are now filtered)
 - [ ] Confirm: no crash
-- [ ] Compare packet count with and without `-k` — `-k` should be equal or fewer
+- [ ] Compare packet count with and without `-k1` — `-k1` should be equal or fewer
 
 ### 3b-2. CRC verification on a followed connection
 *Requires: a BLE central and peripheral that connect and keep exchanging data
 (two scripted nRF52840 DKs, or a phone and any peripheral it talks to)*
-- [ ] Run `ubertooth-btle -f -k -c follow.pcap` and let the pair connect while
+- [ ] Run `ubertooth-btle -f -k1 -c follow.pcap` and let the pair connect while
       it listens
 - [ ] Confirm: the capture shows the CONNECT_REQ and then data-channel packets
       for as long as the connection lasts

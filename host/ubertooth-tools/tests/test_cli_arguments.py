@@ -99,14 +99,13 @@ CASES = {
         (("-f", "-n"), "error: choose one of -f, -n or -p"),
         (("-n", "-p"), "error: choose one of -f, -n or -p"),
         (("-f", "-n", "-p"), "error: choose one of -f, -n or -p"),
-        # -k and -v take no value, so a word written after either is a stray
-        # one and the refusal names it
-        (("-k", "1"), "error: unexpected argument '1'"),
-        (("-v", "1"), "error: unexpected argument '1'"),
+        (("-k", "2"), "error: crc verify mode must be 0-1 (got 2)"),
+        (("-kabc",), "error: crc verify mode must be 0-1 (got abc)"),
+        # -v takes no value, so a word written after it is a stray one and a
+        # value attached to it is a letter the tool does not have. The older
+        # -v1 spelling of the crc verify setting gets the second of those.
+        (("-v", "2"), "error: unexpected argument '2'"),
         (("-v", "abc"), "error: unexpected argument 'abc'"),
-        # and a value attached to either is read as a letter the tool does
-        # not have, which is what the older -k1 and -v1 spellings now get
-        (("-k1",), "error: unrecognized option '-1'"),
         (("-v1",), "error: unrecognized option '-1'"),
         (("-x", "33"), "error: access address offenses must be 0-32 (got 33)"),
         (("-x", "abc"), "error: access address offenses must be 0-32 (got abc)"),
@@ -131,10 +130,9 @@ CASES = {
         (("-s", "11:22:33:44:55:66/24"),
          "error: faux slave address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55:66/24)"),
-        # -a's value is the next word: consumed, so "extra" is the stray one
+        # optional values as the next word: consumed, so "extra" is the stray
         (("-a", "8e89bed6", "extra"), "error: unexpected argument 'extra'"),
-        # -a needs a value, and a missing one is named as such
-        (("-a",), "error: option '-a' requires a value"),
+        (("-k", "1", "extra"), "error: unexpected argument 'extra'"),
         # "-" is still the stdout value of the capture options
         (("-q", "-", "extra"), "error: unexpected argument 'extra'"),
         (("-c", "-", "extra"), "error: unexpected argument 'extra'"),

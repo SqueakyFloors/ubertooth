@@ -1605,7 +1605,7 @@ MU_TEST(a_connection_request_is_accepted_and_scheduled)
 }
 
 /*
- * `ubertooth-btle -f -k` checks each packet's CRC and drops the ones that
+ * `ubertooth-btle -f -k1` checks each packet's CRC and drops the ones that
  * fail. A data-channel packet is checked against the starting value the
  * CONNECT_IND carried, and that value is a 24-bit field: reversing it over a
  * whole 32-bit word leaves it a byte too high, which fails every packet of

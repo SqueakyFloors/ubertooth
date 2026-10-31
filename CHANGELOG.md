@@ -537,25 +537,18 @@
   that parse it are undisturbed.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-btle`'s CRC verify setting moves from
-  `-v` to `-k`, and `-k` is a plain flag that turns verification on for the
-  run: write `ubertooth-btle -f -k` where the setting used to be `-v1`. `-v`
-  is verbose there, as in every other tool. Neither option takes a value, so
-  `-k 1` and `-v 1` are refused with `error: unexpected argument '1'` rather
-  than read as something they do not mean, and `-v` without a capture mode
-  still says where the setting went: `error: -v needs -f, -n or -p: there is
-  no decode for it to describe; the CRC verify setting is -k now`. Reading the
-  board's current setting back is gone with the valued form; verification is
-  off until a run asks for it, and entering a capture mode clears it anyway.
+  `-v` to `-k`: `-k` reads it, `-k0` and `-k1` set it. `-v` is verbose there,
+  as in every other tool, so a command line that spells the setting the old
+  way is refused rather than read as something `-v` does not mean. `-v` now
+  takes no value at all, as it does in every other tool, so `-v 1` is a stray
+  word (`error: unexpected argument '1'`) and `-v1` a letter the tool does not
+  have (`error: unrecognized option '-1'`); `-v` on its own still says where
+  the setting went: `error: -v needs -f, -n or -p: there is no decode for it to
+  describe; the CRC verify setting is -k now`. `-a` and `-k` keep their
+  optional values, which may be written as the next word (`-k 1`) or attached
+  (`-k1`), and bare still reads.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542),
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804),
-  [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017)
-- **Script-visible change:** `ubertooth-btle -a` needs an access address and
-  sets it, so the value may be written as the next word: `-a 8e89bed6` as well
-  as `-a8e89bed6`. It was an optional value, which getopt can only take
-  attached to the option, and the bare `-a` read the board's address back.
-  That read is gone; a missing value is refused with `error: option '-a'
-  requires a value`. Promiscuous mode still discovers an address when no `-a`
-  command has given the board one.
   [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017)
 
 ### Build and compatibility

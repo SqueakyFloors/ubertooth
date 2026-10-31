@@ -138,16 +138,16 @@ Packets should stream quickly at this point.
 Miscellaneous Usage
 -------------------
 
-CRC verification is off unless a run asks for it with the -k flag, which
-checks the CRC of each captured packet and drops the ones that fail:
+CRC verification is enabled by default. To change this setting, use the
+-k flag (you should adjust the squelch if you disable it):
 
-    ubertooth-btle -f -k
+    ubertooth-btle -k0
 
 The access address being used is normally auto-detected, either from the
 connection packet or recovered in promiscuous mode. If you wish to
 explicitly set the access address to follow, use the -a flag:
 
-    ubertooth-btle -a 01234567
+    ubertooth-btle -a01234567
 
 
 THEORY OF OPERATION

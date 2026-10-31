@@ -85,16 +85,33 @@ static void print_mac(FILE *out, uint8_t *mac_address, int mask) {
 		fprintf(out, "/%u", mask);
 }
 
-/* Carry out -k: turn CRC verification on, and say so. The caller stops a
- * started mode before it gives up on a failure here. Returns 0, or -1 once
- * the failure has been reported. */
-static int set_crc_verify(struct libusb_device_handle* devh)
+/* Carry out the -v options: the set first, then the read, so one command can
+ * do both and the read reports the value it just set. The caller stops a
+ * started mode before it gives up on a failure here. The set keeps its own
+ * line only when nothing reads afterwards, so a set and a read print one line
+ * between them. Returns 0, or -1 once the failure has been reported. */
+static int apply_crc_options(struct libusb_device_handle* devh, int do_set_crc,
+                             int do_get_crc)
 {
-	if (cmd_set_crc_verify(devh, 1) < 0) {
-		fprintf(stderr, "error: CRC verify set failed\n");
-		return -1;
+	if (do_set_crc >= 0) {
+		if (cmd_set_crc_verify(devh, do_set_crc) < 0) {
+			fprintf(stderr, "error: CRC verify set failed\n");
+			return -1;
+		}
+		if (!do_get_crc)
+			fprintf(report_stream, "CRC: %sverify\n",
+			        do_set_crc ? "" : "DO NOT ");
 	}
-	fprintf(report_stream, "CRC: verify\n");
+	if (do_get_crc) {
+		int r = cmd_get_crc_verify(devh);
+		if (r < 0) {
+			/* a short reply's whole error line is already printed */
+			if (r != UBERTOOTH_ERROR_SHORT_REPLY)
+				fprintf(stderr, "error: CRC verify read failed\n");
+			return -1;
+		}
+		fprintf(report_stream, "CRC: %sverify\n", r ? "" : "DO NOT ");
+	}
 	return 0;
 }
 
@@ -112,7 +129,7 @@ static void usage(FILE *out)
 	fprintf(out, "\t-n don't follow, only print advertisements\n");
 	fprintf(out, "\t-p promiscuous: sniff active connections\n");
 	fprintf(out, "\n");
-	fprintf(out, "\t-a <address> set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
+	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
 	fprintf(out, "\t-s <address> faux slave mode, advertising from one whole address\n");
 	fprintf(out, "\t       (example: -s 22:44:66:88:aa:cc; no \"/<bits>\" mask, no \"none\")\n");
 	fprintf(out, "\t       -a and -s do not go with -f, -n or -p, which run until interrupted\n");
@@ -134,10 +151,12 @@ static void usage(FILE *out)
 	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d);"
 	       " not with -p\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
-	fprintf(out, "\t-k verify the CRC of each captured packet (default: off)\n");
+	fprintf(out, "\t-k [01] verify CRC mode, read status (-k) or enable/disable (-k 1, -k 0);\n");
+	fprintf(out, "\t       both in one command sets first, then reports the new value\n");
 	fprintf(out, "\t-v verbose: describe each packet whose data could not be read,\n");
 	fprintf(out, "\t       which a run otherwise sums up in one line at the end;\n");
-	fprintf(out, "\t       needs -f, -n or -p (it named -k's setting once)\n");
+	fprintf(out, "\t       needs -f, -n or -p, and takes no value at all (-k is\n");
+	fprintf(out, "\t       the CRC verify setting it named once)\n");
 	fprintf(out, "\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
@@ -170,9 +189,12 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int do_version = 0, version_status = 0;
 	int do_follow, do_no_follow, do_promisc;
-	int do_set_aa;
-	/* -k: verify the CRC of each captured packet. */
-	int do_crc_verify;
+	int do_get_aa, do_set_aa;
+	/* The CRC verify set and read have their own state, so one command can
+	 * do both: -1 means no set was asked for, 0 or 1 the value to set, and
+	 * do_get_crc is a plain flag. They shared one variable, so -k1 -k read
+	 * only and -k -k1 set only, dropping the other half with exit 0. */
+	int do_set_crc, do_get_crc;
 	/* -v: describe every packet whose data the decoder cannot
 	 * read, rather than only counting it for the summary at the end. */
 	int do_verbose = 0;
@@ -217,8 +239,9 @@ int main(int argc, char *argv[])
 	/* Standard output until a capture takes it; see report_stream. */
 	report_stream = stdout;
 	do_follow = do_no_follow = do_promisc = 0;
-	do_set_aa = 0;
-	do_crc_verify = 0;
+	do_get_aa = do_set_aa = 0;
+	do_set_crc = -1;
+	do_get_crc = 0;
 	do_adv_index = 37;
 	do_adv_index_given = 0;
 	do_slave_mode = do_target = 0;
@@ -228,21 +251,35 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
-	const char options[] = ":a:r:hVfnpU:kvA:s:t:x:c:q:jJiI";
+	const char options[] = ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiI";
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
+		/* getopt only attaches an optional value (-a8e89bed6, -k1); take
+		 * a following word that could be the value as the value too, so
+		 * "-a 8e89bed6" sets and "-a zzzz" is refused rather than
+		 * silently reading. ubertooth-btle takes no other operands.
+		 * Resolved before the check below, which only counts an option
+		 * that came with a value. */
+		if (optarg == NULL && (opt == 'a' || opt == 'k'))
+			optarg = opt_separate_value(argc, argv,
+			                            opt == 'a' ? opt_value_not_option
+			                                       : opt_value_decimal);
 		/* No option may be given a value twice: see opt_check_once().
-		 * -k and -v take none, so a repeat of either says the same
-		 * thing twice and is accepted (ubertooth(7), OPTION VALUES). */
+		 * -v takes none, so a repeat of it says the same thing twice
+		 * and is accepted (ubertooth(7), OPTION VALUES). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
 		switch(opt) {
 		case 'a':
-			if (opt_parse_access_address(optarg, &access_address) < 0) {
-				fprintf(stderr, "error: access address must be 1-8 hex digits (got %s)\n", optarg);
-				return 1;
+			if (optarg == NULL) {
+				do_get_aa = 1;
+			} else {
+				if (opt_parse_access_address(optarg, &access_address) < 0) {
+					fprintf(stderr, "error: access address must be 1-8 hex digits (got %s)\n", optarg);
+					return 1;
+				}
+				do_set_aa = 1;
 			}
-			do_set_aa = 1;
 			break;
 		case 'f':
 			do_follow = 1;
@@ -283,11 +320,23 @@ int main(int argc, char *argv[])
 			/* -v is verbose, as it is in every other tool: it asks the
 			 * decoder to describe each packet whose data it cannot read,
 			 * instead of only counting it for the summary at the end of
-			 * the run. */
+			 * the run. It takes no value, as it does in those tools:
+			 * the one level is all there is. A command line from before
+			 * -k took the CRC verify setting over writes a value here,
+			 * and gets the refusal any valueless option's value gets;
+			 * "-v" on its own still names -k, which is where such a
+			 * command line is most likely to have come from. */
 			do_verbose = 1;
 			break;
 		case 'k':
-			do_crc_verify = 1;
+			/* -k reads the CRC verify setting; -k0 / -k1 sets it, written
+			 * attached or as the next word (taken above). */
+			if (optarg) {
+				if (opt_require_int(optarg, 0, 1, "CRC verify mode", "",
+				                    &do_set_crc) < 0)
+					return 1;
+			} else
+				do_get_crc = 1;
 			break;
 		case 'A':
 			if (opt_require_int(optarg, ADV_INDEX_MIN, ADV_INDEX_MAX,
@@ -360,6 +409,13 @@ int main(int argc, char *argv[])
 	if (do_version || first_exit_option == 'h')
 		return version_status;
 
+	/* -a reads and -a<address> sets; one command cannot do both (the read
+	 * used to win and the set was dropped). */
+	if (do_get_aa && do_set_aa) {
+		fprintf(stderr, "error: -a cannot both read and set the access address\n");
+		return 1;
+	}
+
 	/* One major mode per command. Another argument error, so it is refused
 	 * here rather than after a device has been opened. */
 	if (do_follow + do_no_follow + do_promisc > 1) {
@@ -373,7 +429,7 @@ int main(int argc, char *argv[])
 	 * left to send on. -t is not in this list: it is sent before the mode
 	 * starts, which is what it is for. */
 	if ((do_follow || do_no_follow || do_promisc) &&
-	    (do_set_aa || do_slave_mode)) {
+	    (do_get_aa || do_set_aa || do_slave_mode)) {
 		fprintf(stderr, "error: -a and -s do not go with -f, -n or -p:"
 		        " a sniffing mode runs until it is interrupted\n");
 		return 1;
@@ -436,8 +492,8 @@ int main(int argc, char *argv[])
 	 * text on stdout and exit 0, so a command that did nothing needed a
 	 * board and looked like one that had worked. -A, -x and the capture
 	 * options only shape the work the options below ask for. */
-	if (!(do_follow || do_no_follow || do_promisc || do_set_aa ||
-	      do_crc_verify || do_slave_mode || do_target)) {
+	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
+	      do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target)) {
 		fprintf(stderr, "error: nothing to do: choose a major mode"
 		        " (-f, -n or -p), or -a, -k, -s or -t\n");
 		if (opt_no_arguments(argc))
@@ -646,17 +702,16 @@ int main(int argc, char *argv[])
 			}
 		}
 
-		/* -k runs *after* the mode has started (mode entry runs
-		 * reset_le() on the board, which clears crc_verify) but
-		 * *before* the capture loop -- it otherwise ran only once
-		 * streaming had ended, which made it a no-op for the sniffing
-		 * modes. It is what the capture starts with; the firmware
-		 * turns verification on and off itself as it recovers a
-		 * connection.
-		 * The mode is running by now, so a failure here has to stop it
-		 * before giving up: a board abandoned in a low-energy mode is
-		 * the state it stops answering control requests in. */
-		if (do_crc_verify && set_crc_verify(ut->devh) < 0) {
+		// The -v options run *after* the mode has started (mode entry runs
+		// reset_le() which clears crc_verify) but *before* the capture loop —
+		// otherwise they only ran after streaming ended, making -v1 a no-op
+		// for sniffing modes. A read here reports the setting the capture
+		// starts with; the firmware turns verification on and off itself as it
+		// recovers a connection.
+		// The mode is running by now, so a failure here has to stop it before
+		// giving up: a board abandoned in a low-energy mode is the state it
+		// stops answering control requests in.
+		if (apply_crc_options(ut->devh, do_set_crc, do_get_crc) < 0) {
 			ubertooth_stop(ut);
 			return release_handle(ut, 1);
 		}
@@ -732,6 +787,18 @@ int main(int argc, char *argv[])
 			        do_verbose ? "" : "; -v describes each one");
 	}
 
+	if (do_get_aa) {
+		int r = cmd_read_access_address(ut->devh, &access_address);
+		if (r < 0) {
+			/* a short reply's whole error line is already printed */
+			if (r != UBERTOOTH_ERROR_SHORT_REPLY)
+				fprintf(stderr, "error: access address read failed\n");
+			return release_handle(ut, 1);
+		}
+		fprintf(report_stream, "Access address: %08x\n", access_address);
+		/* carry on, so a -v in the same command still runs */
+	}
+
 	if (do_set_aa) {
 		if (cmd_set_access_address(ut->devh, access_address) < 0) {
 			fprintf(stderr, "error: access address set failed\n");
@@ -740,9 +807,9 @@ int main(int argc, char *argv[])
 		fprintf(report_stream, "access address set to: %08x\n", access_address);
 	}
 
-	/* For the sniffing modes this already ran before the capture loop. */
-	if (do_crc_verify && !(do_follow || do_no_follow || do_promisc)) {
-		if (set_crc_verify(ut->devh) < 0)
+	// For sniffing modes this was already handled before the capture loop.
+	if (!(do_follow || do_no_follow || do_promisc)) {
+		if (apply_crc_options(ut->devh, do_set_crc, do_get_crc) < 0)
 			return release_handle(ut, 1);
 	}
 

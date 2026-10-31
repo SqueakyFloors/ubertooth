@@ -6,10 +6,10 @@
 .SH "SYNOPSIS"
 .nf
 ubertooth\-btle {\-f | \-n | \-p} [\-A 37|38|39] [\-t <BD ADDR>] [\-i | \-I]
-[\-k] [\-v] [\-x <0\-32>] [\-r <output\.pcapng>] [\-q <output\.pcap>|\-]
+[\-k [01]] [\-v] [\-x <0\-32>] [\-r <output\.pcapng>] [\-q <output\.pcap>|\-]
 [\-c <output\.pcap>|\-] [\-U <index|serial>]
 ubertooth\-btle \-s <BD ADDR> [\-A 37|38|39] [\-U <index|serial>]
-ubertooth\-btle [\-a <address>] [\-k] [\-t <BD ADDR>]
+ubertooth\-btle [\-a [<address>]] [\-k [01]] [\-t <BD ADDR>]
 [\-U <index|serial>]
 ubertooth\-btle [\-U <index|serial>] \-V
 ubertooth\-btle \-h
@@ -168,7 +168,7 @@ ubertooth\-btle \-f \-c \- | wireshark \-k \-i \-
 .fi
 .IP "" 0
 .IP
-When stdout capture is selected, regular packet/status text is suppressed so it cannot corrupt the binary stream; errors remain on stderr\. Such a run does not produce the per\-packet dump at all, so the decoder's complaints about an advertising field it could not read in one of those packets do not reach stderr either\. The lines that answer an option in the same command go to stderr rather than being suppressed with it: the \fBaccess address set to:\fR line of \fB\-a\fR, the \fBCRC:\fR line of \fB\-k\fR, the target lines of \fB\-t\fR, and the connection parameters \fB\-p\fR recovers\. The tool refuses to write binary capture data directly to an interactive terminal: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, with exit status 1 and before any device is opened\.
+When stdout capture is selected, regular packet/status text is suppressed so it cannot corrupt the binary stream; errors remain on stderr\. Such a run does not produce the per\-packet dump at all, so the decoder's complaints about an advertising field it could not read in one of those packets do not reach stderr either\. The lines that answer an option in the same command go to stderr rather than being suppressed with it: the \fBAccess address:\fR line of \fB\-a\fR, the \fBCRC:\fR line of \fB\-k\fR, the target lines of \fB\-t\fR, and the connection parameters \fB\-p\fR recovers\. The tool refuses to write binary capture data directly to an interactive terminal: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, with exit status 1 and before any device is opened\.
 .P
 The times in a logged capture follow the board's capture clock, which starts over every 429\.50 s in the \fB\-f\fR and \fB\-n\fR modes and every 327\.68 s in promiscuous mode\. A promiscuous packet carries a count of how often it has; the packets of the other two modes carry none, so how often it started over is worked out from the host's own clock instead: the time the host saw pass between two packets says how many periods lie between their clock readings, so a quiet gap keeps its time however long it was\. Before, a gap longer than one period left every later time short by a period, since the clock then reads higher than it did and nothing in the capture shows it started over at all\.
 .P
@@ -187,16 +187,18 @@ Miscellaneous:
 \fB\-A <37|38|39>\fR
 Which advertising channel to use in follow mode (\fB\-f\fR, \fB\-n\fR) and faux slave mode (\fB\-s\fR) (default: 37)\. Refused with \fB\-p\fR, which sets no channel of its own\.
 .TP
-\fB\-a <address>\fR
-Set the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened, and so is a missing value: \fBerror: option '\-a' requires a value\fR\. \fB\-a\fR does not go with a sniffing mode (\fB\-f\fR, \fB\-n\fR, \fB\-p\fR), which runs until it is interrupted; the combination is refused before any device is opened\. So an address for \fB\-p\fR is given by a command of its own first: \fBubertooth\-btle \-a <address>\fR and then \fBubertooth\-btle \-p\fR\. It is the one setting that makes \fB\-p\fR skip discovery, and the board keeps it until its low\-energy state next resets: a connection timing out during a \fB\-p\fR run, a \fB\-p\fR run that went looking for an address itself, \fBubertooth\-util \-r\fR, or a re\-plug\. A follow run (\fB\-f\fR, \fB\-n\fR) does not clear it\. Promiscuous mode then discovers an address again rather than falling back to the advertising one\.
+\fB\-a [address]\fR
+Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened\. Getting and setting in one command is refused; other options such as \fB\-k\fR still run after a get\. \fB\-a\fR does not go with a sniffing mode (\fB\-f\fR, \fB\-n\fR, \fB\-p\fR), which runs until it is interrupted; the combination is refused before any device is opened\. So an address for \fB\-p\fR is given by a command of its own first: \fBubertooth\-btle \-a <address>\fR and then \fBubertooth\-btle \-p\fR\. It is the one setting that makes \fB\-p\fR skip discovery, and the board keeps it until its low\-energy state next resets: a connection timing out during a \fB\-p\fR run, a \fB\-p\fR run that went looking for an address itself, \fBubertooth\-util \-r\fR, or a re\-plug\. A follow run (\fB\-f\fR, \fB\-n\fR) does not clear it\. Promiscuous mode then discovers an address again rather than falling back to the advertising one\.
 .TP
-\fB\-k\fR
-Verify the CRC of each captured packet\. Verification is off unless a run asks for it, and there is no command line that turns it off: the board clears the setting whenever a capture mode starts, so it lasts no longer than the run that asked for it\. The option takes no value: a word written after it is a stray one (\fBerror: unexpected argument '1'\fR), and a digit written against it is read as an option, so \fB\-k1\fR gives \fBerror: unrecognized option '\-1'\fR\. In a sniffing mode it is sent once the mode has started, for that reason, and the firmware then turns verification on and off itself as it recovers a connection\. The run reports what it asked for, \fBCRC: verify\fR\.
+\fB\-k [01]\fR
+Read (\fB\-k\fR) or set (\fB\-k 0\fR or \fB\-k 1\fR) CRC verification (default: 0)\. Any other value is refused\. A set and a read in one command both happen, the set first, so the read reports the new value, in whichever order they are written; two sets are refused, as two values for one setting are everywhere (ubertooth(7), OPTION VALUES)\. In a sniffing mode both run once the mode has started, because entering a mode clears the setting, and the firmware then turns verification on and off itself as it recovers a connection\.
 .TP
 \fB\-v\fR
 Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder describes each packet whose data it could not read, on standard error, as the run goes\. Without it a run counts those packets and says how many there were in one line when it ends (DIAGNOSTICS)\. It needs \fB\-f\fR, \fB\-n\fR or \fB\-p\fR, since there is no decode to describe otherwise, and it takes no value\. A capture on standard output (\fB\-q \-\fR, \fB\-c \-\fR) prints no packets at all, so that too is refused: \fBerror: \-v does not go with a capture on standard output: a run that hands the capture that stream prints no packets to describe\fR\.
 .IP
-\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, so \fB\-v\fR on its own gives \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\. A value written with it is refused as it is for \fB\-k\fR: \fB\-v 1\fR is a stray word and \fB\-v1\fR an option the tool does not have\.
+It takes no value at all, so \fB\-v 1\fR is a stray word (\fBerror: unexpected argument '1'\fR) and \fB\-v1\fR a letter the tool does not have (\fBerror: unrecognized option '\-1'\fR)\. Writing it twice says verbose twice, which is what it says once: there is one level of it, and a repeat is accepted (ubertooth(7), OPTION VALUES)\.
+.IP
+\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, which is the likeliest source of a command line that writes a value here\. \fB\-v\fR on its own says where the setting went: \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
 .TP
 \fB\-x <0\-32>\fR
 Allow n access address violations (default: 32)\. Filtering occurs on host\.
@@ -225,11 +227,11 @@ Injecting advertising packets (\fB\-s\fR) transmits at the CC2400 power level se
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: advertising channel index must be 37\-39 (got 40)\fR\.
 .P
-A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\-r\fR\. See ubertooth(7), OPTION VALUES, for the forms an option's value can take\. No option here has an optional value, so every value is written as the next word or attached, and \fB\-k\fR and \fB\-v\fR, which take none, are refused a value either way\.
+A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\-r\fR\. See ubertooth(7), OPTION VALUES, for the forms an option's value can take, including the optional values of \fB\-a\fR and \fB\-k\fR, which may be written as the next word or attached\. \fB\-v\fR takes no value in either form\.
 .P
-An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p\fR\.
+An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p\fR, and a read and a set of the access address in one command gives \fBerror: \-a cannot both read and set the access address\fR\.
 .P
-\fB\-a\fR or \fB\-s\fR alongside a sniffing mode gives \fBerror: \-a and \-s do not go with \-f, \-n or \-p: a sniffing mode runs until it is interrupted\fR, so there is nothing for an access address or faux slave mode request to run after\. \fB\-t\fR and \fB\-k\fR are not in that list: \fB\-t\fR is sent before the mode starts, which is what it is for, and \fB\-k\fR runs once it has started\.
+\fB\-a\fR or \fB\-s\fR alongside a sniffing mode gives \fBerror: \-a and \-s do not go with \-f, \-n or \-p: a sniffing mode runs until it is interrupted\fR, so there is nothing for an access address or faux slave mode request to run after\. \fB\-t\fR and \fB\-k\fR are not in that list: \fB\-t\fR is sent before the mode starts, which is what it is for, and the \fB\-k\fR options run once it has started\.
 .P
 \fB\-t\fR with \fB\-p\fR gives \fBerror: \-t does not go with \-p: promiscuous mode has no device address to match a target against\fR, whatever the target is: a connection that is already running names no device, so \fB\-t none\fR is refused beside \fB\-p\fR as well\.
 .P

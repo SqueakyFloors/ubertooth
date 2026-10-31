@@ -3,10 +3,10 @@
 ## SYNOPSIS
 
     ubertooth-btle {-f | -n | -p} [-A 37|38|39] [-t <BD ADDR>] [-i | -I]
-    [-k] [-v] [-x <0-32>] [-r <output.pcapng>] [-q <output.pcap>|-]
+    [-k [01]] [-v] [-x <0-32>] [-r <output.pcapng>] [-q <output.pcap>|-]
     [-c <output.pcap>|-] [-U <index|serial>]
     ubertooth-btle -s <BD ADDR> [-A 37|38|39] [-U <index|serial>]
-    ubertooth-btle [-a <address>] [-k] [-t <BD ADDR>]
+    ubertooth-btle [-a [<address>]] [-k [01]] [-t <BD ADDR>]
     [-U <index|serial>]
     ubertooth-btle [-U <index|serial>] -V
     ubertooth-btle -h
@@ -251,8 +251,8 @@ Logging:
    about an advertising field it could not read in one of those packets do not
    reach stderr either. The lines that
    answer an option in the same command go to stderr rather than being
-   suppressed with it: the `access address set to:` line of `-a`, the `CRC:`
-   line of `-k`, the target lines of `-t`, and the connection parameters `-p`
+   suppressed with it: the `Access address:` line of `-a`, the `CRC:` line of
+   `-k`, the target lines of `-t`, and the connection parameters `-p`
    recovers. The tool
    refuses to write binary capture data directly to an interactive terminal:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
@@ -302,12 +302,12 @@ Miscellaneous:
    Which advertising channel to use in follow mode (`-f`, `-n`) and faux slave
    mode (`-s`) (default: 37). Refused with `-p`, which sets no channel of its
    own.
- - `-a <address>` :
-   Set the access address used in promiscuous mode.
-   The address is 1 to 8 hex digits (`-a 8e89bed6`); fewer than 8 means
+ - `-a [address]` :
+   Get (`-a`) or set (`-a <address>`) the access address used in promiscuous
+   mode. The address is 1 to 8 hex digits (`-a 8e89bed6`); fewer than 8 means
    leading zeros (`-a 12345` sets `00012345`). Anything else is refused before
-   the device is opened, and so is a missing value: `error: option '-a'
-   requires a value`. `-a` does not go with a
+   the device is opened. Getting and setting in one command is refused; other
+   options such as `-k` still run after a get. `-a` does not go with a
    sniffing mode (`-f`, `-n`, `-p`), which runs until it is interrupted; the
    combination is refused before any device is opened. So an address for `-p`
    is given by a command of its own first: `ubertooth-btle -a <address>` and
@@ -317,17 +317,15 @@ Miscellaneous:
    an address itself, `ubertooth-util -r`, or a re-plug. A follow run (`-f`,
    `-n`) does not clear it. Promiscuous mode then discovers an address again
    rather than falling back to the advertising one.
- - `-k` :
-   Verify the CRC of each captured packet. Verification is off unless a run
-   asks for it, and there is no command line that turns it off: the board
-   clears the setting whenever a capture mode starts, so it lasts no longer
-   than the run that asked for it. The option takes no value: a word written
-   after it is a stray one (`error: unexpected argument '1'`), and a digit
-   written against it is read as an option, so `-k1` gives `error:
-   unrecognized option '-1'`. In a sniffing mode it is sent once the mode has
-   started, for that reason, and the firmware then turns verification on and
-   off itself as it recovers a connection. The run reports what it asked for,
-   `CRC: verify`.
+ - `-k [01]` :
+   Read (`-k`) or set (`-k 0` or `-k 1`) CRC verification
+   (default: 0). Any other value is refused. A set and a read in one command
+   both happen, the set first, so the read reports the new value, in whichever
+   order they are written; two sets are refused, as two values for one setting
+   are everywhere (ubertooth(7), OPTION VALUES). In a sniffing mode both
+   run once the mode has started, because entering a mode clears the setting,
+   and the firmware then turns verification on and off itself as it recovers a
+   connection.
  - `-v` :
    Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder
    describes each packet whose data it could not read, on standard error, as
@@ -339,11 +337,16 @@ Miscellaneous:
    output: a run that hands the capture that stream prints no packets to
    describe`.
 
-   `-v` named the CRC verify setting until `-k` took that over, so `-v` on its
-   own gives `error: -v needs -f, -n or -p: there is no decode for it to
-   describe; the CRC verify setting is -k now`. A value written with it is
-   refused as it is for `-k`: `-v 1` is a stray word and `-v1` an option the
-   tool does not have.
+   It takes no value at all, so `-v 1` is a stray word
+   (`error: unexpected argument '1'`) and `-v1` a letter the tool does not
+   have (`error: unrecognized option '-1'`). Writing it twice says verbose
+   twice, which is what it says once: there is one level of it, and a repeat
+   is accepted (ubertooth(7), OPTION VALUES).
+
+   `-v` named the CRC verify setting until `-k` took that over, which is the
+   likeliest source of a command line that writes a value here. `-v` on its
+   own says where the setting went: `error: -v needs -f, -n or -p: there is no
+   decode for it to describe; the CRC verify setting is -k now`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -403,21 +406,23 @@ way instead of being read as 0, for example
 `error: advertising channel index must be 37-39 (got 40)`.
 
 A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`. See
-ubertooth(7), OPTION VALUES, for the forms an option's value can take. No
-option here has an optional value, so every value is written as the next word
-or attached, and `-k` and `-v`, which take none, are refused a value either
-way.
+ubertooth(7), OPTION VALUES, for the forms an option's value can take,
+including the optional values of `-a` and `-k`, which may be written as the
+next word or attached. `-v` takes no value in either form.
 
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
 attached: more than one of `-f`, `-n` and `-p` gives
-`error: choose one of -f, -n or -p`.
+`error: choose one of -f, -n or -p`, and a read and a set of the
+access address in one command gives
+`error: -a cannot both read and set the access address`.
 
 `-a` or `-s` alongside a sniffing mode gives
 `error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it
 is interrupted`, so there is nothing for an access address or faux slave mode
 request to run after. `-t` and `-k` are not in that list: `-t` is sent before
-the mode starts, which is what it is for, and `-k` runs once it has started.
+the mode starts, which is what it is for, and the `-k` options run once it has
+started.
 
 `-t` with `-p` gives
 `error: -t does not go with -p: promiscuous mode has no device address to

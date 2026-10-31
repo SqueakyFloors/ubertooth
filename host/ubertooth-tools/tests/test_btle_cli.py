@@ -67,17 +67,10 @@ reject(("-azzzz",), BAD + " (got zzzz)")
 reject(("-a", "zzzz"), BAD + " (got zzzz)")
 reject(("-a123456789",), BAD + " (got 123456789)")
 reject(("-a0x8e89bed6",), BAD + " (got 0x8e89bed6)")
-# -a takes a value, so a missing one is named rather than read as a request
-# of its own, and two of them are refused like any other option's two values
-reject(("-a",), "error: option '-a' requires a value")
-reject(("-a8e89bed6", "-a11223344"), "error: option '-a' given more than once")
-# -k and -v take no value at all, so a word written after either is a stray
-# one; the attached form their older spellings used reads as a letter the
-# tool does not have
-reject(("-k", "1"), "error: unexpected argument '1'")
-reject(("-v", "1"), "error: unexpected argument '1'")
-reject(("-k1",), "error: unrecognized option '-1'")
-reject(("-v1",), "error: unrecognized option '-1'")
+BOTH = "error: -a cannot both read and set the access address"
+reject(("-a8e89bed6", "-a"), BOTH)
+reject(("-a", "-a11223344"), BOTH)
+reject(("-a", "11223344", "-a"), BOTH)
 
 # A command line with nothing to act on: refused before the device is opened,
 # where it used to open the board, send nothing and exit 0 after printing the
@@ -101,7 +94,7 @@ for spelling in ("i", "I", "j", "J"):
     reject(("-" + spelling,), NEEDS_MODE)
     reject(("-n", "-" + spelling), NEEDS_MODE)
     # not only with -n: any command line without -f or -p
-    reject(("-a8e89bed6", "-" + spelling), NEEDS_MODE)
+    reject(("-a", "-" + spelling), NEEDS_MODE)
     reject(("-k", "-" + spelling), NEEDS_MODE)
     reject(("-tnone", "-" + spelling), NEEDS_MODE)
 # -f and -p take it
@@ -115,10 +108,11 @@ print("ubertooth-btle: -i/-I need -f or -p")
 AFTER_A_MODE = "error: -a and -s do not go with -f, -n or -p:" \
     " a sniffing mode runs until it is interrupted"
 for mode in ("-f", "-n", "-p"):
-    for option in ("-a8e89bed6", "-a 8e89bed6", "-s22:44:66:88:aa:cc"):
-        reject((mode, *option.split()), AFTER_A_MODE)
+    for option in ("-a", "-a8e89bed6", "-s22:44:66:88:aa:cc"):
+        reject((mode, option), AFTER_A_MODE)
     # -k runs once the mode has started, so it goes with any of them
     accepted_command_line((mode, "-k"))
+    accepted_command_line((mode, "-k1"))
 print("ubertooth-btle: -a and -s are refused alongside a sniffing mode")
 
 # -t is sent before the mode starts, which is what the follow modes want. A
@@ -166,9 +160,8 @@ assert result.stdout == "", result
 assert result.stderr == NOTHING + "\n", result
 # each of the options that do have work in it gets past this check: it is the
 # device the tool then complains about, not the command line
-for arguments in (("-f",), ("-n",), ("-p",), ("-a", "8e89bed6"),
-                  ("-a8e89bed6",),
-                  ("-k",), ("-s22:44:66:88:aa:cc",),
+for arguments in (("-f",), ("-n",), ("-p",), ("-a",), ("-a8e89bed6",),
+                  ("-k",), ("-k1",), ("-s22:44:66:88:aa:cc",),
                   ("-t22:44:66:88:aa:cc",), ("-tnone",)):
     result = subprocess.run(
         [BINARY, "-U", "ffffffffffffffffffffffffffffffff", *arguments],
