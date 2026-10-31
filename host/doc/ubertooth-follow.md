@@ -213,10 +213,7 @@ their file while the command line is read, and it is opened only once every
 check has passed. The board is opened and its firmware is checked before that,
 so a run refused for either reason leaves no empty file behind either. A file
 that cannot be created is one `error: ` line naming it, for example `error:
-/no/such/dir/dump.bin: No such file or directory`, and exit 1. For a `-q` file
-the line carries no reason, `error: CAPTURE.pcap: could not be created`: the
-PCAP writer in libbtbb prints the reason itself, above that line, and leaves
-nothing this tool can trust.
+/no/such/dir/dump.bin: No such file or directory`, and exit 1.
 
 ## CAPTURING TO STANDARD OUTPUT
 

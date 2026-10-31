@@ -586,16 +586,20 @@ int main(int argc, char *argv[])
 	if (pcap_name != NULL) {
 		int saved_fd;
 		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
-		int create_result;
+		int create_result, create_errno;
 
 		if (!file) {
 			if (saved_fd >= 0)
 				close(saved_fd);
 			return release_handle(ut, 1);
 		}
+		errno = 0;
 		create_result = pcap_ppi
 		        ? lell_pcap_ppi_create_file(file, 0, &ut->h_pcap_le)
 		        : lell_pcap_create_file(file, &ut->h_pcap_le);
+		/* Read now: the close() and the free() below may set an errno
+		 * of their own, and this one is the reason reported. */
+		create_errno = errno;
 		if (saved_fd >= 0) {
 			/* The capture has taken stdout, which is now /dev/null
 			 * for the rest of this run: the lines that answer an
@@ -609,8 +613,7 @@ int main(int argc, char *argv[])
 		if (create_result) {
 			/* The name the user gave, not the /dev/fd path a bare
 			 * "-" is opened through. */
-			fprintf(stderr, "error: %s: %s\n", pcap_name,
-			        strerror(errno));
+			opt_report_create_failure(pcap_name, create_errno);
 			return release_handle(ut, 1);
 		}
 	}

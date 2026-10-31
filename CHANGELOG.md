@@ -717,14 +717,27 @@
 
 ### Reliability fixes
 
+- Fixed: a `-q` PCAP capture file that could not be written was left behind
+  empty, for the user to tell apart from a capture that caught nothing, and
+  the `error:` line naming it carried no reason while libbtbb printed one of
+  its own above it. The tools are now built against a libbtbb
+  ([`4a05712`](https://github.com/SqueakyFloors/libbtbb/commit/4a057120a239b06a3c09ef61a12c429d150a5462))
+  that takes its own unfinished capture file away again and prints nothing
+  itself. `ubertooth-rx`, `ubertooth-follow`, and `ubertooth-btle` all report
+  the reason in one line, for example `error: capture.pcap: No space left on
+  device`. A capture file at a name that is already in use
+  is still written over, which
+  [libbtbb issue 118](https://github.com/SqueakyFloors/libbtbb/issues/118)
+  is open about.
+
 - Fixed: a clock search on a piconet that hops adaptively made no headway.
   `ubertooth-rx -l <lap> -u <uap>` heard the piconet, started a CLK1-27
   search, ruled out every candidate within a few packets, and began the
   search again, for as long as the capture ran: the candidates came from the
-  basic hopping sequence, which that piconet is not using. The tools are now
-  built against a libbtbb
-  ([`4b7f8d7`](https://github.com/SqueakyFloors/libbtbb/commit/4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d))
-  that reads the evidence of adapted hopping before the candidate list it
+  basic hopping sequence, which that piconet is not using. That came with
+  libbtbb
+  ([`4b7f8d7`](https://github.com/SqueakyFloors/libbtbb/commit/4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d)),
+  which reads the evidence of adapted hopping before the candidate list it
   arrives with is emptied, so the search follows the sequence the piconet is
   really using and narrows toward a clock instead of starting over.
   Confirming a clock on such a piconet still takes more agreeing hops than

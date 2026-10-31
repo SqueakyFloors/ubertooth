@@ -15,7 +15,7 @@
 # it. It is repeated here so the failure below can name the commit to rebuild
 # at, which is the one thing a reader needs and cannot guess.
 set(LIBBTBB_PINNED_REPO "SqueakyFloors/libbtbb")
-set(LIBBTBB_PINNED_REF "4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d")
+set(LIBBTBB_PINNED_REF "4a057120a239b06a3c09ef61a12c429d150a5462")
 
 # Every libbtbb function this tree calls. libbtbb carries no version macro, so
 # "new enough" is decided by asking the installed one for the declarations the

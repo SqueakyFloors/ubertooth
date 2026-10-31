@@ -371,7 +371,7 @@ int main(int argc, char* argv[])
 		 * error and still arrive. */
 		int saved_fd;
 		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
-		int failed;
+		int failed, create_errno;
 
 		if (file == NULL) {
 			if (saved_fd >= 0)
@@ -382,6 +382,9 @@ int main(int argc, char* argv[])
 		}
 		errno = 0;
 		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
+		/* Read now: the close() and the free() below may set an errno
+		 * of their own, and this one is the reason reported. */
+		create_errno = errno;
 		if (saved_fd >= 0) {
 			/* The capture has standard output, which is /dev/null for
 			 * this process from here on. */
@@ -391,10 +394,8 @@ int main(int argc, char* argv[])
 		free(file);
 		if (failed) {
 			/* The name the user gave, not the /dev/fd path a lone
-			 * "-" is opened through, and no reason: the PCAP writer
-			 * prints the real one itself and leaves errno holding
-			 * whatever it last set. */
-			opt_report_create_failure(pcap_name, 0);
+			 * "-" is opened through. */
+			opt_report_create_failure(pcap_name, create_errno);
 			ubertooth_close(ut);
 			ubertooth_free(ut);
 			return 1;
