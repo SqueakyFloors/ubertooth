@@ -1200,8 +1200,12 @@ if(LIBBLUETOOTH_FOUND)
 	# prints rather than a stub's.
 	add_executable(test-follow-main test_follow_main.c ../src/follow_afh.c
 		../src/request_report.c)
+	# ${CMAKE_DL_LIBS} for dlsym(): the test defines btbb_piconet_new() so a
+	# case can refuse the allocation, and looks the real one up past its own
+	# definition so every other case gets a real piconet.
 	target_link_libraries(test-follow-main opt-parse-for-tests
-		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES})
+		${LIBBTBB_LIBRARIES} ${LIBBLUETOOTH_LIBRARIES}
+		${CMAKE_DL_LIBS})
 	if(libubertooth_SOURCE_DIR)
 		target_include_directories(test-follow-main PRIVATE
 			${libubertooth_SOURCE_DIR}/src)

@@ -350,13 +350,30 @@ and no other tool can open it until it is reset or re-plugged. What was
 captured stays written out, and libubertooth names the refused request on
 standard error.
 
-The `-q`, `-r` and `-d` files are created once the board has been opened and
-its firmware accepted, not before, so a run refused for either reason leaves
-no empty capture behind. For this tool that is later than it sounds: the
-adapter, the connection to the target and the clock and AFH reads all come
-first, so a path that cannot be opened is reported after them. A terminal on
-standard output is still refused while the command line is read, and so is
-every other fault in the command line.
+The `-q`, `-r`, and `-d` files are created once the board has been opened and
+its firmware accepted, not before, and a run that is refused after that
+removes them again, so a refused follow leaves no empty capture behind
+whatever refused it. For this tool the files are created later than it sounds:
+the adapter, the connection to the target, and the AFH read all come first, so
+a path that cannot be opened is reported after them. A terminal on standard
+output is still refused while the command line is read, and so is every other
+fault in the command line. A capture on standard output (`-q -`) is not a file
+this tool created, so there is nothing of it to remove: whatever standard
+output was redirected to is left as it is.
+
+A path given to `-q` or `-d` that already holds something is emptied when the
+file is opened, and removing it on a refusal does not bring the old contents
+back; `-r` refuses a path that exists rather than writing over it.
+
+Only a regular file is removed. A device, a pipe, or a symbolic link named as
+the destination is left where it is, along with whatever the run wrote through
+it, because the run did not create it. A removal that will not go is reported
+as `warning: cannot remove <path>: <reason>` and does not change the exit
+status.
+
+A run that cannot allocate the piconet it follows exits 1 with `error: out of
+memory`, before the adapter or a board is opened; `-h` and `-V` are answered
+first and so still work on a machine with no memory for one.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that

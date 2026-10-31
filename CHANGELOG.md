@@ -808,6 +808,13 @@
   disconnects cleanly and reconnects at once is not followed again until the
   old connection's supervision timeout has run out; see ubertooth-btle(1).
   [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
+- A `ubertooth-follow` run that is refused before it captures anything leaves
+  no empty capture file behind. The `-q`, `-r`, and `-d` files are created once
+  the board is open and its firmware accepted, and every failure after that --
+  an address or clock request the board refused, a clock the local adapter
+  would not read, or a capture that would not start -- removes them again, so
+  there is nothing on disk to tell apart from a capture that caught nothing.
+  [#995](https://github.com/SqueakyFloors/ubertooth/issues/995)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
   using the whole band instead of a handful of channels. The channel removal
@@ -2570,9 +2577,11 @@ Fixes with no visible change in normal use.
   [#705](https://github.com/SqueakyFloors/ubertooth/issues/705)
 - A board selection that ran out of memory exited 1 with no line at all,
   whether it was asked for by index or by serial.
-- `ubertooth-rx -l` crashed instead of saying anything when the piconet it
-  follows could not be allocated. It now reports `error: out of memory` and
-  exits 1, as `ubertooth-afh` already did.
+- `ubertooth-rx -l` and `ubertooth-follow` crashed instead of saying anything
+  when the piconet they follow could not be allocated. Both now report
+  `error: out of memory` and exit 1, as `ubertooth-afh` already did, and
+  `ubertooth-follow` allocates the piconet once the command line has been
+  accepted, so `-h` and `-V` still answer.
   [#987](https://github.com/SqueakyFloors/ubertooth/issues/987)
 - The `ubertooth-btle` that `btle-extcap.py` runs for a Wireshark capture no
   longer writes its text decode of every packet, some 560 kB for 8 seconds of

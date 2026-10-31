@@ -31,12 +31,21 @@
  * the clock reads, so no case needs a Bluetooth adapter on the machine running
  * the tests.
  */
+
+/* RTLD_NEXT, used below to reach libbtbb's real btbb_piconet_new(), is a GNU
+ * extension, and nothing in the build asks for the GNU set. This has to come
+ * before any include, because the first one pulls in <features.h>, where the
+ * choice is read. Same reason as in test_rx_main.c. */
+#define _GNU_SOURCE 1
+
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "../../../firmware/tests/minunit.h"
@@ -113,8 +122,8 @@ static struct {
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
-	 * p started the poll thread, m set the AFH map, c cleared it, h told
-	 * the board to start hopping. */
+	 * p started the poll thread, d set the modulation, m set the AFH map,
+	 * c cleared it, h told the board to start hopping. */
 	char calls[16];
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
@@ -123,6 +132,9 @@ static struct {
 	 * signal recorded while the board was being opened. */
 	int stop_handlers;
 	int stop_requested;
+	/* 1 to have btbb_piconet_new() fail, as it does when the machine is out
+	 * of memory. */
+	int no_memory;
 } fake;
 
 static ubertooth_t fake_ut;
@@ -155,6 +167,9 @@ static void reset_fake(void)
 	 * out-of-range value to make it refuse. */
 	max_ac_errors = 2;
 	fake.dev_fd = -1;
+	/* The dump file -d opens is a global of the library's, so a case that
+	 * used one would otherwise leave it set for the next. */
+	dumpfile = NULL;
 	fake_ut.devh = (struct libusb_device_handle*)&fake_devh;
 	fake.blocks_to_end = 2;
 	/* A target using AFH on every channel, so -a reaches the map set. */
@@ -484,6 +499,35 @@ static struct run_result run_follow(const char* const* args)
 	                     && fcntl(fake.dev_fd, F_GETFD) == -1
 	                     && errno == EBADF;
 	return result;
+}
+
+/* libbtbb is the real library here, so this stands in front of its
+ * btbb_piconet_new() rather than replacing it: a case that has not asked for
+ * the allocation to fail gets a real piconet, looked up past this definition.
+ * A process only fails to allocate when it is out of memory, which a test
+ * cannot reach without putting the whole run at risk, so the failure is
+ * scripted. Same shape as test_rx_main.c's.
+ *
+ * This needs the shared libbtbb: against a static one the definition here is
+ * either a duplicate symbol at link time or the only one there is, and then
+ * dlsym() finds nothing and every case gets a NULL piconet. */
+btbb_piconet* btbb_piconet_new(void)
+{
+	static btbb_piconet* (*real_btbb_piconet_new)(void);
+
+	if (fake.no_memory)
+		return NULL;
+	if (real_btbb_piconet_new == NULL)
+		real_btbb_piconet_new = (btbb_piconet* (*)(void))
+		                        dlsym(RTLD_NEXT, "btbb_piconet_new");
+	if (real_btbb_piconet_new == NULL) {
+		/* The static-libbtbb case above: say so, or every case fails
+		 * as "out of memory" and names no cause. */
+		fputs("test: libbtbb's btbb_piconet_new() was not found;"
+		      " this test needs the shared library\n", stderr);
+		return NULL;
+	}
+	return real_btbb_piconet_new();
 }
 
 #define RUN(...) run_follow((const char* const[]){ "ubertooth-follow", __VA_ARGS__, NULL })
@@ -938,6 +982,153 @@ MU_TEST(a_refused_clock_set_exits_1)
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
+/* A refused request leaves no capture file behind. The files are created once
+ * the board is open and its firmware accepted, which for this tool is still
+ * above the two requests the follow is built on: zeroing the board's clock has
+ * to be the last thing before the receive transfer, so the files cannot move
+ * below it. Each failure after they exist removes them again, so a refused run
+ * never leaves a header-only capture the user has to tell apart from a capture
+ * that ran and caught nothing. Each of the three file options is checked,
+ * because each is opened by a writer of its own. */
+MU_TEST(a_refused_request_creates_no_file)
+{
+	static const char* const options[] = { "-q", "-r", "-d" };
+	/* The whole range the removal covers, from the first failure after the
+	 * files exist to the last before the capture loop, named by the
+	 * requests that went out before each. The five are the five shapes of
+	 * exit the tool has here: the two synchronous requests, the two steps
+	 * that start the capture and give the board back themselves, and
+	 * everything after the poll thread. */
+	static const char* const reached[] = {
+		"a", "ak", "aki", "akip", "akipdh"
+	};
+	struct run_result r;
+	struct stat info;
+	char path[64];
+	size_t i, which;
+
+	for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
+		for (which = 0; which < sizeof(reached) / sizeof(reached[0]);
+		     which++) {
+			int fd;
+
+			reset_fake();
+			switch (which) {
+			case 0:
+				fake.bdaddr_rc = -9; /* LIBUSB_ERROR_PIPE */
+				break;
+			case 1:
+				fake.clock_rc = -9;
+				break;
+			case 2:
+				fake.bulk_init_rc = -1;
+				break;
+			case 3:
+				fake.thread_start_rc = EAGAIN;
+				break;
+			default:
+				fake.hopping_rc = -9;
+				break;
+			}
+			snprintf(path, sizeof(path), "/tmp/follow-main-XXXXXX");
+			fd = mkstemp(path);
+			mu_assert_fatal(fd >= 0, "temp name taken");
+			close(fd);
+			unlink(path);
+
+			r = RUN(options[i], path, TARGET);
+			mu_assert_int_eq(1, r.rc);
+			/* The run did reach that failure, so the file had been
+			 * created by then: the check below would otherwise
+			 * pass without the fix. */
+			mu_assert(strcmp(fake.calls, reached[which]) == 0,
+			          fake.calls);
+			mu_assert(stat(path, &info) != 0, path);
+			mu_assert_int_eq(0, fake.receives);
+			unlink(path);
+		}
+	}
+}
+
+/* A destination the run did not create is left where it is: only a regular
+ * file is removed. A symbolic link stands for the whole class here, because a
+ * test can make one and take it away again, where a device node needs root
+ * and a pipe would block the writer that opens it. Nothing is said about it
+ * either: there was nothing to remove. */
+MU_TEST(a_destination_the_run_did_not_create_stays)
+{
+	struct run_result r;
+	struct stat info;
+	char target[64];
+	char link[80];
+	int fd;
+
+	reset_fake();
+	fake.clock_rc = -9; /* LIBUSB_ERROR_PIPE */
+	snprintf(target, sizeof(target), "/tmp/follow-main-XXXXXX");
+	fd = mkstemp(target);
+	mu_assert_fatal(fd >= 0, "temp name taken");
+	close(fd);
+	snprintf(link, sizeof(link), "%s-link", target);
+	unlink(link);
+	mu_assert_fatal(symlink(target, link) == 0, "cannot make a link");
+
+	r = RUN("-q", link, TARGET);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	/* The link is still there, and so is the file it names. */
+	mu_assert(lstat(link, &info) == 0 && S_ISLNK(info.st_mode), link);
+	mu_assert(stat(target, &info) == 0, target);
+	mu_assert(strstr(r.err, "cannot remove") == NULL, r.err);
+
+	unlink(link);
+	unlink(target);
+}
+
+/* A piconet that cannot be allocated ends the run with its reason, rather
+ * than being dereferenced where the board is told what to follow: the tool
+ * used to crash, and a crash says nothing about why. */
+MU_TEST(a_piconet_that_cannot_be_allocated_exits_one)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.no_memory = 1;
+
+	r = RUN(TARGET);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: out of memory\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	/* The piconet is allocated before the adapter and the board, so there
+	 * is nothing to give back. */
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert_int_eq(0, fake.frees);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	/* Which is also why -h and -V still answer: the piconet is allocated
+	 * once the command line has been accepted, not before it is read. */
+	reset_fake();
+	fake.no_memory = 1;
+
+	r = RUN("-h");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "ubertooth-follow") != NULL, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+
+	reset_fake();
+	fake.no_memory = 1;
+
+	r = RUN("-V");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "version (test)") != NULL, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
 /* Half of the -l/-u pair names no piconet, so the command cannot be carried
  * out as written and is refused before the adapter is opened. It used to fall
  * into the no-target path, which says "No address given" and follows the local
@@ -1128,6 +1319,9 @@ int main(void)
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
 	MU_RUN(a_refused_address_set_exits_1);
 	MU_RUN(a_refused_clock_set_exits_1);
+	MU_RUN(a_refused_request_creates_no_file);
+	MU_RUN(a_destination_the_run_did_not_create_stays);
+	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
 	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
 	MU_RUN(the_usb_delay_is_given_to_the_board_in_clock_ticks);
 	return mu_report();
