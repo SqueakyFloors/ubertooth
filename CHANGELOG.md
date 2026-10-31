@@ -565,6 +565,18 @@
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542),
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
+- `ubertooth-specan-ui` can label its axis and its markers with BLE channel
+  numbers instead of megahertz. Press `b` in the window for the channel
+  numbers -- the advertising channels 37, 38, and 39, and the data channels 0
+  to 36 -- and `b` again for the megahertz the window still starts in. In
+  channel mode the axis is marked on the channels themselves, so a line on the
+  graph lines up with the number under it, and a marker names the channel
+  nearest the point it sits on. The difference between two markers stays in
+  megahertz either way.
+  Credit: Emmanuel Blot ([@eblot](https://github.com/eblot)) for the channel
+  labels and the mapping behind them.
+  [#76](https://github.com/SqueakyFloors/ubertooth/issues/76)
+
 ### Build and compatibility
 
 - A reconfigure after libbtbb, libubertooth or libbluetooth moves finds it

@@ -50,6 +50,16 @@ add_test(NAME specan-ui-streams
 		${CMAKE_CURRENT_SOURCE_DIR}/ubertooth-specan-ui.in)
 set_tests_properties(specan-ui-streams PROPERTIES TIMEOUT 120)
 
+# The BLE channel each frequency falls on, and the axis and marker labels the
+# window draws from it. All of that is in specan/channels.py, which imports
+# nothing outside the standard library, so it runs everywhere; pressing the
+# key that switches the labels is checked by hand at a desktop.
+add_test(NAME specan-ui-channels
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/tests/test_specan_channels.py
+		${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(specan-ui-channels PROPERTIES TIMEOUT 60)
+
 # The command-line contract (host/ubertooth-tools/tests/cli_spec.json) says
 # this tool's command line cannot be reached without its Qt binding and numpy,
 # so the matrix runs nothing here. Its man page is still checked, which is

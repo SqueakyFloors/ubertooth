@@ -392,12 +392,14 @@ from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt, QPointF, QLineF
 
 from specan import Ubertooth
+from specan.channels import axis_ticks, difference_label, frequency_label
 
 # Shown on screen with h and printed to the terminal. Keys work in either case.
 KEY_HELP = (
     ('left click', 'set marker 1 (yellow) at the pointer'),
     ('right click', 'set marker 2 (magenta); shows the difference'),
     ('middle click or m', 'show / hide peak and average markers, clear mouse markers'),
+    ('b', 'label the axis and markers in BLE channels / in MHz'),
     ('c', 'clear the graph'),
     ('h', 'show / hide this help'),
     ('q', 'quit'),
@@ -461,6 +463,7 @@ class RenderArea(QtWidgets.QWidget):
 
         self._hide_markers = False
         self._show_help = False
+        self._ble_channels = False  # label in MHz until the user asks for channels
         self._peak = None  # (x, y) of the strongest max-hold bin
         self._frame_is_new = False
         self._mouse_x = None
@@ -479,6 +482,17 @@ class RenderArea(QtWidgets.QWidget):
 
     def schedule_clear(self):
         self._clear_scheduled = True
+
+    def toggle_ble_channels(self):
+        """Switch the axis and the marker labels between MHz and BLE channels.
+
+        The axis labels are drawn into the reticle once and that pixmap is
+        reused every repaint, so it has to be built again for the new labels
+        to appear.
+        """
+        self._ble_channels = not self._ble_channels
+        self._reticle = None
+        self.update()
 
     def stop_thread(self):
         self._thread.stop()
@@ -590,11 +604,18 @@ class RenderArea(QtWidgets.QWidget):
             dbm_labels = [(dbm, QPointF(self._hz_to_x(self._low_frequency) + 2, self._dbm_to_y(dbm) - 2))
                           for dbm in numpy.arange(self._low_dbm, self._high_dbm, 20.0)]
 
+            if self._ble_channels:
+                ticks = [(mhz * 1e6, text) for mhz, text
+                         in axis_ticks(round(self._low_frequency / 1e6),
+                                       round(self._high_frequency / 1e6))]
+            else:
+                ticks = [(frequency, '%.0f' % (frequency / 1e6))
+                         for frequency in numpy.arange(self._low_frequency, self._high_frequency, self._frequency_step * 10.0)]
             frequency_lines = [QLineF(self._hz_to_x(frequency), self._dbm_to_y(self._high_dbm),
                                       self._hz_to_x(frequency), self._dbm_to_y(self._low_dbm))
-                               for frequency in numpy.arange(self._low_frequency, self._high_frequency, self._frequency_step * 10.0)]
-            frequency_labels = [(frequency, QPointF(self._hz_to_x(frequency) + 2, self._dbm_to_y(self._high_dbm) + 10))
-                                for frequency in numpy.arange(self._low_frequency, self._high_frequency, self._frequency_step * 10.0)]
+                               for frequency, _ in ticks]
+            frequency_labels = [(text, QPointF(self._hz_to_x(frequency) + 2, self._dbm_to_y(self._high_dbm) + 10))
+                                for frequency, text in ticks]
 
             painter = QtGui.QPainter(self._reticle)
             try:
@@ -612,8 +633,8 @@ class RenderArea(QtWidgets.QWidget):
                 painter.setPen(Qt.white)
                 for dbm, point in dbm_labels:
                     painter.drawText(point, '%+.0f' % dbm)
-                for frequency, point in frequency_labels:
-                    painter.drawText(point, '%.0f' % (frequency / 1e6))
+                for text, point in frequency_labels:
+                    painter.drawText(point, text)
 
             finally:
                 painter.end()
@@ -680,7 +701,8 @@ class RenderArea(QtWidgets.QWidget):
 
         pen.setBrush(Qt.red)
         painter.setPen(pen)
-        painter.drawText(QPointF(peak_x + 4, 30), '%.0f MHz' % peak_mhz)
+        painter.drawText(QPointF(peak_x + 4, 30),
+                         frequency_label(peak_mhz, self._ble_channels))
         painter.drawText(QPointF(30, peak_y - 4), '%d' % self._y_to_dbm(peak_y))
         painter.drawLine(QPointF(peak_x, 0), QPointF(peak_x, self.height()))
         painter.drawLine(QPointF(0, peak_y), QPointF(self.width(), peak_y))
@@ -696,28 +718,34 @@ class RenderArea(QtWidgets.QWidget):
             x1 = self._hz_to_x(self._mouse_x)
             pen.setBrush(Qt.red)
             painter.setPen(pen)
-            painter.drawText(QPointF(x1 + 4, 58), '(%+.0f)' % (peak_mhz - self._mouse_x / 1e6))
+            painter.drawText(QPointF(x1 + 4, 58),
+                             difference_label(peak_mhz - self._mouse_x / 1e6, self._ble_channels))
             pen.setBrush(Qt.yellow)
             painter.setPen(pen)
-            painter.drawText(QPointF(x1 + 4, 44), '%.0f MHz' % (self._mouse_x / 1e6))
+            painter.drawText(QPointF(x1 + 4, 44),
+                             frequency_label(self._mouse_x / 1e6, self._ble_channels))
             painter.drawText(QPointF(54, self._dbm_to_y(self._mouse_y) - 4), '%d' % self._mouse_y)
             painter.drawLine(QPointF(x1, 0), QPointF(x1, self.height()))
             painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y)), QPointF(self.width(), self._dbm_to_y(self._mouse_y)))
             if self._mouse_x2:
-                painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 118), '(%+.0f)' % ((self._mouse_x - self._mouse_x2) / 1e6))
+                painter.drawText(QPointF(self._hz_to_x(self._mouse_x2) + 4, 118),
+                                 difference_label((self._mouse_x - self._mouse_x2) / 1e6, self._ble_channels))
         if self._mouse_x2:
             x2 = self._hz_to_x(self._mouse_x2)
             pen.setBrush(Qt.red)
             painter.setPen(pen)
-            painter.drawText(QPointF(x2 + 4, 102), '(%+.0f)' % (peak_mhz - self._mouse_x2 / 1e6))
+            painter.drawText(QPointF(x2 + 4, 102),
+                             difference_label(peak_mhz - self._mouse_x2 / 1e6, self._ble_channels))
             pen.setBrush(Qt.magenta)
             painter.setPen(pen)
-            painter.drawText(QPointF(x2 + 4, 88), '%.0f MHz' % (self._mouse_x2 / 1e6))
+            painter.drawText(QPointF(x2 + 4, 88),
+                             frequency_label(self._mouse_x2 / 1e6, self._ble_channels))
             painter.drawText(QPointF(78, self._dbm_to_y(self._mouse_y2) - 4), '%d' % self._mouse_y2)
             painter.drawLine(QPointF(x2, 0), QPointF(x2, self.height()))
             painter.drawLine(QPointF(0, self._dbm_to_y(self._mouse_y2)), QPointF(self.width(), self._dbm_to_y(self._mouse_y2)))
             if self._mouse_x:
-                painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 74), '(%+.0f)' % ((self._mouse_x2 - self._mouse_x) / 1e6))
+                painter.drawText(QPointF(self._hz_to_x(self._mouse_x) + 4, 74),
+                                 difference_label((self._mouse_x2 - self._mouse_x) / 1e6, self._ble_channels))
 
     def _draw_help(self, painter):
         # Drawn on the widget each repaint, not into the fading graph, so it
@@ -816,6 +844,9 @@ class Window(QtWidgets.QWidget):
             self.render_area._mouse_x2 = None
             self.render_area._mouse_y2 = None
             self.render_area._hide_markers = not self.render_area._hide_markers
+            return
+        if key == 'B':
+            self.render_area.toggle_ble_channels()
             return
         if key == 'C':
             self.render_area.schedule_clear()
