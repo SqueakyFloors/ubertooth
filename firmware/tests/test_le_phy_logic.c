@@ -2583,6 +2583,132 @@ MU_TEST(an_empty_map_does_not_divide_by_zero_in_the_remapping)
 }
 
 /* ------------------------------------------------------------------ *
+ * Channel selection algorithm #2
+ * ------------------------------------------------------------------ */
+
+/*
+ * The arithmetic, against the Core Specification's own sample data (5.4,
+ * Vol 6, Part C, Section 3): test access address 0x8E89BED6, whose
+ * channelIdentifier is 0x305F, with a full map and with a map of nine
+ * channels. The numbers are spelled out here rather than worked out from the
+ * firmware's own code, so this does not agree with the firmware by
+ * construction.
+ */
+MU_TEST(algorithm_2_matches_the_specification_sample_data)
+{
+	uint8_t full_map[5] = { 0xff, 0xff, 0xff, 0xff, 0x1f };
+	/* The sample data's second map: channels 9, 10, 21, 22, 23, 33, 34, 35
+	 * and 36, lowest channel in the lowest bit of the first octet. */
+	uint8_t nine_map[5] = { 0x00, 0x06, 0xe0, 0x00, 0x1e };
+	le_channel_remapping_t remapping;
+	unsigned i;
+
+	static const struct { uint16_t counter; uint8_t channel; } full[] = {
+		{ 0, 25 }, { 1, 20 }, { 2, 6 }, { 3, 21 },
+	};
+	static const struct { uint16_t counter; uint8_t channel; } nine[] = {
+		{ 6, 23 }, { 7, 9 }, { 8, 34 },
+	};
+
+	le_parse_channel_map(full_map, &remapping);
+	mu_assert_int_eq(37, remapping.total_channels);
+	for (i = 0; i < sizeof(full) / sizeof(full[0]); i++)
+		mu_assert_int_eq(full[i].channel,
+		                 le_csa2_channel(full[i].counter, 0x8e89bed6u,
+		                                 &remapping));
+
+	le_parse_channel_map(nine_map, &remapping);
+	mu_assert_int_eq(9, remapping.total_channels);
+	mu_assert_int_eq(9, remapping.remapping_index[0]);
+	mu_assert_int_eq(23, remapping.remapping_index[4]);
+	mu_assert_int_eq(36, remapping.remapping_index[8]);
+	for (i = 0; i < sizeof(nine) / sizeof(nine[0]); i++)
+		mu_assert_int_eq(nine[i].channel,
+		                 le_csa2_channel(nine[i].counter, 0x8e89bed6u,
+		                                 &remapping));
+
+	/* The same backstop le_map_channel() carries: an empty map must not
+	 * divide by zero, and each event keeps the channel it landed on. */
+	memset(&remapping, 0, sizeof(remapping));
+	mu_assert_int_eq(25, le_csa2_channel(0, 0x8e89bed6u, &remapping));
+}
+
+/*
+ * Which algorithm a connection hops with is settled by two bits, and both
+ * ends have to have set theirs: the advertiser in the advertisement, the
+ * initiator in the request that answers it.
+ */
+MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
+{
+	static const uint8_t adva[6] = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 };
+	struct { int advert; int adv_bit; int req_bit; int expected; } cases[] = {
+		{ 1, 1, 1, 1 },   /* both said yes */
+		{ 1, 0, 1, 0 },   /* the advertiser did not */
+		{ 1, 1, 0, 0 },   /* the initiator did not */
+		{ 0, 0, 1, 1 },   /* no advertisement captured: the request decides */
+		{ 0, 0, 0, 0 },
+	};
+	unsigned i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		struct connect_req r = valid_connect_req();
+		le_rx_t buf;
+
+		start_fresh();
+		le.do_follow = 1;
+		/* Leave nothing from the case before behind. */
+		adv_chan_sel_2 = 0;
+		adv_chan_sel_2_seen = 0;
+
+		if (cases[i].advert) {
+			fill_packet(&buf, 6, ADV_CHANNEL_MHZ);
+			memset(buf.data, 0, sizeof(buf.data));
+			buf.data[0] = (uint8_t)(0x00 |
+					(cases[i].adv_bit ? 0x20 : 0));
+			buf.data[1] = 6;
+			memcpy(&buf.data[2], adva, sizeof(adva));
+			packet_handler(&buf);
+			/* An advertisement is not a connection request. */
+			mu_assert_int_eq(ADV_AA, conn.access_address);
+		}
+
+		build_connect_req(&buf, &r);
+		if (cases[i].req_bit)
+			buf.data[0] |= 0x20;
+		memcpy(&buf.data[8], adva, sizeof(adva));
+		packet_handler(&buf);
+
+		mu_assert_int_eq(r.access_address, conn.access_address);
+		mu_assert_int_eq(cases[i].expected, conn.chan_sel_2);
+	}
+
+	/* An advertisement from another device says nothing about this one. */
+	{
+		struct connect_req r = valid_connect_req();
+		le_rx_t buf;
+
+		start_fresh();
+		le.do_follow = 1;
+		adv_chan_sel_2 = 0;
+		adv_chan_sel_2_seen = 0;
+
+		fill_packet(&buf, 6, ADV_CHANNEL_MHZ);
+		memset(buf.data, 0, sizeof(buf.data));
+		buf.data[0] = 0x00;            /* ADV_IND, ChSel clear */
+		buf.data[1] = 6;
+		memset(&buf.data[2], 0xee, 6); /* a different advertiser */
+		packet_handler(&buf);
+
+		build_connect_req(&buf, &r);
+		buf.data[0] |= 0x20;
+		memcpy(&buf.data[8], adva, sizeof(adva));
+		packet_handler(&buf);
+
+		mu_assert_int_eq(1, conn.chan_sel_2);
+	}
+}
+
+/* ------------------------------------------------------------------ *
  * Which packets are acted on
  * ------------------------------------------------------------------ */
 
@@ -2827,6 +2953,48 @@ static void anchored_connection(uint32_t last_anchor)
 	conn.last_packet_ts = 1000;
 	fake_t1tc = 1000;
 	conn.conn_event_counter = 5;
+}
+
+/*
+ * An algorithm #2 connection is tuned by its event counter, so the events the
+ * capture never saw cost it nothing: where algorithm #1 has to take the hops
+ * of every skipped event to stay in step, this one is simply asked for the
+ * channel of the event it is opening.
+ */
+MU_TEST(an_algorithm_2_connection_is_tuned_by_its_event_counter)
+{
+	uint8_t full_map[5] = { 0xff, 0xff, 0xff, 0xff, 0x1f };
+
+	anchored_connection(100000);
+	/* The halves of the specification's test address, swapped: the
+	 * channelIdentifier is their exclusive-or either way round, so the
+	 * sample data's channels apply, and this is not the advertising address
+	 * that would send the engine to an advertising channel. */
+	conn.access_address = 0xbed68e89u;
+	conn.hop_increment = 16;
+	le_parse_channel_map(full_map, &conn.remapping);
+	conn.chan_sel_2 = 1;
+
+	conn.conn_event_counter = 2;
+	change_channel();
+	mu_assert_int_eq(btle_channel_index_to_phys(6), rf_channel);
+
+	/* Two events went by unobserved. Algorithm #1 would be two hops behind
+	 * by now; this one is where the counter says. */
+	conn.conn_event_counter = 3;
+	change_channel();
+	mu_assert_int_eq(btle_channel_index_to_phys(21), rf_channel);
+
+	/* And with the bit clear the hop increment is what tunes it: the first
+	 * event of a connection lands one increment from channel 0. */
+	anchored_connection(100000);
+	conn.access_address = 0xbed68e89u;
+	conn.hop_increment = 16;
+	le_parse_channel_map(full_map, &conn.remapping);
+	conn.chan_sel_2 = 0;
+	conn.channel_idx = 0;
+	change_channel();
+	mu_assert_int_eq(btle_channel_index_to_phys(16), rf_channel);
 }
 
 /*
@@ -4134,6 +4302,9 @@ int main(void)
 	MU_RUN(a_channel_map_is_not_pending_while_it_is_being_written);
 	MU_RUN(a_channel_map_update_with_no_channels_is_refused);
 	MU_RUN(an_empty_map_does_not_divide_by_zero_in_the_remapping);
+	MU_RUN(algorithm_2_matches_the_specification_sample_data);
+	MU_RUN(algorithm_2_is_taken_only_when_both_ends_asked_for_it);
+	MU_RUN(an_algorithm_2_connection_is_tuned_by_its_event_counter);
 	MU_RUN(only_the_packets_the_engine_knows_are_acted_on);
 	MU_RUN(a_target_filters_advertising_packets_only);
 	MU_RUN(the_first_packet_of_an_event_anchors_it_and_waits_for_the_second);

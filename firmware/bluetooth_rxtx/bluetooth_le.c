@@ -331,3 +331,65 @@ uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping) {
 	else
 		return remapping->remapping_index[channel_idx % remapping->total_channels];
 }
+
+/*
+ * The permutation channel selection algorithm #2 is built on: the bits inside
+ * each octet are reversed and the two octets stay where they are. Reversing
+ * all sixteen is the easy mistake and it matches none of the specification's
+ * sample data.
+ */
+static uint8_t le_reverse_octet(uint8_t b) {
+	b = (uint8_t)(((b & 0xf0) >> 4) | ((b & 0x0f) << 4));
+	b = (uint8_t)(((b & 0xcc) >> 2) | ((b & 0x33) << 2));
+	return (uint8_t)(((b & 0xaa) >> 1) | ((b & 0x55) << 1));
+}
+
+/*
+ * The pseudo-random number an event is given, Core 5.4, Vol 6, Part B,
+ * 4.5.8.3.3: three rounds of the permutation above and "multiply, add,
+ * modulo", which is 17 * v + channelIdentifier kept to sixteen bits, with the
+ * identifier mixed in at both ends.
+ */
+static uint16_t le_csa2_prn_e(uint16_t event_counter, uint16_t channel_id) {
+	uint16_t v = event_counter ^ channel_id;
+	unsigned i;
+
+	for (i = 0; i < 3; ++i) {
+		v = (uint16_t)((le_reverse_octet(v >> 8) << 8) |
+				le_reverse_octet(v & 0xff));
+		v = (uint16_t)(17u * v + channel_id);
+	}
+
+	return v ^ channel_id;
+}
+
+/*
+ * The channel of one connection event under channel selection algorithm #2
+ * (4.5.8.3), which a connection uses when both ends said they support it.
+ *
+ * Algorithm #1's channel is a running sum of the hop increment, so a follower
+ * has to count every event and stay in step. This one is a function of the
+ * event counter and the access address alone: an event the follower never saw
+ * costs it nothing, because there is no state to carry.
+ */
+uint8_t le_csa2_channel(uint16_t event_counter, uint32_t access_address,
+                        le_channel_remapping_t *remapping) {
+	uint16_t channel_id = (uint16_t)(((access_address >> 16) & 0xffff) ^
+			(access_address & 0xffff));
+	uint16_t prn = le_csa2_prn_e(event_counter, channel_id);
+	uint8_t unmapped = (uint8_t)(prn % 37);
+
+	/* The backstop le_map_channel() carries, for the same reason: with the
+	 * divide-by-zero trap off at its reset value, a count of zero would
+	 * park a followed connection on data channel 0. */
+	if (remapping->total_channels == 0)
+		return unmapped;
+
+	if (remapping->channel_in_use[unmapped])
+		return unmapped;
+
+	/* Where algorithm #1 reduces the channel it landed on, this one takes
+	 * its place in the table from the whole pseudo-random number. */
+	return remapping->remapping_index[
+			(remapping->total_channels * (uint32_t)prn) >> 16];
+}
