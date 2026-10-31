@@ -1171,7 +1171,7 @@ MU_TEST(a_setting_stated_for_a_mode_still_to_start_survives)
  * and then the jam mode; the mode start's reset runs on the way out of the old
  * mode, after the jam request has been answered, so the copy is what carries
  * it to the mode it was stated for. Stating it this way is what keeps a jam
- * mode from reaching a mode it was not stated for (#872).
+ * mode from reaching a mode it was not stated for.
  */
 MU_TEST(a_jam_mode_stated_after_the_mode_request_survives)
 {
@@ -1431,7 +1431,7 @@ MU_TEST(an_absorbed_follow_request_keeps_nothing)
 
 /*
  * A jam mode stated for a mode that never started is dropped, instead of being
- * applied to whatever starts next (#872). ubertooth-btle sends the jam mode
+ * applied to whatever starts next. ubertooth-btle sends the jam mode
  * after its follow or promiscuous request, so the copy names that mode; a tool
  * killed before its mode started leaves the copy behind, and the capture
  * another tool then asks for does not transmit.

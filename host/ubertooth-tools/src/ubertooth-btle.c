@@ -700,7 +700,7 @@ int main(int argc, char *argv[])
 		 * and modulation are: the engine reads it as it runs, so it takes
 		 * effect on this capture, and a board left in a mode by a killed
 		 * tool does not carry a jam mode stated for a request that never
-		 * came into the next capture (#872). The mode is running by now,
+		 * came into the next capture. The mode is running by now,
 		 * so a firmware that cannot jam is reported after stopping it. */
 		r = cmd_set_jam_mode(ut->devh, jam_mode);
 		if (jam_mode != JAM_NONE && r != 0) {

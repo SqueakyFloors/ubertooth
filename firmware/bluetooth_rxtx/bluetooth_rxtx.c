@@ -1275,7 +1275,6 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (data_in_len < 6)
 			return 0;
 		memcpy(peripheral_mac_address, data, 6);
-		drop_kept_settings(MODE_BT_PERIPHERAL_LE);
 		requested_mode = MODE_BT_PERIPHERAL_LE;
 		break;
 #endif
@@ -1350,7 +1349,7 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * are, so a mode start still to come keeps it while an orphan --
 		 * a copy left by a tool killed before its own mode started --
 		 * names that mode and is dropped rather than reaching the next
-		 * one (#872). The follow and promiscuous engines read jam_mode as
+		 * one. The follow and promiscuous engines read jam_mode as
 		 * they run, which is what lets it arrive after the request. */
 		if (requested_mode != mode) {
 			stated_jam_mode = request_params[0];

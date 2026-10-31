@@ -940,7 +940,7 @@ MU_TEST(test_the_modulation_request_keeps_a_copy_for_its_own_mode)
  * for that mode. ubertooth-btle sends it after the request that starts its
  * follow or promiscuous mode -- as it does the modulation -- so a jam mode
  * left by a tool killed before its mode started names that mode and is
- * dropped rather than reaching the next capture (#872). The copy is under the
+ * dropped rather than reaching the next capture. The copy is under the
  * `requested_mode != mode` guard, so a jam mode stated under a running capture
  * is applied live and keeps no copy.
  */
