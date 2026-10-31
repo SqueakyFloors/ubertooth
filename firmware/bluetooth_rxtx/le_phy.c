@@ -506,11 +506,12 @@ static void timer1_arm_conn_event(void) {
 		// events ago and hear nothing from it until the supervision
 		// timeout ended the follow.
 		//
-		// Algorithm 2 has nothing to catch up: it is asked for the
-		// channel of the event it is opening. See le_csa2_channel().
-		if (!conn.chan_sel_2)
-			conn.channel_idx = (conn.channel_idx +
-					skipped * conn.hop_increment) % 37;
+		// A connection hopping with algorithm 2 never reads this, since
+		// that algorithm is asked for the channel of the event it is
+		// opening; the arithmetic is left unconditional because a branch
+		// here would cost as much as it saves.
+		conn.channel_idx = (conn.channel_idx +
+				skipped * conn.hop_increment) % 37;
 	}
 
 	timer1_set_match(target);
@@ -1933,6 +1934,13 @@ static void le_connect_handler(le_rx_t *buf) {
 		int chsel_adv = advertiser_asked_for_chan_sel_2(&buf->data[8]);
 
 		conn.chan_sel_2 = chsel_req && chsel_adv != 0;
+
+		// The specification ties the pair of bits to one exchange: the
+		// advertisement this request answered. So the record is used
+		// once and dropped, rather than left to decide a later
+		// connection from the same address whose own advertisement was
+		// missed.
+		forget_last_advertisement();
 	}
 
 	timing.win_size            = extract_field(buf, 21, 1);
@@ -2146,9 +2154,13 @@ static void packet_handler(le_rx_t *buf) {
 			// for the whole life of that connection, and no bit
 			// error can help. An ADV_DIRECT_IND carries two
 			// addresses, as the filter below also requires of it.
+			// Nothing reads the bit unless the host asked to follow,
+			// and a capture of advertising alone is busy, so the
+			// check is skipped there.
 			case 0x00:
 			case 0x01:
-				if (buf->size >= (((buf->data[0] & 0xf) == 0x01)
+				if (le.do_follow &&
+						buf->size >= (((buf->data[0] & 0xf) == 0x01)
 							? LE_TWO_ADDR_SIZE
 							: LE_ONE_ADDR_SIZE) &&
 						advertising_crc_ok(buf)) {
@@ -2159,7 +2171,12 @@ static void packet_handler(le_rx_t *buf) {
 				}
 				break;
 
-			// CONNECT_REQ
+			// CONNECT_REQ, which le_connect_handler() checks the
+			// length of. Its own bits are taken on trust, as the
+			// access address, the CRC starting value and the timing
+			// in the same packet already are: a request this
+			// corrupt gives a follow that fails for larger reasons
+			// than which algorithm it hops with.
 			case 0x05:
 				// Only while no connection is being followed. Acting on a
 				// request mid-follow would rebuild the whole connection

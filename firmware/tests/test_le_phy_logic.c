@@ -508,10 +508,10 @@ static void put_le(uint8_t *at, uint32_t value, unsigned bytes)
  * believes the ChSel bit, so a packet whose CRC does not check out says
  * nothing about the advertiser.
  */
-static void build_advertisement(le_rx_t *buf, uint8_t pdu_type,
-                                const uint8_t *adva, int chsel)
+static void build_advertisement_sized(le_rx_t *buf, uint8_t pdu_type,
+                                      const uint8_t *adva, int chsel,
+                                      unsigned payload)
 {
-	unsigned payload = pdu_type == 0x01 ? 12 : 6;
 	unsigned pdu_len = 2 + payload;
 	uint32_t crc;
 
@@ -525,6 +525,13 @@ static void build_advertisement(le_rx_t *buf, uint8_t pdu_type,
 	buf->data[pdu_len + 0] = (uint8_t)(crc & 0xff);
 	buf->data[pdu_len + 1] = (uint8_t)((crc >> 8) & 0xff);
 	buf->data[pdu_len + 2] = (uint8_t)((crc >> 16) & 0xff);
+}
+
+static void build_advertisement(le_rx_t *buf, uint8_t pdu_type,
+                                const uint8_t *adva, int chsel)
+{
+	build_advertisement_sized(buf, pdu_type, adva, chsel,
+	                          pdu_type == 0x01 ? 12 : 6);
 }
 
 static void build_connect_req(le_rx_t *buf, const struct connect_req *r)
@@ -2737,7 +2744,9 @@ MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
 		le.do_follow = 1;
 
 		build_advertisement(&buf, 0x00, adva, 0);
-		buf.data[2] ^= 0x01;        /* now the CRC does not check out */
+		/* The length byte: nothing on this path reads it, so the CRC is
+		 * the only thing that can turn this packet away. */
+		buf.data[1] ^= 0x01;
 		packet_handler(&buf);
 
 		build_connect_req(&buf, &r);
@@ -2745,6 +2754,40 @@ MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
 		memcpy(&buf.data[8], adva, sizeof(adva));
 		packet_handler(&buf);
 
+		mu_assert_int_eq(1, conn.chan_sel_2);
+	}
+
+	/*
+	 * The pair of bits belongs to one exchange. An advertisement that said
+	 * no, and the connection that answered it, say nothing about the next
+	 * connection from the same address: that one falls back to its own
+	 * request's bit.
+	 */
+	{
+		struct connect_req r = valid_connect_req();
+		le_rx_t buf;
+
+		start_fresh();
+		le.do_follow = 1;
+
+		build_advertisement(&buf, 0x00, adva, 0);
+		packet_handler(&buf);
+		build_connect_req(&buf, &r);
+		memcpy(&buf.data[8], adva, sizeof(adva));
+		buf.data[0] |= 0x20;
+		packet_handler(&buf);
+		mu_assert_int_eq(0, conn.chan_sel_2);
+
+		/* The first connection ends (its supervision timeout runs out),
+		 * so the follow returns to advertising and a new request is
+		 * acted on again. */
+		reset_conn();
+
+		/* The same request again, with no advertisement before it. */
+		build_connect_req(&buf, &r);
+		memcpy(&buf.data[8], adva, sizeof(adva));
+		buf.data[0] |= 0x20;
+		packet_handler(&buf);
 		mu_assert_int_eq(1, conn.chan_sel_2);
 	}
 
@@ -2757,8 +2800,9 @@ MU_TEST(algorithm_2_is_taken_only_when_both_ends_asked_for_it)
 		start_fresh();
 		le.do_follow = 1;
 
-		build_advertisement(&buf, 0x01, adva, 0);
-		buf.size = 2 + 6 + 3;       /* one address, so not an ADV_DIRECT_IND */
+		/* Short, but with a CRC right for its own length, so the length
+		 * bound is the only thing that can turn it away. */
+		build_advertisement_sized(&buf, 0x01, adva, 0, 6);
 		packet_handler(&buf);
 
 		build_connect_req(&buf, &r);
