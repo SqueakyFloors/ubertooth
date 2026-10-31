@@ -2571,16 +2571,11 @@ Fixes with no visible change in normal use.
   [#705](https://github.com/SqueakyFloors/ubertooth/issues/705)
 - A board selection that ran out of memory exited 1 with no line at all,
   whether it was asked for by index or by serial.
-<<<<<<< HEAD
-- `ubertooth-rx -l` crashed instead of saying anything when the piconet it
-  follows could not be allocated. It now reports `error: out of memory` and
-  exits 1, as `ubertooth-afh` already did.
-=======
-- `ubertooth-follow` crashed instead of saying anything when the piconet it
-  follows could not be allocated. It now reports `error: out of memory` and
-  exits 1, as `ubertooth-afh` already did, and the piconet is allocated once
-  the command line has been accepted, so `-h` and `-V` still answer.
->>>>>>> 8949d3d6 (ubertooth-follow: a refused run leaves no capture file, and an allocation failure says so)
+- `ubertooth-rx -l` and `ubertooth-follow` crashed instead of saying anything
+  when the piconet they follow could not be allocated. Both now report
+  `error: out of memory` and exit 1, as `ubertooth-afh` already did, and
+  `ubertooth-follow` allocates the piconet once the command line has been
+  accepted, so `-h` and `-V` still answer.
   [#987](https://github.com/SqueakyFloors/ubertooth/issues/987)
 - The `ubertooth-btle` that `btle-extcap.py` runs for a Wireshark capture no
   longer writes its text decode of every packet, some 560 kB for 8 seconds of
