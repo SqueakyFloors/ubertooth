@@ -26,7 +26,7 @@
 uint8_t cs_no_squelch;       // rx all packets if set
 int8_t cs_threshold_req;     // requested CS threshold in dBm
 int8_t cs_threshold_cur;     // current CS threshold in dBm
-volatile uint8_t cs_trigger; // set by intr on P2.2 falling (CS)
+volatile uint8_t cs_trigger; // set by intr on GIO6 falling (CS)
 
 typedef enum {
 	CS_SAMPLES_1 = 1,
@@ -68,25 +68,42 @@ void cs_threshold_calc_and_set(uint16_t channel)
 	cs_threshold_set(level, CS_SAMPLES_4);
 }
 
-/* CS comes from CC2400 GIO6, which is LPC P2.2, active low. GPIO
- * triggers EINT3, which could be used for other things (but is not
- * currently). TODO - EINT3 should be managed globally, not turned on
- * and off here. */
+/* CS comes from CC2400 GIO6, active low, as a falling edge on the pin's own
+ * GPIO interrupt. That interrupt reaches the core on EINT3, which could be
+ * used for other things (but is not currently). TODO - EINT3 should be managed
+ * globally, not turned on and off here. */
+#if GIO6_HAS_INTERRUPT
 void cs_trigger_enable(void)
 {
 	cs_trigger = 0;
 	ISER0 = ISER0_ISE_EINT3;
-	IO2IntClr = PIN_GIO6;      // Clear pending
-	IO2IntEnF |= PIN_GIO6;     // Enable port 2.2 falling (CS active low)
+	GIO6_INT_CLR;              // Clear pending
+	GIO6_INT_FALL_SET;         // Enable GIO6 falling (CS active low)
 }
 
 void cs_trigger_disable(void)
 {
-	IO2IntEnF &= ~PIN_GIO6;    // Disable port 2.2 falling (CS active low)
-	IO2IntClr = PIN_GIO6;      // Clear pending
+	GIO6_INT_FALL_CLR;         // Disable GIO6 falling (CS active low)
+	GIO6_INT_CLR;              // Clear pending
 	ICER0 = ICER0_ICE_EINT3;
 	cs_trigger = 0;
 }
+#else
+/* GIO6 is on a port with no GPIO interrupt on this board (see ubertooth.h), so
+ * there is no carrier-sense edge to arm and nothing ever sets cs_trigger. The
+ * receive loop still marks a packet from its own RSSI comparison against the
+ * threshold, and the threshold still reaches the radio's carrier-sense
+ * comparator, so what is missing is the interrupt, not the squelch. */
+void cs_trigger_enable(void)
+{
+	cs_trigger = 0;
+}
+
+void cs_trigger_disable(void)
+{
+	cs_trigger = 0;
+}
+#endif
 
 void cs_reset(void)
 {

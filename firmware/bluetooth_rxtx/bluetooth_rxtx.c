@@ -1584,19 +1584,23 @@ void TIMER0_IRQHandler()
 	}
 }
 
-/* EINT3 handler is also defined in ubertooth.c for TC13BADGE. */
-#ifndef TC13BADGE
+/* The carrier-sense edge on GIO6 arrives here, on the GPIO interrupt's shared
+ * EINT3 vector. A board whose GIO6 cannot raise that interrupt (see
+ * GIO6_HAS_INTERRUPT in ubertooth.h) never enables EINT3, so it gets no
+ * handler from here and keeps the weak default; the badge has its own in
+ * ubertooth.c for its button. */
+#if GIO6_HAS_INTERRUPT
 void EINT3_IRQHandler()
 {
 	/* TODO - check specific source of shared interrupt */
-	IO2IntClr   = PIN_GIO6; // clear interrupt
+	GIO6_INT_CLR;           // clear interrupt
 	DIO_SSEL_CLR;           // enable SPI
 	cs_trigger  = 1;        // signal trigger
 	if (hop_mode == HOP_BLUETOOTH)
 		dma_discard = 0;
 
 }
-#endif // TC13BADGE
+#endif // GIO6_HAS_INTERRUPT
 
 /*
  * Sleep (busy wait) for 'millis' milliseconds
@@ -2148,11 +2152,8 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	{
 		// Wait for the radio to have sent what is in the FIFO. Bounded,
 		// so a radio that stops draining no longer takes the board with
-		// it; before the first piece there is nothing to drain, so on an
-		// Ubertooth One GIO6 already reads high and this returns at once.
-		// On an Ubertooth Zero the GIO6 macro reads the wrong port, so
-		// it runs to the bound instead and the packet is not sent -- the
-		// board that pin belongs to is not one anybody here has.
+		// it; before the first piece there is nothing to drain, so GIO6
+		// already reads high and this returns at once.
 		//
 		// A wait that gives up ends the packet rather than writing the
 		// next piece past the end of a FIFO the radio has not emptied.
