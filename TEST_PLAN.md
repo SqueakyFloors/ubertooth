@@ -301,13 +301,21 @@ the same revision. The exchange completes within a couple of seconds.*
 - [ ] Confirm: it prints a `waiting for the repeater... (<n> s)` line about
       once a second while the exchange runs, then a level in each direction,
       and exits 0 — not `error: invalid range test: mismatch on byte <n>`.
-      Close together, the lowest level gets through first try both ways:
+      Close together, the lowest level gets through first try both ways. A
+      terminal shows the two together, but they are on different streams: the
+      wait is progress on standard error, the result on standard output.
 
-      waiting for the repeater... (1 s)
-      request PA level : 0
-      request number   : 0
-      reply PA level   : 0
-      reply number     : 0
+      standard error:  Starting range test
+                       waiting for the repeater... (1 s)
+
+      standard output: request PA level : 0
+                       request number   : 0
+                       reply PA level   : 0
+                       reply number     : 0
+
+- [ ] Run `ubertooth-util -U <sender> -n > out.txt 2> err.txt` with a link slow
+      enough to print at least one `waiting` line
+- [ ] Confirm: `out.txt` holds the four result lines and nothing else
 
 - [ ] Run `ubertooth-util -U <sender> -m`
 - [ ] Confirm: the same four lines, read back from the board

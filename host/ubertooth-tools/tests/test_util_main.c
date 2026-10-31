@@ -1178,6 +1178,10 @@ MU_TEST(range_result_is_reported_and_a_failed_read_fails)
 
 /* ---- -n: following the range test it starts --------------------------- */
 
+/* What -n says before anything else, and the first line of its standard
+ * error whatever else the run goes on to print there. */
+#define RANGE_TEST_OPENING "Starting range test\n"
+
 /* The number of lines in text, where the run printed a stream of them. */
 static int lines_in(const char *text)
 {
@@ -1187,21 +1191,6 @@ static int lines_in(const char *text)
 		if (*text == '\n')
 			lines++;
 	return lines;
-}
-
-/* How many times needle appears in text, for a line that must be printed
- * once however many polls could have printed it. */
-static int count_in(const char *text, const char *needle)
-{
-	size_t len = strlen(needle);
-	int found = 0;
-	const char *at;
-
-	while ((at = strstr(text, needle)) != NULL) {
-		found++;
-		text = at + len;
-	}
-	return found;
 }
 
 MU_TEST(range_test_reports_progress_and_then_the_result)
@@ -1286,14 +1275,14 @@ MU_TEST(a_discarded_packet_is_named_once_and_the_run_goes_on)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "request PA level : 1\n") != NULL, r.out);
 	/* The warning is on standard error, where the progress lines of the same
-	 * wait are, and it is printed once however many polls saw a discard. */
-	mu_assert(strstr(r.err, "Starting range test\n") == r.err, r.err);
-	mu_assert(strstr(r.err,
+	 * wait are. The whole stream is compared, so a second warning, or any
+	 * other line, would fail: the discard is named once per run however many
+	 * polls saw it. */
+	mu_assert(strcmp(r.err, "Starting range test\n"
 	          "warning: range test: a packet that is not this board's reply "
-	          "was ignored (first difference at byte 2)\n") != NULL, r.err);
-	mu_assert_int_eq(1, count_in(r.err, "warning: range test:"));
-	mu_assert(strstr(r.err, "waiting for the repeater... (2 s)\n") != NULL,
-	          r.err);
+	          "was ignored (first difference at byte 2)\n"
+	          "waiting for the repeater... (1 s)\n"
+	          "waiting for the repeater... (2 s)\n") == 0, r.err);
 
 	/* A run that discarded nothing says nothing. */
 	reset_fake();
@@ -1345,7 +1334,8 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	fake.range_reply_after_ms = 0;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "Starting range test\n") == r.err, r.err);
+	mu_assert(strncmp(r.err, RANGE_TEST_OPENING,
+	                  strlen(RANGE_TEST_OPENING)) == 0, r.err);
 	mu_assert(strstr(r.err,
 	                 "error: no reply from the repeater within 10 s: start "
 	                 "one in range with ubertooth-util -e, or wait longer "
@@ -1418,7 +1408,8 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
-	mu_assert(strstr(r.err, "Starting range test\n") == r.err, r.err);
+	mu_assert(strncmp(r.err, RANGE_TEST_OPENING,
+	                  strlen(RANGE_TEST_OPENING)) == 0, r.err);
 	mu_assert(strstr(r.err, "error") == NULL, r.err);
 
 	reset_fake();
