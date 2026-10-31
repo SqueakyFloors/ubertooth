@@ -968,7 +968,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_fhs(self, pkt):
 		role = "Peripheral" if (pkt.clkn & 2) else "Central"
-		result("RX FHS (%6s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
+		result("RX FHS (%10s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
 		self._uap = 0xff&(pkt.bt_data.bdaddr>>24)
 
 	def _handle_raw(self, pkt):
@@ -990,7 +990,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 
 	def _handle_bad(self, pkt):
 		role = "Peripheral" if (pkt.clkn & 2) else "Central"
-		result("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
+		result("RX Raw (%10s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
 			hexlify(pkt.bt_data.raw_data).decode()))
 
 	def _handle_lmp(self, pkt):
@@ -1017,11 +1017,11 @@ class BTCtlMonitorCmd(BTCtlCmd):
 				log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 					instant<<1, pkt.clkn, mode))
 		role = "Peripheral" if (pkt.clkn & 2) else "Central"
-		result("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
+		result("RX LMP (%10s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
 
 	def _handle_l2cap(self, pkt):
 		role = "Peripheral" if (pkt.clkn & 2) else "Central"
-		result("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
+		result("RX L2CAP (%10s:%7x): %s"%(role,pkt.clkn,pkt))
 
 def board_label(serial=None, index=None):
 	"""How a message names a board: by serial, by index, or not at all.

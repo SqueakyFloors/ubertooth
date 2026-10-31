@@ -67,7 +67,7 @@ typedef void (*btphy_timer_fn_t)(void *arg);
 
 extern btphy_t btphy;
 
-#define CUR_CENTRAL_SLOT_IDX()	(btphy.central_clkn&3)
+#define CUR_CENTRAL_SLOT_IDX()		(btphy.central_clkn&3)
 #define CUR_PERIPHERAL_SLOT_IDX()	(btphy.peripheral_clkn&3)
 
 /* Have `ticks` of the clock gone by since `start`?

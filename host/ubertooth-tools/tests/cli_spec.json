@@ -94,7 +94,7 @@
     "verbose": "describes what the run could not read, rather than only counting it",
     "survey": "collects a survey of what is on the air rather than printing packets",
     "afh_read": "reads the target's hop pattern rather than following it",
-    "faux_peripheral": "answers as a Peripheral rather than listening",
+    "faux_peripheral": "answers as a peripheral rather than listening",
     "interfere": "meant to transmit at the target rather than capture it; inert at the moment, so it captures as usual",
     "modulation": "picks the modulation a capture is read as",
     "output_mode": "picks the form the samples are printed in",

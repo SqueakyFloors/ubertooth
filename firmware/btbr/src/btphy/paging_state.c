@@ -67,8 +67,8 @@ static void paging_schedule(unsigned delay);
 /* Timeframe:
  * usec                 0                                625                      1250              1875
  * clk          -1      0                1                2            3             4         5    6
- * Central:      prep tx | tx id/prep tx  |  tx id/prep rx | rx/prep rx | rx/prep tx* | tx fhs  | .. |rx
- * Peripheral:               |                |             .. | tx id(2)   |             |         | .. |tx id(3)
+ * Central:     prep tx | tx id/prep tx  |  tx id/prep rx | rx/prep rx | rx/prep tx* | tx fhs  | .. |rx
+ * Peripheral:          |                |             .. | tx id(2)   |             |         | .. |tx id(3)
  */
 
 /* We received ID(3) from paged device */

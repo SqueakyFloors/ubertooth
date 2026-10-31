@@ -141,8 +141,7 @@ void dio_ssp_start_rx(void)
 
 	/* Configure RX DMA on DIO_SSP (SSP1 for Ubertooth One) */
 	DIO_SSP_DMACR = SSPDMACR_RXDMAE ;
-	/* Configuration of DMA: SSPCR1_MS (the CC2400 drives the clock),
-	   SSPCR1_SOD (the LPC drives no data onto the bus)
+	/* Configuration of DMA : SSPCR1_MS, SSPCR1_SOD
 		DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
 	DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
 	 */
@@ -193,11 +192,10 @@ void dio_ssp_start_tx(void)
 
 	/* Configure RX DMA on CC2400 SPI (SSP1 for Ubertooth One) */
 	DIO_SSP_DMACR = SSPDMACR_TXDMAE ;
-	/* Configuration of DMA: SSPCR1_MS (the CC2400 drives the clock),
-	   SSPCR1_SOD (the LPC drives no data onto the bus)
+	/* Configuration of DMA : SSPCR1_MS, SSPCR1_SOD
 	 */
 	//DIO_SSP_CR1 = SSPCR1_MS;
-	//DIO_SSP_CR1 = 0;// the LPC would drive the clock
+	//DIO_SSP_CR1 = 0;// SSPCR1_MS clear
 	DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
 
 	/* Enable CC2400 SPI peripheral */
