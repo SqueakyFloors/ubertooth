@@ -140,16 +140,34 @@ Finding the Non-significant Address Part (NAP)
 
 The Non-significant Address Part (NAP) is never sent in normal packets, so
 ``ubertooth-rx`` cannot recover it.
-You need it wherever something connects to the target: ``ubertooth-follow -t``
+You need it wherever a tool asks for the whole address: ``ubertooth-follow -t``
 and its ``-a`` both do. Some ways to get it:
 
-- **Use any Non-significant Address Part (NAP) to connect.** Paging only uses
-  the Lower Address Part (LAP)
-  and Upper Address Part (UAP), so a
-  placeholder NAP works. ``ubertooth-scan`` does exactly this: it pages
+- **Use a placeholder NAP to connect.** A page uses the paged device's LAP and
+  UAP, 32 bits, and no more of its address: the LAP builds the access code that
+  every packet of the exchange begins with, the LAP with the low four bits of
+  the UAP selects the page hopping frequencies, and the whole 8-bit UAP seeds
+  the header error check and the CRC of the FHS packet the pager sends
+  (Bluetooth Core, Vol 2, Part B 1.2, 1.3, 6.3.3, 6.4.6, 7.1, and Table 2.3).
+  The paged device's NAP is in no packet of the exchange; the only whole address
+  that goes out is the pager's own, in that FHS packet (8.3.3.2).
+  BlueZ's ``hci_create_connection()`` hands the controller all six bytes, and a
+  page teaches the controller no NAP, so the address it reports back in its
+  events is the one it was given. BlueZ's own address checks therefore match,
+  and the reads that follow a page are keyed on the connection handle or on that
+  same address. ``ubertooth-scan`` relies on this: it pages
   ``00:00:<UAP>:<LAP>`` through BlueZ to read the device's name, version, and
-  features. Reported addresses start with ``00:00`` to show that the NAP is
-  unknown.
+  features. It prints ``??:??`` where the NAP would be in its results, and
+  ``00:00`` in the address line of the extended report, which is the address it
+  really connected to.
+
+  Three things a placeholder does not cover. The whole UAP is used, so a wrong
+  UAP stops the page. Anything that pairs with the target or authenticates the
+  link needs its real address; neither ``ubertooth-scan``'s reads nor
+  ``ubertooth-follow -a``'s map read does. And a controller refuses to page its
+  own address (8.3.2), so a placeholder that happened to match the local
+  adapter's would fail. What a real controller makes of the guess has not been
+  measured on this project's bench.
 - **Narrow it by manufacturer.** The Non-significant Address Part (NAP) and
   Upper Address Part (UAP) together form the
   manufacturer's 24-bit Organizationally Unique Identifier (OUI)

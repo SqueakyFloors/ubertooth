@@ -21,9 +21,12 @@ Name the target one of two ways:
  - `-l` and `-u` together are the lower and upper address parts, which is what
    `ubertooth-rx` reports for a piconet it has seen. They are four of the six
    bytes of an address; the two missing ones are the non-significant address
-   part (NAP), which a sniffer never sees, and the tool fills them in as zero.
-   Whether that guessed NAP stops the page this form makes to collect the
-   clock offset is unverified (see AFH below).
+   part (NAP), which ordinary piconet traffic does not carry, and the tool
+   fills them in as zero. A page does not carry the paged device's NAP either,
+   so that placeholder has nothing to do with whether the page this form makes
+   to collect the clock offset succeeds, unless it happens to match the local
+   Bluetooth device's own address, which a controller refuses to page (see AFH
+   below).
 
 One of `-l` and `-u` without the other names no piconet, so it is refused and
 the missing half is named: `error: -l <LAP> requires -u <UAP>`. It used to be
@@ -103,24 +106,39 @@ the piconet keyed on the target's LAP/UAP. The two are the same hop sequence
 only when the target is master of the piconet you want to follow, which
 `ubertooth-follow` cannot check. Treat a capture made with `-a` accordingly.
 
-Because the map is read over a connection to the target, `-a` needs the whole
-address, which only `-t` gives. `-a` without `-t` is refused before any file is
-created or device opened, with
+`-a` reads the map over a connection to the target, and the tool asks for the
+target's own address before it will make one: `-a` without `-t` is refused
+before any file is created or device opened, with
 `error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give -t xx:xx:xx:xx:xx:xx`.
+That is a requirement of the command line rather than of the air interface, as
+the next paragraph explains; whether it should stay is
+[issue #316](https://github.com/SqueakyFloors/ubertooth/issues/316).
 
 A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
-the two most significant bytes zero, because a sniffer cannot see them.
-Whether that guess stops the page to a target whose address begins otherwise
-is not known
-([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). When
-the page does fail, the command stops, saying what to do about it:
+the two most significant bytes zero, because ordinary piconet traffic does not
+carry them. That guess is not what decides whether the page reaches the target:
+of the target's address, a page uses only the LAP and the UAP, as the access
+code, as the input that selects the page hopping sequence, and as the seed of
+the header error check and CRC of the FHS packet the pager sends (Bluetooth
+Core, Vol 2, Part B 1.3, 6.4.6, 7.1, and Table 2.3), and the AFH map and clock
+offset reads that follow the page are keyed on the connection handle rather
+than on an address. So a page that fails here has an ordinary cause: the
+target is out of range, it is not accepting connections, or the `-u` given is
+wrong. The one way
+the guess itself can stop the page is by matching the local Bluetooth device's
+own address, which a controller refuses to page. What a real controller makes of
+the guessed NAP has not been measured on this project's bench
+([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). When the
+page does fail, the command stops, saying what to do about it:
 
     error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and -u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with -t xx:xx:xx:xx:xx:xx
 
+The line offers `-t` because it is the only way to take the guess out of the
+picture and is what `-a` needs, not because the guess is why the page failed.
 Give the target as `-t` and the connection is made to the address as it is, so
-that failure means the target itself did not answer; the line is then the
-reason alone, without the advice. A page that fails without leaving a reason
-behind drops the `: <reason>` from whichever of the two lines it is.
+the line is then the reason alone, without the advice. A page that fails
+without leaving a reason behind drops the `: <reason>` from whichever of the
+two lines it is.
 
 The map that comes back is used only when it could be a hop sequence at all:
 

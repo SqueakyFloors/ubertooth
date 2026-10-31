@@ -151,7 +151,7 @@ warning: the clock being followed was not this piconet's; searching for it again
 .P
 on standard error, stops following that clock and goes back to recovering one\. It keeps the LAP it has, so the search starts from what is already known, and the capture carries on throughout\.
 .P
-To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse of the above\. For example, if the tool recovers a LAP of 36A2B4 and a UAP of 98, the associated Bluetooth address is \fB??:??:98:36:A2:B4\fR\. Any value can be substituted into the ?? slots and most Bluetooth tools will still work\. For example, \fBhcitool name 00:00:98:36:A2:B4\fR will establish a connection to the device and return its name\.
+To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse of the above\. For example, if the tool recovers a LAP of 36A2B4 and a UAP of 98, the associated Bluetooth address is \fB??:??:98:36:A2:B4\fR\. Any value can be substituted into the \fB??\fR slots, except one that makes the address the local Bluetooth device's own, which a controller refuses to page: of the paged device's address a page uses only the LAP and the UAP, so the two unknown bytes have no part in it (Bluetooth Core, Vol 2, Part B 1\.3, 6\.4\.6, 7\.1, and Table 2\.3)\. So \fBhcitool name 00:00:98:36:A2:B4\fR should establish a connection to the device and return its name\. What a real controller makes of the guess has not been measured on this project's bench (issue #699 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/699\fR)\.
 .P
 This attack works against discoverable and undiscoverable devices alike\.
 .SH "REPLAYING A SAVED CAPTURE"

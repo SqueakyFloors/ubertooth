@@ -451,10 +451,12 @@ int main(int argc, char *argv[])
 		         target[0], target[1], target[2],
 		         target[3], target[4], target[5]);
 	} else if (have_lap_uap) {
-		/* -l and -u are four bytes of the six, and a sniffer cannot see
-		 * the other two, so the connection can only be attempted to a
-		 * target whose address begins 00:00. -t reaches any other
-		 * target. */
+		/* -l and -u are four bytes of the six, so the NAP goes out as
+		 * zero. That placeholder is not what decides whether the page
+		 * reaches the target: of the paged device's address a page uses
+		 * only the LAP and the UAP, never the NAP (Bluetooth Core, Vol 2,
+		 * Part B 1.3, 6.4.6, and Table 2.3). -t is for a caller who
+		 * knows the whole address. */
 		snprintf(addr, sizeof(addr), "00:00:%02X:%02X:%02X:%02X",
 			uap,
 			(lap >> 16) & 0xFF,
@@ -504,15 +506,16 @@ int main(int argc, char *argv[])
 		/* The handle this fills in is the only remote ACL handle the tool
 		 * ever has, so cc below is what says it is usable.
 		 *
-		 * A page keyed on -l and -u goes to a guessed address: the two
-		 * most significant bytes are not in any packet a sniffer sees,
-		 * so the tool sends 00:00 and the page reaches only a target
-		 * whose address really begins that way. The failure therefore
-		 * says what to do about it -- give the whole address with -t --
-		 * in the same terms as -a needing -t. The command stops either
-		 * way: the page is what yields the target's clock offset, and a
-		 * follow of a named target without it would hop on the local
-		 * adapter's clock rather than the target's.
+		 * A page keyed on -l and -u goes to an address whose NAP the
+		 * tool guessed as 00:00, which the page does not carry, so the
+		 * guess is not what a failure here means. The message names it
+		 * anyway, because a
+		 * user reading "connecting to 00:00:..." wants to know where
+		 * those two bytes came from, and offers -t, which removes the
+		 * guess and is what -a needs. The command stops either way: the
+		 * page is what yields the target's clock offset, and a follow of
+		 * a named target without it would hop on the local adapter's
+		 * clock rather than the target's.
 		 *
 		 * errno is cleared first and the reason given only if there is
 		 * one, as the two adapter failures above do: BlueZ does not
