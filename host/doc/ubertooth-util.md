@@ -556,7 +556,9 @@ does not.
 A device that cannot be opened is shown as `unavailable, ` and the reason, for
 example `Firmware version (1): unavailable, in use by another program`, with a
 line per query asked for and libubertooth's own `error: ` line on standard
-error. A failed read is shown as `read failed`
+error. Those lines are on standard output with the rest of the listing, because
+each is that device's result; what went wrong is the `error: ` line. A failed
+read is shown as `read failed`
 (`Firmware version (0): read failed`), and a query that reports an error as
 that error without its `error: ` prefix (`Board ID Number (0): unknown board
 ID 7`). The other devices are still reported, and the command exits

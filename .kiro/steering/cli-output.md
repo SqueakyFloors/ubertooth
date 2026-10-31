@@ -24,6 +24,16 @@ stream a line is on.
   `warning: ` (`ubertooth-btle -q - -c -`). A destination whose writer seeks
   back over what it has written cannot be a pipe at all, so the PcapNG
   options and `ubertooth-dfu -u` refuse `-` and say what to use instead.
+- Every device's line in a multi-device listing, including a device that could
+  not be read. In a listing (`ubertooth-util -U all -b`, and `-V` in every
+  tool) a device whose read failed keeps its line where its value would have
+  been — `Serial No (1): read failed`, `Board ID Number (1): unavailable,
+  <reason>`, `Last processor fault: ... no address recorded` — because the line
+  is that device's result. It also keeps the listing one stream that can be
+  read or parsed top to bottom: send the failures elsewhere and which device
+  gave which line is ambiguous in a pipe. The `error: ` saying why is on
+  standard error and the status is still 1. Do not move these lines to
+  standard error.
 - A line summing up the result just printed goes where that result went:
   `ubertooth-btle`'s `note: 312 packets held data that could not be decoded` is
   a trailer on the decode above it, so a run that prints no decode prints no
