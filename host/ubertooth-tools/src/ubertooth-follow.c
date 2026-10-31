@@ -690,7 +690,7 @@ int main(int argc, char *argv[])
 		 * error and still arrive. */
 		int saved_fd;
 		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
-		int failed;
+		int failed, create_errno;
 
 		if (file == NULL) {
 			if (saved_fd >= 0)
@@ -700,13 +700,16 @@ int main(int argc, char *argv[])
 		}
 		errno = 0;
 		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
+		/* Read now: the close() and the free() below may set an errno
+		 * of their own, and this one is the reason reported. */
+		create_errno = errno;
 		if (saved_fd >= 0)
 			close(saved_fd);
 		free(file);
 		if (failed) {
 			/* The name the user gave, not the /dev/fd path a lone
 			 * "-" is opened through. */
-			opt_report_create_failure(pcap_name, errno);
+			opt_report_create_failure(pcap_name, create_errno);
 			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}
