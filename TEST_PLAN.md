@@ -298,21 +298,27 @@ the same revision. The exchange completes within a couple of seconds.*
 - [ ] Run `ubertooth-util -U <repeater> -e`; it keeps running until
       `ubertooth-util -U <repeater> -S` stops it
 - [ ] Run `ubertooth-util -U <sender> -n`
-- [ ] Confirm: it prints a `waiting for the repeater... (<n> s)` line about
-      once a second while the exchange runs, then a level in each direction,
-      and exits 0 — not `error: invalid range test: mismatch on byte <n>`.
-      Close together, the lowest level gets through first try both ways:
+- [ ] Confirm: it prints a level in each direction and exits 0 — not
+      `error: invalid range test: mismatch on byte <n>`. Close together, the
+      lowest level gets through first try both ways. It also prints a
+      `waiting for the repeater... (<n> s)` line for each second the exchange
+      is still running, which with the boards side by side is usually none at
+      all: a repeater in range answers inside the first second.
 
-      waiting for the repeater... (1 s)
-      request PA level : 0
-      request number   : 0
-      reply PA level   : 0
-      reply number     : 0
+      standard error:  Starting range test
+
+      standard output: request PA level : 0
+                       request number   : 0
+                       reply PA level   : 0
+                       reply number     : 0
 
 - [ ] Run `ubertooth-util -U <sender> -m`
 - [ ] Confirm: the same four lines, read back from the board
-- [ ] Weaken the link — move the boards apart, or attenuate one — and run `-n`
-      again
+- [ ] Weaken the link — move the boards apart, or attenuate one — and run
+      `ubertooth-util -U <sender> -n > out.txt 2> err.txt`
+- [ ] Confirm: `out.txt` holds the four result lines and nothing else, and any
+      `waiting for the repeater... (<n> s)` line a slower exchange printed is
+      in `err.txt`, under `Starting range test`
 - [ ] Confirm: the levels still report, with a higher packet number than
       before: more of the sixteen packets at that level were lost before one
       got through. The level itself may rise too, since the firmware moves up
@@ -331,9 +337,10 @@ the same revision. The exchange completes within a couple of seconds.*
       not a failure
 - [ ] Stop the repeater (`ubertooth-util -U <repeater> -S`) and run `-n` on the
       sender with nothing answering it
-- [ ] Confirm: a waiting line a second for ten seconds, then one line on
-      standard error — `error: no reply from the repeater within 10 s: ...;
-      the range test has been stopped` — and exit 1. `-m` afterwards says
+- [ ] Confirm, all on standard error: a waiting line a second for nine
+      seconds, then `error: no reply from the repeater within 10 s: ...; the
+      range test has been stopped`, with standard output empty and exit 1.
+      `-m` afterwards says
       `no range test result yet`, and the board is idle: `-w` reads
       `Now in idle mode`
 - [ ] Run `ubertooth-util -U <sender> -n 3` with nothing answering

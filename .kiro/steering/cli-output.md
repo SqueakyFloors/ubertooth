@@ -10,7 +10,8 @@ stream a line is on.
 ## Standard output carries only what the user asked for
 
 - The result of the command: requested reports (`ubertooth-util -v`,
-  `-s`, `-b`), decoded packets and dumps, survey results, spectrum samples.
+  `-s`, `-b`), the range test result `ubertooth-util -m` and `-n` report,
+  decoded packets and dumps, survey results, spectrum samples.
 - Capture data when the file argument is `-` (`ubertooth-btle -q -`,
   `ubertooth-rx -q -` and `-d -`, `ubertooth-dump -d -`,
   `ubertooth-follow -q -` and `-d -`, `ubertooth-specan -d -`). In that case
@@ -23,12 +24,16 @@ stream a line is on.
   `warning: ` (`ubertooth-btle -q - -c -`). A destination whose writer seeks
   back over what it has written cannot be a pipe at all, so the PcapNG
   options and `ubertooth-dfu -u` refuse `-` and say what to use instead.
-- The running commentary of an operation that *is* the command, rather than a
-  note about the tool: `ubertooth-util -n` runs a range test and its
-  `waiting for the repeater... (<n> s)` lines lead to the result they belong
-  with, so both go to standard output. This is the one case; "Starting range
-  test", which is the tool talking about itself, stays on standard error with
-  the progress lines below. Do not read it as licence to move other progress.
+- Every device's line in a multi-device listing, including a device that could
+  not be read. In a listing (`ubertooth-util -U all -b`, and `-V` in every
+  tool) a device whose read failed keeps its line where its value would have
+  been — `Serial No (1): read failed`, `Board ID Number (1): unavailable,
+  <reason>`, `Last processor fault: ... no address recorded` — because the line
+  is that device's result. It also keeps the listing one stream that can be
+  read or parsed top to bottom: send the failures elsewhere and which device
+  gave which line is ambiguous in a pipe. The `error: ` saying why is on
+  standard error and the status is still 1. Do not move these lines to
+  standard error.
 - A line summing up the result just printed goes where that result went:
   `ubertooth-btle`'s `note: 312 packets held data that could not be decoded` is
   a trailer on the decode above it, so a run that prints no decode prints no
@@ -73,7 +78,10 @@ with the reason on the line where that board's version would have been.
   was wrong and quoting the user's input as given.
 - Warnings, prefixed `warning: `; notes, prefixed `note: `.
 - Progress and status: "Resetting ...", "Stopping ...", DFU progress, device
-  selection messages, "Ubertooth stopped", timing traces.
+  selection messages, "Ubertooth stopped", timing traces. An operation that
+  *is* the whole command is no exception: `ubertooth-util -n` runs a range
+  test, and its `waiting for the repeater... (<n> s)` lines are progress, so
+  they go here and standard output carries the result block alone.
 - The usage text, for a bare command line only: a tool that needs arguments
   and is run with none prints its one `error: ` line and then the usage text,
   both on standard error. A tool that has work to do with no options

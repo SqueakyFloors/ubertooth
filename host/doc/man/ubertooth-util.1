@@ -321,7 +321,7 @@ Firmware version (1): bluetooth_rxtx git\-747484c (API:<version>)
 .P
 Several queries together (for example \fB\-vspb\fR) print the same lines, grouped by device\. \fB\-V\fR is not one of them: it is the version command, and reports every attached board itself, indexed the same way where there is more than one\. With a single board it prints the unindexed form, which the listing here does not\.
 .P
-A device that cannot be opened is shown as \fBunavailable,\fR and the reason, for example \fBFirmware version (1): unavailable, in use by another program\fR, with a line per query asked for and libubertooth's own \fBerror:\fR line on standard error\. A failed read is shown as \fBread failed\fR (\fBFirmware version (0): read failed\fR), and a query that reports an error as that error without its \fBerror:\fR prefix (\fBBoard ID Number (0): unknown board ID 7\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
+A device that cannot be opened is shown as \fBunavailable,\fR and the reason, for example \fBFirmware version (1): unavailable, in use by another program\fR, with a line per query asked for and libubertooth's own \fBerror:\fR line on standard error\. Those lines are on standard output with the rest of the listing, because each is that device's result; what went wrong is the \fBerror:\fR line\. A failed read is shown as \fBread failed\fR (\fBFirmware version (0): read failed\fR), and a query that reports an error as that error without its \fBerror:\fR prefix (\fBBoard ID Number (0): unknown board ID 7\fR)\. The other devices are still reported, and the command exits non\-zero if any device failed\. A firmware version whose API version cannot be read is shown without it and also makes the command fail\. Listing does not stop a mode a device is running\. Any other option in the same command still needs \fB\-U\fR\.
 .P
 \fB\-U all\fR asks for the same listing explicitly\. It works with any number of attached devices, including one, and fails with \fBerror: no Ubertooth devices found\fR when none is attached:
 .IP "" 4
@@ -431,7 +431,7 @@ waiting for the repeater\|\.\|\.\|\. (2 s)
 .fi
 .IP "" 0
 .P
-and when the reply arrives it prints the result block below and exits 0\. The exchange normally takes two or three seconds: the sender's burst, then a second during which the repeater holds off so the sender is listening by the time the answer comes, then the reply burst\.
+Those lines are progress and go to standard error, so standard output carries the result block alone and a script reading \fB\-n\fR for a result reads nothing else\. When the reply arrives it prints the result block below and exits 0\. The exchange normally takes two or three seconds: the sender's burst, then a second during which the repeater holds off so the sender is listening by the time the answer comes, then the reply burst\.
 .SS "Reading the result"
 Each direction has a level and a number\. The level is the lowest power the other end heard, 0 (\-25 dBm) to 7 (0 dBm)\. The number is which of the 16 packets sent at that level was the one that got through, 0 to 15, so a higher number means more packets at that level were lost before one arrived\. Together they say how much margin the link has: level 0 and number 0 is the strongest result there is, the very first packet at the lowest power decoded first time, and a climbing number, then a climbing level, is a link with less and less to spare\. "request" is the sender to the repeater, "reply" the repeater back\.
 .P
@@ -564,11 +564,11 @@ When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "DIAGNOSTICS"
-Standard output carries only what was asked for: the values the queries read, the device listing, the range test \fB\-n\fR runs, and the usage text for \fB\-h\fR\. Everything else goes to standard error, so a script reading a value is not fed anything else\.
+Standard output carries only what was asked for: the values the queries read, the device listing, the result of the range test \fB\-n\fR runs, and the usage text for \fB\-h\fR\. Everything else goes to standard error, so a script reading a value is not fed anything else\.
 .P
-\fB\-n\fR is the one operation whose running commentary is what it was asked for rather than a note about itself: the test is what the command is, so its \fBwaiting for the repeater\|\.\|\.\|\. (<n> s)\fR lines go to standard output with the result they lead to, and a script reading \fB\-n\fR reads those lines as well as the four result lines \fB\-m\fR gives\. \fBStarting range test\fR, which is about the command and not about the test, stays on standard error with the lines below\.
+\fB\-n\fR follows the range test it starts, and its \fBwaiting for the repeater\|\.\|\.\|\. (<n> s)\fR lines are progress, so they go to standard error with \fBStarting range test\fR\. Standard output carries the four result lines \fB\-m\fR gives and nothing else, so a script reading \fB\-n\fR for a result reads only that\.
 .P
-That includes the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
+Standard error also carries the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
 .P
 \fB\-i\fR adds a second line, because the first does not say what the board will do: \fBnote: the board hands itself to its on\-chip programmer and answers nothing else until it is power\-cycled\fR\.
 .P

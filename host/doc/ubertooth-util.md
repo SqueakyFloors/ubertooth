@@ -556,7 +556,9 @@ does not.
 A device that cannot be opened is shown as `unavailable, ` and the reason, for
 example `Firmware version (1): unavailable, in use by another program`, with a
 line per query asked for and libubertooth's own `error: ` line on standard
-error. A failed read is shown as `read failed`
+error. Those lines are on standard output with the rest of the listing, because
+each is that device's result; what went wrong is the `error: ` line. A failed
+read is shown as `read failed`
 (`Firmware version (0): read failed`), and a query that reports an error as
 that error without its `error: ` prefix (`Board ID Number (0): unknown board
 ID 7`). The other devices are still reported, and the command exits
@@ -669,7 +671,9 @@ second, so a test that is waiting looks different from one that has finished:
     waiting for the repeater... (1 s)
     waiting for the repeater... (2 s)
 
-and when the reply arrives it prints the result block below and exits 0. The
+Those lines are progress and go to standard error, so standard output carries
+the result block alone and a script reading `-n` for a result reads nothing
+else. When the reply arrives it prints the result block below and exits 0. The
 exchange normally takes two or three seconds: the sender's burst, then a
 second during which the repeater holds off so the sender is listening by the
 time the answer comes, then the reply burst.
@@ -958,19 +962,18 @@ COMMON OPTIONS.
 ## DIAGNOSTICS
 
 Standard output carries only what was asked for: the values the queries read,
-the device listing, the range test `-n` runs, and the usage text for `-h`.
+the device listing, the result of the range test `-n` runs, and the usage text
+for `-h`.
 Everything else goes to standard error, so a script reading a value is not fed
 anything else.
 
-`-n` is the one operation whose running commentary is what it was asked for
-rather than a note about itself: the test is what the command is, so its
-`waiting for the repeater... (<n> s)` lines go to standard output with the
-result they lead to, and a script reading `-n` reads those lines as well as
-the four result lines `-m` gives. `Starting range test`, which is about the
-command and not about the test, stays on standard error with the lines below.
+`-n` follows the range test it starts, and its `waiting for the repeater...
+(<n> s)` lines are progress, so they go to standard error with
+`Starting range test`. Standard output carries the four result lines `-m`
+gives and nothing else, so a script reading `-n` for a result reads only that.
 
-That includes the progress lines for the operations that do something rather
-than report something: `Resetting ubertooth device <selector>`,
+Standard error also carries the progress lines for the operations that do
+something rather than report something: `Resetting ubertooth device <selector>`,
 `Stopping ubertooth device <selector>`,
 `Entering flash programming (ISP) mode`,
 `Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
