@@ -46,8 +46,10 @@
  * vector is Reset_Handler with its Thumb bit set, as every entry in a
  * Cortex-M vector table has.
  *
- * The word at offset 0x1c of that image, where the LPC vector checksum would
- * go, reads 0x00000000 -- which is why the check does not ask for it. */
+ * The word at offset 0x1c of that image, where the LPC vector checksum goes,
+ * reads 0x00000000: the image file carries no checksum and ubertooth-dfu
+ * fills the word in as it writes the block. That is why a zero word is
+ * accepted as no checksum rather than read as a wrong one. */
 #define REAL_STACK_POINTER 0x10003fe0u
 #define REAL_RESET_VECTOR  0x00009e99u
 
@@ -106,8 +108,9 @@ MU_TEST(a_real_image_is_startable)
 /* Two words read back off a board's flash with ubertooth-dfu -u after a
  * flash, so what the check accepts is not only what an image file says but
  * what a board holds. The reset vector is not the one above and is not meant
- * to be: its address moves with the build, and both have to be accepted. The
- * word at 0x1c read zero on the board too. */
+ * to be: its address moves with the build, and both have to be accepted. That
+ * board was flashed before the checksum was written, so the word at 0x1c read
+ * zero there as well. */
 MU_TEST(an_image_read_back_off_a_board_is_startable)
 {
 	mu_assert(app_image_startable(0x10003fe0u, 0x00009f11u, FLASH_TOP),
@@ -237,6 +240,155 @@ MU_TEST(the_bootloaders_own_bound_is_the_familys_not_the_parts)
 {
 	mu_assert(app_image_startable(REAL_STACK_POINTER, 0x30001u, FLASH_TOP),
 	          "the family-wide bound no longer accepts this");
+}
+
+/* ---- the vector checksum ------------------------------------------------ */
+
+/* The eight words at the start of a real image: the stack pointer, the reset
+ * vector, five handlers, and the checksum word. The handler addresses are
+ * arbitrary here -- the check does not read them on their own -- but they
+ * have to be in the sum, which is the point of filling them in. */
+static void a_vector_table(uint32_t *vectors)
+{
+	unsigned i;
+
+	vectors[0] = REAL_STACK_POINTER;
+	vectors[1] = REAL_RESET_VECTOR;
+	for (i = 2; i < APP_IMAGE_CHECKED_WORDS; i++)
+		vectors[i] = APP_IMAGE_BASE + 0x100u * i + 1u;
+	vectors[APP_IMAGE_CHECKSUM_INDEX] = 0;
+}
+
+/* What ubertooth-dfu writes into the checksum word: the two's complement of
+ * the seven words in front of it. Worked out here rather than copied from the
+ * tool, so the two have to agree about the rule and not only about a
+ * number. */
+static void checksum_the_table(uint32_t *vectors)
+{
+	uint32_t sum = 0;
+	unsigned i;
+
+	for (i = 0; i < APP_IMAGE_CHECKSUM_INDEX; i++)
+		sum += vectors[i];
+	vectors[APP_IMAGE_CHECKSUM_INDEX] = 0u - sum;
+}
+
+MU_TEST(a_checksummed_vector_table_is_startable)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+
+	a_vector_table(vectors);
+	checksum_the_table(vectors);
+	mu_assert(app_image_table_startable(vectors, FLASH_TOP),
+	          "an image carrying a correct checksum was refused");
+}
+
+/* Every image this tree builds leaves the word zero, and so does a board
+ * flashed by an earlier host tool. Those have to start: refusing them would
+ * leave a board waiting in DFU for the image it already has. */
+MU_TEST(a_vector_table_with_no_checksum_is_startable)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+
+	a_vector_table(vectors);
+	mu_assert_int_eq(0, vectors[APP_IMAGE_CHECKSUM_INDEX]);
+	mu_assert(app_image_table_startable(vectors, FLASH_TOP),
+	          "an image carrying no checksum was refused");
+}
+
+MU_TEST(a_wrong_checksum_is_not_startable)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+
+	a_vector_table(vectors);
+	checksum_the_table(vectors);
+	vectors[APP_IMAGE_CHECKSUM_INDEX] += 1;
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "an image whose checksum was wrong was accepted");
+}
+
+/* A handler address that changed after the checksum was worked out: the sum no
+ * longer comes to zero, which is what a first block that reached the flash in
+ * pieces looks like. */
+MU_TEST(a_vector_table_that_changed_under_its_checksum_is_not_startable)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+
+	a_vector_table(vectors);
+	checksum_the_table(vectors);
+	vectors[3] = APP_IMAGE_BASE + 0x2001u;
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "a vector table that changed under its checksum was accepted");
+}
+
+/* Erased flash in the checksum word, with the two words in front of it
+ * written: a first block that was programmed only part of the way. The two
+ * words on their own read plausibly, so this is the case the checksum is here
+ * for. */
+MU_TEST(a_half_written_first_block_is_not_startable)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+	unsigned i;
+
+	a_vector_table(vectors);
+	checksum_the_table(vectors);
+	for (i = 4; i < APP_IMAGE_CHECKED_WORDS; i++)
+		vectors[i] = 0xffffffffu;
+	mu_assert(app_image_startable(vectors[0], vectors[1], FLASH_TOP),
+	          "the two words were meant to read plausibly");
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "a first block that was not programmed whole was accepted");
+}
+
+/* A whole block of erased flash: no checksum word to speak of, and refused on
+ * the two words, as it was before the checksum was asked for. */
+MU_TEST(erased_flash_is_not_startable_whatever_its_checksum)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+	unsigned i;
+
+	for (i = 0; i < APP_IMAGE_CHECKED_WORDS; i++)
+		vectors[i] = 0xffffffffu;
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "erased flash was taken for an application");
+	/* ...and one whose eight erased words happen to add up is still refused,
+	 * since the two words are read as well. */
+	checksum_the_table(vectors);
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "erased flash with a correct checksum was accepted");
+}
+
+/* The checksum does not rescue a table the two words refuse: both have to
+ * pass. */
+MU_TEST(a_checksummed_table_with_bad_words_is_not_startable)
+{
+	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
+
+	a_vector_table(vectors);
+	vectors[0] = 0x8000u;              /* a stack pointer in flash */
+	checksum_the_table(vectors);
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "a checksum covered for a stack pointer outside RAM");
+
+	a_vector_table(vectors);
+	vectors[1] = REAL_RESET_VECTOR & ~1u;  /* no Thumb bit */
+	checksum_the_table(vectors);
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "a checksum covered for a reset vector without the Thumb bit");
+
+	a_vector_table(vectors);
+	vectors[1] = 0x1001u;              /* inside the bootloader */
+	checksum_the_table(vectors);
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	          "a checksum covered for a reset vector outside the region");
+}
+
+/* The checksum word is at offset 0x1c, which is where NXP puts it and where
+ * the host writes it. */
+MU_TEST(the_checksum_word_is_the_one_the_part_defines)
+{
+	mu_assert_int_eq(0x1cu, APP_IMAGE_CHECKSUM_INDEX * 4);
+	mu_assert_int_eq(0x20u, APP_IMAGE_CHECKED_WORDS * 4);
 }
 
 /* ---- the guard in front of the jump ------------------------------------- */
@@ -427,6 +579,14 @@ int main(void)
 	MU_RUN(a_reset_vector_outside_the_application_region_is_not_startable);
 	MU_RUN(a_reset_vector_past_the_given_bound_is_not_startable);
 	MU_RUN(the_bootloaders_own_bound_is_the_familys_not_the_parts);
+	MU_RUN(a_checksummed_vector_table_is_startable);
+	MU_RUN(a_vector_table_with_no_checksum_is_startable);
+	MU_RUN(a_wrong_checksum_is_not_startable);
+	MU_RUN(a_vector_table_that_changed_under_its_checksum_is_not_startable);
+	MU_RUN(a_half_written_first_block_is_not_startable);
+	MU_RUN(erased_flash_is_not_startable_whatever_its_checksum);
+	MU_RUN(a_checksummed_table_with_bad_words_is_not_startable);
+	MU_RUN(the_checksum_word_is_the_one_the_part_defines);
 	MU_RUN(run_application_checks_before_it_jumps);
 	MU_RUN(the_check_and_the_jump_use_the_same_address);
 	MU_RUN(the_bound_and_the_sector_size_match_flash_h);

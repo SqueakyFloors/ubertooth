@@ -110,6 +110,9 @@ so there is nothing to start while the rest of the image goes in, and with the
 real vector table in the last step of the transfer. A bootloader built from this
 tree finds the blank table, refuses to jump, and waits in DFU for another
 image, so a flash that failed is followed by another `ubertooth-dfu -d`. A
+checksum over that table goes in with it, in the word the part reserves for
+one at offset 0x1c, so a first block that reached the flash in pieces does not
+add up and is refused as well. A
 board carrying an earlier bootloader jumps into the blank table instead and
 stops there, so it needs the same trip to the bench it always did; a
 bootloader is installed with ISP or JTAG rather than over USB, so this part of
@@ -118,8 +121,15 @@ the fix reaches a board only when someone puts it there.
 One window remains, in the last 4 KiB. The bootloader erases a flash sector
 when the first block of it is written, so the sector holding the vector table
 has to be written as a whole, vector table first, and an interruption inside
-it still leaves a board that starts a partly written image. That board has to
-be recovered at the bench, as MANUALLY ENTERING BOOTLOADER below describes.
+it still leaves a board that starts a partly written image. The checksum does
+not reach that far: it covers the vector table alone, which is written whole
+or not at all. That board has to be recovered at the bench, as MANUALLY
+ENTERING BOOTLOADER below describes.
+
+The checksum is the one byte-for-byte difference between an image file and the
+flash written from it. An image this tree builds leaves the word at offset
+0x1c zero, so a read-back with `-u` differs from the file in those four bytes
+and nowhere else.
 
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the

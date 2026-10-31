@@ -90,6 +90,11 @@ int ubertooth_print_versions(FILE *out, const char *selector)
  * run past the record. */
 #define DNLOAD_RECORD_MAX 512
 
+/* The eight words of the vector table at the start of the application region:
+ * the stack pointer, the first handlers, and the checksum word over them. */
+#define VECTOR_TABLE_WORDS 8
+#define VECTOR_TABLE_BYTES (VECTOR_TABLE_WORDS * 4)
+
 static struct {
 	int present;            /* the DFU device is on the bus */
 	uint16_t vid, pid;
@@ -118,6 +123,9 @@ static struct {
 	 * the end of the record are counted but not kept. */
 	int dnload_blocks[DNLOAD_RECORD_MAX];
 	int dnload_blank[DNLOAD_RECORD_MAX];
+	/* The vector table each write started with, so a test can read the
+	 * checksum the tool put over it. */
+	uint8_t dnload_head[DNLOAD_RECORD_MAX][VECTOR_TABLE_BYTES];
 	int getstatus_rc;       /* < 0: the status read fails with this */
 	int getstatus_fail_after; /* ...from this many blocks written on */
 	int detach_calls;
@@ -361,6 +369,8 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			for (i = 0; i < length; i++)
 				if (data[i] != 0xff)
 					fake.dnload_blank[fake.dnload_calls] = 0;
+			memcpy(fake.dnload_head[fake.dnload_calls], data,
+			       VECTOR_TABLE_BYTES);
 		}
 		fake.dnload_calls++;
 		/* The failure starts once that many blocks have gone through, so a
@@ -1826,6 +1836,72 @@ MU_TEST(an_image_inside_the_first_sector_is_written_in_the_same_order)
 	mu_assert(!fake.dnload_blank[1], "the vector table written last was blank");
 }
 
+/* One word of a recorded write, little-endian as the board reads it. */
+static uint32_t recorded_word(int write, int word)
+{
+	const uint8_t *at = fake.dnload_head[write] + word * 4;
+
+	return (uint32_t)at[0] | ((uint32_t)at[1] << 8) |
+	       ((uint32_t)at[2] << 16) | ((uint32_t)at[3] << 24);
+}
+
+/* The same eight words, as the image file has them. */
+static void read_image_vectors(const char *path, uint32_t *words)
+{
+	FILE *file = fopen(path, "rb");
+	uint8_t bytes[VECTOR_TABLE_BYTES];
+	int word;
+
+	mu_assert_fatal(file != NULL, "cannot read the test image back");
+	mu_assert_fatal(fread(bytes, 1, sizeof(bytes), file) == sizeof(bytes),
+	                "the test image has no vector table");
+	fclose(file);
+	for (word = 0; word < VECTOR_TABLE_WORDS; word++)
+		words[word] = (uint32_t)bytes[word * 4] |
+		              ((uint32_t)bytes[word * 4 + 1] << 8) |
+		              ((uint32_t)bytes[word * 4 + 2] << 16) |
+		              ((uint32_t)bytes[word * 4 + 3] << 24);
+}
+
+/* The vector table the tool writes last carries the checksum the board checks:
+ * the eight words add up to zero (the LPC criterion for valid user code). A
+ * first block that only partly reached the flash does not add up, so the
+ * bootloader leaves it alone and waits in DFU instead of starting it. */
+MU_TEST(the_vector_table_written_last_carries_its_checksum)
+{
+	uint32_t from_image[VECTOR_TABLE_WORDS];
+	struct run_result r;
+	uint32_t sum = 0;
+	int last = -1;
+	int i, word;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	for (i = 0; i < fake.dnload_calls && i < DNLOAD_RECORD_MAX; i++)
+		if (fake.dnload_blocks[i] == FIRST_BLOCK)
+			last = i;
+	mu_assert_fatal(last > 0, "no vector table was written");
+
+	for (word = 0; word < VECTOR_TABLE_WORDS; word++)
+		sum += recorded_word(last, word);
+	mu_assert_int_eq(0, sum);
+
+	/* Only the checksum word is the tool's: the rest of the vector table is
+	 * the image's, byte for byte. */
+	read_image_vectors(sized_image_path, from_image);
+	for (word = 0; word < VECTOR_TABLE_WORDS - 1; word++)
+		mu_assert_int_eq(from_image[word], recorded_word(last, word));
+	/* ...and it had to be filled in, so the image did not carry it. */
+	mu_assert(from_image[VECTOR_TABLE_WORDS - 1] !=
+	          recorded_word(last, VECTOR_TABLE_WORDS - 1),
+	          "the test image already carried this checksum, so the test "
+	          "shows nothing");
+}
+
 /* What the order is for: a download that stops part way through has sent no
  * vector table at all, so the board's bootloader finds nothing to start and
  * waits in DFU for another image, instead of starting one that is missing
@@ -2377,6 +2453,7 @@ int main(void)
 	MU_RUN(a_part_id_that_cannot_be_read_falls_back_to_the_assumed_flash);
 	MU_RUN(a_download_writes_the_first_sector_last);
 	MU_RUN(an_image_inside_the_first_sector_is_written_in_the_same_order);
+	MU_RUN(the_vector_table_written_last_carries_its_checksum);
 	MU_RUN(a_download_that_stops_part_way_sends_no_vector_table);
 	MU_RUN(an_image_that_fills_the_part_is_written);
 	MU_RUN(an_image_one_byte_past_the_part_is_refused);

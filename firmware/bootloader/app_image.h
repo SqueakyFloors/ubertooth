@@ -92,14 +92,9 @@
  * bootloader from this tree, since both already bound a download by the
  * part's flash.
  *
- * The LPC vector checksum at offset 0x1c is not asked for. The boot ROM reads
- * it over the image at address 0, which is the bootloader itself; the
- * application's own table leaves that word zero (firmware/common/
- * LPC17xx_Interrupts.c) and no host tool fills it in, so requiring it would
- * refuse every image this tree builds, including the one a user would flash
- * to recover a board. It would add nothing anyway: the checksum covers the
- * first eight words, all of them in the same 256-byte block as the two words
- * above, so it is written or not written with them.
+ * The LPC vector checksum is asked for separately, by
+ * app_image_vector_checksum_ok() below, and the two together are what the
+ * bootloader puts a vector table to in app_image_table_startable().
  */
 static inline bool app_image_startable(const uint32_t stack_pointer,
                                        const uint32_t reset_vector,
@@ -119,6 +114,64 @@ static inline bool app_image_startable(const uint32_t stack_pointer,
     }
     const uint32_t entry = reset_vector & ~1u;
     return (entry >= APP_IMAGE_BASE) && (entry < flash_top);
+}
+
+/*
+ * The LPC vector checksum: the word at offset 0x1c holds the two's complement
+ * of the seven words in front of it, so all eight add up to zero (NXP
+ * LPC176x/5x user manual UM10360, "Criterion for valid user code"). It is the
+ * eight words of the vector table immediately above APP_IMAGE_BASE.
+ */
+#define APP_IMAGE_CHECKSUM_INDEX 7u
+#define APP_IMAGE_CHECKED_WORDS  8u
+
+/*
+ * Do the first eight words of the application add up the way a checksummed
+ * vector table does?
+ *
+ * ubertooth-dfu fills this word in as it writes the application's first block
+ * (host/ubertooth-tools/src/ubertooth-dfu.c, download()), so an image written
+ * by it carries a checksum over the words the board starts from, and a first
+ * block that only partly reached the flash does not add up. Erased flash
+ * leaves 0xFFFFFFFF there, which fails as well.
+ *
+ * A zero word is no checksum rather than a wrong one, and is accepted. That
+ * is what every image this tree builds has in the file -- the application's
+ * own vector table leaves the word zero (firmware/common/
+ * LPC17xx_Interrupts.c) -- and what a board flashed by an earlier host tool
+ * carries. Refusing those would leave a board waiting in DFU for an image it
+ * already has, which is the one outcome this check must not produce.
+ *
+ * The checksum covers the first block alone, so it says nothing about the
+ * rest of the image: an interruption inside the 4 KiB sector the vector table
+ * shares still leaves a startable image, as ubertooth-dfu(1) records. What it
+ * adds over the two words above is the first block itself: a stack pointer
+ * and a reset vector that read plausibly out of a block that was not
+ * programmed whole no longer start a board.
+ */
+static inline bool app_image_vector_checksum_ok(const uint32_t* const vectors)
+{
+    uint32_t sum = 0;
+
+    if( vectors[APP_IMAGE_CHECKSUM_INDEX] == 0 ) {
+        return true;
+    }
+    for( unsigned i = 0; i < APP_IMAGE_CHECKED_WORDS; i++ ) {
+        sum += vectors[i];
+    }
+    return (sum == 0);
+}
+
+/*
+ * Everything the bootloader asks of a vector table before it starts it:
+ * vectors points at the eight words at APP_IMAGE_BASE, and flash_top is one
+ * past the last flash address that could hold application code.
+ */
+static inline bool app_image_table_startable(const uint32_t* const vectors,
+                                             const uint32_t flash_top)
+{
+    return app_image_startable(vectors[0], vectors[1], flash_top) &&
+           app_image_vector_checksum_ok(vectors);
 }
 
 #endif//__APP_IMAGE_H_
