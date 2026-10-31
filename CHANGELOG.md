@@ -967,6 +967,12 @@
   what `page`, `page_scan` and `l2ping` between two boards needed.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
+- A board in `ubertooth-btbr`'s `page_scan` gave up on the pager's page
+  response after two windows, so one lost packet ended the page and no
+  connection was made. It now waits through pagerespTO, which gives a page
+  response that goes missing once a second chance instead of none.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
 - `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
   package is not installed, instead of ending in a `ModuleNotFoundError`
   traceback: the command line is now read before the `usb1` module is

@@ -15,10 +15,11 @@
  *
  * These tests drive both state machines over a faked air and check that a
  * window the paged device opens lands on the tick and the frequency of a page
- * response the pager really sends, for a page heard in either half of the slot.
- * The frequency is the half that matters most: both ends compute it from the
- * same page response phase and the same slot, so one end reading the slot
- * differently puts its window on another channel as well as another tick.
+ * response the pager really sends, for a page heard in either half of the slot,
+ * and that it keeps opening one for every repeat that falls inside pagerespTO.
+ * The frequency is the half that matters most: both ends compute it
+ * from the same page response phase and the same slot, so one end reading the
+ * slot differently puts its window on another channel as well as another tick.
  *
  * Both state machines are included into this translation unit, which is how
  * their slot callbacks can be called at all: they are static. They run one at a
@@ -67,6 +68,8 @@ void console_putc(char c);
 #include <ubtbr/scan_task.h>
 #include <ubtbr/tdma_sched.h>
 #include <ubtbr/tx_task.h>
+
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ---- the firmware state the two state machines share ---- */
 
@@ -216,6 +219,14 @@ static uint32_t air_tick;
 static unsigned air_deliver_window;
 static unsigned air_window_count;
 static int air_deliver_payload;
+
+/*
+ * How many ticks after the window the receive callback runs in, which on a
+ * board depends on the packet: a window with nothing in it, and an ID, finish
+ * in the window's own tick, a one-slot packet with a payload takes one tick
+ * more to decode, and a multi-slot packet several.
+ */
+static unsigned air_callback_lateness;
 
 /* The scan task's callback, which the test hands a page to. */
 static scan_task_cb_t scan_cb;
@@ -376,7 +387,8 @@ static void air_dispatch_one(struct pending *p)
 		clkn = btphy_cur_clkn()+1;
 		chan = air_prepare(AIR_RX);
 		air_record(AIR_RX, air_tick+1, chan, clkn);
-		next = pending_add(P_RX_EXECUTE, air_tick+1);
+		next = pending_add(P_RX_EXECUTE,
+					air_tick+1+air_callback_lateness);
 		next->rx_cb = p->rx_cb;
 		next->arg = p->arg;
 		next->clkn = clkn;
@@ -439,6 +451,7 @@ static void air_reset(void)
 	air_deliver_window = 0;
 	air_window_count = 0;
 	air_deliver_payload = 0;
+	air_callback_lateness = 0;
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
 	master_started = 0;
@@ -494,8 +507,9 @@ static unsigned air_tally(const struct air_event *log, unsigned count,
 #define PAGER_CLKN_START	0x2f3a16u
 
 /* How long a role is run for: long enough for the pager to repeat its page
- * response twice and for the paged device to open both its windows. */
-#define RUN_TICKS	20
+ * response for the whole of pagerespTO and for the paged device to open every
+ * window it opens over that time. */
+#define RUN_TICKS	34
 
 static struct air_event pager_log[AIR_MAX];
 static unsigned pager_log_count;
@@ -534,24 +548,29 @@ static unsigned paged_half;
 
 /*
  * Be paged: the scan is listening on `scan_phase`, hears the `half`th of the
- * pager's two page messages, answers it, and the central's page response
- * arrives in window `fhs_window` of the ones the response substate opens
- * (0 for none), carrying `clk27_2`.
+ * pager's two page messages, answers it, and a packet arrives in window
+ * `fhs_window` of the ones the response substate opens (0 for none). With
+ * `payload` it is a whole page response carrying `clk27_2`; without, it is a
+ * bare access code, which is all that is left of a packet whose checksum fails.
+ * Every window's callback runs `lateness` ticks after the window, as a board's
+ * does when the decode runs on past it.
  */
-static void run_paged(uint8_t scan_phase, unsigned half, unsigned fhs_window,
-			uint32_t clk27_2)
+static void run_paged_opt(uint8_t scan_phase, unsigned half,
+			unsigned fhs_window, uint32_t clk27_2,
+			unsigned lateness, int payload)
 {
 	scan_task_cb_t cb;
 	void *arg;
 
 	air_reset();
+	air_callback_lateness = lateness;
 	btphy.my_lap = PAGED_LAP;
 	btphy.my_uap = PAGED_UAP;
 	/* A scan listens on the frequency its own CLKN16-12 selects, so this is
 	 * how the board is put on the phase the pager is about to try. */
 	btphy.master_clkn = (uint32_t)scan_phase << 12;
 	air_deliver_window = fhs_window;
-	air_deliver_payload = 1;
+	air_deliver_payload = payload;
 	fhs_rx_clk27_2 = clk27_2;
 	paged_half = half;
 
@@ -576,6 +595,14 @@ static void run_paged(uint8_t scan_phase, unsigned half, unsigned fhs_window,
 
 	memcpy(paged_log, air_log, sizeof(paged_log));
 	paged_log_count = air_count;
+}
+
+/* The usual case: a whole page response, and every window's callback in the
+ * window's own tick. */
+static void run_paged(uint8_t scan_phase, unsigned half, unsigned fhs_window,
+			uint32_t clk27_2)
+{
+	run_paged_opt(scan_phase, half, fhs_window, clk27_2, 0, 1);
 }
 
 /* A paged event's tick on the pager's time: ticks since the page it heard, plus
@@ -607,6 +634,7 @@ static uint8_t pager_page_phase(unsigned half)
 static void check_pager_timing(unsigned half)
 {
 	const struct air_event *page1, *page2, *answer, *fhs;
+	const struct air_event *last, *train1, *train2;
 
 	run_pager(half);
 	page1 = air_nth(pager_log, pager_log_count, AIR_TX, 1);
@@ -633,6 +661,21 @@ static void check_pager_timing(unsigned half)
 	mu_assert_int_eq(fhs->clkn >> 2, fhs_sent_clk27_2[0]);
 	/* Nothing acknowledged it, so no connection came up on this side. */
 	mu_assert_int_eq(0, master_started);
+
+	/* Every page response falls inside pagerespTO, counted from the answer:
+	 * four of them, the last at 1.25 ms intervals from the first, and then
+	 * the pager gives up. What follows is the page train starting again,
+	 * two page messages a tick apart, past the bound. */
+	last = air_nth(pager_log, pager_log_count, AIR_TX, 6);
+	mu_assert_int_eq(4, fhs_sent_count);
+	mu_assert_int_eq(12, last->tick - fhs->tick);
+	mu_assert(last->tick - answer->tick <= PAGE_RESP_TO_TICKS,
+		"a page response falls outside pagerespTO");
+	train1 = air_nth(pager_log, pager_log_count, AIR_TX, 7);
+	train2 = air_nth(pager_log, pager_log_count, AIR_TX, 8);
+	mu_assert_int_eq(1, train2->tick - train1->tick);
+	mu_assert(train1->tick - answer->tick > PAGE_RESP_TO_TICKS,
+		"the pager gave up on the page response inside pagerespTO");
 }
 
 MU_TEST(pager_page_response_timing_first_half)
@@ -757,17 +800,167 @@ MU_TEST(paged_second_half_window_meets_the_page_response)
 }
 
 /*
- * Two empty windows end the page response. Both readings of the page have been
- * tried by then, so there is nothing left to wait for and the board goes back
- * to scanning rather than sitting in page scan with no task to run.
+ * Section 8.3.3.1: the paged device keeps listening for the central's page
+ * response until pagerespTO, which is 8 slots, and 8.3.3.2 has the central
+ * repeat that packet every 1.25 ms over the same time. So an empty window is
+ * followed by a window for the next repeat, for as long as a window still falls
+ * inside pagerespTO.
+ *
+ * The windows take the two readings of the answered page in turn -- 1.25 ms
+ * apart on one reading, which is 3 ticks and then 5 ticks as the clock moves
+ * between the two -- so neither reading is starved. Each one is a central
+ * transmit slot further along the page response phase, which is what makes
+ * window number k meet the central's kth repeat.
  */
-MU_TEST(paged_two_empty_windows_return_to_scanning)
+MU_TEST(paged_listens_for_every_repeat_until_pageresp_to)
 {
-	run_paged(0, 1, 0, 0);
+	unsigned i;
+	/* The ticks of the windows, on the pager's time, for a page answered in
+	 * the first half: the first page response and then its repeats, taking
+	 * the first reading of the page (ticks 4 and 12) and the second (7 and
+	 * 15) in turn. */
+	static const uint32_t window_tick[] = { 4, 7, 12, 15 };
+	/* The answer, which pagerespTO runs from. */
+	static const uint32_t answer_tick = 2;
+	uint8_t scan_phase, repeat_chan[4];
 
-	mu_assert_int_eq(2, air_window_count);
+	/* The pager's own page responses: the first and the third are the two
+	 * this board's windows can meet when the page it heard was the pager's
+	 * first message. check_pager_timing() pins that it sends four of them
+	 * and that all four are inside pagerespTO. */
+	run_pager(1);
+	scan_phase = pager_page_phase(1);
+	repeat_chan[0] = air_nth(pager_log, pager_log_count, AIR_TX, 3)->chan;
+	repeat_chan[2] = air_nth(pager_log, pager_log_count, AIR_TX, 5)->chan;
+
+	run_paged(scan_phase, 1, 0, 0);
+
+	mu_assert_int_eq(ARRAY_LEN(window_tick), air_window_count);
+	mu_assert_int_eq(ARRAY_LEN(window_tick),
+			air_tally(paged_log, paged_log_count, AIR_RX));
+	for (i = 0; i < ARRAY_LEN(window_tick); i++) {
+		const struct air_event *w = air_nth(paged_log, paged_log_count,
+							AIR_RX, i+1);
+
+		mu_assert_int_eq(window_tick[i], paged_air_tick(w));
+		/* One central transmit slot further along the phase per
+		 * window, which is the phase the pager's own kth repeat goes
+		 * out on. The odd-numbered windows are checked against the
+		 * channels this pager really transmitted the first and third
+		 * on; the even-numbered ones take the other reading of the
+		 * page, which paged_completes_on_a_later_repeat() checks
+		 * against a pager whose second message was the one heard. */
+		mu_assert_int_eq(chan_of_phase(scan_phase+i+1), w->chan);
+		if ((i & 1) == 0)
+			mu_assert_int_eq(repeat_chan[i], w->chan);
+	}
+
+	/* The board stops where pagerespTO does: every window it opened is
+	 * inside the bound, and the next slot of the alternating sequence is
+	 * not. */
+	for (i = 0; i < ARRAY_LEN(window_tick); i++)
+		mu_assert(window_tick[i] - answer_tick <= PAGE_RESP_TO_TICKS,
+			"a window falls outside pagerespTO");
+	mu_assert(window_tick[ARRAY_LEN(window_tick)-1]
+			+ (window_tick[2]-window_tick[1]) - answer_tick
+					> PAGE_RESP_TO_TICKS,
+		"another window would still be inside pagerespTO, so the board "
+		"stops one repeat too early");
+
+	/* Nothing arrived, so the board goes back to scanning rather than
+	 * sitting in page scan with no task left to run. */
 	mu_assert_int_eq(0, slave_started);
-	mu_assert_int_eq(2, air_tally(paged_log, paged_log_count, AIR_RX));
+	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
+	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
+	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
+}
+
+/*
+ * A page response that only arrives on a later repeat still completes the
+ * connection. The page here is heard in the second half of the pager's slot and
+ * the first three repeats are missed, so this is the fourth window -- past the
+ * two the board used to open. The acknowledgement still lands in the window the
+ * pager is listening in, because the board takes its timing from the page
+ * response it received rather than from the page message.
+ */
+MU_TEST(paged_completes_on_a_later_repeat)
+{
+	const struct air_event *fhs, *ack_window, *window, *ack;
+	uint8_t second_repeat_chan;
+
+	run_pager(2);
+	/* The pager's fourth page response, after its two page messages, and
+	 * the window it listens for the acknowledgement in. */
+	second_repeat_chan = air_nth(pager_log, pager_log_count,
+					AIR_TX, 4)->chan;
+	fhs = air_nth(pager_log, pager_log_count, AIR_TX, 6);
+	ack_window = air_nth(pager_log, pager_log_count, AIR_RX, 6);
+	mu_assert_int_eq(16, fhs->tick - pager_t0);
+	mu_assert_int_eq(18, ack_window->tick - pager_t0);
+
+	run_paged(pager_page_phase(2), 2, 4, fhs->clkn >> 2);
+
+	mu_assert_int_eq(4, air_window_count);
+	window = air_nth(paged_log, paged_log_count, AIR_RX, 4);
+	ack = air_nth(paged_log, paged_log_count, AIR_TX, 2);
+
+	/* The even-numbered windows are the ones that meet a pager whose second
+	 * page message was the one heard: this run's second window is on the
+	 * channel that pager sent its second page response on, and its fourth
+	 * on the fourth's. */
+	mu_assert_int_eq(8, paged_air_tick(air_nth(paged_log, paged_log_count,
+							AIR_RX, 2)));
+	mu_assert_int_eq(second_repeat_chan,
+			air_nth(paged_log, paged_log_count, AIR_RX, 2)->chan);
+
+	/* The fourth window is the fourth repeat's own tick and frequency. */
+	mu_assert_int_eq(16, paged_air_tick(window));
+	mu_assert_int_eq(fhs->chan, window->chan);
+
+	mu_assert_int_eq(1, slave_started);
+	mu_assert(slave_peer_bdaddr == FHS_RX_BDADDR,
+		"the connection took the wrong address from the FHS");
+	mu_assert_int_eq(18, paged_air_tick(ack));
+	mu_assert_int_eq(ack_window->chan, ack->chan);
+}
+
+/*
+ * A one-slot packet with a payload takes one tick more than the window to
+ * decode, so that is where the callback for a page response whose checksum
+ * fails runs: a tick after the window it arrived in. The sequence of windows is
+ * the same as if it had run in the window's own tick, because the clock the
+ * next window is computed from has moved by that tick as well.
+ */
+MU_TEST(paged_a_decode_one_tick_late_keeps_the_windows_in_place)
+{
+	unsigned i;
+	static const uint32_t window_tick[] = { 4, 7, 12, 15 };
+
+	run_paged_opt(0, 1, 0, 0, 1, 1);
+
+	mu_assert_int_eq(ARRAY_LEN(window_tick), air_window_count);
+	for (i = 0; i < ARRAY_LEN(window_tick); i++)
+		mu_assert_int_eq(window_tick[i],
+			paged_air_tick(air_nth(paged_log, paged_log_count,
+						AIR_RX, i+1)));
+	mu_assert_int_eq(0, slave_started);
+	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
+}
+
+/*
+ * A multi-slot packet that happened to share the window's frequency is decoded
+ * several ticks after the window, and by then this clock reads a slot the page
+ * response has nothing to do with, so no window computed from it could be on
+ * the right frequency. The page response ends there.
+ */
+MU_TEST(paged_a_late_decode_ends_the_page_response)
+{
+	/* A bare access code in the first window -- all that is left of a
+	 * packet whose checksum fails -- decoded two ticks late. */
+	run_paged_opt(0, 1, 1, 0, 2, 0);
+
+	mu_assert_int_eq(1, air_window_count);
+	mu_assert_int_eq(0, slave_started);
 	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
 	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
@@ -845,7 +1038,10 @@ int main(void)
 	MU_RUN(pager_page_response_timing_second_half);
 	MU_RUN(paged_first_half_window_meets_the_page_response);
 	MU_RUN(paged_second_half_window_meets_the_page_response);
-	MU_RUN(paged_two_empty_windows_return_to_scanning);
+	MU_RUN(paged_listens_for_every_repeat_until_pageresp_to);
+	MU_RUN(paged_completes_on_a_later_repeat);
+	MU_RUN(paged_a_decode_one_tick_late_keeps_the_windows_in_place);
+	MU_RUN(paged_a_late_decode_ends_the_page_response);
 	MU_RUN(prepare_model_matches_the_task_files);
 	return mu_report();
 }

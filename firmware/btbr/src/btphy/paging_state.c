@@ -52,10 +52,14 @@ static int paging_canceled(void)
 	return btctl_get_state() != BTCTL_STATE_PAGE;
 }
 
-static int page_response_timeout_exceeded()
+/* Would a page response sent in tick `clkn` fall outside pagerespTO? The tick
+ * of the transmit is the one that has to be inside it, not the tick this is
+ * asked in: the answer here is wanted a slot ahead, when the transmit is
+ * scheduled. */
+static int page_response_timeout_exceeded(uint32_t clkn)
 {
-	enum { PAGE_RESP_TO = 8*2 }; // Spec  pagerespTO = 8
-	return((btphy.master_clkn-paging_state.clkn_got_id2) > PAGE_RESP_TO);
+	return clkn_elapsed(clkn, paging_state.clkn_got_id2,
+				PAGE_RESP_TO_TICKS);
 }
 
 static void paging_schedule(unsigned delay);
@@ -89,7 +93,7 @@ static int paging_rx_ack_cb(msg_t *msg, void *arg, int time_offset)
 		uint8_t delay = 3&(TX_PREPARE_IDX-CUR_MASTER_SLOT_IDX());
 		/* If the setup fails before the CONNECTION state has been reached, the following procedure shall be carried out.
 		   The slave shall listen as long as no FHS packet is received until pagerespTO is exceeded.*/
-		if(page_response_timeout_exceeded())
+		if(page_response_timeout_exceeded(btphy.master_clkn+delay+1))
 		{
 			cprintf("no ID(3)\n");
 			paging_schedule(delay);
