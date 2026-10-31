@@ -10,7 +10,8 @@ stream a line is on.
 ## Standard output carries only what the user asked for
 
 - The result of the command: requested reports (`ubertooth-util -v`,
-  `-s`, `-b`), decoded packets and dumps, survey results, spectrum samples.
+  `-s`, `-b`), the range test result `ubertooth-util -m` and `-n` report,
+  decoded packets and dumps, survey results, spectrum samples.
 - Capture data when the file argument is `-` (`ubertooth-btle -q -`,
   `ubertooth-rx -q -` and `-d -`, `ubertooth-dump -d -`,
   `ubertooth-follow -q -` and `-d -`, `ubertooth-specan -d -`). In that case
