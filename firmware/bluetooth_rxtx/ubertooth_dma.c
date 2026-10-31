@@ -197,14 +197,14 @@ void dma_init_le(volatile uint8_t* dest, unsigned len) {
  * no byte reaches a buffer and no interrupt is raised while the loop goes on
  * answering the host.
  *
- * The slave select pin stays outside the guard: it has its own set and clear
+ * The chip select pin stays outside the guard: it has its own set and clear
  * registers, so writing it reads nothing back.
  */
 void dio_ssp_start()
 {
 	uint32_t primask;
 
-	/* make sure the (active low) slave select signal is not active */
+	/* make sure the (active low) chip select signal is not active */
 	DIO_SSEL_SET;
 
 	primask = irq_save_disable();
@@ -216,7 +216,7 @@ void dio_ssp_start()
 	DMACC0Config |= 1;
 	irq_restore(primask);
 
-	/* activate slave select pin */
+	/* activate chip select pin */
 	DIO_SSEL_CLR;
 }
 

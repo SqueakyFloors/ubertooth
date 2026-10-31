@@ -28,7 +28,7 @@
 #include <ubtbr/hop.h>
 #include <ubtbr/inquiry_state.h>
 #include <ubtbr/paging_state.h>
-#include <ubtbr/master_state.h>
+#include <ubtbr/central_state.h>
 #include <ubtbr/inquiry_scan_state.h>
 #include <ubtbr/page_scan_state.h>
 #include <ubtbr/monitor_state.h>
@@ -86,14 +86,14 @@ static void btctl_handle_reset_req(msg_t *msg)
 	 * prints a line to the host's console and enqueues a state response, and
 	 * either can reach that same die() on a queue that is already full.
 	 *
-	 * MASTER_CLKN is a free-running hardware counter, so the subtraction
+	 * CENTRAL_CLKN is a free-running hardware counter, so the subtraction
 	 * stays right to within a tick of its wrap, and nothing but a stopped
 	 * timer 1 -- which would have stopped the whole image long before this --
 	 * can hold the board here.
 	 */
 	btctl.state = BTCTL_STATE_STANDBY;
-	start = MASTER_CLKN;
-	while ((uint32_t)(MASTER_CLKN - start) < RESET_DELAY_CLKN)
+	start = CENTRAL_CLKN;
+	while ((uint32_t)(CENTRAL_CLKN - start) < RESET_DELAY_CLKN)
 		usb_work();
 
 	/* The watchdog time-out that reset() ends in is one this firmware asked
@@ -116,8 +116,8 @@ static void btctl_handle_isp_req(msg_t *msg)
 	 * btctl_handle_reset_req() above says why each part of that is needed.
 	 */
 	btctl.state = BTCTL_STATE_STANDBY;
-	start = MASTER_CLKN;
-	while ((uint32_t)(MASTER_CLKN - start) < RESET_DELAY_CLKN)
+	start = CENTRAL_CLKN;
+	while ((uint32_t)(CENTRAL_CLKN - start) < RESET_DELAY_CLKN)
 		usb_work();
 
 	/* The programmer keeps the chip running without a reset, so the
@@ -153,9 +153,9 @@ static void btctl_handle_idle_req(msg_t *msg)
 	btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_SUCCESS);
 
 	/* Let some time to tasks to complete (FIXME: wrap)*/
-	wait_clkn = MASTER_CLKN+30;
+	wait_clkn = CENTRAL_CLKN+30;
 
-	while (MASTER_CLKN < wait_clkn)
+	while (CENTRAL_CLKN < wait_clkn)
 		usb_work();
 }
 

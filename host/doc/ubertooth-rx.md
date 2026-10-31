@@ -205,8 +205,8 @@ started on a board another run left going are that run's.
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
 Classic Bluetooth piconets are defined by the Lower Address Part (LAP)
-and Upper Address Part (UAP) of the master device. These are elements
-of the master device's Bluetooth Address (BD ADDR).
+and Upper Address Part (UAP) of the Central device. These are elements
+of the Central device's Bluetooth Address (BD ADDR).
 
 Consider the following BD ADDR:
 

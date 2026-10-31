@@ -56,7 +56,7 @@ static void tx_fhs_cb(void *arg)
 	btctl_tx_pkt_t *eir_pkt = btctl_get_eir();
 	if (eir_pkt)
 	{
-		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX()),
+		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX()),
 			tx_eir_cb, NULL,
 			&eir_pkt->bb_hdr, eir_pkt->bt_data);
 	}
@@ -91,10 +91,10 @@ static void inquiry_scan_rx_cb(int sw_detected, void *arg)
 			
 		/* Write clk27_2 in fhs payload
 		 * Will tx at (clkn+2) */
-		bbpkt_fhs_finalize_payload(inquiry_scan_state.fhs_data, (btphy.master_clkn+2)>>2);
+		bbpkt_fhs_finalize_payload(inquiry_scan_state.fhs_data, (btphy.central_clkn+2)>>2);
 
 		/* Schedule tx FHS */
-		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX()),
+		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX()),
 			tx_fhs_cb, NULL,
 			&inquiry_scan_state.fhs_hdr, inquiry_scan_state.fhs_data);
 	}
@@ -106,7 +106,7 @@ static void inquiry_scan_rx_cb(int sw_detected, void *arg)
 
 static void inquiry_scan_schedule(unsigned delay)
 {
-	if (clkn_elapsed(MASTER_CLKN, inquiry_scan_state.clkn_start, INQ_SCAN_MAX_TICKS))
+	if (clkn_elapsed(CENTRAL_CLKN, inquiry_scan_state.clkn_start, INQ_SCAN_MAX_TICKS))
 	{
 		cprintf("inquiry scan timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
@@ -119,7 +119,7 @@ static void inquiry_scan_schedule(unsigned delay)
 }
 
 /*
- * Inquiry slave
+ * Inquiry Peripheral
  */
 void inquiry_scan_state_setup(void)
 {
@@ -135,8 +135,8 @@ void inquiry_scan_state_setup(void)
 
 	/* Prepare constant part of FHS payload */
 	bbpkt_fhs_prepare_payload(inquiry_scan_state.fhs_data,
-		btphy.my_sw&0xffffffff,	// parity: low32 bits of master's sw
-		btphy.my_lap,		// master's bdaddr
+		btphy.my_sw&0xffffffff,	// parity: low32 bits of Central's sw
+		btphy.my_lap,		// Central's bdaddr
 		btphy.my_uap,		// 
 		btphy.my_nap,		// 
 		0x5A020C,		// class: FIXME: make this configurable
@@ -144,6 +144,6 @@ void inquiry_scan_state_setup(void)
 		btctl_get_eir() != NULL
 		);
 
-	inquiry_scan_state.clkn_start = MASTER_CLKN+1;
+	inquiry_scan_state.clkn_start = CENTRAL_CLKN+1;
 	inquiry_scan_schedule(1);
 }

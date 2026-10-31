@@ -34,7 +34,7 @@
  *
  * Where the restart is comes from the match register rather than from the
  * tick's usual length, because btphy_adj_clkn_delay() can shorten one tick to
- * move the slave clock onto a master's. btphy_handler() puts the match back on
+ * move the Peripheral clock onto a Central's. btphy_handler() puts the match back on
  * the next interrupt -- which cannot be taken while a wait is holding
  * TIMER0_IRQHandler, so during such a wait the hardware keeps restarting the
  * clock at the shorter value.

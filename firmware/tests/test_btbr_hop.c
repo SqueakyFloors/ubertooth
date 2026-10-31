@@ -420,10 +420,10 @@ MU_TEST(test_connection_modes_hop_through_hop_basic)
 
 	follow_setup(TEST_ADDRESS, REDUCED_MAP);
 	for (i = 0; i < NUM_VECTORS; i++) {
-		btphy.mode = BT_MODE_MASTER;
+		btphy.mode = BT_MODE_CENTRAL;
 		mu_assert_int_eq(HOP_VECTORS[i].reduced,
 				hop_channel(HOP_VECTORS[i].clk));
-		btphy.mode = BT_MODE_SLAVE;
+		btphy.mode = BT_MODE_PERIPHERAL;
 		mu_assert_int_eq(HOP_VECTORS[i].reduced,
 				hop_channel(HOP_VECTORS[i].clk));
 	}
@@ -587,7 +587,7 @@ MU_TEST(test_scan_modes_hop_on_the_native_clock)
 			uint32_t clkn = SPEC_HOP_SCAN_FIRST_CLKN +
 					entry * SPEC_HOP_SCAN_CLKN_STEP;
 
-			btphy.master_clkn = clkn;
+			btphy.central_clkn = clkn;
 			for (c = 0; c < sizeof(CALLER_CLOCKS) /
 					sizeof(CALLER_CLOCKS[0]); c++) {
 				int got = hop_channel(CALLER_CLOCKS[c]);
@@ -628,7 +628,7 @@ MU_TEST(test_page_and_response_modes_use_the_slot)
 	follow_setup(v->ulap, NULL);
 	/* A clock whose CLKN16-12 is nothing like the phase, so a mode that
 	 * ignored the phase and read the clock would be caught. */
-	btphy.master_clkn = 0x12000;
+	btphy.central_clkn = 0x12000;
 	for (mode = 0; mode < sizeof(MODES) / sizeof(MODES[0]); mode++) {
 		btphy.mode = MODES[mode];
 		differ = 0;
@@ -667,12 +667,12 @@ MU_TEST(test_a_response_starts_from_the_phase_the_scan_heard)
 
 	follow_setup(v->ulap, NULL);
 	btphy.mode = BT_MODE_PAGE_SCAN;
-	btphy.master_clkn = tuned_at;
+	btphy.central_clkn = tuned_at;
 	mu_assert_int_eq(hop_scan(tuned_at), hop_channel(0));
 
 	/* The packet is decoded a few slots later, over the boundary. */
-	btphy.master_clkn = tuned_at + 4;
-	mu_assert(hop_scan_phase(btphy.master_clkn) !=
+	btphy.central_clkn = tuned_at + 4;
+	mu_assert(hop_scan_phase(btphy.central_clkn) !=
 			hop_scan_phase(tuned_at),
 		"the test clocks no longer straddle a phase boundary");
 
@@ -693,7 +693,7 @@ MU_TEST(test_inquiry_response_ignores_the_slot)
 	int phase;
 
 	follow_setup(v->ulap, NULL);
-	btphy.master_clkn = 0x12000;
+	btphy.central_clkn = 0x12000;
 	btphy.mode = BT_MODE_INQUIRY_RESPONSE;
 	for (phase = 0; phase < 32; phase++) {
 		/* The peripheral transmit slot of the page and inquiry rule is

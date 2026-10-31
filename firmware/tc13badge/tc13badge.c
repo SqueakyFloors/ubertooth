@@ -52,7 +52,7 @@ static void fifo_lead_delay(void)
 
 void cc2400_init()
 {
-	/* CSN (slave select) is active low */
+	/* CSN (chip select) is active low */
 	CSN_SET;
 
 	/* set up GPIO pins */

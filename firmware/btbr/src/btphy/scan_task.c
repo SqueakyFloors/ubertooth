@@ -79,7 +79,7 @@ static void scan_wait(void)
 	{
 		/* Adjust timer*/
 		clkn_delay = scan_task.pkt_time - RF_EXPECTED_RX_CLKN_OFFSET;
-		btphy.slave_clkn = 0;
+		btphy.peripheral_clkn = 0;
 		btphy_adj_clkn_delay(clkn_delay);
 
 		// TODO: synchronization train decoding? 
@@ -137,7 +137,7 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 
 	/* The one wait in this image whose caller must not carry on. scan_wait()
 	 * below reads GIO6 as "a sync word arrived", and acts on it: it moves the
-	 * slave clock to where it thinks the packet was. With the radio not in
+	 * Peripheral clock to where it thinks the packet was. With the radio not in
 	 * receive, GIO6 says nothing about this slot, so carrying on would hand
 	 * the scan a packet that never arrived. End the scan with no packet
 	 * instead, as rx_execute() does when it finds the radio not ready.
@@ -164,7 +164,7 @@ void scan_task_schedule(unsigned delay, scan_task_cb_t cb, void*cbarg)
 	scan_task.cb_arg = cbarg;
 
 	/* FIXME: We RX only ~250usec in a 312.5usec timeslot.
-	 * Therefore we might get unlucky and never receive the master ID. */
+	 * Therefore we might get unlucky and never receive the Central ID. */
 
 	tdma_schedule(1, scan_start, 0, 0, 0, -3);
 }

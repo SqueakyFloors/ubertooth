@@ -177,7 +177,7 @@ extern volatile uint8_t requested_mode;
 #define R8C_ACK     (FIO1PIN & PIN_R8C_ACK)
 #endif
 
-/* SSEL (SPI slave select) control for CC2400 DIO (un-buffered) serial */
+/* SSEL (SPI chip select) control for CC2400 DIO (un-buffered) serial */
 #ifdef UBERTOOTH_ZERO
 #define DIO_SSEL_SET  (FIO2SET = PIN_SSEL0)
 #define DIO_SSEL_CLR  (FIO2CLR = PIN_SSEL0)

@@ -39,7 +39,7 @@ static struct {
 	 * which is the one a mode start cannot throw away. */
 	int restated_channel_rc;
 	int adv_data_rc;     /* returned by cmd_le_set_adv_data() */
-	int slave_rc;        /* returned by cmd_btle_slave() */
+	int peripheral_rc;   /* returned by cmd_btle_peripheral() */
 	int last_channel;    /* the channel the quack was set to, in MHz */
 	uint8_t last_adv_data[32];
 	unsigned last_adv_len;
@@ -52,7 +52,7 @@ static struct {
 	int cleanup_handlers; /* ubertooth_catch_stop_signals() calls */
 	int stop_requested;  /* what ubertooth_stop_requested() answers */
 	/* Every device call in order, one letter each: c set channel,
-	 * a set advertising data, s start advertising as a slave. */
+	 * a set advertising data, s start advertising as a Peripheral. */
 	char calls[16];
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
@@ -150,12 +150,12 @@ void ubertooth_close(ubertooth_t *ut)
 
 int cmd_set_channel(struct libusb_device_handle *devh, u16 channel)
 {
-	int after_slave = strchr(fake.calls, 's') != NULL;
+	int after_peripheral = strchr(fake.calls, 's') != NULL;
 
 	(void)devh;
 	record('c');
 	fake.last_channel = channel;
-	return after_slave ? fake.restated_channel_rc : fake.channel_rc;
+	return after_peripheral ? fake.restated_channel_rc : fake.channel_rc;
 }
 
 int cmd_le_set_adv_data(struct libusb_device_handle *devh, uint8_t *data,
@@ -169,12 +169,12 @@ int cmd_le_set_adv_data(struct libusb_device_handle *devh, uint8_t *data,
 	return fake.adv_data_rc;
 }
 
-int cmd_btle_slave(struct libusb_device_handle *devh, u8 *mac_address)
+int cmd_btle_peripheral(struct libusb_device_handle *devh, u8 *mac_address)
 {
 	(void)devh;
 	record('s');
 	memcpy(fake.last_bd_addr, mac_address, sizeof(fake.last_bd_addr));
-	return fake.slave_rc;
+	return fake.peripheral_rc;
 }
 
 /* The two seconds a successful quack advertises for; counted instead of
@@ -345,7 +345,7 @@ MU_TEST(a_refused_request_is_named_and_exits_1)
 		else if (i == 1)
 			fake.adv_data_rc = -9;
 		else if (i == 2)
-			fake.slave_rc = -9;
+			fake.peripheral_rc = -9;
 		else
 			fake.restated_channel_rc = -9;
 
@@ -372,7 +372,7 @@ MU_TEST(the_bootloader_signal_is_checked_too)
 	struct run_result r;
 
 	reset_fake();
-	fake.slave_rc = -9;
+	fake.peripheral_rc = -9;
 	r = RUN("-b", "-a", "11:22:33:44:55:66");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(fake.calls, "cas") == 0, fake.calls);

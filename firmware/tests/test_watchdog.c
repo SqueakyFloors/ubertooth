@@ -970,7 +970,7 @@ MU_TEST(test_every_usb_service_path_feeds)
 MU_TEST(test_every_interrupt_driven_mode_loop_feeds)
 {
 	static const char *const sources[] = {
-		FW_RXTX_DIR "/bluetooth_rxtx.c", /* generic le, le sync, le slave */
+		FW_RXTX_DIR "/bluetooth_rxtx.c", /* generic le, le sync, le peripheral */
 		FW_RXTX_DIR "/ego.c",
 		FW_RXTX_DIR "/xmas.c",
 		FW_RXTX_DIR "/identify.c",

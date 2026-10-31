@@ -629,7 +629,7 @@ void DMA_IRQHandler()
 
 static void dio_ssp_start()
 {
-	/* make sure the (active low) slave select signal is not active */
+	/* make sure the (active low) chip select signal is not active */
 	DIO_SSEL_SET;
 
 	/* enable rx DMA on DIO_SSP */
@@ -640,7 +640,7 @@ static void dio_ssp_start()
 	DMACC0Config |= DMACCxConfig_E;
 	ISER0 |= ISER0_ISE_DMA;
 
-	/* activate slave select pin */
+	/* activate chip select pin */
 	DIO_SSEL_CLR;
 }
 

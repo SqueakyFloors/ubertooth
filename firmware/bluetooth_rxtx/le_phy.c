@@ -565,7 +565,7 @@ static void finish_conn_event(void) {
 		last_anchor_set = 1;
 	}
 
-	// if there's one packet, we need to find out if it was the master
+	// if there's one packet, we need to find out if it was the Central
 	else if (conn_event.num_packets == 1 && anchor_measured()) {
 		// calculate the difference between the estimated and observed anchor
 		uint32_t estimated_anchor = conn.last_anchor + conn.conn_interval;
@@ -1832,7 +1832,7 @@ static int le_scale_conn_timing(le_conn_timing_t *t) {
 
 	// The connSupervisionTimeout shall be a multiple of 10 ms in the
 	// range of 100 ms to 32.0 s and it shall be larger than (1 +
-	// connSlaveLatency) * connInterval * 2
+	// connPeripheralLatency) * connInterval * 2
 	//
 	// Checked before it is scaled, because 10 ms in units of 100 ns is
 	// 100000 and the field is two bytes wide: the largest values overflow a
@@ -1840,7 +1840,7 @@ static int le_scale_conn_timing(le_conn_timing_t *t) {
 	if (t->supervision_timeout < 10 || t->supervision_timeout > 3200)
 		return 0;
 	t->supervision_timeout *= MSEC(10);
-	// TODO handle slave latency
+	// TODO handle Peripheral latency
 
 	return 1;
 }

@@ -2088,7 +2088,7 @@ MU_TEST(an_updates_window_size_survives_being_scaled)
 /*
  * At the instant an update takes effect, the engine waits out the transmit
  * window offset and then gives the first connection event a timeout that
- * spans the whole transmit window plus the longest packet. The master's first
+ * spans the whole transmit window plus the longest packet. The Central's first
  * packet under the new parameters may arrive anywhere inside that window, so a
  * timeout that expires earlier can close the event before the packet arrives,
  * and the capture loses it.
@@ -2325,7 +2325,7 @@ MU_TEST(the_window_after_an_update_is_where_the_specification_puts_it)
 
 /*
  * ...and so does the first event of a new connection, for the same reason: a
- * CONNECT_IND names a transmit window, and the master's first packet may
+ * CONNECT_IND names a transmit window, and the Central's first packet may
  * arrive anywhere inside it. A timeout of one maximum-length packet closes
  * the event before that packet arrives, so the capture misses the first
  * packets of every connection whose window is longer than the 1.25 ms
@@ -3039,8 +3039,8 @@ MU_TEST(a_target_filters_advertising_packets_only)
 /*
  * Every deadline in a followed connection is measured from the anchor, and the
  * anchor is re-derived at the end of each connection event. Which packet it
- * can be taken from is the whole of it: the master's packet starts the event,
- * the slave's does not, and the engine tells them apart by how far the
+ * can be taken from is the whole of it: the Central's packet starts the event,
+ * the Peripheral's does not, and the engine tells them apart by how far the
  * observed time is from the one it predicted. Get this wrong and the capture
  * drifts off the connection a few events later.
  *
@@ -3246,7 +3246,7 @@ MU_TEST(one_packet_anchors_the_event_only_near_the_prediction)
 {
 	uint32_t predicted;
 
-	/* Close enough to be the master's packet: the anchor moves to it. */
+	/* Close enough to be the Central's packet: the anchor moves to it. */
 	anchored_connection(100000);
 	predicted = conn.last_anchor + conn.conn_interval;
 	conn_event.anchor = predicted - (ANCHOR_EPSILON - 10);
@@ -3257,7 +3257,7 @@ MU_TEST(one_packet_anchors_the_event_only_near_the_prediction)
 	mu_assert_int_eq(predicted - (ANCHOR_EPSILON - 10), conn.last_anchor);
 	mu_assert_int_eq(0, radio_touched);
 
-	/* Too far: it was the slave, so the prediction stands. */
+	/* Too far: it was the Peripheral, so the prediction stands. */
 	anchored_connection(100000);
 	predicted = conn.last_anchor + conn.conn_interval;
 	conn_event.anchor = predicted - (ANCHOR_EPSILON + 10);

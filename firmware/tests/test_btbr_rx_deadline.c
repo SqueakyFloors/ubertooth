@@ -711,7 +711,7 @@ MU_TEST(test_the_state_machine_wait_cannot_run_past_the_slot)
  * A shortened tick is still a tick the wait gets out of.
  *
  * btphy_adj_clkn_delay() shortens one tick, by writing the match register, to
- * move the slave clock onto a master's. The hardware restarts the slot clock at
+ * move the Peripheral clock onto a Central's. The hardware restarts the slot clock at
  * that shorter value, and btphy_handler() puts the match back only on the next
  * interrupt -- which cannot be taken while this wait is holding
  * TIMER0_IRQHandler. So a ceiling taken from the tick's usual length would sit

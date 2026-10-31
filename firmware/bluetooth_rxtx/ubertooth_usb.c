@@ -509,7 +509,7 @@ void handle_usb_control(void)
  * transfer it is part way through. None of it can take a second caller.
  *
  * USB is driven from two contexts in the firmware. Six modes service it from
- * the USB interrupt (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas,
+ * the USB interrupt (bt_generic_le(), bt_le_sync(), bt_peripheral_le(), ego, xmas,
  * identify); the other modes and the main loop call this from their loop, or
  * handle_usb_control() above where the mode's host reads packets with
  * UBERTOOTH_POLL. What keeps the two apart today is only that no mode does

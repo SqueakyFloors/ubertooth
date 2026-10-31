@@ -90,7 +90,7 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
  * helpers do.
  *
  * Six modes service USB from the USB interrupt rather than from their loop
- * (bt_generic_le(), bt_le_sync(), bt_slave_le(), ego, xmas, identify), so
+ * (bt_generic_le(), bt_le_sync(), bt_peripheral_le(), ego, xmas, identify), so
  * while those run, USBHwISR() -- and the vendor request handler with it --
  * can land anywhere. Code that drives the USB controller or touches the
  * packet queue has to keep it out for the duration. Where that code also

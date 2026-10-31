@@ -85,9 +85,9 @@ static int monitor1_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 		bbpkt_decode_fhs(pkt->bt_data, &monitor1_state.fhs_info);
 
 
-		// Set slave clkn
-		btphy.slave_clkn = (monitor1_state.fhs_info.clk27_2<<2)
-				 + (btphy.slave_clkn-pkt->clkn);
+		// Set Peripheral clkn
+		btphy.peripheral_clkn = (monitor1_state.fhs_info.clk27_2<<2)
+				 + (btphy.peripheral_clkn-pkt->clkn);
 		
 		// Start hopping in next timeslot
 		tdma_schedule(1, start_monitor2, 0, 0, 0, -3);
@@ -118,7 +118,7 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 	}
 	if (sw_detected)
 	{
-		/* we should be at slave_clk = 0, prepare in one slot*/
+		/* we should be at peripheral_clk = 0, prepare in one slot*/
 		console_putc('!');
 
 		/* Answering the page is a substate of its own, with its own
@@ -127,7 +127,7 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 		hop_start_response();
 
 		/* Schedule TX ID(2) */
-		delay = 3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
+		delay = 3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX());
 		tx_task_schedule(delay,
 			NULL, NULL,	// no tx callback
 			NULL, NULL); 	// no header / no payload
@@ -146,7 +146,7 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 
 static void monitor1_schedule(unsigned delay)
 {
-	if (clkn_elapsed(MASTER_CLKN, monitor1_state.clkn_start, PAGE_SCAN_MAX_TICKS))
+	if (clkn_elapsed(CENTRAL_CLKN, monitor1_state.clkn_start, PAGE_SCAN_MAX_TICKS))
 	{
 		cprintf("monitor1 timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
@@ -166,11 +166,11 @@ static void monitor1_schedule(unsigned delay)
  * 4 - Start hopping on piconet and wait for real connection to establish
  * 5 - Sniff all timeslots
  */
-void monitor1_state_setup(uint64_t slave_bdaddr)
+void monitor1_state_setup(uint64_t peripheral_bdaddr)
 {
-	btphy_set_bdaddr(slave_bdaddr);
+	btphy_set_bdaddr(peripheral_bdaddr);
 	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
 	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_SUCCESS);
-	monitor1_state.clkn_start = MASTER_CLKN+1;
+	monitor1_state.clkn_start = CENTRAL_CLKN+1;
 	monitor1_schedule(1);
 }

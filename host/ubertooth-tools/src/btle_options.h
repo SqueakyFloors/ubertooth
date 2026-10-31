@@ -14,7 +14,7 @@ int convert_mac_address(char *text, const char *what, uint8_t *address,
                         uint8_t *mask_out);
 
 /* Parse an address option's value that is one whole address and nothing
- * else: no "/<bits>" mask, no "none". A faux slave advertises from one
+ * else: no "/<bits>" mask, no "none". A faux peripheral advertises from one
  * address, so it has nothing for a mask to narrow or for "none" to clear;
  * both spellings used to parse here and then be dropped. Returns 1 and sets
  * *address, or prints why not and returns 0.

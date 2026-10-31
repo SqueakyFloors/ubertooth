@@ -136,7 +136,7 @@ Note that causing intentional interference may be illegal in your
 jurisdiction. Check your local laws before using this feature.
 
 Finally, `ubertooth-btle` supports transmitting advertising packets with
-a specified BD ADDR. This feature, referred to as faux slave mode, is
+a specified BD ADDR. This feature, referred to as faux peripheral mode, is
 experimental and may not function as intended. Use at your own risk.
 
 ## EXAMPLES
@@ -211,9 +211,9 @@ Major modes:
  - `-s <BD ADDR>` :
    Inject advertising packets using specified BD ADDR. Like `-a`, it does not
    go with `-f`, `-n` or `-p`. The value is one whole address and nothing
-   else: a faux slave advertises from a single address, so the `/<bits>` mask
+   else: a faux peripheral advertises from a single address, so the `/<bits>` mask
    and `none` that `-t` takes are refused here, each as the address it is not
-   (`error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)`). Both
+   (`error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)`). Both
    used to be parsed and then dropped, so `-s none` advertised from
    `00:00:00:00:00:00`.
 
@@ -316,7 +316,7 @@ below.
 Miscellaneous:
 
  - `-A <37|38|39>` :
-   Which advertising channel to use in follow mode (`-f`, `-n`) and faux slave
+   Which advertising channel to use in follow mode (`-f`, `-n`) and faux peripheral
    mode (`-s`) (default: 37). Refused with `-p`, which sets no channel of its
    own.
  - `-a [address]` :
@@ -434,7 +434,7 @@ access address in one command gives
 
 `-a` or `-s` alongside a sniffing mode gives
 `error: -a and -s do not go with -f, -n or -p: a sniffing mode runs until it
-is interrupted`, so there is nothing for an access address or faux slave mode
+is interrupted`, so there is nothing for an access address or faux peripheral mode
 request to run after. `-t` and `-k` are not in that list: `-t` is sent before
 the mode starts, which is what it is for, and the `-k` options run once it has
 started.
@@ -496,7 +496,7 @@ answering during a capture, `error: jamming not supported by this firmware`,
 `error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)`. A value
 that is not an address reads the same way whatever is wrong with it, and names
 the address the option sets, so `-s` gives
-`error: faux slave address must be xx:xx:xx:xx:xx:xx (got <word>)`, including
+`error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got <word>)`, including
 for the `none` and `22:44:66:88:aa:cc/24` that `-t` takes, and a bad target
 mask gives `error: target mask must be 0-48 (got 49)`. A capture
 file that cannot be created is reported as `error: <file>: <reason>`.
@@ -606,7 +606,7 @@ ubertooth(7), SELECTING A DEVICE.
 1 for a command line the tool will not take or with nothing to do, for a
 capture file that cannot be created, when the selected Ubertooth is not found
 or cannot be opened, when the board refuses the jam mode, a `-t` target, a
-sniffing or faux slave mode, or an access address or CRC verify request, and
+sniffing or faux peripheral mode, or an access address or CRC verify request, and
 when a capture stops short because a poll failed. No device is opened for a
 refused command line.
 

@@ -87,7 +87,7 @@ BTCTL_STATE_PAGE_SCAN	= 5
 BTCTL_REASON_SUCCESS	= 0
 BTCTL_REASON_TIMEOUT	= 1
 # REASON_PAGED indicates that device entered CONNECTED state,
-# but the slave did not answer yet
+# but the Peripheral did not answer yet
 BTCTL_REASON_PAGED	= 2
 
 STATE_TO_STR = {
@@ -831,7 +831,7 @@ class BTCtlInquiryScanCmd(BTCtlCmd):
 class BTCtlPageScanCmd(BTCtlCmd):
 	def _start(self):
 		self._bt.send_page_scan_cmd()
-		self._lmp = LMPSlave(self)
+		self._lmp = LMPPeripheral(self)
 
 	def send_acl(self, llid, data, flow=1):
 		self._bt.send_acl_cmd(llid, data, flow, self.lt_addr)
@@ -879,7 +879,7 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		pass
 
 class BTCtlPagingCmd(BTCtlCmd):
-	LMP_CLS = LMPMaster
+	LMP_CLS = LMPCentral
 	def __init__(self, bt, bdaddr):
 		super().__init__(bt)
 		self._bdaddr = bdaddr
@@ -943,10 +943,10 @@ class BTCtlDiscoverableCmd(BTCtlSuperCmd):
 		self._stop_cmd()
 
 class BTCtlMonitorCmd(BTCtlCmd):
-	def __init__(self, bt, slave_bdaddr):
+	def __init__(self, bt, peripheral_bdaddr):
 		super().__init__(bt)
-		self._bdaddr = slave_bdaddr
-		self._uap = 0 # needs master bdaddr
+		self._bdaddr = peripheral_bdaddr
+		self._uap = 0 # needs Central bdaddr
 
 	def _start(self):
 		self._bt.send_monitor_cmd(self._bdaddr)
@@ -967,8 +967,8 @@ class BTCtlMonitorCmd(BTCtlCmd):
 			log.info("Monitor done")
 
 	def _handle_fhs(self, pkt):
-		role = "slave" if (pkt.clkn & 2) else "master"
-		result("RX FHS (%6s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
+		role = "Peripheral" if (pkt.clkn & 2) else "Central"
+		result("RX FHS (%10s:%7x): %s"%(role,pkt.clkn,pkt.bt_data))
 		self._uap = 0xff&(pkt.bt_data.bdaddr>>24)
 
 	def _handle_raw(self, pkt):
@@ -989,8 +989,8 @@ class BTCtlMonitorCmd(BTCtlCmd):
 			self._handle_l2cap(pkt)
 
 	def _handle_bad(self, pkt):
-		role = "slave" if (pkt.clkn & 2) else "master"
-		result("RX Raw (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
+		role = "Peripheral" if (pkt.clkn & 2) else "Central"
+		result("RX Raw (%10s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
 			hexlify(pkt.bt_data.raw_data).decode()))
 
 	def _handle_lmp(self, pkt):
@@ -1016,12 +1016,12 @@ class BTCtlMonitorCmd(BTCtlCmd):
 				self._bt.send_set_afh_cmd(instant<<1, mode, chan_map)
 				log.info("AFH req: instant=%d, (cur %d), mode=%d"%(
 					instant<<1, pkt.clkn, mode))
-		role = "slave" if (pkt.clkn & 2) else "master"
-		result("RX LMP (%6s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
+		role = "Peripheral" if (pkt.clkn & 2) else "Central"
+		result("RX LMP (%10s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr, pdu2str(pdu)))
 
 	def _handle_l2cap(self, pkt):
-		role = "slave" if (pkt.clkn & 2) else "master"
-		result("RX L2CAP (%6s:%7x): %s"%(role,pkt.clkn,pkt))
+		role = "Peripheral" if (pkt.clkn & 2) else "Central"
+		result("RX L2CAP (%10s:%7x): %s"%(role,pkt.clkn,pkt))
 
 def board_label(serial=None, index=None):
 	"""How a message names a board: by serial, by index, or not at all.

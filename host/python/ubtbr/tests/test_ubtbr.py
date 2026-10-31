@@ -541,7 +541,7 @@ assert said.getvalue() == "", said.getvalue()
 # and the LMP decoder's one warning, which reaches warn() through an import
 # inside the function: btctl imports lmp, so lmp cannot import it back at
 # module scope, and a test is what catches that import going wrong.
-link_manager = lmp.LMPMaster(RecordingConnection())
+link_manager = lmp.LMPCentral(RecordingConnection())
 unknown, said = io.StringIO(), io.StringIO()
 with contextlib.redirect_stderr(unknown), contextlib.redirect_stdout(said):
     # Opcode 0, which no state handles.
@@ -587,8 +587,8 @@ def pdu_sent(op, parameters, tid):
 
 def link_managers():
     """A central and a peripheral, each with a connection of its own."""
-    return [lmp.LMPMaster(RecordingConnection()),
-            lmp.LMPSlave(RecordingConnection())]
+    return [lmp.LMPCentral(RecordingConnection()),
+            lmp.LMPPeripheral(RecordingConnection())]
 
 
 for link_manager in link_managers():
@@ -634,14 +634,14 @@ for link_manager in link_managers():
     assert sent[0][0] == (lmp.LMP_FEATURES_RES << 1) | 1, sent
     assert sent[0][1] & 0x03 == 0, sent
 
-peripheral = lmp.LMPSlave(RecordingConnection())
+peripheral = lmp.LMPPeripheral(RecordingConnection())
 assert answers(peripheral, lmp.LMP_SUPERVISION_TIMEOUT, b"\x00\x20",
                tid=0) == [], peripheral._con.sent
 
 # The IO capability request arrives under an extended opcode, so the central's
 # table has to be keyed by one. Keyed by the plain number it answered opcode
 # 25, a different PDU, and left the request itself to the warning.
-central = lmp.LMPMaster(RecordingConnection())
+central = lmp.LMPCentral(RecordingConnection())
 assert answers(central, lmp.EXT_OPCODE | lmp.LMP_IO_CAPABILITY_REQ,
                b"\x01\x00\x03", tid=1)[0][:2] == \
     bytes(((lmp.LMP_ESCAPE_4 << 1) | 1, lmp.LMP_IO_CAPABILITY_RES)), \
@@ -734,7 +734,7 @@ for link_manager in link_managers():
 # used to set it hopping over channels the central never named. It is refused
 # instead, and no command goes to the board.
 AFH_PARAMETERS = b"\x08\x00\x00\x00\x01" + b"\xff" * 10
-peripheral = lmp.LMPSlave(AFHConnection())
+peripheral = lmp.LMPPeripheral(AFHConnection())
 assert answers(peripheral, lmp.LMP_SET_AFH, AFH_PARAMETERS[:14], tid=1) == \
     [pdu_sent(lmp.LMP_NOT_ACCEPTED, (lmp.LMP_SET_AFH, 0x1e), 1)], \
     peripheral._con.sent
@@ -751,7 +751,7 @@ assert peripheral._con._bt.afh == [(16, 1, b"\xff" * 10)], \
 # or expects to answer it at all, so a short one is traced and let go: that
 # is 2.5's implementation-value answer, where the AFH set above takes the
 # refusal because its parameters reach the firmware.
-central = lmp.LMPMaster(RecordingConnection())
+central = lmp.LMPCentral(RecordingConnection())
 records.messages = []
 assert answers(central, lmp.LMP_SLOT_OFFSET, b"\x96\x00\x11\x22", tid=0) == \
     [], central._con.sent
@@ -862,7 +862,7 @@ def received(link_manager_class, pdu):
 # session called it an unhandled opcode and then held the connection open
 # until link supervision ended it. Both sides now report the reason and end
 # the link (Vol 2, Part C, 4.1.2). "0f22" is a PDU the bench measured.
-for side in (lmp.LMPMaster, lmp.LMPSlave):
+for side in (lmp.LMPCentral, lmp.LMPPeripheral):
     link, warned = received(side, "0f22")
     assert link.stops == 1, (side, link.stops)
     assert link.sent == [], (side, link.sent)
@@ -917,7 +917,7 @@ REFUSALS = (
     # unknown rather than unsupported
     ("f800", "087c19"),
 )
-for side in (lmp.LMPMaster, lmp.LMPSlave):
+for side in (lmp.LMPCentral, lmp.LMPPeripheral):
     for pdu, answer in REFUSALS:
         link, warned = received(side, pdu)
         assert link.sent == [bytes.fromhex(answer).ljust(17, b"\x00")], \
@@ -937,7 +937,7 @@ IGNORED = (
     "fe2000",  # LMP_POWER_CONTROL_RES
 )
 for pdu in IGNORED:
-    link, warned = received(lmp.LMPSlave, pdu)
+    link, warned = received(lmp.LMPPeripheral, pdu)
     assert link.sent == [], (pdu, link.sent)
     assert link.stops == 0, pdu
     assert warned.endswith("is not handled in state 1\n"), (pdu, warned)
@@ -947,7 +947,7 @@ for pdu in IGNORED:
 # in a minute, and 300 identical lines bury the rest of a session. The PDUs
 # themselves are all in the capture on standard output. A 15-bit opcode is
 # named as table 5.1 writes it, 127/11, not as the number this code keys it by.
-peripheral = lmp.LMPSlave(RecordingConnection())
+peripheral = lmp.LMPPeripheral(RecordingConnection())
 warned = io.StringIO()
 with contextlib.redirect_stderr(warned):
     for _ in range(5):
@@ -975,7 +975,7 @@ TOO_SHORT = (
     ("", "warning: an LMP PDU of no bytes arrived, so there is nothing to "
          "answer\n"),
 )
-for side in (lmp.LMPMaster, lmp.LMPSlave):
+for side in (lmp.LMPCentral, lmp.LMPPeripheral):
     for pdu, said in TOO_SHORT:
         link, warned = received(side, pdu)
         assert link.sent == [], (side, pdu, link.sent)
@@ -1195,7 +1195,7 @@ def opcode_of(pdu):
     return opcode
 
 
-central = lmp.LMPMaster(RecordingConnection())
+central = lmp.LMPCentral(RecordingConnection())
 records.messages = []
 warned = io.StringIO()
 with contextlib.redirect_stderr(warned):
@@ -1227,7 +1227,7 @@ def opened_with(received_pdu):
     one at a time, so there is exactly one request outstanding when the
     PDU arrives, which is what a refusal is matched against.
     """
-    central = lmp.LMPMaster(RecordingConnection())
+    central = lmp.LMPCentral(RecordingConnection())
     records.messages = []
     warned = io.StringIO()
     with contextlib.redirect_stderr(warned):
@@ -1273,7 +1273,7 @@ print("ubtbr: a peer's refusal is recorded and the next request still goes")
 # A refusal of the connection request the five lead to is a warning: the
 # peer is declining the connection itself, and there is nothing further to
 # ask it for.
-central = lmp.LMPMaster(RecordingConnection())
+central = lmp.LMPCentral(RecordingConnection())
 for op, field, send in central._opening:
     setattr(central, field, b"")
 warned = io.StringIO()

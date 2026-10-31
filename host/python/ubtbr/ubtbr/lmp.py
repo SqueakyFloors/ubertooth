@@ -648,7 +648,7 @@ class LMP:
 # anything that is not None says that one did.
 REFUSED = "refused by the peer"
 
-class LMPMaster(LMP):
+class LMPCentral(LMP):
 	def __init__(self, con):
 		self._FSM = {
 			# First state: fetch device infos
@@ -823,7 +823,7 @@ class LMPMaster(LMP):
 		self.lmp_send(LMP_SETUP_COMPLETE, b"\x00"*16)
 		self._con.handle_setup_complete()
 
-class LMPSlave(LMP):
+class LMPPeripheral(LMP):
 	def __init__(self, con):
 		self._FSM = {
 			# First state: wait for establishment message

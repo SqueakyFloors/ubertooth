@@ -66,7 +66,7 @@ static void report_request_failure(const char *what)
 }
 
 /* The centre frequency of a BLE advertising channel index (Bluetooth Core
- * spec), which both the sniffing and the faux slave mode tune to. */
+ * spec), which both the sniffing and the faux peripheral mode tune to. */
 static u16 adv_channel(int index)
 {
 	if (index == ADV_INDEX_MIN)
@@ -130,7 +130,7 @@ static void usage(FILE *out)
 	fprintf(out, "\t-p promiscuous: sniff active connections\n");
 	fprintf(out, "\n");
 	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
-	fprintf(out, "\t-s <address> faux slave mode, advertising from one whole address\n");
+	fprintf(out, "\t-s <address> faux peripheral mode, advertising from one whole address\n");
 	fprintf(out, "\t       (example: -s 22:44:66:88:aa:cc; no \"/<bits>\" mask, no \"none\")\n");
 	fprintf(out, "\t       -a and -s do not go with -f, -n or -p, which run until interrupted\n");
 	fprintf(out, "\t-t <address> set connection following target (example: -t 22:44:66:88:aa:cc/48)\n");
@@ -202,7 +202,7 @@ int main(int argc, char *argv[])
 	/* Whether -A was written, as against left at its default: the default
 	 * is harmless with any mode, an explicit one is refused with -p. */
 	int do_adv_index_given;
-	int do_slave_mode;
+	int do_peripheral_mode;
 	int do_target;
 	enum jam_modes jam_mode = JAM_NONE;
 	/* The interference option as the user wrote it, so the refusal below
@@ -232,9 +232,9 @@ int main(int argc, char *argv[])
 	 * 00:00:00:00:00:00 without a word. */
 	uint8_t target_address[OPT_BD_ADDR_BYTES] = { 0, };
 	uint8_t target_mask = 0;
-	/* -s takes a plain address: a faux slave advertises from one whole
+	/* -s takes a plain address: a faux peripheral advertises from one whole
 	 * address, so it has no mask of its own. */
-	uint8_t slave_address[OPT_BD_ADDR_BYTES] = { 0, };
+	uint8_t peripheral_address[OPT_BD_ADDR_BYTES] = { 0, };
 
 	/* Standard output until a capture takes it; see report_stream. */
 	report_stream = stdout;
@@ -244,7 +244,7 @@ int main(int argc, char *argv[])
 	do_get_crc = 0;
 	do_adv_index = 37;
 	do_adv_index_given = 0;
-	do_slave_mode = do_target = 0;
+	do_peripheral_mode = do_target = 0;
 
 	/* The tool reports a bad option itself, in the usual one-line form:
 	 * see opt_report_bad_option(). The leading ':' makes a missing option
@@ -341,9 +341,9 @@ int main(int argc, char *argv[])
 			do_adv_index_given = 1;
 			break;
 		case 's':
-			do_slave_mode = 1;
-			r = convert_plain_mac_address(optarg, "faux slave",
-			                              slave_address);
+			do_peripheral_mode = 1;
+			r = convert_plain_mac_address(optarg, "faux peripheral",
+			                              peripheral_address);
 			if (!r)
 				return 1;
 			break;
@@ -420,11 +420,11 @@ int main(int argc, char *argv[])
 
 	/* A sniffing mode runs until it is interrupted and ends in
 	 * ubertooth_stop(), which closes the device handle and nulls it, so
-	 * the access address and faux slave mode blocks below have no handle
+	 * the access address and faux peripheral mode blocks below have no handle
 	 * left to send on. -t is not in this list: it is sent before the mode
 	 * starts, which is what it is for. */
 	if ((do_follow || do_no_follow || do_promisc) &&
-	    (do_get_aa || do_set_aa || do_slave_mode)) {
+	    (do_get_aa || do_set_aa || do_peripheral_mode)) {
 		fprintf(stderr, "error: -a and -s do not go with -f, -n or -p:"
 		        " a sniffing mode runs until it is interrupted\n");
 		return 1;
@@ -488,7 +488,7 @@ int main(int argc, char *argv[])
 	 * board and looked like one that had worked. -A, -x and the capture
 	 * options only shape the work the options below ask for. */
 	if (!(do_follow || do_no_follow || do_promisc || do_get_aa || do_set_aa ||
-	      do_set_crc >= 0 || do_get_crc || do_slave_mode || do_target)) {
+	      do_set_crc >= 0 || do_get_crc || do_peripheral_mode || do_target)) {
 		fprintf(stderr, "error: nothing to do: choose a major mode"
 		        " (-f, -n or -p), or -a, -k, -s or -t\n");
 		if (opt_no_arguments(argc))
@@ -811,14 +811,14 @@ int main(int argc, char *argv[])
 			return release_handle(ut, 1);
 	}
 
-	if (do_slave_mode) {
+	if (do_peripheral_mode) {
 		/* flags: LE Limited Discovery */
 		uint8_t adv_data[] = { 0x02, 0x01, 0x05 };
 
 		/* Checked one at a time, so the report names the request that
 		 * failed: every one of them had to work for the board to
 		 * advertise on the channel asked for, and "could not start
-		 * faux slave mode" did not say which of them the board
+		 * faux peripheral mode" did not say which of them the board
 		 * refused.
 		 *
 		 * The first two set something up and start nothing, so a
@@ -840,7 +840,7 @@ int main(int argc, char *argv[])
 		 * back, and a board left part-way into a low-energy mode is
 		 * the state it stops answering control requests in. The
 		 * success path deliberately leaves it advertising. */
-		if (cmd_btle_slave(ut->devh, slave_address) < 0) {
+		if (cmd_btle_peripheral(ut->devh, peripheral_address) < 0) {
 			report_request_failure("start advertising");
 			ubertooth_stop(ut);
 			return release_handle(ut, 1);

@@ -72,7 +72,7 @@ int main()
 		 * deadline: clk_prev is always a reading already taken, and the
 		 * difference carries across the free-running counter's wrap,
 		 * where an addition would stop the flush for a whole period. */
-		if ((clk = MASTER_CLKN) - clk_prev >= CLKN_RATE)
+		if ((clk = CENTRAL_CLKN) - clk_prev >= CLKN_RATE)
 		{
 			console_flush();
 			clk_prev = clk;

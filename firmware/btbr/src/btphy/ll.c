@@ -42,7 +42,7 @@
 int ll_process_rx(link_layer_t *ll, msg_t *msg)
 {
 	uint32_t clk_diff;
-	int rc = ll->is_master != 0;	// master always tx
+	int rc = ll->is_central != 0;	// Central always tx
 	int do_free_msg = 1;
 	btctl_rx_pkt_t *pkt;
 	btctl_hdr_t *h = (btctl_hdr_t*)msg->data;
@@ -81,7 +81,7 @@ int ll_process_rx(link_layer_t *ll, msg_t *msg)
 	ll->rx_count ++;
 
 	/* Check if we must discard the packet */
-	if (!ll->is_master && pkt->bb_hdr.lt_addr != ll->lt_addr)
+	if (!ll->is_central && pkt->bb_hdr.lt_addr != ll->lt_addr)
 	{
 		// TODO: broadcast/sco/monitor..
 		LL_DEBUG('0'+pkt->bb_hdr.lt_addr);
@@ -124,7 +124,7 @@ int ll_process_rx(link_layer_t *ll, msg_t *msg)
 				/* Send the message to host */
 				if (btctl_tx_enqueue(msg) != 0)
 				{
-					DIE("txq full in master\n");
+					DIE("txq full in Central\n");
 				}
 				ll->rmt_seqn ^= 1;
 				ll->loc_arqn = 1;
@@ -153,11 +153,11 @@ int ll_process_rx(link_layer_t *ll, msg_t *msg)
 #endif
 	}
 	/* We can get there in two cases:
-	 * - We're the master and will TX everytime
-	 * - We're the slave and we must ack/crc
+	 * - We're the Central and will TX everytime
+	 * - We're the Peripheral and we must ack/crc
 	 * In both case we'll tx
 	 */
-	if (ll->is_master || pkt->bb_hdr.type == BB_TYPE_POLL || ll->loc_arqn)
+	if (ll->is_central || pkt->bb_hdr.type == BB_TYPE_POLL || ll->loc_arqn)
 	{
 		rc = 1;
 	}
@@ -185,7 +185,7 @@ void ll_prepare_tx(link_layer_t *ll, bbhdr_t **tx_hdr, uint8_t **tx_data)
 	if (ll->cur_tx_msg == NULL)
 	{
 		ll->tx_hdr.lt_addr = ll->lt_addr;
-		if (ll->is_master)
+		if (ll->is_central)
 		{
 			LL_DEBUG('P');
 			ll->tx_hdr.type = BB_TYPE_POLL;
@@ -226,9 +226,9 @@ void ll_reset(link_layer_t *ll)
 	}
 }
 
-void ll_init(link_layer_t *ll, uint8_t is_master, uint8_t lt_addr)
+void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr)
 {
-	ll->is_master = is_master;
+	ll->is_central = is_central;
 	ll->is_connected = 0;
 
 	/* Link flags */

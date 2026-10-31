@@ -204,7 +204,7 @@ void dio_ssp_init()
 	/*
 	 * DIO_SSEL is a GPIO output connected directly to the SSEL input on the
 	 * microcontroller for the CC2400's un-buffered (DIO/DCLK) serial
-	 * interface.  Since the CC2400 doesn't have a slave select output, we
+	 * interface.  Since the CC2400 doesn't have a chip select output, we
 	 * control it with this.  DIO_SSEL should already be configured by
 	 * gpio_init().  We set it high by default because it is an active low
 	 * signal.
@@ -258,7 +258,7 @@ void cc2400_init()
 	CC1V8_SET;
 	wait_us(50);
 
-	/* CSN (slave select) is active low */
+	/* CSN (chip select) is active low */
 	CSN_SET;
 
 	/* activate 3V3 supply for CC2400 IO */
@@ -430,7 +430,7 @@ static void spi_delay() {
  * The exposure that exists today is a control request arriving from the USB
  * interrupt while the main loop writes the FIFO: the vendor request handler
  * writes radio registers for SET_PALEVEL, SET_CHANNEL, SET_SQUELCH and
- * WRITE_REGISTER(S), and bt_slave_le() writes an advertising packet into the
+ * WRITE_REGISTER(S), and bt_peripheral_le() writes an advertising packet into the
  * FIFO from its loop with that interrupt enabled. Every FIFO transfer in this
  * image is made from a mode loop rather than from a handler, so the main loop
  * being cut into is the whole of it -- but the guard covers a handler reaching
