@@ -12,6 +12,9 @@ suitable for Bluetooth experimentation. Ubertooth ships with a capable
 BLE (Bluetooth Smart) sniffer and can sniff some data from Basic Rate
 (BR) Bluetooth Classic connections.
 
+This fork was developed largely with the help of AI coding agents, directed by
+the maintainer. See [AI-DISCLOSURE.md](AI-DISCLOSURE.md) for how.
+
 ## Hardware
 
 An Ubertooth One is a USB 2.4 GHz radio: a CC2400 transceiver behind a CC2591
