@@ -80,6 +80,58 @@ static int request_failed(ubertooth_t* ut, const char* what, int code)
 	return 1;
 }
 
+/* The capture files this run was asked for, by the names the user gave. */
+struct rx_files {
+	const char* pcapng;  /* -r */
+	const char* pcap;    /* -q */
+	const char* dump;    /* -d */
+};
+
+/* Takes the capture files away again, for a failure between creating them and
+ * the first packet: a refused run then leaves no empty capture behind.
+ *
+ * The handles say which files exist, since each is set only once its writer
+ * has the file open, so before the files are created this does nothing. It
+ * runs before the board goes back, because that is what closes those writers:
+ * the files go by name while the writers still hold them, and the header
+ * bytes a writer had buffered then go nowhere. Which names are left alone is
+ * opt_discard_capture_file()'s decision. */
+static void rx_discard_files(ubertooth_t* ut, const struct rx_files* files)
+{
+	if (ut->h_pcapng_bredr != NULL)
+		opt_discard_capture_file(files->pcapng);
+	if (ut->h_pcap_bredr != NULL)
+		opt_discard_capture_file(files->pcap);
+	if (dumpfile != NULL)
+		opt_discard_capture_file(files->dump);
+}
+
+/* Gives the board back for a failure after the capture files were created but
+ * before any mode has started, taking those files with it. The caller has
+ * already said what failed. Closed without a STOP for the same reason
+ * request_failed() does not send one. */
+static int setup_failed(ubertooth_t* ut, const struct rx_files* files)
+{
+	rx_discard_files(ut, files);
+	ubertooth_close(ut);
+	ubertooth_free(ut);
+	return 1;
+}
+
+/* The same for a failure while the receive transfer is being set up, which the
+ * board is given back from with a STOP: by then it may be left in the mode an
+ * earlier command started. libubertooth or the caller has already said what
+ * failed. Every failure from the files down to the capture loop goes through
+ * one of these three helpers, so a path added between them cannot forget the
+ * files. */
+static int transfer_failed(ubertooth_t* ut, const struct rx_files* files)
+{
+	rx_discard_files(ut, files);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+	return 1;
+}
+
 /* The same report for a request refused once the capture is already running.
  * The mode is stopped and the board given back, so a board the user has to
  * rescue is not left streaming with settings they did not ask for.
@@ -91,13 +143,31 @@ static int request_failed(ubertooth_t* ut, const char* what, int code)
  *
  * The poll thread is running by now and nothing else joins it:
  * ubertooth_stop() frees the libusb context it polls. */
-static int capture_failed(ubertooth_t* ut, const char* what, int code)
+static int capture_failed(ubertooth_t* ut, const struct rx_files* files,
+                          const char* what, int code)
 {
 	report_refused_request(what, code);
+	rx_discard_files(ut, files);
 	ubertooth_bulk_thread_stop();
 	ubertooth_stop(ut);
 	ubertooth_free(ut);
 	return 1;
+}
+
+/* Set once a replay has read a whole record from its input. That is the line
+ * its capture files are kept from, the same line a capture draws at its first
+ * packet: the replay ran, and what the decoder made of the record -- a packet,
+ * or nothing it recognized -- is the result. Before the first record the files
+ * hold their headers and nothing else. */
+static int replay_read_a_record;
+
+/* A replay's decode: notes the record, then decodes it like any other. The
+ * decode is libubertooth's cb_rx() and notes nothing itself, and a live
+ * capture needs no note, so only a replay goes through here. */
+static void replay_decode(ubertooth_t* ut, void* args)
+{
+	replay_read_a_record = 1;
+	cb_rx(ut, args);
 }
 
 int main(int argc, char* argv[])
@@ -109,6 +179,9 @@ int main(int argc, char* argv[])
 	int have_channel = 0;
 	int exit_status = 0;
 	const char* infile_name = NULL;
+	/* The three names together, for the failures that have to take back a
+	 * file this run created. Filled in once the command line is read. */
+	struct rx_files files = { NULL, NULL, NULL };
 	/* Files named on the command line, opened after every check passes. */
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
@@ -403,6 +476,10 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	files.pcapng = pcapng_name;
+	files.pcap = pcap_name;
+	files.dump = dump_name;
+
 	/* The board is open and usable, or this is a replay, and every step of
 	 * the setup that can fail is behind us, so the files this run writes
 	 * can be opened. Not before: a run refused for its firmware, or one
@@ -417,9 +494,7 @@ int main(int argc, char* argv[])
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
 		opt_report_create_failure(pcapng_name, errno);
-		ubertooth_close(ut);
-		ubertooth_free(ut);
-		return 1;
+		return setup_failed(ut, &files);
 	}
 	if (pcap_name != NULL) {
 		/* A lone "-" is standard output, which the capture then owns:
@@ -434,9 +509,7 @@ int main(int argc, char* argv[])
 		if (file == NULL) {
 			if (saved_fd >= 0)
 				close(saved_fd);
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
+			return setup_failed(ut, &files);
 		}
 		errno = 0;
 		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
@@ -454,9 +527,7 @@ int main(int argc, char* argv[])
 			/* The name the user gave, not the /dev/fd path a lone
 			 * "-" is opened through. */
 			opt_report_create_failure(pcap_name, create_errno);
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
+			return setup_failed(ut, &files);
 		}
 	}
 	if (dump_name != NULL) {
@@ -466,10 +537,9 @@ int main(int argc, char* argv[])
 		if (dumpfile == NULL) {
 			/* The capture files are on the handle, so the close is
 			 * what gets them written out and shut, and it gives the
-			 * board back. */
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
+			 * board back. The files this run created are taken away
+			 * first, so the write lands in a file already gone. */
+			return setup_failed(ut, &files);
 		}
 	}
 
@@ -498,9 +568,7 @@ int main(int argc, char* argv[])
 			/* nothing is in flight, but the board is still open and in
 			 * whatever mode an earlier command left it. libubertooth has
 			 * already said what failed, so the status is all this adds. */
-			ubertooth_stop(ut);
-			ubertooth_free(ut);
-			return 1;
+			return transfer_failed(ut, &files);
 		}
 
 		r = ubertooth_bulk_thread_start();
@@ -512,9 +580,7 @@ int main(int argc, char* argv[])
 			report_capture_thread_failure(r);
 			/* The receive transfer is in flight and the board is about to
 			 * be left in its mode: give both back before returning. */
-			ubertooth_stop(ut);
-			ubertooth_free(ut);
-			return 1;
+			return transfer_failed(ut, &files);
 		}
 
 		/* The modulation this capture reads, Classic, stated before the
@@ -525,7 +591,7 @@ int main(int argc, char* argv[])
 		 * saying nothing. */
 		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
 		if (r < 0)
-			return capture_failed(ut, "set the modulation", r);
+			return capture_failed(ut, &files, "set the modulation", r);
 
 		// tell ubertooth to send packets
 		/* The quiet form, so this failure reads as the one "error: " line
@@ -534,7 +600,7 @@ int main(int argc, char* argv[])
 		 * instead, which does not name the request that failed. */
 		r = cmd_rx_syms_quiet(ut->devh);
 		if (r < 0)
-			return capture_failed(ut, "start the capture", r);
+			return capture_failed(ut, &files, "start the capture", r);
 
 		/* Tell the board how to tune for this capture after asking for
 		 * the capture, not before. Starting a mode puts the board's hop
@@ -559,8 +625,9 @@ int main(int argc, char* argv[])
 		 * instead. */
 		r = cmd_set_channel_quiet(ut->devh, channel);
 		if (r < 0)
-			return capture_failed(ut, have_channel ? "set the channel"
-			                                       : "set sweep mode", r);
+			return capture_failed(ut, &files,
+			                      have_channel ? "set the channel"
+			                                   : "set sweep mode", r);
 		/* Kept for the callback, which starts a mode again when the
 		 * library gives up a clock and has to restate this. */
 		ut->capture_channel = channel;
@@ -595,9 +662,18 @@ int main(int argc, char* argv[])
 	} else {
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */
-		r = stream_rx_file(ut, infile, cb_rx, pn);
+		r = stream_rx_file(ut, infile, replay_decode, pn);
 		fclose(infile);
 		exit_status = rx_file_report(r, infile_name);
+
+		/* An input no whole record could be read from leaves the
+		 * capture files holding their headers and nothing else, so
+		 * they go the way a refused capture's files do. From the first
+		 * record on they stay, however little of the input came after
+		 * it. An input read to its end is no failure, an empty one
+		 * included, and never reaches here: that replay ran. */
+		if (exit_status != 0 && !replay_read_a_record)
+			rx_discard_files(ut, &files);
 
 		/* A recorded capture carries the losses it was recorded with, in
 		 * the status of its own records, and the replay is where a reader

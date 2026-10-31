@@ -786,8 +786,16 @@
   and `-d` files are created, so there is nothing on disk to tell apart from a
   capture that caught nothing. A command that would hit two of these reports
   them in that new order: one naming both a file it cannot create and a board
-  that refuses the address now names the address.
+  that refuses the address now names the address. The requests that start the
+  capture cannot come first, and a board that refuses one of those now has the
+  capture files removed again, so a header-only capture is no longer left
+  behind there either. A capture that ran keeps its file, however little
+  arrived, and a name the user had set up as something else -- `/dev/null`, a
+  pipe, or a symbolic link -- is left where it is. A replay (`-i`) that could
+  not read one whole record from its input no longer leaves a header-only
+  capture behind either.
   [#993](https://github.com/SqueakyFloors/ubertooth/issues/993)
+  [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013)
 
 - Fixed: `ubertooth-btle -f` could abandon the connection it was following and
   jump to another one. Any connection request the board heard on an

@@ -349,7 +349,11 @@ A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
 check has passed. The board is opened, its firmware is checked, and the capture
 is set up as far as it can be, all before that, so a run refused for any of
-those reasons leaves no empty file behind either (see EXIT STATUS).
+those reasons leaves no empty file behind either (see EXIT STATUS). The
+requests that start the capture itself are the one part that cannot come first,
+and a board that refuses one of those has the capture files removed again, so a
+refused run leaves nothing to tell apart from a capture that caught nothing. A
+capture that ran keeps its file, however little arrived.
 
 `-` means standard output only as the whole value of `-q` or `-d`
 (ubertooth(7), OPTION VALUES). Any other value is a file name, including one
@@ -544,6 +548,26 @@ The decoder, the piconet `-l` names, and the address request that `-l` with
 empty capture behind. A replay (`-i`) creates them once its input file has
 been opened, since it needs no board. A terminal on standard output is still
 refused while the command line is read.
+
+What is left after that is the capture starting: the USB transfer, the thread
+that completes it, and the modulation, capture, and channel requests. A run
+that ends at one of those removes the capture files it had created, naming any
+it cannot remove as `warning: cannot remove FILE: ...`. Only a regular file at
+that name is removed: a name the user had set up as something else --
+`/dev/null`, a pipe, or a symbolic link -- is left where it is, so no run takes
+away a path the user arranged, and a capture written to standard output is no
+file at all. A `-q` or `-d` name that already held a file of the user's is
+removed along with the rest, since creating the capture had truncated it in any
+case; `-r` refuses such a name outright and never reaches this. Once the first
+packet can arrive the file stays, because a capture that decoded nothing is a
+result of its own and its header says the capture ran.
+
+A replay is the same with its input in place of the board: an input that could
+not be read, or that ends partway through its first record, leaves no capture
+file behind. From the first whole record on the files stay, however little of
+the input could be read after it. An input read to its end is no failure at
+all, an empty one included: that replay exits 0 and keeps its files, as a
+capture that caught nothing does.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
