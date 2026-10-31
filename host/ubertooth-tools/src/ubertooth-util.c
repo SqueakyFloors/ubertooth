@@ -619,11 +619,11 @@ static int range_test_wait(ubertooth_t *ut, int timeout_s)
 		if (elapsed >= next_progress) {
 			/* Progress, so standard error: standard output carries the
 			 * result block alone, and a script reading -n for a result
-			 * reads nothing else. Flushed, so the line appears as it is
-			 * printed and not when a pipe's buffer fills. */
+			 * reads nothing else. Standard error is never fully buffered,
+			 * so the line appears as it is printed with no flush of its
+			 * own. */
 			fprintf(stderr, "waiting for the repeater... (%u s)\n",
 			        (unsigned)(elapsed / 1000u));
-			fflush(stderr);
 			next_progress = elapsed + RANGE_TEST_PROGRESS_MS;
 		}
 
