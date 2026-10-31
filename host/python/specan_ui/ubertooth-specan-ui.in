@@ -602,11 +602,7 @@ class RenderArea(QtWidgets.QWidget):
 
                 painter.setPen(Qt.blue)
 
-                # TODO: Removed to support old (<1.0) PySide API in Ubuntu 10.10
-                # painter.drawLines(dbm_lines)
                 for dbm_line in dbm_lines: painter.drawLine(dbm_line)
-                # TODO: Removed to support old (<1.0) PySide API in Ubuntu 10.10
-                # painter.drawLines(frequency_lines)
                 for frequency_line in frequency_lines: painter.drawLine(frequency_line)
 
                 painter.setPen(Qt.white)

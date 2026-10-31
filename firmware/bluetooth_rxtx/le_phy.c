@@ -943,7 +943,9 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// paths check for that and wait for a buffer rather than
 				// arm receive without one.
 				//
-				// TODO error transition on queue_insert
+				// The insert cannot fail and so has no error
+				// path: the queue holds FIFOSIZE-1 pointers,
+				// nine, and the whole pool is four buffers.
 				primask = irq_save_disable();
 				packet = current_rxbuf;
 				current_rxbuf = buffer_get();

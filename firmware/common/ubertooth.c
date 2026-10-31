@@ -659,7 +659,6 @@ void clock_start()
 	PCLKSEL0  = (1 << 2); /* TIMER0 at cclk (30 MHz) */
 	PCLKSEL1  = 0;
 #else
-        // XXX here
 	PCLKSEL0  = (2 << 2) | (2 << 4); /* TIMER0 and TIMER1 at cclk/2 (50 MHz) */
 	PCLKSEL1  = (2 << 12); /* TIMER2 at cclk/2 (50 MHz) */
 #endif
@@ -898,6 +897,3 @@ void set_isp(void)
 #endif
 	irq_restore(flags);
 }
-
-//FIXME ssp
-//FIXME tx/rx
