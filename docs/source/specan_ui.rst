@@ -104,6 +104,8 @@ left click                  Set marker 1 (yellow) at the pointer
 right click                 Set marker 2 (magenta)
 middle click or ``m``       Show or hide the peak and average markers, and
                             clear the mouse markers
+``b``                       Label the axis and the markers with BLE channel
+                            numbers instead of MHz, or back again
 ``c``                       Clear the graph (also restarts the average)
 ``h``                       Show or hide the key help
 ``q``                       Quit
@@ -115,12 +117,29 @@ What the display shows
 - **White trace:** the current sweep; earlier sweeps fade out behind it.
 - **Green trace:** the peak (max-hold) level per frequency over the most
   recent sweeps.
-- **Red dotted lines:** the strongest peak, labelled with its frequency (MHz)
+- **Red dotted lines:** the strongest peak, labeled with its frequency (MHz)
   and level (dBm).
-- **Cyan dotted horizontal line, labelled "Avg: N dBm":** the average of the
+- **Cyan dotted horizontal line, labeled "Avg: N dBm":** the average of the
   green max-hold trace across the band, smoothed so it moves slowly.
 - **Yellow and magenta markers:** points marked with the left and right mouse
   buttons, with the frequency differences to the peak and to each other.
+
+MHz or BLE channels
+~~~~~~~~~~~~~~~~~~~
+
+The axis and the markers are labeled in MHz. Press ``b`` to label them with
+BLE channel numbers instead — the advertising channels 37, 38 and 39, and the
+data channels 0 to 36 — and ``b`` again to go back to MHz.
+
+In channel mode the axis is marked on the channels themselves, every fifth one,
+rather than every tenth megahertz, so a line on the graph lines up with the
+number under it. A marker names the channel nearest the point it sits on, since
+the sweep steps 1 MHz where the channels are 2 MHz apart. The difference between
+two markers stays in MHz either way, spelled out as ``(+4 MHz)`` in channel
+mode: a difference between channel numbers would say nothing about the gap on
+the air, because the advertising channels sit among the data channels rather
+than after them. The margin either side of the band has no channel, so a point
+out there keeps its frequency.
 
 Troubleshooting ``ModuleNotFoundError: No module named 'specan'``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
