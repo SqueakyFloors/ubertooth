@@ -881,6 +881,12 @@
   naming what arrived, said once per reason, and the session keeps capturing.
   [#978](https://github.com/SqueakyFloors/ubertooth/issues/978)
 
+- Fixed: an inquiry response whose extended inquiry response was padded with
+  zeros after its last field was reported as a malformed EIR. A zero length
+  byte is where the significant part ends, so `ubertooth-btbr` now takes the
+  padding for the end of the response and says nothing.
+  [#988](https://github.com/SqueakyFloors/ubertooth/issues/988)
+
 - A `ubertooth-btbr` connection goes on when the peer refuses one of the five
   requests it opens with: the refusal is reported with the reason the peer
   gave, and the next request goes out. A refusal used to leave the session

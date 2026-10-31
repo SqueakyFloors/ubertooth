@@ -349,6 +349,12 @@ class BTCtlEIR:
 				warn("malformed EIR: a field runs past the end of the "
 					"response, so the rest of it is dropped")
 		while (buf):
+			# A length of zero is where the significant part of the EIR
+			# ends; whatever follows is non-significant padding, which a
+			# sender is free to leave as zeros (Core v5.4 | Vol 3, Part C,
+			# 8). So the EIR ends here, and nothing is wrong.
+			if buf[0] == 0:
+				break
 			# A field is a length and a type before its data, so one byte
 			# left is a field that runs past the end as surely as a short
 			# one does. Read without this check it raised instead, which
