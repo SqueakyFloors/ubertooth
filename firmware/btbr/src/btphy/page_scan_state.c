@@ -29,7 +29,7 @@
 #include <ubtbr/rx_task.h>
 #include <ubtbr/tx_task.h>
 #include <ubtbr/hop.h>
-#include <ubtbr/slave_state.h>
+#include <ubtbr/peripheral_state.h>
 
 #define PAGE_SCAN_MAX_TICKS (CLKN_RATE*60)
 #define TX_PREPARE_IDX	1  // We will transmit at clkn1_0 = 2
@@ -59,7 +59,7 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset);
  * would wait forever. */
 static void page_scan_fhs_schedule(void)
 {
-	unsigned delay = 3&(RX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
+	unsigned delay = 3&(RX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX());
 
 	/* Every window advances the page response phase once (rx_task.c), so
 	 * window number k is on the phase the central's kth repeat goes out on.
@@ -75,7 +75,7 @@ static void page_scan_fhs_schedule(void)
 	/* 8.3.3.1 has the paged device listen until pagerespTO and no longer,
 	 * so a window whose own tick falls outside it is not opened at all. The
 	 * pager stops on the same bound, counted from the same tick. */
-	if (clkn_elapsed(btphy.master_clkn+delay+1,
+	if (clkn_elapsed(btphy.central_clkn+delay+1,
 				page_scan_state.clkn_answer,
 				PAGE_RESP_TO_TICKS))
 	{
@@ -117,16 +117,16 @@ static void page_scan_fhs_missed(uint32_t window_clkn)
 	 * windows computed from it would be on the wrong frequency. Nothing is
 	 * left to wait for, as for a packet of the wrong type. One tick is
 	 * normal: that is where a one-slot packet's decode ends. */
-	if (btphy.slave_clkn-window_clkn >= 2)
+	if (btphy.peripheral_clkn-window_clkn >= 2)
 	{
 		page_scan_schedule(0);
 		return;
 	}
 	/* The other reading of the page, as the one tick the two differ by. */
 	if (page_scan_state.second_reading)
-		btphy.slave_clkn--;
+		btphy.peripheral_clkn--;
 	else
-		btphy.slave_clkn++;
+		btphy.peripheral_clkn++;
 	page_scan_state.second_reading ^= 1;
 	page_scan_fhs_schedule();
 }
@@ -143,7 +143,7 @@ static void page_scan_tx_cb(void *arg)
 		page_scan_state.fhs_info.clk27_2,
 		page_scan_state.fhs_info.lt_addr);
 
-	slave_state_init(page_scan_state.fhs_info.bdaddr,
+	peripheral_state_init(page_scan_state.fhs_info.bdaddr,
 			page_scan_state.fhs_info.lt_addr);
 }
 
@@ -177,12 +177,12 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 		bbpkt_decode_fhs(pkt->bt_data, &page_scan_state.fhs_info);
 
 
-		// Set slave clkn
-		btphy.slave_clkn = (page_scan_state.fhs_info.clk27_2<<2)
-				 + (btphy.slave_clkn-pkt->clkn);
+		// Set Peripheral clkn
+		btphy.peripheral_clkn = (page_scan_state.fhs_info.clk27_2<<2)
+				 + (btphy.peripheral_clkn-pkt->clkn);
 		
 		/* Schedule TX ID(3)*/
-		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX()),
+		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX()),
 			page_scan_tx_cb, NULL,
 			NULL, NULL); 	// no header / no payload
 		
@@ -206,7 +206,7 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 	}
 	if (sw_detected)
 	{
-		/* we should be at slave_clk = 0, prepare in one slot*/
+		/* we should be at peripheral_clk = 0, prepare in one slot*/
 		console_putc('!');
 
 		/* The two legs below answer the page, which is a substate of
@@ -223,7 +223,7 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 		hop_start_response();
 
 		/* Schedule TX ID(2) */
-		delay = 3&(TX_PREPARE_IDX-CUR_SLAVE_SLOT_IDX());
+		delay = 3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX());
 		tx_task_schedule(delay,
 			NULL, NULL,	// no tx callback
 			NULL, NULL); 	// no header / no payload
@@ -232,7 +232,7 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 		 * transmit, and pagerespTO runs from it. The slot scheduler's
 		 * own tick count is what a delay is relative to, so it is the
 		 * clock a deadline this short has to be read on. */
-		page_scan_state.clkn_answer = btphy.master_clkn+delay+1;
+		page_scan_state.clkn_answer = btphy.central_clkn+delay+1;
 
 		/* Schedule rx FHS, reading the page just heard as the first of
 		 * the central's two (see page_scan_fhs_missed()) */
@@ -247,7 +247,7 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 
 static void page_scan_schedule(unsigned delay)
 {
-	if (clkn_elapsed(MASTER_CLKN, page_scan_state.clkn_start, PAGE_SCAN_MAX_TICKS))
+	if (clkn_elapsed(CENTRAL_CLKN, page_scan_state.clkn_start, PAGE_SCAN_MAX_TICKS))
 	{
 		cprintf("page scan timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
@@ -260,12 +260,12 @@ static void page_scan_schedule(unsigned delay)
 }
 
 /*
- * Page slave
+ * Page Peripheral
  */
 void page_scan_state_setup(void)
 {
 	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
 	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_SUCCESS);
-	page_scan_state.clkn_start = MASTER_CLKN+1;
+	page_scan_state.clkn_start = CENTRAL_CLKN+1;
 	page_scan_schedule(1);
 }

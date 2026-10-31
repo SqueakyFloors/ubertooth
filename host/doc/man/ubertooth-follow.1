@@ -70,7 +70,7 @@ A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power and 
 .P
 The board has one reading of the channel to work from, so both figures are of whatever is on it\. A transmitter louder than the packet, on the same channel at the same moment, is what the signal figure describes, and the packet is then part of the background\.
 .SH "AFH"
-\fB\-a\fR is experimental\. It makes the local BlueZ device connect to the target and asks the local controller for the AFH channel map of \fIthat\fR link, then follows the piconet keyed on the target's LAP/UAP\. The two are the same hop sequence only when the target is master of the piconet you want to follow, which \fBubertooth\-follow\fR cannot check\. Treat a capture made with \fB\-a\fR accordingly\.
+\fB\-a\fR is experimental\. It makes the local BlueZ device connect to the target and asks the local controller for the AFH channel map of \fIthat\fR link, then follows the piconet keyed on the target's LAP/UAP\. The two are the same hop sequence only when the target is Central of the piconet you want to follow, which \fBubertooth\-follow\fR cannot check\. Treat a capture made with \fB\-a\fR accordingly\.
 .P
 \fB\-a\fR reads the map over a connection to the target, and the tool asks for the target's own address before it will make one: \fB\-a\fR without \fB\-t\fR is refused before any file is created or device opened, with \fBerror: \-a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give \-t xx:xx:xx:xx:xx:xx\fR\. That is a requirement of the command line rather than of the air interface, as the next paragraph explains; whether it should stay is issue #316 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/316\fR\.
 .P

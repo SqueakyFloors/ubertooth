@@ -87,14 +87,14 @@ def run_with_tty_stdout(arguments):
     if pty is None:
         return None
     try:
-        master_fd, slave_fd = pty.openpty()
+        pty_fd, tty_fd = pty.openpty()
     except OSError:
         return None
     try:
         return subprocess.run(
             [BINARY, *arguments],
             stdin=subprocess.DEVNULL,
-            stdout=slave_fd,
+            stdout=tty_fd,
             stderr=subprocess.PIPE,
             text=True,
             timeout=RUN_TIMEOUT_S,
@@ -102,8 +102,8 @@ def run_with_tty_stdout(arguments):
             env=ENVIRONMENT,
         )
     finally:
-        os.close(slave_fd)
-        os.close(master_fd)
+        os.close(tty_fd)
+        os.close(pty_fd)
 
 
 # "-d -" on a terminal would fill it with raw sample records, so it is refused

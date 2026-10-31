@@ -127,9 +127,9 @@ generic_tx_packet tx_pkt;
  * carries in front of its payload. */
 #define TX_GENERIC_HEADER_LEN offsetof(generic_tx_packet, data)
 
-/* le slave stuff */
-uint8_t slave_mac_address[6] = { 0, };
-/* The advertising data MODE_BT_SLAVE_LE transmits, as the host set it. Sized
+/* le Peripheral stuff */
+uint8_t peripheral_mac_address[6] = { 0, };
+/* The advertising data MODE_BT_PERIPHERAL_LE transmits, as the host set it. Sized
  * for the most a legacy ADV_IND can carry, which is all this ever sends. */
 uint8_t le_adv_data[ADV_IND_MAX_DATA] = { 0x02, 0x01, 0x05 };
 unsigned le_adv_len = 3;
@@ -1360,12 +1360,12 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		*data_len = 0;
 		break;
 
-	case UBERTOOTH_BTLE_SLAVE:
+	case UBERTOOTH_BTLE_PERIPHERAL:
 		if (data_in_len < 6)
 			return 0;
-		memcpy(slave_mac_address, data, 6);
-		drop_kept_settings(MODE_BT_SLAVE_LE);
-		requested_mode = MODE_BT_SLAVE_LE;
+		memcpy(peripheral_mac_address, data, 6);
+		drop_kept_settings(MODE_BT_PERIPHERAL_LE);
+		requested_mode = MODE_BT_PERIPHERAL_LE;
 		break;
 #endif
 
@@ -1665,7 +1665,7 @@ void legacy_DMA_IRQHandler()
 	   || mode == MODE_SPECAN
 	   || mode == MODE_BT_FOLLOW_LE
 	   || mode == MODE_BT_PROMISC_LE
-	   || mode == MODE_BT_SLAVE_LE
+	   || mode == MODE_BT_PERIPHERAL_LE
 	   || mode == MODE_RX_GENERIC)
 	{
 		/* interrupt on channel 0 */
@@ -2176,7 +2176,7 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		// FIFO being empty, so a whole FIFO would fit; the sizes are left
 		// as they were. The only way an advertising packet gets long
 		// enough to reach a second pass is advertising data longer than
-		// the buffer bt_slave_le() builds the packet in, which that
+		// the buffer bt_peripheral_le() builds the packet in, which that
 		// function does not refuse and should: such a packet has already
 		// overrun that buffer by the time it arrives here.
 		fifo_space = CC2400_FIFO_SIZE / 2;
@@ -3919,7 +3919,7 @@ void bt_promisc_le() {
 }
 
 #ifdef TX_ENABLE
-void bt_slave_le() {
+void bt_peripheral_le() {
 	u32 calc_crc;
 	int i;
 	/* Two header bytes, the six address bytes, the advertising data and the
@@ -3944,7 +3944,7 @@ void bt_slave_le() {
 
 	// copy the user-specified mac address
 	for (i = 0; i < 6; ++i)
-		adv_ind[i+2] = slave_mac_address[5-i];
+		adv_ind[i+2] = peripheral_mac_address[5-i];
 
 	// copy in the adv data
 	memcpy(adv_ind + 2 + 6, le_adv_data, le_adv_len);
@@ -3963,7 +3963,7 @@ void bt_slave_le() {
 	ISER0 = ISER0_ISE_USB;
 
 	// spam advertising packets
-	while (requested_mode == MODE_BT_SLAVE_LE) {
+	while (requested_mode == MODE_BT_PERIPHERAL_LE) {
 		watchdog_usb_ready();
 		le_transmit(0x8e89bed6, adv_ind_len+3, adv_ind);
 		msleep(100);
@@ -4687,8 +4687,8 @@ int main()
 				bt_promisc_le();
 				break;
 #ifdef TX_ENABLE
-			case MODE_BT_SLAVE_LE:
-				bt_slave_le();
+			case MODE_BT_PERIPHERAL_LE:
+				bt_peripheral_le();
 				break;
 			case MODE_TX_TEST:
 				cc2400_txtest(&modulation, &channel);

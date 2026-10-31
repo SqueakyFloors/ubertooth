@@ -152,7 +152,7 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 	if ( btphy.mode!=BT_MODE_PAGING && btphy_cur_clkn() & 1 )
 		DIE("txe: wrong clkn %x", btphy_cur_clkn());
 	else if ( btphy.mode==BT_MODE_PAGING && (btphy_cur_clkn() & 2) )
-		DIE("txe: wrong clkn %x: should be in master slot (0 or 1 mod 4) when paging");
+		DIE("txe: wrong clkn %x: should be in Central slot (0 or 1 mod 4) when paging");
 
 	return 0;
 }

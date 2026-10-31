@@ -397,7 +397,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_SET_AFHMAP         = 51,
 	UBERTOOTH_CLEAR_AFHMAP       = 52,
 	UBERTOOTH_READ_REGISTER      = 53,
-	UBERTOOTH_BTLE_SLAVE         = 54,
+	UBERTOOTH_BTLE_PERIPHERAL    = 54,
 	UBERTOOTH_GET_COMPILE_INFO   = 55,
 	UBERTOOTH_BTLE_SET_TARGET    = 56,
 	UBERTOOTH_BTLE_PHY           = 57,
@@ -429,31 +429,31 @@ enum ubertooth_usb_commands {
  * the numbers are part of the interface rather than private to the firmware.
  */
 enum operating_modes {
-	MODE_IDLE          = 0,
-	MODE_RX_SYMBOLS    = 1,
-	MODE_TX_SYMBOLS    = 2,
-	MODE_TX_TEST       = 3,
-	MODE_SPECAN        = 4,
-	MODE_RANGE_TEST    = 5,
-	MODE_REPEATER      = 6,
-	MODE_LED_SPECAN    = 7,
-	MODE_BT_FOLLOW     = 8,
-	MODE_BT_FOLLOW_LE  = 9,
-	MODE_BT_PROMISC_LE = 10,
-	MODE_RESET         = 11,
-	MODE_BT_SLAVE_LE   = 12,
-	MODE_EGO           = 13,
-	MODE_AFH           = 14,
-	MODE_RX_GENERIC    = 15,
-	MODE_TX_GENERIC    = 16,
-	MODE_XMAS          = 17,
-	MODE_IDENTIFY      = 18,
+	MODE_IDLE             = 0,
+	MODE_RX_SYMBOLS       = 1,
+	MODE_TX_SYMBOLS       = 2,
+	MODE_TX_TEST          = 3,
+	MODE_SPECAN           = 4,
+	MODE_RANGE_TEST       = 5,
+	MODE_REPEATER         = 6,
+	MODE_LED_SPECAN       = 7,
+	MODE_BT_FOLLOW        = 8,
+	MODE_BT_FOLLOW_LE     = 9,
+	MODE_BT_PROMISC_LE    = 10,
+	MODE_RESET            = 11,
+	MODE_BT_PERIPHERAL_LE = 12,
+	MODE_EGO              = 13,
+	MODE_AFH              = 14,
+	MODE_RX_GENERIC       = 15,
+	MODE_TX_GENERIC       = 16,
+	MODE_XMAS             = 17,
+	MODE_IDENTIFY         = 18,
 	/* Handing the chip to its on-chip programmer, which is a mode of its
 	 * own because the board answers the host first and goes off the bus a
 	 * moment later, the way MODE_RESET does. */
-	MODE_ISP           = 19,
+	MODE_ISP              = 19,
 	/* The btbr image has its own states and reports no mode at all. */
-	MODE_UNKNOWN       = 255,
+	MODE_UNKNOWN          = 255,
 };
 
 /*
@@ -680,7 +680,7 @@ enum rfcat24_subcommands {
 #define EGO_DEFAULT_ACCESS_CODE 0x630f9ffeu
 
 /* The most a legacy ADV_IND can carry, which is what the board transmits in
- * MODE_BT_SLAVE_LE: its six-bit length field counts the six address bytes as
+ * MODE_BT_PERIPHERAL_LE: its six-bit length field counts the six address bytes as
  * well, and the specification caps AdvData at 31 bytes.
  *
  * It is also the most UBERTOOTH_LE_SET_ADV_DATA accepts, because that is the
@@ -875,7 +875,7 @@ typedef enum btctl_reason_e {
 	BTCTL_REASON_SUCCESS	= 0,
 	BTCTL_REASON_TIMEOUT	= 1,
 	/* REASON_PAGED indicates that device entered CONNECTED state,
-	 * but the slave did not answer yet */
+	 * but the Peripheral did not answer yet */
 	BTCTL_REASON_PAGED	= 2
 } btctl_reason_t;
 

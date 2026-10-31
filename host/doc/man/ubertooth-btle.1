@@ -78,7 +78,7 @@ In every sniffing mode, a packet carrying a Bluetooth 4\.2 Data Length Extension
 .P
 Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. \fB\-i\fR or \fB\-I\fR (or their older spellings \fB\-j\fR and \fB\-J\fR) with neither \fB\-f\fR nor \fB\-p\fR is refused before any device is opened: there is no connection to interfere with\. This describes the feature as it is meant to work; no capture mode acts on it at the moment (see KNOWN BROKEN FEATURES)\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
 .P
-Finally, \fBubertooth\-btle\fR supports transmitting advertising packets with a specified BD ADDR\. This feature, referred to as faux slave mode, is experimental and may not function as intended\. Use at your own risk\.
+Finally, \fBubertooth\-btle\fR supports transmitting advertising packets with a specified BD ADDR\. This feature, referred to as faux peripheral mode, is experimental and may not function as intended\. Use at your own risk\.
 .SH "EXAMPLES"
 Sniff all connections on advertising channel 38, logging all data to PcapNG:
 .IP "" 4
@@ -135,7 +135,7 @@ One case it cannot see through: a board that hears exactly every second return, 
 Nothing hops until the interval is known, so a capture up to that point holds the one channel\.
 .TP
 \fB\-s <BD ADDR>\fR
-Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux slave advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux slave address must be xx:xx:xx:xx:xx:xx (got none)\fR)\. Both used to be parsed and then dropped, so \fB\-s none\fR advertised from \fB00:00:00:00:00:00\fR\.
+Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux peripheral advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)\fR)\. Both used to be parsed and then dropped, so \fB\-s none\fR advertised from \fB00:00:00:00:00:00\fR\.
 .P
 Interference (only with \fB\-f\fR or \fB\-p\fR):
 .TP
@@ -189,7 +189,7 @@ A \fB\-c\fR PPI record carries the board's own RSSI readings instead, as describ
 Miscellaneous:
 .TP
 \fB\-A <37|38|39>\fR
-Which advertising channel to use in follow mode (\fB\-f\fR, \fB\-n\fR) and faux slave mode (\fB\-s\fR) (default: 37)\. Refused with \fB\-p\fR, which sets no channel of its own\.
+Which advertising channel to use in follow mode (\fB\-f\fR, \fB\-n\fR) and faux peripheral mode (\fB\-s\fR) (default: 37)\. Refused with \fB\-p\fR, which sets no channel of its own\.
 .TP
 \fB\-a [address]\fR
 Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscuous mode\. The address is 1 to 8 hex digits (\fB\-a 8e89bed6\fR); fewer than 8 means leading zeros (\fB\-a 12345\fR sets \fB00012345\fR)\. Anything else is refused before the device is opened\. Getting and setting in one command is refused; other options such as \fB\-k\fR still run after a get\. \fB\-a\fR does not go with a sniffing mode (\fB\-f\fR, \fB\-n\fR, \fB\-p\fR), which runs until it is interrupted; the combination is refused before any device is opened\. So an address for \fB\-p\fR is given by a command of its own first: \fBubertooth\-btle \-a <address>\fR and then \fBubertooth\-btle \-p\fR\. It is the one setting that makes \fB\-p\fR skip discovery, and the board keeps it until its low\-energy state next resets: a connection timing out during a \fB\-p\fR run, a \fB\-p\fR run that went looking for an address itself, \fBubertooth\-util \-r\fR, or a re\-plug\. A follow run (\fB\-f\fR, \fB\-n\fR) does not clear it\. Promiscuous mode then discovers an address again rather than falling back to the advertising one\.
@@ -235,7 +235,7 @@ A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\
 .P
 An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p\fR, and a read and a set of the access address in one command gives \fBerror: \-a cannot both read and set the access address\fR\.
 .P
-\fB\-a\fR or \fB\-s\fR alongside a sniffing mode gives \fBerror: \-a and \-s do not go with \-f, \-n or \-p: a sniffing mode runs until it is interrupted\fR, so there is nothing for an access address or faux slave mode request to run after\. \fB\-t\fR and \fB\-k\fR are not in that list: \fB\-t\fR is sent before the mode starts, which is what it is for, and the \fB\-k\fR options run once it has started\.
+\fB\-a\fR or \fB\-s\fR alongside a sniffing mode gives \fBerror: \-a and \-s do not go with \-f, \-n or \-p: a sniffing mode runs until it is interrupted\fR, so there is nothing for an access address or faux peripheral mode request to run after\. \fB\-t\fR and \fB\-k\fR are not in that list: \fB\-t\fR is sent before the mode starts, which is what it is for, and the \fB\-k\fR options run once it has started\.
 .P
 \fB\-t\fR with \fB\-p\fR gives \fBerror: \-t does not go with \-p: promiscuous mode has no device address to match a target against\fR, whatever the target is: a connection that is already running names no device, so \fB\-t none\fR is refused beside \fB\-p\fR as well\.
 .P
@@ -253,7 +253,7 @@ The \fBrssi=\fR figure on each packet's \fBsystime=\fR line is that packet's own
 .P
 Earlier releases printed the weakest reading the board reports for the packet instead, through a rougher approximation\. That figure ran far below the packet's own level: on the bench it reached \-96 dBm where the quietest packet the capture recorded was \-78, and a dump and a capture of the same run disagreed by as much as 90 dB on an individual packet\.
 .P
-Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A value that is not an address reads the same way whatever is wrong with it, and names the address the option sets, so \fB\-s\fR gives \fBerror: faux slave address must be xx:xx:xx:xx:xx:xx (got <word>)\fR, including for the \fBnone\fR and \fB22:44:66:88:aa:cc/24\fR that \fB\-t\fR takes, and a bad target mask gives \fBerror: target mask must be 0\-48 (got 49)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
+Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A value that is not an address reads the same way whatever is wrong with it, and names the address the option sets, so \fB\-s\fR gives \fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got <word>)\fR, including for the \fBnone\fR and \fB22:44:66:88:aa:cc/24\fR that \fB\-t\fR takes, and a bad target mask gives \fBerror: target mask must be 0\-48 (got 49)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
 .P
 A capture that is losing packets says so\. This tool reads its packets one at a time, and a reply that held part of a record cannot be read as one, so it is dropped and reported once per run: \fBwarning: a poll reply arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. The capture runs on and ends as it otherwise would, so the warning is the only sign\.
 .P
@@ -281,7 +281,7 @@ A command line the tool will not take is reported as that one \fBerror:\fR line 
 .P
 0 as well for a run stopped by Ctrl\-C before it had opened a board: see ubertooth(7), SELECTING A DEVICE\.
 .P
-1 for a command line the tool will not take or with nothing to do, for a capture file that cannot be created, when the selected Ubertooth is not found or cannot be opened, when the board refuses the jam mode, a \fB\-t\fR target, a sniffing or faux slave mode, or an access address or CRC verify request, and when a capture stops short because a poll failed\. No device is opened for a refused command line\.
+1 for a command line the tool will not take or with nothing to do, for a capture file that cannot be created, when the selected Ubertooth is not found or cannot be opened, when the board refuses the jam mode, a \fB\-t\fR target, a sniffing or faux peripheral mode, or an access address or CRC verify request, and when a capture stops short because a poll failed\. No device is opened for a refused command line\.
 .P
 A poll the board does not answer is tried again, up to three attempts of one second each, so one unlucky poll does not end a capture that has been running for a quarter of an hour\. A stop (Ctrl\-C, or SIGTERM, SIGHUP or SIGQUIT) drops the attempts still to come: the attempt already under way finishes, which costs up to a second, and if it failed, that failure is reported (\fBerror: USB poll failed\fR) and the run exits 1, where a capture left to use its remaining attempts might have recovered and exited 0\.
 .P

@@ -681,12 +681,12 @@ class BTCtlPrompt(Cmd):
 		self.stdout.write("l2ping <BD_ADDR>: Page given device and perform l2ping\n")
 
 	def do_monitor(self, inp):
-		slave_bdaddr = self._parse_bdaddr(inp)
-		if slave_bdaddr is not None:
-			self.start_cmd(BTCtlMonitorCmd, slave_bdaddr)
+		peripheral_bdaddr = self._parse_bdaddr(inp)
+		if peripheral_bdaddr is not None:
+			self.start_cmd(BTCtlMonitorCmd, peripheral_bdaddr)
 		
 	def help_monitor(self):
-		self.stdout.write("monitor <SLAVE_BD_ADDR>: Sniff connection"
+		self.stdout.write("monitor <PERIPHERAL_BD_ADDR>: Sniff connection"
 			" establishment to given device\n")
 
 	def emptyline(self):

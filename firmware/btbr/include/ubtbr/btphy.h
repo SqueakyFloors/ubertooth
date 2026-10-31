@@ -13,7 +13,7 @@
 #define CLKN_OFFSET_PRESCALE_VAL 	(100/PERIPH_CLK_NS)
 /* clk_offset match register value */
 #define CLKN_OFFSET_RESET_VAL ((PERIPH_CLK_RATE/CLKN_OFFSET_PRESCALE_VAL)/CLKN_RATE)
-#define MASTER_CLKN	T1TC
+#define CENTRAL_CLKN	T1TC
 #define CLKN_OFFSET	T0TC
 
 /* pagerespTO, the 8 slots a page response has to complete in (BT Core | Vol 2,
@@ -41,15 +41,15 @@ typedef enum btphy_mode_e {
 	BT_MODE_PAGE_SCAN,
 	BT_MODE_PERIPH_PAGE_RESPONSE,
 	BT_MODE_INQUIRY_RESPONSE,
-	BT_MODE_MASTER,
-	BT_MODE_SLAVE,
+	BT_MODE_CENTRAL,
+	BT_MODE_PERIPHERAL,
 } btphy_mode_t ; 
 
 typedef struct btphy_s {
 	btphy_mode_t mode;
-	uint32_t master_clkn; 
-	uint32_t slave_clkn; 
-	int slave_clkn_delay;
+	uint32_t central_clkn; 
+	uint32_t peripheral_clkn; 
+	int peripheral_clkn_delay;
 	int clkn_delayed;
 	uint32_t chan_lap;
 	uint8_t chan_uap;
@@ -67,8 +67,8 @@ typedef void (*btphy_timer_fn_t)(void *arg);
 
 extern btphy_t btphy;
 
-#define CUR_MASTER_SLOT_IDX()	(btphy.master_clkn&3)
-#define CUR_SLAVE_SLOT_IDX()	(btphy.slave_clkn&3)
+#define CUR_CENTRAL_SLOT_IDX()	(btphy.central_clkn&3)
+#define CUR_PERIPHERAL_SLOT_IDX()	(btphy.peripheral_clkn&3)
 
 /* Have `ticks` of the clock gone by since `start`?
  *
@@ -91,10 +91,10 @@ static inline uint32_t btphy_cur_clkn(void)
 	case BT_MODE_PAGE_SCAN:
 	case BT_MODE_PERIPH_PAGE_RESPONSE:
 	case BT_MODE_INQUIRY_RESPONSE:
-	case BT_MODE_SLAVE:
-		return btphy.slave_clkn;
+	case BT_MODE_PERIPHERAL:
+		return btphy.peripheral_clkn;
 	default:
-		return btphy.master_clkn;
+		return btphy.central_clkn;
 	}
 }
 

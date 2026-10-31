@@ -67,11 +67,11 @@ static struct {
 	 * target from -s's advertising address. */
 	uint8_t last_target[OPT_BD_ADDR_BYTES];
 	uint8_t last_target_mask;
-	uint8_t last_slave[OPT_BD_ADDR_BYTES];
+	uint8_t last_peripheral[OPT_BD_ADDR_BYTES];
 	int jam_rc;          /* returned by cmd_set_jam_mode() */
 	int jam_mode_sets;
 	int last_jam_mode;
-	int slave_calls;
+	int peripheral_calls;
 	/* Returned by the requests that start a mode: a board that refuses one
 	 * must not be followed by a run that reports success. */
 	int mode_start_rc;
@@ -95,7 +95,7 @@ static struct {
 	int capture_create_rc; /* non-zero: libbtbb could not create the file */
 	/* Every device call in order, one letter each: s set CRC, g get CRC,
 	 * r read access address, w write access address, t set target,
-	 * m mode started, p poll, S faux slave mode started. */
+	 * m mode started, p poll, S faux peripheral mode started. */
 	char calls[64];
 	/* 1 to have the teardown's STOP refused, so the board is left running
 	 * the mode the capture started. */
@@ -389,12 +389,12 @@ int cmd_btle_set_target(struct libusb_device_handle *devh, uint8_t *mac_address,
 	return fake.target_rc;
 }
 
-int cmd_btle_slave(struct libusb_device_handle *devh, u8 *mac_address)
+int cmd_btle_peripheral(struct libusb_device_handle *devh, u8 *mac_address)
 {
 	(void)devh;
-	memcpy(fake.last_slave, mac_address, sizeof(fake.last_slave));
+	memcpy(fake.last_peripheral, mac_address, sizeof(fake.last_peripheral));
 	record('S');
-	fake.slave_calls++;
+	fake.peripheral_calls++;
 	return fake.mode_start_rc;
 }
 
@@ -771,9 +771,9 @@ MU_TEST(the_target_report_is_on_standard_output)
  * the connection to follow -- so one command can set both. They shared one
  * address, so whichever option came last set both, and "-s <address> -t none"
  * advertised from 00:00:00:00:00:00 without a word. */
-MU_TEST(the_faux_slave_and_target_addresses_are_separate)
+MU_TEST(the_faux_peripheral_and_target_addresses_are_separate)
 {
-	static const uint8_t slave[OPT_BD_ADDR_BYTES] = {
+	static const uint8_t peripheral[OPT_BD_ADDR_BYTES] = {
 		0x22, 0x44, 0x66, 0x88, 0xaa, 0xcc,
 	};
 	static const uint8_t target[OPT_BD_ADDR_BYTES] = {
@@ -789,8 +789,8 @@ MU_TEST(the_faux_slave_and_target_addresses_are_separate)
 	mu_assert(strcmp(fake.calls, "tS") == 0, fake.calls);
 	mu_assert(memcmp(fake.last_target, target, sizeof(target)) == 0,
 	          "the target request carried the wrong address");
-	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
-	          "the faux slave advertised from the wrong address");
+	mu_assert(memcmp(fake.last_peripheral, peripheral, sizeof(peripheral)) == 0,
+	          "the faux peripheral advertised from the wrong address");
 	mu_assert(strcmp(r.out, "target set to: 11:11:11:11:11:11/48\n") == 0,
 	          r.out);
 
@@ -800,8 +800,8 @@ MU_TEST(the_faux_slave_and_target_addresses_are_separate)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(memcmp(fake.last_target, target, sizeof(target)) == 0,
 	          "the target request carried the wrong address");
-	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
-	          "the faux slave advertised from the wrong address");
+	mu_assert(memcmp(fake.last_peripheral, peripheral, sizeof(peripheral)) == 0,
+	          "the faux peripheral advertised from the wrong address");
 
 	/* -s takes a plain address only. The two spellings a target can use
 	 * have nothing to narrow or clear in one advertising address, so each
@@ -813,7 +813,7 @@ MU_TEST(the_faux_slave_and_target_addresses_are_separate)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: faux slave address must be"
+	mu_assert(strstr(r.err, "error: faux peripheral address must be"
 	                 " xx:xx:xx:xx:xx:xx (got none)\n") == r.err, r.err);
 
 	reset_fake();
@@ -821,12 +821,12 @@ MU_TEST(the_faux_slave_and_target_addresses_are_separate)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: faux slave address must be"
+	mu_assert(strstr(r.err, "error: faux peripheral address must be"
 	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:cc/24)\n")
 	          == r.err, r.err);
 
 	/* -t still takes both, and clearing the target leaves the faux
-	 * slave's address alone */
+	 * peripheral's address alone */
 	reset_fake();
 	r = RUN("-s", "22:44:66:88:aa:cc", "-tnone");
 	mu_assert_int_eq(0, r.rc);
@@ -834,8 +834,8 @@ MU_TEST(the_faux_slave_and_target_addresses_are_separate)
 	mu_assert(memcmp(fake.last_target, zeros, sizeof(zeros)) == 0,
 	          "the cleared target carried an address");
 	mu_assert_int_eq(0, fake.last_target_mask);
-	mu_assert(memcmp(fake.last_slave, slave, sizeof(slave)) == 0,
-	          "the faux slave advertised from the wrong address");
+	mu_assert(memcmp(fake.last_peripheral, peripheral, sizeof(peripheral)) == 0,
+	          "the faux peripheral advertised from the wrong address");
 	mu_assert(strcmp(r.out, "target cleared\n") == 0, r.out);
 }
 
@@ -1180,7 +1180,7 @@ MU_TEST(the_interference_options_are_refused_without_f_or_p)
 /* A sniffing mode runs until it is interrupted, so the blocks after it used
  * to send their control requests on the handle ubertooth_stop() had closed
  * and nulled. The combination is refused while the command line is read. */
-MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
+MU_TEST(a_sniffing_mode_refuses_the_access_address_and_peripheral_options)
 {
 	struct run_result r;
 	const char *const modes[] = { "-f", "-n", "-p" };
@@ -1203,7 +1203,7 @@ MU_TEST(a_sniffing_mode_refuses_the_access_address_and_slave_options)
 			mu_assert(fake.calls[0] == '\0', fake.calls);
 			mu_assert_int_eq(0, fake.aa_reads);
 			mu_assert_int_eq(0, fake.aa_writes);
-			mu_assert_int_eq(0, fake.slave_calls);
+			mu_assert_int_eq(0, fake.peripheral_calls);
 		}
 	}
 
@@ -1309,7 +1309,7 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 
 	/* the other requests each mode sends: the modulation and the channel
 	 * for a sniffing mode, the channel and the advertising data for the
-	 * faux slave mode. Each is named on its own, so the user is told which
+	 * faux peripheral mode. Each is named on its own, so the user is told which
 	 * request the board refused rather than only which mode failed. */
 	reset_fake();
 	fake.modulation_rc = -1;
@@ -1354,7 +1354,7 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(0, fake.adv_data_calls);
-	mu_assert_int_eq(0, fake.slave_calls);
+	mu_assert_int_eq(0, fake.peripheral_calls);
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert(strcmp(r.err,
 	                 "error: could not set the advertising channel\n") == 0,
@@ -1368,7 +1368,7 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	fake.restated_channel_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(1, fake.slave_calls);
+	mu_assert_int_eq(1, fake.peripheral_calls);
 	mu_assert_int_eq(1, fake.channel_sets_before_the_mode_request);
 	mu_assert_int_eq(1, fake.channel_sets_after_the_mode_request);
 	mu_assert_int_eq(1, fake.stops);
@@ -1381,7 +1381,7 @@ MU_TEST(a_mode_the_board_refuses_stops_the_run)
 	fake.adv_data_rc = -1;
 	r = RUN("-s22:44:66:88:aa:cc");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert_int_eq(0, fake.slave_calls);
+	mu_assert_int_eq(0, fake.peripheral_calls);
 	mu_assert_int_eq(0, fake.stops);
 	mu_assert(strcmp(r.err,
 	                 "error: could not set the advertising data\n") == 0,
@@ -1551,7 +1551,7 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	r = RUN("-s", "22:44:66:88:aa:zz");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: faux slave address must be"
+	mu_assert(strstr(r.err, "error: faux peripheral address must be"
 	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:zz)\n") == r.err,
 	          r.err);
 
@@ -1570,7 +1570,7 @@ MU_TEST(a_bad_command_line_is_reported_on_stderr)
 	r = RUN("-s", "22:44:66:88:aa:cc/49");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert(strstr(r.err, "error: faux slave address must be"
+	mu_assert(strstr(r.err, "error: faux peripheral address must be"
 	                 " xx:xx:xx:xx:xx:xx (got 22:44:66:88:aa:cc/49)\n")
 	          == r.err, r.err);
 
@@ -1727,7 +1727,7 @@ int main(void)
 	MU_RUN(a_failure_in_a_sniffing_mode_still_stops_the_board);
 	MU_RUN(an_access_address_read_and_the_crc_options_all_run);
 	MU_RUN(the_target_report_is_on_standard_output);
-	MU_RUN(the_faux_slave_and_target_addresses_are_separate);
+	MU_RUN(the_faux_peripheral_and_target_addresses_are_separate);
 	MU_RUN(the_reports_move_to_stderr_when_the_capture_takes_stdout);
 	MU_RUN(the_callback_reports_on_the_same_stream_as_the_tool);
 	MU_RUN(a_run_sums_up_the_packets_it_could_not_decode);
@@ -1739,7 +1739,7 @@ int main(void)
 	MU_RUN(a_short_poll_reply_is_reported);
 	MU_RUN(a_failed_target_set_and_jamming_are_reported_on_stderr);
 	MU_RUN(the_interference_options_are_refused_without_f_or_p);
-	MU_RUN(a_sniffing_mode_refuses_the_access_address_and_slave_options);
+	MU_RUN(a_sniffing_mode_refuses_the_access_address_and_peripheral_options);
 	MU_RUN(promiscuous_mode_refuses_a_target);
 	MU_RUN(the_usage_text_documents_the_set_and_the_read);
 	MU_RUN(the_usage_text_names_the_jam_aliases);

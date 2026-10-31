@@ -114,13 +114,13 @@ _Static_assert(EGO_MAX_PACKET_LEN <= DMA_SIZE,
                "the longest e-go capture must fit in a record's data field");
 
 static void ssp_start(void) {
-	// make sure the (active low) slave select signal is not active
+	// make sure the (active low) chip select signal is not active
 	DIO_SSEL_SET;
 
 	// enable SSP
 	DIO_SSP_CR1 |= SSPCR1_SSE;
 
-	// activate slave select pin
+	// activate chip select pin
 	DIO_SSEL_CLR;
 }
 

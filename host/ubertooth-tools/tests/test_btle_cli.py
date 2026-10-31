@@ -103,7 +103,7 @@ for arguments in (("-f", "-i"), ("-f", "-I"), ("-p", "-j"), ("-p", "-J")):
 print("ubertooth-btle: -i/-I need -f or -p")
 
 # A sniffing mode runs until it is interrupted, so the access address and
-# faux slave mode blocks after it used to send their control requests on the
+# faux peripheral mode blocks after it used to send their control requests on the
 # handle the mode had already closed.
 AFTER_A_MODE = "error: -a and -s do not go with -f, -n or -p:" \
     " a sniffing mode runs until it is interrupted"
@@ -183,21 +183,21 @@ print("ubertooth-btle: a command line with no work in it is refused")
 # it, since the capture file is opened only once the command line is accepted
 # and a capture option on its own has no work in it.
 if pty is None:
-    master_fd = None
+    pty_fd = None
 else:
     try:
-        master_fd, slave_fd = pty.openpty()
+        pty_fd, tty_fd = pty.openpty()
     except OSError:  # a sandbox with no pty to allocate
-        master_fd = None
+        pty_fd = None
 
-if master_fd is None:
+if pty_fd is None:
     print("ubertooth-btle: skipping the tty case, no pty available")
 else:
     try:
         result = subprocess.run(
             [BINARY, "-n", "-q", "-"],
             stdin=subprocess.DEVNULL,
-            stdout=slave_fd,
+            stdout=tty_fd,
             stderr=subprocess.PIPE,
             text=True,
             timeout=RUN_TIMEOUT_S,
@@ -205,8 +205,8 @@ else:
             env=ENVIRONMENT,
         )
     finally:
-        os.close(slave_fd)
-        os.close(master_fd)
+        os.close(tty_fd)
+        os.close(pty_fd)
     assert result.returncode == 1, result
     assert "stdout is a tty, refusing to write binary capture data" \
         in result.stderr, result
@@ -219,7 +219,7 @@ else:
 # nothing on standard output: standard output can be a capture stream.
 for arguments, expected in (
         (("-s", "00:11"),
-         "error: faux slave address must be xx:xx:xx:xx:xx:xx (got 00:11)\n"),
+         "error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got 00:11)\n"),
         (("-t", "zz:zz:zz:zz:zz:zz"),
          "error: target address must be xx:xx:xx:xx:xx:xx"
          " (got zz:zz:zz:zz:zz:zz)\n"),
@@ -228,10 +228,10 @@ for arguments, expected in (
          "error: target mask must be 0-48 (got 99)\n"),
         # -s has no mask and no "none": each is refused as an address
         (("-s", "11:22:33:44:55:66/99"),
-         "error: faux slave address must be xx:xx:xx:xx:xx:xx"
+         "error: faux peripheral address must be xx:xx:xx:xx:xx:xx"
          " (got 11:22:33:44:55:66/99)\n"),
         (("-s", "none"),
-         "error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)\n"),
+         "error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)\n"),
 ):
     result = subprocess.run([BINARY, *arguments], capture_output=True,
                             text=True, timeout=RUN_TIMEOUT_S, check=False,

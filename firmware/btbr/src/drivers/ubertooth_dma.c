@@ -135,13 +135,14 @@ void dio_ssp_stop(void)
 
 void dio_ssp_start_rx(void)
 {
-	/* make sure the (active low) slave select signal is not active */
+	/* make sure the (active low) chip select signal is not active */
 	DIO_SSEL_SET;
 	//SCLK_SET_IN;
 
 	/* Configure RX DMA on DIO_SSP (SSP1 for Ubertooth One) */
 	DIO_SSP_DMACR = SSPDMACR_RXDMAE ;
-	/* Configuration of DMA : Slave, Slave output disable
+	/* Configuration of DMA: SSPCR1_MS (the CC2400 drives the clock),
+	   SSPCR1_SOD (the LPC drives no data onto the bus)
 		DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
 	DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
 	 */
@@ -153,7 +154,7 @@ void dio_ssp_start_rx(void)
 	// enable channel
 	DMACC0Config |= 1;
 
-	/* activate slave select pin */
+	/* activate chip select pin */
 	DIO_SSEL_CLR;
 }
 
@@ -192,10 +193,11 @@ void dio_ssp_start_tx(void)
 
 	/* Configure RX DMA on CC2400 SPI (SSP1 for Ubertooth One) */
 	DIO_SSP_DMACR = SSPDMACR_TXDMAE ;
-	/* Configuration of DMA : Slave, Slave output disable
+	/* Configuration of DMA: SSPCR1_MS (the CC2400 drives the clock),
+	   SSPCR1_SOD (the LPC drives no data onto the bus)
 	 */
 	//DIO_SSP_CR1 = SSPCR1_MS;
-	//DIO_SSP_CR1 = 0;// Master
+	//DIO_SSP_CR1 = 0;// the LPC would drive the clock
 	DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
 
 	/* Enable CC2400 SPI peripheral */
@@ -204,7 +206,7 @@ void dio_ssp_start_tx(void)
 	// enable channel 1
 	DMACC1Config |= 1;
 
-	/* activate slave select pin */
+	/* activate chip select pin */
 	DIO_SSEL_CLR;
 }
 

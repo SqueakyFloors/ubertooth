@@ -103,7 +103,7 @@ part of the background.
 `-a` is experimental. It makes the local BlueZ device connect to the target and
 asks the local controller for the AFH channel map of *that* link, then follows
 the piconet keyed on the target's LAP/UAP. The two are the same hop sequence
-only when the target is master of the piconet you want to follow, which
+only when the target is Central of the piconet you want to follow, which
 `ubertooth-follow` cannot check. Treat a capture made with `-a` accordingly.
 
 `-a` reads the map over a connection to the target, and the tool asks for the

@@ -319,19 +319,19 @@ for arguments, what in CAPTURE_TO_STDOUT.get(TOOL, ()):
         print("%s: skipping the tty case, no pty module" % TOOL)
         break
     try:
-        master_fd, slave_fd = pty.openpty()
+        pty_fd, tty_fd = pty.openpty()
     except OSError:  # a sandbox with no pty to allocate
         print("%s: skipping the tty case, no pty available" % TOOL)
         break
     try:
         result = subprocess.run([BINARY] + arguments, env=ENVIRONMENT,
-                                stdin=subprocess.DEVNULL, stdout=slave_fd,
+                                stdin=subprocess.DEVNULL, stdout=tty_fd,
                                 stderr=subprocess.PIPE,
                                 universal_newlines=True,
                                 timeout=RUN_TIMEOUT_S)
     finally:
-        os.close(slave_fd)
-        os.close(master_fd)
+        os.close(tty_fd)
+        os.close(pty_fd)
     assert result.returncode == 1, (arguments, result)
     assert result.stderr == (
         "error: stdout is a tty, refusing to write binary %s to it\n" % what), \

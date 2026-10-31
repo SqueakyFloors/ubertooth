@@ -142,7 +142,7 @@ MU_TEST(test_every_scanned_source_opens)
 /* ---- the advertising record the board transmits ------------------------- */
 
 /*
- * MODE_BT_SLAVE_LE builds one ADV_IND and transmits it over and over: two
+ * MODE_BT_PERIPHERAL_LE builds one ADV_IND and transmits it over and over: two
  * header bytes, the six address bytes, the advertising data the host set, and
  * three CRC bytes written in after them.
  *

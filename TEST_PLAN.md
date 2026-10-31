@@ -508,7 +508,7 @@ before the first step so nothing is carried over.*
 - [ ] Run `ubertooth-util -d -C -z -a`
 - [ ] Confirm: LEDs 0 0 0, channel 2441 MHz, squelch -120, PA level unchanged
 - [ ] Repeat with `ubertooth-specan` stopped by Ctrl+C, then `-d -C -z`
-- [ ] Repeat with `ubertooth-btle -s22:44:66:88:aa:cc` (faux slave, transmits)
+- [ ] Repeat with `ubertooth-btle -s22:44:66:88:aa:cc` (faux peripheral, transmits)
       stopped by Ctrl+C, then `-d -C -z`
 - [ ] Repeat with `ubertooth-btle -p` stopped by Ctrl+C, then `-d -C -z`
       (this one already reset before the fix; it must still do so)
@@ -678,7 +678,7 @@ mid-stream; about one run in ten does it, so this may take several tries.
 
 ## 9. Deferred / Untested PRs
 
-These branches exist in the repo but are NOT in master yet:
+These branches exist in the repo but are NOT in main yet:
 
 ### Serial number support, [upstream #488](https://github.com/greatscottgadgets/ubertooth/pull/488) (`feature/serial-number-support`)
 - Allows selecting a specific Ubertooth by serial number with `-U <serial>`

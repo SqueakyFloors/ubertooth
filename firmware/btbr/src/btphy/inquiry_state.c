@@ -62,7 +62,7 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 	if (!BBPKT_GOOD_CRC(pkt))
 	{
 		msg_free(msg);
-		inquiry_schedule(3&(TX_PREPARE_IDX-CUR_MASTER_SLOT_IDX()));	// schedule tx in next slot
+		inquiry_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));	// schedule tx in next slot
 	}
 	else
 	{
@@ -77,7 +77,7 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 		else
 		{
 			/* Schedule normal inquiry */
-			inquiry_schedule(3&(TX_PREPARE_IDX-CUR_MASTER_SLOT_IDX()));
+			inquiry_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 		}
 		if (btctl_tx_enqueue(msg))
 		{
@@ -89,7 +89,7 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 
 static void inquiry_schedule(unsigned delay)
 {
-	if (clkn_elapsed(btphy.master_clkn, inquiry_state.clkn_start, INQ_MAX_TICKS))
+	if (clkn_elapsed(btphy.central_clkn, inquiry_state.clkn_start, INQ_MAX_TICKS))
 	{
 		cprintf("inquiry timeout\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
@@ -113,16 +113,16 @@ static int inquiry_start_sync(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	unsigned delay;
 
-	/* Use the master clkn */
+	/* Use the Central clkn */
 	btphy_cancel_clkn_delay();
-	delay = 4+(3&(TX_PREPARE_IDX-CUR_MASTER_SLOT_IDX()));
-	inquiry_state.clkn_start = btphy.master_clkn+delay;
+	delay = 4+(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
+	inquiry_state.clkn_start = btphy.central_clkn+delay;
 	inquiry_schedule(delay);
 	return 0;
 }
 
 /*
- * Inquiry master
+ * Inquiry Central
  */
 void inquiry_state_setup(void)
 {

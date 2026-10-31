@@ -153,7 +153,7 @@ static const char* request_name(uint8_t request)
 		case UBERTOOTH_WRITE_REGISTER:     return "write a CC2400 register";
 		case UBERTOOTH_READ_ALL_REGISTERS: return "read the CC2400 registers";
 		case UBERTOOTH_WRITE_REGISTERS:    return "write the CC2400 registers";
-		case UBERTOOTH_BTLE_SLAVE:         return "start advertising";
+		case UBERTOOTH_BTLE_PERIPHERAL:    return "start advertising";
 		case UBERTOOTH_GET_COMPILE_INFO:   return "read the compile information";
 		case UBERTOOTH_BTLE_SET_TARGET:    return "set the BLE target address";
 		case UBERTOOTH_BTLE_PHY:           return "set the BLE physical layer";
@@ -1385,14 +1385,14 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 	return (data[0] << 8) | data[1];
 }
 
-int cmd_btle_slave(struct libusb_device_handle* devh, u8 *mac_address)
+int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address)
 {
 	int r;
 
-	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_BTLE_SLAVE, 0, 0,
+	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_BTLE_PERIPHERAL, 0, 0,
 			mac_address, 6, 1000);
 	if (r < 0) {
-		report_request_failed(r, UBERTOOTH_BTLE_SLAVE);
+		report_request_failed(r, UBERTOOTH_BTLE_PERIPHERAL);
 		return r;
 	}
 

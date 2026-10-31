@@ -1,4 +1,4 @@
-/* Master connection state
+/* Central connection state
  *
  * Copyright 2020 Etienne Helluy-Lafont, Univ. Lille, CNRS.
  *
@@ -34,85 +34,85 @@
 
 static struct {
 	link_layer_t ll;
-} master_state;
+} central_state;
 
-static void master_state_schedule_tx(unsigned skip_slots);
-static void master_state_schedule_rx(unsigned skip_slots);
+static void central_state_schedule_tx(unsigned skip_slots);
+static void central_state_schedule_rx(unsigned skip_slots);
 
-static int master_canceled(void)
+static int central_canceled(void)
 {
 	return btctl_get_state() != BTCTL_STATE_CONNECTED;
 }
 
-static int master_rx_cb(msg_t *msg, void *arg, int time_offset)
+static int central_rx_cb(msg_t *msg, void *arg, int time_offset)
 {
 	int rc;
 
-	if (master_canceled())
+	if (central_canceled())
 	{
 		msg_free(msg);
-		ll_reset(&master_state.ll);
+		ll_reset(&central_state.ll);
 		return 0;
 	}
-	rc = ll_process_rx(&master_state.ll, msg);
+	rc = ll_process_rx(&central_state.ll, msg);
 
 	if (rc < 0)
 	{
-		ll_reset(&master_state.ll);
+		ll_reset(&central_state.ll);
 		btctl_set_state(BTCTL_STATE_STANDBY, -rc);
 	}
 	else if (rc == 1)
 	{
-		master_state_schedule_tx(0);
+		central_state_schedule_tx(0);
 	}
 	else
 	{
-		master_state_schedule_rx(0);
+		central_state_schedule_rx(0);
 	}
 	return 0;
 }
 
-static void master_state_schedule_rx(unsigned skip_slots)
+static void central_state_schedule_rx(unsigned skip_slots)
 {
 	/* Wait for next rx slot */
-	unsigned delay = 4*skip_slots+(3&(RX_PREPARE_IDX-CUR_MASTER_SLOT_IDX()));
+	unsigned delay = 4*skip_slots+(3&(RX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 
 	/* Schedule rx: */
 	rx_task_schedule(delay,
-		master_rx_cb, NULL,	// ID rx callback
+		central_rx_cb, NULL,	// ID rx callback
 		1<<RX_F_PAYLOAD		// wait for header
 	);
 }
 
 static void tx_done_cb(void* arg)
 {
-	master_state_schedule_rx(0);
+	central_state_schedule_rx(0);
 }
 
-static void master_state_schedule_tx(unsigned skip_slots)
+static void central_state_schedule_tx(unsigned skip_slots)
 {
 	/* Wait for next tx slot */
-	unsigned delay = skip_slots * 4 + (3&(TX_PREPARE_IDX-CUR_MASTER_SLOT_IDX()));
+	unsigned delay = skip_slots * 4 + (3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 	bbhdr_t *tx_hdr;
 	uint8_t *tx_data;
 
-	ll_prepare_tx(&master_state.ll, &tx_hdr, &tx_data);
+	ll_prepare_tx(&central_state.ll, &tx_hdr, &tx_data);
 
 	tx_task_schedule(delay,
 		tx_done_cb, NULL,
 		tx_hdr, tx_data);
 }
 
-/* Called by paging task once the slave acknowledged our FHS */
-void master_state_init(void)
+/* Called by paging task once the Peripheral acknowledged our FHS */
+void central_state_init(void)
 {
-	/* Initialize basic hopping from master's clock */
-	btphy_set_mode(BT_MODE_MASTER, btphy.my_lap, btphy.my_uap);
+	/* Initialize basic hopping from Central's clock */
+	btphy_set_mode(BT_MODE_CENTRAL, btphy.my_lap, btphy.my_uap);
 
-	ll_init(&master_state.ll, 1, 1); // FIXME: fixed slave lt_addr = 1
+	ll_init(&central_state.ll, 1, 1); // FIXME: fixed Peripheral lt_addr = 1
 
 	/* We are already in sync, just schedule the first tx (in a while)*/
-	cprintf("master started\n");
-	master_state_schedule_tx(1);
+	cprintf("Central started\n");
+	central_state_schedule_tx(1);
 	btctl_set_state(BTCTL_STATE_CONNECTED, BTCTL_REASON_PAGED);
 }

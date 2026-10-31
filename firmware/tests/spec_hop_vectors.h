@@ -40,7 +40,7 @@
  * with the response count N), which is state the paging state machine holds
  * rather than anything hop.c derives from the clock -- and btbr's paging
  * sweeps X its own way on purpose, to search for a peripheral whose clock it
- * does not know (see calc_iterate_slave_page_scan_phase() in
+ * does not know (see calc_iterate_peripheral_page_scan_phase() in
  * include/ubtbr/hop.h).  So those tables are not this firmware's sequence.
  * The selection kernel they share with the other substates is the one the
  * page scan vectors below pin.

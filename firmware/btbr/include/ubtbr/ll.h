@@ -3,7 +3,7 @@
 
 typedef struct {
 	uint8_t is_connected;
-	uint8_t is_master;
+	uint8_t is_central;
 
 	/* Stats / supervision */
 	uint32_t clkn_start;
@@ -23,7 +23,7 @@ typedef struct {
 	uint8_t *cur_tx_data;
 } link_layer_t;
 
-void ll_init(link_layer_t *ll, uint8_t is_master, uint8_t lt_addr);
+void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr);
 void ll_reset(link_layer_t *ll);
 int ll_process_rx(link_layer_t *ll, msg_t *msg);
 void ll_prepare_tx(link_layer_t *ll, bbhdr_t **tx_hdr, uint8_t **tx_data);

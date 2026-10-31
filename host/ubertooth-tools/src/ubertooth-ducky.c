@@ -354,7 +354,7 @@ int main(int argc, char *argv[])
 			return request_failed(ut, "set the advertising channel");
 		if (cmd_le_set_adv_data(ut->devh, adv_data, sizeof(adv_data)) < 0)
 			return request_failed(ut, "set the advertising data");
-		if (cmd_btle_slave(ut->devh, bd_addr) < 0)
+		if (cmd_btle_peripheral(ut->devh, bd_addr) < 0)
 			return request_failed(ut, "start advertising");
 		/* And again now the mode has started. Advertising begins with
 		 * it, so the channel has to be on the board beforehand -- but a

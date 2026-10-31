@@ -158,7 +158,7 @@ static uint8_t hop_inquiry_response(void)
 
 static uint8_t hop_paging(uint32_t clk)
 {
-	return hop_inquiry_with_phase(clk, calc_iterate_slave_page_scan_phase(clk));
+	return hop_inquiry_with_phase(clk, calc_iterate_peripheral_page_scan_phase(clk));
 }
 
 /* nonzero if the AFH channel map marks this channel (0-78) as used */
@@ -263,11 +263,11 @@ uint8_t hop_channel(uint32_t clk)
 	case BT_MODE_PAGE_SCAN:
 		/* A scan hops on this device's own clock, so the clock of the
 		 * slot being tuned is not the input here. */
-		return hop_scan(btphy.master_clkn);
+		return hop_scan(btphy.central_clkn);
 	case BT_MODE_INQUIRY_RESPONSE:
 		return hop_inquiry_response();
-	case BT_MODE_MASTER:
-	case BT_MODE_SLAVE:
+	case BT_MODE_CENTRAL:
+	case BT_MODE_PERIPHERAL:
 		return hop_basic(clk);
 	case BT_MODE_PAGING:
 		return hop_paging(clk);

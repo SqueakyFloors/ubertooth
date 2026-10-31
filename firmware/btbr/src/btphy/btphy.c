@@ -124,8 +124,8 @@ void btphy_timer_add(uint32_t instant, btphy_timer_fn_t cb, void *cb_arg, uint8_
 
 static void btphy_handler(void)
 {
-	btphy.master_clkn++;
-	btphy.slave_clkn ++;
+	btphy.central_clkn++;
+	btphy.peripheral_clkn ++;
 
 	if (btphy.clkn_delayed)
 	{
@@ -165,16 +165,16 @@ void TIMER0_IRQHandler()
 void btphy_adj_clkn_delay(int delay)
 {
 	T0MR0 = (CLKN_OFFSET_RESET_VAL+delay)-1;
-	btphy.slave_clkn_delay += delay;
+	btphy.peripheral_clkn_delay += delay;
 	btphy.clkn_delayed = 1;
 }
 
 void btphy_cancel_clkn_delay(void)
 {
-	unsigned delay = btphy.slave_clkn_delay % CLKN_OFFSET_RESET_VAL;
-	unsigned clk_delay = btphy.slave_clkn_delay / CLKN_OFFSET_RESET_VAL;
+	unsigned delay = btphy.peripheral_clkn_delay % CLKN_OFFSET_RESET_VAL;
+	unsigned clk_delay = btphy.peripheral_clkn_delay / CLKN_OFFSET_RESET_VAL;
 
-	btphy.master_clkn += clk_delay;
+	btphy.central_clkn += clk_delay;
 	btphy_adj_clkn_delay(delay);
 }
 
@@ -189,7 +189,7 @@ void clkn_start(void)
 	// stop timers
 	T0TCR = 0;
 	T1TCR = 0;
-	btphy.master_clkn = 0;
+	btphy.central_clkn = 0;
 
 	/* Timer 0: 100ns adjustable clkn interrupt */
 	T0PR = CLKN_OFFSET_PRESCALE_VAL-1;
@@ -233,11 +233,11 @@ uint8_t btphy_whiten_seed(uint32_t clk)
 	case BT_MODE_INQUIRY_SCAN:
 	case BT_MODE_PAGE_SCAN:
 	/* BT 5.1|Vol 2, Part B, 7.2 :
-	 * Instead of the master clock, the X-input used in the inquiry or page response (depending on current state)
+	 * Instead of the Central clock, the X-input used in the inquiry or page response (depending on current state)
 	 * routine shall be used The 5-bit value shall be extended with two MSBs of value 1 */
 		return hop_state.x|0x60;
-	case BT_MODE_MASTER:
-	case BT_MODE_SLAVE:
+	case BT_MODE_CENTRAL:
+	case BT_MODE_PERIPHERAL:
 		return (clk>>1)|0x40;
 	default:
 		DIE("Invalid rx mode %d\n", btphy.mode);

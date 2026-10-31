@@ -31,7 +31,7 @@
 
 static struct {
 	/* Parameters */
-	uint64_t master_bdaddr;
+	uint64_t central_bdaddr;
 } monitor2_state;
 
 static void monitor2_state_schedule_rx(unsigned skip_slots);
@@ -63,9 +63,9 @@ static int monitor2_rx_cb(msg_t *msg, void *arg, int time_offset)
 		goto end;
 	}
 
-	if ((pkt->clkn&2) == 0) // Packet from master
+	if ((pkt->clkn&2) == 0) // Packet from Central
 	{
-		/* Resync to master */
+		/* Resync to Central */
 		btphy_adj_clkn_delay(time_offset);
 	}
 
@@ -97,7 +97,7 @@ end_nofree:
 static void monitor2_state_schedule_rx(unsigned skip_slots)
 {
 	/* Listen for a packet in next rx slot */
-	unsigned delay = 2*skip_slots + (1&(RX_PREPARE_IDX - (btphy.slave_clkn&1)));
+	unsigned delay = 2*skip_slots + (1&(RX_PREPARE_IDX - (btphy.peripheral_clkn&1)));
 
 	/* Schedule rx: */
 	rx_task_schedule(delay,
@@ -106,12 +106,12 @@ static void monitor2_state_schedule_rx(unsigned skip_slots)
 		|(1<<RX_F_RAW));	// ignore size and crc in payload
 }
 
-void monitor2_state_init(uint64_t master_bdaddr)
+void monitor2_state_init(uint64_t central_bdaddr)
 {
-	monitor2_state.master_bdaddr = master_bdaddr;
+	monitor2_state.central_bdaddr = central_bdaddr;
 
-	/* Initialize basic hopping from master's clock */
-	btphy_set_mode(BT_MODE_SLAVE, master_bdaddr&0xffffff, 0xff & (master_bdaddr>>24));
+	/* Initialize basic hopping from Central's clock */
+	btphy_set_mode(BT_MODE_PERIPHERAL, central_bdaddr&0xffffff, 0xff & (central_bdaddr>>24));
 
 	cprintf("monitor2 started\n");
 	btctl_set_state(BTCTL_STATE_CONNECTED, BTCTL_REASON_PAGED);

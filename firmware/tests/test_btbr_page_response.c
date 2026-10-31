@@ -54,9 +54,9 @@ void cprintf(char *fmt, ...);
 void __attribute__((noreturn)) die(char *fmt, ...);
 void console_putc(char c);
 
-/* TIMER1's counter, which both state machines read as MASTER_CLKN. Here it is
+/* TIMER1's counter, which both state machines read as CENTRAL_CLKN. Here it is
  * the clock field the harness moves on by one tick -- 312.5usec -- at a time. */
-#define T1TC btphy.master_clkn
+#define T1TC btphy.central_clkn
 
 #include <ubtbr/btphy.h>
 #include <ubtbr/bb.h>
@@ -152,17 +152,17 @@ void bbpkt_decode_fhs(uint8_t *data, fhs_info_t *info)
 }
 
 /* The connection states the page response hands over to. */
-static unsigned master_started;
-static unsigned slave_started;
-static uint64_t slave_peer_bdaddr;
+static unsigned central_started;
+static unsigned peripheral_started;
+static uint64_t peripheral_peer_bdaddr;
 
-void master_state_init(void) { master_started++; }
+void central_state_init(void) { central_started++; }
 
-void slave_state_init(uint64_t master_bdaddr, uint8_t lt_addr)
+void peripheral_state_init(uint64_t central_bdaddr, uint8_t lt_addr)
 {
 	(void)lt_addr;
-	slave_peer_bdaddr = master_bdaddr;
-	slave_started++;
+	peripheral_peer_bdaddr = central_bdaddr;
+	peripheral_started++;
 }
 
 /* ---- the faked air ---- */
@@ -419,8 +419,8 @@ static void air_run(unsigned ticks)
 	int again;
 
 	while (ticks--) {
-		btphy.master_clkn++;
-		btphy.slave_clkn++;
+		btphy.central_clkn++;
+		btphy.peripheral_clkn++;
 		air_tick++;
 
 		again = 1;
@@ -454,9 +454,9 @@ static void air_reset(void)
 	air_callback_lateness = 0;
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
-	master_started = 0;
-	slave_started = 0;
-	slave_peer_bdaddr = 0;
+	central_started = 0;
+	peripheral_started = 0;
+	peripheral_peer_bdaddr = 0;
 	scan_cb = NULL;
 	scan_cb_arg = NULL;
 }
@@ -525,7 +525,7 @@ static uint32_t pager_clkn_t0;
 static void run_pager(unsigned half)
 {
 	air_reset();
-	btphy.master_clkn = PAGER_CLKN_START;
+	btphy.central_clkn = PAGER_CLKN_START;
 	btphy.my_lap = PAGER_LAP;
 	btphy.my_uap = PAGER_UAP;
 	air_deliver_window = half;
@@ -568,7 +568,7 @@ static void run_paged_opt(uint8_t scan_phase, unsigned half,
 	btphy.my_uap = PAGED_UAP;
 	/* A scan listens on the frequency its own CLKN16-12 selects, so this is
 	 * how the board is put on the phase the pager is about to try. */
-	btphy.master_clkn = (uint32_t)scan_phase << 12;
+	btphy.central_clkn = (uint32_t)scan_phase << 12;
 	air_deliver_window = fhs_window;
 	air_deliver_payload = payload;
 	fhs_rx_clk27_2 = clk27_2;
@@ -585,7 +585,7 @@ static void run_paged_opt(uint8_t scan_phase, unsigned half,
 	 * over. The callback is taken first, so that a scan re-armed afterwards
 	 * can be told apart from this one. */
 	hop_channel(0);
-	btphy.slave_clkn = 0;
+	btphy.peripheral_clkn = 0;
 	paged_t0 = air_tick;
 	cb = scan_cb;
 	arg = scan_cb_arg;
@@ -619,7 +619,7 @@ static uint8_t pager_page_phase(unsigned half)
 	const struct air_event *e = air_nth(pager_log, pager_log_count,
 						AIR_TX, half);
 
-	return calc_iterate_slave_page_scan_phase(e->clkn);
+	return calc_iterate_peripheral_page_scan_phase(e->clkn);
 }
 
 /* ---- the cases ---- */
@@ -660,7 +660,7 @@ static void check_pager_timing(unsigned half)
 	/* It says which tick it went out in, in units of four. */
 	mu_assert_int_eq(fhs->clkn >> 2, fhs_sent_clk27_2[0]);
 	/* Nothing acknowledged it, so no connection came up on this side. */
-	mu_assert_int_eq(0, master_started);
+	mu_assert_int_eq(0, central_started);
 
 	/* Every page response falls inside pagerespTO, counted from the answer:
 	 * four of them, the last at 1.25 ms intervals from the first, and then
@@ -724,8 +724,8 @@ MU_TEST(paged_first_half_window_meets_the_page_response)
 
 	/* The connection, and the acknowledgement 625usec after the page
 	 * response, where the pager is listening for it. */
-	mu_assert_int_eq(1, slave_started);
-	mu_assert(slave_peer_bdaddr == FHS_RX_BDADDR,
+	mu_assert_int_eq(1, peripheral_started);
+	mu_assert(peripheral_peer_bdaddr == FHS_RX_BDADDR,
 		"the connection took the wrong address from the FHS");
 	mu_assert_int_eq(6, paged_air_tick(ack));
 	mu_assert_int_eq(ack_window->chan, ack->chan);
@@ -787,7 +787,7 @@ MU_TEST(paged_second_half_window_meets_the_page_response)
 
 	/* The connection, and the acknowledgement 625usec after the page
 	 * response, where the pager is listening for it. */
-	mu_assert_int_eq(1, slave_started);
+	mu_assert_int_eq(1, peripheral_started);
 	mu_assert_int_eq(10, paged_air_tick(ack));
 	mu_assert_int_eq(ack_window->chan, ack->chan);
 
@@ -796,7 +796,7 @@ MU_TEST(paged_second_half_window_meets_the_page_response)
 	 * response and not from the page message, so this board's clock now
 	 * reads the pager's. */
 	mu_assert_int_eq(pager_clkn_t0 + (air_tick - paged_t0 + paged_half-1),
-			btphy.slave_clkn);
+			btphy.peripheral_clkn);
 }
 
 /*
@@ -869,7 +869,7 @@ MU_TEST(paged_listens_for_every_repeat_until_pageresp_to)
 
 	/* Nothing arrived, so the board goes back to scanning rather than
 	 * sitting in page scan with no task left to run. */
-	mu_assert_int_eq(0, slave_started);
+	mu_assert_int_eq(0, peripheral_started);
 	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
 	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
@@ -917,8 +917,8 @@ MU_TEST(paged_completes_on_a_later_repeat)
 	mu_assert_int_eq(16, paged_air_tick(window));
 	mu_assert_int_eq(fhs->chan, window->chan);
 
-	mu_assert_int_eq(1, slave_started);
-	mu_assert(slave_peer_bdaddr == FHS_RX_BDADDR,
+	mu_assert_int_eq(1, peripheral_started);
+	mu_assert(peripheral_peer_bdaddr == FHS_RX_BDADDR,
 		"the connection took the wrong address from the FHS");
 	mu_assert_int_eq(18, paged_air_tick(ack));
 	mu_assert_int_eq(ack_window->chan, ack->chan);
@@ -943,7 +943,7 @@ MU_TEST(paged_a_decode_one_tick_late_keeps_the_windows_in_place)
 		mu_assert_int_eq(window_tick[i],
 			paged_air_tick(air_nth(paged_log, paged_log_count,
 						AIR_RX, i+1)));
-	mu_assert_int_eq(0, slave_started);
+	mu_assert_int_eq(0, peripheral_started);
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
 }
 
@@ -960,7 +960,7 @@ MU_TEST(paged_a_late_decode_ends_the_page_response)
 	run_paged_opt(0, 1, 1, 0, 2, 0);
 
 	mu_assert_int_eq(1, air_window_count);
-	mu_assert_int_eq(0, slave_started);
+	mu_assert_int_eq(0, peripheral_started);
 	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
 	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");

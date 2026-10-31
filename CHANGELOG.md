@@ -87,9 +87,9 @@
   [#383](https://github.com/SqueakyFloors/ubertooth/issues/383)
 - **Script-visible change:** `ubertooth-btle -s` takes one whole address and
   nothing else. The `/<bits>` mask and `none` that `-t` takes are refused with
-  `error: faux slave address must be xx:xx:xx:xx:xx:xx (got none)` and exit 1,
+  `error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)` and exit 1,
   where they used to be parsed, dropped and the command run anyway: a faux
-  slave advertises from a single address, so there is nothing for a mask to
+  Peripheral advertises from a single address, so there is nothing for a mask to
   narrow or for `none` to clear. A script that gave either one now gets a
   failure instead of exit 0.
   [#779](https://github.com/SqueakyFloors/ubertooth/issues/779)
@@ -1533,7 +1533,7 @@
   [#671](https://github.com/SqueakyFloors/ubertooth/issues/671)
 - `ubertooth-btle -f` waits out a connection's whole transmit window before
   giving up on its first connection event. A connection request names that
-  window, and the master's first packet may arrive anywhere inside it, but the
+  window, and the Central's first packet may arrive anywhere inside it, but the
   board allowed the time of one packet, so a window longer than the 1.25 ms
   minimum could expire unwatched. A separate fault still loses the opening
   events of most connections
@@ -2064,7 +2064,7 @@
   outside 20-120.
   [#189](https://github.com/SqueakyFloors/ubertooth/issues/189)
 - Stopping the LED spectrum analyzer (`ubertooth-util -q`), `ubertooth-specan`
-  or BLE faux slave mode (`ubertooth-btle -s <address>`) now resets the board
+  or BLE faux peripheral mode (`ubertooth-btle -s <address>`) now resets the board
   like the other modes: LEDs off, amplifier off, channel 2441 MHz and squelch
   -120 dBm. Stopping `-q` used to leave the LEDs lit.
   [#191](https://github.com/SqueakyFloors/ubertooth/issues/191)
@@ -2364,6 +2364,13 @@
   [#844](https://github.com/SqueakyFloors/ubertooth/issues/844)
 
 ### Documentation
+
+- Renamed the Bluetooth connection roles from master/slave to
+  Central/Peripheral, and SPI slave-select to chip-select. `ubertooth-btle
+  -s` is now faux peripheral mode, its errors read `error: faux peripheral
+  address must be xx:xx:xx:xx:xx:xx`, and `ubertooth-util -w` reports the mode
+  as `BLE peripheral`. The option letters, the request numbers, and the mode
+  numbers are unchanged, so no host tool and board pairing is affected.
 
 - The sniffing guide, `ubertooth-rx(1)`, `ubertooth-follow(1)`, and
   `ubertooth-scan(1)` agree about the placeholder `00:00` these tools page a

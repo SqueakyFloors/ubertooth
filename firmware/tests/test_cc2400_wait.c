@@ -1304,7 +1304,7 @@ MU_TEST(test_only_the_boot_path_still_spins_on_the_radio)
 /*
  * The one converted site whose caller must not carry on. The BR/EDR scan
  * strobes the radio to receive, waits for the state machine to get there, and
- * then reads GIO6 as "a sync word arrived" and moves the slave clock to it. If
+ * then reads GIO6 as "a sync word arrived" and moves the Peripheral clock to it. If
  * the wait gives up and the scan carries on, that read is not a measurement
  * and the scan reports a packet that never came -- worse than the hang the
  * bound replaces. So the result has to be checked, and the slot ended.

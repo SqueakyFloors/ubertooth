@@ -129,7 +129,7 @@ The board stays on whatever it was tuned to until the request arrives and the ne
 .P
 The modulation this capture reads, Classic, goes the other way round: it is stated \fBbefore\fR the capture request, because that is what the board programs its demodulator from as the mode comes up, and every reset that could throw it away leaves Classic anyway\. It is the board's own default, but an idle board holds the last modulation a tool set, because a mode starting from idle resets nothing\. A \fBubertooth\-dump \-l\fR interrupted before its capture started used to leave the board demodulating low energy, and a capture here then found little and said nothing about why\. The board can still be streaming the previous mode's records when the request arrives, so the first few packets of a capture started on a board another run left going are that run's\.
 .SH "DISCOVERING UNDISCOVERABLE DEVICES"
-Classic Bluetooth piconets are defined by the Lower Address Part (LAP) and Upper Address Part (UAP) of the master device\. These are elements of the master device's Bluetooth Address (BD ADDR)\.
+Classic Bluetooth piconets are defined by the Lower Address Part (LAP) and Upper Address Part (UAP) of the Central device\. These are elements of the Central device's Bluetooth Address (BD ADDR)\.
 .P
 Consider the following BD ADDR:
 .IP "" 4

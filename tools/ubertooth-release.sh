@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# "Run from the base of the Ubertooth repository, on the release branch (probably master)
+# "Run from the base of the Ubertooth repository, on the release branch (probably main)
 # usage: tools/ubertooth-release.sh <release version name>
 
 # Stop at the first failure. Without this a firmware image that fails to build

@@ -41,7 +41,7 @@ anyway, rather than leaving the tool waiting for a reply that never comes.
 
 ## Monitor mode:
 This mode allows to monitor a connection as it is being established.
-It targets a race-condition in the pairing procedure: we receive the FHS packet before the legitimate slave.
+It targets a race-condition in the pairing procedure: we receive the FHS packet before the legitimate Peripheral.
 With the FHS, we can synchronize to the piconet before the two actual participants, then record the packets they exchange.
 
 In the beginning of a connection, devices will use the LMP protocol to exchange they capabilities and negociate encryption. 
@@ -54,14 +54,14 @@ Also, we won't be able to decrypt LMP_SET_AFH packets, and to update the AFH map
 
 ### Usage
 For instance, say you want to monitor the pairing process between your phone and a peripheral.
-All you need is the BD_ADDR of the slave peripheral.
+All you need is the BD_ADDR of the Peripheral.
 First, start monitoring pages directed to peripheral 11:22:33:44:55:66:
 > monitor 11:22:33:44:55:66
 
-Then use your phone to connect to the slave. In ubertooth-btbr, you should see the FHS, followed by LMP traffic of the two devices.
+Then use your phone to connect to the Peripheral. In ubertooth-btbr, you should see the FHS, followed by LMP traffic of the two devices.
 If you don't receive the FHS, this means you have lost the race. Try again.
 
 ### Limitations:
-- You need to win the race: if the actual slave receive the FHS before the Ubertooth, monitor will fail.
+- You need to win the race: if the actual Peripheral receive the FHS before the Ubertooth, monitor will fail.
 - This does not breaks encryption.
 - Some packets will be lost. To reduce the packet loss: get closer of the targets, use a better antenna, use several ubertooth devices.
