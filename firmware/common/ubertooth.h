@@ -206,16 +206,6 @@ extern volatile uint8_t requested_mode;
 #define SCLK_CLR   (FIO1CLR = PIN_SCLK)
 #define MOSI_SET   (FIO1SET = PIN_MOSI)
 #define MOSI_CLR   (FIO1CLR = PIN_MOSI)
-
-/* Port 1, the port PIN_GIO6 names and the one the two below write. Read from
- * port 2 this is P2.15, which the part does not have, so every read of the
- * radio's FIFO signals on this board answered 0.
- *
- * Reading the pin is all this fixes. Carrier sense drives an interrupt from
- * the same pin through the port 2 interrupt registers (cs_trigger_enable() in
- * firmware/bluetooth_rxtx/ubertooth_cs.c), which is the Ubertooth One's port
- * for it and not this board's; this part has no GPIO interrupt on port 1 at
- * all, so that path needs more than a port number and is still One-only. */
 #define GIO6       (FIO1PIN & PIN_GIO6)
 #define GIO6_SET   (FIO1SET = PIN_GIO6)
 #define GIO6_CLR   (FIO1CLR = PIN_GIO6)
@@ -252,9 +242,6 @@ extern volatile uint8_t requested_mode;
 #define SCLK_CLR   (FIO1CLR = PIN_SCLK)
 #define MOSI_SET   (FIO1SET = PIN_MOSI)
 #define MOSI_CLR   (FIO1CLR = PIN_MOSI)
-
-/* Port 1, as on the Ubertooth Zero above: read from port 2 this was P2.10,
- * which is not the pin PIN_GIO6 names and carries no radio signal. */
 #define GIO6       (FIO1PIN & PIN_GIO6)
 #define GIO6_SET   (FIO1SET = PIN_GIO6)
 #define GIO6_CLR   (FIO1CLR = PIN_GIO6)
