@@ -76,13 +76,11 @@ and no Qt binding. Only opening the window needs those.
  - Yellow and magenta lines: points marked with the left and right mouse
    buttons, with the frequency differences to the peak and to each other.
 
-The axis and the markers are labeled in MHz. Pressing `b` labels them with BLE
-channel numbers instead -- the advertising channels 37, 38, and 39, and the
-data channels 0 to 36 -- and pressing it again goes back to MHz. In channel
-mode the axis is marked on the channels themselves rather than every tenth
-megahertz, so a line on the graph lines up with the number under it: nine
-marks across the whole band, every channel on a plot narrow enough to name
-them all, and both ends of the plot either way. A marker names the channel
+The axis and the markers show MHz. Pressing `b` shows BLE channel numbers
+instead -- the advertising channels 37, 38, and 39, and the data channels 0 to
+36 -- and pressing it again goes back to MHz. In channel mode the axis is
+marked on the channels themselves rather than every tenth megahertz, so a line
+on the graph lines up with the number under it. A marker names the channel
 nearest the point it sits on, since the sweep steps 1 MHz where the channels
 are 2 MHz apart. The difference between two markers stays in MHz either way,
 written `(+4 MHz)` in channel mode. The margin either side of the band has no

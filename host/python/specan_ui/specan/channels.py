@@ -1,5 +1,3 @@
-# Copyright 2017 Emmanuel Blot
-#
 # This file is part of Project Ubertooth.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -46,11 +44,10 @@ BLE_FREQUENCY_COUNT = 40
 # (Bluetooth Core specification, Volume 6, Part B, section 1.4.1).
 _ADVERTISING = {0: 37, 12: 38, 39: 39}
 
-# How many channels the axis names at most. Nine of them across the whole band
-# works out at about one every 10 MHz, which is as close together as the
-# labels can be read at the window's usual width, and is what the frequency
-# axis beside it has always drawn. A plot with no more channels in it than
-# that names every one of them.
+# How many channels the axis names at most. Nine across the whole band works
+# out at one every 10 MHz, which is as close together as the labels can be
+# read at the window's usual width, and is what the frequency axis beside it
+# has always drawn.
 MOST_CHANNEL_MARKS = 9
 
 
@@ -116,6 +113,22 @@ def difference_label(mhz, ble_channels):
     return '(%+.0f)' % mhz
 
 
+def _every_nth(count, step):
+    """Which of count channels to name, taking every step-th one.
+
+    The highest channel is always one of them, so the top of the plot is
+    labeled as well as the bottom. Where that lands within half a step of the
+    one before it, that one goes instead of being crowded against it.
+    """
+    chosen = list(range(0, count, step))
+    highest = count - 1
+    if chosen[-1] != highest:
+        if highest - chosen[-1] <= step / 2.0 and len(chosen) > 1:
+            chosen.pop()
+        chosen.append(highest)
+    return chosen
+
+
 def axis_ticks(low_mhz, high_mhz):
     """Where to mark the axis with channel numbers, and with which numbers.
 
@@ -123,17 +136,18 @@ def axis_ticks(low_mhz, high_mhz):
     up to, but not including, high_mhz: that last megahertz is the right edge
     of the window, where a mark would be drawn off it.
 
-    The marks are spread as widely as MOST_CHANNEL_MARKS allows, and the top
-    channel of the plot is named as well as the bottom one, so both ends of
-    the band are labeled. A plot zoomed in on a few channels names every one
-    of them rather than leaving the axis blank.
+    The marks are as close together as MOST_CHANNEL_MARKS allows, so a plot
+    zoomed in on a few channels names every one of them rather than leaving
+    the axis blank, and the whole band comes to one mark every fifth channel.
     """
     inside = [(mhz, '%d' % channel) for mhz, channel in channels()
               if low_mhz <= mhz < high_mhz]
     if not inside:
         return []
-    step = int(math.ceil(len(inside) / float(MOST_CHANNEL_MARKS)))
-    marks = inside[::step]
-    if marks[-1] != inside[-1]:
-        marks.append(inside[-1])
-    return marks
+    for step in range(1, len(inside) + 1):
+        chosen = _every_nth(len(inside), step)
+        if len(chosen) <= MOST_CHANNEL_MARKS:
+            return [inside[position] for position in chosen]
+    # Unreachable: a step of the whole length names the two ends and no more.
+    raise AssertionError('no spacing of %d channels fits %d marks'
+                         % (len(inside), MOST_CHANNEL_MARKS))

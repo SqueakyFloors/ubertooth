@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """The BLE channel ubertooth-specan-ui labels each frequency with.
 
 Run as: test_specan_channels.py <path to the specan package's directory>
@@ -118,9 +119,10 @@ assert marks[0][0] == 2402 and marks[-1][0] == 2480, marks
 # point of the mode is to see which of those is channel 38.
 for low, high, expected in (
         # -l 2440 -u 2460, so the plot runs 2438 to 2462: twelve channels,
-        # thinned to every second one, with the top one named as well.
+        # named every other one. The top channel takes the place of the mark
+        # it would otherwise have been squeezed in beside.
         (2438, 2462, [(2438, '16'), (2442, '18'), (2446, '20'), (2450, '22'),
-                      (2454, '24'), (2458, '26'), (2460, '27')]),
+                      (2454, '24'), (2460, '27')]),
         (2424, 2428, [(2424, '10'), (2426, '38')]),
         (2420, 2432, [(2420, '8'), (2422, '9'), (2424, '10'), (2426, '38'),
                       (2428, '11'), (2430, '12')]),
@@ -139,15 +141,22 @@ for low, high, expected in (
         assert int(text) == CHANNEL_OF_FREQUENCY[frequency], (frequency, text)
 
 # However narrow or wide the plot, the axis is never crowded past what can be
-# read, and never blank while a channel is in view.
+# read, never blank while a channel is in view, and never has one mark pushed
+# up against another: the lowest and highest channel of the plot are both
+# named, and the gaps between marks stay within a factor of two of each other,
+# so the one at the top is not squeezed in beside its neighbor.
 for low in range(2398, 2484):
     for high in range(low + 1, 2485):
         got = channels.axis_ticks(low, high)
-        assert len(got) <= channels.MOST_CHANNEL_MARKS + 1, (low, high, got)
+        assert len(got) <= channels.MOST_CHANNEL_MARKS, (low, high, got)
         in_view = [mhz for mhz in CHANNEL_OF_FREQUENCY if low <= mhz < high]
         assert bool(got) == bool(in_view), (low, high, got)
-        if got:
-            assert got[0][0] == min(in_view), (low, high, got)
-            assert got[-1][0] == max(in_view), (low, high, got)
+        if not got:
+            continue
+        assert got[0][0] == min(in_view), (low, high, got)
+        assert got[-1][0] == max(in_view), (low, high, got)
+        gaps = [second[0] - first[0] for first, second in zip(got, got[1:])]
+        if gaps:
+            assert max(gaps) <= 2 * min(gaps), (low, high, got)
 
 print("specan/channels.py: the channel marks of the axis")
