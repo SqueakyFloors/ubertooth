@@ -4,10 +4,20 @@ Build Guide
 
 
 
-Release 2020-12-R1
-~~~~~~~~~~~~~~~~~~
+This page builds the current tree of this fork: the host tools, the libbtbb
+commit they are pinned to, and the optional Wireshark plugins. `COMPATIBILITY.md
+<https://github.com/SqueakyFloors/ubertooth/blob/main/COMPATIBILITY.md>`__ says
+which systems and tool versions it has been tested on.
+:doc:`building_from_git` is the same build starting from a git clone, and
+:doc:`firmware` is the next step after it.
 
-`for Release 2018-12-R1 see here <https://ubertooth.readthedocs.io/en/latest/Release_2018-12-R1.html>`__
+Older releases have notes of their own: :doc:`Release_2020-12-R1` and
+:doc:`Release_2018-12-R1`.
+
+
+
+Host tools and libbtbb
+~~~~~~~~~~~~~~~~~~~~~~
 
 
 
@@ -23,8 +33,9 @@ Debian 10 / Ubuntu 20.04 / Kali
 
 	.. code-block:: sh
 
-		sudo apt install cmake libusb-1.0-0-dev make gcc g++ libbluetooth-dev wget \
-		pkg-config python3-numpy python3-qtpy python3-usb1
+		sudo apt install git cmake libusb-1.0-0-dev make gcc g++ libbluetooth-dev \
+		libfftw3-dev wget pkg-config python3 python3-numpy python3-qtpy \
+		python3-pyqt5 python3-usb1
 
 
 
@@ -33,7 +44,8 @@ Fedora 33
 
 	.. code-block:: sh
 
-		sudo dnf install libusb1-devel make gcc gcc-c++ cmake wget tar bluez-libs-devel
+		sudo dnf install git libusb1-devel make gcc gcc-c++ cmake pkgconf-pkg-config \
+		wget tar bluez-libs-devel fftw-devel
 		# libbtbb installs to /usr/local/lib64 on this system, the Ubertooth library to /usr/local/lib:
 		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 
@@ -87,11 +99,8 @@ For the spectrum analyzer user interface's (UI) Python dependencies
 
 ``ubertooth-scan`` and ``ubertooth-follow`` need BlueZ (Linux only), so they are
 not built on macOS. The host tools in this repository need no CMake options of
-their own, and neither does the pinned libbtbb. The archived host source below
-needs two: ``-DCMAKE_POLICY_VERSION_MINIMUM=3.5`` under CMake 4, which current
-Homebrew installs, and ``-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`` on any
-Homebrew install, because it looks for libusb's headers in one place only and
-that is not where the compiler searches.
+their own, and neither does the pinned libbtbb; the archived host source of an
+older release needs two, which the Ubertooth Tools section below gives.
 
 
 
@@ -136,6 +145,32 @@ The Ubertooth repository contains host code for sniffing Bluetooth packets, conf
 
 	.. code-block:: sh
 
+		git clone https://github.com/SqueakyFloors/ubertooth.git
+		cd ubertooth/host
+		mkdir build
+		cd build
+		cmake ..
+		make
+		sudo make install
+		sudo ldconfig     # Linux only
+
+On macOS the install goes into the Homebrew prefix, which you own, so
+``make install`` needs no ``sudo`` there; ``ldconfig`` is Linux only.
+
+``./install.sh`` in the root of the checkout does the libbtbb step above and
+this one together, installs the specan_ui Python dependencies, and on Linux
+writes the udev rule. ``./install.sh --help`` lists its options, among them
+``--prefix``, ``--venv``, ``--with-firmware``, and ``--uninstall``.
+
+An older release is built from its own archive instead of a clone. The
+archived host source needs two CMake options a current system does not give it
+by default: ``-DCMAKE_POLICY_VERSION_MINIMUM=3.5`` under CMake 4, which current
+Homebrew installs, and ``-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`` on any
+Homebrew install, because it looks for libusb's headers in one place only and
+that is not where the compiler searches:
+
+	.. code-block:: sh
+
 		wget https://github.com/greatscottgadgets/ubertooth/releases/download/2020-12-R1/ubertooth-2020-12-R1.tar.xz
 		tar -xf ubertooth-2020-12-R1.tar.xz
 		cd ubertooth-2020-12-R1/host
@@ -149,6 +184,10 @@ The Ubertooth repository contains host code for sniffing Bluetooth packets, conf
 		sudo make install
 		sudo ldconfig     # Linux only
 
+That release's host tools want the firmware of their own era, and they are
+built against upstream's libbtbb rather than the commit pinned above, so do not
+mix the two trees.
+
 
 
 Wireshark plugins
@@ -157,17 +196,15 @@ Wireshark plugins
 Users of Wireshark version 2.2+ do not need to build any plugins at all and may skip this section (see `this comment <https://github.com/greatscottgadgets/libbtbb/issues/50#issuecomment-284128258>`__). This includes users of Debian 10+, Ubuntu 20.04+, Fedora 33+, RHEL 8.3+, and most other Linux distributions. You can check your version by clicking on Help --> About Wireshark.
 
 Wireshark version 1.12 and newer includes the Ubertooth BLE plugin by
-default. It is also possible to `capture BLE from Ubertooth
-directly into Wireshark
-<https://ubertooth.readthedocs.io/en/latest/capturing_BLE_Wireshark.html>`__
-with a little work.
+default. It is also possible to :doc:`capture BLE from Ubertooth directly into
+Wireshark <capturing_BLE_Wireshark>`.
 
 The Wireshark Bluetooth Baseband (BTBB) and Basic Rate/Enhanced Data Rate
 (BR/EDR) plugins allow Bluetooth baseband traffic captured with Kismet to be
 analyzed and dissected in the Wireshark graphical user interface (GUI). They
 are built separately from the rest of the Ubertooth and libbtbb software.
 
-The directory passed to cmake as ``MAKE_INSTALL_LIBDIR`` varies from system to system, but it should be the location of existing Wireshark plugins, such as ``asn1.so`` and ``ethercat.so``. On macOS this is likely ``/Applications/Wireshark.app/Contents/PlugIns/wireshark/``.
+The directory passed to cmake as ``CMAKE_INSTALL_LIBDIR`` varies from system to system, but it should be the location of existing Wireshark plugins, such as ``asn1.so`` and ``ethercat.so``: the path in the commands below is one Wireshark 2.x layout, not a value to copy blindly. On macOS this is likely ``/Applications/Wireshark.app/Contents/PlugIns/wireshark/``.
 
 	.. code-block:: sh
 
@@ -196,11 +233,11 @@ Then repeat for the BT BR/EDR plugin:
 Third Party Software
 ~~~~~~~~~~~~~~~~~~~~
 
-There are a number of pieces of `third party software <https://ubertooth.readthedocs.io/en/latest/third_party_software.html>`__ that support the Ubertooth. Some support Ubertooth out of the box, while others require plugins to be built.
+There are a number of pieces of :doc:`third party software <third_party_software>` that support the Ubertooth. Some support Ubertooth out of the box, while others require plugins to be built.
 
 
 
 Firmware
 ~~~~~~~~
 
-This completes the install of the Ubertooth tools, the next step is to look at the getting started guide. You should always `update the firmware <https://ubertooth.readthedocs.io/en/latest/firmware.html>`__ on the Ubertooth device to match the software release version that you are using.
+This completes the install of the Ubertooth tools, and the next step is :doc:`firmware`. The host tools require firmware of their own API version, so flash the firmware built from the same tree before you use them; a board carrying any other version is refused. ``./install.sh --flash-device <index|serial|all>`` builds and writes it for you.
