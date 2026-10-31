@@ -208,7 +208,9 @@ with tempfile.TemporaryDirectory() as workdir:
     # both halves of what a user sees. A writer that printed a line of its own
     # would make the stream two lines, and a reason read after the close and
     # the free that follow the create would be those calls' errno instead of
-    # this one's.
+    # this one's. Both of those are what a libbtbb older than the commit
+    # FindBTBB.cmake pins does, so a failure here with "PCAP error:" in it is
+    # an installed libbtbb behind the pin rather than a change to this tool.
     for option, name in (("-q", "cap.pcap"), ("-r", "cap.pcapng")):
         inside_missing_dir = Path("nodir") / name
         result = run("-i", "full.bin", option, str(inside_missing_dir),
