@@ -764,6 +764,13 @@
   leaves no part-written file to be mistaken for an empty one. `install.sh`
   and the build guides check out the new commit.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
+- Fixed, on the Ubertooth Zero: the firmware read the radio's FIFO signals
+  from a port the board does not carry them on, so every such read answered 0.
+  A transmit's wait for the radio to send what it had always timed out, which
+  ends a packet longer than the radio's 32-byte FIFO after the first 32 bytes.
+  It now reads the port the pin is on. The Ubertooth One was unaffected, and
+  no Zero was on the bench to read this off.
+  [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
 
 - `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
   clock the packets are stamped with. A measured gap of 905.6 s was printed as
@@ -2436,6 +2443,12 @@ Fixes with no visible change in normal use.
   rather than followed. Following one left the board tuned to the advertising
   channels instead of the connection's data channels.
   [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
+- Fixed: the generic receive left in the radio's FIFO whatever a packet too
+  long for one record had put there, and those bytes came out in front of the
+  next packet. It now clears the FIFO on entry to the mode and after each
+  record, and a record the packet did not fit in says so instead of looking
+  like a whole packet. No shipped tool asks for the mode.
+  [#775](https://github.com/SqueakyFloors/ubertooth/issues/775)
 
 - A `ubertooth-btbr` session refuses a peer's role switch instead of passing
   it over in silence, answers a request to pair under the extended opcode it

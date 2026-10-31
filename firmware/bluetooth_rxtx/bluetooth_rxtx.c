@@ -2148,11 +2148,8 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	{
 		// Wait for the radio to have sent what is in the FIFO. Bounded,
 		// so a radio that stops draining no longer takes the board with
-		// it; before the first piece there is nothing to drain, so on an
-		// Ubertooth One GIO6 already reads high and this returns at once.
-		// On an Ubertooth Zero the GIO6 macro reads the wrong port, so
-		// it runs to the bound instead and the packet is not sent -- the
-		// board that pin belongs to is not one anybody here has.
+		// it; before the first piece there is nothing to drain, so GIO6
+		// already reads high and this returns at once.
 		//
 		// A wait that gives up ends the packet rather than writing the
 		// next piece past the end of a FIFO the radio has not emptied.
@@ -3974,11 +3971,31 @@ void bt_slave_le() {
 #endif
 
 /*
- * The record generic receive sends: the sync word it matched on, then the
- * bytes read out of the radio's FIFO.
+ * The record generic receive sends: the sync word it matched on, the bytes
+ * read out of the radio's FIFO, then one byte of flags.
  */
 #define RX_GENERIC_SYNCWORD_LEN 4
 #define RX_GENERIC_DATA_LEN     32
+#define RX_GENERIC_FLAGS_LEN    1
+#define RX_GENERIC_FLAGS_OFF (RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN)
+
+/*
+ * In the flags byte: the radio still held bytes when this record was taken, so
+ * the record is not all of what it heard.
+ *
+ * A record carries one FIFO's worth, which is as much as the mode can read
+ * back: the radio reports no length the capture could read a longer packet by.
+ * So the bit is what tells a reader not to take a record's payload for the
+ * whole packet.
+ *
+ * It states what it measures rather than a cause, because the mode has no
+ * length to stop receiving on either: traffic that arrived behind a short
+ * packet leaves bytes in the FIFO as a long packet's own tail does.
+ *
+ * The test is the radio's FIFO_EMPTY signal, which in receive goes low only
+ * above one byte, so a packet that left exactly one byte behind reads as whole.
+ */
+#define RX_GENERIC_TRUNCATED 0x01
 
 /*
  * enqueue() is handed a pointer and no length, and copies DMA_SIZE bytes out
@@ -3986,8 +4003,15 @@ void bt_slave_le() {
  * the record. The buffer below is therefore DMA_SIZE whatever the record uses
  * of it.
  */
-_Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
+_Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN +
+               RX_GENERIC_FLAGS_LEN <= DMA_SIZE,
                "the generic receive record must fit in what enqueue() copies");
+
+/* The record holds one FIFO's worth of payload, which is what makes the flush
+ * below a flush: a read of RX_GENERIC_DATA_LEN leaves the rest of a longer
+ * packet behind, and only a read of the whole FIFO clears it. */
+_Static_assert(RX_GENERIC_DATA_LEN == CC2400_FIFO_SIZE,
+               "the generic receive reads one FIFO's worth per packet");
 
 /*
  * One byte on the air at 1 Mbit/s, in timer 0's 100 ns ticks: 8 us.
@@ -4075,16 +4099,46 @@ static void rx_generic_wait_for_fifo(void)
 	}
 }
 
+/*
+ * Drop whatever the radio still holds, so the next packet is read from its own
+ * first byte rather than shifted by the bytes left in front of it.
+ *
+ * The radio has no flush command: FIFO_FLUSH is one of the signals a GIO pin
+ * can report, not one the host can assert, and the FIFO_EMPTY signal cannot
+ * tell one byte left from none ("in receive mode, FIFO_EMPTY goes low when
+ * there is more than 1 byte in the FIFO"), so a drain guided by it would leave
+ * exactly one byte. A read of a whole FIFO's worth, discarded, empties the
+ * 32-byte FIFO whatever is in it.
+ *
+ * It asks for more than the FIFO holds whenever the packet was short, and what
+ * the radio does with the surplus is not established: the FIFO has one
+ * internal data pointer, updated per byte written, and the datasheet does not
+ * say what an over-read leaves it on. The record's own read already over-reads
+ * in exactly the same way, so this adds no new question, and the bench run is
+ * what will answer it.
+ *
+ * It costs about half a millisecond of SPI, during which a packet that arrives
+ * is missed. That is the price of the record after it being read from the
+ * right byte, and no shipped tool asks for this mode.
+ */
+static void rx_generic_flush_fifo(void)
+{
+	u8 waste[CC2400_FIFO_SIZE];
+
+	cc2400_fifo_read(CC2400_FIFO_SIZE, waste);
+}
+
 void rx_generic_sync(void) {
 	/*
 	 * Zeroed because the capture fills only the first
-	 * RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN bytes and the whole
-	 * buffer is sent: the tail used to be 14 bytes of whatever was on the
-	 * stack below it, read past the end of a 36-byte buffer and shipped to
-	 * the host in every record.
+	 * RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN + RX_GENERIC_FLAGS_LEN
+	 * bytes and the whole buffer is sent: the tail used to be 14 bytes of
+	 * whatever was on the stack below it, read past the end of a 36-byte
+	 * buffer and shipped to the host in every record.
 	 */
 	u8 buf[DMA_SIZE] = { 0 };
 	u16 reg_val;
+	u16 gio_save;
 
 	/* The size the buffer has to be, which is not the same question as the
 	 * one above: a 36-byte buffer satisfies that assert, and a 36-byte
@@ -4102,6 +4156,20 @@ void rx_generic_sync(void) {
 	buf[2] = (reg_val >> 8) & 0xFF;
 	buf[3] = reg_val & 0xFF;
 
+	/*
+	 * GIO6 is given the radio's FIFO_EMPTY signal, which is how the loop
+	 * below tells a record that holds the whole packet from one cut short.
+	 * The sense matters: FIFO_FULL is a different signal and reads the other
+	 * way round.
+	 *
+	 * This is the one radio register the mode writes -- the generic modes
+	 * otherwise take the radio as the host left it, through UBERTOOTH_SET_*
+	 * and UBERTOOTH_WRITE_REGISTERS -- so it is put back on both ways out.
+	 * cc2400_idle() does not touch IOCFG.
+	 */
+	gio_save = cc2400_get(IOCFG);
+	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
+
 	usb_queue_init();
 	clkn_start();
 
@@ -4114,6 +4182,11 @@ void rx_generic_sync(void) {
 		PAEN_SET;
 		HGM_SET;
 #endif
+	/* Whatever an earlier mode left in the FIFO goes before the first
+	 * packet arrives, rather than coming out in front of it. The radio is
+	 * in FS_ON here and so is not receiving: nothing is lost by it. */
+	rx_generic_flush_fifo();
+
 	/*
 	 * This used to be `while (1)`, with the wait for a sync word below
 	 * spinning on the radio and USB serviced only once a packet had arrived.
@@ -4138,8 +4211,10 @@ void rx_generic_sync(void) {
 		 * the LEDs, the amplifier and the radio on the way out. */
 		while (!(cc2400_status() & SYNC_RECEIVED)) {
 			service_usb();
-			if (requested_mode != MODE_RX_GENERIC)
+			if (requested_mode != MODE_RX_GENERIC) {
+				cc2400_set(IOCFG, gio_save);
 				return;
+			}
 		}
 		USRLED_SET;
 
@@ -4148,9 +4223,15 @@ void rx_generic_sync(void) {
 		rx_generic_wait_for_fifo();
 		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
 		                 buf + RX_GENERIC_SYNCWORD_LEN);
+		/* Asked before the flush below, which empties the FIFO whatever
+		 * was in it, and so is the last moment the answer exists. */
+		buf[RX_GENERIC_FLAGS_OFF] = GIO6 ? 0 : RX_GENERIC_TRUNCATED;
 		enqueue(BR_PACKET, buf);
+		rx_generic_flush_fifo();
 		service_usb();
 	}
+
+	cc2400_set(IOCFG, gio_save);
 }
 
 void rx_generic(void) {
