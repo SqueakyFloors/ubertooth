@@ -32,6 +32,14 @@ sent between the central and peripheral. After the connection
 terminates, Ubertooth will return to the advertising channel and wait
 for another connection.
 
+One connection is followed at a time. A connection request heard while a
+connection is being followed is recorded in the capture like any other packet,
+but is not acted on: the follow stays with the connection it started on until
+that connection ends. Ubertooth sees a connection end when its supervision
+timeout runs out, and the connection itself sets that timeout, anywhere from
+100 ms to 32 s. So a pair of devices that disconnects cleanly and reconnects at
+once is not followed again until that timeout has passed.
+
 No-follow mode is similar to follow mode, but it only logs advertising
 packets and will not follow connections as they are established.
 

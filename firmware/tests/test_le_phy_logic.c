@@ -1660,7 +1660,8 @@ MU_TEST(a_connection_request_is_ignored_until_the_host_asks_to_follow)
 }
 
 /*
- * Each parameter outside its range puts the engine back on the advertising
+ * Each parameter outside the range the specification allows, and an access
+ * address a connection may not use, puts the engine back on the advertising
  * channels instead of following. One case per field, each one value past the
  * boundary, so a check removed or a comparison turned round fails here.
  */
@@ -1672,7 +1673,7 @@ MU_TEST(a_connection_request_outside_the_specification_is_refused)
 	struct bad_case {
 		const char *what;
 		struct connect_req r;
-	} cases[9];
+	} cases[10];
 
 	memset(cases, 0, sizeof(cases));
 
@@ -1706,6 +1707,12 @@ MU_TEST(a_connection_request_outside_the_specification_is_refused)
 	r = valid_connect_req(); r.supervision_timeout = 43000;
 	cases[8].what = "a supervision timeout that overflows the scaled count";
 	cases[8].r = r;
+	/* The engine reads the advertising access address as "no connection is
+	 * being followed", so a follow opened on one would stay on the
+	 * advertising channels and be restarted by the next request it heard. */
+	r = valid_connect_req(); r.access_address = ADV_AA;
+	cases[9].what = "the advertising access address as a connection's";
+	cases[9].r = r;
 
 	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		char msg[256];
@@ -1765,6 +1772,130 @@ MU_TEST(a_new_connection_clears_a_pending_cancel)
 
 	mu_assert_int_eq(0, cancel_follow);
 	mu_assert_int_eq(0xdeadbeef, conn.access_address);
+}
+
+/* ------------------------------------------------------------------ *
+ * A connection request that arrives during a follow
+ * ------------------------------------------------------------------ *
+ *
+ * These go through packet_handler(), which is what the mode's loop calls, so
+ * they cover the decision of whether a request is acted on at all. The tests
+ * above call le_connect_handler() directly and cover what it does with one.
+ */
+
+/* Nothing is being followed, so the request opens a follow: the guard below
+ * must not stand in the way of the ordinary path. */
+MU_TEST(a_connection_request_with_no_follow_running_opens_one)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+
+	start_fresh();
+	le.do_follow = 1;
+	build_connect_req(&buf, &r);
+
+	packet_handler(&buf);
+
+	mu_assert_int_eq(0xdeadbeef, conn.access_address);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "the first connection event's deadline was not armed");
+}
+
+/*
+ * The loop takes one packet from the queue per pass and the queue holds ten,
+ * so a request reaches here after the follow it opened is already running,
+ * and a request from another pair of devices reaches here during a follow
+ * that is running well. Both are ignored until the follow ends.
+ *
+ * So every field of the connection is expected to survive one, and so is the
+ * armed deadline of its next event.
+ */
+MU_TEST(a_connection_request_during_a_follow_leaves_the_follow_alone)
+{
+	struct connect_req r = valid_connect_req();
+	le_conn_t before;
+	le_rx_t buf;
+	uint32_t armed_match, armed_mcr;
+
+	start_fresh();
+	le.do_follow = 1;
+
+	/* A follow that has been running for a few connection events. */
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+	conn.conn_event_counter = 9;
+	memcpy(&before, &conn, sizeof(before));
+	armed_match = fake_t1mr0;
+	armed_mcr = fake_t1mcr;
+	radio_touched = 0;
+
+	/* A second request, from another pair of devices, different in every
+	 * field the engine reads. */
+	r.access_address = 0x11223344;
+	r.crc_init = 0x010203;
+	r.conn_interval = 80;
+	r.supervision_timeout = 200;
+	r.win_size = 2;
+	r.win_offset = 3;
+	r.hop_increment = 11;
+	build_connect_req(&buf, &r);
+
+	packet_handler(&buf);
+
+	mu_assert(memcmp(&before, &conn, sizeof(before)) == 0,
+	          "a connection request arriving during a follow changed the "
+	          "connection being followed");
+	mu_assert_int_eq(9, conn.conn_event_counter);
+	mu_assert_int_eq(armed_match, fake_t1mr0);
+	mu_assert_int_eq(armed_mcr, fake_t1mcr);
+	mu_assert_int_eq(0, radio_touched);
+}
+
+/*
+ * Ignored until the follow ends, not forever: after each of the two ways a
+ * follow ends, the next request on the air is followed. The supervision
+ * timeout is the one that ends a follow in the field, because the engine does
+ * not read LL_TERMINATE_IND; the host's cancel is what `ubertooth-btle` asks
+ * for.
+ */
+MU_TEST(a_connection_request_after_a_follow_ends_is_followed)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+
+	start_fresh();
+	le.do_follow = 1;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+
+	/* Well inside the supervision timeout, so the cancel is what ends this
+	 * follow rather than the timeout. */
+	fake_t1tc = conn.last_packet_ts + conn.supervision_timeout / 2;
+	cancel_follow = 1;
+	finish_conn_event();
+	mu_assert(connection_was_reset(),
+	          "the follow the host canceled is still running");
+
+	r.access_address = 0x11223344;
+	build_connect_req(&buf, &r);
+	packet_handler(&buf);
+	mu_assert_int_eq(0x11223344, conn.access_address);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "the new connection's first event was not armed");
+
+	/* And the other way: nothing arrives until the connection's supervision
+	 * timeout has run out. */
+	fake_t1tc = conn.last_packet_ts + conn.supervision_timeout + 1;
+	finish_conn_event();
+	mu_assert(connection_was_reset(),
+	          "the follow is still running past its supervision timeout");
+
+	r.access_address = 0x55667788;
+	build_connect_req(&buf, &r);
+	packet_handler(&buf);
+	mu_assert_int_eq(0x55667788, conn.access_address);
+	mu_assert(fake_t1mcr & TMCR_MR0I,
+	          "the next connection's first event was not armed");
 }
 
 /* ------------------------------------------------------------------ *
@@ -3989,6 +4120,9 @@ int main(void)
 	MU_RUN(a_connection_request_outside_the_specification_is_refused);
 	MU_RUN(a_connection_request_of_the_wrong_length_is_left_alone);
 	MU_RUN(a_new_connection_clears_a_pending_cancel);
+	MU_RUN(a_connection_request_with_no_follow_running_opens_one);
+	MU_RUN(a_connection_request_during_a_follow_leaves_the_follow_alone);
+	MU_RUN(a_connection_request_after_a_follow_ends_is_followed);
 	MU_RUN(a_connection_update_is_scheduled_for_its_instant);
 	MU_RUN(a_connection_update_outside_the_specification_is_ignored);
 	MU_RUN(an_updates_window_size_survives_being_scaled);
