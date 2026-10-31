@@ -170,7 +170,8 @@ FILE *opt_open_dump_file(const char *filename, const char *what);
  * Pass errno, having cleared it before the create so that a reason left by
  * an earlier failed call is not reported as this one's, and having read it
  * before anything else runs: a close() or a free() in between may set one of
- * its own. Every writer the tools use sets it, and none of them prints.
+ * its own. Every writer in the libbtbb this tree pins sets it, and none of
+ * them prints; an older libbtbb printed a line of its own above this one.
  *
  * Pass 0 only where nothing said why, and the line reads "<file>: could not
  * be created" instead. An honest sentence with no reason beats a reason that
