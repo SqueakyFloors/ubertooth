@@ -345,11 +345,14 @@ Miscellaneous:
    output: a run that hands the capture that stream prints no packets to
    describe`.
 
-   `-v` named the CRC verify setting until `-k` took that over, so a command
-   line written that way is refused with a line naming `-k`: `-v 0` and `-v 1`
-   give `error: -v is verbose now and takes no value (got 1); the CRC verify
-   setting it used to name is -k`, and `-v` on its own gives `error: -v needs -f, -n or -p:
-   there is no decode for it to describe; the CRC verify setting is -k now`.
+   There is one level of it, so writing it twice says what writing it once
+   said (ubertooth(7), OPTION VALUES).
+
+   `-v` named the CRC verify setting until `-k` took that over, which is the
+   likeliest source of a command line that writes a value here. Such a line
+   is refused as any valueless option's value is, and `-v` on its own says
+   where the setting went: `error: -v needs -f, -n or -p: there is no decode
+   for it to describe; the CRC verify setting is -k now`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -410,7 +413,8 @@ way instead of being read as 0, for example
 
 A bare `-` is still the stdin/stdout value of `-q`, `-c` and `-r`. See
 ubertooth(7), OPTION VALUES, for the forms an option's value can take,
-including the optional values of `-a` and `-k`.
+including the optional values of `-a` and `-k`, which may be written as the
+next word or attached. `-v` takes no value in either form.
 
 An option combination the tool cannot carry out is refused there too, before
 any device is opened, so the message never depends on which boards are
