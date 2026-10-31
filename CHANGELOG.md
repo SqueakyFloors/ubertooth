@@ -748,6 +748,17 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
+  connection it was following. It hopped with channel selection algorithm 1
+  only, so a connection using algorithm 2, which Bluetooth 5.0 devices
+  normally use and both ends ask for in their advertising and connect packets,
+  was listened for on the right microsecond and the wrong channel.
+  What reached the user was the events where the two sequences happened to
+  coincide, about one in 37, and the connection's packets leaking in from a
+  neighboring channel too distorted to pass their CRC. Follow mode now reads
+  both ends' ChSel bits and hops with the algorithm the connection chose.
+  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836)
+
 - Fixed: a `-q` PCAP capture file that could not be written was left behind
   empty, for the user to tell apart from a capture that caught nothing, and
   the `error:` line naming it carried no reason while libbtbb printed one of
