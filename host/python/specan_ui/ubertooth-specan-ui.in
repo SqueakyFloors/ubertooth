@@ -604,10 +604,13 @@ class RenderArea(QtWidgets.QWidget):
             dbm_labels = [(dbm, QPointF(self._hz_to_x(self._low_frequency) + 2, self._dbm_to_y(dbm) - 2))
                           for dbm in numpy.arange(self._low_dbm, self._high_dbm, 20.0)]
 
-            ticks = [(mhz * 1e6, text) for mhz, text
-                     in axis_ticks(round(self._low_frequency / 1e6),
-                                   round(self._high_frequency / 1e6),
-                                   self._ble_channels)]
+            if self._ble_channels:
+                ticks = [(mhz * 1e6, text) for mhz, text
+                         in axis_ticks(round(self._low_frequency / 1e6),
+                                       round(self._high_frequency / 1e6))]
+            else:
+                ticks = [(frequency, '%.0f' % (frequency / 1e6))
+                         for frequency in numpy.arange(self._low_frequency, self._high_frequency, self._frequency_step * 10.0)]
             frequency_lines = [QLineF(self._hz_to_x(frequency), self._dbm_to_y(self._high_dbm),
                                       self._hz_to_x(frequency), self._dbm_to_y(self._low_dbm))
                                for frequency, _ in ticks]

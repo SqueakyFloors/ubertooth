@@ -46,11 +46,12 @@ BLE_FREQUENCY_COUNT = 40
 # (Bluetooth Core specification, Volume 6, Part B, section 1.4.1).
 _ADVERTISING = {0: 37, 12: 38, 39: 39}
 
-# The axis is marked every tenth megahertz in frequency mode, and every fifth
-# channel in channel mode. Both come to a mark every 10 MHz, which is as close
-# together as the labels can be read at the window's usual width.
-MHZ_AXIS_STEP = 10
-CHANNEL_AXIS_STEP = 5
+# How many channels the axis names at most. Nine of them across the whole band
+# works out at about one every 10 MHz, which is as close together as the
+# labels can be read at the window's usual width, and is what the frequency
+# axis beside it has always drawn. A plot with no more channels in it than
+# that names every one of them.
+MOST_CHANNEL_MARKS = 9
 
 
 def channel_at(position):
@@ -115,26 +116,24 @@ def difference_label(mhz, ble_channels):
     return '(%+.0f)' % mhz
 
 
-def axis_ticks(low_mhz, high_mhz, ble_channels):
-    """Where to mark the frequency axis across this plot, and what to call it.
+def axis_ticks(low_mhz, high_mhz):
+    """Where to mark the axis with channel numbers, and with which numbers.
 
-    Returns (frequency in MHz, label) pairs. In channel mode the marks sit on
-    the channels themselves, every fifth one and the top of the band, so a
-    line on the graph lines up with the channel named under it; the frequency
-    marks are a round number of megahertz from the low end of the plot
-    instead, wherever that falls.
+    Returns (frequency in MHz, label) pairs for a plot running from low_mhz
+    up to, but not including, high_mhz: that last megahertz is the right edge
+    of the window, where a mark would be drawn off it.
+
+    The marks are spread as widely as MOST_CHANNEL_MARKS allows, and the top
+    channel of the plot is named as well as the bottom one, so both ends of
+    the band are labeled. A plot zoomed in on a few channels names every one
+    of them rather than leaving the axis blank.
     """
-    if ble_channels:
-        numbered = channels()
-        positions = list(range(0, len(numbered), CHANNEL_AXIS_STEP))
-        if positions[-1] != len(numbered) - 1:
-            positions.append(len(numbered) - 1)
-        marks = [(numbered[position][0], '%d' % numbered[position][1])
-                 for position in positions]
-    else:
-        marks = [(mhz, '%d' % mhz)
-                 for mhz in range(low_mhz, high_mhz, MHZ_AXIS_STEP)]
-    # A mark outside the plotted band would be drawn off the edge of the
-    # window, or on it: the channel marks span the whole band whatever this
-    # plot covers.
-    return [(mhz, text) for mhz, text in marks if low_mhz <= mhz <= high_mhz]
+    inside = [(mhz, '%d' % channel) for mhz, channel in channels()
+              if low_mhz <= mhz < high_mhz]
+    if not inside:
+        return []
+    step = int(math.ceil(len(inside) / float(MOST_CHANNEL_MARKS)))
+    marks = inside[::step]
+    if marks[-1] != inside[-1]:
+        marks.append(inside[-1])
+    return marks
