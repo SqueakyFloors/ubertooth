@@ -45,9 +45,8 @@ BLE_FREQUENCY_COUNT = 40
 _ADVERTISING = {0: 37, 12: 38, 39: 39}
 
 # How many channels the axis names at most. Nine across the whole band works
-# out at one every 10 MHz, which is as close together as the labels can be
-# read at the window's usual width, and is what the frequency axis beside it
-# has always drawn.
+# out at one every 10 MHz, which is what the frequency axis beside it has
+# always drawn, so neither axis is more crowded than the other.
 MOST_CHANNEL_MARKS = 9
 
 
@@ -80,7 +79,7 @@ def nearest_channel(mhz):
     offset = mhz - BLE_LOW_FREQ
     position = int(math.floor(offset / BLE_CHANNEL_SPACING + 0.5))
     position = min(max(position, 0), BLE_FREQUENCY_COUNT - 1)
-    if abs(offset - position * BLE_CHANNEL_SPACING) > BLE_CHANNEL_SPACING / 2.0:
+    if abs(offset - position * BLE_CHANNEL_SPACING) > BLE_CHANNEL_SPACING / 2:
         return None
     return channel_at(position)
 
@@ -117,8 +116,11 @@ def _every_nth(count, step):
     """Which of count channels to name, taking every step-th one.
 
     The highest channel is always one of them, so the top of the plot is
-    labeled as well as the bottom. Where that lands within half a step of the
+    named as well as the bottom. Where that lands within half a step of the
     one before it, that one goes instead of being crowded against it.
+
+    There has to be at least one channel to name; axis_ticks() answers a plot
+    with none of the band in it without coming here.
     """
     chosen = list(range(0, count, step))
     highest = count - 1
@@ -136,18 +138,19 @@ def axis_ticks(low_mhz, high_mhz):
     up to, but not including, high_mhz: that last megahertz is the right edge
     of the window, where a mark would be drawn off it.
 
-    The marks are as close together as MOST_CHANNEL_MARKS allows, so a plot
-    zoomed in on a few channels names every one of them rather than leaving
-    the axis blank, and the whole band comes to one mark every fifth channel.
+    Every channel is named where they all fit, and one channel in every two,
+    three or more where they do not: the closest even spacing that stays
+    within MOST_CHANNEL_MARKS. The whole band comes out at every fifth
+    channel. An even spacing means that widening the plot by one channel can
+    be what pushes it to the next step and so leaves fewer marks on screen.
     """
     inside = [(mhz, '%d' % channel) for mhz, channel in channels()
               if low_mhz <= mhz < high_mhz]
     if not inside:
         return []
-    for step in range(1, len(inside) + 1):
+    step = 1
+    chosen = _every_nth(len(inside), step)
+    while len(chosen) > MOST_CHANNEL_MARKS:
+        step += 1
         chosen = _every_nth(len(inside), step)
-        if len(chosen) <= MOST_CHANNEL_MARKS:
-            return [inside[position] for position in chosen]
-    # Unreachable: a step of the whole length names the two ends and no more.
-    raise AssertionError('no spacing of %d channels fits %d marks'
-                         % (len(inside), MOST_CHANNEL_MARKS))
+    return [inside[position] for position in chosen]

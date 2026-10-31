@@ -79,8 +79,8 @@ and no Qt binding. Only opening the window needs those.
 The axis and the markers show MHz. Pressing `b` shows BLE channel numbers
 instead -- the advertising channels 37, 38, and 39, and the data channels 0 to
 36 -- and pressing it again goes back to MHz. In channel mode the axis is
-marked on the channels themselves rather than every tenth megahertz, so a line
-on the graph lines up with the number under it. A marker names the channel
+marked on the channels themselves, so a line on the graph lines up with the
+number under it. A marker names the channel
 nearest the point it sits on, since the sweep steps 1 MHz where the channels
 are 2 MHz apart. The difference between two markers stays in MHz either way,
 written `(+4 MHz)` in channel mode. The margin either side of the band has no

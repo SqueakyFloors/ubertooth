@@ -59,8 +59,8 @@ print("specan/channels.py: %d frequencies, each with its channel"
 # between.
 for mhz in range(2402, 2481):
     expected = CHANNEL_OF_FREQUENCY[mhz if mhz % 2 == 0 else mhz + 1]
-    assert channels.nearest_channel(mhz) == expected, (mhz, expected,
-                                                       channels.nearest_channel(mhz))
+    got = channels.nearest_channel(mhz)
+    assert got == expected, (mhz, expected, got)
 
 print("specan/channels.py: %d bins of the swept band" % len(range(2402, 2481)))
 
@@ -70,8 +70,8 @@ print("specan/channels.py: %d bins of the swept band" % len(range(2402, 2481)))
 # because that is the half of its 2 MHz the window draws.
 for mhz, expected in ((2399, None), (2400, None), (2401, 37),
                       (2481, 39), (2482, None), (2500, None)):
-    assert channels.nearest_channel(mhz) == expected, (mhz, expected,
-                                                       channels.nearest_channel(mhz))
+    got = channels.nearest_channel(mhz)
+    assert got == expected, (mhz, expected, got)
 
 print("specan/channels.py: the plot's margins have no channel")
 
