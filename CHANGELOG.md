@@ -748,6 +748,14 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-util -n` printed its `waiting for the repeater... (<n> s)`
+  progress on standard output, so a script reading `-n` for the range test
+  result was handed those lines along with the result whenever the repeater
+  took more than a second to answer. The progress now goes to standard error,
+  where `Starting range test` and the run's error lines already were, and
+  standard output carries the four result lines alone.
+  [#1026](https://github.com/SqueakyFloors/ubertooth/issues/1026)
+
 - Fixed: a `-q` PCAP capture file that could not be written was left behind
   empty, for the user to tell apart from a capture that caught nothing, and
   the `error:` line naming it carried no reason while libbtbb printed one of

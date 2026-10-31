@@ -1189,20 +1189,33 @@ static int lines_in(const char *text)
 	return lines;
 }
 
+/* How many times needle appears in text, for a line that must be printed
+ * once however many polls could have printed it. */
+static int count_in(const char *text, const char *needle)
+{
+	size_t len = strlen(needle);
+	int found = 0;
+	const char *at;
+
+	while ((at = strstr(text, needle)) != NULL) {
+		found++;
+		text = at + len;
+	}
+	return found;
+}
+
 MU_TEST(range_test_reports_progress_and_then_the_result)
 {
 	struct run_result r;
 
 	/* A repeater that takes two and a half seconds to answer: a progress
-	 * line a second while the test runs, then the result block -m prints,
-	 * both on standard output. */
+	 * line a second while the test runs, on standard error, then the result
+	 * block -m prints, on standard output and alone there. */
 	reset_fake();
 	fake.range_reply_after_ms = 2500;
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "waiting for the repeater... (1 s)\n"
-	                 "waiting for the repeater... (2 s)\n"
 	                 "request PA level : 1\n"
 	                 "request number   : 2\n"
 	                 "reply PA level   : 3\n"
@@ -1210,7 +1223,10 @@ MU_TEST(range_test_reports_progress_and_then_the_result)
 	/* the one STOP that leaves a prior mode, and nothing else: the test
 	 * ended by itself */
 	mu_assert_int_eq(1, fake.stop_calls);
-	mu_assert(strcmp(r.err, "Starting range test\n") == 0, r.err);
+	mu_assert(strcmp(r.err,
+	                 "Starting range test\n"
+	                 "waiting for the repeater... (1 s)\n"
+	                 "waiting for the repeater... (2 s)\n") == 0, r.err);
 
 	/* An exchange that finishes inside the first second has no progress to
 	 * report, only its result. */
@@ -1269,9 +1285,15 @@ MU_TEST(a_discarded_packet_is_named_once_and_the_run_goes_on)
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "request PA level : 1\n") != NULL, r.out);
-	mu_assert(strcmp(r.err, "Starting range test\n"
+	/* The warning is on standard error, where the progress lines of the same
+	 * wait are, and it is printed once however many polls saw a discard. */
+	mu_assert(strstr(r.err, "Starting range test\n") == r.err, r.err);
+	mu_assert(strstr(r.err,
 	          "warning: range test: a packet that is not this board's reply "
-	          "was ignored (first difference at byte 2)\n") == 0, r.err);
+	          "was ignored (first difference at byte 2)\n") != NULL, r.err);
+	mu_assert_int_eq(1, count_in(r.err, "warning: range test:"));
+	mu_assert(strstr(r.err, "waiting for the repeater... (2 s)\n") != NULL,
+	          r.err);
 
 	/* A run that discarded nothing says nothing. */
 	reset_fake();
@@ -1323,23 +1345,25 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	fake.range_reply_after_ms = 0;
 	r = RUN("-n");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err,
-	                 "Starting range test\n"
+	mu_assert(strstr(r.err, "Starting range test\n") == r.err, r.err);
+	mu_assert(strstr(r.err,
 	                 "error: no reply from the repeater within 10 s: start "
 	                 "one in range with ubertooth-util -e, or wait longer "
 	                 "with -n <seconds>; the range test has been stopped\n")
-	          == 0, r.err);
+	          != NULL, r.err);
 	/* the STOP before the test, and the one that leaves the board idle */
 	mu_assert_int_eq(2, fake.stop_calls);
 	/* the deadline is a deadline, not a poll count */
 	mu_assert_int_eq(1000 + RANGE_TEST_TIMEOUT_S * 1000, (int)fake.now_ms);
-	/* the wait is reported as it goes, a line a second, and nothing else:
-	 * there is no result to print */
-	mu_assert(strstr(r.out, "waiting for the repeater... (1 s)\n") != NULL,
-	          r.out);
-	mu_assert(strstr(r.out, "waiting for the repeater... (9 s)\n") != NULL,
-	          r.out);
-	mu_assert_int_eq(RANGE_TEST_TIMEOUT_S - 1, lines_in(r.out));
+	/* The wait is reported as it goes, a line a second, on standard error:
+	 * the opening line, nine progress lines and the error, and standard
+	 * output stays empty because there is no result to print. */
+	mu_assert(strstr(r.err, "waiting for the repeater... (1 s)\n") != NULL,
+	          r.err);
+	mu_assert(strstr(r.err, "waiting for the repeater... (9 s)\n") != NULL,
+	          r.err);
+	mu_assert_int_eq(RANGE_TEST_TIMEOUT_S + 1, lines_in(r.err));
+	mu_assert_int_eq(0, (long)strlen(r.out));
 
 	/* -n <seconds> chooses the deadline, and is named in the message. */
 	reset_fake();
@@ -1356,8 +1380,9 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	r = RUN("-n0");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "request PA level : 1\n") != NULL, r.out);
-	mu_assert(strstr(r.out, "waiting for the repeater... (29 s)\n") != NULL,
+	mu_assert(strstr(r.err, "waiting for the repeater... (29 s)\n") != NULL,
 	          "the whole wait is reported");
+	mu_assert(strstr(r.out, "waiting for the repeater") == NULL, r.out);
 
 	/* A read that keeps failing mid-wait ends it, naming the read and
 	 * saying what became of the test. */
@@ -1393,7 +1418,8 @@ MU_TEST(range_test_with_no_repeater_times_out_and_stops_the_board)
 	r = RUN("-n");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.out, "reply number     : 4\n") != NULL, r.out);
-	mu_assert(strcmp(r.err, "Starting range test\n") == 0, r.err);
+	mu_assert(strstr(r.err, "Starting range test\n") == r.err, r.err);
+	mu_assert(strstr(r.err, "error") == NULL, r.err);
 
 	reset_fake();
 	fake.range_reply_after_ms = 1000;
