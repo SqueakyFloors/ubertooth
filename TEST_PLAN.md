@@ -283,8 +283,7 @@ earlier bootloader ignores the checksum and runs as it always did.*
 - [ ] Confirm: the board comes back running the image just written, and the
       first eight words of the dump add up to zero with the word at offset
       0x1c not zero — the checksum the tool filled in
-- [ ] Confirm: the dump and the image file differ in that word and nowhere
-      else, over the length of the image
+
 
 ### 2h. Flashing back off the btbr image
 

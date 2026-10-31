@@ -1123,13 +1123,13 @@
   application that is not there: it waits in DFU instead, so the next
   `ubertooth-dfu -d` recovers the board rather than someone at the bench with
   the entry pin bridged. The tool fills in the checksum the part reserves over
-  that vector table and the bootloader checks it, so a vector table that
-  reached the flash in pieces is refused as well; the one word this adds is
-  the only difference between an image file and the flash written from it.
-  The bootloader half takes effect only on a board
-  carrying a bootloader built from this tree, which is installed with ISP or
-  JTAG; a download interrupted inside its last 4 KiB is still one for the
-  bench either way. A read of the image file that fails part way through now
+  that vector table and the bootloader checks it, so a board that lost power
+  part way through programming that one block is not started either; the one
+  word this adds is the only difference between an image file and the flash
+  written from it. The bootloader half takes effect only on a board carrying a
+  bootloader built from this tree, which is installed with ISP or JTAG; a
+  download interrupted inside its last 4 KiB is still one for the bench either
+  way. A read of the image file that fails part way through now
   fails the download as well, where it used to end the transfer and report
   success.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)

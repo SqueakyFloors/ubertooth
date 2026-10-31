@@ -296,6 +296,9 @@ MU_TEST(a_vector_table_with_no_checksum_is_startable)
 	          "an image carrying no checksum was refused");
 }
 
+/* The sum has to come to zero, whichever word is out: the checksum word
+ * itself, or a handler address that changed after the checksum was worked
+ * out. */
 MU_TEST(a_wrong_checksum_is_not_startable)
 {
 	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
@@ -305,14 +308,6 @@ MU_TEST(a_wrong_checksum_is_not_startable)
 	vectors[APP_IMAGE_CHECKSUM_INDEX] += 1;
 	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
 	          "an image whose checksum was wrong was accepted");
-}
-
-/* A handler address that changed after the checksum was worked out: the sum no
- * longer comes to zero, which is what a first block that reached the flash in
- * pieces looks like. */
-MU_TEST(a_vector_table_that_changed_under_its_checksum_is_not_startable)
-{
-	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
 
 	a_vector_table(vectors);
 	checksum_the_table(vectors);
@@ -322,10 +317,11 @@ MU_TEST(a_vector_table_that_changed_under_its_checksum_is_not_startable)
 }
 
 /* Erased flash in the checksum word, with the two words in front of it
- * written: a first block that was programmed only part of the way. The two
+ * written: a first block the part did not finish programming, which is what a
+ * board that loses power during that one program can be left with. The two
  * words on their own read plausibly, so this is the case the checksum is here
  * for. */
-MU_TEST(a_half_written_first_block_is_not_startable)
+MU_TEST(a_first_block_programmed_part_way_is_not_startable)
 {
 	uint32_t vectors[APP_IMAGE_CHECKED_WORDS];
 	unsigned i;
@@ -553,11 +549,14 @@ MU_TEST(the_bootloader_asks_the_whole_check)
 	static char source[200000];
 	char collapsed[200000];
 
+	const char *function;
+
 	read_bootloader_source(source, sizeof(source));
 	collapse_spaces(source, collapsed, sizeof(collapsed));
-	mu_assert(strstr(collapsed,
-	                 "return app_image_table_startable(vectors, "
-	                 "LPC_FLASH_SIZE_FALLBACK);") != NULL,
+	function = strstr(collapsed, "application_startable() {");
+	mu_assert_fatal(function != NULL,
+	                "application_startable()'s body is not in bootloader.cpp");
+	mu_assert(strstr(function, "app_image_table_startable(") != NULL,
 	          "application_startable() no longer puts the vector table to "
 	          "app_image_table_startable()");
 }
@@ -600,8 +599,7 @@ int main(void)
 	MU_RUN(a_checksummed_vector_table_is_startable);
 	MU_RUN(a_vector_table_with_no_checksum_is_startable);
 	MU_RUN(a_wrong_checksum_is_not_startable);
-	MU_RUN(a_vector_table_that_changed_under_its_checksum_is_not_startable);
-	MU_RUN(a_half_written_first_block_is_not_startable);
+	MU_RUN(a_first_block_programmed_part_way_is_not_startable);
 	MU_RUN(erased_flash_is_not_startable_whatever_its_checksum);
 	MU_RUN(a_checksummed_table_with_bad_words_is_not_startable);
 	MU_RUN(the_checksum_word_is_the_one_the_part_defines);

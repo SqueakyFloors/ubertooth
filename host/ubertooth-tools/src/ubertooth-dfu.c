@@ -1199,6 +1199,10 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
 		        "the image\n", index);
 		return -1;
 	}
+	/* The image's first block is the vector table, and the download order
+	 * below writes it last. */
+	if (index == 0)
+		fill_vector_checksum(buffer);
 	return send_block(devh, first_block + index, buffer, blocks_sent);
 }
 
@@ -1294,20 +1298,8 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 	}
 
 	/* Step 3: the first sector, the vector table first because the erase
-	 * goes with it. The checksum over the vector table is filled in here, so
-	 * the board has something to tell a whole first block from a partly
-	 * written one. */
-	if (!read_image_block(downfile, 0, buffer)) {
-		end_progress_row();
-		fprintf(stderr, "error: download failed: could not read block 0 of "
-		        "the image\n");
-		return -1;
-	}
-	fill_vector_checksum(buffer);
-	rv = send_block(devh, first_block, buffer, &blocks_sent);
-	if (rv < 0)
-		return rv;
-	for (index = 1; index < sector_blocks && index < image_blocks; index++) {
+	 * goes with it. */
+	for (index = 0; index < sector_blocks && index < image_blocks; index++) {
 		rv = send_image_block(devh, downfile, first_block, index,
 		                      &blocks_sent);
 		if (rv < 0)

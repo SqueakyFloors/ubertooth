@@ -111,7 +111,7 @@ real vector table in the last step of the transfer. A bootloader built from this
 tree finds the blank table, refuses to jump, and waits in DFU for another
 image, so a flash that failed is followed by another `ubertooth-dfu -d`. A
 checksum over that table goes in with it, in the word the part reserves for
-one at offset 0x1c, so a first block that reached the flash in pieces does not
+one at offset 0x1c, so a first block whose programming did not finish does not
 add up and is refused as well. A
 board carrying an earlier bootloader jumps into the blank table instead and
 stops there, so it needs the same trip to the bench it always did; a
@@ -126,11 +126,20 @@ not reach that far: it covers the vector table alone, which is written whole
 or not at all. That board has to be recovered at the bench, as MANUALLY
 ENTERING BOOTLOADER below describes.
 
-Both checks read what the flash holds, so neither says anything about a board
-that lost power while the bootloader was erasing or programming a sector:
-flash left part way through either reads as it pleases. What they cover is a
-transfer that stopped between blocks, which is what a pulled cable, a board
-that leaves the bus, or a host that dies leaves behind.
+The two checks cover different things. A download that stops between blocks
+leaves the vector table erased, which the stack pointer and reset vector
+refuse on their own: the board is handed a block only once all 256 bytes of it
+have arrived, so a transfer that stops writes nothing of the block it was on.
+The checksum covers a first block whose programming did not finish -- a board
+that lost power part way through that one program, which on a bus-powered
+board is what a pulled cable does. Neither says anything about the fifteen
+blocks above it: flash left part way through an erase or a program reads as it
+pleases.
+
+A board whose application was put there by other means -- a programmer over
+ISP or JTAG, or another loader -- may hold something in that word already. If
+it is not a checksum over the table, a bootloader from this tree will not
+start it, and one `ubertooth-dfu -d` puts an image there that it does.
 
 An image this tree builds leaves the word at offset 0x1c zero, so the checksum
 is the one byte-for-byte difference between such a file and the flash written

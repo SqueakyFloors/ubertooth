@@ -131,9 +131,17 @@ static inline bool app_image_startable(const uint32_t stack_pointer,
  *
  * ubertooth-dfu fills this word in as it writes the application's first block
  * (host/ubertooth-tools/src/ubertooth-dfu.c, download()), so an image written
- * by it carries a checksum over the words the board starts from, and a first
- * block that only partly reached the flash does not add up. Erased flash
- * leaves 0xFFFFFFFF there, which fails as well.
+ * by it carries a checksum over the words the board starts from.
+ *
+ * What that catches is a first block the part did not finish programming. A
+ * download that stops between blocks writes nothing of the block it was on --
+ * the bootloader is handed a block only once all 256 bytes of it have arrived
+ * (firmware/common/lpcusb/target/usbcontrol.c) and programs it in one call --
+ * and the two words above already refuse the erased flash that leaves. The
+ * window the checksum covers is narrower and real: a board that loses power
+ * part way through that one program, which on a bus-powered board is what a
+ * pulled cable does. Erased flash leaves 0xFFFFFFFF in the word, which fails
+ * the sum as well.
  *
  * A zero word is no checksum rather than a wrong one, and is accepted. That
  * is what every image this tree builds has in the file -- the application's
