@@ -318,14 +318,16 @@ Miscellaneous:
    `-n`) does not clear it. Promiscuous mode then discovers an address again
    rather than falling back to the advertising one.
  - `-k` :
-   Verify the CRC of each captured packet. Verification is off unless this
-   option asks for it, and the option takes no value: a word written after it
-   is a stray one (`error: unexpected argument '1'`) and a value attached to
-   it reads as a letter the tool does not have (`error: unrecognized option
-   '-1'`). In a sniffing mode it runs once the mode has started, because
-   entering a mode clears the setting, and the firmware then turns
-   verification on and off itself as it recovers a connection. The run reports
-   what it asked for, `CRC: verify`.
+   Verify the CRC of each captured packet. Verification is off unless a run
+   asks for it, and there is no command line that turns it off: the board
+   clears the setting whenever a capture mode starts, so it lasts no longer
+   than the run that asked for it. The option takes no value: a word written
+   after it is a stray one (`error: unexpected argument '1'`), and a digit
+   written against it is read as an option, so `-k1` gives `error:
+   unrecognized option '-1'`. In a sniffing mode it is sent once the mode has
+   started, for that reason, and the firmware then turns verification on and
+   off itself as it recovers a connection. The run reports what it asked for,
+   `CRC: verify`.
  - `-v` :
    Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder
    describes each packet whose data it could not read, on standard error, as

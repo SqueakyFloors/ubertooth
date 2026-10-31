@@ -2182,7 +2182,7 @@ void le_phy_main(void) {
 			// "phantom" advertisers leaked to the host. Advertising-channel
 			// PDUs use the fixed CRCInit (reversed: 0xAAAAAA); data-channel
 			// PDUs use the value recovered from CONNECT_IND. Disabled by
-			// default, so the legacy behaviour is unchanged unless -k1 is set.
+			// default, so the legacy behaviour is unchanged unless -k is set.
 			int crc_ok = 1;
 			if (le.crc_verify && packet->size > 3) {
 				unsigned pdu_len = packet->size - 3;
