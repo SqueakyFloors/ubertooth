@@ -13,7 +13,7 @@ packaging, or reviewing the fork can judge it with that in mind.
   upstream `2020-12-R1` release were written or revised by large-language-model
   coding agents working to a written ruleset, with a human reviewing what
   landed.
-- Non-trvial changes were reviewed in one or more rounds by two independent 
+- Non-trivial changes were reviewed in one or more rounds by two independent
   agents on a different model family before being considered for merge.
 
 ## What the agents were and were not allowed to do
