@@ -133,12 +133,17 @@ error details or the documented manual bootloader recovery path.
 
 Troubleshooting:
 
-If you run into an error such as "error: Input/Output Error (libusb -1)" or the Ubertooth's 4 LEDs next to each other perform a distinctive chasing pattern, after extracting the archive of the latest Ubertooth release, change into the ``firmware`` directory. Then, run:
+If you run into an error such as "error: Input/Output Error (libusb -1)" or the Ubertooth's 4 LEDs next to each other perform a distinctive chasing pattern, build the firmware again from the same checkout as your host tools and write it. In the ``firmware`` directory of that checkout, run:
 
 	.. code-block:: sh
 
-		make clean all && make
+		make clean all
 		ubertooth-dfu -r -d bluetooth_rxtx/bluetooth_rxtx.dfu
+
+A release archive of this project carries the images already built, in
+``ubertooth-one-firmware-bin/``, and those can be written as they are. An image
+from an upstream release cannot: it carries no firmware info block, so
+``ubertooth-dfu`` refuses the file.
 
 If your Ubertooth One has no firmware or broken firmware and doesn't show up when issuing ``lsusb``, force it into DFU mode by bridging pins 1 and 3 on the EXPAND header (P4) while the device is unplugged, then plug it in with the bridge still connected:
 
@@ -190,7 +195,7 @@ Developing Firmware
 
 
 
-You'll need a toolchain that supports ARM Cortex-M3. The Makefiles in the firmware directory are designed for GCC and a Linux-based toolchain, specifically ``arm-none-eabi-gcc and libnewlib-arm-none-eabi``. The bootloader also needs the ARM C++ runtime, because it is the one image written in C++; the plain firmware build leaves it out, so you only need that package to build the bootloader, with ``make -C firmware bootloader``. If you are running a Debian based distribution, you can run:
+You'll need a toolchain that supports ARM Cortex-M3. The Makefiles in the firmware directory are written for GCC, specifically ``arm-none-eabi-gcc`` and ``libnewlib-arm-none-eabi``, and they build on Linux and on macOS. The bootloader also needs the ARM C++ runtime, because it is the one image written in C++; the plain firmware build leaves it out, so you only need that package to build the bootloader, with ``make -C firmware bootloader``. If you are running a Debian based distribution, you can run:
 
 	.. code-block:: sh
 
@@ -198,7 +203,7 @@ You'll need a toolchain that supports ARM Cortex-M3. The Makefiles in the firmwa
 		# only for the bootloader
 		apt-get install libstdc++-arm-none-eabi-newlib
 
-Otherwise it can be downloaded from `https://launchpad.net/gcc-arm-embedded <https://launchpad.net/gcc-arm-embedded>`__, just unpack the archive and add the bin directory to your PATH.
+On macOS, ``brew install --cask gcc-arm-embedded`` gives the same toolchain, with the ARM C++ runtime included. Otherwise it can be downloaded from `Arm's GNU toolchain page <https://developer.arm.com/Tools%20and%20Software/GNU%20Toolchain>`__: unpack the archive and add its ``bin`` directory to your PATH.
 
 To build the firmware, start from the directory where you cloned or unpacked the source and run the following:
 
