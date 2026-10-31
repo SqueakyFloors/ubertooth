@@ -827,6 +827,13 @@
   missing bytes were there.
   [#971](https://github.com/SqueakyFloors/ubertooth/issues/971)
 
+- Fixed: a message from the board that `ubertooth-btbr` could not read, or an
+  inquiry response the air cut short, ended the thread reading the board or
+  the running command in `IndexError: index out of range`, and with it the
+  rest of the session. Such a message is now dropped with a `warning:` line
+  naming what arrived, said once per reason, and the session keeps capturing.
+  [#978](https://github.com/SqueakyFloors/ubertooth/issues/978)
+
 - A `ubertooth-btbr` connection goes on when the peer refuses one of the five
   requests it opens with: the refusal is reported with the reason the peer
   gave, and the next request goes out. A refusal used to leave the session

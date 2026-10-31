@@ -213,6 +213,14 @@ If no FHS appears, the peripheral won the race; try again.
   are refused with invalid LMP parameters, and a short slot offset is ignored,
   since that PDU expects no answer. `monitor` has no peer to answer, so it
   reports such a PDU and leaves the AFH map as it was.
+- A message from the board the tool cannot read is dropped and the session
+  goes on with the next one: a packet that ends before what it says it holds,
+  one of a type the tool does not decode, or a message whose own header is
+  wrong. It is reported in a `warning:` line naming what arrived, said once
+  per reason for the life of the session, since a board sending one such
+  message usually sends many. A message whose framing the tool cannot follow
+  at all is a different thing and still ends the thread reading the board;
+  see EXIT STATUS.
 - As the central, it polls the peripheral hard enough to drain its battery.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
@@ -273,6 +281,16 @@ prompt of a session nobody is editing at a terminal included, goes to standard
 error. A command line the tool will not take, a board it cannot select, open
 or set up, and anything that goes wrong during a session, are reported as the
 one-line `error: `, `warning: ` and `note: ` lines the other tools use.
+
+A message from the board the session could not read is one of those, naming
+what arrived:
+
+    warning: a message from the device was dropped: FHS packet of 17 bytes, too short for the 18 an FHS carries
+
+The capture goes on without it; see LIMITATIONS. An inquiry response whose
+EIR has a field running past the end of it is `warning: malformed EIR: ...`,
+once per command rather than once per session: what is wrong there belongs to
+whichever device answered, and the next `inquiry` may hear another.
 
 A host without the Python `libusb1` package can still ask what is installed:
 `-V`, `-h` and a command line the tool will not take are all answered before
@@ -369,18 +387,21 @@ when the session ends with a command that would not stop still holding the
 board, and when the thread reading the board stopped on a failure.
 
 The last of those is a board that left the USB bus, stopped answering, or sent
-something this tool could not read, with the session still up: the thread
-reading it ends there, nothing restarts it, and no message arrives for the
-rest of the session. The board was power-cycled under a running `inquiry` when
-this was found, and the session reported every step correctly and then exited
-0, so a script could not tell it from a run where every command worked. What
+a message whose framing this tool could not follow, with the session still up:
+the thread reading it ends there, nothing restarts it, and no message arrives
+for the rest of the session. The board was power-cycled under a running
+`inquiry` when this was found, and the session reported every step correctly
+and then exited 0, so a script could not tell it from a run where every
+command worked. What
 ended that thread is said as it happens, `error: the receive thread stopped:
 <type>: ...`, and again on the way out as a `warning: `.
 
 A single command the board refused is not that. It is reported on standard
 error (see DIAGNOSTICS), the prompt stays up, and the session goes on and
 ends with the status its own ending gives it, the way a shell reports a failed
-command without failing itself.
+command without failing itself. One message the tool could not read is not
+that either: it is dropped and the session goes on, which costs the capture
+that message and nothing else (see LIMITATIONS).
 
 ## SEE ALSO
 

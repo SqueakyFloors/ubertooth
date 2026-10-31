@@ -70,6 +70,11 @@ BTCTL_ISP_REQ		= 33
 BTCTL_RX_PKT		= 40
 BTCTL_STATE_RESP	= 41
 
+# The word every message opens with, naming its type, and what a state
+# response carries behind it: the state, and the reason it is in that state.
+MSG_TYPE_LEN		= 4
+STATE_RESP_LEN		= 2
+
 # States
 BTCTL_STATE_STANDBY	= 0
 BTCTL_STATE_INQUIRY	= 1
@@ -221,6 +226,10 @@ def acl_type_find(type_):
 def data_to_str(data):
 	return " ".join("%02x"%b for b in data)
 
+def byte_count(n):
+	"""A count of bytes to quote back to the user: 1 byte, 18 bytes."""
+	return "%d byte%s"%(n, "" if n == 1 else "s")
+
 def print_state(state, reason):
 	ss = STATE_TO_STR.get(state) or str(state)
 	rs = REASON_TO_STR.get(reason) or str(reason)
@@ -230,7 +239,16 @@ class BTCtlError(Exception):
 	"""Something the caller can be told about, rather than a bug in this code."""
 
 class BTCtlFramingError(BTCtlError):
-	"""A USB packet, or a message in it, that does not fit what the device sends."""
+	"""A USB packet, or a message in it, that does not fit what the device sends.
+
+	`kind` names what was wrong without the lengths that vary from one such
+	message to the next, so a caller that reports these can say each one once
+	however many sizes it arrives in. It defaults to the whole message, for
+	the raises whose wording carries no length.
+	"""
+	def __init__(self, message, kind=None):
+		super().__init__(message)
+		self.kind = kind or message
 
 class BTCtlNoDeviceError(BTCtlError):
 	"""No Ubertooth to control."""
@@ -272,13 +290,27 @@ class BBHdr:
 		return s
 
 	def __str__(self):
-		t = ACL_TYPES_TO_STR[self.type]
-		if t is None: t = "%d"%t
+		# A type no table names is its number, as the LMP opcodes are: this
+		# header is printed for a raw packet, so it must not raise on one.
+		t = ACL_TYPES_TO_STR.get(self.type, "%d"%self.type)
 		s = "BBHdr(lt_addr=%d, type=%s, flags=%s)"%(
 			self.lt_addr, t, self.flagstr())
 		return s
 
 class BTCtlEIR:
+	# Set once the malformed-field warning below has gone out, so each
+	# command says it once: a device whose response is cut re-sends that
+	# response every inquiry cycle, and identical lines bury the rest of a
+	# session. Unlike a dropped message, which says something about the
+	# board and so is said once for the whole session, this says something
+	# about whichever device answered, so the next command starts afresh.
+	_said_malformed = False
+
+	@staticmethod
+	def forget_warnings():
+		"""Let the next command report a malformed response of its own."""
+		BTCtlEIR._said_malformed = False
+
 	EIR_FLAGS = 1
 	EIR_INCOMPLETE_U16_LIST = 2
 	EIR_COMPLETE_U16_LIST = 3
@@ -308,14 +340,26 @@ class BTCtlEIR:
 	def unpack(data):
 		buf = data
 		fields = []
-		while (buf):
-			l,t = buf[:2]
-			dat,buf = buf[2:1+l], buf[1+l:]
-			if (1+len(dat) != l):
+		def runs_past():
+			"""Report a field that does not fit the response, once."""
+			if not BTCtlEIR._said_malformed:
+				BTCtlEIR._said_malformed = True
 				# A warning is not part of the capture on standard output,
 				# so it goes to standard error like every other diagnostic.
 				warn("malformed EIR: a field runs past the end of the "
 					"response, so the rest of it is dropped")
+		while (buf):
+			# A field is a length and a type before its data, so one byte
+			# left is a field that runs past the end as surely as a short
+			# one does. Read without this check it raised instead, which
+			# ended the command that was decoding the response.
+			if len(buf) < 2:
+				runs_past()
+				break
+			l,t = buf[:2]
+			dat,buf = buf[2:1+l], buf[1+l:]
+			if (1+len(dat) != l):
+				runs_past()
 				break
 			fields.append((t,dat))
 		return BTCtlEIR(fields)
@@ -334,7 +378,11 @@ class BTCtlEIR:
 			if tn is None: tn = "0x%x"%t
 			if t in (BTCtlEIR.EIR_SHORTENED_LOCAL_NAME,
 				BTCtlEIR.EIR_COMPLETE_LOCAL_NAME):
-				ts = "'%s'"%(dat.decode())
+				# A name comes off the air and need not be UTF-8 at all, let
+				# alone whole: a shortened one can be cut mid-character. A
+				# byte that cannot be decoded is replaced rather than
+				# raising, which ended the command printing the response.
+				ts = "'%s'"%(dat.decode("utf-8", "replace"))
 			else:
 				ts = hexlify(dat).decode()
 			s += "%s: %s"%(tn, ts)
@@ -342,6 +390,12 @@ class BTCtlEIR:
 
 
 class BTCtlFHSPkt:
+	# An FHS payload is a fixed 144 bits, 18 bytes, whatever it carries: the
+	# 34-bit parity, the address, the class of device, the LT_ADDR the
+	# central is giving out, and the clock (Core v5.4 | Vol 2, Part B,
+	# 6.5.1.4). The firmware strips the 16-bit CRC that follows.
+	PAYLOAD_LEN = 18
+
 	def __init__(self, parity, bdaddr, cls, ltaddr, clk27_2):
 		self.parity = parity
 		self.bdaddr = bdaddr
@@ -351,6 +405,14 @@ class BTCtlFHSPkt:
 
 	@staticmethod
 	def unpack(data):
+		if len(data) < BTCtlFHSPkt.PAYLOAD_LEN:
+			# Every field below is read by its own offset, so a short payload
+			# used to be read past the end of. Reported as the framing error
+			# it is, and the packet dropped.
+			raise BTCtlFramingError(
+				"FHS packet of %s, too short for the %d an FHS "
+				"carries"%(byte_count(len(data)), BTCtlFHSPkt.PAYLOAD_LEN),
+				"FHS packet too short for an FHS")
 		parity = 0x3ffffffff & ( data[0]|(data[1]<<8)
 			|(data[2]<<16)|(data[3]<<24)|((data[4]&3)<<32))
 		lap = (   (data[4]>>2)
@@ -393,17 +455,20 @@ class BTCtlACLPkt:
 	def unpack(type_, inp):
 		tp = acl_type_find(type_)
 		if tp is None:
-			raise BTCtlFramingError("packet of unknown type %d"%type_)
+			# The type is what is wrong here, so it belongs in the kind too.
+			raise BTCtlFramingError("packet of unknown type %d"%type_,
+				"unknown packet type %d"%type_)
 		bt_type,hlen,plen,fec = tp
 		if len(inp) < hlen:
 			# Not even the payload header this packet kind starts with, so
 			# there is nothing to read it as. Reported as the framing error
 			# it is, where it used to leave the payload unset and end the
 			# receive thread in an UnboundLocalError.
+			named = ACL_TYPES_TO_STR.get(bt_type, bt_type)
 			raise BTCtlFramingError(
-				"%s packet of %d bytes, too short for its %d-byte payload "
-				"header"%(ACL_TYPES_TO_STR.get(bt_type, bt_type),
-					len(inp), hlen))
+				"%s packet of %s, too short for its %d-byte payload "
+				"header"%(named, byte_count(len(inp)), hlen),
+				"%s packet too short for its payload header"%named)
 		if hlen == 1:
 			hdr = inp[0]
 			data=inp[1:]
@@ -428,6 +493,10 @@ class BTCtlACLPkt:
 		return s
 
 class BTCtlRxPkt:
+	# What every received-packet message starts with, before the packet
+	# itself: the 8-byte record below, then the 4-byte baseband header.
+	HEADER_LEN = 12
+
 	def __init__(self, clkn, chan, flags, bb_hdr, bt_data):
 		self.clkn = clkn
 		self.chan = chan
@@ -447,11 +516,20 @@ class BTCtlRxPkt:
 			 uint8_t bt_data[0];     // maximum data size for an ACL packet
 		 } __attribute__((packed)) btctl_rx_pkt_t;
 		"""
+		if len(data) < BTCtlRxPkt.HEADER_LEN:
+			# Reported before the slicing below, which on a short message
+			# used to raise from the struct unpack or from the baseband
+			# header's own unpacking, neither of which says what arrived.
+			raise BTCtlFramingError(
+				"received packet of %s, too short for its %d-byte "
+				"header"%(byte_count(len(data)), BTCtlRxPkt.HEADER_LEN),
+				"received packet too short for its header")
 		hdr,bb_hdr,bt_data = data[:8],data[8:12],data[12:]
 		clkn,chan,flags,data_size = unpack("<IBBH", hdr)
 		if data_size != len(bt_data):
 			raise BTCtlFramingError(
-				"packet of %d bytes carrying %d"%(data_size, len(bt_data)))
+				"packet of %d bytes carrying %d"%(data_size, len(bt_data)),
+				"packet carrying other than the size it says")
 		bb_hdr = BBHdr.unpack(bb_hdr)
 		t = bb_hdr.type
 		if t == FHS:
@@ -708,6 +786,9 @@ class BTCtlSuperCmd(Thread):
 
 class BTCtlInquiryCmd(BTCtlCmd):
 	def _start(self):
+		# This inquiry's responses come from whatever is nearby now, so a
+		# malformed one is reported again even if the last inquiry had one.
+		BTCtlEIR.forget_warnings()
 		self._bt.send_inquiry_cmd()
 
 	def _handle_state(self, state, reason):
@@ -1132,6 +1213,10 @@ class BTCtl:
 		# "Ubertooth" when the caller built this from a handle of its own.
 		self._board = board or board_label()
 		self._rx_thread = None
+		# The kinds of message already dropped, so each is said once. Only
+		# the receive thread touches it, and the kinds are the fixed set of
+		# wordings this file has.
+		self._dropped = set()
 		self._con = False
 		self._con_lock = Lock()
 		self._rx_stopped = Event()
@@ -1218,13 +1303,50 @@ class BTCtl:
 		else:
 			log.info("No cmd for message %d"%t)
 
+	def _drop(self, reason, kind):
+		"""Report a message that could not be read, and say to drop it.
+
+		Said once per `kind`, which names what was wrong without the lengths
+		that differ between two such messages: a board sending records of
+		every wrong size must not get a line for each, since identical lines
+		bury the rest of a session. The LMP unhandled-opcode warning is held
+		down the same way. The message is dropped whether a line went out.
+		"""
+		if kind not in self._dropped:
+			self._dropped.add(kind)
+			warn("a message from the device was dropped: %s"%reason)
+
 	def _handle_msg(self, data):
+		if len(data) < MSG_TYPE_LEN:
+			# Every message opens with the word naming its type, so one
+			# shorter than that word says nothing to hand on: a message of
+			# no bytes raised an IndexError here, and one of one to three
+			# handed on an empty body that failed further along.
+			return self._drop("message of %s, too short to name its "
+				"type"%byte_count(len(data)), "message too short to name "
+				"its type")
 		t,msg =data[0], data[4:]
 		if t == BTCTL_DEBUG:
 			self._print_console(msg)
 		else:
 			if t == BTCTL_RX_PKT:
-				msg = BTCtlRxPkt.unpack(msg)
+				try:
+					msg = BTCtlRxPkt.unpack(msg)
+				except BTCtlFramingError as e:
+					# One record from the board that cannot be read as a
+					# packet. The stream of messages is still in step --
+					# _rx_loop checks that for itself -- so this costs the
+					# session one packet rather than the thread that reads
+					# the board, and with it the rest of the capture.
+					return self._drop(str(e), e.kind)
+			elif t == BTCTL_STATE_RESP and len(msg) != STATE_RESP_LEN:
+				# Every reader of this message takes the state and the
+				# reason for it as the two arguments it carries, so any
+				# other length raised a TypeError that ended the command
+				# waiting on the state.
+				return self._drop("state response of %s, where the state "
+					"and its reason are %d"%(byte_count(len(msg)),
+						STATE_RESP_LEN), "state response of another size")
 			if self._msg_handler is not None:
 				self._msg_handler(t,msg)
 			else:
