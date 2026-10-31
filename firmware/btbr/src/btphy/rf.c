@@ -28,11 +28,32 @@
 
 volatile rf_state_t rf_state = {0};
 
+/*
+ * This PHY runs off the GPIO interrupt on the radio's GIO6 pin. The radio
+ * reports its transmit FIFO there, and INT is set so the rising edge arrives
+ * once the FIFO has fallen to 16 of its 32 bytes -- the headroom the handler
+ * has to refill it in, which is the only way a packet longer than that FIFO
+ * reaches the air. Every mode but passive sniffing transmits -- a page, an inquiry, or the answer a scan owes -- so
+ * without that interrupt they would all go out as the 28 bytes the first fill
+ * holds.
+ *
+ * The part has a GPIO interrupt on ports 0 and 2 only (LPC176x/5x user manual
+ * UM10360, section 9.5), so a board whose GIO6 is on another port cannot raise
+ * one. Say so here rather than build an image that truncates everything it
+ * sends; firmware/Makefile leaves btbr out of `all` on such a board. The
+ * three functions below are the ones that touch that interrupt, and they reach
+ * its registers through the board's own macros so a write lands on the port
+ * the pin is on. They are inside the #if so that a board that cannot have the
+ * interrupt gets the one message that explains it, rather than that message
+ * followed by every macro it does not define.
+ */
+#if GIO6_HAS_INTERRUPT
+
 /* Interrupt handler for GIO6 */
 void EINT3_IRQHandler(void)
 {
 	/* Clear interrupt */
-	IO2IntClr |= PIN_GIO6;
+	GIO6_INT_CLR;
 
 	if (!rf_state.int_handler)
 	{
@@ -45,16 +66,16 @@ void btphy_rf_enable_int(btbr_int_cb_t cb, void*cb_arg, int tx)
 {
 	/* clear pending */
 	ICPR0 = ISER0_ISE_EINT3;
-	IO2IntClr |= PIN_GIO6;
+	GIO6_INT_CLR;
 
 	rf_state.int_handler = cb;
 	rf_state.int_arg = cb_arg;
 
 	/* Configure interrupt on GIO6 rising edge */
 	if (tx)
-		IO2IntEnR |= PIN_GIO6;
+		GIO6_INT_RISE_SET;
 	else
-		IO2IntEnF |= PIN_GIO6;
+		GIO6_INT_FALL_SET;
 
 	/* Enable */
 	ISER0 = ISER0_ISE_EINT3;
@@ -65,13 +86,17 @@ void btphy_rf_disable_int(void)
 	/* Mask interrupt */
 	ICER0 = ISER0_ISE_EINT3;
 
-	IO2IntEnR &= ~PIN_GIO6;
-	IO2IntEnF &= ~PIN_GIO6;
+	GIO6_INT_RISE_CLR;
+	GIO6_INT_FALL_CLR;
 
 	/* Clear pending interrupt */
-	IO2IntClr |= PIN_GIO6;
+	GIO6_INT_CLR;
 	ICPR0 = ISER0_ISE_EINT3;
 }
+
+#else
+#error "btbr needs a GPIO interrupt on the radio's GIO6 pin, and this board's GIO6 is on a port that has none"
+#endif
 
 void btphy_rf_set_freq_off(uint8_t off)
 {
