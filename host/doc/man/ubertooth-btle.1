@@ -200,7 +200,9 @@ Read (\fB\-k\fR) or set (\fB\-k 0\fR or \fB\-k 1\fR) CRC verification (default: 
 \fB\-v\fR
 Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder describes each packet whose data it could not read, on standard error, as the run goes\. Without it a run counts those packets and says how many there were in one line when it ends (DIAGNOSTICS)\. It needs \fB\-f\fR, \fB\-n\fR or \fB\-p\fR, since there is no decode to describe otherwise, and it takes no value\. A capture on standard output (\fB\-q \-\fR, \fB\-c \-\fR) prints no packets at all, so that too is refused: \fBerror: \-v does not go with a capture on standard output: a run that hands the capture that stream prints no packets to describe\fR\.
 .IP
-\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, so a command line written that way is refused with a line naming \fB\-k\fR: \fB\-v 0\fR and \fB\-v 1\fR give \fBerror: \-v is verbose now and takes no value (got 1); the CRC verify setting it used to name is \-k\fR, and \fB\-v\fR on its own gives \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
+There is one level of it, so writing it twice says what writing it once said (ubertooth(7), OPTION VALUES)\.
+.IP
+\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, which is the likeliest source of a command line that writes a value here\. Such a line is refused as any valueless option's value is, and \fB\-v\fR on its own says where the setting went: \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
 .TP
 \fB\-x <0\-32>\fR
 Allow n access address violations (default: 32)\. Filtering occurs on host\.
@@ -229,7 +231,7 @@ Injecting advertising packets (\fB\-s\fR) transmits at the CC2400 power level se
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: advertising channel index must be 37\-39 (got 40)\fR\.
 .P
-A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\-r\fR\. See ubertooth(7), OPTION VALUES, for the forms an option's value can take, including the optional values of \fB\-a\fR and \fB\-k\fR\.
+A bare \fB\-\fR is still the stdin/stdout value of \fB\-q\fR, \fB\-c\fR and \fB\-r\fR\. See ubertooth(7), OPTION VALUES, for the forms an option's value can take, including the optional values of \fB\-a\fR and \fB\-k\fR, which may be written as the next word or attached\. \fB\-v\fR takes no value in either form\.
 .P
 An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: more than one of \fB\-f\fR, \fB\-n\fR and \fB\-p\fR gives \fBerror: choose one of \-f, \-n or \-p\fR, and a read and a set of the access address in one command gives \fBerror: \-a cannot both read and set the access address\fR\.
 .P

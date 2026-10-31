@@ -526,12 +526,12 @@ MU_TEST(a_set_and_a_read_of_crc_verify_both_run_set_first)
 
 /*
  * -v is verbose: it describes each packet whose data the decoder could not
- * read, so it needs one of the capture modes and takes no value. It named the
- * CRC verify setting until -k took that over, so each of the command lines
- * that used it that way is refused with a line naming -k, rather than read as
- * something -v does not mean.
+ * read, so it needs one of the capture modes, and it takes no value at all.
+ * It named the CRC verify setting until -k took that over, so the line that
+ * refuses it without a mode names -k, which is where a command line written
+ * that way most likely came from.
  */
-MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
+MU_TEST(v_is_verbose_and_takes_no_value)
 {
 	struct run_result r;
 	static const char needs_a_mode[] = "error: -v needs -f, -n or -p: there "
@@ -547,23 +547,38 @@ MU_TEST(v_is_verbose_and_sends_the_old_crc_spelling_to_k)
 	mu_assert(strcmp(r.err, needs_a_mode) == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_gets);
 
-	/* "-v1" set it. -v takes no value at all now, and the refusal quotes
-	 * the value back so a script's own line is recognizable in it. */
+	/* "-v1" set it. The option takes no value, so the digit is read as a
+	 * letter the tool does not have, and the board is not opened. */
 	reset_fake();
 	r = RUN("-v1");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, "") == 0, r.out);
-	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
-	                 "(got 1); the CRC verify setting it used to name is -k\n") == 0, r.err);
+	mu_assert(strcmp(r.err, "error: unrecognized option '-1'\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.connects);
 
-	/* The same value written as the next word. */
+	/* The same value written as the next word is a word with no option to
+	 * belong to, and this tool takes no operands. */
 	reset_fake();
 	r = RUN("-v", "0");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.err, "error: -v is verbose now and takes no value "
-	                 "(got 0); the CRC verify setting it used to name is -k\n") == 0, r.err);
+	mu_assert(strcmp(r.err, "error: unexpected argument '0'\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.crc_sets);
+	mu_assert_int_eq(0, fake.connects);
+
+	/* Repeating it says verbose twice, which is what it said once: the run
+	 * goes ahead rather than being refused (ubertooth(7), OPTION VALUES),
+	 * and it is still verbose afterwards. The summary line is how that
+	 * shows: a run that is not verbose ends it with "; -v describes each
+	 * one", and a verbose one has already described them. */
+	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	fake.malformed_packets = 3;
+	r = RUN("-n", "-v", "-v");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "note: 3 packets held data that could not be "
+	                 "decoded\n") == 0, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
 
 	/* -k beside it is the CRC verify setting and -v is verbose, so the two
 	 * are no longer one setting named twice -- but a read of the setting is
@@ -1705,7 +1720,7 @@ int main(void)
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
 	MU_RUN(every_exit_path_gives_the_handle_back);
 	MU_RUN(a_set_alone_and_a_read_alone_are_unchanged);
-	MU_RUN(v_is_verbose_and_sends_the_old_crc_spelling_to_k);
+	MU_RUN(v_is_verbose_and_takes_no_value);
 	MU_RUN(a_failed_set_is_reported_and_the_read_does_not_run);
 	MU_RUN(a_failed_read_is_reported_once);
 	MU_RUN(a_sniffing_mode_sets_and_reads_after_the_mode_starts);

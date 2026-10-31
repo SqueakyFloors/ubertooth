@@ -155,7 +155,8 @@ static void usage(FILE *out)
 	fprintf(out, "\t       both in one command sets first, then reports the new value\n");
 	fprintf(out, "\t-v verbose: describe each packet whose data could not be read,\n");
 	fprintf(out, "\t       which a run otherwise sums up in one line at the end;\n");
-	fprintf(out, "\t       needs -f, -n or -p, and takes no value (it named -k's setting once)\n");
+	fprintf(out, "\t       needs -f, -n or -p, and takes no value at all (-k is\n");
+	fprintf(out, "\t       the CRC verify setting it named once)\n");
 	fprintf(out, "\t-x <0-%d> allow n access address offenses (default %d)\n",
 	       AA_ERRORS_MAX, AA_ERRORS_MAX);
 
@@ -250,16 +251,16 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
-	const char options[] = ":a::r:hVfnpU:k::v::A:s:t:x:c:q:jJiI";
+	const char options[] = ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiI";
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
-		/* getopt only attaches an optional value (-a8e89bed6, -v1); take
+		/* getopt only attaches an optional value (-a8e89bed6, -k1); take
 		 * a following word that could be the value as the value too, so
 		 * "-a 8e89bed6" sets and "-a zzzz" is refused rather than
 		 * silently reading. ubertooth-btle takes no other operands.
 		 * Resolved before the check below, which only counts an option
 		 * that came with a value. */
-		if (optarg == NULL && (opt == 'a' || opt == 'k' || opt == 'v'))
+		if (optarg == NULL && (opt == 'a' || opt == 'k'))
 			optarg = opt_separate_value(argc, argv,
 			                            opt == 'a' ? opt_value_not_option
 			                                       : opt_value_decimal);
@@ -317,19 +318,9 @@ int main(int argc, char *argv[])
 			/* -v is verbose, as it is in every other tool: it asks the
 			 * decoder to describe each packet whose data it cannot read,
 			 * instead of only counting it for the summary at the end of
-			 * the run. It named the CRC verify setting until -k took
-			 * that over, so a value written after it is a command line
-			 * from before the move: refused, naming -k, rather than
-			 * read as a verbosity level it would not mean. The option
-			 * still takes an optional value so that this refusal is what
-			 * such a command line gets, instead of a stray word or an
-			 * unknown option. */
-			if (optarg != NULL) {
-				fprintf(stderr, "error: -v is verbose now and takes no"
-				        " value (got %s); the CRC verify setting it used"
-				        " to name is -k\n", optarg);
-				return 1;
-			}
+			 * the run. It takes no value, as it does in those tools:
+			 * the one level is all there is, so a second -v says what
+			 * the first did and getopt refuses a value here for us. */
 			do_verbose = 1;
 			break;
 		case 'k':

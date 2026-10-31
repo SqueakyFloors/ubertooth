@@ -101,16 +101,12 @@ CASES = {
         (("-f", "-n", "-p"), "error: choose one of -f, -n or -p"),
         (("-k", "2"), "error: crc verify mode must be 0-1 (got 2)"),
         (("-kabc",), "error: crc verify mode must be 0-1 (got abc)"),
-        # -v named the crc verify setting before -k took it over, so a value
-        # written after it is a command line from before the move
-        (("-v", "2"),
-         "error: -v is verbose now and takes no value (got 2);"
-         " the crc verify setting it used to name is -k"),
-        (("-vabc",),
-         "error: -v is verbose now and takes no value (got abc);"
-         " the crc verify setting it used to name is -k"),
-        # a word that is not a value for -v is not taken as one
+        # -v takes no value, so a word written after it is a stray one and a
+        # value attached to it is a letter the tool does not have. The older
+        # -v1 spelling of the crc verify setting gets the second of those.
+        (("-v", "2"), "error: unexpected argument '2'"),
         (("-v", "abc"), "error: unexpected argument 'abc'"),
+        (("-v1",), "error: unrecognized option '-1'"),
         (("-x", "33"), "error: access address offenses must be 0-32 (got 33)"),
         (("-x", "abc"), "error: access address offenses must be 0-32 (got abc)"),
         (("-azzzz",), "error: access address must be 1-8 hex digits (got zzzz)"),

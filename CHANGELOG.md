@@ -554,15 +554,19 @@
   that parse it are undisturbed.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-btle`'s CRC verify setting moves from
-  `-v` to `-k`: `-k` reads it, `-k0` and `-k1` set it. `-v` is verbose there,
+  `-v` to `-k`: `-k` reads it, `-k 0` and `-k 1` set it. `-v` is verbose there,
   as in every other tool, so a command line that spells the setting the old
-  way is refused with a line naming `-k` rather than read as something `-v`
-  does not mean: `-v0` and `-v1` give `error: -v is verbose now and takes no
-  value (got 1); the CRC verify setting it used to name is -k`, and `-v` on its
-  own gives `error: -v needs -f, -n or -p: there is no decode for it to
-  describe; the CRC verify setting is -k now`.
+  way is refused rather than read as something `-v` does not mean. `-v` now
+  takes no value at all, as it does in every other tool, so `-v 1` is a stray
+  word (`error: unexpected argument '1'`) and `-v1` a letter the tool does not
+  have (`error: unrecognized option '-1'`); `-v` on its own still says where
+  the setting went: `error: -v needs -f, -n or -p: there is no decode for it to
+  describe; the CRC verify setting is -k now`. `-a` and `-k` keep their
+  optional values, which may be written as the next word (`-k 1`) or attached
+  (`-k1`), and bare still reads.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542),
-  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
+  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804),
+  [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017)
 
 ### Build and compatibility
 
