@@ -705,10 +705,8 @@ int main(int argc, char *argv[])
 		free(file);
 		if (failed) {
 			/* The name the user gave, not the /dev/fd path a lone
-			 * "-" is opened through, and no reason: the PCAP writer
-			 * prints the real one itself and leaves errno holding
-			 * whatever it last set. */
-			opt_report_create_failure(pcap_name, 0);
+			 * "-" is opened through. */
+			opt_report_create_failure(pcap_name, errno);
 			follow_release_board(ut, sock, handle, cc);
 			return 1;
 		}

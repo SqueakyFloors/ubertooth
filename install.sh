@@ -81,7 +81,7 @@ VENV=""
 # .github/workflows/build.yml, which checks that this copy agrees with it.
 # --libbtbb-url / --libbtbb-ref override these for one run.
 LIBBTBB_URL="https://github.com/SqueakyFloors/libbtbb.git"
-LIBBTBB_REF="4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d"
+LIBBTBB_REF="4a057120a239b06a3c09ef61a12c429d150a5462"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
