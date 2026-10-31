@@ -379,21 +379,50 @@ A board that has faulted adds one more line, above that count:
 The four processor faults each blink a code and never return, so the watchdog
 resets the board three seconds later; the reset line above names which of the
 four it was, and this line says where it went wrong. `status` is the part's
-fault status register for that fault. The address is the access the processor
-refused, and is printed only when the status says the board recorded one for
-this fault — zero is a real address, so the line says so rather than leaving
-it out. There is none for a usage fault, for a hard fault the processor took
-in its own right, nor for an instruction fetch refused because the region
-cannot be executed — which is a branch through a corrupted pointer or return
-address. A hard fault that is one of the other three escalated reports that
-fault's status and address instead of its own, so it can carry one.
+fault status register for that fault.
+
+One address follows it, and the status says which address it is. The line reads
+**the access was at** for the access the processor refused, taken from the
+part's own fault address register, and says so when the status says that
+register holds this fault's address — zero is a real address there, a null
+pointer, so the line says so rather than leaving it out. A hard fault that is
+one of the other three escalated reports that fault's status and address
+instead of its own, so it can carry one.
 
 A refused address just below the stack is a stack overflow: the firmware keeps
 32 bytes there that the part refuses, so a stack that runs out of room is
 caught and reported where it happens rather than running on unnoticed. That one
 reads as a memory management fault, or as an escalated hard fault where the
-processor could not stack the fault's own frame clear of those 32 bytes. The
-line is absent until a fault happens, and a power-cycle clears it.
+processor could not stack the fault's own frame clear of those 32 bytes.
+
+Where the part records no access address the line reads **the instruction was
+at** and names where the processor was, which the board takes from the
+exception frame:
+
+    Last processor fault: status 0x00000001, the instruction was at 0x4001f0a4
+
+A usage fault and a hard fault the processor took in its own right keep no
+address register at all, and nor does an instruction fetch refused because the
+region cannot be executed — a branch through a corrupted pointer or return
+address. For that fetch the address is the one the processor would not run,
+which is where the pointer pointed: the pointer's own value has its lowest bit
+set to select the instruction set, and the address here does not. For a usage
+fault it is the instruction the processor would not accept. For a bus fault
+whose status calls itself imprecise it is near what made the access rather than
+the access itself, because the processor had moved on before the bus reported
+the error.
+
+**no address recorded** means neither was available, which includes a fault
+taken while the stack pointer was wrong, where there is no frame to read.
+
+The line is absent until a fault happens, and a power-cycle clears it.
+
+Firmware older than this recorded the address register whether or not the
+status said that register meant anything, so its record would read as an
+instruction address that was never run. The firmware API version is what keeps
+the two apart: a release build of these tools refuses a board carrying an
+older version, and a development build warns about it. Reflash the board to
+match, which clears the record.
 
 The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio

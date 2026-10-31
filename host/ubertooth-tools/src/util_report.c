@@ -260,6 +260,7 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 {
 	char cause[64];
 	uint32_t fault_status;
+	uint32_t fault_addr;
 
 	/* Unreachable from ubertooth-util, which passes a fixed-size array that
 	 * libubertooth has already refused if the board sent fewer bytes. It is
@@ -293,9 +294,12 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 	 * counted, but not necessarily the last of them. Nothing is printed
 	 * until a fault has happened, which on most boards is never. */
 	fault_status = util_le32(info + 10);
-	if (fault_status != 0) {
-		uint32_t fault_addr = util_le32(info + 14);
-
+	fault_addr = util_le32(info + 14);
+	/* Either field having something in it means a fault happened; both zero
+	 * means none has. The status alone does not decide it, because a memory
+	 * management fault can set no status bit at all, and then the address is
+	 * the whole of the record. */
+	if (fault_status != 0 || fault_addr != 0) {
 		fprintf(out, "Last processor fault: status 0x%08x, ", fault_status);
 		/* The board's own "the address register holds this fault's
 		 * address" bit; see UBERTOOTH_FAULT_ADDR_VALID for why there are
@@ -305,6 +309,13 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len)
 		if (fault_status & (UBERTOOTH_FAULT_ADDR_VALID |
 		                    UBERTOOTH_FAULT_BUS_ADDR_VALID))
 			fprintf(out, "the access was at 0x%08x\n", fault_addr);
+		/* No access address, so the board recorded where the processor
+		 * was instead. Zero is "nothing to report" here rather than an
+		 * address: see fault_frame.h for the one fault that could name
+		 * address zero and why it does not reach this line. */
+		else if (fault_addr != 0)
+			fprintf(out, "the instruction was at 0x%08x\n",
+			        fault_addr);
 		else
 			fputs("no address recorded\n", out);
 	}

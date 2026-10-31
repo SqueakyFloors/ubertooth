@@ -6,6 +6,7 @@
  */
 
 #include "ubertooth.h"
+#include "fault_frame.h"
 #include "watchdog.h"
 
 // delay for about 30 ms (very rough)
@@ -49,16 +50,23 @@ static void flash_leds(int count) {
  * which counting blinks never gave you. A site each rather than one shared
  * "a fault" site, so -w says which of the four it was.
  *
- * Each handler also records the part's fault status register and, where the
- * part keeps one for that fault, the address the processor refused. Nothing
- * else survives: these never return, so there is no stacked frame to read
- * afterwards, and the site alone says only which fault happened in which mode.
+ * Each handler also records the part's fault status register and one address:
+ * the access the processor refused, where the part keeps a register for it,
+ * and otherwise the instruction the processor was running, read from the
+ * exception frame (fault_frame.h). The status says which of the two it is, and
+ * ubertooth-util -w says so in words. Both are needed: a write the part refuses
+ * records the address it refused, and the stack guard is caught that way, but an
+ * instruction fetch the part refuses to execute -- a branch through a corrupted
+ * pointer or return address -- records no access address at all, and then the
+ * address it would not run is the whole of what there is to go on.
  *
  * These run at a priority the USB interrupt cannot preempt -- HardFault above
  * everything, the other three at the same 0 as USB -- so the USB handler's feed
  * cannot keep a faulted board alive by accident.
  */
-void HardFault_Handler(void) {
+UBERTOOTH_FAULT_ENTRY(HardFault_Handler, hard_fault_at)
+
+void hard_fault_at(uint32_t *frame) {
 	uint32_t val = SCB_HFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_HARD);
@@ -71,21 +79,25 @@ void HardFault_Handler(void) {
 	 * worth reading.
 	 *
 	 * A board on the bench recorded exactly this during a BLE follow soak,
-	 * and the status alone -- forced, with no address -- is as far as the
+	 * and the status alone -- forced, with no address -- was as far as the
 	 * record went. */
 	if (val & SCB_HFSR_FORCED) {
 		uint32_t cfsr = SCB_CFSR;
-		uint32_t addr = 0;
 
 		if (cfsr & UBERTOOTH_FAULT_ADDR_VALID)
-			addr = SCB_MMFAR;
+			watchdog_fault(cfsr, SCB_MMFAR);
 		else if (cfsr & UBERTOOTH_FAULT_BUS_ADDR_VALID)
-			addr = SCB_BFAR;
-		watchdog_fault(cfsr, addr);
+			watchdog_fault(cfsr, SCB_BFAR);
+		else if (cfsr & (FAULT_FRAME_STACKING_ERROR_CFSR_MEM |
+		                 FAULT_FRAME_STACKING_ERROR_CFSR_BUS))
+			watchdog_fault(cfsr, 0);
+		else
+			watchdog_fault(cfsr, fault_frame_pc(frame));
 	} else {
-		/* No address register of its own, and neither address-valid bit
-		 * is set in this status, so no address is reported. */
-		watchdog_fault(val, 0);
+		/* A vector table read that failed, or a debug event: the part
+		 * records no access address for either, so the instruction the
+		 * processor was running is what gets reported. */
+		watchdog_fault(val, fault_frame_pc(frame));
 	}
 
 	while (1) {
@@ -103,7 +115,9 @@ void HardFault_Handler(void) {
 	}
 }
 
-void MemManagement_Handler(void) {
+UBERTOOTH_FAULT_ENTRY(MemManagement_Handler, mem_fault_at)
+
+void mem_fault_at(uint32_t *frame) {
 	int i;
 	int offset[5] = { 7, 4, 3, 1, 0 };
 	uint8_t mmsr = SCB_MMSR;
@@ -113,13 +127,20 @@ void MemManagement_Handler(void) {
 	 * does an instruction fetch from an address the part refuses to execute
 	 * -- a branch through a corrupted pointer or return address.
 	 *
-	 * The address register as it stands: bit 7 of the status, which goes
-	 * with it, is what says whether it holds this fault's address. It does
-	 * not for the instruction fetch. Passed rather than zeroed when that bit
-	 * is clear, because zero is also a real address -- a null pointer
-	 * dereference, which is what a fault in a capture mode is most likely to
-	 * be. */
-	watchdog_fault(mmsr, SCB_MMFAR);
+	 * Bit 7 of the status is the part's own "the address register holds this
+	 * fault's address". It is set for the refused write, where that address
+	 * is what the stack ran into, and zero is a real address there -- a null
+	 * pointer dereference records it. It is clear for the instruction fetch,
+	 * and there the address worth having is the one the processor tried to
+	 * run: where the corrupted pointer or return address pointed. The
+	 * pointer's own value has its lowest bit set to select the instruction
+	 * set and this address does not. */
+	if (mmsr & UBERTOOTH_FAULT_ADDR_VALID)
+		watchdog_fault(mmsr, SCB_MMFAR);
+	else if (mmsr & FAULT_FRAME_STACKING_ERROR)
+		watchdog_fault(mmsr, 0);
+	else
+		watchdog_fault(mmsr, fault_frame_pc(frame));
 
 	while (1) {
 		flash_leds(3);
@@ -137,7 +158,9 @@ void MemManagement_Handler(void) {
 	}
 }
 
-void BusFault_Handler(void) {
+UBERTOOTH_FAULT_ENTRY(BusFault_Handler, bus_fault_at)
+
+void bus_fault_at(uint32_t *frame) {
 	int i;
 	int offset[6] = { 7, 4, 3, 2, 1, 0 };
 	uint8_t bfsr = SCB_BFSR;
@@ -145,8 +168,15 @@ void BusFault_Handler(void) {
 	watchdog_mark(WATCHDOG_SITE_FAULT_BUS);
 	/* As above: bit 7 of the status says whether the address register holds
 	 * this fault's address. It does not for an imprecise fault, where the
-	 * processor had moved on before the bus reported the error. */
-	watchdog_fault(bfsr, SCB_BFAR);
+	 * processor had moved on before the bus reported the error, and there
+	 * the instruction the frame names is near what made the access rather
+	 * than the access itself. */
+	if (bfsr & UBERTOOTH_FAULT_ADDR_VALID)
+		watchdog_fault(bfsr, SCB_BFAR);
+	else if (bfsr & FAULT_FRAME_STACKING_ERROR)
+		watchdog_fault(bfsr, 0);
+	else
+		watchdog_fault(bfsr, fault_frame_pc(frame));
 
 	while (1) {
 		flash_leds(4);
@@ -164,15 +194,19 @@ void BusFault_Handler(void) {
 	}
 }
 
-void UsageFault_Handler(void) {
+UBERTOOTH_FAULT_ENTRY(UsageFault_Handler, usage_fault_at)
+
+void usage_fault_at(uint32_t *frame) {
 	int i;
 	int offset[6] = { 9, 8, 3, 2, 1, 0 };
 	uint16_t ufsr = SCB_UFSR;
 
 	watchdog_mark(WATCHDOG_SITE_FAULT_USAGE);
 	/* The part keeps no address register for this fault, and bit 7 of its
-	 * status is reserved and reads zero, so the host prints no address. */
-	watchdog_fault(ufsr, 0);
+	 * status is reserved and reads zero, so the instruction the frame names
+	 * is the only locator there is -- and for this fault it is the right
+	 * one, because what the processor refused is the instruction itself. */
+	watchdog_fault(ufsr, fault_frame_pc(frame));
 
 	while (1) {
 		flash_leds(5);

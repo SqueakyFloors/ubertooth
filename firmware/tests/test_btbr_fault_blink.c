@@ -193,10 +193,10 @@ struct handler {
 
 static struct handler handlers[] = {
 	{ "die",                  "FAULT_CODE_PANIC", 0, 0, 0 },
-	{ "HardFault_Handler",    "FAULT_CODE_HARD",  0, 0, 0 },
-	{ "MemManagement_Handler", "FAULT_CODE_MEM",  0, 0, 0 },
-	{ "BusFault_Handler",     "FAULT_CODE_BUS",   0, 0, 0 },
-	{ "UsageFault_Handler",   "FAULT_CODE_USAGE", 0, 0, 0 },
+	{ "btbr_hard_fault_at",  "FAULT_CODE_HARD",  0, 0, 0 },
+	{ "btbr_mem_fault_at",   "FAULT_CODE_MEM",   0, 0, 0 },
+	{ "btbr_bus_fault_at",   "FAULT_CODE_BUS",   0, 0, 0 },
+	{ "btbr_usage_fault_at", "FAULT_CODE_USAGE", 0, 0, 0 },
 };
 
 #define HANDLER_COUNT (sizeof(handlers) / sizeof(handlers[0]))
