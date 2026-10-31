@@ -126,10 +126,17 @@ not reach that far: it covers the vector table alone, which is written whole
 or not at all. That board has to be recovered at the bench, as MANUALLY
 ENTERING BOOTLOADER below describes.
 
-The checksum is the one byte-for-byte difference between an image file and the
-flash written from it. An image this tree builds leaves the word at offset
-0x1c zero, so a read-back with `-u` differs from the file in those four bytes
-and nowhere else.
+Both checks read what the flash holds, so neither says anything about a board
+that lost power while the bootloader was erasing or programming a sector:
+flash left part way through either reads as it pleases. What they cover is a
+transfer that stopped between blocks, which is what a pulled cable, a board
+that leaves the bus, or a host that dies leaves behind.
+
+An image this tree builds leaves the word at offset 0x1c zero, so the checksum
+is the one byte-for-byte difference between such a file and the flash written
+from it: a read-back with `-u` differs from the file in those four bytes and
+nowhere else. An image that already carries the right checksum is written
+unchanged.
 
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the

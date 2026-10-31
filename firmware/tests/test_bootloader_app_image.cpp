@@ -544,6 +544,24 @@ MU_TEST(the_hosts_sector_size_matches_the_firmwares)
 
 /* And a board with nothing to start has to end up somewhere useful: main()
  * runs the bootloader for it, so the next image can be written over USB. */
+/* ...and the check in front of it is the whole one. The cases above are about
+ * app_image_table_startable(), so they say nothing on their own about which
+ * predicate the bootloader calls: a bootloader that went back to reading the
+ * two words alone would still pass every one of them. */
+MU_TEST(the_bootloader_asks_the_whole_check)
+{
+	static char source[200000];
+	char collapsed[200000];
+
+	read_bootloader_source(source, sizeof(source));
+	collapse_spaces(source, collapsed, sizeof(collapsed));
+	mu_assert(strstr(collapsed,
+	                 "return app_image_table_startable(vectors, "
+	                 "LPC_FLASH_SIZE_FALLBACK);") != NULL,
+	          "application_startable() no longer puts the vector table to "
+	          "app_image_table_startable()");
+}
+
 MU_TEST(main_runs_the_bootloader_when_there_is_nothing_to_start)
 {
 	static char source[200000];
@@ -591,6 +609,7 @@ int main(void)
 	MU_RUN(the_check_and_the_jump_use_the_same_address);
 	MU_RUN(the_bound_and_the_sector_size_match_flash_h);
 	MU_RUN(the_hosts_sector_size_matches_the_firmwares);
+	MU_RUN(the_bootloader_asks_the_whole_check);
 	MU_RUN(main_runs_the_bootloader_when_there_is_nothing_to_start);
 	return mu_report();
 }

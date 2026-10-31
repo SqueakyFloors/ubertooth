@@ -60,7 +60,9 @@ A \fB\-d\fR that stops part way through \-\- a cable pulled, a board that leaves
 .P
 One window remains, in the last 4 KiB\. The bootloader erases a flash sector when the first block of it is written, so the sector holding the vector table has to be written as a whole, vector table first, and an interruption inside it still leaves a board that starts a partly written image\. The checksum does not reach that far: it covers the vector table alone, which is written whole or not at all\. That board has to be recovered at the bench, as MANUALLY ENTERING BOOTLOADER below describes\.
 .P
-The checksum is the one byte\-for\-byte difference between an image file and the flash written from it\. An image this tree builds leaves the word at offset 0x1c zero, so a read\-back with \fB\-u\fR differs from the file in those four bytes and nowhere else\.
+Both checks read what the flash holds, so neither says anything about a board that lost power while the bootloader was erasing or programming a sector: flash left part way through either reads as it pleases\. What they cover is a transfer that stopped between blocks, which is what a pulled cable, a board that leaves the bus, or a host that dies leaves behind\.
+.P
+An image this tree builds leaves the word at offset 0x1c zero, so the checksum is the one byte\-for\-byte difference between such a file and the flash written from it: a read\-back with \fB\-u\fR differs from the file in those four bytes and nowhere else\. An image that already carries the right checksum is written unchanged\.
 .P
 What the detach request returns says nothing about where the board ended up, in either direction\. It can fail because the bootloader resets while the request is still in flight, which on macOS is what every reset that worked looks like, and it can complete on a bootloader that acknowledges it and stays where it is\. So no status from that request is read as a verdict: the tool looks for the DFU device on the same physical path again, and reports the board as detached only once it has gone\. The run then carries on to the \fB\-d \|\.\|\.\|\. \-r\fR verification, which decides whether the flash succeeded\.
 .P
