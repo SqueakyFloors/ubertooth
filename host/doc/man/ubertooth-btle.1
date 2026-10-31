@@ -196,9 +196,9 @@ Read (\fB\-k\fR) or set (\fB\-k 0\fR or \fB\-k 1\fR) CRC verification (default: 
 \fB\-v\fR
 Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder describes each packet whose data it could not read, on standard error, as the run goes\. Without it a run counts those packets and says how many there were in one line when it ends (DIAGNOSTICS)\. It needs \fB\-f\fR, \fB\-n\fR or \fB\-p\fR, since there is no decode to describe otherwise, and it takes no value\. A capture on standard output (\fB\-q \-\fR, \fB\-c \-\fR) prints no packets at all, so that too is refused: \fBerror: \-v does not go with a capture on standard output: a run that hands the capture that stream prints no packets to describe\fR\.
 .IP
-It takes no value at all, so \fB\-v 1\fR is a stray word (\fBerror: unexpected argument '1'\fR) and \fB\-v1\fR a letter the tool does not have (\fBerror: unrecognized option '\-1'\fR)\. Writing it twice says verbose twice, which is what it says once: there is one level of it, and a repeat is accepted (ubertooth(7), OPTION VALUES)\.
+There is one level of it, so writing it twice says what writing it once said (ubertooth(7), OPTION VALUES)\.
 .IP
-\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, which is the likeliest source of a command line that writes a value here\. \fB\-v\fR on its own says where the setting went: \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
+\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, which is the likeliest source of a command line that writes a value here\. Such a line is refused as any valueless option's value is, and \fB\-v\fR on its own says where the setting went: \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
 .TP
 \fB\-x <0\-32>\fR
 Allow n access address violations (default: 32)\. Filtering occurs on host\.

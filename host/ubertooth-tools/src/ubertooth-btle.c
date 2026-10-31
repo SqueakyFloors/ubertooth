@@ -264,9 +264,7 @@ int main(int argc, char *argv[])
 			optarg = opt_separate_value(argc, argv,
 			                            opt == 'a' ? opt_value_not_option
 			                                       : opt_value_decimal);
-		/* No option may be given a value twice: see opt_check_once().
-		 * -v takes none, so a repeat of it says the same thing twice
-		 * and is accepted (ubertooth(7), OPTION VALUES). */
+		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0)
 			return 1;
 		switch(opt) {
@@ -321,11 +319,8 @@ int main(int argc, char *argv[])
 			 * decoder to describe each packet whose data it cannot read,
 			 * instead of only counting it for the summary at the end of
 			 * the run. It takes no value, as it does in those tools:
-			 * the one level is all there is. A command line from before
-			 * -k took the CRC verify setting over writes a value here,
-			 * and gets the refusal any valueless option's value gets;
-			 * "-v" on its own still names -k, which is where such a
-			 * command line is most likely to have come from. */
+			 * the one level is all there is, so a second -v says what
+			 * the first did and getopt refuses a value here for us. */
 			do_verbose = 1;
 			break;
 		case 'k':

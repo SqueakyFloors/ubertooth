@@ -537,7 +537,7 @@
   that parse it are undisturbed.
   [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
 - **Script-visible change:** `ubertooth-btle`'s CRC verify setting moves from
-  `-v` to `-k`: `-k` reads it, `-k0` and `-k1` set it. `-v` is verbose there,
+  `-v` to `-k`: `-k` reads it, `-k 0` and `-k 1` set it. `-v` is verbose there,
   as in every other tool, so a command line that spells the setting the old
   way is refused rather than read as something `-v` does not mean. `-v` now
   takes no value at all, as it does in every other tool, so `-v 1` is a stray

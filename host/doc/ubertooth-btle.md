@@ -337,16 +337,14 @@ Miscellaneous:
    output: a run that hands the capture that stream prints no packets to
    describe`.
 
-   It takes no value at all, so `-v 1` is a stray word
-   (`error: unexpected argument '1'`) and `-v1` a letter the tool does not
-   have (`error: unrecognized option '-1'`). Writing it twice says verbose
-   twice, which is what it says once: there is one level of it, and a repeat
-   is accepted (ubertooth(7), OPTION VALUES).
+   There is one level of it, so writing it twice says what writing it once
+   said (ubertooth(7), OPTION VALUES).
 
    `-v` named the CRC verify setting until `-k` took that over, which is the
-   likeliest source of a command line that writes a value here. `-v` on its
-   own says where the setting went: `error: -v needs -f, -n or -p: there is no
-   decode for it to describe; the CRC verify setting is -k now`.
+   likeliest source of a command line that writes a value here. Such a line
+   is refused as any valueless option's value is, and `-v` on its own says
+   where the setting went: `error: -v needs -f, -n or -p: there is no decode
+   for it to describe; the CRC verify setting is -k now`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.

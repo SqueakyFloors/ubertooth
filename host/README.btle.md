@@ -138,8 +138,8 @@ Packets should stream quickly at this point.
 Miscellaneous Usage
 -------------------
 
-CRC verification is enabled by default. To change this setting, use the
--k flag (you should adjust the squelch if you disable it):
+CRC verification is off by default. To change this setting, use the
+-k flag (you should adjust the squelch if you enable it):
 
     ubertooth-btle -k0
 

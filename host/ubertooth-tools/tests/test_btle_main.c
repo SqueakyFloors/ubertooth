@@ -567,11 +567,18 @@ MU_TEST(v_is_verbose_and_takes_no_value)
 	mu_assert_int_eq(0, fake.connects);
 
 	/* Repeating it says verbose twice, which is what it said once: the run
-	 * goes ahead rather than being refused (ubertooth(7), OPTION VALUES). */
+	 * goes ahead rather than being refused (ubertooth(7), OPTION VALUES),
+	 * and it is still verbose afterwards. The summary line is how that
+	 * shows: a run that is not verbose ends it with "; -v describes each
+	 * one", and a verbose one has already described them. */
 	reset_fake();
+	fake.poll_rc = (int)sizeof(usb_pkt_rx);
+	fake.malformed_packets = 3;
 	r = RUN("-n", "-v", "-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "mp") == 0, fake.calls);
+	mu_assert(strcmp(r.out, "note: 3 packets held data that could not be "
+	                 "decoded\n") == 0, r.out);
+	mu_assert(r.err[0] == '\0', r.err);
 
 	/* -k beside it is the CRC verify setting and -v is verbose, so the two
 	 * are no longer one setting named twice -- but a read of the setting is
