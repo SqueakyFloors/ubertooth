@@ -762,6 +762,15 @@
   its own clock reading.
   [#981](https://github.com/SqueakyFloors/ubertooth/issues/981)
 
+- A `ubertooth-rx` run that is refused before it captures anything leaves no
+  empty capture file behind. The decoder, the piconet `-l` names, and the
+  address request that `-l` with `-u` sends now all come before the `-q`, `-r`
+  and `-d` files are created, so there is nothing on disk to tell apart from a
+  capture that caught nothing. A command that would hit two of these reports
+  them in that new order: one naming both a file it cannot create and a board
+  that refuses the address now names the address.
+  [#993](https://github.com/SqueakyFloors/ubertooth/issues/993)
+
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
   using the whole band instead of a handful of channels. The channel removal
   threshold `-m` counts packets, not seconds, and with 79 channels in use a

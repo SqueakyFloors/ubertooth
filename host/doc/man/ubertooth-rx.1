@@ -195,7 +195,7 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 An option combination the tool cannot carry out is refused there too, before any device is opened, so the message never depends on which boards are attached: \fB\-u\fR without \fB\-l\fR gives \fBerror: \-u <UAP> requires \-l <LAP>\fR, and an address beside survey mode gives \fBerror: survey mode (\-z) discovers addresses, so it cannot be given \-l or \-u\fR\.
 .P
-A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\. The board is opened and its firmware is checked before that, so a run refused for either reason leaves no empty file behind either\.
+A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \fB\-d\fR name their file while the command line is read, and it is opened only once every check has passed\. The board is opened, its firmware is checked, and the capture is set up as far as it can be, all before that, so a run refused for any of those reasons leaves no empty file behind either (see EXIT STATUS)\.
 .P
 \fB\-\fR means standard output only as the whole value of \fB\-q\fR or \fB\-d\fR (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-q \-x\fR writes the file \fB\-x\fR\. Standard output carries one stream, so \fB\-q \-\fR and \fB\-d \-\fR in one command are refused: \fBerror: \-q and \-d cannot both write to standard output\fR\.
 .SH "WHAT A CAPTURE RECORD HOLDS"
@@ -251,7 +251,7 @@ A refused channel request is answered with the capture already running (see HOW 
 .P
 A capture the board would not stop exits 1 as well, however cleanly the capture itself ran: the request that takes the board out of its capture mode was stalled, so the board is left in that mode and no other tool can open it until it is reset or re\-plugged\. What was captured stays written out, a \fB\-z\fR survey still prints its results, and libubertooth names the refused request on standard error\. This is what a \fB\-t\fR run that reported success and then left a board nothing could open used to look like\.
 .P
-The \fB\-q\fR, \fB\-r\fR and \fB\-d\fR files are created once the board has been opened and its firmware accepted, not before, so a run refused for either reason leaves no empty capture behind\. A replay (\fB\-i\fR) creates them once its input file has been opened, since it needs no board\. A terminal on standard output is still refused while the command line is read\.
+The \fB\-q\fR, \fB\-r\fR and \fB\-d\fR files are created once the board has been opened, its firmware accepted, and the capture set up as far as it can be without them\. The decoder, the piconet \fB\-l\fR names, and the address request that \fB\-l\fR with \fB\-u\fR sends all come first, so a run refused at any of those steps leaves no empty capture behind\. A replay (\fB\-i\fR) creates them once its input file has been opened, since it needs no board\. A terminal on standard output is still refused while the command line is read\.
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"
