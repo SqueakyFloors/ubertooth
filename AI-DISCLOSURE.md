@@ -13,8 +13,8 @@ packaging, or reviewing the fork can judge it with that in mind.
   upstream `2020-12-R1` release were written or revised by large-language-model
   coding agents working to a written ruleset, with a human reviewing what
   landed.
-- Changes that were not trivial were reviewed by a second, independent agent on
-  a different model family before being considered for merge.
+- Non-trvial changes were reviewed in one or more rounds by two independent 
+  agents on a different model family before being considered for merge.
 
 ## What the agents were and were not allowed to do
 
@@ -46,8 +46,8 @@ footprint is large. Not every change was strictly necessary. Before a release,
 the fork is audited to remove additions that are out of proportion, to trim
 comments back to the project's original style, and to keep only tests that earn
 their place. The aim is that what remains is of real value — correctness fixes
-to packet decoding and capture files, firmware reliability fixes, and clearer
-documentation — built on the work of the original authors.
+to packet decoding and capture files, firmware reliability fixes, extensive 
+unit tests, and improved documentation.
 
 ## Credit
 
@@ -59,5 +59,4 @@ the original a great deal.
 ## Licensing
 
 Contributions here, however they were produced, are offered under the same
-license as the rest of this repository (see `LICENSE`). The maintainer vouches
-for them.
+license as the rest of this repository (see `LICENSE`).
