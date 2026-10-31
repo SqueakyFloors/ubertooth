@@ -236,9 +236,15 @@ known, and the capture carries on throughout.
 To convert LAP + UAP pairs back into Bluetooth addresses, do the reverse
 of the above. For example, if the tool recovers a LAP of 36A2B4 and a
 UAP of 98, the associated Bluetooth address is `??:??:98:36:A2:B4`. Any
-value can be substituted into the ?? slots and most Bluetooth tools will
-still work. For example, `hcitool name 00:00:98:36:A2:B4` will establish
-a connection to the device and return its name.
+value can be substituted into the `??` slots, except one that makes the
+address the local Bluetooth device's own, which a controller refuses to
+page: of the paged device's address a page uses only the LAP and the
+UAP, so the two unknown bytes have no part in it (Bluetooth Core,
+Vol 2, Part B 1.3, 6.4.6, 7.1, and Table 2.3). So
+`hcitool name 00:00:98:36:A2:B4` should
+establish a connection to the device and return its name. What a real
+controller makes of the guess has not been measured on this project's
+bench ([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)).
 
 This attack works against discoverable and undiscoverable devices alike.
 

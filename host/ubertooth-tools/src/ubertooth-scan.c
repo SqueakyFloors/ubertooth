@@ -103,10 +103,14 @@ static void report_failure(const char* what)
  *
  * whole_address says whether the address is the device's own, as a BlueZ
  * inquiry reports it, or one the scan put together from a sniffed piconet. The
- * second kind has the two most significant bytes guessed as 00:00, because no
- * packet carries them, so it reaches only a device whose address really begins
- * that way: a connection that cannot be made to such an address is the normal
- * case and not a failure of the command. */
+ * second kind has the two most significant bytes guessed as 00:00, because
+ * ordinary piconet traffic does not carry them. The guess is not what decides
+ * whether the connection can be made: of the paged device's address a page uses
+ * only the LAP and the UAP, never the NAP (Bluetooth Core, Vol 2, Part B 1.3,
+ * 6.4.6, and Table 2.3). Such a connection failing is a note rather than a
+ * failure of the
+ * command for a different reason: the scan observed this piconet rather than
+ * being asked for this device. */
 int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 {
 	uint16_t handle, offset;
@@ -159,11 +163,12 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 				free(cr);
 				return 1;
 			}
-			/* A guessed address, so the likely reason is that there
-			 * was never an address to connect to: said as a note,
-			 * and the run still did what was asked. The reason the
-			 * call left behind is given too, because this is not
-			 * the only way the connection can fail. */
+			/* An address the scan put together rather than one the
+			 * user named, so failing to reach it says nothing about
+			 * what was asked for: said as a note, and the run still
+			 * did what was asked. The reason the call left behind is
+			 * given too, because there are several ways the
+			 * connection can fail. */
 			if (errno != 0)
 				fprintf(stderr, "note: no extended report: %s; "
 				        "a sniffed piconet gives no NAP, so the "
@@ -726,8 +731,8 @@ int main(int argc, char *argv[])
 			/* Printable version showing that the NAP is unknown */
 			sprintf(addr, "??:??:%02X:%02X:%02X:%02X", uap,
 			        (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
-			/* The NAP of a sniffed piconet is not in any packet, so
-			 * the address this connects to is a guess: see
+			/* Ordinary piconet traffic does not carry a NAP, so the
+			 * address this connects to is a guess: see
 			 * extra_info(). */
 			if (print_name_and_class(dev_handle, dev_id, &bdaddr, addr,
 			                         extended, 0) != 0)

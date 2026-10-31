@@ -101,7 +101,8 @@ int opt_require_bd_addr(const char *text, const char *what, const char *given,
 /* The two parts of a BD_ADDR that identify a Bluetooth piconet: the lower
  * address part (LAP), its three least significant bytes, and the upper
  * address part (UAP), the byte above them. The two most significant bytes are
- * the non-significant address part, which a sniffer never sees.
+ * the non-significant address part, which ordinary piconet traffic does not
+ * carry.
  *
  * address is OPT_BD_ADDR_BYTES bytes, most significant first, as
  * opt_parse_bd_addr() writes them. Either output may be NULL. Returns 0, or

@@ -1020,9 +1020,9 @@ MU_TEST(a_connection_that_cannot_be_made_is_named)
 }
 
 /* A piconet the Ubertooth half found is given to -x by an address whose two
- * most significant bytes are a guess, because no packet carries them, so a
- * connection that cannot be made is the normal case rather than a failure of
- * the command: a note, and status 0. Reported as a failure it would have made
+ * most significant bytes are a guess, because ordinary piconet traffic does not
+ * carry them, so a connection that cannot be made says nothing about what was
+ * asked for: a note, and status 0. Reported as a failure it would have made
  * exit 1 the ordinary outcome of ubertooth-scan -x. */
 MU_TEST(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure)
 {

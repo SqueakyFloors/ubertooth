@@ -2306,6 +2306,14 @@
 
 ### Documentation
 
+- The sniffing guide, `ubertooth-rx(1)`, `ubertooth-follow(1)`, and
+  `ubertooth-scan(1)` agree about the placeholder `00:00` these tools page a
+  sniffed piconet on, where one claimed it works and the others called it
+  unverified. A page does not carry the paged device's NAP, so the placeholder
+  is not what decides whether a page reaches the target; a wrong UAP still
+  does, the specification sections are cited, and what a real controller makes
+  of the guess is still unmeasured here.
+  [#699](https://github.com/SqueakyFloors/ubertooth/issues/699)
 - `ubertooth-debug(1)` is titled "read CC2400 radio registers", and
   `ubertooth(7)` lists it as "Peeking at registers on the CC2400". Both used
   to offer writing as well, which no option of any tool does, so a reader went

@@ -200,8 +200,17 @@ run instead, with the board still open in whatever mode it was in.
 
 A piconet the Ubertooth half found is different: a sniffed piconet gives no
 NAP, so the address `-x` connects to has its two most significant bytes guessed
-as `00:00`. Whether that guess stops the connection to a device whose address
-begins otherwise is not known
+as `00:00`. That guess is not what decides whether the connection can be made:
+of the paged device's address, a page uses only the LAP and the UAP, as the
+access code, as the input that selects the page hopping sequence, and as the
+seed of the header error check and CRC of the FHS packet the pager sends
+(Bluetooth Core, Vol 2, Part B 1.3, 6.4.6, 7.1, and Table 2.3). A page teaches
+the controller no NAP, so it reports back the address it was given and BlueZ's
+own check on the name reply matches. The one way the guess itself can stop the
+connection is by matching the local Bluetooth device's own address, which a
+controller refuses to page.
+What a real controller makes of the guess has not been measured on this
+project's bench
 ([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). Either
 way, a connection that cannot be made to such an address is a `note:` and the
 run still exits 0. Give such a device to `ubertooth-scan -s -x`, or to

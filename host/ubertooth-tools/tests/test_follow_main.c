@@ -982,10 +982,11 @@ MU_TEST(half_a_lap_uap_pair_is_refused)
 	          "connection") != NULL, r.err);
 }
 
-/* A follow keyed on -l and -u pages 00:00:<UAP>:<LAP>, because the two most
- * significant address bytes are in no packet a sniffer sees. Against any other
- * target the page fails, and the failure says to give the whole address with
- * -t rather than leaving the user with a page to an address they never named. */
+/* A follow keyed on -l and -u pages 00:00:<UAP>:<LAP>, because ordinary piconet
+ * traffic does not carry the two most significant address bytes. When that page
+ * fails, whatever the reason, the failure names the guess and asks for the
+ * whole address with -t rather than leaving the user with a page to an address
+ * they never named. */
 MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 {
 	char expected[256];
