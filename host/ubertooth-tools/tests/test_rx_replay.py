@@ -115,8 +115,9 @@ def run(*arguments, directory):
         check=False,
         cwd=directory,
         # A replay opens no device; the switch keeps it that way if one of
-        # these runs ever reaches device selection.
-        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1"),
+        # these runs ever reaches device selection. LC_ALL, because a case
+        # below compares a strerror() string and glibc translates those.
+        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C"),
     )
 
 
@@ -199,6 +200,24 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     expected = [(ns // 1_000_000_000, ns % 1_000_000_000) for ns in ZERO_EXPECTED_NS]
     assert pcap_times(work / "zero.pcap") == expected, result
+
+    # A capture file that cannot be created: one line on standard error, which
+    # names the file the user asked for and the reason the create failed,
+    # nothing decoded, and nothing on standard output.
+    #
+    # The reason is the errno of the writer's own failed open. A writer that
+    # printed a line of its own, which is what a libbtbb older than the commit
+    # FindBTBB.cmake pins does, would make the stream two lines: a failure
+    # here with "PCAP error:" in it is an installed libbtbb behind the pin
+    # rather than a change to this tool.
+    for option, name in (("-q", "cap.pcap"), ("-r", "cap.pcapng")):
+        inside_missing_dir = Path("nodir") / name
+        result = run("-i", "full.bin", option, str(inside_missing_dir),
+                     directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (
+            f"error: {inside_missing_dir}: No such file or directory\n"), result
 
     # A file that cannot be read: reported, and exit 1 rather than looking
     # like an empty capture. fopen() succeeds on a directory, the first read
