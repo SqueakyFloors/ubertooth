@@ -501,7 +501,10 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 	unsigned best_score = 0;
 	u32 best = 0;
 
-	if (gap_count <= LE_CSA2_INTERVAL_MISSES)
+	/* Too few gaps for agreement between them to mean anything. The bar
+	 * for a counter is ten sightings, and an interval is read from the
+	 * gaps between sightings, so it takes the same number. */
+	if (gap_count + 1 < LE_CSA2_MIN_SCORE)
 		return 0;
 
 	for (i = 0; i < gap_count; ++i) {
@@ -527,7 +530,11 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 		}
 	}
 
-	if (best_score + LE_CSA2_INTERVAL_MISSES < gap_count)
+	/* All but a few of the gaps have to fit, and most of them: the fixed
+	 * allowance alone would pass an interval backed by four gaps out of
+	 * nine, which is the fewest this is asked to work from. */
+	if (best_score + LE_CSA2_INTERVAL_MISSES < gap_count ||
+			best_score * 4 < gap_count * 3)
 		return 0;
 
 	return (uint16_t)best;
@@ -536,24 +543,31 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 /*
  * The event counters whose unmapped channel is the one being listened to, in
  * ascending order, and where each 256-wide block of counters begins in that
- * list. About one counter in 37 qualifies, 1771 of the 65536 on average, and
- * that holds whatever channel map the connection uses, because the unmapped
- * channel does not depend on the map. The list is long enough for a run six
- * standard deviations above the average; a search that filled it would be
- * working from a truncated list, and reports nothing instead.
+ * list.
  *
- * Together they are 4.5 KB, which is more than the main RAM bank has to spare
- * next to the stack, so they live in the other bank.
+ * How many there are is known exactly, not estimated. le_csa2_prn_e() is one
+ * to one in the event counter: reversing the bits inside each octet is, and so
+ * is 17 * v + channelIdentifier, because 17 is odd. Over the whole range of
+ * the counter the pseudo-random number therefore takes every value once, and
+ * 65536 = 37 * 1771 + 9, so every channel has 1771 counters and nine of them
+ * have 1772. That holds whatever channel map the connection uses, because the
+ * unmapped channel does not depend on the map.
+ *
+ * Together they are 4 KB, which is more than the main RAM bank has to spare
+ * next to the stack, so they live in the other bank. The block index is the
+ * half-kilobyte that keeps a search to a couple of hundred milliseconds: it
+ * narrows a lookup to the handful of entries that can match, where a binary
+ * search over the whole list would take about three times as many comparisons
+ * for every one of the million lookups a search can make.
  */
-#define LE_CSA2_HITS_MAX 2048
+#define LE_CSA2_HITS 1772
 #define LE_CSA2_BUCKETS 256
-static AHB_SRAM uint16_t le_csa2_hit[LE_CSA2_HITS_MAX];
+static AHB_SRAM uint16_t le_csa2_hit[LE_CSA2_HITS];
 static AHB_SRAM uint16_t le_csa2_bucket[LE_CSA2_BUCKETS + 1];
 static unsigned le_csa2_hit_count;
 
-/* Fill the list above for one channel and access address. Returns 0 if there
- * were more counters than it holds. */
-static int le_csa2_build_hits(uint8_t channel_idx, u32 access_address) {
+/* Fill the list above for one channel and access address. */
+static void le_csa2_build_hits(uint8_t channel_idx, u32 access_address) {
 	u32 counter;
 	unsigned bucket = 0;
 
@@ -568,15 +582,16 @@ static int le_csa2_build_hits(uint8_t channel_idx, u32 access_address) {
 				access_address) != channel_idx)
 			continue;
 
-		if (le_csa2_hit_count == LE_CSA2_HITS_MAX)
-			return 0;
+		/* Cannot fire, by the counting above; the list would be
+		 * truncated and the search would miss the right counter rather
+		 * than answer wrongly. */
+		if (le_csa2_hit_count == LE_CSA2_HITS)
+			break;
 		le_csa2_hit[le_csa2_hit_count++] = (uint16_t)counter;
 	}
 
 	while (bucket < LE_CSA2_BUCKETS)
 		le_csa2_bucket[++bucket] = (uint16_t)le_csa2_hit_count;
-
-	return 1;
 }
 
 /* Is this event counter one of them? The block index narrows it to the
@@ -658,8 +673,7 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	if (count < LE_CSA2_MIN_SCORE)
 		return 0;
 
-	if (!le_csa2_build_hits(channel_idx, access_address))
-		return 0;
+	le_csa2_build_hits(channel_idx, access_address);
 
 	/*
 	 * Each sighting in turn is taken as the one that was a direct visit --
@@ -673,6 +687,14 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	 * A pass whose winner clears both the score and the margin ends the
 	 * search. A counter that accounts for ten sightings or more is not a
 	 * coincidence, so there is nothing to gain by scoring the rest.
+	 *
+	 * What this costs, which is time the receiver is deaf: the list above
+	 * takes 65536 of the algorithm's hashes to build, and the passes take
+	 * at most LE_CSA2_SIGHTINGS * 1772 * LE_CSA2_SIGHTINGS lookups, which
+	 * is about a million. Measured at 5 ms for the whole worst case on a
+	 * desktop host, so a couple of hundred milliseconds on the board,
+	 * against a watchdog of 3 s that the mode loop feeds either side of
+	 * this.
 	 */
 	for (j = 0; j < count; ++j) {
 		for (h = 0; h < le_csa2_hit_count; ++h) {

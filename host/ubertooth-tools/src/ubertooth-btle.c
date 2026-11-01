@@ -128,8 +128,7 @@ static void usage(FILE *out)
 	fprintf(out, "\t-f follow connections\n");
 	fprintf(out, "\t-n don't follow, only print advertisements\n");
 	fprintf(out, "\t-p promiscuous: sniff active connections\n");
-	fprintf(out, "\t       an algorithm 2 connection takes longer and is followed\n");
-	fprintf(out, "\t       without its channel map; -f captures all of one\n");
+	fprintf(out, "\t       -f captures all of an algorithm 2 connection, -p part of it\n");
 	fprintf(out, "\n");
 	fprintf(out, "\t-a [address] get/set access address, 1-8 hex digits (example: -a 8e89bed6)\n");
 	fprintf(out, "\t-s <address> faux peripheral mode, advertising from one whole address\n");

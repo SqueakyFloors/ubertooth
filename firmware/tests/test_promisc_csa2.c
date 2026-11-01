@@ -224,17 +224,25 @@ MU_TEST(unmapped_is_the_full_map_channel)
 }
 
 /*
- * How often the listening channel comes up. The search's hit list is sized
- * for this, and a run far above it would be truncated: about 65536/37 = 1771
- * counters, with a standard deviation of 42.
+ * How often the listening channel comes up, which is what the search's hit
+ * list is sized for.
+ *
+ * It is exact, not statistical: le_csa2_prn_e() is one to one in the event
+ * counter, so over the counter's whole range the pseudo-random number takes
+ * every value once, and 65536 = 37 * 1771 + 9. Every channel therefore has
+ * 1771 counters and nine of them have 1772, whatever the access address. A
+ * list of 1772 can never be truncated, and that is checked here rather than
+ * taken on trust.
  */
-MU_TEST(hits_are_near_one_in_37)
+MU_TEST(every_channel_has_1771_or_1772_counters)
 {
-	u32 aa[4] = { AA_A, AA_B, 0x12345678u, 0xaffe1234u };
+	u32 aa[5] = { AA_A, AA_B, 0x12345678u, 0xaffe1234u, 0x0000ffffu };
 	unsigned i, ch;
 
-	for (i = 0; i < 4; ++i) {
-		for (ch = 0; ch < LE_HOP_CHANNELS; ch += 6) {
+	for (i = 0; i < 5; ++i) {
+		unsigned total = 0, bigger = 0;
+
+		for (ch = 0; ch < LE_HOP_CHANNELS; ++ch) {
 			u32 counter;
 			unsigned hits = 0;
 			char msg[128];
@@ -247,9 +255,14 @@ MU_TEST(hits_are_near_one_in_37)
 			snprintf(msg, sizeof(msg),
 			         "access address %08lx channel %u: %u counters",
 			         (unsigned long)aa[i], ch, hits);
-			/* Six standard deviations either way. */
-			mu_assert(hits > 1771 - 252 && hits < 1771 + 252, msg);
+			mu_assert(hits == 1771 || hits == 1772, msg);
+			total += hits;
+			if (hits == 1772)
+				++bigger;
 		}
+
+		mu_assert_int_eq(65536, total);
+		mu_assert_int_eq(9, bigger);
 	}
 }
 
@@ -735,29 +748,23 @@ MU_TEST(how_often_it_works)
 
 /*
  * The same sweep as the mode runs it. A search that declines costs nothing
- * but the time until there are more sightings: the ring slides on and the
- * mode searches again, every LE_PROMISC_CSA2_EVERY sightings. The sets
- * overlap only a little, so a connection the first search declined is nearly
- * always recovered by the second or the third.
+ * but the time until there are more sightings: the mode starts both its
+ * estimators again and searches on the next full set, so each search works
+ * from sightings the one before it did not see.
  *
  * This is where the connections on the test bench sit. Their maps keep 18 or
  * 19 of the 37 channels, so about half of each set of sightings is visits the
  * map moved to this channel, which no counter predicts, and a set that lands
- * below the threshold is normal rather than a failure.
- *
- * A few connections stay below it however long the mode watches: how often
- * the map moves a visit onto this particular channel is a property of the
- * access address and the map, not luck, and for a handful of pairs it is high
- * enough to keep the right counter within the margin of the best wrong one.
- * Those are the connections this search does not recover, and declining is
- * the right answer for them.
+ * below the threshold is normal rather than a failure. Every connection in
+ * the sweep is recovered within a few searches.
  */
 MU_TEST(a_declined_search_is_recovered_by_the_next)
 {
 	static const uint16_t intervals[6] = { 6, 12, 24, 30, 80, 400 };
 	static const unsigned used[5] = { 37, 30, 24, 19, 18 };
-	/* The mode's own figure: how many new sightings between searches. */
-	static const unsigned every = 8;
+	/* A whole fresh set of sightings between searches, as the mode takes
+	 * it: after a search both estimators start again. */
+	static const unsigned every = LE_CSA2_SIGHTINGS;
 	unsigned seed = 4711;
 	unsigned trials = 0, found = 0, searches = 0;
 	unsigned i, j, k, rep;
@@ -823,7 +830,7 @@ MU_TEST(a_declined_search_is_recovered_by_the_next)
 	       "(%u searches in all)\n", found, trials, searches);
 
 	snprintf(msg, sizeof(msg), "recovered only %u of %u", found, trials);
-	mu_assert(found * 100 >= trials * 97, msg);
+	mu_assert(found == trials, msg);
 }
 
 /* ------------------------------------------------------------------------
@@ -867,7 +874,7 @@ int main(void)
 {
 	printf("LE promiscuous algorithm-2 recovery tests\n");
 	MU_RUN(unmapped_is_the_full_map_channel);
-	MU_RUN(hits_are_near_one_in_37);
+	MU_RUN(every_channel_has_1771_or_1772_counters);
 	MU_RUN(interval_comes_out_of_the_sightings);
 	MU_RUN(interval_survives_clock_error);
 	MU_RUN(interval_needs_enough_gaps);

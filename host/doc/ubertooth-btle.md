@@ -100,13 +100,13 @@ them: for each candidate interval and counter it works out where the
 connection would have come to this channel, and takes the pair that accounts
 for what it actually heard. Bluetooth 5.0 devices normally use algorithm 2.
 
-That search starts once the algorithm-1 route has had its chance, after two
-dozen visits to the channel being listened on, which is a few seconds on a
-short connection interval and a minute or more on a long one. It needs no
-channel map, and it declines rather than answer on thin evidence, so a
-connection whose map keeps about half the channels may take two or three
-searches before it is recovered, and a few connections are never recovered
-at all.
+That search starts once the algorithm-1 route has had its chance, after about
+thirty visits to the channel being listened on, and runs again on every set of
+that many after it. Thirty visits is a few seconds at a short connection
+interval and a minute or more at a long one. The search needs no channel map,
+and it declines rather than answer on thin evidence, so a connection whose map
+keeps about half the channels may take two or three sets before it is
+recovered.
 
 A connection recovered this way is followed without its channel map, because
 the map is given out when the connection is made and never repeated. The
@@ -114,6 +114,11 @@ follow lands on the right channel for the events whose channel the map did
 not move, which is roughly as many as the map keeps out of the 37, so a
 capture of such a connection has gaps in it. Capturing from the setup with
 `-f` has the map and does not.
+
+That also means a recovered connection is heard less often than it speaks, so
+promiscuous mode gives an algorithm-2 follow eight connection intervals of
+silence before it treats the connection as over, where a follow that hears
+every event is given five seconds.
 
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
@@ -238,6 +243,11 @@ Major modes:
    then followed without its channel map, so the capture has gaps in it:
    where the connection can be caught as it is made, `-f` captures all of it.
    See DESCRIPTION.
+
+   The connection parameters it recovers are reported as they are found:
+   `Access Address`, `CRC Init`, `Hop interval`, and then either `Hop
+   increment` for an algorithm-1 connection or `Algorithm 2 event counter`,
+   the connection event the follow starts on, for an algorithm-2 one.
 
    It sets no channel of its own, except that an odd frequency becomes 2440
    MHz: the odd frequencies are not BLE data channels, and the board's default

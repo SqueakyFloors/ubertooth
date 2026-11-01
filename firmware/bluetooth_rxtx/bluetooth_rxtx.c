@@ -224,13 +224,15 @@ typedef struct _le_promisc_state_t {
 	 * longer shared one, because the estimator's length is what bounds the
 	 * pattern it looks for.
 	 *
-	 * csa2_gap_count counts how many the ring holds, sightings counts how
-	 * many have arrived in this stage altogether, and csa2_tried is the
-	 * value of that count when the search last ran. */
+	 * Sharing one ring would mean giving the estimator above a longer one,
+	 * and its length is also what bounds the pattern it looks for.
+	 *
+	 * csa2_gap_count is how many the ring holds and sightings is how many
+	 * have arrived since the last search, which is what gives each
+	 * estimator a run of consecutive returns to work from. */
 	u32 csa2_gap[LE_CSA2_SIGHTINGS - 1];
 	u8 csa2_gap_count;
 	u16 sightings;
-	u16 csa2_tried;
 } le_promisc_state_t;
 le_promisc_state_t le_promisc;
 #define AA_LIST_SIZE (int)(sizeof(le_promisc.active_aa) / sizeof(le_promisc_active_aa_t))
@@ -3040,6 +3042,31 @@ void bt_generic_le(u8 active_mode)
 
 
 /*
+ * How long a followed connection may go unheard before it is taken to be over
+ * and the mode starts again.
+ *
+ * Five seconds for a connection the board can hear every event of. A
+ * connection recovered by the algorithm-2 search is followed without its
+ * channel map, so the board lands on the right channel for only some of its
+ * events -- about as many as the map keeps out of the 37 -- and at a long
+ * connection interval five seconds can pass between two events it does hear.
+ * Such a follow is given eight connection intervals instead, so that a
+ * connection it is following correctly is not thrown away and recovered again
+ * from the beginning, which at the longest interval would take half an hour.
+ */
+static u32 le_silence_timeout(void)
+{
+	u32 eight_intervals;
+
+	if (!le.chan_sel_2 || le.conn_interval == 0)
+		return 5 * 10000000u;
+
+	eight_intervals = 8u * le.conn_interval * LE_BASECLK;
+	return eight_intervals > 5 * 10000000u ? eight_intervals
+	                                       : 5 * 10000000u;
+}
+
+/*
  * Keeps reads of the low-energy receive buffer after the wait that ended
  * because the DMA had filled it. The controller writes the buffer without the
  * compiler knowing, and the waits watch registers rather than the buffer, so
@@ -3318,7 +3345,7 @@ void bt_le_sync(u8 active_mode)
 			now += CLK100NS_PERIOD; // handle rollover
 		if  ( // timeout
 			((le.link_state == LINK_CONNECTED || le.link_state == LINK_CONN_PENDING)
-			&& (now - le.last_packet > 50000000))
+			&& (now - le.last_packet > le_silence_timeout()))
 			// jam finished
 			|| (le_jam_count == 1)
 			)
@@ -3802,16 +3829,19 @@ static u16 promisc_interval(void) {
 	return 0;
 }
 
-/* How many sightings the algorithm-1 stage above is given to itself before the
- * algorithm-2 search starts as well. That stage settles within about a dozen
- * sightings when there is a hop increment to find, and never settles when
- * there is not, so waiting this long keeps the two out of each other's way. */
-#define LE_PROMISC_CSA2_AFTER 24
-
-/* How many new sightings between two algorithm-2 searches. One costs a couple
- * of hundred milliseconds, which is time the board spends not listening, so a
- * search that found nothing does not run again on the next packet. */
-#define LE_PROMISC_CSA2_EVERY 8
+/*
+ * How many sightings in a row the estimator above gets to itself before an
+ * algorithm-2 search runs, and again between one search and the next.
+ *
+ * A search leaves the receiver deaf for a couple of hundred milliseconds, so
+ * the two sightings either side of one are not neighbours and the gap between
+ * them is not a gap between consecutive returns. The estimator above reads the
+ * pattern the gaps repeat and needs a run of consecutive ones: up to sixteen
+ * for the longest pattern it looks for, and then five reports that agree. Both
+ * estimators therefore start again after every search, and this is comfortably
+ * more than the longest run the one above can need.
+ */
+#define LE_PROMISC_CSA2_RUN 32
 
 /* Add a gap to the algorithm-2 ring, dropping the oldest. */
 static void promisc_csa2_note_gap(u32 gap) {
@@ -3880,7 +3910,11 @@ static int promisc_try_csa2(u32 sighting) {
 	packet_cb = connection_follow_cb;
 
 	le_promisc_state(2, &le.conn_interval, 2);
-	le_promisc_state(4, &rec.event_counter, 2);
+	/* The counter the follow starts on, not the one the search answered
+	 * with: the search's answer belongs to a sighting a few hundred
+	 * milliseconds old, and this is the figure a reader can line up
+	 * against the connection. */
+	le_promisc_state(4, &le.event_counter, 2);
 
 	if (jam_mode != JAM_NONE)
 		le_jam_count = JAM_COUNT_DEFAULT;
@@ -3930,12 +3964,23 @@ void promisc_recover_hop_interval(u8 *packet) {
 	promisc_csa2_note_gap(clk_diff);
 	++le_promisc.sightings;
 
-	if (le_promisc.sightings >= LE_PROMISC_CSA2_AFTER &&
-			(u16)(le_promisc.sightings - le_promisc.csa2_tried) >=
-					LE_PROMISC_CSA2_EVERY) {
-		le_promisc.csa2_tried = le_promisc.sightings;
+	if (le_promisc.sightings >= LE_PROMISC_CSA2_RUN &&
+			le_promisc.csa2_gap_count == LE_CSA2_SIGHTINGS - 1) {
 		if (promisc_try_csa2(cur_clk))
 			return;
+
+		/* The search was deaf while it ran, so the next gap spans it
+		 * and the sightings either side of it are not neighbours.
+		 * Both estimators start again from the next sighting, which
+		 * also means the next search works from sightings this one has
+		 * not already turned down. */
+		le_promisc.gap_count = 0;
+		le_promisc.csa2_gap_count = 0;
+		le_promisc.sightings = 0;
+		le_promisc.seen_a_packet = 0;
+		le_promisc.consec_intervals = 0;
+		le.conn_interval = 0;
+		return;
 	}
 
 	obsv_hop_interval = promisc_interval();

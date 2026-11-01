@@ -253,10 +253,8 @@ assert "Usage:" in result.stdout, result
 # The one capability limit a user has to know before choosing -p: it takes an
 # algorithm-2 connection too, but without the channel map, so the capture has
 # gaps that -f would not leave.
-assert "an algorithm 2 connection takes longer and is followed" \
+assert "-f captures all of an algorithm 2 connection, -p part of it" \
     in result.stdout, result
-assert "without its channel map; -f captures all of one" in result.stdout, \
-    result
 assert result.stderr == "", result
 result = subprocess.run([BINARY, "-Z"], capture_output=True, text=True,
                         timeout=RUN_TIMEOUT_S, check=False, env=ENVIRONMENT)
