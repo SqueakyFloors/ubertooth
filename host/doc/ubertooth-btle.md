@@ -37,13 +37,34 @@ connection is being followed is recorded in the capture like any other packet,
 but is not acted on: the follow stays with the connection it started on until
 that connection ends.
 
-Ubertooth sees a connection end in one of two ways. A pair of devices that
-closes the connection says so on the air, and the follow ends a connection
-event or two later. The packet that closes the connection is in the capture;
-an acknowledgment of it that arrives after the follow has ended is not. A
-connection that dies without warning ends at its supervision timeout instead.
-The connection itself sets that timeout, anywhere from 100 ms to 32 s, and
-until it has passed a new connection between the same devices is not followed.
+Ubertooth sees a connection end in one of two ways.
+
+A pair of devices that closes the connection says so on the air. The follow
+ends at the first connection event in which nothing is heard, counting from
+the packet that closes the connection and the acknowledgment of it that the
+other device sends. In practice that is one or two connection events after the
+packet, and the capture usually holds the whole exchange: an acknowledgment
+the board does not hear is not in it, and counts as the silence that ends the
+follow.
+
+Waiting for the connection to go quiet is what tells a real close from a
+damaged packet. CRC verification is off unless it is asked for, so a
+bit-errored data packet can look like the one that closes a connection, and a
+connection that keeps delivering packets after it keeps being followed. The
+wait cuts both ways, and `-k1` is the only thing that removes the exposure, by
+dropping a damaged packet before the board reads it:
+
+  * A connection event the board simply misses is silence too, so a damaged
+    packet followed by a missed event does end a follow.
+  * A connection that carries on for more than a connection event or two after
+    a real close -- the devices still exchanging something -- keeps its follow
+    and then ends it at the supervision timeout, as a connection that dies
+    without warning does.
+
+A connection that dies without warning ends at its supervision timeout
+instead. The connection itself sets that timeout, anywhere from 100 ms to
+32 s, and until it has passed a new connection between the same devices is
+not followed.
 
 Follow mode hops with whichever of the two channel selection algorithms the
 connection uses. Which one that is was settled when the connection was made:
@@ -60,6 +81,22 @@ packets and will not follow connections as they are established.
 Promiscuous mode is an experimental mode for sniffing connections after
 they have already been established. This mode can be used to sniff
 long-lived connections.
+
+Promiscuous mode recovers connections that hop with algorithm 1 only. What
+it has to work out is where the connection goes next, and the first figure
+in that is the connection interval, measured from the spacings between the
+connection's visits to the channel being listened on: under algorithm 1 the
+pattern of those spacings repeats every 37 connection events, however many
+channels the connection's map leaves in use. Algorithm 2 picks each
+connection event's channel from the access address, the event counter, and
+the channel map, so its visits do not repeat on that cycle and no interval
+is reported. The hop increment, which promiscuous mode measures next and
+which only algorithm 1 has at all, is never reached. So on an algorithm-2
+connection promiscuous mode gets as far as the access address and the CRC
+init value and stops there, capturing only the packets that land on the
+channel it is sitting on. Bluetooth 5.0 devices normally use algorithm 2,
+so capture such a connection from its setup with `-f`, which hops with
+either algorithm.
 
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
@@ -178,17 +215,28 @@ Major modes:
  - `-n` :
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
-   Promiscuous mode: sniff already-established connections. It sets no channel
-   of its own: it listens on the one the board is holding, 2441 MHz unless
-   `ubertooth-util -c` left it on another frequency. It discovers the
-   access address of a connection on that channel, unless an earlier
-   `ubertooth-btle -a <address>` command gave the board one to follow; nothing
-   else makes it skip discovery, and `-t` is refused with it. As it works a
-   connection out it reports each parameter it has recovered: the access
-   address, the CRC init value, the hop interval and the hop increment. Those
-   lines go to standard output, or to standard error once `-q -` or `-c -` has
-   taken standard output, so a capture written to a file still says which
-   connection it is of.
+   Promiscuous mode: sniff already-established connections that hop with
+   channel selection algorithm 1. An algorithm-2 connection, which is what
+   Bluetooth 5.0 devices normally use, is not recovered: use `-f` and capture
+   it from its setup instead. See DESCRIPTION.
+
+   It sets no channel of its own, except that an odd frequency becomes 2440
+   MHz: the odd frequencies are not BLE data channels, and the board's default
+   is 2441 MHz, so a board nobody has tuned listens on 2440. It discovers the
+   access address of a connection on the channel it starts on, unless an
+   earlier `ubertooth-btle -a <address>` command gave the board one to follow;
+   nothing else makes it skip discovery, and `-t` is refused with it. A run
+   that discovered its own address works the CRC init value and the interval
+   out on 2440 MHz whatever `ubertooth-util -c` asked for, because finishing
+   the discovery leaves the board on 2441; a run handed an address keeps the
+   channel it was tuned to. Measuring the hop increment then moves the board
+   between 2404 MHz and 2406 MHz, from whichever channel the earlier stages
+   used. As it
+   works a connection out it reports each parameter it has recovered: the
+   access address, the CRC init value, the hop interval, and the hop increment.
+   Those lines go to standard output, or to standard error once `-q -` or
+   `-c -` has taken standard output, so a capture written to a file still says
+   which connection it is of.
 
    The hop interval is not read off the air; it is worked out by timing how
    long the connection takes to come back to the channel being listened on.
@@ -348,6 +396,13 @@ Miscellaneous:
    run once the mode has started, because entering a mode clears the setting,
    and the firmware then turns verification on and off itself as it recovers a
    connection.
+
+   Verification also decides what a follow (`-f`) acts on. With it off, a
+   bit-errored data packet still reaches the board's reading of the
+   connection, where its length and type fields are all that tell it from a
+   connection update, a channel map change, or the packet that closes the
+   connection; with it on, such a packet is dropped before any of that. It is
+   the only way to rule those mistakes out (DESCRIPTION).
  - `-v` :
    Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder
    describes each packet whose data it could not read, on standard error, as

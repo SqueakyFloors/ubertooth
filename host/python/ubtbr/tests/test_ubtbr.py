@@ -2333,6 +2333,34 @@ for typed in ("page_scan", "page 11:22:33:44:55:66"):
     assert DETACHED not in output, output
 print("ubtbr: a connection's LMP packets go to standard output as well")
 
+# A page or a page scan whose connection carried no packet goes back to what
+# it came from, and reports that state again with a reason of its own. Said
+# differently from the first report, so a reader can tell a page train that
+# has started again from one that is starting, and is not read as the command
+# having ended.
+for typed, started, resumed in (
+        ("page 11:22:33:44:55:66", btctl.BTCTL_STATE_PAGE,
+            "Paging resumed"),
+        ("page_scan", btctl.BTCTL_STATE_PAGE_SCAN,
+            "Page scan resumed")):
+    output, errors = canned_session(typed, [
+        state_message(started, btctl.BTCTL_REASON_SUCCESS),
+        state_message(btctl.BTCTL_STATE_CONNECTED, btctl.BTCTL_REASON_PAGED),
+        state_message(started, btctl.BTCTL_REASON_TIMEOUT),
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ")
+    assert resumed in errors, errors
+    # The one that really started is still reported as starting, once.
+    first = "Paging started" if "page " in typed else "Page Scan state Ready"
+    assert errors.count(first) == 1, errors
+    # and the command is still running: only standby ends it.
+    done = "Paging done" if "page " in typed else "Page scan done"
+    assert done not in errors, errors
+    assert "Connection ready, lt_addr=1\n" in errors, errors
+print("ubtbr: a page or page scan running again after a dead connection"
+      " says so")
+
 # A message from the board that ends before the packet it says it carries.
 # The packet is dropped with a warning naming what arrived, and the session
 # goes on to the next one: reading a short FHS anyway raised an IndexError on

@@ -94,7 +94,7 @@ single radio, so it can listen on only one channel at a time.
   * - ``-n``
     - **No-follow.** Log advertising packets only; never follow connections.
   * - ``-p``
-    - **Promiscuous (experimental).** Try to recover and follow a connection that is *already* established, by inferring its parameters from data-channel traffic. Slower and less reliable than follow mode.
+    - **Promiscuous (experimental).** Try to recover and follow a connection that is *already* established, by inferring its parameters from data-channel traffic. Slower and less reliable than follow mode, and limited to connections that hop with Channel Selection Algorithm 1: a connection between Bluetooth 5 devices normally uses Algorithm 2 and cannot be recovered this way.
 
 Why you only see advertisements
 """""""""""""""""""""""""""""""
@@ -105,14 +105,14 @@ the access address, hop increment, timing, and CRC
 seed for that connection.
 Common reasons for seeing only advertising traffic:
 
-- **The connection already existed** when capture started. Ubertooth cannot join it in follow mode. Disconnect and reconnect the devices while ``ubertooth-btle -f`` is running, or try ``-p``.
+- **The connection already existed** when capture started. Ubertooth cannot join it in follow mode. Disconnect and reconnect the devices while ``ubertooth-btle -f`` is running. Promiscuous mode, ``-p``, recovers a connection that is already running, but only one that hops with Channel Selection Algorithm 1, so it does not help with a connection between Bluetooth 5 devices.
 - **The connection request was sent on a different advertising channel.** Ubertooth listens on one channel (37 by default, selectable with ``-A 37|38|39``), and the central sends ``CONNECT_IND`` on whichever channel it heard the advertisement. Each connection attempt has roughly a one-in-three chance of happening on the channel being monitored, so you may need to reconnect several times.
 - **Weak signal.** Move Ubertooth closer to the devices; a missed ``CONNECT_IND`` or missed data packets cause the follow to fail.
 - **Unsupported link features.** Ubertooth implements the Bluetooth Low
-  Energy 1M physical layer (PHY) and Channel Selection Algorithm 1 only.
-  Connections that negotiate the 2M or Coded PHY, or Channel Selection
-  Algorithm 2 (common between Bluetooth 5 devices), hop or modulate
-  differently and will not be followed.
+  Energy 1M physical layer (PHY) only. A connection that negotiates the 2M
+  or Coded PHY modulates differently and will not be followed. Follow mode
+  hops with either channel selection algorithm, including Algorithm 2, which
+  Bluetooth 5 devices normally use.
 
 Encrypted connections are captured, but their payloads are encrypted. The
 `crackle <https://github.com/mikeryan/crackle>`__ tool can recover keys only

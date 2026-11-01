@@ -220,8 +220,167 @@ MU_TEST(every_register_name_in_the_table_is_its_own)
 	mu_assert(strcmp(cc2400_reg2name(0x15), "%MDMTST1") == 0, cc2400_reg2name(0x15));
 }
 
+/* ---- -w: the register write list ------------------------------------- */
+
+static struct {
+	int fail_reg;  /* this register's write fails... */
+	int fail_rc;   /* ...with this code */
+	int writes;
+	uint8_t reg[DEBUG_REGISTER_WRITES_MAX];
+	uint16_t value[DEBUG_REGISTER_WRITES_MAX];
+} written;
+
+static int fake_write(void *context, uint8_t reg, uint16_t value)
+{
+	(void)context;
+	if (written.writes < DEBUG_REGISTER_WRITES_MAX) {
+		written.reg[written.writes] = reg;
+		written.value[written.writes] = value;
+	}
+	written.writes++;
+	if (reg == written.fail_reg)
+		return written.fail_rc;
+	return 0;
+}
+
+/* What the parser accepts, and the values it reads: a %name or an address,
+ * hex or decimal, and the whole 16-bit range. */
+MU_TEST(a_write_list_is_parsed_into_registers_and_values)
+{
+	debug_register_write w[DEBUG_REGISTER_WRITES_MAX];
+	FILE *err = tmpfile();
+	char line[256];
+	int n;
+
+	n = debug_parse_register_writes("%grmdm=0x0f61,0x03=0x0029,20=65535",
+	                                w, DEBUG_REGISTER_WRITES_MAX, err);
+	slurp(err, line, sizeof(line));
+	mu_assert_int_eq(3, n);
+	mu_assert_int_eq(0, (long)strlen(line));
+	mu_assert_int_eq(0x20, w[0].reg);     /* %GRMDM */
+	mu_assert_int_eq(0x0f61, w[0].value);
+	mu_assert_int_eq(0x03, w[1].reg);
+	mu_assert_int_eq(0x0029, w[1].value);
+	mu_assert_int_eq(20, w[2].reg);       /* decimal 20, not 0x20 */
+	mu_assert_int_eq(0xffff, w[2].value);
+}
+
+/* A number without 0x is decimal, including one written with a leading zero:
+ * strtol's base 0 would read 010 as octal 8, and refuse 08 and 09 as not
+ * numbers at all, neither of which is what the man page says. */
+MU_TEST(a_leading_zero_is_decimal_and_not_octal)
+{
+	debug_register_write w[DEBUG_REGISTER_WRITES_MAX];
+	FILE *err = tmpfile();
+	char line[256];
+	int n = debug_parse_register_writes("010=010,08=09,0x10=0x10", w,
+	                                    DEBUG_REGISTER_WRITES_MAX, err);
+
+	slurp(err, line, sizeof(line));
+	mu_assert_int_eq(3, n);
+	mu_assert_int_eq(0, (long)strlen(line));
+	mu_assert_int_eq(10, w[0].reg);
+	mu_assert_int_eq(10, w[0].value);
+	mu_assert_int_eq(8, w[1].reg);
+	mu_assert_int_eq(9, w[1].value);
+	/* and 0x is still hex */
+	mu_assert_int_eq(16, w[2].reg);
+	mu_assert_int_eq(16, w[2].value);
+}
+
+/* Every way a -w value can be wrong is one line on standard error and no
+ * writes at all, so a half-applied configuration cannot reach the radio. */
+MU_TEST(a_bad_write_list_is_refused_whole)
+{
+	static const char *const bad[] = {
+		"",                 /* nothing asked for */
+		"%grmdm",           /* no value */
+		"%grmdm=",          /* an empty value */
+		"=0x1234",          /* no register */
+		"%nosuchreg=1",     /* a name the table does not have */
+		"0x100=1",          /* past the last register address */
+		"0x20=0x10000",     /* past 16 bits */
+		"0x20=-1",          /* not a value at all */
+		"0x20=0x",          /* a prefix with no digits */
+		"0x20=0x-1",        /* the sign strtol would have taken */
+		"0x20=1f",          /* hex digits without the prefix */
+		"0x20=1,",          /* a trailing comma */
+		"0x20=1,,0x21=2",   /* an empty item */
+		"0x20=1,0x21",      /* the second item has no value */
+		"0x20=1=2",         /* two values */
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+		debug_register_write w[DEBUG_REGISTER_WRITES_MAX];
+		FILE *err = tmpfile();
+		char line[256];
+		int n = debug_parse_register_writes(bad[i], w,
+		                                    DEBUG_REGISTER_WRITES_MAX, err);
+
+		slurp(err, line, sizeof(line));
+		mu_assert_int_eq(-1, n);
+		mu_assert(strncmp(line, "error: ", 7) == 0, bad[i]);
+		/* One line, naming the value the user wrote. */
+		mu_assert(strchr(line, '\n') == line + strlen(line) - 1, line);
+	}
+}
+
+/* More writes than the list holds is refused rather than cut short. */
+MU_TEST(a_write_list_longer_than_the_bound_is_refused)
+{
+	debug_register_write w[2];
+	FILE *err = tmpfile();
+	char line[256];
+	int n = debug_parse_register_writes("0x20=1,0x21=2,0x22=3", w, 2, err);
+
+	slurp(err, line, sizeof(line));
+	mu_assert_int_eq(-1, n);
+	mu_assert(strstr(line, "at most 2 register writes") != NULL, line);
+}
+
+/* The writes reach the board in the order given, and one refused register
+ * neither hides the rest nor hides itself. */
+MU_TEST(a_refused_write_names_its_register_and_the_rest_are_written)
+{
+	debug_register_write w[] = {
+		{ 0x20, 0x0f61 }, { 0x03, 0x0029 }, { 0x0b, 0x0004 },
+	};
+	FILE *err = tmpfile();
+	char line[256];
+	int status;
+
+	memset(&written, 0, sizeof(written));
+	written.fail_reg = 0x03;
+	written.fail_rc = -1;
+	status = debug_write_registers(fake_write, NULL, w, 3, err);
+	slurp(err, line, sizeof(line));
+
+	mu_assert_int_eq(1, status);
+	mu_assert_int_eq(3, written.writes);
+	mu_assert_int_eq(0x20, written.reg[0]);
+	mu_assert_int_eq(0x03, written.reg[1]);
+	mu_assert_int_eq(0x0b, written.reg[2]);
+	mu_assert(strcmp(line, "error: register 0x03 write failed\n") == 0, line);
+
+	/* All three accepted: nothing printed, status 0. */
+	memset(&written, 0, sizeof(written));
+	written.fail_reg = -1;
+	err = tmpfile();
+	status = debug_write_registers(fake_write, NULL, w, 3, err);
+	slurp(err, line, sizeof(line));
+	mu_assert_int_eq(0, status);
+	mu_assert_int_eq(3, written.writes);
+	mu_assert_int_eq(0, (long)strlen(line));
+}
+
 int main(void)
 {
+	MU_RUN(a_write_list_is_parsed_into_registers_and_values);
+	MU_RUN(a_leading_zero_is_decimal_and_not_octal);
+	MU_RUN(a_bad_write_list_is_refused_whole);
+	MU_RUN(a_write_list_longer_than_the_bound_is_refused);
+	MU_RUN(a_refused_write_names_its_register_and_the_rest_are_written);
 	MU_RUN(success_exits_zero_even_for_a_nonzero_register_value);
 	MU_RUN(an_early_failure_is_not_masked_by_a_later_success);
 	MU_RUN(a_short_reply_adds_no_second_line);

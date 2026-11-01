@@ -759,6 +759,13 @@ int rx_file_report(int result, const char* filename);
  * created -- or its stream died part-way. */
 int rx_dump(ubertooth_t* ut, int full);
 
+/* The same dump from the board's generic receive, which demodulates with the
+ * CC2400 configuration already in the radio instead of programming one; the
+ * caller is expected to have written that configuration itself. A separate
+ * entry point rather than a flag on rx_dump(), so the exported signature
+ * programs outside this tree compile against does not change. */
+int rx_dump_generic(ubertooth_t* ut, int full);
+
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
  * single packet from the piconet, so there is no map to report. */
 #define UBERTOOTH_AFH_NO_PACKETS (-2000)

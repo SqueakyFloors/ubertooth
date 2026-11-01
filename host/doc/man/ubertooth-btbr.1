@@ -108,6 +108,8 @@ leave the tool
 \fB?\fR, \fB? <command>\fR
 list the commands, or describe one
 .P
+\fBpage\fR, \fBl2ping\fR, and \fBpage_scan\fR keep trying for as long as the board allows one attempt: about 45 seconds of paging, a minute of scanning\. A connection that comes up and then carries nothing costs that attempt only the second link supervision takes to notice it, after which the board goes back to paging or scanning and says \fBPaging resumed\fR or \fBPage scan resumed\fR\. That happens when some other board nearby answers a page and is taken for the device being paged, or when the paged device's acknowledgment does not reach the pager\.
+.P
 A word that is none of these is refused, and the prompt stays up; see DIAGNOSTICS\.
 .P
 One command runs at a time\. Starting another while one is still running is refused with a \fBNot idle\fR line; \fBidle\fR or Ctrl\-C stops the running one first\.

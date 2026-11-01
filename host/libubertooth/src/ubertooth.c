@@ -1421,6 +1421,116 @@ static void ubertooth_bulk_stop(ubertooth_t* ut)
 	rx_xfer_release(ut, xfer);
 }
 
+/* How long to give a board to leave a mode, and how long to wait between
+ * reads of its mode. A stop is acted on by the running mode's loop at its next
+ * turn and then costs a radio strobe and the wait for the synthesizer to
+ * unlock, so a board that is still answering is idle within a few
+ * milliseconds; the bound is for one that is not.
+ *
+ * Elapsed time rather than a count of turns, because every read carries
+ * libusb's own 1000 ms timeout (cmd_get_watchdog_quiet()): a board that
+ * answers the stop and then stops answering would hold a hundred turns for a
+ * second each, and a capture that used to start at once would wait a hundred
+ * times the bound. */
+#define IDLE_WAIT_MS 1000
+#define IDLE_POLL_US 10000
+
+static uint64_t monotonic_ms(void)
+{
+	struct timespec ts = { 0, 0 };
+
+	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
+}
+
+/*
+ * Wait until the board reports that it has left the mode it was in. Returns 0
+ * once it has, or -1 if it was still in one when the wait ran out or the user
+ * stopped the run; *waited_ms is how long this took either way.
+ *
+ * What is read is the breadcrumb UBERTOOTH_GET_WATCHDOG answers with. The
+ * mode dispatch writes it after the teardown that drops the firmware's queue,
+ * so a board that reports MODE_IDLE has nothing left to send.
+ */
+static int wait_for_idle(ubertooth_t* ut, unsigned* waited_ms)
+{
+	uint64_t start = monotonic_ms();
+	watchdog_info info;
+
+	for (;;) {
+		*waited_ms = (unsigned)(monotonic_ms() - start);
+		if (cmd_get_watchdog_quiet(ut->devh, &info) == 0 &&
+		    info.mode == MODE_IDLE)
+			return 0;
+		*waited_ms = (unsigned)(monotonic_ms() - start);
+		if (*waited_ms >= IDLE_WAIT_MS || ubertooth_stopping(ut))
+			return -1;
+		usleep(IDLE_POLL_US);
+	}
+}
+
+/*
+ * Stop a mode an earlier run left running, and wait until the board says it
+ * has ended.
+ *
+ * A stream start clears the board's bulk IN endpoint (below), which discards
+ * what a mode that has ended left in it. That is enough for a board that is
+ * idle, which is what a tool exiting normally leaves: every one of them sends
+ * STOP on the way out, and leaving a mode drops the firmware's own queue.
+ *
+ * A board still streaming is the case this covers. Its mode's loop can hand
+ * the endpoint another packet in the gap between the clear and the mode
+ * request the caller sends next, by which time the receive transfer is already
+ * submitted, so the new capture reads a packet of somebody else's -- a
+ * basic-rate dump opening with low-energy records. It needs a previous capture
+ * that was killed without stopping the board.
+ *
+ * Asking the board to stop is not enough on its own: UBERTOOTH_STOP only sets
+ * the requested mode, the dispatch acts on it at its next turn, and the
+ * control transfer has returned long before that, so "stop, then clear" leaves
+ * a smaller version of the same gap. What closes it is waiting until the board
+ * reports that it has left the mode (wait_for_idle() above).
+ *
+ * Nothing is sent to a board that is already idle, which is every normal run:
+ * the mode read is one control request, and a capture start is not a hot path.
+ * A run of two phases is idle here as well, because the phase that ends waits
+ * for the stop it sent (rx_afh()); without that this would report the run's
+ * own previous phase as a mode somebody left behind.
+ *
+ * A board that will not stop is a warning rather than a failure. The capture
+ * works; it may just open with a packet or two of the previous mode's, which
+ * is what every capture did before this.
+ */
+static void idle_the_board(ubertooth_t* ut)
+{
+	watchdog_info info;
+	unsigned waited_ms;
+
+	/* The quiet form: a board part-way through a mode stalls the odd control
+	 * request, and a mode this cannot read is one it cannot act on either,
+	 * so there is nothing to report that the capture itself will not. */
+	if (cmd_get_watchdog_quiet(ut->devh, &info) < 0)
+		return;
+	/* MODE_UNKNOWN is the btbr image, which runs its own states and reports
+	 * no mode: there is none to stop. */
+	if (info.mode == MODE_IDLE || info.mode == MODE_UNKNOWN)
+		return;
+
+	fprintf(stderr, "warning: the board is still in mode %u from an earlier "
+	        "run; stopping it first (ubertooth-util -w names the modes)\n",
+	        (unsigned)info.mode);
+
+	if (cmd_stop(ut->devh) < 0)
+		return;
+
+	/* Not after a Ctrl-C during the wait: the capture it would warn about
+	 * is one the user has already stopped. */
+	if (wait_for_idle(ut, &waited_ms) < 0 && !ubertooth_stopping(ut))
+		fprintf(stderr, "warning: it has not stopped after %u ms; this "
+		        "capture may open with a packet or two of the earlier "
+		        "run's\n", waited_ms);
+}
+
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	struct libusb_transfer* xfer;
@@ -1436,6 +1546,10 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 		        "finish\n");
 		return -1;
 	}
+
+	/* A mode an earlier run left streaming is stopped before the clear
+	 * below, so that nothing can be handed to the endpoint after it. */
+	idle_the_board(ut);
 
 	/*
 	 * Start from an empty pipe. The board's bulk IN endpoint has two
@@ -1455,11 +1569,10 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 	 * host's toggle back to DATA0 to match, so the two stay in step.
 	 *
 	 * Doing it before the mode request is what keeps it from discarding
-	 * anything the caller wants: nothing has been asked for yet. It does not
-	 * close the window on a board still running a mode somebody else
-	 * started, whose loop can hand the endpoint another packet between this
-	 * and the mode request. A tool that exits normally sends STOP, so the
-	 * board this runs against is idle and has already dropped its queue.
+	 * anything the caller wants: nothing has been asked for yet. And doing
+	 * it on an idle board, which idle_the_board() above has just made sure
+	 * of, is what makes it the last word: a board still in a mode could hand
+	 * the endpoint another packet between this and the mode request.
 	 *
 	 * A board that refuses it is worth a word but not a failure: the stream
 	 * works, it may just open with a packet or two from before.
@@ -1690,6 +1803,7 @@ static int afh_map_empty(btbb_piconet* pn)
 int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 {
 	int r = btbb_init(max_ac_errors);
+	int stopped_the_board;
 	if (r < 0)
 		return -1;
 
@@ -1716,12 +1830,28 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * reason ubertooth_cleanup() gives: with no status for the lost
 		 * transfer, the board cannot be known to be there to answer. A
 		 * monitor phase on such a handle refuses to start anyway. */
-		if (rx_xfer_peek(ut, NULL) == NULL)
+		stopped_the_board = rx_xfer_peek(ut, NULL) == NULL;
+		if (stopped_the_board)
 			cmd_stop(ut->devh);
 		/* The timer that ended the detection phase is forgotten so the
 		 * monitoring phase below can start at all. A stop the user asked
-		 * for survives this, and is what the check below the map reads. */
+		 * for survives this, and is what the check below the map reads.
+		 * Before the wait, which gives up as soon as a stop is asked
+		 * for: the timer that ended this phase is not one. */
 		ubertooth_clear_timeout_stop(ut);
+		/* Wait for the stop, so the monitor phase below starts against a
+		 * board that has left this phase's mode. The stop only asks; the
+		 * dispatch acts on it a turn later, which is longer than the few
+		 * calls between here and the next stream start, and that start
+		 * would then report this run's own detection phase as a mode
+		 * somebody else had left running. Nothing is reported here: a
+		 * board that will not stop is the next stream start's to
+		 * describe. */
+		if (stopped_the_board) {
+			unsigned waited_ms;
+
+			(void)wait_for_idle(ut, &waited_ms);
+		}
 
 		/* A phase that could not even receive has not shown that the piconet
 		 * is quiet; stream_rx_usb() has already reported why. Whatever it
@@ -1904,16 +2034,30 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 	}
 }
 
-/* dump received symbols to stdout */
-int rx_dump(ubertooth_t* ut, int bitstream)
+/* dump received symbols to stdout, from whichever receive the caller asked for */
+static int rx_dump_from(ubertooth_t* ut, int bitstream,
+                        int (*start)(struct libusb_device_handle*))
 {
 	int r;
 
 	if (bitstream)
-		r = stream_rx_usb(ut, cb_dump_bitstream, NULL, cmd_rx_syms);
+		r = stream_rx_usb(ut, cb_dump_bitstream, NULL, start);
 	else
-		r = stream_rx_usb(ut, cb_dump_full, NULL, cmd_rx_syms);
+		r = stream_rx_usb(ut, cb_dump_full, NULL, start);
 	return r < 0 ? r : 0;
+}
+
+int rx_dump(ubertooth_t* ut, int bitstream)
+{
+	return rx_dump_from(ut, bitstream, cmd_rx_syms);
+}
+
+/* The generic receive takes the radio as it finds it, so the request that
+ * starts it is the only difference: the records arrive in the same shape and
+ * are written by the same callbacks. */
+int rx_dump_generic(ubertooth_t* ut, int bitstream)
+{
+	return rx_dump_from(ut, bitstream, cmd_rx_generic);
 }
 
 static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)

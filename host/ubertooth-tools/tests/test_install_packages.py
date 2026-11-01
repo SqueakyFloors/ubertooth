@@ -18,8 +18,10 @@ What is checked:
   * a Linux machine with neither is refused, in one "error: " line that names
     both package managers;
   * --with-firmware adds the ARM toolchain for whichever one it is;
-  * the package names the script asks for are the ones REQUIREMENTS.md lists,
-    so the table and the script cannot drift apart.
+  * every package name the script asks for appears in REQUIREMENTS.md, so a
+    dependency added to the script cannot be left out of the document. The
+    other direction is not checked: the search is over the whole file, so a
+    name that has gone from the script still has somewhere to match.
 """
 
 import atexit
@@ -84,10 +86,10 @@ PACKAGE_MANAGERS = {
 # case says which of those it has. The package managers decide which platform
 # it takes itself to be, and on a Debian or Ubuntu machine the real apt-get is
 # in one of these directories. The Ubertooth tools decide whether a
-# --with-firmware run flashes before it installs anything: a machine with the
-# distribution's ubertooth package would send those cases down the flashing
-# path, where they would build firmware inside the checkout and never reach
-# the dependency step they are about.
+# --with-firmware run builds the firmware before it installs anything: a
+# machine with the distribution's ubertooth package would send those cases
+# down that path, where they would build firmware inside the checkout and
+# never reach the dependency step they are about.
 SYSTEM_DIRECTORIES = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
 HIDDEN = ("apt", "apt-get", "dnf", "dnf5", "microdnf", "yum", "zypper",
           "pacman", "brew",
@@ -97,8 +99,10 @@ HIDDEN = ("apt", "apt-get", "dnf", "dnf5", "microdnf", "yum", "zypper",
 def link_system_tools():
     """One directory of links to the system tools, minus the hidden names.
 
-    Made once and shared by every run: it is a thousand links on a normal
-    machine, and rebuilding it per run cost more than the runs themselves.
+    Made once and shared by all seven runs. It is over a thousand links on a
+    normal machine: a quarter of a second each time on an idle one, but much
+    more on a loaded one, where building it per run took the test most of the
+    way to its timeout.
     """
     farm = tempfile.mkdtemp(prefix="install-sh-tools.")
     for system in SYSTEM_DIRECTORIES:
@@ -201,19 +205,23 @@ for manager, firmware, dependencies in (
         ("apt-get", APT_FIRMWARE, APT_DEPENDENCIES)):
     status, stderr, stdout = run_with_fakes(["--with-firmware"], [manager])
     assert status != 0, stderr
-    assert stdout == "", stdout
     # No Ubertooth tool is reachable (see HIDDEN), so the script installs the
     # toolchain and leaves the firmware to the end, where this run never
     # arrives. A run that did build it would do so inside the checkout, and
     # the two commands this case compares would not both be there to compare.
+    # Checked before stdout, which a firmware build would also have written
+    # to: this is the message that says what went wrong.
     assert "==> Building firmware" not in stderr, (manager, stderr)
+    assert stdout == "", stdout
     printed = would_run(stderr)
     assert firmware in printed, (manager, firmware, stderr)
     assert printed.index(firmware) < printed.index(dependencies), \
         (manager, printed)
 
-# Every package the script asks for is in the table a user installing by hand
-# reads, so a name added or corrected in one of them has to be done in both.
+# Every package the script asks for is named in the table a user installing by
+# hand reads, so a dependency added here has to be added there too. A name
+# left in the table after the script stopped asking for it is not caught: the
+# search is over the whole document, prose included.
 if REQUIREMENTS:
     with open(REQUIREMENTS) as table:
         listed = table.read()
