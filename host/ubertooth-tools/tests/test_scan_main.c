@@ -653,8 +653,10 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 	": the board did not answer in time (libusb -7)\n" \
 	"note: if a mode is running, stop it with ubertooth-util -S; " \
 	"a board that does not answer at all usually resets itself within " \
-	"a few seconds, so run the command again, and unplug it or " \
-	"power-cycle its hub port if it stays silent\n"
+	"a few seconds, so run the command again, then reset it with " \
+	"ubertooth-util -r and the same -U if it stays silent, and " \
+	"unplug it or power-cycle its hub port if that does not reach " \
+	"it either\n"
 
 /* A scan the board would not stop leaves that board running the capture mode,
  * and no other tool can open it until it is reset or re-plugged, so the run
@@ -1085,8 +1087,10 @@ MU_TEST(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back)
 		  "in time (libusb -7)\n"
 		  "note: if a mode is running, stop it with ubertooth-util -S; "
 		  "a board that does not answer at all usually resets itself "
-		  "within a few seconds, so run the command again, and unplug "
-		  "it or power-cycle its hub port if it stays silent\n" },
+		  "within a few seconds, so run the command again, then reset "
+		  "it with ubertooth-util -r and the same -U if it stays "
+		  "silent, and unplug it or power-cycle its hub port if that "
+		  "does not reach it either\n" },
 		{ "ms", 0, 0, LIBUSB_ERROR_PIPE, STALLED("start the capture") },
 	};
 	struct run_result r;

@@ -1606,6 +1606,58 @@ with contextlib.redirect_stderr(Terminal()):
     assert streams.colored("ready", "32;1") == "\x1b[32;1mready\x1b[0m"
 print("ubtbr: a progress line is colored for a terminal and plain otherwise")
 
+# A line the stream's character encoding cannot carry is one lost line, not a
+# lost stream. A device name comes off the air as whatever bytes were sent,
+# and one that is not ASCII -- or the replacement character a name cut
+# mid-character decodes to -- used to end the command in
+# "BTCtlInquiryCmd stopped: UnicodeEncodeError" on a session whose streams are
+# not UTF-8. The line goes, the warning says why once, and the session carries
+# on with the packets that follow.
+
+
+def ascii_stream():
+    """A stream with ASCII under it, as PYTHONIOENCODING=ascii leaves one."""
+    return io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+
+
+def written(stream):
+    stream.flush()
+    return stream.buffer.getvalue().decode("ascii")
+
+
+# The flag that says the warning has been given is a module global, so each
+# case below starts from a session that has not given it yet.
+streams._encoding_reported = False
+ascii_out, said = ascii_stream(), io.StringIO()
+with contextlib.redirect_stdout(ascii_out), contextlib.redirect_stderr(said):
+    streams.result("COMPLETE_LOCAL_NAME: '\ufffdbertooth'")
+    streams.result("RX FHS: bdaddr=112233445566")
+    streams.result("COMPLETE_LOCAL_NAME: '\ufffdgain'")
+printed = written(ascii_out)
+# the two lines that could not be encoded are gone, and the one between them
+# reached the reader: the stream is kept rather than pointed at the bin
+assert "bertooth" not in printed and "gain" not in printed, printed
+assert "RX FHS: bdaddr=112233445566" in printed, printed
+assert said.getvalue().count("warning: a line could not be written in"
+                             " standard output's character encoding"
+                             " (ascii)") == 1, said.getvalue()
+assert "PYTHONIOENCODING=utf-8" in said.getvalue(), said.getvalue()
+assert not streams.output_gone(), "the stream is there; only the line is lost"
+print("ubtbr: a packet the output encoding cannot carry is one dropped line")
+
+# the same for a diagnostic, which used to point standard error at the bin
+# for the rest of the session: one warning the encoding could not take and
+# every later error line was lost with it.
+streams._encoding_reported = False
+ascii_err = ascii_stream()
+with contextlib.redirect_stderr(ascii_err):
+    streams.error("could not read the name '\ufffdbertooth'")
+    streams.error("plain words reach the reader")
+assert "plain words reach the reader" in written(ascii_err), written(ascii_err)
+assert "character encoding (ascii)" in written(ascii_err), written(ascii_err)
+print("ubtbr: a diagnostic the error encoding cannot carry keeps the stream")
+streams._encoding_reported = False
+
 # ---- a command that ends after the prompt gave up on it -------------------
 
 # Giving up has to be a pause, not the end of the session: a command that

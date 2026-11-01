@@ -331,15 +331,16 @@ why the board refused it and the libusb code, adding a note where there is
 something to try:
 
     error: could not zero the board's clock: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r and the same -U if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
 
 That pair is the report, the same one ubertooth-rx(1) and ubertooth-scan(1)
 give: the request named as `set the Bluetooth address` for the address, and as
 `zero the board's clock` for the clock reset. A request the board's firmware
 has not got is stalled, which reads `error: could not zero the board's clock:
-the board's firmware does not support it (stalled, libusb -9)`, with a note
-naming the board's firmware API version and the one these tools need (see
-ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board that took only part of
+the board's firmware does not support it (stalled, libusb -9)`, with notes
+naming the board's firmware API version and the one these tools need, and the
+reset that recovers a board which stalls every request (see ubertooth(7),
+FIRMWARE OF ANOTHER API VERSION). A board that took only part of
 either write gives the counts instead, as `error: Bluetooth address write
 failed: board took 8 of 16 bytes` or `error: clock write failed: board took 2
 of 4 bytes`, and the follow stops on that one line.

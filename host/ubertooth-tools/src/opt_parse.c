@@ -177,9 +177,13 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap)
 int opt_check_stdout_not_tty(const char *what)
 {
 	if (isatty(STDOUT_FILENO)) {
+		/* The whole description comes from the caller, the word "binary"
+		 * included: most of these streams are binary, and one of them,
+		 * ubertooth-dump -b, is text that is just as unreadable on a
+		 * screen. A fixed "binary" here called that one binary too. */
 		fprintf(stderr,
-		        "error: stdout is a tty, refusing to write binary %s to it\n",
-		        what == NULL ? "output" : what);
+		        "error: stdout is a tty, refusing to write %s to it\n",
+		        what == NULL ? "this output" : what);
 		return -1;
 	}
 	return 0;

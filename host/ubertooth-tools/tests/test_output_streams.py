@@ -303,15 +303,20 @@ if REFUSED_EXACTLY.get(TOOL):
 # (opt_capture_path(), opt_open_dump_file()). ubertooth-btle needs a major
 # mode beside the capture to have work to do.
 CAPTURE_TO_STDOUT = {
-    "ubertooth-btle": ((["-n", "-q", "-"], "capture data"),),
+    "ubertooth-btle": ((["-n", "-q", "-"], "binary capture data"),),
     # ubertooth-dump streams to standard output with no -d at all, so the
-    # bare command line is refused on a terminal too.
-    "ubertooth-dump": (([], "dump data"), (["-d", "-"], "dump data")),
-    "ubertooth-follow": ((["-q", "-"], "capture data"),
-                         (["-d", "-"], "dump data")),
-    "ubertooth-rx": ((["-q", "-"], "capture data"),
-                     (["-d", "-"], "dump data")),
-    "ubertooth-specan": ((["-d", "-"], "samples"),),
+    # bare command line is refused on a terminal too. -b is refused as well,
+    # and is named for what it is: a line of '0' and '1' per symbol is text,
+    # and the refusal used to call it binary.
+    "ubertooth-dump": (([], "binary dump data"),
+                       (["-d", "-"], "binary dump data"),
+                       (["-b"], "the bitstream dump"),
+                       (["-b", "-d", "-"], "the bitstream dump")),
+    "ubertooth-follow": ((["-q", "-"], "binary capture data"),
+                         (["-d", "-"], "binary dump data")),
+    "ubertooth-rx": ((["-q", "-"], "binary capture data"),
+                     (["-d", "-"], "binary dump data")),
+    "ubertooth-specan": ((["-d", "-"], "binary samples"),),
 }
 
 for arguments, what in CAPTURE_TO_STDOUT.get(TOOL, ()):
@@ -334,7 +339,7 @@ for arguments, what in CAPTURE_TO_STDOUT.get(TOOL, ()):
         os.close(pty_fd)
     assert result.returncode == 1, (arguments, result)
     assert result.stderr == (
-        "error: stdout is a tty, refusing to write binary %s to it\n" % what), \
+        "error: stdout is a tty, refusing to write %s to it\n" % what), \
         (arguments, result)
     # refused before the device was looked for, which is where the capture
     # would otherwise have been opened

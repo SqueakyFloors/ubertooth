@@ -58,12 +58,50 @@ def eprint(msg):
 	left to report the loss, so the line goes and the exit status is the
 	command's own. The stream is pointed at the bin so the writes to come are
 	safe.
+
+	A line the stream's character encoding cannot carry is the exception, and
+	is handled before those: there the stream is working and only this line
+	is lost, so it is dropped and the stream is kept.
 	"""
 	try:
 		sys.stderr.write(msg)
 		sys.stderr.flush()
+	except UnicodeEncodeError:
+		line_was_not_encodable(sys.stderr, "standard error")
 	except (OSError, ValueError, AttributeError):
 		point_at_the_bin(sys.stderr)
+
+# Set once a line has been dropped because the stream it was going to could
+# not encode it. Said once a session, as output_lost() is: the cause is the
+# session's encoding, so every later line has the same one.
+_encoding_reported = False
+_encoding_lock = Lock()
+
+def line_was_not_encodable(stream, name):
+	"""Report a line dropped because its stream could not encode it.
+
+	A device name arrives as whatever bytes the air carried, and a session
+	whose streams are not UTF-8 -- `PYTHONIOENCODING=ascii`, or a C locale --
+	cannot write every such name. That is one lost line and not a stream that
+	has gone: the lines around it are plain text and reach the reader, so the
+	line is dropped and the session carries on.
+
+	Said once, from whichever thread finds it first; the flag is taken before
+	the warning is written, so the warning finding the same wall reports
+	nothing further rather than calling back into here forever. `name` is how
+	the stream is spoken of to the user, since the loss belongs to one of the
+	two and they are set separately.
+	"""
+	global _encoding_reported
+	with _encoding_lock:
+		if _encoding_reported:
+			return
+		_encoding_reported = True
+	encoding = getattr(stream, "encoding", None) or "unknown"
+	warn("a line could not be written in %s's character encoding (%s), so "
+	     "it was dropped\nnote: run the session under an encoding that "
+	     "carries the text, for example PYTHONIOENCODING=utf-8"
+	     %(name, encoding))
 
 # Set once standard output has gone away, so the session can end with a
 # status that says what was asked for was not all printed. A command runs on
@@ -246,6 +284,13 @@ def result(msg):
 		# Whatever was reading the capture has stopped, which is what
 		# `ubertooth-btbr | head -5` does.
 		output_lost()
+	except UnicodeEncodeError:
+		# The reader is still there and the stream still works: this
+		# message holds a character the stream's encoding cannot carry,
+		# which a device name from the air can, in a session that is not
+		# running under UTF-8. So it is one lost line rather than a lost
+		# stream, and the next packet is printed as usual.
+		line_was_not_encodable(sys.stdout, "standard output")
 	except OSError as problem:
 		# The stream is there and the descriptor under it refuses the write
 		# with EBADF. A session asked for on such a descriptor is refused

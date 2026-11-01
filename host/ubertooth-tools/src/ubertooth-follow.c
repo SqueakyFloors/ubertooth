@@ -417,8 +417,8 @@ int main(int argc, char *argv[])
 	 * is a problem with the command line, so it is refused here, before a
 	 * board or an adapter is opened; the stream itself is taken over
 	 * further down, where the file is created. */
-	if (opt_check_capture_destination(pcap_name, "capture data") < 0 ||
-	    opt_check_capture_destination(dump_name, "dump data") < 0)
+	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0 ||
+	    opt_check_capture_destination(dump_name, "binary dump data") < 0)
 		return 1;
 
 	/* Whether a capture will own this process's standard output, which the
