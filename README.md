@@ -182,9 +182,11 @@ does which step.
 
 `ubertooth-follow` and `ubertooth-scan` drive a second, ordinary Bluetooth
 adapter through BlueZ, so they are built on Linux only and are not coming to
-macOS: the clock and AFH-map reads they depend on are not in macOS's public
-Bluetooth APIs. On a Mac, do the same work passively with `ubertooth-rx` and
-`ubertooth-afh`, which need no adapter — see
+macOS: the operations they ask of that adapter — a clock read and the AFH map
+for `ubertooth-follow`, the remote version and features for `ubertooth-scan
+-x` — are not in macOS's public Bluetooth APIs. On a Mac, cover much of the
+same ground passively with `ubertooth-rx` and `ubertooth-afh`, which need no
+adapter — see
 [COMPATIBILITY.md](COMPATIBILITY.md#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)
 for the operation-by-operation comparison and the alternatives.
 

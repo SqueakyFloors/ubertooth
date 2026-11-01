@@ -41,16 +41,19 @@ the full reference for its options.
 - ``ubertooth-scan`` — Active inquiry scan using a BlueZ dongle plus Ubertooth.
   **Linux only**, for the same reason. (Needs: a BlueZ Bluetooth dongle.)
 
-On macOS neither of those two is built, and neither is planned: the clock and
-AFH-map reads they depend on are not in macOS's public Bluetooth APIs. Use
-``ubertooth-rx`` and ``ubertooth-afh`` there, which do the same work by
-listening and need no adapter; ``COMPATIBILITY.md`` compares them operation by
-operation.
 - ``ubertooth-btbr`` — Take part in Classic BT: inquiry, paging, and *monitor*
   mode, which captures a connection as it is set up. **Experimental**, and the
   only tool that needs the separate ``btbr`` firmware image rather than
   ``bluetooth_rxtx`` (see :ref:`the-two-firmware-images` and
   :doc:`sniffing_BR_EDR`). (Needs: the ``btbr`` image and a Classic BT peer.)
+
+On macOS neither of those two BlueZ tools is built, and neither is planned:
+the adapter operations they are built around — a clock read and the AFH map
+for ``ubertooth-follow``, the remote version and features for
+``ubertooth-scan -x`` — are not in macOS's public Bluetooth APIs. Use
+``ubertooth-rx`` and ``ubertooth-afh`` there, which cover much of the same
+ground by listening and need no adapter; ``COMPATIBILITY.md`` compares them
+operation by operation.
 
 **Signal / low-level**
 

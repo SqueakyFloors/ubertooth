@@ -33,7 +33,7 @@ Legend:
 | **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | the pinned fork commit ([`50bbc76`](https://github.com/SqueakyFloors/libbtbb/commit/50bbc76d383e4038ee6dadccad55f0161c1cb029), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | one missing a function the tools call or a macro they read: refused at configure time. Any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
-| **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | ❌ macOS: no BlueZ, and the operations these tools need are not in macOS's public APIs either, so both are skipped there and will stay that way ([note below](#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) | 🎯 5.53 verified in CI; neither tool has run against a real adapter and piconet ([#44](https://github.com/SqueakyFloors/ubertooth/issues/44)) |
+| **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS: no BlueZ, and the operations these tools need are not in macOS's public APIs either, so both are skipped there and will stay that way ([note below](#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) | 🎯 5.53 verified in CI; neither tool has run against a real adapter and piconet ([#44](https://github.com/SqueakyFloors/ubertooth/issues/44)) |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
 | **Ubertooth firmware (API)** | 1.57 (this tree), exactly | 1.57 on an Ubertooth One, both images reporting this tree's version | any other, 1.56 and 1.07 (`2020-12-R1`) included: refused, except `ubertooth-dfu` reflashing and `ubertooth-util -v`/`-V` | ✅ 1.57 is where a processor fault was, verified on a lab Ubertooth One: a board made to branch to 0x40000001, which the Cortex-M3 default memory map refuses to execute, reported `status 0x00000001, the instruction was at 0x40000000`, where 1.56 on the same board and the same deliberate fault reported `no address recorded`. ✅ 1.56 verified on hardware. 🎯 1.52, 1.54, and 1.55 are HWPENDING, and 1.53 is verified only in part ([#824](https://github.com/SqueakyFloors/ubertooth/issues/824)). The symbol transmit mode and the E-GO access code have not been exercised on the air |
 | **Ubertooth bootloader** | whichever one is on the board; no tool checks it (its `bcdDevice` is a fixed 1.00) | the one the boards shipped with; this tree's is compiled and linked in CI, which also checks that it fits its 16 KiB region | — | 🎯 built and unit-tested only, never flashed: installing one needs ISP or JTAG ([#256](https://github.com/SqueakyFloors/ubertooth/issues/256), [#423](https://github.com/SqueakyFloors/ubertooth/issues/423), [#424](https://github.com/SqueakyFloors/ubertooth/issues/424)) |
@@ -75,28 +75,29 @@ an Intel Mac.
 ### macOS: `ubertooth-scan` and `ubertooth-follow` are Linux only
 These two are the only tools that need a second, ordinary Bluetooth adapter
 beside the Ubertooth, and they drive it through BlueZ, which exists on Linux
-only. On macOS they are not built, and that is where it stays: no software
-change in this project can make them work there, because the adapter
+only. On macOS they are not built, and that is where it stays: the adapter
 operations they depend on are not reachable from macOS's public Bluetooth
 APIs. CoreBluetooth is an LE API and cannot do Classic at all; IOBluetooth
 does Classic, but only the parts Apple exposes:
 
 | Adapter operation | Used by | BlueZ | Public IOBluetooth |
 |---|---|---|---|
+| Choose and open a local adapter (`-b hciN`) | both tools | `hci_devid()`, `hci_open_dev()`, `hci_devinfo()` | only the default controller, `+defaultController`; no choice, and no read of its own address or LMP features |
 | Inquiry | `ubertooth-scan -s` | `hci_inquiry()` | yes, `IOBluetoothDeviceInquiry` |
-| Connect / disconnect | both tools | `hci_create_connection()`, `hci_disconnect()` | yes, `-openConnection:`, `-closeConnection` |
+| Connect / disconnect | `ubertooth-scan -x`, `ubertooth-follow` | `hci_create_connection()`, `hci_disconnect()` | yes, `-openConnection:`, `-closeConnection` |
 | Remote name | `ubertooth-scan` | `hci_read_remote_name()` | yes, `-remoteNameRequest:` |
-| Class of device | `ubertooth-scan` | the inquiry result | yes, `-classOfDevice` |
 | Remote version, LMP features | `ubertooth-scan -x` | `hci_read_remote_version()`, `hci_read_remote_features()`, `hci_read_remote_ext_features()` | **no** |
-| Clock offset | both tools | `hci_read_clock_offset()` | only the value cached from an earlier inquiry or connection (`-getClockOffset`); the read cannot be asked for |
-| Piconet clock (CLKN) | `ubertooth-follow` | `hci_read_clock()` | **no** |
-| AFH channel map | both tools | `hci_read_afh_map()` | **no** |
+| Clock offset | `ubertooth-scan -x`, `ubertooth-follow` | `hci_read_clock_offset()` | only the value cached from an earlier inquiry or connection (`-getClockOffset`); the read cannot be asked for |
+| The adapter's own clock, which with that offset gives the piconet's CLKN | `ubertooth-follow` | `hci_read_clock()` | **no** |
+| AFH channel map of a link | `ubertooth-scan -x`, `ubertooth-follow -a` | `hci_read_afh_map()` | **no** |
 
 So a native backend could cover `ubertooth-scan`'s inquiry and names, but not
-the extra device detail of `-x`, and not the AFH map either tool reports.
-`ubertooth-follow`'s whole purpose is the clock and the AFH map, so it cannot
-be supported at all. Sending the missing HCI commands needs private Apple
-interfaces, which this project will not ship.
+the extra device detail of `-x`, and it could not choose which adapter to use.
+`ubertooth-follow` exists for the clock and the AFH map, so it cannot be
+supported at all. Sending the missing HCI commands needs private Apple
+interfaces, which this project will not ship. (The per-piconet channel map
+`ubertooth-scan` prints in its survey results is a different thing, built by
+libbtbb from what the Ubertooth itself heard, and it needs no adapter.)
 
 Driving an external USB adapter directly, through a user-space stack such as
 BTstack or Bumble, would sidestep the public API, but it means taking the
@@ -106,16 +107,18 @@ macOS 26 bug in the USB host stack that can panic the machine for particular
 devices and operations — BTstack's
 [libusb port](https://github.com/bluekitchen/btstack/tree/master/port/libusb)
 documents it and avoids device resets because of it. Not worth it for two
-tools.
+tools, so this fork does not take that route either.
 
 **What to do on a Mac instead.** Both tools exist to shorten work the Ubertooth
 can do by listening, so do that work passively: `ubertooth-rx -z` surveys the
-band and reports the LAPs it hears, `ubertooth-rx -l -u` recovers the UAP and
-the clock and then follows and decodes the piconet, and `ubertooth-afh`
+band and reports the LAPs it hears, `ubertooth-rx -l <LAP>` recovers that
+piconet's UAP and clock and then follows and decodes it, and `ubertooth-afh`
 recovers a piconet's AFH channel map. None of them needs an adapter, and all
-three are built on macOS. If you specifically need an active inquiry or a
-clock read from an adapter, run these two tools on Linux, native or in a
-virtual machine with the Ubertooth and the adapter passed through.
+three are built on macOS. They cover much of the same ground, not all of it:
+if you need an active inquiry, the remote version and features of
+`ubertooth-scan -x`, or a clock read from an adapter, run these two tools on
+Linux, native or in a virtual machine with the Ubertooth and the adapter
+passed through.
 
 ### The host library needs C11 atomics
 `libubertooth` uses `<stdatomic.h>` for the two pointers of the capture ring
