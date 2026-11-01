@@ -169,11 +169,12 @@ dropped on the way out.
 ## THE CLOCK THE BOARD HOPS ON
 
 A piconet's hopping sequence is driven by its clock, so following one means
-putting the board on that clock. The tool works it out in three reads, taken
-one after another just before the board is told to hop: the local Bluetooth
-device's clock, how far the target's clock is from it, and the board's own
-clock. The board is given the difference between the target's clock and its
-own, which is what it adds to the clock it is already running.
+putting the board on that clock. The tool reads what it needs one read after
+another, just before the board is told to hop: the local Bluetooth device's
+clock, how far the target's clock is from it where there is a connection to
+the target, and the board's own clock. The board is given the difference
+between the target's clock and its own, which is what it adds to the clock it
+is already running.
 
 The board's clock is left alone, where earlier releases zeroed it and sent the
 target's clock as it stood. The two came to the same thing on an idle board:
@@ -183,10 +184,8 @@ capture is running.
 The board whose clock is running is one an earlier run left streaming Classic
 symbols, which is what a killed capture leaves behind. Following such a board
 used to hop as far past the target's clock as the follow's own setup had
-taken, so a slow machine, a busy USB bus or a capture file that took a moment
-to create each cost accuracy; the difference does not depend on the setup at
-all. A follow also no longer resets the clock a later run on the same board
-reads.
+taken, so a slow machine or a busy USB bus cost accuracy; the difference does
+not depend on the setup at all.
 
 A board left in some other mode — a spectrum sweep, a low energy capture — is
 not helped, and was not before: the firmware ends that mode before it starts

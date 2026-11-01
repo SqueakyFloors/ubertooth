@@ -236,6 +236,11 @@ int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, u64 bdaddr);
 int cmd_set_syncword(struct libusb_device_handle* devh, u64 syncword);
 int cmd_next_hop(struct libusb_device_handle* devh, u16 clk);
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int clk100ns_offset);
+/* Set CLKN to a value of the caller's choosing. No tool in this tree does:
+ * a tool that wants the board on another clock asks it to start hopping by
+ * the difference, which is what the firmware adds to the clock it is running,
+ * so nothing has to be reset under a capture. Exported for callers outside
+ * the tree. */
 int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn);
 /* See cmd_set_channel_quiet(). A transfer the board truncated carries its own
  * complete line and returns UBERTOOTH_ERROR_SHORT_REPLY, as the reads do. */

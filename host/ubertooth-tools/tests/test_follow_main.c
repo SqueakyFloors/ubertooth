@@ -961,8 +961,13 @@ MU_TEST(a_refused_address_set_exits_1)
 /* Without the board's own clock there is no offset to hop on: the piconet's
  * clock alone says nothing about how far ahead of the board's it is. So a
  * board that would not report it stops the run, rather than hopping on a
- * difference taken from a clock nobody read. By then a mode is streaming, so
- * the board is stopped on the way out and not merely closed. */
+ * difference taken from a clock nobody read.
+ *
+ * The receive thread is running by then, so it is joined; the board goes back
+ * without a STOP, as it does for the address, because no mode of this run has
+ * started and a board that has just refused a request would answer the STOP
+ * no better. That is what keeps the report to the one line that named the
+ * request. */
 MU_TEST(a_refused_clock_read_exits_1)
 {
 	struct run_result r;
@@ -980,7 +985,10 @@ MU_TEST(a_refused_clock_read_exits_1)
 	mu_assert(strstr(r.err, STALLED("read the board's clock")) != NULL, r.err);
 	mu_assert_int_eq(STALLED_REQUEST_LINES, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert_int_eq(1, fake.stops);
+	/* Closed, not stopped: a STOP here would be a second request to a board
+	 * that has just refused one, and a second error line under the first. */
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
@@ -990,6 +998,8 @@ MU_TEST(a_refused_clock_read_exits_1)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, NO_ANSWER("read the board's clock")) != NULL,
 	          r.err);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(1, fake.closes);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }

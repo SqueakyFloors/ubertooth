@@ -182,6 +182,25 @@ static int follow_request_failed(ubertooth_t* ut, int sock, uint16_t handle,
 	return 1;
 }
 
+/* The same, for a request the board refused once the receive thread is
+ * running but before any mode of this run has started. The thread is joined
+ * first, and then the board goes back the way follow_release_board() gives it
+ * back: without a STOP, because there is no mode of ours to end and a board
+ * that has just refused a request would answer the STOP no better, which
+ * would put a second failure under the one line that named the request.
+ * ubertooth_close() still finishes the receive transfer before it closes the
+ * board, so nothing is left in flight. */
+static int follow_board_request_failed(ubertooth_t* ut, int sock,
+                                       uint16_t handle, int cc,
+                                       const struct follow_files* files,
+                                       const char* what, int code)
+{
+	report_refused_request(what, code);
+	ubertooth_bulk_thread_stop();
+	follow_release_board(ut, sock, handle, cc, files);
+	return 1;
+}
+
 static void usage(FILE *file)
 {
 	fprintf(file, "ubertooth-follow - active(bluez) CLK discovery and follow for a target address\n");
@@ -907,14 +926,9 @@ int main(int argc, char *argv[])
 	 * covers measuring the clocks and applying them rather than the whole
 	 * setup. */
 	r = cmd_read_clock_quiet(ut->devh, &board_clkn);
-	if (r < 0) {
-		/* Not follow_request_failed(): that gives the board back
-		 * without a STOP, which is right only before a mode has
-		 * started. The receive transfer is in flight by now. */
-		report_refused_request("read the board's clock", r);
-		follow_cleanup(ut, sock, handle, cc, &files);
-		return 1;
-	}
+	if (r < 0)
+		return follow_board_request_failed(ut, sock, handle, cc, &files,
+		                                   "read the board's clock", r);
 
 	/* The delay is counted in the clock's own ticks here, so a large -w
 	 * cannot overflow a signed multiplication on the way. All three terms
