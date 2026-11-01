@@ -22,13 +22,26 @@
   example of both.
   `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
   could only read before; `ubertooth-dump -g` starts the capture; and
-  `ubertooth-tx -g <payload> -a <syncword>` transmits one packet, which is the
-  one transmitter whose framing is known, so two boards set to the same
-  framing are how the packet-framing receive is checked. Both halves of the
-  receive work: the raw symbol stream, and the packet framing where the radio
-  matches a sync word and the board sends one record per detection. Expect the
-  options and the output to change.
+  `ubertooth-tx -g <payload> -a <syncword> [-n <count>]` transmits packets,
+  which is the one transmitter whose framing is known, so two boards set to
+  the same framing are how the packet-framing receive is checked. Both halves
+  of the receive work: the raw symbol stream, and the packet framing where the
+  radio matches a sync word and the board sends one record per detection.
+  What goes on the air carries the radio's CRC, and each record says what the
+  radio made of it, so a payload with a bit error in it is no longer read as a
+  payload. Expect the options and the output to change.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
+- **Reflash required:** the firmware API version is now 1.58. A generic
+  transmit request carries how many packets to send, in a field it used to
+  ignore, and the board sends them back to back. One request per packet does
+  not survive the rate a host can send them at: the board answers no USB
+  request while a packet is going out, so a burst of 30 sent as fast as a host
+  could send them lost 15 of them to transfer errors. With the count in the
+  request, one request for 2000 packets put 2000 on the air in 1.6 seconds and
+  a second board read all 2000 of them. The version moves so that a host
+  asking for a burst cannot be answered by older firmware that would ignore
+  the count and send one packet.
 
 - `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
   dropping them: a replay has no board to tune and nothing to wait for, so

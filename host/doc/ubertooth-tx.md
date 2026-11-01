@@ -45,8 +45,10 @@ Do not rely on it to retransmit a capture.
    with `ubertooth-debug -w %fsdiv=`. Transmitting outside the band is a
    question about what you are licensed to radiate rather than about the
    radio, so this option does not offer it.
- - `-n <count>` :
-   transmit the generic packet this many times, 1 or more (default: 1).
+ - `-n <1-65535>` :
+   transmit the generic packet this many times (default: 1). One request
+   carries the whole burst, so the board sends them back to back; the ceiling
+   is what that request can hold.
  - `-l <LAP>` :
    target LAP (3 bytes / 6 hex digits) for the dump retransmit.
  - `-u <UAP>` :
@@ -71,8 +73,9 @@ Experimental: expect the options and what goes on the air to change.
 The board hands the framing of a generic packet to the radio, so the sync word
 `-a` gives it, plus the framing the firmware programs, is the whole description
 of what goes out: 6 preamble bytes of `01010101`, the whole 32-bit sync word,
-and no CRC, which is GRMDM `0x0f61`. A board reading the packet has to be set
-to the same thing. ubertooth(7), GENERIC RADIO MODE lists the registers both
+and the radio's CRC, which is GRMDM `0x0f71`. A board reading the packet has
+to be set to the same thing, and with the CRC bit set it can tell a packet
+with a bit error in it from a good one -- this framing has no other check. ubertooth(7), GENERIC RADIO MODE lists the registers both
 ends have to agree on and walks a packet from one board to another; this page
 covers only what the options do.
 
@@ -89,13 +92,21 @@ per sync word, so it cannot tell one packet from two. 32 bytes is also all a
 receiving board reports, and a shorter payload is followed in its record by
 whatever was next in the radio's FIFO.
 
-`-n` hands the board one request per packet, 2 ms apart. The board answers each
-request before it transmits, so a request taken means the packet was accepted
-and not that anything received it; and it answers no request at all while a
-packet is going out, which is why the requests are spaced rather than sent back
-to back. The gap is not settable. The transmit starts no mode on the board:
-when the last packet has gone out the board is back to whatever it was doing,
-so there is nothing to stop afterwards.
+`-n` is carried in the one request, so the board sends the burst back to back
+without the host saying anything more. That is not only faster -- about 1300
+packets a second against 440 for a request per packet -- it is what makes a
+burst arrive at all: the board answers no USB request while a packet is going
+out, so a host sending a request per packet as fast as it can loses the ones
+that land in those windows. Measured on two boards, a burst of 30 sent that
+way had 15 come back as transfer errors and 15 packets reached the air; one
+request for 2000 packets put 2000 on the air in 1.6 seconds and a board set to
+the same framing read all 2000.
+
+The command waits for the burst to finish, so it ends when the air is clear.
+While it runs the board reports the generic transmit as its mode, which is
+what `ubertooth-util -w` shows and what this waits on. Ctrl-C stops the burst:
+the board takes a stop between packets, and what has not gone out is not
+sent.
 
 ## TRANSMIT POWER
 
@@ -193,8 +204,15 @@ reader can tell one packet sent from ninety-nine:
 
 1 as well when the board refuses the request that ends the dump retransmit: it
 is left sending, and no other tool can open it until it is reset or
-re-plugged. libubertooth names the refused request on standard error. A
-generic transmit has no such request to make.
+re-plugged. libubertooth names the refused request on standard error.
+
+1 as well when a board never reports its burst finished, which reads
+`error: the board was still transmitting after 100 packets' worth of time`:
+the packets may or may not have gone out, and that board is still in the
+generic transmit mode.
+
+A generic transmit stopped by Ctrl-C exits 0 and says
+`note: the transmit was stopped part way through 100 packets`.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),

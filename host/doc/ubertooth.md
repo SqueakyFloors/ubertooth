@@ -486,22 +486,25 @@ restarted.
 `ubertooth-tx -g` transmits one generic packet, and that is the way to see the
 packet-framing receive above work: it is the one transmitter whose framing is
 known. The board frames the packet in the radio -- 6 preamble bytes of
-`01010101`, the whole 32-bit sync word, no CRC, which is GRMDM `0x0f61` -- so
-the receiving board has to be set to the same value and the same sync word.
+`01010101`, the whole 32-bit sync word, the radio's CRC, which is GRMDM
+`0x0f71` -- so the receiving board has to be set to the same value and the
+same sync word.
 
 Two boards, the first receiving on 2402 MHz and the second sending it eight
 counted bytes ten times:
 
-    ubertooth-debug -U 0 -w %manand=0x7fff,%lmtst=0x2b22,%mdmtst0=0x134b,%grmdm=0x0f61,%mdmctrl=0x0057,%synch=0xcb87,%syncl=0x6543,%fsdiv=2401
+    ubertooth-debug -U 0 -w %manand=0x7fff,%lmtst=0x2b22,%mdmtst0=0x134b,%grmdm=0x0f71,%mdmctrl=0x0057,%synch=0xcb87,%syncl=0x6543,%fsdiv=2401
     ubertooth-dump -U 0 -g -d packets.bin &
     ubertooth-util -U 1 -a 1
     ubertooth-tx -U 1 -g 0102030405060708 -a cb876543 -c 2402 -n 10
 
 What has to agree between the two, and what does not:
 
- - GRMDM, exactly: `0x0f61` at the receiving end is the value the transmit
+ - GRMDM, exactly: `0x0f71` at the receiving end is the value the transmit
    programs, so the preamble, the part of the sync word matched, and the CRC
-   choice all match.
+   all match. The CRC bit is what makes the record's CRC byte mean anything:
+   with it clear the radio reports a CRC_OK for packets that carry no CRC at
+   all.
  - the sync word: `-a cb876543` is SYNCH `0xcb87` and SYNCL `0x6543`.
  - the channel, less 1 MHz at the receiving end: a transmit tunes the carrier
    directly and a receive subtracts its 1 MHz intermediate frequency, so
@@ -515,11 +518,12 @@ What has to agree between the two, and what does not:
    at all. Turn the transmitter down to 0 or 1 for a short path, or put an
    attenuator in front of the receiver.
 
-Each record in `packets.bin` then holds the sync word the radio matched and
-the payload that followed it; ubertooth-dump(1), THE GENERIC RECEIVE says
-where in the record they are, so a counted payload can be checked against
-what was sent. The receive reads a fixed 32 bytes, so keep a payload that is
-meant to be read back whole to 32 bytes or fewer.
+Each record in `packets.bin` then holds the sync word the radio matched, the
+payload that followed it, and what the radio made of the packet's CRC;
+ubertooth-dump(1), THE GENERIC RECEIVE says where in the record they are, so a
+counted payload can be checked against what was sent. The receive reads a
+fixed 32 bytes, so keep a payload that is meant to be read back whole to 32
+bytes or fewer.
 
 ## OUTPUT AND DIAGNOSTICS
 

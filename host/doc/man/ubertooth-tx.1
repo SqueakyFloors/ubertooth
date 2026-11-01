@@ -25,8 +25,8 @@ the 32\-bit sync word the board frames the generic packet with, 8 hex digits; re
 \fB\-c <2402\-2480>\fR
 the channel the generic packet goes out on, in MHz (default: 2402)\. That range is the Bluetooth band, which is what every tool here tunes, and it is narrower than the radio: the synthesizer reaches 2268 to 2794 MHz and the board will take any of it, so a receiving board can be set outside the band with \fBubertooth\-debug \-w %fsdiv=\fR\. Transmitting outside the band is a question about what you are licensed to radiate rather than about the radio, so this option does not offer it\.
 .TP
-\fB\-n <count>\fR
-transmit the generic packet this many times, 1 or more (default: 1)\.
+\fB\-n <1\-65535>\fR
+transmit the generic packet this many times (default: 1)\. One request carries the whole burst, so the board sends them back to back; the ceiling is what that request can hold\.
 .TP
 \fB\-l <LAP>\fR
 target LAP (3 bytes / 6 hex digits) for the dump retransmit\.
@@ -48,13 +48,15 @@ print the usage text on standard output and exit 0\. It takes effect once the wh
 .SH "THE GENERIC PACKET"
 Experimental: expect the options and what goes on the air to change\.
 .P
-The board hands the framing of a generic packet to the radio, so the sync word \fB\-a\fR gives it, plus the framing the firmware programs, is the whole description of what goes out: 6 preamble bytes of \fB01010101\fR, the whole 32\-bit sync word, and no CRC, which is GRMDM \fB0x0f61\fR\. A board reading the packet has to be set to the same thing\. ubertooth(7), GENERIC RADIO MODE lists the registers both ends have to agree on and walks a packet from one board to another; this page covers only what the options do\.
+The board hands the framing of a generic packet to the radio, so the sync word \fB\-a\fR gives it, plus the framing the firmware programs, is the whole description of what goes out: 6 preamble bytes of \fB01010101\fR, the whole 32\-bit sync word, and the radio's CRC, which is GRMDM \fB0x0f71\fR\. A board reading the packet has to be set to the same thing, and with the CRC bit set it can tell a packet with a bit error in it from a good one \-\- this framing has no other check\. ubertooth(7), GENERIC RADIO MODE lists the registers both ends have to agree on and walks a packet from one board to another; this page covers only what the options do\.
 .P
 Two things come from the command line and reach the radio for this one packet: the sync word and the channel\. The power is the board's own, as TRANSMIT POWER below says\. Everything else is the configuration already in the radio, which \fBubertooth\-debug \-w\fR writes\.
 .P
 \fB\-g\fR stops at 32 bytes, which is one load of the radio's FIFO\. The request itself carries up to 50, but a longer payload is written to the radio a FIFO at a time, each piece after the radio has sent the last, and what that leaves on the air has not been observed: an Ubertooth receiver reads one FIFO's worth per sync word, so it cannot tell one packet from two\. 32 bytes is also all a receiving board reports, and a shorter payload is followed in its record by whatever was next in the radio's FIFO\.
 .P
-\fB\-n\fR hands the board one request per packet, 2 ms apart\. The board answers each request before it transmits, so a request taken means the packet was accepted and not that anything received it; and it answers no request at all while a packet is going out, which is why the requests are spaced rather than sent back to back\. The gap is not settable\. The transmit starts no mode on the board: when the last packet has gone out the board is back to whatever it was doing, so there is nothing to stop afterwards\.
+\fB\-n\fR is carried in the one request, so the board sends the burst back to back without the host saying anything more\. That is not only faster \-\- about 1300 packets a second against 440 for a request per packet \-\- it is what makes a burst arrive at all: the board answers no USB request while a packet is going out, so a host sending a request per packet as fast as it can loses the ones that land in those windows\. Measured on two boards, a burst of 30 sent that way had 15 come back as transfer errors and 15 packets reached the air; one request for 2000 packets put 2000 on the air in 1\.6 seconds and a board set to the same framing read all 2000\.
+.P
+The command waits for the burst to finish, so it ends when the air is clear\. While it runs the board reports the generic transmit as its mode, which is what \fBubertooth\-util \-w\fR shows and what this waits on\. Ctrl\-C stops the burst: the board takes a stop between packets, and what has not gone out is not sent\.
 .SH "TRANSMIT POWER"
 Both transmits use the CC2400 power level set with \fBubertooth\-util \-a\fR and leave it unchanged\. A board that has not been given a level transmits at 7 (0 dBm), the CC2400's reset value\. The generic packet carries that level in its request, because the level belongs to the one packet, and the board puts its own back once the packet is out\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .P
@@ -91,7 +93,11 @@ A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubert
 .P
 1 as well when the board refuses a request the transmit needs: the power level a generic packet carries, or a generic packet itself, or the Bluetooth address the dump retransmit sends\. libubertooth reports the refusal and says which request it was\. A \fB\-n\fR run that fails part\-way also says how far it got, so a reader can tell one packet sent from ninety\-nine: \fBerror: the board took 7 of 100 packets\fR\.
 .P
-1 as well when the board refuses the request that ends the dump retransmit: it is left sending, and no other tool can open it until it is reset or re\-plugged\. libubertooth names the refused request on standard error\. A generic transmit has no such request to make\.
+1 as well when the board refuses the request that ends the dump retransmit: it is left sending, and no other tool can open it until it is reset or re\-plugged\. libubertooth names the refused request on standard error\.
+.P
+1 as well when a board never reports its burst finished, which reads \fBerror: the board was still transmitting after 100 packets' worth of time\fR: the packets may or may not have gone out, and that board is still in the generic transmit mode\.
+.P
+A generic transmit stopped by Ctrl\-C exits 0 and says \fBnote: the transmit was stopped part way through 100 packets\fR\.
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "SEE ALSO"

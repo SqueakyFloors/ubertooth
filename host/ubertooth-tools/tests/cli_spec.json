@@ -615,7 +615,7 @@
                "requires": ["-g"],
                "requires_error": "error: -a, -c and -n are only used with -g, which transmits a generic packet"},
         "-n": {"value": "required", "role": "generic_setting", "valid": ["3"],
-               "invalid": [["0", "error: transmit count must be a whole number of packets, 1 or more (got 0)"]],
+               "invalid": [["0", "error: transmit count must be 1-65535 packets (got 0)"]],
                "requires": ["-g"],
                "requires_error": "error: -a, -c and -n are only used with -g, which transmits a generic packet"},
         "-l": {"value": "required", "role": "target", "valid": ["446688"],

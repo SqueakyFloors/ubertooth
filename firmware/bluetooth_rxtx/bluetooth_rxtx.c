@@ -124,6 +124,20 @@ volatile int16_t rssi_threshold = -30;  // -54dBm - 30 = -84dBm
 /* Generic TX stuff */
 generic_tx_packet tx_pkt;
 
+/*
+ * How many times to send tx_pkt, from the request's wValue.
+ *
+ * One request per packet does not work at the rate a host can send them: the
+ * board answers no USB request while a packet is going out, and this is about
+ * a millisecond of radio waits, so a request handed over in that window comes
+ * back to the host as a transfer error and that packet is lost. Measured on
+ * two boards, a burst of 30 requests sent as fast as the host could send them
+ * had 15 of them fail that way. Carrying the count in the request instead
+ * costs one transfer for the whole burst, and the host never waits on the
+ * board at all.
+ */
+volatile uint16_t tx_pkt_repeat;
+
 /* The registers, length and level a UBERTOOTH_TX_GENERIC_PACKET request
  * carries in front of its payload. */
 #define TX_GENERIC_HEADER_LEN offsetof(generic_tx_packet, data)
@@ -1388,6 +1402,10 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
 			return 0;
 		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
+		/* wValue is how many of this packet to send. A host that leaves
+		 * it 0 gets one, which is what every host did before the field
+		 * meant anything. */
+		tx_pkt_repeat = request_params[0] > 0 ? request_params[0] : 1;
 		requested_mode = MODE_TX_GENERIC;
 		*data_len = 0;
 		break;
@@ -4024,12 +4042,27 @@ void bt_peripheral_le() {
 #define RX_GENERIC_DATA_LEN     32
 
 /*
+ * One more byte after the payload: 1 when the radio said this packet's CRC
+ * checked out, 0 when it did not.
+ *
+ * It means nothing unless GRMDM has the CRC on at this end, and the host is
+ * what put GRMDM there, so this byte is the radio's answer and not a promise.
+ * Measured on two boards: with the CRC on at both ends every record read 1;
+ * with the transmit sending no CRC and the receive asked to check one, every
+ * record read 0 -- and the record still arrived, so the radio reports a bad
+ * CRC rather than dropping the packet. With the CRC off at this end the bit
+ * read 1 for packets that carried no CRC at all, which is why it is only
+ * worth reading when the configuration asked for one.
+ */
+#define RX_GENERIC_CRC_OFFSET (RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN)
+
+/*
  * enqueue() is handed a pointer and no length, and copies DMA_SIZE bytes out
  * of it, so a buffer shorter than that has the bytes past its end copied into
  * the record. The buffer below is therefore DMA_SIZE whatever the record uses
  * of it.
  */
-_Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
+_Static_assert(RX_GENERIC_CRC_OFFSET < DMA_SIZE,
                "the generic receive record must fit in what enqueue() copies");
 
 /*
@@ -4191,6 +4224,10 @@ void rx_generic_sync(void) {
 		rx_generic_wait_for_fifo();
 		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
 		                 buf + RX_GENERIC_SYNCWORD_LEN);
+		/* What the radio made of the packet's CRC, read after the
+		 * payload is out of the FIFO: see RX_GENERIC_CRC_OFFSET. */
+		buf[RX_GENERIC_CRC_OFFSET] =
+			(cc2400_status() & STATUS_CRC_OK) ? 1 : 0;
 		enqueue(BR_PACKET, buf);
 		service_usb();
 	}
@@ -4221,6 +4258,9 @@ void rx_generic(void) {
 void tx_generic(u8 prev_mode) {
 	u16 synch, syncl, mdmctrl, mdmtst0, grmdm, fsdiv, frend, gio_save;
 	u8 len, sent, chunk;
+	/* Read once: the request handler writes it, and a request answered
+	 * between packets below must not lengthen the burst running now. */
+	u16 left = tx_pkt_repeat > 0 ? tx_pkt_repeat : 1;
 
 	/*
 	 * Every radio register this transmit writes is saved here and put back
@@ -4258,16 +4298,30 @@ void tx_generic(u8 prev_mode) {
 	/*
 	 * The framing: buffered mode, packet mode, a preamble of 01010101
 	 * (preamble field 6, more than any other mode here asks for), the
-	 * whole 32-bit sync word, CRC off. The radio adds all of that and the
-	 * generic receive programs none of it, so a board meant to read this
-	 * transmit has to be set to the same GRMDM value, with the same sync
-	 * word in SYNCH and SYNCL.
+	 * whole 32-bit sync word, and the radio's CRC. The radio adds all of
+	 * that and the generic receive programs none of it, so a board meant
+	 * to read this transmit has to be set to the same GRMDM value, with
+	 * the same sync word in SYNCH and SYNCL.
+	 *
+	 * The CRC is on because it costs nothing here and gives the receiving
+	 * end something to judge a packet by: this framing has no other check,
+	 * so a payload with a bit error in it reads as a payload. Measured on
+	 * two boards, 30 packets each way: with the CRC on, every packet that
+	 * was detected still arrived and every record carried the radio's
+	 * CRC_OK; with the transmit sending no CRC and the receive checking
+	 * one, the records arrived with CRC_OK clear. The radio reports the
+	 * verdict rather than dropping the packet, which is why the receive
+	 * records it (RX_GENERIC_CRC_OFFSET) instead of counting on silence.
+	 *
+	 * The preamble field is 6 because 7 does not work: with both ends at
+	 * field 7 nothing was received at all, and each transmit took three
+	 * times as long.
 	 *
 	 * Packet mode is what puts the payload in the radio's FIFO for the
 	 * write loop below. It is also the bit rx_generic() reads to choose
 	 * the packet receive, which is why the restore below matters.
 	 */
-	cc2400_set(GRMDM, 0x0f61);
+	cc2400_set(GRMDM, 0x0f61 | GRMDM_CRC);
 	cc2400_set(FSDIV, tx_pkt.channel);
 	/*
 	 * The level belongs to this one packet, so it is taken from the request
@@ -4281,8 +4335,9 @@ void tx_generic(u8 prev_mode) {
 	 * for: that is a different signal with the opposite sense. */
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
+send_one:
 	/* Bounded without a service callback, as in le_transmit(): one packet,
-	 * then back to the mode loop that services USB. */
+	 * then either the next of the burst below or back to the mode loop. */
 	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, NULL);
@@ -4351,6 +4406,25 @@ void tx_generic(u8 prev_mode) {
 	PAEN_CLR;
 #endif
 
+	/*
+	 * The next packet of the burst, if the request asked for more than one.
+	 *
+	 * Inside the register save and restore below, because the packet is
+	 * framed by registers the restore puts back: a loop around the restore
+	 * sent its second and later packets with the Bluetooth registers in
+	 * place, and a board set to this framing read one packet of thirty.
+	 *
+	 * USB is serviced between packets, so a request that ends the mode --
+	 * ubertooth-util -S, or any other mode -- still gets through, and a
+	 * burst long enough to matter can be stopped. The main loop's own
+	 * service pass does not come round until the burst is over.
+	 */
+	if (--left > 0) {
+		service_usb();
+		if (requested_mode == MODE_TX_GENERIC)
+			goto send_one;
+	}
+
 	// Restore state, in the order it was set up above
 	cc2400_set(SYNCH, synch);
 	cc2400_set(SYNCL, syncl);
@@ -4360,7 +4434,13 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(FSDIV, fsdiv);
 	cc2400_set(FREND, frend_keep_pa_level(frend));
 	cc2400_set(IOCFG, gio_save);
-	requested_mode = prev_mode;
+	/*
+	 * Back to what was running before, unless a request serviced between
+	 * packets above asked for something else: overwriting that would tell
+	 * the host its mode had started and then drop it.
+	 */
+	if (requested_mode == MODE_TX_GENERIC)
+		requested_mode = prev_mode;
 }
 #endif
 

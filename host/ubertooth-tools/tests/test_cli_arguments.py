@@ -266,8 +266,9 @@ CASES = {
         (("-g", "0102", "-a", "cb876543", "-c", "2500"),
          "error: channel must be 2402-2480 mhz (got 2500)"),
         (("-g", "0102", "-a", "cb876543", "-n", "0"),
-         "error: transmit count must be a whole number of packets, "
-         "1 or more (got 0)"),
+         "error: transmit count must be 1-65535 packets (got 0)"),
+        (("-g", "0102", "-a", "cb876543", "-n", "65536"),
+         "error: transmit count must be 1-65535 packets (got 65536)"),
         (("-g", "0102", "-a", "cb876543", "-l", "446688"),
          "error: -g cannot be combined with -l; a generic packet carries "
          "no piconet address"),

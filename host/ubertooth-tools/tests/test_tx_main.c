@@ -43,7 +43,14 @@ static struct {
 	int palevel_rc;      /* what cmd_get_palevel() returns */
 	int palevel_reads;
 	int generic_rc;      /* what cmd_tx_generic_packet() returns */
-	int generic_packets;
+	int generic_packets; /* requests, not packets: one carries the burst */
+	uint16_t generic_count;  /* the count that request asked for */
+	/* The board reports the generic transmit mode for this many watchdog
+	 * reads, then idle: the burst finishing. */
+	int busy_reads;
+	int watchdog_reads;
+	int watchdog_rc;     /* what cmd_get_watchdog_quiet() returns */
+	int stops_sent;      /* cmd_stop() calls */
 	uint32_t generic_syncword;
 	uint16_t generic_channel;
 	uint8_t generic_pa_level;
@@ -53,6 +60,9 @@ static struct {
 	 * reaches its loop. The fake signal registration below sets the flag
 	 * by default, which is what ends the dump retransmit's wait at once. */
 	int keep_running;
+	/* 1 to have the stop flag set once the transmit request has gone out,
+	 * which is a Ctrl-C while the burst runs. */
+	int stop_after_request;
 	/* 1 for the cases that are meant to run a whole transmit; the fakes
 	 * below refuse to be reached without it. */
 	int reach_transmit;
@@ -152,10 +162,14 @@ int cmd_get_palevel(struct libusb_device_handle* devh)
 
 int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
                           uint16_t channel, uint8_t pa_level,
-                          const uint8_t* data, size_t data_len)
+                          const uint8_t* data, size_t data_len,
+                          uint16_t count)
 {
 	(void)devh;
 	fake.generic_packets++;
+	fake.generic_count = count;
+	if (fake.stop_after_request)
+		fake_ut.stop_ubertooth = 1;
 	fake.generic_syncword = syncword;
 	fake.generic_channel = channel;
 	fake.generic_pa_level = pa_level;
@@ -208,6 +222,32 @@ int cmd_tx_syms(struct libusb_device_handle* devh)
 	fake.tx_syms++;
 	mu_assert(fake.reach_transmit, "nothing in this test transmits");
 	return fake.tx_syms_rc;
+}
+
+/* The board's own account of what it is doing, which is how the tool waits
+ * for a burst: the generic transmit mode for the first fake.busy_reads reads,
+ * then idle. */
+int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
+                           watchdog_info *info)
+{
+	(void)devh;
+	fake.watchdog_reads++;
+	if (fake.watchdog_rc < 0)
+		return fake.watchdog_rc;
+	memset(info, 0, sizeof(*info));
+	/* A stop ends the burst, as it does on a board: the firmware takes it
+	 * between packets. */
+	info->mode = (fake.stops_sent == 0
+	              && fake.watchdog_reads <= fake.busy_reads)
+	             ? MODE_TX_GENERIC : MODE_IDLE;
+	return 0;
+}
+
+int cmd_stop(struct libusb_device_handle* devh)
+{
+	(void)devh;
+	fake.stops_sent++;
+	return 0;
 }
 
 /* The -V answer, which libubertooth gives in every tool: faked here, so this
@@ -449,10 +489,10 @@ MU_TEST(half_an_address_reads_the_same_either_way)
 	mu_assert(strcmp(first, r.err) == 0, r.err);
 }
 
-/* The generic transmit: one request per packet, each carrying the sync word,
- * the channel, the board's own power level and the payload. Nothing is
- * printed, and no mode is started, so there is nothing to stop. */
-MU_TEST(a_generic_transmit_sends_one_request_per_packet)
+/* The generic transmit: one request for the whole burst, carrying the sync
+ * word, the channel, the board's own power level, the payload and how many to
+ * send. Nothing is printed, and the command waits for the board to finish. */
+MU_TEST(a_generic_transmit_sends_one_request_for_the_burst)
 {
 	char* argv[] = { "ubertooth-tx", "-g", "0102030405", "-a", "cb876543",
 	                 "-c", "2441", "-n", "3", NULL };
@@ -462,11 +502,17 @@ MU_TEST(a_generic_transmit_sends_one_request_per_packet)
 	fake.connect_rc = 0;
 	fake.palevel_rc = 2;
 	fake.keep_running = 1;
+	fake.busy_reads = 2;   /* the board reports the burst running twice */
 	run_main(&r, 9, argv);
 
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(3, fake.generic_packets);
+	/* One request for the three packets, not three requests. */
+	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(3, fake.generic_count);
 	mu_assert_int_eq(1, fake.palevel_reads);
+	/* And the tool waited for the board to finish before it exited. */
+	mu_assert_int_eq(3, fake.watchdog_reads);
+	mu_assert_int_eq(0, fake.stops_sent);
 	mu_assert_int_eq(0xcb876543UL, fake.generic_syncword);
 	mu_assert_int_eq(2441, fake.generic_channel);
 	mu_assert_int_eq(2, fake.generic_pa_level);
@@ -495,6 +541,7 @@ MU_TEST(a_generic_transmit_defaults_to_one_packet_at_2402)
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(1, fake.generic_count);
 	mu_assert_int_eq(BT_FREQ_MIN, fake.generic_channel);
 	mu_assert_int_eq(1UL, fake.generic_syncword);
 }
@@ -517,9 +564,8 @@ MU_TEST(a_refused_generic_request_exits_one)
 	mu_assert_int_eq(0, fake.generic_packets);
 	mu_assert_int_eq(1, fake.frees);
 
-	/* And a transmit the board refuses part-way stops there, saying how far
-	 * it got: the fake board refuses the first packet, so none were taken.
-	 * ubertooth-tx(1), EXIT STATUS quotes this line. */
+	/* And a request the board refuses is a failed run: libubertooth has
+	 * named it, and nothing was transmitted. */
 	reset();
 	fake.connect_rc = 0;
 	fake.generic_rc = -1;
@@ -527,32 +573,63 @@ MU_TEST(a_refused_generic_request_exits_one)
 	run_main(&r, 7, argv);
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(0, fake.watchdog_reads);
 	mu_assert_int_eq(1, fake.frees);
-	mu_assert(strcmp(r.err, "error: the board took 0 of 4 packets\n") == 0,
-	          r.err);
 }
 
 /* Ctrl-C between packets ends the run: the rest are not sent, and an
  * interrupted run is not a failure. */
-MU_TEST(a_stopped_generic_transmit_sends_no_more_packets)
+MU_TEST(a_stopped_generic_transmit_stops_the_board)
 {
 	char* argv[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
 	                 "-n", "100", NULL };
 	struct run r;
 
+	/* Stopped before the request went out: nothing is transmitted and
+	 * there is nothing to stop. */
 	reset();
 	fake.connect_rc = 0;
 	run_main(&r, 7, argv);
-
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, fake.generic_packets);
+	mu_assert_int_eq(0, fake.stops_sent);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
-	/* How far it got, on standard error: a stopped run is not a failure,
-	 * and the count is the only thing that says it sent none of the 100. */
-	mu_assert(strcmp(r.err, "note: stopped after 0 of 100 packets\n") == 0,
-	          r.err);
 	mu_assert(r.out[0] == '\0', r.out);
+
+	/* Stopped while the burst was running: the board is told to stop, and
+	 * the run says so without being a failure. */
+	reset();
+	fake.connect_rc = 0;
+	fake.keep_running = 1;
+	fake.busy_reads = 50;
+	fake.stop_after_request = 1;
+	run_main(&r, 7, argv);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(1, fake.stops_sent);
+	mu_assert(strcmp(r.err, "note: the transmit was stopped part way"
+	                 " through 100 packets\n") == 0, r.err);
+}
+
+/* A board that never reports the burst finished: the run gives up rather than
+ * waiting on it forever, and says so. */
+MU_TEST(a_board_that_never_finishes_the_burst_exits_one)
+{
+	char* argv[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                 "-n", "2", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.keep_running = 1;
+	fake.busy_reads = 1000000;
+	run_main(&r, 7, argv);
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert(strstr(r.err, "still transmitting") != NULL, r.err);
+	mu_assert_int_eq(1, fake.frees);
 }
 
 /* -h and -V are the same: they end the command before a handle exists. */
@@ -760,10 +837,11 @@ int main(void)
 	MU_RUN(the_refusals_allocate_nothing);
 	MU_RUN(the_generic_refusals_read_as_the_page_says);
 	MU_RUN(half_an_address_reads_the_same_either_way);
-	MU_RUN(a_generic_transmit_sends_one_request_per_packet);
+	MU_RUN(a_generic_transmit_sends_one_request_for_the_burst);
 	MU_RUN(a_generic_transmit_defaults_to_one_packet_at_2402);
 	MU_RUN(a_refused_generic_request_exits_one);
-	MU_RUN(a_stopped_generic_transmit_sends_no_more_packets);
+	MU_RUN(a_stopped_generic_transmit_stops_the_board);
+	MU_RUN(a_board_that_never_finishes_the_burst_exits_one);
 	MU_RUN(help_and_version_allocate_nothing);
 	MU_RUN(a_failed_connection_gives_the_handle_back);
 	MU_RUN(the_device_selector_is_passed_through);

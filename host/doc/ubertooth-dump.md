@@ -234,9 +234,10 @@ GRMDM's packet-mode bit, so the configuration decides it:
    Bluetooth captures do, so `-b` prints them as `0` and `1`.
  - with packet mode set, the board waits for the sync word in SYNCH and SYNCL
    and sends one record each time the radio reports one: the four sync-word
-   bytes, then a fixed 32 bytes read out of the radio's FIFO. It reads no
-   length and waits for no end of packet, so a record is a sample of the FIFO
-   rather than necessarily one whole packet.
+   bytes, a fixed 32 bytes read out of the radio's FIFO, and the radio's CRC
+   verdict. It reads no length and waits for no end of packet, so a record is
+   a sample of the FIFO rather than necessarily one whole packet, and a bad
+   CRC is reported rather than dropped.
 
 Packet mode leaves the framing to the radio, so it produces records only when
 GRMDM's preamble length, how much of the sync word it matches and its CRC
@@ -250,8 +251,15 @@ Either way the records are the 68-byte and 401-byte shapes described above:
 the board sends what it received, and this tool writes it out without looking
 in it. Nothing decodes a generic capture, because nothing here knows what
 protocol it is. In a packet-mode record the four sync-word bytes are at offset
-18 and the 32 payload bytes at offset 22, so `xxd -s 22 -l 32 packets.bin`
-shows the first packet's payload.
+18, the 32 payload bytes at offset 22, and at offset 54 one byte that is 1
+when the radio said the packet's CRC checked out and 0 when it did not, so
+`xxd -s 22 -l 33 packets.bin` shows the first packet's payload and its
+verdict.
+
+That byte means nothing unless GRMDM has the CRC on at this end: with the bit
+clear the radio reported a CRC_OK for packets that carried no CRC at all.
+`ubertooth-tx -g` transmits with it on, and ubertooth(7), GENERIC RADIO MODE
+sets a receiving board to the same value.
 
 The configuration has to be in the radio before the capture starts, and it
 survives only while the board is idle: a mode ending puts the radio back

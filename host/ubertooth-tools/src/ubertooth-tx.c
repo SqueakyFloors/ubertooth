@@ -36,20 +36,21 @@
 #define TX_GENERIC_DEFAULT_CHANNEL BT_FREQ_MIN
 
 /*
- * How long to leave between one generic transmit request and the next.
- *
- * The board answers no USB request at all while a packet is going out, and a
- * host controller that gives up on an unanswered control transfer rather than
- * retrying it hands the request back as a transfer error. So the requests have
- * to be spaced, and the board is the only thing that knows when it is done:
- * nothing it reports afterwards tells a packet that has gone out from one the
- * mode loop has not started yet.
- *
- * Measured on two boards: with no gap, and with 200 or 500 us, the second
- * request of a run failed every time ("Input/Output Error (libusb -1)"); with
- * 1 ms, ten of ten were taken. This is twice the figure that worked.
+ * The most packets one -n can ask for: the count travels in the request's
+ * 16-bit wValue.
  */
-#define TX_GENERIC_GAP_US 2000
+#define TX_GENERIC_COUNT_MAX 65535
+
+/*
+ * How long to wait for a burst to finish, as a multiple of the packets asked
+ * for, and how long to leave between reads of the board while it runs.
+ *
+ * A packet takes about 1.3 ms on the bench, measured as 2000 of them in 1.57
+ * seconds, so eight milliseconds each is room for a board that is slower than
+ * that without leaving a stuck one waiting all day.
+ */
+#define TX_GENERIC_MS_PER_PACKET 8
+#define TX_GENERIC_POLL_US       20000
 
 static void usage(FILE *file)
 {
@@ -65,7 +66,8 @@ static void usage(FILE *file)
 	fprintf(file, "\t   the packet with - required with -g\n");
 	fprintf(file, "\t-c <%d-%d> channel in MHz [Default: %d]\n",
 	        BT_FREQ_MIN, BT_FREQ_MAX, TX_GENERIC_DEFAULT_CHANNEL);
-	fprintf(file, "\t-n <COUNT> transmit the packet this many times [Default: 1]\n");
+	fprintf(file, "\t-n <1-%d> transmit the packet this many times"
+	        " [Default: 1]\n", TX_GENERIC_COUNT_MAX);
 	fprintf(file, "\n");
 	fprintf(file, "    Retransmit symbols dumped with ubertooth-dump:\n");
 	fprintf(file, "\tWARNING: this half sends no dump yet; see ubertooth-tx(1)\n");
@@ -76,61 +78,92 @@ static void usage(FILE *file)
 }
 
 /*
- * Hand the board the generic packet count times, one request each.
+ * Wait for the board to finish the burst it was given, so the command ends
+ * when the air is clear rather than when the request was taken.
  *
- * The board answers each request before it transmits, so a request taken
- * means the packet was accepted rather than that it is on the air, and the
- * requests are spaced by TX_GENERIC_GAP_US above because the board cannot
- * answer the next one until this packet has gone out.
+ * The board is still transmitting when its answer to the request arrives, and
+ * the one thing it will tell a host about it is the mode it is in, which it
+ * answers between packets. So that is what is read, until it is no longer the
+ * generic transmit.
  *
- * Nothing is printed on success. There is no mode to stop afterwards either:
- * the firmware transmits one packet per request and goes back to what it was
- * doing, so a generic transmit leaves the board as it found it.
+ * Ctrl-C stops the burst: the board takes a stop between packets, and the
+ * read below is what notices that it did.
+ */
+static int wait_for_burst(ubertooth_t* ut, int count)
+{
+	int polls = (count * TX_GENERIC_MS_PER_PACKET * 1000)
+	            / TX_GENERIC_POLL_US + 2;
+	int stopped = 0;
+
+	for (; polls > 0; polls--) {
+		watchdog_info info;
+
+		if (!stopped && ubertooth_stopping(ut)) {
+			/* Not ubertooth_stop(): that tears the capture handle
+			 * down, and there is no capture here. The board takes
+			 * the stop between packets. */
+			stopped = 1;
+			if (cmd_stop(ut->devh) < 0)
+				return -1;
+		}
+		if (cmd_get_watchdog_quiet(ut->devh, &info) < 0) {
+			/* A board busy with the burst answers this; one that
+			 * will not answer at all is a failure worth reporting,
+			 * and the read says what went wrong. */
+			usleep(TX_GENERIC_POLL_US);
+			continue;
+		}
+		if (info.mode != MODE_TX_GENERIC)
+			return stopped ? 1 : 0;
+		usleep(TX_GENERIC_POLL_US);
+	}
+	fprintf(stderr, "error: the board was still transmitting after %d"
+	        " packets' worth of time\n", count);
+	return -1;
+}
+
+/*
+ * Transmit the generic packet count times.
+ *
+ * One request carries the whole burst. The board answers no USB request while
+ * a packet is going out, so a request for each packet loses the ones the host
+ * sends inside those windows: measured on two boards, a burst of 30 sent as
+ * fast as the host could send them had 15 come back as transfer errors. This
+ * way the host sends one request and the board sends the packets back to
+ * back, which also puts three times as many on the air a second.
+ *
+ * Nothing is printed on success.
  */
 static int transmit_generic(ubertooth_t* ut, uint32_t syncword, int channel,
                             const uint8_t* payload, size_t payload_len,
                             int count)
 {
 	int pa_level;
-	int i;
+	int r;
 
-	/* The power this packet goes out at belongs to the request, so it has
+	/* The power these packets go out at belongs to the request, so it has
 	 * to be stated rather than left to the radio. The board's own level,
 	 * which ubertooth-util -a sets, is what every other transmit here uses;
-	 * the firmware puts it back once the packet is out. */
+	 * the firmware puts it back when the burst is over. */
 	pa_level = cmd_get_palevel(ut->devh);
 	if (pa_level < 0)
 		return -1;
 
-	for (i = 0; i < count; i++) {
-		if (i > 0)
-			usleep(TX_GENERIC_GAP_US);
-		/* Ctrl-C ends the run between packets, which is where it can be
-		 * taken: the board is mid-packet or idle, never left in a mode.
-		 * After the gap rather than before it, because a signal that
-		 * arrives during the gap ends the sleep early, and the packet
-		 * after it must not go out.
-		 *
-		 * How far the run got is said here as it is on the failure path
-		 * below: a run stopped part-way is not a failure, but the user
-		 * still cannot otherwise tell one packet from ninety-nine. */
-		if (ubertooth_stopping(ut)) {
-			fprintf(stderr, "note: stopped after %d of %d packets\n",
-			        i, count);
-			break;
-		}
-		if (cmd_tx_generic_packet(ut->devh, syncword, (uint16_t)channel,
-		                          (uint8_t)pa_level, payload,
-		                          payload_len) < 0) {
-			/* How far the run got. libubertooth has named the
-			 * refused request; without this the user cannot tell
-			 * one packet sent from ninety-nine. */
-			fprintf(stderr, "error: the board took %d of %d"
-			        " packets\n", i, count);
-			return -1;
-		}
-	}
-	return 0;
+	/* A stop that arrived while the board was being opened: nothing has
+	 * been asked of the radio yet, so there is nothing to stop. */
+	if (ubertooth_stopping(ut))
+		return 0;
+
+	if (cmd_tx_generic_packet(ut->devh, syncword, (uint16_t)channel,
+	                          (uint8_t)pa_level, payload, payload_len,
+	                          (uint16_t)count) < 0)
+		return -1;
+
+	r = wait_for_burst(ut, count);
+	if (r > 0)
+		fprintf(stderr, "note: the transmit was stopped part way"
+		        " through %d packets\n", count);
+	return r < 0 ? -1 : 0;
 }
 
 int main(int argc, char* argv[])
@@ -196,8 +229,11 @@ int main(int argc, char* argv[])
 			have_channel = 1;
 			break;
 		case 'n':
-			if (opt_require_count(optarg, 1, "transmit count", "packets",
-			                      "1 or more", &count) < 0)
+			/* The count goes in the request's 16-bit wValue, so
+			 * that is the ceiling rather than an arbitrary one. */
+			if (opt_require_int(optarg, 1, TX_GENERIC_COUNT_MAX,
+			                    "transmit count", " packets",
+			                    &count) < 0)
 				return 1;
 			have_count = 1;
 			break;
