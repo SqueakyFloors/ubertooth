@@ -56,7 +56,17 @@ bootloader:
 bootloader_clean:
 	$(MAKE) -C bootloader clean
 
-clean: $(DIRS:%=%_clean) bootloader_clean test_clean
+# The bootloader updater, which is not in DIRS either: it carries the
+# bootloader's binary, so building it builds the bootloader, and that is the
+# one image needing the ARM C++ runtime. Its own makefile builds the
+# bootloader on demand.
+bl_update:
+	$(MAKE) -C bl_update bin sym
+
+bl_update_clean:
+	$(MAKE) -C bl_update clean
+
+clean: $(DIRS:%=%_clean) bootloader_clean bl_update_clean test_clean
 
 # Host-side unit tests for pure-C firmware logic (no ARM toolchain / hardware).
 # Compiled and run with the host compiler; see tests/.
@@ -82,4 +92,5 @@ $(DIRS:%=%_ctags):
 $(DIRS:%=%_ctags_clean):
 	@$(MAKE) -C $(@:%_ctags_clean=%) ctags_clean
 
-.PHONY : clean all test test_clean bootloader bootloader_clean $(DIRS)
+.PHONY : clean all test test_clean bootloader bootloader_clean bl_update \
+bl_update_clean $(DIRS)

@@ -286,6 +286,11 @@ Major modes:
    retried, and a pipe allows neither
  - `-r` :
    Reset device after performing operation
+ - `--update-bootloader` :
+   Install the bootloader carried by the `bl_update` image given with `-d`
+   (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and it resets the board,
+   so `-r` alongside it changes nothing. The board is left in DFU, not running
+   an application
 
 Miscellaneous:
 
@@ -301,6 +306,53 @@ Miscellaneous:
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
    an option given twice is still reported.
+
+## UPDATING THE BOOTLOADER
+
+A bootloader refuses USB writes below 0x4000, so it cannot replace itself, and
+until now a new bootloader reached a board only over the serial programming
+interface or JTAG. `--update-bootloader` does it over USB, in one command:
+
+    ubertooth-dfu --update-bootloader -d bl_update.dfu
+    ubertooth-dfu -d bluetooth_rxtx.dfu -r
+    ubertooth-util -B
+
+`bl_update.dfu` is an ordinary firmware image, built by `make -C firmware
+bl_update`, that carries the 16 KiB of bootloader region to install. The
+command writes it like any image and resets the board; the image programs the
+bootloader region through the part's own In-Application Programming commands,
+reads it back, and resets into DFU. It has no USB of its own, so the board
+comes back in DFU rather than as an application, and this command waits for
+it there.
+
+That leaves the application region holding the updater, which is why the
+second line above is part of the procedure: write your firmware again, then
+`ubertooth-util -B` reports the bootloader the board now has. The hash it
+prints is the one `--update-bootloader` printed before it wrote anything, so
+the two can be compared.
+
+Both the host and the image check the bootloader before any of it is
+programmed, over the same bytes: that it is the whole 16 KiB region, that it
+carries a version block so the installed bootloader can report itself, that
+its vector table is one a part would start, and that the word at 0x2fc asks
+for no code read protection. The host's refusals happen with nothing written
+and no board touched. The protection word is the reason there are two sets of
+checks: CRP1 and CRP2 shut the debug interface, CRP3 shuts serial programming
+as well, and NO_ISP turns the programming entry pin into an ordinary input.
+None can be undone from outside the part, and a board that took one cannot
+report that it did.
+
+A board that is already running the bootloader the image carries is not
+programmed again: the image compares the region first and returns to DFU.
+
+The one failure this cannot make safe is losing power or being reset while the
+four sectors are being written. The region is erased before any of it is
+programmed, so an interruption leaves erased flash where the vector table
+belongs; the boot ROM finds no valid checksum there and starts its serial
+programmer, which is the one state such a board can be recovered from, and it
+needs a serial adapter wired to the board. The alternative -- writing the
+first sector last -- would leave one bootloader's vector table in front of
+another's code, which is a board that starts something nobody has described.
 
 ## READING FLASH BACK
 
