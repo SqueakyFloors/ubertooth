@@ -684,6 +684,12 @@
   interfaces they use, as a build of the whole tree does, so a strict C
   standard works there too.
   [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
+- Configuring the tools against a libubertooth installed from an older commit
+  is refused in one line that names what is missing and how to install a
+  current one. Such an install used to configure without a word and then fail
+  in the compiler with dozens of errors naming symbols its header has not
+  got: `FindUBERTOOTH.cmake` now asks the libubertooth it found for a few of
+  the functions the tools call, as the libbtbb check already did.
 - A program that sets more advertising data than the board can transmit is
   told so, where it used to be taken and then dropped: `cmd_le_set_adv_data()`
   and the board's `UBERTOOTH_LE_SET_ADV_DATA` both refuse anything longer than

@@ -27,6 +27,11 @@ need it, so FindBTBB is asked for it with REQUIRED and has to arrive back at
 the installed one, function check and all. libubertooth and libbluetooth may
 be absent, so an honest "not found" passes for those two.
 
+FindUBERTOOTH has a function check of its own, so the libubertooth each of its
+cases is pointed at is a stand-in built here: a header declaring the functions
+the module asks for and a library defining them, which is enough for the probe
+to pass and keeps this test to the paths it is about.
+
 A fourth shape is the move itself, in check_move() below: the install goes
 from one prefix to another, both named by nothing but their pkg-config files,
 and the module has to report the second.
@@ -35,15 +40,17 @@ Usage: test_find_stale_paths.py <cmake> <repository root>
                                 <libbtbb include dir> <libbtbb library>
 """
 
+import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 
-# The project each case configures. Nothing is compiled except FindBTBB's own
-# function check, so the two modules that have no check get a project with no
-# languages in it and cost a fraction of a second each.
+# The project each case configures. Nothing is compiled except the function
+# checks of FindBTBB and FindUBERTOOTH, so FindBLUETOOTH, which has none, gets
+# a project with no languages in it and costs a fraction of a second a case.
 #
 # NORMAL_INCLUDE_DIR hands the module a path as an ordinary variable rather
 # than a cache entry, which is the other way a stale path reaches it: a
@@ -66,9 +73,10 @@ file(WRITE "${CMAKE_BINARY_DIR}/library.txt" "${%(prefix)s_LIBRARIES}")
 # The three modules: the find_package() name, the variable prefix they report
 # through, and the header they are known by.
 #
-# libbtbb's install is a copy of the real one, because FindBTBB's function
-# check has to pass on the first configure of each case; for the other two an
-# empty file is enough, since nothing reads or links them.
+# libbtbb's install is a copy of the real one and libubertooth's is the
+# stand-in built below, because the function checks of those two modules have
+# to pass on the first configure of each case; FindBLUETOOTH checks nothing,
+# so an empty file stands in for it.
 #
 # "module" is the pkg-config module each one asks for, used by the move case
 # below: FindBLUETOOTH asks for bluez rather than for a name of its own.
@@ -78,7 +86,7 @@ MODULES = (
      "language": "C"},
     {"package": "UBERTOOTH", "prefix": "LIBUBERTOOTH",
      "header": "ubertooth.h", "library": "libubertooth",
-     "module": "libubertooth", "required": "", "language": "NONE"},
+     "module": "libubertooth", "required": "", "language": "C"},
     {"package": "BLUETOOTH", "prefix": "LIBBLUETOOTH", "header": "hci.h",
      "library": "libbluetooth", "module": "bluez", "required": "",
      "language": "NONE"},
@@ -106,6 +114,17 @@ def fail(message):
     sys.exit(1)
 
 
+def refused_as_old(output):
+    """Whether a configure failed on FindUBERTOOTH's function check.
+
+    The module asks the libubertooth it found for the functions these tools
+    call, so on a machine with an older one installed a search that reaches
+    outside this test's own prefixes ends in that refusal. The probe's result
+    variable says so: it is in the output whichever way the probe failed.
+    """
+    return "LIBUBERTOOTH_HAS_REQUIRED_FUNCTIONS - Failed" in output
+
+
 def configure(cmake, source, build, defines, pkg_config_path=None):
     """Configure the project, returning (status, output on one line)."""
     environment = dict(os.environ)
@@ -129,36 +148,37 @@ def reported(build):
     return answers[0] == "TRUE", answers[1], answers[2]
 
 
-def install_paths(module, root, real):
+def install_paths(module, root, material):
     """Where make_install() puts the header directory and the library.
 
-    libbtbb's copy keeps the real library's file name, so the linker sees the
-    extension it expects for this platform.
+    A copy keeps the file name of the library it was copied from, so the
+    linker sees the extension it expects for this platform.
     """
-    if module["package"] == "BTBB":
-        name = os.path.basename(real[1][0])
+    source = material.get(module["package"])
+    if source:
+        name = os.path.basename(source[1])
     else:
         name = module["library"] + ".so"
     return os.path.join(root, "include"), os.path.join(root, "lib", name)
 
 
-def make_install(module, root, real):
+def make_install(module, root, material):
     """A header and a library under root, standing for the install a package
     upgrade is about to replace.
 
-    real is the libbtbb this build found, as (include directory, libraries);
-    libbtbb's header and library are copied from it so FindBTBB's function
-    check passes against the copy. The other two modules check nothing, so an
-    empty file of each stands in.
+    material says what each module's install is copied from, as
+    (header directory, library): the libbtbb this build found for FindBTBB,
+    and the stand-in built by standin_libubertooth() for FindUBERTOOTH, so
+    that the function check of each passes against the copy. FindBLUETOOTH
+    checks nothing and has no entry, so an empty file of each stands in.
     """
-    include, library = install_paths(module, root, real)
+    include, library = install_paths(module, root, material)
     os.makedirs(include)
     os.makedirs(os.path.dirname(library))
-    if module["package"] == "BTBB":
-        shutil.copy(os.path.join(real[0], module["header"]), include)
-        # The first entry: LIBBTBB_LIBRARIES holds one library, and a second
-        # would have to be copied under its own name to be linked.
-        shutil.copy(real[1][0], library)
+    source = material.get(module["package"])
+    if source:
+        shutil.copy(os.path.join(source[0], module["header"]), include)
+        shutil.copy(source[1], library)
     else:
         for path in (os.path.join(include, module["header"]), library):
             open(path, "w", encoding="utf-8").close()
@@ -200,7 +220,7 @@ def check_recovered(module, build, case, forbidden):
                  "there" % (where, module["package"], entry))
 
 
-def check_module(cmake, work, modules, module, real):
+def check_module(cmake, work, modules, module, material):
     """Run the three stale-path shapes against one module."""
     package = module["package"]
     source = os.path.join(work, package.lower())
@@ -217,12 +237,47 @@ def check_module(cmake, work, modules, module, real):
                  "remembered instead of searching for %s again:\n%s"
                  % (package, case, where, module["prefix"], output))
 
+    def searched_again(build, defines, case, where, forbidden):
+        """Configure after the install was removed, and say whether the module
+        reported an answer to check.
+
+        The module has to look again rather than hand back what it remembered.
+        It can also look again, find a real install of the library on this
+        machine, and refuse that one: FindUBERTOOTH asks the libubertooth it
+        finds for the functions these tools call, and a developer machine can
+        have an older one installed. That is the module searching, which is
+        what this case is about, so what is checked then is that the refusal
+        does not name a path that has gone; there is nothing else to read,
+        because a refused configure writes no answer.
+        """
+        status, output = configure(cmake, source, build, defines)
+        if status == 0:
+            return True
+        if not refused_as_old(output):
+            fail("%s: %s: configuring %s failed, so the module used a path it "
+                 "remembered instead of searching for %s again:\n%s"
+                 % (package, case, where, module["prefix"], output))
+        # The refusal itself, not the whole output: the status lines above it
+        # name the paths that have gone, which is the module saying it is
+        # searching for them again.
+        refusal = output[output.find("CMake Error"):]
+        named = [path for path in forbidden if path in refusal]
+        if named:
+            fail("%s: %s: Find%s.cmake refused a library at %s, which has "
+                 "been removed, so it did not search again:\n%s"
+                 % (package, case, package, ", ".join(named), output))
+        print("%s: %s: the module searched again and refused the library "
+              "installed on this machine, which is older than these tools; "
+              "the paths it remembered are gone from its message"
+              % (package, case))
+        return False
+
     def take_install(tag, case):
         """Configure against an install of this module's own, and check the
         module took it: a case whose first configure found something else
         would show nothing when the install is removed."""
         root = os.path.join(work, "%s-%s" % (package.lower(), tag))
-        include, library = make_install(module, root, real)
+        include, library = make_install(module, root, material)
         build = os.path.join(work, "%s-%s-build" % (package.lower(), tag))
         configure_or_fail(build, ["-D%s_INCLUDE_DIR=%s"
                                   % (module["prefix"], include),
@@ -240,8 +295,8 @@ def check_module(cmake, work, modules, module, real):
     case = "the whole directory removed"
     root, _, _, build = take_install("upgraded", case)
     shutil.rmtree(root)
-    configure_or_fail(build, [], case, "again after the removal")
-    check_recovered(module, build, case, [root])
+    if searched_again(build, [], case, "again after the removal", [root]):
+        check_recovered(module, build, case, [root])
 
     # The two files gone and the directories that held them left behind.
     case = "the files removed, their directories left"
@@ -249,20 +304,22 @@ def check_module(cmake, work, modules, module, real):
     header = os.path.join(include, module["header"])
     os.remove(header)
     os.remove(library)
-    configure_or_fail(build, [], case, "again after the removal")
-    check_recovered(module, build, case, [header, library])
+    if searched_again(build, [], case, "again after the removal",
+                      [header, library]):
+        check_recovered(module, build, case, [header, library])
 
     # The same paths as ordinary variables rather than cache entries.
     case = "paths given as ordinary variables"
     root = os.path.join(work, "%s-never-there" % package.lower())
-    include, library = install_paths(module, root, real)
+    include, library = install_paths(module, root, material)
     build = os.path.join(work, "%s-ordinary-variables" % package.lower())
-    configure_or_fail(build, ["-DNORMAL_INCLUDE_DIR=" + include,
+    if searched_again(build, ["-DNORMAL_INCLUDE_DIR=" + include,
                               "-DNORMAL_LIBRARY=" + library],
-                      case, "with the paths set as ordinary variables")
-    check_recovered(module, build, case, [root])
+                      case, "with the paths set as ordinary variables",
+                      [root]):
+        check_recovered(module, build, case, [root])
 
-    check_move(cmake, work, module, real, source, configure_or_fail)
+    check_move(cmake, work, module, material, source, configure_or_fail)
 
 
 def pkgconfig_dir(root):
@@ -270,7 +327,7 @@ def pkgconfig_dir(root):
     return os.path.join(root, "lib", "pkgconfig")
 
 
-def check_move(cmake, work, module, real, source, configure_or_fail):
+def check_move(cmake, work, module, material, source, configure_or_fail):
     """A library that moves to another prefix must be found where it is now.
 
     The two prefixes here are named by nothing but their pkg-config files,
@@ -281,22 +338,31 @@ def check_move(cmake, work, module, real, source, configure_or_fail):
     reports the library missing although it is installed.
 
     Skipped where the first configure finds something other than the prefix it
-    was pointed at, which is a machine with no pkg-config on it.
+    was pointed at, which is a machine with no pkg-config on it, or where it
+    finds an older install of the library and refuses it, which is the same
+    machine seen through FindUBERTOOTH's function check.
     """
     package = module["package"]
     case = "moved to another prefix"
     first = os.path.join(work, "%s-prefix-one" % package.lower())
-    include, _ = make_install(module, first, real)
+    include, _ = make_install(module, first, material)
     build = os.path.join(work, "%s-moved-build" % package.lower())
-    configure_or_fail(build, [], case, "against an install in a prefix of its "
-                      "own", pkgconfig_dir(first))
+    status, output = configure(cmake, source, build, [], pkgconfig_dir(first))
+    if status != 0:
+        if not refused_as_old(output):
+            fail("%s: %s: configuring against an install in a prefix of its "
+                 "own failed:\n%s" % (package, case, output))
+        print("%s: %s: the module did not take the install in %s but the "
+              "library this machine has, which is older than these tools, so "
+              "the move is not checked here" % (package, case, first))
+        return
     if reported(build)[1] != include:
         print("%s: %s: pkg-config did not lead the module to %s, so the move "
               "is not checked here" % (package, case, include))
         return
 
     second = os.path.join(work, "%s-prefix-two" % package.lower())
-    moved, library = make_install(module, second, real)
+    moved, library = make_install(module, second, material)
     shutil.rmtree(first)
     configure_or_fail(build, [], case, "again after the move",
                       pkgconfig_dir(second))
@@ -309,21 +375,88 @@ def check_move(cmake, work, module, real, source, configure_or_fail):
                 libraries or "nothing", second))
 
 
+def required_functions(module_path):
+    """The names in LIBUBERTOOTH_REQUIRED_FUNCTIONS, as the module lists them.
+
+    Read from FindUBERTOOTH.cmake rather than written out again here, so the
+    stand-in satisfies whatever the module asks for today.
+    """
+    with open(module_path, encoding="utf-8") as handle:
+        text = handle.read()
+    block = re.search(r"^set\(LIBUBERTOOTH_REQUIRED_FUNCTIONS\n(.*?)^\)$",
+                      text, re.S | re.M)
+    if not block:
+        fail("no set(LIBUBERTOOTH_REQUIRED_FUNCTIONS ...) block in %s"
+             % module_path)
+    names = re.findall(r"^  ([a-z_][a-z0-9_]*)", block.group(1), re.M)
+    if not names:
+        fail("%s lists no functions" % module_path)
+    return names
+
+
+def standin_libubertooth(cmake, modules, work):
+    """A header and a library standing in for an installed libubertooth.
+
+    FindUBERTOOTH.cmake asks the libubertooth it finds for a few of the
+    functions the tools call, so an empty file no longer passes for one in the
+    cases above. A stand-in rather than a copy of the real library, because
+    nothing here needs libubertooth's own code and the real header would drag
+    libbtbb and libusb into every probe.
+
+    Returns (header directory, library).
+    """
+    names = required_functions(os.path.join(modules, "FindUBERTOOTH.cmake"))
+    source = os.path.join(work, "standin")
+    build = os.path.join(work, "standin-build")
+    os.mkdir(source)
+    with open(os.path.join(source, "ubertooth.h"), "w",
+              encoding="utf-8") as handle:
+        handle.write("/* Stands in for libubertooth's header. */\n")
+        for name in names:
+            handle.write("int %s(void);\n" % name)
+    with open(os.path.join(source, "standin.c"), "w",
+              encoding="utf-8") as handle:
+        handle.write('#include "ubertooth.h"\n')
+        for name in names:
+            handle.write("int %s(void) { return 0; }\n" % name)
+    with open(os.path.join(source, "CMakeLists.txt"), "w",
+              encoding="utf-8") as handle:
+        handle.write("cmake_minimum_required(VERSION 3.5...3.27)\n"
+                     "project(libubertooth_standin C)\n"
+                     "add_library(ubertooth SHARED standin.c)\n")
+    for command, what in (([cmake, "-S", source, "-B", build], "configure"),
+                          ([cmake, "--build", build], "build")):
+        done = subprocess.run(command, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True)
+        if done.returncode != 0:
+            fail("could not %s the libubertooth stand-in:\n%s"
+                 % (what, done.stdout))
+    built = [path for path in glob.glob(os.path.join(build, "libubertooth.*"))
+             if not path.endswith(".h")]
+    if len(built) != 1:
+        fail("the libubertooth stand-in built %s, expected one library"
+             % (sorted(built) or "nothing"))
+    return source, built[0]
+
+
 def main():
     if len(sys.argv) != 5:
         fail("usage: test_find_stale_paths.py <cmake> <repository root> "
              "<libbtbb include dir> <libbtbb library>")
     cmake, repo_root, btbb_include, btbb_libraries = sys.argv[1:]
-    real = (btbb_include, [entry for entry in btbb_libraries.split(";")
-                           if entry])
-    if not real[1]:
+    btbb = [entry for entry in btbb_libraries.split(";") if entry]
+    if not btbb:
         fail("no libbtbb library was passed, so FindBTBB cannot be configured "
              "against a copy of the one this build uses")
     modules = os.path.join(repo_root, "host", "cmake", "modules")
 
     with tempfile.TemporaryDirectory() as work:
+        # The first entry of LIBBTBB_LIBRARIES: it holds one library, and a
+        # second would have to be copied under its own name to be linked.
+        material = {"BTBB": (btbb_include, btbb[0]),
+                    "UBERTOOTH": standin_libubertooth(cmake, modules, work)}
         for module in MODULES:
-            check_module(cmake, work, modules, module, real)
+            check_module(cmake, work, modules, module, material)
 
     print("PASS")
 

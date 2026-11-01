@@ -1220,6 +1220,18 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set_tests_properties(doc-example-lines PROPERTIES TIMEOUT 60)
 
+# Several sections of host/doc/*.md are shared by design, the same heading on
+# every page it belongs on. A failed edit took GAPS IN A CAPTURE out of one
+# page while the other gap-reporting pages kept it and nothing noticed, so
+# this pins which pages carry which shared section. Reads the pages and the
+# tool sources; nothing is built or run.
+add_test(
+	NAME doc-shared-sections
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_doc_shared_sections.py
+		${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set_tests_properties(doc-shared-sections PROPERTIES TIMEOUT 60)
+
 # The same approach for ubertooth-scan. Its main() needs the BlueZ headers, so
 # like the tool itself this is built only where libbluetooth is installed; the
 # find_package here is what makes that visible in this directory. FindBLUETOOTH
@@ -1394,9 +1406,12 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..
 		"${LIBBTBB_INCLUDE_DIR}"
 		"${LIBBTBB_LIBRARIES}")
-# Twenty-one configures, seven of them of a project with C in it for
-# FindBTBB's function check and the rest of a project with no languages, which
-# needs no compiler: 19 s here. Twice the limit of btbb-check and
-# libusb-include above, because this is three times the configures of either,
-# and a cold CI runner spends seconds on compiler detection alone.
-set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 120)
+# Twenty-two configures, fourteen of them of a project with C in it for the
+# function checks of FindBTBB and FindUBERTOOTH and the rest of a project with
+# no languages, which needs no compiler, plus one build of the one-file
+# libubertooth stand-in those checks are pointed at: 19 s on an idle machine
+# and 46 s on one busy with parallel builds. Three times the limit of
+# btbb-check and libusb-include above, because this is three times the
+# configures of either and a cold CI runner spends seconds on compiler
+# detection alone.
+set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 180)
