@@ -599,23 +599,14 @@
 ### Build and compatibility
 
 - `./install.sh` installs on Fedora. It used to stop on any Linux without
-  `apt-get`, pointing at REQUIREMENTS.md, so a Fedora user installed the
-  dependencies by hand; it now finds `dnf` and asks it for the same
-  dependencies under Fedora's names, including the ARM toolchain for
-  `--with-firmware`. Everything after that step is what it has always been on
-  Linux: libbtbb at the pinned commit, the host tools with `-DREQUIRE_ALL=ON`
-  so a missing optional dependency is an error, the Python runtime deps, the
-  udev rule, and `--uninstall`. A machine with both package managers is
-  installed with `apt` as before.
+  `apt-get`; it now finds `dnf` and asks it for the same dependencies under
+  Fedora's names, the ARM toolchain for `--with-firmware` included, and the
+  rest of the run is what it has always been on Linux.
   [#24](https://github.com/SqueakyFloors/ubertooth/issues/24)
 - The install writes `libubertooth.pc`, so a program of your own built against
   the installed library takes its flags from `pkg-config --cflags --libs
-  libubertooth` instead of being given them by hand. The file names both
-  include directories such a program needs: its own, and the one
-  `<libusb-1.0/libusb.h>` resolves against, which is a directory above the one
-  libusb's own pkg-config file points at. It reads its prefix back from where
-  it is installed, so an install staged or relocated somewhere else describes
-  the directories it really landed in.
+  libubertooth` instead of being given them by hand, including the include
+  directory `<libusb-1.0/libusb.h>` resolves against.
   [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
 - Configuring on macOS no longer tells you to install a Linux package to get
   `ubertooth-scan` and `ubertooth-follow`. It says BlueZ is Linux only and

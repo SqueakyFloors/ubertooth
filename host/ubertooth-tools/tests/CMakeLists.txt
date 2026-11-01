@@ -302,7 +302,10 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 			${CMAKE_COMMAND}
 			${CMAKE_BINARY_DIR}
 			${PKG_CONFIG_EXECUTABLE}
-			${CMAKE_C_COMPILER})
+			${CMAKE_C_COMPILER}
+			# Empty unless the build was given one, which is how
+			# the library's own install destination is written.
+			"${LIB_SUFFIX}")
 	# Two installs of three small components and one compile: about two
 	# seconds. A minute catches an install or a compiler that waits on
 	# something.
