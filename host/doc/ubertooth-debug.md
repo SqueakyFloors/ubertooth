@@ -117,7 +117,7 @@ A board running the other firmware image exits 1 as well, with no register
 read and the two lines that name the image and flash the right one:
 
     error: the Ubertooth is running btbr; this tool needs bluetooth_rxtx
-    note: flash it with ubertooth-dfu -U 1cc0 -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r
+    note: flash it with ubertooth-dfu -U aa11 -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),

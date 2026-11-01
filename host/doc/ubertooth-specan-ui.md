@@ -118,7 +118,8 @@ A range `ubertooth-specan-ui` will not take is refused before the window
 opens, with one line starting `error: ` on standard error and exit status 1:
 `error: invalid channel range: <value>`,
 `error: channel <n> is not a valid wifi channel`,
-`error: frequency of <n> MHz is below minimum frequency of <min>`,
+`error: lower frequency must be <min>-<max> MHz (got <value>)` and the same for
+`upper`, `error: frequency of <n> MHz is below minimum frequency of <min>`,
 `error: frequency of <n> MHz is above maximum frequency of <max>` and
 `error: lower frequency of <n> MHz is above upper frequency of <n> MHz`. They
 used to be `ERROR: ...` on standard output.
@@ -134,10 +135,13 @@ ends the options, so what follows it is read as a word however it is spelled,
 and `--` on its own asks for nothing beyond the defaults and runs. No usage
 text follows any of these lines, which say what was wrong; `-h` prints it.
 These command lines used to open the window and start a sweep, the unreadable
-part dropped without a word. A value the parser cannot read, as in `-l abc`,
-goes the same way but keeps the parser's own words
-(`error: argument -l: invalid int value: 'abc'`); it used to print the usage
-text and exit 2.
+part dropped without a word. A value the parser cannot read, as in
+`--padding x`, goes the same way but keeps the parser's own words
+(`error: argument --padding: invalid int value: 'x'`); it used to print the
+usage text and exit 2. `-l` and `-u` are read by the tool itself, so a value
+that is not a number is refused in the same words as one outside the band:
+`error: lower frequency must be 2402-2480 MHz (got abc)`, as
+`ubertooth-specan` gives.
 
 A failure to start `ubertooth-specan` is reported the same way, as
 `error: could not open an Ubertooth device` followed by a `note: ` naming the

@@ -75,7 +75,7 @@ print("install.sh: the %d listing lines the man page shows are parsed"
       % len(set(documented)))
 
 # The single-board form, which has no index in it, is still read as device 0.
-SERIAL = "1cc001038088cb956c43ad61c52000f5"
+SERIAL = "aa1100112233445566778899aabbccdd"
 assert list_devices("Serial No: %s\n" % SERIAL, 1) == ["0 " + SERIAL]
 
 # A board the listing could not read has no serial to give, so it keeps the

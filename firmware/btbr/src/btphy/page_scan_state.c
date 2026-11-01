@@ -219,7 +219,7 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 		 * the slot that pairs with the one the page arrived in. The
 		 * board's own untouched clock shares no slot boundary with the
 		 * pager. */
-		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
+		btphy_set_mode_no_ap(BT_MODE_PERIPHERAL_PAGE_RESPONSE);
 		hop_start_response();
 
 		/* Schedule TX ID(2) */

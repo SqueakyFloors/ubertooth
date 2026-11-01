@@ -129,8 +129,8 @@ do nothing and exit 0.
 
 Each major mode runs until it is interrupted, so only one of them can run: two
 in one command are refused before any device is opened, naming both as they
-were spelled, `error: -r cannot be combined with -f; choose one of -f, -r or
--i`. `-i` and `-j` are two spellings of the jamming mode, so they clash too.
+were spelled, `error: -r cannot be combined with -f; choose one of -f, -r, -i,
+or -j`. `-i` and `-j` are two spellings of the jamming mode, so they clash too.
 The last mode written used to be the one that ran, and the others were dropped
 without a word.
 
@@ -202,9 +202,9 @@ each.
 
 A capture that is losing packets says so. The board holds captured packets in a
 queue until this tool reads them, and a queue with no room left loses the next
-packet. The first time it happens the capture warns `warning: the board's
-packet queue filled up and it dropped at least one packet; this capture has a
-gap`, and when the capture ends it says how many such gaps there were:
+packet. The first time it happens the capture warns `warning: the recording
+board's packet queue filled up and it dropped at least one packet; this capture
+has a gap`, and when the capture ends it says how many such gaps there were:
 `warning: the capture has 3 gaps where the board's queue filled up and it
 dropped packets`. The count is of gaps, not of lost packets: one full queue can
 swallow several packets, and the board sends no number. Nothing says which

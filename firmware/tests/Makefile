@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -422,6 +422,21 @@ $(BINDIR)/test_btbr_codec_fec23: test_btbr_codec_fec23.c minunit.h \
 	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
 		-Wno-unused-parameter -Wno-unused-variable \
 		-o $@ test_btbr_codec_fec23.c $(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c
+
+# The HEC check on a received packet header, which is the only thing that says
+# a header belongs to this piconet before the packet is reported. Linked the
+# same way as the 2/3 FEC test above, against the real codec.c.
+$(BINDIR)/test_btbr_codec_header: test_btbr_codec_header.c minunit.h \
+		stubs-btbr/ubtbr/debug.h $(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/include/ubtbr/bb.h $(FW_BTBR)/include/ubtbr/codec.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# codec.c takes the packet header in two calls that do not read it, and keeps
+# a decode pointer one branch does not use. Neither is what this tests.
+	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-o $@ test_btbr_codec_header.c $(FW_BTBR)/src/codec/codec.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
 
 # The USB hardware layer reaches the controller only through the register

@@ -102,6 +102,26 @@ def parse_wifi_range(value):
     return lower, upper
 
 
+def require_freq(text, what):
+    """One -l or -u value, read and range-checked in the C tools' words.
+
+    `what` names the end of the band: "lower" or "upper". A value that is not
+    a whole number of MHz and one outside the band the board tunes are the
+    same mistake to the user, so both get the line ubertooth-specan gives,
+    `lower frequency must be 2402-2480 MHz (got abc)`. The argument parser
+    used to read the value, and reported one it could not convert in its own
+    words, `argument -l: invalid int value: 'abc'`.
+    """
+    try:
+        freq = int(text, 10)
+    except (TypeError, ValueError):
+        freq = None
+    if freq is None or freq < MIN_FREQ or freq > MAX_FREQ:
+        _refuse("%s frequency must be %d-%d MHz (got %s)"
+                % (what, MIN_FREQ, MAX_FREQ, "" if text is None else text))
+    return freq
+
+
 def check_freq(freq):
     if freq < MIN_FREQ:
         _refuse("frequency of " + str(freq) + " MHz is below minimum "

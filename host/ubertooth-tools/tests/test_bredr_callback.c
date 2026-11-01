@@ -49,6 +49,7 @@ static unsigned next_index;
  * the faked control requests carried. */
 static struct {
 	int find_ac_search_length;
+	size_t find_ac_stream_len;
 	int set_data_length;
 	uint32_t set_data_clkn;
 	int set_data_zero_symbols; /* symbols nothing wrote, handed over anyway */
@@ -215,13 +216,16 @@ int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map)
 int cmd_hop(struct libusb_device_handle* devh) { (void)devh; return 0; }
 
 /* Stands in for libbtbb's access-code search. It reports the offset the case
- * chose and records the search length it was given: a search allowed to run
- * past the symbols the record carried is the bug on this line. */
-int btbb_find_ac(char* stream, int search_length, uint32_t lap,
-                 int max_errors, btbb_packet** pkt)
+ * chose and records the search length and the buffer length it was given: a
+ * search allowed to run past the symbols the record carried is the bug on this
+ * line, and the buffer length is what lets the library check that rather than
+ * trust it. */
+int btbb_find_ac_n(char* stream, size_t stream_len, int search_length,
+                   uint32_t lap, int max_errors, btbb_packet** pkt)
 {
 	(void)stream; (void)lap; (void)max_errors;
 	seen.find_ac_search_length = search_length;
+	seen.find_ac_stream_len = stream_len;
 	if (find_ac_offset < 0)
 		return find_ac_offset;
 	/* The real search tries start positions 0 to search_length - 1 and
@@ -488,6 +492,11 @@ MU_TEST(the_access_code_search_reaches_the_last_position_in_the_bank)
 	run_callback(cb_scan, NULL);
 	mu_assert_int_eq(337, seen.find_ac_search_length);
 	mu_assert_int_eq(400, seen.set_data_length);
+
+	/* And the buffer length goes with it, so the library checks the bound
+	 * rather than taking the caller's word for it: the whole bank, which
+	 * is the array the symbols were copied into. */
+	mu_assert_int_eq(BANK_LEN, (int)seen.find_ac_stream_len);
 
 	/* The three AFH callbacks pass the same constant and have no fake to
 	 * run them through here, so the constant itself is pinned: that covers
@@ -937,7 +946,7 @@ MU_TEST(a_replay_and_a_capture_with_no_piconet_send_no_trim)
  * an hour says so while it runs. Before this, a capture losing packets looked
  * exactly like a quiet band.
  */
-#define GAP_WARNING "the board's packet queue filled up"
+#define GAP_WARNING "the recording board's packet queue filled up"
 
 MU_TEST(a_record_that_says_the_board_dropped_a_packet_is_counted_and_warned)
 {

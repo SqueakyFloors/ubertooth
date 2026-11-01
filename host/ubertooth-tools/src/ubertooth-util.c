@@ -726,6 +726,7 @@ static void usage(FILE *output)
 	fprintf(output, "ubertooth-util - command line utility for Ubertooth Zero and Ubertooth One\n");
 	fprintf(output, "\n");
 	fprintf(output, "Common options:\n");
+	fprintf(output, "\t-h this help\n");
 	fprintf(output, "\t-V print version information: the host tools, and the\n");
 	fprintf(output, "\t   firmware version and build of each attached board\n");
 	fprintf(output, "\t-v get firmware image and revision (deprecated: use -V)\n");
@@ -746,7 +747,7 @@ static void usage(FILE *output)
 	        UBERTOOTH_LED_SPECAN_N_MIN, UBERTOOTH_LED_SPECAN_N_MAX,
 	        UBERTOOTH_LED_SPECAN_N_DEFAULT);
 	fprintf(output, "\t   the threshold is -N dBm; a larger N lights the LEDs for weaker signals\n");
-	fprintf(output, "\t-t intitiate continuous transmit test\n");
+	fprintf(output, "\t-t initiate continuous transmit test\n");
 	fprintf(output, "\t-z [-128..127] get/set squelch level\n");
 	fprintf(output, "\n");
 	fprintf(output, "Range test:\n");

@@ -572,13 +572,13 @@ MU_TEST(the_generic_option_is_refused_with_a_modulation)
 /* The -U value reaches the library as the user wrote it. */
 MU_TEST(the_device_selector_is_passed_through)
 {
-	char* with_u[] = { "ubertooth-dump", "-U", "0b70", NULL };
+	char* with_u[] = { "ubertooth-dump", "-U", "dd44", NULL };
 	char* without_u[] = { "ubertooth-dump", NULL };
 	struct run r;
 
 	reset();
 	run_main(&r, 3, with_u);
-	mu_assert(strcmp(fake.selector, "0b70") == 0, fake.selector);
+	mu_assert(strcmp(fake.selector, "dd44") == 0, fake.selector);
 
 	reset();
 	run_main(&r, 1, without_u);

@@ -315,7 +315,7 @@ static uint8_t air_prepare(enum air_kind kind)
 	uint32_t clkn = btphy_cur_clkn()+1;
 
 	if (kind == AIR_RX) {
-		if (btphy.mode == BT_MODE_PERIPH_PAGE_RESPONSE)
+		if (btphy.mode == BT_MODE_PERIPHERAL_PAGE_RESPONSE)
 			hop_increment();
 	} else {
 		if (btphy.mode == BT_MODE_INQUIRY ||
@@ -1009,7 +1009,7 @@ MU_TEST(prepare_model_matches_the_task_files)
 
 	read_function(FW_BTBR_DIR "/src/btphy/rx_task.c", "rx_prepare",
 			body, sizeof(body));
-	mu_assert(contains_identifier(body, "BT_MODE_PERIPH_PAGE_RESPONSE"),
+	mu_assert(contains_identifier(body, "BT_MODE_PERIPHERAL_PAGE_RESPONSE"),
 		"rx_prepare() no longer singles out the peripheral page response");
 	mu_assert(calls_identifier(body, "hop_increment"),
 		"rx_prepare() no longer advances the page response phase");
@@ -1023,7 +1023,7 @@ MU_TEST(prepare_model_matches_the_task_files)
 			body, sizeof(body));
 	mu_assert(contains_identifier(body, "BT_MODE_PAGING_RESPONSE"),
 		"tx_prepare() no longer singles out the central page response");
-	mu_assert(!contains_identifier(body, "BT_MODE_PERIPH_PAGE_RESPONSE"),
+	mu_assert(!contains_identifier(body, "BT_MODE_PERIPHERAL_PAGE_RESPONSE"),
 		"tx_prepare() now advances the phase for the paged device too");
 	mu_assert(calls_identifier(body, "hop_increment"),
 		"tx_prepare() no longer advances the phase");

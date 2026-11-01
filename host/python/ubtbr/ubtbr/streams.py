@@ -17,6 +17,32 @@ import sys
 from threading import Lock
 from time import strftime
 
+def colored(text, color):
+	"""text in an ANSI color, or text unchanged where nothing can show it.
+
+	Only a terminal is sent escapes. A redirected session used to carry them
+	into the file, so every line of a saved session began with ^[[32;1m,
+	where every other tool writes plain text. `color` is the SGR parameter,
+	for example "32;1".
+	"""
+	try:
+		if not sys.stderr.isatty():
+			return text
+	except (AttributeError, ValueError):
+		# Standard error has gone, or is not a stream with an answer. The
+		# write that follows reports that; the color is not the point.
+		return text
+	return "\x1b[%sm%s\x1b[0m"%(color, text)
+
+def data_to_str(data):
+	"""Bytes as hex, one convention for every line the tool writes.
+
+	Space-separated pairs, as in "0a 09 55": a reader counts bytes without
+	counting characters, and one capture used to mix this with an unbroken
+	run of hex digits depending on which line wrote it.
+	"""
+	return " ".join("%02x"%b for b in data)
+
 def eprint(msg):
 	"""Write a diagnostic to standard error, or drop it if it cannot go there.
 

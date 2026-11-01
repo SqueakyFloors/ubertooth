@@ -242,7 +242,7 @@ Radio options:
    uses -85 dBm, which shows Wi-Fi traffic without lighting on noise. The TX, RX and USR LEDs stand for 2412, 2437
    and 2462 MHz. `-S` stops it and leaves the LEDs off.
  - `-t` :
-   intitiate continuous transmit test
+   initiate continuous transmit test
  - `-z [-128..127]` :
    get/set squelch level (a signed RSSI threshold; values above 0 are relative
    to the average RSSI) for an RX capture. The firmware puts it back to the
@@ -495,14 +495,14 @@ serial selection since indices become unwieldy and unstable.
 
 A serial number need not be given in full: its **first few characters** are
 enough, upper or lower case. For a board whose serial is
-`1cc001038088cb956c43ad61c52000f5`, `-U 1cc0` and `-U 1CC0` both select it.
+`aa1100112233445566778899aabbccdd`, `-U aa11` and `-U AA11` both select it.
 
 If those characters start the serial of **more than one** attached board, the
 tool selects neither: it lists the matching serials and exits non-zero, and a
 few more characters pick one:
 
-    $ ubertooth-util -U 1c -s
-    error: '1c' matches 2 Ubertooth devices: 1cc001038088cb956c43ad61c52000f5, 1cd3f0a9b4e26c1d8a7f30b5c42000f5
+    $ ubertooth-util -U aa -s
+    error: 'aa' matches 2 Ubertooth devices: aa1100112233445566778899aabbccdd, aa2200112233445566778899aabbccdd
     select one of them by a longer prefix of its serial number
 
 If the matching boards report the *same* serial, no longer string can tell them
@@ -521,17 +521,17 @@ A board that cannot be opened, or that does not answer the serial read, is
 skipped quietly while another board is being selected. It is reported with the
 result, because the string may well be that board's serial:
 
-    $ ubertooth-util -U 1cc0 -s
-    error: no Ubertooth found with serial matching '1cc0'
+    $ ubertooth-util -U aa11 -s
+    error: no Ubertooth found with serial matching 'aa11'
     2 attached Ubertooth devices could not be opened
     note: Access denied (insufficient permissions) (libusb -3)
 
 (On Linux, that usually means the udev rules are not installed.)
 
 An all-digits string is always an index, never a serial, even when it would
-match a serial: `-U 05` asks for index 5, not for the board whose serial starts
-`05f0`. Select that board by a longer prefix that includes a non-digit
-(`-U 05f`), or by its full serial.
+match a serial: `-U 19` asks for index 19, not for the board whose serial
+starts `19bb`. Select that board by a longer prefix that includes a non-digit
+(`-U 19b`), or by its full serial.
 
 With several Ubertooths attached and no `-U`, the read-only identity queries
 `-s` (serial), `-v` (firmware image and revision), `-p` (part ID) and
@@ -541,8 +541,8 @@ device's index in it, so a line read on its own says both what it is and which
 board it came from:
 
     $ ubertooth-util -s
-    Serial No (0): 1cc001038088cb956c43ad61c52000f5
-    Serial No (1): 05f00014e380df95f4436562c32000f5
+    Serial No (0): aa1100112233445566778899aabbccdd
+    Serial No (1): 19bb00112233445566778899aabbccdd
     $ ubertooth-util -v
     Firmware version (0): bluetooth_rxtx git-747484c (API:<version>)
     Firmware version (1): bluetooth_rxtx git-747484c (API:<version>)
@@ -572,7 +572,7 @@ attached devices, including one, and fails with `error: no Ubertooth devices
 found` when none is attached:
 
     $ ubertooth-util -U all -s
-    Serial No (0): 1cc001038088cb956c43ad61c52000f5
+    Serial No (0): aa1100112233445566778899aabbccdd
 
 `-U all` only applies to the read-only queries `-b`, `-v`, `-p` and `-s`.
 Combined with any other option (a setter, a mode such as `-x` or `-q`, `-r`,
@@ -591,8 +591,8 @@ the same enumeration:
 
     $ ubertooth-util -U all -N -s
     2
-    Serial No (0): 1cc001038088cb956c43ad61c52000f5
-    Serial No (1): 05f00014e380df95f4436562c32000f5
+    Serial No (0): aa1100112233445566778899aabbccdd
+    Serial No (1): 19bb00112233445566778899aabbccdd
 
 `-h` and `-V` are not refused either, because they end the command before the
 listing is reached; `-V` then reports every attached board itself.

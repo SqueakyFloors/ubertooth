@@ -39,6 +39,7 @@ static void usage(FILE *file)
 	fprintf(file, "!!!!\n");
 	fprintf(file, "\n");
 	fprintf(file, "Usage:\n");
+	fprintf(file, "\t-h this help\n");
 	fprintf(file, "\t-l <LAP> to transmit to (3 bytes / 6 hex digits) - required\n");
 	fprintf(file, "\t-u <UAP> to transmit to (1 byte / 2 hex digits) - required\n");
 	fprintf(file, "\t-t <SECONDS> timeout - 0 means no timeout [Default: 0]\n");

@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
 			 * OPTION VALUES). */
 			if (mode_option != 0 && mode_option != opt) {
 				fprintf(stderr, "error: -%c cannot be combined with -%c;"
-				        " choose one of -f, -r or -i\n",
+				        " choose one of -f, -r, -i, or -j\n",
 				        opt, mode_option);
 				return 1;
 			}

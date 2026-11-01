@@ -117,7 +117,7 @@ the raw records of `-d -`.
 Three lines before the sweep starts name the board, the sweep as it will
 actually run, and where the samples go:
 
-    Using Ubertooth 1ff0ff1967102caf8334fa5ac52000f5
+    Using Ubertooth cc3300112233445566778899aabbccdd
     Sweeping 2402-2480 MHz in 1 MHz steps, 79 samples per sweep
     Writing raw samples to standard output
 
@@ -141,9 +141,9 @@ shows up within a second as counters that stop moving.
 
 A capture that is losing packets says so. The board holds captured packets in a
 queue until this tool reads them, and a queue with no room left loses the next
-packet. The first time it happens the capture warns `warning: the board's
-packet queue filled up and it dropped at least one packet; this capture has a
-gap`, and when the capture ends it says how many such gaps there were:
+packet. The first time it happens the capture warns `warning: the recording
+board's packet queue filled up and it dropped at least one packet; this capture
+has a gap`, and when the capture ends it says how many such gaps there were:
 `warning: the capture has 3 gaps where the board's queue filled up and it
 dropped packets`. The count is of gaps, not of lost packets: one full queue can
 swallow several packets, and the board sends no number. Nothing says which
