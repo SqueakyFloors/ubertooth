@@ -19,16 +19,17 @@ static void timer2_start(void) {
 	T2TCR = TCR_Counter_Reset;
 	T2PR = 50000-1; // 1 ms
 	/* No match is armed yet, and a match an earlier run of this mode latched
-	 * is cleared, so nothing of timer2 reaches the interrupt controller
-	 * until xmas_main() arms the three matches below. Without this the
-	 * handler could run while xmas_main() is still choosing the first three
-	 * blink times, and the two would be inside rand() together -- it keeps
-	 * one sequence for every caller. A toggle would also be taken before
-	 * the first one was scheduled.
+	 * is cleared, so nothing of timer2 reaches the interrupt controller when
+	 * the line below is enabled -- not until xmas_main() arms the three
+	 * matches. Without this the handler could run while xmas_main() is still
+	 * choosing the first three blink times, and the two would be inside
+	 * rand() together: it keeps one sequence for every caller. A toggle
+	 * would also be taken before the first one was scheduled.
 	 *
-	 * The identify mode does the same (identify.c), and the low-energy
-	 * engine clears both registers when it borrows timer2 for its own blink
-	 * (le_phy.c), naming this mode as what may have left them set. */
+	 * The identify mode clears its flags the same way (identify.c), and the
+	 * low-energy engine clears both registers when it borrows timer2 for its
+	 * own blink (le_phy.c), naming this mode as what may have left them
+	 * set. */
 	T2MCR = 0;
 	T2IR = 0xff; // write-1-to-clear: every match and capture flag
 	/* A pending interrupt the controller itself latched needs no clearing:

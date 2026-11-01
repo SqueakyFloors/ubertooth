@@ -1,13 +1,17 @@
 /*
- * Unit tests for firmware/bluetooth_rxtx/identify_blink.c
+ * The two LED blinks that run on a timer interrupt: the identify mode's blink
+ * pattern, and the timer setup both it and the xmas demo do around theirs.
  *
- * These run on the host (plain gcc): the blink pattern of the identify mode is
+ * These run on the host (plain gcc). The blink pattern of the identify mode is
  * pure integer bookkeeping, split out of identify.c so it can be checked
  * without an ARM toolchain or a board. What matters is that the LEDs start on
  * and keep alternating, that the schedule advances by exactly one interval per
  * toggle (so a slightly late interrupt does not stretch the blink) without
  * ever falling behind the timer counter, and that it keeps working across the
  * 32-bit wrap of that counter.
+ *
+ * The timer setup around it is hardware registers, so the cases at the end
+ * read identify.c and xmas.c as text instead of running them.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -207,7 +211,8 @@ static int scan_timer_function(const char *path, const char *start,
 
 static const char *xmas_path = FW_RXTX_DIR "/xmas.c";
 static const char *identify_path = FW_RXTX_DIR "/identify.c";
-static struct timer_scan xmas_start, xmas_stop, xmas_loop, identify_start;
+static struct timer_scan xmas_start, xmas_stop, xmas_loop, identify_start,
+                         identify_stop;
 
 MU_TEST(test_the_blink_timers_were_scanned)
 {
@@ -215,10 +220,12 @@ MU_TEST(test_the_blink_timers_were_scanned)
 
 	snprintf(msg, sizeof(msg), "cannot read the blink timers out of %s "
 	         "and %s: timer2_start %d, timer2_stop %d, xmas_main %d, "
-	         "timer3_start %d", xmas_path, identify_path, xmas_start.found,
-	         xmas_stop.found, xmas_loop.found, identify_start.found);
+	         "timer3_start %d, timer3_stop %d", xmas_path, identify_path,
+	         xmas_start.found, xmas_stop.found, xmas_loop.found,
+	         identify_start.found, identify_stop.found);
 	mu_assert_fatal(xmas_start.found && xmas_stop.found &&
-	                xmas_loop.found && identify_start.found, msg);
+	                xmas_loop.found && identify_start.found &&
+	                identify_stop.found, msg);
 
 	/* Without this, a scan that lost track of a body would pass every
 	 * check below for want of anything to compare. */
@@ -236,8 +243,8 @@ MU_TEST(test_a_blink_timer_starts_with_no_match_pending)
 	snprintf(msg, sizeof(msg),
 	         "%s: timer2_start() does not clear T2MCR and T2IR (%d, %d), so "
 	         "a match this mode latched on an earlier run is taken as soon "
-	         "as the counter runs", xmas_path, xmas_start.clear_matches,
-	         xmas_start.clear_flags);
+	         "as the interrupt is enabled", xmas_path,
+	         xmas_start.clear_matches, xmas_start.clear_flags);
 	mu_assert_fatal(xmas_start.clear_matches && xmas_start.clear_flags, msg);
 
 	snprintf(msg, sizeof(msg),
@@ -251,8 +258,9 @@ MU_TEST(test_a_blink_timer_starts_with_no_match_pending)
 	          xmas_start.clear_matches < xmas_start.unmask &&
 	          xmas_start.clear_flags < xmas_start.unmask, msg);
 
-	/* identify.c clears its flags the same way; it arms one match, so it
-	 * has no match control register to clear on the way in. */
+	/* identify.c clears its flags the same way. It needs no clear of its
+	 * match control register on the way in, because its own teardown
+	 * clears it and nothing else uses timer3. */
 	snprintf(msg, sizeof(msg),
 	         "%s: timer3_start() clears T3IR at line %d and starts the "
 	         "counter at line %d", identify_path, identify_start.clear_flags,
@@ -278,6 +286,13 @@ MU_TEST(test_a_blink_timer_leaves_no_match_armed)
 	         xmas_stop.mask);
 	mu_assert(xmas_stop.clear_matches < xmas_stop.counter_reset &&
 	          xmas_stop.clear_matches < xmas_stop.mask, msg);
+
+	/* identify.c already does it, and this is what says so: it is the only
+	 * reason its own entry needs no clear of the match control register. */
+	snprintf(msg, sizeof(msg),
+	         "%s: timer3_stop() does not clear T3MCR (%d)", identify_path,
+	         identify_stop.clear_matches);
+	mu_assert(identify_stop.clear_matches != 0, msg);
 }
 
 /* The blink times are chosen before the matches are armed, so the handler
@@ -322,6 +337,9 @@ int main(void)
 	scan_timer_function(identify_path, "void timer3_start(void)", "T3MCR",
 	                    "T3IR", "T3TCR", "ISER0_ISE_TIMER3",
 	                    "ICER0_ICE_TIMER3", NULL, &identify_start);
+	scan_timer_function(identify_path, "void timer3_stop(void)", "T3MCR",
+	                    "T3IR", "T3TCR", "ISER0_ISE_TIMER3",
+	                    "ICER0_ICE_TIMER3", NULL, &identify_stop);
 	MU_RUN(test_the_blink_timers_were_scanned);
 	MU_RUN(test_a_blink_timer_starts_with_no_match_pending);
 	MU_RUN(test_a_blink_timer_leaves_no_match_armed);
