@@ -546,6 +546,7 @@ $(BINDIR)/test_bootloader_app_image: test_bootloader_app_image.cpp \
 $(BINDIR)/test_latent_arithmetic: test_latent_arithmetic.c minunit.h \
 		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ego.c \
 		$(FW_RXTX)/le_phy.c $(FW_COMMON)/ubertooth.c \
+		$(FW_RXTX)/ubertooth_clock.c $(FW_RXTX)/ubertooth_clock.h \
 		$(FW_COMMON)/cc2400.h \
 		$(FW_BTBR)/src/btphy/rx_task.c \
 		$(HOST_LIB)/ubertooth_interface.h | $(BINDIR)
