@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Hardware-independent identity reports and exit-status handling for
  * ubertooth-util.

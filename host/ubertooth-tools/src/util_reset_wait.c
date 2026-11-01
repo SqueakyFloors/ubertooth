@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Waiting for an Ubertooth to come back after a reset; see util_reset_wait.h.
  */

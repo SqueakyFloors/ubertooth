@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Run a command with a time limit, retrying it a few times.
 #
 #     tools/retry.sh <seconds> <command> [argument ...]

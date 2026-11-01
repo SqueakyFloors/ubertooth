@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Monotonic clock and sleep for the host tools; see util_clock.h.
  */

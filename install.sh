@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # install.sh - one-command from-source setup for the Ubertooth host tools
 #              (and optionally firmware) on Debian/Ubuntu, on Fedora, and on
@@ -62,8 +63,6 @@
 # On macOS the install goes into the Homebrew prefix by default, which is owned
 # by your user, so no sudo is needed. Homebrew asks for your password only when
 # it installs the gcc-arm-embedded toolchain package (--with-firmware).
-#
-# Copyright 2026. Released under the GPLv2. Refer to COPYING.
 
 set -euo pipefail
 

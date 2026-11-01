@@ -11,9 +11,6 @@
  *
  * The variables are what a test reads to see what the code did: which matches
  * timer1 has armed, what the interrupt controller was told, which LEDs are on.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_FW_TESTS_FAKE_LPC17_LEPHY_H
 #define UBERTOOTH_FW_TESTS_FAKE_LPC17_LEPHY_H

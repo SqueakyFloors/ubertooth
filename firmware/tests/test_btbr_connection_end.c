@@ -22,9 +22,6 @@
  * The link layer is the firmware's own -- ll.c is linked in -- so the rule
  * being tested, that a connection counts as established on the first packet
  * with a header, is read from the real code rather than restated here.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <stdarg.h>
 #include <stdint.h>

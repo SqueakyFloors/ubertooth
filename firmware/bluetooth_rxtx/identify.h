@@ -1,9 +1,4 @@
-/*
- * Copyright 2026 Project Ubertooth contributors
- *
- * This file is part of Project Ubertooth and is released under the
- * terms of the GPL. Refer to COPYING for more information.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 #ifndef __IDENTIFY_H
 #define __IDENTIFY_H

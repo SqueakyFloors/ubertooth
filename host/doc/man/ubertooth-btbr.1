@@ -82,7 +82,7 @@ discover nearby devices; each response is reported with its EIR
 answer inquiries, so nearby devices discover this board
 .TP
 \fBpage_scan\fR
-accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, while another Ubertooth paging this one is much less reliable (issue #807 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/807\fR)
+accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, and another Ubertooth on the same bench needs its transmit level turned down first, as does this one; see TWO BOARDS CLOSE TOGETHER
 .TP
 \fBdiscoverable\fR
 \fBinquiry_scan\fR and \fBpage_scan\fR together
@@ -115,6 +115,17 @@ A word that is none of these is refused, and the prompt stays up; see DIAGNOSTIC
 One command runs at a time\. Starting another while one is still running is refused with a \fBNot idle\fR line; \fBidle\fR or Ctrl\-C stops the running one first\.
 .P
 Ctrl\-C at the prompt stops the running command, as \fBidle\fR does, and leaves the prompt up; pressing it again while that command is stopping returns to the prompt\. Before the prompt is up, Ctrl\-C ends the tool\.
+.SH "TWO BOARDS CLOSE TOGETHER"
+Paging one Ubertooth from another needs both of them turned down first\. At the transmit level the radio starts at, two boards a few centimeters apart drive each other's receiver far past the level it can demodulate\. The page itself still gets through, because a page scan sits on one frequency for milliseconds at a time, but the short receive windows that follow it find nothing: the paged board comes up as a peripheral, the pager never hears the acknowledgment, and the connection ends a second later having carried no packet\.
+.P
+Set both boards to the lowest level before paging one from the other:
+.IP "" 4
+.nf
+ubertooth\-util \-U <serial> \-a 0
+.fi
+.IP "" 0
+.P
+\fBbtbr\fR keeps whatever level the register holds, so this lasts until the board is flashed again\. The lowest level is about 20 dB down: plenty across a bench and not enough for a device across a room, so put it back to 7 before paging anything else\. Moving the two boards apart, or putting an attenuator on one antenna, does the same job\.
 .SH "MONITOR MODE"
 \fBmonitor\fR targets the paging phase of a connection, where the central sends the peripheral a Frequency Hop Synchronization (FHS) packet carrying its full address and clock\. If the Ubertooth receives that FHS before the real peripheral does, it joins the new piconet ahead of both devices and reports the packets they exchange, including the unencrypted LMP traffic that opens every connection\. An LMP packet that sets the Adaptive Frequency Hopping (AFH) map is followed, so the capture keeps up when the piconet narrows its channels\.
 .P
@@ -232,7 +243,7 @@ The last of those is a board that left the USB bus, stopped answering, or sent a
 .P
 A single command the board refused is not that\. It is reported on standard error (see DIAGNOSTICS), the prompt stays up, and the session goes on and ends with the status its own ending gives it, the way a shell reports a failed command without failing itself\. One message the tool could not read is not that either: it is dropped and the session goes on, which costs the capture that message and nothing else (see LIMITATIONS)\.
 .SH "SEE ALSO"
-ubertooth\-rx(1): passive Classic Bluetooth discovery and following, on the \fBbluetooth_rxtx\fR firmware
+ubertooth\-rx(1): passive Classic Bluetooth discovery, and following where the clock search reaches a clock; THE CLOCK SEARCH AND ADAPTED HOPPING says when it does not
 .P
 ubertooth\-dfu(1): flashing the firmware images
 .P

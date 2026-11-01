@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Fail when a workflow names its own libbtbb instead of using the pinned one.
 #
 # The libbtbb this fork builds against is pinned in build.yml's env, and the

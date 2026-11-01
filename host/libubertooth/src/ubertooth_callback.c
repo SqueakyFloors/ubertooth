@@ -1483,6 +1483,20 @@ static uint64_t br_heard_ms;
  * the request below leaves this capture. */
 static int br_clock_gone;
 
+/* Whether a clock search is running with a packet of the piconet behind it and
+ * no clock confirmed in this run yet, and when it started, on the monotonic
+ * clock. See ubertooth_clock_search_ms(). */
+static int br_searching;
+static uint64_t br_search_start_ms;
+
+/* Whether the library has accepted a clock at any point in this run, whether
+ * or not it turned out to be the piconet's. It ends the reading above for the
+ * rest of the run: a search running again after a clock was accepted and lost
+ * is not one that never got that far, and a caller must not be told that the
+ * search cannot confirm a clock in a run where it did. That a clock was wrong
+ * is reported where it is lost. */
+static int br_clock_confirmed;
+
 static uint64_t monotonic_ms(void)
 {
 	return clock_ns(CLOCK_MONOTONIC) / 1000000ull;
@@ -1531,6 +1545,13 @@ static void br_stop_following(ubertooth_t* ut)
 		fprintf(stderr, "warning: the board is left receiving on one "
 		        "channel, so this capture may not find the piconet "
 		        "again\n");
+}
+
+long ubertooth_clock_search_ms(void)
+{
+	if (!br_searching)
+		return -1;
+	return (long)(monotonic_ms() - br_search_start_ms);
 }
 
 long ubertooth_follow_quiet_ms(void)
@@ -1778,6 +1799,30 @@ void cb_rx(ubertooth_t* ut, void* args)
 		}
 	}
 
+	/* The library has built a list of clock candidates, which is where the
+	 * CLK1-27 search begins, and no clock is being followed. Stamped once,
+	 * so the reading is the whole span the search has been running over and
+	 * not the time since the last packet.
+	 *
+	 * The candidate list rather than the first packet: a capture that has
+	 * heard a packet or two of the piconet and has not settled CLK1-6 is
+	 * waiting for traffic, not searching, and a reading taken from its
+	 * first packet would let a caller say the search is not going to finish
+	 * before any search had run. Measured on a link that went quiet: four
+	 * packets in 100 s, no candidate list, and the whole span would
+	 * otherwise have read as a search.
+	 *
+	 * The flag is transient: the library builds the list and compares the
+	 * hop that built it in one call, and a list emptied there is thrown
+	 * away again. So this sees a search whose candidate list outlived the
+	 * packet that built it, which is what every search on the bench has
+	 * done. */
+	if (!br_searching && !br_following && !br_clock_confirmed &&
+	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_HOP_REVERSAL_INIT)) {
+		br_searching = 1;
+		br_search_start_ms = monotonic_ms();
+	}
+
 	if (r < 0) {
 		/* The library has recovered the piconet's clock. A live capture
 		 * puts the board on the offset it reports, so it hops with the
@@ -1790,6 +1835,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 		br_following = 1;
 		br_clock_gone = 0;
 		br_heard_ms = monotonic_ms();
+		br_searching = 0;
+		br_clock_confirmed = 1;
 	} else if (r == BTBB_PROCESS_LOCK_LOST && br_following) {
 		/* The clock being followed was not this piconet's. The library
 		 * has given it up and started discovery again, so a board put

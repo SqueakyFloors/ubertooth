@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that tools/check-api-version.sh accepts and refuses the branches it is
 # meant to.
 #

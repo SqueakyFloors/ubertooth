@@ -6,9 +6,6 @@
  * hold the feed takes. They are plain variables here, so a test can set what
  * the part came up with and read back what the code wrote -- including the
  * feed register, which the test watches as a sequence rather than a value.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #include "../stubs/ubertooth.h"
 

@@ -6,9 +6,6 @@
  * once the controller has had a pass. The test supplies both, and counts the
  * feeds, so it can check that the bounded wait feeds while it waits rather than
  * leaving the watchdog to run out on a board that is answering the host.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_FW_TESTS_STUB_BTBR_USB_WATCHDOG_H
 #define UBERTOOTH_FW_TESTS_STUB_BTBR_USB_WATCHDOG_H

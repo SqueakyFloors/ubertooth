@@ -132,9 +132,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
    answer inquiries, so nearby devices discover this board
  - `page_scan` :
    accept a connection from a device that pages this board; a standard
-   Classic controller usually gets through in a few seconds, while another
-   Ubertooth paging this one is much less reliable
-   ([issue #807](https://github.com/SqueakyFloors/ubertooth/issues/807))
+   Classic controller usually gets through in a few seconds, and another
+   Ubertooth on the same bench needs its transmit level turned down first,
+   as does this one; see TWO BOARDS CLOSE TOGETHER
  - `discoverable` :
    `inquiry_scan` and `page_scan` together
  - `page <BD_ADDR>` :
@@ -171,6 +171,27 @@ refused with a `Not idle` line; `idle` or Ctrl-C stops the running one first.
 Ctrl-C at the prompt stops the running command, as `idle` does, and leaves the
 prompt up; pressing it again while that command is stopping returns to the
 prompt. Before the prompt is up, Ctrl-C ends the tool.
+
+## TWO BOARDS CLOSE TOGETHER
+
+Paging one Ubertooth from another needs both of them turned down first. At the
+transmit level the radio starts at, two boards a few centimeters apart drive
+each other's receiver far past the level it can demodulate. The page itself
+still gets through, because a page scan sits on one frequency for milliseconds
+at a time, but the short receive windows that follow it find nothing: the
+paged board comes up as a peripheral, the pager never hears the
+acknowledgment, and the connection ends a second later having carried no
+packet.
+
+Set both boards to the lowest level before paging one from the other:
+
+    ubertooth-util -U <serial> -a 0
+
+`btbr` keeps whatever level the register holds, so this lasts until the board
+is flashed again. The lowest level is about 20 dB down: plenty across a bench
+and not enough for a device across a room, so put it back to 7 before paging
+anything else. Moving the two boards apart, or putting an attenuator on one
+antenna, does the same job.
 
 ## MONITOR MODE
 
@@ -413,8 +434,9 @@ that message and nothing else (see LIMITATIONS).
 
 ## SEE ALSO
 
-ubertooth-rx(1): passive Classic Bluetooth discovery and following, on the
-`bluetooth_rxtx` firmware
+ubertooth-rx(1): passive Classic Bluetooth discovery, and following where the
+clock search reaches a clock; THE CLOCK SEARCH AND ADAPTED HOPPING says when
+it does not
 
 ubertooth-dfu(1): flashing the firmware images
 
