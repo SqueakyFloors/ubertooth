@@ -93,7 +93,7 @@ ubertooth(7), SELECTING A DEVICE: an index is a position in the list of
 attached Ubertooths (`-U 0` is the first), and a serial-number string selects
 that board whatever the enumeration order. A serial may be shortened to its
 first few characters, in either case, and an all-digits string is read as an
-index, so include a non-digit (`-U 05f` rather than `-U 05`). If those
+index, so include a non-digit (`-U 19b` rather than `-U 19`). If those
 characters start more than one attached board's serial, the tool lists the
 matching serials and selects neither; boards reporting the same serial are
 told apart by index instead.
@@ -107,8 +107,8 @@ With more than one board attached and no `-U`, the tool lists them and opens
 none:
 
     error: multiple Ubertooth devices found; select one with -U <index|serial>
-      Device 0: 1cc001038088cb956c43ad61c52000f5
-      Device 1: 346001058088cb95345bad61c52000f5
+      Device 0: aa1100112233445566778899aabbccdd
+      Device 1: ee5500112233445566778899aabbccdd
 
 It used to open whichever board libusb handed over first, which on such a
 host reached an arbitrary one: a board flashed with `btbr` could be ignored

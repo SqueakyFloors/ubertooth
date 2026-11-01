@@ -83,3 +83,48 @@ endif( ${BUILD_STATIC_LIB} )
 install(FILES ${c_headers}
 		DESTINATION include
 		COMPONENT headers)
+
+# libubertooth.pc, so that a program built against the installed library asks
+# pkg-config for its compiler and linker flags instead of being given them by
+# hand. The file itself says what each line is for; two of them are filled in
+# here.
+#
+# The include directory for <libusb-1.0/libusb.h>: LIBUSB_INCLUDE_DIRS holds
+# the directory libusb.h sits in and the one above it, and it is the one above
+# that this include resolves against. It is picked out by looking for the
+# header at the spelling the sources use, so a libusb laid out some other way
+# cannot put the wrong directory in the file. /usr/include, which is where the
+# distributions keep libusb, is left out: the compiler searches it anyway, and
+# naming it would only make every consumer's command line longer. A Homebrew
+# install keeps the header under the Cellar, where the version is part of the
+# path, so an install that is still here after a `brew upgrade libusb` names a
+# directory that has gone; configuring the build again writes the new one.
+set(LIBUBERTOOTH_PC_CFLAGS "")
+foreach(dir IN LISTS LIBUSB_INCLUDE_DIRS)
+	if(EXISTS "${dir}/libusb-1.0/libusb.h" AND
+	   NOT "${dir}" STREQUAL "/usr/include")
+		string(APPEND LIBUBERTOOTH_PC_CFLAGS " -I${dir}")
+	endif()
+endforeach()
+
+# Libs.private, which is what a program linking the static library is given on
+# top of Libs: the same two libraries the targets above link beyond libusb and
+# libbtbb. CMAKE_THREAD_LIBS_INIT is already a linker flag (empty where libc
+# carries the pthread calls), CMAKE_DL_LIBS is a library name (empty on macOS,
+# where libc carries dladdr()).
+set(LIBUBERTOOTH_PC_LIBS_PRIVATE "")
+if(CMAKE_THREAD_LIBS_INIT)
+	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " ${CMAKE_THREAD_LIBS_INIT}")
+endif()
+foreach(lib IN LISTS CMAKE_DL_LIBS)
+	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " -l${lib}")
+endforeach()
+
+configure_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/libubertooth.pc.in
+	${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
+	@ONLY)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
+		DESTINATION lib${LIB_SUFFIX}/pkgconfig
+		COMPONENT pkgconfig)

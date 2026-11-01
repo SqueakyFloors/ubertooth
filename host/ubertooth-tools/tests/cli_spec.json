@@ -449,7 +449,7 @@
          "error_contains": "cannot be combined with", "names_the_other": true,
          "source": "ubertooth-ego.md ARGUMENTS: only the two modes that read a packet read a capture length, so -l with -i or -j is refused rather than setting a firmware value the mode never looks at"},
         {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
-         "error_contains": "choose one of -f, -r or -i",
+         "error_contains": "choose one of -f, -r, -i, or -j",
          "source": "ubertooth-ego.md ARGUMENTS: each major mode runs until it is interrupted, so only one can run; two of them used to mean whichever came last. -i and -j are two spellings of the jamming mode, so they clash too. ubertooth-btle and ubertooth-util refuse two modes the same way."}
       ]
     },
@@ -513,6 +513,12 @@
         {"a": "-u", "b": "any", "verdict": "refused",
          "error": "error: -u <UAP> requires -l <LAP>",
          "source": "ubertooth-rx.md ARGUMENTS"},
+        {"a": "-c", "b": "-i", "verdict": "refused",
+         "error": "error: -c cannot be combined with -i; a replay reads a saved capture rather than tuning a board",
+         "source": "ubertooth-rx.md REPLAYING A SAVED CAPTURE: a replay has no board to tune, so -c asks for something it cannot do"},
+        {"a": "-t", "b": "-i", "verdict": "refused",
+         "error": "error: -t cannot be combined with -i; a replay reads a saved capture rather than waiting for a board",
+         "source": "ubertooth-rx.md REPLAYING A SAVED CAPTURE: a replay has nothing to wait for, so -t asks for something it cannot do"},
         {"a": "-i", "b": "any", "verdict": "refused",
          "error_contains": "No such file or directory",
          "source": "the replay file is read before any device is opened, so an unreadable one ends the command there"}

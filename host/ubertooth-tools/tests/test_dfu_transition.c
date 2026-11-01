@@ -135,7 +135,7 @@ MU_TEST(test_explicit_selector_never_adopts_unidentified_dfu)
 	mu_assert(!dfu_selector_allows_unidentified_dfu("0"),
 	          "index selector must not adopt unidentified DFU");
 	mu_assert(!dfu_selector_allows_unidentified_dfu(
-	          "1ff0ff1967102caf8334fa5ac52000f5"),
+	          "cc3300112233445566778899aabbccdd"),
 	          "serial selector must not adopt unidentified DFU");
 }
 

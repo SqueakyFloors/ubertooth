@@ -35,10 +35,13 @@ extern unsigned int packet_counter_max;
 #define AC_SYMBOLS 64
 
 /* How many start positions a search for an access code may try, which is what
- * libbtbb's btbb_find_ac() takes as its search length: it tries positions 0 to
- * search_length - 1. The last position whose whole access code lies inside the
- * bank begins AC_SYMBOLS symbols before the bank's end, so counting from zero
- * to that position inclusive is one more than the difference between them. */
+ * libbtbb's btbb_find_ac_n() takes as its search length: it tries positions 0
+ * to search_length - 1. The last position whose whole access code lies inside
+ * the bank begins AC_SYMBOLS symbols before the bank's end, so counting from
+ * zero to that position inclusive is one more than the difference between them.
+ *
+ * The _n form also takes how many symbols the buffer holds, so the library
+ * checks this bound instead of taking the caller's word for it. */
 #define AC_SEARCH_POSITIONS (BANK_LEN - AC_SYMBOLS + 1)
 
 /* How long a bank of symbols is in the 100 ns ticks the firmware stamps it
@@ -705,9 +708,9 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 		ut->queue_gaps++;
 		if (!ut->queue_gap_warned) {
 			ut->queue_gap_warned = 1;
-			fprintf(stderr, "warning: the board's packet queue filled "
-			        "up and it dropped at least one packet; this "
-			        "capture has a gap\n");
+			fprintf(stderr, "warning: the recording board's packet "
+			        "queue filled up and it dropped at least one "
+			        "packet; this capture has a gap\n");
 		}
 	}
 
@@ -720,10 +723,11 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 		ut->transfer_errors++;
 		if (!ut->transfer_error_warned) {
 			ut->transfer_error_warned = 1;
-			fprintf(stderr, "warning: the board had a transfer error "
-			        "while capturing; what it was receiving was kept, "
-			        "but some of those bytes may be wrong and the "
-			        "capture may be missing packets around it\n");
+			fprintf(stderr, "warning: the recording board had a "
+			        "transfer error while capturing; what it was "
+			        "receiving was kept, but some of those bytes may "
+			        "be wrong and the capture may be missing packets "
+			        "around it\n");
 		}
 	}
 
@@ -740,10 +744,10 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 		ut->symbol_overwrites++;
 		if (!ut->symbol_overwrite_warned) {
 			ut->symbol_overwrite_warned = 1;
-			fprintf(stderr, "warning: the board fell behind while "
-			        "capturing and wrote new symbols over a block it "
-			        "had not read yet; whatever was in the air then is "
-			        "missing from this capture\n");
+			fprintf(stderr, "warning: the recording board fell behind "
+			        "while capturing and wrote new symbols over a "
+			        "block it had not read yet; whatever was in the "
+			        "air then is missing from this capture\n");
 		}
 	}
 }
@@ -813,7 +817,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, LAP_ANY, max_ac_errors, &pkt);
+	offset = btbb_find_ac_n(syms, sizeof(syms), AC_SEARCH_POSITIONS, LAP_ANY, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
 
@@ -896,7 +900,7 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	if( btbb_find_ac(syms, AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac_n(syms, sizeof(syms), AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 	/* detect AFH map
@@ -941,7 +945,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	if( btbb_find_ac(syms, AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac_n(syms, sizeof(syms), AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 	counter++;
@@ -994,7 +998,7 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	if( btbb_find_ac(syms, AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
+	if( btbb_find_ac_n(syms, sizeof(syms), AC_SEARCH_POSITIONS, btbb_piconet_get_lap(pn), max_ac_errors, &pkt) < 0 )
 		goto out;
 
 
@@ -1434,7 +1438,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
-	offset = btbb_find_ac(syms, AC_SEARCH_POSITIONS, lap, max_ac_errors, &pkt);
+	offset = btbb_find_ac_n(syms, sizeof(syms), AC_SEARCH_POSITIONS, lap, max_ac_errors, &pkt);
 	if (offset < 0)
 		goto out;
 
@@ -1480,8 +1484,16 @@ void cb_rx(ubertooth_t* ut, void* args)
 		if (trim_counter < -CLOCK_TRIM_THRESHOLD
 		    || trim_counter > CLOCK_TRIM_THRESHOLD
 		    || (correction != 0 && !calibrated)) {
+			/* Which way the clock is about to move, read from the
+			 * correction and not from the raw offset. The offset
+			 * runs through one slot and starts over, so an offset
+			 * well above CLK_TUNE_TIME is corrected the short way
+			 * round, by an advance: taking "<" or ">" from the raw
+			 * offset made this line disagree with the trim printed
+			 * under it. */
 			fprintf(stderr, "note: offset %s CLK_TUNE_TIME\n",
-			        clk_offset < CLK_TUNE_TIME ? "<" : ">");
+			        correction == 0 ? "=" :
+			        correction < 0 ? "<" : ">");
 			fprintf(stderr, "note: CLK100ns trim: %d\n", correction);
 			cmd_trim_clock(ut->devh, clock_trim_field(correction));
 			trim_counter = 0;

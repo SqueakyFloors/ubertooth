@@ -48,10 +48,16 @@ CASES = (
      "error: channel 15 is not a valid wifi channel\n"),
     (("--wifi", "0"), lambda: limits.convert_wifi(0),
      "error: channel 0 is not a valid wifi channel\n"),
-    (("-l", "2000"), lambda: limits.check_freq_pair(2000, limits.MAX_FREQ),
-     "error: frequency of 2000 MHz is below minimum frequency of 2402\n"),
-    (("-u", "3000"), lambda: limits.check_freq_pair(limits.MIN_FREQ, 3000),
-     "error: frequency of 3000 MHz is above maximum frequency of 2480\n"),
+    # -l and -u are read and range-checked together, so a value that is not a
+    # number and one outside the band get the same line, which is the one
+    # ubertooth-specan gives. The argument parser used to read the value and
+    # report one it could not convert in its own words.
+    (("-l", "2000"), lambda: limits.require_freq("2000", "lower"),
+     "error: lower frequency must be 2402-2480 MHz (got 2000)\n"),
+    (("-u", "3000"), lambda: limits.require_freq("3000", "upper"),
+     "error: upper frequency must be 2402-2480 MHz (got 3000)\n"),
+    (("-l", "abc"), lambda: limits.require_freq("abc", "lower"),
+     "error: lower frequency must be 2402-2480 MHz (got abc)\n"),
     (("-l", "2470", "-u", "2410"), lambda: limits.check_freq_pair(2470, 2410),
      "error: lower frequency of 2470 MHz is above upper frequency of 2410 MHz\n"),
     # Channel 14 is centred above the range the board tunes, so a padding
@@ -232,13 +238,14 @@ print("ubertooth-specan-ui: %d command lines the parser will not take"
 
 # Two more the parser refuses in its own words, which the tool passes on with
 # the prefix, the stream and the status every refusal here has. The sentence
-# is the parser's and is not pinned: a bad value is said as
-# "argument -l: invalid int value: 'abc'", and an extra letter after a flag
-# that takes no value ("-hZ") as an unknown option on Python 3.12 but as an
-# ignored explicit argument on 3.8. What every version owes the user is the
+# is the parser's and is not pinned: a bad --padding is said as
+# "argument --padding: invalid int value: 'x'", and an extra letter after a
+# flag that takes no value ("-hZ") as an unknown option on Python 3.12 but as
+# an ignored explicit argument on 3.8. What every version owes the user is the
 # same, and is what these pin: the command line is refused, on standard
-# error, with nothing on standard output and no usage text.
-for arguments in (("-l", "abc"), ("--padding", "x"), ("-hZ",)):
+# error, with nothing on standard output and no usage text. -l and -u are not
+# here: this tool reads those values itself, and CASES above pins their line.
+for arguments in (("--padding", "x"), ("-hZ",)):
     result = run(arguments)
     assert result.returncode == 1, (arguments, result)
     assert result.stdout == "", (arguments, result)
@@ -315,9 +322,9 @@ assert result.stderr == "", result
 assert version_arguments() == ["-V"], version_arguments()
 
 # -U names the board, and is passed on as ubertooth-util's own -U
-result = version_run(["-V", "-U", "05f"])
+result = version_run(["-V", "-U", "19b"])
 assert result.returncode == 0, result
-assert version_arguments() == ["-V", "-U", "05f"], version_arguments()
+assert version_arguments() == ["-V", "-U", "19b"], version_arguments()
 
 # a board that is attached and could not be read exits 1 there, and so here:
 # its line says why, and the answer is still printed
@@ -339,7 +346,7 @@ result = version_run(["-V", "-l", "2000"])
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == \
-    "error: frequency of 2000 MHz is below minimum frequency of 2402\n", result
+    "error: lower frequency must be 2402-2480 MHz (got 2000)\n", result
 
 # ubertooth-util not on the PATH: one error line, not a traceback
 result = version_run(["-V"], path=EMPTY_DIRECTORY)
@@ -648,7 +655,7 @@ result = run(["-l", "2000"], no_gui)
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == \
-    "error: frequency of 2000 MHz is below minimum frequency of 2402\n", result
+    "error: lower frequency must be 2402-2480 MHz (got 2000)\n", result
 
 # and a run that does open the window still needs them, which is what says
 # the modules were really out of reach above

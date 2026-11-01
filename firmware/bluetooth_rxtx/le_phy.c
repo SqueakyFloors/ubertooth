@@ -1138,10 +1138,7 @@ static void le_cc2400_init_rf(void) {
 	// TIMER1_IRQHandler() on every connection-event hop, and this mode polls
 	// USB from its own loop. A poll that never satisfies hangs the interrupt
 	// handler, which stops the loop with it -- board still enumerated, every
-	// control request timing out, nothing but a power cycle to recover. The
-	// status read is a bit-banged SPI transfer on a bus interrupt handlers
-	// also drive, so a corrupt status byte is a real possibility rather than
-	// a hypothetical one.
+	// control request timing out, nothing but a power cycle to recover.
 	cc2400_wait_xosc_stable(NULL);
 
 	// wait for FS_LOCK in background

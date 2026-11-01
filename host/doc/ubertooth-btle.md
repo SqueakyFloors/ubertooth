@@ -537,40 +537,38 @@ dropped and reported once per run: `warning: a poll reply arrived with 32 of a
 packet's 64 bytes and was dropped; the capture is losing packets`. The capture
 runs on and ends as it otherwise would, so the warning is the only sign.
 
-Packets the board had to throw away are reported too. It holds captured
-packets in a queue until this tool reads them, and a queue with no room left
-loses the next packet; a packet longer than 50 bytes takes several of the
-queue's slots and is lost whole, so a busy capture can lose the long packets
-while the short ones still arrive. The first time it happens the capture warns
-`warning: the board's packet queue filled up and it dropped at least one
-packet; this capture has a gap`, and when the capture ends it says how many
-such gaps there were: `warning: the capture has 3 gaps where the board's queue
-filled up and it dropped packets`. The count is of gaps, not of lost packets:
-one full queue can swallow several packets, and the board sends no number.
-Nothing says which packets are missing, so a capture with gaps is complete
-only between them. The board reports a gap on the first packet that gets
-through after it, so a capture that ends in the moment after a gap does not
-report that last one.
+Packets the board had to throw away are reported too. It holds captured packets
+in a queue until this tool reads them, and a queue with no room left loses the
+next packet; a packet longer than 50 bytes takes several of the queue's slots
+and is lost whole, so a busy capture can lose the long packets while the short
+ones still arrive. The first time it happens the capture warns `warning: the
+recording board's packet queue filled up and it dropped at least one packet;
+this capture has a gap`, and when the capture ends it says how many such gaps
+there were: `warning: the capture has 3 gaps where the board's queue filled up
+and it dropped packets`. The count is of gaps, not of lost packets: one full
+queue can swallow several packets, and the board sends no number. Nothing says
+which packets are missing, so a capture with gaps is complete only between
+them. The board reports a gap on the first packet that gets through after it,
+so a capture that ends in the moment after a gap does not report that last one.
 
 A capture transfer error is reported the same way. The chip's transfer
-controller can report an error on the channel a capture receives into: what
-the board was receiving at the time had arrived, so it is kept and marked,
-while some of its bytes may be wrong and whatever the fault cut short before
-it is lost. The first mark warns `warning: the board had a transfer error
-while capturing; what it was receiving was kept, but some of those bytes may
-be wrong and the capture may be missing packets around it`, and when the
-capture ends it says how many there were: `warning: the capture has 3 transfer
-errors where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports
-the board's own count of them since power-on, over every capture the board has
-run.
+controller can report an error on the channel a capture receives into: what the
+board was receiving at the time had arrived, so it is kept and marked, while
+some of its bytes may be wrong and whatever the fault cut short before it is
+lost. The first mark warns `warning: the recording board had a transfer error
+while capturing; what it was receiving was kept, but some of those bytes may be
+wrong and the capture may be missing packets around it`, and when the capture
+ends it says how many there were: `warning: the capture has 3 transfer errors
+where a packet may be wrong or missing`. ubertooth-util(1) `-w` reports the
+board's own count of them since power-on, over every capture the board has run.
 
 Symbols the board wrote over are reported the same way. The board receives
 into one block of symbols while its capture loop reads the one before it, and
 when a block finishes arriving before the loop has read that one, the new
 symbols go over the old ones. The block is gone before anything looked in it
 for a packet, so this loss has no packet to point at and nothing in the output
-marks where it happened. The first one warns `warning: the board fell behind
-while capturing and wrote new symbols over a block it had not read yet;
+marks where it happened. The first one warns `warning: the recording board fell
+behind while capturing and wrote new symbols over a block it had not read yet;
 whatever was in the air then is missing from this capture`, and when the
 capture ends it says how many such places there were: `warning: the capture has
 3 places where the board wrote new symbols over a block it had not read`. The

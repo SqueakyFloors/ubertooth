@@ -257,7 +257,7 @@ uint8_t hop_channel(uint32_t clk)
 	{
 	case BT_MODE_INQUIRY:
 	case BT_MODE_PAGING_RESPONSE:
-	case BT_MODE_PERIPH_PAGE_RESPONSE:
+	case BT_MODE_PERIPHERAL_PAGE_RESPONSE:
 		return hop_inquiry(clk);
 	case BT_MODE_INQUIRY_SCAN:
 	case BT_MODE_PAGE_SCAN:

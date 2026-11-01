@@ -223,7 +223,7 @@ uint8_t btphy_whiten_seed(uint32_t clk)
 	case BT_MODE_INQUIRY:
 	case BT_MODE_PAGING:
 	case BT_MODE_PAGING_RESPONSE:
-	case BT_MODE_PERIPH_PAGE_RESPONSE:
+	case BT_MODE_PERIPHERAL_PAGE_RESPONSE:
 	case BT_MODE_INQUIRY_RESPONSE:
 	/* The two scan substates below send and receive nothing that is
 	 * whitened with a seed: a scan listens for an access code, which

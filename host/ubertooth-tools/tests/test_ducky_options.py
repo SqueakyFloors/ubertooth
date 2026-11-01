@@ -42,8 +42,8 @@ def require_parsed(arguments):
 
 require_parsed(("-U0",))
 require_parsed(("-U", "0"))
-require_parsed(("-U1ff0ff1967102caf8334fa5ac52000f5",))
-require_parsed(("-U", "1ff0ff1967102caf8334fa5ac52000f5"))
+require_parsed(("-Ucc3300112233445566778899aabbccdd",))
+require_parsed(("-U", "cc3300112233445566778899aabbccdd"))
 
 missing = run("-U")
 assert missing.returncode == 1, missing

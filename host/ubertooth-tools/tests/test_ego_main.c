@@ -585,14 +585,14 @@ MU_TEST(a_channel_the_mode_cannot_use_is_refused)
 	r = RUN("-f", "-c", "2408", "-r");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: -r cannot be combined with -f; choose "
-	                        "one of -f, -r or -i\n") == 0, r.err);
+	                        "one of -f, -r, -i, or -j\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.inits);
 
 	reset_fake();
 	r = RUN("-r", "-c", "2408", "-f");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: -f cannot be combined with -r; choose "
-	                        "one of -f, -r or -i\n") == 0, r.err);
+	                        "one of -f, -r, -i, or -j\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.inits);
 
 	/* The same mode written twice says the same thing twice, so it runs:
@@ -610,7 +610,7 @@ MU_TEST(a_channel_the_mode_cannot_use_is_refused)
 	r = RUN("-i", "-j");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.err, "error: -j cannot be combined with -i; choose "
-	                        "one of -f, -r or -i\n") == 0, r.err);
+	                        "one of -f, -r, -i, or -j\n") == 0, r.err);
 
 	/* With no mode at all there is nothing to refuse the channel for, and
 	 * the refusal has no option to name: the earlier "nothing to do" check

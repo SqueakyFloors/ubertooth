@@ -92,8 +92,8 @@ static void set_serial(int n, const char *hex)
 
 /* Two boards whose serials differ in their leading digits and share their
  * trailing ones, as real ones do. */
-#define SERIAL_A "1cc001038088cb956c43ad61c52000f5"
-#define SERIAL_B "05f00014e380df95f4436562c32000f5"
+#define SERIAL_A "aa1100112233445566778899aabbccdd"
+#define SERIAL_B "19bb00112233445566778899aabbccdd"
 
 static void bus_with_two_serials(void)
 {
@@ -357,7 +357,7 @@ MU_TEST(the_quiet_selection_prints_nothing)
 	bus_with_ubertooths(2);
 	set_serial(0, SERIAL_A);
 	set_serial(1, SERIAL_A);
-	mu_assert(select_capturing("1cc", 1, text, sizeof(text)) == NULL, text);
+	mu_assert(select_capturing("aa1", 1, text, sizeof(text)) == NULL, text);
 	mu_assert(text[0] == '\0', text);
 
 	/* a bus that cannot be listed */
@@ -480,7 +480,7 @@ MU_TEST(serial_matching_uses_the_short_timeout)
 	ubertooth_t *ut;
 
 	bus_with_two_serials();
-	ut = select_capturing("05f", 1, text, sizeof(text));
+	ut = select_capturing("19b", 1, text, sizeof(text));
 	mu_assert_fatal(ut != NULL, "a prefix of the second board's serial");
 	mu_assert(fake.opened == &fake.devs[2], "and it opens that board");
 	mu_assert_int_eq(2, sent(UBERTOOTH_GET_SERIAL)); /* both boards read */
@@ -492,7 +492,7 @@ MU_TEST(serial_matching_uses_the_short_timeout)
 	/* The loud path keeps the longer timeout, so this is the quiet path's own
 	 * choice and not the only one in the library. */
 	bus_with_two_serials();
-	ut = select_capturing("05f", 0, text, sizeof(text));
+	ut = select_capturing("19b", 0, text, sizeof(text));
 	mu_assert_fatal(ut != NULL, text);
 	mu_assert_int_eq(LOUD_SERIAL_TIMEOUT_MS,
 	                 (int)timeout_of(UBERTOOTH_GET_SERIAL));

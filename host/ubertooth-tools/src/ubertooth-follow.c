@@ -24,8 +24,6 @@
 #include <bluetooth/hci_lib.h>
 #include <sys/ioctl.h>
 
-#include <sys/stat.h>
-
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -99,31 +97,6 @@ struct follow_files {
 	const char* dump;
 };
 
-/* One capture file, gone again, with a word if it will not go: a file left
- * behind in silence is what this avoids. A name that is already gone is not
- * worth a word.
- *
- * Only a regular file. A run given -q /dev/null, the name of a pipe, or a
- * symbolic link wrote through something the user already had, and that is not
- * this tool's to remove; a capture written through a link stays, which
- * ubertooth-follow(1) says. */
-static void follow_remove_file(const char* name)
-{
-	struct stat info;
-	int failed;
-
-	if (lstat(name, &info) == 0) {
-		if (!S_ISREG(info.st_mode))
-			return;
-		failed = unlink(name) < 0;
-	} else {
-		failed = errno != ENOENT;
-	}
-	if (failed)
-		fprintf(stderr, "warning: cannot remove %s: %s\n", name,
-		        strerror(errno));
-}
-
 /* Removes the capture files this run created, so that a follow the board or
  * the adapter refused leaves no file behind.
  *
@@ -140,14 +113,12 @@ static void follow_remove_file(const char* name)
 static void follow_discard_files(ubertooth_t* ut,
                                  const struct follow_files* files)
 {
-	if (files->pcapng != NULL && ut->h_pcapng_bredr != NULL)
-		follow_remove_file(files->pcapng);
-	if (files->pcap != NULL && ut->h_pcap_bredr != NULL &&
-	    !opt_writes_to_stdout(files->pcap))
-		follow_remove_file(files->pcap);
-	if (files->dump != NULL && dumpfile != NULL &&
-	    !opt_writes_to_stdout(files->dump))
-		follow_remove_file(files->dump);
+	if (ut->h_pcapng_bredr != NULL)
+		opt_discard_capture_file(files->pcapng);
+	if (ut->h_pcap_bredr != NULL)
+		opt_discard_capture_file(files->pcap);
+	if (dumpfile != NULL)
+		opt_discard_capture_file(files->dump);
 }
 
 /* Gives the local adapter back. First it drops the link this command made to

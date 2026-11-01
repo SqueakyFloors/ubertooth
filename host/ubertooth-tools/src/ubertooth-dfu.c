@@ -1610,6 +1610,7 @@ static void usage(FILE *file)
 	fputs("\tubertooth-dfu -d bluetooth_rxtx.dfu -r\n", file);
 	fputs("\n", file);
 	fputs("Usage:\n", file);
+	fputs("\t-h this help\n", file);
 	fputs("\t-u <filename> upload - read the application flash region to a\n", file);
 	fputs("\t              raw file (from 0x4000 to the end of the part's\n", file);
 	fputs("\t              flash, no DFU suffix: it is not a file -d can\n", file);
