@@ -2608,7 +2608,7 @@ for typed, format_code, repeat, payload, printed in (
         # a length the link agreed, so the bytes are the whole payload
         ("tx ev3 17", 11, 1, counted(17), "ev3 len=17"),
         # the same packet in four transmit slots in a row
-        ("tx ev3 17 4", 11, 4, counted(17), "ev3 len=17 slots=4"),
+        ("tx ev3 17 4", 11, 4, counted(17), "ev3 len=17 count=4"),
         # and a payload the user chose
         ("tx ev3 3 1 aabbcc", 11, 1, b"\xaa\xbb\xcc", "data=aabbcc"),
         # 10 voice bytes, then a DM1-sized data field
@@ -2632,10 +2632,10 @@ print("ubtbr: tx puts one packet of a chosen format on the air")
 # both, so a reworded line has to be a reworded page.
 for typed, expected in (
         ("tx ev3 3 20",
-            r"\d\d:\d\d:\d\d TX pkt: ev3 len=3 slots=20 data=000102"
+            r"\d\d:\d\d:\d\d TX pkt: ev3 len=3 count=20 data=000102"
             r" payload=000102"),
         ("tx dv 3 20",
-            r"\d\d:\d\d:\d\d TX pkt: dv len=3 slots=20 data=000102"
+            r"\d\d:\d\d:\d\d TX pkt: dv len=3 count=20 data=000102"
             r" payload=000102030405060708091e000102"),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [
@@ -2669,7 +2669,8 @@ for typed, refusal in (
         # in a struct.error from the pack below it
         ("tx ev3 3 70000", "count must be 1 to 400 for ev3 (got 70000)"),
         ("tx ev3 3 1 aabb", "payload of 2 bytes where the length says 3"),
-        ("tx ev3 3 1 zz", "payload must be an even number of hex digits"),
+        ("tx ev3 3 1 zz", "payload must be hex digits, an even number of them"),
+        ("tx ev3 3 1 aab", "payload must be hex digits, an even number of them"),
         ("tx ev3 3 1 aabbcc extra", "tx takes a format, a length, a count"),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [

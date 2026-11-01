@@ -253,9 +253,9 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 	 * whatever used the buffer last. */
 	if ((unsigned)msg_write_len(msg) < sizeof(btctl_hdr_t) + sizeof(*req))
 	{
-		cprintf("Tx packet request is %d bytes, %d needed\n",
-			msg_write_len(msg),
-			sizeof(btctl_hdr_t) + sizeof(*req));
+		cprintf("Tx packet request is %u bytes, %u needed\n",
+			(unsigned)msg_write_len(msg),
+			(unsigned)(sizeof(btctl_hdr_t) + sizeof(*req)));
 		return 0;
 	}
 	t = bbcodec_tx_format(req->format, &air_type);
@@ -328,6 +328,17 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 				claimed, data_size);
 			return 0;
 		}
+	}
+	/* One run waiting is enough. The cap above bounds the slots one run
+	 * occupies, and the board's own data and link-manager traffic waits
+	 * for all of it; letting requests pile up in the queue would add
+	 * another run's worth of waiting for each one, and the queue holds
+	 * seven. Refused rather than queued, so the host is told.
+	 */
+	if (!msg_queue_empty(&btctl.pkt_tx_q))
+	{
+		cprintf("Tx packet already waiting, send this one after it\n");
+		return 0;
 	}
 	if (btctl_pkt_tx_enqueue(msg) != 0)
 	{

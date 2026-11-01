@@ -1439,10 +1439,14 @@ typedef enum btctl_tx_format_e {
 
 /* The most air slots one run of a packet may occupy: the repeat count times
  * the slots the format itself fills, so a five-slot DH5 may be repeated 80
- * times and a one-slot DM1 400. The board sends nothing but this packet while
- * the run lasts, and the link ends if the peer goes unheard for the
- * supervision timeout, which this firmware sets to a second. At a central
- * slot every 1.25 ms, 400 slots is half of that second.
+ * times and a one-slot DM1 400.
+ *
+ * What the bound is for: nothing else leaves the board while the run lasts,
+ * so its own ACL and LMP traffic waits, and a peer's link-manager procedures
+ * have their own timeouts. The peer keeps the slot after each packet and goes
+ * on being heard, so the link itself does not end. At 625 us an air slot, 400
+ * of them is a quarter of a second, and the longest run any format can ask
+ * for -- 80 DH5s, each five slots with the peer's slot after it -- is 300 ms.
  */
 #define BTCTL_TX_PKT_MAX_SLOTS 400
 

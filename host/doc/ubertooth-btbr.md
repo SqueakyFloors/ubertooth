@@ -256,15 +256,17 @@ CRC it may have, which the board adds:
    agreed when the link is set up rather than written in the packet
 
 `<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
-many of the board's transmit slots to spend on the packet, which is the way to
-make one easy for a receiver to catch; the packet is not retransmitted on the
-peer's say-so, so a peer that ignores it costs nothing.
-What is bounded is the air slots the whole run occupies, 400 of them: that is
-400 of a one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or
-`ev4`, and 80 of a five-slot `dh5`. Nothing else goes out while the run lasts,
-and the board ends a connection whose peer has gone unheard for a second; 400
-slots is half of that second. To put one format on the air for longer, send
-`tx` again.
+many times to transmit the packet, one transmit slot after another, which is
+the way to make one easy for a receiver to catch; the packet is not
+retransmitted on the peer's say-so, so a peer that ignores it costs nothing.
+What is bounded is the air slots the run occupies, 400 of them, so the count
+allowed depends on how many slots one packet of the format fills: 400 of a
+one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or `ev4`,
+and 80 of a five-slot `dh5`. The board's own data and link-manager traffic
+waits for the whole run, which is why the bound is there; at 625 us a slot the
+longest run is about 300 ms. To put one format on the air for longer, send
+`tx` again: one run may wait behind the one on the air, and a third is refused
+until the first has finished, so the waiting never piles up.
 
 `<hex>` is the data bytes, as an even number of hex digits of exactly
 `<length>` bytes. Without it the data is a counted pattern, `00 01 02 ... ff`
@@ -274,8 +276,8 @@ compared with: `data=` is the data bytes, and `payload=` the whole payload,
 which adds the voice field where the format has one and the payload header
 where it has one. The board adds the CRC, which is in neither:
 
-    19:18:58 TX pkt: ev3 len=3 slots=20 data=000102 payload=000102
-    19:18:58 TX pkt: dv len=3 slots=20 data=000102 payload=000102030405060708091e000102
+    19:18:58 TX pkt: ev3 len=3 count=20 data=000102 payload=000102
+    19:18:58 TX pkt: dv len=3 count=20 data=000102 payload=000102030405060708091e000102
 
 The board does not report back on a packet it has sent, so the line says what
 was asked for and not that it reached the air. To see the packet itself, have

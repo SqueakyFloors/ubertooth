@@ -357,7 +357,11 @@ void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr, 
 		MIN(byte_num, body_total - codec->coded_pos) : 0;
 
 	memcpy(tmp, data + codec->coded_pos, body_num);
-	if (!codec->rx_raw && t->has_crc)
+	/* Only the receive side is ever raw, so the checksum is written for
+	 * every format that has one. Were this skipped, the bytes the CRC
+	 * would have filled would go on the air uninitialized: the payload
+	 * ends at body_total and nothing else has written past it. */
+	if (t->has_crc)
 	{
 		if (body_num != 0)
 			codec->crc_state = crc_compute(tmp, body_num,

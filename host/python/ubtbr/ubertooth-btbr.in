@@ -754,8 +754,8 @@ class BTCtlPrompt(Cmd):
 				data = unhexlify(words[3])
 				# binascii.Error is a ValueError
 			except ValueError:
-				error("payload must be an even number of hex digits "
-					"(got %s)"%words[3])
+				error("payload must be hex digits, an even number "
+					"of them (got %s)"%words[3])
 				return None
 			if len(data) != length:
 				error("payload of %s where the length says %d"
@@ -786,7 +786,7 @@ class BTCtlPrompt(Cmd):
 		# The whole payload, voice field and payload header included, since
 		# those are on the air too and a decoder has to recover them; the
 		# device adds the CRC, which is not here.
-		result("TX pkt: %s len=%d slots=%d data=%s payload=%s"%(
+		result("TX pkt: %s len=%d count=%d data=%s payload=%s"%(
 			name, len(data), slots, hexlify(data).decode(),
 			hexlify(self._bt.tx_payload(fmt, data, voice)).decode()))
 
