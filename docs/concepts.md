@@ -169,7 +169,7 @@ connection that moves to 2M or Coded drops out of the capture.
 | [`ubertooth-rx -z`](../host/doc/ubertooth-rx.md) | Survey: sweep the band, or sit on one channel with `-c`, and report every LAP heard, with UAPs where it can calculate them |
 | [`ubertooth-rx -l -u`](../host/doc/ubertooth-rx.md) | UAP and CLK1-6 from the HEC and CRC, CLK1-27 by hop reversal, then follow the piconet and decode it |
 | [`ubertooth-afh`](../host/doc/ubertooth-afh.md) | Recover the AFH channel map of a piconet whose LAP and UAP are known |
-| [`ubertooth-follow`](../host/doc/ubertooth-follow.md) | Skip the recovery: read the target's clock and AFH map through a local BlueZ adapter, then follow |
+| [`ubertooth-follow`](../host/doc/ubertooth-follow.md) | Skip the recovery: read the target's clock and AFH map through a local BlueZ adapter, then follow (Linux only) |
 | [`ubertooth-btle`](../host/doc/ubertooth-btle.md) | LE: advertising only (`-n`), follow from a `CONNECT_IND` (`-f`), or infer a running connection (`-p`) |
 | [`ubertooth-btbr`](../host/doc/ubertooth-btbr.md) | Take part in Classic exchanges — inquiry, paging — and capture a connection as it is set up, including the FHS packet |
 

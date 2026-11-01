@@ -323,8 +323,9 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	return failed;
 }
 
-/* For a given BD_ADDR, print address, name and class. Returns what
- * extra_info() returned, or 0 without -x. whole_address is as it is there. */
+/* For a given BD_ADDR, print the address and the device's name, then the
+ * report of -x if it was asked for. Returns what extra_info() returned, or 0
+ * without -x. whole_address is as it is there. */
 int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
 						  char* printable_addr, uint8_t extended,
 						  int whole_address)

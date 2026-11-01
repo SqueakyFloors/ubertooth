@@ -617,6 +617,12 @@
   it is installed, so an install staged or relocated somewhere else describes
   the directories it really landed in.
   [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
+- Configuring on macOS no longer tells you to install a Linux package to get
+  `ubertooth-scan` and `ubertooth-follow`. It says BlueZ is Linux only and
+  points at `ubertooth-rx` and `ubertooth-afh`, which cover much of the same
+  ground by listening and need no adapter. The docs now state that these two
+  tools stay Linux only, and why.
+  [#47](https://github.com/SqueakyFloors/ubertooth/issues/47)
 - A reconfigure after libbtbb, libubertooth or libbluetooth moves finds it
   where it is now, the check libusb already had. A moved libbtbb was the worst
   of the three: the configure failed with instructions to rebuild a libbtbb

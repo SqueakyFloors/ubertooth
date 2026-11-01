@@ -17,6 +17,12 @@ value while the board was idle, and the firmware resets it on every mode
 change, so it never carries over from an earlier capture. See
 ubertooth-util(1), SQUELCH.
 
+Requires BlueZ (Linux only). An inquiry and the remote names could be done
+with macOS's public Bluetooth APIs, but the extra device detail of `-x` could
+not, so this tool is not built on macOS and no macOS version is planned;
+`ubertooth-rx -z` finds the piconets there without an adapter. See
+COMPATIBILITY.md for the comparison.
+
 
 ## EXAMPLES
 

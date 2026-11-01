@@ -36,14 +36,24 @@ the full reference for its options.
 - ``ubertooth-afh`` — Passively recover a piconet's AFH channel map. (Needs: an
   active piconet.)
 - ``ubertooth-follow`` — Active clock discovery and follow a piconet for a given
-  target address. (Needs: BlueZ and a target.)
+  target address. **Linux only**: it drives an ordinary Bluetooth adapter
+  through BlueZ. (Needs: BlueZ and a target.)
 - ``ubertooth-scan`` — Active inquiry scan using a BlueZ dongle plus Ubertooth.
-  (Needs: a BlueZ Bluetooth dongle.)
+  **Linux only**, for the same reason. (Needs: a BlueZ Bluetooth dongle.)
+
 - ``ubertooth-btbr`` — Take part in Classic BT: inquiry, paging, and *monitor*
   mode, which captures a connection as it is set up. **Experimental**, and the
   only tool that needs the separate ``btbr`` firmware image rather than
   ``bluetooth_rxtx`` (see :ref:`the-two-firmware-images` and
   :doc:`sniffing_BR_EDR`). (Needs: the ``btbr`` image and a Classic BT peer.)
+
+On macOS neither of those two BlueZ tools is built, and neither is planned:
+the adapter operations they are built around — a clock read and the AFH map
+for ``ubertooth-follow``, the remote version and features for
+``ubertooth-scan -x`` — are not in macOS's public Bluetooth APIs. Use
+``ubertooth-rx`` and ``ubertooth-afh`` there, which cover much of the same
+ground by listening and need no adapter; ``COMPATIBILITY.md`` compares them
+operation by operation.
 
 **Signal / low-level**
 

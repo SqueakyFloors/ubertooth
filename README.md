@@ -176,9 +176,19 @@ does which step.
 |---|---|---|
 | [ubertooth-rx](host/doc/ubertooth-rx.md) | Passive Classic BT discovery/decode (finds piconets, LAP/UAP); saves raw captures (`-d`) and replays them without a device (`-i`) | a Classic BT peer |
 | [ubertooth-afh](host/doc/ubertooth-afh.md) | Passively recover a piconet's AFH channel map | an active piconet |
-| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target |
-| [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle |
+| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target; **Linux only** |
+| [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle; **Linux only** |
 | [ubertooth-btbr](host/doc/ubertooth-btbr.md) | **Experimental**, and the only tool that needs the separate `btbr` firmware: take part in Classic BT — inquiry, paging, and `monitor` mode (capture a connection as it is set up) | the `btbr` image; a Classic BT peer |
+
+`ubertooth-follow` and `ubertooth-scan` drive a second, ordinary Bluetooth
+adapter through BlueZ, so they are built on Linux only and are not coming to
+macOS: the operations they ask of that adapter — a clock read and the AFH map
+for `ubertooth-follow`, the remote version and features for `ubertooth-scan
+-x` — are not in macOS's public Bluetooth APIs. On a Mac, cover much of the
+same ground passively with `ubertooth-rx` and `ubertooth-afh`, which need no
+adapter — see
+[COMPATIBILITY.md](COMPATIBILITY.md#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)
+for the operation-by-operation comparison and the alternatives.
 
 ### Signal / low-level
 | Tool | What it does | Needs |
