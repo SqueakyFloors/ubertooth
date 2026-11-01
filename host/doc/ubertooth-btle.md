@@ -116,7 +116,7 @@ capture of such a connection has gaps in it. Capturing from the setup with
 `-f` has the map and does not.
 
 That also means a recovered connection is heard less often than it speaks, so
-promiscuous mode gives an algorithm-2 follow 32 connection intervals of
+promiscuous mode gives an algorithm-2 follow 64 connection intervals of
 silence before it treats the connection as over, where a follow that hears
 every event is given five seconds.
 

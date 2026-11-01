@@ -219,26 +219,6 @@ int le_same_span(u32 a, u32 b);
 #define LE_CSA2_MIN_SCORE 10
 #define LE_CSA2_MIN_MARGIN 3
 
-/*
- * How many of the newest gaps are looked at to tell an interval the connection
- * is using from one it has left behind.
- *
- * A connection may renegotiate its interval part-way through a run of
- * sightings, and doubling or halving it is ordinary. Every multiple of twice a
- * number is a multiple of it, so the interval the connection has left still
- * divides every gap on both sides of the change, and against the whole run it
- * explains more than the one the connection moved to. Adopting it would be a
- * wrong answer rather than no answer: the event counts read off the newer gaps
- * come out double what they were, which moves every older sighting by one
- * constant and leaves a counter that explains the older ones and is wrong.
- *
- * What gives it away is that each of those newer gaps spans an even number of
- * the old interval's events. Four gaps looking like that by accident is one
- * chance in sixteen, and an accident costs only a search; see
- * le_csa2_recover().
- */
-#define LE_CSA2_DOUBLE_PROBE 4
-
 /* How many of the gaps the connection interval may fail to account for. A gap
  * longer than LE_CSA2_MAX_EVENT_GAP events, or one taken across a change of
  * connection parameters, is such a gap. */

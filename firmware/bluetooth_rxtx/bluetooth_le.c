@@ -466,30 +466,6 @@ static int le_csa2_same_span(u32 a, u32 b) {
 	return apart <= le_gap_tolerance(shorter) + LE_CSA2_SIGHTING_SPREAD;
 }
 
-/* Does every one of these gaps span an even number of connection events of
- * this interval? A gap the interval does not divide at all answers no. */
-static int le_csa2_events_all_even(const u32 *gap, unsigned gap_count,
-                                   u32 interval) {
-	u32 unit = interval * LE_CONN_INTERVAL_TICKS;
-	unsigned i;
-
-	for (i = 0; i < gap_count; ++i) {
-		u32 events;
-
-		if (gap[i] > LE_PROMISC_MAX_GAP)
-			return 0;
-
-		events = LE_DIVIDE_ROUND(gap[i], unit);
-		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP ||
-				!le_csa2_same_span(gap[i], events * unit))
-			return 0;
-		if ((events & 1) != 0)
-			return 0;
-	}
-
-	return 1;
-}
-
 /* How many of the gaps a candidate connection interval accounts for. Every
  * gap between two sightings on one channel is a whole number of connection
  * events, so it has to be a whole number of the interval. */
@@ -687,7 +663,7 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	unsigned newest;
 	uint16_t interval;
 	u32 unit;
-	unsigned i, j, h;
+	unsigned i, h;
 	unsigned best = 0, runner_up = 0;
 	uint16_t best_counter = 0;
 
@@ -709,7 +685,9 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	 * it moved to fits only the newer half, and the old one wins. The
 	 * answer belongs to the newest sighting and the follow has to hop on
 	 * what the connection is using now, so the newest gaps are the ones
-	 * that decide; the walk back below then stops where they stop fitting.
+	 * that decide. The walk back below then stops where they stop fitting,
+	 * and the scoring, anchored on the newest sighting, declines when too
+	 * little of the run is left.
 	 */
 	newest = gap_count / 2;
 	if (newest < LE_CSA2_MIN_SCORE - 1)
@@ -720,25 +698,6 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	interval = le_csa2_interval(gap + (gap_count - newest), newest);
 	if (interval == 0)
 		return 0;
-
-	/*
-	 * And if the newest gaps all span an even number of events of it, take
-	 * twice it instead.
-	 *
-	 * That is the mark of an interval the connection has left behind. Every
-	 * multiple of twice a number is a multiple of it, so after a connection
-	 * doubles its interval the old figure still divides every gap -- and
-	 * each of those gaps comes out at an even number of old events. Two
-	 * dozen events apart is one chance in sixteen of looking like that by
-	 * accident, and an accident costs nothing: the walk back below stops at
-	 * the first gap the doubled figure does not divide, which leaves too
-	 * few sightings to answer from, and the mode searches again.
-	 */
-	while (2u * interval <= LE_MAX_CONN_INTERVAL &&
-			le_csa2_events_all_even(gap + gap_count -
-					LE_CSA2_DOUBLE_PROBE,
-					LE_CSA2_DOUBLE_PROBE, interval))
-		interval = (uint16_t)(2u * interval);
 
 	unit = (u32)interval * LE_CONN_INTERVAL_TICKS;
 
@@ -769,56 +728,43 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	le_csa2_build_hits(channel_idx, access_address);
 
 	/*
-	 * Each sighting in turn is taken as the one that was a direct visit --
-	 * a visit to the unmapped channel rather than one the map moved here
-	 * -- and every counter that would put that sighting on this channel is
-	 * scored against all of them. On a connection keeping all 37 channels
-	 * the first sighting tried is a direct visit and the answer comes out
-	 * of the first pass; on a connection using fewer, the pass that first
-	 * lands on a direct visit finds it.
+	 * Every counter that puts the newest sighting on this channel, scored
+	 * against all of them.
 	 *
-	 * A pass whose winner clears both the score and the margin ends the
-	 * search. A counter that accounts for ten sightings or more is not a
-	 * coincidence, so there is nothing to gain by scoring the rest.
+	 * The answer is anchored on the newest sighting because that is the one
+	 * the follow starts from, and because it is the only sighting whose
+	 * place in the run is not read through a gap. A counter that explains
+	 * the older sightings but not the newest one is what a run spanning a
+	 * change of connection parameters offers: the interval read above is
+	 * the one in use now, so the gaps before the change are measured
+	 * wrongly, every sighting behind it moves by one constant, and a
+	 * counter fits those and nothing else. Scored from the newest sighting
+	 * such a counter reaches only the sightings after the change, which is
+	 * fewer than the bar, and the search declines -- which is the right
+	 * answer, because the run holds too little of the connection as it now
+	 * is to recover it.
+	 *
+	 * The price is on a connection using fewer than the 37 channels, where
+	 * the newest sighting may be a visit the map moved here and no counter
+	 * puts it on this channel. Then nothing is adopted and the mode
+	 * searches again on the next run of sightings, where the newest
+	 * sighting is a fresh draw.
 	 *
 	 * What this costs, which is time the receiver is deaf: the list above
-	 * takes 65536 of the algorithm's hashes to build, and the passes take
-	 * at most LE_CSA2_SIGHTINGS * 1772 * LE_CSA2_SIGHTINGS lookups, which
-	 * is about a million. A whole worst case measures 5 to 13 ms on a
-	 * desktop host, so on a 100 MHz Cortex-M3 walking a table in the
-	 * second RAM bank expect a few hundred milliseconds to a second and a
-	 * half. The watchdog allows 3 s and the mode loop feeds it on either
-	 * side of this, so the margin is a factor of two or three rather than
-	 * an order of magnitude. Anything that lengthens a pass or adds one
-	 * should be measured against that.
-	 *
-	 * The early break means runner_up is the best of the counters the
-	 * search reached, not of all of them: a pass that answers ends it. It
-	 * is a bar against being confused by a near miss in the same passes,
-	 * which is where a near miss comes from, rather than a proof that no
-	 * other counter anywhere scores as well.
+	 * takes 65536 of the algorithm's hashes to build, and the scoring takes
+	 * 1772 * LE_CSA2_SIGHTINGS lookups, about 43 thousand.
 	 */
-	for (j = 0; j < count; ++j) {
-		for (h = 0; h < le_csa2_hit_count; ++h) {
-			uint16_t counter = (uint16_t)(le_csa2_hit[h] + back[j]);
-			unsigned score;
+	for (h = 0; h < le_csa2_hit_count; ++h) {
+		uint16_t counter = le_csa2_hit[h];
+		unsigned score = le_csa2_counter_score(counter, back, count);
 
-			if (counter == best_counter && best > 0)
-				continue;
-
-			score = le_csa2_counter_score(counter, back, count);
-			if (score > best) {
-				runner_up = best;
-				best = score;
-				best_counter = counter;
-			} else if (score > runner_up) {
-				runner_up = score;
-			}
+		if (score > best) {
+			runner_up = best;
+			best = score;
+			best_counter = counter;
+		} else if (score > runner_up) {
+			runner_up = score;
 		}
-
-		if (best >= LE_CSA2_MIN_SCORE &&
-				best >= runner_up + LE_CSA2_MIN_MARGIN)
-			break;
 	}
 
 	out->sightings = (u8)count;

@@ -213,6 +213,10 @@ typedef struct _le_promisc_state_t {
 	 * reading of a clock that has since restarted, and the gap computed
 	 * from it belongs to nothing. */
 	u32 prev_clk;
+	/* The same moment on CLKN, which does not come round again for a
+	 * fortnight. The capture clock does every 327 s, and a gap longer than
+	 * that cannot be told from a short one without this. */
+	u32 prev_clkn;
 	u8 seen_a_packet;
 
 	/* The sighting on 2404 MHz that the hop increment is counted from,
@@ -3834,10 +3838,10 @@ static u16 promisc_interval(void) {
  * side of one are not neighbours and the gap between them is not a gap between
  * consecutive returns. The estimator above reads the pattern the gaps repeat
  * and needs a run of consecutive ones: two runs of the longest pattern it
- * looks for, which is 32 gaps, and then four more reports that agree, so 36.
- * Both estimators start again after every search, so this has to be more than
- * that or a connection the estimator above could have settled on would never
- * get the chance.
+ * looks for, which is 16 gaps because it caps the pattern at half the ring,
+ * and then four more reports that agree, so 20. Both estimators start again
+ * after every search, so this has to be more than that or a connection the
+ * estimator above could have settled on would never get the chance.
  */
 #define LE_PROMISC_CSA2_RUN 40
 
@@ -3932,9 +3936,12 @@ static int promisc_try_csa2(u32 sighting) {
 	le.event_counter = (u16)(rec.event_counter + elapsed / unit +
 			events_ahead);
 	/* The follow compares a connection update's instant against this, and
-	 * an instant is an event counter, so it starts from the same place and
-	 * the timer below keeps the two in step. */
-	le.conn_count = le.event_counter;
+	 * an instant is an event counter. The follow's convention is that it
+	 * holds the counter of the event now running, where event_counter
+	 * above is the counter of the next one, so it starts a step behind;
+	 * the clock interrupt advances it at the start of each event and keeps
+	 * the two in step from there. */
+	le.conn_count = (u16)(le.event_counter - 1);
 	le.conn_epoch = clkn;
 	le.interval_timer = (u16)(to_next_event / LE_BASECLK);
 	do_hop = 0;
@@ -3958,6 +3965,7 @@ static int promisc_try_csa2(u32 sighting) {
 
 void promisc_recover_hop_interval(u8 *packet) {
 	u32 cur_clk = CLK100NS;
+	u32 cur_clkn = clkn;
 	u32 measured, clk_diff;
 	u16 obsv_hop_interval; // observed hop interval
 
@@ -3966,6 +3974,18 @@ void promisc_recover_hop_interval(u8 *packet) {
 	if (!le_promisc.seen_a_packet) {
 		le_promisc.seen_a_packet = 1;
 		le_promisc.prev_clk = cur_clk;
+		le_promisc.prev_clkn = cur_clkn;
+		return;
+	}
+
+	/* Longer than the capture clock's whole period, which the undoing
+	 * below can only put back once: a gap of a period and a bit comes out
+	 * as the bit, and a short gap that long is a lie the search would take
+	 * for a real one. CLKN counts the same time and does not come round
+	 * again for a fortnight, so it is the one that can tell. */
+	if (cur_clkn - le_promisc.prev_clkn > CLK100NS_PERIOD /
+			CLK100NS_PER_CLKN) {
+		promisc_restart_estimators();
 		return;
 	}
 
@@ -3974,12 +3994,20 @@ void promisc_recover_hop_interval(u8 *packet) {
 		measured += CLK100NS_PERIOD; // handle rollover
 	clk_diff = measured - le_promisc.prev_clk;
 
-	/* Shorter than one connection interval, so both packets belong to the
-	 * same connection event -- the central's and the peripheral's halves
-	 * of one exchange, or a second exchange in the same event. That is not
-	 * a visit to this channel, and the sighting does not become the one the
-	 * next gap is measured from either: the event's first packet is where
-	 * the connection's own grid is. */
+	/* Shorter than the shortest connection interval, so both packets
+	 * belong to the same connection event -- the central's and the
+	 * peripheral's halves of one exchange, or a second exchange in the same
+	 * event. That is not a visit to this channel, and the sighting does not
+	 * become the one the next gap is measured from either, so the gaps stay
+	 * measured from near the start of an event.
+	 *
+	 * Near, not at: this filter is the shortest interval, not this
+	 * connection's, so on a longer one a busy event can run past it and a
+	 * later packet of the same event does become the mark. The gap after
+	 * that one is then off the connection's grid by however far into the
+	 * event it was, which the search allows for up to
+	 * LE_CSA2_SIGHTING_SPREAD and otherwise reads as a gap that does not
+	 * fit -- a run that breaks rather than an answer that is wrong. */
 	if (clk_diff < LE_MIN_CONN_INTERVAL * LE_BASECLK)
 		return;
 
@@ -3987,6 +4015,7 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 * one is above the clock's range, so the next sighting would measure a
 	 * gap from a time the clock never shows. */
 	le_promisc.prev_clk = cur_clk;
+	le_promisc.prev_clkn = cur_clkn;
 
 	/* Longer than a trip round the channels at the longest interval the
 	 * specification allows. The connection was away, or the clock wrapped
