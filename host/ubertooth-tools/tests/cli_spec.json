@@ -290,7 +290,7 @@
                "valid": ["%grmdm=0x0f61", "0x03=0x0029", "0x20=0x0f61,0x03=0x0029", "20=41"],
                "invalid": [["%grmdm", "error: register write must be <reg>=<value> (got %grmdm in %grmdm)"],
                            ["%nosuch=1", "error: no CC2400 register is called %nosuch (in %nosuch=1)"],
-                           ["0x100=1", "error: register address must be 0x00-0xff or a %name (got 0x100 in 0x100=1)"],
+                           ["0x100=1", "error: register address must be 0x00-0xff (got 0x100 in 0x100=1)"],
                            ["0x20=0x10000", "error: register value must be 0x0000-0xffff (got 0x10000 in 0x20=0x10000)"]]},
         "-v": {"value": "required", "role": "modifier", "valid": ["0", "1", "2"],
                "invalid": [["3", "error: verbosity must be 0-2 (got 3)"],

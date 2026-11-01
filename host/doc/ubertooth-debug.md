@@ -158,7 +158,7 @@ a range: unknown name (got %nosuchregister)`. The other reasons are
 `-r`'s is, and a value outside 16 bits the same way:
 
     $ ubertooth-debug -w 0x100=1
-    error: register address must be 0x00-0xff or a %name (got 0x100 in 0x100=1)
+    error: register address must be 0x00-0xff (got 0x100 in 0x100=1)
     $ ubertooth-debug -w 0x20=0x10000
     error: register value must be 0x0000-0xffff (got 0x10000 in 0x20=0x10000)
 

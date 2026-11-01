@@ -113,8 +113,10 @@ int debug_parse_register_writes(const char *spec, debug_register_write *writes,
 			}
 			reg = r;
 		} else if (parse_number(item, 0xff, &reg) < 0) {
+			/* The same line -r gives for the same mistake, with the
+			 * whole value after it as -r's does. */
 			fprintf(err, "error: register address must be 0x00-0xff"
-			        " or a %%name (got %s in %s)\n", item, spec);
+			        " (got %s in %s)\n", item, spec);
 			return -1;
 		}
 

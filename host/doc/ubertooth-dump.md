@@ -206,6 +206,13 @@ GRMDM's packet-mode bit, so the configuration decides it:
  - with packet mode clear, the board streams demodulated symbols as the
    Bluetooth captures do, so `-b` prints them as `0` and `1`.
 
+Packet mode leaves the framing to the radio, so it produces records only when
+GRMDM's preamble length, how much of the sync word it matches and its CRC
+choice all match what is on the air. Getting that right for a protocol is part
+of the setup and nothing reports a mismatch: a wrong choice gives a capture
+with no records in it. The symbol stream asks less of the configuration, which
+is why the worked example in ubertooth(7) uses it.
+
 Either way the records are the 68-byte and 401-byte shapes described above:
 the board sends what it received, and this tool writes it out without looking
 in it. Nothing decodes a generic capture, because nothing here knows what

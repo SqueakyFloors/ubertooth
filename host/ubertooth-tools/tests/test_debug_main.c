@@ -445,6 +445,7 @@ MU_TEST(a_bad_write_list_opens_no_device)
 	char* no_value[] = { "ubertooth-debug", "-w", "%grmdm", NULL };
 	char* unknown_name[] = { "ubertooth-debug", "-w", "%nosuchreg=1", NULL };
 	char* too_big[] = { "ubertooth-debug", "-w", "0x20=0x10000", NULL };
+	char* bad_address[] = { "ubertooth-debug", "-w", "0x100=1", NULL };
 	struct run r;
 
 	reset();
@@ -469,7 +470,15 @@ MU_TEST(a_bad_write_list_opens_no_device)
 	reset();
 	run_main(&r, 3, too_big);
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "must be 0x0000-0xffff") != NULL, r.err);
+	mu_assert(strcmp(r.err, "error: register value must be 0x0000-0xffff"
+	                 " (got 0x10000 in 0x20=0x10000)\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.starts);
+
+	reset();
+	run_main(&r, 3, bad_address);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: register address must be 0x00-0xff"
+	                 " (got 0x100 in 0x100=1)\n") == 0, r.err);
 	mu_assert_int_eq(0, fake.starts);
 }
 

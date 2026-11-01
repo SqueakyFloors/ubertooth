@@ -234,7 +234,7 @@ MANAND, LMTST and MDMTST0 : the analog and test settings the Bluetooth receives 
 .P
 \fBubertooth\-debug \-r\fR reads any of them back, and the CC2400 datasheet is where the fields come from\. Nothing in these tools knows which values make sense together: a configuration that does not work gives a capture with nothing in it, not an error\.
 .P
-With GRMDM's packet\-mode bit set, the board waits for the sync word instead and sends one record per packet: the four sync\-word bytes, then 32 bytes out of the radio's FIFO\. It keeps waiting on a quiet channel, answering requests, until the capture is stopped\.
+With GRMDM's packet\-mode bit set, the board waits for the sync word instead and sends one record per packet: the four sync\-word bytes, then 32 bytes out of the radio's FIFO\. It keeps waiting on a quiet channel, answering requests, until the capture is stopped\. That path asks more of the configuration than the symbol stream does, because the radio does the framing: the preamble length, how much of the sync word it matches and its CRC choice all have to match what is on the air, and a choice that does not gives a capture with no records in it rather than a message\.
 .P
 The configuration lives in the radio and nothing stores it, so write the registers and start the capture as two commands with nothing in between\. A mode ending takes the radio through its own reset, which clears what \fB\-w\fR wrote; the board being idle is what keeps it\. \fBubertooth\-util \-S\fR leaves an idle board, so a run that is stopped properly can be set up again and restarted\.
 .P

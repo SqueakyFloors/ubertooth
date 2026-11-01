@@ -425,7 +425,11 @@ it, not an error.
 With GRMDM's packet-mode bit set, the board waits for the sync word instead
 and sends one record per packet: the four sync-word bytes, then 32 bytes out
 of the radio's FIFO. It keeps waiting on a quiet channel, answering requests,
-until the capture is stopped.
+until the capture is stopped. That path asks more of the configuration than
+the symbol stream does, because the radio does the framing: the preamble
+length, how much of the sync word it matches and its CRC choice all have to
+match what is on the air, and a choice that does not gives a capture with no
+records in it rather than a message.
 
 The configuration lives in the radio and nothing stores it, so write the
 registers and start the capture as two commands with nothing in between. A
