@@ -18,8 +18,9 @@
 #
 # Based slightly upon the hackrf cmake setup.
 
-# RELEASE_STRING comes from set_release.cmake, which the top-level
-# CMakeLists.txt includes. Only this library reports it.
+# RELEASE_STRING comes from set_release.cmake, and UBERTOOTH_INSTALL_LIBDIR
+# from the install directories worked out beside it; the top-level
+# CMakeLists.txt does both. Only this library reports the release string.
 add_definitions( -DRELEASE="${RELEASE_STRING}" )
 
 # Targets
@@ -64,7 +65,7 @@ if( ${BUILD_SHARED_LIB} )
 	set_target_properties(ubertooth PROPERTIES VERSION ${MAJOR_VERSION}.${MINOR_VERSION} SOVERSION 1)
 	set_target_properties(ubertooth PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 	install(TARGETS ubertooth
-			LIBRARY DESTINATION lib${LIB_SUFFIX}
+			LIBRARY DESTINATION ${UBERTOOTH_INSTALL_LIBDIR}
 			COMPONENT sharedlibs)
 endif( ${BUILD_SHARED_LIB} )
 
@@ -76,12 +77,12 @@ if( ${BUILD_STATIC_LIB} )
 	set_target_properties(ubertooth-static PROPERTIES OUTPUT_NAME "ubertooth")
 	set_target_properties(ubertooth-static PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 	install(TARGETS ubertooth-static
-			DESTINATION lib${LIB_SUFFIX}
+			DESTINATION ${UBERTOOTH_INSTALL_LIBDIR}
 			COMPONENT staticlibs)
 endif( ${BUILD_STATIC_LIB} )
 
 install(FILES ${c_headers}
-		DESTINATION include
+		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 		COMPONENT headers)
 
 # libubertooth.pc, so that a program built against the installed library asks
@@ -120,11 +121,44 @@ foreach(lib IN LISTS CMAKE_DL_LIBS)
 	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " -l${lib}")
 endforeach()
 
+# The directories libubertooth.pc names have to be the ones the install writes
+# to: a consumer whose pkg-config -L names a directory holding no library
+# links by luck or not at all.
+#
+# A directory under the prefix is named relative to this file's own location,
+# so that the file works wherever the install ends up. The way back out of the
+# pkgconfig directory is one ".." for that directory and one for each
+# directory of the library's own, which can be a path -- lib/x86_64-linux-gnu,
+# the Debian multiarch layout -- rather than a single name, so it is worked
+# out here rather than written into libubertooth.pc.in.
+#
+# A library directory given as an absolute path is installed to exactly that,
+# wherever the prefix is, so the file names the directories as they stand: it
+# lands outside the prefix and has no way to tell that the prefix has moved.
+if(IS_ABSOLUTE "${UBERTOOTH_INSTALL_LIBDIR}")
+	set(PC_PREFIX "${CMAKE_INSTALL_PREFIX}")
+	set(PC_LIBDIR "${UBERTOOTH_FULL_LIBDIR}")
+	set(PC_INCLUDEDIR "${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+else()
+	# RELATIVE_PATH leaves a trailing slash on the way out of a directory,
+	# which pkg-config reads the same but nobody wants to read.
+	file(RELATIVE_PATH pc_prefix_up
+		"${UBERTOOTH_FULL_LIBDIR}/pkgconfig" "${CMAKE_INSTALL_PREFIX}")
+	string(REGEX REPLACE "/+$" "" pc_prefix_up "${pc_prefix_up}")
+	set(PC_PREFIX "\${pcfiledir}/${pc_prefix_up}")
+	set(PC_LIBDIR "\${prefix}/${UBERTOOTH_INSTALL_LIBDIR}")
+	if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+		set(PC_INCLUDEDIR "${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+	else()
+		set(PC_INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+	endif()
+endif()
+
 configure_file(
 	${CMAKE_CURRENT_SOURCE_DIR}/libubertooth.pc.in
 	${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
 	@ONLY)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
-		DESTINATION lib${LIB_SUFFIX}/pkgconfig
+		DESTINATION ${UBERTOOTH_INSTALL_LIBDIR}/pkgconfig
 		COMPONENT pkgconfig)

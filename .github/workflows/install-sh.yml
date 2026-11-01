@@ -181,13 +181,26 @@ jobs:
         # difference.
         grep -q 'What the installed tools report:' "$RUNNER_TEMP/install.log"
         ! grep -q 'the installed ubertooth-util would not run' "$RUNNER_TEMP/install.log"
+        # Which directory the library went into, found rather than assumed:
+        # CMake picks the one the system keeps libraries in, which is lib on
+        # these Ubuntu and macOS prefixes and lib64 in the Fedora container.
+        # Remembered for the uninstall check below.
+        pc="$(find "$RUNNER_TEMP/prefix" -name libubertooth.pc -print -quit)"
+        test -n "$pc"
+        LIBDIR="$(dirname "$(dirname "$pc")")"
+        echo "LIBDIR=$LIBDIR" >> "$GITHUB_ENV"
+        echo "libubertooth and its pkg-config file are in $LIBDIR"
+        ls "$LIBDIR"/libubertooth.*
+        # libbtbb's own install asked the same question, so both libraries are
+        # in the one directory: that is what this install is for.
+        ls "$LIBDIR"/libbtbb.*
         # The install describes itself to pkg-config, so a program of the
         # user's own can be built against it. The library's own test suite
         # checks the flags compile and link something; here it is that a real
         # install, in a prefix of its own, is one pkg-config can answer for at
         # all -- its Requires names libbtbb, which is the libbtbb this run
         # installed beside it.
-        PKG_CONFIG_PATH="$RUNNER_TEMP/prefix/lib/pkgconfig:$RUNNER_TEMP/prefix/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
+        PKG_CONFIG_PATH="$LIBDIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
           pkg-config --print-errors --cflags --libs libubertooth
         # The udev rule is the one file installed outside the prefix, and only
         # where the build found a group to give the device to. Remembered here
@@ -207,9 +220,11 @@ jobs:
         test ! -e "$RUNNER_TEMP/prefix/bin/ubertooth-util"
         test ! -e "$RUNNER_TEMP/prefix/share/man/man1/ubertooth-util.1"
         test ! -e "$RUNNER_TEMP/prefix/include/ubertooth.h"
-        # The pkg-config file goes with the headers it describes: the install
-        # recorded it, so the uninstall takes it away again.
-        test ! -e "$RUNNER_TEMP/prefix/lib/pkgconfig/libubertooth.pc"
+        # The library and its pkg-config file go with the headers they
+        # describe, from wherever the install put them: it recorded them, so
+        # the uninstall takes them away again.
+        test ! -e "$LIBDIR/pkgconfig/libubertooth.pc"
+        test -z "$(find "$LIBDIR" -name 'libubertooth.*' -print -quit)"
         # Listed and matched rather than globbed, so the path in this file
         # does not read as a repository name to the libbtbb pin guard. Both
         # library directories are listed, because libbtbb installs to the one

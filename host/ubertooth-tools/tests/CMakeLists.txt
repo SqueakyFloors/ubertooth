@@ -303,13 +303,20 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 			${CMAKE_BINARY_DIR}
 			${PKG_CONFIG_EXECUTABLE}
 			${CMAKE_C_COMPILER}
-			# Empty unless the build was given one, which is how
-			# the library's own install destination is written.
-			"${LIB_SUFFIX}")
-	# Two installs of three small components and one compile: about two
-	# seconds. A minute catches an install or a compiler that waits on
-	# something.
-	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 60)
+			# The directory this build installs the library to, which
+			# GNUInstallDirs picks for the system: where the test looks
+			# for what the install wrote.
+			"${UBERTOOTH_INSTALL_LIBDIR}"
+			# The library's own source tree, for the builds the test
+			# configures in the other layouts.
+			${CMAKE_SOURCE_DIR})
+	# Two installs of three small components and one compile for this
+	# build, then one more build of the library alone and the same installs
+	# again for each of the three other layouts: about twenty seconds on an
+	# idle machine, and several times that on one busy with parallel
+	# builds. Five minutes catches a configure, an install or a compiler
+	# that waits on something.
+	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 300)
 endif()
 
 # What ubertooth-rx says when its receiver is pinned at the top of the

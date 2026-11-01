@@ -750,7 +750,10 @@ fi
 # --- 6. host tools --------------------------------------------------------
 # The installed tools find libubertooth and libbtbb under PREFIX through their
 # run path, so a non-default prefix works without ldconfig or DYLD settings.
-# Two directories where libbtbb's is not libubertooth's.
+# libbtbb's directory is the one its install wrote to, read above; plain lib is
+# there as well, for a libbtbb that went somewhere else than this prefix's own
+# library directory. libubertooth's is added after the configure step below,
+# which is what works it out.
 RPATH="$PREFIX/lib"
 [ "$BTBB_LIBDIR" = "$PREFIX/lib" ] || RPATH="$RPATH;$BTBB_LIBDIR"
 CMAKE_ARGS=(
@@ -786,6 +789,31 @@ CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
 # cached one from before a brew upgrade names a version that is gone.
 cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 	-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
+
+# Which directory libubertooth itself is going into. The configure step asks
+# CMake for the one this system keeps libraries in, the same question libbtbb's
+# install answered above, so the two are normally the same directory and the
+# run path already holds it. Where they differ - an older libbtbb that installs
+# to plain lib, or a prefix whose own directory is lib64 - the run path gets
+# libubertooth's as well, which needs the configure step repeated, because a
+# run path is written into the tools as they are linked.
+UBERTOOTH_LIBDIR="$(sed -n 's/^CMAKE_INSTALL_LIBDIR:PATH=//p' \
+	"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
+case "$UBERTOOTH_LIBDIR" in
+	'') UBERTOOTH_LIBDIR="$PREFIX/lib" ;;
+	/*) ;;
+	*) UBERTOOTH_LIBDIR="$PREFIX/$UBERTOOTH_LIBDIR" ;;
+esac
+case ";$RPATH;" in
+	*";$UBERTOOTH_LIBDIR;"*) ;;
+	*)
+		RPATH="$RPATH;$UBERTOOTH_LIBDIR"
+		info "Adding $UBERTOOTH_LIBDIR to the installed tools' run path"
+		cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
+			"-DCMAKE_INSTALL_RPATH=$RPATH"
+		;;
+esac
+
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
 as_installer cmake --install "$REPO_ROOT/host/build"
 record_installed host "$REPO_ROOT/host/build"
