@@ -424,10 +424,8 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.58, last moved by the
-  request that reports a board's bootloader
-  ([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)), before
-  that by the address a processor fault is recorded at
+- **Reflash required:** the firmware API version is now 1.57, last moved by the
+  address a processor fault is recorded at
   ([#764](https://github.com/SqueakyFloors/ubertooth/issues/764)), before that
   by the modulation a mode start keeps for the mode it was stated for, before
   that by the packet's own power and the background in every capture record,
