@@ -55,6 +55,14 @@
   git checkout reports the same name; one from an unpacked source release
   keeps the shipped version.h and so reports `bluetooth_rxtx`, which
   firmware/README now says. Every host tool accepts either name.
+- Fixed: `ubertooth-btle -p` stopped at the access address on a connection
+  that had data flowing, reporting nothing else and capturing only what
+  landed on the channel it was sitting on. It recovers a connection's CRC
+  init value from an empty data PDU, and it was waiting for one whose two
+  acknowledgment bits were both clear, which a busy connection rarely sends:
+  a 50 ms link between two development boards sent 54 empty PDUs past the
+  board in 150 seconds and not one of them had both bits clear. Any empty
+  data PDU will do, and now any is taken.
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
