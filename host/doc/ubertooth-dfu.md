@@ -132,13 +132,15 @@ only partly written does not add up -- erased flash reads 0xFFFFFFFF -- and
 the board waits in DFU for another image instead.
 
 That bootloader reads no further than the application region of a 128 KiB
-part, the smallest flash these boards carry, because reading flash a part has
-not got could fault and leave a board for the bench. A record claiming more
+part, which is what an Ubertooth One carries and the least any board in the
+field has read back, because reading flash a part has not got could fault and
+leave a board for the bench. A record claiming more
 than that is not checked, and the image starts on its vector table alone
-rather than being refused. The largest image this tree builds is a third of
-the limit, so the one file that reaches it is a whole-region dump taken off a
-larger part with `-u` and flashed back: that is written and started as it
-always was, with the vector table checked and the rest of it not.
+rather than being refused. The largest image this tree builds, `btbr`, is
+under half the limit, so the one file that reaches it is a whole-region dump
+taken off a larger part with `-u` and flashed back: that is written and
+started as it always was, with the vector table checked and the rest of it
+not.
 
 The three checks cover different things. A download that stops between blocks
 leaves the vector table erased, which the stack pointer and reset vector

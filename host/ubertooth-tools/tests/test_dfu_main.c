@@ -688,7 +688,8 @@ static void write_image_with(const char *path, const char *image_name,
 	memset(check, 0, sizeof(check));
 	memcpy(check + UBERTOOTH_IMAGE_CHECK_OFF_MAGIC, UBERTOOTH_IMAGE_CHECK_MAGIC,
 	       UBERTOOTH_IMAGE_CHECK_MAGIC_LEN);
-	check[UBERTOOTH_IMAGE_CHECK_OFF_FORMAT] = UBERTOOTH_IMAGE_CHECK_FORMAT;
+	write_le16(check + UBERTOOTH_IMAGE_CHECK_OFF_FORMAT,
+	           UBERTOOTH_IMAGE_CHECK_FORMAT);
 	if (fseek(payload_file, UBERTOOTH_IMAGE_CHECK_OFFSET, SEEK_SET) != 0 ||
 	    fwrite(check, 1, sizeof(check), payload_file) != sizeof(check)) {
 		fprintf(stderr, "cannot write the test image check block\n");

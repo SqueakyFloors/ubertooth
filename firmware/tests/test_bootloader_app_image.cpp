@@ -657,7 +657,7 @@ MU_TEST(a_length_past_the_read_limit_is_not_read)
 
 /* The limit is the application region of a 128 KiB part, which is the floor
  * for these boards, and it has to leave room for the images this tree builds:
- * bluetooth_rxtx is about 36 KiB. */
+ * the largest is btbr, 50282 bytes. */
 MU_TEST(the_read_limit_is_a_part_the_boards_have)
 {
 	mu_assert_int_eq(0x20000u, APP_IMAGE_SMALLEST_FLASH);

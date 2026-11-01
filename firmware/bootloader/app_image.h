@@ -218,9 +218,10 @@ static inline bool app_image_table_startable(const uint32_t* const vectors,
  * family out of the user manual, not a list of parts an Ubertooth carries --
  * so the smallest entry in it is not the floor this limit needs.
  *
- * A longer image can only be on a larger part, and it is more than three
- * times the largest image this tree builds. An image longer than this is not
- * refused: it is started without the region checksum, on its vector table
+ * A longer image can only be on a larger part, and it is more than twice the
+ * largest image this tree builds -- btbr, 50282 bytes. An image longer than
+ * this is not refused: it is started without the region checksum, on its
+ * vector table
  * alone, the way every image was before the record existed. Refusing it would
  * leave a board that will not start a good image, which is worse than
  * checking less of it. One image that reaches that: a whole-region dump taken
@@ -328,8 +329,8 @@ static inline bool app_image_region_checksum_ok(
  * code.
  *
  * The vector table is read first and on its own terms, so a region that holds
- * no image at all costs two words and no more. Then come the checks the image
- * asks for itself: an image that carries no image check block, or carries one
+ * no image at all is refused without the region checksum reading any of it.
+ * Then come the checks the image asks for itself: an image that carries no image check block, or carries one
  * with no flags set, is startable on the two words and the zero-checksum rule
  * alone, which is what every image written before this existed relies on.
  */
