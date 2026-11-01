@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # install.sh - one-command from-source setup for the Ubertooth host tools
-#              (and optionally firmware) on Debian/Ubuntu and on macOS with
-#              Homebrew.
+#              (and optionally firmware) on Debian/Ubuntu, on Fedora, and on
+#              macOS with Homebrew.
 #
 # Builds and installs: system dependencies, libbtbb, the Ubertooth host tools,
-# and the Python runtime deps for specan_ui. On Debian/Ubuntu it also installs
-# udev rules and builds with -DREQUIRE_ALL=ON so a missing optional dep fails
+# and the Python runtime deps for specan_ui. On Linux it also installs udev
+# rules and builds with -DREQUIRE_ALL=ON so a missing optional dep fails
 # loudly. macOS needs no udev rules and has no BlueZ, so ubertooth-scan and
 # ubertooth-follow are not built there. Firmware build/flash is opt-in.
 #
@@ -23,11 +23,11 @@
 # Options:
 #   --uninstall       remove what an earlier run of this script installed into
 #                     the prefix: the host tools, the libraries, the man pages
-#                     and, on Debian/Ubuntu, the udev rule. The list comes from
-#                     what that run recorded, so nothing else on the machine is
-#                     touched: the apt or Homebrew packages, the Python
-#                     packages and a venv made with --venv are all left alone.
-#                     Safe to run twice.
+#                     and, on Linux, the udev rule. The list comes from what
+#                     that run recorded, so nothing else on the machine is
+#                     touched: the distribution or Homebrew packages, the
+#                     Python packages and a venv made with --venv are all left
+#                     alone. Safe to run twice.
 #   --keep-libbtbb    with --uninstall: leave the libbtbb this script installed
 #   --remove-libbtbb  with --uninstall: remove it as well, without asking.
 #                     Anything else built against that libbtbb stops building
@@ -49,8 +49,8 @@
 #                     points the tools call, upstream's included, is refused
 #                     when the tools are configured, naming what it is
 #                     missing.
-#   --prefix <path>   install prefix (default: /usr/local on Debian/Ubuntu,
-#                     the Homebrew prefix on macOS)
+#   --prefix <path>   install prefix (default: /usr/local on Linux, the
+#                     Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
@@ -105,6 +105,15 @@ require_python() {
 	version="$("$1" -V 2>&1)" || version="not runnable"
 	die "Python 3.8 or newer is required for the Python tools (found $1: $version)${2:+; $2}"
 }
+
+# True on the Linux distributions this script installs on. They differ in
+# which package manager installs the dependencies and in what the packages are
+# called, and in nothing else: udev rules, ldconfig, a system Python that pip
+# must not be forced into, and a BlueZ to build ubertooth-scan and
+# ubertooth-follow against are common to all of them, and macOS has none of
+# those. So the steps that are about Linux rather than about apt ask this, and
+# only the two dependency steps look at which distribution it is.
+on_linux() { [ "$PLATFORM" != macos ]; }
 
 # Run a privileged command, or print it under --no-sudo.
 as_root() {
@@ -285,15 +294,23 @@ fi
 # --- platform check -------------------------------------------------------
 case "$(uname -s)" in
 	Linux)
-		command -v apt-get >/dev/null 2>&1 || \
-			die "on Linux this script supports Debian/Ubuntu (apt-get) only; see REQUIREMENTS.md for other platforms"
-		# python3 comes from apt below if it is missing; check it here if not,
-		# so an old one stops the script before anything is installed or built.
-		# An uninstall builds nothing and runs no Python, so it does not care.
+		# Which package manager is here decides the package names below.
+		# apt-get is looked for first, so a Debian or Ubuntu machine that also
+		# has dnf installed is treated as the Debian machine it is.
+		if command -v apt-get >/dev/null 2>&1; then
+			PLATFORM=debian
+		elif command -v dnf >/dev/null 2>&1; then
+			PLATFORM=fedora
+		else
+			die "on Linux this script supports Debian/Ubuntu (apt-get) and Fedora (dnf) only; see REQUIREMENTS.md for other platforms"
+		fi
+		# python3 comes from the package manager below if it is missing; check
+		# it here if not, so an old one stops the script before anything is
+		# installed or built. An uninstall builds nothing and runs no Python,
+		# so it does not care.
 		if [ "$UNINSTALL" -eq 0 ] && command -v python3 >/dev/null 2>&1; then
 			require_python python3
 		fi
-		PLATFORM=debian
 		PREFIX="${PREFIX:-/usr/local}"
 		JOBS="$(nproc)"
 		;;
@@ -313,7 +330,7 @@ case "$(uname -s)" in
 		JOBS="$(sysctl -n hw.ncpu)"
 		;;
 	*)
-		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu and macOS (Homebrew); see REQUIREMENTS.md"
+		die "unsupported platform $(uname -s); this script supports Debian/Ubuntu, Fedora and macOS (Homebrew); see REQUIREMENTS.md"
 		;;
 esac
 
@@ -463,7 +480,7 @@ uninstall() {
 	fi
 
 	prune_record_dirs
-	if [ "$PLATFORM" = debian ] && [ "$removed" -gt 0 ]; then
+	if on_linux && [ "$removed" -gt 0 ]; then
 		as_root ldconfig
 	fi
 
@@ -477,7 +494,7 @@ uninstall() {
 	if [ "$LIBBTBB_ACTION" = keep ] && [ -f "$btbb_record" ]; then
 		info "libbtbb is still installed in $PREFIX"
 	fi
-	info "Left alone: the apt or Homebrew packages, the Python packages (numpy, qtpy, pyside6, libusb1), and any venv made with --venv"
+	info "Left alone: the distribution or Homebrew packages, the Python packages (numpy, qtpy, pyside6, libusb1), and any venv made with --venv"
 	if [ "$((failed+skipped))" -gt 0 ]; then
 		die "$((failed+skipped)) recorded path(s) are still there: $failed could not be removed, $skipped not this script's to remove; $RECORD_DIR still lists them"
 	fi
@@ -607,6 +624,12 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
 		info "Installing firmware toolchain (apt)"
 		as_root apt-get update -qq
 		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make
+	elif [ "$PLATFORM" = fedora ]; then
+		# Fedora's ARM cross-compiler keeps the "-cs" of the CodeSourcery
+		# release it started from; arm-none-eabi-newlib is the C library the
+		# firmware links. REQUIREMENTS.md lists both.
+		info "Installing firmware toolchain (dnf)"
+		as_root dnf install -y arm-none-eabi-gcc-cs arm-none-eabi-newlib dfu-util make
 	else
 		info "Installing firmware toolchain (Homebrew)"
 		brew_install dfu-util
@@ -639,13 +662,23 @@ elif [ "$PLATFORM" = debian ]; then
 	as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
 		cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
 		libfftw3-dev python3 python3-venv python3-usb1 git
+elif [ "$PLATFORM" = fedora ]; then
+	# The same dependencies under Fedora's names (REQUIREMENTS.md lists them
+	# side by side). Three differences from the apt list are worth knowing:
+	# the compilers are separate packages rather than one build-essential,
+	# "python3 -m venv" works with the stock python3 because its wheels come
+	# with it, and the ubtbr USB binding is python3-libusb1 here.
+	info "Installing system dependencies (dnf)"
+	as_root dnf install -y \
+		cmake gcc gcc-c++ make pkgconf-pkg-config libusb1-devel \
+		bluez-libs-devel fftw-devel python3 python3-pip python3-libusb1 git
 else
 	info "Installing system dependencies (Homebrew)"
 	brew_install cmake pkg-config libusb fftw
 fi
 
 # --- 4. Python interpreter / venv ----------------------------------------
-# On Debian/Ubuntu python3 may only exist after the apt step above.
+# On Linux python3 may only exist after the package step above.
 PYTHON="${PYTHON3:-$(command -v python3 || echo python3)}"
 require_python "$PYTHON"
 if [ -n "$VENV" ]; then
@@ -658,16 +691,17 @@ fi
 info "Installing Python runtime deps for specan_ui and ubtbr"
 PIP_DEPS=(numpy qtpy pyside6)
 PY_DEPS_WARNING=""
-# Debian/Ubuntu gets the ubtbr USB binding from apt (python3-usb1).
+# Linux gets the ubtbr USB binding from the distribution (python3-usb1 on
+# Debian/Ubuntu, python3-libusb1 on Fedora), so only macOS pip-installs it.
 [ "$PLATFORM" = macos ] && PIP_DEPS+=(libusb1==3.4.0)
-if [ "$PLATFORM" = debian ]; then
-	GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyqt5 (apt) or use --venv"
-else
-	GUI_DEPS_HINT="re-run with --venv <path> (recommended on macOS)"
-fi
+case "$PLATFORM" in
+	debian) GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyqt5 (apt) or use --venv" ;;
+	fedora) GUI_DEPS_HINT="install python3-numpy python3-QtPy python3-pyside6 (dnf) or use --venv" ;;
+	*) GUI_DEPS_HINT="re-run with --venv <path> (recommended on macOS)" ;;
+esac
 if [ -n "$VENV" ]; then
 	VENV_DEPS=("${PIP_DEPS[@]}")
-	[ "$PLATFORM" = debian ] && VENV_DEPS+=(libusb1==3.4.0)
+	on_linux && VENV_DEPS+=(libusb1==3.4.0)
 	if ! "$PYTHON" -m pip install --quiet "${VENV_DEPS[@]}"; then
 		PY_DEPS_WARNING="could not pip-install Python runtime deps into the venv $VENV"
 		warn "$PY_DEPS_WARNING"
@@ -675,7 +709,7 @@ if [ -n "$VENV" ]; then
 elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
 	# Homebrew's Python is externally managed and upgrades replace it, so do not
 	# force packages into it on macOS; a venv is the supported route there.
-	if [ "$PLATFORM" = debian ]; then
+	if on_linux; then
 		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \
 			PY_DEPS_WARNING="could not pip-install GUI deps; $GUI_DEPS_HINT"
 	else
@@ -696,7 +730,7 @@ cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" -DENABLE_PYTHON=OFF \
 cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
 as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
 record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
-[ "$PLATFORM" = debian ] && as_root ldconfig
+on_linux && as_root ldconfig
 
 # Which directory under PREFIX libbtbb put its library in. That is the one the
 # system keeps libraries in: lib64 on a 64-bit Fedora, RHEL or SUSE, a
@@ -729,7 +763,7 @@ CMAKE_ARGS=(
 # setting is kept after it, so a libbtbb the user pointed at stays reachable
 # while this one is looked at first.
 export PKG_CONFIG_PATH="$BTBB_LIBDIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-if [ "$PLATFORM" = debian ]; then
+if on_linux; then
 	info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
 	CMAKE_ARGS+=(-DREQUIRE_ALL=ON)
 else
@@ -754,7 +788,7 @@ cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
 as_installer cmake --install "$REPO_ROOT/host/build"
 record_installed host "$REPO_ROOT/host/build"
-if [ "$PLATFORM" = debian ]; then
+if on_linux; then
 	as_root ldconfig
 	info "udev rules installed with the host tools (unplug/replug the Ubertooth)"
 fi
