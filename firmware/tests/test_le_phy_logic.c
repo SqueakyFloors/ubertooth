@@ -587,6 +587,17 @@ static void build_terminate(le_rx_t *buf, uint8_t error_code)
 	buf->data[3] = error_code;
 }
 
+/*
+ * Date a packet to a connection event, as the receive interrupt does when the
+ * first byte arrives. Without this a packet reads as having arrived with no
+ * event open, which is what an advertising-channel packet does.
+ */
+static void arrived_in_event(le_rx_t *buf, uint16_t event_counter)
+{
+	buf->in_open_event = 1;
+	buf->event_counter = event_counter;
+}
+
 /* Is the connection state back to what reset_conn() leaves: nothing followed,
  * listening on the advertising address? */
 static int connection_was_reset(void)
@@ -2932,8 +2943,16 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	/* A terminate of the right length is noted... */
 	start_fresh();
 	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, conn.conn_event_counter);
 	packet_handler(&buf);
-	mu_assert_int_eq(TERMINATE_BUSY_EVENTS, conn.terminated);
+	mu_assert_int_eq(TERMINATE_IN_ITS_EVENT, conn.terminated);
+
+	/* ...and dated to an event that has closed, it is noted the other way. */
+	start_fresh();
+	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, conn.conn_event_counter - 1);
+	packet_handler(&buf);
+	mu_assert_int_eq(TERMINATE_AFTER_ITS_EVENT, conn.terminated);
 
 	/* ...and one of the wrong length does not. */
 	start_fresh();
@@ -3588,6 +3607,7 @@ MU_TEST(a_terminate_ends_the_follow_once_the_connection_goes_quiet)
 	anchored_connection(100000);
 	rf_channel = DATA_CHANNEL_MHZ;
 	build_terminate(&buf, 0x13);   /* the remote user ended it */
+	arrived_in_event(&buf, conn.conn_event_counter);
 
 	packet_handler(&buf);
 
@@ -3628,6 +3648,7 @@ MU_TEST(a_terminate_ends_the_follow_once_the_connection_goes_quiet)
 	anchored_connection(100000);
 	rf_channel = DATA_CHANNEL_MHZ;
 	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, conn.conn_event_counter);
 	conn_event.num_packets = 1;
 	conn_event.opened = 1;
 
@@ -3668,13 +3689,14 @@ MU_TEST(a_terminate_a_live_connection_contradicts_is_discarded)
 	anchored_connection(100000);
 	rf_channel = DATA_CHANNEL_MHZ;
 	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, conn.conn_event_counter);
 
 	packet_handler(&buf);
 
 	/*
 	 * Several events in a row carry packets, as a connection in use does.
-	 * The first could be the event the terminate arrived in; the rest
-	 * cannot, and they are what contradicts it.
+	 * The first is the event the terminate arrived in; the rest are after
+	 * it, and they are what contradicts it.
 	 */
 	for (i = 0; i < 5; ++i) {
 		conn_event.num_packets = 2;
@@ -3704,6 +3726,39 @@ MU_TEST(a_terminate_a_live_connection_contradicts_is_discarded)
 
 	mu_assert(!connection_was_reset(),
 	          "a discarded terminate came back at the next quiet event");
+
+	/*
+	 * The same when the event the packet arrived in has already closed by
+	 * the time the loop reads it, which is the common order. One event
+	 * carrying packets then discards the note, and a capture that misses
+	 * the event after it keeps the follow: without the event counter the
+	 * note would still be held and that missed event would end the follow.
+	 */
+	anchored_connection(100000);
+	rf_channel = DATA_CHANNEL_MHZ;
+	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, conn.conn_event_counter - 1);
+
+	packet_handler(&buf);
+
+	conn_event.num_packets = 2;
+	conn_event.opened = 1;
+	conn_event.anchor = conn.last_anchor + conn.conn_interval;
+	fake_t1tc = conn_event.anchor;
+
+	finish_conn_event();
+
+	mu_assert_fatal(0 == conn.terminated,
+	                "an event after the terminate's own did not discard it");
+
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+
+	finish_conn_event();
+
+	mu_assert(!connection_was_reset(),
+	          "a connection that missed one event after a damaged packet "
+	          "lost its follow");
 }
 
 /*

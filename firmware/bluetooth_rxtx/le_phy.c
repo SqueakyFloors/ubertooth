@@ -57,15 +57,18 @@
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
 
-// How many connection events may carry packets after a packet announcing the
-// end of the connection has been read, before that packet is treated as
-// damaged and ignored. See conn.terminated and finish_conn_event().
+// The two values conn.terminated takes when a packet announcing the end of the
+// connection has been read: how many connection events may still carry packets
+// before that packet is treated as damaged and ignored.
 //
-// Two, because the first of them is usually the event the packet itself
-// arrived in. The mode's loop reads a packet after the receive interrupt has
-// queued it, which is often while that event is still open, and the packets of
-// that event say nothing about whether the connection is still alive.
-#define TERMINATE_BUSY_EVENTS 2
+// Normally one. The mode's loop reads a packet after the receive interrupt has
+// queued it, though, which is often while the connection event it arrived in is
+// still open; that event holds the packet itself, so its own packets say
+// nothing about whether the connection is alive, and its close is given one
+// more. Which case it is comes from the event counter the receive interrupt
+// dated the packet with.
+#define TERMINATE_AFTER_ITS_EVENT 1
+#define TERMINATE_IN_ITS_EVENT    2
 
 // How long timer1 waits before looking at FS_LOCK again, and how many of
 // those re-checks keep the short interval.
@@ -274,7 +277,8 @@ typedef struct _le_conn_t {
 	// read. The follow then ends at the first connection event that
 	// receives nothing, and the note is discarded if the connection keeps
 	// delivering packets; the value is how many connection events may
-	// still carry packets before that happens. See TERMINATE_BUSY_EVENTS.
+	// still carry packets before that happens. See
+	// TERMINATE_AFTER_ITS_EVENT.
 	//
 	// It belongs to the connection rather than being a flag of its own:
 	// reset_conn() then clears it, and a packet read just after a follow
@@ -2276,13 +2280,25 @@ static void packet_handler(le_rx_t *buf) {
 				// here, as they are for the two updates above. So the
 				// note is not acted on until the connection goes quiet,
 				// which is what tells a real close from a damaged
-				// packet; see TERMINATE_BUSY_EVENTS. A capture that
+				// packet; see TERMINATE_AFTER_ITS_EVENT. A capture that
 				// wants the packet dropped before it ever reaches this
 				// dispatch asks for CRC verification
 				// (`ubertooth-btle -k1`).
+				//
+				// The event counter says whether the event this packet
+				// arrived in is still open. If the counter has moved
+				// past it, every event that closes from now on is after
+				// the packet, and the first silent one ends the follow.
+				// The counter can move on between the comparison and
+				// the write, which costs that follow one more event
+				// before it ends.
 				case 0x2:
 					if (buf->data[1] == 2)
-						conn.terminated = TERMINATE_BUSY_EVENTS;
+						conn.terminated =
+							(buf->in_open_event &&
+							 buf->event_counter == conn.conn_event_counter)
+								? TERMINATE_IN_ITS_EVENT
+								: TERMINATE_AFTER_ITS_EVENT;
 					break;
 			}
 		}
