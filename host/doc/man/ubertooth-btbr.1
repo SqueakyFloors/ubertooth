@@ -201,6 +201,16 @@ A session at a terminal leaves the prompt to the terminal's line editor, which d
 .SH "DIAGNOSTICS"
 Standard output carries the packets a command decodes and the usage text \fB\-h\fR prints; see OUTPUT\. Everything else, the intro line, what \fB?\fR prints and the prompt of a session nobody is editing at a terminal included, goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong during a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
 .P
+A line the session's character encoding cannot carry is dropped rather than ending the command\. A device name arrives as whatever bytes the air sent, so a session that is not running under UTF\-8 meets one it cannot write, and the replacement character a name cut mid\-character decodes to does the same\. The line goes, the rest of the message around it is printed, and the loss is said once per stream:
+.IP "" 4
+.nf
+warning: a line could not be written in standard output's character encoding (ascii), so it was dropped
+note: run the session under an encoding that carries the text, for example PYTHONIOENCODING=utf\-8
+.fi
+.IP "" 0
+.P
+A decoded line lost that way is a packet that was asked for and not printed, so the session exits 1 (see EXIT STATUS)\. A diagnostic lost that way is not, and leaves the status alone\.
+.P
 A message from the board the session could not read is one of those, naming what arrived:
 .IP "" 4
 .nf
@@ -239,7 +249,7 @@ Standard error going away costs the tool its diagnostics and nothing else\. One 
 .P
 With no Ubertooth attached the tool says \fBerror: no Ubertooth devices found\fR and exits 1\. A selection that names no board, or more than one, is refused the same way; see SELECTING A DEVICE\. A board that cannot be opened is \fBerror: could not open Ubertooth <serial>: <reason>\fR, with a \fBnote:\fR about file permissions when the open was refused for want of them\. A board another program is using opens, and is then refused when the session claims its USB interface: \fBerror: Ubertooth <serial> is in use by another program (libusb \-6)\fR, the line every tool gives for that\. Which libusb code it carries depends on the system, \fB\-6\fR on Linux and \fB\-3\fR on macOS; see ubertooth(7), WHEN A BOARD CANNOT BE USED\. A board that takes none of the requests the session opens with gets \fBerror: could not set up Ubertooth <serial>: \|\.\|\.\|\.\fR and, when the request timed out, a \fBnote:\fR naming \fBbluetooth_rxtx\fR and the image to flash: that is nearly always what such a board is carrying, though a board already carrying \fBbtbr\fR that stopped answering times out the same way\. See FIRMWARE\.
 .SH "EXIT STATUS"
-0 for \fB\-h\fR, and when the session ended cleanly, which is \fBexit\fR, \fBq\fR, \fBx\fR or Ctrl\-D with nothing left running and everything asked for printed\. 1 for a command line the tool will not take, when standard output went away before all that was asked for had been printed, when a session was asked for and the Python \fBlibusb1\fR package is not installed, when no Ubertooth is found, when \fB\-U\fR names no board or more than one, when the one it names cannot be opened or is in use by another program, when the board refuses the requests that set the session up, when Ctrl\-C ends the tool before the prompt is up, when the session ends with a command that would not stop still holding the board, and when the thread reading the board stopped on a failure\.
+0 for \fB\-h\fR, and when the session ended cleanly, which is \fBexit\fR, \fBq\fR, \fBx\fR or Ctrl\-D with nothing left running and everything asked for printed\. 1 for a command line the tool will not take, when standard output went away before all that was asked for had been printed, when a decoded line was dropped because the session's character encoding could not carry it (see DIAGNOSTICS), when a session was asked for and the Python \fBlibusb1\fR package is not installed, when no Ubertooth is found, when \fB\-U\fR names no board or more than one, when the one it names cannot be opened or is in use by another program, when the board refuses the requests that set the session up, when Ctrl\-C ends the tool before the prompt is up, when the session ends with a command that would not stop still holding the board, and when the thread reading the board stopped on a failure\.
 .P
 The last of those is a board that left the USB bus, stopped answering, or sent a message whose framing this tool could not follow, with the session still up: the thread reading it ends there, nothing restarts it, and no message arrives for the rest of the session\. The board was power\-cycled under a running \fBinquiry\fR when this was found, and the session reported every step correctly and then exited 0, so a script could not tell it from a run where every command worked\. What ended that thread is said as it happens, \fBerror: the receive thread stopped: <type>: \|\.\|\.\|\.\fR, and again on the way out as a \fBwarning:\fR\.
 .P

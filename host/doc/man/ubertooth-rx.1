@@ -282,11 +282,11 @@ A board that refuses the channel request, the modulation request, or the address
 .IP "" 4
 .nf
 error: could not set the channel: the board did not answer in time (libusb \-7)
-note: if a mode is running, stop it with ubertooth\-util \-S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power\-cycle its hub port if it stays silent
+note: if a mode is running, stop it with ubertooth\-util \-S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth\-util \-r on the same board if it stays silent, and unplug it or power\-cycle its hub port if that does not reach it either
 .fi
 .IP "" 0
 .P
-That pair is the report: the request named as \fBset sweep mode\fR without \fB\-c\fR, since the command then asks for the sweep across the whole band rather than for a channel, and as \fBset the Bluetooth address\fR for the address request\. A request the board's firmware has not got is stalled, which reads \fBerror: could not set the channel: the board's firmware does not support it (stalled, libusb \-9)\fR, with a note naming the board's firmware API version and the one these tools need (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. A board that took only part of the address gives the counts instead, as \fBerror: Bluetooth address write failed: board took 8 of 16 bytes\fR\.
+That pair is the report: the request named as \fBset sweep mode\fR without \fB\-c\fR, since the command then asks for the sweep across the whole band rather than for a channel, and as \fBset the Bluetooth address\fR for the address request\. A request the board's firmware has not got is stalled, which reads \fBerror: could not set the channel: the board's firmware does not support it (stalled, libusb \-9)\fR, with notes naming the board's firmware API version and the one these tools need, and the reset that recovers a board which stalls every request (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. A board that took only part of the address gives the counts instead, as \fBerror: Bluetooth address write failed: board took 8 of 16 bytes\fR\.
 .P
 A refused channel request is answered with the capture already running (see HOW THE CHANNEL IS SET), so the mode is stopped on the way out\. A board that has stopped answering altogether can add a line of its own to the report as that is done\.
 .P

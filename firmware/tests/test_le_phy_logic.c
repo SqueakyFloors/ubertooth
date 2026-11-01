@@ -1958,6 +1958,31 @@ MU_TEST(a_connection_request_after_a_follow_ends_is_followed)
 	          "the next connection's first event was not armed");
 }
 
+/*
+ * The host's cancel and the end of the connection can land in the same
+ * connection event. They stop the follow the same way, so the event stops it
+ * once, and the flag goes with it: a cancel left set behind the follow it
+ * asked to stop would have had to be cleared by whatever ran next.
+ */
+MU_TEST(a_cancel_in_the_event_that_ends_the_connection_is_taken_too)
+{
+	struct connect_req r = valid_connect_req();
+	le_rx_t buf;
+
+	start_fresh();
+	le.do_follow = 1;
+	build_connect_req(&buf, &r);
+	le_connect_handler(&buf);
+
+	/* Both reasons at once: the connection has been quiet past its
+	 * supervision timeout, and the host has asked for the follow to stop. */
+	fake_t1tc = conn.last_packet_ts + conn.supervision_timeout + 1;
+	cancel_follow = 1;
+	finish_conn_event();
+	mu_assert(connection_was_reset(), "the follow is still running");
+	mu_assert_int_eq(0, cancel_follow);
+}
+
 /* ------------------------------------------------------------------ *
  * Updates to a connection that is already being followed
  * ------------------------------------------------------------------ */
@@ -4785,6 +4810,7 @@ int main(void)
 	MU_RUN(a_connection_request_with_no_follow_running_opens_one);
 	MU_RUN(a_connection_request_during_a_follow_leaves_the_follow_alone);
 	MU_RUN(a_connection_request_after_a_follow_ends_is_followed);
+	MU_RUN(a_cancel_in_the_event_that_ends_the_connection_is_taken_too);
 	MU_RUN(a_connection_update_is_scheduled_for_its_instant);
 	MU_RUN(a_connection_update_outside_the_specification_is_ignored);
 	MU_RUN(an_updates_window_size_survives_being_scaled);

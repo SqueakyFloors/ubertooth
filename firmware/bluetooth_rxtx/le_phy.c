@@ -365,6 +365,7 @@ static void timer1_wait_fs_lock(void);
 static void timer1_recheck_fs_lock(void);
 static void timer1_cancel_fs_lock(void);
 static void le_ssp_drain(void);
+static void le_stop_receiving(void);
 static void le_dma_interrupt(uint32_t timestamp);
 static void timer1_interrupt(void);
 static void timer1_wait_buffer(void);
@@ -697,10 +698,14 @@ static void finish_conn_event(void) {
 	if (conn.terminate_note && had_packets)
 		--conn.terminate_note;
 
-	// The connection is over, either because it has gone quiet for longer
-	// than its supervision timeout or because the peers announced the end
-	// of it on the air and this event heard nothing - switch back to
-	// advertising
+	// Stop following, for either of the two reasons there are: the
+	// connection is over -- it has gone quiet for longer than its
+	// supervision timeout, or the peers announced the end of it on the air
+	// and this event heard nothing -- or the host asked for the follow to be
+	// canceled. Both go back to advertising, and they went back the same
+	// way in two blocks of their own; the flag is cleared whichever reason
+	// got here, so a cancel that arrives in the same event as the end of the
+	// connection is not left set behind the follow it asked to stop.
 	//
 	// Every path that stops following disarms the match as well. Connection
 	// events are the only thing it is armed for, and the one left in it has
@@ -709,14 +714,7 @@ static void finish_conn_event(void) {
 	// of whatever the mode was doing by then -- retuning the radio under an
 	// advertising capture, or under another connection.
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout ||
-	    (conn.terminate_note && !had_packets)) {
-		reset_conn();
-		timer1_clear_match();
-		change_channel();
-	}
-
-	// FIXME - hack to cancel following a connection
-	else if (cancel_follow) {
+	    (conn.terminate_note && !had_packets) || cancel_follow) {
 		cancel_follow = 0;
 		reset_conn();
 		timer1_clear_match();
@@ -759,6 +757,34 @@ void le_DMA_IRQHandler(void) {
 	watchdog_unmark(site);
 }
 
+// Stop receiving and take the DMA channel and the SSP down. Every path that
+// stops reading a packet does this and does it the same way, so it is one
+// function: the end of a whole packet, a terminal count with no buffer to put
+// the byte in, and the recovery from a transfer error.
+//
+// The receiver keeps clocking bytes into the radio's FIFO until SFSON takes
+// effect, and they would otherwise be read as the head of the next packet.
+// SFSON rather than SRFOFF stops receiving without stopping the synthesizer,
+// which is what a wait for its lock needs; a path that goes on through a
+// connection event instead reaches change_channel(), which strobes SRFOFF
+// itself.
+//
+// The terminal count is cleared after the channel is taken down, and that
+// order matters: a count raised by a byte the receiver clocked out while SFSON
+// took effect would otherwise be left waiting, and the next transfer would
+// start on it. Clearing it before the channel went down left the data corrupt.
+//
+// The DMA interrupt is masked last. Receive is armed again from the
+// synthesizer-lock path or from change_channel(), which unmask it.
+static void le_stop_receiving(void) {
+	cc2400_strobe(SFSON);
+	DMACC0Config = 0;
+	DMACIntTCClear = (1 << 0);
+	dio_ssp_rx_dma_disable();
+	le_ssp_drain();
+	ICER0 = ICER0_ICE_DMA;
+}
+
 // Give up on the packet a failed capture transfer interrupted, and put the
 // receiver back.
 //
@@ -773,24 +799,7 @@ void le_DMA_IRQHandler(void) {
 // over, while the mode's loop goes on servicing USB so the board answers the
 // host as if nothing had happened.
 static void le_transfer_error_recover(void) {
-	// Stop receiving and take the DMA channel and the SSP down, as the
-	// end-of-packet path does: the receiver keeps clocking bytes into the FIFO
-	// until SFSON takes effect, and they would otherwise be read as the head
-	// of the next packet. SFSON rather than SRFOFF stops receiving without
-	// stopping the synthesizer, which is what a wait for its lock needs; the
-	// path through a connection event instead reaches change_channel(), which
-	// strobes SRFOFF itself.
-	//
-	// The terminal count is cleared here as the end-of-packet path clears it
-	// after taking the channel down, for the same reason: a count raised by a
-	// byte the receiver clocked out while SFSON took effect would otherwise be
-	// waiting, and the next transfer would start on it.
-	cc2400_strobe(SFSON);
-	DMACC0Config = 0;
-	DMACIntTCClear = (1 << 0);
-	dio_ssp_rx_dma_disable();
-	le_ssp_drain();
-	ICER0 = ICER0_ICE_DMA;
+	le_stop_receiving();
 
 	// Drop what was received of the packet, so the next one does not start
 	// part way along the buffer. The buffer is kept rather than released:
@@ -880,21 +889,11 @@ static void le_dma_interrupt(uint32_t timestamp) {
 			// fault.c LED loop, which also stops USB being serviced, so the
 			// board would answer nothing until it was re-plugged.
 			if (current_rxbuf == NULL) {
-				// SFSON, not SRFOFF: stop receiving but leave the
-				// synthesizer running, because the buffer wait below
-				// hands over to the FS_LOCK path, which only arms RX
-				// once the synthesizer reports locked.
-				cc2400_strobe(SFSON);
-
-				// same DMA teardown as the end-of-packet path below,
-				// including draining the SSP: the receiver keeps clocking
-				// bytes into the FIFO until SFSON takes effect, and they
-				// would otherwise be re-armed as the head of the next packet
-				DMACC0Config = 0;
-				DMACIntTCClear = (1 << 0);
-				dio_ssp_rx_dma_disable();
-				le_ssp_drain();
-				ICER0 = ICER0_ICE_DMA;
+				// Stop receiving, as the end-of-packet path below does.
+				// The synthesizer is left running because the buffer wait
+				// armed under here hands over to the FS_LOCK path, which
+				// only arms receive once it reports locked.
+				le_stop_receiving();
 
 				// A transfer error reported in this same interrupt needs no
 				// recovery either: the buffer wait just armed is what carries
@@ -963,18 +962,9 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				uint16_t event_counter = current_rxbuf->event_counter;
 				uint32_t primask;
 
-				// stop the CC2400 before flushing SSP
-				cc2400_strobe(SFSON);
-
-				// stop DMA on this channel and flush SSP
-				DMACC0Config = 0;
-				DMACIntTCClear = (1 << 0); // if we don't clear a second time, data is corrupt
-
-				dio_ssp_rx_dma_disable();
-				le_ssp_drain();
-
-				// XXX disable DMA interrupt as a workaround
-				ICER0 = ICER0_ICE_DMA;
+				// The packet is whole, so stop receiving before it is
+				// handed over: nothing more belongs to it.
+				le_stop_receiving();
 
 				// Hand the finished packet to the host and take the
 				// buffer for the next one, in one step with interrupts

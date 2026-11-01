@@ -163,11 +163,19 @@ int main(int argc, char *argv[])
 	 * characters and leaves nothing a reader can use. Either way it is a
 	 * problem with the command line, so it is refused here, before any
 	 * board is opened; the file itself is opened once the board has been
-	 * accepted, below. */
+	 * accepted, below.
+	 *
+	 * -b is refused too, and named for what it is: it writes a '0' or a '1'
+	 * per symbol, a line per captured block, which is text rather than
+	 * binary but no more use on a screen, at tens of thousands of
+	 * characters a second. */
+	const char *refused = bitstream ? "the bitstream dump"
+	                                : "binary dump data";
+
 	if (dump_name == NULL) {
-		if (opt_check_stdout_not_tty("dump data") < 0)
+		if (opt_check_stdout_not_tty(refused) < 0)
 			return 1;
-	} else if (opt_check_capture_destination(dump_name, "dump data") < 0) {
+	} else if (opt_check_capture_destination(dump_name, refused) < 0) {
 		return 1;
 	}
 
@@ -205,7 +213,7 @@ int main(int argc, char *argv[])
 	 * process exit from here on, as on every other exit of this tool:
 	 * libubertooth owns that global, not the tool. */
 	if (dump_name != NULL) {
-		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		dumpfile = opt_open_dump_file(dump_name, refused);
 		if (dumpfile == NULL) {
 			ubertooth_close(ut);
 			ubertooth_free(ut);

@@ -47,12 +47,17 @@ static const char *hint(int code)
 		 * but not always: a mode that services USB from the interrupt
 		 * keeps its loop turning, and so keeps feeding the watchdog,
 		 * even when its USB path alone has died. That board waits for a
-		 * reset that is not coming, so the note names the fallback. */
+		 * reset that is not coming, so the note names the two things
+		 * left to try, in the order of what they cost: ubertooth-util -r
+		 * resets the USB connection and then the board, which needs
+		 * nobody at the bench, and only a board that will not come back
+		 * from that has to be unplugged. */
 		return "if a mode is running, stop it with ubertooth-util -S; "
 		       "a board that does not answer at all usually resets "
 		       "itself within a few seconds, so run the command again, "
-		       "and unplug it or power-cycle its hub port if it stays "
-		       "silent";
+		       "then reset it with ubertooth-util -r on the same board if "
+		       "it stays silent, and unplug it or power-cycle its hub "
+		       "port if that does not reach it either";
 	case LIBUSB_ERROR_NO_DEVICE:
 		return "re-attach the board and run the command again";
 	default:

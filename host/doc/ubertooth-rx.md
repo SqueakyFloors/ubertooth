@@ -627,15 +627,16 @@ the board refused it and the libusb code, and adds a note where there is
 something to try:
 
     error: could not set the channel: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r on the same board if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
 
 That pair is the report: the request named as `set sweep mode` without `-c`,
 since the command then asks for the sweep across the whole band rather than
 for a channel, and as `set the Bluetooth address` for the address request. A
 request the board's firmware has not got is stalled, which reads `error: could
 not set the channel: the board's firmware does not support it (stalled, libusb
--9)`, with a note naming the board's firmware API version and the one these
-tools need (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board
+-9)`, with notes naming the board's firmware API version and the one these
+tools need, and the reset that recovers a board which stalls every request
+(see ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board
 that took only part of the address gives the counts instead, as `error:
 Bluetooth address write failed: board took 8 of 16 bytes`.
 

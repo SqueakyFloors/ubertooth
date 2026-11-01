@@ -21,7 +21,8 @@ from getopt import getopt, GetoptError
 # imports further down, which need the Python libusb1 package. -V is the call
 # that has to work without it: it is how a user says which tools they have.
 from ubtbr.streams import (bin_an_unusable_standard_error, error, eprint,
-	flush_the_streams, opened_for_writing, output_gone, output_lost)
+	flush_the_streams, opened_for_writing, output_gone, output_lost,
+	result_lines_dropped)
 
 # The options the tool takes, in getopt's form: a ':' marks one that takes a
 # value. report_bad_option() reads the same string to find the word a stray
@@ -290,8 +291,9 @@ def through(stage):
 				raise
 			output_lost()
 	# A standard output that went away means what was asked for was not all
-	# printed, whatever the stage made of the rest.
-	sys.exit(1 if output_gone() else status)
+	# printed, whatever the stage made of the rest, and so does a decoded
+	# line this session's character encoding could not carry.
+	sys.exit(1 if output_gone() or result_lines_dropped() else status)
 
 if __name__ == '__main__':
 	# Before anything is printed, since what this does is decide where the
@@ -790,5 +792,6 @@ def main(selector, settings):
 if __name__ == '__main__':
 	through(lambda: main(*COMMAND_LINE))
 	# The session ended without asking for a status of its own, so all that
-	# is left to say is whether standard output was there to the end.
-	sys.exit(1 if output_gone() else 0)
+	# is left to say is whether standard output was there to the end, and
+	# took every line that was printed to it.
+	sys.exit(1 if output_gone() or result_lines_dropped() else 0)

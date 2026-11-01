@@ -95,12 +95,14 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap);
 
 /*
  * A bare "-" means standard output, which is only useful for a pipe or a
- * redirect: binary written to a terminal fills it with control characters and
- * can leave it in a strange state. Call this where a tool is about to stream
- * binary to stdout. Returns 0 when stdout is not a terminal, or prints
- * "error: stdout is a tty, refusing to write binary <what> to it" and returns
- * -1, so the caller only has to exit. <what> names what would be written,
- * for example "samples"; NULL reads "output".
+ * redirect: a capture stream written to a terminal fills it with control
+ * characters, or with more lines than a screen holds, and can leave it in a
+ * strange state. Call this where a tool is about to stream one to stdout.
+ * Returns 0 when stdout is not a terminal, or prints
+ * "error: stdout is a tty, refusing to write <what> to it" and returns -1, so
+ * the caller only has to exit. <what> is the whole description of what would
+ * be written, for example "binary samples" or "the bitstream dump"; NULL
+ * reads "this output".
  */
 int opt_check_stdout_not_tty(const char *what);
 

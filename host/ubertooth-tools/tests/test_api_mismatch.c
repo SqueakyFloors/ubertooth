@@ -316,6 +316,44 @@ MU_TEST(an_unsupported_request_names_both_api_versions)
 	ubertooth_forget_api_version(&board_a);
 }
 
+/*
+ * The version note cannot tell the two reasons for a stall apart: a wedged
+ * board stalls everything sent to it, whatever its firmware implements, so a
+ * report naming the firmware alone sent the user to reflash a board that was
+ * not short of the request at all. A second note gives the question that does
+ * separate them -- does any request get through? -- and names the reset that
+ * recovers the wedge. It goes with the version note, because that note is what
+ * says an application firmware answered: a board in the DFU bootloader runs
+ * none, and ubertooth-util cannot reach one.
+ */
+MU_TEST(an_unsupported_request_names_the_reset_for_a_wedged_board)
+{
+	static const char* const wedge =
+		"note: a board that stalls every request is wedged rather than "
+		"short of this one; reset it with ubertooth-util -r on the "
+		"same board\n";
+
+	ubertooth_forget_api_version(&board_a);
+	ubertooth_forget_api_version(&board_b);
+	captured(report_unsupported);
+	mu_assert(strstr(err, wedge) == NULL,
+	          "no board was read, so there is no board to reset");
+
+	ubertooth_note_api_version(&board_a, OLDER);
+	captured(report_unsupported);
+	mu_assert(strstr(err, wedge) != NULL, err);
+	/* After the version note, which is the first reading of a stall. */
+	mu_assert(strstr(err, "firmware API version") < strstr(err, wedge), err);
+
+	/* A firmware that matches is where the note earns its place: the
+	 * versions say nothing is wrong, and the wedge is what is left. */
+	ubertooth_note_api_version(&board_a, UBERTOOTH_API_VERSION);
+	captured(report_unsupported);
+	mu_assert(strstr(err, wedge) != NULL, err);
+
+	ubertooth_forget_api_version(&board_a);
+}
+
 /* A version belongs to the board it was read from, and goes when that board
  * is released. A process that works through several boards in turn -- which
  * is what ubertooth-util's listing does -- must not quote the board before
@@ -389,6 +427,7 @@ MU_TEST(a_report_with_no_board_behind_it_keeps_the_stall_wording)
 int main(void)
 {
 	MU_RUN(an_unsupported_request_names_both_api_versions);
+	MU_RUN(an_unsupported_request_names_the_reset_for_a_wedged_board);
 	MU_RUN(the_build_decides_when_the_environment_says_nothing);
 	MU_RUN(the_override_decides_whatever_the_build);
 	MU_RUN(any_other_value_leaves_the_builds_own_answer);

@@ -452,8 +452,8 @@ int main(int argc, char* argv[])
 	 * is a problem with the command line, so it is refused here, before a
 	 * board is opened; the stream itself is taken over further down, where
 	 * the file is created. */
-	if (opt_check_capture_destination(pcap_name, "capture data") < 0 ||
-	    opt_check_capture_destination(dump_name, "dump data") < 0)
+	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0 ||
+	    opt_check_capture_destination(dump_name, "binary dump data") < 0)
 		return 1;
 
 	/* Every check has passed, so the handle and its 72 MB fifo can be
@@ -603,7 +603,7 @@ int main(int argc, char* argv[])
 		 * man page says of it; the notes and failures are on standard
 		 * error and still arrive. */
 		int saved_fd;
-		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		char *file = opt_capture_path(pcap_name, "binary capture data", &saved_fd);
 		int failed, create_errno;
 
 		if (file == NULL) {
@@ -631,7 +631,7 @@ int main(int argc, char* argv[])
 		}
 	}
 	if (dump_name != NULL) {
-		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		dumpfile = opt_open_dump_file(dump_name, "binary dump data");
 		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
 			report_stream = stderr;
 		if (dumpfile == NULL) {

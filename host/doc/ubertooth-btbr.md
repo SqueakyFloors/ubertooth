@@ -320,6 +320,20 @@ error. A command line the tool will not take, a board it cannot select, open
 or set up, and anything that goes wrong during a session, are reported as the
 one-line `error: `, `warning: ` and `note: ` lines the other tools use.
 
+A line the session's character encoding cannot carry is dropped rather than
+ending the command. A device name arrives as whatever bytes the air sent, so a
+session that is not running under UTF-8 meets one it cannot write, and the
+replacement character a name cut mid-character decodes to does the same. The
+line goes, the rest of the message around it is printed, and the loss is said
+once per stream:
+
+    warning: a line could not be written in standard output's character encoding (ascii), so it was dropped
+    note: run the session under an encoding that carries the text, for example PYTHONIOENCODING=utf-8
+
+A decoded line lost that way is a packet that was asked for and not printed,
+so the session exits 1 (see EXIT STATUS). A diagnostic lost that way is not,
+and leaves the status alone.
+
 A message from the board the session could not read is one of those, naming
 what arrived:
 
@@ -415,7 +429,9 @@ same way. See FIRMWARE.
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
 Ctrl-D with nothing left running and everything asked for printed. 1 for a
 command line the tool will not take, when standard output went away before
-all that was asked for had been printed,
+all that was asked for had been printed, when a decoded line was dropped
+because the session's character encoding could not carry it (see
+DIAGNOSTICS),
 when a session was asked for and the Python `libusb1` package is not
 installed, when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the

@@ -1606,6 +1606,76 @@ with contextlib.redirect_stderr(Terminal()):
     assert streams.colored("ready", "32;1") == "\x1b[32;1mready\x1b[0m"
 print("ubtbr: a progress line is colored for a terminal and plain otherwise")
 
+# A line the stream's character encoding cannot carry is one lost line, not a
+# lost stream. A device name comes off the air as whatever bytes were sent,
+# and one that is not ASCII -- or the replacement character a name cut
+# mid-character decodes to -- used to end the command in
+# "BTCtlInquiryCmd stopped: UnicodeEncodeError" on a session whose streams are
+# not UTF-8. The line goes, the warning says why once, and the session carries
+# on with the packets that follow.
+
+
+def ascii_stream():
+    """A stream with ASCII under it, as PYTHONIOENCODING=ascii leaves one."""
+    return io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+
+
+def written(stream):
+    stream.flush()
+    return stream.buffer.getvalue().decode("ascii")
+
+
+# The flag that says the warning has been given is a module global, so each
+# case below starts from a session that has not given it yet.
+streams._encoding_reported = set()
+ascii_out, said = ascii_stream(), io.StringIO()
+with contextlib.redirect_stdout(ascii_out), contextlib.redirect_stderr(said):
+    # An inquiry response is one message of several lines, and the name is
+    # only one of them: the packet and the fields around it have to survive
+    # it. The whole message is written in one call, so the encoder refuses
+    # all of it, and the lines are then written again one at a time.
+    streams.result("ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55\n"
+                   "COMPLETE_LOCAL_NAME: '\ufffdbertooth'\n"
+                   "FLAGS: 02 01 06")
+    streams.result("RX FHS: bdaddr=112233445566")
+    streams.result("COMPLETE_LOCAL_NAME: '\ufffdgain'")
+printed = written(ascii_out)
+# only the lines that could not be encoded are gone, and everything around
+# them reached the reader: the stream is kept rather than pointed at the bin
+assert "bertooth" not in printed and "gain" not in printed, printed
+assert "ACL(llid=L2CAP_START" in printed, printed
+assert "FLAGS: 02 01 06" in printed, printed
+assert "RX FHS: bdaddr=112233445566" in printed, printed
+# each surviving line still carries its own time
+assert all(re.match(r"\d\d:\d\d:\d\d ", line)
+           for line in printed.splitlines()), printed
+assert said.getvalue().count(
+    "warning: a line could not be written in standard output's character"
+    " encoding (ascii), so it was dropped\n"
+    "note: run the session under an encoding that carries the text, for"
+    " example PYTHONIOENCODING=utf-8\n") == 1, said.getvalue()
+# the stream is there, so this is not the loss output_gone() reports -- but a
+# packet that was asked for was not printed, which the exit status says
+assert not streams.output_gone(), "the stream is there; only the line is lost"
+assert streams.result_lines_dropped(), "a dropped packet must reach the status"
+print("ubtbr: a packet the output encoding cannot carry is one dropped line")
+
+# the same for a diagnostic, which used to point standard error at the bin
+# for the rest of the session: one warning the encoding could not take and
+# every later error line was lost with it. The flag is not reset here, so
+# this also pins that a lost error line is reported after a lost packet has
+# already been: one flag for both streams left it silent, and a lost error
+# line is the one loss that must not be.
+ascii_err = ascii_stream()
+with contextlib.redirect_stderr(ascii_err):
+    streams.error("could not read the name '\ufffdbertooth'")
+    streams.error("plain words reach the reader")
+assert "plain words reach the reader" in written(ascii_err), written(ascii_err)
+assert "standard error's character encoding (ascii)" in written(ascii_err), \
+    written(ascii_err)
+print("ubtbr: a diagnostic the error encoding cannot carry keeps the stream")
+streams._encoding_reported = set()
+
 # ---- a command that ends after the prompt gave up on it -------------------
 
 # Giving up has to be a pause, not the end of the session: a command that
