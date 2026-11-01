@@ -2632,6 +2632,13 @@
 
 ### Documentation
 
+- `ubertooth-follow(1)` and the sniffing guide walk a follow through from not
+  knowing the target to a capture file in Wireshark, including what a follow
+  that has not locked on looks like and why. Both now say plainly what a
+  capture cannot hold: enhanced data rate payloads, which the radio cannot
+  demodulate, and the contents of an encrypted link.
+  [#518](https://github.com/SqueakyFloors/ubertooth/issues/518)
+
 - `ubertooth-btle(1)`, the tool's `-h` text, and the capture guide say that
   promiscuous mode, `-p`, recovers connections that hop with channel selection
   algorithm 1: on an algorithm-2 connection, which is what Bluetooth 5.0
