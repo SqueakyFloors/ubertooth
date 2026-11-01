@@ -2336,6 +2336,84 @@ for typed in ("x\n", "q\n", "x now\n", "q now\n"):
 print("ubtbr: `x` and `q` leave whatever follows them")
 
 
+# ---- an address the prompt acts on is the one that was typed ---------------
+#
+# A Bluetooth address is six bytes, so twelve hex digits, which is what the
+# prompt's own error line asks for. A shorter word used to be taken and acted
+# on, because the parser read the word as a hex number and only checked that
+# it fit 48 bits: "bdaddr 11:22:33" gave the board the address 00:00:11:22:33
+# and "page 11:22:33" paged that device, three bytes from the one the user
+# meant, with nothing said about it. Two more words int() reads and this
+# grammar does not: "0x11" as address 0x11, from the prefix, and "1_1" as
+# 0x11, from the underscore.
+
+def requests_sent():
+    """The request code of every packet sent so far, oldest first."""
+    return [struct.unpack("<I", bytes.fromhex(packet)[4:8])[0]
+            for packet in writes()]
+
+
+def set_bdaddr_packet(bdaddr):
+    """The USB packet the device gets for a set-address request."""
+    payload = (struct.pack("<I", btctl.BTCTL_SET_BDADDR_REQ)
+               + struct.pack("<Q", bdaddr))
+    return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
+
+
+# The session gives the board an address of its own on the way up, so that
+# one request is there before anything is typed.
+STARTUP_BDADDR = set_bdaddr_packet(0x112233445566)
+
+REFUSED_ADDRESSES = (
+    "11:22:33",             # short, and a whole address of its own
+    "1122334455",           # short, without the colons
+    "11:22:33:44:55",       # one byte short
+    "0x112233445566",       # the prefix int() takes
+    "1_12233445566",        # the underscore int() takes
+    "11:2233:4455:66",      # twelve digits, but not the five colons
+    "11:22:33:44:55:66:77",
+    "11:22:33:44:55:zz",
+    "",                     # the bare command
+)
+refused = "".join("bdaddr %s\n" % word for word in REFUSED_ADDRESSES) + "q\n"
+status, output, errors = ran(typed=refused)
+assert status == 0, (status, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+for word in REFUSED_ADDRESSES:
+    assert ("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)\n" % word
+            ) in errors, (word, errors)
+# and none of them reached the board: the only set-address request is the
+# session's own, from before anything was typed
+assert writes().count(STARTUP_BDADDR) == 1, writes()
+assert requests_sent().count(btctl.BTCTL_SET_BDADDR_REQ) == 1, requests_sent()
+print("ubtbr: an address that is not six bytes is refused, not acted on")
+
+# The same parser serves page, l2ping, and monitor, so a short address is
+# refused there too, and no page train goes out for it.
+for command in ("page", "l2ping", "monitor"):
+    status, output, errors = ran(typed="%s 11:22:33\nq\n" % command)
+    assert status == 0, (command, status, output, errors)
+    assert output == "", (command, output)
+    assert ("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got 11:22:33)\n"
+            in errors), (command, errors)
+    assert "Traceback" not in errors, (command, errors)
+    sent = requests_sent()
+    assert btctl.BTCTL_PAGING_REQ not in sent, (command, sent)
+    assert btctl.BTCTL_MONITOR_REQ not in sent, (command, sent)
+print("ubtbr: page, l2ping, and monitor refuse a short address as bdaddr does")
+
+# A whole address is taken either way it is written, upper or lower case, and
+# the board is given exactly those six bytes.
+for word in ("AA:BB:CC:DD:EE:FF", "aabbccddeeff", "Aa:bB:cC:Dd:eE:fF"):
+    status, output, errors = ran(typed="bdaddr %s\nq\n" % word)
+    assert status == 0, (word, status, output, errors)
+    assert "BD_ADDR must be" not in errors, (word, errors)
+    assert "Traceback" not in errors, (word, errors)
+    assert set_bdaddr_packet(0xAABBCCDDEEFF) in writes(), (word, writes())
+print("ubtbr: a whole address is taken with or without the colons")
+
+
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
 # terminal's line editor: the editor draws it and counts its width while it
 # redraws the line being edited, so one written behind its back would put the
