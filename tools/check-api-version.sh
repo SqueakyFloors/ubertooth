@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Fail when a branch bumps the firmware API version to a value main has
 # already taken, when a branch with no firmware change moves it at all, or
 # when either takes a major version a release reserves.

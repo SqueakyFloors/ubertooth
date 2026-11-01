@@ -35,7 +35,10 @@ on:
 # the PR number, so same-named branches from forks cannot collide.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # Only a pull request's superseded runs are cancelled. Every push to main
+  # runs to the end, so each commit main takes is built and tested as merged,
+  # even when several merges land close together.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Two tiers, to keep pull requests fast and cheap:
 # - Minimal (pull requests, pushes to main): host on Ubuntu 22.04, the oldest
@@ -56,7 +59,7 @@ env:
   # lines below as the pin, names the other files that write it out, and fails
   # until they all agree.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
-  LIBBTBB_REF: 50bbc76d383e4038ee6dadccad55f0161c1cb029
+  LIBBTBB_REF: 017676965a77cd7b00bfede343b7800dee6aa6a5
   # The ARM toolchain, named once so the step that fetches it, the step that
   # resolves it for the cache key, and the Ubuntu 20.04 container below cannot
   # drift apart. gcc-arm-none-eabi recommends a large set of packages none of

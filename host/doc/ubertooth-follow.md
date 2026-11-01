@@ -43,7 +43,15 @@ is the default -120 dBm unless `ubertooth-util -z` set another value while the
 board was idle, and the firmware resets it on every mode change, so it never
 carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
 
-Requires BlueZ (Linux only).
+Requires BlueZ (Linux only). The clock and AFH-map reads this tool is built
+around are not reachable from macOS's public Bluetooth APIs, so it is not
+built there and no macOS version is planned. `ubertooth-rx -l <LAP>` recovers
+the addresses and the clock from the air without an adapter, but its clock
+search does not confirm a clock against a piconet that uses adapted hopping,
+which the controllers tested on this project's bench all do: see
+ubertooth-rx(1), THE CLOCK SEARCH AND ADAPTED HOPPING. Reading the clock
+through an adapter, as this tool does, is not subject to that. See
+COMPATIBILITY.md for the comparison.
 
 ## OPTIONS
 
@@ -209,7 +217,10 @@ to capture.
 4. Watch what the run prints. The tool pages the target through the local
    Bluetooth device, reads the clock of the connection it gets, hands that to
    the board as the clock to hop on, and starts capturing. Unlike
-   ubertooth-rx(1), it does not search the air for a clock: it is given one, so
+   ubertooth-rx(1), it does not search the air for a clock. That search does
+   not confirm one against a piconet using adapted hopping, which is most of
+   them; see ubertooth-rx(1), THE CLOCK SEARCH AND ADAPTED HOPPING. This tool
+   is given its clock, so
    there is no acquisition to wait for and a follow that is working prints
    packets from the start. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear both devices, the `-u`
@@ -371,6 +382,21 @@ count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
 
+A receiver being driven harder than it can measure is reported once per run:
+`warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. The radio reports the power of each
+block of air on a scale that runs out, and a receiver held at the top of it is
+also past where it demodulates reliably -- so this is the case where nothing
+decodes and the board is not at fault. Put more distance or more attenuation
+between the boards, or turn the transmit power down. See ubertooth(7).
+
+When the capture ends it says how many such stretches there were:
+`warning: the capture has 3 stretches where the signal was at the top of the
+receiver's range`, one per block of records judged to be there. The running
+warning is said once, so the total is what tells one bad stretch from a
+capture that was deaf throughout.
+
 ## EXIT STATUS
 
 A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and
@@ -402,15 +428,16 @@ why the board refused it and the libusb code, adding a note where there is
 something to try:
 
     error: could not zero the board's clock: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r on the same board if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
 
 That pair is the report, the same one ubertooth-rx(1) and ubertooth-scan(1)
 give: the request named as `set the Bluetooth address` for the address, and as
 `zero the board's clock` for the clock reset. A request the board's firmware
 has not got is stalled, which reads `error: could not zero the board's clock:
-the board's firmware does not support it (stalled, libusb -9)`, with a note
-naming the board's firmware API version and the one these tools need (see
-ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board that took only part of
+the board's firmware does not support it (stalled, libusb -9)`, with notes
+naming the board's firmware API version and the one these tools need, and the
+reset that recovers a board which stalls every request (see ubertooth(7),
+FIRMWARE OF ANOTHER API VERSION). A board that took only part of
 either write gives the counts instead, as `error: Bluetooth address write
 failed: board took 8 of 16 bytes` or `error: clock write failed: board took 2
 of 4 bytes`, and the follow stops on that one line.

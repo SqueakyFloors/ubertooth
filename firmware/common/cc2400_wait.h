@@ -1,8 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Bounded waits on CC2400 radio state.
- *
- * This file is part of Project Ubertooth and is released under the
- * terms of the GPL. Refer to COPYING for more information.
  */
 
 #ifndef __UBERTOOTH_CC2400_WAIT_H

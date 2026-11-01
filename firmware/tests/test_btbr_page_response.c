@@ -34,9 +34,6 @@
  * when a transmit or a window is prepared; the last case reads that rule back
  * out of rx_task.c and tx_task.c as text, so the two cannot drift apart
  * silently.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -94,10 +91,15 @@ void __attribute__((noreturn)) die(char *fmt, ...)
 void *mem_pool_alloc(unsigned size) { return malloc(size); }
 void mem_pool_free(void *p) { free(p); }
 
+/* The reason the board reported its last state with. A page or a page scan
+ * running again after a connection that carried no packet reports itself with a
+ * reason of its own, so the host can tell it from one just starting. */
+static btctl_reason_t btctl_last_reason;
+
 void btctl_set_state(btctl_state_t state, btctl_reason_t reason)
 {
-	(void)reason;
 	btctl.state = state;
+	btctl_last_reason = reason;
 }
 
 /*
@@ -326,6 +328,30 @@ static uint8_t air_prepare(enum air_kind kind)
 }
 
 /*
+ * The frequency a page train transmit in tick `clkn` goes out on, for a page to
+ * the device at `lap`/`uap`: the page hop sequence is built from the paged
+ * device's address, so a pager that lost it transmits somewhere else entirely.
+ * Leaves the hop, mode and address state as it found them.
+ */
+static uint8_t page_train_chan(uint32_t lap, uint8_t uap, uint32_t clkn)
+{
+	hop_state_t saved_hop = hop_state;
+	btphy_mode_t saved_mode = btphy.mode;
+	uint32_t saved_lap = btphy.chan_lap;
+	uint8_t saved_uap = btphy.chan_uap;
+	uint8_t chan;
+
+	btphy_set_mode(BT_MODE_PAGING, lap, uap);
+	chan = hop_channel(clkn);
+
+	btphy.chan_lap = saved_lap;
+	btphy.chan_uap = saved_uap;
+	hop_state = saved_hop;
+	btphy_set_mode_no_ap(saved_mode);
+	return chan;
+}
+
+/*
  * The frequency a page response substate uses in a central transmit slot
  * (CLK1 = 0) on a given phase: what both ends compute for the page response
  * packet. Leaves the hop and mode state as it found them.
@@ -454,6 +480,7 @@ static void air_reset(void)
 	air_callback_lateness = 0;
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
+	btctl_last_reason = BTCTL_REASON_SUCCESS;
 	central_started = 0;
 	peripheral_started = 0;
 	peripheral_peer_bdaddr = 0;
@@ -966,6 +993,151 @@ MU_TEST(paged_a_late_decode_ends_the_page_response)
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
 }
 
+/* ---- a connection that carries no packet goes back to what it came from ---- */
+
+/*
+ * Start a page and let the train run one slot, so what the resume below has to
+ * put back is what a real attempt leaves behind. Short on purpose: the air log
+ * has room for one scenario, not two.
+ */
+static void run_pager_one_slot(void)
+{
+	air_reset();
+	btphy.central_clkn = PAGER_CLKN_START;
+	btphy.my_lap = PAGER_LAP;
+	btphy.my_uap = PAGER_UAP;
+	paging_state_setup(PAGED_LAP, PAGED_UAP);
+	air_run(14);
+	/* The connection takes the board from here: the window the stray answer
+	 * arrives in is the last thing the train had scheduled. So drop what is
+	 * left of it, and read the air from the resume on. */
+	pending_count = 0;
+	air_count = 0;
+}
+
+/* What central_state.c hands the pager a connection in, and takes it out of
+ * again when the connection carries no packet: the radio and the hop sequence
+ * are on this board's own address by then, not the paged device's. */
+static void connect_and_drop_the_pager(void)
+{
+	btphy_set_mode(BT_MODE_CENTRAL, btphy.my_lap, btphy.my_uap);
+	btctl_set_state(BTCTL_STATE_CONNECTED, BTCTL_REASON_PAGED);
+	paging_state_resume();
+}
+
+/*
+ * The ID packet that answers a page message and the ID packet that
+ * acknowledges the page response are the same bare access code, so anything
+ * else answering a page on the air lands in the pager's final window and starts
+ * a connection with nobody on it. One second of link supervision then ends that
+ * connection, and the page attempt goes on: the train starts again, on the
+ * paged device's address.
+ */
+MU_TEST(pager_resumes_the_page_train_after_a_dead_connection)
+{
+	const struct air_event *page1, *page2, *window;
+
+	run_pager_one_slot();
+	connect_and_drop_the_pager();
+	air_run(8);
+
+	/* Paging again, and saying so with a reason of its own. */
+	mu_assert_int_eq(BTCTL_STATE_PAGE, btctl.state);
+	mu_assert_int_eq(BT_MODE_PAGING, btphy.mode);
+	mu_assert(btctl_last_reason != BTCTL_REASON_SUCCESS,
+		"a resumed page train reports itself as a page just started");
+
+	/* On the paged device's address. The connection left both the radio and
+	 * the hop sequence on this board's own, which would put every page
+	 * message somewhere the paged device is not listening. */
+	mu_assert_int_eq(PAGED_LAP, btphy.chan_lap);
+	mu_assert_int_eq(PAGED_UAP, btphy.chan_uap);
+
+	/* The train itself: two page messages a tick apart, then a window two
+	 * ticks after the first for the answer. */
+	page1 = air_nth(air_log, air_count, AIR_TX, 1);
+	page2 = air_nth(air_log, air_count, AIR_TX, 2);
+	window = air_nth(air_log, air_count, AIR_RX, 1);
+	mu_assert_int_eq(1, page2->tick - page1->tick);
+	mu_assert_int_eq(2, window->tick - page1->tick);
+
+	/* And the frequency the paged device's own address gives for that tick,
+	 * which is not the one this board's address would have given. */
+	mu_assert_int_eq(page_train_chan(PAGED_LAP, PAGED_UAP, page1->clkn),
+		page1->chan);
+	mu_assert(page_train_chan(PAGER_LAP, PAGER_UAP, page1->clkn)
+			!= page1->chan,
+		"the two addresses hop alike here, so this proves nothing");
+}
+
+/*
+ * However many stray answers arrive, the command lasts no longer than the one
+ * page attempt the user asked for: the resumed train keeps the deadline of the
+ * attempt it belongs to, and past it the board goes to standby.
+ */
+MU_TEST(pager_resume_keeps_the_deadline_of_the_attempt)
+{
+	run_pager_one_slot();
+	/* Well past the 45 seconds a page attempt is allowed. */
+	btphy.central_clkn += CLKN_RATE*120;
+	connect_and_drop_the_pager();
+	air_run(8);
+
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
+	mu_assert_int_eq(0, air_tally(air_log, air_count, AIR_TX));
+}
+
+/*
+ * The paged device's side of the same thing. This board decoded the page
+ * response and acknowledged it, but the central did not hear that
+ * acknowledgment and went on paging, so the connection carries nothing. The
+ * scan the user asked for has most of its minute left and the central's next
+ * sweep is milliseconds away, so the board goes back to scanning.
+ */
+MU_TEST(paged_resumes_the_scan_after_a_dead_connection)
+{
+	const struct air_event *fhs;
+
+	run_pager(1);
+	fhs = air_nth(pager_log, pager_log_count, AIR_TX, 3);
+	run_paged(pager_page_phase(1), 1, 1, fhs->clkn >> 2);
+	mu_assert_int_eq(1, peripheral_started);
+
+	/* What peripheral_state.c leaves behind: the hop sequence and the
+	 * access code are the central's. A page scan listens on this board's
+	 * own. */
+	btphy_set_mode(BT_MODE_PERIPHERAL, FHS_RX_BDADDR & 0xffffff,
+			0xff & (FHS_RX_BDADDR >> 24));
+	scan_cb = NULL;
+	page_scan_state_resume();
+
+	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
+	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
+	mu_assert(btctl_last_reason != BTCTL_REASON_SUCCESS,
+		"a resumed page scan reports itself as a scan just started");
+	mu_assert_int_eq(PAGED_LAP, btphy.chan_lap);
+	mu_assert_int_eq(PAGED_UAP, btphy.chan_uap);
+	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
+}
+
+/* And the scan it goes back to is the one that was running, deadline and all. */
+MU_TEST(paged_resume_keeps_the_deadline_of_the_scan)
+{
+	const struct air_event *fhs;
+
+	run_pager(1);
+	fhs = air_nth(pager_log, pager_log_count, AIR_TX, 3);
+	run_paged(pager_page_phase(1), 1, 1, fhs->clkn >> 2);
+
+	/* Well past the minute a page scan is allowed. */
+	btphy.central_clkn += CLKN_RATE*120;
+	scan_cb = NULL;
+	page_scan_state_resume();
+
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
+	mu_assert(scan_cb == NULL, "the page scan ran past its deadline");
+}
+
 /*
  * The fakes' air_prepare() stands in for the two task files, which cannot run
  * here. Read the rule it copies back out of them: a window of the paged
@@ -1042,6 +1214,10 @@ int main(void)
 	MU_RUN(paged_completes_on_a_later_repeat);
 	MU_RUN(paged_a_decode_one_tick_late_keeps_the_windows_in_place);
 	MU_RUN(paged_a_late_decode_ends_the_page_response);
+	MU_RUN(pager_resumes_the_page_train_after_a_dead_connection);
+	MU_RUN(pager_resume_keeps_the_deadline_of_the_attempt);
+	MU_RUN(paged_resumes_the_scan_after_a_dead_connection);
+	MU_RUN(paged_resume_keeps_the_deadline_of_the_scan);
 	MU_RUN(prepare_model_matches_the_task_files);
 	return mu_report();
 }

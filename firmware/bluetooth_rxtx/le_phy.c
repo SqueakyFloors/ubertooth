@@ -57,6 +57,51 @@
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
 
+// conn.terminate_note, the note a packet announcing the end of the connection
+// leaves, counts how many more connection events may carry packets before that
+// packet is treated as damaged and ignored. The follow ends at the first
+// connection event that carries nothing. These are the two values the note
+// starts at.
+//
+// Why the connection has to go quiet first: CRC verification is off by
+// default, so a bit-errored data packet reaches the dispatch that reads these
+// packets, and the control LLID, a length of 2 and 0x02 where the opcode goes
+// are all that tell it from a real one. Stopping a healthy follow is the worse
+// of the two mistakes, because nothing re-follows a live connection -- there
+// is no new connection request to hear -- so the capture would go quiet with
+// the connection still running.
+//
+// Why two events of it. A close is not one packet but a short exchange: the
+// peer that is closing sends this packet, and the other acknowledges it in its
+// own next packet, which is a connection event later when the peripheral is
+// the one closing. Both of those events carry packets and neither says the
+// connection is alive, so the note has to outlast them. A connection in use
+// carries packets in every event, so it spends the budget just as quickly and
+// the note is gone.
+//
+// What it costs: a real close ends the follow one or two connection events
+// later than the packet alone would. A connection that keeps talking for
+// longer than that after the packet keeps its follow, and if the packet was
+// genuine the follow then waits out the supervision timeout as it did before.
+// A connection event the board merely missed is silence too, so a damaged
+// packet followed by a quiet event does still end a follow.
+// `ubertooth-btle -k1` is what removes the exposure altogether: a damaged
+// packet never reaches the dispatch.
+//
+// The two differ by one event, and that event is the one the packet itself
+// arrived in. The mode's loop reads a packet after the receive interrupt has
+// queued it, so that event may or may not have closed yet; where it has not,
+// its close is still to come and spends a unit of the budget, and the event
+// counter the receive interrupt dated the packet with says which case it is.
+//
+// Events that closed while the packet waited in the queue are not charged
+// against the budget. The wait is bounded by the pool, which is
+// LE_BUFFER_POOL_SIZE buffers with one always being received into, and
+// charging for it would be the wrong way round: a note expiring before it was
+// read would leave a genuine close to the supervision timeout.
+#define TERMINATE_BUDGET_EVENT_CLOSED 2
+#define TERMINATE_BUDGET_EVENT_OPEN   (TERMINATE_BUDGET_EVENT_CLOSED + 1)
+
 // How long timer1 waits before looking at FS_LOCK again, and how many of
 // those re-checks keep the short interval.
 //
@@ -260,19 +305,24 @@ typedef struct _le_conn_t {
 	uint16_t channel_map_update_instant;
 	le_channel_remapping_t pending_remapping;
 
-	// Set when a packet announcing the end of the connection has been read,
-	// so the next connection event to close stops following it. It belongs
-	// to the connection rather than being a flag of its own: reset_conn()
-	// then clears it, and a packet read just after a follow ended cannot
-	// reach into the follow that comes next.
+	// How many connection events may still carry packets before a packet
+	// that announced the end of the connection is treated as damaged, and 0
+	// where none has been read. Counted from the one the packet arrived in
+	// where that event has yet to close, and from the next one where it has
+	// already closed. See TERMINATE_BUDGET_EVENT_CLOSED, which is where the
+	// whole of this is explained.
 	//
-	// Written from the mode's loop without holding interrupts off, where
-	// the two updates above need a guard, because this is one word on its
-	// own: there is no second field the interrupt could read out of step
-	// with it. A write that lands after the interrupt has reset the
-	// connection leaves the note on a connection that is no longer
-	// followed, which is harmless for the same reason.
-	int      terminated;
+	// It belongs to the connection rather than being a field of its own:
+	// reset_conn() then clears it, and a packet read just after a follow
+	// ended cannot reach into the follow that comes next. A write that
+	// lands after the interrupt has reset the connection leaves the note on
+	// a connection that is no longer followed, which is harmless for the
+	// same reason.
+	//
+	// The mode's loop writes it with interrupts held off, as it does the
+	// two updates above, because the value it writes depends on the
+	// connection event counter that the timer interrupt moves on.
+	int      terminate_note;
 } le_conn_t;
 le_conn_t conn = { 0, };
 
@@ -315,6 +365,7 @@ static void timer1_wait_fs_lock(void);
 static void timer1_recheck_fs_lock(void);
 static void timer1_cancel_fs_lock(void);
 static void le_ssp_drain(void);
+static void le_stop_receiving(void);
 static void le_dma_interrupt(uint32_t timestamp);
 static void timer1_interrupt(void);
 static void timer1_wait_buffer(void);
@@ -572,6 +623,9 @@ static void timer1_set_match_ahead(uint32_t target) {
 static void finish_conn_event(void) {
 	uint32_t last_anchor = 0;
 	int last_anchor_set = 0;
+	// Kept because reset_conn_event() below clears the count, and the
+	// decision about a noted terminate comes after it.
+	const int had_packets = conn_event.num_packets > 0;
 
 	// two packets -- update anchor
 	if (conn_event.num_packets == 2) {
@@ -637,9 +691,21 @@ static void finish_conn_event(void) {
 	// increment connection event counter
 	++conn.conn_event_counter;
 
-	// The connection is over, either because it has gone quiet for longer
-	// than its supervision timeout or because the peers announced the end
-	// of it on the air - switch back to advertising
+	// An event that carried packets spends one of the note's budget, and
+	// discards the note once the budget runs out: a connection still
+	// delivering packets has not closed, so the packet that said it had was
+	// damaged. See TERMINATE_BUDGET_EVENT_CLOSED.
+	if (conn.terminate_note && had_packets)
+		--conn.terminate_note;
+
+	// Stop following, for either of the two reasons there are: the
+	// connection is over -- it has gone quiet for longer than its
+	// supervision timeout, or the peers announced the end of it on the air
+	// and this event heard nothing -- or the host asked for the follow to be
+	// canceled. Both go back to advertising, and they went back the same
+	// way in two blocks of their own; the flag is cleared whichever reason
+	// got here, so a cancel that arrives in the same event as the end of the
+	// connection is not left set behind the follow it asked to stop.
 	//
 	// Every path that stops following disarms the match as well. Connection
 	// events are the only thing it is armed for, and the one left in it has
@@ -648,14 +714,7 @@ static void finish_conn_event(void) {
 	// of whatever the mode was doing by then -- retuning the radio under an
 	// advertising capture, or under another connection.
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout ||
-	    conn.terminated) {
-		reset_conn();
-		timer1_clear_match();
-		change_channel();
-	}
-
-	// FIXME - hack to cancel following a connection
-	else if (cancel_follow) {
+	    (conn.terminate_note && !had_packets) || cancel_follow) {
 		cancel_follow = 0;
 		reset_conn();
 		timer1_clear_match();
@@ -698,6 +757,34 @@ void le_DMA_IRQHandler(void) {
 	watchdog_unmark(site);
 }
 
+// Stop receiving and take the DMA channel and the SSP down. Every path that
+// stops reading a packet does this and does it the same way, so it is one
+// function: the end of a whole packet, a terminal count with no buffer to put
+// the byte in, and the recovery from a transfer error.
+//
+// The receiver keeps clocking bytes into the radio's FIFO until SFSON takes
+// effect, and they would otherwise be read as the head of the next packet.
+// SFSON rather than SRFOFF stops receiving without stopping the synthesizer,
+// which is what a wait for its lock needs; a path that goes on through a
+// connection event instead reaches change_channel(), which strobes SRFOFF
+// itself.
+//
+// The terminal count is cleared after the channel is taken down, and that
+// order matters: a count raised by a byte the receiver clocked out while SFSON
+// took effect would otherwise be left waiting, and the next transfer would
+// start on it. Clearing it before the channel went down left the data corrupt.
+//
+// The DMA interrupt is masked last. Receive is armed again from the
+// synthesizer-lock path or from change_channel(), which unmask it.
+static void le_stop_receiving(void) {
+	cc2400_strobe(SFSON);
+	DMACC0Config = 0;
+	DMACIntTCClear = (1 << 0);
+	dio_ssp_rx_dma_disable();
+	le_ssp_drain();
+	ICER0 = ICER0_ICE_DMA;
+}
+
 // Give up on the packet a failed capture transfer interrupted, and put the
 // receiver back.
 //
@@ -712,24 +799,7 @@ void le_DMA_IRQHandler(void) {
 // over, while the mode's loop goes on servicing USB so the board answers the
 // host as if nothing had happened.
 static void le_transfer_error_recover(void) {
-	// Stop receiving and take the DMA channel and the SSP down, as the
-	// end-of-packet path does: the receiver keeps clocking bytes into the FIFO
-	// until SFSON takes effect, and they would otherwise be read as the head
-	// of the next packet. SFSON rather than SRFOFF stops receiving without
-	// stopping the synthesizer, which is what a wait for its lock needs; the
-	// path through a connection event instead reaches change_channel(), which
-	// strobes SRFOFF itself.
-	//
-	// The terminal count is cleared here as the end-of-packet path clears it
-	// after taking the channel down, for the same reason: a count raised by a
-	// byte the receiver clocked out while SFSON took effect would otherwise be
-	// waiting, and the next transfer would start on it.
-	cc2400_strobe(SFSON);
-	DMACC0Config = 0;
-	DMACIntTCClear = (1 << 0);
-	dio_ssp_rx_dma_disable();
-	le_ssp_drain();
-	ICER0 = ICER0_ICE_DMA;
+	le_stop_receiving();
 
 	// Drop what was received of the packet, so the next one does not start
 	// part way along the buffer. The buffer is kept rather than released:
@@ -819,21 +889,11 @@ static void le_dma_interrupt(uint32_t timestamp) {
 			// fault.c LED loop, which also stops USB being serviced, so the
 			// board would answer nothing until it was re-plugged.
 			if (current_rxbuf == NULL) {
-				// SFSON, not SRFOFF: stop receiving but leave the
-				// synthesizer running, because the buffer wait below
-				// hands over to the FS_LOCK path, which only arms RX
-				// once the synthesizer reports locked.
-				cc2400_strobe(SFSON);
-
-				// same DMA teardown as the end-of-packet path below,
-				// including draining the SSP: the receiver keeps clocking
-				// bytes into the FIFO until SFSON takes effect, and they
-				// would otherwise be re-armed as the head of the next packet
-				DMACC0Config = 0;
-				DMACIntTCClear = (1 << 0);
-				dio_ssp_rx_dma_disable();
-				le_ssp_drain();
-				ICER0 = ICER0_ICE_DMA;
+				// Stop receiving, as the end-of-packet path below does.
+				// The synthesizer is left running because the buffer wait
+				// armed under here hands over to the FS_LOCK path, which
+				// only arms receive once it reports locked.
+				le_stop_receiving();
 
 				// A transfer error reported in this same interrupt needs no
 				// recovery either: the buffer wait just armed is what carries
@@ -902,18 +962,9 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				uint16_t event_counter = current_rxbuf->event_counter;
 				uint32_t primask;
 
-				// stop the CC2400 before flushing SSP
-				cc2400_strobe(SFSON);
-
-				// stop DMA on this channel and flush SSP
-				DMACC0Config = 0;
-				DMACIntTCClear = (1 << 0); // if we don't clear a second time, data is corrupt
-
-				dio_ssp_rx_dma_disable();
-				le_ssp_drain();
-
-				// XXX disable DMA interrupt as a workaround
-				ICER0 = ICER0_ICE_DMA;
+				// The packet is whole, so stop receiving before it is
+				// handed over: nothing more belongs to it.
+				le_stop_receiving();
 
 				// Hand the finished packet to the host and take the
 				// buffer for the next one, in one step with interrupts
@@ -2232,21 +2283,35 @@ static void packet_handler(le_rx_t *buf) {
 					break;
 
 				// LL_TERMINATE_IND -- the peers are closing the
-				// connection. Noted here and acted on by the next
-				// connection event to close, which is where the
-				// supervision timeout ends a follow too: the connection
-				// state belongs to the timer interrupt that reads it on
-				// every event, so this loop must not reset it.
+				// connection. Noted here and acted on by
+				// finish_conn_event(), which is where the supervision
+				// timeout ends a follow too: the connection state
+				// belongs to the timer interrupt that reads it on every
+				// event, so this loop must not reset it.
 				//
-				// The control LLID and the length are all that stands
-				// between a bit-errored data packet and the end of a
-				// healthy follow, as they are for the two updates
-				// above. A capture that cannot afford that asks for
-				// CRC verification (`ubertooth-btle -k1`), which drops
-				// a damaged packet before it reaches this dispatch.
+				// Noted rather than acted on, and only once the
+				// connection has gone quiet, because the control LLID
+				// and the length are all that stands between a
+				// bit-errored data packet and this note, as they are
+				// for the two updates above. The budget, and why it is
+				// the better mistake to risk, are at
+				// TERMINATE_BUDGET_EVENT_CLOSED.
+				//
+				// Reading the event counter and writing the note are one
+				// guarded step: the timer interrupt moves the counter
+				// on, and a close landing between the two would leave a
+				// note for an event already counted.
 				case 0x2:
-					if (buf->data[1] == 2)
-						conn.terminated = 1;
+					if (buf->data[1] == 2) {
+						uint32_t primask = irq_save_disable();
+
+						conn.terminate_note =
+							(buf->in_open_event &&
+							 buf->event_counter == conn.conn_event_counter)
+								? TERMINATE_BUDGET_EVENT_OPEN
+								: TERMINATE_BUDGET_EVENT_CLOSED;
+						irq_restore(primask);
+					}
 					break;
 			}
 		}

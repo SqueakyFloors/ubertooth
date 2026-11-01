@@ -1,23 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Shared command-line value parsing and the one argument rule for every
  * ubertooth-* host tool.
- *
- * This file is part of Project Ubertooth.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street,
- * Boston, MA 02110-1301, USA.
  */
 
 #include "opt_parse.h"
@@ -137,6 +121,50 @@ int opt_parse_access_address(const char *text, uint32_t *address)
 	return opt_parse_hex(text, 1, 8, address);
 }
 
+int opt_parse_hex_bytes(const char *text, uint8_t *bytes, size_t max_bytes,
+                        size_t *length)
+{
+	size_t digits, i;
+	uint32_t value;
+
+	if (text == NULL || bytes == NULL || length == NULL || max_bytes == 0)
+		return -1;
+	digits = strlen(text);
+	if (digits == 0 || digits % 2 != 0 || digits / 2 > max_bytes)
+		return -1;
+	/* The whole value is checked before any of it is written, so a value
+	 * refused part way through -- "01zz" -- leaves the caller's buffer as
+	 * it found it rather than half filled. Nothing but hex digits, so "0x"
+	 * or a sign is refused here rather than read as a byte. */
+	for (i = 0; i < digits; i++)
+		if (!isxdigit((unsigned char)text[i]))
+			return -1;
+	for (i = 0; i < digits; i += 2) {
+		char pair[3];
+
+		pair[0] = text[i];
+		pair[1] = text[i + 1];
+		pair[2] = '\0';
+		/* Cannot fail: both characters are hex digits. */
+		opt_parse_hex(pair, 2, 2, &value);
+		bytes[i / 2] = (uint8_t)value;
+	}
+	*length = digits / 2;
+	return 0;
+}
+
+int opt_require_hex_bytes(const char *text, const char *what, uint8_t *bytes,
+                          size_t max_bytes, size_t *length)
+{
+	if (opt_parse_hex_bytes(text, bytes, max_bytes, length) < 0) {
+		fprintf(stderr, "error: %s must be hex digits, two per byte,"
+		        " 1 to %zu bytes (got %s)\n", what, max_bytes,
+		        text == NULL ? "" : text);
+		return -1;
+	}
+	return 0;
+}
+
 int opt_parse_bd_addr(const char *text, uint8_t *address)
 {
 	uint8_t bytes[OPT_BD_ADDR_BYTES];
@@ -193,9 +221,13 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap)
 int opt_check_stdout_not_tty(const char *what)
 {
 	if (isatty(STDOUT_FILENO)) {
+		/* The whole description comes from the caller, the word "binary"
+		 * included: most of these streams are binary, and one of them,
+		 * ubertooth-dump -b, is text that is just as unreadable on a
+		 * screen. A fixed "binary" here called that one binary too. */
 		fprintf(stderr,
-		        "error: stdout is a tty, refusing to write binary %s to it\n",
-		        what == NULL ? "output" : what);
+		        "error: stdout is a tty, refusing to write %s to it\n",
+		        what == NULL ? "this output" : what);
 		return -1;
 	}
 	return 0;

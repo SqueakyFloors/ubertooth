@@ -982,7 +982,7 @@ MU_TEST(an_interrupt_is_not_a_failure)
 	fake.event = EVENT_INTERRUPT;
 	ut = new_handle();
 	mu_assert_fatal(ut != NULL, "a handle");
-	register_cleanup_handler(ut, 0);
+	ubertooth_catch_stop_signals();
 
 	capture_output();
 	rx_dump(ut, 1);
@@ -1124,10 +1124,11 @@ MU_TEST(a_capture_whose_collecting_thread_failed_is_reported)
 		 * this handle to refuse. */
 		mu_assert(ut->rx_xfer == NULL, "the transfer was given back");
 		/* Nor was the board asked to send: with nobody to collect it, a
-		 * started mode would stream into a dead stream. The one request
-		 * the second case did send is rx_afh_r()'s band sweep, which it
-		 * sets before the capture is built. */
-		mu_assert_int_eq((int)i, fake.control_requests);
+		 * started mode would stream into a dead stream. What each case
+		 * did send is the mode read every stream start makes, and in the
+		 * second case rx_afh_r()'s band sweep as well, which it sets
+		 * before the capture is built. */
+		mu_assert_int_eq((int)i + 1, fake.control_requests);
 
 		release_handle(ut);
 		if (pn != NULL)

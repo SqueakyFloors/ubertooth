@@ -27,7 +27,8 @@ USAGE
 =====
 
 ubertooth-btle supports two major modes: connection following and
-promiscuous mode. At present time, the two modes are very similar.
+promiscuous mode. The two capture the same way once they are following a
+connection; they differ in how they come by the connection's parameters.
 
 In both modes, raw packets are hex dumped to the terminal and (if
 specified) a dump file.
@@ -82,6 +83,11 @@ byte header, 0 byte body, and 3 byte CRC.
 Promiscuous Mode
 ----------------
 
+Promiscuous mode recovers connections that hop with channel selection
+algorithm 1. A connection using algorithm 2, which Bluetooth 5.0 devices
+normally use, cannot be recovered this way: capture it from its setup with
+-f, which follows either algorithm. See ubertooth-btle(1).
+
 Set your Ubertooth to your favorite data channel:
 
     ubertooth-util -c2404
@@ -130,6 +136,12 @@ data packets with contents other than 01 00:
 
     systime=1349414683 freq=2404 addr=506545d9 delta_t=693.326 ms
     0d 00 55 5d 86
+
+The frequency in those two lines is from an earlier release. Promiscuous
+mode works a connection out on 2440 MHz once it has the access address,
+whatever channel the discovery pass ran on, so the lines after the access
+address now read freq=2440; measuring the hop amount then moves between
+2404 MHz and 2406 MHz. See ubertooth-btle(1).
 
 The Ubertooth then recovers the hop interval and hop amount, finally
 entering connection following mode (as though a connect were observed).
@@ -199,6 +211,15 @@ We use a lookup table to map this value to the hop amount.
 At this point, we have all four values needed to follow a connection,
 and we enter connection following mode as though we observed the initial
 connect packet.
+
+The last two values are recovered this way only under channel selection
+algorithm 1. Algorithm 2 picks each connection event's channel from the
+access address, the event counter, and the connection's channel map, so the
+connection does not come back to one channel on the 37-event cycle the
+arithmetic above rests on, and it has no hop amount at all. Promiscuous
+mode therefore stops after the CRC init on such a connection. Connection
+following handles both algorithms, because the advertising and connect
+packets say which one the connection chose.
 
 
 BUGS

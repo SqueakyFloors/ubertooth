@@ -191,6 +191,19 @@ int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
  * are what tells a half-working radio from a quiet channel. */
 int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
                            radio_timeouts *timeouts);
+/* Read what the board says about the bootloader under it: the hash of the
+ * bootloader region, always, and the version block the region carries, if it
+ * carries one. A board with no block is a success with info->version_result
+ * saying why there is nothing to show -- that is the ordinary answer from a
+ * bootloader of the 1.x generation, which is every board as shipped, and the
+ * hash is what identifies it.
+ *
+ * Returns 0 when the board answered, or a negative libusb error.
+ * LIBUSB_ERROR_PIPE means the firmware does not implement the request, which
+ * is every image built before it; that one is reported like any other refused
+ * request, since a tool asking for this has nothing else to offer. */
+int cmd_get_bootloader_info(struct libusb_device_handle* devh,
+                            struct ubertooth_bootloader_info *info);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
 /* Read the firmware revision string / compile info string into a buffer of
@@ -254,6 +267,41 @@ int cmd_set_crc_verify(struct libusb_device_handle* devh, int verify);
 int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p);
 int cmd_btle_promisc(struct libusb_device_handle* devh);
 int cmd_read_register(struct libusb_device_handle* devh, u8 reg);
+/* Write one CC2400 register. The board takes the value as written: these are
+ * the radio's own registers, so nothing here knows which values a register
+ * accepts. Returns 0, or a negative libusb error already reported. */
+int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value);
+/* Start the generic receive, which demodulates with the CC2400 configuration
+ * already in the radio instead of programming one. Returns 0, or a negative
+ * libusb error already reported. */
+int cmd_rx_generic(struct libusb_device_handle* devh);
+/* Transmit `count` generic packets, all the same: the board frames them in
+ * the radio, so the whole description of what goes on the air is this sync
+ * word plus the framing tx_generic() programs (6 preamble bytes, the whole
+ * 32-bit sync word, the radio's CRC). channel is the carrier in MHz, which a
+ * transmit tunes directly; a board receiving the packet needs the same
+ * frequency less 1 MHz for its intermediate frequency. pa_level is the CC2400
+ * power level for these packets, 0 to UBERTOOTH_PA_LEVEL_MAX; the board puts
+ * its own level back afterwards. data_len is 0 to GENERIC_TX_MAX_PAYLOAD
+ * bytes, of which GENERIC_TX_FRAMED_PAYLOAD go out as one frame whose shape
+ * is known.
+ *
+ * One request carries the whole burst, because the board answers no request
+ * at all while a packet is going out: one request per packet loses the second
+ * packet of a fast burst to a transfer error. The board answers this request
+ * before the first packet and then transmits them back to back, about 1.3 ms
+ * each, so it is still in the generic transmit mode when this returns -- a
+ * caller that needs the air clear reads the mode out of the watchdog
+ * breadcrumb (cmd_get_watchdog_quiet()) until it is no longer
+ * MODE_TX_GENERIC. UBERTOOTH_STOP ends a burst; it took 27 ms to be answered
+ * in the middle of one.
+ *
+ * Returns 0, or a negative libusb error already reported; -1 for a request
+ * the board would refuse, which is reported here. */
+int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
+                          uint16_t channel, uint8_t pa_level,
+                          const uint8_t* data, size_t data_len,
+                          uint16_t count);
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address);
 int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsigned data_len);
 int cmd_btle_set_target(struct libusb_device_handle* devh, uint8_t *mac_address, uint8_t mac_mask);

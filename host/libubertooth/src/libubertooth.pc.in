@@ -4,12 +4,14 @@
 # written, and a staged or relocated install moves again afterwards. pcfiledir
 # is the directory this file is in; pkgconf and pkg-config both set it,
 # documented from pkg-config 0.29 and present in it well before that. This
-# file sits in the pkgconfig directory of the library's own directory, which
-# is one directory inside the prefix, so the walk back out is two levels.
-prefix=${pcfiledir}/../..
+# file sits in the pkgconfig directory of the library's own directory, and
+# that directory is lib, lib64 or a path of its own depending on the system,
+# so the walk back out and the two directories it leads to are worked out by
+# the build and written in here.
+prefix=@PC_PREFIX@
 exec_prefix=${prefix}
-libdir=${prefix}/lib@LIB_SUFFIX@
-includedir=${prefix}/include
+libdir=@PC_LIBDIR@
+includedir=@PC_INCLUDEDIR@
 
 Name: libubertooth
 Description: Host library for the Ubertooth wireless development platform

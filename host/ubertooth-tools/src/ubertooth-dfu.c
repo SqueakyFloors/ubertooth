@@ -121,6 +121,11 @@ static uint32_t read_le32(const uint8_t *bytes)
 	       ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
+static uint16_t read_le16(const uint8_t *bytes)
+{
+	return (uint16_t)((uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8));
+}
+
 /* The largest unsigned .bin -s will read: signing adds the suffix, so an
  * input capped here produces an image -d still accepts. */
 static unsigned long max_unsigned_image_size(void)
@@ -1185,24 +1190,142 @@ static void fill_vector_checksum(uint8_t *block)
 	write_le32(block + VECTOR_CHECKSUM_INDEX * 4, 0u - sum);
 }
 
-/* Read block index of the image and send it to the block of flash that holds
- * it. Reports what went wrong and returns negative either way, so the caller
- * only has to stop. */
+/* A block of the image that would not read. How many blocks the image has is
+ * settled before any of it is sent, so every index asked for is one the file
+ * has: a read that fails here is a file that changed under the tool, and the
+ * download stops. */
+static void report_unreadable_image_block(int index)
+{
+	end_progress_row();
+	fprintf(stderr, "error: download failed: could not read block %d of "
+	        "the image\n", index);
+}
+
+/* The image check block has to reach the flash in the same program as the
+ * vector table it describes, or an interruption could leave a board a vector
+ * table with no record of the image behind it -- which is a board that starts
+ * a half-written image, the thing the block is here to stop. The region's
+ * first block is written whole or not at all, so "the same program" means
+ * "inside the first BLOCK_SIZE bytes". */
+_Static_assert(UBERTOOTH_IMAGE_CHECK_OFFSET + UBERTOOTH_IMAGE_CHECK_LENGTH
+               <= BLOCK_SIZE,
+               "the image check block must be in the image's first block");
+
+/* Does this image carry an image check block? Only an image from a tree that
+ * has one does, and only those 32 bytes may be written over: in an image
+ * built before the block existed, or built for another device, they are the
+ * image's own code or data.
+ *
+ * block is the image's first BLOCK_SIZE bytes. */
+static int image_carries_check_block(const uint8_t *block)
+{
+	static const char magic[] = UBERTOOTH_IMAGE_CHECK_MAGIC;
+	const uint8_t *check = block + UBERTOOTH_IMAGE_CHECK_OFFSET;
+	unsigned i;
+
+	for (i = 0; i < UBERTOOTH_IMAGE_CHECK_MAGIC_LEN; i++) {
+		if (check[i] != (uint8_t)magic[i])
+			return 0;
+	}
+	return read_le16(check + UBERTOOTH_IMAGE_CHECK_OFF_FORMAT) ==
+	       UBERTOOTH_IMAGE_CHECK_FORMAT;
+}
+
+/*
+ * Fill in the image check block in the image's first block: the flags saying
+ * which checks the board is to make, how many bytes this download writes, and
+ * the checksum over them.
+ *
+ * The checksum is the two's complement of the sum of every word the download
+ * writes, this block among them, so the whole of what reaches the flash adds
+ * up to zero -- the same arrangement as the vector checksum, one word of
+ * which this sum also covers. The word is zero while the sum is worked out
+ * and holds the answer afterwards.
+ *
+ * region_length is what the download writes, which is whole blocks: the last
+ * block of a short image is padded out to BLOCK_SIZE with erased flash. A
+ * download the board would refuse because it asks for flash the part has not
+ * got stops before any of this matters, and the region can be no longer than
+ * the bootloader's own bound either way, which is the bound the board puts
+ * the length to.
+ *
+ * Returns 0 when a block could not be read, which the caller reports.
+ */
+static int fill_image_check(FILE* downfile, int image_blocks,
+                            uint8_t *first_block)
+{
+	uint8_t *check = first_block + UBERTOOTH_IMAGE_CHECK_OFFSET;
+	const uint32_t region_length = (uint32_t)image_blocks * BLOCK_SIZE;
+	uint32_t sum = 0;
+	int index;
+
+	write_le16(check + UBERTOOTH_IMAGE_CHECK_OFF_FLAGS,
+	           UBERTOOTH_IMAGE_CHECK_VECTOR | UBERTOOTH_IMAGE_CHECK_REGION);
+	write_le32(check + UBERTOOTH_IMAGE_CHECK_OFF_LENGTH, region_length);
+	write_le32(check + UBERTOOTH_IMAGE_CHECK_OFF_LENGTH_COMPLEMENT,
+	           ~region_length);
+	write_le32(check + UBERTOOTH_IMAGE_CHECK_OFF_CHECKSUM, 0);
+
+	for (index = 0; index < image_blocks; index++) {
+		uint8_t buffer[BLOCK_SIZE];
+		const uint8_t *bytes = first_block;
+
+		if (index != 0) {
+			if (!read_image_block(downfile, index, buffer)) {
+				report_unreadable_image_block(index);
+				return 0;
+			}
+			bytes = buffer;
+		}
+		sum += ubertooth_image_check_sum(bytes, BLOCK_SIZE);
+	}
+	write_le32(check + UBERTOOTH_IMAGE_CHECK_OFF_CHECKSUM, 0u - sum);
+	return 1;
+}
+
+/*
+ * Work out the bytes the download will write to the region's first block: the
+ * image's own first block, with the vector checksum filled in and, if the
+ * image carries an image check block, the record of this download in it.
+ *
+ * It is settled before anything is sent because the region checksum covers
+ * these bytes along with the rest of the image, so they have to be known
+ * before they can be added up.
+ *
+ * Returns 0 when a block could not be read, which the caller reports.
+ */
+static int prepare_first_block(FILE* downfile, int image_blocks,
+                               uint8_t *first_block)
+{
+	if (!read_image_block(downfile, 0, first_block)) {
+		report_unreadable_image_block(0);
+		return 0;
+	}
+	fill_vector_checksum(first_block);
+	if (!image_carries_check_block(first_block))
+		return 1;
+	return fill_image_check(downfile, image_blocks, first_block);
+}
+
+/* Send block index of the image to the block of flash that holds it.
+ * prepared_first_block is what the image's first block is to be written as,
+ * worked out before the transfer started; every other block is read from the
+ * file here. Reports what went wrong and returns negative either way, so the
+ * caller only has to stop. */
 static int send_image_block(libusb_device_handle* devh, FILE* downfile,
+                            const uint8_t* prepared_first_block,
                             int first_block, int index, int* blocks_sent)
 {
 	uint8_t buffer[BLOCK_SIZE];
 
-	if (!read_image_block(downfile, index, buffer)) {
-		end_progress_row();
-		fprintf(stderr, "error: download failed: could not read block %d of "
-		        "the image\n", index);
-		return -1;
-	}
 	/* The image's first block is the vector table, and the download order
 	 * below writes it last. */
-	if (index == 0)
-		fill_vector_checksum(buffer);
+	if (index == 0) {
+		memcpy(buffer, prepared_first_block, BLOCK_SIZE);
+	} else if (!read_image_block(downfile, index, buffer)) {
+		report_unreadable_image_block(index);
+		return -1;
+	}
 	return send_block(devh, first_block + index, buffer, blocks_sent);
 }
 
@@ -1222,9 +1345,11 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  *   1. the first block is written as erased flash (0xFF), which leaves no
  *      stack pointer and no reset vector for anything to start from;
  *   2. every block above the first sector is written;
- *   3. the first sector is written, the vector table with it, and the
- *      checksum over that table filled in so the board can tell a first
- *      block that arrived whole from one that did not.
+ *   3. the first sector is written, the vector table with it, the checksum
+ *      over that table filled in so the board can tell a first block that
+ *      arrived whole from one that did not, and the image check block filled
+ *      in so the board can put the whole image to a checksum before it starts
+ *      any of it.
  *
  * Step 1 is also what erases the first sector, and that is why step 3 writes
  * the whole sector rather than the vector table on its own: the bootloader
@@ -1234,11 +1359,18 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  * the field has no request that programs without erasing, and this tool has
  * to keep working with the bootloader already on the board.
  *
- * That leaves one window, in step 3: an interruption after the vector table
- * and before the end of that 4 KiB sector still leaves a startable vector
- * table in front of a sector that is only partly written. Everything before
- * it -- all of a download bar its last few blocks -- now leaves a board whose
- * bootloader finds nothing to start and waits in DFU for another image.
+ * An interruption after the vector table and before the end of that 4 KiB
+ * sector leaves a startable vector table in front of a sector that is only
+ * partly written, and the checksum over the table says nothing about it. The
+ * image check block is what closes that: it goes into the flash in the same
+ * program as the vector table, and the length and checksum in it cover every
+ * byte of the image, so a board can tell whether the rest of that sector
+ * arrived. Everything else -- all of a download bar its last few blocks --
+ * leaves a board whose bootloader finds nothing to start and waits in DFU for
+ * another image.
+ *
+ * All of this needs a bootloader from this tree on the board. One carrying an
+ * earlier bootloader jumps into whatever it finds, as it always did.
  */
 /* Step 3 writes SECTOR_SIZE worth of blocks and relies on that being the
  * whole of the sector the region starts in, so that the erase its first block
@@ -1256,6 +1388,7 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 	const int sector_blocks = SECTOR_SIZE / BLOCK_SIZE;
 	int address = BOOTLOADER_OFFSET + BOOTLOADER_SIZE;
 	uint8_t buffer[BLOCK_SIZE];
+	uint8_t first_block_bytes[BLOCK_SIZE];
 	int blocks_sent = 0;
 	int image_blocks, index, rv;
 	long image_length;
@@ -1276,6 +1409,13 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 	}
 	image_blocks = (int)((image_length + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
+	/* What the last step will write, worked out here because the checksum in
+	 * it covers the whole image and so cannot be worked out while the image
+	 * is going out. Before DFU mode is entered, so a file that will not read
+	 * leaves the board in its application. */
+	if (!prepare_first_block(downfile, image_blocks, first_block_bytes))
+		return -1;
+
 	rv = enter_dfu_mode(devh);
 	if(rv < 0) {
 		fprintf(stderr, "error: download failed: could not enter DFU mode\n");
@@ -1291,8 +1431,8 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 
 	/* Step 2: everything above the first sector. */
 	for (index = sector_blocks; index < image_blocks; index++) {
-		rv = send_image_block(devh, downfile, first_block, index,
-		                      &blocks_sent);
+		rv = send_image_block(devh, downfile, first_block_bytes, first_block,
+		                      index, &blocks_sent);
 		if (rv < 0)
 			return rv;
 	}
@@ -1300,8 +1440,8 @@ int download(libusb_device_handle* devh, FILE* downfile) {
 	/* Step 3: the first sector, the vector table first because the erase
 	 * goes with it. */
 	for (index = 0; index < sector_blocks && index < image_blocks; index++) {
-		rv = send_image_block(devh, downfile, first_block, index,
-		                      &blocks_sent);
+		rv = send_image_block(devh, downfile, first_block_bytes, first_block,
+		                      index, &blocks_sent);
 		if (rv < 0)
 			return rv;
 	}

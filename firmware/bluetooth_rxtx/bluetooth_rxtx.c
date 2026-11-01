@@ -40,6 +40,7 @@
 #include "xmas.h"
 #include "identify.h"
 #include "watchdog.h"
+#include "bl_report.h"
 
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
@@ -122,6 +123,20 @@ volatile int16_t rssi_threshold = -30;  // -54dBm - 30 = -84dBm
 
 /* Generic TX stuff */
 generic_tx_packet tx_pkt;
+
+/*
+ * How many times to send tx_pkt, from the request's wValue.
+ *
+ * One request per packet does not work at the rate a host can send them: the
+ * board answers no USB request while a packet is going out, and this is about
+ * a millisecond of radio waits, so a request handed over in that window comes
+ * back to the host as a transfer error and that packet is lost. Measured on
+ * two boards, a burst of 30 requests sent as fast as the host could send them
+ * had 15 of them fail that way. Carrying the count in the request instead
+ * costs one transfer for the whole burst, and the host never waits on the
+ * board at all.
+ */
+volatile uint16_t tx_pkt_repeat;
 
 /* The registers, length and level a UBERTOOTH_TX_GENERIC_PACKET request
  * carries in front of its payload. */
@@ -751,6 +766,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	size_t length; // string length
 	usb_pkt_rx* p = NULL;
 	uint16_t reg_val;
+	/* The channel a generic transmit asks for, which is a frequency and not
+	 * a register value, so it does not share reg_val above. Named apart
+	 * from the global `channel` the receives tune, which it must not
+	 * shadow. */
+	uint16_t tx_channel;
 	uint8_t i;
 	int32_t drift_ppm;
 
@@ -1062,6 +1082,16 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		*data_len = UBERTOOTH_FW_INFO_LENGTH;
 		break;
 
+	/* What this board's bootloader is. Keep this identical to the one in
+	 * btbr/src/btctl/vendor_request_handler.c. */
+	case UBERTOOTH_GET_BOOTLOADER_INFO:
+		/* Refused until startup has worked the report out, rather than
+		 * answered with a hash of zero. */
+		if (!bl_report_build(data))
+			return 0;
+		*data_len = UBERTOOTH_BL_REPORT_LENGTH;
+		break;
+
 	case UBERTOOTH_GET_BOARD_ID:
 		data[0] = BOARD_ID;
 		*data_len = 1;
@@ -1355,7 +1385,46 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		i = data[offsetof(generic_tx_packet, length)];
 		if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
 			return 0;
+		/*
+		 * The channel reaches FSDIV unchanged in tx_generic(), so only
+		 * a frequency the synthesizer can reach is accepted. Taken, one
+		 * outside that range would have the transmit wait out its lock
+		 * timeout and send nothing, and leave that frequency in the
+		 * register for whatever ran next.
+		 *
+		 * Both ends are refused, which is where this differs from
+		 * UBERTOOTH_SET_CHANNEL: there a frequency above MAX_FREQ is
+		 * how the host asks for the band sweep, and nothing here
+		 * sweeps.
+		 */
+		tx_channel = data[offsetof(generic_tx_packet, channel)]
+		           | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
+		if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
+			return 0;
+		/*
+		 * A burst is running, and it sends from tx_pkt: this request
+		 * would splice its payload into the packets the burst has left
+		 * and then lose the count it asked for, because the burst read
+		 * one already. Refused instead -- the stack stalls a request
+		 * the handler returns 0 for, so the host is told -- and refused
+		 * before the copy, or the splice has happened by the time the
+		 * refusal is decided. Nothing shipped here sends a second
+		 * request during a burst, since ubertooth-tx waits for the
+		 * board.
+		 *
+		 * This covers the request that would break the burst it lands
+		 * in, and nothing else: a register write or a power level
+		 * serviced between packets reaches the radio, changes the
+		 * packets the burst has left, and is then put back by the
+		 * restore at the end of it.
+		 */
+		if (mode == MODE_TX_GENERIC)
+			return 0;
 		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
+		/* wValue is how many of this packet to send. A host that leaves
+		 * it 0 gets one, which is what every host did before the field
+		 * meant anything. */
+		tx_pkt_repeat = request_params[0] > 0 ? request_params[0] : 1;
 		requested_mode = MODE_TX_GENERIC;
 		*data_len = 0;
 		break;
@@ -3501,6 +3570,16 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 #define LE_PROMISC_MAX_GAP \
 	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_BASECLK)
 
+/* Works the hop increment out from how long the connection takes to get from
+ * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
+ * 1 has an increment to find. This stage is also reached only after the
+ * interval stage that precedes it has settled, and on a connection hopping
+ * with algorithm 2 that does not happen: algorithm 2 picks each event's
+ * channel from the access address, the event counter, and the channel map, so
+ * the connection's visits to one channel do not repeat on the 37-event cycle
+ * the interval estimator looks for. Such a connection is captured from its
+ * setup instead, by follow mode, which reads the algorithm out of the
+ * advertising and connect packets. */
 void promisc_recover_hop_increment(u8 *packet) {
 	/* The interval the span below is divided by. The estimator hands over
 	 * nothing outside the range a connection may use, but the division is
@@ -3982,12 +4061,34 @@ void bt_peripheral_le() {
 #define RX_GENERIC_DATA_LEN     32
 
 /*
+ * One more byte after the payload: 1 when the radio said this packet's CRC
+ * checked out, 0 when it did not.
+ *
+ * It needs GRMDM to have the CRC on at this end to mean anything, which is
+ * the host's doing: with it off the radio called packets carrying no CRC at
+ * all good.
+ *
+ * The length it can be trusted at is the full read below. STATUS_CRC_OK is
+ * defined against the read position -- the next two bytes in the FIFO against
+ * the CRC16 over the bytes already read out of it (see cc2400_fifo_read(),
+ * where a range test that read the wrong number of bytes is what put that
+ * note there) -- and this read has no length to go by, because the framing
+ * carries none. A 32-byte payload is the case where the read stops where the
+ * CRC is, and the case the bench measured corruption at. Eight-byte payloads
+ * tracked the transmit's CRC bit as well, so the flag is not scrambled by the
+ * shorter read, but nothing has caught a corrupt short packet with it. The
+ * receive records the radio's answer; the man pages say where it has been
+ * checked.
+ */
+#define RX_GENERIC_CRC_OFFSET (RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN)
+
+/*
  * enqueue() is handed a pointer and no length, and copies DMA_SIZE bytes out
  * of it, so a buffer shorter than that has the bytes past its end copied into
  * the record. The buffer below is therefore DMA_SIZE whatever the record uses
  * of it.
  */
-_Static_assert(RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN <= DMA_SIZE,
+_Static_assert(RX_GENERIC_CRC_OFFSET < DMA_SIZE,
                "the generic receive record must fit in what enqueue() copies");
 
 /*
@@ -4149,6 +4250,10 @@ void rx_generic_sync(void) {
 		rx_generic_wait_for_fifo();
 		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
 		                 buf + RX_GENERIC_SYNCWORD_LEN);
+		/* What the radio made of the packet's CRC, read after the
+		 * payload is out of the FIFO: see RX_GENERIC_CRC_OFFSET. */
+		buf[RX_GENERIC_CRC_OFFSET] =
+			(cc2400_status() & STATUS_CRC_OK) ? 1 : 0;
 		enqueue(BR_PACKET, buf);
 		service_usb();
 	}
@@ -4179,6 +4284,10 @@ void rx_generic(void) {
 void tx_generic(u8 prev_mode) {
 	u16 synch, syncl, mdmctrl, mdmtst0, grmdm, fsdiv, frend, gio_save;
 	u8 len, sent, chunk;
+	/* Read once: the request handler writes it, and a request answered
+	 * between packets below must not lengthen the burst running now. It is
+	 * at least 1, which the handler saw to. */
+	u16 left = tx_pkt_repeat;
 
 	/*
 	 * Every radio register this transmit writes is saved here and put back
@@ -4206,9 +4315,30 @@ void tx_generic(u8 prev_mode) {
 
 	cc2400_set(SYNCH, tx_pkt.synch);
 	cc2400_set(SYNCL, tx_pkt.syncl);
+	/*
+	 * About 340 kHz of frequency deviation: twice the Basic Rate one, and
+	 * wider than any other mode here sets. A board in the generic receive
+	 * demodulates it with its own modem set to either deviation.
+	 */
 	cc2400_set(MDMCTRL, 0x0057);
 	cc2400_set(MDMTST0, 0x134b);
-	cc2400_set(GRMDM, 0x0f61);
+	/*
+	 * The framing: buffered mode, packet mode, a preamble of 01010101
+	 * (field 6; field 7 received nothing at all on the bench), the whole
+	 * 32-bit sync word, and the radio's CRC. The radio adds all of it and
+	 * the generic receive programs none of it, so a board meant to read
+	 * this transmit has to be set to the same GRMDM value and sync word.
+	 *
+	 * The CRC is on because nothing else in this framing can tell a
+	 * payload with a bit error in it from a payload, and it costs no
+	 * detections. The radio reports its verdict rather than dropping the
+	 * packet, so the receive writes it down: RX_GENERIC_CRC_OFFSET.
+	 *
+	 * Packet mode is what puts the payload in the radio's FIFO for the
+	 * write loop below. It is also the bit rx_generic() reads to choose
+	 * the packet receive, which is why the restore below matters.
+	 */
+	cc2400_set(GRMDM, 0x0f61 | GRMDM_CRC);
 	cc2400_set(FSDIV, tx_pkt.channel);
 	/*
 	 * The level belongs to this one packet, so it is taken from the request
@@ -4222,8 +4352,9 @@ void tx_generic(u8 prev_mode) {
 	 * for: that is a different signal with the opposite sense. */
 	cc2400_set(IOCFG, (GIO_FIFO_EMPTY << 9) | (gio_save & 0x1ff));
 
+send_one:
 	/* Bounded without a service callback, as in le_transmit(): one packet,
-	 * then back to the mode loop that services USB. */
+	 * then either the next of the burst below or back to the mode loop. */
 	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, NULL);
@@ -4292,6 +4423,25 @@ void tx_generic(u8 prev_mode) {
 	PAEN_CLR;
 #endif
 
+	/*
+	 * The next packet of the burst, if the request asked for more than one.
+	 *
+	 * Inside the register save and restore below, because the packet is
+	 * framed by registers the restore puts back: a loop around the restore
+	 * sent its second and later packets with the Bluetooth registers in
+	 * place, and a board set to this framing read one packet of thirty.
+	 *
+	 * USB is serviced between packets, so a request that ends the mode --
+	 * ubertooth-util -S, or any other mode -- still gets through, and a
+	 * burst long enough to matter can be stopped. The main loop's own
+	 * service pass does not come round until the burst is over.
+	 */
+	if (--left > 0) {
+		service_usb();
+		if (requested_mode == MODE_TX_GENERIC)
+			goto send_one;
+	}
+
 	// Restore state, in the order it was set up above
 	cc2400_set(SYNCH, synch);
 	cc2400_set(SYNCL, syncl);
@@ -4301,7 +4451,13 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(FSDIV, fsdiv);
 	cc2400_set(FREND, frend_keep_pa_level(frend));
 	cc2400_set(IOCFG, gio_save);
-	requested_mode = prev_mode;
+	/*
+	 * Back to what was running before, unless a request serviced between
+	 * packets above asked for something else: overwriting that would tell
+	 * the host its mode had started and then drop it.
+	 */
+	if (requested_mode == MODE_TX_GENERIC)
+		requested_mode = prev_mode;
 }
 #endif
 
@@ -4467,6 +4623,11 @@ int main()
 	 * descriptor, and well before a mode could be running: the boot-ROM
 	 * calls this makes must not happen while one is. */
 	device_id_init();
+	/* Here for the same reason, and before the first request can arrive:
+	 * hashing the bootloader region takes milliseconds, which is too long
+	 * to spend in a request handler that a capture mode answers from the
+	 * USB interrupt. */
+	bl_report_init(UBERTOOTH_BOOTLOADER_REGION_START);
 	clkn_init();
 	ubertooth_usb_init(vendor_request_handler);
 	cc2400_idle();

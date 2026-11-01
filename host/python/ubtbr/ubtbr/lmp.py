@@ -1,4 +1,4 @@
-from time import time
+from time import sleep, time
 import logging
 from binascii import unhexlify, hexlify
 from struct import pack, unpack
@@ -108,6 +108,13 @@ LMP_POWER_CONTROL_RES           = 32
 # Error codes a refusal carries (Core v5.4 | Vol 1, Part F, 1.3).
 LMP_ERR_UNKNOWN_LMP_PDU         = 0x19
 LMP_ERR_UNSUPPORTED_LMP_FEATURE = 0x1a
+
+# What this end gives as its reason for hanging up when the peer declines the
+# connection. A device ending a link because its own side asked to sends this
+# code, and the receiver reports it to its host as the remote user having
+# ended the connection; 0x16 is the code a controller reports locally and is
+# not one a host may ask for (Core v5.4 | Vol 1, Part F, 1.3).
+LMP_DETACH_REASON_REMOTE_USER   = 0x13
 
 # Why a peer says it is hanging up: the reasons a detach is seen carrying, as
 # Core v5.4 | Vol 1, Part F, 1.3 names them. Any other code is reported as
@@ -331,6 +338,22 @@ class LMP:
 	# mask has to say what this end will really do.
 	FEATURES = b"\x00\x00\x00\x00\x00\x00\x19\x00" # No AFH
 
+	# The transaction ID a PDU this end starts a transaction with goes out
+	# under: 0 for the central's, 1 for the peripheral's
+	# (Core v5.4 | Vol 2, Part C, 2.4). The peripheral class below sets its
+	# own. An answer to the peer carries the ID its request arrived with
+	# instead, which is self._rx_tid.
+	OWN_TID = 0
+
+	# How long the link is held after a detach goes out, before the board is
+	# told to go idle. The board cancels what it has queued when it goes
+	# idle, so without this the PDU would not reach a transmit slot. What
+	# has to happen in the meantime is the write reaching the board, the
+	# next transmit slot, and a retry or two if the peer does not
+	# acknowledge it; this central transmits in every slot pair, so 30 ms is
+	# about twenty slot pairs of margin.
+	DETACH_GRACE = 0.03
+
 	def __init__(self, con, debug=True):
 		self._debug = debug
 		self._con = con
@@ -340,6 +363,14 @@ class LMP:
 		# the life of the connection rather than once per PDU.
 		self._unhandled = set()
 		self._rx_tid = 0
+		# Whether this end has sent its LMP_setup_complete and opened the
+		# connection, and whether the peer's has arrived; see
+		# setup_complete().
+		self._setup_complete_sent = False
+		self._setup_complete_done = False
+		self._setup_complete_seen = False
+		# Whether this end has hung up; see detach().
+		self._detached = False
 
 	def time(self):
 		return time()-self._start_time
@@ -349,6 +380,14 @@ class LMP:
 		self._clkn = clkn
 		if self._debug:
 			log.info("%d|%.2f sec | <<< lmp_rx (state=%d): %s"%(clkn,self.time(),self._state, pdu2str(pdu)))
+
+		# A PDU that was already on its way when this end hung up. The link
+		# is over, so it gets no answer: the session is stopping, and a
+		# packet the board had queued must not have it open the connection
+		# or send anything further.
+		if self._detached:
+			log.info("ignored: this end has detached")
+			return False
 
 		# A PDU with no opcode to act on, which is a message from the board
 		# that ended early: what goes over the air is padded to the 17 bytes
@@ -451,6 +490,20 @@ class LMP:
 					"a reason this tool does not name")))
 		else:
 			log.info("Peer detached, giving no reason")
+		self._con.stop()
+
+	def detach(self, reason):
+		"""Hang up on the peer, saying why, and end the session.
+
+		The detach of Vol 2, Part C, 4.1.2: one PDU carrying the reason,
+		then the link held for DETACH_GRACE so the board has slots to send
+		it in, and nothing more on this link either way.
+		"""
+		if self._detached:
+			return
+		self._detached = True
+		self.lmp_send(LMP_DETACH, p8(reason), tid=self.OWN_TID)
+		sleep(self.DETACH_GRACE)
 		self._con.stop()
 
 	def handle_name_req(self, op, data):
@@ -636,6 +689,57 @@ class LMP:
 	def lmp_send_setup_complete(self, **kwargs):
 		return self.lmp_send(LMP_SETUP_COMPLETE, b'', **kwargs)
 
+	def connection_started(self):
+		"""A connection has come up: its setup has not happened yet.
+
+		One session can hold more than one connection -- a `page` or
+		`page_scan` that went back to paging or scanning takes the next one
+		on the same link manager -- so the setup state belongs to the
+		connection rather than to the session. Left set, it would stop the
+		second connection's LMP_setup_complete ever going out.
+		"""
+		self._setup_complete_sent = False
+		self._setup_complete_done = False
+		self._setup_complete_seen = False
+		self._detached = False
+		# These two are a connection's as well: the trace counts seconds
+		# from the connection coming up, and an opcode is reported once for
+		# the life of one.
+		self._unhandled = set()
+		self._start_time = time()
+
+	def setup_is_complete(self):
+		"""Have both ends finished the setup, so that data may go out?
+
+		False again once this end has hung up; see detach().
+		"""
+		return self._setup_complete_done and not self._detached
+
+	def send_setup_complete_once(self):
+		"""Say this end has finished the setup, if it has not already.
+
+		The setup ends when each side has sent an LMP_setup_complete and
+		received the other's, and data may go out once both have been
+		exchanged (Vol 2, Part C, 4.1.1).
+		"""
+		if self._setup_complete_sent:
+			return
+		self._setup_complete_sent = True
+		self.lmp_send_setup_complete(tid=self.OWN_TID)
+
+	def setup_complete(self):
+		"""The peer has finished the setup, so both ends now have.
+
+		Sends this end's if it has not gone yet, then opens the connection,
+		once however many the peer sends: a second open would have l2ping
+		put a second echo request on the link.
+		"""
+		self.send_setup_complete_once()
+		if self._setup_complete_done:
+			return
+		self._setup_complete_done = True
+		self._con.handle_setup_complete()
+
 	def lmp_send_set_afh(self, instant, mode, cmap):
 		assert(len(cmap)==10)
 		log.info("Send AFH req: instant=%d, (cur %d), mode=%d"%(
@@ -765,14 +869,46 @@ class LMPCentral(LMP):
 			# Not one of the five, so it is the connection request they
 			# lead to: a peer refusing that is declining the connection
 			# itself, which is a warning rather than a line in the trace.
-			warn("the peer refused %s: %s"%(op2str(refused), why))
+			warn("the peer refused %s: %s; closing the link"
+				%(op2str(refused), why))
+			# The request is answered, refusal and all, so nothing is
+			# outstanding any more. Left set, a stray LMP_accepted
+			# afterwards read as this request being accepted.
+			self._awaiting = None
+			# 4.1.1 has the paging device disconnect the link at once when
+			# its connection request is refused. Left open, the link sat
+			# there until link supervision ended it a second later, and a
+			# peer's LMP_setup_complete arriving in the meantime still
+			# opened the connection.
+			self.detach(LMP_DETACH_REASON_REMOTE_USER)
 			return
 		log.info("The peer refused %s: %s"%(op2str(refused), why))
 		setattr(self, field, REFUSED)
 		self.send_info_req()
 
 	def handle_accepted(self, op, data):
-		pass
+		"""The peer accepting one of this end's requests.
+
+		Only the connection request needs anything done. Accepting it is
+		the last step of the setup, and what follows is the exchange
+		setup_complete() describes. The central sends the first one, so a
+		peer that waits for it -- another Ubertooth does -- is not left
+		waiting forever.
+		"""
+		if self._awaiting != LMP_HOST_CONNECTION_REQ:
+			return
+		# An LMP_accepted names the request it accepts in its first
+		# parameter (2.4). One that names something else, or that is too
+		# short to name anything and so reads as opcode zero once the
+		# packet's padding is counted, accepts a procedure this end did not
+		# ask for and leaves the setup where it was.
+		if not data or u8(data[0]) != LMP_HOST_CONNECTION_REQ:
+			return
+		self._awaiting = None
+		if self._setup_complete_seen:
+			self.setup_complete()
+		else:
+			self.send_setup_complete_once()
 
 	def handle_slot_offset(self, op, data):
 		if len(data) < 8:
@@ -819,10 +955,28 @@ class LMPCentral(LMP):
 		self.send_info_req()
 
 	def handle_setup_complete(self, op, data):
-		self.lmp_send(LMP_SETUP_COMPLETE, b"\x00"*16)
-		self._con.handle_setup_complete()
+		# A peer that sends its own before this end's connection request
+		# has been accepted is ahead of the sequence, and is taken at its
+		# word: it can only have finished the setup by accepting that
+		# request, so an LMP_accepted this end never heard is no reason to
+		# leave the link waiting.
+		self._setup_complete_seen = True
+		if self._awaiting not in (None, LMP_HOST_CONNECTION_REQ):
+			# Further ahead still: the connection has not been asked for
+			# yet, so there is no setup for this to finish. It is recorded
+			# above, and handle_accepted() acts on it once the request this
+			# end is in the middle of has run its course, rather than
+			# leaving the link to sit until supervision ends it.
+			warn("the peer said the setup was complete while %s was "
+				"outstanding"%op2str(self._awaiting))
+			return
+		self.setup_complete()
 
 class LMPPeripheral(LMP):
+	# A transaction this end starts is a peripheral's, so it takes 1 where
+	# the central's takes 0 (see OWN_TID).
+	OWN_TID = 1
+
 	def __init__(self, con):
 		self._FSM = {
 			# First state: wait for establishment message
@@ -851,8 +1005,7 @@ class LMPPeripheral(LMP):
 		self.lmp_send_accepted(op, tid=self._rx_tid)
 
 	def handle_setup_complete(self, op, data):
-		self.lmp_send_setup_complete()
-		self._con.handle_setup_complete()
+		self.setup_complete()
 
 	def handle_set_afh(self, op, data):
 		if len(data) < AFH_PARAMETERS_LEN:

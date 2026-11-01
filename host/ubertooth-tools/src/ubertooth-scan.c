@@ -206,12 +206,16 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	errno = 0;
 	if (hci_read_remote_version(dd, handle, &version, 20000) == 0) {
 		char *ver = lmp_vertostr(version.lmp_ver);
+		/* libbtbb's table rather than BlueZ's bt_compidtostr(): BlueZ's
+		 * ends at company identifier 1037, so every device of a company
+		 * that joined the Bluetooth SIG later had no name here. */
+		const char *company = btbb_company_name(version.manufacturer);
 		printf("\tLMP Version: %s (0x%x) LMP Subversion: 0x%x\n"
 			"\tManufacturer: %s (%d)\n",
 			ver ? ver : "n/a",
 			version.lmp_ver,
 			version.lmp_subver,
-			bt_compidtostr(version.manufacturer),
+			company ? company : "not assigned",
 			version.manufacturer);
 		if (ver)
 			bt_free(ver);
@@ -323,8 +327,9 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	return failed;
 }
 
-/* For a given BD_ADDR, print address, name and class. Returns what
- * extra_info() returned, or 0 without -x. whole_address is as it is there. */
+/* For a given BD_ADDR, print the address and the device's name, then the
+ * report of -x if it was asked for. Returns what extra_info() returned, or 0
+ * without -x. whole_address is as it is there. */
 int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
 						  char* printable_addr, uint8_t extended,
 						  int whole_address)

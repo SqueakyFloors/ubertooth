@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # install.sh - one-command from-source setup for the Ubertooth host tools
 #              (and optionally firmware) on Debian/Ubuntu, on Fedora, and on
@@ -62,8 +63,6 @@
 # On macOS the install goes into the Homebrew prefix by default, which is owned
 # by your user, so no sudo is needed. Homebrew asks for your password only when
 # it installs the gcc-arm-embedded toolchain package (--with-firmware).
-#
-# Copyright 2026. Released under the GPLv2. Refer to COPYING.
 
 set -euo pipefail
 
@@ -81,7 +80,7 @@ VENV=""
 # .github/workflows/build.yml, which checks that this copy agrees with it.
 # --libbtbb-url / --libbtbb-ref override these for one run.
 LIBBTBB_URL="https://github.com/SqueakyFloors/libbtbb.git"
-LIBBTBB_REF="50bbc76d383e4038ee6dadccad55f0161c1cb029"
+LIBBTBB_REF="017676965a77cd7b00bfede343b7800dee6aa6a5"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
@@ -317,7 +316,8 @@ case "$(uname -s)" in
 	Darwin)
 		command -v brew >/dev/null 2>&1 || \
 			die "on macOS this script needs Homebrew (https://brew.sh); see REQUIREMENTS.md"
-		# Homebrew does not install Python here; apt does on Debian/Ubuntu.
+		# Homebrew does not install Python here; the Linux package
+		# managers do.
 		# An uninstall builds nothing and runs no Python, so it does not care.
 		if [ "$UNINSTALL" -eq 0 ]; then
 			command -v python3 >/dev/null 2>&1 || \
@@ -420,8 +420,9 @@ drop_record() { # <record file>
 # Take away what an earlier run installed into PREFIX, and nothing else: the
 # record that run wrote is the only list used, so a file this script never
 # installed is not named there and cannot be removed here. Nothing else it
-# touched is a file of ours to take back: the apt and Homebrew packages, the
-# Python packages, and a venv the user named with --venv, all stay.
+# touched is a file of ours to take back: the distribution and Homebrew
+# packages, the Python packages, and a venv the user named with --venv, all
+# stay.
 #
 # Running it twice is a no-op rather than an error, the way "rm -f" is: the
 # state asked for has been reached either way, so only a file that is still
@@ -749,9 +750,22 @@ fi
 # --- 6. host tools --------------------------------------------------------
 # The installed tools find libubertooth and libbtbb under PREFIX through their
 # run path, so a non-default prefix works without ldconfig or DYLD settings.
-# Two directories where libbtbb's is not libubertooth's.
-RPATH="$PREFIX/lib"
-[ "$BTBB_LIBDIR" = "$PREFIX/lib" ] || RPATH="$RPATH;$BTBB_LIBDIR"
+# The directories each library really went into come first and plain lib is the
+# fallback after them, because a library the system keeps in lib64 has to be
+# found there rather than in a copy an earlier install left in lib. libbtbb's
+# directory is the one its install wrote to, read above; libubertooth's is
+# added after the configure step below, which is what works it out.
+#
+# Each directory once, in the order they are to be searched.
+join_rpath() { # <directory>...
+	local joined="" dir
+	for dir in "$@"; do
+		case ";$joined;" in *";$dir;"*) continue ;; esac
+		joined="${joined:+$joined;}$dir"
+	done
+	printf '%s' "$joined"
+}
+RPATH="$(join_rpath "$BTBB_LIBDIR" "$PREFIX/lib")"
 CMAKE_ARGS=(
 	"-DCMAKE_INSTALL_PREFIX=$PREFIX"
 	"-DCMAKE_PREFIX_PATH=$PREFIX"
@@ -785,6 +799,46 @@ CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
 # cached one from before a brew upgrade names a version that is gone.
 cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 	-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
+
+# Which directory libubertooth itself is going into. The configure step asks
+# CMake for the one this system keeps libraries in, the same question libbtbb's
+# install answered above, so the two are normally the same directory. It goes
+# at the front of the run path, which needs the configure step repeated where
+# that changes the path, because a run path is written into the tools as they
+# are linked.
+#
+# UBERTOOTH_INSTALL_LIBDIR is the build's own answer, written to its cache for
+# this: it is CMAKE_INSTALL_LIBDIR, or what LIB_SUFFIX asked for instead. The
+# entry's type is not matched, so the read does not rest on which type the
+# entry carries: a cached value has the type whichever side put it there gave
+# it, and only the value is wanted here.
+UBERTOOTH_LIBDIR="$(sed -n 's/^UBERTOOTH_INSTALL_LIBDIR:[^=]*=//p' \
+	"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
+case "$UBERTOOTH_LIBDIR" in
+	'')
+		UBERTOOTH_LIBDIR="$PREFIX/lib"
+		warn "the host build did not record a library directory, so the tools are built for a libubertooth in $UBERTOOTH_LIBDIR"
+		;;
+	/*) ;;
+	*) UBERTOOTH_LIBDIR="$PREFIX/$UBERTOOTH_LIBDIR" ;;
+esac
+WANTED_RPATH="$(join_rpath "$UBERTOOTH_LIBDIR" "$BTBB_LIBDIR" "$PREFIX/lib")"
+if [ "$WANTED_RPATH" != "$RPATH" ]; then
+	RPATH="$WANTED_RPATH"
+	info "Setting the installed tools' run path to $RPATH"
+	cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
+		"-DCMAKE_INSTALL_RPATH=$RPATH"
+fi
+# An install of an earlier version of these tools put libubertooth in
+# $PREFIX/lib, where this one may no longer be installing it. The run path
+# above finds the new one first, but a copy of the old one left on the system
+# is worth saying out loud, because anything else that loads libubertooth by
+# name can still find it.
+if [ "$UBERTOOTH_LIBDIR" != "$PREFIX/lib" ] &&
+   ls "$PREFIX"/lib/libubertooth.* >/dev/null 2>&1; then
+	warn "an earlier install left libubertooth in $PREFIX/lib; this one installs it to $UBERTOOTH_LIBDIR, so remove the old files when nothing needs them"
+fi
+
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
 as_installer cmake --install "$REPO_ROOT/host/build"
 record_installed host "$REPO_ROOT/host/build"

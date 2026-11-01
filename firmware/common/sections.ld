@@ -50,17 +50,23 @@ SECTIONS
 		_interrupt_vector_table_end = .;
 
 		/*
-		 * The firmware info block, at a fixed offset from the start of
-		 * the image so that ubertooth-dfu can read it out of a firmware
-		 * file without searching: UBERTOOTH_FW_INFO_OFFSET (0x100) and
-		 * UBERTOOTH_FW_INFO_LENGTH (64) in
+		 * Two blocks at fixed offsets from the start of the image, so
+		 * that ubertooth-dfu can read and write them without
+		 * searching: the image check block
+		 * (UBERTOOTH_IMAGE_CHECK_OFFSET, 0xe0, 32 bytes) and the
+		 * firmware info block (UBERTOOTH_FW_INFO_OFFSET, 0x100, 64
+		 * bytes), both in
 		 * host/libubertooth/src/ubertooth_interface.h, which
 		 * firmware/tests/test_fw_info.c reads and puts against these
-		 * numbers. The offset clears the vector table, including the
-		 * checksum word at 0x1c that the LPC boot ROM reads over it;
+		 * numbers.
+		 *
+		 * Both offsets clear the vector table, including the checksum
+		 * word at 0x1c that a bootloader from this tree reads over it;
 		 * the ASSERTs after this block are what catch a vector table
-		 * that has grown that far, and an image whose block is the
-		 * wrong size.
+		 * that has grown that far, and a block that is the wrong size.
+		 * The image check block has to stay inside the image's first
+		 * 256 bytes, which the host writes in one program along with
+		 * the vector table: ubertooth_interface.h says why.
 		 *
 		 * MAX() rather than a plain assignment, because a location
 		 * counter cannot move backwards: a vector table past the
@@ -69,14 +75,42 @@ SECTIONS
 		 * of the two addresses lets the link reach the ASSERTs, which
 		 * name the problem.
 		 *
-		 * The bootloader shares this script and carries no block, so
-		 * for that one image this leaves 0x100 - 0xcc = 52 bytes of
-		 * zeros where the block would go.
+		 * The bootloader shares this script and carries neither block.
+		 * It puts its own version block at the second of the two
+		 * offsets instead -- see below -- so the same 0x100 serves
+		 * both, and that image leaves 0xe0 - 0xcc = 20 bytes of zeros
+		 * where the image check block would go.
 		 */
+		. = MAX(., _interrupt_vector_table + 0xe0);
+		_image_check_start = .;
+		KEEP(*(.image_check))
+		_image_check_end = .;
+
 		. = MAX(., _interrupt_vector_table + 0x100);
 		_fw_info_start = .;
 		KEEP(*(.fw_info))
 		_fw_info_end = .;
+
+		/*
+		 * The bootloader version block, at the same offset as the
+		 * firmware info block. The two share it because no image
+		 * carries both: an application has a firmware info block and
+		 * no version block, the bootloader the other way round. A
+		 * reader takes the bytes at the offset and tells them apart by
+		 * their magic, so there is one offset to agree on rather than
+		 * two, and neither image spends flash on a hole it does not
+		 * fill. The ASSERTs after this block are what hold that: an
+		 * image carrying both would fail the link rather than quietly
+		 * push one block somewhere the host does not look.
+		 *
+		 * UBERTOOTH_BL_VERSION_OFFSET and UBERTOOTH_BL_VERSION_LENGTH
+		 * (48) are in host/libubertooth/src/ubertooth_interface.h,
+		 * which firmware/tests/test_bl_version.c reads and puts
+		 * against these numbers.
+		 */
+		_bl_version_start = .;
+		KEEP(*(.bl_version))
+		_bl_version_end = .;
 
 		*(.text .text.* .gnu.linkonce.t.*)
 		*(.rodata .rodata.* .gnu.linkonce.r.*)
@@ -244,11 +278,30 @@ ASSERT((_stack_guard & (32 - 1)) == 0,
 ASSERT(_StackTop - _stack_bottom >= 2048,
 	"less than 2 KB of main SRAM is left for the stack: move a large buffer into AHB SRAM with the AHB_SRAM macro")
 
-/* The firmware info block has to stay where the host looks for it. These are
- * checked after allocation, so they read the addresses the link really chose. */
-ASSERT(_interrupt_vector_table_end - _interrupt_vector_table <= 0x100,
-	"the interrupt vector table has grown into the firmware info block at offset 0x100")
+/* Both blocks have to stay where the host looks for them. These are checked
+ * after allocation, so they read the addresses the link really chose. */
+ASSERT(_interrupt_vector_table_end - _interrupt_vector_table <= 0xe0,
+	"the interrupt vector table has grown into the image check block at offset 0xe0")
+ASSERT(_image_check_start - _interrupt_vector_table == 0xe0,
+	"the image check block is not at offset 0xe0")
+ASSERT(_image_check_end - _image_check_start == 0 || _image_check_end - _image_check_start == 32,
+	"the image check block is not 32 bytes")
 ASSERT(_fw_info_start - _interrupt_vector_table == 0x100,
 	"the firmware info block is not at offset 0x100")
 ASSERT(_fw_info_end - _fw_info_start == 0 || _fw_info_end - _fw_info_start == 64,
 	"the firmware info block is not 64 bytes")
+
+/* The bootloader version block, which shares the firmware info block's
+ * offset. Each check passes for an image that carries no such block, so the
+ * application images are not asked to have one. */
+ASSERT(_fw_info_end - _fw_info_start == 0 || _bl_version_end - _bl_version_start == 0,
+	"one image carries both the firmware info block and the bootloader version block, which share the offset at 0x100")
+ASSERT(_bl_version_end - _bl_version_start == 0 || _bl_version_start - _interrupt_vector_table == 0x100,
+	"the bootloader version block is not at offset 0x100")
+ASSERT(_bl_version_end - _bl_version_start == 0 || _bl_version_end - _bl_version_start == 48,
+	"the bootloader version block is not 48 bytes")
+/* The word at 0x2fc is the code read protection value the LPC boot ROM reads
+ * (NXP LPC176x/5x user manual UM10360). A block placed over it could lock the
+ * part's debug and programming interfaces, which is not recoverable here. */
+ASSERT(_bl_version_end - _bl_version_start == 0 || _bl_version_end - _interrupt_vector_table <= 0x2fc,
+	"the bootloader version block reaches the code read protection word at 0x2fc")

@@ -1,29 +1,15 @@
-/*
- * Copyright 2026 Project Ubertooth contributors
- *
- * This file is part of Project Ubertooth.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street,
- * Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 #ifndef __APP_IMAGE_H_
 #define __APP_IMAGE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
+
+/* The image check block an image carries and ubertooth-dfu fills in: the
+ * layout, the offset, the flags and what the checksum covers are all there,
+ * and the host reads them from the same header. */
+#include "ubertooth_interface.h"
 
 /* The first address of the application region: the bootloader has the flash
  * below it, and an application starts with its vector table here. The same
@@ -93,8 +79,10 @@
  * part's flash.
  *
  * The LPC vector checksum is asked for separately, by
- * app_image_vector_checksum_ok() below, and the two together are what the
- * bootloader puts a vector table to in app_image_table_startable().
+ * app_image_vector_checksum_ok() below, and the two together are what
+ * app_image_table_startable() puts a vector table to. The bootloader calls
+ * app_image_region_startable(), which adds the checks the image check block
+ * asks for on top of those.
  */
 static inline bool app_image_startable(const uint32_t stack_pointer,
                                        const uint32_t reset_vector,
@@ -143,25 +131,27 @@ static inline bool app_image_startable(const uint32_t stack_pointer,
  * pulled cable does. Erased flash leaves 0xFFFFFFFF in the word, which fails
  * the sum as well.
  *
- * A zero word is no checksum rather than a wrong one, and is accepted. That
- * is what every image this tree builds has in the file -- the application's
- * own vector table leaves the word zero (firmware/common/
+ * A zero word is no checksum rather than a wrong one unless required says
+ * otherwise. That is what every image this tree builds has in the file -- the
+ * application's own vector table leaves the word zero (firmware/common/
  * LPC17xx_Interrupts.c) -- and what a board flashed by an earlier host tool
  * carries. Refusing those would leave a board waiting in DFU for an image it
  * already has, which is the one outcome this check must not produce.
  *
+ * required is for an image that says for itself that the word is filled in:
+ * its image check block carries UBERTOOTH_IMAGE_CHECK_VECTOR, so a zero word
+ * is not an image that predates the checksum but one whose eight words do not
+ * add up, and it is refused like any other wrong sum.
+ *
  * The checksum covers the first block alone, so it says nothing about the
- * rest of the image: an interruption inside the 4 KiB sector the vector table
- * shares still leaves a startable image, as ubertooth-dfu(1) records. What it
- * adds over the two words above is the first block itself: a stack pointer
- * and a reset vector that read plausibly out of a block that was not
- * programmed whole no longer start a board.
+ * rest of the image: that is what the region checksum below is for.
  */
-static inline bool app_image_vector_checksum_ok(const uint32_t* const vectors)
+static inline bool app_image_vector_checksum_ok(const uint32_t* const vectors,
+                                                const bool required)
 {
     uint32_t sum = 0;
 
-    if( vectors[APP_IMAGE_CHECKSUM_INDEX] == 0 ) {
+    if( !required && (vectors[APP_IMAGE_CHECKSUM_INDEX] == 0) ) {
         return true;
     }
     for( unsigned i = 0; i < APP_IMAGE_CHECKED_WORDS; i++ ) {
@@ -171,15 +161,184 @@ static inline bool app_image_vector_checksum_ok(const uint32_t* const vectors)
 }
 
 /*
- * Everything the bootloader asks of a vector table before it starts it:
- * vectors points at the eight words at APP_IMAGE_BASE, and flash_top is one
- * past the last flash address that could hold application code.
+ * Everything a vector table on its own can be asked: vectors points at the
+ * eight words at APP_IMAGE_BASE, flash_top is one past the last flash address
+ * that could hold application code, and checksum_required is the flag above.
  */
 static inline bool app_image_table_startable(const uint32_t* const vectors,
-                                             const uint32_t flash_top)
+                                             const uint32_t flash_top,
+                                             const bool checksum_required)
 {
     return app_image_startable(vectors[0], vectors[1], flash_top) &&
-           app_image_vector_checksum_ok(vectors);
+           app_image_vector_checksum_ok(vectors, checksum_required);
+}
+
+/*
+ * The shortest image there could be a region checksum over: the image check
+ * block ends at the top of the first 256 bytes, so an image shorter than that
+ * does not hold the block the length came out of.
+ */
+#define APP_IMAGE_MIN_LENGTH 0x100u
+
+/*
+ * The most flash the region checksum will read, and why there is a limit at
+ * all.
+ *
+ * The length comes out of the image. A length that is wrong by more than the
+ * part has flash would send the sum below reading addresses the part has not
+ * got, and a read that faulted here would take the board with it -- the one
+ * outcome this whole check must not produce, since it leaves someone at the
+ * bench with the entry pin bridged rather than a board waiting in DFU.
+ *
+ * So the sum reads no further than the application region of a 128 KiB part.
+ * That is the floor for these boards: the Ubertooth One schematic specifies
+ * an LPC1754 with 128 KiB, and boards in the field read back that or more
+ * (firmware/bootloader/flash.h, which says so where it reads the part's
+ * bound). The part table beside it runs from 32 KiB up because it bounds what
+ * a download may write to whatever part is in front of it -- it is the
+ * family out of the user manual, not a list of parts an Ubertooth carries --
+ * so the smallest entry in it is not the floor this limit needs.
+ *
+ * A longer image can only be on a larger part, and it is more than twice the
+ * largest image this tree builds -- btbr, 50282 bytes. An image longer than
+ * this is not refused: it is started without the region checksum, on its
+ * vector table alone, the way every image was before the record existed.
+ * Refusing it would leave a board that will not start a good image, which is
+ * worse than checking less of it. One image that reaches that: a whole-region
+ * dump taken off a larger part with ubertooth-dfu -u and flashed back, 240 KiB
+ * from a 256 KiB part. ubertooth-dfu(1) says so.
+ */
+#define APP_IMAGE_SMALLEST_FLASH  0x20000u
+#define APP_IMAGE_REGION_READ_LIMIT (APP_IMAGE_SMALLEST_FLASH - APP_IMAGE_BASE)
+
+/* Does this look like an image check block, rather than whatever else those
+ * 32 bytes might hold? An image built before the block existed, an image from
+ * another tree, and erased flash all read as absent here, and an absent block
+ * asks for no checks at all. */
+static inline bool app_image_check_present(
+    const struct ubertooth_image_check_block* const check)
+{
+    static const char magic[] = UBERTOOTH_IMAGE_CHECK_MAGIC;
+
+    for( unsigned i = 0; i < UBERTOOTH_IMAGE_CHECK_MAGIC_LEN; i++ ) {
+        if( check->magic[i] != (uint8_t)magic[i] ) {
+            return false;
+        }
+    }
+    return (check->format_version == UBERTOOTH_IMAGE_CHECK_FORMAT);
+}
+
+/* The block an image carries, read out of the region it is part of. */
+static inline const struct ubertooth_image_check_block* app_image_check_block(
+    const uint32_t* const region)
+{
+    return (const struct ubertooth_image_check_block*)
+        ((const uint8_t*)region + UBERTOOTH_IMAGE_CHECK_OFFSET);
+}
+
+/*
+ * Add words words of the region up, letting the sum wrap.
+ *
+ * The same sum the host works out over the image it is about to write
+ * (ubertooth_image_check_sum() in ubertooth_interface.h, which says why there
+ * are two of these), with the checksum word among the words added, so the
+ * whole of what was written comes to zero.
+ */
+static inline uint32_t app_image_region_sum(const uint32_t* const region,
+                                            const uint32_t words)
+{
+    uint32_t sum = 0;
+
+    for( uint32_t i = 0; i < words; i++ ) {
+        sum += region[i];
+    }
+    return sum;
+}
+
+/*
+ * Is the length a length an image could have?
+ *
+ * It decides how much flash is read, so it is read carefully. Both copies of
+ * it have to agree -- a length of its own is one word, and a word a program
+ * left part way through could read as anything, while two words that are
+ * still exact complements are a word pair that was programmed whole -- and it
+ * has to be a whole number of words and long enough to hold the block it came
+ * out of. A length that fails any of these comes from a record that was not
+ * programmed whole, and such an image is refused.
+ */
+static inline bool app_image_region_length_ok(
+    const struct ubertooth_image_check_block* const check)
+{
+    const uint32_t length = check->length;
+
+    if( (length ^ check->length_complement) != 0xffffffffu ) {
+        return false;
+    }
+    return (length >= APP_IMAGE_MIN_LENGTH) && ((length & 3u) == 0);
+}
+
+/*
+ * Does every byte that was programmed add up?
+ *
+ * This is the check the vector checksum cannot make. The host writes the
+ * region's first block before the rest of the sector it starts, because
+ * writing that block is what erases the sector (firmware/bootloader/flash.h,
+ * Flash::write), so an interruption in between leaves a vector table that
+ * reads perfectly in front of fifteen blocks of erased flash. Everything
+ * above that sector is already written by then, so the one thing left to ask
+ * is whether the whole of what the host said it wrote is still there. Erased
+ * flash reads 0xFFFFFFFF, which does not add up, so a sector that is only
+ * partly written is refused and the board waits in DFU for another image.
+ *
+ * The caller has already put the length to app_image_region_length_ok() and
+ * to APP_IMAGE_REGION_READ_LIMIT, so what is read here is inside flash the
+ * part has.
+ */
+static inline bool app_image_region_checksum_ok(
+    const uint32_t* const region,
+    const struct ubertooth_image_check_block* const check)
+{
+    return (app_image_region_sum(region, check->length / 4u) == 0);
+}
+
+/*
+ * Everything the bootloader asks of an application before it starts it.
+ *
+ * region points at the start of the application region, APP_IMAGE_BASE, and
+ * flash_top is one past the last flash address that could hold application
+ * code.
+ *
+ * The vector table is read first and on its own terms, so a region that holds
+ * no image at all is refused without the region checksum reading any of it.
+ * Then come the checks the image asks for itself: an image that carries no
+ * image check block, or carries one with no flags set, is startable on the two
+ * words and the zero-checksum rule alone, which is what every image written
+ * before this existed relies on.
+ */
+static inline bool app_image_region_startable(const uint32_t* const region,
+                                              const uint32_t flash_top)
+{
+    const struct ubertooth_image_check_block* const check =
+        app_image_check_block(region);
+    const bool present = app_image_check_present(check);
+    const uint16_t flags = present ? check->flags : 0;
+
+    if( !app_image_table_startable(region, flash_top,
+                                   (flags & UBERTOOTH_IMAGE_CHECK_VECTOR) != 0) ) {
+        return false;
+    }
+    if( (flags & UBERTOOTH_IMAGE_CHECK_REGION) == 0 ) {
+        return true;
+    }
+    if( !app_image_region_length_ok(check) ) {
+        return false;
+    }
+    if( check->length > APP_IMAGE_REGION_READ_LIMIT ) {
+        /* More flash than this will read: see the limit's own comment. The
+         * image starts on its vector table alone rather than be refused. */
+        return true;
+    }
+    return app_image_region_checksum_ok(region, check);
 }
 
 #endif//__APP_IMAGE_H_

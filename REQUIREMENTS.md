@@ -22,7 +22,7 @@ Missing a **required** dependency fails the build.
 ### Optional — absence silently drops tools unless `-DREQUIRE_ALL=ON`
 | Dependency | Enables | If missing | Install |
 |---|---|---|---|
-| libbluetooth (BlueZ) | `ubertooth-scan`, `ubertooth-follow` | those two tools are **not built** | `libbluetooth-dev` / `bluez-libs-devel` (Linux only; not on macOS) |
+| libbluetooth (BlueZ) | `ubertooth-scan`, `ubertooth-follow` | those two tools are **not built** | `libbluetooth-dev` / `bluez-libs-devel` (Linux only; on macOS there is nothing to install and those two tools are never built — [why, and what to use instead](COMPATIBILITY.md#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) |
 | FFTW3 | specan_ui spectrum GUI deps | GUI may not function | `libfftw3-dev` / `fftw-devel` / `brew install fftw` |
 | Python 3 + runtime modules | specan_ui / ubtbr Python tools | Python tools install, but fail at runtime if deps are missing | `python3` (`python3-venv` on Debian/Ubuntu for `--venv`, `python3-pip` on Fedora); specan_ui: `numpy qtpy` plus `pyside6` (pip) or the distro packages (`python3-numpy python3-qtpy python3-pyqt5` on apt, `python3-numpy python3-QtPy python3-pyside6` on dnf); ubtbr: `libusb1` / distro `python3-usb1` (apt) or `python3-libusb1` (dnf) |
 | ronn-ng **0.10.1** | the `refresh-manpages` target, which regenerates the committed man pages from `host/doc/*.md` | nothing: the committed `.1` pages are the ones installed, and a build never regenerates them ([host/doc/man/README.md](host/doc/man/README.md)) | `gem install ronn-ng -v 0.10.1` |
@@ -83,10 +83,10 @@ sudo dnf install git cmake gcc gcc-c++ make pkgconf-pkg-config \
 # then build libbtbb from source (the pinned fork commit), then the host tools
 ```
 
-On Fedora libbtbb installs its library to `lib64` and these tools install
-theirs to `lib`; the build asks pkg-config and CMake where each one is rather
-than assuming, and `install.sh` sets the installed tools' run path to both, so
-a hand-built install may need `/usr/local/lib` and `/usr/local/lib64` in
+On Fedora libbtbb and libubertooth both install to `lib64`, the directory the
+system keeps libraries in; the build asks pkg-config and CMake where that is
+rather than assuming, and `install.sh` sets the installed tools' run path to
+it, so a hand-built install may need `/usr/local/lib64` in
 `/etc/ld.so.conf.d/` where the script needs nothing.
 
 ## Verifying what got built
@@ -103,3 +103,7 @@ Ubertooth host tools — build summary
 
 For a build that must include everything, configure with `-DREQUIRE_ALL=ON` so
 a missing optional dependency fails loudly instead of silently dropping tools.
+On macOS that one cannot be met — BlueZ is Linux only, so `ubertooth-scan` and
+`ubertooth-follow` are never built there and the summary says so instead of
+naming a package to install. Leave `REQUIRE_ALL` off on a Mac, as
+`install.sh` does.

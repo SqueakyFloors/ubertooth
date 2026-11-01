@@ -1,24 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * The reports for a capture that could not be started, shared by the
  * ubertooth-* host tools that set one up: a control request the board
  * refused, and the host thread that collects the capture.
- *
- * This file is part of Project Ubertooth.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street,
- * Boston, MA 02110-1301, USA.
  */
 
 #include "request_report.h"
@@ -63,12 +47,17 @@ static const char *hint(int code)
 		 * but not always: a mode that services USB from the interrupt
 		 * keeps its loop turning, and so keeps feeding the watchdog,
 		 * even when its USB path alone has died. That board waits for a
-		 * reset that is not coming, so the note names the fallback. */
+		 * reset that is not coming, so the note names the two things
+		 * left to try, in the order of what they cost: ubertooth-util -r
+		 * resets the USB connection and then the board, which needs
+		 * nobody at the bench, and only a board that will not come back
+		 * from that has to be unplugged. */
 		return "if a mode is running, stop it with ubertooth-util -S; "
 		       "a board that does not answer at all usually resets "
 		       "itself within a few seconds, so run the command again, "
-		       "and unplug it or power-cycle its hub port if it stays "
-		       "silent";
+		       "then reset it with ubertooth-util -r on the same board if "
+		       "it stays silent, and unplug it or power-cycle its hub "
+		       "port if that does not reach it either";
 	case LIBUSB_ERROR_NO_DEVICE:
 		return "re-attach the board and run the command again";
 	default:

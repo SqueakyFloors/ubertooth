@@ -48,8 +48,15 @@ int ubertooth_print_versions(FILE *out, const char *selector)
 static struct {
 	int fail_start;   /* ubertooth_start_select() returns NULL */
 	int read_rc;      /* what cmd_read_register() returns */
+	int write_rc;     /* what cmd_write_register() returns */
 	int image_rc;     /* what ubertooth_check_image() returns */
-	int starts, closes, frees, reads, image_checks;
+	int starts, closes, frees, reads, writes, image_checks;
+	/* Every register the tool wrote, in the order it wrote them, so a case
+	 * can check both the values and that writes came before reads. */
+	int written_reg[8], written_value[8];
+	/* How many registers had been written when the first read arrived, or
+	 * -1 if no read did. */
+	int writes_before_first_read;
 	char selector[64];
 } fake;
 
@@ -95,8 +102,23 @@ int cmd_read_register(struct libusb_device_handle* devh, uint8_t reg)
 	/* The image is settled before anything is asked of the radio, so a read
 	 * that arrives first is the order going wrong, not a second answer. */
 	mu_assert(fake.image_checks == 1, "the image is checked before a read");
+	if (fake.reads == 0)
+		fake.writes_before_first_read = fake.writes;
 	fake.reads++;
 	return fake.read_rc;
+}
+
+int cmd_write_register(struct libusb_device_handle* devh, uint8_t reg,
+                       uint16_t value)
+{
+	(void)devh;
+	mu_assert(fake.image_checks == 1, "the image is checked before a write");
+	if (fake.writes < (int)(sizeof(fake.written_reg) / sizeof(int))) {
+		fake.written_reg[fake.writes] = reg;
+		fake.written_value[fake.writes] = value;
+	}
+	fake.writes++;
+	return fake.write_rc;
 }
 
 /* ---- running main() --------------------------------------------------- */
@@ -149,6 +171,7 @@ static void reset(void)
 {
 	memset(&fake, 0, sizeof(fake));
 	fake.read_rc = 0x42;
+	fake.writes_before_first_read = -1;
 	lists_freed = 0;
 }
 
@@ -360,11 +383,113 @@ MU_TEST(the_parsed_register_list_is_given_back)
 	mu_assert_int_eq(0, fake.starts);
 }
 
+/* -w writes the registers the user named, as the values they named, and a
+ * command with both -w and -r writes before it reads: that is what makes
+ * "-w %grmdm=0x0f61 -r %grmdm" a read-back. */
+MU_TEST(a_write_reaches_the_board_before_a_read)
+{
+	/* A %name given to -r is looked up in place, which the tool may do
+	 * because argv is the process's to write: these have to be arrays and
+	 * not string literals for the same reason. */
+	char read_name[] = "%grmdm";
+	char* write_only[] = { "ubertooth-debug", "-w", "%grmdm=0x0f61,0x0b=41",
+	                       NULL };
+	char* write_then_read[] = { "ubertooth-debug", "-w", "%grmdm=0x0f61",
+	                            "-r", read_name, NULL };
+	struct run r;
+
+	reset();
+	run_main(&r, 3, write_only);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2, fake.writes);
+	mu_assert_int_eq(0, fake.reads);
+	mu_assert_int_eq(0x20, fake.written_reg[0]);   /* GRMDM */
+	mu_assert_int_eq(0x0f61, fake.written_value[0]);
+	mu_assert_int_eq(0x0b, fake.written_reg[1]);
+	mu_assert_int_eq(41, fake.written_value[1]);   /* decimal, as written */
+	mu_assert(r.err[0] == '\0', r.err);
+
+	/* The read is ordered after the write, not merely present. */
+	reset();
+	run_main(&r, 5, write_then_read);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.writes);
+	mu_assert_int_eq(1, fake.reads);
+	mu_assert_int_eq(1, fake.writes_before_first_read);
+}
+
+/* A refused write is reported and exits 1, and a read asked for in the same
+ * command still happens: the user asked for both. */
+MU_TEST(a_refused_write_still_reads_and_exits_one)
+{
+	char read_name[] = "%grmdm"; /* written in place by -r: see above */
+	char* argv[] = { "ubertooth-debug", "-w", "%grmdm=0x0f61", "-r",
+	                 read_name, NULL };
+	struct run r;
+
+	reset();
+	fake.write_rc = -1;
+	run_main(&r, 5, argv);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.writes);
+	mu_assert_int_eq(1, fake.reads);
+	mu_assert(strstr(r.err, "error: register 0x20 write failed") != NULL,
+	          r.err);
+}
+
+/* A command line with neither -r nor -w asks for nothing, and a refused -w
+ * value opens no board. */
+MU_TEST(a_bad_write_list_opens_no_device)
+{
+	char* nothing[] = { "ubertooth-debug", NULL };
+	char* no_value[] = { "ubertooth-debug", "-w", "%grmdm", NULL };
+	char* unknown_name[] = { "ubertooth-debug", "-w", "%nosuchreg=1", NULL };
+	char* too_big[] = { "ubertooth-debug", "-w", "0x20=0x10000", NULL };
+	char* bad_address[] = { "ubertooth-debug", "-w", "0x100=1", NULL };
+	struct run r;
+
+	reset();
+	run_main(&r, 1, nothing);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-w <reg>=<value>") != NULL, r.err);
+	mu_assert_int_eq(0, fake.starts);
+
+	reset();
+	run_main(&r, 3, no_value);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "must be <reg>=<value>") != NULL, r.err);
+	mu_assert_int_eq(0, fake.starts);
+
+	reset();
+	run_main(&r, 3, unknown_name);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "no CC2400 register is called %nosuchreg")
+	          != NULL, r.err);
+	mu_assert_int_eq(0, fake.starts);
+
+	reset();
+	run_main(&r, 3, too_big);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: register value must be 0x0000-0xffff"
+	                 " (got 0x10000 in 0x20=0x10000)\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.starts);
+
+	reset();
+	run_main(&r, 3, bad_address);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: register address must be 0x00-0xff"
+	                 " (got 0x100 in 0x100=1)\n") == 0, r.err);
+	mu_assert_int_eq(0, fake.starts);
+}
+
 int main(void)
 {
 	/* Neither binary links libubertooth: the fakes above are the whole
 	 * device, and any new library call the tool grows becomes a link
 	 * error rather than a silently real one. */
+	MU_RUN(a_write_reaches_the_board_before_a_read);
+	MU_RUN(a_refused_write_still_reads_and_exits_one);
+	MU_RUN(a_bad_write_list_opens_no_device);
 	MU_RUN(a_completed_read_releases_the_handle);
 	MU_RUN(a_failed_read_releases_the_handle_too);
 	MU_RUN(a_device_that_cannot_be_opened_frees_nothing);

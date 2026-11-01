@@ -115,6 +115,14 @@ Typical workflow
 
 		ubertooth-rx -l 88aabb -u 66 -r capture.pcapng
 
+   The clock search does not confirm a clock against a piconet that uses
+   adapted frequency hopping (AFH), which the controllers tested on this
+   project's bench all do, including when every channel is allowed, so
+   following such a piconet does not start. The addresses and the packets the
+   board hears are still recovered, and the capture above is still written.
+   ``ubertooth-rx(1)``, THE CLOCK SEARCH AND ADAPTED HOPPING describes why,
+   and what else reaches a clock.
+
 #. **Check the Adaptive Frequency Hopping (AFH) map** if following is
    unreliable. Many piconets use AFH to
    avoid busy channels, which changes the hop sequence:
@@ -136,12 +144,12 @@ See the man pages in ``host/doc/`` (`ubertooth-rx.md <https://github.com/Squeaky
 Following with help from a local Bluetooth device
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``ubertooth-rx`` above recovers the piconet's clock from the air alone, which
-takes a piconet that keeps transmitting and can take a while.
-``ubertooth-follow`` shortens that: it pages the target through a local
-Bluetooth device, reads the clock offset of the connection it gets, and hands
-that to the board. It needs Linux with BlueZ and a working local Bluetooth
-device; there is none on macOS, so the tool is not built there.
+``ubertooth-follow`` is the other way to the clock the step above searches the
+air for, and it is what reaches one against a piconet that uses adapted
+hopping. It does not search: it pages the target through a local Bluetooth
+device, reads the clock offset of the connection it gets, and hands that to the
+board. It needs Linux with BlueZ and a working local Bluetooth device; there is
+none on macOS, so the tool is not built there.
 
 #. **Check the local Bluetooth device.** With none, ``ubertooth-follow`` stops
    before it opens the board:

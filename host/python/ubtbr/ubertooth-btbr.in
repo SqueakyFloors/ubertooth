@@ -2,6 +2,7 @@
 import atexit
 import errno
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -21,7 +22,8 @@ from getopt import getopt, GetoptError
 # imports further down, which need the Python libusb1 package. -V is the call
 # that has to work without it: it is how a user says which tools they have.
 from ubtbr.streams import (bin_an_unusable_standard_error, error, eprint,
-	flush_the_streams, opened_for_writing, output_gone, output_lost)
+	flush_the_streams, opened_for_writing, output_gone, output_lost,
+	result_lines_dropped)
 
 # The options the tool takes, in getopt's form: a ':' marks one that takes a
 # value. report_bad_option() reads the same string to find the word a stray
@@ -290,8 +292,9 @@ def through(stage):
 				raise
 			output_lost()
 	# A standard output that went away means what was asked for was not all
-	# printed, whatever the stage made of the rest.
-	sys.exit(1 if output_gone() else status)
+	# printed, whatever the stage made of the rest, and so does a decoded
+	# line this session's character encoding could not carry.
+	sys.exit(1 if output_gone() or result_lines_dropped() else status)
 
 if __name__ == '__main__':
 	# Before anything is printed, since what this does is decide where the
@@ -331,15 +334,9 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 		self._l2cap_command_id = 0xc8
 
 	def _send_l2cap_echo_req(self, data=b"ECHO"):
-		echo_req = (p8(8)	# command code 2: echo req
-			+p8(self._l2cap_command_id)
-			+p16(len(data))	# command length
-			+data)
-		pdu = (p16(len(echo_req))
-			+ p16(1)	# cid l2cap sig channel
-			+ echo_req)
-		
-		self.send_acl(LLID_L2CAP_START, pdu)
+		self.send_acl(LLID_L2CAP_START,
+			l2cap_signalling_packet(L2CAP_ECHO_REQ,
+				self._l2cap_command_id, data))
 
 		self._l2cap_command_id += 1
 		if self._l2cap_command_id > 0xff:
@@ -353,6 +350,11 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
 		result("RX L2CAP: %s"%acl)
+		# Nothing goes back before the link setup has finished, or after
+		# this end has hung up, as in the page_scan command's answer:
+		# packets the board had queued keep arriving while a session stops.
+		if not self._lmp.setup_is_complete():
+			return
 		self._send_l2cap_echo_req()
 
 class PromptNotes:
@@ -443,17 +445,22 @@ class BTCtlPrompt(Cmd):
 		if not self._editor_draws_prompt:
 			self.say(self.PROMPT)
 
+	# An address is six bytes, so twelve hex digits: either with the five
+	# colons the prompt asks for, or with none at all. The length matters as
+	# much as the value, because a word of the wrong length still names a
+	# valid address -- a different one from the one that was typed, which
+	# page would page and bdaddr would give the board. So does anything
+	# Python's int() reads as a number: a "0x" prefix and underscores
+	# between digits both name an address nobody typed.
+	BDADDR = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\Z"
+		r"|[0-9A-Fa-f]{12}\Z")
+
 	def _parse_bdaddr(self, inp):
-		bdaddr = None
-		try:
-			bdaddr = int(inp.replace(":",""),16)
-		except:
-			pass
-		if bdaddr is None or bdaddr < 0 or bdaddr >= (1<<48):
+		if self.BDADDR.match(inp) is None:
 			# A diagnostic, so not on standard output.
 			error("BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)"%inp)
-		else:
-			return bdaddr
+			return None
+		return int(inp.replace(":",""),16)
 
 	def start_cmd(self, cls, *args):
 		if self._cmd is not None and (self._cmd.done() or self._gave_up):
@@ -796,5 +803,6 @@ def main(selector, settings):
 if __name__ == '__main__':
 	through(lambda: main(*COMMAND_LINE))
 	# The session ended without asking for a status of its own, so all that
-	# is left to say is whether standard output was there to the end.
-	sys.exit(1 if output_gone() else 0)
+	# is left to say is whether standard output was there to the end, and
+	# took every line that was printed to it.
+	sys.exit(1 if output_gone() or result_lines_dropped() else 0)

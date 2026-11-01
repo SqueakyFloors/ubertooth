@@ -73,6 +73,58 @@ add_definitions( -D_DEFAULT_SOURCE )
 # Comment the following out for releases.
 set(CMAKE_C_FLAGS "$ENV{CFLAGS}" CACHE STRING "C Flags")
 
+# Where an install writes: GNUInstallDirs works out the directories this
+# system uses and puts them in CMAKE_INSTALL_BINDIR, CMAKE_INSTALL_LIBDIR,
+# CMAKE_INSTALL_INCLUDEDIR and CMAKE_INSTALL_MANDIR, which the install
+# commands in the directories below use. The library's directory is the one
+# that differs between systems: lib64 on most 64-bit Linux systems,
+# lib/<triplet> where the prefix is /usr on a multiarch Debian or Ubuntu, and
+# lib on macOS, on Arch and Alpine, and for a conda prefix. libbtbb chooses
+# its own the same way, so both libraries land in the same directory instead
+# of two, which is what the loader, pkg-config and a packager's file list all
+# expect. CMAKE_INSTALL_LIBDIR and CMAKE_INSTALL_INCLUDEDIR choose them.
+include(GNUInstallDirs)
+
+# LIB_SUFFIX, the older way of asking for the library's directory, still
+# decides where it is set to something, so a build command that passes it
+# installs where it always did, as it does in libbtbb. It names the library's
+# directory only, and the headers follow CMAKE_INSTALL_INCLUDEDIR either way.
+# It is tested for being set to something rather than for being true, so that
+# a suffix CMake reads as a false constant -- "0", "N", "NO" -- is still a
+# suffix, and an empty one leaves CMAKE_INSTALL_LIBDIR in charge rather than
+# quietly turning it into lib.
+set(UBERTOOTH_INSTALL_LIBDIR "${CMAKE_INSTALL_LIBDIR}")
+if(DEFINED LIB_SUFFIX AND NOT "${LIB_SUFFIX}" STREQUAL "")
+	set(UBERTOOTH_INSTALL_LIBDIR "lib${LIB_SUFFIX}")
+	# Which of the two was followed, where they disagree: a build command can
+	# carry both, one of them from the system rather than from its author.
+	if(NOT "${UBERTOOTH_INSTALL_LIBDIR}" STREQUAL "${CMAKE_INSTALL_LIBDIR}")
+		message(STATUS "LIB_SUFFIX asks for ${UBERTOOTH_INSTALL_LIBDIR}, "
+			"which is used rather than the ${CMAKE_INSTALL_LIBDIR} of "
+			"CMAKE_INSTALL_LIBDIR")
+	endif()
+endif()
+
+# Written to the cache as well, because this, rather than CMAKE_INSTALL_LIBDIR,
+# is the directory the library goes to, and install.sh reads it back out to
+# give the installed tools a run path that holds it. INTERNAL implies FORCE,
+# so a build command that changes either setting is followed.
+set(UBERTOOTH_INSTALL_LIBDIR "${UBERTOOTH_INSTALL_LIBDIR}" CACHE INTERNAL
+	"The directory libubertooth is installed to, under the prefix")
+
+# The library's directory as it will be on disk: one given as an absolute path
+# is installed to exactly that, wherever the prefix is.
+set(UBERTOOTH_FULL_LIBDIR "${UBERTOOTH_INSTALL_LIBDIR}")
+if(NOT IS_ABSOLUTE "${UBERTOOTH_FULL_LIBDIR}")
+	set(UBERTOOTH_FULL_LIBDIR
+		"${CMAKE_INSTALL_PREFIX}/${UBERTOOTH_INSTALL_LIBDIR}")
+endif()
+# What this build will install where, said once and in full: a packager who
+# set one of these reads it back, and a plain build on a lib64 system sees why
+# the library is not going where the last one did.
+message(STATUS "Installing the library to ${UBERTOOTH_FULL_LIBDIR} and the "
+	"headers to ${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+
 # Defaults: BUILD_SHARED=ON, BUILD_STATIC=OFF
 set(BUILD_SHARED_LIB ON CACHE BOOL "Build shared library")
 set(BUILD_STATIC_LIB OFF CACHE BOOL "Build static library")

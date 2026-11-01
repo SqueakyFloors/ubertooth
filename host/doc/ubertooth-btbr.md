@@ -22,6 +22,12 @@ At startup the tool gives the board the address `11:22:33:44:55:66` and the
 local name `Ubertooth`, which is what an inquiring device sees in the Extended
 Inquiry Response (EIR). Change the address with the `bdaddr` command.
 
+Every command that takes a `BD_ADDR` takes the six bytes of an address as
+twelve hex digits, in either case, written `11:22:33:44:55:66` or
+`112233445566`. Anything else is refused; see DIAGNOSTICS. The `bdaddr=` an
+inquiry prints is written the second way, so it can be copied into `page`,
+`l2ping`, or `monitor` as it stands.
+
 The host side is the Python module `ubtbr`, which also implements enough of
 the Link Manager Protocol (LMP) to set up an unencrypted connection.
 
@@ -132,9 +138,11 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
    answer inquiries, so nearby devices discover this board
  - `page_scan` :
    accept a connection from a device that pages this board; a standard
-   Classic controller usually gets through in a few seconds, while another
-   Ubertooth paging this one is much less reliable
-   ([issue #807](https://github.com/SqueakyFloors/ubertooth/issues/807))
+   Classic controller usually gets through in a few seconds, and another
+   Ubertooth on the same bench needs its transmit level turned down first,
+   as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this
+   way answers a small L2CAP echo request, so `l2ping` from another Ubertooth
+   sees a reply (see LIMITATIONS for how small)
  - `discoverable` :
    `inquiry_scan` and `page_scan` together
  - `page <BD_ADDR>` :
@@ -154,6 +162,14 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `?`, `? <command>` :
    list the commands, or describe one
 
+`page`, `l2ping`, and `page_scan` keep trying for as long as the board allows
+one attempt: about 45 seconds of paging, a minute of scanning. A connection
+that comes up and then carries nothing costs that attempt only the second link
+supervision takes to notice it, after which the board goes back to paging or
+scanning and says `Paging resumed` or `Page scan resumed`. That happens when
+some other board nearby answers a page and is taken for the device being
+paged, or when the paged device's acknowledgment does not reach the pager.
+
 A word that is none of these is refused, and the prompt stays up; see
 DIAGNOSTICS.
 
@@ -163,6 +179,27 @@ refused with a `Not idle` line; `idle` or Ctrl-C stops the running one first.
 Ctrl-C at the prompt stops the running command, as `idle` does, and leaves the
 prompt up; pressing it again while that command is stopping returns to the
 prompt. Before the prompt is up, Ctrl-C ends the tool.
+
+## TWO BOARDS CLOSE TOGETHER
+
+Paging one Ubertooth from another needs both of them turned down first. At the
+transmit level the radio starts at, two boards a few centimeters apart drive
+each other's receiver far past the level it can demodulate. The page itself
+still gets through, because a page scan sits on one frequency for milliseconds
+at a time, but the short receive windows that follow it find nothing: the
+paged board comes up as a peripheral, the pager never hears the
+acknowledgment, and the connection ends a second later having carried no
+packet.
+
+Set both boards to the lowest level before paging one from the other:
+
+    ubertooth-util -U <serial> -a 0
+
+`btbr` keeps whatever level the register holds, so this lasts until the board
+is flashed again. The lowest level is about 20 dB down: plenty across a bench
+and not enough for a device across a room, so put it back to 7 before paging
+anything else. Moving the two boards apart, or putting an attenuator on one
+antenna, does the same job.
 
 ## MONITOR MODE
 
@@ -190,6 +227,13 @@ If no FHS appears, the peripheral won the race; try again.
 - Encryption is not implemented. Packets sent after a connection turns
   encryption on are reported as raw data, and the AFH map stops being
   followed, because the LMP packet carrying it is encrypted too.
+- An L2CAP echo request is answered when the whole request arrived in one
+  packet and the reply fits one too, which leaves room for 9 bytes of echo
+  data. `l2ping` here sends 4 and gets a reply. A larger request is not
+  reassembled from the fragments it arrives in and is not answered, so a
+  standard host's `l2ping`, which sends 44 bytes of data by default, gets no
+  reply unless it is asked for a smaller payload. The packets it sends are
+  still reported, as every received packet is.
 - The link layer carries Asynchronous Connection-Less (ACL) traffic only, and
   does not do role switching or the LMP procedures around it. A peer asking to
   send multi-slot packets is refused as well, and the feature mask this end
@@ -203,7 +247,11 @@ If no FHS appears, the peripheral won the race; try again.
 - A peer may refuse any of the five things a connection opens by asking it
   for: its features, extended features, version, name, and encryption key
   size mask. Each refusal is reported with the reason the peer gave, and the
-  next request goes out as it would after an answer.
+  next request goes out as it would after an answer. A peer that refuses the
+  connection request those five lead to is declining the connection itself.
+  That is reported in a `warning:` line, and the link is then closed at once:
+  the command hangs up and ends, rather than holding a connection the peer
+  has already turned down.
 - A PDU too short to carry an opcode is reported in a `warning:` line and the
   connection goes on. There is nothing to answer in one: an escape opcode
   says the opcode is in the PDU's second byte, and a PDU of one byte has
@@ -282,6 +330,20 @@ error. A command line the tool will not take, a board it cannot select, open
 or set up, and anything that goes wrong during a session, are reported as the
 one-line `error: `, `warning: ` and `note: ` lines the other tools use.
 
+A line the session's character encoding cannot carry is dropped rather than
+ending the command. A device name arrives as whatever bytes the air sent, so a
+session that is not running under UTF-8 meets one it cannot write, and the
+replacement character a name cut mid-character decodes to does the same. The
+line goes, the rest of the message around it is printed, and the loss is said
+once per stream:
+
+    warning: a line could not be written in standard output's character encoding (ascii), so it was dropped
+    note: run the session under an encoding that carries the text, for example PYTHONIOENCODING=utf-8
+
+A decoded line lost that way is a packet that was asked for and not printed,
+so the session exits 1 (see EXIT STATUS). A diagnostic lost that way is not,
+and leaves the status alone.
+
 A message from the board the session could not read is one of those, naming
 what arrived:
 
@@ -304,7 +366,11 @@ An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
 status 1. An address the prompt will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
-prompt up; a `? <command>` naming no command is
+prompt up. Only the two spellings above are taken, so `bdaddr 11:22:33` is an
+error rather than the address `00:00:11:22:33`, and so are a twelve-digit word
+with the colons anywhere else (`11:2233:4455:66`), another separator
+(`11-22-33-44-55-66`), and the forms Python would read as a number
+(`0x112233445566`, `11_2233445566`). A `? <command>` naming no command is
 `error: no help on '<word>'`, and so does. A word that is no command at all is
 `error: no such command '<word>'`, naming the first word of the line, and
 leaves the prompt up as well. None of the three changes the session's exit
@@ -377,7 +443,9 @@ same way. See FIRMWARE.
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
 Ctrl-D with nothing left running and everything asked for printed. 1 for a
 command line the tool will not take, when standard output went away before
-all that was asked for had been printed,
+all that was asked for had been printed, when a decoded line was dropped
+because the session's character encoding could not carry it (see
+DIAGNOSTICS),
 when a session was asked for and the Python `libusb1` package is not
 installed, when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
@@ -405,8 +473,9 @@ that message and nothing else (see LIMITATIONS).
 
 ## SEE ALSO
 
-ubertooth-rx(1): passive Classic Bluetooth discovery and following, on the
-`bluetooth_rxtx` firmware
+ubertooth-rx(1): passive Classic Bluetooth discovery, and following where the
+clock search reaches a clock; THE CLOCK SEARCH AND ADAPTED HOPPING says when
+it does not
 
 ubertooth-dfu(1): flashing the firmware images
 

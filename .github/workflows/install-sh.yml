@@ -27,7 +27,8 @@ on:
 # supersedes, on a pull request or on main.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # As in build.yml: only a pull request's superseded runs are cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   install-sh:
@@ -55,8 +56,8 @@ jobs:
 
     # What the steps below need before install.sh runs, which the hosted
     # runners have and a Fedora container does not: sudo, which the script
-    # runs its privileged steps through, git for the checkout and for its
-    # libbtbb clone, and findutils for the `find` the uninstall check uses.
+    # runs its privileged steps through, git for its libbtbb clone, and
+    # findutils for the `find` the uninstall check uses.
     # Everything else is a dependency of the build, and installing it here
     # would hide the thing this leg is for: the script's own dnf package list.
     #
@@ -180,13 +181,26 @@ jobs:
         # difference.
         grep -q 'What the installed tools report:' "$RUNNER_TEMP/install.log"
         ! grep -q 'the installed ubertooth-util would not run' "$RUNNER_TEMP/install.log"
+        # Which directory the library went into, found rather than assumed:
+        # CMake picks the one the system keeps libraries in, which is lib on
+        # these Ubuntu and macOS prefixes and lib64 in the Fedora container.
+        # Remembered for the uninstall check below.
+        pc="$(find "$RUNNER_TEMP/prefix" -name libubertooth.pc -print -quit)"
+        test -n "$pc"
+        LIBDIR="$(dirname "$(dirname "$pc")")"
+        echo "LIBDIR=$LIBDIR" >> "$GITHUB_ENV"
+        echo "libubertooth and its pkg-config file are in $LIBDIR"
+        ls "$LIBDIR"/libubertooth.*
+        # libbtbb's own install asked the same question, so both libraries are
+        # in the one directory: that is what this install is for.
+        ls "$LIBDIR"/libbtbb.*
         # The install describes itself to pkg-config, so a program of the
         # user's own can be built against it. The library's own test suite
         # checks the flags compile and link something; here it is that a real
         # install, in a prefix of its own, is one pkg-config can answer for at
         # all -- its Requires names libbtbb, which is the libbtbb this run
         # installed beside it.
-        PKG_CONFIG_PATH="$RUNNER_TEMP/prefix/lib/pkgconfig:$RUNNER_TEMP/prefix/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
+        PKG_CONFIG_PATH="$LIBDIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
           pkg-config --print-errors --cflags --libs libubertooth
         # The udev rule is the one file installed outside the prefix, and only
         # where the build found a group to give the device to. Remembered here
@@ -206,16 +220,22 @@ jobs:
         test ! -e "$RUNNER_TEMP/prefix/bin/ubertooth-util"
         test ! -e "$RUNNER_TEMP/prefix/share/man/man1/ubertooth-util.1"
         test ! -e "$RUNNER_TEMP/prefix/include/ubertooth.h"
-        # The pkg-config file goes with the headers it describes: the install
-        # recorded it, so the uninstall takes it away again.
-        test ! -e "$RUNNER_TEMP/prefix/lib/pkgconfig/libubertooth.pc"
+        # The library and its pkg-config file go with the headers they
+        # describe, from wherever the install put them: it recorded them, so
+        # the uninstall takes them away again.
+        test ! -e "$LIBDIR/pkgconfig/libubertooth.pc"
+        # The directory itself may be gone with them, which is not a failure:
+        # find says so on standard error and the test still holds.
+        test -z "$(find "$LIBDIR" -name 'libubertooth.*' -print -quit 2>/dev/null)"
         # Listed and matched rather than globbed, so the path in this file
         # does not read as a repository name to the libbtbb pin guard. Both
         # library directories are listed, because libbtbb installs to the one
-        # its own system keeps libraries in: lib here, lib64 on Fedora. Each
-        # is listed only if it is there, because this shell stops on the first
-        # command that fails, "ls" of a directory that does not exist
-        # included.
+        # its own system keeps libraries in: lib here, lib64 on Fedora. A
+        # multiarch lib/<triplet> is not among them, because that is chosen
+        # only for the /usr prefix and these runs install into a scratch
+        # prefix. Each is listed only if it is there, because this shell stops
+        # on the first command that fails, "ls" of a directory that does not
+        # exist included.
         for d in lib lib64; do
           if [ -d "$RUNNER_TEMP/prefix/$d" ]; then
             ls "$RUNNER_TEMP/prefix/$d"

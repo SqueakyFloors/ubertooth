@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The frequency and Wi-Fi channel checks ubertooth-specan-ui makes.
 
 They live here rather than in the ubertooth-specan-ui script so that a bad

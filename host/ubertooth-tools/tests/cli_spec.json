@@ -88,6 +88,9 @@
     "range": "one end of the frequency range a sweep covers",
     "squelch": "sets the squelch level",
     "capture": "writes what was captured to a file, or to standard output for a lone \"-\"",
+    "generic": "takes the modulation already in the radio instead of programming one",
+    "generic_packet": "transmits one packet the radio frames, rather than a Bluetooth transmission",
+    "generic_setting": "part of the generic packet: the sync word, the channel, or how many to send",
     "replay": "replays a capture from a file instead of taking one",
     "filter": "narrows what the capture keeps",
     "verify": "checks the packets it captured rather than only recording them",
@@ -274,9 +277,9 @@
     "ubertooth-debug": {
       "man": "ubertooth-debug.md",
       "report_marker": "libubertooth",
-      "optstring": ":hVU:r:v:",
-      "requires_all": ["-r"],
-      "requires_all_error": "error: -r <reg>[,<reg>[,...]] is required: at least one register to read",
+      "optstring": ":hVU:r:w:v:",
+      "work_options": ["-r", "-w"],
+      "nothing_to_do": "error: nothing to do: give -r to read registers, or -w to write them",
       "options": {
         "-V": {"value": "none", "role": "report",
                "doc": "the host tools' version, then each attached board's firmware version and build"},
@@ -285,6 +288,12 @@
                "valid": ["0x02", "0x02,%main", "0x00-0x05", "%main"],
                "invalid": [["0x100", "error: register address must be 0x00-0xff (got 0x100)"],
                            ["%nosuch", "error: register list must be names or addresses, single or as a range: unknown name (got %nosuch)"]]},
+        "-w": {"value": "required", "role": "work",
+               "valid": ["%grmdm=0x0f61", "0x03=0x0029", "0x20=0x0f61,0x03=0x0029", "20=41"],
+               "invalid": [["%grmdm", "error: register write must be <reg>=<value> (got %grmdm in %grmdm)"],
+                           ["%nosuch=1", "error: no CC2400 register is called %nosuch (in %nosuch=1)"],
+                           ["0x100=1", "error: register address must be 0x00-0xff (got 0x100 in 0x100=1)"],
+                           ["0x20=0x10000", "error: register value must be 0x0000-0xffff (got 0x10000 in 0x20=0x10000)"]]},
         "-v": {"value": "required", "role": "modifier", "valid": ["0", "1", "2"],
                "invalid": [["3", "error: verbosity must be 0-2 (got 3)"],
                            ["abc", "error: verbosity must be 0-2 (got abc)"]]},
@@ -293,7 +302,10 @@
       "combinations": [
         {"args": ["-r", "0x02", "-r", "0x02,%main"], "verdict": "refused",
          "error": "error: option '-r' given more than once",
-         "source": "ubertooth-debug.md OPTIONS, -r: one -r takes the whole list, and a second one used to replace the first one's registers without a word (ubertooth(7), OPTION VALUES)"}
+         "source": "ubertooth-debug.md OPTIONS, -r: one -r takes the whole list, and a second one used to replace the first one's registers without a word (ubertooth(7), OPTION VALUES)"},
+        {"args": ["-w", "%grmdm=0x0f61", "-w", "0x03=0x0029"], "verdict": "refused",
+         "error": "error: option '-w' given more than once",
+         "source": "ubertooth-debug.md OPTIONS, -w: one -w takes the whole list (ubertooth(7), OPTION VALUES)"}
       ]
     },
 
@@ -377,12 +389,14 @@
     "ubertooth-dump": {
       "man": "ubertooth-dump.md",
       "report_marker": "libubertooth",
-      "optstring": ":bhVclU:d:",
+      "optstring": ":bghVclU:d:",
       "options": {
         "-V": {"value": "none", "role": "report",
                "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-b": {"value": "none", "role": "modifier", "doc": "bitstream only"},
+        "-g": {"value": "none", "role": "generic",
+               "doc": "the generic receive (experimental), which demodulates with the CC2400 configuration already in the radio"},
         "-c": {"value": "none", "role": "modulation", "doc": "classic modulation"},
         "-l": {"value": "none", "role": "modulation", "doc": "LE modulation"},
         "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],
@@ -401,7 +415,10 @@
       "pair_rules": [
         {"a": "role:modulation", "b": "role:modulation", "verdict": "refused",
          "error_contains": "a capture uses one modulation",
-         "source": "ubertooth-dump.md ARGUMENTS: the board demodulates one modulation at a time, so -c and -l in one command used to mean whichever came last"}
+         "source": "ubertooth-dump.md ARGUMENTS: the board demodulates one modulation at a time, so -c and -l in one command used to mean whichever came last"},
+        {"a": "role:generic", "b": "role:modulation", "verdict": "refused",
+         "error_contains": "the generic receive uses the modulation already in the radio",
+         "source": "ubertooth-dump.md ARGUMENTS: -c and -l name a demodulator for the board to program and -g says to use the one already configured, so one command cannot ask for both"}
       ]
     },
 
@@ -576,32 +593,63 @@
 
     "ubertooth-tx": {
       "man": "ubertooth-tx.md",
-      "optstring": ":hVl:u:U:t:",
+      "optstring": ":hVa:c:g:l:n:u:U:t:",
       "report_marker": "libubertooth",
-      "requires_all": ["-l", "-u"],
-      "requires_all_error": "error: -l <LAP> and -u <UAP> are both required",
+      "work_options": ["-g", "-l", "-u"],
+      "nothing_to_do": "error: nothing to do: give -g to transmit a generic packet, or -l and -u to retransmit to a piconet",
+      "man_must_say": ["1 to {define:GENERIC_TX_FRAMED_PAYLOAD} bytes"],
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-V": {"value": "none", "role": "report"},
+        "-g": {"value": "required", "role": "generic_packet", "valid": ["0102030405"],
+               "invalid": [["010", "error: a generic payload must be hex digits, two per byte, 1 to 32 bytes (got 010)"]],
+               "requires": ["-a"],
+               "requires_error": "error: -g needs -a <syncword>: the board frames the generic packet with it",
+               "source": "ubertooth-tx.md THE GENERIC PACKET: the board has no sync word of its own, and the sync word is the whole of what a receiving board has to be set to"},
+        "-a": {"value": "required", "role": "generic_setting", "valid": ["cb876543"],
+               "invalid": [["cb87", "error: sync word must be 8 hex digits (got cb87)"]],
+               "requires": ["-g"],
+               "requires_error": "error: -a, -c and -n are only used with -g, which transmits a generic packet"},
+        "-c": {"value": "required", "role": "generic_setting", "valid": ["2441"],
+               "invalid": [["2500", "error: channel must be 2402-2480 MHz (got 2500)"]],
+               "requires": ["-g"],
+               "requires_error": "error: -a, -c and -n are only used with -g, which transmits a generic packet"},
+        "-n": {"value": "required", "role": "generic_setting", "valid": ["3"],
+               "invalid": [["0", "error: transmit count must be 1-65535 packets (got 0)"]],
+               "requires": ["-g"],
+               "requires_error": "error: -a, -c and -n are only used with -g, which transmits a generic packet"},
         "-l": {"value": "required", "role": "target", "valid": ["446688"],
-               "invalid": [["zz3344", "error: LAP must be 6 hex digits (got zz3344)"]]},
+               "invalid": [["zz3344", "error: LAP must be 6 hex digits (got zz3344)"]],
+               "requires": ["-u"],
+               "requires_error": "error: -l <LAP> and -u <UAP> are both required"},
         "-u": {"value": "required", "role": "target", "valid": ["22"],
-               "invalid": [["2", "error: UAP must be 2 hex digits (got 2)"]]},
+               "invalid": [["2", "error: UAP must be 2 hex digits (got 2)"]],
+               "requires": ["-l"],
+               "requires_error": "error: -l <LAP> and -u <UAP> are both required"},
         "-t": {"value": "required", "role": "modifier", "valid": ["0", "5"],
                "invalid": [["abc", "error: timeout must be a whole number of seconds, 0 for none (got abc)"]]},
         "-U": {"value": "required", "role": "selector", "valid": ["0"]}
       },
       "pair_rules": [
-        {"a": "-l", "b": "-u", "verdict": "device"}
+        {"a": "-l", "b": "-u", "verdict": "device"},
+        {"a": "role:generic_packet", "b": "role:target", "verdict": "refused",
+         "error_contains": "cannot be combined with", "names_the_other": true,
+         "source": "ubertooth-tx.md ARGUMENTS: a generic packet is framed by the sync word -a gives it and carries no piconet address"},
+        {"a": "-g", "b": "-t", "verdict": "refused",
+         "error_contains": "cannot be combined with",
+         "source": "ubertooth-tx.md ARGUMENTS: a generic transmit ends when the packets -n asked for have gone out, not after a timeout"},
+        {"a": "role:generic_setting", "b": "role:target", "verdict": "refused",
+         "error": "error: -l <LAP> and -u <UAP> are both required",
+         "source": "ubertooth-tx.md ARGUMENTS: half an address reads the same whether or not one of the generic transmit's options is there too"}
       ]
     },
 
     "ubertooth-util": {
       "man": "ubertooth-util.md",
-      "optstring": ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx",
+      "optstring": ":U:hn::meiIprsStvbBwl::a::C::c::d::q::z::VNx",
       "report_marker": "libubertooth",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
-                       "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z",
+                       "-v", "-b", "-B", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z",
                        "-N", "-x"],
       "nothing_to_do": "error: nothing to do: give an option that reads or sets something, or -N to count the attached boards",
       "selector_only_error": "error: nothing to do: -U '%s' selects a device but no option asks anything of it",
@@ -621,6 +669,8 @@
         "-V": {"value": "none", "role": "report",
                "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-b": {"value": "none", "role": "query"},
+        "-B": {"value": "none", "role": "query",
+               "doc": "the bootloader this board has: its version and build if it reports them, and a CRC-32 of the whole bootloader either way"},
         "-p": {"value": "none", "role": "query"},
         "-s": {"value": "none", "role": "query"},
         "-m": {"value": "none", "role": "query"},

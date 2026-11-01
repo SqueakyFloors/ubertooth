@@ -86,10 +86,11 @@ a board left on older firmware; tools built from a clone, which is what
 from the commit you built the tools from before trusting what they report.
 
 Instructions for building libbtbb by hand, with the pin, are in this tree's
-[build guide](docs/source/build_guide.rst). libbtbb installs its library to the
-directory the system keeps libraries in — `lib`, or `lib64` and
-`lib/<triplet>` on the systems that use those — and the host build and
-`install.sh` ask pkg-config and CMake where it is rather than assuming `lib`.
+[build guide](docs/source/build_guide.rst). libbtbb and libubertooth both
+install to the directory the system keeps libraries in — `lib`, or `lib64` and
+`lib/<triplet>` on the systems that use those — so the two land together, and
+the host build and `install.sh` ask pkg-config and CMake where that is rather
+than assuming `lib`. `-DCMAKE_INSTALL_LIBDIR=` chooses it.
 The published
 [readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html)
 documents upstream, not this fork.
@@ -176,22 +177,32 @@ does which step.
 |---|---|---|
 | [ubertooth-rx](host/doc/ubertooth-rx.md) | Passive Classic BT discovery/decode (finds piconets, LAP/UAP); saves raw captures (`-d`) and replays them without a device (`-i`) | a Classic BT peer |
 | [ubertooth-afh](host/doc/ubertooth-afh.md) | Passively recover a piconet's AFH channel map | an active piconet |
-| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target |
-| [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle |
+| [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target; **Linux only** |
+| [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle; **Linux only** |
 | [ubertooth-btbr](host/doc/ubertooth-btbr.md) | **Experimental**, and the only tool that needs the separate `btbr` firmware: take part in Classic BT — inquiry, paging, and `monitor` mode (capture a connection as it is set up) | the `btbr` image; a Classic BT peer |
+
+`ubertooth-follow` and `ubertooth-scan` drive a second, ordinary Bluetooth
+adapter through BlueZ, so they are built on Linux only and are not coming to
+macOS: the operations they ask of that adapter — a clock read and the AFH map
+for `ubertooth-follow`, the remote version and features for `ubertooth-scan
+-x` — are not in macOS's public Bluetooth APIs. On a Mac, cover much of the
+same ground passively with `ubertooth-rx` and `ubertooth-afh`, which need no
+adapter — see
+[COMPATIBILITY.md](COMPATIBILITY.md#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)
+for the operation-by-operation comparison and the alternatives.
 
 ### Signal / low-level
 | Tool | What it does | Needs |
 |---|---|---|
 | [ubertooth-specan](host/doc/ubertooth-specan.md) | Spectrum analyzer: stream of 2.4GHz signal strengths | — |
 | [ubertooth-specan-ui](host/doc/ubertooth-specan-ui.md) | Graphical live spectrum plot of 2.4GHz ([guide](docs/source/specan_ui.rst)) | Python 3.8+: numpy, qtpy, PySide6 or PyQt5 |
-| [ubertooth-dump](host/doc/ubertooth-dump.md) | Raw stream of received bits/symbols | — |
-| [ubertooth-debug](host/doc/ubertooth-debug.md) | Low-level CC2400 radio register reads | — |
+| [ubertooth-dump](host/doc/ubertooth-dump.md) | Raw stream of received bits/symbols, Bluetooth or generic (`-g`, experimental) | — |
+| [ubertooth-debug](host/doc/ubertooth-debug.md) | Low-level CC2400 radio register reads, and writes (`-w`, experimental) | — |
 
 ### Device administration & firmware
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), the board's bootloader (`-B`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
 | [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
 
 ### Special-purpose
@@ -199,7 +210,7 @@ does which step.
 |---|---|---|
 | [ubertooth-ducky](host/doc/ubertooth-ducky.md) | Drive an Uberducky BLE HID-injection gadget | Uberducky hardware |
 | [ubertooth-ego](host/doc/ubertooth-ego.md) | Sniff a Yuneec E-GO skateboard (niche) | Yuneec E-GO |
-| [ubertooth-tx](host/doc/ubertooth-tx.md) | Retransmit dumped symbols — **currently non-functional** | — |
+| [ubertooth-tx](host/doc/ubertooth-tx.md) | Transmit a generic packet (`-g`, experimental); retransmitting dumped symbols is **non-functional** | — |
 
 ### Options every tool has
 

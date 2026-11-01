@@ -20,9 +20,6 @@
  * controller, the codec, the message pool, the hop sequence and the slot
  * scheduler. None of them do any work; the fake DMA controller is the only one
  * with behaviour, and it is what makes a wait end or not.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <stdarg.h>
 #include <stdint.h>

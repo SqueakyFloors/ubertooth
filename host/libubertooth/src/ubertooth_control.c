@@ -20,6 +20,7 @@
  */
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <btbb.h>
@@ -173,6 +174,7 @@ static const char* request_name(uint8_t request)
 		case UBERTOOTH_GET_FW_INFO:        return "read the firmware information";
 		case UBERTOOTH_GET_WATCHDOG:       return "read the watchdog record";
 		case UBERTOOTH_GET_RADIO_TIMEOUTS: return "read the radio wait timeouts";
+		case UBERTOOTH_GET_BOOTLOADER_INFO: return "read the bootloader information";
 		default:                           return NULL;
 	}
 }
@@ -862,6 +864,33 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
 	return 0;
 }
 
+int cmd_get_bootloader_info(struct libusb_device_handle* devh,
+		struct ubertooth_bootloader_info *info)
+{
+	u8 result[UBERTOOTH_BL_REPORT_LENGTH];
+	int r;
+
+	if (info == NULL)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	memset(info, 0, sizeof(*info));
+	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_BOOTLOADER_INFO,
+			0, 0, result, sizeof(result), 1000);
+	if (r < LIBUSB_SUCCESS) {
+		report_request_failed(r, UBERTOOTH_GET_BOOTLOADER_INFO);
+		return r;
+	}
+	if (r != (int)sizeof(result))
+		return check_reply_length(r, (int)sizeof(result),
+		                         "bootloader information");
+	/* Whether the region carries a version block is the board's answer, not
+	 * a failure of the read: the parse only reports a reply too short to
+	 * hold the hash, which the length check above has already caught, and
+	 * it leaves the rest in info->version_result for the caller to
+	 * report. */
+	ubertooth_bootloader_info_parse(result, (size_t)r, info);
+	return 0;
+}
+
 int cmd_range_test(struct libusb_device_handle* devh)
 {
 	int r;
@@ -1383,6 +1412,96 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 		return r;
 
 	return (data[0] << 8) | data[1];
+}
+
+int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value)
+{
+	int r;
+
+	/* The register address and the value both travel in the setup packet,
+	 * so there is no data stage to come up short. */
+	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_WRITE_REGISTER,
+			reg, value, NULL, 0, 1000);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_WRITE_REGISTER);
+		return r;
+	}
+	return 0;
+}
+
+int cmd_rx_generic(struct libusb_device_handle* devh)
+{
+	return ubertooth_cmd_sync(devh, CTRL_OUT, UBERTOOTH_RX_GENERIC, NULL, 0);
+}
+
+int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
+                          uint16_t channel, uint8_t pa_level,
+                          const uint8_t* data, size_t data_len,
+                          uint16_t count)
+{
+	/* The firmware copies the request's bytes straight over a
+	 * generic_tx_packet, so the fields go in at that structure's offsets,
+	 * each 16-bit one least significant byte first as the board's compiler
+	 * lays it out. Written out rather than sent as a structure of our own,
+	 * which would carry this host's padding and byte order into the
+	 * request. */
+	uint8_t request[sizeof(generic_tx_packet)];
+	const size_t header_len = offsetof(generic_tx_packet, data);
+	int r;
+
+	if (count == 0) {
+		fputs("error: a generic transmit of no packets was asked for\n",
+		      stderr);
+		return -1;
+	}
+	if (data_len > GENERIC_TX_MAX_PAYLOAD) {
+		fprintf(stderr, "error: a generic packet carries at most %u bytes"
+		        " (got %zu)\n", (unsigned)GENERIC_TX_MAX_PAYLOAD, data_len);
+		return -1;
+	}
+	/* The two ways a caller can ask for something the board would not do.
+	 * Reported, rather than a bare -1, because the header says every
+	 * failure here is: a library caller has no other way to tell these
+	 * from a board that refused the request. */
+	if (data == NULL && data_len > 0) {
+		fprintf(stderr, "error: a generic packet of %zu bytes was asked"
+		        " for with no payload\n", data_len);
+		return -1;
+	}
+	if (pa_level > UBERTOOTH_PA_LEVEL_MAX) {
+		fprintf(stderr, "error: the power level for a generic packet is"
+		        " 0 to %u (got %u)\n", (unsigned)UBERTOOTH_PA_LEVEL_MAX,
+		        pa_level);
+		return -1;
+	}
+
+	memset(request, 0, sizeof(request));
+	/* SYNCH is the top half of the sync word and SYNCL the bottom half,
+	 * which is the order the radio sends them in. */
+	request[offsetof(generic_tx_packet, synch)]     = (syncword >> 16) & 0xff;
+	request[offsetof(generic_tx_packet, synch) + 1] = (syncword >> 24) & 0xff;
+	request[offsetof(generic_tx_packet, syncl)]     = syncword & 0xff;
+	request[offsetof(generic_tx_packet, syncl) + 1] = (syncword >> 8) & 0xff;
+	request[offsetof(generic_tx_packet, channel)]     = channel & 0xff;
+	request[offsetof(generic_tx_packet, channel) + 1] = (channel >> 8) & 0xff;
+	request[offsetof(generic_tx_packet, length)]   = (uint8_t)data_len;
+	request[offsetof(generic_tx_packet, pa_level)] = pa_level;
+	if (data_len > 0)
+		memcpy(request + header_len, data, data_len);
+
+	/* The count travels in the setup packet, which is why one request can
+	 * ask for a whole burst: the board answers it before the first packet
+	 * and sends the rest without the host saying anything more. Sent as a
+	 * request of its own per packet, the second one of a fast burst comes
+	 * back as a transfer error, because the board answers nothing while a
+	 * packet is going out. */
+	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_TX_GENERIC_PACKET,
+			count, 0, request, (uint16_t)(header_len + data_len), 1000);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_TX_GENERIC_PACKET);
+		return r;
+	}
+	return 0;
 }
 
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address)

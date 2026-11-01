@@ -18,11 +18,15 @@ What is checked:
   * a Linux machine with neither is refused, in one "error: " line that names
     both package managers;
   * --with-firmware adds the ARM toolchain for whichever one it is;
-  * the package names the script asks for are the ones REQUIREMENTS.md lists,
-    so the table and the script cannot drift apart.
+  * every package name the script asks for appears in REQUIREMENTS.md, so a
+    dependency added to the script cannot be left out of the document. The
+    other direction is not checked: the search is over the whole file, so a
+    name that has gone from the script still has somewhere to match.
 """
 
+import atexit
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -73,15 +77,49 @@ PACKAGE_MANAGERS = {
 
 
 # The system directories the runs below take their real tools from, and the
-# names that must not come from them: which package manager the script can
-# find is what each case is about, and on a Debian or Ubuntu machine the real
-# apt-get is in one of these directories. They are hidden by building the
-# whole PATH out of one directory of links, leaving those names out, rather
-# than by naming the handful of tools the script uses: a tool it reaches for
-# later would otherwise go missing here and fail a case for the wrong reason.
+# names that must not come from them. Each run's PATH is one directory of
+# links to those tools, with the names below left out, rather than a list of
+# the handful of tools the script uses: a tool it reaches for later would
+# otherwise go missing here and fail a case for the wrong reason.
+#
+# What is left out is what the script looks for to decide what to do, and each
+# case says which of those it has. The package managers decide which platform
+# it takes itself to be, and on a Debian or Ubuntu machine the real apt-get is
+# in one of these directories. The Ubertooth tools decide whether a
+# --with-firmware run builds the firmware before it installs anything: a
+# machine with the distribution's ubertooth package would send those cases
+# down that path, where they would build firmware inside the checkout and
+# never reach the dependency step they are about.
 SYSTEM_DIRECTORIES = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
 HIDDEN = ("apt", "apt-get", "dnf", "dnf5", "microdnf", "yum", "zypper",
-          "pacman", "brew")
+          "pacman", "brew",
+          "ubertooth-dfu", "ubertooth-util")
+
+
+def link_system_tools():
+    """One directory of links to the system tools, minus the hidden names.
+
+    Made once and shared by all seven runs. It is over a thousand links on a
+    normal machine: a quarter of a second each time on an idle one, but much
+    more on a loaded one, where building it per run took the test most of the
+    way to its timeout.
+    """
+    farm = tempfile.mkdtemp(prefix="install-sh-tools.")
+    for system in SYSTEM_DIRECTORIES:
+        if not os.path.isdir(system):
+            continue
+        for name in os.listdir(system):
+            link = os.path.join(farm, name)
+            if name in HIDDEN or name in FAKES or name in PACKAGE_MANAGERS \
+                    or os.path.lexists(link):
+                continue
+            os.symlink(os.path.join(system, name), link)
+    return farm
+
+
+TOOLS = link_system_tools()
+# Removed however the test ends, a failed case included.
+atexit.register(shutil.rmtree, TOOLS, ignore_errors=True)
 
 
 def run_with_fakes(arguments, package_managers):
@@ -96,25 +134,16 @@ def run_with_fakes(arguments, package_managers):
         fakes = dict(FAKES)
         for name in package_managers:
             fakes[name] = PACKAGE_MANAGERS[name]
-        # The real tools first, so that a fake written below replaces one.
-        for system in SYSTEM_DIRECTORIES:
-            if not os.path.isdir(system):
-                continue
-            for name in os.listdir(system):
-                link = os.path.join(binaries, name)
-                if name in HIDDEN or name in fakes or os.path.lexists(link):
-                    continue
-                os.symlink(os.path.join(system, name), link)
         for name, body in fakes.items():
             path = os.path.join(binaries, name)
             with open(path, "w") as fake:
                 fake.write("#!/bin/sh\n%s\n" % body)
             os.chmod(path, 0o755)
-        # The whole PATH, not a directory ahead of it: a package manager or an
-        # Ubertooth install on this machine must not be reachable behind the
-        # links.
+        # The fakes, then the system tools, and nothing else: a package
+        # manager or an Ubertooth install on this machine must not be
+        # reachable behind them.
         environment = dict(os.environ)
-        environment["PATH"] = binaries
+        environment["PATH"] = os.pathsep.join([binaries, TOOLS])
         # The script is bash (its shebang, "set -o pipefail"), so it is run as
         # bash rather than through /bin/sh, which is dash on Debian and Ubuntu.
         completed = subprocess.run(
@@ -176,14 +205,23 @@ for manager, firmware, dependencies in (
         ("apt-get", APT_FIRMWARE, APT_DEPENDENCIES)):
     status, stderr, stdout = run_with_fakes(["--with-firmware"], [manager])
     assert status != 0, stderr
+    # No Ubertooth tool is reachable (see HIDDEN), so the script installs the
+    # toolchain and leaves the firmware to the end, where this run never
+    # arrives. A run that did build it would do so inside the checkout, and
+    # the two commands this case compares would not both be there to compare.
+    # Checked before stdout, which a firmware build would also have written
+    # to: this is the message that says what went wrong.
+    assert "==> Building firmware" not in stderr, (manager, stderr)
     assert stdout == "", stdout
     printed = would_run(stderr)
     assert firmware in printed, (manager, firmware, stderr)
     assert printed.index(firmware) < printed.index(dependencies), \
         (manager, printed)
 
-# Every package the script asks for is in the table a user installing by hand
-# reads, so a name added or corrected in one of them has to be done in both.
+# Every package the script asks for is named in the table a user installing by
+# hand reads, so a dependency added here has to be added there too. A name
+# left in the table after the script stopped asking for it is not caught: the
+# search is over the whole document, prose included.
 if REQUIREMENTS:
     with open(REQUIREMENTS) as table:
         listed = table.read()
@@ -191,7 +229,14 @@ if REQUIREMENTS:
                     DNF_DEPENDENCIES, DNF_FIRMWARE):
         # Everything the command installs is what follows its -y.
         for package in command.split(" -y ", 1)[1].split():
-            assert package in listed, (package, REQUIREMENTS)
+            # As a whole name, not as a substring: "make" is inside "cmake"
+            # and "gcc" inside "gcc-c++", so a plain search would find a
+            # wrong name in the right one's place. A package name's own
+            # characters are letters, digits, and ".+-", so a name is this
+            # one only where none of those sits beside it.
+            found = re.search(r"(?<![\w.+-])%s(?![\w.+-])"
+                              % re.escape(package), listed)
+            assert found, (package, REQUIREMENTS)
 
 print("install.sh: apt on Debian/Ubuntu, dnf on Fedora, each with the "
       "package names REQUIREMENTS.md lists, and neither is refused")
