@@ -93,6 +93,16 @@
 // queued it, so that event may or may not have closed yet; where it has not,
 // its close is still to come and spends a unit of the budget, and the event
 // counter the receive interrupt dated the packet with says which case it is.
+//
+// The budget is counted from where the loop reads the packet, not from where
+// it arrived, so connection events that closed while it waited in the queue
+// are not charged against it. The wait is short -- the pool is
+// LE_BUFFER_POOL_SIZE buffers and one of them is always the one being received
+// into, so only a few packets can be outstanding -- and charging for it would
+// be the wrong way round: a note that had expired before it was read would
+// leave a genuine close waiting out the supervision timeout, which is what
+// this exists to avoid, while the cost of not charging is the quiet-event
+// exposure above.
 #define TERMINATE_BUDGET_EVENT_CLOSED 2
 #define TERMINATE_BUDGET_EVENT_OPEN   (TERMINATE_BUDGET_EVENT_CLOSED + 1)
 
