@@ -23,13 +23,16 @@ layouts other systems ask for, each configured and built here: lib64, which a
 64-bit Fedora, RHEL or SUSE keeps its libraries in; lib/x86_64-linux-gnu, the
 Debian multiarch layout, which is two directories deep and so needs a longer
 walk back out of libubertooth.pc, with the headers in a directory of their own
-as well; and LIB_SUFFIX, the older setting, which still decides the directory
-where a build command passes it.
+as well; LIB_SUFFIX, the older setting, which still decides the directory
+where a build command passes it; and an absolute library directory, which the
+install writes to wherever the prefix is, so that the file names the
+directories as they stand rather than relative to itself.
 
 Nothing is installed outside the temporary prefixes this test makes, no device
 is opened, and the programs it builds are never run.
 """
 
+import glob
 import os
 import shutil
 import subprocess
@@ -165,17 +168,25 @@ for module in ("libbtbb", "libusb-1.0"):
               "names in its Requires" % module)
         sys.exit(0)
 
-def check_install(name, work, build_dir, libdir, includedir="include"):
-    """That build, installed into two prefixes, described correctly in both."""
+def check_install(name, work, build_dir, libdir, includedir="include",
+                  relocates=True):
+    """That build, installed into a prefix of its own, described correctly."""
     first = os.path.join(work, name + "-first")
     install_into(first, build_dir)
     cflags, libs = flags_for(first, libdir)
 
     # The install's own directories, named by the flags a consumer is given.
+    # The library is looked for in the directory the flags send the linker to,
+    # rather than left to the link step below: that would resolve
+    # -lubertooth from a libubertooth installed on this machine once the -L
+    # named a directory with none in it.
     assert os.path.realpath(os.path.join(first, includedir)) in \
         directories_in(cflags, "-I"), (name, first, cflags)
-    assert os.path.realpath(os.path.join(first, libdir)) in \
+    installed_libdir = os.path.join(first, libdir)
+    assert os.path.realpath(installed_libdir) in \
         directories_in(libs, "-L"), (name, first, libs)
+    assert glob.glob(os.path.join(installed_libdir, "libubertooth.*")), \
+        (name, "no libubertooth in " + installed_libdir)
     assert "-lubertooth" in libs, (name, libs)
 
     # The flags on their own, with nothing of this build directory and no
@@ -188,6 +199,12 @@ def check_install(name, work, build_dir, libdir, includedir="include"):
     assert built.returncode == 0, (name, built)
 
     # The same build installed somewhere else is described as being there.
+    # Not for an absolute library directory, which the install writes to
+    # wherever the prefix is: libubertooth.pc lands outside the prefix there
+    # and names the directories as they stand, which the build says at
+    # configure time.
+    if not relocates:
+        return
     second = os.path.join(work, name + "-second")
     install_into(second, build_dir)
     moved_cflags, moved_libs = flags_for(second, libdir)
@@ -246,6 +263,21 @@ try:
     for name, cache_entries, libdir, includedir in LAYOUTS:
         build_library(build_dir, cache_entries, forwarded)
         check_install(name, work, build_dir, libdir, includedir)
+
+    # A library directory given as an absolute path, the one layout whose
+    # libubertooth.pc names its directories as they stand. The prefix is given
+    # at configure time, because the headers go under it and the file names
+    # where they were when it was written; LIB_SUFFIX, which the layout before
+    # this one set, is dropped, because it would decide the directory instead.
+    absolute_libdir = os.path.join(work, "absolute-libdir")
+    build_library(build_dir,
+                  ["-ULIB_SUFFIX",
+                   "-DCMAKE_INSTALL_PREFIX=" + os.path.join(work,
+                                                            "absolute-first"),
+                   "-DCMAKE_INSTALL_LIBDIR=" + absolute_libdir,
+                   "-DCMAKE_INSTALL_INCLUDEDIR=include"], forwarded)
+    check_install("absolute", work, build_dir, absolute_libdir,
+                  relocates=False)
 finally:
     shutil.rmtree(work, ignore_errors=True)
 

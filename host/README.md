@@ -24,6 +24,8 @@ $ sudo make install
 libbtbb installs its library to the directory the system keeps libraries in
 (`lib`, or `lib64` and `lib/<triplet>` on the systems that use those), and the
 build below asks pkg-config and CMake where it is rather than assuming `lib`.
+libubertooth goes into that same directory, which `-DCMAKE_INSTALL_LIBDIR=`
+chooses.
 
 This software also requires libusb 1.0 or higher, which can be found at
 http://www.libusb.org or installed from your OS's package repository.
@@ -94,4 +96,4 @@ ubertooth-specan: error while loading shared libraries: libubertooth.so.1: canno
 ```
 there could be a problem with your library path configuration.
 
-On Arch Linux and Fedora it could be neccessary to edit the `/etc/ld.so.conf` (or create a corresponding file with the path in `/etc/ld.so.conf.d/`) file to include the default library installation path `/usr/local/lib`.
+On Arch Linux and Fedora it could be neccessary to edit the `/etc/ld.so.conf` (or create a corresponding file with the path in `/etc/ld.so.conf.d/`) file to include the directory the install put the library in: `/usr/local/lib`, and `/usr/local/lib64` on a 64-bit Fedora, which keeps its libraries there. The configure step says which one it is ("Installing the library to ..."), and `install.sh` needs none of this, because it gives the tools it installs a run path.

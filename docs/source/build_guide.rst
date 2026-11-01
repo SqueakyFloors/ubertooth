@@ -47,7 +47,7 @@ Fedora 33
 		sudo dnf install git libusb1-devel make gcc gcc-c++ cmake pkgconf-pkg-config \
 		wget tar bluez-libs-devel fftw-devel
 		# libbtbb and the Ubertooth library both install to /usr/local/lib64 on this system:
-		printf '/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
+		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 
 
 
@@ -59,7 +59,7 @@ RHEL 8
 		sudo subscription-manager repos --enable=codeready-builder-for-rhel-8-x86_64-rpms
 		sudo dnf install libusb1-devel make gcc gcc-c++ wget tar bluez-libs-devel python36 python36-devel
 		# libbtbb and the Ubertooth library both install to /usr/local/lib64 on this system:
-		printf '/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
+		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 		# Note: you will also need to install CMake 3.12.0 or greater. See https://cmake.org/install/
 
 
@@ -72,7 +72,7 @@ CentOS 8
 		sudo dnf config-manager --enable powertools
 		sudo dnf install libusb1-devel make gcc gcc-c++ wget tar bluez-libs-devel python36 python36-devel
 		# libbtbb and the Ubertooth library both install to /usr/local/lib64 on this system:
-		printf '/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
+		printf '/usr/local/lib\n/usr/local/lib64\n' | sudo tee /etc/ld.so.conf.d/libc.conf
 		# Note: you will also need to install CMake 3.12.0 or greater. See https://cmake.org/install/
 
 

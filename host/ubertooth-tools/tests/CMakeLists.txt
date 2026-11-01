@@ -313,11 +313,11 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 			# the root of a superproject that had added this tree.
 			${ubertooth_all_SOURCE_DIR})
 	# Two installs of three small components and one compile for this
-	# build, then one more build of the library alone and the same installs
-	# again for each of the three other layouts: about twenty seconds on an
-	# idle machine, and several times that on one busy with parallel
-	# builds. Five minutes catches a configure, an install or a compiler
-	# that waits on something.
+	# build, then a configure of the library alone and the same installs
+	# again for each of the four other layouts: half a minute on an idle
+	# machine, and several times that on one busy with parallel builds.
+	# Five minutes catches a configure, an install or a compiler that waits
+	# on something.
 	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 300)
 endif()
 
