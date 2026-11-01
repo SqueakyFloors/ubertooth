@@ -96,6 +96,7 @@ static struct {
 	 * errno they all leave behind. */
 	int name_fails;
 	int version_fails;
+	uint16_t version_manufacturer; /* what the device says it was made by */
 	int features_fail;
 	int devinfo_fails;
 	int clock_fails;
@@ -295,6 +296,7 @@ int hci_read_remote_version(int dd, uint16_t handle, struct hci_version* ver,
 		return -1;
 	}
 	memset(ver, 0, sizeof(*ver));
+	ver->manufacturer = fake.version_manufacturer;
 	return 0;
 }
 
@@ -852,6 +854,38 @@ MU_TEST(the_extended_report_of_a_device_is_on_standard_output)
 	mu_assert_int_eq(1, (int)fake.slept);
 }
 
+/* The Manufacturer line names the company behind the identifier the device
+ * reports. The names come from libbtbb's table; BlueZ's own table ends at
+ * 1037, so a device from a company that joined the Bluetooth SIG later used
+ * to have no name on this line. */
+MU_TEST(the_manufacturer_line_names_a_recent_company)
+{
+	struct run_result r;
+
+	/* 1447 is well above where BlueZ's table stops. Which name it carries
+	 * is libbtbb's to keep, and libbtbb's own tests pin the table, so this
+	 * asks only that the line names the company rather than giving up on
+	 * it: a pin bump that restyles a company name leaves it passing. */
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.version_manufacturer = 1447;
+	r = RUN("-s", "-x", "-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, " (1447)\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "Manufacturer: not assigned (1447)") == NULL,
+	          r.out);
+
+	/* An identifier the SIG has not assigned has no name to print, and the
+	 * line says so rather than being left out. */
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.version_manufacturer = 0xFFFE;
+	r = RUN("-s", "-x", "-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "\tManufacturer: not assigned (65534)\n") != NULL,
+	          r.out);
+}
+
 /* A device with feature pages above page 0 has each of them read and reported,
  * and a page it will not give up is named like the other reads. */
 MU_TEST(the_feature_pages_of_a_device_are_read_and_reported)
@@ -1268,6 +1302,7 @@ int main(void)
 	MU_RUN(a_survey_result_that_cannot_be_reached_is_a_note_not_a_failure);
 	MU_RUN(each_read_of_the_report_that_fails_is_named);
 	MU_RUN(the_feature_pages_of_a_device_are_read_and_reported);
+	MU_RUN(the_manufacturer_line_names_a_recent_company);
 	MU_RUN(a_capture_that_cannot_be_set_up_exits_1_and_gives_everything_back);
 	MU_RUN(a_bluez_failure_is_reported_on_standard_error);
 	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);

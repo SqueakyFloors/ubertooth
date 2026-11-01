@@ -871,6 +871,12 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-scan -x` reported a device from a company that joined the
+  Bluetooth SIG recently as `Manufacturer: not assigned`. The line is now
+  named from libbtbb's table of company identifiers, which has 4133 of them
+  where the BlueZ table it read before stops at 1037.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
 - The report for a request the board refused names the reset that recovers a
   board which has stopped answering. Such a board stalls every request sent to
   it, whatever its firmware implements, so the stall report used to send the

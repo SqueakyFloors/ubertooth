@@ -103,8 +103,10 @@ figures and what the estimate rests on.
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
 manufacturer, its features, its clock offset, and its channel map as an `AFH
-Map:` line, the field name `hcitool info` gives it. A device that reports AFH
-off has no map to report, and standard error carries a `note:` line saying so.
+Map:` line, the field name `hcitool info` gives it. The manufacturer is named
+from libbtbb's table of Bluetooth SIG company identifiers, and an identifier
+that table does not name reads `not assigned`. A device that reports AFH off
+has no map to report, and standard error carries a `note:` line saying so.
 A survey result's map is the `AFH map:` line above, the spelling it has always
 had.
 
