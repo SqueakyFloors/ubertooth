@@ -397,6 +397,28 @@ MU_TEST(a_payload_with_no_startable_vector_table_is_refused)
 	write_le32(payload + 4, 0x00004001u);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
 	                 check_payload(PAYLOAD_LENGTH, &report));
+
+	/* An entry point inside the vector table, or inside the version block
+	 * that sits above it. No bootloader starts there, and the checksum this
+	 * code fills in would otherwise have the boot ROM start a payload whose
+	 * first instruction is a table entry. */
+	build_good_payload();
+	write_le32(payload + 4, 0x00000001u);
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
+	                 check_payload(PAYLOAD_LENGTH, &report));
+
+	build_good_payload();
+	write_le32(payload + 4, 0x00000101u);
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
+	                 check_payload(PAYLOAD_LENGTH, &report));
+
+	/* And the first address above the block is taken, so the floor refuses
+	 * no bootloader this check would otherwise accept. */
+	build_good_payload();
+	write_le32(payload + 4, (uint32_t)(UBERTOOTH_BL_VERSION_OFFSET +
+	                                   UBERTOOTH_BL_VERSION_LENGTH) | 1u);
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_OK,
+	                 check_payload(PAYLOAD_LENGTH, &report));
 }
 
 /*
