@@ -48,9 +48,10 @@ around are not reachable from macOS's public Bluetooth APIs, so it is not
 built there and no macOS version is planned. `ubertooth-rx -l <LAP>` recovers
 the addresses and the clock from the air without an adapter, but its clock
 search does not confirm a clock against a piconet that uses adapted hopping,
-which the controllers tested on this project's bench all do: see ubertooth-rx(1), THE CLOCK SEARCH AND
-ADAPTED HOPPING. Reading the clock through an adapter, as this tool does, is
-not subject to that. See COMPATIBILITY.md for the comparison.
+which the controllers tested on this project's bench all do: see
+ubertooth-rx(1), THE CLOCK SEARCH AND ADAPTED HOPPING. Reading the clock
+through an adapter, as this tool does, is not subject to that. See
+COMPATIBILITY.md for the comparison.
 
 ## OPTIONS
 

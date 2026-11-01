@@ -32,10 +32,10 @@ attempt to recover the clock value, and if that succeeds it will follow
 that piconet.
 
 The clock search does not confirm a clock against a piconet that uses adapted
-hopping, which the controllers tested here all do, including when every
-channel is allowed, so following such a piconet does not start. The addresses and the packets the
-board hears are still recovered. See [THE CLOCK SEARCH AND ADAPTED
-HOPPING][].
+hopping, which the controllers tested on this project's bench all do,
+including when every channel is allowed, so following such a piconet does not
+start. The addresses and the packets the board hears are still recovered. See
+[THE CLOCK SEARCH AND ADAPTED HOPPING][].
 
 Survey mode, entered using `-z`, will record all LAPs and attempt to
 calculate the UAPs for any observed LAPs. This mode can be combined with
@@ -214,8 +214,9 @@ Following a piconet needs its clock as well as its address, and the clock
 search does not reach one against a piconet that uses adapted frequency
 hopping (AFH). Every controller tested on this project's bench runs its links
 adapted, including when the whole band is allowed, so this is the ordinary case
-rather than a corner of it: `ubertooth-rx -l <lap> -u <uap>` against a modern
-device searches for a clock and does not confirm one.
+rather than a corner of it: against a device whose controller does that,
+`ubertooth-rx -l <lap> -u <uap>` searches for a clock and does not confirm
+one.
 
 Why. The search first settles the low clock bits, CLK1-6, and then has to pick
 the rest out of some two million candidates. It does that by predicting the
@@ -252,10 +253,13 @@ lists piconets in survey mode (`-z`). It decodes and reports every packet of
 the piconet that lands on whichever channel the board is listening to, and
 writes those packets to a capture file (`-r`, `-q`, `-d`), so a piconet can be
 surveyed, counted, and its traffic captured channel by channel with `-c`. A
-fixed channel is a way of capturing rather than a way round the search: the
-board then hears only the hops that happen to land on that one channel, a
-small share of the piconet's traffic, so the candidate list is given far less
-to narrow it with, and nothing about adapted hopping changes.
+fixed channel is a way of capturing rather than a way round the search. It
+neither helps nor hinders the comparison the search rules candidates out by,
+since a packet rules out the same share of them wherever it arrived. What it
+does do is leave the map of channels the piconet has been heard on at the one
+channel the board listens to, and the library treats a piconet as adapted only
+once it has heard packets on at least twenty, so against an adapted piconet a
+fixed channel is further from a clock rather than closer to one.
 ubertooth-afh(1) recovers the channel map of a piconet whose LAP and UAP are
 known. Where a clock is what is wanted, two routes do not depend on this
 search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a

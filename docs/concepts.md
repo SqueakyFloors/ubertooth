@@ -179,7 +179,7 @@ connection that moves to 2M or Coded drops out of the capture.
 | Tool | Where it fits |
 |---|---|
 | [`ubertooth-rx -z`](../host/doc/ubertooth-rx.md) | Survey: sweep the band, or sit on one channel with `-c`, and report every LAP heard, with UAPs where it can calculate them |
-| [`ubertooth-rx -l -u`](../host/doc/ubertooth-rx.md) | UAP and CLK1-6 from the HEC and CRC, then CLK1-27 by hop reversal and follow the piconet — except against adapted hopping, which the controllers tested on this project's bench all use, where the CLK1-27 search does not confirm a clock and the tool says so (ubertooth-rx(1), THE CLOCK SEARCH AND ADAPTED HOPPING) |
+| [`ubertooth-rx -l -u`](../host/doc/ubertooth-rx.md) | UAP and CLK1-6 from the HEC and CRC, then CLK1-27 by hop reversal and follow the piconet — except against adapted hopping, which every controller tested on this project's bench does, where the CLK1-27 search does not confirm a clock and the tool says so (ubertooth-rx(1), THE CLOCK SEARCH AND ADAPTED HOPPING) |
 | [`ubertooth-afh`](../host/doc/ubertooth-afh.md) | Recover the AFH channel map of a piconet whose LAP and UAP are known |
 | [`ubertooth-follow`](../host/doc/ubertooth-follow.md) | Skip the recovery: read the target's clock and AFH map through a local BlueZ adapter, then follow (Linux only) |
 | [`ubertooth-btle`](../host/doc/ubertooth-btle.md) | LE: advertising only (`-n`), follow from a `CONNECT_IND` (`-f`), or infer a running connection (`-p`) |
