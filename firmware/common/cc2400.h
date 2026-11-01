@@ -131,6 +131,27 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
 #define GRMDM_PACKET_MODE 0x0400
 
 /*
+ * The rest of the framing those bit maps decode, for the one case where two
+ * boards have to agree on it: the generic transmit sends with the radio's own
+ * framing and the generic receive programs none of it, so the value in this
+ * register at each end has to be the same.
+ *
+ * BUFFERED (bits 12:11, 01): the payload goes through the radio's FIFO, which
+ * is what both generic modes read and write.
+ * PREAMBLE (bits 9:7): how many bytes of 01010101 go in front of the sync
+ * word.
+ * SYNC_WORD_32 (bits 6:5, 11): match the whole of SYNCH and SYNCL rather than
+ * the top 8 bits.
+ * CRC (bit 4): the radio appends and checks a CRC. Every mode here leaves it
+ * off.
+ */
+#define GRMDM_BUFFERED_MASK 0x1800
+#define GRMDM_BUFFERED      0x0800
+#define GRMDM_PREAMBLE_MASK 0x0380
+#define GRMDM_SYNC_WORD_32  0x0060
+#define GRMDM_CRC           0x0010
+
+/*
  * Does this GRMDM value select the packet-mode receive? Read the register
  * with cc2400_get(GRMDM).
  *
