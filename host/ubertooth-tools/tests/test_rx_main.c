@@ -2532,7 +2532,9 @@ MU_TEST(a_survey_reads_every_board_on_the_list)
 	mu_assert_int_eq(3, device.connect_calls);
 	mu_assert_int_eq(3, device.rx_syms_calls);
 	mu_assert_int_eq(3, device.stops);
-	mu_assert(strstr(r.out, "Survey Results") != NULL, r.out);
+	/* The heading goes to standard error, the addresses to standard
+	 * output, so a shell can keep the one and read the other. */
+	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
 	/* A survey has no piconet of its own, so nothing is merged and the
 	 * run says nothing about boards. */
 	mu_assert(strstr(r.err, "boards:") == NULL, r.err);
