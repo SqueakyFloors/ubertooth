@@ -117,7 +117,7 @@ int bl_update_run(const struct bl_update_ops *ops, void *context,
 	    UBERTOOTH_BL_UPDATE_OK)
 		return report->result;
 	if (ops == NULL || buffer == NULL) {
-		report->result = UBERTOOTH_BL_UPDATE_SHORT;
+		report->result = UBERTOOTH_BL_UPDATE_NO_BUFFER;
 		return report->result;
 	}
 	if (part_refused(ops, context, report))
@@ -136,14 +136,20 @@ int bl_update_run(const struct bl_update_ops *ops, void *context,
 		return report->result;
 	}
 
-	for (sector = BL_UPDATE_FIRST_SECTOR; sector <= BL_UPDATE_LAST_SECTOR;
-	     sector++) {
-		const uint32_t address = sector * BL_UPDATE_SECTOR_LENGTH;
+	/* Sectors 1 to 3, then sector 0: the sector holding the vector table is
+	 * written last, so that every interruption before that one program
+	 * leaves a vector table the boot ROM refuses. bl_update.h says why at
+	 * more length. */
+	for (sector = BL_UPDATE_FIRST_SECTOR + 1;
+	     sector <= BL_UPDATE_LAST_SECTOR + 1; sector++) {
+		const unsigned this_sector = sector > BL_UPDATE_LAST_SECTOR ?
+			BL_UPDATE_FIRST_SECTOR : sector;
+		const uint32_t address = this_sector * BL_UPDATE_SECTOR_LENGTH;
 
-		bl_update_sector(payload, sector, buffer);
+		bl_update_sector(payload, this_sector, buffer);
 		/* The ROM clears a sector's preparation when it programs it, so
 		 * each program needs its own. */
-		if (ops->prepare(context, sector, sector) != 0) {
+		if (ops->prepare(context, this_sector, this_sector) != 0) {
 			report->result = UBERTOOTH_BL_UPDATE_PREPARE_FAILED;
 			return report->result;
 		}

@@ -540,6 +540,10 @@ struct dfu_runtime_context {
 	int download_checked;    /* the image has been put against the part */
 	int download_refused;    /* ...and does not fit the flash it has */
 	int want_part_id;        /* a transfer needs the part ID; a reset does not */
+	/* --update-bootloader: the image this run just wrote has no USB of its
+	 * own and resets into DFU when it has finished, so a board that comes
+	 * back in the bootloader is this run working, not failing. */
+	int expect_return_to_dfu;
 	uint32_t part_id;        /* the part ID read from the application */
 	int part_id_read;        /* ...and whether it was read at all */
 	unsigned app_attempts;
@@ -992,7 +996,16 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 		if (presence < 0)
 			fprintf(stderr, "error: detach failed: could not tell whether "
 			        "the board left DFU (usb_error=%d)\n", presence);
-		else if (presence == DFU_PRESENCE_RETURNED) {
+		else if (presence == DFU_PRESENCE_RETURNED &&
+		         runtime->expect_return_to_dfu) {
+			/* What --update-bootloader asked for: the board reset, ran the
+			 * updater, and came back where the next image is written from.
+			 * The run that wrote any other image would be failing here. */
+			log_dfu_stage("the board reset and returned to DFU, as the "
+			              "bootloader updater does");
+			runtime->board_left_the_bus = went;
+			return 0;
+		} else if (presence == DFU_PRESENCE_RETURNED) {
 			fprintf(stderr, "error: detach failed: the board reset and came "
 			        "back in the bootloader\n");
 			/* The flash already holds the image, so say it before the
@@ -1815,11 +1828,49 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 #define FUNC_RESET    (1<<3)
 #define FUNC_UPDATE_BL (1<<4)
 
-/* --update-bootloader, which has no short spelling of its own: this is the
- * value getopt_long hands back for it, and it is inside the range
- * opt_check_once() indexes by, so the one-value-each rule still covers it. It
- * is not a letter any option uses, so a user cannot write it as `-B`. */
-#define OPT_UPDATE_BOOTLOADER 1
+/*
+ * --update-bootloader, the one option in these tools that is a word rather
+ * than a letter. It is a word because it writes the one region of flash a
+ * later run cannot rewrite, and a letter is too easy to reach for by
+ * accident.
+ *
+ * getopt does not take long options, and the getopt the tools carry for
+ * platforms without a GNU one does not answer getopt_long the way glibc does,
+ * so the word is taken out of the command line here instead, before getopt
+ * sees it. That costs nothing a user notices: the word has no value of its
+ * own, it has to be written out in full, and anything else beginning with
+ * "--" still reaches getopt and is reported by opt_report_bad_option() with
+ * the whole word quoted, as it always was.
+ *
+ * Returns 1 when the word was there, and removes every copy of it from argv
+ * so that getopt sees the rest of the command line as if it had not been
+ * written. A "--" stops the search, so the word after one is left alone and
+ * refused as the stray argument it is.
+ */
+#define OPT_UPDATE_BOOTLOADER_WORD "--update-bootloader"
+
+static int take_update_bootloader_word(int *argc, char *argv[])
+{
+	int found = 0;
+	int from, to;
+
+	for (from = 1, to = 1; from < *argc; from++) {
+		if (strcmp(argv[from], "--") == 0) {
+			/* Everything from here is left exactly as it was. */
+			while (from < *argc)
+				argv[to++] = argv[from++];
+			break;
+		}
+		if (strcmp(argv[from], OPT_UPDATE_BOOTLOADER_WORD) == 0) {
+			found = 1;
+			continue;
+		}
+		argv[to++] = argv[from];
+	}
+	*argc = to;
+	argv[to] = NULL;
+	return found;
+}
 
 /*
  * How long the board is given to install the bootloader and come back in DFU.
@@ -1929,15 +1980,14 @@ int main(int argc, char **argv) {
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
 	const char options[] = ":hVd:u:s:rU:";
-	/* The one long option, which has no short spelling: writing
-	 * --update-bootloader out in full is the point, since it is the one
-	 * option here that writes flash a later run cannot rewrite. */
-	static const struct option long_options[] = {
-		{ "update-bootloader", no_argument, NULL, OPT_UPDATE_BOOTLOADER },
-		{ NULL, 0, NULL, 0 },
-	};
+	/* Taken out of the command line before getopt reads it: see
+	 * take_update_bootloader_word(). The board has to run the image for
+	 * anything to happen, so this is a reset as well; -r alongside it says
+	 * the same thing twice and changes nothing. */
+	if (take_update_bootloader_word(&argc, argv))
+		functions |= FUNC_UPDATE_BL | FUNC_RESET;
 	opterr = 0;
-	while ((opt=getopt_long(argc, argv, options, long_options, NULL)) != EOF) {
+	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
 		if (opt_check_once(&once, opt, optarg) < 0) {
 			exit_status = 1;
@@ -1984,12 +2034,6 @@ int main(int argc, char **argv) {
 			break;
 		case 'r':
 			functions |= FUNC_RESET;
-			break;
-		case OPT_UPDATE_BOOTLOADER:
-			/* The board has to run the image for anything to happen, so
-			 * this is a reset as well; -r alongside it says the same thing
-			 * twice and changes nothing. */
-			functions |= FUNC_UPDATE_BL | FUNC_RESET;
 			break;
 		case 'U':
 			ubertooth_device = optarg;
@@ -2199,6 +2243,7 @@ int main(int argc, char **argv) {
 	/* Both transfers are bounded by the part's flash size, so both ask the
 	 * application for its part ID; a bare reset has nothing to bound. */
 	runtime.want_part_id = (functions & (FUNC_UPLOAD|FUNC_DOWNLOAD)) != 0;
+	runtime.expect_return_to_dfu = (functions & FUNC_UPDATE_BL) != 0;
 	runtime.upload_name = upfile_name;
 	if (functions & FUNC_DOWNLOAD) {
 		runtime.download_name = downfile_name;
@@ -2403,7 +2448,8 @@ int main(int argc, char **argv) {
 	}
 
 	/* The updater has no USB, so there is no application to verify: what
-	 * says it ran is the board appearing in DFU again. */
+	 * says it ran is the board being in DFU. It may already be there, since
+	 * the detach above waits long enough to see it come back. */
 	if (functions & FUNC_UPDATE_BL) {
 		log_dfu_stage("waiting for the board to return to DFU");
 		if (wait_for_dfu_after_update(&runtime, &selected_identity) != 0) {
