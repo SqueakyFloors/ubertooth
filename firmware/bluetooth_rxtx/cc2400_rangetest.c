@@ -22,6 +22,7 @@
 #include "cc2400_rangetest.h"
 #include "cc2400_wait.h"
 #include "device_id.h"
+#include "rx_fifo_lead.h"
 #include "ubertooth_clock.h"
 #include "ubertooth_usb.h"
 
@@ -123,80 +124,6 @@ rangetest_result rr;
 
 #define REPEATER_TURNAROUND_MS 1000
 #define REPEATER_TURNAROUND_TICKS (3200u * REPEATER_TURNAROUND_MS / 1000u)
-
-/*
- * One byte of a range test packet on the air, in timer 0's 100 ns ticks.
- * These packets go out at 1 Mbit/s, so a byte takes 8 us.
- */
-#define RANGETEST_BYTE_100NS 80
-
-/*
- * How much of the packet the radio is given time to receive before the
- * firmware starts clocking it out of the FIFO, in bytes.
- *
- * Both receive loops below start reading as soon as the radio reports
- * SYNC_RECEIVED. The radio sets that flag when the sync word ends, which is
- * before the first payload byte exists, so a read that starts there asks the
- * FIFO for a byte the radio has not put in it yet and gets a wrong one back.
- * That is the `mismatch on byte 0` the sender reported every five to ten
- * runs: byte 0 and never any other byte, because the read is slower than the
- * air. cc2400_fifo_read() waits out two delay loops per bit, about 14 us a
- * byte against 8 us on the air, so from the second byte on the radio is
- * further ahead with every byte read.
- *
- * Only the first byte therefore has to be waited for. The wait starts when the
- * flag is noticed, which is at or after the sync word, so one byte time would
- * do; four leaves room for the jitter of the delay loop and of the radio
- * writing the byte. It must stay short: the rest of the sender's burst keeps
- * arriving into the same 32-byte FIFO while the packet is read out of it, and
- * a wait of the whole packet's air time would leave that FIFO nearly full.
- */
-#define RANGETEST_LEAD_BYTES 4
-#define RANGETEST_LEAD_100NS (RANGETEST_LEAD_BYTES * RANGETEST_BYTE_100NS)
-
-/*
- * How many times the wait below may read the counter before giving up.
- *
- * The wait needs a few hundred reads. This cap is only a backstop: a timer 0
- * that is not running would otherwise leave the wait spinning, answering no
- * control request, until the watchdog reset the board.
- *
- * Reaching it means the wait did not measure the lead, which happens when the
- * counter is not advancing: the packet is then read as early as it was before
- * the wait existed, a wrong byte 0 at worst. That beats a loop that never
- * ends, and the board goes on answering between packets.
- */
-#define RANGETEST_LEAD_POLLS 100000
-
-/*
- * Let the radio get the start of the packet into its FIFO, then return.
- *
- * Timer 0 counts 100 ns ticks and resets at the end of each period, so this
- * adds up the steps it sees rather than comparing against a deadline the reset
- * would carry it past. clk100ns_step() measures each step and says why it is
- * measured the way it is; the short of it is that the period is not always the
- * usual 312.5 us, so a step cannot be taken modulo a fixed length.
- *
- * Both callers start the timer with clkn_start() before they receive. A
- * counter that is not advancing is caught by the poll cap above rather than
- * leaving this waiting forever.
- *
- * Tens of microseconds is far too short to service USB in, and far too short
- * for the host to notice.
- */
-static void rangetest_wait_for_fifo(void)
-{
-	u32 last = T0TC;
-	u32 waited = 0;
-	u32 polls = RANGETEST_LEAD_POLLS;
-
-	while (waited < RANGETEST_LEAD_100NS && polls-- > 0) {
-		u32 now = T0TC;
-
-		waited += clk100ns_step(last, now);
-		last = now;
-	}
-}
 
 /*
  * Sit out the turnaround delay, servicing USB, and report whether the host
@@ -387,9 +314,9 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 		if (requested_mode != MODE_RANGE_TEST)
 			break;
 		USRLED_SET;
-		/* See RANGETEST_LEAD_BYTES: reading the moment the sync word
+		/* See RX_FIFO_LEAD_BYTES: reading the moment the sync word
 		 * ends returns a byte 0 the radio has not written yet. */
-		rangetest_wait_for_fifo();
+		rx_wait_for_fifo();
 		cc2400_fifo_read(len, rxbuf);
 		if (cc2400_status() & STATUS_CRC_OK) {
 			int differs = rangetest_foreign_packet(rxbuf, txbuf);
@@ -531,7 +458,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 			 * what the sender reported -- the repeater writes its own
 			 * byte 0 into the reply -- but bytes 2 to 17 are the sender's
 			 * serial number, which this read copies into that reply. */
-			rangetest_wait_for_fifo();
+			rx_wait_for_fifo();
 			cc2400_fifo_read(len, buf);
 			/*
 			 * Only a request is answered. Byte 1 is the packet type,
@@ -580,6 +507,18 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 				cc2400_strobe(STX);
 			}
 		}
+		/*
+		 * Let the last packet finish before the radio is switched off,
+		 * as the sender does after its own burst. Strobing SRFOFF
+		 * straight after the last STX cut that packet off mid-air; the
+		 * sender's CRC dropped it, so the reply burst was fifteen
+		 * packets at amplifier level 7 and not sixteen.
+		 *
+		 * The wait is bounded and services USB, so it cannot hold the
+		 * board, and it returns as soon as the transmit ends -- 176 us
+		 * for this packet -- rather than running to its bound.
+		 */
+		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		TXLED_CLR;
 		cc2400_strobe(SRFOFF);
 		cc2400_wait_fs_unlock();

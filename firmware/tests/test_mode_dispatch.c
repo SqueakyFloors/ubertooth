@@ -112,7 +112,7 @@ struct scan {
 	int absorbed_reset_fn_iir;
 	int absorbed_reset_fn_mod;  /* where it puts the modulation back */
 
-	int ego_reset_call;   /* ego_access_code_reset() in the dispatch */
+	int ego_reset_call;   /* ego_capture_reset() in the dispatch */
 	int ego_reset_calls;  /* how many */
 	/* UBERTOOTH_SET_AFHMAP: its case, the copy it keeps for the mode
 	 * request it followed, and the guard that keeps one only while a mode
@@ -687,7 +687,7 @@ static int scan_source(const char *path, struct scan *s)
 			if (s->iir_call == 0)
 				s->iir_call = lineno;
 		}
-		if (strstr(line, "ego_access_code_reset(") != NULL) {
+		if (strstr(line, "ego_capture_reset(") != NULL) {
 			s->ego_reset_calls++;
 			if (s->ego_reset_call == 0)
 				s->ego_reset_call = lineno;
@@ -830,14 +830,14 @@ MU_TEST(test_leaving_a_mode_puts_the_access_code_back)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg),
-	         "%s: the dispatch calls ego_access_code_reset() %d times; it "
+	         "%s: the dispatch calls ego_capture_reset() %d times; it "
 	         "belongs with the other resets, on the way out of whatever mode "
 	         "was running",
 	         path, s.ego_reset_calls);
 	mu_assert(s.ego_reset_calls == 1, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s:%d: ego_access_code_reset() is called at or after the "
+	         "%s:%d: ego_capture_reset() is called at or after the "
 	         "`mode =` at line %d, so it would run after the new mode was "
 	         "recorded rather than as part of leaving the old one",
 	         path, s.ego_reset_call, s.mode_assign);

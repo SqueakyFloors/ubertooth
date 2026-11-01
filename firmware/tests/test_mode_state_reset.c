@@ -68,6 +68,12 @@ extern u8 afh_bank[NUM_BREDR_CHANNELS];
  * here is the pin, under a name of its own so it cannot be the header's. */
 #define DOCUMENTED_ACCESS_CODE 0x630f9ffeu
 
+/* And the capture length ubertooth-ego(1) documents, EGO_DEFAULT_PACKET_LEN
+ * in ego.h. A capture states one on every run today, so a length left behind
+ * shows only to another program talking to the board; the reset is here for
+ * the same reason the access code's is. */
+#define DOCUMENTED_PACKET_LEN 18
+
 /* The board state the firmware keeps in bluetooth_rxtx.c. */
 static u8 mode;
 static u8 requested_mode;
@@ -90,6 +96,7 @@ static u16 le_adv_channel;
 
 /* The E-GO sync word, in ego.c. */
 static u32 access_code;
+static u8 packet_len = DOCUMENTED_PACKET_LEN;
 
 /*
  * What the host stated after its mode request, which a mode start keeps: the
@@ -184,10 +191,11 @@ static void cc2400_idle(void)
 	radio_modulation = MOD_NONE;
 }
 
-/* ego_access_code_reset() */
-static void ego_access_code_reset(void)
+/* ego_capture_reset() */
+static void ego_capture_reset(void)
 {
 	access_code = DOCUMENTED_ACCESS_CODE;
+	packet_len = DOCUMENTED_PACKET_LEN;
 }
 
 /*
@@ -425,7 +433,7 @@ static void dispatch_with(u8 next_mode)
 	if (prev_mode != MODE_IDLE) {
 		cc2400_idle();
 		rssi_iir_reset();
-		ego_access_code_reset();
+		ego_capture_reset();
 	}
 	mode = next_mode;
 	apply_kept_settings(next_mode);
@@ -610,7 +618,7 @@ static int request_ego(u8 ego)
 	 * mode only once it has seen the flag. */
 	ego_mode = ego;
 	if (mode == MODE_EGO && requested_mode == MODE_EGO) {
-		ego_access_code_reset();
+		ego_capture_reset();
 		forget_hop_state();
 		ego_restart = 1;
 	}
@@ -757,13 +765,14 @@ static void board_reset(void)
 	ego_fsm_mode = -1;
 	ego_radio_channel = 0;
 	ego_radio_access_code = 0;
+	packet_len = DOCUMENTED_PACKET_LEN;
 	dispatch_held = 0;
 	stated_what = 0;
 	stated_for_mode = MODE_IDLE;
 	keep_what = 0;
 	cc2400_idle();
 	rssi_iir_reset();
-	ego_access_code_reset();
+	ego_capture_reset();
 
 	target.address = TEST_ADDRESS;
 	precalc();

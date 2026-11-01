@@ -3,6 +3,11 @@
 # Target file name (without extension).
 TARGET = bluetooth_rxtx
 
+# What a DISABLE_TX build of this target calls itself: the release ships it as
+# bluetooth_rx_only.*, which is two bytes past what the firmware info block
+# holds. See IMAGE_NAME in ../common.mk.
+RX_ONLY_NAME = bluetooth_rx
+
 # List C source files here. (C dependencies are automatically generated.)
 SRC = $(TARGET).c \
 	bluetooth.c \
@@ -15,6 +20,7 @@ SRC = $(TARGET).c \
 	le_phy.c \
 	queue.c \
 	cc2400_rangetest.c \
+	rx_fifo_lead.c \
 	ego.c \
 	debug_uart.c \
 	tinyprintf.c \

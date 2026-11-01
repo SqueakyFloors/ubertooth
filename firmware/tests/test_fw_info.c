@@ -465,9 +465,21 @@ MU_TEST(every_image_gets_the_block_from_the_shared_makefile)
 	          "block could be linked into another");
 	mu_assert(strstr(makefile, "OBJ += $(FW_INFO_OBJ)") != NULL,
 	          "common.mk does not link the firmware info block into the image");
-	mu_assert(strstr(makefile, "#define FW_IMAGE_NAME \"$(TARGET)\"") != NULL,
+	mu_assert(strstr(makefile, "#define FW_IMAGE_NAME \"$(IMAGE_NAME)\"") != NULL,
 	          "common.mk does not give version.h the image name the block is "
 	          "built from");
+	/* And that name is the target, except for a transmit-disabled build,
+	 * which is a different image from the same target: a board running the
+	 * release's bluetooth_rx_only would otherwise read as one running the
+	 * full image. */
+	mu_assert(strstr(makefile, "RX_ONLY_NAME ?= $(TARGET)") != NULL,
+	          "common.mk gives no receive-only image name, so an image that "
+	          "defines none would be left without one");
+	mu_assert(strstr(makefile,
+	                 "IMAGE_NAME ?= $(if $(DISABLE_TX),$(RX_ONLY_NAME),$(TARGET))")
+	          != NULL,
+	          "common.mk does not take the image name from DISABLE_TX, so a "
+	          "transmit-disabled build names itself after the full image");
 	free(makefile);
 }
 

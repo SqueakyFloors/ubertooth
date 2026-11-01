@@ -336,7 +336,7 @@ was stuck:
     Now in idle mode, not in a wait
     Capture transfer errors since power-on: 0
     Most stack ever used since boot: 432 of 11128 bytes
-    Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0
+    Radio waits that gave up since boot: synthesizer lock 0, unlock 0, oscillator 0, state machine 0, packet bytes 0, packet lead 0
 
 `Last boot cause` is why the board started this time: `power-on`, `watchdog`,
 `reset pin`, `brown-out`, or several of those joined with `+`. A reset the
@@ -434,10 +434,14 @@ that never reports the state it was asked for from holding the board — but
 carrying on is silent, so a half-working radio reads as a quiet channel. The
 counts are the times each shape of wait ran out: the synthesizer never
 locking, never going back off, the 16 MHz crystal never reporting stable, the
-radio's state machine never reaching a state, and the radio stopping partway
-through delivering a packet's bytes. The last of those is only ever above zero
-after a `ubertooth-btle -p` capture, the one mode that waits for them. All zero
-is what a working board shows; a count that climbs during a capture says the
+radio's state machine never reaching a state, the radio stopping partway
+through delivering a packet's bytes, and the short lead a packet is given to
+reach the radio's FIFO before it is read out of it. `packet bytes` is only
+ever above zero after a `ubertooth-btle -p` capture, the one mode that waits
+for them; `packet lead` only after `ubertooth-dump -g` or a range test, and it
+means the board's timer 0 was not advancing, so those records are wrong
+throughout and not only in their first byte. All zero is what a working board
+shows; a count that climbs during a capture says the
 samples or packets that came out of it are not to be trusted, whatever they
 look like. They are since the board started (a `-r` reset included) and stop
 at 65535.
