@@ -4010,11 +4010,36 @@ void promisc_recover_hop_interval(u8 *packet) {
 	}
 }
 
+/*
+ * An empty data PDU's header, with the two sequence bits masked off.
+ *
+ * CRCInit is worked out backwards from the CRC of a packet whose contents are
+ * known, and an empty data PDU is the one packet of a connection whose
+ * contents can be known without it: two header bytes and nothing else. Its
+ * header is LLID 1 with a payload length of zero, and the acknowledgment bits
+ * -- next expected sequence number and sequence number -- are whatever the
+ * connection's traffic has made them, so they are masked out and the rest is
+ * compared.
+ *
+ * Reading them as part of the header is what the mode did, and it meant
+ * waiting for an empty PDU that happened to carry both bits clear. On a
+ * connection with data flowing they are rarely both clear: a 50 ms link
+ * between two nRF52840 DKs sent 54 empty PDUs past the board in 150 seconds,
+ * 27 with one bit set and 27 with the other, and not one with neither, so
+ * nothing past the access address was ever recovered. The access-address half
+ * of the mode has always accepted all four.
+ */
+#define LE_EMPTY_PDU_HEADER_MASK 0xf3
+#define LE_EMPTY_PDU_HEADER 0x01
+
 void promisc_follow_cb(u8 *packet) {
 	int i;
 
 	// get the CRCInit
-	if (!le.crc_verify && packet[4] == 0x01 && packet[5] == 0x00) {
+	if (!le.crc_verify &&
+			(packet[4] & LE_EMPTY_PDU_HEADER_MASK) ==
+					LE_EMPTY_PDU_HEADER &&
+			packet[5] == 0x00) {
 		u32 crc = (packet[8] << 16) | (packet[7] << 8) | packet[6];
 
 		le.crc_init = btle_reverse_crc(crc, packet + 4, 2);

@@ -834,6 +834,65 @@ MU_TEST(a_declined_search_is_recovered_by_the_next)
 }
 
 /* ------------------------------------------------------------------------
+ * The packet the search waits behind
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Nothing above runs until the mode has the connection's CRCInit, and that
+ * comes from an empty data PDU: the one packet whose contents are known
+ * without it. Its header is LLID 1 with a zero length, and the two
+ * acknowledgment bits are whatever the connection's traffic has made them.
+ *
+ * promisc_follow_cb() is hardware code and cannot run here, so this reads its
+ * comparison out of the source, the way test_promisc_hop_interval.c reads the
+ * estimator's constants. What it has to show is that the comparison masks
+ * those two bits off: a connection with data flowing rarely sends an empty
+ * PDU with both of them clear, and waiting for one is how the mode used to
+ * stop at the access address.
+ */
+MU_TEST(crc_init_comes_from_any_empty_data_pdu)
+{
+	char path[512];
+	char line[512];
+	FILE *f;
+	int mask = 0, want = -1;
+	unsigned header;
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	f = fopen(path, "r");
+	mu_assert_fatal(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		int value;
+
+		if (sscanf(line, " #define LE_EMPTY_PDU_HEADER_MASK 0x%x",
+		           (unsigned *)&value) == 1)
+			mask = value;
+		if (sscanf(line, " #define LE_EMPTY_PDU_HEADER 0x%x",
+		           (unsigned *)&value) == 1)
+			want = value;
+	}
+	fclose(f);
+
+	mu_assert_fatal(mask != 0 && want >= 0,
+	                "the empty-PDU header constants were not found");
+
+	/* The four headers an empty data PDU can carry: LLID 1, no more data,
+	 * reserved bits clear, and the two acknowledgment bits either way. All
+	 * four have to pass. */
+	for (header = 0; header < 256; ++header) {
+		int is_empty_pdu = (header & 0x03) == 0x01 &&
+				(header & 0xf0) == 0x00;
+		int accepted = ((int)header & mask) == want;
+		char msg[96];
+
+		snprintf(msg, sizeof(msg), "header 0x%02x: %s", header,
+		         accepted ? "accepted" : "rejected");
+		mu_assert(accepted == is_empty_pdu, msg);
+	}
+}
+
+/* ------------------------------------------------------------------------
  * The one number this header keeps a copy of
  * ------------------------------------------------------------------------ */
 
@@ -888,6 +947,7 @@ int main(void)
 	MU_RUN(declines_random_gaps);
 	MU_RUN(declines_a_channel_off_the_hop_sequence);
 	MU_RUN(declines_the_wrong_access_address);
+	MU_RUN(crc_init_comes_from_any_empty_data_pdu);
 	MU_RUN(the_interval_unit_matches_the_clock);
 	MU_RUN(how_often_it_works);
 	MU_RUN(a_declined_search_is_recovered_by_the_next);
