@@ -623,7 +623,9 @@
 - The install writes `libubertooth.pc`, so a program of your own built against
   the installed library takes its flags from `pkg-config --cflags --libs
   libubertooth` instead of being given them by hand, including the include
-  directory `<libusb-1.0/libusb.h>` resolves against.
+  directory `<libusb-1.0/libusb.h>` resolves against. It reads its prefix back
+  from where it is installed, so a staged or relocated install describes the
+  directories it really landed in.
   [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
 - Configuring on macOS no longer tells you to install a Linux package to get
   `ubertooth-scan` and `ubertooth-follow`. It says BlueZ is Linux only and

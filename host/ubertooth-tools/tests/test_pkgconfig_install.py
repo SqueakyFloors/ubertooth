@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A program outside this tree builds against the installed libubertooth.
 
-Run as: test_pkgconfig_install.py <cmake> <build dir> <pkg-config> <C compiler>
+Run as: test_pkgconfig_install.py <cmake> <build dir> <pkg-config>
+            <C compiler> [LIB_SUFFIX]
 
 The install writes libubertooth.pc, so the flags a program needs come from
 `pkg-config --cflags --libs libubertooth` rather than being worked out by hand.
