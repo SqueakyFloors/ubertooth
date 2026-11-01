@@ -9,8 +9,8 @@ from ubtbr.lmp import *
 # Where every message this module writes goes. In their own module, which
 # imports nothing outside the standard library, so that ubertooth-btbr can
 # use them before it imports usb1; see streams.py.
-from ubtbr.streams import (eprint, error, output_gone, output_lost,
-	point_at_the_bin, result, warn)
+from ubtbr.streams import (colored, data_to_str, eprint, error, output_gone,
+	output_lost, point_at_the_bin, result, warn)
 import logging
 # The progress a command makes: plain lines on standard error, carrying
 # neither a time nor a level, like every other tool's progress. What a
@@ -19,7 +19,10 @@ import logging
 log = logging.getLogger("btctl")
 log.setLevel(logging.DEBUG)
 log_handler = logging.StreamHandler(sys.stderr)
-log_handler.setLevel(logging.DEBUG)
+# INFO, not DEBUG. The lines carry no level of their own, so the finer-grained
+# ones ("Send idle", "send bb ...") read like ordinary progress and bury it.
+# The logger stays at DEBUG so a session that wants them can lower this.
+log_handler.setLevel(logging.INFO)
 log_formatter = logging.Formatter('%(message)s')
 log_handler.setFormatter(log_formatter)
 log.addHandler(log_handler)
@@ -223,9 +226,6 @@ def acl_type_find(type_):
 		if t == type_:
 			return tp
 
-def data_to_str(data):
-	return " ".join("%02x"%b for b in data)
-
 def byte_count(n):
 	"""A count of bytes to quote back to the user: 1 byte, 18 bytes."""
 	return "%d byte%s"%(n, "" if n == 1 else "s")
@@ -390,7 +390,7 @@ class BTCtlEIR:
 				# raising, which ended the command printing the response.
 				ts = "'%s'"%(dat.decode("utf-8", "replace"))
 			else:
-				ts = hexlify(dat).decode()
+				ts = data_to_str(dat)
 			s += "%s: %s"%(tn, ts)
 		return s
 
@@ -991,7 +991,7 @@ class BTCtlMonitorCmd(BTCtlCmd):
 	def _handle_bad(self, pkt):
 		role = "Peripheral" if (pkt.clkn & 2) else "Central"
 		result("RX Raw (%10s:%7x): %s | %s"%(role,pkt.clkn, pkt.bb_hdr,
-			hexlify(pkt.bt_data.raw_data).decode()))
+			data_to_str(pkt.bt_data.raw_data)))
 
 	def _handle_lmp(self, pkt):
 		pdu = pkt.bt_data.data
@@ -1296,12 +1296,10 @@ class BTCtl:
 	# session a binary file to grep. A byte that is not UTF-8 is replaced
 	# rather than raising, which would end the receive thread.
 	def _print_console(self, msg):
-		msg = "\x1b[32;1m%s\x1b[0m"%msg.strip(b"\x00").decode("utf-8", "replace")
-		eprint(msg)
+		eprint(colored(msg.strip(b"\x00").decode("utf-8", "replace"), "32;1"))
 
 	def _print_debug(self, msg):
-		msg = "\x1b[31;1m%s\x1b[0m"%msg.strip(b"\x00").decode("utf-8", "replace")
-		eprint(msg)
+		eprint(colored(msg.strip(b"\x00").decode("utf-8", "replace"), "31;1"))
 
 	def _handle_default(self, t, msg):
 		if t == BTCTL_STATE_RESP:

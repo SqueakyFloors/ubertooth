@@ -4,6 +4,21 @@
 
 ### New features
 
+- `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
+  dropping them: a replay has no board to tune and nothing to wait for, so
+  `ubertooth-rx -i capture.bin -c 39` now says `error: -c cannot be combined
+  with -i; a replay reads a saved capture rather than tuning a board` and exits
+  1. The file used to be read on no channel and with no timeout, with nothing
+  said about either.
+
+- `ubertooth-specan-ui` reports a missing `numpy` or Qt binding as one
+  `error: ` line with a note saying what to install, rather than ending in a
+  traceback, which is what `ubertooth-btbr` has done since its own fix. It also
+  reads `-l` and `-u` itself, so a value that is not a number and one outside
+  the band get the line `ubertooth-specan` gives for both -- `error: lower
+  frequency must be 2402-2480 MHz (got abc)` -- in place of the argument
+  parser's `invalid int value`.
+
 - A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
   packet whose data did not match its own length fields used to put a line
   reading `Error: attempt to read past end of buffer` on standard error, which
@@ -784,6 +799,21 @@
 
 ### Reliability fixes
 
+- The three capture-loss warnings name the board that recorded the capture, so
+  a replay no longer reads as if a board were attached: `warning: the recording
+  board's packet queue filled up ...` where it used to say `the board's`.
+
+- `ubertooth-btbr` writes plain text when its standard error is redirected,
+  where it used to send ANSI color escapes whichever way the stream went, so a
+  saved session was full of `^[[32;1m`. Its finer-grained progress lines
+  (`Send idle`, `send bb ...`) no longer appear in a normal session, which
+  leaves standard error carrying progress only, and the LMP packet lines space
+  their bytes (`02 00 00`) like the ACL and inquiry lines beside them.
+
+- `ubertooth-ego`'s mode clash lists `-j`, so a user who typed it is not given
+  a list without it: `error: -j cannot be combined with -i; choose one of -f,
+  -r, -i, or -j`.
+
 - `ubertooth-btbr` no longer reports a packet whose header belongs to another
   piconet. All eight bits of a header's error check now have to match, where
   seven did. The check is computed from the piconet's UAP, so the dropped bit
@@ -1510,7 +1540,7 @@
   back wrong -- and only byte 0, because the read trails the air from there on.
   Each now waits for the radio to have the start of the packet.
   [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
-- A Classic packet longer than one 400 µs bank is reported as what was
+- A Classic packet longer than one 400 us bank is reported as what was
   captured, and a piconet follow runs to the end instead of dying partway.
   `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
   arrived, so a DH5's payload and its CRC verdict were decoded out of about
@@ -1534,16 +1564,16 @@
   signal-to-noise ratio printed beside it was out by the same 36 dB.
   [#665](https://github.com/SqueakyFloors/ubertooth/issues/665)
 - The clock a Classic packet is placed at is the clock its access code
-  arrived on. `ubertooth-rx` put a packet captured in the first 400 µs of a
-  mode, or in the 400 µs after the clock starts over every 327.68 s, about
+  arrived on. `ubertooth-rx` put a packet captured in the first 400 us of a
+  mode, or in the 400 us after the clock starts over every 327.68 s, about
   seven minutes ahead of the clock, and `ubertooth-scan` placed every packet a
-  whole 625 µs slot late, which is what its survey mode builds its clock
+  whole 625 us slot late, which is what its survey mode builds its clock
   candidates out of.
   [#664](https://github.com/SqueakyFloors/ubertooth/issues/664)
 - A piconet follow's clock trim moves the board's clock towards the piconet
   rather than away from it. A correction that should have advanced the clock
   was sent as a large positive delay, which stretched one tick to 6.85 ms and
-  left the clock 5.91 ms behind where 15 µs forward was wanted, and the drift
+  left the clock 5.91 ms behind where 15 us forward was wanted, and the drift
   it reported alongside was computed unsigned: a real 15 PPM came out as
   1342162, was printed as that, and left the board being slowed by a further
   320 PPM, the same direction as the error, for the rest of the run. So
@@ -2425,6 +2455,10 @@
 
 ### Documentation
 
+- The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
+  `-h`, which all three accept and every other tool's usage text lists, and
+  `ubertooth-util`'s `-t` line spells "initiate".
+
 - Renamed the Bluetooth connection roles from master/slave to
   Central/Peripheral, and SPI slave-select to chip-select. `ubertooth-btle
   -s` is now faux peripheral mode, its errors read `error: faux peripheral
@@ -2544,6 +2578,9 @@
 
 Fixes with no visible change in normal use.
 
+- The search for an access code in a bank of captured symbols tells the library
+  how many symbols the bank holds, so the library checks the search bound
+  rather than taking the caller's word for it.
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising

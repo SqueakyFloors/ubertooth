@@ -93,10 +93,11 @@ int cmd_set_channel(struct libusb_device_handle* devh, u16 channel)
  * definition comes first, so this is the one the callbacks call. A success
  * hands back a real but empty packet, because the callbacks go on to use it.
  */
-int btbb_find_ac(char* stream, int search_length, uint32_t lap,
-                 int max_ac_errors_arg, btbb_packet** pkt)
+int btbb_find_ac_n(char* stream, size_t stream_len, int search_length,
+                   uint32_t lap, int max_ac_errors_arg, btbb_packet** pkt)
 {
-	(void)stream; (void)search_length; (void)lap; (void)max_ac_errors_arg;
+	(void)stream; (void)stream_len; (void)search_length; (void)lap;
+	(void)max_ac_errors_arg;
 	if (!find_ac_succeeds)
 		return -1;
 	*pkt = btbb_packet_new();

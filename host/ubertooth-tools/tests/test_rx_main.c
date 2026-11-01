@@ -726,6 +726,47 @@ MU_TEST(a_refused_command_line_opens_no_device)
 	mu_assert_int_eq(0, device.blocks);
 }
 
+/* A replay has no board to tune and nothing to wait for, so -c and -t are
+ * refused rather than accepted and dropped: the file used to be read on no
+ * channel and with no timeout, with nothing said about either. The input is
+ * not even opened, since the command line is refused first. */
+MU_TEST(a_replay_refuses_the_options_it_cannot_act_on)
+{
+	struct run_result r;
+
+	reset_device();
+	r = RUN_RX("-i", "/dev/null", "-c", "39");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	    "error: -c cannot be combined with -i; a replay reads a saved"
+	    " capture rather than tuning a board\n") == 0, r.err);
+	mu_assert_int_eq(0, device.connect_calls);
+
+	reset_device();
+	r = RUN_RX("-i", "/dev/null", "-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err,
+	    "error: -t cannot be combined with -i; a replay reads a saved"
+	    " capture rather than waiting for a board\n") == 0, r.err);
+	mu_assert_int_eq(0, device.connect_calls);
+
+	/* -t 0 is "no timeout", which the value alone cannot be told from the
+	 * option not being given, so it is refused too. */
+	reset_device();
+	r = RUN_RX("-i", "/dev/null", "-t", "0");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "-t cannot be combined with -i") != NULL, r.err);
+
+	/* And a replay without them still runs: /dev/null is an empty capture,
+	 * which reaches the end of the file and exits 0. */
+	reset_device();
+	r = RUN_RX("-i", "/dev/null");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, device.connect_calls);
+}
+
 /* What the setup requests carry on a capture the board took. A command line
  * without -c asks for the sweep, which the board is told by a channel above
  * the band; -c sends that channel as a frequency; -l with -u sends the address
@@ -1443,7 +1484,10 @@ MU_TEST(a_replay_whose_input_cannot_be_opened_creates_no_file)
 {
 	struct run_result r;
 	struct stat info;
-	char missing[80], pcap[80], pcapng[80], dump[80];
+	char pcap[80], pcapng[80], dump[80];
+	/* Room for the longest name capture_names() can build plus the suffix,
+	 * so the compiler can see that the write below cannot be truncated. */
+	char missing[sizeof(pcap) + sizeof(".input")];
 
 	reset_device();
 	capture_names("rx-replay-missing", pcap, pcapng, dump, sizeof(pcap));
@@ -1643,6 +1687,7 @@ int main(void)
 	MU_RUN(a_selection_the_user_stopped_exits_zero);
 	MU_RUN(a_survey_whose_stream_died_still_prints_its_results);
 	MU_RUN(a_refused_command_line_opens_no_device);
+	MU_RUN(a_replay_refuses_the_options_it_cannot_act_on);
 	MU_RUN(a_capture_the_board_took_sets_up_and_exits_zero);
 	MU_RUN(the_capture_is_asked_for_before_the_channel);
 	MU_RUN(the_capture_states_basic_rate);

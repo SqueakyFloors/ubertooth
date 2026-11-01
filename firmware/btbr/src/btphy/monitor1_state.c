@@ -123,7 +123,7 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 
 		/* Answering the page is a substate of its own, with its own
 		 * hop inputs, the same as a real paged device uses. */
-		btphy_set_mode_no_ap(BT_MODE_PERIPH_PAGE_RESPONSE);
+		btphy_set_mode_no_ap(BT_MODE_PERIPHERAL_PAGE_RESPONSE);
 		hop_start_response();
 
 		/* Schedule TX ID(2) */

@@ -97,7 +97,7 @@ ACCEPTED = {
     "--extcap-dlts": None,
     "--extcap-config": None,
     "--capture": None,
-    "--extcap-interface": "ubertooth" + "1ff0ff1967102caf8334fa5ac52000f5",
+    "--extcap-interface": "ubertooth" + "cc3300112233445566778899aabbccdd",
     "--fifo": os.devnull,
     "--channel": "37",
     "--help": None,
@@ -117,8 +117,8 @@ OPEN_REFUSED = "error: Access denied (insufficient permissions) (libusb -3)\n"
 # capture filter box.
 NO_CAPTURE_FILTER = ("this interface does not apply capture filters;"
                      " use a display filter")
-SERIALS = ("1ff0ff1967102caf8334fa5ac52000f5",
-           "0b700017490c2cafa039ee5ac52000f5")
+SERIALS = ("cc3300112233445566778899aabbccdd",
+           "dd4400112233445566778899aabbccdd")
 
 # The shape of "ubertooth-util -U all -s", which is what the script parses.
 LISTING_ONE = "Serial No (0): %s\n"

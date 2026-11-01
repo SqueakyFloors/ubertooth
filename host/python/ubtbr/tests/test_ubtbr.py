@@ -275,7 +275,7 @@ class USBContext:
 '''
 
 # The one board the fake puts on the bus unless a test says otherwise.
-ONE_BOARD = "1cc001038088cb956c43ad61c52000f5"
+ONE_BOARD = "aa1100112233445566778899aabbccdd"
 FAKE_USB1 = FAKE_USB1.replace("ONE_BOARD", repr(ONE_BOARD))
 
 # Kept in a name of its own, so its finalizer removes the directory however
@@ -292,7 +292,7 @@ sys.path.insert(0, MODULE_DIR)
 sys.path.insert(0, WORK.name)
 import usb1
 assert os.path.dirname(usb1.__file__) == WORK.name, usb1.__file__
-from ubtbr import btctl, lmp
+from ubtbr import btctl, lmp, streams
 
 
 def request_packet(code):
@@ -1589,6 +1589,23 @@ for send, payload, wanted in cases:
     assert not any("\x00" in message for message in said), said
 print("ubtbr: a progress line from the board carries no NUL")
 
+# Those two lines used to be colored whether or not anything could show the
+# escapes, so a redirected session was full of ^[[32;1m where every other
+# tool writes plain text. A terminal still gets the color.
+plain = io.StringIO()
+with contextlib.redirect_stderr(plain):
+    assert streams.colored("ready", "32;1") == "ready"
+
+
+class Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+with contextlib.redirect_stderr(Terminal()):
+    assert streams.colored("ready", "32;1") == "\x1b[32;1mready\x1b[0m"
+print("ubtbr: a progress line is colored for a terminal and plain otherwise")
+
 # ---- a command that ends after the prompt gave up on it -------------------
 
 # Giving up has to be a pause, not the end of the session: a command that
@@ -2294,7 +2311,7 @@ print("ubtbr: a terminal session leaves the prompt to the line editor")
 CONNECTED_LT_ADDR_1 = (btctl.BTCTL_STATE_CONNECTED,
                        (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
 NAME_REQ = (r"\d\d:\d\d:\d\d RX LMP: BBHdr\(lt_addr=1, type=DM1, flags=\)"
-            r" \| \(tid 0\) LMP_NAME_REQ +\| 02(00){16}")
+            r" \| \(tid 0\) LMP_NAME_REQ +\| 02( 00){16}")
 # The detach rides along in the same session: the line it adds is the link
 # manager's, so it belongs with the rest of that trace on standard error and
 # not in the capture, which is what the man page says.
@@ -2706,7 +2723,7 @@ print("ubtbr: no Ubertooth is one error line and exit 1")
 # timeout from a different board still carrying bluetooth_rxtx, and a note
 # blaming the firmware of the board they had just flashed.
 
-OTHER_BOARD = "346001058088cb95345bad61c52000f5"
+OTHER_BOARD = "ee5500112233445566778899aabbccdd"
 TWO_BOARDS = ",".join((ONE_BOARD, OTHER_BOARD))
 OPENED_FILE = os.path.join(WORK.name, "opened")
 SERIAL_READS_FILE = os.path.join(WORK.name, "serial-reads")
@@ -2764,20 +2781,20 @@ print("ubtbr: -U <serial> reaches that board")
 # the first characters of a serial are enough, in either case. They have to
 # include a non-digit: an all-digits argument is an index, which is the rule
 # ubertooth(7) states and every tool follows.
-for prefix in ("1cc0", "1CC0", ONE_BOARD.upper()):
+for prefix in ("aa11", "AA11", ONE_BOARD.upper()):
     status, output, errors = selecting(("-U", prefix), "q\n")
     assert status == 0, (prefix, status, output, errors)
     assert opened() == ONE_BOARD, (prefix, opened())
 print("ubtbr: a serial prefix selects a board, in either case")
 
 # a prefix that starts both serials names neither
-status, output, errors = selecting(("-U", "1cc"),
+status, output, errors = selecting(("-U", "aa1"),
                                    serials=",".join((ONE_BOARD,
-                                                     "1cc0ffffffffffff")))
+                                                     "aa11ffffffffffff")))
 assert status == 1, (status, output, errors)
 assert output == "", output
-assert errors == ("error: '1cc' matches 2 Ubertooth devices: %s, "
-                  "1cc0ffffffffffff\n"
+assert errors == ("error: 'aa1' matches 2 Ubertooth devices: %s, "
+                  "aa11ffffffffffff\n"
                   "select one of them by a longer prefix of its serial "
                   "number\n" % ONE_BOARD), errors
 assert opened() is None, opened()
@@ -2853,9 +2870,9 @@ assert errors == ("error: no Ubertooth found with serial matching 'abcd'\n"
                   + UNREAD_NOTE), errors
 # and so does a prefix that matched more than one, for the same reason: the
 # quiet board's serial could have been the one the user meant
-status, output, errors = selecting(("-U", "1cc"),
+status, output, errors = selecting(("-U", "aa1"),
                                    serials=",".join((ONE_BOARD,
-                                                     "1cc0ffffffffffff",
+                                                     "aa11ffffffffffff",
                                                      "?")))
 assert status == 1, (status, output, errors)
 assert errors.endswith(UNREAD_NOTE), errors
@@ -2863,10 +2880,10 @@ print("ubtbr: a serial refusal says when a board did not answer the read")
 
 # boards reporting one serial cannot be told apart by a longer prefix, so
 # that refusal says to use an index instead
-status, output, errors = selecting(("-U", "1cc0"),
+status, output, errors = selecting(("-U", "aa11"),
                                    serials=",".join((ONE_BOARD, ONE_BOARD)))
 assert status == 1, (status, output, errors)
-assert errors == ("error: '1cc0' matches 2 Ubertooth devices: %s, %s\n"
+assert errors == ("error: 'aa11' matches 2 Ubertooth devices: %s, %s\n"
                   "these Ubertooth devices report the same serial number; "
                   "select one by index with -U<index>\n"
                   % (ONE_BOARD, ONE_BOARD)), errors
@@ -2876,24 +2893,24 @@ print("ubtbr: boards sharing a serial are selected by index, not a prefix")
 # The btbr firmware builds for the Ubertooth Zero too, and a board left out
 # of the list would not be listed here, so a bare command would call the One
 # the only board and open it -- the fault this whole section is about.
-ZERO_AND_ONE = ",".join(("0b700017490c2cafa039ee5ac52000f5/1d50:6000",
+ZERO_AND_ONE = ",".join(("dd4400112233445566778899aabbccdd/1d50:6000",
                          ONE_BOARD))
 status, output, errors = selecting((), serials=ZERO_AND_ONE)
 assert status == 1, (status, output, errors)
 assert errors == ("error: multiple Ubertooth devices found; select one with "
                   "-U <index|serial>\n"
-                  "  Device 0: 0b700017490c2cafa039ee5ac52000f5\n"
+                  "  Device 0: dd4400112233445566778899aabbccdd\n"
                   "  Device 1: %s\n" % ONE_BOARD), errors
-status, output, errors = selecting(("-U", "0b70"), "q\n", serials=ZERO_AND_ONE)
+status, output, errors = selecting(("-U", "dd44"), "q\n", serials=ZERO_AND_ONE)
 assert status == 0, (status, output, errors)
-assert opened() == "0b700017490c2cafa039ee5ac52000f5", opened()
+assert opened() == "dd4400112233445566778899aabbccdd", opened()
 # and something else of the same vendor is not an Ubertooth
-status, output, errors = selecting(("-U", "0b70"),
+status, output, errors = selecting(("-U", "dd44"),
                                    serials=",".join(
-                                       ("0b700017490c2cafa039ee5ac52000f5"
+                                       ("dd4400112233445566778899aabbccdd"
                                         "/1d50:1234", ONE_BOARD)))
 assert status == 1, (status, output, errors)
-assert errors == "error: no Ubertooth found with serial matching '0b70'\n", \
+assert errors == "error: no Ubertooth found with serial matching 'dd44'\n", \
     errors
 print("ubtbr: every board the C tools recognize is listed, and nothing else")
 
@@ -3147,9 +3164,9 @@ assert version_arguments() == ["-V"], version_arguments()
 assert not writes(), writes()
 
 # -U names the board, and is passed on as ubertooth-util's own -U
-status, output, errors = version_ran(("-V", "-U", "05f"))
+status, output, errors = version_ran(("-V", "-U", "19b"))
 assert status == 0, (status, output, errors)
-assert version_arguments() == ["-V", "-U", "05f"], version_arguments()
+assert version_arguments() == ["-V", "-U", "19b"], version_arguments()
 
 # a board that is attached and could not be read exits 1 there, and so here:
 # its line says why, and the answer is still printed

@@ -329,13 +329,13 @@ MU_TEST(a_failed_connection_gives_the_handle_back)
 MU_TEST(the_device_selector_is_passed_through)
 {
 	char* with_u[] = { "ubertooth-tx", "-l", "123456", "-u", "11",
-	                   "-U", "0b70", NULL };
+	                   "-U", "dd44", NULL };
 	char* without_u[] = { "ubertooth-tx", "-l", "123456", "-u", "11", NULL };
 	struct run r;
 
 	reset();
 	run_main(&r, 7, with_u);
-	mu_assert(strcmp(fake.selector, "0b70") == 0, fake.selector);
+	mu_assert(strcmp(fake.selector, "dd44") == 0, fake.selector);
 
 	reset();
 	run_main(&r, 5, without_u);

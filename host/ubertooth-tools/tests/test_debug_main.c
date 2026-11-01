@@ -183,7 +183,7 @@ MU_TEST(the_other_firmware_image_stops_the_command)
  * ahead when it is the expected one. */
 MU_TEST(the_expected_image_is_checked_then_read)
 {
-	char* argv[] = { "ubertooth-debug", "-U", "1cc0", "-r", "0x02", NULL };
+	char* argv[] = { "ubertooth-debug", "-U", "aa11", "-r", "0x02", NULL };
 	struct run r;
 
 	reset();
@@ -192,7 +192,7 @@ MU_TEST(the_expected_image_is_checked_then_read)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.image_checks);
 	mu_assert_int_eq(1, fake.reads);
-	mu_assert(strcmp(fake.selector, "1cc0") == 0, fake.selector);
+	mu_assert(strcmp(fake.selector, "aa11") == 0, fake.selector);
 }
 
 /* The handle used to be left outstanding on this path: the registers were

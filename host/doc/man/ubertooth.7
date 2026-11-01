@@ -89,8 +89,8 @@ With several attached and no \fB\-U\fR, no board is selected: the tools refuse t
 .IP "" 4
 .nf
 error: multiple Ubertooth devices found; select one with \-U <index|serial>
-  Device 0: 1cc001038088cb956c43ad61c52000f5
-  Device 1: 05f00014e380df95f4436562c32000f5
+  Device 0: aa1100112233445566778899aabbccdd
+  Device 1: 19bb00112233445566778899aabbccdd
 .fi
 .IP "" 0
 .P
@@ -100,14 +100,14 @@ Selecting by serial number is the slower form, because every attached board is o
 .P
 SIGTERM, SIGHUP, SIGQUIT and an alarm (SIGALRM, as \fBtimeout\fR and \fBkill\fR send them) end a run the same way Ctrl\-C does, which means exit 0 rather than death by the signal\. SIGHUP is caught even when it was inherited ignored, so a capture run under \fBnohup\fR stops when the terminal closes instead of carrying on with its mode left running on the board\.
 .P
-A serial may be shortened to its first few characters, in either case, so \fB\-U 1cc0\fR and \fB\-U 1CC0\fR select the same board\. If those characters start more than one attached board's serial, the tool lists the matching serials and selects neither\. An all\-digits string is read as an index, so include a non\-digit (\fB\-U 05f\fR rather than \fB\-U 05\fR)\. See ubertooth\-util(1), SELECTING A DEVICE, for the full description and for listing the attached devices\.
+A serial may be shortened to its first few characters, in either case, so \fB\-U aa11\fR and \fB\-U AA11\fR select the same board\. If those characters start more than one attached board's serial, the tool lists the matching serials and selects neither\. An all\-digits string is read as an index, so include a non\-digit (\fB\-U 19b\fR rather than \fB\-U 19\fR)\. See ubertooth\-util(1), SELECTING A DEVICE, for the full description and for listing the attached devices\.
 .SH "WHEN A BOARD CANNOT BE USED"
 A board can be attached and still be unavailable, because only one program at a time can use it and because a mode keeps running on the board until it is stopped\. Both cases are reported in words, with the libusb code in parentheses for a bug report\.
 .P
 The board opened, and then something else turned out to be holding it:
 .IP "" 4
 .nf
-error: Ubertooth 05f00014e380df95f4436562c32000f5 is in use by another program (libusb \-3)
+error: Ubertooth 19bb00112233445566778899aabbccdd is in use by another program (libusb \-3)
 .fi
 .IP "" 0
 .P
@@ -137,7 +137,7 @@ Not every board gets that self\-reset, and where it does not the fallback is alw
 A serial\-number selector names the reason, because a board it could not read may be the board asked for:
 .IP "" 4
 .nf
-error: no Ubertooth found with serial matching '1cc'
+error: no Ubertooth found with serial matching 'aa1'
 1 attached Ubertooth device did not answer the serial read
 note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth\-util \-U <index> \-S, or reset a board that answers nothing with \-r
 .fi
@@ -148,7 +148,7 @@ The remedy is by index there because a board whose serial could not be read cann
 A board in the DFU bootloader is named too, because it is not a board that went away: while it is being flashed it enumerates as the bootloader, which no tool but ubertooth\-dfu(1) can open, so every selection finds nothing until the flash finishes\. An interrupted flash leaves it there until the next one succeeds\.
 .IP "" 4
 .nf
-error: no Ubertooth found with serial matching '1cc'
+error: no Ubertooth found with serial matching 'aa1'
 note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
 .fi
 .IP "" 0
@@ -159,7 +159,7 @@ These tools drive the firmware built from the same source tree, which both run\-
 .IP "" 4
 .nf
 error: Ubertooth firmware API version <version> found, libubertooth 1\.1 requires <version>\.
-note: flash the firmware built from the same source tree, for example: \./install\.sh \-\-flash\-device 1cc0
+note: flash the firmware built from the same source tree, for example: \./install\.sh \-\-flash\-device aa11
 .fi
 .IP "" 0
 .P
@@ -167,7 +167,7 @@ A build made from a git checkout that is not on a tag is a development build, an
 .IP "" 4
 .nf
 warning: Ubertooth firmware API version <version> found, libubertooth 1\.1 requires <version>\.
-note: flash the firmware built from the same source tree, for example: \./install\.sh \-\-flash\-device 1cc0
+note: flash the firmware built from the same source tree, for example: \./install\.sh \-\-flash\-device aa11
 note: this is a development build, so the command runs on; what it reports may be wrong, and a request this firmware has not got will fail
 .fi
 .IP "" 0
@@ -197,7 +197,7 @@ The version is only half of it: this tree builds two run\-time images, and they 
 .IP "" 4
 .nf
 error: the Ubertooth is running btbr; this tool needs bluetooth_rxtx
-note: flash it with ubertooth\-dfu \-U 1cc0 \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
+note: flash it with ubertooth\-dfu \-U aa11 \-d firmware/bluetooth_rxtx/bluetooth_rxtx\.dfu \-r
 .fi
 .IP "" 0
 .P

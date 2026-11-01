@@ -619,7 +619,7 @@ MU_TEST(test_page_and_response_modes_use_the_slot)
 {
 	static const uint8_t MODES[] = {
 		BT_MODE_INQUIRY, BT_MODE_PAGING_RESPONSE,
-		BT_MODE_PERIPH_PAGE_RESPONSE,
+		BT_MODE_PERIPHERAL_PAGE_RESPONSE,
 	};
 	const struct spec_hop_scan_vector *v = &SPEC_HOP_SCAN[1];
 	unsigned mode;
@@ -676,7 +676,7 @@ MU_TEST(test_a_response_starts_from_the_phase_the_scan_heard)
 			hop_scan_phase(tuned_at),
 		"the test clocks no longer straddle a phase boundary");
 
-	btphy.mode = BT_MODE_PERIPH_PAGE_RESPONSE;
+	btphy.mode = BT_MODE_PERIPHERAL_PAGE_RESPONSE;
 	hop_start_response();
 	mu_assert_int_eq(hop_scan_phase(tuned_at), hop_state.x);
 }

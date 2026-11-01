@@ -810,7 +810,12 @@ typedef struct {
 	 * packet does not drag it down. This is what a reader shows as the
 	 * signal. */
 	int8_t   rssi_avg;
-	uint8_t  rssi_count; // Number of ... (0 means RSSI stats are invalid)
+	/* How many readings rssi_avg was taken over. The Basic Rate stream sends
+	 * 0 when it took none, so the three bytes above mean nothing; the
+	 * low-energy engine sends 0 with an average beside it that does mean
+	 * something, so a reader cannot use this byte alone to tell whether the
+	 * average is worth showing. */
+	uint8_t  rssi_count;
 	/* The board's estimate of the background power on this record's
 	 * channel, when status carries NOISE_ESTIMATE; meaningless without it.
 	 * A raw reading like the three above.
