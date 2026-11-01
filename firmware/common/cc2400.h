@@ -131,6 +131,30 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
 #define GRMDM_PACKET_MODE 0x0400
 
 /*
+ * The rest of the framing those bit maps decode, for the one case where two
+ * boards have to agree on it: the generic transmit sends with the radio's own
+ * framing and the generic receive programs none of it, so the value in this
+ * register at each end has to be the same.
+ *
+ * BUFFERED (bits 12:11, 01): the payload goes through the radio's FIFO, which
+ * is what both generic modes read and write.
+ * PREAMBLE (bits 9:7): how much 01010101 goes in front of the sync word. The
+ * field is a code rather than a byte count: the bit maps in bluetooth_rxtx.c
+ * read 0, 1 and 2 as that many bytes, and cc2400_rangetest.c reads 3 as four.
+ * SYNC_WORD_32 (bits 6:5, 11): match the whole of SYNCH and SYNCL rather than
+ * the top 8 bits.
+ * CRC (bit 4): the radio appends a CRC on transmit and checks one on receive.
+ * The generic transmit leaves it off, and the generic receive reads a fixed
+ * number of bytes out of the FIFO without looking at a CRC result; the range
+ * test turns it on at both ends.
+ */
+#define GRMDM_BUFFERED_MASK 0x1800
+#define GRMDM_BUFFERED      0x0800
+#define GRMDM_PREAMBLE_MASK 0x0380
+#define GRMDM_SYNC_WORD_32  0x0060
+#define GRMDM_CRC           0x0010
+
+/*
  * Does this GRMDM value select the packet-mode receive? Read the register
  * with cc2400_get(GRMDM).
  *
