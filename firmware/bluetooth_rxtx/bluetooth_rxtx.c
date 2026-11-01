@@ -4045,11 +4045,13 @@ void promisc_recover_hop_interval(u8 *packet) {
  *
  * Reading them as part of the header is what the mode did, and it meant
  * waiting for an empty PDU that happened to carry both bits clear. On a
- * connection with data flowing they are rarely both clear: a 50 ms link
- * between two nRF52840 DKs sent 54 empty PDUs past the board in 150 seconds,
- * 27 with one bit set and 27 with the other, and not one with neither, so
- * nothing past the access address was ever recovered. The access-address half
- * of the mode has always accepted all four.
+ * connection with data flowing that is one empty PDU in a few hundred: of
+ * 2666 the board heard from a 50 ms link between two development boards, ten
+ * had both bits clear. So everything the mode recovers after the access
+ * address -- the CRCInit, the connection interval, the hop increment, the
+ * algorithm-2 search -- waited on luck, and a capture could run for minutes
+ * and report nothing more. The access-address half of the mode has always
+ * accepted all four headers.
  */
 #define LE_EMPTY_PDU_HEADER_MASK 0xf3
 #define LE_EMPTY_PDU_HEADER 0x01
