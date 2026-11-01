@@ -1405,11 +1405,18 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * A burst is running, and it sends from tx_pkt: this request
 		 * would splice its payload into the packets the burst has left
 		 * and then lose the count it asked for, because the burst read
-		 * one already. Refused instead, which the host sees at once --
-		 * and refused before the copy, or the splice has happened by
-		 * the time the refusal is decided. Nothing shipped here sends a
-		 * second request during a burst, since ubertooth-tx waits for
-		 * the board, so this is for anything else on the bus.
+		 * one already. Refused instead -- the stack stalls a request
+		 * the handler returns 0 for, so the host is told -- and refused
+		 * before the copy, or the splice has happened by the time the
+		 * refusal is decided. Nothing shipped here sends a second
+		 * request during a burst, since ubertooth-tx waits for the
+		 * board.
+		 *
+		 * This covers the request that would break the burst it lands
+		 * in, and nothing else: a register write or a power level
+		 * serviced between packets reaches the radio, changes the
+		 * packets the burst has left, and is then put back by the
+		 * restore at the end of it.
 		 */
 		if (mode == MODE_TX_GENERIC)
 			return 0;
@@ -4057,14 +4064,15 @@ void bt_peripheral_le() {
  * One more byte after the payload: 1 when the radio said this packet's CRC
  * checked out, 0 when it did not.
  *
- * It means nothing unless GRMDM has the CRC on at this end, and the host is
- * what put GRMDM there, so this byte is the radio's answer and not a promise.
- * Measured on two boards: with the CRC on at both ends every record read 1;
- * with the transmit sending no CRC and the receive asked to check one, every
- * record read 0 -- and the record still arrived, so the radio reports a bad
- * CRC rather than dropping the packet. With the CRC off at this end the bit
- * read 1 for packets that carried no CRC at all, which is why it is only
- * worth reading when the configuration asked for one.
+ * Two things have to hold for it to mean anything, and neither is this
+ * firmware's to decide. GRMDM has to have the CRC on at this end, which is
+ * the host's doing; with it off the radio called packets carrying no CRC at
+ * all good. And the payload has to fill the fixed read below: STATUS_CRC_OK
+ * compares the next two bytes in the FIFO against the CRC16 over the bytes
+ * already read out of it (see cc2400_fifo_read()), so a shorter payload has
+ * the read running past the CRC and the comparison lands on whatever followed
+ * it. The read has no length to go by -- this framing carries none -- so the
+ * receive records the answer and the man pages say when to believe it.
  */
 #define RX_GENERIC_CRC_OFFSET (RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN)
 
@@ -4271,8 +4279,9 @@ void tx_generic(u8 prev_mode) {
 	u16 synch, syncl, mdmctrl, mdmtst0, grmdm, fsdiv, frend, gio_save;
 	u8 len, sent, chunk;
 	/* Read once: the request handler writes it, and a request answered
-	 * between packets below must not lengthen the burst running now. */
-	u16 left = tx_pkt_repeat > 0 ? tx_pkt_repeat : 1;
+	 * between packets below must not lengthen the burst running now. It is
+	 * at least 1, which the handler saw to. */
+	u16 left = tx_pkt_repeat;
 
 	/*
 	 * Every radio register this transmit writes is saved here and put back

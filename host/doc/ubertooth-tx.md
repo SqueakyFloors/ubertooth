@@ -75,7 +75,11 @@ The board hands the framing of a generic packet to the radio, so the sync word
 of what goes out: 6 preamble bytes of `01010101`, the whole 32-bit sync word,
 and the radio's CRC, which is GRMDM `0x0f71`. A board reading the packet has
 to be set to the same thing, and with the CRC bit set it can tell a packet
-with a bit error in it from a good one -- this framing has no other check. ubertooth(7), GENERIC RADIO MODE lists the registers both
+with a bit error in it from a good one -- this framing has no other check. A
+32-byte payload is what makes that verdict trustworthy: the receive reads a
+fixed 32 bytes and the radio answers the CRC question wherever the read
+stopped, so a shorter payload leaves it meaningless. ubertooth-dump(1), THE
+GENERIC RECEIVE has the detail. ubertooth(7), GENERIC RADIO MODE lists the registers both
 ends have to agree on and walks a packet from one board to another; this page
 covers only what the options do.
 
@@ -103,6 +107,9 @@ request for 2000 packets put 2000 on the air in 1.6 seconds and a board set to
 the same framing read all 2000.
 
 The command waits for the burst to finish, so it ends when the air is clear.
+What it waits on is the board leaving the generic transmit mode, which it
+cannot tell from another command stopping the burst: a `ubertooth-util -S` from
+elsewhere ends this command as a finished burst would.
 While it runs the board reports the generic transmit as its mode, which is
 what `ubertooth-util -w` shows and what this waits on. Ctrl-C stops the burst:
 the board takes a stop between packets, and what has not gone out is not

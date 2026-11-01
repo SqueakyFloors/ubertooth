@@ -490,13 +490,13 @@ known. The board frames the packet in the radio -- 6 preamble bytes of
 `0x0f71` -- so the receiving board has to be set to the same value and the
 same sync word.
 
-Two boards, the first receiving on 2402 MHz and the second sending it eight
+Two boards, the first receiving on 2402 MHz and the second sending it 32
 counted bytes ten times:
 
     ubertooth-debug -U 0 -w %manand=0x7fff,%lmtst=0x2b22,%mdmtst0=0x134b,%grmdm=0x0f71,%mdmctrl=0x0057,%synch=0xcb87,%syncl=0x6543,%fsdiv=2401
     ubertooth-dump -U 0 -g -d packets.bin &
     ubertooth-util -U 1 -a 1
-    ubertooth-tx -U 1 -g 0102030405060708 -a cb876543 -c 2402 -n 10
+    ubertooth-tx -U 1 -g 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 -a cb876543 -c 2402 -n 10
 
 What has to agree between the two, and what does not:
 
@@ -504,7 +504,10 @@ What has to agree between the two, and what does not:
    programs, so the preamble, the part of the sync word matched, and the CRC
    all match. The CRC bit is what makes the record's CRC byte mean anything:
    with it clear the radio reports a CRC_OK for packets that carry no CRC at
-   all.
+   all. The payload above is 32 bytes for the same reason -- the receive reads
+   a fixed 32 and the radio answers the CRC question at whatever point the
+   read stopped, so a shorter payload leaves that byte saying nothing. See
+   ubertooth-dump(1), THE GENERIC RECEIVE.
  - the sync word: `-a cb876543` is SYNCH `0xcb87` and SYNCL `0x6543`.
  - the channel, less 1 MHz at the receiving end: a transmit tunes the carrier
    directly and a receive subtracts its 1 MHz intermediate frequency, so

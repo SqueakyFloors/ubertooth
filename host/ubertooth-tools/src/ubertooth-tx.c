@@ -42,12 +42,13 @@
 #define TX_GENERIC_COUNT_MAX 65535
 
 /*
- * How long to wait for a burst to finish, as a multiple of the packets asked
+ * The deadline on the wait for a burst, as a multiple of the packets asked
  * for, and how long to leave between reads of the board while it runs.
  *
- * A packet takes about 1.3 ms on the bench, measured as 2000 of them in 1.57
- * seconds, so eight milliseconds each is room for a board that is slower than
- * that without leaving a stuck one waiting all day.
+ * Neither is a measurement: the first is a bound on how long a board may take
+ * before the wait gives up rather than hang, and the second is how often it
+ * is worth asking. A packet takes about 1.3 ms on the bench (2000 of them in
+ * 1.57 s), so eight milliseconds each leaves room for a slower board.
  */
 #define TX_GENERIC_MS_PER_PACKET 8
 #define TX_GENERIC_POLL_US       20000
@@ -376,10 +377,9 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
-	/* The generic transmit starts no mode on the board, so there is nothing
-	 * to stop and nothing to wait for: the packets go out as the requests
-	 * are taken, and the board is back to what it was doing when the last
-	 * one has. */
+	/* The generic transmit is its own path from here: one request, then the
+	 * wait for the board to finish the burst. It ends by itself, so the
+	 * teardown the dump retransmit below needs does not apply. */
 	if (generic) {
 		r = transmit_generic(ut, syncword, channel, payload, payload_len,
 		                     count);

@@ -256,10 +256,16 @@ when the radio said the packet's CRC checked out and 0 when it did not, so
 `xxd -s 22 -l 33 packets.bin` shows the first packet's payload and its
 verdict.
 
-That byte means nothing unless GRMDM has the CRC on at this end: with the bit
-clear the radio reported a CRC_OK for packets that carried no CRC at all.
-`ubertooth-tx -g` transmits with it on, and ubertooth(7), GENERIC RADIO MODE
-sets a receiving board to the same value.
+Two things have to hold for that byte to mean anything. GRMDM has to have the
+CRC on at this end -- with the bit clear the radio called packets that carried
+no CRC at all good -- and **the payload has to be the full 32 bytes**. The
+radio answers the CRC question about the read position rather than about the
+packet: it compares the two bytes after what has been read out of the FIFO
+against the CRC16 over what was read. The capture reads a fixed 32 bytes,
+because this framing carries no length, so a shorter payload leaves the
+comparison landing on whatever followed the CRC and the byte says nothing.
+`ubertooth-tx -g` transmits with the CRC on, and ubertooth(7), GENERIC RADIO
+MODE sets a receiving board to the same value and sends 32 bytes.
 
 The configuration has to be in the radio before the capture starts, and it
 survives only while the board is idle: a mode ending puts the radio back
