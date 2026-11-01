@@ -134,6 +134,30 @@ static struct {
 	int hear_per_block;  /* 1 to hear a packet of the piconet per block */
 	int drops;           /* clocks this capture asked to give up */
 	int drop_result;     /* what each of those asks reports */
+	/* The boards. The first handle is `ut`, as every single-board case
+	 * here uses, and `extra` holds the rest in the order -U named them;
+	 * `inits` counts the handles handed out. */
+	ubertooth_t extra[RX_MAX_BOARDS - 1];
+	int inits;
+	/* Every selector a board was opened with, in order, comma separated. */
+	char selectors[256];
+	/* The channel each board hears this piconet on, or -1 for a board that
+	 * hears nothing. The fake decode below records it on the piconet the
+	 * board was given, which is the one thing the real decode does that
+	 * the tool then shares between the boards. */
+	int heard_channel[RX_MAX_BOARDS];
+	/* 1 for a board whose packets settle the upper address part, with the
+	 * value it settles on. */
+	int heard_uap_board[RX_MAX_BOARDS];
+	uint8_t heard_uap;
+	/* The channel each board was asked to tune to, in MHz. */
+	int board_channel[RX_MAX_BOARDS];
+	/* What each board's piconet already held when the fake decode was last
+	 * handed it: how many channels it has been told this piconet uses, and
+	 * the upper address part where it has one, -1 for none. A board holding
+	 * more than it heard itself got the rest from the merge. */
+	int seen_channels[RX_MAX_BOARDS];
+	int seen_uap[RX_MAX_BOARDS];
 } device;
 
 static void record(char call)
@@ -153,6 +177,8 @@ static int stop_requested;
 
 static void reset_device(void)
 {
+	int i;
+
 	memset(&device, 0, sizeof(device));
 	stop_requested = 0;
 	device.blocks_to_end = 3;
@@ -163,15 +189,45 @@ static void reset_device(void)
 	 * reach the note about what the search does not reach either. */
 	device.clock_search_ms = -1;
 	device.drop_result = 1;
-	device.ut.devh = (struct libusb_device_handle*)&device;
-	/* Not a real ring buffer: the fake receive below never fills one, and
-	 * the packet callback is faked too. */
-	device.ut.fifo = (fifo_t*)malloc(1);
+	for (i = 0; i < RX_MAX_BOARDS; i++) {
+		device.heard_channel[i] = -1;
+		device.heard_uap_board[i] = 0;
+		device.seen_uap[i] = -1;
+	}
 }
 
+/* The handle for one board, in the order -U named them. */
+static ubertooth_t* fake_handle(int board)
+{
+	return board == 0 ? &device.ut : &device.extra[board - 1];
+}
+
+/* Which board a handle belongs to, so a fake handed a handle knows which
+ * board's script to follow. -1 for a handle this test did not allocate. */
+static int board_index(const ubertooth_t* ut)
+{
+	int i;
+
+	for (i = 0; i < RX_MAX_BOARDS; i++)
+		if (fake_handle(i) == ut)
+			return i;
+	return -1;
+}
+
+/* One handle per call, as the library hands out one per board. The tool asks
+ * for as many as -U named. */
 ubertooth_t* ubertooth_init(void)
 {
-	return &device.ut;
+	ubertooth_t* ut;
+
+	if (device.inits >= RX_MAX_BOARDS)
+		return NULL;
+	ut = fake_handle(device.inits++);
+	ut->devh = (struct libusb_device_handle*)&device;
+	/* Not a real ring buffer: the fake receive below never fills one, and
+	 * the packet callback is faked too. */
+	ut->fifo = (fifo_t*)malloc(1);
+	return ut;
 }
 
 /* Counted rather than freeing: the handle above is this test's own. */
@@ -183,10 +239,17 @@ void ubertooth_free(ubertooth_t* ut)
 
 int ubertooth_connect_select(ubertooth_t* ut, const char* u_arg)
 {
+	size_t used;
+
 	(void)ut;
 	device.connect_calls++;
 	snprintf(device.selector, sizeof(device.selector), "%s",
 	         u_arg ? u_arg : "");
+	/* Every selector in order, so a multi-board case can read back which
+	 * boards were opened and in which order. */
+	used = strlen(device.selectors);
+	snprintf(device.selectors + used, sizeof(device.selectors) - used,
+	         "%s%s", used > 0 ? "," : "", u_arg ? u_arg : "(any)");
 	/* Opening a board takes a moment -- selecting one by serial number
 	 * reads the serial of every attached board -- and a signal can land in
 	 * it. The real one is also where that signal is acted on: it gives up
@@ -269,10 +332,15 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
 	device.timeout_set = seconds;
 }
 
+/* The requests below carry the board's USB handle, which this fake makes the
+ * same pointer for every board, so what they record is per run and the channel
+ * each board was asked for is taken in the order the requests arrive. */
 int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
 {
 	(void)devh;
 	record('c');
+	if (device.channels_set < RX_MAX_BOARDS)
+		device.board_channel[device.channels_set] = channel;
 	device.channels_set++;
 	device.last_channel = channel;
 	return device.channel_rc;
@@ -408,11 +476,38 @@ int ubertooth_stop_failed(ubertooth_t* ut)
 }
 
 /* The packet decode is libubertooth's and needs none of this: what a block
- * contains does not change any exit status here. */
+ * contains does not change any exit status here.
+ *
+ * It does record the two things the real decode leaves on a piconet and the
+ * tool then shares between boards: the channel a packet of the piconet was
+ * heard on, and the upper address part once the decoder has settled one. The
+ * script says which board hears what, so a case can give each board its own
+ * channel and watch the merge. */
 void cb_rx(ubertooth_t* ut, void* args)
 {
-	(void)ut;
-	(void)args;
+	btbb_piconet* pn = (btbb_piconet*)args;
+	int board = board_index(ut);
+
+	int channel, seen = 0;
+
+	if (pn == NULL || board < 0)
+		return;
+
+	/* Read before this board adds anything of its own, so what it holds
+	 * here is what the merge gave it. */
+	for (channel = 0; channel < NUM_BREDR_CHANNELS; channel++)
+		if (btbb_piconet_get_channel_seen(pn, (uint8_t)channel))
+			seen++;
+	device.seen_channels[board] = seen;
+	device.seen_uap[board] = btbb_piconet_get_flag(pn, BTBB_UAP_VALID)
+	                       ? (int)btbb_piconet_get_uap(pn) : -1;
+
+	if (device.heard_channel[board] >= 0)
+		btbb_piconet_set_channel_seen(pn,
+		        (uint8_t)device.heard_channel[board]);
+	if (device.heard_uap_board[board] &&
+	    !btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
+		btbb_piconet_set_uap(pn, device.heard_uap);
 }
 
 /* What the callback reports about the follow: how long since it last heard a
@@ -422,13 +517,15 @@ void cb_rx(ubertooth_t* ut, void* args)
 /* How long the clock search has been running, with -1 for a run that has no
  * search going: nothing of the piconet has reached it, or a clock was
  * confirmed at some point. The cases move it on through the blocks above. */
-long ubertooth_clock_search_ms(void)
+long ubertooth_clock_search_ms(ubertooth_t* ut)
 {
+	(void)ut;
 	return device.clock_search_ms;
 }
 
-long ubertooth_follow_quiet_ms(void)
+long ubertooth_follow_quiet_ms(ubertooth_t* ut)
 {
+	(void)ut;
 	return device.follow_quiet_ms;
 }
 
@@ -1996,6 +2093,194 @@ MU_TEST(a_replay_whose_search_does_not_confirm_a_clock_says_so)
 	mu_assert_int_eq(0, lines_like(r.err, SEARCH_NOTE));
 }
 
+/* ---- several boards at once --------------------------------------------- */
+
+/* -U takes a list, and every board on it is opened, set up and read. One
+ * Ubertooth hears one 1 MHz channel at a time, so a capture spread over
+ * several of them sees that many times more of a connection. */
+MU_TEST(a_list_of_boards_opens_and_sets_up_each_one)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 9;
+
+	r = RUN_RX("-U", "0,1,2", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	/* Opened in the order they were named. */
+	mu_assert(strcmp(device.selectors, "0,1,2") == 0, device.selectors);
+	mu_assert_int_eq(3, device.connect_calls);
+	mu_assert_int_eq(3, device.check_api_calls);
+	/* A receive transfer, a modulation, a capture and a channel each. */
+	mu_assert_int_eq(3, device.bulk_inits);
+	mu_assert_int_eq(3, device.modulations_set);
+	mu_assert_int_eq(3, device.rx_syms_calls);
+	mu_assert_int_eq(3, device.channels_set);
+	/* One poll thread for the run, not one per board: it completes the
+	 * transfers of every board on the libusb context. */
+	mu_assert_int_eq(1, device.thread_starts);
+	mu_assert_int_eq(1, device.thread_stops);
+	/* Every board is stopped and given back. */
+	mu_assert_int_eq(3, device.stops);
+	mu_assert_int_eq(3, device.frees);
+	/* One timer for the run. */
+	mu_assert_int_eq(10, device.timeout_set);
+}
+
+/* -c takes a list too, one channel per board, which is how the boards are
+ * spread across the band. A single channel is given to all of them. */
+MU_TEST(a_channel_each_spreads_the_boards_across_the_band)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(3, device.channels_set);
+	mu_assert_int_eq(2402 + 20, device.board_channel[0]);
+	mu_assert_int_eq(2402 + 40, device.board_channel[1]);
+	mu_assert_int_eq(2402 + 60, device.board_channel[2]);
+
+	/* One channel for all of them. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "39", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2402 + 39, device.board_channel[0]);
+	mu_assert_int_eq(2402 + 39, device.board_channel[1]);
+	mu_assert_int_eq(2402 + 39, device.board_channel[2]);
+
+	/* And no -c at all leaves every board sweeping, as one board does. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+
+	r = RUN_RX("-U", "0,1,2", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(9999, device.board_channel[0]);
+	mu_assert_int_eq(9999, device.board_channel[2]);
+}
+
+/* A board that cannot be opened ends the run, and every handle the run had
+ * allocated is given back: a capture spread over fewer boards than were asked
+ * for would leave channels unheard with nothing saying which. */
+MU_TEST(a_board_that_cannot_be_opened_gives_every_handle_back)
+{
+	struct run_result r;
+
+	reset_device();
+	device.connect_fails = 1;
+
+	r = RUN_RX("-U", "0,1,2", "-t", "10");
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, device.connect_calls);
+	mu_assert_int_eq(0, device.rx_syms_calls);
+	/* Three handles were allocated before any board was opened, and all
+	 * three go back. */
+	mu_assert_int_eq(3, device.frees);
+}
+
+/* What the boards share. Each keeps a piconet of its own, because libbtbb
+ * anchors clock recovery on the first packet's clock and two boards' clocks
+ * are unrelated; what passes between them is the channels the piconet has
+ * been heard on and its upper address part, neither of which needs a common
+ * clock. So a board ends up narrowing its own clock against a channel map
+ * that filled three times faster, and gets the address part from whichever
+ * board settled it first. */
+MU_TEST(boards_share_the_channel_map_and_the_address_part)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	/* Three passes over three boards: the first fills each board's own
+	 * channel, the merge follows, and the next passes read back what each
+	 * board was given. */
+	device.blocks_to_end = 9;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_channel[2] = 60;
+	/* Only the second board's packets settle the address part. */
+	device.heard_uap_board[1] = 1;
+	device.heard_uap = 0x22;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	/* Every board holds all three channels, though each heard one. */
+	mu_assert_int_eq(3, device.seen_channels[0]);
+	mu_assert_int_eq(3, device.seen_channels[1]);
+	mu_assert_int_eq(3, device.seen_channels[2]);
+	/* And every board has the address part the second one found. */
+	mu_assert_int_eq(0x22, device.seen_uap[0]);
+	mu_assert_int_eq(0x22, device.seen_uap[2]);
+
+	/* The run says what they found between them, on standard error, so a
+	 * capture writing to standard output is unaffected. Channel 20 is bit
+	 * 4 of byte 2, channel 40 bit 0 of byte 5, and channel 60 bit 4 of
+	 * byte 7. */
+	mu_assert(strstr(r.err, "note: 3 boards: UAP = 0x22") != NULL, r.err);
+	mu_assert(strstr(r.err,
+	          "note: 3 boards: AFH map: 0x00001000000100100000, "
+	          "3 of 79 channels heard") != NULL, r.err);
+	mu_assert(strstr(r.out, "note:") == NULL, r.out);
+}
+
+/* One board shares nothing and says nothing extra: its piconet already holds
+ * everything it knows, and libbtbb reports what it finds as it goes. */
+MU_TEST(one_board_is_left_exactly_as_it_was)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+	device.heard_channel[0] = 20;
+
+	r = RUN_RX("-l", "112233", "-c", "20", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.connect_calls);
+	mu_assert(strstr(r.err, "boards") == NULL, r.err);
+	/* The one channel it heard, and nothing merged into it. */
+	mu_assert_int_eq(1, device.seen_channels[0]);
+}
+
+/* One board's receive stream failing ends the whole capture and exits 1: the
+ * channels that board was covering go unheard from there on, so the run no
+ * longer holds what was asked for. */
+MU_TEST(a_board_whose_stream_died_ends_the_whole_capture)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_STREAM_FAILURE;
+	device.blocks_to_end = 4;
+
+	r = RUN_RX("-U", "0,1,2", "-t", "30");
+
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: receive transfer failed") != NULL, r.err);
+	/* It stopped at the end of the pass the failure fell in -- the fourth
+	 * block of nine, so six -- rather than running the -t out. The pass is
+	 * finished rather than abandoned: the other boards have packets of
+	 * their own already in hand, and taking them costs one more look at
+	 * each of at most eight ring buffers. */
+	mu_assert_int_eq(6, device.blocks);
+	mu_assert_int_eq(3, device.stops);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -2043,5 +2328,11 @@ int main(void)
 	MU_RUN(the_search_note_waits_half_a_minute);
 	MU_RUN(a_run_with_no_search_running_says_nothing);
 	MU_RUN(a_replay_whose_search_does_not_confirm_a_clock_says_so);
+	MU_RUN(a_list_of_boards_opens_and_sets_up_each_one);
+	MU_RUN(a_channel_each_spreads_the_boards_across_the_band);
+	MU_RUN(a_board_that_cannot_be_opened_gives_every_handle_back);
+	MU_RUN(boards_share_the_channel_map_and_the_address_part);
+	MU_RUN(one_board_is_left_exactly_as_it_was);
+	MU_RUN(a_board_whose_stream_died_ends_the_whole_capture);
 	return mu_report();
 }

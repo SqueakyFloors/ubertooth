@@ -328,6 +328,25 @@ typedef struct {
 	 * is. It points into the tool's own command line, which outlives the
 	 * handle, so nothing here copies or frees it. */
 	const char* selector;
+
+	/* Following a piconet's clock, and trimming this board's own clock to
+	 * it: cb_rx()'s state for one board. On the handle for the same reason
+	 * prev_packet_ns above is, and it matters more here. These describe one
+	 * crystal and the requests sent to one board, so a capture reading
+	 * several boards at once would compute each board's correction from
+	 * another board's trim history, send cmd_trim_clock() and
+	 * cmd_fix_clock_drift() to whichever board the packet came from, and
+	 * report a drift in PPM that belongs to neither. Documented one by one
+	 * where cb_rx() reads them. */
+	int br_following;
+	int br_calibrated;
+	uint64_t br_heard_ms;
+	int br_clock_gone;
+	int br_trim_counter;
+	uint32_t br_clkn_trim;
+	int br_searching;
+	uint64_t br_search_start_ms;
+	int br_clock_confirmed;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);

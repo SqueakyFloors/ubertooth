@@ -13,6 +13,19 @@
   transmit power level, 0 included. ubertooth(7), OUTPUT AND DIAGNOSTICS says
   which captures can see it.
   [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
+- `ubertooth-rx` reads several boards in one run. A board hears one 1 MHz
+  channel at a time, so parked on one it sees about one packet in 79 of a
+  Classic connection, and finding the piconet's address part and the channels
+  it is using waits on those sightings. `-U` now takes a comma-separated list
+  of up to eight boards and `-c` a channel for each of them, so
+  `ubertooth-rx -U 0,1,2,3 -c 10,30,50,70 -l e9c5ba` hears four channels at
+  once. The boards share what they find: the channels the piconet has been
+  heard on join into one map that goes back to every board, and the first
+  board to work out the address part hands it to the rest. Each board recovers
+  the clock from its own packets, because a clock is recovered against that
+  board's own counter. ubertooth-rx(1), SEVERAL BOARDS AT ONCE says what is
+  shared and what is not.
+  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
@@ -2790,6 +2803,11 @@ Fixes with no visible change in normal use.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
+- The clock a Classic capture is following, and the trim it sends the board to
+  hold that clock, belong to the board being read rather than to the process.
+  One board behaves as it did; a capture reading several would have measured
+  each board's correction against another board's history.
+  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 - The LED demo mode (`ubertooth-util -x`) arms its blink timer from a clean
   start and disarms it on the way out, so a second run of it cannot toggle an
   LED before its own first blink is due.

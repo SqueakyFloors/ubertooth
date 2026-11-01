@@ -2,9 +2,9 @@
 
 ## SYNOPSIS
 
-    ubertooth-rx [-l <lap> [-u <uap>] | -z] [-c <0-78> | -s] [-e <0-5>]
+    ubertooth-rx [-l <lap> [-u <uap>] | -z] [-c <0-78>[,...] | -s] [-e <0-5>]
     [-t <seconds>] [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
-    [-U <index|serial>]
+    [-U <index|serial>[,...]]
     ubertooth-rx -i <file.bin> [-l <lap> [-u <uap>] | -z] [-e <0-5>]
     [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
     ubertooth-rx [-U <index|serial>] -V
@@ -79,6 +79,11 @@ Decode a capture saved earlier, writing a PCAP of it:
 
     ubertooth-rx -i capture.bin -q capture.pcap
 
+Read one piconet with four boards, each on a channel of its own, so the run
+sees four times as much of it:
+
+    ubertooth-rx -U 0,1,2,3 -c 10,30,50,70 -l e9c5ba
+
 ## OPTIONS
 
 Major modes:
@@ -102,9 +107,13 @@ Options:
    without `-b`, which writes the same records) instead of capturing live with
    an Ubertooth. See [REPLAYING A SAVED CAPTURE][].
 
- - `-c <0-78>` :
+ - `-c <0-78>[,...]` :
    Fixed channel for all major modes. If not specified will sweep
-   through all channels.
+   through all channels. With several boards, a comma-separated list gives one
+   channel to each, in the order `-U` named them, which is how the boards are
+   spread across the band; a single channel is given to all of them. Any other
+   count is refused, because which board got which channel would then be a
+   guess. See SEVERAL BOARDS AT ONCE.
 
  - `-s` :
    Sweep through all channels. This is the default, so `-s` only states it
@@ -176,9 +185,10 @@ Miscellaneous:
    print the version: the host tools, then the firmware version and build of
    each attached board; see ubertooth(7), COMMON OPTIONS
 
- - `-U <index|serial>` :
+ - `-U <index|serial>[,...]` :
    select an Ubertooth by enumeration index or serial number; see
-   ubertooth(7), SELECTING A DEVICE
+   ubertooth(7), SELECTING A DEVICE. A comma-separated list of up to eight
+   reads them all together; see SEVERAL BOARDS AT ONCE
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -272,6 +282,58 @@ search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a
 piconet it joins, and ubertooth-btbr(1) in monitor mode catches the frequency
 hop synchronization (FHS) packet of a connection as it is set up, which carries
 the Central's clock.
+## SEVERAL BOARDS AT ONCE
+
+An Ubertooth receives one 1 MHz channel at a time, and a Classic connection
+hops over 79 of them, so a board parked on a channel hears about one packet in
+79. Every step of following a piconet waits on those sightings: the upper
+address part (UAP), the channels the piconet is using, and the clock. `-U` with
+a comma-separated list of up to eight boards reads them all in one run, and
+`-c` with a channel each spreads them across the band, so the run sees as many
+packets as it has boards (see EXAMPLES).
+
+Each board decodes for itself and the run prints every packet of any of them,
+on one stream, each line carrying the channel it was heard on. What the boards
+pass between them is what they have worked out:
+
+ - **The channels this piconet has been heard on.** A channel map records only
+   that a channel carried traffic, so the maps join whatever clock each board
+   is on. The union is handed back to every board as it grows, so each one
+   narrows its clock candidates against a map that filled as many times faster
+   as there are boards. An incomplete map is what makes a wrong clock look
+   right, so this is where the boards help each other most.
+
+ - **The UAP.** The first board to settle one hands it to the rest, which saves
+   the others the packets it took.
+
+Each board keeps a piconet of its own and recovers the clock from its own
+packets. The clock cannot be pooled: it is recovered as a position in the hop
+pattern relative to the board's own CLKN counter, and two boards' counters are
+unrelated, so a packet from one board placed in the other's recovery would sit
+at a position it was never heard at. Pooling would need the offset between the
+two boards' clocks known to better than one CLKN tick, 312.5 us, and tracked as
+their crystals drift. Nothing on the host measures that: the firmware batches
+records and the bulk endpoint is polled, so a record's arrival time is many
+ticks away from its reception time. The piconet's own clock is the shared time
+base instead, and each board reaches it by itself.
+
+When the capture ends, a run with several boards says what they found between
+them, on standard error:
+
+    note: 4 boards: UAP = 0x0d
+    note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
+
+A survey (`-z`) needs none of this: the table of addresses heard belongs to the
+decoder rather than to a board, so every board's packets reach the one survey
+and each address is heard as many times faster as there are boards.
+
+Each board costs a receive transfer and a 72 MB ring buffer of its own, which
+is what the limit of eight is about. One board behaves exactly as it did
+before: there is nothing to merge and nothing extra is printed. A board that
+cannot be opened, or whose receive stream fails, ends the run with status 1
+rather than carrying on with fewer boards than were asked for: the channels it
+was covering would go unheard with nothing saying which. `-i` reads one saved
+capture and so takes one board's worth of records; it refuses a list.
 
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
