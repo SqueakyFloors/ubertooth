@@ -170,6 +170,18 @@ static struct {
 	/* What a board settles on after that, which is how a stale reading
 	 * shows up: the run must rest on what the boards hold now. */
 	uint8_t heard_uap_again[RX_MAX_BOARDS];
+	/* 1 for a run where giving a clock up takes the piconet's address part
+	 * with it, as libbtbb's does. That happens outside the decode, so a
+	 * case can reach the state no packet follows. */
+	int abandon_uap_on_drop;
+	/* The block from which every board's ring buffer is empty: the receive
+	 * hands the decoder nothing and says so, and the follow's silence goes
+	 * on being measured, which is how a quiet follow is noticed. The run
+	 * ends with a Ctrl-C after quiet_returns_to_end of them, which is how
+	 * a capture of a piconet that has gone away ends. */
+	int quiet_blocks_at;
+	int quiet_returns;
+	int quiet_returns_to_end;
 	/* The channel each board was asked to tune to, in MHz, and the
 	 * requests each board was sent, one letter each in the order they
 	 * arrived. Each fake handle is its own board's, so a request is
@@ -459,6 +471,17 @@ void ubertooth_bulk_thread_stop(void) { device.thread_stops++; }
  * never ends by itself. */
 int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 {
+	/* A board with nothing in its ring buffer: the decoder is handed
+	 * nothing, and the follow's silence goes on being measured. */
+	if (device.quiet_blocks_at > 0 &&
+	    device.blocks >= device.quiet_blocks_at) {
+		if (device.follow_quiet_ms >= 0 &&
+		    board_index(ut) == device.reading_board)
+			device.follow_quiet_ms += device.block_ms;
+		if (++device.quiet_returns >= device.quiet_returns_to_end)
+			raise(SIGINT);
+		return -1;
+	}
 	cb(ut, cb_args);
 	device.blocks++;
 	/* The time this block took, and a packet of the followed piconet in it
@@ -625,7 +648,16 @@ int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 {
 	int board = board_index(ut);
 
-	(void)pn;
+	/* The real one takes the piconet's address part with the clock, where
+	 * a case asks for that: libbtbb sets it to zero and clears the valid
+	 * flag, because discovery cannot find another while the hop reversal
+	 * is still filtering on this one. It happens here rather than in the
+	 * decode, which is the whole point of it -- a piconet that has gone
+	 * away leaves no packets to notice anything in. */
+	if (device.abandon_uap_on_drop && pn != NULL) {
+		btbb_piconet_set_uap(pn, 0);
+		btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
+	}
 	if (board >= 0)
 		device.drops_board[board]++;
 	device.drops++;
@@ -2601,17 +2633,70 @@ MU_TEST(a_disagreement_and_a_board_with_none_are_both_reported)
 	/* The third board keeps 0xb0; the fourth is put on the agreed 0x0d. */
 	mu_assert_int_eq(0xb0, device.seen_uap[2]);
 	mu_assert_int_eq(0x0d, device.seen_uap[3]);
+	/* The whole line, so that appending the handed board to the list of
+	 * boards' own answers would fail: keeping the two apart is what this
+	 * case is for. */
 	mu_assert(strstr(r.err, "note: 4 boards: the boards worked out "
 	          "different UAPs, so one of them is wrong: board 1 0x0d, "
-	          "board 2 0x0d, board 3 0xb0") != NULL, r.err);
-	mu_assert(strstr(r.err, "note: 4 boards: 0x0d was passed to a board "
-	          "that had worked out none of its own") != NULL, r.err);
+	          "board 2 0x0d, board 3 0xb0\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "note: 4 boards: put on another board's "
+	          "answer, having worked out none of their own: board 4 0x0d")
+	          != NULL, r.err);
 }
 
-/* A value the library has taken off a board is no longer evidence for it.
- * Giving a clock up takes the address part with it -- the piconet's value goes
- * to zero and the valid flag with it -- and the board then rediscovers and can
- * settle on something else. A reading kept from before would let one board's
+/* A long run can pass more than one value on, because the boards that agreed
+ * can themselves be taken off it and settle on something else. Each board is
+ * named with the value it was given, so a second handing does not hide the
+ * first. */
+MU_TEST(every_board_put_on_another_s_answer_is_named_with_its_value)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 24;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	/* The blocks are counted across the boards and after the callback, so
+	 * with four boards the first sees 0, 4, 8 and the last 3, 7, 11.
+	 *
+	 * The last board settles on 0x22 of its own first, so it is not one of
+	 * the boards with none when the first two agree on 0x0d: that goes to
+	 * the third board. The first two are then taken off 0x0d and settle on
+	 * 0xb0, and when the last board is taken off its own 0x22 it has none
+	 * and is put on 0xb0. Two values passed on in one run. */
+	device.heard_uap_board[3] = 1;
+	device.heard_uap_value[3] = 0x22;
+	device.abandon_uap_at[3] = 15;
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_value[0] = 0x0d;
+	device.settle_uap_at[0] = 4;
+	device.abandon_uap_at[0] = 8;
+	device.heard_uap_again[0] = 0xb0;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_value[1] = 0x0d;
+	device.settle_uap_at[1] = 5;
+	device.abandon_uap_at[1] = 9;
+	device.heard_uap_again[1] = 0xb0;
+
+	r = RUN_RX("-U", "0,1,2,3", "-c", "20,40,60,70", "-l", "112233",
+	           "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0x0d, device.seen_uap[2]);
+	mu_assert_int_eq(0xb0, device.seen_uap[3]);
+	mu_assert(strstr(r.err, "note: 4 boards: put on another board's "
+	          "answer, having worked out none of their own: board 3 0x0d, "
+	          "board 4 0xb0") != NULL, r.err);
+}
+
+/* A value the library has taken off a board is no longer evidence for it. The
+ * piconet's value goes to zero and the valid flag with it, and the board then
+ * rediscovers and can settle on something else. Here it happens inside the
+ * decode, as it does when header after header fails; the other way in, from
+ * the capture loop when a follow has gone quiet, is
+ * the_report_reads_the_boards_again_before_it_prints's. A reading kept from
+ * before would let one board's
  * answer corroborate itself: the board that moved on would still be counted
  * for the value it left, and a board with none of its own would be put on a
  * value only one board holds. */
@@ -2649,6 +2734,80 @@ MU_TEST(an_address_part_the_library_took_back_stops_being_evidence)
 	/* And the run reports what the boards hold now, not what they held. */
 	mu_assert(strstr(r.err, "different UAPs, so one of them is wrong: "
 	          "board 1 0x33, board 2 0x22") != NULL, r.err);
+}
+
+/* The report reads the boards once more before it prints. A clock given up
+ * takes the piconet's address part with it, and this tool asks for that from
+ * the capture loop rather than from the decode, when a follow has gone quiet
+ * -- which is the state a piconet that has gone away leaves, so there is no
+ * packet after it to notice anything in. Reading only as packets arrive would
+ * have the run end naming a value no board still held. */
+MU_TEST(the_report_reads_the_boards_again_before_it_prints)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	/* Not reached: the run ends on the Ctrl-C below, as a capture of a
+	 * piconet that has gone away does. */
+	device.blocks_to_end = 100;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	/* The two boards work out different answers, so the run would name
+	 * both if it read them only as packets arrived. */
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_value[0] = 0x22;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_value[1] = 0x33;
+	/* The second board is the one following a clock. Four blocks arrive,
+	 * two to each board, which is enough for both to settle and for the
+	 * second board's silence to reach the minute the ask waits for; then
+	 * every board's buffer is empty, so the ask goes out in a pass where
+	 * nothing is decoded and nothing is shared. */
+	device.reading_board = 1;
+	device.follow_quiet_ms = 0;
+	device.block_ms = 30000;
+	device.quiet_blocks_at = 4;
+	device.quiet_returns_to_end = 12;
+	device.abandon_uap_on_drop = 1;
+
+	r = RUN_RX("-U", "0,1", "-c", "20,40", "-l", "112233", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(device.drops_board[1] > 0, "the quiet board was asked");
+	/* The second board holds nothing by the end, so the first board's is
+	 * the only answer left and there is no disagreement to report. */
+	mu_assert(strstr(r.err, "note: 2 boards: UAP = 0x22") != NULL, r.err);
+	mu_assert(strstr(r.err, "different UAPs") == NULL, r.err);
+}
+
+/* Nothing is passed between boards where -u gave the address part. Every board
+ * was started on the user's value, so no board knows anything another does
+ * not; and a board the library has since taken off that value is
+ * rediscovering, which is what one board given -u does too. Putting it back
+ * would make a run of several boards behave unlike a run of one. */
+MU_TEST(a_user_given_address_part_is_not_put_back_after_the_library_drops_it)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 12;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_channel[2] = 60;
+	/* The third board has the user's value taken off it on its first
+	 * block. The other two still hold it, so a run that shared it would
+	 * have the pair of them agree and put the third board back on it. */
+	device.abandon_uap_at[2] = 2;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-u", "22",
+	           "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(-1, device.seen_uap[2]);
+	/* And the user's own value is not handed back to them as a finding. */
+	mu_assert(strstr(r.err, "UAP") == NULL, r.err);
 }
 
 /* A survey takes a list too: every board on it is opened, set up, read, and
@@ -2856,6 +3015,9 @@ int main(void)
 	MU_RUN(a_board_or_channel_list_the_tool_will_not_take_is_refused);
 	MU_RUN(a_board_s_own_address_part_is_never_overwritten);
 	MU_RUN(a_disagreement_and_a_board_with_none_are_both_reported);
+	MU_RUN(every_board_put_on_another_s_answer_is_named_with_its_value);
+	MU_RUN(the_report_reads_the_boards_again_before_it_prints);
+	MU_RUN(a_user_given_address_part_is_not_put_back_after_the_library_drops_it);
 	MU_RUN(an_address_part_the_library_took_back_stops_being_evidence);
 	MU_RUN(a_survey_reads_every_board_on_the_list);
 	MU_RUN(every_stop_reason_ends_every_board);

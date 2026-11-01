@@ -176,7 +176,9 @@ What the boards pass between them is what they have worked out:
 .IP "\(bu" 4
 \fBThe UAP\fR, once two boards have worked out the same one from their own packets\. Not the first board's: a UAP is settled on as few as two packets and is sometimes wrong, with one board as with several, and a board cannot get off a wrong one by itself \(em the clock search restores the value it was filtering on each time it runs out of candidates, so a board that settled on a wrong UAP filters on it for the rest of the run and works out nothing of its own, whether it reached that value itself or was handed it\. Two boards settling on the same value from different packets is a cross\-check a single board cannot make, though it makes a wrong value less likely rather than impossible: a UAP can be settled on the candidates running out as well as on a header's check bits, and two boards can run out the same wrong way\. \fB\-u\fR is how to be sure\.
 .IP
-It goes only to a board that has worked out none of its own, and only once in a run\. A board is never taken off its own answer, even when two others disagree with it: setting a piconet's address part writes that and nothing else, so a board whose clock search has already chosen its candidates would go on narrowing a list picked for the old address and could reach a clock belonging to it\. The run names every board's own answer at the end instead and leaves those boards to the decoder\. What a board holds is what counts, not what it held: giving a clock up takes the address part with it, and a board that then settles on something else is evidence for the new value and not the old\. Passing \fB\-u\fR yourself hands a known address part to every board and avoids the question\.
+It goes only to a board that has worked out none of its own, and only once in a run\. A board is never taken off its own answer, even when two others disagree with it: setting a piconet's address part writes that and nothing else, so a board whose clock search has already chosen its candidates would go on narrowing a list picked for the old address and could reach a clock belonging to it\. The run names every board's own answer at the end instead and leaves those boards to the decoder\. What a board holds is what counts, not what it held: giving a clock up takes the address part with it, and a board that then settles on something else is evidence for the new value and not the old, which the run reads once more before it reports\.
+.IP
+Passing \fB\-u\fR yourself hands a known address part to every board and avoids all of this: nothing is passed between boards, because no board knows anything another does not, and a board the library takes that value off is left to rediscover exactly as a single board given \fB\-u\fR is\.
 .IP "" 0
 .P
 Each board keeps a piconet of its own and recovers the clock from its own packets\. The clock cannot be pooled: it is recovered as a position in the hop pattern relative to the board's own CLKN counter, and two boards' counters are unrelated, so a packet from one board placed in the other's recovery would sit at a position it was never heard at\. Pooling would need the offset between the two boards' clocks known to better than one CLKN tick, 312\.5 us, and tracked as their crystals drift\. Nothing on the host measures that: the firmware batches records and the bulk endpoint is polled, so a record's arrival time is many ticks away from its reception time\. The piconet's own clock is the shared time base instead, and each board reaches it by itself\.
@@ -189,11 +191,11 @@ note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
 .fi
 .IP "" 0
 .P
-Where the boards did not reach the same UAP, each board's own answer is named, numbered as \fB\-U\fR listed them, and a value passed to a board that had worked out none of its own is named separately, because that board's value is not one it found:
+Where the boards did not reach the same UAP, each board's own answer is named, numbered as \fB\-U\fR listed them, and any board put on another's answer is named separately with the value it was given, because that value is not one it found:
 .IP "" 4
 .nf
 note: 4 boards: the boards worked out different UAPs, so one of them is wrong: board 1 0x0d, board 2 0x0d, board 3 0xb0
-note: 4 boards: 0x0d was passed to a board that had worked out none of its own
+note: 4 boards: put on another board's answer, having worked out none of their own: board 4 0x0d
 .fi
 .IP "" 0
 .P

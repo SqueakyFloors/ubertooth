@@ -271,6 +271,22 @@ static void rx_note_own_uap(struct rx_board* board)
 	board->uap_found_value = btbb_piconet_get_uap(board->pn);
 }
 
+/* Reads what every board holds now. Run before anything is shared, and again
+ * before the end-of-run report: the library can take a value off a board at a
+ * point no packet follows it, because this tool asks for that when a follow
+ * has gone quiet, and a piconet that has gone away is exactly the run where
+ * no board decodes anything afterwards. Without the second read the report
+ * would name a value no board still held. */
+static void rx_read_own_uaps(struct rx_board* boards, int n_boards)
+{
+	int i;
+
+	for (i = 0; i < n_boards; i++) {
+		rx_forget_abandoned_uap(&boards[i]);
+		rx_note_own_uap(&boards[i]);
+	}
+}
+
 /* Hands every board what the others have found, which is the whole of what
  * boards reading one piconet share.
  *
@@ -305,7 +321,7 @@ static void rx_note_own_uap(struct rx_board* board)
  * knows, and pushing the map back would only repeat the work
  * btbb_piconet_set_channel_seen() has just done. */
 static void rx_share_findings(struct rx_board* boards, int n_boards,
-                              uint8_t* merged)
+                              uint8_t* merged, int told_uap)
 {
 	uint8_t next[AFH_MAP_BYTES];
 	int grown = 0, agreed = 0, i, j;
@@ -328,10 +344,7 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 
 	/* Two boards that worked out the same UAP from their own packets. At
 	 * most eight boards, so comparing every pair is a few dozen reads. */
-	for (i = 0; i < n_boards; i++) {
-		rx_forget_abandoned_uap(&boards[i]);
-		rx_note_own_uap(&boards[i]);
-	}
+	rx_read_own_uaps(boards, n_boards);
 	for (i = 0; i < n_boards && !agreed; i++) {
 		if (!boards[i].uap_found)
 			continue;
@@ -364,6 +377,14 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 		 * what the board holds: a board the library has since taken
 		 * off the handed value is rediscovering, and handing it the
 		 * same value again would stop it before a packet arrived. */
+		/* Nothing is passed on where -u gave the UAP. Every board was
+		 * started on the user's value, so there is nothing a board
+		 * knows that another does not; and a board the library has
+		 * since taken off that value is rediscovering, which is what
+		 * one board given -u does too. Putting it back would make a
+		 * run of several boards behave unlike a run of one. */
+		if (told_uap)
+			continue;
 		if (!agreed || boards[i].uap_found || boards[i].uap_ever_handed)
 			continue;
 		btbb_piconet_set_uap(boards[i].pn, uap);
@@ -388,11 +409,14 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 static void rx_report_findings(int n_boards, const uint8_t* merged,
                                const struct rx_board* boards, int told_uap)
 {
-	/* Room for "board 8 0x22" and a separator for every board. */
+	/* Room for "board 8 0x22" and a separator for every board, once for
+	 * the answers the boards worked out and once for the values passed
+	 * to boards that had none. */
 	char own[RX_MAX_BOARDS * 20];
-	int i, used = 0, have_uap = 0, disagree = 0, handed = 0;
-	size_t len = 0;
-	uint8_t uap = 0, handed_uap = 0;
+	char passed[RX_MAX_BOARDS * 20];
+	int i, used = 0, have_uap = 0, disagree = 0;
+	size_t len = 0, passed_len = 0;
+	uint8_t uap = 0;
 
 	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
 		if (merged[i / 8] & (1 << (i % 8)))
@@ -404,11 +428,15 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 	 * for, and what a board holds at the end is not necessarily what it
 	 * worked out. Boards are numbered as the -U list gave them. */
 	own[0] = '\0';
+	passed[0] = '\0';
 	for (i = 0; i < n_boards; i++) {
-		if (boards[i].uap_ever_handed) {
-			handed = 1;
-			handed_uap = boards[i].uap_ever_handed_value;
-		}
+		if (boards[i].uap_ever_handed && passed_len < sizeof(passed))
+			passed_len += (size_t)snprintf(
+			        passed + passed_len,
+			        sizeof(passed) - passed_len,
+			        "%sboard %d 0x%02x",
+			        passed_len > 0 ? ", " : "", i + 1,
+			        boards[i].uap_ever_handed_value);
 		if (!boards[i].uap_found)
 			continue;
 		if (!have_uap) {
@@ -444,14 +472,18 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
 		        uap);
 
-	/* Said whenever a board was put on another's answer, which with three
-	 * or more boards can happen in the same run as a disagreement: two
-	 * boards agree, a third worked out something else and keeps it, and a
-	 * fourth that had worked out nothing is put on the agreed value. */
-	if (!told_uap && handed)
-		fprintf(stderr, "note: %d boards: 0x%02x was passed to a "
-		        "board that had worked out none of its own\n",
-		        n_boards, handed_uap);
+	/* Every board that was put on another's answer, and what it was put
+	 * on. With three or more boards this can happen in the same run as a
+	 * disagreement -- two boards agree, a third worked out something else
+	 * and keeps it, and a fourth that had worked out nothing is put on the
+	 * agreed value -- and a long run can pass on more than one value,
+	 * because the boards that agreed can themselves be taken off it and
+	 * settle on something else. So each board is named with the value it
+	 * was given rather than one value for the run. */
+	if (!told_uap && passed_len > 0)
+		fprintf(stderr, "note: %d boards: put on another board's "
+		        "answer, having worked out none of their own: %s\n",
+		        n_boards, passed);
 
 	fprintf(stderr, "note: %d boards: AFH map: 0x", n_boards);
 	for (i = 0; i < AFH_MAP_BYTES; i++)
@@ -1316,7 +1348,8 @@ int main(int argc, char* argv[])
 			}
 			/* What one board has learned, handed to the others. */
 			if (have_lap && decoded)
-				rx_share_findings(boards, n_boards, merged_map);
+				rx_share_findings(boards, n_boards, merged_map,
+				                  have_uap);
 		}
 
 		ubertooth_bulk_thread_stop();
@@ -1352,10 +1385,19 @@ int main(int argc, char* argv[])
 
 		/* What the boards found between them. Only where there was
 		 * something to merge: one board's result is its own piconet's,
-		 * and libbtbb reports that as it goes. */
-		if (have_lap && n_boards > 1)
+		 * and libbtbb reports that as it goes.
+		 *
+		 * What each board holds is read once more first. The run can
+		 * end with the library having taken a value off a board since
+		 * the last packet arrived -- the ask goes out when a follow
+		 * has gone quiet, which is the state a piconet that has gone
+		 * away leaves -- and the report is about what the boards hold
+		 * rather than what they held. */
+		if (have_lap && n_boards > 1) {
+			rx_read_own_uaps(boards, n_boards);
 			rx_report_findings(n_boards, merged_map, boards,
 			                   have_uap);
+		}
 	} else {
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */

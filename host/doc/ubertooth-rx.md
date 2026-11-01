@@ -344,8 +344,12 @@ What the boards pass between them is what they have worked out:
    and leaves those boards to the decoder. What a board holds is what counts,
    not what it held: giving a clock up takes the address part with it, and a
    board that then settles on something else is evidence for the new value and
-   not the old. Passing `-u` yourself hands a known address part to every board
-   and avoids the question.
+   not the old, which the run reads once more before it reports.
+
+   Passing `-u` yourself hands a known address part to every board and avoids
+   all of this: nothing is passed between boards, because no board knows
+   anything another does not, and a board the library takes that value off is
+   left to rediscover exactly as a single board given `-u` is.
 
 Each board keeps a piconet of its own and recovers the clock from its own
 packets. The clock cannot be pooled: it is recovered as a position in the hop
@@ -365,12 +369,11 @@ them, on standard error:
     note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
 
 Where the boards did not reach the same UAP, each board's own answer is named,
-numbered as `-U` listed them, and a value passed to a board that had worked out
-none of its own is named separately, because that board's value is not one it
-found:
+numbered as `-U` listed them, and any board put on another's answer is named
+separately with the value it was given, because that value is not one it found:
 
     note: 4 boards: the boards worked out different UAPs, so one of them is wrong: board 1 0x0d, board 2 0x0d, board 3 0xb0
-    note: 4 boards: 0x0d was passed to a board that had worked out none of its own
+    note: 4 boards: put on another board's answer, having worked out none of their own: board 4 0x0d
 
 A survey (`-z`) needs none of this: the table of addresses heard belongs to the
 decoder rather than to a board, so every board's packets reach the one survey
