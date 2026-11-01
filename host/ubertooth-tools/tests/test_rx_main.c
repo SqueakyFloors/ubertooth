@@ -576,8 +576,9 @@ MU_TEST(a_capture_on_standard_output_gets_the_stream_and_its_header)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(memcmp(r.out, HEADER_START, sizeof(HEADER_START)) == 0,
 	          "standard output starts with the PCAP header");
-	/* The survey results are what this run was asked for, and the capture
-	 * has taken standard output, so they are on standard error. */
+	/* The survey report is on standard error, where the capture has not
+	 * taken the stream. This board heard no address; test_rx_uap_record.py
+	 * replays one and checks that it joins the heading there. */
 	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
 }
 
@@ -615,7 +616,9 @@ MU_TEST(a_capture_whose_teardown_was_refused_exits_one)
 }
 
 /* A survey whose teardown was refused still prints what it found: those
- * packets are real. Only the status says the board was left running. */
+ * packets are real. Only the status says the board was left running. The
+ * heading is on standard error, where every survey prints it; the addresses
+ * go to standard output, and this run heard none. */
 MU_TEST(a_survey_whose_teardown_was_refused_still_prints_its_results)
 {
 	struct run_result r;
@@ -628,7 +631,8 @@ MU_TEST(a_survey_whose_teardown_was_refused_still_prints_its_results)
 	r = RUN_RX("-z", "-t", "10");
 
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.out, "Survey Results") != NULL, r.out);
+	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 }
 
 /* A run refused for its firmware creates no capture file: an empty one left
@@ -764,7 +768,9 @@ MU_TEST(a_selection_the_user_stopped_exits_zero)
 }
 
 /* Survey mode prints what it found whatever ended the capture: the results
- * are what arrived, and the exit status is what says they are incomplete. */
+ * are what arrived, and the exit status is what says they are incomplete.
+ * The heading shares standard error with the failure; this run heard no
+ * address, so standard output holds nothing. */
 MU_TEST(a_survey_whose_stream_died_still_prints_its_results)
 {
 	struct run_result r;
@@ -776,7 +782,8 @@ MU_TEST(a_survey_whose_stream_died_still_prints_its_results)
 	r = RUN_RX("-z", "-t", "30");
 
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.out, "Survey Results") != NULL, r.out);
+	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "error: receive transfer failed") != NULL, r.err);
 }
 
@@ -1119,7 +1126,9 @@ MU_TEST(a_refused_sweep_leaves_survey_mode_with_no_results)
 	device.channel_rc = -9;
 	r = RUN_RX("-z", "-t", "30");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(r.out[0] == '\0', r.out); /* no "Survey Results" list either */
+	mu_assert(r.out[0] == '\0', r.out); /* no address list */
+	/* The whole of standard error is the one stall line, so the
+	 * "Survey Results" heading was not printed either. */
 	mu_assert(strcmp(r.err, STALLED("set sweep mode")) == 0, r.err);
 }
 

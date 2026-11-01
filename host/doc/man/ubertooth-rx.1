@@ -24,6 +24,8 @@ The clock search does not confirm a clock against a piconet that uses adapted ho
 .P
 Survey mode, entered using \fB\-z\fR, will record all LAPs and attempt to calculate the UAPs for any observed LAPs\. This mode can be combined with a timeout using \fB\-t\fR, and it can be interrupted at any time using \fBctrl\-C\fR\.
 .P
+The addresses a survey found go to standard output, one per line, so a survey can be piped into another program\. The \fBSurvey Results\fR heading above them is for a person reading along and goes to standard error, as ubertooth\-scan(1) prints \fBScan results:\fR\. Earlier releases put the heading on standard output with the addresses\.
+.P
 This tool's \fB\-z\fR is survey mode, not a squelch: only \fBubertooth\-util \-z\fR sets the receive squelch\. The capture runs at whatever squelch the board holds when the mode starts, the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle\. The firmware resets the squelch on every mode change, so a value set for an earlier capture is already gone; set it again before this command, or while it is running\. See ubertooth\-util(1), SQUELCH\.
 .SH "EXAMPLES"
 Follow the first piconet whose LAP, UAP, and clock are recovered from the air:
@@ -252,7 +254,7 @@ A record also carries flags for what the decoder verified, whether the header ch
 .SH "CAPTURING TO STANDARD OUTPUT"
 \fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw records, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the per\-packet report is not printed; the packets themselves are in the capture\.
 .P
-What the run works out still arrives, on standard error: the UAP the decoder recovers (\fBCorrect CRC! UAP = 0x22 found after 31 total packets\.\fR), the clock it goes on to recover from that UAP, the notes, the warnings, the failures, and the survey results of \fB\-z\fR, which is what that mode was asked for\. So \fBubertooth\-rx \-l 446688 \-q \- > capture\.pcap\fR reports the UAP it found while the capture goes to the file\.
+What the run works out still arrives, on standard error: the UAP the decoder recovers (\fBCorrect CRC! UAP = 0x22 found after 31 total packets\.\fR), the clock it goes on to recover from that UAP, the notes, the warnings, the failures, and the survey results of \fB\-z\fR below their heading, since the addresses are what that mode was asked for\. So \fBubertooth\-rx \-l 446688 \-q \- > capture\.pcap\fR reports the UAP it found while the capture goes to the file\.
 .P
 Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-rx \-q \- >> capture\.pcap\fR loses what the file held\.
 .P

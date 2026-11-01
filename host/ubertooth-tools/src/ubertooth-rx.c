@@ -796,7 +796,11 @@ int main(int argc, char* argv[])
 	}
 
 	if(survey_mode) {
-		fprintf(report_stream, "Survey Results\n");
+		/* The heading is for a person reading along, not part of the
+		 * result list, so it goes to standard error and leaves standard
+		 * output holding only the addresses a script parses. The same
+		 * split ubertooth-scan(1) prints "Scan results:" with. */
+		fputs("Survey Results\n", stderr);
 		while((pn=btbb_next_survey_result()) != NULL) {
 			lap = btbb_piconet_get_lap(pn);
 			if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {
