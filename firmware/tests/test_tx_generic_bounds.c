@@ -90,6 +90,10 @@ static unsigned build_request(uint8_t length, unsigned payload)
 
 	request[offsetof(generic_tx_packet, length)] = length;
 	request[offsetof(generic_tx_packet, pa_level)] = 7;
+	/* A channel the synthesizer can reach, so every test above this one is
+	 * about the length rather than about the channel. */
+	request[offsetof(generic_tx_packet, channel)] = BT_FREQ_MIN & 0xff;
+	request[offsetof(generic_tx_packet, channel) + 1] = BT_FREQ_MIN >> 8;
 	for (i = 0; i < payload && TX_GENERIC_HEADER_LEN + i < sizeof(request);
 	     i++)
 		request[TX_GENERIC_HEADER_LEN + i] = 0xa5;
@@ -100,11 +104,16 @@ static unsigned build_request(uint8_t length, unsigned payload)
 static int tx_generic_request(unsigned data_in_len)
 {
 	uint8_t i;
+	uint16_t channel;
 
 	if (data_in_len < TX_GENERIC_HEADER_LEN)
 		return 0;
 	i = request[offsetof(generic_tx_packet, length)];
 	if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
+		return 0;
+	channel = request[offsetof(generic_tx_packet, channel)]
+	        | ((uint16_t)request[offsetof(generic_tx_packet, channel) + 1] << 8);
+	if (channel < MIN_FREQ || channel > MAX_FREQ)
 		return 0;
 	memcpy(&globals.pkt, request, TX_GENERIC_HEADER_LEN + i);
 	return 1;
@@ -224,6 +233,37 @@ MU_TEST(test_a_request_shorter_than_it_claims_is_refused)
 	mu_assert_int_eq(0, tx_generic_request(TX_GENERIC_HEADER_LEN +
 	                                       DMA_SIZE - 1));
 	mu_assert_int_eq(0, globals.pkt.length);
+}
+
+/*
+ * The channel goes into FSDIV unchanged, so only a frequency the synthesizer
+ * can reach is accepted. One outside that range used to be taken: the
+ * transmit then waited out its lock timeout, sent nothing, and left that
+ * frequency in the register for whatever ran next.
+ */
+MU_TEST(test_a_channel_the_radio_cannot_tune_is_refused)
+{
+	const uint16_t refused[] = { 0, 1, MIN_FREQ - 1, MAX_FREQ + 1, 0xffff };
+	const uint16_t accepted[] = { MIN_FREQ, BT_FREQ_MIN, BT_FREQ_MAX,
+	                              MAX_FREQ };
+	unsigned len, i;
+
+	for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+		reset_state();
+		len = build_request(4, 4);
+		request[offsetof(generic_tx_packet, channel)] = refused[i] & 0xff;
+		request[offsetof(generic_tx_packet, channel) + 1] = refused[i] >> 8;
+		mu_assert_int_eq(0, tx_generic_request(len));
+		mu_assert_int_eq(0, globals.pkt.length);
+	}
+	for (i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
+		reset_state();
+		len = build_request(4, 4);
+		request[offsetof(generic_tx_packet, channel)] = accepted[i] & 0xff;
+		request[offsetof(generic_tx_packet, channel) + 1] = accepted[i] >> 8;
+		mu_assert_int_eq(1, tx_generic_request(len));
+		mu_assert_int_eq(accepted[i], globals.pkt.channel);
+	}
 }
 
 /* A request too short to hold the header is refused before the length is read. */
@@ -429,6 +469,7 @@ struct scan {
 	int length_read;      /* the length byte is read at its own offset */
 	int length_check;     /* the length byte is at most DMA_SIZE */
 	int carried_check;    /* the request carries the payload it declares */
+	int channel_check;    /* the channel is one the synthesizer can reach */
 	int copy;             /* the memcpy into tx_pkt */
 	int copies;           /* how many memcpy's into tx_pkt the file has */
 	int last_return;      /* the last refusal before the copy */
@@ -490,6 +531,12 @@ static int scan_source(const char *path, struct scan *s)
 			    s->copy == 0)
 				s->copy = lineno;
 		}
+
+		/* The channel refusal. `reg_val` is the handler's own local, so
+		 * this cannot match UBERTOOTH_SET_CHANNEL's check of the same
+		 * two bounds. */
+		if (strstr(flat, "reg_val < MIN_FREQ || reg_val > MAX_FREQ") != NULL)
+			s->channel_check = lineno;
 
 		if (strstr(flat, "len = MIN(tx_pkt.length, DMA_SIZE)") != NULL)
 			s->length_clamped = lineno;
@@ -656,6 +703,13 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	mu_assert(s.carried_check > 0, msg);
 
 	snprintf(msg, sizeof(msg),
+	         "%s:%d: the generic transmit request does not check its channel "
+	         "against MIN_FREQ and MAX_FREQ, so a frequency the synthesizer "
+	         "cannot reach would go into FSDIV and be left there",
+	         path, s.case_line);
+	mu_assert(s.channel_check > 0, msg);
+
+	snprintf(msg, sizeof(msg),
 	         "%s: the only copy into tx_pkt must be bounded by "
 	         "TX_GENERIC_HEADER_LEN plus the length byte that was checked; "
 	         "the file has %d copies into it and the bounded one is at line "
@@ -670,7 +724,7 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	         s.length_check, s.carried_check);
 	mu_assert(s.header_check < s.copy && s.length_read < s.copy &&
 	          s.length_check < s.copy && s.carried_check < s.copy &&
-	          s.last_return < s.copy, msg);
+	          s.channel_check < s.copy && s.last_return < s.copy, msg);
 }
 
 MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
@@ -852,6 +906,7 @@ int main(void)
 	MU_RUN(test_a_payload_one_over_the_limit_is_refused);
 	MU_RUN(test_the_longest_possible_length_is_refused);
 	MU_RUN(test_a_request_shorter_than_it_claims_is_refused);
+	MU_RUN(test_a_channel_the_radio_cannot_tune_is_refused);
 	MU_RUN(test_a_request_shorter_than_the_header_is_refused);
 	MU_RUN(test_the_old_unchecked_copy_ran_past_the_packet);
 	MU_RUN(test_tx_generic_never_writes_more_than_dma_size);

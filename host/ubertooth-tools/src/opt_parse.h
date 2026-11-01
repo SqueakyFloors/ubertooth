@@ -60,6 +60,20 @@ int opt_require_uap(const char *text, uint8_t *uap);
 /* A BLE access address: 1 to 8 hex digits ("12345" is 0x00012345). */
 int opt_parse_access_address(const char *text, uint32_t *address);
 
+/* A string of bytes written as hex digits, two per byte, no 0x prefix and no
+ * separators: "0102ff" is three bytes. Writes at most max_bytes of them and
+ * the count to *length. An odd number of digits is refused rather than read
+ * as a half byte, and so is an empty string: a caller that wants no bytes
+ * leaves the option out. */
+int opt_parse_hex_bytes(const char *text, uint8_t *bytes, size_t max_bytes,
+                        size_t *length);
+
+/* The same, for an option's value: on failure it prints
+ * "error: <what> must be hex digits, two per byte, 1 to <max_bytes> bytes
+ * (got <text>)" so the caller only has to exit. */
+int opt_require_hex_bytes(const char *text, const char *what, uint8_t *bytes,
+                          size_t max_bytes, size_t *length);
+
 /* Bytes in a BD_ADDR, and the length of its printed form
  * "xx:xx:xx:xx:xx:xx" without the terminating NUL. */
 #define OPT_BD_ADDR_BYTES 6

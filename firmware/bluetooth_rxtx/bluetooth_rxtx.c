@@ -1366,6 +1366,17 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		i = data[offsetof(generic_tx_packet, length)];
 		if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
 			return 0;
+		/*
+		 * The channel reaches FSDIV unchanged in tx_generic(), so a
+		 * frequency the synthesizer cannot reach is refused here, as
+		 * UBERTOOTH_SET_CHANNEL refuses one. Accepted, the transmit
+		 * would wait out its lock timeout and send nothing, and leave
+		 * that frequency in the register for whatever ran next.
+		 */
+		reg_val = data[offsetof(generic_tx_packet, channel)]
+		        | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
+		if (reg_val < MIN_FREQ || reg_val > MAX_FREQ)
+			return 0;
 		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
 		requested_mode = MODE_TX_GENERIC;
 		*data_len = 0;

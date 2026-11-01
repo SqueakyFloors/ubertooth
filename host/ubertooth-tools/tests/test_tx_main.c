@@ -38,6 +38,21 @@ static struct {
 	int library_closes; /* closes done inside the library, not by the tool */
 	int stops, registrations, tx_syms, timeout_set;
 	int tx_syms_rc;      /* what cmd_tx_syms() returns */
+	/* The generic transmit: what the board answered, and what the last
+	 * request carried. */
+	int palevel_rc;      /* what cmd_get_palevel() returns */
+	int palevel_reads;
+	int generic_rc;      /* what cmd_tx_generic_packet() returns */
+	int generic_packets;
+	uint32_t generic_syncword;
+	uint16_t generic_channel;
+	uint8_t generic_pa_level;
+	uint8_t generic_payload[GENERIC_TX_MAX_PAYLOAD];
+	size_t generic_len;
+	/* 1 to leave the handle's stop flag clear, so a run that transmits
+	 * reaches its loop. The fake signal registration below sets the flag
+	 * by default, which is what ends the dump retransmit's wait at once. */
+	int keep_running;
 	/* 1 for the cases that are meant to run a whole transmit; the fakes
 	 * below refuse to be reached without it. */
 	int reach_transmit;
@@ -123,8 +138,34 @@ void ubertooth_catch_stop_signals(void)
 	fake.registrations++;
 	/* The real handler ends the transmit wait on a signal; here it ends it
 	 * at once, so a case that reaches the transmit runs the whole of it
-	 * without waiting a second. */
-	fake_ut.stop_ubertooth = 1;
+	 * without waiting a second. A generic transmit reads the same flag
+	 * between packets, so a case that means to send some clears it. */
+	fake_ut.stop_ubertooth = fake.keep_running ? 0 : 1;
+}
+
+int cmd_get_palevel(struct libusb_device_handle* devh)
+{
+	(void)devh;
+	fake.palevel_reads++;
+	return fake.palevel_rc;
+}
+
+int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
+                          uint16_t channel, uint8_t pa_level,
+                          const uint8_t* data, size_t data_len)
+{
+	(void)devh;
+	fake.generic_packets++;
+	fake.generic_syncword = syncword;
+	fake.generic_channel = channel;
+	fake.generic_pa_level = pa_level;
+	mu_assert(data_len <= sizeof(fake.generic_payload),
+	          "the payload fits what the request can carry");
+	if (data_len > sizeof(fake.generic_payload))
+		return -1;
+	memcpy(fake.generic_payload, data, data_len);
+	fake.generic_len = data_len;
+	return fake.generic_rc;
 }
 
 int ubertooth_stop_requested(void)
@@ -254,6 +295,30 @@ MU_TEST(the_refusals_allocate_nothing)
 	char* no_address[] = { "ubertooth-tx", NULL };
 	char* lap_only[] = { "ubertooth-tx", "-l", "123456", NULL };
 	char* uap_only[] = { "ubertooth-tx", "-u", "11", NULL };
+	char* payload_without_value[] = { "ubertooth-tx", "-g", NULL };
+	char* odd_payload[] = { "ubertooth-tx", "-g", "010", NULL };
+	char* empty_payload[] = { "ubertooth-tx", "-g", "", NULL };
+	char* payload_too_long[] = { "ubertooth-tx", "-g",
+	                             /* 51 bytes: one past what the request holds */
+	                             "000102030405060708090a0b0c0d0e0f"
+	                             "101112131415161718191a1b1c1d1e1f"
+	                             "202122232425262728292a2b2c2d2e2f"
+	                             "3031323334353637", NULL };
+	char* short_syncword[] = { "ubertooth-tx", "-g", "0102", "-a", "cb87", NULL };
+	char* payload_without_syncword[] = { "ubertooth-tx", "-g", "0102", NULL };
+	char* syncword_without_payload[] = { "ubertooth-tx", "-a", "cb876543", NULL };
+	char* channel_without_payload[] = { "ubertooth-tx", "-c", "2441", NULL };
+	char* count_without_payload[] = { "ubertooth-tx", "-n", "5", NULL };
+	char* channel_out_of_band[] = { "ubertooth-tx", "-g", "0102",
+	                                "-a", "cb876543", "-c", "2500", NULL };
+	char* no_packets[] = { "ubertooth-tx", "-g", "0102",
+	                       "-a", "cb876543", "-n", "0", NULL };
+	char* generic_with_lap[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                             "-l", "123456", NULL };
+	char* generic_with_timeout[] = { "ubertooth-tx", "-g", "0102",
+	                                 "-a", "cb876543", "-t", "5", NULL };
+	char* generic_with_uap[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                             "-u", "22", NULL };
 
 	reset();
 	run_main(&r, 2, bad_option);
@@ -283,10 +348,202 @@ MU_TEST(the_refusals_allocate_nothing)
 	mu_assert_int_eq(1, r.rc);
 	run_main(&r, 3, uap_only);
 	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 2, payload_without_value);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, odd_payload);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, empty_payload);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, payload_too_long);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 5, short_syncword);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, payload_without_syncword);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, syncword_without_payload);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, channel_without_payload);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 3, count_without_payload);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 7, channel_out_of_band);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 7, no_packets);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 7, generic_with_lap);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 7, generic_with_timeout);
+	mu_assert_int_eq(1, r.rc);
+	run_main(&r, 7, generic_with_uap);
+	mu_assert_int_eq(1, r.rc);
 
 	mu_assert_int_eq(0, fake.inits);
 	mu_assert_int_eq(0, fake.connects);
 	mu_assert_int_eq(0, fake.frees);
+	mu_assert_int_eq(0, fake.generic_packets);
+}
+
+/* The whole of what each refusal says, which ubertooth-tx(1) quotes. A
+ * reworded message with the page left alone is what this catches. */
+MU_TEST(the_generic_refusals_read_as_the_page_says)
+{
+	char* nothing[] = { "ubertooth-tx", "-U", "0", NULL };
+	char* without_syncword[] = { "ubertooth-tx", "-g", "0102", NULL };
+	char* syncword_alone[] = { "ubertooth-tx", "-a", "cb876543", NULL };
+	char* with_lap[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                     "-l", "123456", NULL };
+	char* with_uap[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                     "-u", "11", NULL };
+	char* with_timeout[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                         "-t", "5", NULL };
+	char* bad_payload[] = { "ubertooth-tx", "-g", "010", NULL };
+	char* bad_syncword[] = { "ubertooth-tx", "-g", "0102", "-a", "cb87", NULL };
+	struct run r;
+
+	reset();
+	run_main(&r, 3, nothing);
+	mu_assert(strcmp(r.err, "error: nothing to do: give -g to transmit a"
+	                 " generic packet, or -l and -u to retransmit to a"
+	                 " piconet\n") == 0, r.err);
+	run_main(&r, 3, without_syncword);
+	mu_assert(strcmp(r.err, "error: -g needs -a <syncword>: the board frames"
+	                 " the generic packet with it\n") == 0, r.err);
+	run_main(&r, 3, syncword_alone);
+	mu_assert(strcmp(r.err, "error: -a, -c and -n are only used with -g,"
+	                 " which transmits a generic packet\n") == 0, r.err);
+	run_main(&r, 7, with_lap);
+	mu_assert(strcmp(r.err, "error: -g cannot be combined with -l; a generic"
+	                 " packet carries no piconet address\n") == 0, r.err);
+	run_main(&r, 7, with_uap);
+	mu_assert(strcmp(r.err, "error: -g cannot be combined with -u; a generic"
+	                 " packet carries no piconet address\n") == 0, r.err);
+	run_main(&r, 7, with_timeout);
+	mu_assert(strcmp(r.err, "error: -g cannot be combined with -t; a generic"
+	                 " transmit ends when the packets asked for have gone"
+	                 " out\n") == 0, r.err);
+	run_main(&r, 3, bad_payload);
+	mu_assert(strcmp(r.err, "error: a generic payload must be hex digits, two"
+	                 " per byte, 1 to 50 bytes (got 010)\n") == 0, r.err);
+	run_main(&r, 5, bad_syncword);
+	mu_assert(strcmp(r.err, "error: sync word must be 8 hex digits"
+	                 " (got cb87)\n") == 0, r.err);
+}
+
+/* Half an address is refused the same way whether or not the command line
+ * also carries one of the generic transmit's options, so the message a user
+ * sees does not depend on which other option they happened to write. */
+MU_TEST(half_an_address_reads_the_same_either_way)
+{
+	char* lap_only[] = { "ubertooth-tx", "-l", "123456", NULL };
+	char* lap_with_syncword[] = { "ubertooth-tx", "-l", "123456",
+	                              "-a", "cb876543", NULL };
+	struct run r;
+	char first[sizeof(r.err)];
+
+	reset();
+	run_main(&r, 3, lap_only);
+	mu_assert_int_eq(1, r.rc);
+	snprintf(first, sizeof(first), "%s", r.err);
+	run_main(&r, 5, lap_with_syncword);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(first, r.err) == 0, r.err);
+}
+
+/* The generic transmit: one request per packet, each carrying the sync word,
+ * the channel, the board's own power level and the payload. Nothing is
+ * printed, and no mode is started, so there is nothing to stop. */
+MU_TEST(a_generic_transmit_sends_one_request_per_packet)
+{
+	char* argv[] = { "ubertooth-tx", "-g", "0102030405", "-a", "cb876543",
+	                 "-c", "2441", "-n", "3", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.palevel_rc = 2;
+	fake.keep_running = 1;
+	run_main(&r, 9, argv);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(3, fake.generic_packets);
+	mu_assert_int_eq(1, fake.palevel_reads);
+	mu_assert_int_eq(0xcb876543UL, fake.generic_syncword);
+	mu_assert_int_eq(2441, fake.generic_channel);
+	mu_assert_int_eq(2, fake.generic_pa_level);
+	mu_assert_int_eq(5, (int)fake.generic_len);
+	mu_assert(memcmp(fake.generic_payload, "\x01\x02\x03\x04\x05", 5) == 0,
+	          "the payload reaches the request as it was written");
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(r.err[0] == '\0', r.err);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(0, fake.tx_syms);
+	mu_assert_int_eq(0, fake.bdaddr_sets);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
+}
+
+/* One packet, the bottom of the band, with no -c or -n to say so. */
+MU_TEST(a_generic_transmit_defaults_to_one_packet_at_2402)
+{
+	char* argv[] = { "ubertooth-tx", "-g", "ff", "-a", "00000001", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.keep_running = 1;
+	run_main(&r, 5, argv);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(BT_FREQ_MIN, fake.generic_channel);
+	mu_assert_int_eq(1UL, fake.generic_syncword);
+}
+
+/* A board that will not answer either request is a failed run, and nothing is
+ * transmitted when the power level could not be read: that level is part of
+ * the request. */
+MU_TEST(a_refused_generic_request_exits_one)
+{
+	char* argv[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                 "-n", "4", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.palevel_rc = -1;
+	fake.keep_running = 1;
+	run_main(&r, 7, argv);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.generic_packets);
+	mu_assert_int_eq(1, fake.frees);
+
+	/* And a transmit the board refuses part-way stops there. */
+	reset();
+	fake.connect_rc = 0;
+	fake.generic_rc = -1;
+	fake.keep_running = 1;
+	run_main(&r, 7, argv);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(1, fake.frees);
+}
+
+/* Ctrl-C between packets ends the run: the rest are not sent, and an
+ * interrupted run is not a failure. */
+MU_TEST(a_stopped_generic_transmit_sends_no_more_packets)
+{
+	char* argv[] = { "ubertooth-tx", "-g", "0102", "-a", "cb876543",
+	                 "-n", "100", NULL };
+	struct run r;
+
+	reset();
+	fake.connect_rc = 0;
+	run_main(&r, 7, argv);
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.generic_packets);
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.frees);
 }
 
 /* -h and -V are the same: they end the command before a handle exists. */
@@ -492,6 +749,12 @@ int main(void)
 	 * device, and any new library call the tool grows becomes a link
 	 * error rather than a silently real one. */
 	MU_RUN(the_refusals_allocate_nothing);
+	MU_RUN(the_generic_refusals_read_as_the_page_says);
+	MU_RUN(half_an_address_reads_the_same_either_way);
+	MU_RUN(a_generic_transmit_sends_one_request_per_packet);
+	MU_RUN(a_generic_transmit_defaults_to_one_packet_at_2402);
+	MU_RUN(a_refused_generic_request_exits_one);
+	MU_RUN(a_stopped_generic_transmit_sends_no_more_packets);
 	MU_RUN(help_and_version_allocate_nothing);
 	MU_RUN(a_failed_connection_gives_the_handle_back);
 	MU_RUN(the_device_selector_is_passed_through);

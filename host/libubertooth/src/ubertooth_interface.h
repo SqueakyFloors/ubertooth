@@ -1263,6 +1263,12 @@ typedef struct {
 	uint8_t  data[DMA_SIZE];
 } generic_tx_packet;
 
+/*
+ * The most a UBERTOOTH_TX_GENERIC_PACKET request can carry, which is what the
+ * firmware refuses a longer payload against.
+ */
+#define GENERIC_TX_MAX_PAYLOAD DMA_SIZE
+
 /* BTBR USB interface */
 enum {
 	BTUSB_MSG_START = 'S',

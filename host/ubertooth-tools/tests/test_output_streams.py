@@ -85,7 +85,8 @@ NOTHING_TO_DO = {
     "ubertooth-ducky": "error: nothing to do: give -q to quack, or -b to "
                        "signal the bootloader",
     "ubertooth-ego": "error: nothing to do: choose a major mode (-f, -r or -i)",
-    "ubertooth-tx": "error: -l <LAP> and -u <UAP> are both required",
+    "ubertooth-tx": "error: nothing to do: give -g to transmit a generic "
+                    "packet, or -l and -u to retransmit to a piconet",
     "ubertooth-util": "error: nothing to do: give an option that reads or sets "
                       "something, or -N to count the attached boards",
 }

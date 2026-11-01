@@ -83,8 +83,10 @@ operation by operation.
   Uberducky hardware.)
 - ``ubertooth-ego`` — Sniff a Yuneec E-GO skateboard. (Niche; needs: a Yuneec
   E-GO.)
-- ``ubertooth-tx`` — Retransmit symbols dumped with ``ubertooth-dump``.
-  **Currently non-functional** (retained as a placeholder).
+- ``ubertooth-tx`` — Transmit one generic packet with ``-g``: a payload given
+  in hex, framed by the radio with the sync word ``-a`` gives it, which a
+  second board reads with ``ubertooth-dump -g``. (Experimental.) Retransmitting
+  symbols dumped with ``ubertooth-dump`` is **still non-functional**.
 
 
 

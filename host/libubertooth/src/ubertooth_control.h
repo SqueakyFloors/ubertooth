@@ -275,6 +275,24 @@ int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value);
  * already in the radio instead of programming one. Returns 0, or a negative
  * libusb error already reported. */
 int cmd_rx_generic(struct libusb_device_handle* devh);
+/* Transmit one generic packet: the board frames it in the radio, so the whole
+ * description of what goes on the air is this sync word plus the framing
+ * tx_generic() programs (6 preamble bytes, the whole 32-bit sync word, no
+ * CRC). channel is the carrier in MHz, which a transmit tunes directly; a
+ * board receiving the packet needs the same frequency less 1 MHz for its
+ * intermediate frequency. pa_level is the CC2400 power level for this one
+ * packet, 0 to 7; the board puts its own level back afterwards. data_len is 0
+ * to GENERIC_TX_MAX_PAYLOAD bytes.
+ *
+ * The board answers the request before it transmits, so a return of 0 says
+ * the packet was accepted rather than that it is on the air. It cannot take
+ * the next one until this packet has gone out.
+ *
+ * Returns 0, or a negative libusb error already reported; -1 for a payload
+ * the board would refuse, which is reported here. */
+int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
+                          uint16_t channel, uint8_t pa_level,
+                          const uint8_t* data, size_t data_len);
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address);
 int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsigned data_len);
 int cmd_btle_set_target(struct libusb_device_handle* devh, uint8_t *mac_address, uint8_t mac_mask);
