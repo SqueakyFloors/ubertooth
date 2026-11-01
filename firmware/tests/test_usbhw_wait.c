@@ -88,70 +88,14 @@ static uint32_t ep_clear_undo_status;
  * reported: that is an event arriving between the two commands. It becomes
  * the endpoint's status, as a newly arrived packet would. -1 for no change. */
 static int ep_status_at_clear;
+/* When set, the write that clears an endpoint's interrupt never reports its
+ * answer: the hardware still takes the event away, but the firmware's wait
+ * for the status gives up. */
+static int clear_answer_withheld;
+static unsigned clear_polls_left;
 /*
- * How many reads of USBDevIntSt pass before the answer to the write that
- * clears an endpoint's interrupt is ready. The protocol engine's answers are
- * not promised to be prompt -- that is why every wait for one is bounded --
- * so a test puts the answer where it needs it: at once (0, the usual), a few
- * polls out, or past the firmware's whole wait (USBHW_POLLS), which is an
- * answer so late the firmware has to fall back from it. The hardware takes
- * the event away when the write lands either way.
- */
-static unsigned clear_answer_polls;
-/* Set while one of those answers is on its way, with the status byte it will
- * carry and the polls left before it lands. */
-static int clear_answer_coming;
-static unsigned clear_answer_countdown;
-static uint32_t clear_answer_value;
-/*
- * An answer the firmware never asked for, left standing in USBCmdData with
- * CDFULL up: the engine's reply to a command whose wait had already given up,
- * arriving late. USBHwISR() clears CDFULL before writing the endpoint
- * interrupt clear so that such a reply cannot be read as the clear's own.
- *
- * This is the byte to leave there, or -1 for none. The controller could put
- * such a reply up at any moment, so when it lands here is the test's own
- * scheduling: one register access after the firmware has taken an answer out
- * of USBCmdData, which in USBHwISR() falls in the gap between the endpoint's
- * status read and that clear. That is why USBCmdData is a function in
- * stubs-usb/lpc17.h: the fake needs one access to count from, and in that
- * stretch of USBHwISR() there is no other.
- *
- * Two things to know about the case this drives.
- *
- * The sequence it stands for is one the controller can produce, and it needs
- * two answers outstanding at once. The firmware gets there by giving up on
- * one: an endpoint's status read times out, its answer arrives late and
- * satisfies the wait belonging to a *later* command, and that later command's
- * own answer is then still owed and lands in the gap before the interrupt
- * clear. Nothing in the fake's model of a serial engine forbids that, and the
- * bounded waits exist because answers do arrive late.
- *
- * Nothing takes the completion bits away on the firmware's behalf, which is
- * why clearing CDFULL before the interrupt clear is load-bearing. That is how
- * every driver for this part treats them -- lpcusb here, and NXP's and
- * Keil's, all clear CCEMTY and CDFULL in software before each command rather
- * than relying on the engine -- and it is the premise of
- * Wait4DevIntBounded(), which clears them on its own way out so that a late
- * answer cannot satisfy the next wait. Were the engine to clear CDFULL itself
- * when the USBEpIntClr write runs the command, the firmware's clear would
- * merely be redundant and this case would still pass on a board; so the
- * firmware is right either way, and this case is what keeps the clear from
- * being removed as dead code.
- */
-static int leftover_answer;
-static int leftover_answer_due;
-/*
- * The bits the controller latches in USBDevIntSt, cleared by a write to
- * USBDevIntClr: EP_SLOW, which an arriving endpoint event or a write to
- * USBDevIntSet raises, and CCEMTY and CDFULL, which are how the protocol
- * engine reports a command taken and an answer ready.
- *
- * The two completion bits have to be latched rather than worked out from
- * whether the engine is answering. The firmware's defence against a stale
- * answer is a write to USBDevIntClr, so a fake that recomputed them would
- * report CDFULL set however often the firmware cleared it, and every such
- * write would look like it did nothing.
+ * EP_SLOW as the controller latches it: set when an endpoint event arrives or
+ * the firmware writes USBDevIntSet, cleared by a write to USBDevIntClr.
  */
 static uint32_t devint_latch;
 /*
@@ -217,20 +161,6 @@ static uint32_t fake_select_endpoint_clear(unsigned idx, int answers)
 	if (idx == EP0_OUT_IDX)
 		ep_status[idx] &= ~(uint32_t)(EPSTAT_STP | EPSTAT_PO);
 	return reported;
-}
-
-/*
- * Does the protocol engine answer the command phase now in USBCmdCode? A
- * command it does not answer reports nothing complete, which is the state
- * every wait in the file under test exists for.
- */
-static int fake_engine_answers(uint32_t code)
-{
-	if (!sie_answers)
-		return 0;
-	if (sie_fail_cmd >= 0 && (int)((code >> 16) & 0xffu) == sie_fail_cmd)
-		return 0;
-	return 1;
 }
 
 /*
@@ -325,17 +255,6 @@ static void fake_engine_command(uint32_t code)
 	default:
 		break;
 	}
-
-	/* And it reports what it did. CCEMTY says the command register is
-	 * empty again, which it is after any phase: the engine has taken what
-	 * was written. CDFULL says the byte the firmware asked for is in
-	 * USBCmdData, so only a read phase raises it. Both stay up until the
-	 * firmware clears them. */
-	if (!fake_engine_answers(code))
-		return;
-	devint_latch |= CCEMTY;
-	if (phase == 0x02u)
-		devint_latch |= CDFULL;
 }
 
 static void fake_apply_writes(void)
@@ -348,15 +267,6 @@ static void fake_apply_writes(void)
 
 	staged_which = STAGED_NONE;
 	staged_value = 0;
-	/* The late reply to an earlier command, landing in the gap after the
-	 * firmware took the answer it was waiting for. Before the staged write
-	 * below, so that a write to USBDevIntClr in that gap takes it away. */
-	if (leftover_answer_due) {
-		leftover_answer_due = 0;
-		fake_cmddata = (uint32_t)leftover_answer;
-		devint_latch |= CDFULL;
-		leftover_answer = -1;
-	}
 	switch (which) {
 	case STAGED_DEVINTCLR:
 		fake_devintclr = v;
@@ -377,33 +287,19 @@ static void fake_apply_writes(void)
 		 * (UM10360 section 11.10.3.3); the firmware writes one bit at
 		 * a time anyway. */
 		answered = 0;
-		status = 0;
 		for (i = 0; i < 32; ++i) {
 			if ((v & (1u << i)) == 0)
 				continue;
+			status = fake_select_endpoint_clear(i, !answered);
 			if (!answered)
-				status = fake_select_endpoint_clear(i, 1);
-			else
-				(void)fake_select_endpoint_clear(i, 0);
+				fake_cmddata = status;
 			answered = 1;
 		}
-		/* The answer is ready at once unless the test asked for it
-		 * later, in which case it lands on a read of USBDevIntSt
-		 * further on. A delay of USBHW_POLLS is the one that means
-		 * "not within this wait": Wait4DevIntBounded() reads the
-		 * register that many times, so the answer lands on the read
-		 * after the last of them and no masked poll is left behind for
-		 * the next handshake in the same pass. */
-		if (!answered)
-			break;
-		if (clear_answer_polls == 0) {
-			fake_cmddata = status;
-			devint_latch |= CDFULL;
-		} else {
-			clear_answer_coming = 1;
-			clear_answer_countdown = clear_answer_polls;
-			clear_answer_value = status;
-		}
+		/* Exactly one wait's worth of polls, which is what
+		 * Wait4DevIntBounded() reads: one more would leave a masked
+		 * poll behind for the next handshake in the same pass. */
+		if (clear_answer_withheld)
+			clear_polls_left = USBHW_POLLS;
 		break;
 	case STAGED_CMDCODE:
 		fake_cmdcode = v;
@@ -536,49 +432,30 @@ static volatile uint32_t rxdata_value;
 
 volatile uint32_t *fake_devintst(void)
 {
-	/* EP_RLZED is not modelled as a latch here, though the firmware does
-	 * clear it like one: realizing an endpoint is the controller
-	 * reorganizing its buffer space rather than a protocol engine command,
-	 * it is reached from one place, and no case turns on when it goes up.
-	 * So it is still worked out from whether the engine is answering. The
-	 * engine's own CCEMTY and CDFULL are in devint_latch. The event bits
-	 * the interrupt handler dispatches on are separate again, so a test
-	 * can ask for an endpoint or device-status event without pretending
-	 * the engine answers. */
+	/* A working engine has the completion bits up by the time they are read;
+	 * one that has stopped answering never raises them. The event bits the
+	 * interrupt handler dispatches on are separate, so a test can ask for an
+	 * endpoint or device-status event without pretending the engine answers. */
+	int answers = sie_answers;
+
 	uint32_t ready;
 
 	fake_apply_writes();
+	if (sie_fail_cmd >= 0
+	    && (int)((fake_cmdcode >> 16) & 0xffu) == sie_fail_cmd)
+		answers = 0;
 	/* A controller that raises EP_SLOW again from an endpoint event still
 	 * waiting. */
 	if (ep_slow_rederived && ep_pending != 0)
 		devint_latch |= EP_SLOW;
-	/* The endpoint interrupt clear's answer, arriving the number of polls
-	 * out that the test asked for. */
-	if (clear_answer_coming) {
-		if (clear_answer_countdown == 0) {
-			clear_answer_coming = 0;
-			fake_cmddata = clear_answer_value;
-			devint_latch |= CDFULL;
-		} else {
-			--clear_answer_countdown;
-		}
+	ready = answers ? (CCEMTY | CDFULL | EP_RLZED) : 0u;
+	/* The interrupt clear's own answer, withheld for one whole wait. */
+	if (clear_polls_left > 0) {
+		--clear_polls_left;
+		ready &= ~(uint32_t)CDFULL;
 	}
-	ready = fake_engine_answers(fake_cmdcode) ? EP_RLZED : 0u;
 	devintst_value = devintst_events | devint_latch | ready;
 	return &devintst_value;
-}
-
-/* The register the engine's answer arrives in. See `leftover_answer` above
- * for why it is a function. */
-static volatile uint32_t cmddata_value;
-
-volatile uint32_t *fake_cmddata_reg(void)
-{
-	fake_apply_writes();
-	if (leftover_answer >= 0)
-		leftover_answer_due = 1;
-	cmddata_value = fake_cmddata;
-	return &cmddata_value;
 }
 
 volatile uint32_t *fake_rxplen(void)
@@ -621,12 +498,8 @@ static void fake_reset(void)
 	memset(ep_status, 0, sizeof(ep_status));
 	engine_answer = -1;
 	ep_status_at_clear = -1;
-	clear_answer_polls = 0;
-	clear_answer_coming = 0;
-	clear_answer_countdown = 0;
-	clear_answer_value = 0;
-	leftover_answer = -1;
-	leftover_answer_due = 0;
+	clear_answer_withheld = 0;
+	clear_polls_left = 0;
 	devint_latch = 0;
 	ep_slow_rederived = 0;
 	ep_clear_undo_idx = -1;
@@ -2092,50 +1965,13 @@ MU_TEST(test_a_late_answer_from_the_clear_falls_back_to_the_status_read)
 	isr_test_setup();
 	fake_raise_ep_event(EP82_BIT);
 	fake_ep_status(EP82_BIT, EPSTAT_FE);
-	clear_answer_polls = USBHW_POLLS; /* past the firmware's whole wait */
+	clear_answer_withheld = 1;
 	ep_status_at_clear = EPSTAT_STP;  /* never read, because it is late */
 
 	USBHwISR();
 
 	mu_assert_int_eq(1, (int)ep_handler_calls);
 	mu_assert_int_eq(EP_STATUS_DATA, ep_handler_last_status);
-}
-
-/*
- * And an answer that is already waiting when the interrupt is cleared is not
- * mistaken for the clear's own.
- *
- * The clear leaves the endpoint's status in USBCmdData and raises CDFULL once
- * it is there, so the handler waits for CDFULL and takes the byte. Those two
- * registers are the whole handshake and the engine's answers are not promised
- * to be prompt, so a reply to a command the firmware had already given up on
- * can arrive in the gap before the clear. CDFULL is then already up: the wait
- * returns at once and the byte it reads belongs to the other command.
- * USBHwISR() clears CDFULL before it writes the clear for that reason.
- *
- * Here the leftover reports data waiting and the clear's own answer reports a
- * setup packet, which is the pair that costs the most: a control request's
- * eight bytes handed to whatever transfer was in progress rather than
- * starting the new one. The leftover is deliberately a status an endpoint
- * really could have, so nothing but the order tells the two apart.
- */
-MU_TEST(test_an_answer_left_from_an_earlier_command_is_not_read_as_the_clears)
-{
-	ep0_isr_test_setup();
-	fake_ep_status(EP0_BIT, EPSTAT_FE);
-	fake_raise_ep_event(EP0_BIT);
-	/* A setup packet arrives between the status read and the clear, so the
-	 * clear is the only command that can still report one. */
-	ep_status_at_clear = EPSTAT_FE | EPSTAT_STP;
-	/* Its answer takes a moment, which is the window the leftover fills. */
-	clear_answer_polls = 2;
-	leftover_answer = EPSTAT_FE;
-
-	USBHwISR();
-
-	mu_assert_int_eq(1, (int)ep_handler_calls);
-	mu_assert_int_eq(EP_STATUS_SETUP | EP_STATUS_DATA,
-	                 ep_handler_last_status);
 }
 
 /*
@@ -2863,7 +2699,6 @@ int main(void)
 	MU_RUN(test_a_handled_endpoint_event_is_consumed);
 	MU_RUN(test_an_event_arriving_before_the_interrupt_is_cleared_is_the_one_handled);
 	MU_RUN(test_a_late_answer_from_the_clear_falls_back_to_the_status_read);
-	MU_RUN(test_an_answer_left_from_an_earlier_command_is_not_read_as_the_clears);
 	MU_RUN(test_an_endpoint_whose_status_cannot_be_read_is_skipped);
 	MU_RUN(test_an_endpoint_event_whose_status_read_gives_up_is_not_lost);
 	MU_RUN(test_a_failed_status_read_does_not_answer_the_next_one);

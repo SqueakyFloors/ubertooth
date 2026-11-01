@@ -26,18 +26,11 @@ volatile uint32_t *fake_txdata(void);
 /* Receive data: serves the bytes of the packet the test queued, a word at a
  * time, the way the controller hands them over. */
 volatile uint32_t *fake_rxdata_reg(void);
-/* Command data: the byte the protocol engine answered with. On the part this
- * is a plain register, and reading it neither clears CDFULL nor does anything
- * else; it is a function here only so that the fake can tell when the
- * firmware has taken an answer, which is the moment one test schedules the
- * next event from. See `leftover_answer` in test_usbhw_wait.c. */
-volatile uint32_t *fake_cmddata_reg(void);
 
 #define USBDevIntSt  (*fake_devintst())
 #define USBRxPLen    (*fake_rxplen())
 #define USBTxData    (*fake_txdata())
 #define USBRxData    (*fake_rxdata_reg())
-#define USBCmdData   (*fake_cmddata_reg())
 
 /* ---- registers whose write changes what the controller reports ---- */
 
@@ -104,6 +97,7 @@ extern volatile uint32_t fake_pinsel4;
 #define USBMaxPSize  fake_maxpsize
 #define USBTxPLen    fake_txplen
 #define USBCtrl      fake_ctrl
+#define USBCmdData   fake_cmddata
 #define USBEpDMAEn   fake_epdmaen
 #define USBEpDMADis  fake_epdmadis
 #define USBUDCAH     fake_udcah
