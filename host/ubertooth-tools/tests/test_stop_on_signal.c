@@ -113,7 +113,7 @@ MU_TEST(every_caught_signal_stops_the_run)
 	static const int signals[] = { SIGINT, SIGTERM, SIGQUIT, SIGHUP, SIGALRM };
 	size_t i;
 
-	for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
+	for (i = 0; i < ARRAY_LEN(signals); i++) {
 		ubertooth_t* ut = new_handle();
 
 		mu_assert_fatal(ut != NULL, "a handle");
@@ -428,12 +428,14 @@ MU_TEST(a_freed_handle_is_let_go_of)
  * replacement, as the tools do; this case keeps the superseded entry point
  * covered until it is removed.
  *
- * It reads the handlers back and compares them rather than raising a signal,
- * because the handler the do_exit = 1 form installs ends the process with
- * exit(0). Raised here, that would end this test binary mid-case and ctest,
- * which judges it by its exit status, would read the silence as a pass. Each
- * handler is read with signal(sig, SIG_DFL), which returns the one that was
- * installed; release_handle() restores SIG_DFL in any case.
+ * It reads the handlers back and compares them rather than raising a signal.
+ * The regression it guards against is do_exit = 0 installing cleanup_exit,
+ * the handler meant for do_exit = 1, and that handler ends the process with
+ * exit(0): raised here it would end this test binary mid-case, and ctest,
+ * which judges it by its exit status alone, would read the silence as a pass.
+ * Comparing the pointers reports the same regression and cannot be cut short
+ * by it. Each handler is read with signal(sig, SIG_DFL), which returns the
+ * one that was installed; release_handle() restores SIG_DFL in any case.
  *
  * The deprecation warning is switched off just for the call, so the rest of
  * the build stays strict. */
@@ -447,8 +449,13 @@ MU_TEST(the_deprecated_entry_point_installs_the_same_handlers)
 	mu_assert_fatal(ut != NULL, "a handle");
 
 	ubertooth_catch_stop_signals();
-	for (i = 0; i < ARRAY_LEN(signals); i++)
+	for (i = 0; i < ARRAY_LEN(signals); i++) {
 		replacement[i] = signal(signals[i], SIG_DFL);
+		/* So the comparison below cannot be satisfied by both sides
+		 * having installed nothing at all. */
+		mu_assert(replacement[i] != SIG_DFL && replacement[i] != SIG_IGN,
+		          "a handler of the library's own");
+	}
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push

@@ -33,11 +33,15 @@
  * notice is the comment above the declaration.
  *
  * Remove this along with the last declaration that uses it, so an installed
- * header does not carry a macro nothing needs. */
+ * header does not carry a macro nothing needs. Defined only if the including
+ * program has not defined the name itself, because this header is installed
+ * and the name is a plain one. */
+#ifndef UBERTOOTH_DEPRECATED
 #if defined(__GNUC__) || defined(__clang__)
 #define UBERTOOTH_DEPRECATED(msg) __attribute__((deprecated(msg)))
 #else
 #define UBERTOOTH_DEPRECATED(msg)
+#endif
 #endif
 
 /* specan output types
@@ -430,8 +434,9 @@ int ubertooth_stop_requested(void);
 int ubertooth_open_stopped(void);
 
 /* Deprecated: call ubertooth_catch_stop_signals() above instead. It is still
- * exported, so a program that calls it builds and links against this release;
- * it is removed in the release after this one.
+ * exported, so a program that calls it builds and links against this release,
+ * though a build with -Werror stops on the warning. It is removed in the
+ * release after this one.
  *
  * It is ubertooth_catch_stop_signals(), plus a copy of ut the library keeps
  * for the do_exit = 1 form of the handlers. Nothing in this repository needs
