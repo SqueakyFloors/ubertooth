@@ -11,10 +11,9 @@ because the payload is that bootloader's binary. It is not in firmware/'s
 `all` for the same reason the bootloader is not: it needs the ARM C++ runtime
 to get there.
 
-Install it with `ubertooth-dfu --update-bootloader -d bl_update.dfu`, then
-write your firmware again and check the result with `ubertooth-util -B`;
-ubertooth-dfu(1), UPDATING THE BOOTLOADER is the whole procedure, including
-what an interrupted write leaves and how it is recovered.
+Install it with `ubertooth-dfu --update-bootloader -d bl_update.dfu`.
+ubertooth-dfu(1), UPDATING THE BOOTLOADER is the procedure, the refusals, and
+what an interrupted write leaves; this file does not repeat them.
 
 The refusals and the write order are in ../common/bl_update.c and
 ubertooth_interface.h, not here: this image is the part that needs the part,

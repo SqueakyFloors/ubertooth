@@ -82,6 +82,11 @@ int bl_update_file_check(FILE *file, const char *image_name,
 int bl_update_file_report(FILE *out, const char *name,
                           const struct bl_update_file *info)
 {
+	if (out == NULL || name == NULL || info == NULL) {
+		/* The pair's other half guards the same way. Nothing to print and
+		 * nothing worth writing, so this reads as a refusal. */
+		return 1;
+	}
 	if (info->result < 0) {
 		fprintf(out, "error: %s: %s\n", name,
 		        ubertooth_bl_update_result_string(info->result));

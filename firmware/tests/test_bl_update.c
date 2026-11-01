@@ -34,7 +34,6 @@
  * drifting apart.
  */
 #include <stdarg.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -496,27 +495,30 @@ MU_TEST(the_part_is_reported_when_it_was_read)
  * The whole sequence, read back as text.
  *
  * The region is prepared and erased in one command before any of it is
- * programmed, so a run that stops part way leaves erased flash where the
- * vector table belongs and the boot ROM starts its serial programmer. Then
- * each sector is prepared immediately before its own program, because the ROM
+ * programmed, and sector 0 -- the one holding the vector table -- is
+ * programmed last. Until that one program, address 0 reads as erased flash,
+ * whose checksum does not add up, so the boot ROM starts its serial
+ * programmer rather than a bootloader whose code is not there yet.
+ *
+ * Each sector is prepared immediately before its own program, because the ROM
  * clears the preparation as it programs. The read-back comes after all four,
  * so a later write that disturbed an earlier sector is still caught.
  */
-MU_TEST(the_sectors_are_erased_before_any_is_programmed)
+MU_TEST(the_vector_table_is_the_last_thing_written)
 {
 	static const char expected[] =
 		"read_part\n"
 		"sector_present 3\n"
 		"prepare 0-3\n"
 		"erase 0-3\n"
-		"prepare 0-0\n"
-		"program 0x0000 4096\n"
 		"prepare 1-1\n"
 		"program 0x1000 4096\n"
 		"prepare 2-2\n"
 		"program 0x2000 4096\n"
 		"prepare 3-3\n"
 		"program 0x3000 4096\n"
+		"prepare 0-0\n"
+		"program 0x0000 4096\n"
 		"verify 0x0000 4096\n"
 		"verify 0x1000 4096\n"
 		"verify 0x2000 4096\n"
@@ -588,7 +590,7 @@ MU_TEST(a_sector_the_part_will_not_prepare_stops_the_run)
 	mu_assert(strstr(part.log, "erase") == NULL,
 	          "the region was erased after the prepare was refused");
 
-	/* The prepare in front of the third sector's program. */
+	/* The prepare in front of the third program, which is sector 3. */
 	build_good_payload();
 	reset_part();
 	part.fail_prepare_at = 4;
@@ -619,10 +621,55 @@ MU_TEST(a_program_the_part_refuses_stops_the_run)
 	reset_part();
 	part.fail_program_sector = 2;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
-	mu_assert_int_eq(2, report.sectors_written);
+	/* Sector 1 had gone in; sector 2 is the second program. */
+	mu_assert_int_eq(1, report.sectors_written);
 	mu_assert_int_eq(0, report.sectors_verified);
 	mu_assert(strstr(part.log, "verify") == NULL,
 	          "the region was read back after a program was refused");
+}
+
+/*
+ * What a part holds when a program is refused part way through, which is what
+ * a lost power at the same moment would leave: the vector table at address 0
+ * still erased, so the boot ROM refuses it and starts its serial programmer
+ * instead of a bootloader whose code is not all there.
+ *
+ * This is the guarantee the write order exists for, and the one the man page
+ * states, so it is asserted over the modelled flash rather than only over the
+ * order of the calls.
+ */
+MU_TEST(an_interrupted_write_leaves_a_refused_vector_table)
+{
+	struct bl_update_report report;
+	unsigned failed_at;
+
+	for (failed_at = 1; failed_at <= BL_UPDATE_LAST_SECTOR; failed_at++) {
+		uint32_t sum = 0;
+		unsigned i;
+
+		build_good_payload();
+		reset_part();
+		part.fail_program_sector = (int)failed_at;
+		mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
+		/* Erased flash, which is what the erase left and no program has
+		 * replaced. */
+		for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS * 4; i++)
+			mu_assert_int_eq(0xff, part.flash[i]);
+		/* And the eight words do not come to zero, which is what makes the
+		 * ROM refuse them. */
+		for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS; i++)
+			sum += read_le32(part.flash + i * 4);
+		mu_assert(sum != 0,
+		          "the vector table left by an interrupted write adds up, so "
+		          "the boot ROM would start a bootloader whose code is not "
+		          "all there");
+	}
+
+	/* The same after a refused erase, where nothing was written at all. */
+	build_good_payload();
+	reset_part();
+	part.fail_erase = 1;
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_ERASE_FAILED, run(&report));
 }
 
 /* The read-back is the point of the last step: a region that does not hold
@@ -640,14 +687,16 @@ MU_TEST(a_region_that_reads_back_wrong_is_a_failure)
 	mu_assert_int_eq(1, report.sectors_verified);
 
 	/* Flash that took the bytes and then held different ones. The
-	 * corruption is in the first sector, which was programmed first, so
-	 * only a read-back after every program catches it. */
+	 * corruption lands in sector 1, the first one programmed, so only a
+	 * read-back made after every program catches it -- a check made as each
+	 * sector went in would have passed sector 1 before the write that
+	 * disturbed it. */
 	build_good_payload();
 	reset_part();
-	part.corrupt_offset = 0x40;
+	part.corrupt_offset = BL_UPDATE_SECTOR_LENGTH + 0x40;
 	part.corrupt_length = 4;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED, run(&report));
-	mu_assert_int_eq(0, report.sectors_verified);
+	mu_assert_int_eq(1, report.sectors_verified);
 }
 
 MU_TEST(a_run_with_no_buffer_writes_nothing)
@@ -656,9 +705,9 @@ MU_TEST(a_run_with_no_buffer_writes_nothing)
 
 	build_good_payload();
 	reset_part();
-	mu_assert(bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
-	                        (uintptr_t)installed, NULL, &report) < 0,
-	          "a run with no buffer to program from was not refused");
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_NO_BUFFER,
+	                 bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
+	                               (uintptr_t)installed, NULL, &report));
 	mu_assert(part.log[0] == '\0', "a run with no buffer reached the part");
 }
 
@@ -679,6 +728,7 @@ MU_TEST(every_result_has_its_own_phrase)
 		UBERTOOTH_BL_UPDATE_READ_BACK_FAILED,
 		UBERTOOTH_BL_UPDATE_NOT_UPDATER,
 		UBERTOOTH_BL_UPDATE_FILE_SHORT,
+		UBERTOOTH_BL_UPDATE_NO_BUFFER,
 	};
 	const int count = (int)(sizeof(results) / sizeof(results[0]));
 	int i, j;
@@ -994,7 +1044,8 @@ int main(void)
 	MU_RUN(a_part_that_will_not_name_itself_is_refused);
 	MU_RUN(a_part_without_the_region_is_refused);
 	MU_RUN(the_part_is_reported_when_it_was_read);
-	MU_RUN(the_sectors_are_erased_before_any_is_programmed);
+	MU_RUN(the_vector_table_is_the_last_thing_written);
+	MU_RUN(an_interrupted_write_leaves_a_refused_vector_table);
 	MU_RUN(the_region_in_flash_is_the_payload_with_a_filled_in_checksum);
 	MU_RUN(a_payload_that_already_adds_up_is_left_as_it_is);
 	MU_RUN(a_sector_the_part_will_not_prepare_stops_the_run);

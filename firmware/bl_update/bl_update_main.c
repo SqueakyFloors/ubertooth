@@ -39,6 +39,11 @@
  * afterwards from the bootloader report the next application answers
  * (ubertooth-util -B). A USB stack here would be a second implementation of
  * the one path in the tree that must not have a second implementation.
+ *
+ * It says nothing on the board either, beyond lighting the LEDs while it
+ * writes. There is nothing a blink could add that the hash the host already
+ * printed does not say better, and a board that blinked for several seconds
+ * before resetting would be a board the host had given up waiting for.
  */
 #include "bl_update.h"
 #include "irq.h"
@@ -104,16 +109,23 @@ static uint32_t sector_buffer[BL_UPDATE_SECTOR_LENGTH / 4]
  * not there. Nothing in this image enables an interrupt, so this is a
  * guarantee rather than a fix, and it costs four instructions.
  *
- * output[0] is the ROM's return code, and later words are the command's
- * answer. The array is written whole each time, so a command that returns
- * nothing cannot be read as one that did.
+ * output[0] is the ROM's return code and the words after it are the command's
+ * answer. Both arrays are IAP_WORDS long whatever the command needs, and the
+ * output is cleared whole before the call: the ROM's write-back width per
+ * command is not something to stake this routine's stack frame on, and
+ * firmware/common/ubertooth.c's own IAP calls are sized the same way for the
+ * same reason.
  */
+#define IAP_WORDS 5
+
 static uint32_t iap_call(uint32_t *input, uint32_t *output)
 {
 	uint32_t primask;
+	unsigned i;
 
 	output[0] = IAP_INVALID_COMMAND;
-	output[1] = 0;
+	for (i = 1; i < IAP_WORDS; i++)
+		output[i] = 0;
 	primask = irq_save_disable();
 	iap_entry(input, output);
 	irq_restore(primask);
@@ -122,8 +134,8 @@ static uint32_t iap_call(uint32_t *input, uint32_t *output)
 
 static int ops_read_part(void *context, uint32_t *part_id)
 {
-	uint32_t input[1];
-	uint32_t output[2];
+	uint32_t input[IAP_WORDS];
+	uint32_t output[IAP_WORDS];
 
 	(void)context;
 	input[0] = IAP_READ_PART_ID;
@@ -135,15 +147,14 @@ static int ops_read_part(void *context, uint32_t *part_id)
 
 static int ops_sector_present(void *context, uint32_t sector)
 {
-	uint32_t input[3];
-	uint32_t output[3];
+	uint32_t input[IAP_WORDS];
+	uint32_t output[IAP_WORDS];
 	uint32_t result;
 
 	(void)context;
 	input[0] = IAP_BLANK_CHECK_SECTORS;
 	input[1] = sector;
 	input[2] = sector;
-	output[2] = 0;
 	result = iap_call(input, output);
 	/* A sector the part has answers one of these two, depending on what is
 	 * in it; a sector it has not got is refused. Anything else is the ROM
@@ -159,8 +170,8 @@ static int ops_sector_present(void *context, uint32_t sector)
 static int ops_prepare(void *context, uint32_t first_sector,
                        uint32_t last_sector)
 {
-	uint32_t input[3];
-	uint32_t output[2];
+	uint32_t input[IAP_WORDS];
+	uint32_t output[IAP_WORDS];
 
 	(void)context;
 	input[0] = IAP_PREPARE_SECTORS;
@@ -172,8 +183,8 @@ static int ops_prepare(void *context, uint32_t first_sector,
 static int ops_erase(void *context, uint32_t first_sector,
                      uint32_t last_sector)
 {
-	uint32_t input[4];
-	uint32_t output[2];
+	uint32_t input[IAP_WORDS];
+	uint32_t output[IAP_WORDS];
 
 	(void)context;
 	input[0] = IAP_ERASE_SECTORS;
@@ -186,8 +197,8 @@ static int ops_erase(void *context, uint32_t first_sector,
 static int ops_program(void *context, uint32_t flash_address,
                        const uint8_t *ram, uint32_t length)
 {
-	uint32_t input[5];
-	uint32_t output[2];
+	uint32_t input[IAP_WORDS];
+	uint32_t output[IAP_WORDS];
 
 	(void)context;
 	input[0] = IAP_COPY_RAM_TO_FLASH;
@@ -201,8 +212,8 @@ static int ops_program(void *context, uint32_t flash_address,
 static int ops_verify(void *context, uint32_t flash_address,
                       const uint8_t *ram, uint32_t length)
 {
-	uint32_t input[4];
-	uint32_t output[3];
+	uint32_t input[IAP_WORDS];
+	uint32_t output[IAP_WORDS];
 
 	(void)context;
 	/* The ROM's own compare, which reads the flash that was just written
@@ -213,7 +224,6 @@ static int ops_verify(void *context, uint32_t flash_address,
 	input[1] = flash_address;
 	input[2] = (uint32_t)ram;
 	input[3] = length;
-	output[2] = 0;
 	return iap_call(input, output) == IAP_CMD_SUCCESS ? 0 : -1;
 }
 
@@ -226,53 +236,9 @@ static const struct bl_update_ops board_ops = {
 	ops_verify,
 };
 
-/*
- * Roughly a quarter of a second, counted rather than timed: no timer is set
- * up in this image and the blink below is the only thing that waits. The
- * figure is approximate on purpose -- it is a blink a person watches, not a
- * measurement -- and `volatile` keeps the loop from being optimized away.
- */
-static void blink_delay(void)
-{
-	volatile uint32_t i;
-
-	for (i = 0; i < CCLK_HZ / 40u; i++)
-		;
-}
-
-/*
- * What a refusal looks like on the board: the USR LED blinks the refusal's
- * number, pauses, and repeats a few times.
- *
- * This is a diagnostic of last resort. The host makes every one of these
- * checks over the same bytes before it writes this image to a board, so a
- * refusal here means the bytes on the board are not the bytes in the file --
- * a transfer that went wrong -- and the board is returned to DFU either way.
- * Like btbr's fault blink, it is there so that something is visible when
- * nothing can be reported.
- */
-static void blink_refusal(int result)
-{
-	unsigned count = (unsigned)(-result);
-	unsigned round;
-	unsigned i;
-
-	for (round = 0; round < 3u; round++) {
-		for (i = 0; i < count; i++) {
-			USRLED_SET;
-			blink_delay();
-			USRLED_CLR;
-			blink_delay();
-		}
-		blink_delay();
-		blink_delay();
-	}
-}
-
 int main(void)
 {
 	struct bl_update_report report;
-	int result;
 
 	/* The pins and the clock, and nothing else: no radio, and no USB. The
 	 * ROM times an erase and a program by the figure IAP_CCLK_KHZ gives it,
@@ -287,16 +253,13 @@ int main(void)
 	RXLED_SET;
 	TXLED_SET;
 
-	result = bl_update_run(&board_ops, NULL, bl_payload, sizeof(bl_payload),
-	                       UBERTOOTH_BOOTLOADER_REGION_START,
-	                       (uint8_t *)sector_buffer, &report);
+	bl_update_run(&board_ops, NULL, bl_payload, sizeof(bl_payload),
+	              UBERTOOTH_BOOTLOADER_REGION_START,
+	              (uint8_t *)sector_buffer, &report);
 
 	USRLED_CLR;
 	RXLED_CLR;
 	TXLED_CLR;
-
-	if (result < 0)
-		blink_refusal(result);
 
 	/*
 	 * Back to DFU, whatever happened.

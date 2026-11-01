@@ -7,7 +7,7 @@ Firmware
 The two firmware images
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-A board carries one firmware image at a time, and there are two:
+A board carries one firmware image at a time, and there are two it runs:
 
 - ``bluetooth_rxtx`` — the standard image, needed by every host tool except
   one, ``ubertooth-btle`` and ``ubertooth-rx`` included. Built in
@@ -26,6 +26,15 @@ Switch a board from one to the other by flashing it:
 A release archive carries both images already built, in
 ``ubertooth-one-firmware-bin/``, so flashing one does not need the firmware
 toolchain.
+
+There is a third image, ``bl_update``, which a board does not run for long: it
+installs a bootloader and resets into DFU, so that the bootloader can be
+updated over USB instead of over the serial programming interface. It is built
+with ``make -C firmware bl_update`` and written with
+``ubertooth-dfu --update-bootloader``; see ubertooth-dfu(1), UPDATING THE
+BOOTLOADER, for the whole procedure and for what an interrupted write leaves.
+Flashing it leaves the application region holding it, so one of the two images
+above has to be written again afterwards.
 
 Add ``-U <index|serial>`` to either command to pick one board of several; it
 works from both images. A tool run against the wrong image fails rather than

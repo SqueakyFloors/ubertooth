@@ -119,18 +119,27 @@ int bl_update_check(const uint8_t *payload, size_t length,
  * The order is the whole of the risk here, so it is written down once:
  *
  *   1. prepare and erase sectors 0 to 3 in one command;
- *   2. program them in turn, lowest first, preparing each immediately before
- *      its program, as the ROM requires;
- *   3. read all four back and compare them with what was sent.
+ *   2. program sectors 1, 2 and 3, preparing each immediately before its
+ *      program, as the ROM requires;
+ *   3. program sector 0, which is where the vector table is;
+ *   4. read all four back and compare them with what was sent.
  *
- * Erasing the whole region before programming any of it is deliberate. A run
- * that stops part way leaves erased flash where the vector table belongs, and
- * a part whose vector checksum does not add up starts the boot ROM's serial
- * programmer rather than the flash: an interrupted update leaves one known
- * state, recoverable over the serial programming interface. Programming the
- * region's first sector last would instead leave the previous bootloader's
- * vector table in front of a different bootloader's code, which is a board
- * that starts something nobody has described.
+ * The region is emptied before any of it is programmed, and the sector
+ * holding the vector table is the last one written. Both are for the same
+ * reason: an interruption anywhere before that last program leaves erased
+ * flash at address 0, and a part whose vector checksum does not add up starts
+ * the boot ROM's serial programmer rather than the flash. So an interrupted
+ * update leaves one known state, recoverable over the serial programming
+ * interface, for every interruption but one -- a loss of power inside the
+ * single program of sector 0, which is the window the application's own
+ * download has had all along (host/ubertooth-tools/src/ubertooth-dfu.c,
+ * download(), writes the application's first block last for this reason).
+ *
+ * Programming sector 0 first would give that guarantee only while the erase
+ * and that one sector ran: from the moment a filled-in checksum reached flash
+ * until sector 3 was written, the region would hold a vector table the ROM
+ * starts in front of erased code, and the erase has already taken the
+ * previous bootloader away, so there is nothing to fall back to.
  *
  * Returns the result, which is UBERTOOTH_BL_UPDATE_OK only when all four
  * sectors were programmed and read back as sent.

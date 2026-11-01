@@ -624,6 +624,11 @@ enum ubertooth_bl_update_result {
 	/* The file, which only the host reads */
 	UBERTOOTH_BL_UPDATE_NOT_UPDATER = -11,
 	UBERTOOTH_BL_UPDATE_FILE_SHORT = -12,
+	/* A caller that asked for the write without lending the RAM it is
+	 * programmed from. Its own answer, so a mistake in the one program that
+	 * installs a bootloader is not reported to a user as something wrong
+	 * with the bootloader. */
+	UBERTOOTH_BL_UPDATE_NO_BUFFER = -13,
 };
 
 /*
@@ -798,6 +803,8 @@ static inline const char *ubertooth_bl_update_result_string(int result)
 		return "the bootloader read back from flash is not the one written";
 	case UBERTOOTH_BL_UPDATE_NOT_UPDATER:
 		return "this image is not a bootloader updater";
+	case UBERTOOTH_BL_UPDATE_NO_BUFFER:
+		return "there is no buffer to program the bootloader from";
 	default:
 		return "this file is too short to hold a bootloader updater";
 	}

@@ -345,14 +345,17 @@ report that it did.
 A board that is already running the bootloader the image carries is not
 programmed again: the image compares the region first and returns to DFU.
 
-The one failure this cannot make safe is losing power or being reset while the
-four sectors are being written. The region is erased before any of it is
-programmed, so an interruption leaves erased flash where the vector table
-belongs; the boot ROM finds no valid checksum there and starts its serial
-programmer, which is the one state such a board can be recovered from, and it
-needs a serial adapter wired to the board. The alternative -- writing the
-first sector last -- would leave one bootloader's vector table in front of
-another's code, which is a board that starts something nobody has described.
+The region is erased before any of it is programmed, and the sector holding
+the vector table is written last. So an interruption -- a lost power or a
+reset while the four sectors are being written -- leaves erased flash where
+the vector table belongs; the boot ROM finds no valid checksum there and
+starts its serial programmer, which is the one state such a board can be
+recovered from, and it needs a serial adapter wired to the board.
+
+One window is left: a loss of power inside the single program of the first
+sector, after the checksum has reached flash and before the rest of that
+sector has. That is the same window an ordinary firmware write has, and the
+image check block is what narrows it there.
 
 ## READING FLASH BACK
 
