@@ -583,8 +583,40 @@
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804),
   [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017)
 
+- `ubertooth-specan-ui` can label its axis and its markers with BLE channel
+  numbers instead of megahertz. Press `n` in the window for the channel
+  numbers -- the advertising channels 37, 38, and 39, and the data channels 0
+  to 36 -- and `n` again for the megahertz the window still starts in. In
+  channel mode the axis is marked on the channels themselves, so a line on the
+  graph lines up with the number under it, the three advertising channels are
+  always named when they are in the plot, and a marker names the channel
+  nearest the point it sits on. The difference between two markers is in
+  megahertz in both modes, and says so.
+  Credit: Emmanuel Blot ([@eblot](https://github.com/eblot)) for the channel
+  labels and the mapping behind them.
+  [#76](https://github.com/SqueakyFloors/ubertooth/issues/76)
+
 ### Build and compatibility
 
+- `./install.sh` installs on Fedora. It used to stop on any Linux without
+  `apt-get`, pointing at REQUIREMENTS.md, so a Fedora user installed the
+  dependencies by hand; it now finds `dnf` and asks it for the same
+  dependencies under Fedora's names, including the ARM toolchain for
+  `--with-firmware`. Everything after that step is what it has always been on
+  Linux: libbtbb at the pinned commit, the host tools with `-DREQUIRE_ALL=ON`
+  so a missing optional dependency is an error, the Python runtime deps, the
+  udev rule, and `--uninstall`. A machine with both package managers is
+  installed with `apt` as before.
+  [#24](https://github.com/SqueakyFloors/ubertooth/issues/24)
+- The install writes `libubertooth.pc`, so a program of your own built against
+  the installed library takes its flags from `pkg-config --cflags --libs
+  libubertooth` instead of being given them by hand. The file names both
+  include directories such a program needs: its own, and the one
+  `<libusb-1.0/libusb.h>` resolves against, which is a directory above the one
+  libusb's own pkg-config file points at. It reads its prefix back from where
+  it is installed, so an install staged or relocated somewhere else describes
+  the directories it really landed in.
+  [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
 - A reconfigure after libbtbb, libubertooth or libbluetooth moves finds it
   where it is now, the check libusb already had. A moved libbtbb was the worst
   of the three: the configure failed with instructions to rebuild a libbtbb
@@ -782,6 +814,14 @@
   a list without it: `error: -j cannot be combined with -i; choose one of -f,
   -r, -i, or -j`.
 
+- `ubertooth-btbr` no longer reports a packet whose header belongs to another
+  piconet. All eight bits of a header's error check now have to match, where
+  seven did. The check is computed from the piconet's UAP, so the dropped bit
+  cost real coverage: every header of a piconet whose UAP differed from this
+  one in one particular way was accepted, and a header read out of noise
+  passed one time in 128 instead of one in 256. Either was printed as a packet
+  with whatever type, logical transport address and flags it carried.
+  [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
 - Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
   connection it was following. It hopped with channel selection algorithm 1
   only, so a connection using algorithm 2, which Bluetooth 5.0 devices

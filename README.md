@@ -96,7 +96,12 @@ documents upstream, not this fork.
 
 Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).
 
-## Quick install (Debian/Ubuntu and macOS)
+The install writes `libubertooth.pc`, so a program of your own built against
+the installed library takes its flags from
+`pkg-config --cflags --libs libubertooth` rather than being given them by
+hand.
+
+## Quick install (Debian/Ubuntu, Fedora and macOS)
 
 From a checkout of this repository, [`install.sh`](install.sh) does the whole
 from-source setup in one command — system dependencies, libbtbb, the host
@@ -110,17 +115,18 @@ tools, specan_ui Python deps, and (on Linux) udev rules:
 ```
 
 `--uninstall` removes the files an earlier run recorded — the tools, the
-libraries, the man pages, the udev rule — and nothing else: the `apt` or
-Homebrew packages, the Python packages and a `--venv` directory all stay. The
-libbtbb it installed stays too unless you ask for it with `--remove-libbtbb`,
-because anything else on the machine built against that libbtbb stops building
-until it is put back.
+libraries, the man pages, the udev rule — and nothing else: the distribution
+or Homebrew packages, the Python packages and a `--venv` directory all stay.
+The libbtbb it installed stays too unless you ask for it with
+`--remove-libbtbb`, because anything else on the machine built against that
+libbtbb stops building until it is put back.
 
-On Debian/Ubuntu it uses `apt` and installs into `/usr/local` with `sudo`. On
-macOS it needs [Homebrew](https://brew.sh), installs into the Homebrew prefix
-without `sudo`, and skips `ubertooth-scan`/`ubertooth-follow` (no BlueZ on
-macOS); use `--venv` there so the Python packages stay out of the system
-Python. Run `./install.sh --help` for all options, including `--prefix`,
+On Linux it installs into `/usr/local` with `sudo`, taking the dependencies
+from `apt` on Debian/Ubuntu and from `dnf` on Fedora. On macOS it needs
+[Homebrew](https://brew.sh), installs into the Homebrew prefix without `sudo`,
+and skips `ubertooth-scan`/`ubertooth-follow` (no BlueZ on macOS); use
+`--venv` there so the Python packages stay out of the system Python. Run
+`./install.sh --help` for all options, including `--prefix`,
 `--skip-deps` (use already-installed system packages), and
 `--libbtbb-url`/`--libbtbb-ref`, which build a libbtbb other than the pinned
 fork commit (`--help` prints the pin). This is the from-source path; it is not

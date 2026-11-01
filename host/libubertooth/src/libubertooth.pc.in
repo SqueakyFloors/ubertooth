@@ -1,0 +1,31 @@
+# The prefix is worked out from where this file is, so that the library can be
+# found wherever it is installed: a prefix given at install time
+# (cmake --install --prefix) is not the one that was known when this file was
+# written, and a staged or relocated install moves again afterwards. pcfiledir
+# is the directory this file is in; pkgconf and pkg-config both set it,
+# documented from pkg-config 0.29 and present in it well before that. This
+# file sits in the pkgconfig directory of the library's own directory, which
+# is one directory inside the prefix, so the walk back out is two levels.
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib@LIB_SUFFIX@
+includedir=${prefix}/include
+
+Name: libubertooth
+Description: Host library for the Ubertooth wireless development platform
+Version: @VERSION@
+# The headers installed beside this file include both of these: ubertooth.h
+# includes <btbb.h>, and ubertooth_control.h, which every one of them reaches,
+# includes <libusb-1.0/libusb.h>.
+Requires: libbtbb libusb-1.0
+# Two include directories, because of the way that last include is spelled.
+# libusb's own pkg-config file names the directory libusb.h sits in, which is
+# what <libusb.h> resolves against; <libusb-1.0/libusb.h> resolves against the
+# directory above it. Where that is a directory the compiler searches anyway,
+# which is the case on the distributions, nothing is added here.
+Cflags: -I${includedir}@LIBUBERTOOTH_PC_CFLAGS@
+Libs: -L${libdir} -lubertooth
+# What the library itself links and a program using the shared one does not
+# have to: the threads it runs the capture ring buffer on, and the loader
+# library its version report reads a library path from.
+Libs.private:@LIBUBERTOOTH_PC_LIBS_PRIVATE@

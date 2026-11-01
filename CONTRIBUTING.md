@@ -36,12 +36,13 @@ touches code:
 | `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
 | `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
 | `Build` / `dfu-package` | Each shipped image can be packaged and the packaged file reads back |
-| `install.sh` / `install-sh` | Runs the installer end to end (on a pull request, only when `install.sh` or its own workflow file changes) |
+| `install.sh` / `install-sh` | Runs the installer end to end, on Ubuntu, macOS and a Fedora container (on a pull request, only when `install.sh` or its own workflow file changes). The Fedora leg installs nothing beforehand, so the script's own `dnf` package list is what the run uses |
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
 
-On a pull request, `firmware`, `scripts` and `install-sh` run on one Ubuntu and
-one macOS runner, and `host` runs on two Ubuntu runners and one macOS runner:
+On a pull request, `firmware` and `scripts` run on one Ubuntu and one macOS
+runner, `install-sh` on those two and in a Fedora container, and `host` runs
+on two Ubuntu runners and one macOS runner:
 Ubuntu 22.04, the oldest glibc a hosted runner offers, as well as 24.04. Each
 reports once per runner: `host (ubuntu-22.04)`, `host (ubuntu-24.04)`,
 `host (macos-26)`. The weekly, release and on-request runs are a fuller tier:

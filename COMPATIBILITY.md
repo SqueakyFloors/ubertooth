@@ -85,12 +85,21 @@ fields as the plain integer they are built on, and nothing outside the library
 touches them.
 
 ### `install.sh` platforms
-`install.sh` supports Debian/Ubuntu (`apt`) and macOS with Homebrew. On macOS it
-installs into the Homebrew prefix without `sudo`, builds without BlueZ (no
-`ubertooth-scan`/`ubertooth-follow`), and installs no udev rules. Verified on
-macOS 26 arm64 with two Ubertooths: a full run that installed the missing
-Homebrew packages (`fftw`, `dfu-util`), the host tools, and a firmware build
-and flash of both boards with `--flash-device all`. Intel Macs are unverified.
+`install.sh` supports Debian/Ubuntu (`apt`), Fedora (`dnf`) and macOS with
+Homebrew. On macOS it installs into the Homebrew prefix without `sudo`, builds
+without BlueZ (no `ubertooth-scan`/`ubertooth-follow`), and installs no udev
+rules. Verified on macOS 26 arm64 with two Ubertooths: a full run that
+installed the missing Homebrew packages (`fftw`, `dfu-util`), the host tools,
+and a firmware build and flash of both boards with `--flash-device all`. Intel
+Macs are unverified.
+
+Fedora is verified in CI only, by the `install-sh` workflow's `fedora:latest`
+container leg: that run lets the script install the dependencies itself, so the
+Fedora package names are exercised rather than assumed, and then builds,
+installs, and uninstalls as the Ubuntu leg does. No Fedora machine has run it
+by hand, and the firmware packages (`arm-none-eabi-gcc-cs`,
+`arm-none-eabi-newlib`) are listed from the Fedora repositories rather than
+built with: `--with-firmware` on Fedora is unverified.
 
 ### CMake 4.x
 Modern CMake (4.x) removed compatibility with `cmake_minimum_required < 3.5`.
@@ -238,8 +247,10 @@ firmware flashing), not radio capture.
    weekly run, not on every PR. Pin explicit versions (not `-latest`) so the
    record is reproducible, and test the **minimum and the newest** of each
    dimension. Three narrower workflows cover one thing each on their own
-   triggers: `install-sh.yml` (Ubuntu 24.04 and macOS 15, when `install.sh`
-   changes), `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
+   triggers: `install-sh.yml` (Ubuntu 24.04, macOS 15 and a `fedora:latest`
+   container, when `install.sh` changes; the Fedora leg installs nothing
+   beforehand, so the script's own `dnf` package list is what it uses),
+   `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
    filter at all, since the files that must agree on the pin include this one
    and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc`
    changes), which installs the pinned ronn-ng and fails if the committed man
