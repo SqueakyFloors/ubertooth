@@ -362,10 +362,11 @@ An option value outside 0-65535, or one that is not a number, is refused
 before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
 status 1. An address the prompt will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
-prompt up. A word of any length other than six bytes is refused there, so
-`bdaddr 11:22:33` is an error rather than the address `00:00:11:22:33`; so are
-the two forms Python would read as a number, `0x112233445566` and
-`11_2233445566`. A `? <command>` naming no command is
+prompt up. Only the two spellings above are taken, so `bdaddr 11:22:33` is an
+error rather than the address `00:00:11:22:33`, and so are a twelve-digit word
+with the colons anywhere else (`11:2233:4455:66`), another separator
+(`11-22-33-44-55-66`), and the forms Python would read as a number
+(`0x112233445566`, `11_2233445566`). A `? <command>` naming no command is
 `error: no help on '<word>'`, and so does. A word that is no command at all is
 `error: no such command '<word>'`, naming the first word of the line, and
 leaves the prompt up as well. None of the three changes the session's exit

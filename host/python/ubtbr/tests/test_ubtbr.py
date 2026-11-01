@@ -2362,11 +2362,15 @@ def requests_sent():
     return codes
 
 
+def address_request(code, bdaddr):
+    """The USB packet the device gets for a request carrying an address."""
+    payload = struct.pack("<I", code) + struct.pack("<Q", bdaddr)
+    return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
+
+
 def set_bdaddr_packet(bdaddr):
     """The USB packet the device gets for a set-address request."""
-    payload = (struct.pack("<I", btctl.BTCTL_SET_BDADDR_REQ)
-               + struct.pack("<Q", bdaddr))
-    return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
+    return address_request(btctl.BTCTL_SET_BDADDR_REQ, bdaddr)
 
 
 # The session gives the board an address of its own on the way up, so that
@@ -2386,6 +2390,7 @@ REFUSED_ADDRESSES = (
     "0011223344556",
     "11:22:33:44:55:66:77",
     "11:22:33:44:55:zz",
+    "11-22-33-44-55-66",    # twelve digits, another separator
     "11:22:33:44:55:66 extra",   # a word after the address
     "",                     # the bare command
 )
@@ -2420,29 +2425,38 @@ print("ubtbr: page, l2ping, and monitor refuse a short address as bdaddr does")
 # A whole address is taken either way it is written, upper or lower case, and
 # the board is given exactly those six bytes. The spaces around the last one
 # are Cmd's to strip, not the grammar's, which is what that line is here for.
-for word in ("AA:BB:CC:DD:EE:FF", "aabbccddeeff", "Aa:bB:cC:Dd:eE:fF",
-             "  AA:BB:CC:DD:EE:FF  "):
+for word, value in (("AA:BB:CC:DD:EE:FF", 0xAABBCCDDEEFF),
+                    ("aabbccddeeff", 0xAABBCCDDEEFF),
+                    ("Aa:bB:cC:Dd:eE:fF", 0xAABBCCDDEEFF),
+                    ("  AA:BB:CC:DD:EE:FF  ", 0xAABBCCDDEEFF),
+                    # the shape the padding below is for: an address whose
+                    # leading bytes are zero, which has to survive the trip
+                    # as those six bytes rather than as its value
+                    ("00:11:22:33:44:55", 0x001122334455),
+                    ("001122334455", 0x001122334455)):
     status, output, errors = ran(typed="bdaddr %s\nq\n" % word)
     assert status == 0, (word, status, output, errors)
     assert "BD_ADDR must be" not in errors, (word, errors)
     assert "Traceback" not in errors, (word, errors)
-    assert set_bdaddr_packet(0xAABBCCDDEEFF) in writes(), (word, writes())
+    assert set_bdaddr_packet(value) in writes(), (word, writes())
 print("ubtbr: a whole address is taken with or without the colons")
 
-# and page takes one too, as the address it was given: the refusals above
-# would also pass if the grammar refused every address, so one of the three
-# commands that start something is typed with a whole one. It is stopped
-# again rather than left paging.
-status, output, errors = ran(typed="page AA:BB:CC:DD:EE:FF\nidle\nq\n")
-assert status == 0, (status, output, errors)
-assert "BD_ADDR must be" not in errors, errors
-assert "Traceback" not in errors, errors
-assert btctl.BTCTL_PAGING_REQ in requests_sent(), requests_sent()
-paging = (struct.pack("<I", btctl.BTCTL_PAGING_REQ)
-          + struct.pack("<Q", 0xAABBCCDDEEFF))
-assert (b"S\x00" + struct.pack("<H", len(paging)) + paging).hex() in writes(), \
-    writes()
-print("ubtbr: page takes a whole address and pages that one")
+# and so do the commands that start something, with the address they were
+# given: the refusals above would also pass if the grammar refused every
+# address, so each of those is typed with a whole one too. l2ping pages, so
+# it sends the paging request page does. Each is stopped again rather than
+# left running.
+for command, code in (("page", btctl.BTCTL_PAGING_REQ),
+                      ("l2ping", btctl.BTCTL_PAGING_REQ),
+                      ("monitor", btctl.BTCTL_MONITOR_REQ)):
+    status, output, errors = ran(
+        typed="%s AA:BB:CC:DD:EE:FF\nidle\nq\n" % command)
+    assert status == 0, (command, status, output, errors)
+    assert "BD_ADDR must be" not in errors, (command, errors)
+    assert "Traceback" not in errors, (command, errors)
+    assert address_request(code, 0xAABBCCDDEEFF) in writes(), \
+        (command, writes())
+print("ubtbr: page, l2ping, and monitor act on the address they were given")
 
 # The address an inquiry prints keeps its leading zeros, so it is a word the
 # prompt takes back. It used to be printed as a plain hex number, so a device
