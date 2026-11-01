@@ -4,6 +4,23 @@
 
 ### New features
 
+- The board's generic radio mode is reachable from the command line, as an
+  **experimental** feature. It demodulates with whatever CC2400 configuration
+  the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
+  is not Bluetooth can be captured without new firmware.
+  `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
+  could only read before, and `ubertooth-dump -g` starts the capture.
+  ubertooth(7), GENERIC RADIO MODE is the worked example.
+  What works and what does not: the raw symbol stream works, and `-g` with a
+  configuration written by hand streams as the Bluetooth captures do. The
+  packet-framing half, where the radio matches a sync word and the board sends
+  one record per detection, has not produced a record on our bench
+  ([#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040) is the open
+  question behind it), and no tool transmits a generic packet because the
+  deviation the firmware transmits at is unsettled. Expect the options and the
+  output of both to change.
+  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
 - `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
   dropping them: a replay has no board to tune and nothing to wait for, so
   `ubertooth-rx -i capture.bin -c 39` now says `error: -c cannot be combined
@@ -599,23 +616,14 @@
 ### Build and compatibility
 
 - `./install.sh` installs on Fedora. It used to stop on any Linux without
-  `apt-get`, pointing at REQUIREMENTS.md, so a Fedora user installed the
-  dependencies by hand; it now finds `dnf` and asks it for the same
-  dependencies under Fedora's names, including the ARM toolchain for
-  `--with-firmware`. Everything after that step is what it has always been on
-  Linux: libbtbb at the pinned commit, the host tools with `-DREQUIRE_ALL=ON`
-  so a missing optional dependency is an error, the Python runtime deps, the
-  udev rule, and `--uninstall`. A machine with both package managers is
-  installed with `apt` as before.
+  `apt-get`; it now finds `dnf` and asks it for the same dependencies under
+  Fedora's names, the ARM toolchain for `--with-firmware` included, and the
+  rest of the run is what it has always been on Linux.
   [#24](https://github.com/SqueakyFloors/ubertooth/issues/24)
 - The install writes `libubertooth.pc`, so a program of your own built against
   the installed library takes its flags from `pkg-config --cflags --libs
-  libubertooth` instead of being given them by hand. The file names both
-  include directories such a program needs: its own, and the one
-  `<libusb-1.0/libusb.h>` resolves against, which is a directory above the one
-  libusb's own pkg-config file points at. It reads its prefix back from where
-  it is installed, so an install staged or relocated somewhere else describes
-  the directories it really landed in.
+  libubertooth` instead of being given them by hand, including the include
+  directory `<libusb-1.0/libusb.h>` resolves against.
   [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
 - Configuring on macOS no longer tells you to install a Linux package to get
   `ubertooth-scan` and `ubertooth-follow`. It says BlueZ is Linux only and
@@ -833,11 +841,11 @@
   a list without it: `error: -j cannot be combined with -i; choose one of -f,
   -r, -i, or -j`.
 
-- `ubertooth-btbr` no longer reports a packet whose header belongs to another
-  piconet. All eight bits of a header's error check now have to match, where
-  seven did. The check is computed from the piconet's UAP, so the dropped bit
-  cost real coverage: every header of a piconet whose UAP differed from this
-  one in one particular way was accepted, and a header read out of noise
+- `ubertooth-btbr` no longer reports a packet whose header came from a piconet
+  with a different UAP. All eight bits of a header's error check now have to
+  match, where seven did, and the dropped bit cost real coverage: the check is
+  computed from the UAP, so every header of one particular other UAP that got
+  past the access-code match was accepted, and a header read out of noise
   passed one time in 128 instead of one in 256. Either was printed as a packet
   with whatever type, logical transport address and flags it carried.
   [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
@@ -1414,6 +1422,18 @@
   piconet's; searching for it again`, takes the board off that clock and
   recovers one again, keeping the lower address part it has already found.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
+- `ubertooth-rx` also gives up a clock its follow has gone quiet on. A clock
+  that is wrong only in the high bits checks out every header it receives and
+  gets the channel to listen on wrong instead, so it is heard from about one
+  packet in eighteen and no header ever fails: such a follow decoded next to
+  nothing and kept the clock forever. A follow that hears no packet of its
+  piconet for a minute now reports `warning: nothing of this piconet has been
+  heard on the clock being followed; searching for it again` and recovers a
+  clock again, as it does for a clock the decoder gives up. A minute is long
+  enough that no working link reaches it, and giving a clock up rules it out,
+  so a wrong clock is given up only on a link slow enough for its one packet
+  in eighteen to leave a gap that long.
+  [#903](https://github.com/SqueakyFloors/ubertooth/issues/903)
 - A Classic capture that cannot be written says so, once per capture, instead
   of running to the end looking like one that was being written: `warning:
   cannot write to the PCAP capture file`. `ubertooth-rx` and

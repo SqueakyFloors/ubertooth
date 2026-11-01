@@ -905,6 +905,33 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	release_handle(ut);
 }
 
+/* `ubertooth-dump -g` asks for the generic receive instead, which is the one
+ * mode that demodulates with the configuration already in the radio. Asking
+ * for symbols as well would start a mode that programs its own. */
+MU_TEST(a_generic_dump_asks_for_the_generic_receive)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	rx_dump_generic(ut, 1);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(2, fake.n);
+	mu_assert_int_eq(1, sent(UBERTOOTH_RX_GENERIC));
+	mu_assert_int_eq(0, sent(UBERTOOTH_RX_SYMBOLS));
+	mu_assert(err[0] == '\0', err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+}
+
 /*
  * A capture that wants a particular modulation -- `ubertooth-dump -l` -- has
  * it stated on either side of the mode request. Before it, so the board
@@ -1824,6 +1851,7 @@ int main(void)
 	MU_RUN(an_interrupt_during_detection_ends_the_run);
 	MU_RUN(a_packet_after_the_timer_does_not_re_arm_the_transfer);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
+	MU_RUN(a_generic_dump_asks_for_the_generic_receive);
 	MU_RUN(a_dump_states_its_modulation_on_both_sides_of_the_mode_request);
 	MU_RUN(a_refused_modulation_ends_the_dump);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);

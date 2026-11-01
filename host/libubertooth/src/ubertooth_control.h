@@ -254,6 +254,14 @@ int cmd_set_crc_verify(struct libusb_device_handle* devh, int verify);
 int cmd_poll(struct libusb_device_handle* devh, usb_pkt_rx *p);
 int cmd_btle_promisc(struct libusb_device_handle* devh);
 int cmd_read_register(struct libusb_device_handle* devh, u8 reg);
+/* Write one CC2400 register. The board takes the value as written: these are
+ * the radio's own registers, so nothing here knows which values a register
+ * accepts. Returns 0, or a negative libusb error already reported. */
+int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value);
+/* Start the generic receive, which demodulates with the CC2400 configuration
+ * already in the radio instead of programming one. Returns 0, or a negative
+ * libusb error already reported. */
+int cmd_rx_generic(struct libusb_device_handle* devh);
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address);
 int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsigned data_len);
 int cmd_btle_set_target(struct libusb_device_handle* devh, uint8_t *mac_address, uint8_t mac_mask);

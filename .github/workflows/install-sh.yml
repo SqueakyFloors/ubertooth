@@ -55,8 +55,8 @@ jobs:
 
     # What the steps below need before install.sh runs, which the hosted
     # runners have and a Fedora container does not: sudo, which the script
-    # runs its privileged steps through, git for the checkout and for its
-    # libbtbb clone, and findutils for the `find` the uninstall check uses.
+    # runs its privileged steps through, git for its libbtbb clone, and
+    # findutils for the `find` the uninstall check uses.
     # Everything else is a dependency of the build, and installing it here
     # would hide the thing this leg is for: the script's own dnf package list.
     #

@@ -29,6 +29,12 @@ import tempfile
 
 
 CMAKE, BUILD_DIR, PKG_CONFIG, CC = sys.argv[1:5]
+# Which directory under the prefix the library and its pkg-config file are
+# installed to: "lib", or lib plus whatever LIB_SUFFIX the build was given
+# (lib64 on the systems that keep 64-bit libraries there). Passed in rather
+# than assumed, so a build configured with -DLIB_SUFFIX=64 is looked for where
+# it really put things.
+LIBDIR = "lib" + (sys.argv[5] if len(sys.argv) > 5 else "")
 
 # What the install puts in each of these is what a program building against
 # the library needs: the shared or static library, the headers, and the
@@ -85,7 +91,7 @@ def install_into(prefix):
 
 def flags_for(prefix):
     """The compile and link flags pkg-config gives for that install."""
-    pkgconfig_dir = os.path.join(prefix, "lib", "pkgconfig")
+    pkgconfig_dir = os.path.join(prefix, LIBDIR, "pkgconfig")
     assert os.path.isfile(os.path.join(pkgconfig_dir, "libubertooth.pc")), \
         "the install wrote no libubertooth.pc in " + pkgconfig_dir
 
@@ -132,7 +138,7 @@ try:
     # The install's own directories, named by the flags a consumer is given.
     assert os.path.realpath(os.path.join(first, "include")) in \
         directories_in(cflags, "-I"), (first, cflags)
-    assert os.path.realpath(os.path.join(first, "lib")) in \
+    assert os.path.realpath(os.path.join(first, LIBDIR)) in \
         directories_in(libs, "-L"), (first, libs)
     assert "-lubertooth" in libs, libs
 
@@ -151,7 +157,7 @@ try:
     moved_cflags, moved_libs = flags_for(second)
     assert os.path.realpath(os.path.join(second, "include")) in \
         directories_in(moved_cflags, "-I"), (second, moved_cflags)
-    assert os.path.realpath(os.path.join(second, "lib")) in \
+    assert os.path.realpath(os.path.join(second, LIBDIR)) in \
         directories_in(moved_libs, "-L"), (second, moved_libs)
     assert os.path.realpath(os.path.join(first, "include")) not in \
         directories_in(moved_cflags, "-I"), (first, second, moved_cflags)

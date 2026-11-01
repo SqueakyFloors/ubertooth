@@ -1,7 +1,7 @@
 .TH ubertooth\-debug 1 "October 2026" "Project Ubertooth" "User Commands"
 .SH NAME
 .PP
-ubertooth\-debug(1) \- read CC2400 radio registers
+ubertooth\-debug(1) \- read and write CC2400 radio registers
 
 .SH SYNOPSIS
 .PP
@@ -9,6 +9,7 @@ ubertooth\-debug(1) \- read CC2400 radio registers
 
 .nf
 ubertooth\-debug \-r <number>[,<number>[,...]]
+ubertooth\-debug \-w <reg>=<value>[,<reg>=<value>[,...]]
 
 .fi
 .RE
@@ -19,8 +20,22 @@ ubertooth\-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 .PP
-It reads and does not write: there is no option for setting a register, and no
-other tool has one either\&.
+\fB\fC\-w\fR is experimental, as the generic radio mode it exists for is: see
+.BR ubertooth (7),
+GENERIC RADIO MODE for what works and what does not\&. Expect the option and
+its output to change\&.
+.PP
+\fB\fC\-w\fR writes registers as well as \fB\fC\-r\fR reading them\&. Writing
+the radio's registers by hand is how a generic capture is set up:
+\fB\fCubertooth\-dump \-g\fR demodulates with whatever configuration is in the
+CC2400, so \fB\fC\-w\fR puts the channel, data rate, sync word and framing
+there first\&.
+.BR ubertooth (7),
+GENERIC RADIO MODE is the worked example\&.
+.PP
+Nothing here knows which values a register accepts: these are the radio's own
+registers, and the value is written as given\&. A configuration that does not
+make sense gives a board that receives nothing, not an error\&.
 .PP
 Register reads are debugging work, so this tool drives whatever firmware
 revision a board is carrying and makes no version check\. It does check which
@@ -49,6 +64,17 @@ to replace the first one's registers without a word\&. Write them together
 instead, \fB\fC\-r %main,0x02\-0x05\fR
 .RB ( ubertooth (7),
 OPTION VALUES)
+.IP \(bu 2
+\fB\fC\-w <reg>=<value>[,<reg>=<value>[,...]]\fR :
+Write one or more registers of the CC2400 on Ubertooth\&. Each register is an
+address \fB\fC0x00\fR\-\fB\fC0xff\fR or a \fB\fC%name\fR, as \fB\fC\-r\fR
+accepts, and each value is \fB\fC0x0000\fR\-\fB\fC0xffff\fR\&. Hex needs the
+\fB\fC0x\fR; every other number is decimal, so \fB\fC010\fR is ten and not
+eight (experimental)
+.IP \(bu 2
+one \fB\fC\-w\fR takes the whole list, as one \fB\fC\-r\fR does, so a second
+\fB\fC\-w\fR is refused with
+\fB\fCerror: option '\-w' given more than once\fR
 .IP \(bu 2
 \fB\fC\-v <0\-2>\fR :
 Sets the level of verbosity, default is 1.
@@ -132,6 +158,31 @@ ubertooth\-debug \-r 0x00\-0x70
 .fi
 .RE
 
+.PP
+Write a register, then read it back in the same command: the writes happen
+first, so this reports what the board took\&.
+
+.PP
+.RS
+
+.nf
+ubertooth\-debug \-w %grmdm=0x0f61 \-r %grmdm
+
+.fi
+.RE
+
+.PP
+Several registers in one command, mixing names and addresses:
+
+.PP
+.RS
+
+.nf
+ubertooth\-debug \-w %mdmctrl=0x0029,%grmdm=0x0f61,0x0f=0x0997
+
+.fi
+.RE
+
 .SH EXIT STATUS
 .PP
 \fB\fCubertooth\-debug\fR exits with 0 when every requested register was read, and 1
@@ -140,6 +191,11 @@ standard error, after libubertooth's own line for a USB error such as a
 timeout\. A short reply prints the single line \fB\fCerror: register 0x<reg> read
 failed: board returned <n> of 2 bytes\fR\. The remaining registers are still read
 and decoded\.
+.PP
+A failed write prints \fB\fCerror: register 0x<reg> write failed\fR, again
+after libubertooth's own line, and the remaining registers are still written:
+one register the board refused does not hide the rest\&. A command that asked
+for both writes and reads does both, and exits 1 if either had a failure\&.
 .PP
 A board running the other firmware image exits 1 as well, with no register
 read and the two lines that name the image and flash the right one:
@@ -198,16 +254,47 @@ or as a range: unknown name (got %nosuchregister)\fR\&. The other reasons are
 \fB\fCempty value\fR, \fB\fCrange with no start\fR,
 \fB\fCnot an octal digit\fR and \fB\fCnot a name, address or range\fR\&.
 .PP
-\fB\fC\-r\fR is required: without it the command is refused with
-\fB\fCerror: \-r <reg>[,<reg>[,...]] is required: at least one register to
-read\fR, on standard error and with exit status 1\&. A bare
+\fB\fC\-w\fR takes a list of \fB\fC<reg>=<value>\fR pairs\&. A number with a
+leading \fB\fC0x\fR is hex and every other number is decimal, so
+\fB\fC\-w 010=1\fR writes register ten\&. (\fB\fC\-r\fR reads a leading zero
+as octal, which it has always done\&.) The register is refused the way
+\fB\fC\-r\fR's is, and a value outside 16 bits the same way:
+.PP
+.RS
+
+.nf
+$ ubertooth\-debug \-w 0x100=1
+error: register address must be 0x00\-0xff (got 0x100 in 0x100=1)
+$ ubertooth\-debug \-w 0x20=0x10000
+error: register value must be 0x0000\-0xffff (got 0x10000 in 0x20=0x10000)
+
+.fi
+.RE
+
+.PP
+An item that is not a pair at all, a missing value, an empty item between two
+commas and a trailing comma are all refused in one line as
+\fB\fCerror: register write must be <reg>=<value> (got ...)\fR, and a
+\fB\fC%name\fR the table does not have as
+\fB\fCerror: no CC2400 register is called %nosuch (in %nosuch=1)\fR\&. Nothing
+is written when any item is refused, so a configuration cannot reach the radio
+half\-applied\&.
+.PP
+Either \fB\fC\-r\fR or \fB\fC\-w\fR is needed: a command line with neither is
+refused with
+\fB\fCerror: nothing to do: give \-r to read registers, or \-w to write
+them\fR, on standard error and with exit status 1\&. A bare
 \fB\fCubertooth\-debug\fR, with no arguments at all, prints the usage text
 after that line; every other refused command line is the \fB\fCerror: \fR line
 alone, and \fB\fC\-h\fR prints the usage text on standard output\&.
 .SH SEE ALSO
 .PP
-ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
+ubertooth(7): overview of Project Ubertooth; GENERIC RADIO MODE describes how
+\fB\fC\-w\fR and \fB\fCubertooth\-dump \-g\fR are used together, and OPTION
+VALUES describes how option values are written
+.PP
+ubertooth\-dump(1): the generic receive, which reads with the configuration
+\fB\fC\-w\fR leaves in the radio
 
 .SH AUTHOR
 .PP

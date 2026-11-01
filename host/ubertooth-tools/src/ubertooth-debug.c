@@ -68,6 +68,10 @@ static void usage(FILE *file)
 	    CC2400_REG_ADDRESS_MAX);
     fputs("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n",
 	  file);
+    fputs("\t-w <reg>=<value>[,...] write CC2400 register(s) (experimental),\n",
+	  file);
+    fputs("\t   each value 0x0000-0xffff (example: -w %grmdm=0x0f61,0x0b=0x0029)\n",
+	  file);
     fputs(OPT_USAGE_SELECT_DEVICE, file);
     fputs("\t-v <0-2> verbosity (default=1)\n", file);
 }
@@ -105,6 +109,12 @@ static int read_register(void *context, uint8_t reg)
 	return cmd_read_register((struct libusb_device_handle *)context, reg);
 }
 
+static int write_register(void *context, uint8_t reg, uint16_t value)
+{
+	return cmd_write_register((struct libusb_device_handle *)context, reg,
+	                          value);
+}
+
 int main(int argc, char *argv[])
 {
     int opt;
@@ -120,6 +130,10 @@ int main(int argc, char *argv[])
     char* ubertooth_device = NULL;
     int *regList = NULL;
     int regListN = 0;
+    /* The -w list. Bounded and on the stack, unlike the read list, because
+     * every register written once is the most one -w can ask for. */
+    debug_register_write writeList[DEBUG_REGISTER_WRITES_MAX];
+    int writeListN = 0;
     int i;
 
     /* set command states to negative as a starter
@@ -131,7 +145,7 @@ int main(int argc, char *argv[])
      * value distinguishable from an option getopt does not know. */
     /* Named, so the loop below and opt_report_bad_option()
      * cannot be given different letters. */
-    const char options[] = ":hVU:r:v:";
+    const char options[] = ":hVU:r:w:v:";
     opterr = 0;
     while ((opt = getopt(argc, argv, options)) != EOF) {
 	/* No option may be given a value twice: see opt_check_once(). A second
@@ -189,6 +203,17 @@ int main(int argc, char *argv[])
 		do_read_register = 0;
 	    break;
 	}
+	case 'w':
+	    /* opt_check_once() has refused a second -w, and one -w already
+	     * takes a whole list. */
+	    writeListN = debug_parse_register_writes(optarg, writeList,
+						     DEBUG_REGISTER_WRITES_MAX,
+						     stderr);
+	    if (writeListN < 0) {
+		free(regList);
+		return 1;
+	    }
+	    break;
 	default:
 	    opt_report_bad_option(opt, argc, argv, options);
 	    free(regList);
@@ -216,9 +241,9 @@ int main(int argc, char *argv[])
 	return version_status;
     }
 
-    if (regListN == 0) {
-	fprintf(stderr, "error: -r <reg>[,<reg>[,...]] is required:"
-		" at least one register to read\n");
+    if (regListN == 0 && writeListN == 0) {
+	fprintf(stderr, "error: nothing to do: give -r to read registers,"
+		" or -w to write them\n");
 	if (opt_no_arguments(argc))
 	    usage(stderr);
 	free(regList);
@@ -245,18 +270,29 @@ int main(int argc, char *argv[])
 	return 1;
     }
 
+    /* Writes before reads, so that "-w %grmdm=0x0f61 -r %grmdm" reads back
+     * what it just wrote. Both run even if the other reported a failure, and
+     * exit 1 covers either: a command that asked for both should say what
+     * happened to both. */
+    if (writeListN > 0)
+	r = debug_write_registers(write_register, ut->devh, writeList,
+	                          writeListN, stderr);
+
     /* Exit 0 only if every read succeeded; this used to return the last
      * register's value (or error) as the exit status. */
-    if (do_read_register >= 0)
-	r = debug_read_registers(read_register, ut->devh, regList, regListN,
-	                         verbose, stdout, stderr);
+    if (do_read_register >= 0) {
+	if (debug_read_registers(read_register, ut->devh, regList, regListN,
+	                         verbose, stdout, stderr) != 0)
+	    r = 1;
+    }
 
     free(regList);
     /* Release the handle without sending STOP, as ubertooth-util does, so the
-     * device's radio state is left as the tool found it: this one only reads
-     * registers. Releasing the interface is still a request to the device;
-     * what is avoided is cmd_stop, which would take the radio through
-     * cc2400_idle() and reset the channel. */
+     * device's radio state is left as this tool leaves it. Releasing the
+     * interface is still a request to the device; what is avoided is
+     * cmd_stop, which would take the radio through cc2400_idle() and reset
+     * the channel -- and throw away everything -w has just written, which is
+     * what a generic capture started afterwards is meant to read with. */
     ubertooth_close(ut);
     ubertooth_free(ut);
 

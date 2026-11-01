@@ -88,6 +88,7 @@
     "range": "one end of the frequency range a sweep covers",
     "squelch": "sets the squelch level",
     "capture": "writes what was captured to a file, or to standard output for a lone \"-\"",
+    "generic": "takes the modulation already in the radio instead of programming one",
     "replay": "replays a capture from a file instead of taking one",
     "filter": "narrows what the capture keeps",
     "verify": "checks the packets it captured rather than only recording them",
@@ -274,9 +275,9 @@
     "ubertooth-debug": {
       "man": "ubertooth-debug.md",
       "report_marker": "libubertooth",
-      "optstring": ":hVU:r:v:",
-      "requires_all": ["-r"],
-      "requires_all_error": "error: -r <reg>[,<reg>[,...]] is required: at least one register to read",
+      "optstring": ":hVU:r:w:v:",
+      "work_options": ["-r", "-w"],
+      "nothing_to_do": "error: nothing to do: give -r to read registers, or -w to write them",
       "options": {
         "-V": {"value": "none", "role": "report",
                "doc": "the host tools' version, then each attached board's firmware version and build"},
@@ -285,6 +286,12 @@
                "valid": ["0x02", "0x02,%main", "0x00-0x05", "%main"],
                "invalid": [["0x100", "error: register address must be 0x00-0xff (got 0x100)"],
                            ["%nosuch", "error: register list must be names or addresses, single or as a range: unknown name (got %nosuch)"]]},
+        "-w": {"value": "required", "role": "work",
+               "valid": ["%grmdm=0x0f61", "0x03=0x0029", "0x20=0x0f61,0x03=0x0029", "20=41"],
+               "invalid": [["%grmdm", "error: register write must be <reg>=<value> (got %grmdm in %grmdm)"],
+                           ["%nosuch=1", "error: no CC2400 register is called %nosuch (in %nosuch=1)"],
+                           ["0x100=1", "error: register address must be 0x00-0xff (got 0x100 in 0x100=1)"],
+                           ["0x20=0x10000", "error: register value must be 0x0000-0xffff (got 0x10000 in 0x20=0x10000)"]]},
         "-v": {"value": "required", "role": "modifier", "valid": ["0", "1", "2"],
                "invalid": [["3", "error: verbosity must be 0-2 (got 3)"],
                            ["abc", "error: verbosity must be 0-2 (got abc)"]]},
@@ -293,7 +300,10 @@
       "combinations": [
         {"args": ["-r", "0x02", "-r", "0x02,%main"], "verdict": "refused",
          "error": "error: option '-r' given more than once",
-         "source": "ubertooth-debug.md OPTIONS, -r: one -r takes the whole list, and a second one used to replace the first one's registers without a word (ubertooth(7), OPTION VALUES)"}
+         "source": "ubertooth-debug.md OPTIONS, -r: one -r takes the whole list, and a second one used to replace the first one's registers without a word (ubertooth(7), OPTION VALUES)"},
+        {"args": ["-w", "%grmdm=0x0f61", "-w", "0x03=0x0029"], "verdict": "refused",
+         "error": "error: option '-w' given more than once",
+         "source": "ubertooth-debug.md OPTIONS, -w: one -w takes the whole list (ubertooth(7), OPTION VALUES)"}
       ]
     },
 
@@ -377,12 +387,14 @@
     "ubertooth-dump": {
       "man": "ubertooth-dump.md",
       "report_marker": "libubertooth",
-      "optstring": ":bhVclU:d:",
+      "optstring": ":bghVclU:d:",
       "options": {
         "-V": {"value": "none", "role": "report",
                "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-h": {"value": "none", "role": "help"},
         "-b": {"value": "none", "role": "modifier", "doc": "bitstream only"},
+        "-g": {"value": "none", "role": "generic",
+               "doc": "the generic receive (experimental), which demodulates with the CC2400 configuration already in the radio"},
         "-c": {"value": "none", "role": "modulation", "doc": "classic modulation"},
         "-l": {"value": "none", "role": "modulation", "doc": "LE modulation"},
         "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],
@@ -401,7 +413,10 @@
       "pair_rules": [
         {"a": "role:modulation", "b": "role:modulation", "verdict": "refused",
          "error_contains": "a capture uses one modulation",
-         "source": "ubertooth-dump.md ARGUMENTS: the board demodulates one modulation at a time, so -c and -l in one command used to mean whichever came last"}
+         "source": "ubertooth-dump.md ARGUMENTS: the board demodulates one modulation at a time, so -c and -l in one command used to mean whichever came last"},
+        {"a": "role:generic", "b": "role:modulation", "verdict": "refused",
+         "error_contains": "the generic receive uses the modulation already in the radio",
+         "source": "ubertooth-dump.md ARGUMENTS: -c and -l name a demodulator for the board to program and -g says to use the one already configured, so one command cannot ask for both"}
       ]
     },
 
