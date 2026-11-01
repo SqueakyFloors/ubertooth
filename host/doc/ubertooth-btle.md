@@ -205,10 +205,12 @@ Major modes:
    access address of a connection on the channel it starts on, unless an
    earlier `ubertooth-btle -a <address>` command gave the board one to follow;
    nothing else makes it skip discovery, and `-t` is refused with it. A run
-   that discovered its own address then works the rest of the connection out
-   on 2440 MHz whatever `ubertooth-util -c` asked for, because finishing the
-   discovery leaves the board on 2441; a run handed an address stays on the
-   channel it was tuned to. As it
+   that discovered its own address works the CRC init value and the interval
+   out on 2440 MHz whatever `ubertooth-util -c` asked for, because finishing
+   the discovery leaves the board on 2441; a run handed an address keeps the
+   channel it was tuned to. Measuring the hop increment then moves the board
+   between 2404 MHz and 2406 MHz, from whichever channel the earlier stages
+   used. As it
    works a connection out it reports each parameter it has recovered: the
    access address, the CRC init value, the hop interval, and the hop increment.
    Those lines go to standard output, or to standard error once `-q -` or

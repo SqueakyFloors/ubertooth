@@ -457,10 +457,13 @@ nRF52840 DKs) plus one Ubertooth.*
 - [ ] Confirm: the packets of that connection which land on the channel the
       board is holding are recorded whole, 251-byte payloads included
 - [ ] Confirm: with the nRF52840 DKs as the endpoints, which negotiate channel
-      selection algorithm 2, the run reports the access address and the CRC
-      init value and then no interval and no increment, and never follows.
-      That is the documented limit of `-p`, not a failure of this step; see
-      ubertooth-btle(1).
+      selection algorithm 2, the run reports the access address and then no
+      interval and no increment, and never follows. That is the documented
+      limit of `-p`, not a failure of this step; see ubertooth-btle(1). Raise
+      the squelch while the board is idle first (`ubertooth-util -z-60`, which
+      gates only the discovery pass): at the default -120 dBm candidate
+      addresses from ambient traffic crowd the search and the run may not get
+      as far as the CRC init value.
 - [ ] Confirm, only with endpoints that hop with algorithm 1, which the DKs
       cannot be made to do: the hop interval is the connection's own, within a
       1.25 ms unit of what the peer says it negotiated, and the same complete

@@ -27,7 +27,8 @@ USAGE
 =====
 
 ubertooth-btle supports two major modes: connection following and
-promiscuous mode. At present time, the two modes are very similar.
+promiscuous mode. The two capture the same way once they are following a
+connection; they differ in how they come by the connection's parameters.
 
 In both modes, raw packets are hex dumped to the terminal and (if
 specified) a dump file.
@@ -135,6 +136,12 @@ data packets with contents other than 01 00:
 
     systime=1349414683 freq=2404 addr=506545d9 delta_t=693.326 ms
     0d 00 55 5d 86
+
+The frequency in those two lines is from an earlier release. Promiscuous
+mode works a connection out on 2440 MHz once it has the access address,
+whatever channel the discovery pass ran on, so the lines after the access
+address now read freq=2440; measuring the hop amount then moves between
+2404 MHz and 2406 MHz. See ubertooth-btle(1).
 
 The Ubertooth then recovers the hop interval and hop amount, finally
 entering connection following mode (as though a connect were observed).

@@ -3504,7 +3504,7 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 /* Works the hop increment out from how long the connection takes to get from
  * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
  * 1 has an increment to find. This stage is also reached only after the
- * interval measurement before it has settled, and on a connection hopping
+ * interval stage that precedes it has settled, and on a connection hopping
  * with algorithm 2 that does not happen: algorithm 2 picks each event's
  * channel from the access address, the event counter, and the channel map, so
  * the connection's visits to one channel do not repeat on the 37-event cycle
