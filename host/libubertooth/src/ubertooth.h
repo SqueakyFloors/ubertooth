@@ -134,9 +134,9 @@ typedef struct {
 	uint16_t capture_channel;
 
 	/* The piconet's upper address part (UAP) as the user stated it on the
-	 * command line, and 1 once a capture has stated one. The library gives
-	 * the UAP up in several places, none of which can know the user named
-	 * it; cb_rx() puts it back. See br_restate_stated_uap().
+	 * command line, and 1 once a capture has stated one. cb_rx() puts it
+	 * back when the library stops holding it; br_restate_stated_uap()
+	 * says why.
 	 *
 	 * Zero and not stated where no capture said one, which is also what a
 	 * replay of a capture file leaves them as. */

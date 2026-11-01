@@ -313,11 +313,9 @@ and only the clock is searched for again:
 
 The clock search then starts from the address you named rather than working
 the UAP out from the air a second time, and the records carry it as the
-reference UAP throughout. The same holds anywhere else the recovery starts
-over, which it does whenever it runs out of clock candidates; those restarts
-say nothing, and a **-u** UAP survives them too. If the UAP you gave is in
-fact wrong, nothing of that piconet will decode, and the line above says which
-UAP the tool is holding you to.
+reference UAP throughout. If the UAP you gave is in fact wrong, nothing of
+that piconet will decode, and the line above says which UAP the tool is
+holding you to.
 
 A wrong guess can also show up as silence instead. Clock recovery only offers
 candidates that agree about the low clock bits, so a guess that is wrong in the

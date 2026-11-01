@@ -937,11 +937,11 @@
   its leading zeros too, so the address it prints is one the prompt takes.
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
 
-- Fixed: `ubertooth-rx -l <lap> -u <uap>` threw away the UAP you gave it
-  whenever the clock recovery started over, and worked the UAP out from the air
-  again -- which takes packets, can settle on a wrong value, and leaves the
-  records with no reference UAP until it does. A UAP you name is now put back
-  wherever that happens, and where a clock was given up the line says so:
+- Fixed: `ubertooth-rx -l <lap> -u <uap>` threw the UAP you gave it away with
+  every clock it stopped following, and worked the UAP out from the air again
+  -- which takes packets, can settle on a wrong value, and leaves the records
+  with no reference UAP until it does. A UAP you name is now put back, and the
+  line says so:
   `warning: the clock being followed was not this piconet's; searching for its
   clock again, and putting UAP 0d back`. A capture that worked the UAP out
   itself still gives it up, and its line reads `searching for its clock and UAP

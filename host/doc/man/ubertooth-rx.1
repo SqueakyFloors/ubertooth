@@ -186,7 +186,7 @@ warning: the clock being followed was not this piconet's; searching for its cloc
 .fi
 .IP "" 0
 .P
-The clock search then starts from the address you named rather than working the UAP out from the air a second time, and the records carry it as the reference UAP throughout\. The same holds anywhere else the recovery starts over, which it does whenever it runs out of clock candidates; those restarts say nothing, and a \fB\-u\fR UAP survives them too\. If the UAP you gave is in fact wrong, nothing of that piconet will decode, and the line above says which UAP the tool is holding you to\.
+The clock search then starts from the address you named rather than working the UAP out from the air a second time, and the records carry it as the reference UAP throughout\. If the UAP you gave is in fact wrong, nothing of that piconet will decode, and the line above says which UAP the tool is holding you to\.
 .P
 A wrong guess can also show up as silence instead\. Clock recovery only offers candidates that agree about the low clock bits, so a guess that is wrong in the high ones still unwhitens and checks out every header it receives; what it gets wrong is which channel to listen on\. Such a follow lands on the piconet's channel in about one slot pair in eighteen, so nothing fails and there is nothing for the report above to count\. A follow that hears no packet of its piconet for a minute therefore has that clock given up as well, with
 .IP "" 4

@@ -1613,43 +1613,51 @@ static void br_stop_following(ubertooth_t* ut)
 }
 
 /* Puts the user's UAP back whenever the library has stopped holding it, for a
- * capture whose tool recorded one in ut->follow_uap.
+ * capture whose tool recorded one in ut->follow_uap. A UAP the user gave is
+ * not in doubt, and the library has no way to know that.
  *
- * The library drops the UAP for good reasons of its own, and in more places
- * than a clock being given up: a candidate list that winnows to nothing and a
- * remembered hop pattern that fills up both start discovery over, and
- * discovery works the UAP out from headers. What it cannot know is that this
- * capture was told the UAP, and a UAP the user gave is not in doubt.
+ * Giving a clock up is where it is really lost: libbtbb zeroes the UAP there
+ * as well as clearing its flag, so the next packet goes to the brute-force
+ * search with nothing to filter on. That search takes packets a quiet bench
+ * may not provide and can settle on a wrong value, and until it does, the
+ * clock search cannot start.
  *
- * So this is called per packet rather than only where a clock is lost. It does
- * nothing while the library still holds that same UAP, which is the usual
- * case. Without it the capture derives a UAP from the air again: that takes
- * packets a quiet bench may not provide, it can settle on a wrong value, and
- * until it does, the clock search cannot start and the records carry no
- * reference UAP for a reader to check a header against. */
+ * Called per packet, not only on those two paths, for two smaller reasons.
+ * Discovery starting over keeps the UAP but clears the flag, and one of its
+ * restarts -- the remembered hop pattern filling up -- returns before the
+ * line that would set the flag again, so the record written for that packet
+ * would carry no reference UAP for a reader to check its header against. And
+ * the flag reaches further than the drop paths do, so this does not have to
+ * track every place the library clears it.
+ *
+ * It cannot fight the library. While the UAP is held, libbtbb rules out every
+ * clock candidate whose UAP differs from it, so it never installs a different
+ * one for this to overwrite. Stated unconditionally rather than only where the
+ * library has let go: the setter writes the UAP and raises its flag and does
+ * nothing else, so on the packets where nothing was lost -- almost all of them
+ * -- it writes back what is already there. Testing first would save two stores
+ * a packet and cost a branch that no test could tell was there. */
 static void br_restate_stated_uap(const ubertooth_t* ut, btbb_piconet* pn)
 {
 	if (pn == NULL || !ut->follow_uap_stated)
 		return;
-	if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID) &&
-	    btbb_piconet_get_uap(pn) == ut->follow_uap)
-		return;
 	btbb_piconet_set_uap(pn, ut->follow_uap);
 }
 
-/* What a clock-given-up warning says about the UAP, as the tail of its line.
+/* Writes what a clock-given-up warning says about the UAP, as the tail of its
+ * line.
  *
  * Where the user gave one it is named, and the line says it is being put
  * back rather than kept: on the lost-lock path libbtbb has already said on
  * this same stream that the clock and the UAP both went, so a line claiming
  * the UAP was never dropped would contradict the one above it. */
-static const char* br_uap_tail(const ubertooth_t* ut, char* buf, size_t len)
+static void br_uap_tail(const ubertooth_t* ut, char* buf, size_t len)
 {
-	if (!ut->follow_uap_stated)
-		return "its clock and UAP again";
-	snprintf(buf, len, "its clock again, and putting UAP %02x back",
-	         ut->follow_uap);
-	return buf;
+	if (ut->follow_uap_stated)
+		snprintf(buf, len, "its clock again, and putting UAP %02x back",
+		         ut->follow_uap);
+	else
+		snprintf(buf, len, "its clock and UAP again");
 }
 
 long ubertooth_clock_search_ms(void)
@@ -1687,9 +1695,10 @@ int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 		 * arrive for a long time, and the clock search wants the UAP
 		 * from the first one that does. */
 		br_restate_stated_uap(ut, pn);
+		br_uap_tail(ut, tail, sizeof(tail));
 		fprintf(stderr, "warning: nothing of this piconet has been "
 		        "heard on the clock being followed; searching for "
-		        "%s\n", br_uap_tail(ut, tail, sizeof(tail)));
+		        "%s\n", tail);
 	}
 	/* So the warning is said once per clock, and a board that refused the
 	 * request is asked again at the next wait without it being
@@ -1969,9 +1978,9 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * to. */
 		char tail[64];
 
+		br_uap_tail(ut, tail, sizeof(tail));
 		fprintf(stderr, "warning: the clock being followed was not "
-		        "this piconet's; searching for %s\n",
-		        br_uap_tail(ut, tail, sizeof(tail)));
+		        "this piconet's; searching for %s\n", tail);
 		br_clock_gone = 1;
 		br_stop_following(ut);
 	}

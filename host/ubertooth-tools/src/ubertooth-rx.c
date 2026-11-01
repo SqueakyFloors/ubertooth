@@ -557,10 +557,11 @@ int main(int argc, char* argv[])
 			btbb_init_piconet(pn, lap);
 			if (have_uap) {
 				btbb_piconet_set_uap(pn, uap);
-				/* Kept for the callback, which states it again
-				 * when a clock is given up: the library drops
-				 * the UAP with the clock, and this one came
-				 * from the user rather than from the air. */
+				/* Kept for the callback, which puts it back
+				 * whenever the library stops holding it: this
+				 * UAP came from the user rather than from the
+				 * air, so it is not one of the things a
+				 * failed decode casts doubt on. */
 				ut->follow_uap = uap;
 				ut->follow_uap_stated = 1;
 				/* A board that refused this would follow
