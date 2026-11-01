@@ -82,6 +82,11 @@ byte header, 0 byte body, and 3 byte CRC.
 Promiscuous Mode
 ----------------
 
+Promiscuous mode recovers connections that hop with channel selection
+algorithm 1. A connection using algorithm 2, which Bluetooth 5.0 devices
+normally use, cannot be recovered this way: capture it from its setup with
+-f, which follows either algorithm. See ubertooth-btle(1).
+
 Set your Ubertooth to your favorite data channel:
 
     ubertooth-util -c2404
@@ -199,6 +204,13 @@ We use a lookup table to map this value to the hop amount.
 At this point, we have all four values needed to follow a connection,
 and we enter connection following mode as though we observed the initial
 connect packet.
+
+A hop amount exists only under channel selection algorithm 1. Algorithm 2
+works each connection event's channel out from the access address and the
+event counter, so there is no hop amount to recover and this method does
+not reach such a connection. Connection following handles both
+algorithms, because the advertising and connect packets say which one the
+connection chose.
 
 
 BUGS

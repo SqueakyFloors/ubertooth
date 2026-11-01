@@ -3501,6 +3501,14 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 #define LE_PROMISC_MAX_GAP \
 	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_BASECLK)
 
+/* Works the hop increment out from how long the connection takes to get from
+ * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
+ * 1 has an increment to find: algorithm 2 takes each event's channel from the
+ * access address and the event counter, so a connection using it returns to a
+ * channel at no fixed spacing, and neither this measurement nor the interval
+ * one before it settles on such a connection. It is captured from its setup
+ * instead, by follow mode, which reads the algorithm out of the advertising
+ * and connect packets. */
 void promisc_recover_hop_increment(u8 *packet) {
 	/* The interval the span below is divided by. The estimator hands over
 	 * nothing outside the range a connection may use, but the division is

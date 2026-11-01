@@ -61,6 +61,20 @@ Promiscuous mode is an experimental mode for sniffing connections after
 they have already been established. This mode can be used to sniff
 long-lived connections.
 
+Promiscuous mode recovers connections that hop with algorithm 1 only. The
+two parameters it has to work out, the connection interval and the hop
+increment, are both measured from how long the connection takes to come
+back to the channel being listened on, and under algorithm 1 that is a
+fixed number of connection events. Algorithm 2 takes each connection
+event's channel from the access address and the event counter instead, so
+the connection comes back at no fixed spacing and neither measurement
+settles. On such a connection promiscuous mode gets as far as the access
+address and the CRC init value and stops there: it reports no hop interval
+and no hop increment, and captures only the packets that happen to land on
+the channel it is sitting on. Bluetooth 5.0 devices normally use algorithm
+2, so capture such a connection from its setup with `-f`, which hops with
+either algorithm.
+
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
 mode to use, use follow mode.
@@ -178,17 +192,21 @@ Major modes:
  - `-n` :
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
-   Promiscuous mode: sniff already-established connections. It sets no channel
-   of its own: it listens on the one the board is holding, 2441 MHz unless
-   `ubertooth-util -c` left it on another frequency. It discovers the
-   access address of a connection on that channel, unless an earlier
-   `ubertooth-btle -a <address>` command gave the board one to follow; nothing
-   else makes it skip discovery, and `-t` is refused with it. As it works a
-   connection out it reports each parameter it has recovered: the access
-   address, the CRC init value, the hop interval and the hop increment. Those
-   lines go to standard output, or to standard error once `-q -` or `-c -` has
-   taken standard output, so a capture written to a file still says which
-   connection it is of.
+   Promiscuous mode: sniff already-established connections that hop with
+   channel selection algorithm 1. An algorithm-2 connection, which is what
+   Bluetooth 5.0 devices normally use, is not recovered: use `-f` and capture
+   it from its setup instead. See DESCRIPTION.
+
+   It sets no channel of its own: it listens on the one the board is holding,
+   2441 MHz unless `ubertooth-util -c` left it on another frequency. It
+   discovers the access address of a connection on that channel, unless an
+   earlier `ubertooth-btle -a <address>` command gave the board one to follow;
+   nothing else makes it skip discovery, and `-t` is refused with it. As it
+   works a connection out it reports each parameter it has recovered: the
+   access address, the CRC init value, the hop interval and the hop increment.
+   Those lines go to standard output, or to standard error once `-q -` or
+   `-c -` has taken standard output, so a capture written to a file still says
+   which connection it is of.
 
    The hop interval is not read off the air; it is worked out by timing how
    long the connection takes to come back to the channel being listened on.
