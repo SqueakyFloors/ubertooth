@@ -3911,7 +3911,16 @@ static int promisc_try_csa2(u32 sighting) {
 	/* Hop to the channel of the next connection event, a little before it
 	 * starts: the receiver then sits on that channel for the whole event.
 	 * An event already this close is skipped, because the hop cannot be
-	 * scheduled finer than the 1.25 ms the interval timer counts in. */
+	 * scheduled finer than the 1.25 ms the interval timer counts in.
+	 *
+	 * How close to the event's start this lands: the sighting is a
+	 * packet's arrival, which is at the event's start or up to
+	 * LE_CSA2_SIGHTING_SPREAD after it, the division below rounds the wait
+	 * down, and the timer's own grid can add up to another 1.25 ms. So the
+	 * hop happens within a few milliseconds either side of the boundary,
+	 * inside an event of at least 7.5 ms, and the count of whole intervals
+	 * above is unaffected unless the sighting sat within those few
+	 * milliseconds of the next boundary -- which the skip below is for. */
 	events_ahead = 1;
 	if (to_next_event < LE_BASECLK) {
 		to_next_event += unit;

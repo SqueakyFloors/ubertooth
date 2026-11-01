@@ -455,6 +455,17 @@ int le_same_span(u32 a, u32 b) {
 	return apart <= le_gap_tolerance(shorter);
 }
 
+/* Are these two spans the same one, read twice, allowing for which packet of
+ * an event each sighting was? Only the algorithm-2 search needs the second
+ * allowance: the estimator it shares le_same_span() with looks for a pattern
+ * the gaps repeat rather than measuring each one against an interval. */
+static int le_csa2_same_span(u32 a, u32 b) {
+	u32 shorter = a < b ? a : b;
+	u32 apart = a < b ? b - a : a - b;
+
+	return apart <= le_gap_tolerance(shorter) + LE_CSA2_SIGHTING_SPREAD;
+}
+
 /* Does every one of these gaps span an even number of connection events of
  * this interval? A gap the interval does not divide at all answers no. */
 static int le_csa2_events_all_even(const u32 *gap, unsigned gap_count,
@@ -470,7 +481,7 @@ static int le_csa2_events_all_even(const u32 *gap, unsigned gap_count,
 
 		events = LE_DIVIDE_ROUND(gap[i], unit);
 		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP ||
-				!le_same_span(gap[i], events * unit))
+				!le_csa2_same_span(gap[i], events * unit))
 			return 0;
 		if ((events & 1) != 0)
 			return 0;
@@ -500,7 +511,7 @@ static unsigned le_csa2_interval_score(const u32 *gap, unsigned gap_count,
 		events = LE_DIVIDE_ROUND(gap[i], unit);
 		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP)
 			continue;
-		if (le_same_span(gap[i], events * unit))
+		if (le_csa2_same_span(gap[i], events * unit))
 			++score;
 	}
 
@@ -746,7 +757,7 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 
 		events = LE_DIVIDE_ROUND(gap[i], unit);
 		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP ||
-				!le_same_span(gap[i], events * unit))
+				!le_csa2_same_span(gap[i], events * unit))
 			break;
 		back[count] = (uint16_t)(back[count - 1] + events);
 		++count;

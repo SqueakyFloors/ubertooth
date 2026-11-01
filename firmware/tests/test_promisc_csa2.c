@@ -120,6 +120,14 @@ static void full_map(le_channel_remapping_t *remapping)
  * the connection's clock against the board's. `drop_nth` silences one
  * sighting in that many, standing for a packet the board did not hear; 0
  * silences none.
+ *
+ * A sighting is stamped a little after its connection event begins, by a
+ * different amount each time. What the board times is the arrival of a
+ * packet, and which packet of the event it hears varies: the central's comes
+ * first, at the event's start, and the peripheral's answer 150 microseconds
+ * later plus however long the central's packet took -- up to about a
+ * millisecond for a full one on the 1M PHY. So the gaps the search works from
+ * are not exact multiples of the interval even with a perfect clock.
  */
 static void collect_from(struct sightings *s, u32 access_address,
                          uint16_t interval, uint16_t first_counter,
@@ -153,7 +161,10 @@ static void collect_from(struct sightings *s, u32 access_address,
 		if (drop_nth != 0 && seen % drop_nth == 0)
 			continue;
 
-		stamp = (uint64_t)((double)event * unit + 0.5);
+		/* Where in its event this sighting was heard. The sequence is
+		 * arbitrary rather than random, so a failure is reproducible. */
+		stamp = (uint64_t)((double)event * unit + 0.5) +
+				(uint64_t)(((event * 7919u) % 11u) * 1000u);
 
 		/* Sightings the mode has already searched from and found
 		 * nothing in: the ring has slid past them. */

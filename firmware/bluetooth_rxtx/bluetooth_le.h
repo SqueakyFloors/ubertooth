@@ -159,6 +159,23 @@ u32 le_gap_tolerance(u32 span);
 int le_same_span(u32 a, u32 b);
 
 /*
+ * How late a sighting can be against the start of the connection event it
+ * belongs to, in the 100 ns ticks the capture clock counts.
+ *
+ * What the board times is a packet's arrival, and which packet of an event it
+ * hears varies. The central's comes at the event's start; the peripheral's
+ * answer follows a 150 microsecond gap and however long the central's packet
+ * took, which is up to 2.1 ms for the longest the 1M PHY carries. So the gap
+ * between two sightings is not an exact number of connection intervals even
+ * with a clock that keeps perfect time, and the search allows for the
+ * difference on top of the clock's own.
+ *
+ * It has to stay under half the shortest interval, 3.75 ms, or the number of
+ * events a gap spans would stop being the nearest whole number.
+ */
+#define LE_CSA2_SIGHTING_SPREAD 25000u
+
+/*
  * Passive recovery of a connection that hops with channel selection
  * algorithm 2 (Core 5.4, Vol 6, Part B, 4.5.8.3), from packets heard on one
  * data channel.
@@ -199,10 +216,6 @@ int le_same_span(u32 a, u32 b);
  * beat the best other counter. A wrong counter puts a predicted visit on this
  * channel about once in 37 events, so these two leave the chance of adopting
  * one well under a percent. */
-/* How many of the newest gaps the test for an interval the connection has
- * left behind looks at; see le_csa2_recover(). */
-#define LE_CSA2_DOUBLE_PROBE 4
-
 #define LE_CSA2_MIN_SCORE 10
 #define LE_CSA2_MIN_MARGIN 3
 
