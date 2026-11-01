@@ -232,10 +232,10 @@ int le_same_span(u32 a, u32 b);
  * the events whose channel the map did not move, and a run of events it cannot
  * hear says nothing about whether the connection is still there. The runs are
  * not short: they are a property of the access address and the map rather than
- * chance, and the longest one among the connections this search will adopt an
- * answer for was 58 events when it was counted on the real channel sequences
- * (test_promisc_csa2.c counts them again and fails if a run reaches this
- * figure).
+ * chance. This figure is above the longest such run counted on the real
+ * channel sequences of the connections this search adopts an answer for, with
+ * room to spare (test_promisc_csa2.c counts them again and fails if a run
+ * reaches it).
  *
  * So this is what the mode waits on a connection that really has gone: a few
  * seconds at a short interval, where the five-second floor wins anyway, and
