@@ -253,10 +253,8 @@ int libusb_reset_device(struct libusb_device_handle *h)
  * installed, and a flag it would set is read on the tool's own thread. A case
  * raises the flag by the sleep count rather than by a real signal, so the
  * moment it arrives is the same on every run. */
-void register_cleanup_handler(ubertooth_t *ut, int do_exit)
+void ubertooth_catch_stop_signals(void)
 {
-	(void)ut;
-	(void)do_exit;
 	fake.cleanup_handlers++;
 }
 

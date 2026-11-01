@@ -27,6 +27,23 @@
 #include "ubertooth_le_frag.h"
 #include <btbb.h>
 
+/* Marks a declaration below as superseded, so a program that still calls it
+ * is told at compile time what to call instead. GCC and Clang have the
+ * attribute; on any other compiler this expands to nothing and the only
+ * notice is the comment above the declaration.
+ *
+ * Remove this along with the last declaration that uses it, so an installed
+ * header does not carry a macro nothing needs. Defined only if the including
+ * program has not defined the name itself, because this header is installed
+ * and the name is a plain one. */
+#ifndef UBERTOOTH_DEPRECATED
+#if defined(__GNUC__) || defined(__clang__)
+#define UBERTOOTH_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#else
+#define UBERTOOTH_DEPRECATED(msg)
+#endif
+#endif
+
 /* specan output types
  * see https://github.com/dkogan/feedgnuplot for plotter */
 enum specan_modes {
@@ -437,14 +454,27 @@ int ubertooth_stop_requested(void);
  * a negative result. */
 int ubertooth_open_stopped(void);
 
-/* ubertooth_catch_stop_signals(), plus the handle for the do_exit = 1 form of
- * the handlers. The host tools call ubertooth_catch_stop_signals() above
- * instead, because they install the handlers before they have a handle; this
- * stays for a caller outside this repository that holds one, and do_exit = 1
- * is not a form to choose (see cleanup_exit() in ubertooth.c).
+/* Deprecated: call ubertooth_catch_stop_signals() above instead. It is still
+ * exported, so a program that calls it builds and links against this release,
+ * though a build with -Werror stops on the warning. It is removed in the
+ * release after this one.
+ *
+ * It is ubertooth_catch_stop_signals(), plus a copy of ut the library keeps
+ * for the do_exit = 1 form of the handlers. Nothing in this repository needs
+ * that copy: the tools install the handlers before they have a handle, and
+ * do_exit = 1 runs ubertooth_stop() from inside a signal handler, which can
+ * deadlock in libusb (see cleanup_exit() in ubertooth.c), so it is not a form
+ * to choose. What replaces each part:
+ *
+ *   register_cleanup_handler(ut, 0)  ->  ubertooth_catch_stop_signals()
+ *   register_cleanup_handler(ut, 1)  ->  ubertooth_catch_stop_signals(), then
+ *                                        end the run on the caller's own
+ *                                        thread when ubertooth_stopping()
+ *                                        reports the stop
  *
  * The library keeps ut until ubertooth_free() gives it back, so nothing the
  * caller has to unregister: free the handle and the handlers let go of it. */
+UBERTOOTH_DEPRECATED("use ubertooth_catch_stop_signals()")
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 
 /* 1 once this capture should stop, which is how a receive loop asks. It covers

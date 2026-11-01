@@ -1402,7 +1402,7 @@ int main(int argc, char *argv[])
 		 * tool's own thread, as every other ending of the wait stops it.
 		 * Installed before the test is started, so a signal arriving while
 		 * the start request is in flight is caught as well. */
-		register_cleanup_handler(ut, 0);
+		ubertooth_catch_stop_signals();
 		fprintf(stderr, "Starting range test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		started = cmd_range_test(ut->devh);

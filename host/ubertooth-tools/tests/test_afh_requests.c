@@ -818,7 +818,7 @@ MU_TEST(an_interrupt_during_detection_ends_the_run)
 	mark_a_channel_seen(pn);
 	/* The handlers ubertooth-afh installs before it calls rx_afh(), so the
 	 * interrupt below is caught rather than ending the test process. */
-	register_cleanup_handler(ut, 0);
+	ubertooth_catch_stop_signals();
 	stop_with_signal = SIGINT;
 
 	capture_output();

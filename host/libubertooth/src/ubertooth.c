@@ -160,9 +160,16 @@ void print_version(void) {
 }
 
 /* The handle register_cleanup_handler() was given, for cleanup_exit() below.
- * It is the only handle the library keeps of its own, and a tool cannot reach
- * it, so ubertooth_free() clears it: a signal arriving after a tool gave its
- * handle back must not find a pointer to freed memory. */
+ * It is the only handle the library keeps of its own, and a caller cannot
+ * reach it, so ubertooth_free() clears it: a signal arriving after a caller
+ * gave its handle back must not find a pointer to freed memory.
+ *
+ * Deprecated along with register_cleanup_handler(), the only thing that sets
+ * it: this and the two functions below go with it. No tool in this repository
+ * sets it any more; a program outside it still can, until the four are
+ * removed. They carry no deprecation attribute because they are static, so
+ * nothing outside this file can reach them and the attribute would only warn
+ * on the library's own uses here. */
 static ubertooth_t* cleanup_devh = NULL;
 
 /* Forgets a handle the library was holding for its signal handlers, so the
@@ -171,7 +178,12 @@ static ubertooth_t* cleanup_devh = NULL;
  *
  * Storing a pointer is one instruction on the processors this fork builds
  * for, so a signal arriving here finds either the handle or nothing, never
- * half of either. */
+ * half of either.
+ *
+ * Deprecated along with register_cleanup_handler(): once that is gone nothing
+ * will set cleanup_devh, so there will be nothing to forget and this call in
+ * ubertooth_free() goes too. Until then it still has work to do, because a
+ * caller outside this repository can still register a handle. */
 static void forget_registered_handle(ubertooth_t* ut)
 {
 	if (cleanup_devh == ut)
@@ -226,7 +238,10 @@ void ubertooth_reset_stop_signals(void)
 	timeout_expired = 0;
 }
 
-/* Unreachable: no tool passes do_exit = 1 to register_cleanup_handler(), and
+/* Deprecated along with register_cleanup_handler(), which is the only thing
+ * that installs it.
+ *
+ * Unreachable: no tool passes do_exit = 1 to register_cleanup_handler(), and
  * none should while this runs ubertooth_stop() from a signal handler.
  * ubertooth_stop() finishes the receive transfer, which means a libusb event
  * loop and libusb's own locks; entering those from a handler can deadlock
@@ -265,6 +280,8 @@ void ubertooth_catch_stop_signals(void)
 	signal(SIGALRM, cleanup);
 }
 
+/* Deprecated; documented with the declaration in ubertooth.h. The attribute
+ * there reports calls, and a definition is not one, so this does not warn. */
 void register_cleanup_handler(ubertooth_t* ut, int do_exit) {
 	cleanup_devh = ut;
 

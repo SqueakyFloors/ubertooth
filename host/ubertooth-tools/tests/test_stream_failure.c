@@ -982,7 +982,7 @@ MU_TEST(an_interrupt_is_not_a_failure)
 	fake.event = EVENT_INTERRUPT;
 	ut = new_handle();
 	mu_assert_fatal(ut != NULL, "a handle");
-	register_cleanup_handler(ut, 0);
+	ubertooth_catch_stop_signals();
 
 	capture_output();
 	rx_dump(ut, 1);

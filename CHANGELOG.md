@@ -632,6 +632,13 @@
 
 ### Build and compatibility
 
+- libubertooth's `register_cleanup_handler()` is deprecated in favor of
+  `ubertooth_catch_stop_signals()`, which installs the same stop handlers
+  without needing a device handle. It is still exported, so a program of your
+  own that calls it builds and links against this release; GCC and Clang now
+  name the replacement in a warning, which a build with `-Werror` will stop
+  on. It is removed in the release after this one.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - `./install.sh` installs on Fedora. It used to stop on any Linux without
   `apt-get`; it now finds `dnf` and asks it for the same dependencies under
   Fedora's names, the ARM toolchain for `--with-firmware` included, and the
