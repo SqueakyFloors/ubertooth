@@ -2816,6 +2816,7 @@ Fixes with no visible change in normal use.
   rather than ending the command with the USB code for it. A board still
   re-enumerating is looked for again, as the matching search for a board
   running its application already did.
+
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
