@@ -149,6 +149,67 @@ LLID_TO_STR = {
 	LLID_LMP:		"LMP"
 }
 
+# The L2CAP signalling channel and the two codes of the echo procedure
+# (Core v5.4 | Vol 3, Part A, 4, 4.8, and 4.9). An echo request has to be
+# answered with a response carrying the same identifier, which is what makes
+# `l2ping` see a reply.
+L2CAP_CID_SIGNALLING	= 1
+L2CAP_ECHO_REQ		= 0x08
+L2CAP_ECHO_RSP		= 0x09
+
+def l2cap_signalling_packet(code, identifier, data=b""):
+	"""One L2CAP packet on the signalling channel, ready for an ACL payload."""
+	command = pack("<BBH", code, identifier, len(data)) + data
+	return pack("<HH", len(command), L2CAP_CID_SIGNALLING) + command
+
+def acl_payload(acl):
+	"""The bytes a received ACL packet's own payload header says it carries.
+
+	A packet is padded out to the size of the packet kind that carried it, so
+	what follows the payload is not data the sender put there. For a packet
+	built here rather than received there is no padding and no declared
+	length, and the data is all of it.
+	"""
+	if acl.raw_data is None:
+		return acl.data
+	return acl.data[:max(acl.raw_size - acl.hlen, 0)]
+
+def l2cap_echo_request(acl):
+	"""The identifier and data of an echo request, or None for anything else.
+
+	`acl` is a received ACL packet. Only a request that arrived whole in one
+	packet is read: the echo request `l2ping` sends is twelve bytes and fits
+	in the smallest packet the link carries, so there is nothing here to
+	reassemble a fragmented one for.
+	"""
+	if acl.llid != LLID_L2CAP_START:
+		return None
+	payload = acl_payload(acl)
+	if len(payload) < 8:
+		return None
+	length, cid = unpack("<HH", payload[:4])
+	if cid != L2CAP_CID_SIGNALLING:
+		return None
+	code, identifier, command_length = unpack("<BBH", payload[4:8])
+	if code != L2CAP_ECHO_REQ:
+		return None
+	# Zero is not a valid identifier for a command, so there is nothing to
+	# answer it under (Vol 3, Part A, 4).
+	if identifier == 0:
+		return None
+	# The L2CAP length counts the signalling command, its four-byte header
+	# and its data (Vol 3, Part A, 3.1 and 4). Anything else is a packet
+	# this reads nothing out of: a length that does not describe the command
+	# after it, or a packet carrying several commands, which the channel
+	# allows and this does not take apart.
+	if length != 4 + command_length:
+		return None
+	# A command that runs past the payload the sender declared is not one
+	# this answers: the bytes it would echo back are the packet's padding.
+	if len(payload) < 8 + command_length:
+		return None
+	return identifier, payload[8:8+command_length]
+
 def reverse8(num):
 	rev8_tbl = [
 		0x00,0x80,0x40,0xc0,0x20,0xa0,0x60,0xe0,0x10,0x90,0x50,0xd0,0x30,0xb0,0x70,0xf0,
@@ -829,9 +890,22 @@ class BTCtlInquiryScanCmd(BTCtlCmd):
 		self._done = True
 
 class BTCtlPageScanCmd(BTCtlCmd):
+	def __init__(self, bt):
+		super().__init__(bt)
+		# Set when a connection comes up and says so; until then there is no
+		# address to send a packet on.
+		self.lt_addr = None
+		# Built here rather than in _start(), as the paging command's is, so
+		# the object is whole from the moment it exists: _handle_l2cap() asks
+		# it whether the setup has finished.
+		self._lmp = LMPPeripheral(self)
+		# An echo request too big to answer is said once for the life of a
+		# connection, as an unhandled LMP opcode is: a peer whose l2ping
+		# repeats every second would otherwise get a line a second.
+		self._said_too_big = False
+
 	def _start(self):
 		self._bt.send_page_scan_cmd()
-		self._lmp = LMPPeripheral(self)
 
 	def send_acl(self, llid, data, flow=1):
 		self._bt.send_acl_cmd(llid, data, flow, self.lt_addr)
@@ -859,6 +933,11 @@ class BTCtlPageScanCmd(BTCtlCmd):
 				self._ready = True
 				self.lt_addr = lt_addr
 				log.info("Connection ready, lt_addr=%d"%self.lt_addr)
+				# A scan that went back to scanning takes the next
+				# connection on the same link manager, and its setup has
+				# not happened yet.
+				self._lmp.connection_started()
+				self._said_too_big = False
 			else:
 				log.info("Connection status %d"%reason)
 		else:
@@ -882,10 +961,35 @@ class BTCtlPageScanCmd(BTCtlCmd):
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
 		result("RX L2CAP: %s"%acl)
+		# An echo request is answered, so a peer running `l2ping` against
+		# this board sees a reply. Nothing else on the signalling
+		# channel is handled; this board offers no service to connect to.
+		request = l2cap_echo_request(acl)
+		# Nothing goes out before the link setup has finished, which is the
+		# point at which both ends have agreed the connection is open, and
+		# nothing goes out without the address a connection gives.
+		if (request is None or self.lt_addr is None
+				or not self._lmp.setup_is_complete()):
+			return
+		identifier, data = request
+		answer = l2cap_signalling_packet(L2CAP_ECHO_RSP, identifier, data)
+		# A response has to carry the request's data back, and this link
+		# sends DM1 packets: the feature mask offers no multi-slot kinds and
+		# a peer asking to send them is refused. A request too big to answer
+		# in one is left alone rather than answered in a packet the peer has
+		# not agreed to receive. `ubertooth-btbr`'s own `l2ping` sends four
+		# bytes of echo data and fits; nine is the largest that does.
+		if len(answer) > acl_type_find(DM1)[2]:
+			if not self._said_too_big:
+				self._said_too_big = True
+				warn("an L2CAP echo request carrying %s of echo data is "
+					"more than this link can answer in one packet, so it "
+					"goes unanswered"%byte_count(len(data)))
+			return
+		self.send_acl(LLID_L2CAP_START, answer)
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")
-		pass
 
 class BTCtlPagingCmd(BTCtlCmd):
 	LMP_CLS = LMPCentral
@@ -917,6 +1021,10 @@ class BTCtlPagingCmd(BTCtlCmd):
 				self._ready = True
 				self.lt_addr = lt_addr
 				log.info("Connection ready, lt_addr=%d"%self.lt_addr)
+				# A page that went back to the page train takes the next
+				# connection on the same link manager, and its setup has
+				# not happened yet.
+				self._lmp.connection_started()
 				self._lmp.start()
 			else:
 				log.info ("Connection status %d"%reason)

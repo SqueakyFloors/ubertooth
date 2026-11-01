@@ -3382,4 +3382,328 @@ assert errors == (
 
 print("ubtbr: -V and -h need no Python libusb1 package")
 
+
+# ---- the LMP setup finishes, and an echo request is answered --------------
+
+# Two boards used to sit in a connection that never finished its setup: each
+# side sent LMP_setup_complete only on receiving one, so neither sent the
+# first. 4.1.1 has each end send one and wait for the other's, and the
+# central's goes out as soon as its connection request is accepted.
+
+class CountingConnection(RecordingConnection):
+    """A connection that counts the setups reported complete."""
+
+    def __init__(self):
+        super().__init__()
+        self.setups = 0
+
+    def handle_setup_complete(self):
+        self.setups += 1
+
+
+def central_at_connection_req():
+    """A central that has asked for the connection, with nothing else sent."""
+    central = lmp.LMPCentral(CountingConnection())
+    for op, field, send in central._opening:
+        setattr(central, field, b"")
+    central.start()
+    assert opcode_of(central._con.sent[-1]) == lmp.LMP_HOST_CONNECTION_REQ, \
+        central._con.sent
+    central._con.sent.clear()
+    return central
+
+
+SETUP_COMPLETE = bytes([lmp.LMP_SETUP_COMPLETE << 1])
+ACCEPTED = bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_HOST_CONNECTION_REQ])
+
+# Accepting the connection request sends this end's LMP_setup_complete, and
+# the setup is reported complete once the peer's has arrived.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 0, central._con.setups
+central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# A peer that sends its own first, which a standard controller may do, still
+# gets this end's, and still gets exactly one.
+central = central_at_connection_req()
+central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+
+# However many the peer sends, the connection opens once: a second report
+# would have l2ping put a second echo request on the link.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+for repeat in range(3):
+    central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# An LMP_accepted that arrives while the connection request is outstanding
+# but names another procedure, or is too short to name one -- which reads as
+# opcode zero once the padding every PDU carries is counted -- leaves the
+# setup where it was.
+for accepted in (bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]),
+                 bytes([lmp.LMP_ACCEPTED << 1]),
+                 bytes([lmp.LMP_ACCEPTED << 1]) + b"\x00" * 16):
+    central = central_at_connection_req()
+    central.receive(0, accepted)
+    assert central._con.sent == [], (accepted.hex(), central._con.sent)
+    assert central._con.setups == 0, accepted.hex()
+    # the connection request is still the one outstanding, so the real
+    # LMP_accepted still works
+    central.receive(0, ACCEPTED)
+    assert [opcode_of(pdu) for pdu in central._con.sent] == \
+        [lmp.LMP_SETUP_COMPLETE], (accepted.hex(), central._con.sent)
+
+# A peer that says the setup is complete while this end is still asking it
+# about itself is answering nothing, and is ignored with a warning: the
+# connection has not been asked for, so there is no setup to finish.
+central = lmp.LMPCentral(CountingConnection())
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    central.start()
+    central._con.sent.clear()
+    central.receive(0, SETUP_COMPLETE)
+assert central._con.sent == [], central._con.sent
+assert central._con.setups == 0, central._con.setups
+assert warned.getvalue() == "warning: the peer said the setup was complete " \
+    "while LMP_FEATURES_REQ was outstanding\n", warned.getvalue()
+# It is remembered, though, so the connection opens when the request this end
+# was in the middle of has run its course, rather than the link sitting there
+# until supervision ends it.
+for op, field, send in central._opening:
+    setattr(central, field, b"")
+central.send_info_req()
+central._con.sent.clear()
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# The paged board's side sends one and opens once in the same way, which is
+# the role that answers an echo request below.
+peripheral = lmp.LMPPeripheral(CountingConnection())
+for repeat in range(3):
+    peripheral.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in peripheral._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], peripheral._con.sent
+assert peripheral._con.setups == 1, peripheral._con.setups
+
+# One session can hold more than one connection: a `page` or `page_scan` that
+# went back to paging or scanning takes the next one on the same link manager.
+# The setup belongs to the connection, so the second one's LMP_setup_complete
+# still goes out and still opens it.
+for side in (lmp.LMPCentral, lmp.LMPPeripheral):
+    link = side(CountingConnection())
+    for connection in range(2):
+        link.connection_started()
+        link._con.sent.clear()
+        if side is lmp.LMPCentral:
+            for op, field, send in link._opening:
+                setattr(link, field, b"")
+            link.start()
+            link.receive(0, ACCEPTED)
+        link.receive(0, SETUP_COMPLETE)
+        assert [opcode_of(pdu) for pdu in link._con.sent].count(
+            lmp.LMP_SETUP_COMPLETE) == 1, \
+            (side, connection, link._con.sent)
+        assert link._con.setups == connection + 1, \
+            (side, connection, link._con.setups)
+
+print("ubtbr: the central sends the first LMP_setup_complete")
+
+# The paged board answers an L2CAP echo request, so a peer running l2ping
+# against it sees a reply.
+
+ECHO_DATA = b"ECHO"
+echo_req = btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8, ECHO_DATA)
+assert btctl.l2cap_echo_request(
+    btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)) == \
+    (0xc8, ECHO_DATA), echo_req.hex()
+
+# Padding to the size of the packet that carried it is not part of the data.
+padded = btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req + b"\x00" * 5)
+assert btctl.l2cap_echo_request(padded) == (0xc8, ECHO_DATA), padded.data.hex()
+
+
+def received_dm1(payload):
+    """A DM1 as the receive path unpacks one: payload header, then padding."""
+    header = (len(payload) << 3) | (1 << 2) | btctl.LLID_L2CAP_START
+    air = bytes([header]) + payload
+    return btctl.BTCtlACLPkt.unpack(btctl.DM1, air.ljust(1 + 17, b"\x00"))
+
+
+# A request that arrived in a real packet reads the same.
+assert btctl.l2cap_echo_request(received_dm1(echo_req)) == (0xc8, ECHO_DATA)
+
+# A packet whose payload header says the data ends before the command is not
+# answered out of the padding after it: the command here claims four bytes of
+# echo data that the sender never declared.
+short_declared = received_dm1(echo_req)
+assert short_declared.raw_size == 1 + len(echo_req), short_declared.raw_size
+truncated = btctl.BTCtlACLPkt.unpack(btctl.DM1,
+    bytes([(6 << 3) | (1 << 2) | btctl.LLID_L2CAP_START])
+    + echo_req.ljust(17, b"\x00"))
+assert btctl.l2cap_echo_request(truncated) is None, truncated.data.hex()
+
+# A request whose data runs to the end of a larger packet parses; whether it
+# can be answered is a separate question, settled below.
+largest = b"y" * 44
+biggest_req = btctl.l2cap_signalling_packet(
+    btctl.L2CAP_ECHO_REQ, 0xc8, largest)
+assert btctl.l2cap_echo_request(
+    btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, biggest_req,
+        bt_type=btctl.DH5)) == (0xc8, largest), biggest_req.hex()
+
+# Identifier zero is not a valid one for a command, so there is nothing to
+# answer it under.
+assert btctl.l2cap_echo_request(btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+    btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0, ECHO_DATA))) \
+    is None
+
+# Anything that is not a whole echo request on the signalling channel is not
+# one: a continuation fragment, another channel, another code, and a packet
+# that ends before its data.
+for not_a_request in (
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_CONT, echo_req),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 4, 0x40) + echo_req[4:]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 1, b"")),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:-1]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:6]),
+        # an L2CAP length that does not cover the command it carries, so the
+        # packet does not describe the echo request shaped bytes after it
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 0, btctl.L2CAP_CID_SIGNALLING) + echo_req[4:]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 9, btctl.L2CAP_CID_SIGNALLING)
+            + echo_req[4:] + b"\x00"),
+        # a continuation fragment of a request too big to arrive in one
+        # packet, which nothing here reassembles
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_CONT, b"y" * 20)):
+    assert btctl.l2cap_echo_request(not_a_request) is None, \
+        not_a_request.data.hex()
+
+
+class ReceivedPacket:
+    """A received packet, as the command's L2CAP handler reads one."""
+
+    def __init__(self, acl):
+        self.bt_data = acl
+
+
+command = btctl.BTCtlPageScanCmd(SilentDevice())
+answered = []
+command.send_acl = lambda llid, data, flow=1: answered.append((llid, data))
+
+# Until a connection has said which address to send on there is nothing to
+# answer with, and the request is dropped rather than raising. Nor is one
+# answered before the link setup has finished, which is the point at which
+# both ends have agreed the connection is open.
+assert command.lt_addr is None, command.lt_addr
+for lt_addr in (None, 1):
+    command.lt_addr = lt_addr
+    with contextlib.redirect_stdout(io.StringIO()):
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    assert answered == [], (lt_addr, answered)
+
+# Finishing the setup sends the board's own LMP_setup_complete through the
+# same send_acl, so the recorder starts again from here.
+command._lmp.setup_complete()
+command.lt_addr = 1
+answered.clear()
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    command._handle_l2cap(ReceivedPacket(
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+assert len(answered) == 1, answered
+llid, answer = answered[0]
+assert llid == btctl.LLID_L2CAP_START, llid
+assert answer == btctl.l2cap_signalling_packet(
+    btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA), answer.hex()
+
+# A response, or anything else on the channel, is reported and not answered.
+answered.clear()
+with contextlib.redirect_stdout(io.StringIO()):
+    command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+        btctl.LLID_L2CAP_START,
+        btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA))))
+assert answered == [], answered
+
+# A reply has to fit the packets this link sends. Nine bytes of echo data is
+# the largest that does; ten would need a packet the peer has not agreed to
+# receive, so it is reported and left unanswered.
+for size, answerable in ((9, True), (10, False)):
+    answered.clear()
+    command._said_too_big = False
+    warned = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(warned):
+        command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+            btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8,
+                b"z" * size), bt_type=btctl.DH5)))
+    if answerable:
+        assert len(answered) == 1, (size, answered)
+        # the 17 bytes the man page's 9 bytes of echo data comes from
+        assert len(answered[0][1]) == 17, (size, len(answered[0][1]))
+        assert warned.getvalue() == "", warned.getvalue()
+    else:
+        assert answered == [], (size, answered)
+        assert warned.getvalue() == "warning: an L2CAP echo request " \
+            "carrying 10 bytes of echo data is more than this link can " \
+            "answer in one packet, so it goes unanswered\n", \
+            warned.getvalue()
+        # and said once for the life of the connection, not once a second
+        # for a peer whose l2ping repeats
+        again = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(again):
+            command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+                btctl.LLID_L2CAP_START,
+                btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc9,
+                    b"z" * size), bt_type=btctl.DH5)))
+        assert again.getvalue() == "", again.getvalue()
+        assert answered == [], answered
+
+# A second connection in the same page scan starts a setup of its own, so the
+# board answers on that one too. This drives the command's own state handler,
+# which is what carries the reset.
+connected = (btctl.BTCTL_STATE_CONNECTED, (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
+
+
+def l2cap_answers():
+    """What went out on the signalling channel, not the link manager's PDUs."""
+    return [data for llid, data in answered if llid == btctl.LLID_L2CAP_START]
+
+
+for connection in range(2):
+    answered.clear()
+    with contextlib.redirect_stdout(io.StringIO()):
+        command._handle_state(*connected)
+        # nothing goes out until this connection's setup has finished
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+        assert l2cap_answers() == [], (connection, answered)
+        command._lmp.receive(0, bytes([lmp.LMP_SETUP_COMPLETE << 1]))
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    assert l2cap_answers() == [btctl.l2cap_signalling_packet(
+        btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA)], (connection, answered)
+
+print("ubtbr: an L2CAP echo request is answered with a response")
+
 WORK.cleanup()
