@@ -272,7 +272,16 @@ static void page_scan_schedule(unsigned delay)
 void page_scan_state_resume(void)
 {
 	/* The connection tuned the radio and the hop sequence to the central's
-	 * address; a page scan listens on this board's own. */
+	 * address; a page scan listens on this board's own.
+	 *
+	 * The clock is left as the connection set it, which is the central's
+	 * rather than this board's own, and the paging side does cancel its
+	 * clock delay when it starts. Nothing here needs the difference: a
+	 * scan's frequency and its deadline are read from two clocks of their
+	 * own, the scan task sets this one again from every page it hears, and
+	 * which phase the scan holds is arbitrary to a pager, which sweeps all
+	 * 32 of them every 1.28 seconds. Putting the board's own clock back
+	 * would be a change to the page response's timing. */
 	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
 	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_TIMEOUT);
 	page_scan_schedule(0);

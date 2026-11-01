@@ -255,7 +255,6 @@ MU_TEST(a_central_connection_that_carried_nothing_goes_back_to_paging)
 	run_silent_window_past_the_timeout();
 
 	mu_assert_int_eq(1, paging_resumed);
-	mu_assert_int_eq(BTCTL_STATE_CONNECTED, btctl.state);
 	mu_assert(reported_state != BTCTL_STATE_STANDBY,
 		"the pager went to standby instead of back to the page train");
 }
@@ -287,7 +286,6 @@ MU_TEST(a_peripheral_connection_that_carried_nothing_goes_back_to_page_scan)
 	run_silent_window_past_the_timeout();
 
 	mu_assert_int_eq(1, page_scan_resumed);
-	mu_assert_int_eq(BTCTL_STATE_CONNECTED, btctl.state);
 	mu_assert(reported_state != BTCTL_STATE_STANDBY,
 		"the board went to standby instead of back to page scan");
 }

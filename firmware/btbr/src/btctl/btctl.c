@@ -344,7 +344,8 @@ void btctl_send_state_resp(btctl_state_t state, btctl_reason_t reason)
 	btctl_tx_enqueue(msg);
 }
 
-static inline int btctl_state_transition_valid(btctl_state_t cur, btctl_state_t next)
+static inline int btctl_state_transition_valid(btctl_state_t cur,
+			btctl_state_t next, btctl_reason_t reason)
 {
 	/* All states can go standby */
 	if (next == BTCTL_STATE_STANDBY)
@@ -356,10 +357,16 @@ static inline int btctl_state_transition_valid(btctl_state_t cur, btctl_state_t 
 			|| cur == BTCTL_STATE_CONNECTED;
 	/* A connection that carried no packet goes back to the page or the page
 	 * scan it came from, which still has its own deadline left to run
-	 * (paging_state_resume(), page_scan_state_resume()). */
+	 * (paging_state_resume(), page_scan_state_resume()). Only those two:
+	 * they report the reason the connection ended, where a page or a scan
+	 * the host has just asked for reports success. So a request to start
+	 * one while a connection is up is still refused here, which is what
+	 * keeps it from arming a second receive window on top of the
+	 * connection's. */
 	if (next == BTCTL_STATE_PAGE || next == BTCTL_STATE_PAGE_SCAN)
 		return cur == BTCTL_STATE_STANDBY
-			|| cur == BTCTL_STATE_CONNECTED;
+			|| (cur == BTCTL_STATE_CONNECTED
+				&& reason != BTCTL_REASON_SUCCESS);
 	/* Others states must come from standby */
 	return cur == BTCTL_STATE_STANDBY;
 }
@@ -395,7 +402,7 @@ void btctl_set_state(btctl_state_t state, btctl_reason_t reason)
 		btctl_state_name(state));
 #endif
 
-	if (!btctl_state_transition_valid(old_state, state))
+	if (!btctl_state_transition_valid(old_state, state, reason))
 	{
 		irq_restore(flags);
 		DIE("Invalid state transition %s -> %s\n",

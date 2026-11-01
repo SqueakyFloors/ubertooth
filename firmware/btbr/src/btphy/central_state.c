@@ -59,11 +59,14 @@ static int central_rx_cb(msg_t *msg, void *arg, int time_offset)
 
 	if (rc < 0)
 	{
-		/* A connection that never carried a packet had no peer on it:
-		 * what this board took for the paged device's acknowledgment
-		 * was another ID packet on the air. The page attempt it came
-		 * from has its own deadline left to run, so go back to the
-		 * page train rather than end the attempt here. */
+		/* A connection that never carried a packet usually had no peer
+		 * on it: what this board took for the paged device's
+		 * acknowledgment was another ID packet on the air. It can also
+		 * be a real peer whose every reply was lost for the whole
+		 * supervision second, and paging it again is the right answer
+		 * to that too. Either way the page attempt this came from has
+		 * its own deadline left to run, so go back to the page train
+		 * rather than end the attempt here. */
 		int had_peer = central_state.ll.is_connected;
 
 		ll_reset(&central_state.ll);
