@@ -859,6 +859,17 @@
   diagnostic the encoding could not take used to silence standard error for
   the rest of the session.
 
+- Fixed: `ubertooth-btbr`'s `l2ping` never reached its L2CAP packet when the
+  device it paged was another Ubertooth. The two boards connected and then sat
+  there, because each side sent `LMP_setup_complete` only on receiving one, so
+  neither sent the first and the link setup never finished. The central now
+  sends its own as soon as its connection request is accepted, and a board in
+  `page_scan`, which `discoverable` also runs, answers an L2CAP echo request
+  small enough to reply to in the packets this link sends, so `l2ping` between
+  two boards sees a reply. A request larger than that is not
+  answered; ubertooth-btbr(1), LIMITATIONS says how large it may be.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
   the user asked for unused. A pager cannot tell the ID packet that

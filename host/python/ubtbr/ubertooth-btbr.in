@@ -333,15 +333,9 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 		self._l2cap_command_id = 0xc8
 
 	def _send_l2cap_echo_req(self, data=b"ECHO"):
-		echo_req = (p8(8)	# command code 2: echo req
-			+p8(self._l2cap_command_id)
-			+p16(len(data))	# command length
-			+data)
-		pdu = (p16(len(echo_req))
-			+ p16(1)	# cid l2cap sig channel
-			+ echo_req)
-		
-		self.send_acl(LLID_L2CAP_START, pdu)
+		self.send_acl(LLID_L2CAP_START,
+			l2cap_signalling_packet(L2CAP_ECHO_REQ,
+				self._l2cap_command_id, data))
 
 		self._l2cap_command_id += 1
 		if self._l2cap_command_id > 0xff:

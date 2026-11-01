@@ -134,7 +134,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
    accept a connection from a device that pages this board; a standard
    Classic controller usually gets through in a few seconds, and another
    Ubertooth on the same bench needs its transmit level turned down first,
-   as does this one; see TWO BOARDS CLOSE TOGETHER
+   as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this
+   way answers a small L2CAP echo request, so `l2ping` from another Ubertooth
+   sees a reply (see LIMITATIONS for how small)
  - `discoverable` :
    `inquiry_scan` and `page_scan` together
  - `page <BD_ADDR>` :
@@ -219,6 +221,13 @@ If no FHS appears, the peripheral won the race; try again.
 - Encryption is not implemented. Packets sent after a connection turns
   encryption on are reported as raw data, and the AFH map stops being
   followed, because the LMP packet carrying it is encrypted too.
+- An L2CAP echo request is answered when the whole request arrived in one
+  packet and the reply fits one too, which leaves room for 9 bytes of echo
+  data. `l2ping` here sends 4 and gets a reply. A larger request is not
+  reassembled from the fragments it arrives in and is not answered, so a
+  standard host's `l2ping`, which sends 44 bytes of data by default, gets no
+  reply unless it is asked for a smaller payload. The packets it sends are
+  still reported, as every received packet is.
 - The link layer carries Asynchronous Connection-Less (ACL) traffic only, and
   does not do role switching or the LMP procedures around it. A peer asking to
   send multi-slot packets is refused as well, and the feature mask this end
