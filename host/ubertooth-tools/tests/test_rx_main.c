@@ -576,9 +576,9 @@ MU_TEST(a_capture_on_standard_output_gets_the_stream_and_its_header)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(memcmp(r.out, HEADER_START, sizeof(HEADER_START)) == 0,
 	          "standard output starts with the PCAP header");
-	/* The survey results are what this run was asked for, and the capture
-	 * has taken standard output, so they join the heading on standard
-	 * error. */
+	/* The survey report is on standard error, where the capture has not
+	 * taken the stream. This board heard no address; test_rx_uap_record.py
+	 * replays one and checks that it joins the heading there. */
 	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
 }
 
@@ -632,6 +632,7 @@ MU_TEST(a_survey_whose_teardown_was_refused_still_prints_its_results)
 
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 }
 
 /* A run refused for its firmware creates no capture file: an empty one left
@@ -782,6 +783,7 @@ MU_TEST(a_survey_whose_stream_died_still_prints_its_results)
 
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "Survey Results") != NULL, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(strstr(r.err, "error: receive transfer failed") != NULL, r.err);
 }
 

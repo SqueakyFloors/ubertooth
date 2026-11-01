@@ -254,7 +254,7 @@ A record also carries flags for what the decoder verified, whether the header ch
 .SH "CAPTURING TO STANDARD OUTPUT"
 \fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw records, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the per\-packet report is not printed; the packets themselves are in the capture\.
 .P
-What the run works out still arrives, on standard error: the UAP the decoder recovers (\fBCorrect CRC! UAP = 0x22 found after 31 total packets\.\fR), the clock it goes on to recover from that UAP, the notes, the warnings, the failures, and the survey results of \fB\-z\fR, which is what that mode was asked for\. So \fBubertooth\-rx \-l 446688 \-q \- > capture\.pcap\fR reports the UAP it found while the capture goes to the file\.
+What the run works out still arrives, on standard error: the UAP the decoder recovers (\fBCorrect CRC! UAP = 0x22 found after 31 total packets\.\fR), the clock it goes on to recover from that UAP, the notes, the warnings, the failures, and the survey results of \fB\-z\fR below their heading, since the addresses are what that mode was asked for\. So \fBubertooth\-rx \-l 446688 \-q \- > capture\.pcap\fR reports the UAP it found while the capture goes to the file\.
 .P
 Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-rx \-q \- >> capture\.pcap\fR loses what the file held\.
 .P

@@ -526,7 +526,8 @@ themselves are in the capture.
 What the run works out still arrives, on standard error: the UAP the decoder
 recovers (`Correct CRC! UAP = 0x22 found after 31 total packets.`), the clock
 it goes on to recover from that UAP, the notes, the warnings, the failures,
-and the survey results of `-z`, which is what that mode was asked for. So
+and the survey results of `-z` below their heading, since the addresses are
+what that mode was asked for. So
 `ubertooth-rx -l 446688 -q - > capture.pcap` reports the UAP it found while
 the capture goes to the file.
 

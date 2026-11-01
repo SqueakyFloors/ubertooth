@@ -302,7 +302,7 @@
 - **Script-visible change:** `ubertooth-rx -z` prints its `Survey Results`
   heading on standard error, so a survey collected in a file or piped into
   another program holds the addresses alone. The heading was on standard
-  output above them, the way `ubertooth-scan` used to print `Scan results:`.
+  output above them, as `ubertooth-scan`'s `Scan results:` also used to be.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - **Script-visible change:** a `ubertooth-scan` run collected in a file or
   piped into another program no longer picks up its three headings, the

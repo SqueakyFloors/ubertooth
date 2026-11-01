@@ -607,3 +607,15 @@ with tempfile.TemporaryDirectory() as workdir:
     show("stdout pcap", records)
     assert records[3].uap == UAP, records
     assert records[3].flags & BREDR_REFUAP_VALID, records
+
+    # A survey with the capture on standard output. The addresses are what -z
+    # was asked for, so they follow the heading onto standard error rather
+    # than being lost down the stream the capture owns.
+    address = "??:??:%02X:%02X:%02X:%02X" % (UAP, (LAP >> 16) & 0xFF,
+                                             (LAP >> 8) & 0xFF, LAP & 0xFF)
+    errors, raw, records = replay_to_stdout(work, "surveystdout", "-z")
+    assert "Survey Results" in errors, errors
+    assert address in errors, errors
+    assert address.encode() not in raw, raw[:200]
+    assert b"systime=" not in raw, raw[:200]
+    assert len(records) == 4, records
