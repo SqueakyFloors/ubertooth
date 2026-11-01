@@ -892,7 +892,7 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 	"note: if a mode is running, stop it with ubertooth-util -S; " \
 	"a board that does not answer at all usually resets itself within " \
 	"a few seconds, so run the command again, then reset it with " \
-	"ubertooth-util -r and the same -U if it stays silent, and " \
+	"ubertooth-util -r on the same board if it stays silent, and " \
 	"unplug it or power-cycle its hub port if that does not reach " \
 	"it either\n"
 

@@ -347,7 +347,7 @@ the firmware is simply missing a request, the command fails on it:
 
     error: could not set the channel: the board's firmware does not support it (stalled, libusb -9)
     note: the board reports firmware API version <version>, libubertooth 1.1 requires <version>
-    note: a board that stalls every request is wedged rather than short of this one; reset it with ubertooth-util -r and the same -U
+    note: a board that stalls every request is wedged rather than short of this one; reset it with ubertooth-util -r on the same board
 
 That is the one wording for a request the board refuses, wherever the request
 came from. The board answers such a request by stalling it and says nothing

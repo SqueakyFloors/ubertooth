@@ -627,7 +627,7 @@ the board refused it and the libusb code, and adds a note where there is
 something to try:
 
     error: could not set the channel: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r and the same -U if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r on the same board if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
 
 That pair is the report: the request named as `set sweep mode` without `-c`,
 since the command then asks for the sweep across the whole band rather than

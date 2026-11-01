@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
 	 * process exit from here on, as on every other exit of this tool:
 	 * libubertooth owns that global, not the tool. */
 	if (dump_name != NULL) {
-		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		dumpfile = opt_open_dump_file(dump_name, refused);
 		if (dumpfile == NULL) {
 			ubertooth_close(ut);
 			ubertooth_free(ut);

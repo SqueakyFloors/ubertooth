@@ -197,13 +197,14 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 	 * The question that does separate the two is whether any request gets
 	 * through, and ubertooth-util -r is the recovery for the wedge: it
 	 * resets the board's USB connection and then the board, with nobody at
-	 * the bench. The same -U, because the index or serial this command was
-	 * given is the board this is about.
+	 * the bench. "On the same board" rather than "with the same -U": the
+	 * board this is about is the one the command was working on, which a
+	 * run with one board attached named with no -U at all.
 	 *
 	 * Under the same condition as the note above, which is what says an
 	 * application firmware answered: a board in the DFU bootloader runs
 	 * none, and ubertooth-util cannot reach one. */
 	fprintf(stderr, "note: a board that stalls every request is wedged "
 	        "rather than short of this one; reset it with ubertooth-util -r "
-	        "and the same -U\n");
+	        "on the same board\n");
 }

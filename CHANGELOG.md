@@ -840,10 +840,10 @@
   it, whatever its firmware implements, so the stall report used to send the
   user to reflash a board that was not short of the request at all. It now
   carries a second note, `note: a board that stalls every request is wedged
-  rather than short of this one; reset it with ubertooth-util -r and the same
-  -U`, and the note for a request that timed out names the same reset before
-  the unplug it already suggested, so the recovery that needs nobody at the
-  bench comes first.
+  rather than short of this one; reset it with ubertooth-util -r on the same
+  board`, and the note for a request that timed out names the same reset
+  before the unplug it already suggested, so the recovery that needs nobody
+  at the bench comes first.
 
 - `ubertooth-dump -b` refuses a terminal for what it really writes: `error:
   stdout is a tty, refusing to write the bitstream dump to it`. That stream is

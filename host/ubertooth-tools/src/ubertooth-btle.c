@@ -577,7 +577,7 @@ int main(int argc, char *argv[])
 	}
 	if (pcap_name != NULL) {
 		int saved_fd;
-		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		char *file = opt_capture_path(pcap_name, "binary capture data", &saved_fd);
 		int create_result, create_errno;
 
 		if (!file) {

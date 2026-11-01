@@ -1627,17 +1627,28 @@ def written(stream):
 
 # The flag that says the warning has been given is a module global, so each
 # case below starts from a session that has not given it yet.
-streams._encoding_reported = False
+streams._encoding_reported = set()
 ascii_out, said = ascii_stream(), io.StringIO()
 with contextlib.redirect_stdout(ascii_out), contextlib.redirect_stderr(said):
-    streams.result("COMPLETE_LOCAL_NAME: '\ufffdbertooth'")
+    # An inquiry response is one message of several lines, and the name is
+    # only one of them: the packet and the fields around it have to survive
+    # it. The whole message is written in one call, so the encoder refuses
+    # all of it, and the lines are then written again one at a time.
+    streams.result("ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55\n"
+                   "COMPLETE_LOCAL_NAME: '\ufffdbertooth'\n"
+                   "FLAGS: 02 01 06")
     streams.result("RX FHS: bdaddr=112233445566")
     streams.result("COMPLETE_LOCAL_NAME: '\ufffdgain'")
 printed = written(ascii_out)
-# the two lines that could not be encoded are gone, and the one between them
-# reached the reader: the stream is kept rather than pointed at the bin
+# only the lines that could not be encoded are gone, and everything around
+# them reached the reader: the stream is kept rather than pointed at the bin
 assert "bertooth" not in printed and "gain" not in printed, printed
+assert "ACL(llid=L2CAP_START" in printed, printed
+assert "FLAGS: 02 01 06" in printed, printed
 assert "RX FHS: bdaddr=112233445566" in printed, printed
+# each surviving line still carries its own time
+assert all(re.match(r"\d\d:\d\d:\d\d ", line)
+           for line in printed.splitlines()), printed
 assert said.getvalue().count("warning: a line could not be written in"
                              " standard output's character encoding"
                              " (ascii)") == 1, said.getvalue()
@@ -1647,16 +1658,19 @@ print("ubtbr: a packet the output encoding cannot carry is one dropped line")
 
 # the same for a diagnostic, which used to point standard error at the bin
 # for the rest of the session: one warning the encoding could not take and
-# every later error line was lost with it.
-streams._encoding_reported = False
+# every later error line was lost with it. The flag is not reset here, so
+# this also pins that a lost error line is reported after a lost packet has
+# already been: one flag for both streams left it silent, and a lost error
+# line is the one loss that must not be.
 ascii_err = ascii_stream()
 with contextlib.redirect_stderr(ascii_err):
     streams.error("could not read the name '\ufffdbertooth'")
     streams.error("plain words reach the reader")
 assert "plain words reach the reader" in written(ascii_err), written(ascii_err)
-assert "character encoding (ascii)" in written(ascii_err), written(ascii_err)
+assert "standard error's character encoding (ascii)" in written(ascii_err), \
+    written(ascii_err)
 print("ubtbr: a diagnostic the error encoding cannot carry keeps the stream")
-streams._encoding_reported = False
+streams._encoding_reported = set()
 
 # ---- a command that ends after the prompt gave up on it -------------------
 

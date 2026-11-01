@@ -757,19 +757,6 @@ void le_DMA_IRQHandler(void) {
 	watchdog_unmark(site);
 }
 
-// Give up on the packet a failed capture transfer interrupted, and put the
-// receiver back.
-//
-// A transfer error ends the capture of a packet part way along it, and on its
-// own leaves nothing armed to carry on from. On a data channel the connection
-// event's deadline was cleared when the packet's first byte arrived, and the
-// timeout that waits for the next packet of the event is only armed where a
-// packet ends, which this one never will. The synthesizer-lock and buffer
-// waits were both disarmed when receive was armed. So no match is armed and no
-// interrupt is due: the event never closes, the supervision timeout -- which is
-// only checked when an event closes -- is never reached, and the capture is
-// over, while the mode's loop goes on servicing USB so the board answers the
-// host as if nothing had happened.
 // Stop receiving and take the DMA channel and the SSP down. Every path that
 // stops reading a packet does this and does it the same way, so it is one
 // function: the end of a whole packet, a terminal count with no buffer to put
@@ -798,6 +785,19 @@ static void le_stop_receiving(void) {
 	ICER0 = ICER0_ICE_DMA;
 }
 
+// Give up on the packet a failed capture transfer interrupted, and put the
+// receiver back.
+//
+// A transfer error ends the capture of a packet part way along it, and on its
+// own leaves nothing armed to carry on from. On a data channel the connection
+// event's deadline was cleared when the packet's first byte arrived, and the
+// timeout that waits for the next packet of the event is only armed where a
+// packet ends, which this one never will. The synthesizer-lock and buffer
+// waits were both disarmed when receive was armed. So no match is armed and no
+// interrupt is due: the event never closes, the supervision timeout -- which is
+// only checked when an event closes -- is never reached, and the capture is
+// over, while the mode's loop goes on servicing USB so the board answers the
+// host as if nothing had happened.
 static void le_transfer_error_recover(void) {
 	le_stop_receiving();
 

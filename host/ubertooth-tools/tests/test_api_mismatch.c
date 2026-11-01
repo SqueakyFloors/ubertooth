@@ -330,8 +330,8 @@ MU_TEST(an_unsupported_request_names_the_reset_for_a_wedged_board)
 {
 	static const char* const wedge =
 		"note: a board that stalls every request is wedged rather than "
-		"short of this one; reset it with ubertooth-util -r and the "
-		"same -U\n";
+		"short of this one; reset it with ubertooth-util -r on the "
+		"same board\n";
 
 	ubertooth_forget_api_version(&board_a);
 	ubertooth_forget_api_version(&board_b);
