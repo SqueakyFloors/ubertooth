@@ -321,7 +321,7 @@ add_test(
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_overload.py
 		$<TARGET_FILE:ubertooth-rx>)
-# Four replays of about 20000 records each: under a second idle. A minute
+# Six replays of about 20000 records each: a second or two idle. A minute
 # leaves the test's own per-run deadline room to fire first.
 set_tests_properties(rx-overload PROPERTIES TIMEOUT 120)
 
@@ -1136,7 +1136,7 @@ if(libubertooth_SOURCE_DIR)
 	target_link_libraries(test-signal-ceiling ${LIBUSB_LIBRARIES}
 		${LIBBTBB_LIBRARIES} Threads::Threads)
 	add_test(NAME signal-ceiling COMMAND test-signal-ceiling)
-	# A few hundred thousand calls over a struct and a counter, and nine
+	# A few hundred thousand calls over a struct and a counter, and a dozen
 	# small files: milliseconds.
 	set_tests_properties(signal-ceiling PROPERTIES TIMEOUT 10)
 

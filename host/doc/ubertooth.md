@@ -530,7 +530,10 @@ it does not fail the run.
 A capture also says when its receiver is being driven harder than it can
 measure: `warning: the signal is at the top of the receiver's range, so the
 board cannot measure it and may not demodulate it; the boards may be too close
-together, or the transmit power too high`. Said once per capture.
+together, or the transmit power too high`. Said once per capture, with a
+total when the capture ends: `warning: the capture has 3 stretches where
+the signal was at the top of the receiver's range`, one per block of
+records judged to be there.
 
 The signal figure a record carries comes from the radio on a scale that runs
 out: above a certain reading the host can only say "at least this loud", which
@@ -563,13 +566,23 @@ case worth knowing about, since that is what a deafened receiver looks like.
 it reports this while packets are still arriving and has nothing to go on once
 they stop; under `-p` only the part of a run that is following a connection
 reports it, because the records of the access-address hunt before that state
-no signal figure. Two captures never report it, because the board sends them
-nothing to judge: the generic receive (`ubertooth-dump -g`) and
-ubertooth-ego(1) take no readings at all, so their records state no signal
-figure, and ubertooth-ego(1)'s receive leaves the high-gain mode off in any
-case. ubertooth-specan(1) is left out for a different reason: its sweep also
-reads the radio with the high-gain mode off and reports the raw readings
-themselves, so its figures are not on the scale this warning is about.
+no signal figure.
+
+The generic receive (`ubertooth-dump -g`) reports it or not according to which
+of its two receives the radio's configuration selects, which GENERIC RADIO
+MODE above describes: with GRMDM's packet-mode bit clear it reads a stream of
+symbols through the same path as a Basic Rate capture, takes a reading per
+poll and reports this as that capture does, while with the bit set the board
+waits on a sync word, takes no readings at all, and its records state no
+signal figure for anything to judge.
+
+ubertooth-ego(1) never reports it: its records state no signal figure either,
+and its receive leaves the high-gain mode off in any case.
+ubertooth-specan(1) is left out for a different reason: its sweep also reads
+the radio with the high-gain mode off and reports the raw readings themselves,
+so its figures are not on the scale this warning is about. The `btbr` image's
+own tools report nothing here at all, because that firmware sends none of
+these records.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

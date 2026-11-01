@@ -715,10 +715,12 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
 void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx);
 
 /*
- * How many blocks of records this capture found at the top of the radio's
- * range, as ubertooth_watch_signal_level() counts them. 0 for a capture that
- * was never pinned there. For a test or a tool that wants the fact without
- * the message.
+ * How many stretches of this capture were at the top of the radio's range: one
+ * per block of records ubertooth_watch_signal_level() judged to be there. 0
+ * for a capture that was never pinned. The running warning is said once, so
+ * this is what tells one bad stretch from a capture that was deaf throughout;
+ * ubertooth_report_capture_losses() prints it when the capture ends, beside
+ * the loss totals.
  */
 uint32_t ubertooth_signal_ceiling_blocks(ubertooth_t* ut);
 

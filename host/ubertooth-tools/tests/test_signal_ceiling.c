@@ -306,7 +306,7 @@ MU_TEST(the_ceiling_is_where_the_scale_runs_out)
 	capture_start();
 	hand_over(ut, CEILING_RAW - 1, BLOCK_RECORDS);
 	said = capture_end();
-	mu_assert(warnings_in(said) == 0, "one dB below the ceiling warned");
+	mu_assert(warnings_in(said) == 0, "the reading below the ceiling warned");
 
 	ut = fresh();
 	capture_start();

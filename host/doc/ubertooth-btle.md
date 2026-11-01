@@ -619,7 +619,9 @@ the level the model has no number above -- seen on packet after packet rather
 than on one. Beyond that point the radio is also past where it demodulates
 reliably, so packets start arriving with bits wrong, and closer still none
 arrives at all. Put more distance or more attenuation between the two boards,
-or turn the transmit power down with `ubertooth-util -a`.
+or turn the transmit power down with `ubertooth-util -a`. When the capture ends
+it says how many such stretches there were: `warning: the capture has 3
+stretches where the signal was at the top of the receiver's range`.
 
 This tool reports it only while packets are still arriving, because under `-f`
 and `-n` the board sends a record for a packet it demodulated and for nothing

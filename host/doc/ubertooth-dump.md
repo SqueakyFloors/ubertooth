@@ -161,11 +161,18 @@ together, or the transmit power too high`. The radio reports the power of each
 block of air on a scale that runs out, and a receiver held at the top of it is
 also past where it demodulates reliably, so the symbols in the dump are not to
 be trusted. Put more distance or more attenuation between the boards, or turn
-the transmit power down. With `-c` or `-l` the board sends a record for every
-block of air and the warning arrives whether or not anything is decoding; with
-`-g` it takes no readings at all, so the records state no signal figure and
-this is never reported. It takes a receiver held at the top of the scale: one
-loud packet is not reported. See ubertooth(7).
+the transmit power down. It takes a receiver held at the top of the scale: one
+loud packet is not reported. When the dump ends it says how many such
+stretches there were: `warning: the capture has 3 stretches where the signal
+was at the top of the receiver's range`.
+
+With `-c` or `-l` the board sends a record for every block of air, so the
+warning arrives whether or not anything is decoding. With `-g` it depends on
+the configuration in the radio, as the receive itself does: left with GRMDM's
+packet-mode bit clear the board reads a stream of symbols and reports this as
+`-c` does, while with the bit set it waits on a sync word and takes no
+readings at all, so those records state no signal figure and nothing is
+reported however loud the air. See ubertooth(7).
 
 ## EXIT STATUS
 

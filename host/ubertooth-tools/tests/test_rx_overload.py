@@ -34,6 +34,8 @@ SIGNAL_VALID = 0x80
 CLK100NS_STEP = 4_000           # 0.4 ms of device clock between records
 RUN_TIMEOUT_S = 60
 WARNING = "warning: the signal is at the top of the receiver's range"
+TOTAL = ("warning: the capture has %d stretches where the signal was at the "
+         "top of the receiver's range")
 
 # What the measurement above gives the fixtures: the raw reading a pinned
 # receiver sat at, the quiet channel's median, and its 26 records in 19937.
@@ -85,15 +87,16 @@ def run(*arguments, directory):
 with tempfile.TemporaryDirectory() as workdir:
     work = Path(workdir)
 
-    # The quiet channel, with its ceiling records put next to each other --
-    # the worst arrangement for a rule that judges a block of records at a
-    # time. Nothing is said.
+    # The quiet channel, with its ceiling records put next to each other so
+    # the case does not turn on where in the capture they fell. Nothing is
+    # said: 26 in 19937 cannot fill a block whatever their order.
     quiet = [QUIET_RAW] * 1000 + [PINNED_RAW] * QUIET_AT_CEILING
     quiet += [QUIET_RAW] * (QUIET_RECORDS - len(quiet))
     (work / "quiet.bin").write_bytes(dump(quiet))
     result = run("-i", "quiet.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
+    assert "stretches where" not in result.stderr, result
 
     # The link that works, at the transmit power that drives it hardest.
     (work / "working.bin").write_bytes(dump([WORKING_LINK_RAW] * QUIET_RECORDS))
@@ -101,11 +104,15 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
 
-    # The pinned receiver, said once however long it stays there.
+    # The pinned receiver, said once however long it stays there, with a total
+    # when the run ends: one per whole block of records that was at the
+    # ceiling, so 19937 records make 19 of them and the 937 left over are not
+    # a block.
     (work / "pinned.bin").write_bytes(dump([PINNED_RAW] * QUIET_RECORDS))
     result = run("-i", "pinned.bin", directory=work)
     assert result.returncode == 0, result
     assert result.stderr.count(WARNING) == 1, result
+    assert TOTAL % 19 in result.stderr, result
     # On standard error and not on standard output, which carries only what
     # was asked for.
     assert WARNING not in result.stdout, result
@@ -123,6 +130,7 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "short.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
+    assert "stretches where" not in result.stderr, result
 
     # Keep-alives say nothing about the air. One is a single byte on the wire,
     # so a record of one holds whatever the record before it left in the

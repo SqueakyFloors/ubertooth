@@ -10,12 +10,14 @@
   close together, or the transmit power too high`. Beyond that point the radio
   is also past where it demodulates reliably, so this is the case where a
   capture reads nothing, or packets with bits wrong, and the board is not at
-  fault: two Ubertooths at opposite ends of one bench are close enough to do
-  it at any transmit power. It takes a receiver held there, not one loud
-  packet. `ubertooth-rx`, `ubertooth-dump -c`/`-l`, `ubertooth-scan`,
+  fault: two Ubertooths a few centimeters apart do it at every transmit power
+  level, 0 included. It takes a receiver held there, not one loud packet.
+  `ubertooth-rx`, `ubertooth-dump -c`/`-l`, `ubertooth-scan`,
   `ubertooth-afh` and `ubertooth-follow` report it even while they decode
   nothing, because the board sends them a record for every block of air;
-  `ubertooth-btle` reports it while packets are still arriving. ubertooth(7),
+  `ubertooth-btle` reports it while packets are still arriving. When the
+  capture ends it says how many such stretches there were, so one bad stretch
+  reads differently from a capture that was deaf throughout. ubertooth(7),
   OUTPUT AND DIAGNOSTICS says what each tool can and cannot see this way.
   [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
 

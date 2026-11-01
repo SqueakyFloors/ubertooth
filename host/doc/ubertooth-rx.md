@@ -580,7 +580,11 @@ and gives the same totals at the end.
 A capture whose receiver is being driven harder than it can measure says so,
 once: `warning: the signal is at the top of the receiver's range, so the board
 cannot measure it and may not demodulate it; the boards may be too close
-together, or the transmit power too high`.
+together, or the transmit power too high`. When the capture ends it says how
+many such stretches there were: `warning: the capture has 3 stretches where
+the signal was at the top of the receiver's range`, one per block of records
+judged to be there. The running warning is said once, so the total is what
+tells one bad stretch from a capture that was deaf throughout.
 
 This is the case where a capture decodes nothing and the board is not at
 fault. The radio reports the power of each block of air on a scale that runs

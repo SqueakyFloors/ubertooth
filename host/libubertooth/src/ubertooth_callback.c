@@ -874,6 +874,7 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 	uint32_t gaps = ubertooth_queue_gaps(ut);
 	uint32_t errors = ubertooth_transfer_errors(ut);
 	uint32_t overwrites = ubertooth_symbol_overwrites(ut);
+	uint32_t blocks = ubertooth_signal_ceiling_blocks(ut);
 
 	if (gaps > 0)
 		fprintf(stderr, "warning: the capture has %u gap%s where the "
@@ -889,6 +890,14 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 		fprintf(stderr, "warning: the capture has %u place%s where the "
 		        "board wrote new symbols over a block it had not read\n",
 		        overwrites, overwrites == 1 ? "" : "s");
+
+	/* Not a loss, but the same kind of thing to say at the end: the running
+	 * warning is said once, so without a total a reader cannot tell one bad
+	 * stretch from a capture that was deaf throughout. */
+	if (blocks > 0)
+		fprintf(stderr, "warning: the capture has %u stretch%s where the "
+		        "signal was at the top of the receiver's range\n",
+		        blocks, blocks == 1 ? "" : "es");
 }
 
 void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))

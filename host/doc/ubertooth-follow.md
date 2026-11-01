@@ -309,6 +309,12 @@ also past where it demodulates reliably -- so this is the case where nothing
 decodes and the board is not at fault. Put more distance or more attenuation
 between the boards, or turn the transmit power down. See ubertooth(7).
 
+When the capture ends it says how many such stretches there were:
+`warning: the capture has 3 stretches where the signal was at the top of the
+receiver's range`, one per block of records judged to be there. The running
+warning is said once, so the total is what tells one bad stretch from a
+capture that was deaf throughout.
+
 ## EXIT STATUS
 
 A follow that was interrupted (Ctrl-C) exits 0 with whatever it captured, and
