@@ -469,7 +469,7 @@ static void test_bad_option_word(void)
 	 * tool's own letters, and that its getopt loop and its reporter are
 	 * given the same ones, is test_cli_matrix.py. */
 	static const char util[] =
-		":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx";
+		":U:hn::meiIprsStvbBwl::a::C::c::d::q::z::VNx";
 	static const struct {
 		const char *line;
 		const char *expected;

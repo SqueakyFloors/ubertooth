@@ -40,6 +40,7 @@
 #include "xmas.h"
 #include "identify.h"
 #include "watchdog.h"
+#include "bl_report.h"
 
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
@@ -1060,6 +1061,13 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_GET_FW_INFO:
 		memcpy(data, &fw_info_block, UBERTOOTH_FW_INFO_LENGTH);
 		*data_len = UBERTOOTH_FW_INFO_LENGTH;
+		break;
+
+	/* What this board's bootloader is. Keep this identical to the one in
+	 * btbr/src/btctl/vendor_request_handler.c. */
+	case UBERTOOTH_GET_BOOTLOADER_INFO:
+		bl_report_build(data, UBERTOOTH_BOOTLOADER_REGION_START);
+		*data_len = UBERTOOTH_BL_REPORT_LENGTH;
 		break;
 
 	case UBERTOOTH_GET_BOARD_ID:

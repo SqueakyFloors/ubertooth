@@ -603,6 +603,7 @@ static int writes_the_reply_through_data(const char *text)
 		"get_device_serial(data,",
 		"watchdog_report(data)",
 		"cc2400_wait_report(data)",
+		"bl_report_build(data,",
 	};
 	size_t i;
 

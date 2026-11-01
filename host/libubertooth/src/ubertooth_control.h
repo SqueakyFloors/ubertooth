@@ -191,6 +191,18 @@ int cmd_get_watchdog_quiet(struct libusb_device_handle* devh,
  * are what tells a half-working radio from a quiet channel. */
 int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
                            radio_timeouts *timeouts);
+/* Read what the board says about the bootloader under it: the hash of the
+ * bootloader region, always, and the version block the region carries, if it
+ * carries one. A board with no block is a success with info->version_result
+ * saying why there is nothing to show -- that is the ordinary answer from a
+ * factory or earlier bootloader, and the hash is what identifies it.
+ *
+ * Returns 0 when the board answered, or a negative libusb error.
+ * LIBUSB_ERROR_PIPE means the firmware does not implement the request, which
+ * is every image built before it; that one is reported like any other refused
+ * request, since a tool asking for this has nothing else to offer. */
+int cmd_get_bootloader_info(struct libusb_device_handle* devh,
+                            struct ubertooth_bootloader_info *info);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
 /* Read the firmware revision string / compile info string into a buffer of

@@ -5,7 +5,7 @@
     ubertooth-util [-V] [-v] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
     [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n [seconds]] [-i] [-b]
-    [-p] [-s]
+    [-B] [-p] [-s]
     [-w] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -276,6 +276,10 @@ Miscellaneous:
    port. The command says so in a `note:` line of its own
  - `-b` :
    get hardware board id number
+ - `-B` :
+   get the bootloader this board has. See [BOOTLOADER][]; exits non-zero only
+   if the read fails or the board carries a version block this host cannot
+   read
  - `-p` :
    get microcontroller Part ID (32-bit, hexadecimal); exits non-zero if the
    device reports a nonzero status for the read
@@ -441,6 +445,41 @@ at 65535.
 `-i` (In-System Programming) is the one hand-over the watchdog cannot be
 switched off for: it keeps the chip running, so the timeout is stretched to
 about 71 minutes first.
+
+## BOOTLOADER
+
+`-B` says which bootloader the board has:
+
+    $ ubertooth-util -B
+    Bootloader: 1.00 git-1a2b3c4, CRC32:0x9d2fe1b4
+
+The bootloader is the first 16 KiB of the board's flash. It is what
+ubertooth-dfu(1) talks to, so it is also what cannot be replaced over USB: it
+refuses writes to its own region, and installing another one needs a serial
+In-System Programming adapter or JTAG at the bench. A board therefore keeps
+the bootloader it came with through every firmware update, and nothing else
+reports which one that is.
+
+The line has two parts. The version and the build string come from a block the
+bootloader carries at a fixed place, which this tree's bootloader fills in with
+its version and the revision it was built from. The `CRC32` is of the whole
+16 KiB region, computed on the board, and is there whatever else the line says.
+
+A board whose bootloader has no such block — every board as shipped, and any
+bootloader built before the block existed — reads:
+
+    $ ubertooth-util -B
+    Bootloader: no version block (factory or earlier bootloader), CRC32:0x5f0a73c1
+
+That is an answer, not a failure, and the command exits 0. The hash is what
+identifies such a bootloader: two boards that report the same hash are running
+the same bootloader, and two that differ are not.
+
+The bootloader does not change when the application is reflashed, so the line
+is a property of the board rather than of the firmware on it. It is read by the
+application, though, so firmware older than this request answers `error: the
+board refused to read the bootloader information`: reflash the board to read
+it.
 
 ## SELECTING A DEVICE
 

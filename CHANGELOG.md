@@ -48,6 +48,19 @@
   an error any more, and the packets themselves are recorded as they arrived.
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
+- `ubertooth-util -B` says which bootloader a board has, which nothing used to
+  report. A bootloader can only be installed over ISP or JTAG, so a board
+  keeps the one it came with through every firmware update, and a bug fixed in
+  this tree's bootloader reaches only a board someone reflashed at the bench.
+  The bootloader built here now carries its version and the revision it was
+  built from in a fixed-layout block, and the firmware reports that block
+  along with a CRC-32 of the whole 16 KiB bootloader region: `Bootloader: 1.00
+  git-1a2b3c4, CRC32:0x9d2fe1b4`. A board whose bootloader has no such block —
+  every board as shipped — reads `Bootloader: no version block (factory or
+  earlier bootloader), CRC32:0x5f0a73c1`, and the hash is what tells two such
+  bootloaders apart.
+  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
+
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
   stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
   known word over the unused stack at startup and counts how much of it has
@@ -417,8 +430,10 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.57, last moved by the
-  address a processor fault is recorded at
+- **Reflash required:** the firmware API version is now 1.58, last moved by the
+  request that reports a board's bootloader
+  ([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)), before
+  that by the address a processor fault is recorded at
   ([#764](https://github.com/SqueakyFloors/ubertooth/issues/764)), before that
   by the modulation a mode start keeps for the mode it was stated for, before
   that by the packet's own power and the background in every capture record,

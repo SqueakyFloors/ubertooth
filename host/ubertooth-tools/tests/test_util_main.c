@@ -55,6 +55,12 @@ static struct {
 	radio_timeouts timeouts;
 	int timeouts_rc;
 	int timeouts_calls;
+	/* The bootloader report -B asks for, as the 52 bytes it arrives in, so
+	 * a case scripts what a board's flash holds rather than a parsed
+	 * result. */
+	uint8_t bootloader[UBERTOOTH_BL_REPORT_LENGTH];
+	int bootloader_rc;
+	int bootloader_calls;
 	/* bookkeeping */
 	int device_count;
 	int count_calls; /* ubertooth_count() calls */
@@ -628,6 +634,21 @@ int cmd_get_radio_timeouts(struct libusb_device_handle *h,
 	return fake.timeouts_rc;
 }
 
+int cmd_get_bootloader_info(struct libusb_device_handle *h,
+                            struct ubertooth_bootloader_info *info)
+{
+	fake_use(h);
+	fake.bootloader_calls++;
+	if (fake.bootloader_rc < 0)
+		return fake.bootloader_rc;
+	/* The real call parses the reply with the shared parser, so the fake
+	 * does too: a case scripts bytes and the tool's line is produced from
+	 * them the way it would be from a board. */
+	ubertooth_bootloader_info_parse(fake.bootloader, sizeof(fake.bootloader),
+	                                info);
+	return 0;
+}
+
 int cmd_reset(struct libusb_device_handle *h)
 {
 	fake_use(h);
@@ -741,7 +762,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.57)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.58)\n"
 #define BUILD_LINE "Firmware build: compile-test\n"
 /* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
@@ -759,7 +780,7 @@ static struct run_result run_util(const char *const *args)
 /* The same lines as the multi-device listing prints them: the report's own
  * label with the board's index in it. i is the index, as a string. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
-#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.57)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.58)\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
@@ -912,7 +933,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.57)\n") == 0,
+	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.58)\n") == 0,
 	          r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -1139,6 +1160,90 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	mu_assert(strstr(r.out, "Last boot cause") != NULL, r.out);
 	mu_assert(strstr(r.out, "Radio waits that gave up") == NULL, r.out);
 	mu_assert(strstr(r.err, "radio wait timeouts read failed") != NULL, r.err);
+}
+
+/* Scripts the 52 bytes a board answers -B with: the hash, then a version
+ * block built field by field, or 48 zeros for a bootloader that has none. */
+static void script_bootloader(uint32_t crc, const char *magic, uint16_t format,
+                              uint16_t version, const char *build)
+{
+	uint8_t *block = fake.bootloader + UBERTOOTH_BL_REPORT_OFF_BLOCK;
+
+	memset(fake.bootloader, 0, sizeof(fake.bootloader));
+	fake.bootloader[UBERTOOTH_BL_REPORT_OFF_CRC + 0] = crc & 0xff;
+	fake.bootloader[UBERTOOTH_BL_REPORT_OFF_CRC + 1] = (crc >> 8) & 0xff;
+	fake.bootloader[UBERTOOTH_BL_REPORT_OFF_CRC + 2] = (crc >> 16) & 0xff;
+	fake.bootloader[UBERTOOTH_BL_REPORT_OFF_CRC + 3] = (crc >> 24) & 0xff;
+	if (magic == NULL)
+		return;
+	memcpy(block + UBERTOOTH_BL_VERSION_OFF_MAGIC, magic,
+	       UBERTOOTH_BL_VERSION_MAGIC_LEN);
+	block[UBERTOOTH_BL_VERSION_OFF_FORMAT] = format & 0xff;
+	block[UBERTOOTH_BL_VERSION_OFF_FORMAT + 1] = (format >> 8) & 0xff;
+	block[UBERTOOTH_BL_VERSION_OFF_VERSION] = version & 0xff;
+	block[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] = (version >> 8) & 0xff;
+	memcpy(block + UBERTOOTH_BL_VERSION_OFF_BUILD, build, strlen(build));
+}
+
+MU_TEST(the_bootloader_is_reported_with_or_without_a_version_block)
+{
+	struct run_result r;
+
+	/* A bootloader from this tree: the version block says what it is, and
+	 * the hash of the region comes with it either way. */
+	reset_fake();
+	script_bootloader(0x9d2fe1b4, UBERTOOTH_BL_VERSION_MAGIC,
+	                  UBERTOOTH_BL_VERSION_FORMAT, 0x0100, "git-1a2b3c4");
+	r = RUN("-B");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.bootloader_calls);
+	mu_assert(strcmp(r.out, "Bootloader: 1.00 git-1a2b3c4, "
+	                 "CRC32:0x9d2fe1b4\n") == 0, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	/* A factory bootloader, which is every board as shipped: it has its own
+	 * code where the block would be, so there is nothing to read there.
+	 * That is the answer, not a failure, and the hash is what identifies
+	 * it. */
+	reset_fake();
+	script_bootloader(0x5f0a73c1, NULL, 0, 0, "");
+	r = RUN("-B");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "Bootloader: no version block (factory or "
+	                 "earlier bootloader), CRC32:0x5f0a73c1\n") == 0, r.out);
+	mu_assert(strcmp(r.err, "") == 0, r.err);
+
+	/* A block in a layout this host does not know: the board carries one
+	 * and the user is not being told what it says, so this does fail --
+	 * with the hash still printed, which is all that can be trusted. */
+	reset_fake();
+	script_bootloader(0x11223344, UBERTOOTH_BL_VERSION_MAGIC,
+	                  UBERTOOTH_BL_VERSION_FORMAT + 1, 0x0200, "git-9999999");
+	r = RUN("-B");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "format this host does not know, "
+	                 "CRC32:0x11223344\n") != NULL, r.out);
+
+	/* A block whose build string is unprintable, which no bootloader from
+	 * this tree writes: the same refusal to guess. */
+	reset_fake();
+	script_bootloader(0x55667788, UBERTOOTH_BL_VERSION_MAGIC,
+	                  UBERTOOTH_BL_VERSION_FORMAT, 0x0100, "\x01\x02");
+	r = RUN("-B");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "no readable build string, "
+	                 "CRC32:0x55667788\n") != NULL, r.out);
+
+	/* Firmware older than the request stalls it, which libusb reports as a
+	 * pipe error. The tool names what it could not read and prints no
+	 * line. */
+	reset_fake();
+	fake.bootloader_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-B");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.out, "") == 0, r.out);
+	mu_assert(strstr(r.err, "bootloader information read failed") != NULL,
+	          r.err);
 }
 
 MU_TEST(range_result_is_reported_and_a_failed_read_fails)
@@ -3971,6 +4076,7 @@ int main(void)
 	MU_RUN(an_interrupted_range_test_stops_the_board);
 	MU_RUN(a_range_test_stopped_from_elsewhere_ends_the_wait);
 	MU_RUN(the_watchdog_state_is_reported_and_a_failed_read_fails);
+	MU_RUN(the_bootloader_is_reported_with_or_without_a_version_block);
 	MU_RUN(setters_pass_their_arguments_and_report_failures);
 	MU_RUN(a_set_and_a_read_of_the_same_value_both_run_set_first);
 	MU_RUN(stop_and_reset_report_failures);
