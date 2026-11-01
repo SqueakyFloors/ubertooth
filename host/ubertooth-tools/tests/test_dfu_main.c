@@ -126,6 +126,12 @@ static struct {
 	/* The vector table each write started with, so a test can read the
 	 * checksum the tool put over it. */
 	uint8_t dnload_head[DNLOAD_RECORD_MAX][VECTOR_TABLE_BYTES];
+	/* The region as the writes leave it: every block this fake accepted, at
+	 * the offset it was written to. A test then reads the image the board was
+	 * given and puts it to the checks a bootloader makes of it. Blocks past
+	 * the end of this are accepted but not kept. */
+	uint8_t region[DNLOAD_RECORD_MAX * BLOCK_SIZE];
+	int region_blocks;      /* the highest block written, plus one */
 	int getstatus_rc;       /* < 0: the status read fails with this */
 	int getstatus_fail_after; /* ...from this many blocks written on */
 	int detach_calls;
@@ -377,6 +383,14 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		 * test can let a row of dots build up before it. */
 		if (fake.dnload_rc < 0 && fake.dnload_calls > fake.dnload_fail_after)
 			return fake.dnload_rc;
+		/* Written, so it is in the region now. A block written twice leaves
+		 * what the second write put there, as flash does. */
+		if (value - FIRST_BLOCK < DNLOAD_RECORD_MAX) {
+			memcpy(fake.region + (size_t)(value - FIRST_BLOCK) * BLOCK_SIZE,
+			       data, BLOCK_SIZE);
+			if (value - FIRST_BLOCK >= fake.region_blocks)
+				fake.region_blocks = value - FIRST_BLOCK + 1;
+		}
 		return length;
 	case REQ_GETSTATUS:
 		fake.getstatus_calls++;
@@ -650,6 +664,7 @@ static void write_image_with(const char *path, const char *image_name,
 	FILE *payload_file = tmpfile();
 	FILE *image = fopen(path, "w+b");
 	uint8_t block[UBERTOOTH_FW_INFO_LENGTH];
+	uint8_t check[UBERTOOTH_IMAGE_CHECK_LENGTH];
 	char marker[128];
 	long i;
 	int length;
@@ -667,6 +682,19 @@ static void write_image_with(const char *path, const char *image_name,
 	fwrite(marker, 1, (size_t)length + 1, payload_file);
 	for (i = length + 1; i < payload; i++)
 		fputc(0xff, payload_file);
+	/* The image check block, as a build leaves it: the magic and the format
+	 * version, with the flags, the length and the checksum at zero for -d to
+	 * fill in. */
+	memset(check, 0, sizeof(check));
+	memcpy(check + UBERTOOTH_IMAGE_CHECK_OFF_MAGIC, UBERTOOTH_IMAGE_CHECK_MAGIC,
+	       UBERTOOTH_IMAGE_CHECK_MAGIC_LEN);
+	write_le16(check + UBERTOOTH_IMAGE_CHECK_OFF_FORMAT,
+	           UBERTOOTH_IMAGE_CHECK_FORMAT);
+	if (fseek(payload_file, UBERTOOTH_IMAGE_CHECK_OFFSET, SEEK_SET) != 0 ||
+	    fwrite(check, 1, sizeof(check), payload_file) != sizeof(check)) {
+		fprintf(stderr, "cannot write the test image check block\n");
+		exit(1);
+	}
 	if (block_format != 0) {
 		memset(block, 0, sizeof(block));
 		memcpy(block + UBERTOOTH_FW_INFO_OFF_MAGIC,
@@ -1897,6 +1925,38 @@ static void stale_checksum_image(const char *path, long payload)
 	fclose(image);
 }
 
+/* Fill length bytes of an image's payload with one byte, and sign it again
+ * because the suffix CRC covers the payload. The tests below use it to make
+ * an image that carries no image check block, and one that carries a filled-in
+ * block from somewhere else. */
+static void patch_image_payload(const char *path, long payload, int offset,
+                                uint8_t byte, int length)
+{
+	FILE *file = fopen(path, "rb");
+	FILE *payload_file = tmpfile();
+	FILE *image;
+	uint8_t *bytes = malloc((size_t)payload);
+
+	mu_assert_fatal(file != NULL && payload_file != NULL && bytes != NULL,
+	                "cannot rewrite the test image");
+	mu_assert_fatal(fread(bytes, 1, (size_t)payload, file) == (size_t)payload,
+	                "the test image is shorter than its payload");
+	fclose(file);
+	mu_assert_fatal(offset + length <= payload,
+	                "the patch runs past the test image's payload");
+	memset(bytes + offset, byte, (size_t)length);
+	mu_assert_fatal(fwrite(bytes, 1, (size_t)payload, payload_file) ==
+	                (size_t)payload, "cannot write the test payload");
+	free(bytes);
+	image = fopen(path, "w+b");
+	mu_assert_fatal(image != NULL, "cannot reopen the test image");
+	mu_assert_fatal(sign("the test payload", payload_file, path, image,
+	                     U1_DFU_VENDORID, U1_DFU_PRODUCTID) == 0,
+	                "cannot sign the test image again");
+	fclose(payload_file);
+	fclose(image);
+}
+
 /* An image that carries a checksum of its own is written with the right one
  * rather than the one it came with, so what the board holds always adds up. */
 MU_TEST(a_stale_checksum_in_the_image_is_written_over)
@@ -1990,6 +2050,229 @@ MU_TEST(a_download_that_stops_part_way_sends_no_vector_table)
 		mu_assert(fake.dnload_blocks[i] != FIRST_BLOCK ||
 		          fake.dnload_blank[i],
 		          "a download that stopped part way sent a vector table");
+}
+
+/* ---- the image check block ---------------------------------------------- */
+
+/* A field of the image check block, as the region holds it after the
+ * download. */
+static const uint8_t *written_check_block(void)
+{
+	return fake.region + UBERTOOTH_IMAGE_CHECK_OFFSET;
+}
+
+static uint32_t written_check_le32(int offset)
+{
+	return read_le32(written_check_block() + offset);
+}
+
+static uint16_t written_check_le16(int offset)
+{
+	return read_le16(written_check_block() + offset);
+}
+
+/* What a board does with the region it was given: add every word of the
+ * length the block claims up and see whether it comes to zero
+ * (firmware/bootloader/app_image.h, app_image_region_checksum_ok). Worked out
+ * here rather than copied from the tool, so the two have to agree about the
+ * rule and not only about a number. */
+static uint32_t written_region_sum(uint32_t length)
+{
+	uint32_t sum = 0;
+	uint32_t at;
+
+	for (at = 0; at + 4 <= length; at += 4)
+		sum += read_le32(fake.region + at);
+	return sum;
+}
+
+/* A download leaves a board a record of what it wrote: how many bytes, twice
+ * over, and a checksum over them that comes to zero. This is the check that
+ * covers the fifteen blocks the vector table's own checksum says nothing
+ * about. */
+MU_TEST(a_download_records_what_it_wrote)
+{
+	struct run_result r;
+	uint32_t length;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_VECTOR |
+	                 UBERTOOTH_IMAGE_CHECK_REGION,
+	                 written_check_le16(UBERTOOTH_IMAGE_CHECK_OFF_FLAGS));
+	length = written_check_le32(UBERTOOTH_IMAGE_CHECK_OFF_LENGTH);
+	mu_assert_int_eq((uint32_t)fake.region_blocks * BLOCK_SIZE, length);
+	mu_assert_int_eq(~length,
+	                 written_check_le32(
+	                     UBERTOOTH_IMAGE_CHECK_OFF_LENGTH_COMPLEMENT));
+	mu_assert_int_eq(0, written_region_sum(length));
+	/* ...and the checksum is a figure of its own, not a word left at zero. */
+	mu_assert(written_check_le32(UBERTOOTH_IMAGE_CHECK_OFF_CHECKSUM) != 0,
+	          "the checksum word was left at zero");
+}
+
+/* The record has to reach the flash with the vector table it describes, or an
+ * interruption could leave a board a startable table and no record of what
+ * should be behind it. The region's first block is written whole or not at
+ * all, so that means the record is in that block: the write that carries the
+ * real vector table is the write that carries the record. */
+MU_TEST(the_record_goes_in_with_the_vector_table)
+{
+	struct run_result r;
+	int last = -1;
+	int i;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	for (i = 0; i < fake.dnload_calls && i < DNLOAD_RECORD_MAX; i++)
+		if (fake.dnload_blocks[i] == FIRST_BLOCK)
+			last = i;
+	mu_assert_fatal(last > 0, "no vector table was written");
+	/* The write that carried the vector table was the last write to the
+	 * region's first block, and the record is inside that block. */
+	mu_assert(!fake.dnload_blank[last],
+	          "the last write to the first block was blank");
+	mu_assert(UBERTOOTH_IMAGE_CHECK_OFFSET + UBERTOOTH_IMAGE_CHECK_LENGTH <=
+	          BLOCK_SIZE,
+	          "the record is not inside the block the vector table is in");
+}
+
+/* One block of the image that never reached the flash, which is the board
+ * this closes: the vector table and its own checksum are perfect, and the sum
+ * over the region is what says the image is not all there. */
+MU_TEST(a_region_the_board_did_not_get_whole_does_not_add_up)
+{
+	struct run_result r;
+	uint32_t length, at;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	length = written_check_le32(UBERTOOTH_IMAGE_CHECK_OFF_LENGTH);
+	mu_assert_int_eq(0, written_region_sum(length));
+	/* Erased flash where the region's second block should be: the block
+	 * after the vector table, and the first of the fifteen an interruption
+	 * in the last step leaves out. It holds the firmware info block, so
+	 * there is something there to lose -- most of this test image is 0xFF
+	 * already, which is what erased flash reads as. */
+	for (at = BLOCK_SIZE; at < 2 * BLOCK_SIZE; at++)
+		fake.region[at] = 0xff;
+	mu_assert(written_region_sum(length) != 0,
+	          "a region missing a block still added up");
+}
+
+/* What the tool writes over, and nothing else. ubertooth-dfu(1) tells a
+ * reader that a read-back differs from the image file in the checksum word at
+ * 0x1c and in the fourteen bytes of the record from 0xea to 0xf8: the magic
+ * and the format version in front of them are the image's own, and the
+ * reserved bytes after them are left alone. */
+MU_TEST(the_tool_writes_over_the_checksum_word_and_the_record_only)
+{
+	struct run_result r;
+	uint8_t from_image[BLOCK_SIZE];
+	FILE *file;
+	int at;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	file = fopen(sized_image_path, "rb");
+	mu_assert_fatal(file != NULL, "cannot read the test image back");
+	mu_assert_fatal(fread(from_image, 1, sizeof(from_image), file) ==
+	                sizeof(from_image), "the test image has no first block");
+	fclose(file);
+	for (at = 0; at < BLOCK_SIZE; at++) {
+		char message[96];
+
+		if ((at >= 0x1c && at < 0x20) || (at >= 0xea && at < 0xf8))
+			continue;
+		snprintf(message, sizeof(message),
+		         "the tool wrote over byte 0x%02x of the first block", at);
+		mu_assert(from_image[at] == fake.region[at], message);
+	}
+	/* ...and it did write inside both spans, so the test is not passing on
+	 * a tool that writes nothing at all. A byte inside a span may well be
+	 * unchanged, because the image has zeros there and some of what goes in
+	 * is zero too. */
+	mu_assert(memcmp(from_image + 0x1c, fake.region + 0x1c, 4) != 0,
+	          "the checksum word was not filled in");
+	mu_assert(memcmp(from_image + 0xea, fake.region + 0xea, 0xf8 - 0xea) != 0,
+	          "the record was not filled in");
+}
+
+/* An image from a tree that has no image check block: those 32 bytes are the
+ * image's own code or data, and the tool leaves them exactly as the file has
+ * them. Writing over them would corrupt the image it is flashing. */
+MU_TEST(an_image_with_no_check_block_is_written_unchanged)
+{
+	struct run_result r;
+	uint8_t from_image[UBERTOOTH_IMAGE_CHECK_LENGTH];
+	FILE *file;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	patch_image_payload(sized_image_path, ORDER_IMAGE_PAYLOAD,
+	                    UBERTOOTH_IMAGE_CHECK_OFFSET, 0x5a,
+	                    UBERTOOTH_IMAGE_CHECK_LENGTH);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	file = fopen(sized_image_path, "rb");
+	mu_assert_fatal(file != NULL, "cannot read the test image back");
+	mu_assert_fatal(fseek(file, UBERTOOTH_IMAGE_CHECK_OFFSET, SEEK_SET) == 0 &&
+	                fread(from_image, 1, sizeof(from_image), file) ==
+	                sizeof(from_image),
+	                "the test image is shorter than the block's offset");
+	fclose(file);
+	mu_assert(memcmp(from_image, written_check_block(),
+	                 sizeof(from_image)) == 0,
+	          "the tool wrote over 32 bytes of an image that carries no "
+	          "image check block");
+}
+
+/* An image that already carries a filled-in block -- one written by another
+ * tool, or read back off a board and flashed again -- is written with this
+ * download's record rather than the one it came with, so what the board holds
+ * always describes what was just written to it. */
+MU_TEST(a_stale_record_in_the_image_is_written_over)
+{
+	struct run_result r;
+	uint32_t length;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_image_of(sized_image_path, IMAGE_REVISION, ORDER_IMAGE_PAYLOAD);
+	/* A length and checksum from somewhere else, and both flags already
+	 * set. */
+	patch_image_payload(sized_image_path, ORDER_IMAGE_PAYLOAD,
+	                    UBERTOOTH_IMAGE_CHECK_OFFSET +
+	                    UBERTOOTH_IMAGE_CHECK_OFF_FLAGS, 0xa5,
+	                    UBERTOOTH_IMAGE_CHECK_LENGTH -
+	                    UBERTOOTH_IMAGE_CHECK_OFF_FLAGS);
+	snprintf(fake.revision, sizeof(fake.revision), "%s", IMAGE_REVISION);
+	r = RUN("-U", "0", "-d", sized_image_path, "-r");
+	mu_assert_int_eq(0, r.rc);
+
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_VECTOR |
+	                 UBERTOOTH_IMAGE_CHECK_REGION,
+	                 written_check_le16(UBERTOOTH_IMAGE_CHECK_OFF_FLAGS));
+	length = written_check_le32(UBERTOOTH_IMAGE_CHECK_OFF_LENGTH);
+	mu_assert_int_eq((uint32_t)fake.region_blocks * BLOCK_SIZE, length);
+	mu_assert_int_eq(0, written_region_sum(length));
 }
 
 /* ---- writing only into the flash the part has -------------------------- */
@@ -2521,6 +2804,12 @@ int main(void)
 	MU_RUN(the_vector_table_written_last_carries_its_checksum);
 	MU_RUN(a_stale_checksum_in_the_image_is_written_over);
 	MU_RUN(a_download_that_stops_part_way_sends_no_vector_table);
+	MU_RUN(a_download_records_what_it_wrote);
+	MU_RUN(the_record_goes_in_with_the_vector_table);
+	MU_RUN(a_region_the_board_did_not_get_whole_does_not_add_up);
+	MU_RUN(the_tool_writes_over_the_checksum_word_and_the_record_only);
+	MU_RUN(an_image_with_no_check_block_is_written_unchanged);
+	MU_RUN(a_stale_record_in_the_image_is_written_over);
 	MU_RUN(an_image_that_fills_the_part_is_written);
 	MU_RUN(an_image_one_byte_past_the_part_is_refused);
 	MU_RUN(an_image_with_no_info_block_is_refused);

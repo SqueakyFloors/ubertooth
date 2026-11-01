@@ -1,17 +1,19 @@
 /*
- * The firmware info block every image carries, and the three places that have
- * to agree about it.
+ * The two blocks every image carries at a fixed offset, and the three places
+ * that have to agree about each of them.
  *
- * ubertooth-dfu reads 64 bytes out of a firmware file at a fixed offset to
- * name the image and the revision it holds, and refuses a file that has no
- * readable block there before it erases anything. That only works while the
- * firmware, the linker script and the host agree on where the block is, how
- * big it is, and what is in it. Nothing at build time checks all three, so:
+ * ubertooth-dfu reads 64 bytes of firmware info out of a file to name the
+ * image and the revision it holds, and refuses a file that has no readable
+ * block there before it erases anything. It writes 32 bytes of image check
+ * block as it flashes, so a board can tell a whole image from a half-written
+ * one. Both only work while the firmware, the linker script and the host
+ * agree on where each block is, how big it is, and what is in it. Nothing at
+ * build time checks all three, so:
  *
- * - ../common/fw_info.c is compiled here with the host compiler, against the
- *   stub version.h in stubs-fwinfo/, and the bytes it produces are handed to
- *   the host's own parser. That is the end-to-end check: the firmware builds
- *   the block, the host reads it.
+ * - ../common/fw_info.c and ../common/image_check.c are compiled here with
+ *   the host compiler, against the stub version.h in stubs-fwinfo/, and the
+ *   bytes they produce are read the way the host reads them. That is the
+ *   end-to-end check: the firmware builds the blocks, the host reads them.
  * - ../common/sections.ld is read as text and the numbers in it are put
  *   against the header's, the way test_bootloader_flash_bounds puts the
  *   bootloader's part table against the host's copy. A linker script cannot
@@ -168,12 +170,14 @@ MU_TEST(the_linker_script_puts_the_block_where_the_host_looks)
 	          "sections.ld does not check that the block landed at "
 	          "UBERTOOTH_FW_INFO_OFFSET");
 
+	/* The image check block sits below this one, so it is the block the
+	 * vector table has to stop short of. */
 	snprintf(expected, sizeof(expected),
 	         "ASSERT(_interrupt_vector_table_end - _interrupt_vector_table "
-	         "<= 0x%x,", UBERTOOTH_FW_INFO_OFFSET);
+	         "<= 0x%x,", UBERTOOTH_IMAGE_CHECK_OFFSET);
 	mu_assert(strstr(script, expected) != NULL,
 	          "sections.ld does not check that the vector table stops short "
-	          "of the block");
+	          "of the blocks");
 
 	snprintf(expected, sizeof(expected),
 	         "_fw_info_end - _fw_info_start == %d",
@@ -183,6 +187,123 @@ MU_TEST(the_linker_script_puts_the_block_where_the_host_looks)
 	          "UBERTOOTH_FW_INFO_LENGTH");
 
 	free(script);
+}
+
+/* ---- the image check block ---------------------------------------------- */
+
+/* The magic the firmware spells byte by byte is the macro the host compares
+ * against, as for the block above. */
+MU_TEST(the_image_check_block_starts_with_the_magic_the_host_looks_for)
+{
+	mu_assert(memcmp(image_check_block.magic, UBERTOOTH_IMAGE_CHECK_MAGIC,
+	                 UBERTOOTH_IMAGE_CHECK_MAGIC_LEN) == 0,
+	          "the block's magic is not UBERTOOTH_IMAGE_CHECK_MAGIC");
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_MAGIC_LEN,
+	                 (int)strlen(UBERTOOTH_IMAGE_CHECK_MAGIC));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_FORMAT,
+	                 image_check_block.format_version);
+}
+
+/* An image asks for no check until a host has written it: the flags, the
+ * length and the checksum are all zero in the image, and a board that reads
+ * flags of zero makes no check. That is what keeps an image written by an
+ * earlier host tool startable. */
+MU_TEST(the_image_carries_the_block_empty)
+{
+	unsigned i;
+
+	mu_assert_int_eq(0, image_check_block.flags);
+	mu_assert_int_eq(0, (int)image_check_block.length);
+	mu_assert_int_eq(0, (int)image_check_block.length_complement);
+	mu_assert_int_eq(0, (int)image_check_block.checksum);
+	for (i = 0; i < sizeof(image_check_block.reserved); i++)
+		mu_assert_int_eq(0, image_check_block.reserved[i]);
+}
+
+MU_TEST(the_image_check_field_offsets_match_the_struct)
+{
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_LENGTH,
+	                 (int)sizeof(struct ubertooth_image_check_block));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_MAGIC,
+	                 (int)offsetof(struct ubertooth_image_check_block, magic));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_FORMAT,
+	                 (int)offsetof(struct ubertooth_image_check_block,
+	                               format_version));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_FLAGS,
+	                 (int)offsetof(struct ubertooth_image_check_block, flags));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_LENGTH,
+	                 (int)offsetof(struct ubertooth_image_check_block, length));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_LENGTH_COMPLEMENT,
+	                 (int)offsetof(struct ubertooth_image_check_block,
+	                               length_complement));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_CHECKSUM,
+	                 (int)offsetof(struct ubertooth_image_check_block,
+	                               checksum));
+	mu_assert_int_eq(UBERTOOTH_IMAGE_CHECK_OFF_RESERVED,
+	                 (int)offsetof(struct ubertooth_image_check_block,
+	                               reserved));
+}
+
+/*
+ * The image check block's offset in the linker script is its offset in the
+ * header, for the same reason as the block above. It also has to sit inside
+ * the image's first 256 bytes and clear the vector table, which is what
+ * leaves it exactly one place to be.
+ */
+MU_TEST(the_linker_script_puts_the_image_check_block_where_the_host_looks)
+{
+	char *script = read_source(FW_COMMON_DIR "/sections.ld");
+	char expected[256];
+
+	mu_assert_fatal(script != NULL,
+	                FW_COMMON_DIR "/sections.ld would not open");
+
+	snprintf(expected, sizeof(expected),
+	         ". = MAX(., _interrupt_vector_table + 0x%x);",
+	         UBERTOOTH_IMAGE_CHECK_OFFSET);
+	mu_assert(strstr(script, expected) != NULL,
+	          "sections.ld does not move to UBERTOOTH_IMAGE_CHECK_OFFSET "
+	          "before the block, so the host would write the wrong bytes");
+
+	mu_assert(strstr(script, "KEEP(*(.image_check))") != NULL,
+	          "sections.ld does not KEEP the .image_check section, so "
+	          "--gc-sections could drop the block");
+
+	snprintf(expected, sizeof(expected),
+	         "ASSERT(_image_check_start - _interrupt_vector_table == 0x%x,",
+	         UBERTOOTH_IMAGE_CHECK_OFFSET);
+	mu_assert(strstr(script, expected) != NULL,
+	          "sections.ld does not check that the block landed at "
+	          "UBERTOOTH_IMAGE_CHECK_OFFSET");
+
+	snprintf(expected, sizeof(expected),
+	         "_image_check_end - _image_check_start == %d",
+	         UBERTOOTH_IMAGE_CHECK_LENGTH);
+	mu_assert(strstr(script, expected) != NULL,
+	          "sections.ld does not check the block's length against "
+	          "UBERTOOTH_IMAGE_CHECK_LENGTH");
+
+	free(script);
+}
+
+/*
+ * Where the block has to be. Below the firmware info block, inside the
+ * image's first 256 bytes -- the block ubertooth-dfu writes whole or not at
+ * all, so that the record of a download reaches the flash with the vector
+ * table it describes -- and past the vector table and its checksum word.
+ */
+MU_TEST(the_image_check_offset_is_in_the_image_first_block)
+{
+	mu_assert(UBERTOOTH_IMAGE_CHECK_OFFSET + UBERTOOTH_IMAGE_CHECK_LENGTH <=
+	          0x100,
+	          "the block is not inside the image's first 256 bytes");
+	mu_assert(UBERTOOTH_IMAGE_CHECK_OFFSET + UBERTOOTH_IMAGE_CHECK_LENGTH <=
+	          UBERTOOTH_FW_INFO_OFFSET,
+	          "the block overlaps the firmware info block");
+	/* 51 words of vector table today (common/LPC17xx_Interrupts.c), the
+	 * checksum word at 0x1c among them. */
+	mu_assert(UBERTOOTH_IMAGE_CHECK_OFFSET >= 51 * 4,
+	          "the block starts inside the vector table");
 }
 
 /*
@@ -350,6 +471,23 @@ MU_TEST(every_image_gets_the_block_from_the_shared_makefile)
 	free(makefile);
 }
 
+/* ...and the same for the image check block, for the same reason: an image
+ * that left it out would be written with no check over it at all. */
+MU_TEST(every_image_gets_the_image_check_block_from_the_shared_makefile)
+{
+	char *makefile = read_source(FW_DIR "/common.mk");
+
+	mu_assert_fatal(makefile != NULL, FW_DIR "/common.mk would not open");
+	mu_assert(strstr(makefile,
+	                 "IMAGE_CHECK_SRC = $(LIBS_PATH)/image_check.c") != NULL,
+	          "common.mk does not build ../common/image_check.c, so images "
+	          "would carry no image check block");
+	mu_assert(strstr(makefile,
+	                 "OBJ += $(IMAGE_CHECK_OBJ)") != NULL,
+	          "common.mk does not link the image check block into the image");
+	free(makefile);
+}
+
 /*
  * The last line of defence: common.mk reads the finished .bin back and fails
  * the build if the magic is not at the offset. The ASSERTs in sections.ld have
@@ -374,20 +512,36 @@ MU_TEST(the_build_reads_the_block_back_out_of_the_image)
 	mu_assert(strstr(makefile, expected) != NULL,
 	          "common.mk does not compare what it read against "
 	          "UBERTOOTH_FW_INFO_MAGIC");
+	snprintf(expected, sizeof(expected), "skip=%u count=%u",
+	         UBERTOOTH_IMAGE_CHECK_OFFSET, UBERTOOTH_IMAGE_CHECK_MAGIC_LEN);
+	mu_assert(strstr(makefile, expected) != NULL,
+	          "common.mk does not read the magic at "
+	          "UBERTOOTH_IMAGE_CHECK_OFFSET back out of the built image");
+	snprintf(expected, sizeof(expected), "\"$$magic\" != \"%s\"",
+	         UBERTOOTH_IMAGE_CHECK_MAGIC);
+	mu_assert(strstr(makefile, expected) != NULL,
+	          "common.mk does not compare what it read against "
+	          "UBERTOOTH_IMAGE_CHECK_MAGIC");
 	free(makefile);
 }
 
 int main(void)
 {
-	printf("firmware info block tests\n");
+	printf("fixed-offset image block tests\n");
 	MU_RUN(the_host_reads_the_block_the_firmware_builds);
 	MU_RUN(the_block_starts_with_the_magic_the_host_looks_for);
 	MU_RUN(the_field_offsets_match_the_struct);
 	MU_RUN(the_linker_script_puts_the_block_where_the_host_looks);
 	MU_RUN(the_offset_clears_the_vector_table_checksum);
+	MU_RUN(the_image_check_block_starts_with_the_magic_the_host_looks_for);
+	MU_RUN(the_image_carries_the_block_empty);
+	MU_RUN(the_image_check_field_offsets_match_the_struct);
+	MU_RUN(the_linker_script_puts_the_image_check_block_where_the_host_looks);
+	MU_RUN(the_image_check_offset_is_in_the_image_first_block);
 	MU_RUN(both_handlers_return_the_block_itself);
 	MU_RUN(no_image_writes_its_api_version_as_a_bare_number);
 	MU_RUN(every_image_gets_the_block_from_the_shared_makefile);
+	MU_RUN(every_image_gets_the_image_check_block_from_the_shared_makefile);
 	MU_RUN(the_build_reads_the_block_back_out_of_the_image);
 	return mu_report();
 }
