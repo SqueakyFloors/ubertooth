@@ -21,11 +21,17 @@ set has to match the pages exactly, both ways:
 ALL_PAGES is checked against the directory for the same reason: a new page has
 to be named here, which is the moment to decide which of the groups it is in.
 
-The headings left out, and why. ARGUMENTS belongs to a tool that takes
-positional arguments and DIAGNOSTICS, EXAMPLES and AUTHOR follow what a page
-has to say rather than a shared design, so there is nothing to pin. The
-sections a single page carries -- SQUELCH, WATCHDOG, MONITOR MODE and the rest
--- are that tool's own.
+A heading on more than one page is either pinned in that table or named in
+UNPINNED_HEADINGS with the reason, and that is checked too, so a shared
+section added across pages later cannot go unpinned. The sections a single
+page carries -- SQUELCH, WATCHDOG, MONITOR MODE and the rest -- are that
+tool's own and are not this test's business.
+
+What this does not catch. It reads headings, not what is under them, so a
+section emptied of its text passes. GAPS IN A CAPTURE is the one group checked
+against the tools as well, through the call every gap-reporting tool makes;
+for the other groups, including TRANSMIT POWER, a tool added later has to be
+added here by hand, and the heading check above is what makes that visible.
 
 The pages themselves are read, not the generated roff in host/doc/man: the .md
 is the source every page but ubertooth-debug.1 is rendered from, and
@@ -88,10 +94,12 @@ CAPTURE_PAGES = {
     "ubertooth-specan.md",
 }
 
-# The tools whose transmitting uses the CC2400 power level `ubertooth-util -a`
-# sets, which is what their shared section describes. ubertooth-btbr transmits
-# too, and its page talks about turning a level down for a bench rather than
-# about the level itself.
+# The tools whose page describes the CC2400 power level their transmitting
+# uses, which is the level `ubertooth-util -a` sets. Two other tools transmit
+# and are not here: ubertooth-btbr, whose page talks about turning a level
+# down for a bench rather than about the level itself, and ubertooth-util,
+# whose page documents `-a` among its options because it is the tool that
+# reads and sets the level.
 TRANSMIT_PAGES = {
     "ubertooth-btle.md",
     "ubertooth-ducky.md",
@@ -107,11 +115,38 @@ SHARED_SECTIONS = (
     ("EXIT STATUS", EXIT_STATUS_PAGES, "what the command's exit status means"),
     ("SEE ALSO", TOOL_PAGES, "the other pages a reader wants"),
     ("COPYRIGHT", ALL_PAGES, "the license the page is under"),
+    ("SELECTING A DEVICE", {"ubertooth-btbr.md", "ubertooth-util.md",
+                            "ubertooth.md"},
+     "how one of several attached boards is chosen"),
+    ("CAPTURING TO STANDARD OUTPUT", {"ubertooth-follow.md",
+                                      "ubertooth-rx.md"},
+     "what `-q -` and `-d -` do to the rest of the output"),
     ("GAPS IN A CAPTURE", CAPTURE_PAGES,
      "what a gap in a capture is and how the tool reports one"),
     ("TRANSMIT POWER", TRANSMIT_PAGES,
      "the power level the tool transmits at"),
 )
+
+# The headings more than one page carries that are not shared sections, with
+# why each is not pinned. Checked for being exact: a heading named here that
+# only one page has, or that the table above pins, fails below, and so does a
+# heading on several pages that is in neither place.
+UNPINNED_HEADINGS = {
+    "ARGUMENTS":
+        "belongs to a tool that takes positional arguments, and says what "
+        "that tool's are",
+    "AUTHOR":
+        "names whoever wrote the tool, so it is there where there is someone "
+        "to name",
+    "DIAGNOSTICS":
+        "what this tool prints and when; the pages without one describe each "
+        "message where they describe the mode that prints it",
+    "EXAMPLES":
+        "worked commands, which a page has where they help",
+    "OUTPUT":
+        "the shape of this tool's own output, which is different on each of "
+        "the two pages that have it",
+}
 
 # The call every tool makes to report the capture losses it counted. A tool
 # that makes it has gaps to describe, so its page belongs in CAPTURE_PAGES or
@@ -164,6 +199,40 @@ def check_pages_named(sections):
              "of the groups above" % ", ".join(gone))
 
 
+def check_headings_accounted(sections):
+    """A heading on several pages is pinned above or named as not shared.
+
+    Without this the table could fall behind the pages in the other
+    direction: a shared section added to several pages later would be checked
+    by nothing, which is the gap this test exists to close.
+    """
+    pinned = set(heading for heading, _, _ in SHARED_SECTIONS)
+    on_pages = {}
+    for name, found in sections.items():
+        for heading in found:
+            on_pages.setdefault(heading, set()).add(name)
+
+    unaccounted = sorted(heading for heading, pages in on_pages.items()
+                         if len(pages) > 1 and heading not in pinned
+                         and heading not in UNPINNED_HEADINGS)
+    if unaccounted:
+        fail("%s is on several pages and is neither pinned in "
+             "SHARED_SECTIONS nor named in UNPINNED_HEADINGS. Pin it with "
+             "the pages that carry it, or say there why it is not a shared "
+             "section." % ", ".join(unaccounted))
+
+    both = sorted(pinned & set(UNPINNED_HEADINGS))
+    if both:
+        fail("%s is both pinned in SHARED_SECTIONS and named in "
+             "UNPINNED_HEADINGS; take it out of one of them" % ", ".join(both))
+    alone = sorted(heading for heading in UNPINNED_HEADINGS
+                   if len(on_pages.get(heading, ())) < 2)
+    if alone:
+        fail("%s is named in UNPINNED_HEADINGS but is on fewer than two "
+             "pages now, so there is nothing to say about it; take the entry "
+             "out" % ", ".join(alone))
+
+
 def check_section(sections, heading, pages, what):
     """The pages carrying this heading have to be the pages listed for it."""
     carrying = set(name for name, found in sections.items()
@@ -183,7 +252,12 @@ def check_section(sections, heading, pages, what):
 
 
 def gap_reporting_pages(host_src):
-    """The page of every tool that reports the losses of a capture."""
+    """The page of every tool that reports the losses of a capture.
+
+    A source file under src/ is a tool when a page of its name exists; the
+    directory holds shared modules as well, and a call that moved into one of
+    those is reported below rather than turned into a page name nothing has.
+    """
     pages = set()
     sources = sorted(glob.glob(os.path.join(host_src, "ubertooth-tools",
                                             "src", "*.c")))
@@ -191,9 +265,17 @@ def gap_reporting_pages(host_src):
         fail("no tool sources under %s" % host_src)
     for path in sources:
         with open(path, encoding="utf-8", errors="replace") as handle:
-            if LOSS_REPORT_CALL in handle.read():
-                name = os.path.basename(path)
-                pages.add(name[:-len(".c")] + ".md")
+            if LOSS_REPORT_CALL not in handle.read():
+                continue
+        name = os.path.basename(path)
+        page = name[:-len(".c")] + ".md"
+        if page not in ALL_PAGES:
+            fail("%s calls %s and is not a tool with a page of its own, so "
+                 "the report has moved into shared code and this check can "
+                 "no longer tell which tools make it. Check the gap sections "
+                 "against the tools another way and say so here."
+                 % (name, LOSS_REPORT_CALL))
+        pages.add(page)
     if not pages:
         fail("no tool source calls %s, so the tools no longer report capture "
              "losses the way this check assumes" % LOSS_REPORT_CALL)
@@ -232,6 +314,7 @@ def main():
 
     sections = page_sections(os.path.join(host_src, "doc"))
     check_pages_named(sections)
+    check_headings_accounted(sections)
     checked = 0
     for heading, pages, what in SHARED_SECTIONS:
         if not pages:

@@ -690,6 +690,7 @@
   in the compiler with dozens of errors naming symbols its header has not
   got: `FindUBERTOOTH.cmake` now asks the libubertooth it found for a few of
   the functions the tools call, as the libbtbb check already did.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - A program that sets more advertising data than the board can transmit is
   told so, where it used to be taken and then dropped: `cmd_le_set_adv_data()`
   and the board's `UBERTOOTH_LE_SET_ADV_DATA` both refuse anything longer than

@@ -30,7 +30,13 @@ be absent, so an honest "not found" passes for those two.
 FindUBERTOOTH has a function check of its own, so the libubertooth each of its
 cases is pointed at is a stand-in built here: a header declaring the functions
 the module asks for and a library defining them, which is enough for the probe
-to pass and keeps this test to the paths it is about.
+to pass and keeps this test to the paths it is about. What the search then
+arrives at depends on the machine, and only one of the three answers is the
+full check: where this tree's libubertooth is installed the module finds it
+and reports it, which is the case the host-installed-libubertooth CI job
+exercises; where none is installed it reports nothing found; and where an
+older one is installed it finds and refuses that, and what is checked is that
+its refusal names no path that has gone.
 
 A fourth shape is the move itself, in check_move() below: the install goes
 from one prefix to another, both named by nothing but their pkg-config files,
@@ -388,7 +394,10 @@ def required_functions(module_path):
     if not block:
         fail("no set(LIBUBERTOOTH_REQUIRED_FUNCTIONS ...) block in %s"
              % module_path)
-    names = re.findall(r"^  ([a-z_][a-z0-9_]*)", block.group(1), re.M)
+    # However far the names are indented, so re-indenting the block in the
+    # module cannot drop one from the stand-in and leave the cases below
+    # failing for a reason that has nothing to do with them.
+    names = re.findall(r"^[ \t]+([a-z_][a-z0-9_]*)", block.group(1), re.M)
     if not names:
         fail("%s lists no functions" % module_path)
     return names
@@ -431,7 +440,11 @@ def standin_libubertooth(cmake, modules, work):
         if done.returncode != 0:
             fail("could not %s the libubertooth stand-in:\n%s"
                  % (what, done.stdout))
-    built = [path for path in glob.glob(os.path.join(build, "libubertooth.*"))
+    # Under the build directory rather than in it: a multi-config generator
+    # puts the library in a subdirectory named after the configuration.
+    built = [path for path in glob.glob(os.path.join(build, "**",
+                                                     "libubertooth.*"),
+                                        recursive=True)
              if not path.endswith(".h")]
     if len(built) != 1:
         fail("the libubertooth stand-in built %s, expected one library"

@@ -1409,9 +1409,9 @@ add_test(
 # Twenty-two configures, fourteen of them of a project with C in it for the
 # function checks of FindBTBB and FindUBERTOOTH and the rest of a project with
 # no languages, which needs no compiler, plus one build of the one-file
-# libubertooth stand-in those checks are pointed at: 19 s on an idle machine
-# and 46 s on one busy with parallel builds. Three times the limit of
-# btbb-check and libusb-include above, because this is three times the
-# configures of either and a cold CI runner spends seconds on compiler
-# detection alone.
-set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 180)
+# libubertooth stand-in those checks are pointed at: 19 s on an idle machine,
+# 46 s on one busy with parallel builds, and 98 s at load 40 on twelve cores.
+# Four times the limit of btbb-check and libusb-include above, because this is
+# three times the configures of either and a cold CI runner spends seconds on
+# compiler detection alone.
+set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 240)
