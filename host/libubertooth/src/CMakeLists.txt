@@ -139,6 +139,19 @@ if(IS_ABSOLUTE "${UBERTOOTH_INSTALL_LIBDIR}")
 	set(PC_PREFIX "${CMAKE_INSTALL_PREFIX}")
 	set(PC_LIBDIR "${UBERTOOTH_FULL_LIBDIR}")
 	set(PC_INCLUDEDIR "${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+	# Which is worth saying while the directories are being chosen: such an
+	# install cannot be staged somewhere else and still be found, because the
+	# headers would move with the prefix and this file would still name the
+	# ones at the old place. Said only where the headers are the ones that
+	# would move: absolute ones are named as they stand and do not move
+	# either.
+	if(NOT IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+		message(STATUS "libubertooth.pc will name "
+			"${CMAKE_INSTALL_FULL_INCLUDEDIR} as the header directory, "
+			"because an absolute library directory leaves the file with no "
+			"relation to the prefix: an install staged elsewhere with "
+			"--prefix needs its own configure")
+	endif()
 else()
 	# RELATIVE_PATH leaves a trailing slash on the way out of a directory,
 	# which pkg-config reads the same but nobody wants to read.
