@@ -156,6 +156,27 @@ count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
 
+A dump whose receiver is being driven harder than it can measure says so,
+once: `warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. The radio reports the power of each
+block of air on a scale that runs out, and a receiver held at the top of it is
+also past where it demodulates reliably, so the symbols in the dump are not to
+be trusted. Put more distance or more attenuation between the boards, or turn
+the transmit power down. It takes a receiver held at the top of the scale: one
+loud packet is not reported. When the dump ends it says how many such
+stretches there were: `warning: the capture has 3 stretches where the signal
+was at the top of the receiver's range`.
+
+With `-c` or `-l`, which is every run that does not ask for `-g`, the board
+sends a record for every block of air, so the warning arrives whether or not
+anything is decoding. With `-g` it depends on
+the configuration in the radio, as the receive itself does: left with GRMDM's
+packet-mode bit clear the board reads a stream of symbols and reports this as
+`-c` does, while with the bit set it waits on a sync word and takes no
+readings at all, so those records state no signal figure and nothing is
+reported however loud the air. See ubertooth(7).
+
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after the dump is

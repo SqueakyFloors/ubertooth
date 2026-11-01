@@ -536,6 +536,70 @@ answer every poll of a quiet capture gets. The capture runs on and ends as it
 otherwise would, so the warning is the only sign: it says packets were lost,
 it does not fail the run.
 
+A capture also says when its receiver is being driven harder than it can
+measure: `warning: the signal is at the top of the receiver's range, so the
+board cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. Said once per capture, with a
+total when the capture ends: `warning: the capture has 3 stretches where
+the signal was at the top of the receiver's range`, one per block of
+records judged to be there.
+
+The signal figure a record carries comes from the radio on a scale that runs
+out: above a certain reading the host can only say "at least this loud", which
+it reports as 0 dBm, and a receiver held there is also past where it
+demodulates reliably. Every receive that captures turns the board's amplifier
+on and the Basic Rate and low-energy ones turn its high-gain mode on too,
+which is what makes the near end of a bench reach it. On the bench this
+measures as two separate regimes rather than
+a borderline: a transmitting board a few centimeters from the receiver holds
+every record at the top of the scale at every one of the eight transmit power
+levels, while the same board a meter away behind a 20 dB attenuator stays well
+below it even at level 7. So where the link is two boards of your own, the
+warning is about the link rather than the setting of any one option: put more
+distance or more attenuation between them, or turn the transmit power down,
+and the capture has a signal it can both measure and read. Anything else close
+and loud enough will do it too, and the board cannot say what is deafening
+it -- only that something is.
+
+One packet at the top of the scale is not this, and is not reported: a short
+packet from a board a few centimeters away arrives with `rssi=0` and a valid
+CRC. What is reported is a receiver held there, which is judged over a block
+of records rather than one.
+
+Only the captures whose records are samples of the air report it, and that is
+the point rather than a limitation. The Basic Rate stream sends a record for
+every block of air it collects, packet or no packet, so `ubertooth-rx`,
+`ubertooth-dump` with `-c` or `-l` (which is every run that does not ask for
+`-g`), `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow` notice a
+receiver that is pinned even while they decode nothing at all -- which is the
+case worth knowing about, since that is what a deafened receiver looks like.
+
+ubertooth-btle(1) does not report it, under any of `-f`, `-n` and `-p`. Its
+board sends a record for a packet it demodulated and for nothing else, so a
+record at the top of the range there says a packet decoded at the top of the
+range, which an ordinary close link produces all day: a short packet from a
+board a few centimeters away arrives at the ceiling with a valid CRC. Judging
+such records would warn about captures that are working, and the case that
+matters -- a link so loud that nothing decodes -- sends that tool no records
+to judge at all. Run ubertooth-rx(1) on the same channel to tell a deafened
+receiver from an empty one.
+
+The generic receive (`ubertooth-dump -g`) reports it or not according to which
+of its two receives the radio's configuration selects, which GENERIC RADIO
+MODE above describes: with GRMDM's packet-mode bit clear it reads a stream of
+symbols through the same path as a Basic Rate capture, takes a reading per
+poll and reports this as that capture does, while with the bit set the board
+waits on a sync word, takes no readings at all, and its records state no
+signal figure for anything to judge.
+
+ubertooth-ego(1) never reports it: its records state no signal figure either,
+and its receive leaves the high-gain mode off in any case.
+ubertooth-specan(1) is left out for a different reason: its sweep also reads
+the radio with the high-gain mode off and reports the raw readings themselves,
+so its figures are not on the scale this warning is about. The `btbr` image's
+own tools report nothing here at all, because that firmware sends none of
+these records.
+
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library
 message does not land in the middle of a capture. The clock trim and AFH

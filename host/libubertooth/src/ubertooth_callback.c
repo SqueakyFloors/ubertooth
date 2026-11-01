@@ -19,6 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +65,22 @@ extern unsigned int packet_counter_max;
 #define CLKN_PER_SECOND 3200
 #define PPM_PER_100NS_PER_CLKN 320
 
+/* Where the scale below runs out: the lowest raw reading that comes out as
+ * 0 dBm. A record at or above it says only "at least this loud", so a capture
+ * held there cannot be told how loud what it is hearing is -- and on this
+ * radio that is also where it stops demodulating reliably, which is what
+ * ubertooth_watch_signal_level() reports.
+ *
+ * The map below is written in terms of this rather than repeating the number,
+ * so it stays the first reading that reports 0 dBm whatever the top segment
+ * becomes. That makes it load-bearing twice over, and the two uses have to
+ * move together: it is where the dBm scale ends as well as what the warning
+ * goes on, so changing it to suit the warning would change the dBm figure
+ * every capture reports and every capture file records. Retune the warning
+ * through SIGNAL_BLOCK_RECORDS and SIGNAL_BLOCK_AT_CEILING instead, and
+ * change this only to follow the radio's own curve. */
+#define RSSI_CEILING_RAW 35
+
 static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 {
 	/* models the cc2400 datasheet fig 22 for 1M as piece-wise linear */
@@ -76,8 +93,8 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 	else if (rssi <= 30) {
 		return (int8_t) ((99*((int)rssi-62))/110);
 	}
-	else if (rssi <= 35) {
-		return (int8_t) ((60*((int)rssi-35))/11);
+	else if (rssi < RSSI_CEILING_RAW) {
+		return (int8_t) ((60*((int)rssi-RSSI_CEILING_RAW))/11);
 	}
 	else {
 		return 0;
@@ -752,6 +769,99 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 	}
 }
 
+/* How many records carrying a signal figure are judged together, and how many
+ * of them have to be at the top of the radio's range for the block to count as
+ * pinned there.
+ *
+ * Measured on the bench at 2441 MHz: with nothing of ours transmitting, 26 of
+ * 19937 records reached the ceiling, 0.13% -- the channel carries Wi-Fi, which
+ * is loud. With another board a few centimeters away transmitting a carrier,
+ * every record did, at every transmit power. So the two cases are three orders
+ * of magnitude apart and the threshold only has to sit between them.
+ *
+ * The block is a count of records and not a stretch of time, because the modes
+ * send them at very different rates: the Basic Rate stream sends one per block
+ * of symbols, about 2500 a second, so a block here is a fraction of a second
+ * of air, while the low-energy engine sends one per packet. A thousand records
+ * of the stream is long enough that a burst of someone else's traffic cannot
+ * fill it, and short enough to be reported while a capture is still running.
+ */
+#define SIGNAL_BLOCK_RECORDS 1000
+#define SIGNAL_BLOCK_AT_CEILING 950
+
+/* The counters these are compared against are 16-bit, so a block larger than
+ * one can hold would wrap before it was ever judged and the warning would
+ * never be said. */
+_Static_assert(SIGNAL_BLOCK_RECORDS <= UINT16_MAX &&
+               SIGNAL_BLOCK_AT_CEILING <= SIGNAL_BLOCK_RECORDS,
+               "a block has to fit the counters in ubertooth_t");
+
+void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx)
+{
+	if (ut == NULL || rx == NULL)
+		return;
+
+	/* Only a Basic Rate record, which is the one kind that is a sample of
+	 * the air: the board sends one for every block of symbols it collects,
+	 * whether or not a packet was in it, which is what makes "nearly every
+	 * record at the top of the range" mean a receiver hearing nothing it can
+	 * read. Both engines that take readings this way -- the Basic Rate
+	 * stream and the generic receive's symbol path -- send this type.
+	 *
+	 * Every other type is either not a sample of the air or not a sample at
+	 * all, so a positive test rather than a list of exclusions: a low-energy
+	 * record exists because a packet decoded, so a run of them at the top of
+	 * the range is an ordinary close link; a keep-alive is one byte on the
+	 * wire, so its every other field holds whatever the record before it
+	 * left in the buffer; a continuation record repeats the readings of the
+	 * record that started its packet; and a promiscuous state change, a
+	 * spectrum analyzer sweep and an E-GO packet carry no signal figure of
+	 * their own.
+	 *
+	 * It matters on a replay as well as live. A dump holds whatever records
+	 * were captured, and ubertooth-rx -i will replay one written by any tool,
+	 * so the type has to be checked here rather than left to which callback
+	 * is running.
+	 */
+	if (rx->pkt_type != BR_PACKET)
+		return;
+
+	/* And only a record that states the power of what it holds. A record
+	 * without the flag carries either no packet or, from an older board or
+	 * dump, the channel's running average in that field, which is not this
+	 * record's level. */
+	if (!(rx->status & SIGNAL_VALID))
+		return;
+
+	ut->signal_records++;
+	if (rx->rssi_avg >= RSSI_CEILING_RAW)
+		ut->signal_records_at_ceiling++;
+
+	if (ut->signal_records < SIGNAL_BLOCK_RECORDS)
+		return;
+
+	if (ut->signal_records_at_ceiling >= SIGNAL_BLOCK_AT_CEILING) {
+		ut->signal_ceiling_blocks++;
+		if (!ut->signal_ceiling_warned) {
+			ut->signal_ceiling_warned = 1;
+			fprintf(stderr, "warning: the signal is at the top of "
+			        "the receiver's range, so the board cannot "
+			        "measure it and may not demodulate it; the "
+			        "boards may be too close together, or the "
+			        "transmit power too high\n");
+		}
+	}
+
+	/* The next block is judged on its own air, not on this one's. */
+	ut->signal_records = 0;
+	ut->signal_records_at_ceiling = 0;
+}
+
+uint32_t ubertooth_signal_ceiling_blocks(ubertooth_t* ut)
+{
+	return ut != NULL ? ut->signal_ceiling_blocks : 0;
+}
+
 uint32_t ubertooth_queue_gaps(ubertooth_t* ut)
 {
 	return ut != NULL ? ut->queue_gaps : 0;
@@ -772,6 +882,7 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 	uint32_t gaps = ubertooth_queue_gaps(ut);
 	uint32_t errors = ubertooth_transfer_errors(ut);
 	uint32_t overwrites = ubertooth_symbol_overwrites(ut);
+	uint32_t blocks = ubertooth_signal_ceiling_blocks(ut);
 
 	if (gaps > 0)
 		fprintf(stderr, "warning: the capture has %u gap%s where the "
@@ -787,6 +898,14 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 		fprintf(stderr, "warning: the capture has %u place%s where the "
 		        "board wrote new symbols over a block it had not read\n",
 		        overwrites, overwrites == 1 ? "" : "s");
+
+	/* Not a loss, but the same kind of thing to say at the end: the running
+	 * warning is said once, so without a total a reader cannot tell one bad
+	 * stretch from a capture that was deaf throughout. */
+	if (blocks > 0)
+		fprintf(stderr, "warning: the capture has %u stretch%s where the "
+		        "signal was at the top of the receiver's range\n",
+		        blocks, blocks == 1 ? "" : "es");
 }
 
 void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
@@ -807,6 +926,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	/* Before the checks below: a record this callback goes on to discard
 	 * still carries the board's word that packets were lost before it. */
 	ubertooth_count_capture_losses(ut, rx);
+	ubertooth_watch_signal_level(ut, rx);
 
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
@@ -895,6 +1015,7 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 	/* Before the checks below: a record this callback goes on to discard
 	 * still carries the board's word that packets were lost before it. */
 	ubertooth_count_capture_losses(ut, rx);
+	ubertooth_watch_signal_level(ut, rx);
 
 	/* Sanity check: the channel names a bit of the AFH map below */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
@@ -937,6 +1058,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	/* Before the checks below: a record this callback goes on to discard
 	 * still carries the board's word that packets were lost before it. */
 	ubertooth_count_capture_losses(ut, rx);
+	ubertooth_watch_signal_level(ut, rx);
 
 	static unsigned long last_seen[NUM_BREDR_CHANNELS] = {0};
 	static unsigned long counter = 0;
@@ -990,6 +1112,7 @@ void cb_afh_r(ubertooth_t* ut, void* args)
 	/* Before the checks below: a record this callback goes on to discard
 	 * still carries the board's word that packets were lost before it. */
 	ubertooth_count_capture_losses(ut, rx);
+	ubertooth_watch_signal_level(ut, rx);
 
 	static unsigned long last_seen[NUM_BREDR_CHANNELS] = {0};
 	static unsigned long counter = 0;
@@ -1056,7 +1179,18 @@ void cb_btle(ubertooth_t* ut, void* args)
 
 	/* Before anything that can return: a record dropped below for a bad
 	 * channel, a filtered address or a broken chain still carries the
-	 * board's word that packets were lost before it. */
+	 * board's word that packets were lost before it.
+	 *
+	 * No ubertooth_watch_signal_level() here. The low-energy engines send a
+	 * record for a packet the board demodulated and for nothing else, so
+	 * "most records at the top of the radio's range" would mean "most
+	 * packets decoded at the top of the range" -- which is an ordinary close
+	 * link and not a deafened receiver: a short packet from a board a few
+	 * centimeters away arrives at the ceiling with a valid CRC. That rule is
+	 * calibrated on records that are samples of the air, as the Basic Rate
+	 * stream's are, and means nothing over records that exist only because a
+	 * packet decoded. ubertooth(7) says to run ubertooth-rx on the same
+	 * channel to tell a deafened receiver from an empty one. */
 	ubertooth_count_capture_losses(ut, rx);
 
 	// display LE promiscuous mode state changes
@@ -1270,6 +1404,9 @@ void cb_ego(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 
+	/* No ubertooth_watch_signal_level() here: the E-GO engine builds its
+	 * records with enqueue_with_ts(), which takes no readings and states no
+	 * signal figure, and its receive leaves the high-gain mode off. */
 	ubertooth_count_capture_losses(ut, rx);
 
 	/* These packets are stamped with the CLKN-derived clock and carry no
@@ -1526,6 +1663,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* Before the checks below: a record this callback goes on to discard
 	 * still carries the board's word that packets were lost before it. */
 	ubertooth_count_capture_losses(ut, rx);
+	ubertooth_watch_signal_level(ut, rx);
 
 	if (rx->pkt_type != BR_PACKET) {
 		goto out;

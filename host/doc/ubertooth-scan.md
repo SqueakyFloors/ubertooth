@@ -167,6 +167,21 @@ count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
 
+A receiver being driven harder than it can measure is reported once per run:
+`warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. The radio reports the power of each
+block of air on a scale that runs out, and a receiver held at the top of it is
+also past where it demodulates reliably -- so this is the case where nothing
+decodes and the board is not at fault. Put more distance or more attenuation
+between the boards, or turn the transmit power down. See ubertooth(7).
+
+When the capture ends it says how many such stretches there were:
+`warning: the capture has 3 stretches where the signal was at the top of the
+receiver's range`, one per block of records judged to be there. The running
+warning is said once, so the total is what tells one bad stretch from a
+capture that was deaf throughout.
+
 ## EXIT STATUS
 
 A scan that ran to its `-t` timeout, or that was interrupted (Ctrl-C), exits 0
