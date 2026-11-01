@@ -104,12 +104,15 @@ static int transmit_generic(ubertooth_t* ut, uint32_t syncword, int channel,
 		return -1;
 
 	for (i = 0; i < count; i++) {
-		/* Ctrl-C ends the run between packets, which is where it can be
-		 * taken: the board is mid-packet or idle, never left in a mode. */
-		if (ubertooth_stopping(ut))
-			break;
 		if (i > 0)
 			usleep(TX_GENERIC_GAP_US);
+		/* Ctrl-C ends the run between packets, which is where it can be
+		 * taken: the board is mid-packet or idle, never left in a mode.
+		 * After the gap rather than before it, because a signal that
+		 * arrives during the gap ends the sleep early, and the packet
+		 * after it must not go out. */
+		if (ubertooth_stopping(ut))
+			break;
 		if (cmd_tx_generic_packet(ut->devh, syncword, (uint16_t)channel,
 		                          (uint8_t)pa_level, payload,
 		                          payload_len) < 0)
