@@ -40,15 +40,31 @@ void bl_update_sector(const uint8_t *payload, unsigned sector, uint8_t *out)
 		out[i] = ubertooth_bl_update_byte(payload, base + i, checksum);
 }
 
+int bl_update_region_matches(const uint8_t *payload, uintptr_t region)
+{
+	const volatile uint8_t *installed = (const volatile uint8_t *)region;
+	const uint32_t checksum = ubertooth_bl_update_vector_checksum(payload);
+	size_t i;
+
+	for (i = 0; i < UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH; i++) {
+		if (installed[i] != ubertooth_bl_update_byte(payload, i, checksum))
+			return 0;
+	}
+	return 1;
+}
+
 int bl_update_check(const uint8_t *payload, size_t length,
-                    const uint8_t *installed,
+                    uintptr_t region, int compare_region,
                     struct bl_update_report *report)
 {
 	report->part_id = 0;
 	report->sectors_written = 0;
 	report->sectors_verified = 0;
 	report->result = ubertooth_bl_update_payload_check(
-		payload, length, installed, &report->bootloader_version);
+		payload, length, &report->bootloader_version);
+	if (report->result == UBERTOOTH_BL_UPDATE_OK && compare_region &&
+	    bl_update_region_matches(payload, region))
+		report->result = UBERTOOTH_BL_UPDATE_SAME;
 	return report->result;
 }
 
@@ -82,12 +98,12 @@ static int part_refused(const struct bl_update_ops *ops, void *context,
 
 int bl_update_run(const struct bl_update_ops *ops, void *context,
                   const uint8_t *payload, size_t length,
-                  const uint8_t *installed, uint8_t *buffer,
+                  uintptr_t region, int compare_region, uint8_t *buffer,
                   struct bl_update_report *report)
 {
 	unsigned sector;
 
-	if (bl_update_check(payload, length, installed, report) !=
+	if (bl_update_check(payload, length, region, compare_region, report) !=
 	    UBERTOOTH_BL_UPDATE_OK)
 		return report->result;
 	if (ops == NULL || buffer == NULL) {

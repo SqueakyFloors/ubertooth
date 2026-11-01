@@ -59,11 +59,9 @@ int bl_update_file_check(FILE *file, const char *image_name,
 		((uint32_t)payload[UBERTOOTH_LPC_CRP_OFFSET + 3] << 24);
 
 	/* The same checks the updater makes on the board, over the same bytes.
-	 * There is nothing to compare against here -- the board's own region is
-	 * read from the board, not from a file -- so no answer of "the board
-	 * already has this bootloader" comes out of this call. */
+	 * Whether the board already has this bootloader is not asked here:
+	 * the board's own region is read from the board, not from a file. */
 	out->result = ubertooth_bl_update_payload_check(payload, sizeof(payload),
-	                                               NULL,
 	                                               &out->bootloader_version);
 	if (out->result != UBERTOOTH_BL_UPDATE_OK)
 		return out->result;
