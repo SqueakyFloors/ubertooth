@@ -4,17 +4,14 @@
  *
  * The board's clock is read rather than set, and the read belongs beside the
  * clocks the adapter is asked for, just before the board is told to hop: the
- * offset it is given is the difference between the piconet's clock and its
- * own, so time that passes between the two measurements is error in the
+ * offset the board is given is the difference between the piconet's clock and
+ * its own, so time that passes between measuring the two is error in the
  * followed clock. The tool used to zero CLKN instead, well above the reads,
- * which made the followed clock depend on how long the setup took and moved
- * the clock the board stamps its records with -- a record sent before the
- * reset and read after it carries the period count from before, the host
- * reads that count as a difference from the previous record's, and 150
- * followed by 0 read as 106 periods gone by, about 34,700 s added to every
- * later timestamp. There is no clock write left, which is why
- * cmd_set_clock_quiet() is not among the fakes below: a tool that sent one
- * again would not link.
+ * which on a board an earlier run had left streaming -- the one case where
+ * CLKN is running when a follow starts -- made the followed clock depend on
+ * how long the setup took and moved the clock the queued records were stamped
+ * with. There is no clock write left, which is why cmd_set_clock_quiet() is
+ * not among the fakes below: a tool that sent one again would not link.
  *
  * Which requests may move is decided by how they are sent. The address and
  * the clock read go out synchronously. The AFH map set (-a) and the
