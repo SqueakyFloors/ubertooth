@@ -170,6 +170,28 @@ static void replay_decode(ubertooth_t* ut, void* args)
 	cb_rx(ut, args);
 }
 
+/* How long a follow may hear nothing of its piconet before the clock it is
+ * following is given up, in milliseconds.
+ *
+ * Silence is the only symptom a wrong clock has, rather than anything that
+ * fails (see ubertooth_follow_quiet_ms()), so the value is a judgement about
+ * what a silence means, and it is made here because only this tool knows it
+ * asked the board to hop with the piconet.
+ *
+ * A minute is 48000 slot pairs, and the right clock is on the piconet's
+ * channel for every one of them, so a link carrying even one packet a second
+ * would have been heard from sixty times before the wait is up. Nothing a
+ * working link does leaves a gap that long either: the longest interval the
+ * low-power sniff mode allows is about 41 s.
+ *
+ * It has to be that long, because giving a clock up rules it out: a follow
+ * that was right and merely went quiet does not get that clock back in the
+ * same run, where a wrong clock kept longer costs only time. The price of the
+ * length is that a wrong clock is given up only on a link slow enough for one
+ * packet in eighteen to leave a minute's gap, which is about one packet a
+ * second or less. */
+#define FOLLOW_QUIET_MS 60000
+
 int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
@@ -654,6 +676,17 @@ int main(int argc, char* argv[])
 
 		// receive and process each packet
 		while(!ubertooth_stopping(ut)) {
+			/* A follow that locked onto the wrong clock hears next
+			 * to nothing rather than failing, so nothing in the
+			 * packets that do arrive reports it: the clock is given
+			 * up on the wait above instead. A negative reading is a
+			 * capture following no clock the library gave it, and
+			 * the drop starts the wait again whatever comes of it,
+			 * so a follow that stays quiet asks once per wait.
+			 * Before the receive, so a capture that has just been
+			 * stopped sends no request on its way out. */
+			if (ubertooth_follow_quiet_ms() >= FOLLOW_QUIET_MS)
+				ubertooth_follow_drop_clock(ut, pn);
 			ubertooth_bulk_receive(ut, cb_rx, pn);
 		}
 
