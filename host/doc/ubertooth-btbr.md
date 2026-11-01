@@ -154,6 +154,14 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `?`, `? <command>` :
    list the commands, or describe one
 
+`page`, `l2ping`, and `page_scan` keep trying for as long as the board allows
+one attempt: about 45 seconds of paging, a minute of scanning. A connection
+that comes up and then carries nothing costs that attempt only the second link
+supervision takes to notice it, after which the board goes back to paging or
+scanning and says `Paging resumed` or `Page scan resumed`. That happens when
+some other board nearby answers a page and is taken for the device being
+paged, or when the paged device's acknowledgment does not reach the pager.
+
 A word that is none of these is refused, and the prompt stays up; see
 DIAGNOSTICS.
 
