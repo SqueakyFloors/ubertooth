@@ -93,6 +93,30 @@ uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
  * has stopped talking. */
 long ubertooth_follow_quiet_ms(void);
 
+/* How long the clock search has been running in this capture, in
+ * milliseconds, and -1 when no search is running: the library has not built a
+ * list of clock candidates for this piconet, or it has accepted a clock at
+ * some point in this run, whether or not that clock turned out to be the
+ * piconet's. The reading starts where the library builds that list and runs on
+ * whether or not packets are still arriving, so it is the span since the first
+ * search of this run began -- the search starts over, and this does not --
+ * and not the time since the last packet. A capture that has
+ * heard nothing of the piconet, and one that has heard too little of it to
+ * settle CLK1-6, read -1 however long they run: neither has a search to
+ * report. A link that goes quiet after the search started keeps the reading,
+ * and a caller that cares about the difference has
+ * ubertooth_follow_quiet_ms() for the follow and the packets themselves for
+ * the search.
+ *
+ * For a tool that reports what the search cannot reach. The search does not
+ * fail when it cannot reach a clock, it starts over, so nothing it prints
+ * tells a user that it is not going to finish. An accepted clock ends the
+ * reading for the rest of the run, because a search that is running again
+ * after one was given up did get that far once.
+ *
+ * How long is long enough is the caller's, as it is above. */
+long ubertooth_clock_search_ms(void);
+
 /* Gives up the clock this capture is following, for a caller that has decided
  * the follow has gone quiet, and leaves the capture as a clock the library
  * gives up itself does: the warning once on standard error, the board back on

@@ -127,6 +127,10 @@ static struct {
 	 * waiting for them. */
 	long block_ms;
 	long follow_quiet_ms; /* -1 for a capture following no clock */
+	/* How long the clock search has been running, as the callback reports
+	 * it: -1 when no search is running, and moved on by block_ms per block
+	 * like the reading above. */
+	long clock_search_ms;
 	int hear_per_block;  /* 1 to hear a packet of the piconet per block */
 	int drops;           /* clocks this capture asked to give up */
 	int drop_result;     /* what each of those asks reports */
@@ -155,6 +159,9 @@ static void reset_device(void)
 	/* Following no clock, and a board whose blocks take no time: a case
 	 * about something else cannot reach the quiet-follow wait. */
 	device.follow_quiet_ms = -1;
+	/* And no clock search running, so a case about something else cannot
+	 * reach the note about what the search does not reach either. */
+	device.clock_search_ms = -1;
 	device.drop_result = 1;
 	device.ut.devh = (struct libusb_device_handle*)&device;
 	/* Not a real ring buffer: the fake receive below never fills one, and
@@ -334,6 +341,11 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 		device.follow_quiet_ms = device.hear_per_block
 		                       ? 0
 		                       : device.follow_quiet_ms + device.block_ms;
+	/* A clock search runs on through the blocks: unlike the reading above,
+	 * hearing the piconet is what keeps it going rather than what starts it
+	 * again. */
+	if (device.clock_search_ms >= 0)
+		device.clock_search_ms += device.block_ms;
 	if (device.blocks < device.blocks_to_end)
 		return 0;
 	switch (device.end) {
@@ -407,6 +419,14 @@ void cb_rx(ubertooth_t* ut, void* args)
  * packet of the piconet whose clock is being followed, and -1 when it is
  * following none. The cases move that reading on themselves rather than
  * waiting for a clock. */
+/* How long the clock search has been running, with -1 for a run that has no
+ * search going: nothing of the piconet has reached it, or a clock was
+ * confirmed at some point. The cases move it on through the blocks above. */
+long ubertooth_clock_search_ms(void)
+{
+	return device.clock_search_ms;
+}
+
 long ubertooth_follow_quiet_ms(void)
 {
 	return device.follow_quiet_ms;
@@ -473,6 +493,9 @@ static struct run_result run_rx(const char* const* args)
 	/* The same for what the last replay read: the tool runs once per
 	 * process, these cases run many times in one. */
 	replay_read_a_record = 0;
+	/* And whether the note about the clock search has been said, which is
+	 * once per run of the tool rather than once per process. */
+	clock_search_noted = 0;
 
 	result = run_tool_main(ubertooth_rx_main, args);
 
@@ -1831,6 +1854,137 @@ MU_TEST(a_follow_that_stays_quiet_is_asked_about_once_per_wait)
 	mu_assert_int_eq(4, device.drops);
 }
 
+/* ---- a clock search that is not going to finish ------------------------- */
+
+/* The two lines the tool says about it, each as one literal, so a reworded
+ * message or a changed span fails here and in the man page check with it. */
+static const char SEARCH_NOTE[] = "note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)\n";
+static const char SEARCH_NOTE_REACH[] = "note: the piconet's LAP and UAP, and the packets of it this board hears, are still recovered, decoded, and captured; see ubertooth-rx(1)\n";
+
+/* How many times a line appears in a captured stream. */
+static int lines_like(const char* stream, const char* line)
+{
+	int found = 0;
+	const char* at = stream;
+
+	while ((at = strstr(at, line)) != NULL) {
+		found++;
+		at += strlen(line);
+	}
+	return found;
+}
+
+/* A search against an adapted-hopping piconet rules its candidates out and
+ * starts over, printing a count each time and never confirming a clock, so
+ * nothing it prints says the run is not going to reach one. The tool says so
+ * itself, once, however long the capture runs after that. */
+MU_TEST(a_search_that_does_not_confirm_a_clock_says_so_once)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	/* Ten minutes of a search that confirms nothing. */
+	device.block_ms = 10000;
+	device.blocks_to_end = 60;
+	device.clock_search_ms = 0;
+
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, lines_like(r.err, SEARCH_NOTE));
+	mu_assert_int_eq(1, lines_like(r.err, SEARCH_NOTE_REACH));
+	/* On standard error with the rest of the notes: a capture that has
+	 * taken standard output carries only the capture. */
+	mu_assert_int_eq(0, lines_like(r.out, SEARCH_NOTE));
+}
+
+/* And the span is half a minute, pinned either side of the moment it is up.
+ * Saying it early would tell a user that a search still working is not going
+ * to finish, so the value is worth a case of its own. */
+MU_TEST(the_search_note_waits_half_a_minute)
+{
+	struct run_result r;
+
+	/* Two blocks, the first of which takes a millisecond less than the
+	 * span. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.block_ms = 29999;
+	device.blocks_to_end = 2;
+	device.clock_search_ms = 0;
+
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, lines_like(r.err, SEARCH_NOTE));
+
+	/* And one that takes exactly the span. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.block_ms = 30000;
+	device.blocks_to_end = 2;
+	device.clock_search_ms = 0;
+
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, lines_like(r.err, SEARCH_NOTE));
+}
+
+/* A run with no search going says nothing, however long it runs: a capture
+ * that has heard nothing of the piconet, one that has heard too little of it
+ * to settle CLK1-6, and one whose clock was accepted are all results of their
+ * own, and none of them is a search that cannot finish. */
+MU_TEST(a_run_with_no_search_running_says_nothing)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.block_ms = 60000;
+	device.blocks_to_end = 20;
+
+	r = RUN_RX("-l", "112233", "-u", "22", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, lines_like(r.err, SEARCH_NOTE));
+
+	/* And a survey, which recovers addresses and follows nothing. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.block_ms = 60000;
+	device.blocks_to_end = 20;
+
+	r = RUN_RX("-z", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, lines_like(r.err, SEARCH_NOTE));
+}
+
+/* A replay of a recorded capture says it too: the search runs over those
+ * records for as long as it did live, and the reader of a capture file is owed
+ * the same answer as the user of a board. The span it reports is the one the
+ * search has really had, not the half minute that brought it here, which a
+ * replay is where the two come apart. */
+MU_TEST(a_replay_whose_search_does_not_confirm_a_clock_says_so)
+{
+	struct run_result r;
+
+	reset_device();
+	device.replay_records = 4;
+	device.clock_search_ms = 300000;
+
+	r = RUN_RX("-i", "/dev/null", "-l", "112233", "-u", "22");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, lines_like(r.err, SEARCH_NOTE_REACH));
+	mu_assert(strstr(r.err, "the clock search has run for 300 s without "
+	                        "confirming a clock") != NULL,
+	          "the note did not report the span the search has had");
+	mu_assert_int_eq(0, lines_like(r.err, SEARCH_NOTE));
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -1874,5 +2028,9 @@ int main(void)
 	MU_RUN(the_wait_is_a_minute);
 	MU_RUN(a_working_follow_and_a_capture_with_no_clock_keep_going);
 	MU_RUN(a_follow_that_stays_quiet_is_asked_about_once_per_wait);
+	MU_RUN(a_search_that_does_not_confirm_a_clock_says_so_once);
+	MU_RUN(the_search_note_waits_half_a_minute);
+	MU_RUN(a_run_with_no_search_running_says_nothing);
+	MU_RUN(a_replay_whose_search_does_not_confirm_a_clock_says_so);
 	return mu_report();
 }

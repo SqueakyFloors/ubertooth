@@ -2535,6 +2535,19 @@
   which stopped being true of follow mode when it learned algorithm 2.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
+- Known limitation, now stated instead of left for a user to find: the Classic
+  clock search does not confirm a clock against a piconet that uses adapted
+  hopping (AFH), which the controllers tested on this project's bench all do,
+  including when every channel is allowed, so `ubertooth-rx -l <lap> -u <uap>`
+  does not start following such a piconet. `ubertooth-rx(1)` has a section on
+  it, the usage text says it, and a search that has run half a minute without
+  confirming a clock says it once at runtime rather than printing candidate
+  counts for the rest of the run. What
+  the tool does reach is unchanged: the LAP, the UAP, survey mode, and the
+  packets of the piconet the board hears, decoded and written to a capture
+  file. The search itself is not changed.
+  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
+
 - The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
   `-h`, which all three accept and every other tool's usage text lists, and
   `ubertooth-util`'s `-t` line spells "initiate".
