@@ -555,7 +555,7 @@ MU_TEST(test_the_mean_survives_any_number_of_readings)
  * channel -- so the counts are seeded at it here and the next reading is the
  * one that halves them. That is the only way to reach this: a case that only
  * added readings would run for hours, and the case above, two million of
- * them, is a hundredth of the way there.
+ * them, is less than a hundredth of the way there.
  */
 MU_TEST(test_a_step_at_its_ceiling_is_halved_rather_than_left_to_wrap)
 {

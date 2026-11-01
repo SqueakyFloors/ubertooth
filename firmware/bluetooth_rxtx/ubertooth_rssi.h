@@ -57,7 +57,7 @@
  * Halving keeps their proportions, and so the mean, to within the one reading
  * each step can lose -- a part in 134 million, far below the dB the readings
  * themselves are quantized to. A capture reaches it after 268 million readings
- * on one channel without a hop, which is hours of a quiet channel. */
+ * that all land on the same step, which is hours of a quiet channel. */
 #define RSSI_POWER_STEP_MAX (1u << 28)
 
 typedef struct {

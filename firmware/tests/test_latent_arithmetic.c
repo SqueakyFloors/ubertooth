@@ -412,19 +412,24 @@ MU_TEST(test_the_accumulated_drift_figure_stays_within_what_it_can_correct)
  * never shorter than CLK100NS_PER_CLKN ticks. A reading lower than the one
  * before it then counts only how far into the new period the wait is, which
  * is never more than the time that really passed, so a deadline built on it
- * cannot end a wait early. test_le_rx_byte_wait.c checks the helper against
- * that premise, over periods from CLK100NS_PER_CLKN ticks upward.
+ * cannot end a wait early. ubertooth_clock.h states that premise beside
+ * clk100ns_step() itself, and test_le_rx_byte_wait.c checks the helper
+ * against it, over periods from CLK100NS_PER_CLKN ticks upward.
  *
- * The premise is the declared type of clk100ns_offset, not the shape of the
- * assignment: the handler writes CLK100NS_PER_CLKN - 1 plus that offset, and
+ * What holds the premise is the declared type of clk100ns_offset rather than
+ * the form of the assignment: the handler writes CLK100NS_PER_CLKN - 1 plus
+ * that offset, and
  * the hardware's period is one tick more, so an unsigned offset can only
  * lengthen the period and a signed one could shorten it. A drift correction
  * of -1 would then give a period of 3124 ticks, one short, and every wait in
  * the firmware could end a tick early on a packet that was still arriving.
  * Nothing writes a negative offset today -- the two corrections are 1 and
  * 6249, and the host's trim and hop requests take sixteen unsigned bits off
- * the wire -- so the type is all that holds it. How wide the type is does not
- * matter, only that it cannot go below zero.
+ * the wire -- so the type is what holds the period's lower bound. It is not
+ * the whole of how the 6249 correction stays consistent: the handler also
+ * adds two to clkn for an offset above 3124, because such an offset carries
+ * the period past a second tick. How wide the type is does not matter, only
+ * that it cannot go below zero.
  *
  * The largest value an offset can take, from its declared type. A cast of -1
  * is that type's largest value when it is unsigned, and -1 when it is not.
