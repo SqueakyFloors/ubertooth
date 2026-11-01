@@ -2286,12 +2286,10 @@ MU_TEST(boards_share_the_channel_map_and_the_address_part)
 	mu_assert(strstr(r.out, "note:") == NULL, r.out);
 }
 
-/* One board's address part is not passed on. The library settles one on as few
- * as two packets and is sometimes wrong -- a bench run settled on 0xdb where
- * the peer's was 0x0d -- and a board handed a wrong one cannot get out of it,
- * because the clock search restores the value it was filtering on every time
- * it runs out of candidates. So it takes two boards working out the same value
- * from their own packets. */
+/* One board's address part is not passed on: it takes two boards working out
+ * the same value from their own packets. A bench run settled on 0xdb where the
+ * peer's was 0x0d, and rx_share_findings() has why a wrong one cannot be
+ * undone. */
 MU_TEST(one_board_s_address_part_is_not_passed_on)
 {
 	struct run_result r;
@@ -2342,9 +2340,12 @@ MU_TEST(boards_that_disagree_about_the_address_part_say_so)
 
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strstr(r.err, "note: 2 boards: the boards worked out "
-	          "different UAPs, 0x22 among them; one of them is wrong")
-	          != NULL, r.err);
+	          "different UAPs, 0x22 and 0x33 among them; one of them is "
+	          "wrong, and each board kept its own") != NULL, r.err);
 	mu_assert(strstr(r.err, "UAP = 0x") == NULL, r.err);
+	/* Neither was passed on: each board holds what it worked out. */
+	mu_assert_int_eq(0x22, device.seen_uap[0]);
+	mu_assert_int_eq(0x33, device.seen_uap[1]);
 }
 
 /* One board shares nothing and says nothing extra: its piconet already holds
@@ -2476,12 +2477,14 @@ MU_TEST(a_board_or_channel_list_the_tool_will_not_take_is_refused)
 	mu_assert(r.out[0] == '\0', r.out);
 }
 
-/* Two boards agreeing outweighs a third board's own answer: the odd board is
- * put on the value they reached. It is the board the merge is most use to,
- * because it cannot get off a wrong address part by itself -- the library
- * restores the value it was filtering on each time the clock search runs out
- * of candidates. */
-MU_TEST(two_boards_agreeing_correct_a_third)
+/* A board is never taken off the address part it worked out itself, even when
+ * two other boards agree on a different one. Setting a piconet's address part
+ * writes that and nothing else -- not the hop variables derived from the
+ * address, and not the clock candidates already chosen -- so a board whose
+ * search had started would go on narrowing a list picked for the old address
+ * and could reach a clock belonging to it. The run names both answers
+ * instead. */
+MU_TEST(a_board_s_own_address_part_is_never_overwritten)
 {
 	struct run_result r;
 
@@ -2491,9 +2494,9 @@ MU_TEST(two_boards_agreeing_correct_a_third)
 	device.heard_channel[0] = 20;
 	device.heard_channel[1] = 40;
 	device.heard_channel[2] = 60;
-	/* The first board settles on its own answer, which the other two
-	 * contradict: the script gives every board after the first the other
-	 * value, so boards two and three agree. */
+	/* The first board settles on its own answer; the other two agree on a
+	 * different one, which is what the script gives every board after the
+	 * first. */
 	device.heard_uap_board[0] = 1;
 	device.heard_uap_board[1] = 1;
 	device.heard_uap_board[2] = 1;
@@ -2503,9 +2506,70 @@ MU_TEST(two_boards_agreeing_correct_a_third)
 	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "10");
 
 	mu_assert_int_eq(0, r.rc);
-	/* The first board ends up on the value the other two agreed. */
-	mu_assert_int_eq(0x22, device.seen_uap[0]);
-	mu_assert(strstr(r.err, "note: 3 boards: UAP = 0x22") != NULL, r.err);
+	/* The first board keeps 0x33 and the other two keep 0x22. */
+	mu_assert_int_eq(0x33, device.seen_uap[0]);
+	mu_assert_int_eq(0x22, device.seen_uap[1]);
+	mu_assert_int_eq(0x22, device.seen_uap[2]);
+	mu_assert(strstr(r.err, "different UAPs, 0x33 and 0x22 among them")
+	          != NULL, r.err);
+	mu_assert(strstr(r.err, "each board kept its own") != NULL, r.err);
+}
+
+/* A survey takes a list too. The table of addresses heard belongs to the
+ * decoder rather than to a board, so every board's packets reach the one
+ * survey; the run prints each address once and exits 0. */
+MU_TEST(a_survey_reads_every_board_on_the_list)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 6;
+
+	r = RUN_RX("-U", "0,1,2", "-z", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(3, device.connect_calls);
+	mu_assert_int_eq(3, device.rx_syms_calls);
+	mu_assert_int_eq(3, device.stops);
+	mu_assert(strstr(r.out, "Survey Results") != NULL, r.out);
+	/* A survey has no piconet of its own, so nothing is merged and the
+	 * run says nothing about boards. */
+	mu_assert(strstr(r.err, "boards:") == NULL, r.err);
+}
+
+/* The ordinary ends of a capture end every board's, and exit as they do for
+ * one: 0 for the -t timer and for a Ctrl-C, 1 for a teardown a board refused. */
+MU_TEST(every_stop_reason_ends_every_board)
+{
+	struct run_result r;
+
+	/* The -t timer. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 6;
+	r = RUN_RX("-U", "0,1,2", "-t", "10");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(3, device.stops);
+	mu_assert_int_eq(3, device.frees);
+
+	/* A Ctrl-C. */
+	reset_device();
+	device.end = END_BY_INTERRUPT;
+	device.blocks_to_end = 6;
+	r = RUN_RX("-U", "0,1,2", "-t", "600");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(3, device.stops);
+
+	/* A teardown a board refused, which leaves that board running the
+	 * mode this capture started. */
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 6;
+	device.stop_refused = 1;
+	r = RUN_RX("-U", "0,1,2", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(3, device.stops);
 }
 
 /* Each board is sent its own requests. The modulation, the capture and the
@@ -2632,7 +2696,9 @@ int main(void)
 	MU_RUN(one_board_is_left_exactly_as_it_was);
 	MU_RUN(a_board_whose_stream_died_ends_the_whole_capture);
 	MU_RUN(a_board_or_channel_list_the_tool_will_not_take_is_refused);
-	MU_RUN(two_boards_agreeing_correct_a_third);
+	MU_RUN(a_board_s_own_address_part_is_never_overwritten);
+	MU_RUN(a_survey_reads_every_board_on_the_list);
+	MU_RUN(every_stop_reason_ends_every_board);
 	MU_RUN(every_board_is_sent_its_own_requests);
 	MU_RUN(only_the_quiet_board_is_asked_to_give_its_clock_up);
 	MU_RUN(the_channel_list_may_come_before_the_board_list);

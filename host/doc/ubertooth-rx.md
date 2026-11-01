@@ -331,10 +331,14 @@ What the boards pass between them is what they have worked out:
    its own, whether it reached that value itself or was handed it. Two boards
    settling on the same value from different packets is a cross-check a single
    board cannot make, and it is what makes passing the value on worth doing.
-   A board whose own answer is not the one the two reached is put on theirs,
-   which is the one case where the merge can get a board out of a wrong UAP.
-   The run says at the end when the boards worked out different answers.
-   Passing `-u` yourself avoids the question.
+   It goes only to a board that has worked out none of its own, and only once.
+   A board is never taken off its own answer, even when two others disagree
+   with it: setting a piconet's address part writes that and nothing else, so a
+   board whose clock search has already chosen its candidates would go on
+   narrowing a list picked for the old address and could reach a clock
+   belonging to it. The run names both answers at the end instead and leaves
+   that board to the decoder. Passing `-u` yourself hands a known address part
+   to every board and avoids the question.
 
 Each board keeps a piconet of its own and recovers the clock from its own
 packets. The clock cannot be pooled: it is recovered as a position in the hop

@@ -103,6 +103,13 @@ struct rx_board {
 	 * board rather than from its own packets. Such a board is not evidence
 	 * for that value: see rx_share_findings(). */
 	int uap_handed;
+	/* The UAP this board worked out from its own packets, recorded the
+	 * first time it held one it was not handed. What a board holds at the
+	 * end of a run is not necessarily what it worked out, so this is the
+	 * evidence the agreement and the end-of-run report rest on; see
+	 * rx_share_findings(). */
+	int uap_found;
+	uint8_t uap_found_value;
 };
 
 /* The AFH channel map is ten bytes, bit b of byte i being channel 8i + b: the
@@ -222,6 +229,18 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
 	}
 }
 
+/* Notes the UAP a board worked out for itself, once. Called before anything is
+ * shared, so a board that has just settled one is evidence on the same pass. */
+static void rx_note_own_uap(struct rx_board* board)
+{
+	if (board->uap_found || board->uap_handed)
+		return;
+	if (!btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID))
+		return;
+	board->uap_found = 1;
+	board->uap_found_value = btbb_piconet_get_uap(board->pn);
+}
+
 /* Hands every board what the others have found, which is the whole of what
  * boards reading one piconet share.
  *
@@ -243,7 +262,9 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * value for the rest of the run and works out nothing of its own. Two boards
  * settling on the same value from different packets is a cross-check a single
  * board cannot make, and it is what makes passing the value on worth doing.
- * A board whose UAP was handed to it is not evidence for it.
+ * A board whose UAP was handed to it is not evidence for it. The value goes
+ * only to a board that has worked out none of its own, and only once; a board
+ * is never taken off its own answer, for the reason the loop below gives.
  *
  * The clock is not shared and does not need to be: it is the piconet's own, so
  * each board recovers it from its own packets once it has the address. Two
@@ -253,12 +274,6 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * grown. One board shares nothing: its piconet already holds everything it
  * knows, and pushing the map back would only repeat the work
  * btbb_piconet_set_channel_seen() has just done. */
-static int rx_found_uap(const struct rx_board* board)
-{
-	return !board->uap_handed &&
-	       btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID);
-}
-
 static void rx_share_findings(struct rx_board* boards, int n_boards,
                               uint8_t* merged)
 {
@@ -283,15 +298,16 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 
 	/* Two boards that worked out the same UAP from their own packets. At
 	 * most eight boards, so comparing every pair is a few dozen reads. */
+	for (i = 0; i < n_boards; i++)
+		rx_note_own_uap(&boards[i]);
 	for (i = 0; i < n_boards && !agreed; i++) {
-		if (!rx_found_uap(&boards[i]))
+		if (!boards[i].uap_found)
 			continue;
 		for (j = i + 1; j < n_boards; j++) {
-			if (!rx_found_uap(&boards[j]))
-				continue;
-			if (btbb_piconet_get_uap(boards[i].pn) ==
-			    btbb_piconet_get_uap(boards[j].pn)) {
-				uap = btbb_piconet_get_uap(boards[i].pn);
+			if (boards[j].uap_found &&
+			    boards[j].uap_found_value ==
+			    boards[i].uap_found_value) {
+				uap = boards[i].uap_found_value;
 				agreed = 1;
 				break;
 			}
@@ -301,17 +317,23 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 	for (i = 0; i < n_boards; i++) {
 		if (grown)
 			btbb_piconet_set_afh_map(boards[i].pn, merged);
-		if (!agreed)
+		/* Only to a board that has worked out none of its own, and
+		 * only once. A board is never taken off its own answer, even
+		 * when two others disagree with it: btbb_piconet_set_uap()
+		 * writes the address part and nothing else, so a board whose
+		 * clock search has already chosen its candidates would go on
+		 * narrowing a list picked for the old address and could reach
+		 * a clock belonging to it, which this tool would then put the
+		 * board on. The run reports the disagreement instead and
+		 * leaves that board to the library. Handing a known UAP to
+		 * every board is what -u is for.
+		 *
+		 * Once, because a board whose UAP the library has cleared to
+		 * start discovery over would otherwise be handed the same
+		 * value back before a single packet arrived. */
+		if (!agreed || boards[i].uap_found || boards[i].uap_handed)
 			continue;
-		/* To a board with none, and over a board whose own answer is
-		 * not the one the others reached. That board is the one the
-		 * merge is most use to: it cannot get off a wrong UAP by
-		 * itself, because the library restores the value it was
-		 * filtering on each time the clock search runs out of
-		 * candidates, so without this it would spend the run on a
-		 * value two other boards have contradicted. */
-		if (btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID) &&
-		    btbb_piconet_get_uap(boards[i].pn) == uap)
+		if (btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
 			continue;
 		btbb_piconet_set_uap(boards[i].pn, uap);
 		boards[i].uap_handed = 1;
@@ -334,23 +356,26 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
                                const struct rx_board* boards, int told_uap)
 {
 	int i, used = 0, have_uap = 0, disagree = 0;
-	uint8_t uap = 0;
+	uint8_t uap = 0, other = 0;
 
 	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
 		if (merged[i / 8] & (1 << (i % 8)))
 			used++;
 
-	/* Only what a board worked out for itself: a board holding a value
-	 * another board handed it would otherwise read as a second board
-	 * agreeing, which is the cross-check this line is for. */
+	/* Only what a board worked out for itself, read from what was recorded
+	 * when it did: a board holding a value another board handed it would
+	 * otherwise read as a second board agreeing, which is the cross-check
+	 * this line is for, and what a board holds at the end is not
+	 * necessarily what it found. */
 	for (i = 0; i < n_boards; i++) {
-		if (!rx_found_uap(&boards[i]))
+		if (!boards[i].uap_found)
 			continue;
 		if (!have_uap) {
-			uap = btbb_piconet_get_uap(boards[i].pn);
+			uap = boards[i].uap_found_value;
 			have_uap = 1;
-		} else if (btbb_piconet_get_uap(boards[i].pn) != uap) {
+		} else if (boards[i].uap_found_value != uap) {
 			disagree = 1;
+			other = boards[i].uap_found_value;
 		}
 	}
 
@@ -364,12 +389,13 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 	else if (disagree)
 		/* One of them is wrong, and this run cannot say which: the
 		 * library settles a UAP on the packets it has had, and two
-		 * boards have had different packets. The value named is the
-		 * one the run went with, which is either what two boards
-		 * agreed on or, with none agreeing, the first that turned up. */
+		 * boards have had different packets. Both values are named,
+		 * because the run acted on neither: a board is never taken
+		 * off its own answer. */
 		fprintf(stderr, "note: %d boards: the boards worked out "
-		        "different UAPs, 0x%02x among them; one of them is "
-		        "wrong\n", n_boards, uap);
+		        "different UAPs, 0x%02x and 0x%02x among them; one of "
+		        "them is wrong, and each board kept its own\n",
+		        n_boards, uap, other);
 	else
 		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
 		        uap);
@@ -1202,6 +1228,12 @@ int main(int argc, char* argv[])
 		 * is what lets several boards feed one survey, and what the
 		 * library's threading rules ask for. */
 		while(!rx_stopping(boards, n_boards)) {
+			/* Whether any board handed the decoder a record this
+			 * time round, so the merge below runs when there is
+			 * something new to merge rather than on every spin of
+			 * a loop that is mostly waiting. */
+			int decoded = 0;
+
 			for (i = 0; i < n_boards; i++) {
 				/* A follow that locked onto the wrong clock hears next
 				 * to nothing rather than failing, so nothing in the
@@ -1223,11 +1255,12 @@ int main(int argc, char* argv[])
 				 * said once a search has been running long
 				 * enough to say it of. */
 				rx_note_clock_search_limit(boards[i].ut);
-				ubertooth_bulk_receive(boards[i].ut, cb_rx,
-				                       boards[i].pn);
+				if (ubertooth_bulk_receive(boards[i].ut, cb_rx,
+				                           boards[i].pn) >= 0)
+					decoded = 1;
 			}
 			/* What one board has learned, handed to the others. */
-			if (have_lap)
+			if (have_lap && decoded)
 				rx_share_findings(boards, n_boards, merged_map);
 		}
 

@@ -2803,10 +2803,12 @@ Fixes with no visible change in normal use.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
-- The clock a Classic capture is following, and the trim it sends the board to
-  hold that clock, belong to the board being read rather than to the process.
-  One board behaves as it did; a capture reading several would have measured
-  each board's correction against another board's history.
+- The clock a Classic capture is following, the trim it sends the board to hold
+  that clock, and how long its clock search has run belong to the board being
+  read rather than to the process. One board behaves as it did; a capture
+  reading several would have measured each board's correction against another
+  board's history. libubertooth's ubertooth_follow_quiet_ms() and
+  ubertooth_clock_search_ms() take the handle to ask about as a result.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 - The LED demo mode (`ubertooth-util -x`) arms its blink timer from a clean
   start and disarms it on the way out, so a second run of it cannot toggle an
