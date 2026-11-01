@@ -24,6 +24,8 @@ The clock search does not confirm a clock against a piconet that uses adapted ho
 .P
 Survey mode, entered using \fB\-z\fR, will record all LAPs and attempt to calculate the UAPs for any observed LAPs\. This mode can be combined with a timeout using \fB\-t\fR, and it can be interrupted at any time using \fBctrl\-C\fR\.
 .P
+The addresses a survey found go to standard output, one per line, so a survey can be piped into another program\. The \fBSurvey Results\fR heading above them is for a person reading along and goes to standard error, as ubertooth\-scan(1) prints \fBScan results:\fR\. Earlier releases put the heading on standard output with the addresses\.
+.P
 This tool's \fB\-z\fR is survey mode, not a squelch: only \fBubertooth\-util \-z\fR sets the receive squelch\. The capture runs at whatever squelch the board holds when the mode starts, the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle\. The firmware resets the squelch on every mode change, so a value set for an earlier capture is already gone; set it again before this command, or while it is running\. See ubertooth\-util(1), SQUELCH\.
 .SH "EXAMPLES"
 Follow the first piconet whose LAP, UAP, and clock are recovered from the air:

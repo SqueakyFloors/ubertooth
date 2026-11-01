@@ -527,6 +527,10 @@ with tempfile.TemporaryDirectory() as workdir:
     assert "??:??:%02X:%02X:%02X:%02X" % (UAP, (LAP >> 16) & 0xFF,
                                           (LAP >> 8) & 0xFF, LAP & 0xFF) \
         in result.stdout, result
+    # The "Survey Results" heading is for a person reading along, so it is on
+    # standard error and standard output holds the addresses alone.
+    assert "Survey Results" in result.stderr, result
+    assert "Survey Results" not in result.stdout, result
 
     for name, records in captures:
         assert len(records) == 4, (name, records)

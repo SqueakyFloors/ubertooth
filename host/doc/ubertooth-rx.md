@@ -42,6 +42,12 @@ calculate the UAPs for any observed LAPs. This mode can be combined with
 a timeout using `-t`, and it can be interrupted at any time using
 `ctrl-C`.
 
+The addresses a survey found go to standard output, one per line, so a survey
+can be piped into another program. The `Survey Results` heading above them is
+for a person reading along and goes to standard error, as ubertooth-scan(1)
+prints `Scan results:`. Earlier releases put the heading on standard output
+with the addresses.
+
 This tool's `-z` is survey mode, not a squelch: only `ubertooth-util -z` sets
 the receive squelch. The capture runs at whatever squelch the board holds when
 the mode starts, the default -120 dBm unless `ubertooth-util -z` set another

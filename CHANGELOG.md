@@ -299,6 +299,11 @@
   error, `-h` exits 0, and a command line with nothing to do is refused. A
   file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Script-visible change:** `ubertooth-rx -z` prints its `Survey Results`
+  heading on standard error, so a survey collected in a file or piped into
+  another program holds the addresses alone. The heading was on standard
+  output above them, the way `ubertooth-scan` used to print `Scan results:`.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - **Script-visible change:** a `ubertooth-scan` run collected in a file or
   piped into another program no longer picks up its three headings, the
   progress of `-x` or its failures: those are on standard error now. An
