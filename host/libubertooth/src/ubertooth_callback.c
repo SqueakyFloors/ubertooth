@@ -1148,9 +1148,9 @@ out:
  * format: the host time it arrived, in network byte order, then the record
  * exactly as the board sent it. Does nothing when no dump was asked for.
  *
- * One record at a time, as received: a packet too long for one record is
- * several records here, and a replay puts them back together exactly as a
- * live capture does. */
+ * One record at a time, as received, so a packet too long for one record is
+ * several records here and a replay puts them back together exactly as a live
+ * capture does. */
 static void dump_one_record(const usb_pkt_rx* rx, uint32_t when)
 {
 	uint32_t when_be;
@@ -1259,11 +1259,9 @@ void cb_btle(ubertooth_t* ut, void* args)
 		fprintf(out, "\n");
 
 		/* These four readings are the only record of which connection
-		 * a promiscuous capture belongs to, so a dump that left them
-		 * out could not be replayed into the same capture it came
-		 * from: the replay printed packets and no access address.
-		 * Written here rather than below, because the branch returns
-		 * and the record is not a packet. */
+		 * a promiscuous capture belongs to, so they go in the dump
+		 * too. Written here because this branch returns: the record is
+		 * not a packet and never reaches the write below. */
 		dump_one_record(rx, systime);
 
 		return;
@@ -1273,10 +1271,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		return;
 
-	/* Dump to sumpfile if specified. One record at a time, as received, so a
-	 * dump keeps its fixed-size format: a long packet is several records
-	 * there, and a replay puts them back together below exactly as a live
-	 * capture does. */
+	/* Dump to the file named with -d, if there is one. */
 	dump_one_record(rx, systime);
 
 	/* A packet too long for one record arrives as several. Nothing below
@@ -1617,26 +1612,44 @@ static void br_stop_following(ubertooth_t* ut)
 		        "again\n");
 }
 
-/* States the user's UAP again on a piconet whose clock has just been given
- * up, for a capture whose tool recorded one in ut->follow_uap.
+/* Puts the user's UAP back whenever the library has stopped holding it, for a
+ * capture whose tool recorded one in ut->follow_uap.
  *
- * The library drops the UAP with the clock on purpose: a header that fails
- * its check is dewhitened with CLK1-6 and checked against the UAP, so it says
- * one of the two was wrong without saying which, and a UAP left in place
- * would keep discovery from ever finding another. A UAP the user gave with -u
- * is not in doubt, so for that capture the right starting point is the one the
- * run itself started from -- the UAP stated, no clock, discovery running --
- * and this puts the piconet back into it.
+ * The library drops the UAP for good reasons of its own, and in more places
+ * than a clock being given up: a candidate list that winnows to nothing and a
+ * remembered hop pattern that fills up both start discovery over, and
+ * discovery works the UAP out from headers. What it cannot know is that this
+ * capture was told the UAP, and a UAP the user gave is not in doubt.
  *
- * Without this the capture works the UAP out from headers again. That takes
- * packets the bench may not provide, it can settle on a wrong value where
- * traffic is sparse, and until it does, the clock search does not start and
- * every record written carries no reference UAP. */
+ * So this is called per packet rather than only where a clock is lost. It does
+ * nothing while the library still holds that same UAP, which is the usual
+ * case. Without it the capture derives a UAP from the air again: that takes
+ * packets a quiet bench may not provide, it can settle on a wrong value, and
+ * until it does, the clock search cannot start and the records carry no
+ * reference UAP for a reader to check a header against. */
 static void br_restate_stated_uap(const ubertooth_t* ut, btbb_piconet* pn)
 {
 	if (pn == NULL || !ut->follow_uap_stated)
 		return;
+	if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID) &&
+	    btbb_piconet_get_uap(pn) == ut->follow_uap)
+		return;
 	btbb_piconet_set_uap(pn, ut->follow_uap);
+}
+
+/* What a clock-given-up warning says about the UAP, as the tail of its line.
+ *
+ * Where the user gave one it is named, and the line says it is being put
+ * back rather than kept: on the lost-lock path libbtbb has already said on
+ * this same stream that the clock and the UAP both went, so a line claiming
+ * the UAP was never dropped would contradict the one above it. */
+static const char* br_uap_tail(const ubertooth_t* ut, char* buf, size_t len)
+{
+	if (!ut->follow_uap_stated)
+		return "its clock and UAP again";
+	snprintf(buf, len, "its clock again, and putting UAP %02x back",
+	         ut->follow_uap);
+	return buf;
 }
 
 long ubertooth_clock_search_ms(void)
@@ -1665,19 +1678,18 @@ int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 	br_heard_ms = monotonic_ms();
 
 	if (!br_clock_gone) {
+		char tail[64];
+
 		if (btbb_piconet_drop_clock(pn) <= 0)
 			return 0;
 		br_clock_gone = 1;
+		/* Here as well as per packet: no packet of this piconet may
+		 * arrive for a long time, and the clock search wants the UAP
+		 * from the first one that does. */
 		br_restate_stated_uap(ut, pn);
-		if (ut->follow_uap_stated)
-			fprintf(stderr, "warning: nothing of this piconet has "
-			        "been heard on the clock being followed; "
-			        "searching for its clock again, keeping UAP "
-			        "%02x\n", ut->follow_uap);
-		else
-			fprintf(stderr, "warning: nothing of this piconet has "
-			        "been heard on the clock being followed; "
-			        "searching for its clock and UAP again\n");
+		fprintf(stderr, "warning: nothing of this piconet has been "
+		        "heard on the clock being followed; searching for "
+		        "%s\n", br_uap_tail(ut, tail, sizeof(tail)));
 	}
 	/* So the warning is said once per clock, and a board that refused the
 	 * request is asked again at the next wait without it being
@@ -1846,6 +1858,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 
 	r = btbb_process_packet(pkt, pn);
 
+	/* A UAP the user gave goes back before the record below is written, so
+	 * the packet that made the library drop it is itself recorded with the
+	 * UAP a reader needs to check its header. See
+	 * br_restate_stated_uap(). */
+	br_restate_stated_uap(ut, pn);
+
 	/* The reference upper address part (UAP) the capture records alongside
 	 * this packet, read now that the decoder has had the packet. A packet
 	 * whose CRC is what finally settles the piconet's UAP settles it inside
@@ -1945,20 +1963,15 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * over another. A replay warns too; it is the same silence for
 		 * the reader of a capture file as for the user of a board.
 		 *
-		 * A failing header is evidence against the clock and the UAP
-		 * together, so the library gives both up. Where the user named
-		 * the UAP it is not in doubt and is stated again, and the
-		 * warning says so: a user whose -u was wrong can see from the
-		 * line that the capture is holding them to it. */
-		br_restate_stated_uap(ut, pn);
-		if (ut->follow_uap_stated)
-			fprintf(stderr, "warning: the clock being followed was "
-			        "not this piconet's; searching for its clock "
-			        "again, keeping UAP %02x\n", ut->follow_uap);
-		else
-			fprintf(stderr, "warning: the clock being followed was "
-			        "not this piconet's; searching for its clock "
-			        "and UAP again\n");
+		 * The UAP went with the clock, and a UAP the user gave has
+		 * already gone back above, so the line names it: a user whose
+		 * -u was wrong can see which UAP the capture is holding them
+		 * to. */
+		char tail[64];
+
+		fprintf(stderr, "warning: the clock being followed was not "
+		        "this piconet's; searching for %s\n",
+		        br_uap_tail(ut, tail, sizeof(tail)));
 		br_clock_gone = 1;
 		br_stop_following(ut);
 	}

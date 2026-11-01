@@ -938,23 +938,20 @@
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
 
 - Fixed: `ubertooth-rx -l <lap> -u <uap>` threw away the UAP you gave it
-  whenever it stopped following a clock, and worked it out from the air again.
-  A header that fails is checked against the UAP under the clock, so it says
-  one of the two was wrong without saying which, and the library gives both
-  up; a UAP you named is not in doubt. The capture now states it again and the
-  line says so -- `warning: the clock being followed was not this piconet's;
-  searching for its clock again, keeping UAP 0d` -- so the clock search starts
-  from the address you named, and the records written from the next packet
-  onward carry it as the reference UAP. A capture that worked the UAP out
-  itself still gives it up, and its line now reads `searching for its clock
-  and UAP again`.
+  whenever the clock recovery started over, and worked the UAP out from the air
+  again -- which takes packets, can settle on a wrong value, and leaves the
+  records with no reference UAP until it does. A UAP you name is now put back
+  wherever that happens, and where a clock was given up the line says so:
+  `warning: the clock being followed was not this piconet's; searching for its
+  clock again, and putting UAP 0d back`. A capture that worked the UAP out
+  itself still gives it up, and its line reads `searching for its clock and UAP
+  again`.
 
-- Fixed: a `ubertooth-btle -p -d` dump left out the four lines promiscuous
+- Fixed: a `ubertooth-btle -p -d` dump left out the four records promiscuous
   mode works a connection's parameters out from, so replaying the dump with
   `-i` printed the packets and no access address, CRC init, hop interval, or
   hop increment -- the only record of which connection the capture belonged
-  to. Those records now go into the dump with the packets, and a replay says
-  what the live run said.
+  to. Those records now go in the dump with the packets.
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time

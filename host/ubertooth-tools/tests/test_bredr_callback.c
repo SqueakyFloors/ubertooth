@@ -1299,11 +1299,10 @@ MU_TEST(a_capture_that_lost_nothing_reports_nothing)
 	"searching for its clock and UAP again\n"
 
 /* The same line for a capture whose user named the UAP with -u: that one is
- * not a guess, so it is kept and said, and only the clock is searched for
- * again. */
+ * not a guess, so it goes back and the line names it. */
 #define LOST_CLOCK_WARNING_KEPT_UAP \
 	"warning: the clock being followed was not this piconet's; " \
-	"searching for its clock again, keeping UAP 0d\n"
+	"searching for its clock again, and putting UAP 0d back\n"
 
 MU_TEST(a_capture_that_cannot_be_written_says_so_once)
 {
@@ -1627,7 +1626,7 @@ MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
 /* And the same for a UAP the user named. */
 #define QUIET_CLOCK_WARNING_KEPT_UAP \
 	"warning: nothing of this piconet has been heard on the clock being " \
-	"followed; searching for its clock again, keeping UAP 0d\n"
+	"followed; searching for its clock again, and putting UAP 0d back\n"
 
 /* A clock that is not the piconet's fails no header, so the library has
  * nothing to act on and the silence is the tool's to judge. What the tool
@@ -1886,6 +1885,51 @@ MU_TEST(a_uap_the_user_named_is_stated_again_when_the_library_drops_a_clock)
 	btbb_piconet_unref(pn);
 }
 
+/* A clock given up is not the only place the library drops the UAP: discovery
+ * starting over does it too, from five places of its own -- a candidate list
+ * that winnows to nothing, a rechoose that finds no candidate, a remembered
+ * hop pattern that fills up. None of them warns, and none of them can know
+ * the user named the UAP. So the restatement is per packet, and this is the
+ * case that says so: the UAP goes back with no clock lost and nothing said.
+ *
+ * The library drop is faked by clearing the flag, which is what its reset()
+ * does, because the faked decoder entry point does not run the real one. */
+MU_TEST(a_uap_the_user_named_goes_back_when_discovery_starts_over)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	stated_uap = 0x0d;
+	uap_stated = 1;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	/* No clock recovered and none lost: an ordinary packet. */
+	process_packet_result = 0;
+	btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
+
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0x0d, btbb_piconet_get_uap(pn));
+	mu_assert_int_eq(1, btbb_piconet_get_flag(pn, BTBB_UAP_VALID));
+	/* Nothing is said about it: discovery starting over is not a failure,
+	 * and a line per packet would bury the capture. */
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+	mu_assert_int_eq(0, stderr_lines_with("UAP"));
+
+	/* A UAP discovery derived for itself is replaced too: the user's is
+	 * the one that is not a guess. */
+	btbb_piconet_set_uap(pn, 0x99);
+	next_index = 0;
+	memset(&seen, 0, sizeof(seen));
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0x0d, btbb_piconet_get_uap(pn));
+
+	btbb_piconet_unref(pn);
+}
+
 /* A capture whose user named no UAP is left exactly as it was: the library
  * worked that UAP out from the air, the evidence against it stands, and
  * discovery is free to find another. */
@@ -1908,7 +1952,7 @@ MU_TEST(a_uap_the_capture_worked_out_itself_is_left_dropped)
 
 	mu_assert_int_eq(0x99, btbb_piconet_get_uap(pn));
 	mu_assert_int_eq(1, stderr_lines_with(QUIET_CLOCK_WARNING));
-	mu_assert_int_eq(0, stderr_lines_with("keeping UAP"));
+	mu_assert_int_eq(0, stderr_lines_with("putting UAP"));
 
 	btbb_piconet_unref(pn);
 }
@@ -1964,6 +2008,7 @@ int main(void)
 	MU_RUN(a_clock_given_up_for_silence_warns_once_and_frees_the_board);
 	MU_RUN(a_uap_the_user_named_is_stated_again_when_a_quiet_clock_is_dropped);
 	MU_RUN(a_uap_the_user_named_is_stated_again_when_the_library_drops_a_clock);
+	MU_RUN(a_uap_the_user_named_goes_back_when_discovery_starts_over);
 	MU_RUN(a_uap_the_capture_worked_out_itself_is_left_dropped);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();

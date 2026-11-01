@@ -134,16 +134,9 @@ typedef struct {
 	uint16_t capture_channel;
 
 	/* The piconet's upper address part (UAP) as the user stated it on the
-	 * command line, and 1 once a capture has stated one.
-	 *
-	 * The library gives the UAP up along with a clock it stops following,
-	 * because a header that fails its check says the clock or the UAP was
-	 * wrong without saying which. A UAP the user gave is not one of the
-	 * two, so cb_rx() states it again after a drop: discovery then starts
-	 * from what the user knows, instead of working the UAP out from the
-	 * air again -- which takes packets, can settle on a wrong value on a
-	 * quiet bench, and leaves every record written in the meantime with no
-	 * reference UAP for a reader to check a header against.
+	 * command line, and 1 once a capture has stated one. The library gives
+	 * the UAP up in several places, none of which can know the user named
+	 * it; cb_rx() puts it back. See br_restate_stated_uap().
 	 *
 	 * Zero and not stated where no capture said one, which is also what a
 	 * replay of a capture file leaves them as. */

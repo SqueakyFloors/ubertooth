@@ -305,16 +305,19 @@ one. It keeps the LAP it has, so the search starts from what is already
 known, and the capture carries on throughout.
 
 A header that fails is evidence against the clock and the UAP together,
-because the header is checked against the UAP under the clock, so the tool
-gives both up where it worked the UAP out itself. A UAP you gave with **-u**
-is not a guess, so that one is kept and only the clock is searched for again:
+because the header is checked against the UAP under the clock, so both are
+given up. A UAP you gave with **-u** is not a guess, so that one is put back
+and only the clock is searched for again:
 
-    warning: the clock being followed was not this piconet's; searching for its clock again, keeping UAP 0d
+    warning: the clock being followed was not this piconet's; searching for its clock again, and putting UAP 0d back
 
-The search then starts from the address you named rather than working the UAP
-out from the air a second time, and the records written from the first packet
-onward carry it as the reference UAP. If the UAP you gave is in fact wrong,
-the line says which one the tool is holding you to.
+The clock search then starts from the address you named rather than working
+the UAP out from the air a second time, and the records carry it as the
+reference UAP throughout. The same holds anywhere else the recovery starts
+over, which it does whenever it runs out of clock candidates; those restarts
+say nothing, and a **-u** UAP survives them too. If the UAP you gave is in
+fact wrong, nothing of that piconet will decode, and the line above says which
+UAP the tool is holding you to.
 
 A wrong guess can also show up as silence instead. Clock recovery only offers
 candidates that agree about the low clock bits, so a guess that is wrong in the
@@ -329,13 +332,12 @@ piconet for a minute therefore has that clock given up as well, with
 on standard error and the same return to recovering a clock, or, with a UAP
 given by **-u**,
 
-    warning: nothing of this piconet has been heard on the clock being followed; searching for its clock again, keeping UAP 0d
+    warning: nothing of this piconet has been heard on the clock being followed; searching for its clock again, and putting UAP 0d back
 
-A minute is long
-enough that a follow which is working does not reach it: on the right clock the
-receiver is on the piconet's channel in every slot pair, so even a link carrying
-one packet a second is heard from sixty times in that span, and the longest
-interval the low-power sniff mode allows is about 41 s.
+A minute is long enough that a follow which is working does not reach it: on
+the right clock the receiver is on the piconet's channel in every slot pair, so
+even a link carrying one packet a second is heard from sixty times in that
+span, and the longest interval the low-power sniff mode allows is about 41 s.
 
 Two limits come with that wait, and both are worth knowing before reading much
 into it.
