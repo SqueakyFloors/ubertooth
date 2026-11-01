@@ -247,7 +247,11 @@ If no FHS appears, the peripheral won the race; try again.
 - A peer may refuse any of the five things a connection opens by asking it
   for: its features, extended features, version, name, and encryption key
   size mask. Each refusal is reported with the reason the peer gave, and the
-  next request goes out as it would after an answer.
+  next request goes out as it would after an answer. A peer that refuses the
+  connection request those five lead to is declining the connection itself.
+  That is reported in a `warning:` line, and the link is then closed at once:
+  the command hangs up and ends, rather than holding a connection the peer
+  has already turned down.
 - A PDU too short to carry an opcode is reported in a `warning:` line and the
   connection goes on. There is nothing to answer in one: an escape opcode
   says the opcode is in the PDU's second byte, and a PDU of one byte has

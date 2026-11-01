@@ -1272,7 +1272,8 @@ print("ubtbr: a peer's refusal is recorded and the next request still goes")
 
 # A refusal of the connection request the five lead to is a warning: the
 # peer is declining the connection itself, and there is nothing further to
-# ask it for.
+# ask it for. 4.1.1 has the paging device disconnect the link at once, so a
+# detach goes out and the session ends.
 central = lmp.LMPCentral(RecordingConnection())
 for op, field, send in central._opening:
     setattr(central, field, b"")
@@ -1283,9 +1284,12 @@ with contextlib.redirect_stderr(warned):
         [lmp.LMP_HOST_CONNECTION_REQ], central._con.sent
     central._con.sent.clear()
     central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
-assert central._con.sent == [], central._con.sent
+assert central._con.sent == [pdu_sent(lmp.LMP_DETACH,
+    (lmp.LMP_ERR_LOCAL_HOST_TERMINATED,), 0)], central._con.sent
+assert central._con.stops == 1, central._con.stops
 assert warned.getvalue() == "warning: the peer refused " \
-    "LMP_HOST_CONNECTION_REQ: reason 0x0d\n", warned.getvalue()
+    "LMP_HOST_CONNECTION_REQ: reason 0x0d; closing the link\n", \
+    warned.getvalue()
 print("ubtbr: a peer declining the connection itself is one warning line")
 
 # ---- a command of a super command that will not stop ----------------------
@@ -3912,5 +3916,105 @@ for connection in range(2):
         btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA)], (connection, answered)
 
 print("ubtbr: an L2CAP echo request is answered with a response")
+
+
+# ---- the transaction ID of each end's LMP_setup_complete -----------------
+
+# The PDU is a transaction by itself rather than part of the connection
+# request's, so it carries the ID of the end that sent it: 0 for the
+# central's, 1 for the peripheral's (Core v5.4 | Vol 2, Part C, 2.4).
+# Receiving is lenient about the ID, so two boards do not notice; a standard
+# controller may.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+assert central._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 0)], \
+    central._con.sent
+
+peripheral = lmp.LMPPeripheral(CountingConnection())
+peripheral.receive(0, SETUP_COMPLETE)
+assert peripheral._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 1)], \
+    peripheral._con.sent
+
+# Everything else the peripheral sends answers a request of the peer's, so it
+# still carries the ID that request arrived with, whichever that is.
+for tid in (0, 1):
+    peripheral = lmp.LMPPeripheral(CountingConnection())
+    assert answers(peripheral, lmp.LMP_HOST_CONNECTION_REQ, tid=tid) == \
+        [pdu_sent(lmp.LMP_ACCEPTED, (lmp.LMP_HOST_CONNECTION_REQ,), tid)], \
+        peripheral._con.sent
+
+print("ubtbr: each end's LMP_setup_complete carries its own transaction ID")
+
+
+# ---- a declined connection ends the link --------------------------------
+
+# A peer that refuses the connection request is declining the connection
+# itself. 4.1.1 has the paging device disconnect the link straight away, and
+# 4.1.2's detach is how. Before this, the link was left for link supervision
+# to end a second later.
+
+def refused_connection(reason=0x0d):
+    """A central whose connection request the peer has just refused."""
+    central = lmp.LMPCentral(CountingConnection())
+    for op, field, send in central._opening:
+        setattr(central, field, b"")
+    with contextlib.redirect_stderr(io.StringIO()):
+        central.start()
+        central._con.sent.clear()
+        central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, reason))
+    return central
+
+
+DETACH = pdu_sent(lmp.LMP_DETACH, (lmp.LMP_ERR_LOCAL_HOST_TERMINATED,), 0)
+
+central = refused_connection()
+assert central._con.sent == [DETACH], central._con.sent
+assert central._con.stops == 1, central._con.stops
+
+# A peer's LMP_setup_complete that was already on its way does not open the
+# connection afterwards: the board's packets keep arriving while the session
+# stops, and l2ping would put an echo request on a link this end has hung up
+# on.
+central = refused_connection()
+central._con.sent.clear()
+with contextlib.redirect_stderr(io.StringIO()):
+    assert central.receive(0, SETUP_COMPLETE) is False
+assert central._con.sent == [], central._con.sent
+assert central._con.setups == 0, central._con.setups
+
+# Nothing else gets an answer either, and the detach goes out once however
+# many PDUs follow it.
+central = refused_connection()
+central._con.sent.clear()
+with contextlib.redirect_stderr(io.StringIO()):
+    central.receive(0, lmp_pdu(lmp.LMP_NAME_REQ, b"\x00", 1))
+    central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
+assert central._con.sent == [], central._con.sent
+assert central._con.stops == 1, central._con.stops
+
+# A refusal of one of the five this end asks for first is not the connection
+# being declined: that request is recorded as refused and the next one goes
+# out, with the link left alone.
+central = lmp.LMPCentral(CountingConnection())
+with contextlib.redirect_stderr(io.StringIO()):
+    central.start()
+    central._con.sent.clear()
+    central.receive(0, refusal(lmp.LMP_FEATURES_REQ, 0x1a))
+assert DETACH not in central._con.sent, central._con.sent
+assert central._con.stops == 0, central._con.stops
+
+# The next connection in the same session starts clean, so a refusal on one
+# does not leave the link manager silent for the one after it.
+central.connection_started()
+assert central._detached is False
+peripheral = lmp.LMPPeripheral(CountingConnection())
+peripheral.detach(lmp.LMP_ERR_LOCAL_HOST_TERMINATED)
+peripheral.connection_started()
+peripheral._con.sent.clear()
+peripheral.receive(0, SETUP_COMPLETE)
+assert peripheral._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 1)], \
+    peripheral._con.sent
+
+print("ubtbr: a peer declining the connection ends the link at once")
 
 WORK.cleanup()

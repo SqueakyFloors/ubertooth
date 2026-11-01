@@ -876,6 +876,12 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
+  already declined, until link supervision ended it a second later. A peer
+  that refuses the connection request now gets a detach, and the command says
+  so and ends straight away.
+  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
+
 - Fixed: `ubertooth-scan -x` reported a device from a company that joined the
   Bluetooth SIG recently as `Manufacturer: not assigned`. The line is now
   named from libbtbb's table of company identifiers, which has 4133 of them
@@ -2766,6 +2772,12 @@
 ### Under the hood
 
 Fixes with no visible change in normal use.
+
+- The paged board's `LMP_setup_complete` carries the transaction ID the
+  specification gives a transaction the peripheral started, where it carried
+  the one for the central's. Two Ubertooths are lenient about it; a standard
+  controller may not be.
+  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
 
 - Giving up a followed low-energy connection takes one path rather than two.
   The host's request to stop following and the end of the connection itself

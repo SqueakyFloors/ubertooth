@@ -108,6 +108,10 @@ LMP_POWER_CONTROL_RES           = 32
 # Error codes a refusal carries (Core v5.4 | Vol 1, Part F, 1.3).
 LMP_ERR_UNKNOWN_LMP_PDU         = 0x19
 LMP_ERR_UNSUPPORTED_LMP_FEATURE = 0x1a
+# What this end gives as its reason for hanging up when the peer declines the
+# connection: this end's host asked for a connection it is not going to get,
+# so the link goes with it.
+LMP_ERR_LOCAL_HOST_TERMINATED   = 0x16
 
 # Why a peer says it is hanging up: the reasons a detach is seen carrying, as
 # Core v5.4 | Vol 1, Part F, 1.3 names them. Any other code is reported as
@@ -117,7 +121,7 @@ LMP_DETACH_REASON2STR = {
 	0x13: "the peer's user ended the connection",
 	0x14: "the peer is low on resources",
 	0x15: "the peer is about to power off",
-	0x16: "the peer's own host ended the connection",
+	LMP_ERR_LOCAL_HOST_TERMINATED: "the peer's own host ended the connection",
 	0x1a: "unsupported remote feature",
 	0x22: "LMP response timeout",
 	0x29: "pairing with a unit key is not supported",
@@ -331,6 +335,14 @@ class LMP:
 	# mask has to say what this end will really do.
 	FEATURES = b"\x00\x00\x00\x00\x00\x00\x19\x00" # No AFH
 
+	# The transaction ID this end's own LMP_SETUP_COMPLETE goes out under.
+	# Each end sends one, and the PDU is a transaction by itself rather than
+	# part of the connection request's, so the ID is the one for a
+	# transaction this end started: 0 for the central's, 1 for the
+	# peripheral's (Core v5.4 | Vol 2, Part C, 2.4). The peripheral class
+	# below sets its own.
+	SETUP_COMPLETE_TID = 0
+
 	def __init__(self, con, debug=True):
 		self._debug = debug
 		self._con = con
@@ -346,6 +358,8 @@ class LMP:
 		self._setup_complete_sent = False
 		self._setup_complete_done = False
 		self._setup_complete_seen = False
+		# Whether this end has hung up; see detach().
+		self._detached = False
 
 	def time(self):
 		return time()-self._start_time
@@ -355,6 +369,14 @@ class LMP:
 		self._clkn = clkn
 		if self._debug:
 			log.info("%d|%.2f sec | <<< lmp_rx (state=%d): %s"%(clkn,self.time(),self._state, pdu2str(pdu)))
+
+		# A PDU that was already on its way when this end hung up. The link
+		# is over, so it gets no answer: the session is stopping, and a
+		# packet the board had queued must not have it open the connection
+		# or send anything further.
+		if self._detached:
+			log.info("ignored: this end has detached")
+			return False
 
 		# A PDU with no opcode to act on, which is a message from the board
 		# that ended early: what goes over the air is padded to the 17 bytes
@@ -457,6 +479,19 @@ class LMP:
 					"a reason this tool does not name")))
 		else:
 			log.info("Peer detached, giving no reason")
+		self._con.stop()
+
+	def detach(self, reason):
+		"""Hang up on the peer, saying why, and end the session.
+
+		The detach of Vol 2, Part C, 4.1.2: one PDU carrying the reason,
+		and then nothing more on this link. The grace timer that section
+		describes is skipped for the reason handle_detach() above gives.
+		"""
+		if self._detached:
+			return
+		self._detached = True
+		self.lmp_send(LMP_DETACH, p8(reason))
 		self._con.stop()
 
 	def handle_name_req(self, op, data):
@@ -654,6 +689,7 @@ class LMP:
 		self._setup_complete_sent = False
 		self._setup_complete_done = False
 		self._setup_complete_seen = False
+		self._detached = False
 		# These two are a connection's as well: the trace counts seconds
 		# from the connection coming up, and an opcode is reported once for
 		# the life of one.
@@ -674,7 +710,7 @@ class LMP:
 		if self._setup_complete_sent:
 			return
 		self._setup_complete_sent = True
-		self.lmp_send_setup_complete()
+		self.lmp_send_setup_complete(tid=self.SETUP_COMPLETE_TID)
 
 	def setup_complete(self):
 		"""The peer has finished the setup, so both ends now have.
@@ -818,11 +854,18 @@ class LMPCentral(LMP):
 			# Not one of the five, so it is the connection request they
 			# lead to: a peer refusing that is declining the connection
 			# itself, which is a warning rather than a line in the trace.
-			warn("the peer refused %s: %s"%(op2str(refused), why))
+			warn("the peer refused %s: %s; closing the link"
+				%(op2str(refused), why))
 			# The request is answered, refusal and all, so nothing is
 			# outstanding any more. Left set, a stray LMP_accepted
 			# afterwards read as this request being accepted.
 			self._awaiting = None
+			# 4.1.1 has the paging device disconnect the link at once when
+			# its connection request is refused. Left open, the link sat
+			# there until link supervision ended it a second later, and a
+			# peer's LMP_setup_complete arriving in the meantime still
+			# opened the connection.
+			self.detach(LMP_ERR_LOCAL_HOST_TERMINATED)
 			return
 		log.info("The peer refused %s: %s"%(op2str(refused), why))
 		setattr(self, field, REFUSED)
@@ -915,6 +958,10 @@ class LMPCentral(LMP):
 		self.setup_complete()
 
 class LMPPeripheral(LMP):
+	# This end's LMP_SETUP_COMPLETE is a transaction the peripheral started,
+	# so it takes 1 where the central's takes 0 (see SETUP_COMPLETE_TID).
+	SETUP_COMPLETE_TID = 1
+
 	def __init__(self, con):
 		self._FSM = {
 			# First state: wait for establishment message
