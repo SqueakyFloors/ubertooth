@@ -62,9 +62,14 @@ $(BINDIR)/test_mode_state_reset: test_mode_state_reset.c minunit.h \
 		-o $@ test_mode_state_reset.c $(FW_RXTX)/bluetooth.c
 
 # The identify blink pattern has no hardware dependency, so it compiles as is.
-$(BINDIR)/test_identify_blink: test_identify_blink.c minunit.h \
-		$(FW_RXTX)/identify_blink.c $(FW_RXTX)/identify_blink.h | $(BINDIR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_identify_blink.c $(FW_RXTX)/identify_blink.c
+# The blink pattern runs for real; the timer setup around it is hardware, so
+# the cases at the end of the test scan the two modes that blink from a timer
+# interrupt as text. FW_RXTX_DIR points at both sources.
+$(BINDIR)/test_identify_blink: test_identify_blink.c minunit.h source_scan.h \
+		$(FW_RXTX)/identify_blink.c $(FW_RXTX)/identify_blink.h \
+		$(FW_RXTX)/identify.c $(FW_RXTX)/xmas.c | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_identify_blink.c $(FW_RXTX)/identify_blink.c
 
 # cc2400.h is register definitions plus frend_tx(); it needs no stubs, so it is
 # included straight from firmware/common. FW_RXTX_DIR and FW_BTBR_DIR let the
