@@ -11,9 +11,8 @@
  *   quiet air    26 of 19937 records reached the ceiling, 0.13%. The channel
  *                carries Wi-Fi, which is loud, so this is not an idle band:
  *                it is the ordinary case the warning must stay silent on.
- *                Here the ceiling records are put next to each other, which
- *                is the worst arrangement for a rule that judges a block at
- *                a time.
+ *                The 26 are put next to each other here, so the case does not
+ *                depend on where in the capture they fell.
  *   pinned       with the other board a few centimeters away transmitting a
  *                carrier, every record reached the ceiling, at every one of
  *                the eight transmit power levels.
@@ -208,9 +207,10 @@ static ubertooth_t* fresh(void)
 }
 
 /* The quiet channel the bench measured: 19937 records, 26 of them at the
- * ceiling and next to each other, which is as concentrated as a rule that
- * judges a block at a time can be asked to take. Nothing is said, and no
- * block is counted. */
+ * ceiling and next to each other so the case does not depend on where they
+ * fell. Nothing is said, and no block is counted. What this pins is the
+ * distance between the two regimes; the_threshold_is_where_it_says() below is
+ * what probes the boundary itself. */
 MU_TEST(quiet_air_says_nothing)
 {
 	ubertooth_t* ut = fresh();

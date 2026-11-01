@@ -521,18 +521,25 @@ This is the case where a capture decodes nothing and the board is not at
 fault. The radio reports the power of each block of air on a scale that runs
 out, and a receiver held at the top of it is also past where it demodulates
 reliably, so a transmitter close enough to pin it is one whose packets the
-capture cannot read. Every capture mode turns the board's amplifier and
-high-gain mode on, so the near end of a bench is close enough: on ours a
+capture cannot read. The Basic Rate receive turns the board's amplifier and
+high-gain mode both on, so the near end of a bench is close enough: on ours a
 transmitting board a few centimeters away pins the receiver at every one of
 the eight transmit power levels, while the same board a meter away behind a
 20 dB attenuator stays well clear of the top even at full power. Put more
 distance or more attenuation between the two, or turn the transmit power down.
 
+A receiver held at the top of the scale is what gets reported, not one loud
+packet: a short packet from a board a few centimeters away still decodes, so
+the decision is taken over a block of records.
+
 The warning goes on the records the board sends, which this tool gets for
-every block of air whether or not a packet was in it, so it arrives even
-while nothing is decoding. A replay with `-i` reports it from the recorded
-records in the same way. ubertooth(7) describes what each tool can and cannot
-report this way.
+every block of air whether or not a packet was in it, so it arrives even while
+nothing is decoding. A replay with `-i` reports it from the records in the
+file, so long as they state a signal figure of their own: a dump written by a
+board or a release older than that field holds the channel's running average
+there instead, and such a record is skipped rather than judged, so an older
+capture replays without this warning however loud it was. ubertooth(7)
+describes what each tool can and cannot report this way.
 
 ## EXIT STATUS
 

@@ -164,7 +164,8 @@ be trusted. Put more distance or more attenuation between the boards, or turn
 the transmit power down. With `-c` or `-l` the board sends a record for every
 block of air and the warning arrives whether or not anything is decoding; with
 `-g` it takes no readings at all, so the records state no signal figure and
-this is never reported. See ubertooth(7).
+this is never reported. It takes a receiver held at the top of the scale: one
+loud packet is not reported. See ubertooth(7).
 
 ## EXIT STATUS
 

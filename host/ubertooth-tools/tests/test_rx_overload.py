@@ -103,8 +103,15 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "pinned.bin", directory=work)
     assert result.returncode == 0, result
     assert result.stderr.count(WARNING) == 1, result
-    # On standard error, where a capture's own output is not: a dump written
-    # to standard output must not have a message mixed into it.
+    # On standard error and not on standard output, which carries only what
+    # was asked for.
+    assert WARNING not in result.stdout, result
+
+    # And with the dump on standard output, where standard output belongs to
+    # the capture for the whole run: the warning must not be mixed into it.
+    result = run("-i", "pinned.bin", "-d", "-", directory=work)
+    assert result.returncode == 0, result
+    assert result.stderr.count(WARNING) == 1, result
     assert WARNING not in result.stdout, result
 
     # Too short a capture to judge a block of records says nothing: the first

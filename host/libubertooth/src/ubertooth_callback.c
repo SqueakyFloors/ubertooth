@@ -64,6 +64,17 @@ extern unsigned int packet_counter_max;
 #define CLKN_PER_SECOND 3200
 #define PPM_PER_100NS_PER_CLKN 320
 
+/* Where the scale below runs out: the lowest raw reading that comes out as
+ * 0 dBm. A record at or above it says only "at least this loud", so a capture
+ * held there cannot be told how loud what it is hearing is -- and on this
+ * radio that is also where it stops demodulating reliably, which is what
+ * ubertooth_watch_signal_level() reports.
+ *
+ * The map below is written in terms of it rather than repeating the number,
+ * so the two cannot drift apart: whatever the top segment is changed to, this
+ * stays the first reading that reports 0 dBm. */
+#define RSSI_CEILING_RAW 35
+
 static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 {
 	/* models the cc2400 datasheet fig 22 for 1M as piece-wise linear */
@@ -76,19 +87,13 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 	else if (rssi <= 30) {
 		return (int8_t) ((99*((int)rssi-62))/110);
 	}
-	else if (rssi <= 35) {
-		return (int8_t) ((60*((int)rssi-35))/11);
+	else if (rssi < RSSI_CEILING_RAW) {
+		return (int8_t) ((60*((int)rssi-RSSI_CEILING_RAW))/11);
 	}
 	else {
 		return 0;
 	}
 }
-
-/* Where the scale above runs out: the lowest raw reading that comes out as
- * 0 dBm. A record at or above it says only "at least this loud", so a capture
- * held there cannot be told how loud what it is hearing is -- and on this
- * radio that is also where it stops demodulating reliably. */
-#define RSSI_CEILING_RAW 35
 
 /* The noise figure handed to the capture writers, which means "no background
  * figure for this packet".
@@ -778,6 +783,13 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx)
 #define SIGNAL_BLOCK_RECORDS 1000
 #define SIGNAL_BLOCK_AT_CEILING 950
 
+/* The counters these are compared against are 16-bit, so a block larger than
+ * one can hold would wrap before it was ever judged and the warning would
+ * never be said. */
+_Static_assert(SIGNAL_BLOCK_RECORDS <= UINT16_MAX &&
+               SIGNAL_BLOCK_AT_CEILING <= SIGNAL_BLOCK_RECORDS,
+               "a block has to fit the counters in ubertooth_t");
+
 void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx)
 {
 	if (ut == NULL || rx == NULL)
@@ -1344,8 +1356,10 @@ void cb_ego(ubertooth_t* ut, void* args)
 	usb_pkt_rx* rx = &usb;
 	uint64_t arrival_ns = fifo_popped_arrival_ns(ut->fifo);
 
+	/* No ubertooth_watch_signal_level() here: the E-GO engine builds its
+	 * records with enqueue_with_ts(), which takes no readings and states no
+	 * signal figure, and its receive leaves the high-gain mode off. */
 	ubertooth_count_capture_losses(ut, rx);
-	ubertooth_watch_signal_level(ut, rx);
 
 	/* These packets are stamped with the CLKN-derived clock and carry no
 	 * period count of their own, so the reconstruction counts the clock's

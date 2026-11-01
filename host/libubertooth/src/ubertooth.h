@@ -696,9 +696,9 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
  * comes out as 0 dBm, so above it the host can no longer say how loud the
  * signal was, only that it was at least that loud. A receiver held there is
  * being driven harder than it can measure, and on this radio that is also
- * where it stops demodulating reliably: the board's amplifier and high-gain
- * mode are both on in every capture mode, so two boards on one bench reach it
- * at any transmit power.
+ * where it stops demodulating reliably: the Basic Rate and low-energy
+ * receives turn the board's amplifier and high-gain mode both on, so two
+ * boards on one bench reach it at any transmit power.
  *
  * Judged a block of records at a time rather than record by record, because
  * ordinary air reaches the ceiling now and then -- a Wi-Fi burst on the
