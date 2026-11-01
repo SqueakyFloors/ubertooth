@@ -211,14 +211,19 @@ the decoder anything to recover a clock from.
    the board as the clock to hop on, and starts capturing. Unlike
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
-   packets from the start. A run that prints none has one of four causes: the
+   packets from the start. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear both devices, the `-u`
-   given is wrong, or the clock the board was given is off by enough to put it
-   on the wrong channel, which is what `-w` adjusts for. A target that is not
-   the Central of the piconet is a fifth with `-a` (see AFH above).
+   given is wrong, the clock the board was given is off by enough to put it on
+   the wrong channel, which is what `-w` adjusts for, or the target is not the
+   Central of the piconet. The last of those finds nothing at all rather than
+   part of the traffic: every packet in a piconet carries the Central's access
+   code and hops on the Central's clock, so a follow keyed on a Peripheral's
+   address is listening for a piconet that is not there.
 
    The run ends when you interrupt it (Ctrl-C), with exit status 0 and the
    capture written, so give it a length with `timeout` when you script one.
+   `timeout` reports 124 for a run it ended; `timeout --preserve-status` gives
+   the tool's own status instead.
 
 5. Add `-a` once the capture works without it, if the piconet uses adaptive
    frequency hopping and the follow is patchy (see AFH above). It needs `-t`:

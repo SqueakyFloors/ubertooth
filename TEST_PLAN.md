@@ -655,13 +655,17 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
 - [ ] Find the piconet with `ubertooth-rx -U <serial> -z -t 30` and confirm its
       LAP, and the UAP against the leading device's real address (a short
       survey's UAP is a guess and can be wrong)
-- [ ] Run `timeout 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu.pcap`
+- [ ] Run
+      `timeout --preserve-status 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu.pcap`
       and record: whether the page succeeded, how long until packets appear,
       and roughly what fraction of the piconet's traffic the capture holds
       (compare the packet count against a 60-second
       `ubertooth-rx -l <lap> -u <uap> -t 60`). A follow runs until it is
-      interrupted, so every run here needs a `timeout` or a Ctrl-C of its own
-- [ ] Run `timeout 60 ubertooth-follow -U <serial> -t <whole address> -q t.pcap`
+      interrupted, so every run here needs a `timeout` or a Ctrl-C of its own.
+      `--preserve-status` is what makes the exit status the tool's own; plain
+      `timeout` reports 124 for every run it ended
+- [ ] Run
+      `timeout --preserve-status 60 ubertooth-follow -U <serial> -t <whole address> -q t.pcap`
       and record the same three things. Both forms name one piconet, so a
       difference between them is the page, not the follow. Run the pair twice,
       alternating, so a one-off paging failure does not read as a difference
