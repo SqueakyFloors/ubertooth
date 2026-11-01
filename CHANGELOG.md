@@ -857,10 +857,8 @@
   devices while a follow was running well, and rebuilding the connection's
   state that way could also leave it half written under the connection event
   that arrived next. A request heard during a follow is now ignored until that
-  follow ends, at its supervision timeout or when the host stops it, and the
-  request still reaches the capture. The cost is that a pair of devices which
-  disconnects cleanly and reconnects at once is not followed again until the
-  old connection's supervision timeout has run out; see ubertooth-btle(1).
+  follow ends, and the request still reaches the capture. See
+  ubertooth-btle(1) for how a follow ends.
   [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
 - A `ubertooth-follow` run that is refused before it captures anything leaves
   no empty capture file behind. The `-q`, `-r`, and `-d` files are created once
@@ -869,6 +867,16 @@
   would not read, or a capture that would not start -- removes them again, so
   there is nothing on disk to tell apart from a capture that caught nothing.
   [#995](https://github.com/SqueakyFloors/ubertooth/issues/995)
+
+- Fixed: `ubertooth-btle -f` stayed on a connection the devices had already
+  closed. The board read the connection update and channel map packets of a
+  followed connection but not the one that announces the connection is ending,
+  so the capture sat on a closed connection until its supervision timeout, up
+  to 32 s, and heard nothing in the meantime. The follow now ends a connection
+  event or two after that packet and the board goes back to listening on the
+  advertising channel, where a new connection between the same devices can be
+  followed.
+  [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
   using the whole band instead of a handful of channels. The channel removal
