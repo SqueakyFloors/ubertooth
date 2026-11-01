@@ -57,6 +57,16 @@
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
 
+// How many connection events may carry packets after a packet announcing the
+// end of the connection has been read, before that packet is treated as
+// damaged and ignored. See conn.terminated and finish_conn_event().
+//
+// Two, because the first of them is usually the event the packet itself
+// arrived in. The mode's loop reads a packet after the receive interrupt has
+// queued it, which is often while that event is still open, and the packets of
+// that event say nothing about whether the connection is still alive.
+#define TERMINATE_BUSY_EVENTS 2
+
 // How long timer1 waits before looking at FS_LOCK again, and how many of
 // those re-checks keep the short interval.
 //
@@ -260,11 +270,15 @@ typedef struct _le_conn_t {
 	uint16_t channel_map_update_instant;
 	le_channel_remapping_t pending_remapping;
 
-	// Set when a packet announcing the end of the connection has been read,
-	// so the next connection event to close stops following it. It belongs
-	// to the connection rather than being a flag of its own: reset_conn()
-	// then clears it, and a packet read just after a follow ended cannot
-	// reach into the follow that comes next.
+	// Set when a packet announcing the end of the connection has been
+	// read. The follow then ends at the first connection event that
+	// receives nothing, and the note is discarded if the connection keeps
+	// delivering packets; the value is how many connection events may
+	// still carry packets before that happens. See TERMINATE_BUSY_EVENTS.
+	//
+	// It belongs to the connection rather than being a flag of its own:
+	// reset_conn() then clears it, and a packet read just after a follow
+	// ended cannot reach into the follow that comes next.
 	//
 	// Written from the mode's loop without holding interrupts off, where
 	// the two updates above need a guard, because this is one word on its
@@ -572,6 +586,9 @@ static void timer1_set_match_ahead(uint32_t target) {
 static void finish_conn_event(void) {
 	uint32_t last_anchor = 0;
 	int last_anchor_set = 0;
+	// Kept because reset_conn_event() below clears the count, and the
+	// decision about a noted terminate comes after it.
+	int had_packets = conn_event.num_packets > 0;
 
 	// two packets -- update anchor
 	if (conn_event.num_packets == 2) {
@@ -637,9 +654,25 @@ static void finish_conn_event(void) {
 	// increment connection event counter
 	++conn.conn_event_counter;
 
+	// An event that carried packets spends one of the note's budget, and
+	// discards it once the budget runs out: a connection still delivering
+	// packets has not closed, so the packet that said it had was damaged.
+	//
+	// CRC verification is off by default, and a bit-errored data packet can
+	// carry the control LLID, a length of 2, and 0x02 where the opcode
+	// goes. Stopping a healthy follow on that is the worse of the two
+	// mistakes, because nothing re-follows a live connection -- there is no
+	// new connection request to hear -- so the capture would go quiet with
+	// the connection still running. Waiting for silence costs about one
+	// connection event, since a connection that really closed stops
+	// talking.
+	if (conn.terminated && had_packets)
+		--conn.terminated;
+
 	// The connection is over, either because it has gone quiet for longer
 	// than its supervision timeout or because the peers announced the end
-	// of it on the air - switch back to advertising
+	// of it on the air and this event heard nothing - switch back to
+	// advertising
 	//
 	// Every path that stops following disarms the match as well. Connection
 	// events are the only thing it is armed for, and the one left in it has
@@ -648,7 +681,7 @@ static void finish_conn_event(void) {
 	// of whatever the mode was doing by then -- retuning the radio under an
 	// advertising capture, or under another connection.
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout ||
-	    conn.terminated) {
+	    (conn.terminated && !had_packets)) {
 		reset_conn();
 		timer1_clear_match();
 		change_channel();
@@ -2232,21 +2265,24 @@ static void packet_handler(le_rx_t *buf) {
 					break;
 
 				// LL_TERMINATE_IND -- the peers are closing the
-				// connection. Noted here and acted on by the next
-				// connection event to close, which is where the
-				// supervision timeout ends a follow too: the connection
-				// state belongs to the timer interrupt that reads it on
-				// every event, so this loop must not reset it.
+				// connection. Noted here and acted on by
+				// finish_conn_event(), which is where the supervision
+				// timeout ends a follow too: the connection state
+				// belongs to the timer interrupt that reads it on every
+				// event, so this loop must not reset it.
 				//
 				// The control LLID and the length are all that stands
-				// between a bit-errored data packet and the end of a
-				// healthy follow, as they are for the two updates
-				// above. A capture that cannot afford that asks for
-				// CRC verification (`ubertooth-btle -k1`), which drops
-				// a damaged packet before it reaches this dispatch.
+				// between a bit-errored data packet and a note written
+				// here, as they are for the two updates above. So the
+				// note is not acted on until the connection goes quiet,
+				// which is what tells a real close from a damaged
+				// packet; see TERMINATE_BUSY_EVENTS. A capture that
+				// wants the packet dropped before it ever reaches this
+				// dispatch asks for CRC verification
+				// (`ubertooth-btle -k1`).
 				case 0x2:
 					if (buf->data[1] == 2)
-						conn.terminated = 1;
+						conn.terminated = TERMINATE_BUSY_EVENTS;
 					break;
 			}
 		}

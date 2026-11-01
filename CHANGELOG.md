@@ -2607,6 +2607,17 @@ Fixes with no visible change in normal use.
   start and disarms it on the way out, so a second run of it cannot toggle an
   LED before its own first blink is due.
   [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
+
+- A `ubertooth-btle -f` follow waits for the connection to go quiet before the
+  packet that announces its close ends the follow. CRC verification is off by
+  default, so a bit-errored data packet can reach the board's reading of the
+  connection looking like that packet, and the follow would have stopped on a
+  connection that was still running -- with nothing to pick it up again, since
+  there is no new connection request to hear. A connection that goes on
+  delivering packets now keeps being followed, and a real close still ends the
+  follow, about one connection event later than before.
+  [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015)
+
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising

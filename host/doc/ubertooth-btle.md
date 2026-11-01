@@ -37,13 +37,22 @@ connection is being followed is recorded in the capture like any other packet,
 but is not acted on: the follow stays with the connection it started on until
 that connection ends.
 
-Ubertooth sees a connection end in one of two ways. A pair of devices that
-closes the connection says so on the air, and the follow ends a connection
-event or two later. The packet that closes the connection is in the capture;
-an acknowledgment of it that arrives after the follow has ended is not. A
-connection that dies without warning ends at its supervision timeout instead.
-The connection itself sets that timeout, anywhere from 100 ms to 32 s, and
-until it has passed a new connection between the same devices is not followed.
+Ubertooth sees a connection end in one of two ways.
+
+A pair of devices that closes the connection says so on the air. The follow
+ends at the first connection event after that packet in which nothing is
+heard, which is normally the next one, so the capture leaves the connection a
+connection event or two after it closed. A connection that goes on delivering
+packets keeps being followed: going quiet is what tells a real close from a
+damaged packet, since with CRC verification off (`-k`, the default) a
+bit-errored data packet can look like the one that closes a connection. The
+packet that closes the connection is in the capture; an acknowledgment of it
+that arrives after the follow has ended is not.
+
+A connection that dies without warning ends at its supervision timeout
+instead. The connection itself sets that timeout, anywhere from 100 ms to
+32 s, and until it has passed a new connection between the same devices is
+not followed.
 
 Follow mode hops with whichever of the two channel selection algorithms the
 connection uses. Which one that is was settled when the connection was made:
@@ -348,6 +357,14 @@ Miscellaneous:
    run once the mode has started, because entering a mode clears the setting,
    and the firmware then turns verification on and off itself as it recovers a
    connection.
+
+   Verification also decides what a follow (`-f`) acts on. With it off, a
+   bit-errored data packet still reaches the board's reading of the
+   connection, where its length and type fields are all that tell it from a
+   connection update, a channel map change, or the packet that closes the
+   connection. With it on, such a packet is dropped first. Either way the
+   follow waits for the connection to go quiet before it ends (DESCRIPTION),
+   so a damaged packet does not stop a healthy capture.
  - `-v` :
    Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder
    describes each packet whose data it could not read, on standard error, as
