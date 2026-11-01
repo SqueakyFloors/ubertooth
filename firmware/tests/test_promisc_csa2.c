@@ -316,6 +316,62 @@ MU_TEST(interval_needs_enough_gaps)
 	          "as many gaps as the search is allowed to miss");
 }
 
+/*
+ * A gap is multiplied back out of the events it spans, and the product is
+ * about the gap itself, so a gap near the top of a 32-bit count would carry
+ * it past what fits. The search drops any gap longer than the connection can
+ * be away and still be coming back, which is the longest the mode that
+ * collects them will pass. These check both sides of that bound, with the
+ * worst gap a 32-bit count holds among them.
+ */
+MU_TEST(an_impossible_gap_is_dropped)
+{
+	le_channel_remapping_t remapping;
+	struct sightings s;
+	le_csa2_recovery_t rec;
+	u32 gap[GAPS];
+	unsigned i;
+
+	/* The longest gap it does accept, repeated: 37 events of the longest
+	 * connection interval, so the interval it says is that one. */
+	for (i = 0; i < GAPS; ++i)
+		gap[i] = LE_PROMISC_MAX_GAP;
+	mu_assert_int_eq(LE_MAX_CONN_INTERVAL,
+	                 le_csa2_interval(gap, GAPS));
+
+	/* One tick longer, and every gap is dropped, so no interval is left to
+	 * believe. */
+	for (i = 0; i < GAPS; ++i)
+		gap[i] = LE_PROMISC_MAX_GAP + 1;
+	mu_assert_int_eq(0, le_csa2_interval(gap, GAPS));
+
+	for (i = 0; i < GAPS; ++i)
+		gap[i] = 0xffffffffu;
+	mu_assert_int_eq(0, le_csa2_interval(gap, GAPS));
+	mu_assert(!le_csa2_recover(gap, GAPS, LISTEN_CHANNEL, AA_A, &rec),
+	          "the search answered from gaps no connection can produce");
+
+	/* The newest gap impossible, the rest a real connection: the offsets
+	 * of every sighting are measured through that gap, so there is nothing
+	 * left to search from and the answer is none. */
+	full_map(&remapping);
+	collect(&s, AA_A, 24, 321, &remapping, 0, 0);
+	s.gap[s.gap_count - 1] = 0xffffffffu;
+	mu_assert(!le_csa2_recover(s.gap, s.gap_count, LISTEN_CHANNEL, AA_A,
+	                           &rec),
+	          "the newest sighting was reached through an impossible gap");
+
+	/* The oldest gap impossible: the sightings newer than it are still a
+	 * run, and the newest is still the one the answer belongs to. */
+	collect(&s, AA_A, 24, 321, &remapping, 0, 0);
+	s.gap[0] = 0xffffffffu;
+	mu_assert_fatal(le_csa2_recover(s.gap, s.gap_count, LISTEN_CHANNEL,
+	                                AA_A, &rec),
+	                "the newer sightings were not used");
+	mu_assert_int_eq(s.newest_counter, rec.event_counter);
+	mu_assert_int_eq(24, rec.conn_interval);
+}
+
 /* ------------------------------------------------------------------------
  * The event counter
  * ------------------------------------------------------------------------ */
@@ -815,6 +871,7 @@ int main(void)
 	MU_RUN(interval_comes_out_of_the_sightings);
 	MU_RUN(interval_survives_clock_error);
 	MU_RUN(interval_needs_enough_gaps);
+	MU_RUN(an_impossible_gap_is_dropped);
 	MU_RUN(recovers_a_full_map_connection);
 	MU_RUN(recovers_a_reduced_map_connection);
 	MU_RUN(recovers_through_missed_visits);
