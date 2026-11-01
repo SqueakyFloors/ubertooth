@@ -706,6 +706,11 @@ class LMPCentral(LMP):
 		# Only one is outstanding at a time, which is what lets a refusal
 		# be matched to what it answers.
 		self._awaiting = None
+		# Has this end sent its own LMP_setup_complete yet? The setup ends
+		# when each side has sent one and received the other's (Vol 2,
+		# Part C, 4.1.2), so this keeps a second one from going out when
+		# the peer's arrives.
+		self._setup_complete_sent = False
 		super().__init__(con)
 
 	def start(self):
@@ -772,7 +777,19 @@ class LMPCentral(LMP):
 		self.send_info_req()
 
 	def handle_accepted(self, op, data):
-		pass
+		"""The peer accepting one of this end's requests.
+
+		Only the connection request needs anything done. Accepting it is
+		the last step of the setup, and what follows is that each end sends
+		LMP_setup_complete and waits for the other's; data may go out once
+		both have been exchanged (Vol 2, Part C, 4.1.2). The central sends
+		the first one, so a peer that waits for it -- another Ubertooth
+		does -- is not left waiting forever.
+		"""
+		if self._awaiting != LMP_HOST_CONNECTION_REQ:
+			return
+		self._awaiting = None
+		self._send_setup_complete_once()
 
 	def handle_slot_offset(self, op, data):
 		if len(data) < 8:
@@ -818,8 +835,17 @@ class LMPCentral(LMP):
 			self.rmt_enc_key_size_mask = data
 		self.send_info_req()
 
+	def _send_setup_complete_once(self):
+		"""Send this end's LMP_setup_complete, if it has not already."""
+		if self._setup_complete_sent:
+			return
+		self._setup_complete_sent = True
+		self.lmp_send_setup_complete()
+
 	def handle_setup_complete(self, op, data):
-		self.lmp_send(LMP_SETUP_COMPLETE, b"\x00"*16)
+		# A peer that sent its own first, which a standard controller may
+		# do, still gets this end's.
+		self._send_setup_complete_once()
 		self._con.handle_setup_complete()
 
 class LMPPeripheral(LMP):

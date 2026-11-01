@@ -149,6 +149,42 @@ LLID_TO_STR = {
 	LLID_LMP:		"LMP"
 }
 
+# The L2CAP signalling channel, and the two codes of the echo procedure
+# (Core v5.4 | Vol 3, Part A, 4.8 and 4.9). An echo request has to be
+# answered with a response carrying the same identifier, which is what makes
+# `l2ping` report a round trip.
+L2CAP_CID_SIGNALLING	= 1
+L2CAP_ECHO_REQ		= 0x08
+L2CAP_ECHO_RSP		= 0x09
+
+def l2cap_signalling_packet(code, identifier, data=b""):
+	"""One L2CAP packet on the signalling channel, ready for an ACL payload."""
+	command = pack("<BBH", code, identifier, len(data)) + data
+	return pack("<HH", len(command), L2CAP_CID_SIGNALLING) + command
+
+def l2cap_echo_request(acl):
+	"""The identifier and data of an echo request, or None for anything else.
+
+	`acl` is a received ACL packet. Only a request that arrived whole in one
+	packet is read: the echo request `l2ping` sends is twelve bytes and fits
+	in the smallest packet the link carries, so there is nothing here to
+	reassemble a fragmented one for.
+	"""
+	if acl.llid != LLID_L2CAP_START or len(acl.data) < 8:
+		return None
+	length, cid = unpack("<HH", acl.data[:4])
+	if cid != L2CAP_CID_SIGNALLING:
+		return None
+	code, identifier, command_length = unpack("<BBH", acl.data[4:8])
+	if code != L2CAP_ECHO_REQ:
+		return None
+	# The packet is padded out to the size of the packet kind that carried
+	# it, so the data is taken by the length the command gives rather than
+	# to the end of the payload.
+	if len(acl.data) < 8 + command_length:
+		return None
+	return identifier, acl.data[8:8+command_length]
+
 def reverse8(num):
 	rev8_tbl = [
 		0x00,0x80,0x40,0xc0,0x20,0xa0,0x60,0xe0,0x10,0x90,0x50,0xd0,0x30,0xb0,0x70,0xf0,
@@ -882,6 +918,15 @@ class BTCtlPageScanCmd(BTCtlCmd):
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
 		result("RX L2CAP: %s"%acl)
+		# An echo request is answered, so a peer running `l2ping` against
+		# this board gets its round trip. Nothing else on the signalling
+		# channel is handled; this board offers no service to connect to.
+		request = l2cap_echo_request(acl)
+		if request is None:
+			return
+		identifier, data = request
+		self.send_acl(LLID_L2CAP_START,
+			l2cap_signalling_packet(L2CAP_ECHO_RSP, identifier, data))
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")

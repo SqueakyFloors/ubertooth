@@ -3382,4 +3382,132 @@ assert errors == (
 
 print("ubtbr: -V and -h need no Python libusb1 package")
 
+
+# ---- the LMP setup finishes, and an echo request is answered --------------
+
+# Two boards used to sit in a connection that never finished its setup: each
+# side sent LMP_setup_complete only on receiving one, so neither sent the
+# first. 4.1.2 has each end send one and wait for the other's, and the
+# central's goes out as soon as its connection request is accepted.
+
+class CountingConnection(RecordingConnection):
+    """A connection that counts the setups reported complete."""
+
+    def __init__(self):
+        super().__init__()
+        self.setups = 0
+
+    def handle_setup_complete(self):
+        self.setups += 1
+
+
+def central_at_connection_req():
+    """A central that has asked for the connection, with nothing else sent."""
+    central = lmp.LMPCentral(CountingConnection())
+    for op, field, send in central._opening:
+        setattr(central, field, b"")
+    central.start()
+    assert opcode_of(central._con.sent[-1]) == lmp.LMP_HOST_CONNECTION_REQ, \
+        central._con.sent
+    central._con.sent.clear()
+    return central
+
+
+SETUP_COMPLETE = bytes([lmp.LMP_SETUP_COMPLETE << 1])
+ACCEPTED = bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_HOST_CONNECTION_REQ])
+
+# Accepting the connection request sends this end's LMP_setup_complete, and
+# the setup is reported complete once the peer's has arrived.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 0, central._con.setups
+central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# A peer that sends its own first, which a standard controller may do, still
+# gets this end's, and still gets exactly one.
+central = central_at_connection_req()
+central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+
+# An LMP_accepted for anything else leaves the setup alone.
+central = lmp.LMPCentral(CountingConnection())
+central.start()
+central._con.sent.clear()
+central.receive(0, bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]))
+assert central._con.sent == [], central._con.sent
+assert central._con.setups == 0, central._con.setups
+
+print("ubtbr: the central sends the first LMP_setup_complete")
+
+# The paged board answers an L2CAP echo request, so a peer running l2ping
+# against it gets a round trip.
+
+ECHO_DATA = b"ECHO"
+echo_req = btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8, ECHO_DATA)
+assert btctl.l2cap_echo_request(
+    btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)) == \
+    (0xc8, ECHO_DATA), echo_req.hex()
+
+# Padding to the size of the packet that carried it is not part of the data.
+padded = btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req + b"\x00" * 5)
+assert btctl.l2cap_echo_request(padded) == (0xc8, ECHO_DATA), padded.data.hex()
+
+# Anything that is not a whole echo request on the signalling channel is not
+# one: a continuation fragment, another channel, another code, and a packet
+# that ends before its data.
+for not_a_request in (
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_CONT, echo_req),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 4, 0x40) + echo_req[4:]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 1, b"")),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:-1]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:6])):
+    assert btctl.l2cap_echo_request(not_a_request) is None, \
+        not_a_request.data.hex()
+
+
+class ReceivedPacket:
+    """A received packet, as the command's L2CAP handler reads one."""
+
+    def __init__(self, acl):
+        self.bt_data = acl
+
+
+command = btctl.BTCtlPageScanCmd(SilentDevice())
+command.lt_addr = 1
+answered = []
+command.send_acl = lambda llid, data, flow=1: answered.append((llid, data))
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    command._handle_l2cap(ReceivedPacket(
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+assert len(answered) == 1, answered
+llid, answer = answered[0]
+assert llid == btctl.LLID_L2CAP_START, llid
+assert answer == btctl.l2cap_signalling_packet(
+    btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA), answer.hex()
+# The packet still reaches standard output, as every other one does.
+assert "RX L2CAP" in said.getvalue(), said.getvalue()
+
+# A response, or anything else on the channel, is reported and not answered.
+answered.clear()
+with contextlib.redirect_stdout(io.StringIO()):
+    command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+        btctl.LLID_L2CAP_START,
+        btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA))))
+assert answered == [], answered
+
+print("ubtbr: an L2CAP echo request is answered with a response")
+
 WORK.cleanup()
