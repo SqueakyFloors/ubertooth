@@ -312,6 +312,19 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 60)
 endif()
 
+# What ubertooth-rx says when its receiver is pinned at the top of the
+# radio's range, replayed through -i from recorded RSSI sequences the test
+# builds itself. The whole tool runs, so this covers the message reaching the
+# user as well as the rule deciding.
+add_test(
+	NAME rx-overload
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_rx_overload.py
+		$<TARGET_FILE:ubertooth-rx>)
+# Four replays of about 20000 records each: under a second idle. A minute
+# leaves the test's own per-run deadline room to fire first.
+set_tests_properties(rx-overload PROPERTIES TIMEOUT 120)
+
 add_test(
 	NAME specan-cli
 	COMMAND ${Python3_EXECUTABLE}
@@ -1106,6 +1119,26 @@ if(libubertooth_SOURCE_DIR)
 	add_test(NAME capture-noise-flag COMMAND test-capture-noise-flag)
 	# Two callback calls and four small files: milliseconds.
 	set_tests_properties(capture-noise-flag PROPERTIES TIMEOUT 10)
+
+	# When a capture says its receiver is being driven past what it can
+	# measure, built from what the bench read on a quiet channel and on a
+	# pinned one. The real routine runs; the fifo calls are the test's own,
+	# for the same reason as above.
+	add_executable(test-signal-ceiling
+		test_signal_ceiling.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
+		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c)
+	target_include_directories(test-signal-ceiling PRIVATE
+		${libubertooth_SOURCE_DIR}/src ${LIBBTBB_INCLUDE_DIR})
+	target_link_libraries(test-signal-ceiling ${LIBUSB_LIBRARIES}
+		${LIBBTBB_LIBRARIES} Threads::Threads)
+	add_test(NAME signal-ceiling COMMAND test-signal-ceiling)
+	# A few hundred thousand calls over a struct and a counter, and nine
+	# small files: milliseconds.
+	set_tests_properties(signal-ceiling PROPERTIES TIMEOUT 10)
 
 	# What the low-energy callback prints, on which stream, and with what
 	# signal level beside each packet. The real cb_btle() and the real

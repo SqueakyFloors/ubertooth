@@ -510,6 +510,30 @@ A capture read back from a file with `-i` reports the same way: all three
 losses are recorded in the packets, so replaying one warns as it reads them
 and gives the same totals at the end.
 
+## A RECEIVER THAT CANNOT HEAR
+
+A capture whose receiver is being driven harder than it can measure says so,
+once: `warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`.
+
+This is the case where a capture decodes nothing and the board is not at
+fault. The radio reports the power of each block of air on a scale that runs
+out, and a receiver held at the top of it is also past where it demodulates
+reliably, so a transmitter close enough to pin it is one whose packets the
+capture cannot read. Every capture mode turns the board's amplifier and
+high-gain mode on, so the near end of a bench is close enough: on ours a
+transmitting board a few centimeters away pins the receiver at every one of
+the eight transmit power levels, while the same board a meter away behind a
+20 dB attenuator stays well clear of the top even at full power. Put more
+distance or more attenuation between the two, or turn the transmit power down.
+
+The warning goes on the records the board sends, which this tool gets for
+every block of air whether or not a packet was in it, so it arrives even
+while nothing is decoding. A replay with `-i` reports it from the recorded
+records in the same way. ubertooth(7) describes what each tool can and cannot
+report this way.
+
 ## EXIT STATUS
 
 A capture that ran to its `-t` timeout, or that was interrupted (Ctrl-C),

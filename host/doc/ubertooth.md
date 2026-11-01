@@ -527,6 +527,38 @@ answer every poll of a quiet capture gets. The capture runs on and ends as it
 otherwise would, so the warning is the only sign: it says packets were lost,
 it does not fail the run.
 
+A capture also says when its receiver is being driven harder than it can
+measure: `warning: the signal is at the top of the receiver's range, so the
+board cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. Said once per capture.
+
+The signal figure a record carries comes from the radio on a scale that runs
+out: above a certain reading the host can only say "at least this loud", which
+it reports as 0 dBm, and a receiver held there is also past where it
+demodulates reliably. Every capture mode turns the board's amplifier and
+high-gain mode on, which is what makes the near end of a bench reach it. On the
+bench this measures as two separate regimes rather than a borderline: a
+transmitting board a few centimeters from the receiver holds every record at
+the top of the scale at every one of the eight transmit power levels, while the
+same board a meter away behind a 20 dB attenuator stays well below it even at
+level 7. So a warning here means the link, not the setting of any one option:
+put more distance or more attenuation between the boards, or turn the transmit
+power down, and the capture has a signal it can both measure and read.
+
+Not every capture can report it, because a capture can only judge the records
+it is sent. The Basic Rate stream sends one for every block of air it
+collects, packet or no packet, so `ubertooth-rx`, `ubertooth-dump -c`,
+`ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow` notice a receiver that
+is pinned even while they decode nothing at all -- which is the case worth
+knowing about, since that is what a deafened receiver looks like.
+`ubertooth-btle` is sent a record only for a packet its board demodulated, so
+it reports this while packets are still arriving and has nothing to go on once
+they stop. The generic receive takes no readings at all, so its records state
+no signal figure and it never reports this. `ubertooth-specan` is left out for
+a different reason: its sweep reads the radio with the high-gain mode off and
+reports the raw readings themselves, so its figures are not on the scale this
+warning is about.
+
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library
 message does not land in the middle of a capture. The clock trim and AFH

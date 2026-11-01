@@ -270,6 +270,23 @@ typedef struct {
 	uint32_t symbol_overwrites;
 	uint8_t symbol_overwrite_warned;
 
+	/* Whether this capture has already said its signal sits at the top of
+	 * what the radio can report, so it is said once.
+	 *
+	 * The two counters behind it hold one block of records at a time: how
+	 * many of the block carried a signal figure, and how many of those were
+	 * at the top. A block that is nearly all at the top is what the warning
+	 * goes on; then both are cleared and the next block is judged on its
+	 * own. One block rather than the whole capture, so a capture that starts
+	 * too loud and is then put right does not carry the first part forever,
+	 * and a loud stretch in the middle of a long quiet capture is still
+	 * noticed. Read how many blocks were at the top with
+	 * ubertooth_signal_ceiling_blocks(). */
+	uint16_t signal_records;
+	uint16_t signal_records_at_ceiling;
+	uint32_t signal_ceiling_blocks;
+	uint8_t signal_ceiling_warned;
+
 	/* What the teardown's STOP request came back with, 0 while none has
 	 * failed. A board that would not take it is left running the mode the
 	 * capture started, and no other tool can open it until it is reset or
@@ -668,6 +685,39 @@ int ubertooth_stream_failed(ubertooth_t* ut);
  * packet, which repeat the readings of the record that started it.
  */
 void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
+
+/*
+ * Watches how loud what the board is hearing is, and warns once per capture
+ * when it sits at the top of what the radio can report.
+ *
+ * A record's signal figure is the power of the packet, or of the block of air,
+ * that record holds. The CC2400 reports it on a raw scale the host turns into
+ * dBm, and that scale runs out: every raw reading of RSSI_CEILING_RAW or more
+ * comes out as 0 dBm, so above it the host can no longer say how loud the
+ * signal was, only that it was at least that loud. A receiver held there is
+ * being driven harder than it can measure, and on this radio that is also
+ * where it stops demodulating reliably: the board's amplifier and high-gain
+ * mode are both on in every capture mode, so two boards on one bench reach it
+ * at any transmit power.
+ *
+ * Judged a block of records at a time rather than record by record, because
+ * ordinary air reaches the ceiling now and then -- a Wi-Fi burst on the
+ * channel does -- while a receiver that is genuinely pinned there stays there.
+ * See the comment on the counters in ubertooth_t.
+ *
+ * Called by every mode's callback for the records it is handed, beside
+ * ubertooth_count_capture_losses(). Records that carry no signal figure are
+ * ignored here rather than by the callers.
+ */
+void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx);
+
+/*
+ * How many blocks of records this capture found at the top of the radio's
+ * range, as ubertooth_watch_signal_level() counts them. 0 for a capture that
+ * was never pinned there. For a test or a tool that wants the fact without
+ * the message.
+ */
+uint32_t ubertooth_signal_ceiling_blocks(ubertooth_t* ut);
 
 /*
  * How many gaps a capture on this handle has: times the board had to drop a

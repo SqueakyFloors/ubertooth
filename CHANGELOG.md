@@ -4,6 +4,21 @@
 
 ### New features
 
+- A capture says when its receiver is being driven harder than it can measure,
+  once per run: `warning: the signal is at the top of the receiver's range, so
+  the board cannot measure it and may not demodulate it; the boards may be too
+  close together, or the transmit power too high`. Beyond that point the radio
+  is also past where it demodulates reliably, so this is the case where a
+  capture reads nothing, or packets with bits wrong, and the board is not at
+  fault: two Ubertooths at opposite ends of one bench are close enough to do
+  it at any transmit power. `ubertooth-rx`, `ubertooth-dump -c`/`-l`,
+  `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow` report it even
+  while they decode nothing, because the board sends them a record for every
+  block of air; `ubertooth-btle` reports it while packets are still arriving.
+  ubertooth(7), OUTPUT AND DIAGNOSTICS says what each tool can and cannot see
+  this way.
+  [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
+
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that

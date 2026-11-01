@@ -154,6 +154,18 @@ count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
 
+A dump whose receiver is being driven harder than it can measure says so,
+once: `warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. The radio reports the power of each
+block of air on a scale that runs out, and a receiver held at the top of it is
+also past where it demodulates reliably, so the symbols in the dump are not to
+be trusted. Put more distance or more attenuation between the boards, or turn
+the transmit power down. With `-c` or `-l` the board sends a record for every
+block of air and the warning arrives whether or not anything is decoding; with
+`-g` it takes no readings at all, so the records state no signal figure and
+this is never reported. See ubertooth(7).
+
 ## EXIT STATUS
 
 0 when the command did what was asked, including `-h`, and after the dump is
