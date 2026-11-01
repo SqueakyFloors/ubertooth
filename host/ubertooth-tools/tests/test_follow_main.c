@@ -825,9 +825,10 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	          "-t and -l with -u reached the board as different addresses");
 }
 
-/* A real target's address begins with two bytes a piconet's packets never
- * carry, the non-significant address part (NAP). So -l and -u cannot name it
- * and the tool pages 00:00 in its place, while -t pages the address as given.
+/* A real target's address begins with two bytes the ordinary traffic of an
+ * established piconet does not carry, the non-significant address part (NAP).
+ * So -l and -u cannot name it and the tool pages 00:00 in its place, while -t
+ * pages the address as given.
  * Those two bytes have one job in a follow -- part of the address the local
  * Bluetooth device is told to connect to -- and no part in what the board
  * follows. Naming one target both ways therefore pages two different

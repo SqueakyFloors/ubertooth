@@ -655,14 +655,16 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
 - [ ] Find the piconet with `ubertooth-rx -U <serial> -z -t 30` and confirm its
       LAP, and the UAP against the leading device's real address (a short
       survey's UAP is a guess and can be wrong)
-- [ ] Run `ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu.pcap` and
-      record: whether the page succeeded, how long until packets appear, and
-      roughly what fraction of the piconet's traffic the capture holds
-      (compare the packet count against the same window of
-      `ubertooth-rx -l <lap> -u <uap>`)
-- [ ] Run `ubertooth-follow -U <serial> -t <whole address> -q t.pcap` and
-      record the same three things. Both forms name one piconet, so a
-      difference between them is the page, not the follow
+- [ ] Run `timeout 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu.pcap`
+      and record: whether the page succeeded, how long until packets appear,
+      and roughly what fraction of the piconet's traffic the capture holds
+      (compare the packet count against a 60-second
+      `ubertooth-rx -l <lap> -u <uap> -t 60`). A follow runs until it is
+      interrupted, so every run here needs a `timeout` or a Ctrl-C of its own
+- [ ] Run `timeout 60 ubertooth-follow -U <serial> -t <whole address> -q t.pcap`
+      and record the same three things. Both forms name one piconet, so a
+      difference between them is the page, not the follow. Run the pair twice,
+      alternating, so a one-off paging failure does not read as a difference
 - [ ] Confirm: the page to `00:00:<uap>:<lap>` of the `-l`/`-u` run reaches a
       target whose real address does not begin `00:00`
       ([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)).
@@ -676,15 +678,19 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
       compensates for it. Try `-w 0` and the default `-w 5` and record which
       locks on
 - [ ] With the piconet held to a reduced AFH map, run
-      `ubertooth-follow -U <serial> -t <whole address> -a -q afh.pcap` and
-      confirm: the `AFH map: 0x...` line matches the map the devices are using,
-      and the capture's channels stay inside it. The map comes from the
-      target's own link, so the target must be the piconet's Central
+      `timeout 60 ubertooth-follow -U <serial> -t <whole address> -a -q afh.pcap`
+      and record the `AFH map: 0x...` line beside the map the devices are
+      using, and whether the capture's channels stay inside it. Do not expect
+      them to agree: `-a` reads the map of the connection the local Bluetooth
+      device makes to the target, which is a link of its own, and whether that
+      map is any use for following the target's piconet is what this step
+      measures. `-a` is experimental for this reason
 - [ ] Confirm: an enhanced data rate packet appears in the capture with a
       header and no payload, and nothing of an encrypted link's contents is
       readable — both are limits of the radio and the link, not faults
-- [ ] Interrupt each run with Ctrl-C and confirm exit status 0 with the capture
-      written
+- [ ] Confirm: each run ends on its own signal — Ctrl-C by hand, or the
+      `timeout` above, which sends SIGTERM and the tool handles — with exit
+      status 0 and the capture written
 
 ---
 

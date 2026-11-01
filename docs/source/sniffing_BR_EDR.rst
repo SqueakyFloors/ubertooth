@@ -168,12 +168,17 @@ device; there is none on macOS, so the tool is not built there.
    The two are the same follow. ``-t`` pages the address as given; ``-l`` and
    ``-u`` are four of the six bytes, so the tool pages ``00:00`` in place of
    the Non-significant Address Part (NAP), as described above. Either way the
-   board is given the same LAP and UAP, which is all a piconet's packets carry.
+   board is given the same LAP and UAP, which is all the ordinary traffic of an
+   established piconet carries.
+
+   Neither form stops on its own. Interrupt the run with Ctrl-C when you have
+   the capture you wanted, or give it a length with ``timeout``.
 
 #. **Add the Adaptive Frequency Hopping (AFH) map** with ``-a`` if the piconet
-   uses AFH and the follow is patchy. It reads the map over the connection, so
-   it needs ``-t``, and the map belongs to that device's link: it is the hop
-   sequence you want only when the target is the piconet's Central.
+   uses AFH and the follow is patchy. It reads the map over a connection it
+   makes to the target, so it needs ``-t``; the AFH section of
+   `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__
+   says what that map is, what it is not, and why the option is experimental.
 
 	.. code-block:: sh
 

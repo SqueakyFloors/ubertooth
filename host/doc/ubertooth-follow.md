@@ -206,13 +206,19 @@ the decoder anything to recover a clock from.
        ubertooth-follow -t 11:22:33:44:55:66 -q capture.pcap
        ubertooth-follow -l 445566 -u 33 -q capture.pcap
 
-4. Watch the first lines of the run. The tool pages the target through the
-   local Bluetooth device to collect the piconet's clock offset, hands that to
-   the board, and starts capturing. A follow that has locked on prints packets
-   steadily; one that has not prints nothing, or prints `Acquired CLK1-27` and
-   loses it again. The usual causes are a quiet piconet, a wrong UAP, a target
-   that is not the Central of the piconet (see AFH above), and the board being
-   too far from the two devices to hear both.
+4. Watch what the run prints. The tool pages the target through the local
+   Bluetooth device, reads the clock of the connection it gets, hands that to
+   the board as the clock to hop on, and starts capturing. Unlike
+   ubertooth-rx(1), it does not search the air for a clock: it is given one, so
+   there is no acquisition to wait for and a follow that is working prints
+   packets from the start. A run that prints none has one of four causes: the
+   piconet is not transmitting, the board cannot hear both devices, the `-u`
+   given is wrong, or the clock the board was given is off by enough to put it
+   on the wrong channel, which is what `-w` adjusts for. A target that is not
+   the Central of the piconet is a fifth with `-a` (see AFH above).
+
+   The run ends when you interrupt it (Ctrl-C), with exit status 0 and the
+   capture written, so give it a length with `timeout` when you script one.
 
 5. Add `-a` once the capture works without it, if the piconet uses adaptive
    frequency hopping and the follow is patchy (see AFH above). It needs `-t`:
