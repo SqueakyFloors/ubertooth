@@ -2594,6 +2594,12 @@ Fixes with no visible change in normal use.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
+- The LED demo mode (`ubertooth-util -x`) arms its blink timer from a clean
+  start and disarms it on the way out, so a second run of it cannot take a
+  blink its first run had scheduled and toggle an LED before the first blink
+  of the new run was due. The identify blink and the low-energy capture's own
+  blink already did both.
+  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising
