@@ -826,6 +826,23 @@
 
 ### Reliability fixes
 
+- Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
+  one second after a connection that came to nothing, with most of the time
+  the user asked for unused. A pager cannot tell the ID packet that
+  acknowledges its page response from the one that answers a page message --
+  both are a bare access code -- so anything else answering a page nearby puts
+  it in a connection with no peer on it; and a board that has answered a page
+  response the pager did not hear sits in a connection the pager has already
+  left. Either way link supervision ended that connection a second later and
+  the command stopped, 44 seconds into a 45-second page attempt or a few
+  seconds into a minute of scanning. Both sides now go back to the page train
+  or the page scan they came from and keep the deadline of the attempt that
+  was running, so a page that is answered by the wrong board, or a page
+  response whose acknowledgment is lost, costs a second rather than the whole
+  attempt. The board says which it did, as `Paging resumed` or `Page scan
+  resumed`.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
 - The three capture-loss warnings name the board that recorded the capture, so
   a replay no longer reads as if a board were attached: `warning: the recording
   board's packet queue filled up ...` where it used to say `the board's`.

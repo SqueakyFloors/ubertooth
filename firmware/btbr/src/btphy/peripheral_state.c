@@ -28,6 +28,7 @@
 #include <ubtbr/rx_task.h>
 #include <ubtbr/tx_task.h>
 #include <ubtbr/ll.h>
+#include <ubtbr/page_scan_state.h>
 
 #define TX_PREPARE_IDX	1  // We will transmit at clkn1_0 = 2
 #define RX_PREPARE_IDX	3  //  We will receive at clkn1_0 = 0
@@ -72,8 +73,18 @@ static int peripheral_rx_cb(msg_t *msg, void *arg, int time_offset)
 	rc = ll_process_rx(&peripheral_state.ll, msg);
 	if (rc < 0)
 	{
+		/* A connection that never carried a packet means the central
+		 * did not hear this board's acknowledgment of the page
+		 * response, so there is nothing on the link. The page scan it
+		 * came from has its own deadline left to run, so go back to
+		 * scanning rather than end it here. */
+		int had_peer = peripheral_state.ll.is_connected;
+
 		ll_reset(&peripheral_state.ll);
-		btctl_set_state(BTCTL_STATE_STANDBY, -rc);
+		if (had_peer)
+			btctl_set_state(BTCTL_STATE_STANDBY, -rc);
+		else
+			page_scan_state_resume();
 	}
 	else if (rc == 1)
 	{
