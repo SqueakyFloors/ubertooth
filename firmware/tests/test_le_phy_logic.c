@@ -3692,10 +3692,64 @@ MU_TEST(a_terminate_ends_the_follow_once_the_connection_goes_quiet)
  * the rest of the connection, because nothing re-follows a connection that is
  * already up.
  */
-MU_TEST(a_terminate_contradicted_by_a_live_connection_is_discarded)
+static void a_live_connection_discards_the_note(int its_event_still_open,
+                                                const int *expected,
+                                                unsigned events)
 {
 	le_rx_t buf;
 	unsigned i;
+
+	anchored_connection(100000);
+	rf_channel = DATA_CHANNEL_MHZ;
+	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, its_event_still_open
+			? conn.conn_event_counter
+			: (uint16_t)(conn.conn_event_counter - 1));
+
+	packet_handler(&buf);
+
+	/*
+	 * Event after event carries packets, as a connection in use does. The
+	 * close's own exchange is what the budget is for, and a connection that
+	 * keeps talking past it spends the budget and loses the note.
+	 */
+	for (i = 0; i < events; ++i) {
+		conn_event.num_packets = 2;
+		conn_event.opened = 1;
+		conn_event.anchor = conn.last_anchor + conn.conn_interval;
+		fake_t1tc = conn_event.anchor;
+
+		finish_conn_event();
+
+		mu_assert_fatal(!connection_was_reset(),
+		                "a connection still delivering packets lost "
+		                "its follow to one packet that looked like a "
+		                "terminate");
+		mu_assert_int_eq(expected[i], conn.terminate_note);
+	}
+
+	/*
+	 * And the note is gone rather than merely unused: a quiet event now
+	 * leaves the follow in place, as it does on any healthy connection
+	 * that misses an event.
+	 */
+	conn_event.num_packets = 0;
+	conn_event.opened = 1;
+
+	/* Well inside the supervision timeout, which ends a follow of its own
+	 * accord: this has to be the note's doing or nothing. */
+	mu_assert_fatal(NOW - conn.last_packet_ts < conn.supervision_timeout,
+	                "the supervision timeout had already run out, so this "
+	                "says nothing about the note");
+
+	finish_conn_event();
+
+	mu_assert(!connection_was_reset(),
+	          "a discarded terminate came back at the next quiet event");
+}
+
+MU_TEST(a_terminate_contradicted_by_a_live_connection_is_discarded)
+{
 	/*
 	 * What the note must hold after each busy event, in each of the two
 	 * orders the loop can read the packet in. Written out rather than
@@ -3704,57 +3758,11 @@ MU_TEST(a_terminate_contradicted_by_a_live_connection_is_discarded)
 	 */
 	static const int from_open_event[]   = { 2, 1, 0, 0 };
 	static const int from_closed_event[] = { 1, 0, 0, 0 };
-	const int *expected;
-	unsigned count = 4;
 
-	for (expected = from_open_event;; expected = from_closed_event) {
-		anchored_connection(100000);
-		rf_channel = DATA_CHANNEL_MHZ;
-		build_terminate(&buf, 0x13);
-		arrived_in_event(&buf, expected == from_open_event
-				? conn.conn_event_counter
-				: (uint16_t)(conn.conn_event_counter - 1));
-
-		packet_handler(&buf);
-
-		/*
-		 * Event after event carries packets, as a connection in use
-		 * does. The close's own exchange is what the budget is for, and
-		 * a connection that keeps talking past it spends the budget and
-		 * loses the note.
-		 */
-		for (i = 0; i < count; ++i) {
-			conn_event.num_packets = 2;
-			conn_event.opened = 1;
-			conn_event.anchor = conn.last_anchor + conn.conn_interval;
-			fake_t1tc = conn_event.anchor;
-
-			finish_conn_event();
-
-			mu_assert_fatal(!connection_was_reset(),
-			                "a connection still delivering packets "
-			                "lost its follow to one packet that "
-			                "looked like a terminate");
-			mu_assert_int_eq(expected[i], conn.terminate_note);
-		}
-
-		/*
-		 * And the note is gone rather than merely unused: a quiet event
-		 * now leaves the follow in place, as it does on any healthy
-		 * connection that misses an event.
-		 */
-		conn_event.num_packets = 0;
-		conn_event.opened = 1;
-
-		finish_conn_event();
-
-		mu_assert(!connection_was_reset(),
-		          "a discarded terminate came back at the next quiet "
-		          "event");
-
-		if (expected == from_closed_event)
-			break;
-	}
+	a_live_connection_discards_the_note(1, from_open_event,
+			sizeof(from_open_event) / sizeof(from_open_event[0]));
+	a_live_connection_discards_the_note(0, from_closed_event,
+			sizeof(from_closed_event) / sizeof(from_closed_event[0]));
 }
 
 /*
@@ -3792,6 +3800,11 @@ MU_TEST(a_close_acknowledged_in_the_next_event_still_ends_the_follow)
 	/* And then the peers stop talking. */
 	conn_event.num_packets = 0;
 	conn_event.opened = 1;
+
+	/* Well inside the supervision timeout, so the note is what ends it. */
+	mu_assert_fatal(NOW - conn.last_packet_ts < conn.supervision_timeout,
+	                "the supervision timeout had already run out, so this "
+	                "says nothing about the note");
 
 	finish_conn_event();
 

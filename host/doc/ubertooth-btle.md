@@ -46,11 +46,11 @@ other device sends. In practice that is one or two connection events after
 the packet, and the capture holds the whole exchange.
 
 Waiting for the connection to go quiet is what tells a real close from a
-damaged packet. With CRC verification off (`-k`, the default) a bit-errored
-data packet can look like the one that closes a connection, and a connection
-that keeps delivering packets after it keeps being followed. The wait cuts
-both ways, and `-k1` is the only thing that removes the exposure, by dropping
-a damaged packet before the board reads it:
+damaged packet. CRC verification is off unless it is asked for, so a
+bit-errored data packet can look like the one that closes a connection, and a
+connection that keeps delivering packets after it keeps being followed. The
+wait cuts both ways, and `-k1` is the only thing that removes the exposure, by
+dropping a damaged packet before the board reads it:
 
   * A connection event the board simply misses is silence too, so a damaged
     packet followed by a missed event does end a follow.

@@ -88,11 +88,13 @@
 // `ubertooth-btle -k1` is what removes the exposure altogether: a damaged
 // packet never reaches the dispatch.
 //
-// The two differ by the event the packet arrived in, which the mode's loop may
-// read before or after that event closes; the event counter the receive
-// interrupt dated the packet with says which.
+// The two differ by one event, and that event is the one the packet itself
+// arrived in. The mode's loop reads a packet after the receive interrupt has
+// queued it, so that event may or may not have closed yet; where it has not,
+// its close is still to come and spends a unit of the budget, and the event
+// counter the receive interrupt dated the packet with says which case it is.
 #define TERMINATE_BUDGET_EVENT_CLOSED 2
-#define TERMINATE_BUDGET_EVENT_OPEN   3
+#define TERMINATE_BUDGET_EVENT_OPEN   (TERMINATE_BUDGET_EVENT_CLOSED + 1)
 
 // How long timer1 waits before looking at FS_LOCK again, and how many of
 // those re-checks keep the short interval.
@@ -299,15 +301,17 @@ typedef struct _le_conn_t {
 
 	// How many connection events may still carry packets before a packet
 	// that announced the end of the connection is treated as damaged, and 0
-	// where none has been read. See TERMINATE_BUDGET_EVENT_CLOSED, which is
-	// where the whole of this is explained.
+	// where none has been read. Counted from the one the packet arrived in
+	// where that event has yet to close, and from the next one where it has
+	// already closed. See TERMINATE_BUDGET_EVENT_CLOSED, which is where the
+	// whole of this is explained.
 	//
 	// It belongs to the connection rather than being a field of its own:
 	// reset_conn() then clears it, and a packet read just after a follow
 	// ended cannot reach into the follow that comes next. A write that
-	// lands after the interrupt has reset the connection leaves the note
-	// on a connection that is no longer followed, which is harmless for
-	// the same reason.
+	// lands after the interrupt has reset the connection leaves the note on
+	// a connection that is no longer followed, which is harmless for the
+	// same reason.
 	//
 	// The mode's loop writes it with interrupts held off, as it does the
 	// two updates above, because the value it writes depends on the
@@ -2289,21 +2293,18 @@ static void packet_handler(le_rx_t *buf) {
 				// belongs to the timer interrupt that reads it on every
 				// event, so this loop must not reset it.
 				//
-				// The control LLID and the length are all that stands
-				// between a bit-errored data packet and a note written
-				// here, as they are for the two updates above, so the
-				// note is acted on only once the connection goes quiet.
-				// TERMINATE_BUDGET_EVENT_CLOSED explains that and what
-				// `-k1` does instead.
+				// Noted rather than acted on, and only once the
+				// connection has gone quiet: the control LLID and the
+				// length are all that stands between a bit-errored data
+				// packet and this note, as they are for the two updates
+				// above. TERMINATE_BUDGET_EVENT_CLOSED is where that,
+				// and the budget the note starts at, are explained.
 				//
-				// Which value the note starts at depends on whether the
-				// event this packet arrived in has closed yet, and the
-				// event counter it is dated with answers that. Reading
-				// that counter and writing the note are one guarded
-				// step: the timer interrupt moves the counter on, and
-				// without the guard it could close the packet's own
-				// event between the two, so the follow would wait one
-				// event longer than it should.
+				// Reading the event counter and writing the note are one
+				// guarded step: the timer interrupt moves the counter
+				// on, and without the guard it could close the packet's
+				// own event between the two, so the follow would wait
+				// one event longer than it should.
 				case 0x2:
 					if (buf->data[1] == 2) {
 						uint32_t primask = irq_save_disable();
