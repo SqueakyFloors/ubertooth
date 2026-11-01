@@ -2778,7 +2778,10 @@ Fixes with no visible change in normal use.
   the one for the central's. Two Ubertooths are lenient about it; a standard
   controller may not be.
   [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
-
+- `l2ping` sends nothing on the signalling channel before the link setup has
+  finished or after this end has hung up, which is what the board in
+  `page_scan` already did.
+  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
 - Giving up a followed low-energy connection takes one path rather than two.
   The host's request to stop following and the end of the connection itself
   did the same three things in blocks of their own, and a request that arrived

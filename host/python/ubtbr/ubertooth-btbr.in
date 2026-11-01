@@ -350,6 +350,11 @@ class BTCtlL2Ping(BTCtlPagingCmd):
 	def _handle_l2cap(self, pkt):
 		acl = pkt.bt_data
 		result("RX L2CAP: %s"%acl)
+		# Nothing goes back before the link setup has finished, or after
+		# this end has hung up, as in the page_scan command's answer:
+		# packets the board had queued keep arriving while a session stops.
+		if not self._lmp.setup_is_complete():
+			return
 		self._send_l2cap_echo_req()
 
 class PromptNotes:

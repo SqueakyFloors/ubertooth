@@ -1,4 +1,4 @@
-from time import time
+from time import sleep, time
 import logging
 from binascii import unhexlify, hexlify
 from struct import pack, unpack
@@ -109,9 +109,11 @@ LMP_POWER_CONTROL_RES           = 32
 LMP_ERR_UNKNOWN_LMP_PDU         = 0x19
 LMP_ERR_UNSUPPORTED_LMP_FEATURE = 0x1a
 # What this end gives as its reason for hanging up when the peer declines the
-# connection: this end's host asked for a connection it is not going to get,
-# so the link goes with it.
-LMP_ERR_LOCAL_HOST_TERMINATED   = 0x16
+# connection. A device ending a link because its own side asked to sends this
+# code, and the receiver reports it to its host as the remote user having
+# ended the connection; 0x16 is the code a controller reports locally and is
+# not one a host may ask for (Core v5.4 | Vol 1, Part F, 1.3).
+LMP_ERR_REMOTE_USER_TERMINATED  = 0x13
 
 # Why a peer says it is hanging up: the reasons a detach is seen carrying, as
 # Core v5.4 | Vol 1, Part F, 1.3 names them. Any other code is reported as
@@ -121,7 +123,7 @@ LMP_DETACH_REASON2STR = {
 	0x13: "the peer's user ended the connection",
 	0x14: "the peer is low on resources",
 	0x15: "the peer is about to power off",
-	LMP_ERR_LOCAL_HOST_TERMINATED: "the peer's own host ended the connection",
+	0x16: "the peer's own host ended the connection",
 	0x1a: "unsupported remote feature",
 	0x22: "LMP response timeout",
 	0x29: "pairing with a unit key is not supported",
@@ -335,13 +337,19 @@ class LMP:
 	# mask has to say what this end will really do.
 	FEATURES = b"\x00\x00\x00\x00\x00\x00\x19\x00" # No AFH
 
-	# The transaction ID this end's own LMP_SETUP_COMPLETE goes out under.
-	# Each end sends one, and the PDU is a transaction by itself rather than
-	# part of the connection request's, so the ID is the one for a
-	# transaction this end started: 0 for the central's, 1 for the
-	# peripheral's (Core v5.4 | Vol 2, Part C, 2.4). The peripheral class
-	# below sets its own.
-	SETUP_COMPLETE_TID = 0
+	# The transaction ID a PDU this end starts a transaction with goes out
+	# under: 0 for the central's, 1 for the peripheral's
+	# (Core v5.4 | Vol 2, Part C, 2.4). The peripheral class below sets its
+	# own. An answer to the peer carries the ID its request arrived with
+	# instead, which is self._rx_tid.
+	OWN_TID = 0
+
+	# How long the link is held after a detach goes out, before the board is
+	# told to go idle. The board cancels what it has queued when it goes
+	# idle, so without this the PDU would not reach a transmit slot.
+	# Vol 2, Part C, 4.1.2 gives the procedure 6 x Tpoll, which is 150 ms at
+	# the poll interval a new connection runs at.
+	DETACH_GRACE = 0.2
 
 	def __init__(self, con, debug=True):
 		self._debug = debug
@@ -485,13 +493,14 @@ class LMP:
 		"""Hang up on the peer, saying why, and end the session.
 
 		The detach of Vol 2, Part C, 4.1.2: one PDU carrying the reason,
-		and then nothing more on this link. The grace timer that section
-		describes is skipped for the reason handle_detach() above gives.
+		then the link held for DETACH_GRACE so the board has slots to send
+		it in, and nothing more on this link either way.
 		"""
 		if self._detached:
 			return
 		self._detached = True
-		self.lmp_send(LMP_DETACH, p8(reason))
+		self.lmp_send(LMP_DETACH, p8(reason), tid=self.OWN_TID)
+		sleep(self.DETACH_GRACE)
 		self._con.stop()
 
 	def handle_name_req(self, op, data):
@@ -697,8 +706,11 @@ class LMP:
 		self._start_time = time()
 
 	def setup_is_complete(self):
-		"""Have both ends finished the setup, so that data may go out?"""
-		return self._setup_complete_done
+		"""Have both ends finished the setup, so that data may go out?
+
+		False again once this end has hung up; see detach().
+		"""
+		return self._setup_complete_done and not self._detached
 
 	def send_setup_complete_once(self):
 		"""Say this end has finished the setup, if it has not already.
@@ -710,7 +722,7 @@ class LMP:
 		if self._setup_complete_sent:
 			return
 		self._setup_complete_sent = True
-		self.lmp_send_setup_complete(tid=self.SETUP_COMPLETE_TID)
+		self.lmp_send_setup_complete(tid=self.OWN_TID)
 
 	def setup_complete(self):
 		"""The peer has finished the setup, so both ends now have.
@@ -865,7 +877,7 @@ class LMPCentral(LMP):
 			# there until link supervision ended it a second later, and a
 			# peer's LMP_setup_complete arriving in the meantime still
 			# opened the connection.
-			self.detach(LMP_ERR_LOCAL_HOST_TERMINATED)
+			self.detach(LMP_ERR_REMOTE_USER_TERMINATED)
 			return
 		log.info("The peer refused %s: %s"%(op2str(refused), why))
 		setattr(self, field, REFUSED)
@@ -958,9 +970,9 @@ class LMPCentral(LMP):
 		self.setup_complete()
 
 class LMPPeripheral(LMP):
-	# This end's LMP_SETUP_COMPLETE is a transaction the peripheral started,
-	# so it takes 1 where the central's takes 0 (see SETUP_COMPLETE_TID).
-	SETUP_COMPLETE_TID = 1
+	# A transaction this end starts is a peripheral's, so it takes 1 where
+	# the central's takes 0 (see OWN_TID).
+	OWN_TID = 1
 
 	def __init__(self, con):
 		self._FSM = {

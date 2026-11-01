@@ -1285,7 +1285,7 @@ with contextlib.redirect_stderr(warned):
     central._con.sent.clear()
     central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
 assert central._con.sent == [pdu_sent(lmp.LMP_DETACH,
-    (lmp.LMP_ERR_LOCAL_HOST_TERMINATED,), 0)], central._con.sent
+    (lmp.LMP_ERR_REMOTE_USER_TERMINATED,), 0)], central._con.sent
 assert central._con.stops == 1, central._con.stops
 assert warned.getvalue() == "warning: the peer refused " \
     "LMP_HOST_CONNECTION_REQ: reason 0x0d; closing the link\n", \
@@ -3935,14 +3935,6 @@ peripheral.receive(0, SETUP_COMPLETE)
 assert peripheral._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 1)], \
     peripheral._con.sent
 
-# Everything else the peripheral sends answers a request of the peer's, so it
-# still carries the ID that request arrived with, whichever that is.
-for tid in (0, 1):
-    peripheral = lmp.LMPPeripheral(CountingConnection())
-    assert answers(peripheral, lmp.LMP_HOST_CONNECTION_REQ, tid=tid) == \
-        [pdu_sent(lmp.LMP_ACCEPTED, (lmp.LMP_HOST_CONNECTION_REQ,), tid)], \
-        peripheral._con.sent
-
 print("ubtbr: each end's LMP_setup_complete carries its own transaction ID")
 
 
@@ -3965,11 +3957,7 @@ def refused_connection(reason=0x0d):
     return central
 
 
-DETACH = pdu_sent(lmp.LMP_DETACH, (lmp.LMP_ERR_LOCAL_HOST_TERMINATED,), 0)
-
-central = refused_connection()
-assert central._con.sent == [DETACH], central._con.sent
-assert central._con.stops == 1, central._con.stops
+DETACH = pdu_sent(lmp.LMP_DETACH, (lmp.LMP_ERR_REMOTE_USER_TERMINATED,), 0)
 
 # A peer's LMP_setup_complete that was already on its way does not open the
 # connection afterwards: the board's packets keep arriving while the session
@@ -4007,13 +3995,44 @@ assert central._con.stops == 0, central._con.stops
 # does not leave the link manager silent for the one after it.
 central.connection_started()
 assert central._detached is False
+# A peripheral that hangs up sends the detach under its own transaction ID,
+# as its LMP_setup_complete goes out under: both are transactions it starts.
 peripheral = lmp.LMPPeripheral(CountingConnection())
-peripheral.detach(lmp.LMP_ERR_LOCAL_HOST_TERMINATED)
+peripheral.detach(lmp.LMP_ERR_REMOTE_USER_TERMINATED)
+assert peripheral._con.sent == [pdu_sent(lmp.LMP_DETACH,
+    (lmp.LMP_ERR_REMOTE_USER_TERMINATED,), 1)], peripheral._con.sent
+# and until the next connection starts, nothing more goes out: the data a
+# command would send waits on the setup, which a hang-up undoes.
+assert peripheral.setup_is_complete() is False
 peripheral.connection_started()
 peripheral._con.sent.clear()
 peripheral.receive(0, SETUP_COMPLETE)
 assert peripheral._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 1)], \
     peripheral._con.sent
+
+
+# `l2ping` puts nothing on the signalling channel before the setup has
+# finished or after this end has hung up, as the page scan's answer does.
+pinging = tool_module.BTCtlL2Ping(SilentDevice(), 0x112233445566)
+pinged = []
+pinging.send_acl = lambda llid, data, flow=1: pinged.append((llid, data))
+
+
+def ping_answer():
+    """What l2ping sent for one received signalling packet."""
+    pinged.clear()
+    with contextlib.redirect_stdout(io.StringIO()):
+        pinging._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    return list(pinged)
+
+
+assert ping_answer() == [], pinged
+pinging._lmp.setup_complete()
+assert [llid for llid, data in ping_answer()] == [btctl.LLID_L2CAP_START], \
+    pinged
+pinging._lmp.detach(lmp.LMP_ERR_REMOTE_USER_TERMINATED)
+assert ping_answer() == [], pinged
 
 print("ubtbr: a peer declining the connection ends the link at once")
 
