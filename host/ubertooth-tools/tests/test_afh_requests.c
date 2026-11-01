@@ -107,12 +107,14 @@ static struct {
 	int clear_halt_at_request;      /* control requests sent by then */
 	unsigned char clear_halt_ep;    /* the endpoint of the last one */
 	int refuse_clear_halt;          /* fail libusb_clear_halt() */
-	/* The mode the board reports in its watchdog breadcrumb, and how many
-	 * reads it reports it for before it reports idle. 0 reports the mode
-	 * every time, which is a board that will not stop. */
+	/* The mode the board reports in its watchdog breadcrumb, and which of
+	 * the mode reads it reports it for: from busy_from_read (1 for the
+	 * first, which is also what 0 means) to busy_to_read, where 0 is every
+	 * read after that -- a board that will not stop. */
 	uint8_t reported_mode;
+	int busy_from_read;
+	int busy_to_read;
 	int reported_mode_reads;
-	int idle_after_reads;
 	int mode_reads;                 /* watchdog reads answered */
 } fake;
 
@@ -236,10 +238,12 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 	 * unused field reports. */
 	if (bRequest == UBERTOOTH_GET_WATCHDOG && data != NULL &&
 	    wLength >= UBERTOOTH_WATCHDOG_INFO_LEN) {
+		int from = fake.busy_from_read ? fake.busy_from_read : 1;
+
 		fake.mode_reads++;
-		if (fake.reported_mode != MODE_IDLE &&
-		    (fake.idle_after_reads == 0 ||
-		     fake.mode_reads <= fake.idle_after_reads)) {
+		if (fake.reported_mode != MODE_IDLE && fake.mode_reads >= from &&
+		    (fake.busy_to_read == 0 ||
+		     fake.mode_reads <= fake.busy_to_read)) {
 			data[6] = fake.reported_mode;
 			fake.reported_mode_reads++;
 		}
@@ -573,6 +577,12 @@ static const char* requests_text(void)
 	return text;
 }
 
+/*
+ * The mode reads in these sequences: every stream start makes one, and a stop
+ * sent between two phases is waited for with another, so a two-phase run has
+ * two in a row where the detection phase's wait meets the monitor phase's
+ * start.
+ */
 static void assert_requests(const uint8_t* expected, size_t n)
 {
 	size_t i;
@@ -607,7 +617,7 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 {
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
-		UBERTOOTH_AFH, UBERTOOTH_STOP
+		UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_GET_WATCHDOG
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -649,7 +659,7 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
 		UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_GET_WATCHDOG,
-		UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -753,7 +763,7 @@ MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
 		UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_GET_WATCHDOG,
-		UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -792,7 +802,7 @@ MU_TEST(an_interrupt_during_detection_ends_the_run)
 {
 	static const uint8_t expected[] = {
 		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
-		UBERTOOTH_AFH, UBERTOOTH_STOP
+		UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_GET_WATCHDOG
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -1639,7 +1649,7 @@ MU_TEST(a_stream_stops_a_mode_an_earlier_run_left_running)
 
 	reset();
 	fake.reported_mode = MODE_BT_FOLLOW_LE;
-	fake.idle_after_reads = 1; /* idle from the second read on */
+	fake.busy_to_read = 1; /* idle from the second read on */
 	ut = new_handle();
 	mu_assert(ut != NULL, "a handle");
 	if (ut == NULL)
@@ -1722,9 +1732,56 @@ MU_TEST(a_board_that_will_not_stop_warns_and_still_streams)
 	mu_assert_int_eq(1, fake.clear_halts);
 	mu_assert_int_eq(1, fake.bulk_submits);
 	mu_assert(ut->rx_xfer != NULL, "a transfer in place");
-	mu_assert(strstr(err, "has not stopped after 1000 ms") != NULL, err);
+	mu_assert(strstr(err, "it has not stopped after ") != NULL, err);
 
 	release_handle(ut);
+}
+
+/*
+ * A run of two phases does not report its own first phase as a mode somebody
+ * left behind. AFH detection stops the board between the phases, and the stop
+ * only asks: the dispatch acts on it a turn later, which is longer than the
+ * few calls between there and the monitor phase's stream start. So the
+ * detection phase waits for the stop it sent, and the board the monitor phase
+ * finds has left MODE_AFH.
+ *
+ * The board here reports MODE_AFH for the two reads after the detection
+ * phase's own, which is what a teardown still running looks like.
+ */
+MU_TEST(a_two_phase_run_does_not_report_its_own_first_phase)
+{
+	char err[512] = "";
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+
+	reset();
+	fake.reported_mode = MODE_AFH;
+	fake.busy_from_read = 2;
+	fake.busy_to_read = 3;
+	ut = new_handle();
+	pn = new_piconet();
+	mu_assert(ut != NULL && pn != NULL, "a handle and a piconet");
+	if (ut == NULL || pn == NULL)
+		return;
+	/* A map for the detection phase to find, so the monitor phase runs. */
+	mark_a_channel_seen(pn);
+
+	capture_output();
+	mu_assert_int_eq(0, rx_afh(ut, pn, 30));
+	alarm(0);
+	release_output(err, sizeof(err));
+
+	/* The detection phase's stop, and no second one: the monitor phase
+	 * found an idle board. */
+	mu_assert_int_eq(1, sent(UBERTOOTH_STOP));
+	mu_assert(fake.reported_mode_reads > 0,
+	          "the board never reported the mode, so nothing was waited for");
+	mu_assert(strstr(err, "still in mode") == NULL, err);
+	mu_assert(strstr(err, "warning:") == NULL, err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+	btbb_piconet_unref(pn);
 }
 
 /* A mode read the board refuses teaches nothing, so nothing is sent on it and
@@ -1787,6 +1844,7 @@ int main(void)
 	MU_RUN(a_stream_stops_a_mode_an_earlier_run_left_running);
 	MU_RUN(an_idle_board_is_read_once_and_left_alone);
 	MU_RUN(a_board_that_will_not_stop_warns_and_still_streams);
+	MU_RUN(a_two_phase_run_does_not_report_its_own_first_phase);
 	MU_RUN(a_refused_mode_read_still_streams);
 	reset(); /* release the last case's transfer bodies */
 	return mu_report();
