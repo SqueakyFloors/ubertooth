@@ -3447,6 +3447,22 @@ central.receive(0, bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]))
 assert central._con.sent == [], central._con.sent
 assert central._con.setups == 0, central._con.setups
 
+# ... and so does one that arrives while the connection request is
+# outstanding but names another procedure, or is too short to name one, which
+# reads as opcode zero once the padding every PDU carries is counted.
+for accepted in (bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]),
+                 bytes([lmp.LMP_ACCEPTED << 1]),
+                 bytes([lmp.LMP_ACCEPTED << 1]) + b"\x00" * 16):
+    central = central_at_connection_req()
+    central.receive(0, accepted)
+    assert central._con.sent == [], (accepted.hex(), central._con.sent)
+    assert central._con.setups == 0, accepted.hex()
+    # the connection request is still the one outstanding, so the real
+    # LMP_accepted still works
+    central.receive(0, ACCEPTED)
+    assert [opcode_of(pdu) for pdu in central._con.sent] == \
+        [lmp.LMP_SETUP_COMPLETE], (accepted.hex(), central._con.sent)
+
 print("ubtbr: the central sends the first LMP_setup_complete")
 
 # The paged board answers an L2CAP echo request, so a peer running l2ping
@@ -3472,7 +3488,14 @@ for not_a_request in (
         btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
             btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 1, b"")),
         btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:-1]),
-        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:6])):
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:6]),
+        # an L2CAP length that does not cover the command it carries, so the
+        # packet does not describe the echo request shaped bytes after it
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 0, btctl.L2CAP_CID_SIGNALLING) + echo_req[4:]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 9, btctl.L2CAP_CID_SIGNALLING)
+            + echo_req[4:] + b"\x00")):
     assert btctl.l2cap_echo_request(not_a_request) is None, \
         not_a_request.data.hex()
 

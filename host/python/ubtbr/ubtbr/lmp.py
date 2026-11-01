@@ -788,6 +788,13 @@ class LMPCentral(LMP):
 		"""
 		if self._awaiting != LMP_HOST_CONNECTION_REQ:
 			return
+		# An LMP_accepted names the request it accepts in its first
+		# parameter (2.4). One that names something else, or that is too
+		# short to name anything and so reads as opcode zero once the
+		# packet's padding is counted, accepts a procedure this end did not
+		# ask for and leaves the setup where it was.
+		if not data or u8(data[0]) != LMP_HOST_CONNECTION_REQ:
+			return
 		self._awaiting = None
 		self._send_setup_complete_once()
 

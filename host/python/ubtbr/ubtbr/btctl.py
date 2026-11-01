@@ -178,6 +178,12 @@ def l2cap_echo_request(acl):
 	code, identifier, command_length = unpack("<BBH", acl.data[4:8])
 	if code != L2CAP_ECHO_REQ:
 		return None
+	# The L2CAP length counts the whole signalling command, its four-byte
+	# header and its data (Vol 3, Part A, 3.1 and 4). A length that says
+	# anything else does not describe the command that follows it, so there
+	# is no request here to answer.
+	if length != 4 + command_length:
+		return None
 	# The packet is padded out to the size of the packet kind that carried
 	# it, so the data is taken by the length the command gives rather than
 	# to the end of the payload.
