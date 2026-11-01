@@ -336,6 +336,8 @@ built="$work/built"
 write_image "$built/firmware-linux/bluetooth_rxtx/bluetooth_rxtx.bin" \
     bluetooth_rxtx git-cafe1234
 write_image "$built/firmware-linux/btbr/btbr.bin" btbr git-cafe1234
+write_image "$built/firmware-linux/bl_update/bl_update.bin" \
+    bl_update git-cafe1234
 
 # Standard output here carries nothing but `path: revision api` lines, so a
 # caller can read it without filtering; which images were looked for is
@@ -344,7 +346,7 @@ run "a directory of good images" --from "$built"
 want_status 0
 want_stdout "bluetooth_rxtx.bin: git-cafe1234"
 want_stdout "btbr.bin: git-cafe1234"
-want_stderr "shipped images: bluetooth_rxtx btbr"
+want_stderr "shipped images: bluetooth_rxtx btbr bl_update"
 want_stdout_only ': git-cafe1234 1\.33$'
 
 # One shipped image missing is a failure, not a pass over the rest: an image
@@ -367,6 +369,8 @@ want_stderr "could not read the firmware info block"
 cp "$work/kept-btbr.bin" "$built/firmware-linux/btbr/btbr.bin"
 write_image "$built/firmware-mac/bluetooth_rxtx/bluetooth_rxtx.bin" \
     bluetooth_rxtx git-cafe1234
+write_image "$built/firmware-mac/bl_update/bl_update.bin" \
+    bl_update git-cafe1234
 write_image "$built/firmware-mac/btbr/btbr.bin" btbr git-cafe1234 1 "........"
 run "a second runner's image is bad" --from "$built"
 want_status 1
@@ -393,7 +397,7 @@ scratch="$work/scratch"
 mkdir -p "$scratch/tools"
 cp "$check" "$scratch/tools/"
 ln -s "$here/../host" "$scratch/host"
-for directory in bluetooth_rxtx btbr assembly_test blinky cc2400_test \
+for directory in bluetooth_rxtx btbr bl_update assembly_test blinky cc2400_test \
                  clock_test usb_test bootloader common tc13badge tests \
                  newimage; do
     mkdir -p "$scratch/firmware/$directory"
@@ -401,6 +405,8 @@ done
 write_image "$scratch/art/firmware-linux/bluetooth_rxtx/bluetooth_rxtx.bin" \
     bluetooth_rxtx git-cafe1234
 write_image "$scratch/art/firmware-linux/btbr/btbr.bin" btbr git-cafe1234
+write_image "$scratch/art/firmware-linux/bl_update/bl_update.bin" \
+    bl_update git-cafe1234
 
 case_name="--from over a tree whose list is wrong"
 printf '\n%s\n' "case: $case_name"
@@ -442,7 +448,7 @@ want_stderr "firmware/newimage is not in any of the lists"
 run "this tree's own firmware directories" --check-list
 want_status 0
 want_empty_stderr
-want_stdout "bluetooth_rxtx btbr"
+want_stdout "bluetooth_rxtx btbr bl_update"
 
 # A tree holding exactly the directories the lists name.
 make_tree() {
@@ -454,7 +460,7 @@ make_tree() {
     printf '%s\n' "$tree"
 }
 
-listed="bluetooth_rxtx btbr assembly_test blinky cc2400_test clock_test"
+listed="bluetooth_rxtx btbr bl_update assembly_test blinky cc2400_test clock_test"
 listed="$listed usb_test bootloader common tc13badge tests"
 
 # shellcheck disable=SC2086 # the list is the argument list, one per directory
@@ -502,7 +508,7 @@ want_status 0
 want_stdout "bluetooth_rxtx"
 want_stdout "btbr"
 want_stdout_only '^[a-z0-9_]+$'
-want_stderr "shipped images: bluetooth_rxtx btbr"
+want_stderr "shipped images: bluetooth_rxtx btbr bl_update"
 
 run "--list-shipped with something else" --list-shipped "$work"
 want_status 1

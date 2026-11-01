@@ -488,6 +488,7 @@ want_stderr "has nothing to mean"
 built="$work/built"
 write_image "$built/firmware-linux/bluetooth_rxtx/bluetooth_rxtx.bin"
 write_image "$built/firmware-linux/btbr/btbr.bin"
+write_image "$built/firmware-linux/bl_update/bl_update.bin"
 
 # Standard output here carries nothing but `path: suffix ...` lines, so a
 # caller can read it without filtering.
@@ -514,6 +515,7 @@ want_stdout "bluetooth_rxtx.bin: suffix 16 bytes"
 cp "$work/kept-btbr.bin" "$built/firmware-linux/btbr/btbr.bin"
 write_image "$built/firmware-mac/bluetooth_rxtx/bluetooth_rxtx.bin"
 write_image "$built/firmware-mac/btbr/btbr.bin"
+write_image "$built/firmware-mac/bl_update/bl_update.bin"
 run "every runner's images are packaged" --dfu-tool "$good" --from "$built"
 want_status 0
 want_stdout "firmware-linux/btbr/btbr.bin: suffix 16 bytes"
