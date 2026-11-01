@@ -257,8 +257,8 @@ CRC it may have, which the board adds:
 
 `<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
 many of the board's transmit slots to spend on the packet, which is the way to
-make one easy for a receiver to catch; the packet is not acknowledged and not
-retransmitted on the peer's say-so, so a peer that ignores it costs nothing.
+make one easy for a receiver to catch; the packet is not retransmitted on the
+peer's say-so, so a peer that ignores it costs nothing.
 What is bounded is the air slots the whole run occupies, 400 of them: that is
 400 of a one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or
 `ev4`, and 80 of a five-slot `dh5`. Nothing else goes out while the run lasts,

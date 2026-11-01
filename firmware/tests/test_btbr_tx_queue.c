@@ -340,6 +340,27 @@ MU_TEST(a_multi_slot_format_is_told_its_own_data_length)
 		"tx.data_bytes == PKT_DATA_BYTES");
 }
 
+MU_TEST(a_packet_for_another_transport_is_dropped)
+{
+	ll_tx_t tx;
+	msg_t *msg;
+	btctl_hdr_t *hdr;
+	btctl_tx_pkt_req_t *req;
+
+	reset_state(1);
+	msg = pkt_message(1);
+	hdr = (btctl_hdr_t*)msg->data;
+	req = (btctl_tx_pkt_req_t*)hdr->data;
+	req->lt_addr = LT_ADDR + 1;
+	btctl_pkt_tx_enqueue(msg);
+
+	ll_prepare_tx(&ll, &tx);
+
+	mu_assert(was_freed(msg), "the message is freed rather than sent");
+	mu_assert(ll.cur_pkt_msg == NULL, "and nothing is left holding it");
+	mu_assert(tx.fmt == NULL, "nothing of that format goes out");
+}
+
 MU_TEST(a_format_the_device_does_not_know_drops_the_packet)
 {
 	ll_tx_t tx;
@@ -393,6 +414,7 @@ int main(void)
 	MU_RUN(a_run_holds_its_message_for_every_slot_it_was_given);
 	MU_RUN(an_acl_message_goes_out_once_the_run_has_finished);
 	MU_RUN(a_multi_slot_format_is_told_its_own_data_length);
+	MU_RUN(a_packet_for_another_transport_is_dropped);
 	MU_RUN(a_format_the_device_does_not_know_drops_the_packet);
 	MU_RUN(a_reset_frees_both_held_messages);
 	return mu_report();

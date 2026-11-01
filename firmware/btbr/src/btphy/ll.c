@@ -195,6 +195,18 @@ static int ll_prepare_pkt_tx(link_layer_t *ll, ll_tx_t *tx)
 	btctl_hdr = (btctl_hdr_t*)ll->cur_pkt_msg->data;
 	req = (btctl_tx_pkt_req_t*)btctl_hdr->data;
 
+	/* The transport the request names has to be this link's. Only the
+	 * range was checked when the request arrived, where this link was not
+	 * in reach; a packet addressed to another transport would go on the
+	 * air for a connection the board does not have. */
+	if (req->lt_addr != ll->lt_addr)
+	{
+		cprintf("Tx packet for transport %d, this link is %d\n",
+			req->lt_addr, ll->lt_addr);
+		msg_free(ll->cur_pkt_msg);
+		ll->cur_pkt_msg = NULL;
+		return 0;
+	}
 	tx->fmt = bbcodec_tx_format(req->format, &air_type);
 	if (tx->fmt == NULL)
 	{
