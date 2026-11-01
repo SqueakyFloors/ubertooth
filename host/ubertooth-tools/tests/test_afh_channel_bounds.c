@@ -15,9 +15,6 @@
  * succeed, which is what gets a record past the first thing that would have
  * dropped it, so what is left to stop an out-of-range channel is the bounds
  * check.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <fcntl.h>
 #include <stdint.h>

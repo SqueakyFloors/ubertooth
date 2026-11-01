@@ -19,9 +19,6 @@
  * transmit task does, then decoded chunk by chunk the way the receive task
  * does, with the air buffer cut at air_bytes the way the radio cuts it and
  * noise after that point.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #include <stdarg.h>
 #include <stdint.h>

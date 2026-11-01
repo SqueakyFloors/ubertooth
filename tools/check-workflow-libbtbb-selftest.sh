@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that tools/check-workflow-libbtbb.sh accepts and refuses the workflows
 # it is meant to.
 #

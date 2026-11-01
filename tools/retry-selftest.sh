@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that tools/retry.sh still does the three things CI relies on it for.
 #
 #     tools/retry-selftest.sh

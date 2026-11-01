@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that tools/check-doc-api-version.sh answers each kind of tree the way
 # it is meant to.
 #

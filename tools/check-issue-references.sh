@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Fail when an issue or pull request number appears in source, tests or build
 # files.
 #

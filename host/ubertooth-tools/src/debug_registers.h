@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Register reads for ubertooth-debug, kept free of libusb so they can be
  * unit-tested with a fake reader.

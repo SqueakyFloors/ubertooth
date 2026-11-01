@@ -7,9 +7,6 @@
  * test checks -- that every wait in there terminates -- so here they do
  * nothing. The real header reaches the part's registers through
  * ubertooth.h, which this test does not stub.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_FW_TESTS_STUB_USB_WATCHDOG_H
 #define UBERTOOTH_FW_TESTS_STUB_USB_WATCHDOG_H

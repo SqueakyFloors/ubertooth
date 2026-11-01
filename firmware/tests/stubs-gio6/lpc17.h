@@ -12,9 +12,6 @@
  * The registers come as arrays indexed by port number, because that is the
  * question these tests ask: a test writes through a GIO6 macro and then looks
  * at every port to see which one moved.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_FW_TESTS_FAKE_LPC17_GIO6_H
 #define UBERTOOTH_FW_TESTS_FAKE_LPC17_GIO6_H

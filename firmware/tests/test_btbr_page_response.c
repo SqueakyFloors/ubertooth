@@ -34,9 +34,6 @@
  * when a transmit or a window is prepared; the last case reads that rule back
  * out of rx_task.c and tx_task.c as text, so the two cannot drift apart
  * silently.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <stdarg.h>
 #include <stdint.h>

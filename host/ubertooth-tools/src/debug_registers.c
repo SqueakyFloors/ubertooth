@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Register reads and writes for ubertooth-debug. See debug_registers.h.
  */

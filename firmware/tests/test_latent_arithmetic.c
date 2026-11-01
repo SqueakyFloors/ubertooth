@@ -11,9 +11,6 @@
  * to show it is still written that way. A reformat of a scanned line fails the
  * scan, which is the right direction -- the test says what it could not find
  * rather than passing on nothing.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <stdint.h>
 #include <stdio.h>
