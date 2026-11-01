@@ -199,8 +199,32 @@ int le_same_span(u32 a, u32 b);
  * beat the best other counter. A wrong counter puts a predicted visit on this
  * channel about once in 37 events, so these two leave the chance of adopting
  * one well under a percent. */
+/* How many of the newest gaps the test for an interval the connection has
+ * left behind looks at; see le_csa2_recover(). */
+#define LE_CSA2_DOUBLE_PROBE 4
+
 #define LE_CSA2_MIN_SCORE 10
 #define LE_CSA2_MIN_MARGIN 3
+
+/*
+ * How many of the newest gaps are looked at to tell an interval the connection
+ * is using from one it has left behind.
+ *
+ * A connection may renegotiate its interval part-way through a run of
+ * sightings, and doubling or halving it is ordinary. Every multiple of twice a
+ * number is a multiple of it, so the interval the connection has left still
+ * divides every gap on both sides of the change, and against the whole run it
+ * explains more than the one the connection moved to. Adopting it would be a
+ * wrong answer rather than no answer: the event counts read off the newer gaps
+ * come out double what they were, which moves every older sighting by one
+ * constant and leaves a counter that explains the older ones and is wrong.
+ *
+ * What gives it away is that each of those newer gaps spans an even number of
+ * the old interval's events. Four gaps looking like that by accident is one
+ * chance in sixteen, and an accident costs only a search; see
+ * le_csa2_recover().
+ */
+#define LE_CSA2_DOUBLE_PROBE 4
 
 /* How many of the gaps the connection interval may fail to account for. A gap
  * longer than LE_CSA2_MAX_EVENT_GAP events, or one taken across a change of
@@ -212,18 +236,21 @@ int le_same_span(u32 a, u32 b);
  * given before the connection is taken to be over.
  *
  * Such a follow has no channel map, so it lands on the right channel only for
- * the events whose channel the map did not move -- about as many as the map
- * keeps out of the 37 -- and a run of events it does not hear says nothing
- * about the connection.
+ * the events whose channel the map did not move, and a run of events it cannot
+ * hear says nothing about whether the connection is still there. The runs are
+ * not short: they are a property of the access address and the map rather than
+ * chance, and the longest one among the connections this search will adopt an
+ * answer for was 58 events when it was counted on the real channel sequences
+ * (test_promisc_csa2.c counts them again and fails if a run reaches this
+ * figure).
  *
- * The thresholds above only adopt an answer for a map keeping around fifteen
- * channels or more, which is two events in five heard, so a run this long with
- * nothing heard has a chance of about three in a hundred million per event. On
- * a connection that really has gone this is what the mode waits before
- * starting again: a tenth of a second at the shortest interval and two minutes
- * at the longest, against the many minutes a recovery costs.
+ * So this is what the mode waits on a connection that really has gone: a few
+ * seconds at a short interval, where the five-second floor wins anyway, and
+ * about two minutes at the longest interval a connection can be recovered at.
+ * Waiting is the cheaper mistake -- recovering a connection again from the
+ * access address takes longer than that.
  */
-#define LE_CSA2_SILENCE_EVENTS 32
+#define LE_CSA2_SILENCE_EVENTS 64
 
 typedef struct _le_csa2_recovery_t {
 	u16 conn_interval;  /* in units of 1.25 ms, 0 when nothing was found */

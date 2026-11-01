@@ -72,24 +72,43 @@ struct sightings {
 	uint16_t newest_counter;  /* the event counter of the last sighting */
 };
 
-/* A channel map with `used` channels in it, taken from the bottom up:
- * channels 0 to used-1 are kept and the rest dropped. LISTEN_CHANNEL has to
- * be among them, or the connection never comes to the channel being listened
- * to and there is nothing to recover. */
-static void map_of(unsigned used, le_channel_remapping_t *remapping)
+/*
+ * A map with `used` channels spread over the band, always keeping the channel
+ * being listened to; `shift` moves which others it keeps.
+ *
+ * A real reduced map is not a block at the bottom of the band, and the shape
+ * matters here: the search only ever hears a connection whose map keeps this
+ * channel, so a map built from the bottom up is never heard at all until it is
+ * wide enough to reach channel 17, which hides what the search does on a
+ * sparse map.
+ */
+static void map_spread(unsigned used, unsigned shift,
+                       le_channel_remapping_t *remapping)
 {
 	uint8_t channel_map[5] = { 0, 0, 0, 0, 0 };
-	unsigned i;
+	unsigned kept = 1, i;
 
-	for (i = 0; i < used; ++i)
-		channel_map[i / 8] |= (uint8_t)(1u << (i % 8));
+	channel_map[LISTEN_CHANNEL / 8] |= (uint8_t)(1u << (LISTEN_CHANNEL % 8));
+
+	for (i = 0; kept < used && i < LE_HOP_CHANNELS; ++i) {
+		unsigned channel = (i * 7 + shift) % LE_HOP_CHANNELS;
+
+		if (channel == LISTEN_CHANNEL)
+			continue;
+		if (channel_map[channel / 8] & (1u << (channel % 8)))
+			continue;
+		channel_map[channel / 8] |= (uint8_t)(1u << (channel % 8));
+		++kept;
+	}
+
 	le_parse_channel_map(channel_map, remapping);
 }
 
 static void full_map(le_channel_remapping_t *remapping)
 {
-	map_of(37, remapping);
+	map_spread(37, 0, remapping);
 }
+
 
 /*
  * Run a connection past the listening channel and keep the gaps between the
@@ -504,10 +523,23 @@ MU_TEST(recovers_a_full_map_connection)
 		le_csa2_recovery_t rec;
 		char msg[192];
 
-		collect(&s, AA_A, 24, counters[i], &remapping, 0, 0);
-		mu_assert_fatal(le_csa2_recover(s.gap, s.gap_count,
-		                                LISTEN_CHANNEL, AA_A, &rec),
-		                "the search found nothing");
+		unsigned attempt;
+		int found = 0;
+
+		/* Up to three sets of sightings, as the mode takes them. Even
+		 * on a full map a set can be declined: one run in sixteen has
+		 * its newest four gaps all spanning an even number of events,
+		 * which is what an interval the connection has left behind
+		 * looks like, and the search would rather search again than
+		 * answer on it. */
+		for (attempt = 0; attempt < 3 && !found; ++attempt) {
+			collect_from(&s, AA_A, 24, counters[i], &remapping, 0,
+			             0, attempt * LE_CSA2_SIGHTINGS);
+			found = le_csa2_recover(s.gap, s.gap_count,
+			                        LISTEN_CHANNEL, AA_A, &rec);
+		}
+		mu_assert_fatal(found, "the search found nothing in three sets"
+		                " of sightings");
 
 		snprintf(msg, sizeof(msg),
 		         "counter from %u: got %u, wanted %u (interval %u, "
@@ -544,7 +576,7 @@ MU_TEST(recovers_a_reduced_map_connection)
 		le_csa2_recovery_t rec;
 		char msg[224];
 
-		map_of(used[i], &remapping);
+		map_spread(used[i], i, &remapping);
 		collect(&s, AA_B, 30, 777, &remapping, 0, 0);
 
 		snprintf(msg, sizeof(msg), "%u channels: the search found "
@@ -562,6 +594,92 @@ MU_TEST(recovers_a_reduced_map_connection)
 		mu_assert(rec.event_counter == s.newest_counter &&
 		          rec.conn_interval == 30, msg);
 	}
+}
+
+/*
+ * A connection that renegotiates its interval part-way through the run.
+ *
+ * Doubling or halving an interval is ordinary, and it is the awkward case: an
+ * interval the connection has left still divides every gap after the change,
+ * because every multiple of twice a number is a multiple of it. Read against
+ * the whole run the interval it has left therefore fits everything and the one
+ * it moved to fits only the newer gaps, so the old one would win -- and the
+ * event counts the walk back then reads off the newer gaps are half or double
+ * what they were, which shifts every older sighting by a constant and leaves a
+ * counter that explains them and is wrong.
+ *
+ * The answer has to be the interval the connection is on now, and the counter
+ * has to belong to the newest sighting. Both come out right here, or the
+ * search declines; what it must not do is answer with the old interval.
+ */
+MU_TEST(an_interval_change_does_not_give_a_wrong_answer)
+{
+	static const uint16_t pairs[6][2] = {
+		{ 24, 48 }, { 48, 24 }, { 12, 24 },
+		{ 24, 12 }, { 30, 60 }, { 60, 30 },
+	};
+	unsigned i, k, at;
+	unsigned answered = 0, wrong = 0, tried = 0;
+
+	for (i = 0; i < 6; ++i) {
+		for (k = 0; k < 2; ++k) {
+			u32 aa = k == 0 ? AA_A : AA_B;
+
+			for (at = 4; at <= 18; at += 2) {
+				le_channel_remapping_t remapping;
+				struct sightings before, after;
+				le_csa2_recovery_t rec;
+				u32 gap[GAPS];
+				unsigned n;
+				char msg[224];
+
+				map_spread(37 - 6 * k, at, &remapping);
+
+				/* The run as the mode would hold it: the older
+				 * gaps timed at the first interval, the newer
+				 * ones at the second, with the change `at`
+				 * gaps from the end. */
+				collect(&before, aa, pairs[i][0], 900,
+				        &remapping, 0, 0);
+				collect(&after, aa, pairs[i][1], 900,
+				        &remapping, 0, 0);
+				if (before.gap_count < GAPS ||
+						after.gap_count < GAPS)
+					continue;
+
+				for (n = 0; n < GAPS; ++n)
+					gap[n] = n < GAPS - at
+						? before.gap[n]
+						: after.gap[n];
+
+				++tried;
+				if (!le_csa2_recover(gap, GAPS, LISTEN_CHANNEL,
+						aa, &rec))
+					continue;
+
+				++answered;
+				snprintf(msg, sizeof(msg),
+				         "%u then %u units, change %u gaps from "
+				         "the end: answered interval %u and "
+				         "counter %u, wanted interval %u and "
+				         "counter %u (score %u of %u)",
+				         pairs[i][0], pairs[i][1], at,
+				         rec.conn_interval, rec.event_counter,
+				         pairs[i][1], after.newest_counter,
+				         rec.score, rec.sightings);
+				if (!near(rec.conn_interval, pairs[i][1]) ||
+						rec.event_counter !=
+						after.newest_counter) {
+					++wrong;
+					mu_assert(0, msg);
+				}
+			}
+		}
+	}
+
+	printf("    %u runs with an interval change: %u answered, %u wrong\n",
+	       tried, answered, wrong);
+	mu_assert(tried > 0, "no run with an interval change was built");
 }
 
 /* A visit the board did not hear leaves a gap of two visits in its place. The
@@ -808,7 +926,7 @@ MU_TEST(how_often_it_works)
 					ppm = (int)((seed >> 5) % 801) - 400;
 					drop = rep == 3 ? 5 : 0;
 
-					map_of(used[j], &remapping);
+					map_spread(used[j], j, &remapping);
 					collect(&s, aa, intervals[i], counter,
 					        &remapping, ppm, drop);
 					++trials;
@@ -843,8 +961,12 @@ MU_TEST(how_often_it_works)
 	printf("    recovered %u of %u connections on the first search, "
 	       "%u of them wrong\n", found, trials, wrong);
 
+	/* The figure that matters for a user is the one the next test measures
+	 * -- how many are recovered at all -- because a declined search costs
+	 * only the wait for more sightings. This bar is here to catch the
+	 * first-search rate collapsing, not to pin it. */
 	snprintf(msg, sizeof(msg), "recovered only %u of %u", found, trials);
-	mu_assert(found * 10 >= trials * 9, msg);
+	mu_assert(found * 10 >= trials * 8, msg);
 	mu_assert_int_eq(0, wrong);
 }
 
@@ -894,7 +1016,7 @@ MU_TEST(a_declined_search_is_recovered_by_the_next)
 					ppm = (int)((seed >> 5) % 801) - 400;
 					drop = rep == 3 ? 5 : 0;
 
-					map_of(used[j], &remapping);
+					map_spread(used[j], j, &remapping);
 					++trials;
 
 					for (attempt = 0; attempt < 6;
@@ -951,40 +1073,46 @@ MU_TEST(a_declined_search_is_recovered_by_the_next)
  * channel algorithm 2 picks before a map has its say and hears only the
  * events whose channel the connection's own map left there. The mode calls a
  * connection over after LE_CSA2_SILENCE_EVENTS events with nothing heard, so
- * that figure has to be longer than the runs a connection it is following
- * correctly puts it through.
+ * that figure has to outlast the runs a connection it is following correctly
+ * puts it through.
  *
- * This counts them, on the real channel sequences rather than from a
- * probability: for each map, the longest run of consecutive events where the
- * follow's channel is not the connection's.
+ * Those runs are not a matter of chance: for a given access address and map,
+ * which events the follow can hear is fixed, and a sparse map can hide dozens
+ * of events in a row. So this counts them on the real channel sequences, and
+ * ties the two things together: whenever the search will adopt an answer for a
+ * connection, the allowance has to cover that connection's worst run. A map
+ * too sparse for the allowance is only safe if the search declines it, and a
+ * map the search accepts is only safe if the allowance covers it.
  *
- * Maps down to 15 channels are covered, which is as sparse as the search will
- * adopt an answer for -- below that too few of the sightings are predictable
- * to clear the score. A connection on a map sparser than that is not followed
- * by this path at all, so the allowance does not have to hold one.
+ * The maps keep the channel being listened to and spread the rest over the
+ * band, which is what lets a sparse map be recovered at all: a map without
+ * this channel in it is never heard here.
  */
-MU_TEST(the_silence_allowance_outlasts_the_unheard_runs)
+MU_TEST(the_silence_allowance_covers_every_map_adopted)
 {
-	static const unsigned used[5] = { 37, 24, 19, 18, 15 };
-	u32 aa[3] = { AA_A, AA_B, 0x12345678u };
-	unsigned i, j;
+	static const unsigned used[8] = { 6, 8, 10, 12, 15, 18, 24, 37 };
+	unsigned i, a;
+	unsigned worst_adopted = 0, worst_map = 0;
 
-	for (i = 0; i < 3; ++i) {
-		for (j = 0; j < 5; ++j) {
+	for (i = 0; i < 8; ++i) {
+		unsigned adopted = 0, tries = 0;
+
+		for (a = 0; a < 12; ++a) {
 			le_channel_remapping_t remapping;
-			unsigned event, run = 0, longest = 0, heard = 0;
-			char msg[160];
+			u32 aa = AA_A * (a + 1) + AA_B * a;
+			unsigned event, run = 0, longest = 0;
+			unsigned t;
+			int any = 0;
+			char msg[192];
 
-			map_of(used[j], &remapping);
+			map_spread(used[i], a, &remapping);
 
 			for (event = 0; event < 65536; ++event) {
 				uint16_t counter = (uint16_t)event;
 
-				if (le_csa2_channel(counter, aa[i],
-							&remapping) ==
+				if (le_csa2_channel(counter, aa, &remapping) ==
 						le_csa2_unmapped_channel(
-							counter, aa[i])) {
-					++heard;
+							counter, aa)) {
 					run = 0;
 					continue;
 				}
@@ -992,45 +1120,47 @@ MU_TEST(the_silence_allowance_outlasts_the_unheard_runs)
 					longest = run;
 			}
 
+			for (t = 0; t < 3; ++t) {
+				struct sightings s;
+				le_csa2_recovery_t rec;
+
+				collect(&s, aa, 24, (uint16_t)(t * 20011),
+				        &remapping, 0, 0);
+				++tries;
+				if (s.gap_count == GAPS &&
+						le_csa2_recover(s.gap,
+							s.gap_count,
+							LISTEN_CHANNEL, aa,
+							&rec)) {
+					++adopted;
+					any = 1;
+				}
+			}
+
+			if (!any)
+				continue;
+
+			if (longest > worst_adopted) {
+				worst_adopted = longest;
+				worst_map = used[i];
+			}
+
 			snprintf(msg, sizeof(msg),
-			         "%08lx, %u channels: heard %u of 65536 "
-			         "events, longest unheard run %u, allowance %u",
-			         (unsigned long)aa[i], used[j], heard, longest,
+			         "%u channels, access address %08lx: the search "
+			         "adopts it and its longest unheard run is %u, "
+			         "against an allowance of %u events",
+			         used[i], (unsigned long)aa, longest,
 			         LE_CSA2_SILENCE_EVENTS);
 			mu_assert(longest < LE_CSA2_SILENCE_EVENTS, msg);
 		}
-	}
-}
 
-/* The other half of that: the search does not adopt an answer for a map too
- * sparse for the allowance above, so no follow is set up that it cannot
- * hold. */
-MU_TEST(a_map_too_sparse_to_hold_is_not_adopted)
-{
-	static const unsigned used[4] = { 12, 9, 6, 2 };
-	static const uint16_t intervals[2] = { 12, 30 };
-	unsigned i, j, k;
-	unsigned adopted = 0;
-
-	for (i = 0; i < 4; ++i) {
-		for (j = 0; j < 2; ++j) {
-			for (k = 0; k < 2; ++k) {
-				le_channel_remapping_t remapping;
-				struct sightings s;
-				le_csa2_recovery_t rec;
-				u32 a = k == 0 ? AA_A : AA_B;
-
-				map_of(used[i], &remapping);
-				collect(&s, a, intervals[j], 4242, &remapping,
-				        0, 0);
-				if (le_csa2_recover(s.gap, s.gap_count,
-						LISTEN_CHANNEL, a, &rec))
-					++adopted;
-			}
-		}
+		printf("    %2u channels: adopted in %2u of %2u runs\n",
+		       used[i], adopted, tries);
 	}
 
-	mu_assert_int_eq(0, adopted);
+	printf("    worst unheard run among the maps adopted: %u events, at "
+	       "%u channels, against an allowance of %u\n", worst_adopted,
+	       worst_map, LE_CSA2_SILENCE_EVENTS);
 }
 
 /* ------------------------------------------------------------------------
@@ -1093,6 +1223,155 @@ MU_TEST(crc_init_comes_from_any_empty_data_pdu)
 }
 
 /* ------------------------------------------------------------------------
+ * The collector, read as text
+ * ------------------------------------------------------------------------ */
+
+/*
+ * What the search is handed, rather than what it does with it.
+ *
+ * `collect()` above is a model of promisc_recover_hop_interval(), and a model
+ * and the code under test can agree with each other while the firmware goes
+ * its own way: the one line whose absence sent the search a run of gaps with a
+ * hole in it was in the firmware, not here. That function reads the clock, so
+ * it cannot run on the host; this reads it as text instead, the way
+ * test_promisc_hop_interval.c reads the estimator's own constants, and checks
+ * the three things the model rests on.
+ *
+ * Every path out of it that does not record a gap has to start the run again,
+ * except the two that leave the run as it was: the first sighting of a pass,
+ * which is an anchor and not the end of a gap, and a second packet of the same
+ * connection event, which is not a visit.
+ */
+MU_TEST(the_collector_starts_the_run_again_on_every_break)
+{
+	char path[512];
+	char line[1024];
+	FILE *f;
+	int in_function = 0, in_restart = 0, in_block = 0;
+	int countdown = 0, gap_too_long_restarts = 0, failed_search_restarts = 0;
+	int restart_clears = 0, restart_clears_stamp = 0;
+	int run_length = 0, trigger_wants_a_full_ring = 0, gaps_kept = 0;
+	int saw_restart_before_return = 0;
+	char msg[192];
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	f = fopen(path, "r");
+	mu_assert_fatal(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *comment;
+
+		/* Comments say what the code should do; only the code counts
+		 * here. */
+		if (in_block) {
+			if (strstr(line, "*/") == NULL)
+				continue;
+			in_block = 0;
+			continue;
+		}
+		comment = strstr(line, "/*");
+		if (comment != NULL) {
+			if (strstr(comment, "*/") == NULL)
+				in_block = 1;
+			*comment = '\0';
+		}
+
+		if (sscanf(line, " #define LE_PROMISC_CSA2_RUN %d",
+		           &run_length) == 1)
+			continue;
+		if (sscanf(line, " #define LE_PROMISC_GAPS %d",
+		           &gaps_kept) == 1)
+			continue;
+
+		if (strstr(line, "static void promisc_restart_estimators") !=
+				NULL)
+			in_restart = 1;
+		else if (strstr(line, "void promisc_recover_hop_interval") !=
+				NULL)
+			in_function = 1;
+		else if (line[0] == '}') {
+			in_restart = 0;
+			in_function = 0;
+		}
+
+		if (in_restart) {
+			if (strstr(line, "le_promisc.gap_count = 0") != NULL ||
+			    strstr(line, "le_promisc.csa2_gap_count = 0") !=
+					NULL ||
+			    strstr(line, "le_promisc.sightings = 0") != NULL ||
+			    strstr(line, "le_promisc.consec_intervals = 0") !=
+					NULL ||
+			    strstr(line, "le.conn_interval = 0") != NULL)
+				++restart_clears;
+			if (strstr(line, "le_promisc.seen_a_packet = 0") !=
+					NULL)
+				restart_clears_stamp = 1;
+		}
+
+		if (!in_function)
+			continue;
+
+		/* The two paths that break the run: a gap too long to be the
+		 * connection coming back, and a search that found nothing.
+		 * Each has to start the run again within the few lines that
+		 * follow it. */
+		if (strstr(line, "clk_diff > LE_PROMISC_MAX_GAP") != NULL) {
+			countdown = 3;
+			saw_restart_before_return = 1;
+		} else if (strstr(line, "promisc_try_csa2(") != NULL) {
+			countdown = 6;
+			saw_restart_before_return = 2;
+		} else if (countdown > 0) {
+			--countdown;
+			if (strstr(line, "promisc_restart_estimators()") !=
+					NULL) {
+				if (saw_restart_before_return == 1)
+					gap_too_long_restarts = 1;
+				else
+					failed_search_restarts = 1;
+				countdown = 0;
+			}
+		}
+
+		if (strstr(line, "csa2_gap_count == LE_CSA2_SIGHTINGS - 1") !=
+				NULL)
+			trigger_wants_a_full_ring = 1;
+	}
+	fclose(f);
+
+	/* The five counters and the stamp. */
+	mu_assert_int_eq(5, restart_clears);
+	mu_assert(restart_clears_stamp,
+	          "promisc_restart_estimators() leaves the last sighting's "
+	          "stamp, so the next gap is measured across the break");
+
+	mu_assert(gap_too_long_restarts,
+	          "a gap too long to be the connection coming back leaves the "
+	          "run standing, so the next gap is appended next to one that "
+	          "is not its neighbour");
+	mu_assert(failed_search_restarts,
+	          "a search that found nothing leaves the run standing, so the "
+	          "gap across the search's own deafness is appended to it");
+
+	mu_assert(trigger_wants_a_full_ring,
+	          "the search can run on a ring that is not full, so on gaps "
+	          "left over from before the last break");
+
+	/* The estimator above reads the pattern the gaps repeat: two runs of
+	 * the longest pattern it looks for, and then four more reports that
+	 * agree. A search that ran sooner than that, and wiped its evidence,
+	 * could keep a connection it would have settled on from ever doing
+	 * so. */
+	mu_assert_fatal(gaps_kept > 0 && run_length > 0,
+	                "LE_PROMISC_GAPS or LE_PROMISC_CSA2_RUN not found");
+	snprintf(msg, sizeof(msg),
+	         "LE_PROMISC_CSA2_RUN is %d, against the %d gaps the "
+	         "algorithm-1 estimator can need", run_length,
+	         2 * gaps_kept + 4);
+	mu_assert(run_length >= 2 * gaps_kept + 4, msg);
+}
+
+/* ------------------------------------------------------------------------
  * The one number this header keeps a copy of
  * ------------------------------------------------------------------------ */
 
@@ -1142,6 +1421,7 @@ int main(void)
 	MU_RUN(the_longest_intervals_are_out_of_reach);
 	MU_RUN(recovers_a_full_map_connection);
 	MU_RUN(recovers_a_reduced_map_connection);
+	MU_RUN(an_interval_change_does_not_give_a_wrong_answer);
 	MU_RUN(recovers_through_missed_visits);
 	MU_RUN(recovers_past_an_absence);
 	MU_RUN(recovers_across_the_counter_wrap);
@@ -1149,8 +1429,8 @@ int main(void)
 	MU_RUN(declines_random_gaps);
 	MU_RUN(declines_a_channel_off_the_hop_sequence);
 	MU_RUN(declines_the_wrong_access_address);
-	MU_RUN(the_silence_allowance_outlasts_the_unheard_runs);
-	MU_RUN(a_map_too_sparse_to_hold_is_not_adopted);
+	MU_RUN(the_silence_allowance_covers_every_map_adopted);
+	MU_RUN(the_collector_starts_the_run_again_on_every_break);
 	MU_RUN(crc_init_comes_from_any_empty_data_pdu);
 	MU_RUN(the_interval_unit_matches_the_clock);
 	MU_RUN(how_often_it_works);

@@ -455,6 +455,30 @@ int le_same_span(u32 a, u32 b) {
 	return apart <= le_gap_tolerance(shorter);
 }
 
+/* Does every one of these gaps span an even number of connection events of
+ * this interval? A gap the interval does not divide at all answers no. */
+static int le_csa2_events_all_even(const u32 *gap, unsigned gap_count,
+                                   u32 interval) {
+	u32 unit = interval * LE_CONN_INTERVAL_TICKS;
+	unsigned i;
+
+	for (i = 0; i < gap_count; ++i) {
+		u32 events;
+
+		if (gap[i] > LE_PROMISC_MAX_GAP)
+			return 0;
+
+		events = LE_DIVIDE_ROUND(gap[i], unit);
+		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP ||
+				!le_same_span(gap[i], events * unit))
+			return 0;
+		if ((events & 1) != 0)
+			return 0;
+	}
+
+	return 1;
+}
+
 /* How many of the gaps a candidate connection interval accounts for. Every
  * gap between two sightings on one channel is a whole number of connection
  * events, so it has to be a whole number of the interval. */
@@ -649,6 +673,7 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	 * first. */
 	uint16_t back[LE_CSA2_SIGHTINGS];
 	unsigned count = 1;
+	unsigned newest;
 	uint16_t interval;
 	u32 unit;
 	unsigned i, j, h;
@@ -661,9 +686,49 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 			gap_count + 1 > LE_CSA2_SIGHTINGS)
 		return 0;
 
-	interval = le_csa2_interval(gap, gap_count);
+	/*
+	 * The interval the connection is on now, read from the newest gaps
+	 * rather than all of them.
+	 *
+	 * A connection may renegotiate its interval part-way through a run of
+	 * sightings, and doubling or halving it is ordinary. An interval the
+	 * connection has left still divides every gap after such a change --
+	 * every multiple of twice a number is a multiple of it -- so against
+	 * the whole run the interval it has left fits everything and the one
+	 * it moved to fits only the newer half, and the old one wins. The
+	 * answer belongs to the newest sighting and the follow has to hop on
+	 * what the connection is using now, so the newest gaps are the ones
+	 * that decide; the walk back below then stops where they stop fitting.
+	 */
+	newest = gap_count / 2;
+	if (newest < LE_CSA2_MIN_SCORE - 1)
+		newest = LE_CSA2_MIN_SCORE - 1;
+	if (newest > gap_count)
+		newest = gap_count;
+
+	interval = le_csa2_interval(gap + (gap_count - newest), newest);
 	if (interval == 0)
 		return 0;
+
+	/*
+	 * And if the newest gaps all span an even number of events of it, take
+	 * twice it instead.
+	 *
+	 * That is the mark of an interval the connection has left behind. Every
+	 * multiple of twice a number is a multiple of it, so after a connection
+	 * doubles its interval the old figure still divides every gap -- and
+	 * each of those gaps comes out at an even number of old events. Two
+	 * dozen events apart is one chance in sixteen of looking like that by
+	 * accident, and an accident costs nothing: the walk back below stops at
+	 * the first gap the doubled figure does not divide, which leaves too
+	 * few sightings to answer from, and the mode searches again.
+	 */
+	while (2u * interval <= LE_MAX_CONN_INTERVAL &&
+			le_csa2_events_all_even(gap + gap_count -
+					LE_CSA2_DOUBLE_PROBE,
+					LE_CSA2_DOUBLE_PROBE, interval))
+		interval = (uint16_t)(2u * interval);
+
 	unit = (u32)interval * LE_CONN_INTERVAL_TICKS;
 
 	/* Turn the gaps into event offsets, working back from the newest
@@ -708,10 +773,19 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	 * What this costs, which is time the receiver is deaf: the list above
 	 * takes 65536 of the algorithm's hashes to build, and the passes take
 	 * at most LE_CSA2_SIGHTINGS * 1772 * LE_CSA2_SIGHTINGS lookups, which
-	 * is about a million. Measured at 5 ms for the whole worst case on a
-	 * desktop host, so a couple of hundred milliseconds on the board,
-	 * against a watchdog of 3 s that the mode loop feeds either side of
-	 * this.
+	 * is about a million. A whole worst case measures 5 to 13 ms on a
+	 * desktop host, so on a 100 MHz Cortex-M3 walking a table in the
+	 * second RAM bank expect a few hundred milliseconds to a second and a
+	 * half. The watchdog allows 3 s and the mode loop feeds it on either
+	 * side of this, so the margin is a factor of two or three rather than
+	 * an order of magnitude. Anything that lengthens a pass or adds one
+	 * should be measured against that.
+	 *
+	 * The early break means runner_up is the best of the counters the
+	 * search reached, not of all of them: a pass that answers ends it. It
+	 * is a bar against being confused by a near miss in the same passes,
+	 * which is where a near miss comes from, rather than a proof that no
+	 * other counter anywhere scores as well.
 	 */
 	for (j = 0; j < count; ++j) {
 		for (h = 0; h < le_csa2_hit_count; ++h) {
