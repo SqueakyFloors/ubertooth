@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -610,6 +610,36 @@ $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -o $@ test_compile_info.c
+
+# The bootloader version block and the report an application makes of it.
+# ../bootloader/bl_version.c and ../common/bl_report.c are both compiled here
+# with the host compiler, the first against the stub version.h in
+# stubs-fwinfo/, so a block the bootloader built goes into a region the report
+# reads and out to the host's own parser. The rest of the test reads the linker
+# script, the bootloader's Makefile and the two request handlers as text, so
+# their directories are passed in; every scanned source is a prerequisite, or
+# editing one would leave the scan that guards it unrun.
+$(BINDIR)/test_bl_version: test_bl_version.c minunit.h source_scan.h \
+		stubs-fwinfo/version.h $(FW_BOOT)/bl_version.c \
+		$(FW_COMMON)/bl_report.c $(FW_COMMON)/bl_report.h \
+		$(FW_COMMON)/sections.ld $(FW_BOOT)/Makefile \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_BTBR)/src/btctl/main.c \
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
+# The stub is force-included rather than only put on the include path. A
+# quoted #include is resolved against the including file's own directory
+# first, and a firmware build leaves a generated version.h in ../bootloader,
+# so bl_version.c would take that one and the test would compare the block
+# against the stub's revision instead of the one it was built with. Including
+# the stub first means its include guard is already defined, so the generated
+# header expands to nothing. Both headers use the same guard; the bootloader's
+# Makefile writes the generated one.
+	$(CC) $(CFLAGS) -include stubs-fwinfo/version.h -Istubs-fwinfo \
+		-I$(FW_COMMON) $(CPPFLAGS) -DFW_HOST_TEST \
+		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
+		-o $@ test_bl_version.c $(FW_BOOT)/bl_version.c \
+		$(FW_COMMON)/bl_report.c
 
 # The firmware info block every image carries. ../common/fw_info.c is compiled
 # here with the host compiler, against the stub version.h in stubs-fwinfo/, so

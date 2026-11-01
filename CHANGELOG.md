@@ -58,6 +58,13 @@
   an error any more, and the packets themselves are recorded as they arrived.
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
+- `ubertooth-util -B` says which bootloader a board has, which nothing used to
+  report, and a bootloader cannot be replaced over USB. One built from this
+  tree reports its version and revision; every board as shipped reports no
+  version block, and a hash of the whole bootloader, which is what tells two
+  such bootloaders apart.
+  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
+
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
   stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
   known word over the unused stack at startup and counts how much of it has

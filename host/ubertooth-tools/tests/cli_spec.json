@@ -613,10 +613,10 @@
 
     "ubertooth-util": {
       "man": "ubertooth-util.md",
-      "optstring": ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx",
+      "optstring": ":U:hn::meiIprsStvbBwl::a::C::c::d::q::z::VNx",
       "report_marker": "libubertooth",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
-                       "-v", "-b", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z",
+                       "-v", "-b", "-B", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z",
                        "-N", "-x"],
       "nothing_to_do": "error: nothing to do: give an option that reads or sets something, or -N to count the attached boards",
       "selector_only_error": "error: nothing to do: -U '%s' selects a device but no option asks anything of it",
@@ -636,6 +636,8 @@
         "-V": {"value": "none", "role": "report",
                "doc": "the host tools' version, then each attached board's firmware version and build"},
         "-b": {"value": "none", "role": "query"},
+        "-B": {"value": "none", "role": "query",
+               "doc": "the bootloader this board has: its version and build if it reports them, and a CRC-32 of the whole bootloader either way"},
         "-p": {"value": "none", "role": "query"},
         "-s": {"value": "none", "role": "query"},
         "-m": {"value": "none", "role": "query"},

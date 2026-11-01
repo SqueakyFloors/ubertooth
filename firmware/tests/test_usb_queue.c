@@ -3808,6 +3808,7 @@ static const char *const btbr_vendor_requests[] = {
 	"UBERTOOTH_GET_REV_NUM",
 	"UBERTOOTH_GET_COMPILE_INFO",
 	"UBERTOOTH_GET_FW_INFO",
+	"UBERTOOTH_GET_BOOTLOADER_INFO",
 	"UBERTOOTH_GET_BOARD_ID",
 };
 

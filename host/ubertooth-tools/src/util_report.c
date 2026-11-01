@@ -352,3 +352,48 @@ int util_report_radio_timeouts(FILE *out, const radio_timeouts *timeouts)
 	        (unsigned)timeouts->rx_bytes);
 	return 0;
 }
+
+int util_report_bootloader(FILE *out, FILE *err,
+                          const struct ubertooth_bootloader_info *info)
+{
+	int ok;
+
+	if (info == NULL)
+		return 1;
+
+	/*
+	 * One line: what the bootloader is, then the hash of its whole region.
+	 *
+	 * The hash is on the line whatever else was found, because it is the
+	 * only thing that identifies a bootloader with no version block, and
+	 * every board that shipped has one of those. Two boards answering with
+	 * the same hash are running the same bootloader.
+	 *
+	 * The version is binary-coded decimal, printed the way the firmware
+	 * line prints the API version: 0x0200 reads as 2.00.
+	 */
+	fprintf(out, UTIL_LABEL_BOOTLOADER ": ");
+	if (info->version_result == UBERTOOTH_BL_VERSION_OK)
+		fprintf(out, "%x.%02x %s",
+		        (info->version.version >> 8) & 0xFF,
+		        info->version.version & 0xFF, info->version.build);
+	else
+		fprintf(out, "%s",
+		        ubertooth_bl_version_result_string(info->version_result));
+	fprintf(out, ", CRC32:0x%08x\n", (unsigned)info->crc32);
+
+	/* No block is the ordinary answer from a bootloader of the 1.x
+	 * generation, which is every board as shipped, so it is not a failure.
+	 * A block this host cannot read is: the board carries one and the user
+	 * is not being told what it says. */
+	ok = (info->version_result == UBERTOOTH_BL_VERSION_OK ||
+	      info->version_result == UBERTOOTH_BL_VERSION_NO_MAGIC);
+	/* A failure says why on standard error as well. The result line above
+	 * carries the reason too, because the hash on it is still worth having,
+	 * but a script that reads only one of the two streams has to be able to
+	 * see that the read did not do what was asked. */
+	if (!ok && err != NULL)
+		fprintf(err, "error: %s\n",
+		        ubertooth_bl_version_result_string(info->version_result));
+	return ok ? 0 : 1;
+}

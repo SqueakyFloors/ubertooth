@@ -36,15 +36,22 @@
  * made every tool refuse a board running that image, whatever revision it was
  * built from, except for the version reports, which read any firmware.
  *
- * During development it is bumped in every pull request that changes firmware
- * behaviour the host relies on: a new, removed or changed request, or a
- * changed behaviour of an existing one. Host-only changes leave it alone, so
- * a board carrying firmware from an earlier commit is normally, but not
- * always, refused: commits that leave the firmware interface alone share the
- * number before them, which is why it is the revision the `Firmware version:`
- * line shows beside the version that identifies a build. A bump also updates
- * CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned strings in the
- * tests.
+ * During development it does not move. The host tools and the firmware are
+ * built, installed and flashed together, and a development build only warns
+ * when the two disagree, so an ordinary firmware change -- a new request, a
+ * new mode, a fix -- leaves the number where it is. It moves only for a
+ * change that really does break an older host tool: a request removed or
+ * renumbered, or a reply or record layout an older host would misread. Such a
+ * bump also updates CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the
+ * pinned strings in the tests.
+ *
+ * So a board carrying firmware from an earlier commit is normally accepted,
+ * which is why this number is not the revision the `Firmware version:` line
+ * shows beside it: that line carries the build's own revision, and this
+ * number only says which host tools will work with the board at all.
+ *
+ * A request the firmware on a board has not got is reported where it is
+ * asked for, as a refused request, rather than by this number.
  *
  * A release moves it to the next major version, to mark that its host tools
  * and firmware only work with each other; the first fork release takes 0x0200
@@ -410,6 +417,255 @@ static inline uint32_t ubertooth_image_check_sum(const uint8_t *bytes,
 }
 
 /*
+ * The bootloader version block: what a board's bootloader says about itself.
+ *
+ * A bootloader is installed over ISP or JTAG, not over USB, so it does not
+ * change when the application is reflashed and nothing in an ordinary
+ * firmware update says which one a board has. The block is
+ * UBERTOOTH_BL_VERSION_LENGTH bytes at a fixed offset inside the bootloader's
+ * region of flash: magic, the layout version, the bootloader's own version,
+ * and the revision it was built from. firmware/bootloader/bl_version.c fills
+ * it in and firmware/common/sections.ld puts it there.
+ *
+ * It sits at UBERTOOTH_FW_INFO_OFFSET, the same offset as the firmware info
+ * block, on purpose. No image carries both -- the bootloader carries no
+ * firmware info block, and no application carries this one -- so the two
+ * share the gap sections.ld already leaves between the vector table and the
+ * code, and an ASSERT there refuses an image that somehow carried both. A
+ * reader takes the bytes at the offset and tells the two blocks apart by
+ * their magic. The image check block above is at its own offset and is in no
+ * image this one is in, so the three never overlap.
+ *
+ * The factory bootloader, and every bootloader built before this block, have
+ * their own code at the offset instead, so a reader that finds no magic
+ * learns nothing from those bytes beyond which generation they belong to.
+ * That is what the hash in UBERTOOTH_GET_BOOTLOADER_INFO is for.
+ */
+#define UBERTOOTH_BL_VERSION_OFFSET UBERTOOTH_FW_INFO_OFFSET
+/* The 8 bytes a block starts with, no terminator. */
+#define UBERTOOTH_BL_VERSION_MAGIC "UBTBLVER"
+#define UBERTOOTH_BL_VERSION_MAGIC_LEN 8
+/* The layout below. A block with any other number is not read. */
+#define UBERTOOTH_BL_VERSION_FORMAT 1
+#define UBERTOOTH_BL_VERSION_BUILD_LEN 32
+#define UBERTOOTH_BL_VERSION_LENGTH 48
+
+/*
+ * The version the bootloader puts in its block, binary-coded decimal like the
+ * API version above: 0x0200 reads as 2.00.
+ *
+ * It starts at 2.00 rather than 1.00. The first bootloader to carry a block
+ * at all is the one the first fork release ships, which takes 2.00 as the
+ * firmware API does, so the numbering says which generation a bootloader
+ * belongs to: a board with no block carries one from before the block
+ * existed, which is the 1.x generation, and -B says so.
+ *
+ * This is not the bootloader's USB bcdDevice, which stays at 0x0100
+ * (UBERTOOTH_BOOTLOADER_API_VERSION) because that number is the DFU protocol
+ * version and ubertooth-dfu has to work against any board. Nothing refuses a
+ * board over this number either. It is here so that a released bootloader can
+ * be named in one word beside the revision it was built from, and so raising
+ * it is the one edit a release needs. Raise it when a release ships a
+ * bootloader that behaves differently from the last.
+ */
+#define UBERTOOTH_BOOTLOADER_VERSION 0x0200
+
+/*
+ * The block as it sits in flash: 48 bytes, no padding, the two 16-bit fields
+ * little-endian as the ARM stores them. build is padded with zeros and is
+ * only terminated when it is shorter than the field, so a reader must not
+ * treat it as a C string -- ubertooth_bl_version_parse() below copies it out
+ * safely.
+ */
+struct ubertooth_bl_version_block {
+	uint8_t magic[UBERTOOTH_BL_VERSION_MAGIC_LEN];
+	uint16_t format_version;
+	uint16_t version;
+	uint8_t reserved[4];
+	char build[UBERTOOTH_BL_VERSION_BUILD_LEN];
+};
+
+/* Where each field starts, for a reader working on raw bytes. */
+#define UBERTOOTH_BL_VERSION_OFF_MAGIC 0
+#define UBERTOOTH_BL_VERSION_OFF_FORMAT 8
+#define UBERTOOTH_BL_VERSION_OFF_VERSION 10
+#define UBERTOOTH_BL_VERSION_OFF_RESERVED 12
+#define UBERTOOTH_BL_VERSION_OFF_BUILD 16
+
+/* The layout is the wire format, so a compiler that padded the struct would
+ * silently move every field after the padding. */
+typedef char ubertooth_bl_version_block_is_48_bytes[
+	sizeof(struct ubertooth_bl_version_block) == UBERTOOTH_BL_VERSION_LENGTH ? 1 : -1];
+
+/* The block this image carries. Defined in firmware/bootloader/bl_version.c,
+ * which only the bootloader links. */
+extern const struct ubertooth_bl_version_block bl_version_block;
+
+/*
+ * The bootloader's region of flash: the 16 KiB below the application, which
+ * the running application reads as ordinary memory. BOOTLOADER_OFFSET and
+ * BOOTLOADER_SIZE in host/ubertooth-tools/src/dfu.h are the same two numbers
+ * seen from the host, and APP_IMAGE_BASE in firmware/bootloader/app_image.h
+ * is where the region ends.
+ */
+#define UBERTOOTH_BOOTLOADER_REGION_START 0x00000000u
+#define UBERTOOTH_BOOTLOADER_REGION_LENGTH 0x4000u
+
+/*
+ * The code-read-protection word. The LPC boot ROM reads the word at this
+ * offset in flash and, for a handful of particular values, locks the part's
+ * debug and programming interfaces (NXP LPC176x/5x user manual UM10360,
+ * "Code Read Protection"). Nothing in this tree asks for that, so the four
+ * bytes must not be written by accident: no block may be placed over them.
+ */
+#define UBERTOOTH_LPC_CRP_OFFSET 0x2fc
+#define UBERTOOTH_LPC_CRP_LENGTH 4
+
+/*
+ * UBERTOOTH_GET_BOOTLOADER_INFO's reply: the CRC-32 of the whole bootloader
+ * region first, as four bytes with the low byte first, then the version block
+ * -- or that many zeros when the region carries no block.
+ *
+ * The hash is always there, which is the point of it: a bootloader with no
+ * block is still recognizable, because two boards that answer with the same
+ * hash are running the same bootloader. The application computes it over the
+ * region as it finds it, so it says nothing about what the bytes mean.
+ */
+#define UBERTOOTH_BL_REPORT_OFF_CRC 0
+#define UBERTOOTH_BL_REPORT_OFF_BLOCK 4
+#define UBERTOOTH_BL_REPORT_LENGTH (4 + UBERTOOTH_BL_VERSION_LENGTH)
+
+/* A version block read off a board, with the build string terminated. */
+struct ubertooth_bl_version {
+	uint16_t format_version;
+	uint16_t version;
+	char build[UBERTOOTH_BL_VERSION_BUILD_LEN + 1];
+};
+
+/* Everything a board says about its bootloader. */
+struct ubertooth_bootloader_info {
+	uint32_t crc32;     /* of the whole region, always read */
+	/* UBERTOOTH_BL_VERSION_OK when version below was read, or a negative
+	 * enum ubertooth_bl_version_result saying why it was not. */
+	int version_result;
+	struct ubertooth_bl_version version;
+};
+
+/* Why a block was not read. The caller names the board, so these say only
+ * what was wrong with the bytes. */
+enum ubertooth_bl_version_result {
+	UBERTOOTH_BL_VERSION_OK = 0,
+	UBERTOOTH_BL_VERSION_SHORT = -1,    /* too few bytes to read */
+	UBERTOOTH_BL_VERSION_NO_MAGIC = -2, /* no block here */
+	UBERTOOTH_BL_VERSION_FORMAT_UNKNOWN = -3,
+	UBERTOOTH_BL_VERSION_BAD_TEXT = -4, /* an empty or unprintable string */
+};
+
+/*
+ * Reads the version block at raw into *out: the magic, the format version,
+ * the bootloader's version and the build string. length is how many bytes are
+ * there to read. Returns UBERTOOTH_BL_VERSION_OK, or a negative enum
+ * ubertooth_bl_version_result. On failure *out is zeroed, except that an
+ * unknown format keeps the format number it found, for a caller that wants to
+ * name it.
+ *
+ * No magic is the ordinary answer from a bootloader of the 1.x generation,
+ * which is every board as shipped, not a fault: the region simply has code
+ * where a block would be.
+ */
+static inline int ubertooth_bl_version_parse(const uint8_t *raw, size_t length,
+                                             struct ubertooth_bl_version *out)
+{
+	static const char magic[] = UBERTOOTH_BL_VERSION_MAGIC;
+	size_t i;
+
+	if (raw == NULL || out == NULL)
+		return UBERTOOTH_BL_VERSION_SHORT;
+	for (i = 0; i < sizeof(*out); i++)
+		((uint8_t *)out)[i] = 0;
+	if (length < UBERTOOTH_BL_VERSION_LENGTH)
+		return UBERTOOTH_BL_VERSION_SHORT;
+	for (i = 0; i < UBERTOOTH_BL_VERSION_MAGIC_LEN; i++) {
+		if (raw[UBERTOOTH_BL_VERSION_OFF_MAGIC + i] != (uint8_t)magic[i])
+			return UBERTOOTH_BL_VERSION_NO_MAGIC;
+	}
+	out->format_version = (uint16_t)(raw[UBERTOOTH_BL_VERSION_OFF_FORMAT] |
+		(raw[UBERTOOTH_BL_VERSION_OFF_FORMAT + 1] << 8));
+	if (out->format_version != UBERTOOTH_BL_VERSION_FORMAT) {
+		uint16_t found = out->format_version;
+
+		for (i = 0; i < sizeof(*out); i++)
+			((uint8_t *)out)[i] = 0;
+		out->format_version = found;
+		return UBERTOOTH_BL_VERSION_FORMAT_UNKNOWN;
+	}
+	out->version = (uint16_t)(raw[UBERTOOTH_BL_VERSION_OFF_VERSION] |
+		(raw[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] << 8));
+	/* The same field reader the firmware info block uses: both blocks pad
+	 * their strings with zeros and terminate them only when they are
+	 * short. */
+	if (ubertooth_fw_info_text(raw + UBERTOOTH_BL_VERSION_OFF_BUILD,
+	                           UBERTOOTH_BL_VERSION_BUILD_LEN,
+	                           out->build, sizeof(out->build)) != 0) {
+		for (i = 0; i < sizeof(*out); i++)
+			((uint8_t *)out)[i] = 0;
+		return UBERTOOTH_BL_VERSION_BAD_TEXT;
+	}
+	return UBERTOOTH_BL_VERSION_OK;
+}
+
+/*
+ * Reads a whole UBERTOOTH_BL_REPORT_LENGTH-byte reply into *out: the hash,
+ * then the block behind it. Returns 0 when the hash was read, so that a board
+ * with no version block is a success with out->version_result saying so, or
+ * UBERTOOTH_BL_VERSION_SHORT when the reply was too short to hold even the
+ * hash.
+ */
+static inline int ubertooth_bootloader_info_parse(const uint8_t *raw,
+                                                  size_t length,
+                                                  struct ubertooth_bootloader_info *out)
+{
+	size_t i;
+
+	if (raw == NULL || out == NULL)
+		return UBERTOOTH_BL_VERSION_SHORT;
+	for (i = 0; i < sizeof(*out); i++)
+		((uint8_t *)out)[i] = 0;
+	if (length < UBERTOOTH_BL_REPORT_LENGTH) {
+		out->version_result = UBERTOOTH_BL_VERSION_SHORT;
+		return UBERTOOTH_BL_VERSION_SHORT;
+	}
+	out->crc32 = (uint32_t)raw[UBERTOOTH_BL_REPORT_OFF_CRC] |
+		((uint32_t)raw[UBERTOOTH_BL_REPORT_OFF_CRC + 1] << 8) |
+		((uint32_t)raw[UBERTOOTH_BL_REPORT_OFF_CRC + 2] << 16) |
+		((uint32_t)raw[UBERTOOTH_BL_REPORT_OFF_CRC + 3] << 24);
+	out->version_result =
+		ubertooth_bl_version_parse(raw + UBERTOOTH_BL_REPORT_OFF_BLOCK,
+		                           length - UBERTOOTH_BL_REPORT_OFF_BLOCK,
+		                           &out->version);
+	return 0;
+}
+
+/* One phrase naming what was found, for a caller's report. The no-magic
+ * phrase is what a user sees for a factory bootloader, so it reads as an
+ * answer rather than an error. */
+static inline const char *ubertooth_bl_version_result_string(int result)
+{
+	switch (result) {
+	case UBERTOOTH_BL_VERSION_OK:
+		return "the bootloader version block was read";
+	case UBERTOOTH_BL_VERSION_NO_MAGIC:
+		return "no version block (factory or earlier, treated as 1.x)";
+	case UBERTOOTH_BL_VERSION_FORMAT_UNKNOWN:
+		return "the bootloader version block is in a format this host does not know";
+	case UBERTOOTH_BL_VERSION_BAD_TEXT:
+		return "the bootloader version block holds no readable build string";
+	default:
+		return "there is not a whole bootloader version block to read";
+	}
+}
+
+/*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The
  * CC2400 measures RSSI from about -120 to -20 dBm, so N outside 20-120 is
  * either never or always reached. The default, -85 dBm, shows Wi-Fi activity
@@ -569,6 +825,7 @@ enum ubertooth_usb_commands {
 	UBERTOOTH_GET_FW_INFO        = 75,
 	UBERTOOTH_GET_WATCHDOG       = 76,
 	UBERTOOTH_GET_RADIO_TIMEOUTS = 77,
+	UBERTOOTH_GET_BOOTLOADER_INFO = 78,
 };
 
 /*

@@ -40,6 +40,7 @@
 #include "xmas.h"
 #include "identify.h"
 #include "watchdog.h"
+#include "bl_report.h"
 
 #define MIN(x,y)	((x)<(y)?(x):(y))
 #define MAX(x,y)	((x)>(y)?(x):(y))
@@ -1060,6 +1061,16 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_GET_FW_INFO:
 		memcpy(data, &fw_info_block, UBERTOOTH_FW_INFO_LENGTH);
 		*data_len = UBERTOOTH_FW_INFO_LENGTH;
+		break;
+
+	/* What this board's bootloader is. Keep this identical to the one in
+	 * btbr/src/btctl/vendor_request_handler.c. */
+	case UBERTOOTH_GET_BOOTLOADER_INFO:
+		/* Refused until startup has worked the report out, rather than
+		 * answered with a hash of zero. */
+		if (!bl_report_build(data))
+			return 0;
+		*data_len = UBERTOOTH_BL_REPORT_LENGTH;
 		break;
 
 	case UBERTOOTH_GET_BOARD_ID:
@@ -4494,6 +4505,11 @@ int main()
 	 * descriptor, and well before a mode could be running: the boot-ROM
 	 * calls this makes must not happen while one is. */
 	device_id_init();
+	/* Here for the same reason, and before the first request can arrive:
+	 * hashing the bootloader region takes milliseconds, which is too long
+	 * to spend in a request handler that a capture mode answers from the
+	 * USB interrupt. */
+	bl_report_init(UBERTOOTH_BOOTLOADER_REGION_START);
 	clkn_init();
 	ubertooth_usb_init(vendor_request_handler);
 	cc2400_idle();

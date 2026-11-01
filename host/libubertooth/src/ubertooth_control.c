@@ -173,6 +173,7 @@ static const char* request_name(uint8_t request)
 		case UBERTOOTH_GET_FW_INFO:        return "read the firmware information";
 		case UBERTOOTH_GET_WATCHDOG:       return "read the watchdog record";
 		case UBERTOOTH_GET_RADIO_TIMEOUTS: return "read the radio wait timeouts";
+		case UBERTOOTH_GET_BOOTLOADER_INFO: return "read the bootloader information";
 		default:                           return NULL;
 	}
 }
@@ -859,6 +860,33 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
 	timeouts->fsm       = (uint16_t)(result[6] | (result[7] << 8));
 	timeouts->rx_bytes  = (uint16_t)(result[8] | (result[9] << 8));
 
+	return 0;
+}
+
+int cmd_get_bootloader_info(struct libusb_device_handle* devh,
+		struct ubertooth_bootloader_info *info)
+{
+	u8 result[UBERTOOTH_BL_REPORT_LENGTH];
+	int r;
+
+	if (info == NULL)
+		return LIBUSB_ERROR_INVALID_PARAM;
+	memset(info, 0, sizeof(*info));
+	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_BOOTLOADER_INFO,
+			0, 0, result, sizeof(result), 1000);
+	if (r < LIBUSB_SUCCESS) {
+		report_request_failed(r, UBERTOOTH_GET_BOOTLOADER_INFO);
+		return r;
+	}
+	if (r != (int)sizeof(result))
+		return check_reply_length(r, (int)sizeof(result),
+		                         "bootloader information");
+	/* Whether the region carries a version block is the board's answer, not
+	 * a failure of the read: the parse only reports a reply too short to
+	 * hold the hash, which the length check above has already caught, and
+	 * it leaves the rest in info->version_result for the caller to
+	 * report. */
+	ubertooth_bootloader_info_parse(result, (size_t)r, info);
 	return 0;
 }
 

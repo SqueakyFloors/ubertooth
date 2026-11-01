@@ -46,6 +46,18 @@
 #define EXTMODE  LPC17_REG(0x400FC148) /* External Interrupt Mode register */
 #define EXTPOLAR LPC17_REG(0x400FC14C) /* External Interrupt Polarity Register */
 
+/* Memory mapping: what the bottom of the address space reads as. The part
+ * maps either the user flash or the boot ROM over the lowest addresses, which
+ * is how the boot ROM runs before any user code exists (NXP LPC176x/5x user
+ * manual UM10360, "Memory Mapping control register"). A Cortex-M3 finds its
+ * vector table through VTOR rather than this register, so firmware that has
+ * moved its table leaves the mapping wherever the boot ROM left it -- which
+ * matters to anything that reads the flash at the bottom of the map. */
+#define MEMMAP LPC17_REG(0x400FC040) /* Memory Mapping Control Register */
+/* The two values: user flash at the bottom of the map, or the boot ROM. */
+#define MEMMAP_BOOT_ROM   0x0
+#define MEMMAP_USER_FLASH 0x1
+
 /* Reset */
 #define RSID LPC17_REG(0x400FC180) /* Reset Source Identification Register */
 

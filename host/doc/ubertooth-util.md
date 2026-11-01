@@ -5,7 +5,7 @@
     ubertooth-util [-V] [-v] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
     [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n [seconds]] [-i] [-b]
-    [-p] [-s]
+    [-B] [-p] [-s]
     [-w] [-N] [-x] [-h]
 
 ## DESCRIPTION
@@ -276,6 +276,10 @@ Miscellaneous:
    port. The command says so in a `note:` line of its own
  - `-b` :
    get hardware board id number
+ - `-B` :
+   get the bootloader this board has. See [BOOTLOADER][]; exits non-zero only
+   if the read fails or the board carries a version block this host cannot
+   read
  - `-p` :
    get microcontroller Part ID (32-bit, hexadecimal); exits non-zero if the
    device reports a nonzero status for the read
@@ -441,6 +445,52 @@ at 65535.
 `-i` (In-System Programming) is the one hand-over the watchdog cannot be
 switched off for: it keeps the chip running, so the timeout is stretched to
 about 71 minutes first.
+
+## BOOTLOADER
+
+`-B` says which bootloader the board has:
+
+    $ ubertooth-util -B
+    Bootloader: 2.00 git-1a2b3c4, CRC32:0x9d2fe1b4
+
+The bootloader is the first 16 KiB of the board's flash. It is what
+ubertooth-dfu(1) talks to, so it is also what cannot be replaced over USB: it
+refuses writes to its own region, and installing another one needs a serial
+In-System Programming adapter or JTAG at the bench. A board therefore keeps
+the bootloader it came with through every firmware update, and nothing else
+reports which one that is.
+
+The line has two parts. The version and the build string come from a block the
+bootloader carries at a fixed place, which this tree's bootloader fills in with
+its version and the revision it was built from. Numbering starts at 2.00: the
+first bootloader to carry a block is the one the first release ships, so the
+version says which generation of bootloader a board has. The `CRC32` is of the
+whole 16 KiB region, computed on the board, and is there whatever else the line
+says.
+
+A board whose bootloader has no such block — every board as shipped, and any
+bootloader built before the block existed — reads:
+
+    $ ubertooth-util -B
+    Bootloader: no version block (factory or earlier, treated as 1.x), CRC32:0x5f0a73c1
+
+Those are the 1.x generation, and that is all the line can say about which one
+it is. It is an answer, not a failure, and the command exits 0. The hash is
+what identifies such a bootloader: two boards whose hashes differ are running
+different bootloaders, and two that agree are almost certainly running the
+same one.
+
+The hashes in the two samples above are illustrative. There is no one factory
+value to compare against: of five shipped Ubertooth Ones on one bench, every
+one reported a different hash, so a board's own hash is worth recording but
+another board's says nothing about it.
+
+The bootloader does not change when the application is reflashed, so the line
+is a property of the board rather than of the firmware on it. It is the
+application that reads it, though, so firmware older than this request refuses
+it, in the wording ubertooth(7) gives for a refused request (OUTPUT AND
+DIAGNOSTICS) followed by `error: bootloader information read failed`. Reflash
+the board to read it.
 
 ## SELECTING A DEVICE
 
