@@ -265,8 +265,8 @@ one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or `ev4`,
 and 80 of a five-slot `dh5`. The board's own data and link-manager traffic
 waits for the whole run, which is why the bound is there; at 625 us a slot the
 longest run is about 300 ms. To put one format on the air for longer, send
-`tx` again: one run may wait behind the one on the air, and a third is refused
-until the first has finished, so the waiting never piles up.
+`tx` again: one run at a time waits for a slot, and a `tx` sent while one is
+already waiting is refused, so the waiting cannot pile up.
 
 `<hex>` is the data bytes, as an even number of hex digits of exactly
 `<length>` bytes. Without it the data is a counted pattern, `00 01 02 ... ff`

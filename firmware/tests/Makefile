@@ -405,6 +405,32 @@ $(BINDIR)/test_btbr_page_response: test_btbr_page_response.c minunit.h \
 # Which message the link layer gives a transmit slot, and when it frees it.
 # Linked against the real ll.c, with the two queues and the format table faked
 # so a test can say what is waiting.
+# What the device makes of a transmit request from the host: every refusal
+# that keeps the encoder inside the message, reached through btctl_work() the
+# way the host's own request reaches it. Linked against the real btctl.c,
+# codec.c and queue.c, so the format table and the length limits are the ones
+# the board uses.
+$(BINDIR)/test_btbr_tx_request: test_btbr_tx_request.c minunit.h \
+		stubs-btbr/ubtbr/debug.h stubs-btbr-rx/ubtbr/system.h \
+		stubs-btbr-tx/board_calls.h \
+		$(FW_BTBR)/src/btctl/btctl.c \
+		$(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/src/util/queue.c \
+		$(FW_BTBR)/include/ubtbr/btctl_intf.h \
+		$(FW_BTBR)/include/ubtbr/codec.h | $(BINDIR)
+# codec.c takes the packet header in two calls that do not read it, and keeps
+# a decode pointer one branch does not use; neither is what this tests.
+	$(CC) $(CFLAGS) -Istubs-btbr -Istubs-btbr-rx \
+		-I$(FW_BTBR)/include -I$(FW_COMMON) $(CPPFLAGS) \
+		-DFW_HOST_TEST -DT1TC='btphy.central_clkn' \
+		-include stubs-btbr-tx/board_calls.h \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-o $@ test_btbr_tx_request.c $(FW_BTBR)/src/btctl/btctl.c \
+		$(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/src/util/queue.c
+
 $(BINDIR)/test_btbr_tx_queue: test_btbr_tx_queue.c minunit.h \
 		stubs-btbr/ubtbr/debug.h stubs-btbr-rx/ubtbr/system.h \
 		$(FW_BTBR)/src/btphy/ll.c \
@@ -545,7 +571,6 @@ $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 # way to the host -- so FW_BTBR_DIR points at that image.
 $(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
 		stubs-usbq/usbapi.h \
-		stubs-usbq/ubertooth.h stubs/ubertooth.h \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
 		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c $(FW_RXTX)/ego.c \
 		$(FW_BTBR)/src/btctl/btctl.c \
