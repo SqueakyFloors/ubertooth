@@ -928,12 +928,14 @@ DEBUG_LED_OFF(8);
                      * also leaves that endpoint's status in USBCmdData and
                      * sets CDFULL once it is there; the same section asks
                      * software to wait for CDFULL before treating the
-                     * interrupt as cleared (UM10360 section 11.10.3.3). The
-                     * controller clears CDFULL itself before running the
-                     * command, so clearing it here as well, the way
-                     * USBHwCmd() does before a command, only makes sure an
-                     * answer left over from somewhere else cannot be read as
-                     * this one's.
+                     * interrupt as cleared (UM10360 section 11.10.3.3).
+                     * CDFULL is cleared first for the same reason USBHwCmd()
+                     * clears it before every command: nothing takes it away
+                     * on our behalf, so an answer left over from an earlier
+                     * command -- one whose wait gave up, arriving late --
+                     * would satisfy the wait below and be read as this
+                     * endpoint's status. Wait4DevIntBounded() describes that
+                     * hazard where it clears the bits on its own way out.
                      *
                      * On a read that worked, take the status this clear
                      * reports in preference to the one read above: it is the

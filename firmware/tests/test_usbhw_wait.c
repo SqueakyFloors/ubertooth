@@ -117,14 +117,27 @@ static uint32_t clear_answer_value;
  * stubs-usb/lpc17.h: the fake needs one access to count from, and in that
  * stretch of USBHwISR() there is no other.
  *
- * One thing to know before trusting the case this drives. It rests on the
- * controller NOT taking CDFULL away itself when the write to USBEpIntClr runs
- * Select Endpoint/Clear Interrupt -- if it did, the firmware's own clear
- * would be redundant and no leftover could survive to be misread. The comment
- * on that line in usbhw_lpc.c reads the manual the other way. The fake
- * follows what the drivers do: lpcusb here, and NXP's and Keil's, all clear
- * CCEMTY and CDFULL in software before every command rather than relying on
- * the engine to do it. Which of the two readings is right is not settled.
+ * Two things to know about the case this drives.
+ *
+ * The sequence it stands for is one the controller can produce, and it needs
+ * two answers outstanding at once. The firmware gets there by giving up on
+ * one: an endpoint's status read times out, its answer arrives late and
+ * satisfies the wait belonging to a *later* command, and that later command's
+ * own answer is then still owed and lands in the gap before the interrupt
+ * clear. Nothing in the fake's model of a serial engine forbids that, and the
+ * bounded waits exist because answers do arrive late.
+ *
+ * Nothing takes the completion bits away on the firmware's behalf, which is
+ * why clearing CDFULL before the interrupt clear is load-bearing. That is how
+ * every driver for this part treats them -- lpcusb here, and NXP's and
+ * Keil's, all clear CCEMTY and CDFULL in software before each command rather
+ * than relying on the engine -- and it is the premise of
+ * Wait4DevIntBounded(), which clears them on its own way out so that a late
+ * answer cannot satisfy the next wait. Were the engine to clear CDFULL itself
+ * when the USBEpIntClr write runs the command, the firmware's clear would
+ * merely be redundant and this case would still pass on a board; so the
+ * firmware is right either way, and this case is what keeps the clear from
+ * being removed as dead code.
  */
 static int leftover_answer;
 static int leftover_answer_due;
