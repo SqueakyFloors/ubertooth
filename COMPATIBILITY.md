@@ -82,12 +82,12 @@ does Classic, but only the parts Apple exposes:
 
 | Adapter operation | Used by | BlueZ | Public IOBluetooth |
 |---|---|---|---|
-| Choose and open a local adapter (`-b hciN`) | both tools | `hci_devid()`, `hci_open_dev()`, `hci_devinfo()` | only the default controller, `+defaultController`; no choice, and no read of its own address or LMP features |
+| Choose and open a local adapter (`-b hciN`) | both tools | `hci_devid()`, `hci_open_dev()`, `hci_devinfo()` | only the default controller, `+defaultController`, with no choice of adapter; its address is there (`-addressAsString`), its LMP features are not |
 | Inquiry | `ubertooth-scan -s` | `hci_inquiry()` | yes, `IOBluetoothDeviceInquiry` |
 | Connect / disconnect | `ubertooth-scan -x`, `ubertooth-follow` | `hci_create_connection()`, `hci_disconnect()` | yes, `-openConnection:`, `-closeConnection` |
 | Remote name | `ubertooth-scan` | `hci_read_remote_name()` | yes, `-remoteNameRequest:` |
 | Remote version, LMP features | `ubertooth-scan -x` | `hci_read_remote_version()`, `hci_read_remote_features()`, `hci_read_remote_ext_features()` | **no** |
-| Clock offset | `ubertooth-scan -x`, `ubertooth-follow` | `hci_read_clock_offset()` | only the value cached from an earlier inquiry or connection (`-getClockOffset`); the read cannot be asked for |
+| Clock offset | `ubertooth-scan -x`, `ubertooth-follow` | `hci_read_clock_offset()` | only `-getClockOffset`, whose value its own documentation calls meaningful only for a device seen during an inquiry; the read itself cannot be asked for |
 | The adapter's own clock, which with that offset gives the piconet's CLKN | `ubertooth-follow` | `hci_read_clock()` | **no** |
 | AFH channel map of a link | `ubertooth-scan -x`, `ubertooth-follow -a` | `hci_read_afh_map()` | **no** |
 
