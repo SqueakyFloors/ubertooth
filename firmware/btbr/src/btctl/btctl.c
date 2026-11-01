@@ -254,6 +254,17 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 		cprintf("Tx packet asked for 0 slots\n");
 		return 0;
 	}
+	/* The bytes the host really sent. The message is built from the length
+	 * the host framed it with and handed over only once it is full, so
+	 * this is that length: a data_size larger than it would have the
+	 * encoder read past the message. */
+	if ((unsigned)msg_write_len(msg) <
+		sizeof(btctl_hdr_t) + sizeof(*req) + req->data_size)
+	{
+		cprintf("Tx packet says %d payload bytes in a message of %d\n",
+			req->data_size, msg_write_len(msg));
+		return 0;
+	}
 	/* What the host supplied, less the parts it does not choose the size
 	 * of: the voice field and the payload header. */
 	if (req->data_size < t->voice_bytes + t->payload_header_bytes)
