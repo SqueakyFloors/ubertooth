@@ -211,15 +211,21 @@ static inline bool app_image_table_startable(const uint32_t* const vectors,
  *
  * So the sum reads no further than the application region of a 128 KiB part.
  * That is the floor for these boards: the Ubertooth One schematic specifies
- * an LPC1754 with 128 KiB and boards in the field read back that or more
- * (firmware/bootloader/flash.h, lpc_part_flash_size). A longer image can only
- * be on a larger part, and it is more than three times the largest image this
- * tree builds.
+ * an LPC1754 with 128 KiB, and boards in the field read back that or more
+ * (firmware/bootloader/flash.h, which says so where it reads the part's
+ * bound). The part table beside it runs from 32 KiB up because it bounds what
+ * a download may write to whatever part is in front of it -- it is the
+ * family out of the user manual, not a list of parts an Ubertooth carries --
+ * so the smallest entry in it is not the floor this limit needs.
  *
- * An image longer than this is not refused -- it is started without the
- * region checksum, on its vector table alone, the way every image was before
- * the record existed. Refusing it would leave a board that will not start a
- * good image, which is worse than checking less of it.
+ * A longer image can only be on a larger part, and it is more than three
+ * times the largest image this tree builds. An image longer than this is not
+ * refused: it is started without the region checksum, on its vector table
+ * alone, the way every image was before the record existed. Refusing it would
+ * leave a board that will not start a good image, which is worse than
+ * checking less of it. One image that reaches that: a whole-region dump taken
+ * off a larger part with ubertooth-dfu -u and flashed back, which is 240 KiB
+ * from a 256 KiB part. ubertooth-dfu(1) says so.
  */
 #define APP_IMAGE_SMALLEST_FLASH  0x20000u
 #define APP_IMAGE_REGION_READ_LIMIT (APP_IMAGE_SMALLEST_FLASH - APP_IMAGE_BASE)

@@ -136,7 +136,9 @@ part, the smallest flash these boards carry, because reading flash a part has
 not got could fault and leave a board for the bench. A record claiming more
 than that is not checked, and the image starts on its vector table alone
 rather than being refused. The largest image this tree builds is a third of
-the limit.
+the limit, so the one file that reaches it is a whole-region dump taken off a
+larger part with `-u` and flashed back: that is written and started as it
+always was, with the vector table checked and the rest of it not.
 
 The three checks cover different things. A download that stops between blocks
 leaves the vector table erased, which the stack pointer and reset vector
@@ -157,11 +159,12 @@ neither check and starts it on the stack pointer and reset vector alone, as
 earlier releases did.
 
 An image this tree builds leaves the word at offset 0x1c zero and the record
-at offset 0xe0 empty, so those are the only byte-for-byte differences between
-such a file and the flash written from it: a read-back with `-u` differs from
-the file in the four bytes at 0x1c and in the fourteen from 0xea to 0xf8, and
-nowhere else. An image that already carries the right checksum keeps it, and a
-record from some earlier download is written over with this one.
+at offset 0xe0 empty, and those are the only bytes this tool writes over. So a
+read-back with `-u` can differ from the file only inside the four bytes at
+0x1c and the fourteen from 0xea to 0xf8, and nowhere else; which of those
+bytes really differ depends on the image, since some of what goes in is zero
+too. An image that already carries the right checksum keeps it, and a record
+from some earlier download is written over with this one.
 
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the

@@ -310,7 +310,18 @@ static inline const char *ubertooth_fw_info_result_string(int result)
 /* The 8 bytes a block starts with, no terminator. */
 #define UBERTOOTH_IMAGE_CHECK_MAGIC "UBTIMGCK"
 #define UBERTOOTH_IMAGE_CHECK_MAGIC_LEN 8
-/* The layout below. A block with any other number is not read. */
+/*
+ * The layout below. A block with any other number is not read, and a reader
+ * that cannot read the block makes no check: that is what lets a bootloader
+ * tolerate an image newer than itself.
+ *
+ * It is worth knowing what that costs before bumping this. Every bootloader
+ * already installed reads format 1 and nothing else, so an image in format 2
+ * gets no checks at all on those boards -- and a bootloader is installed with
+ * ISP or JTAG, so they will not be updated. A new field belongs in the
+ * reserved bytes, or behind a new flag bit, rather than in a new format,
+ * unless the point of the change is to stop older bootloaders checking.
+ */
 #define UBERTOOTH_IMAGE_CHECK_FORMAT 1
 #define UBERTOOTH_IMAGE_CHECK_LENGTH 32
 
