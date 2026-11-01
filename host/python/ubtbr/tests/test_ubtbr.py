@@ -2611,10 +2611,18 @@ for typed, format_code, repeat, payload, printed in (
         ("tx ev3 17 4", 11, 4, counted(17), "ev3 len=17 slots=4"),
         # and a payload the user chose
         ("tx ev3 3 1 aabbcc", 11, 1, b"\xaa\xbb\xcc", "data=aabbcc"),
-        # 10 voice bytes, then a DM1-shaped data field
+        # 10 voice bytes, then a DM1-sized data field
         ("tx dv 9", 7, 1, counted(10) + payload_header(9) + counted(9),
             "payload=" + (counted(10) + payload_header(9)
                           + counted(9)).hex()),
+        # The whole line, as ubertooth-btbr(1) shows it: once for a format
+        # whose payload is the data and nothing else, and once for one that
+        # carries a voice field and a payload header in front of it.
+        ("tx ev3 3 20", 11, 20, counted(3),
+            "TX pkt: ev3 len=3 slots=20 data=000102 payload=000102"),
+        ("tx dv 3 20", 7, 20, counted(10) + payload_header(3) + counted(3),
+            "TX pkt: dv len=3 slots=20 data=000102"
+            " payload=000102030405060708091e000102"),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [
         state_message(*CONNECTED_LT_ADDR_1),

@@ -270,9 +270,8 @@ went on the air: `data=` is the data bytes, and `payload=` the whole payload,
 which adds the voice field where the format has one and the payload header
 where it has one. The board adds the CRC, which is in neither:
 
-    TX pkt: ev3 len=17 slots=20 data=000102...10 payload=000102...10
-    TX pkt: dv len=9 slots=20 data=000102030405060708 \
-        payload=c0c6c4c2d0d6d4d2e0e64e000102030405060708
+    TX pkt: ev3 len=3 slots=20 data=000102 payload=000102
+    TX pkt: dv len=3 slots=20 data=000102 payload=000102030405060708091e000102
 
 `hv3` and `ev3` go out with the same TYPE code in the packet header, which is
 what the two mean on a synchronous and on an enhanced synchronous link

@@ -178,9 +178,8 @@ the enhanced synchronous packets, which carry a CRC and a length that is agreed 
 \fB<hex>\fR is the data bytes, as an even number of hex digits of exactly \fB<length>\fR bytes\. Without it the data is a counted pattern, \fB00 01 02 \|\.\|\.\|\. ff\fR and over again\. Either way the line \fBtx\fR prints on standard output is what went on the air: \fBdata=\fR is the data bytes, and \fBpayload=\fR the whole payload, which adds the voice field where the format has one and the payload header where it has one\. The board adds the CRC, which is in neither:
 .IP "" 4
 .nf
-TX pkt: ev3 len=17 slots=20 data=000102\|\.\|\.\|\.10 payload=000102\|\.\|\.\|\.10
-TX pkt: dv len=9 slots=20 data=000102030405060708 \e
-    payload=c0c6c4c2d0d6d4d2e0e64e000102030405060708
+TX pkt: ev3 len=3 slots=20 data=000102 payload=000102
+TX pkt: dv len=3 slots=20 data=000102 payload=000102030405060708091e000102
 .fi
 .IP "" 0
 .P
