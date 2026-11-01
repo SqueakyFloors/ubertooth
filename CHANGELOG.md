@@ -2400,15 +2400,13 @@
 
 - `ubertooth-btle(1)`, the tool's `-h` text, and the capture guide say that
   promiscuous mode, `-p`, recovers connections that hop with channel selection
-  algorithm 1. It measures the connection interval from spacings between the
-  connection's visits to one channel that repeat only under algorithm 1, and
-  the hop increment only algorithm 1 has at all, so on an algorithm-2
-  connection -- what Bluetooth 5.0 devices normally use -- `-p` reports an
-  access address and a CRC init value and goes no further. Capture such a
-  connection from its setup with `-f`, which hops with either algorithm. The
-  capture guide and the concepts chapter no longer say Ubertooth implements
-  algorithm 1 only, which stopped being true of follow mode when it learned
-  algorithm 2.
+  algorithm 1: on an algorithm-2 connection, which is what Bluetooth 5.0
+  devices normally use, it reports an access address and a CRC init value and
+  goes no further, and such a connection is captured from its setup with `-f`.
+  The man page also says which channel `-p` listens on at each stage, where it
+  used to name only the one the board was tuned to, and the capture guide and
+  the concepts chapter no longer say Ubertooth implements algorithm 1 only,
+  which stopped being true of follow mode when it learned algorithm 2.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
 - Renamed the Bluetooth connection roles from master/slave to

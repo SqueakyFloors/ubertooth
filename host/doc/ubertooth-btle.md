@@ -61,20 +61,21 @@ Promiscuous mode is an experimental mode for sniffing connections after
 they have already been established. This mode can be used to sniff
 long-lived connections.
 
-Promiscuous mode recovers connections that hop with algorithm 1 only. It
-starts from the connection interval, which it measures from the spacings
-between the connection's visits to the channel being listened on: under
-algorithm 1 those spacings repeat every 37 connection events, however many
-channels the connection's map leaves in use. Algorithm 2 takes each
-connection event's channel from the access address and the event counter
-instead, so the visits fall into no repeating pattern and no interval is
-settled on. The hop increment, which promiscuous mode measures next and
-which only algorithm 1 has, is therefore never reached. So on an
-algorithm-2 connection promiscuous mode gets as far as the access address
-and the CRC init value and stops there: it reports no hop interval and no
-hop increment, and captures only the packets that land on the channel it is
-sitting on. Bluetooth 5.0 devices normally use algorithm 2, so capture such
-a connection from its setup with `-f`, which hops with either algorithm.
+Promiscuous mode recovers connections that hop with algorithm 1 only. What
+it has to work out is where the connection goes next, and the first figure
+in that is the connection interval, measured from the spacings between the
+connection's visits to the channel being listened on: under algorithm 1 the
+pattern of those spacings repeats every 37 connection events, however many
+channels the connection's map leaves in use. Algorithm 2 picks each
+connection event's channel from the access address, the event counter, and
+the channel map, so its visits do not repeat on that cycle and no interval
+is reported. The hop increment, which promiscuous mode measures next and
+which only algorithm 1 has at all, is never reached. So on an algorithm-2
+connection promiscuous mode gets as far as the access address and the CRC
+init value and stops there, capturing only the packets that land on the
+channel it is sitting on. Bluetooth 5.0 devices normally use algorithm 2,
+so capture such a connection from its setup with `-f`, which hops with
+either algorithm.
 
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
@@ -198,11 +199,16 @@ Major modes:
    Bluetooth 5.0 devices normally use, is not recovered: use `-f` and capture
    it from its setup instead. See DESCRIPTION.
 
-   It sets no channel of its own: it listens on the one the board is holding,
-   2441 MHz unless `ubertooth-util -c` left it on another frequency. It
-   discovers the access address of a connection on that channel, unless an
+   It sets no channel of its own, except that an odd frequency becomes 2440
+   MHz: the odd frequencies are not BLE data channels, and the board's default
+   is 2441 MHz, so a board nobody has tuned listens on 2440. It discovers the
+   access address of a connection on the channel it starts on, unless an
    earlier `ubertooth-btle -a <address>` command gave the board one to follow;
-   nothing else makes it skip discovery, and `-t` is refused with it. As it
+   nothing else makes it skip discovery, and `-t` is refused with it. A run
+   that discovered its own address then works the rest of the connection out
+   on 2440 MHz whatever `ubertooth-util -c` asked for, because finishing the
+   discovery leaves the board on 2441; a run handed an address stays on the
+   channel it was tuned to. As it
    works a connection out it reports each parameter it has recovered: the
    access address, the CRC init value, the hop interval, and the hop increment.
    Those lines go to standard output, or to standard error once `-q -` or

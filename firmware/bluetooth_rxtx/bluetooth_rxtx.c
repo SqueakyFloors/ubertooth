@@ -3503,12 +3503,13 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 
 /* Works the hop increment out from how long the connection takes to get from
  * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
- * 1 has an increment to find, and this runs only once the interval
- * measurement before it has settled, which on a connection hopping with
- * algorithm 2 it never does: that algorithm takes each event's channel from
- * the access address and the event counter, so the connection's visits to one
- * channel fall into no repeating pattern. Such a connection is captured from
- * its setup instead, by follow mode, which reads the algorithm out of the
+ * 1 has an increment to find. This stage is also reached only after the
+ * interval measurement before it has settled, and on a connection hopping
+ * with algorithm 2 that does not happen: algorithm 2 picks each event's
+ * channel from the access address, the event counter, and the channel map, so
+ * the connection's visits to one channel do not repeat on the 37-event cycle
+ * the interval estimator looks for. Such a connection is captured from its
+ * setup instead, by follow mode, which reads the algorithm out of the
  * advertising and connect packets. */
 void promisc_recover_hop_increment(u8 *packet) {
 	/* The interval the span below is divided by. The estimator hands over

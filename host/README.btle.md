@@ -205,14 +205,14 @@ At this point, we have all four values needed to follow a connection,
 and we enter connection following mode as though we observed the initial
 connect packet.
 
-Both of the last two values are algorithm-1 values: a hop amount exists
-only under channel selection algorithm 1, and the interval above comes out
-of spacings that repeat only under algorithm 1 as well. Algorithm 2 works
-each connection event's channel out from the access address and the event
-counter, so neither can be recovered from such a connection and this
-method stops after the CRC init. Connection following handles both
-algorithms, because the advertising and connect packets say which one the
-connection chose.
+The last two values are recovered this way only under channel selection
+algorithm 1. Algorithm 2 picks each connection event's channel from the
+access address, the event counter, and the connection's channel map, so the
+connection does not come back to one channel on the 37-event cycle the
+arithmetic above rests on, and it has no hop amount at all. Promiscuous
+mode therefore stops after the CRC init on such a connection. Connection
+following handles both algorithms, because the advertising and connect
+packets say which one the connection chose.
 
 
 BUGS

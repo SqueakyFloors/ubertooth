@@ -456,17 +456,18 @@ nRF52840 DKs) plus one Ubertooth.*
       capture's packets carry
 - [ ] Confirm: the packets of that connection which land on the channel the
       board is holding are recorded whole, 251-byte payloads included
-- [ ] Confirm: on endpoints that hop with channel selection algorithm 1, the
-      hop interval is the connection's own, within a 1.25 ms unit of what the
-      peer says it negotiated, and the same complete payloads arrive once the
-      capture is following. The interval is worked out from several returns to
-      one channel in a row, so allow ten seconds or more after the CRC init
-      value. A figure that disagrees with the peer's is a failure.
-- [ ] Confirm: on endpoints that hop with algorithm 2, which is what the
-      nRF52840 DKs negotiate, the run reports the access address and the CRC
+- [ ] Confirm: with the nRF52840 DKs as the endpoints, which negotiate channel
+      selection algorithm 2, the run reports the access address and the CRC
       init value and then no interval and no increment, and never follows.
       That is the documented limit of `-p`, not a failure of this step; see
       ubertooth-btle(1).
+- [ ] Confirm, only with endpoints that hop with algorithm 1, which the DKs
+      cannot be made to do: the hop interval is the connection's own, within a
+      1.25 ms unit of what the peer says it negotiated, and the same complete
+      payloads arrive once the capture is following. The interval is worked
+      out from several returns to one channel in a row, so allow ten seconds
+      or more after the CRC init value. A figure that disagrees with the
+      peer's is a failure.
 
 ### 3d. Promiscuous mode finds its own access address
 
