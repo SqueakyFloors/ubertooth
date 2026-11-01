@@ -625,7 +625,16 @@ $(BINDIR)/test_bl_version: test_bl_version.c minunit.h source_scan.h \
 		$(FW_COMMON)/sections.ld $(FW_BOOT)/Makefile \
 		$(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
-	$(CC) $(CFLAGS) -Istubs-fwinfo -I$(FW_COMMON) $(CPPFLAGS) \
+# The stub is force-included rather than only put on the include path. A
+# quoted #include is resolved against the including file's own directory
+# first, and a firmware build leaves a generated version.h in ../bootloader,
+# so bl_version.c would take that one and the test would compare the block
+# against the stub's revision instead of the one it was built with. Including
+# the stub first means its include guard is already defined, so the generated
+# header expands to nothing. Both headers use the same guard; the bootloader's
+# Makefile writes the generated one.
+	$(CC) $(CFLAGS) -include stubs-fwinfo/version.h -Istubs-fwinfo \
+		-I$(FW_COMMON) $(CPPFLAGS) \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
