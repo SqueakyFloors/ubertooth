@@ -1137,11 +1137,12 @@ int main(int argc, char* argv[])
 				btbb_init_piconet(boards[i].pn, lap);
 				if (have_uap) {
 					btbb_piconet_set_uap(boards[i].pn, uap);
-					/* Kept for the callback, which states it
-					 * again when a clock is given up: the
-					 * library drops the UAP with the clock,
-					 * and this one came from the user rather
-					 * than from the air. One board, one
+					/* Kept for the callback, which puts it
+					 * back whenever the library stops
+					 * holding it: this UAP came from the
+					 * user rather than from the air, so it
+					 * is not one of the things a failed
+					 * decode casts doubt on. One board, one
 					 * piconet, so it is kept per board; a
 					 * replay has opened none. */
 					if (boards[i].ut != NULL) {
