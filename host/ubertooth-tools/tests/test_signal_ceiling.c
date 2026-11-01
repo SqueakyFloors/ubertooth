@@ -294,6 +294,11 @@ MU_TEST(blocks_do_not_add_up)
 	said = capture_end();
 
 	mu_assert(warnings_in(said) == 0, "four blocks short of the threshold warned");
+	/* And nothing counted either: the total is the one thing a warning said
+	 * once cannot show, so a block counted without a warning would slip past
+	 * the check above. */
+	mu_assert(ubertooth_signal_ceiling_blocks(ut) == 0,
+	          "four blocks short of the threshold counted one");
 }
 
 /* The raw reading the rule turns on: the one below the ceiling is an ordinary
@@ -399,6 +404,43 @@ MU_TEST(keep_alives_are_left_out)
 	mu_assert(warnings_in(said) == 1, "the keep-alives were counted as quiet");
 }
 
+/* Only a Basic Rate record is a sample of the air. Every other type is either
+ * the trace of a packet that decoded, which an ordinary close link puts at the
+ * ceiling all day, or carries no reading of its own -- and a dump holds
+ * whatever records were captured, so a replay hands this routine any of them
+ * whichever tool wrote the file. */
+MU_TEST(only_air_samples_are_judged)
+{
+	static const uint8_t other_types[] = {
+		LE_PACKET, MESSAGE, SPECAN, LE_PROMISC, EGO_PACKET,
+		LE_PACKET_START, LE_PACKET_CONT, KEEP_ALIVE,
+	};
+	ubertooth_t* ut = fresh();
+	usb_pkt_rx rx;
+	const char* said;
+	unsigned t, i;
+
+	capture_start();
+	for (t = 0; t < sizeof(other_types); t++) {
+		signal_record(&rx, PINNED_RAW);
+		rx.pkt_type = other_types[t];
+		for (i = 0; i < BLOCK_RECORDS * 2; i++)
+			ubertooth_watch_signal_level(ut, &rx);
+	}
+	said = capture_end();
+
+	mu_assert(warnings_in(said) == 0, "a record that is not an air sample was judged");
+	mu_assert(ubertooth_signal_ceiling_blocks(ut) == 0,
+	          "a record that is not an air sample counted a block");
+
+	/* And a real block afterwards still reports, so the records above were
+	 * skipped rather than counted as quiet. */
+	capture_start();
+	hand_over(ut, PINNED_RAW, BLOCK_RECORDS);
+	said = capture_end();
+	mu_assert(warnings_in(said) == 1, "the other types were counted as quiet");
+}
+
 /* Neither argument is trusted, as the loss counting beside it does not trust
  * them: a tool that lost its handle must not take a second fault here. */
 MU_TEST(nothing_is_trusted)
@@ -422,6 +464,7 @@ int main(void)
 	MU_RUN(records_without_a_figure_are_left_out);
 	MU_RUN(continuation_records_are_left_out);
 	MU_RUN(keep_alives_are_left_out);
+	MU_RUN(only_air_samples_are_judged);
 	MU_RUN(nothing_is_trusted);
 	return mu_report();
 }

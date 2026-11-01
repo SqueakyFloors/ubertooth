@@ -20,6 +20,7 @@ What the bench read at 2441 MHz, on two lab boards, 2026-11-01:
 """
 
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -36,9 +37,10 @@ RUN_TIMEOUT_S = 60
 WARNING = "warning: the signal is at the top of the receiver's range"
 TOTAL = ("warning: the capture has %d stretch%s where the signal was at "
          "the top of the receiver's range")
-# Any form of the total line, for the cases that must print none at all:
-# the singular is "1 stretch where", which "stretches" would not match.
-ANY_TOTAL = "stretch where the signal was at the top"
+# Either form of the total line, for the cases that must print none at all:
+# the singular is "1 stretch where" and the plural "2 stretches where", so
+# neither spelling on its own catches both.
+ANY_TOTAL = re.compile(r"the capture has \d+ stretch(es)? where")
 
 # What the measurement above gives the fixtures: the raw reading a pinned
 # receiver sat at, the quiet channel's median, and its 26 records in 19937.
@@ -52,6 +54,20 @@ WORKING_LINK_RAW = 16
 
 
 KEEP_ALIVE = 3
+# The other record types a dump can hold. ubertooth-rx -i replays a dump
+# written by any tool, so a low-energy capture's records reach this tool's
+# callback: they state a signal figure, but one belonging to a packet that
+# decoded rather than to a block of air, and judging them would warn about a
+# capture that was working.
+LE_PACKET = 1
+MESSAGE = 2
+SPECAN = 4
+LE_PROMISC = 5
+EGO_PACKET = 6
+LE_PACKET_START = 7
+LE_PACKET_CONT = 8
+FOREIGN_TYPES = (LE_PACKET, MESSAGE, SPECAN, LE_PROMISC, EGO_PACKET,
+                 LE_PACKET_START, LE_PACKET_CONT)
 
 
 def record(host_time, clk100ns, rssi_avg, pkt_type=BR_PACKET):
@@ -99,7 +115,7 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "quiet.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
-    assert ANY_TOTAL not in result.stderr, result
+    assert not ANY_TOTAL.search(result.stderr), result
 
     # The link that works, at the transmit power that drives it hardest.
     (work / "working.bin").write_bytes(dump([WORKING_LINK_RAW] * QUIET_RECORDS))
@@ -133,7 +149,7 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "short.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
-    assert ANY_TOTAL not in result.stderr, result
+    assert not ANY_TOTAL.search(result.stderr), result
 
     # Exactly one block: the total says "1 stretch", not "1 stretches".
     (work / "one.bin").write_bytes(dump([PINNED_RAW] * 1000))
@@ -141,6 +157,19 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert result.stderr.count(WARNING) == 1, result
     assert TOTAL % (1, "") in result.stderr, result
+
+    # A record that is not a sample of the air is not judged, whichever tool
+    # wrote the dump and however loud its signal figure.
+    base = int(time.time()) - 3600
+    for pkt_type in FOREIGN_TYPES:
+        (work / "foreign.bin").write_bytes(b"".join(
+            record(base, CLK100NS_STEP * (i + 1), PINNED_RAW, pkt_type)
+            for i in range(QUIET_RECORDS)
+        ))
+        result = run("-i", "foreign.bin", directory=work)
+        assert result.returncode == 0, (pkt_type, result)
+        assert WARNING not in result.stderr, (pkt_type, result)
+        assert not ANY_TOTAL.search(result.stderr), (pkt_type, result)
 
     # Keep-alives say nothing about the air. One is a single byte on the wire,
     # so a record of one holds whatever the record before it left in the

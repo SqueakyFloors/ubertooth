@@ -166,8 +166,9 @@ loud packet is not reported. When the dump ends it says how many such
 stretches there were: `warning: the capture has 3 stretches where the signal
 was at the top of the receiver's range`.
 
-With `-c` or `-l` the board sends a record for every block of air, so the
-warning arrives whether or not anything is decoding. With `-g` it depends on
+With `-c` or `-l`, which is every run that does not ask for `-g`, the board
+sends a record for every block of air, so the warning arrives whether or not
+anything is decoding. With `-g` it depends on
 the configuration in the radio, as the receive itself does: left with GRMDM's
 packet-mode bit clear the board reads a stream of symbols and reports this as
 `-c` does, while with the bit set it waits on a sync word and takes no

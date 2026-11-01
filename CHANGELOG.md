@@ -4,23 +4,14 @@
 
 ### New features
 
-- A capture says when its receiver is being driven harder than it can measure,
-  once per run: `warning: the signal is at the top of the receiver's range, so
-  the board cannot measure it and may not demodulate it; the boards may be too
-  close together, or the transmit power too high`. Beyond that point the radio
-  is also past where it demodulates reliably, so this is the case where a
-  capture reads nothing, or packets with bits wrong, and the board is not at
-  fault: two Ubertooths a few centimeters apart do it at every transmit power
-  level, 0 included. It takes a receiver held there, not one loud packet.
-  `ubertooth-rx`, `ubertooth-dump` (`-c`, `-l`, and `-g` where the radio is
-  left reading a symbol stream), `ubertooth-scan`, `ubertooth-afh` and
-  `ubertooth-follow` report it even while they decode nothing, because the
-  board sends them a record for every block of air. `ubertooth-btle` does not:
-  its records exist only for packets that decoded, so run `ubertooth-rx` on
-  the same channel instead. When the capture ends it says how many such
-  stretches there were, so one bad stretch reads differently from a capture
-  that was deaf throughout. ubertooth(7), OUTPUT AND DIAGNOSTICS says what
-  each tool can and cannot see this way.
+- A capture whose receiver is being driven harder than the radio can measure
+  says so instead of looking like a capture of an empty channel: `warning: the
+  signal is at the top of the receiver's range, so the board cannot measure it
+  and may not demodulate it; the boards may be too close together, or the
+  transmit power too high`, once per run, with a total of such stretches when
+  the capture ends. Two Ubertooths a few centimeters apart do it at every
+  transmit power level, 0 included. ubertooth(7), OUTPUT AND DIAGNOSTICS says
+  which captures can see it.
   [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
 
 - The board's generic radio mode is reachable from the command line, as an

@@ -559,7 +559,8 @@ of records rather than one.
 Only the captures whose records are samples of the air report it, and that is
 the point rather than a limitation. The Basic Rate stream sends a record for
 every block of air it collects, packet or no packet, so `ubertooth-rx`,
-`ubertooth-dump -c` and `-l`, `ubertooth-scan`, `ubertooth-afh` and
+`ubertooth-dump` with `-c` or `-l` (which is every run that does not ask for
+`-g`), `ubertooth-scan`, `ubertooth-afh` and
 `ubertooth-follow` notice a receiver that is pinned even while they decode
 nothing at all -- which is the case worth knowing about, since that is what a
 deafened receiver looks like.

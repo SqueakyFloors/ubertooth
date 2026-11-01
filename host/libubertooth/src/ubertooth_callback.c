@@ -801,22 +801,29 @@ void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx)
 	if (ut == NULL || rx == NULL)
 		return;
 
-	/* Two kinds of record state nothing about how loud the air was, and the
-	 * flag below cannot be trusted to exclude them, so they are named. The
-	 * same two the loss counting above names, for the same reasons.
+	/* Only a Basic Rate record, which is the one kind that is a sample of
+	 * the air: the board sends one for every block of symbols it collects,
+	 * whether or not a packet was in it, which is what makes "nearly every
+	 * record at the top of the range" mean a receiver hearing nothing it can
+	 * read. Both engines that take readings this way -- the Basic Rate
+	 * stream and the generic receive's symbol path -- send this type.
 	 *
-	 * A keep-alive is one byte on the wire -- the record's type and nothing
-	 * else -- so its every other field holds whatever the record before it
-	 * left in the buffer: the flag, and a signal figure that belonged to a
-	 * different moment. They are what a quiet capture gets instead of
-	 * packets, so a capture that went quiet after a loud stretch would
-	 * otherwise be judged on that stretch's reading over and over.
+	 * Every other type is either not a sample of the air or not a sample at
+	 * all, so a positive test rather than a list of exclusions: a low-energy
+	 * record exists because a packet decoded, so a run of them at the top of
+	 * the range is an ordinary close link; a keep-alive is one byte on the
+	 * wire, so its every other field holds whatever the record before it
+	 * left in the buffer; a continuation record repeats the readings of the
+	 * record that started its packet; and a promiscuous state change, a
+	 * spectrum analyzer sweep and an E-GO packet carry no signal figure of
+	 * their own.
 	 *
-	 * The continuation records of a long low-energy packet repeat the
-	 * readings of the record that started the packet, flag included, so
-	 * counting them would weigh one packet by how many records it took.
+	 * It matters on a replay as well as live. A dump holds whatever records
+	 * were captured, and ubertooth-rx -i will replay one written by any tool,
+	 * so the type has to be checked here rather than left to which callback
+	 * is running.
 	 */
-	if (rx->pkt_type == KEEP_ALIVE || rx->pkt_type == LE_PACKET_CONT)
+	if (rx->pkt_type != BR_PACKET)
 		return;
 
 	/* And only a record that states the power of what it holds. A record
