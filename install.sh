@@ -317,7 +317,8 @@ case "$(uname -s)" in
 	Darwin)
 		command -v brew >/dev/null 2>&1 || \
 			die "on macOS this script needs Homebrew (https://brew.sh); see REQUIREMENTS.md"
-		# Homebrew does not install Python here; apt does on Debian/Ubuntu.
+		# Homebrew does not install Python here; the Linux package
+		# managers do.
 		# An uninstall builds nothing and runs no Python, so it does not care.
 		if [ "$UNINSTALL" -eq 0 ]; then
 			command -v python3 >/dev/null 2>&1 || \
@@ -420,8 +421,9 @@ drop_record() { # <record file>
 # Take away what an earlier run installed into PREFIX, and nothing else: the
 # record that run wrote is the only list used, so a file this script never
 # installed is not named there and cannot be removed here. Nothing else it
-# touched is a file of ours to take back: the apt and Homebrew packages, the
-# Python packages, and a venv the user named with --venv, all stay.
+# touched is a file of ours to take back: the distribution and Homebrew
+# packages, the Python packages, and a venv the user named with --venv, all
+# stay.
 #
 # Running it twice is a no-op rather than an error, the way "rm -f" is: the
 # state asked for has been reached either way, so only a file that is still
