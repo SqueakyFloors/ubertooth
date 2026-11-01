@@ -1400,10 +1400,12 @@ static int br_clock_gone;
 static int br_searching;
 static uint64_t br_search_start_ms;
 
-/* Whether a clock of this piconet's has been confirmed at any point in this
- * run. It ends the reading above for the rest of the run: a search running
- * again after a clock was given up is not one that never confirmed one, so a
- * caller must not be told the search cannot confirm a clock here. */
+/* Whether the library has accepted a clock at any point in this run, whether
+ * or not it turned out to be the piconet's. It ends the reading above for the
+ * rest of the run: a search running again after a clock was accepted and lost
+ * is not one that never got that far, and a caller must not be told that the
+ * search cannot confirm a clock in a run where it did. That a clock was wrong
+ * is reported where it is lost. */
 static int br_clock_confirmed;
 
 static uint64_t monotonic_ms(void)

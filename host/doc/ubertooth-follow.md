@@ -45,9 +45,12 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
 
 Requires BlueZ (Linux only). The clock and AFH-map reads this tool is built
 around are not reachable from macOS's public Bluetooth APIs, so it is not
-built there and no macOS version is planned; `ubertooth-rx -l <LAP>` follows a
-piconet without an adapter, by recovering the clock from the air instead. See
-COMPATIBILITY.md for the comparison.
+built there and no macOS version is planned. `ubertooth-rx -l <LAP>` recovers
+the addresses and the clock from the air without an adapter, but its clock
+search does not confirm a clock against a piconet that uses adapted hopping,
+which current controllers do: see ubertooth-rx(1), THE CLOCK SEARCH AND
+ADAPTED HOPPING. Reading the clock through an adapter, as this tool does, is
+not subject to that. See COMPATIBILITY.md for the comparison.
 
 ## OPTIONS
 

@@ -48,10 +48,9 @@ static void usage(FILE *file)
 	fprintf(file, "\t              - if not specified use Ubertooth for live capture\n");
 	fprintf(file, "\n");
 	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
-	fprintf(file, "piconet that uses adapted hopping (AFH), which current controllers do even\n");
-	fprintf(file, "when every channel is allowed, so following such a piconet does not start.\n");
-	fprintf(file, "The piconet's LAP and UAP, and the packets of it this board hears, are\n");
-	fprintf(file, "still recovered, decoded, and captured. See ubertooth-rx(1).\n");
+	fprintf(file, "piconet that uses adapted hopping (AFH), which current controllers do, so\n");
+	fprintf(file, "following such a piconet does not start. Its addresses and the packets of\n");
+	fprintf(file, "it this board hears still are. See ubertooth-rx(1).\n");
 	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
 	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
@@ -175,13 +174,16 @@ static int replay_read_a_record;
  * nothing a user sees separates a search that is getting somewhere from one
  * that is not going to finish. The tool says so once instead.
  *
- * Half a minute, which is long enough that a search which does reach a clock
- * has had its chance -- the quickest recovery measured on this project's bench
- * took 11 s -- and short enough that the user is told early in the run rather
- * than after the counts have scrolled by for minutes. Saying it too early
- * would be the worse mistake of the two, so the span is several times that
- * 11 s. Nothing acts on it: the search carries on exactly as before, and the
- * note only says what the run is going to reach. */
+ * Half a minute. A search that does reach a clock reaches it within a few
+ * seconds of settling CLK1-6, because every packet of the piconet rules out
+ * most of what is left, so half a minute is several times over what a working
+ * search needs and well short of the minute a working follow is given above.
+ * Saying it too early is the worse mistake of the two, which is what sets the
+ * span: a user told that a search is not going to finish will stop a run that
+ * was about to succeed.
+ *
+ * Nothing acts on it. The search carries on exactly as before and the note
+ * only says what the run is going to reach. */
 #define CLOCK_SEARCH_NOTE_MS 30000
 
 /* Says once what the clock search does not reach, for a run whose search has
@@ -195,14 +197,18 @@ static int clock_search_noted;
 
 static void rx_note_clock_search_limit(void)
 {
-	if (clock_search_noted ||
-	    ubertooth_clock_search_ms() < CLOCK_SEARCH_NOTE_MS)
+	long ms = ubertooth_clock_search_ms();
+
+	if (clock_search_noted || ms < CLOCK_SEARCH_NOTE_MS)
 		return;
 	clock_search_noted = 1;
-	fprintf(stderr, "note: the clock search has run for %d s without "
+	/* How long the search has really run, not the span that brought it
+	 * here: a run that reaches this late -- a replay reading its records
+	 * at the times they were recorded, say -- would otherwise report a
+	 * search of minutes as half a minute. */
+	fprintf(stderr, "note: the clock search has run for %ld s without "
 	        "confirming a clock; it does not confirm one against a piconet "
-	        "that uses adapted hopping (AFH)\n",
-	        CLOCK_SEARCH_NOTE_MS / 1000);
+	        "that uses adapted hopping (AFH)\n", ms / 1000);
 	fputs("note: the piconet's LAP and UAP, and the packets of it this "
 	      "board hears, are still recovered, decoded, and captured; see "
 	      "ubertooth-rx(1)\n", stderr);

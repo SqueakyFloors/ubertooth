@@ -251,7 +251,11 @@ piconet. It recovers LAPs from the air, calculates the UAP for a LAP, and
 lists piconets in survey mode (`-z`). It decodes and reports every packet of
 the piconet that lands on whichever channel the board is listening to, and
 writes those packets to a capture file (`-r`, `-q`, `-d`), so a piconet can be
-surveyed, counted, and its traffic captured channel by channel with `-c`.
+surveyed, counted, and its traffic captured channel by channel with `-c`. A
+fixed channel is a way of capturing, not a way round the search: the search
+rules candidates out by comparing the channel it predicts with the channel a
+packet arrived on, and on one channel there is nothing in that comparison to
+separate one candidate from another, so a `-c` run reaches a clock no sooner.
 ubertooth-afh(1) recovers the channel map of a piconet whose LAP and UAP are
 known. Where a clock is what is wanted, two routes do not depend on this
 search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a

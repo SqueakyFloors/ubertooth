@@ -1963,20 +1963,25 @@ MU_TEST(a_run_with_no_search_running_says_nothing)
 
 /* A replay of a recorded capture says it too: the search runs over those
  * records for as long as it did live, and the reader of a capture file is owed
- * the same answer as the user of a board. */
+ * the same answer as the user of a board. The span it reports is the one the
+ * search has really had, not the half minute that brought it here, which a
+ * replay is where the two come apart. */
 MU_TEST(a_replay_whose_search_does_not_confirm_a_clock_says_so)
 {
 	struct run_result r;
 
 	reset_device();
 	device.replay_records = 4;
-	device.block_ms = 10000;
-	device.clock_search_ms = CLOCK_SEARCH_NOTE_MS;
+	device.clock_search_ms = 300000;
 
 	r = RUN_RX("-i", "/dev/null", "-l", "112233", "-u", "22");
 
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, lines_like(r.err, SEARCH_NOTE));
+	mu_assert_int_eq(1, lines_like(r.err, SEARCH_NOTE_REACH));
+	mu_assert(strstr(r.err, "the clock search has run for 300 s without "
+	                        "confirming a clock") != NULL,
+	          "the note did not report the span the search has had");
+	mu_assert_int_eq(0, lines_like(r.err, SEARCH_NOTE));
 }
 
 int main(void)
