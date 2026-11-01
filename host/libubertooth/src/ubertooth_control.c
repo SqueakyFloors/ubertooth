@@ -1446,7 +1446,6 @@ int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
 	 * request. */
 	uint8_t request[sizeof(generic_tx_packet)];
 	const size_t header_len = offsetof(generic_tx_packet, data);
-	int r;
 
 	if (data_len > GENERIC_TX_MAX_PAYLOAD) {
 		fprintf(stderr, "error: a generic packet carries at most %u bytes"
@@ -1470,13 +1469,8 @@ int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
 	if (data_len > 0)
 		memcpy(request + header_len, data, data_len);
 
-	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_TX_GENERIC_PACKET,
-			0, 0, request, (uint16_t)(header_len + data_len), 1000);
-	if (r < 0) {
-		report_request_failed(r, UBERTOOTH_TX_GENERIC_PACKET);
-		return r;
-	}
-	return 0;
+	return ubertooth_cmd_sync(devh, CTRL_OUT, UBERTOOTH_TX_GENERIC_PACKET,
+	                         request, (uint16_t)(header_len + data_len));
 }
 
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address)

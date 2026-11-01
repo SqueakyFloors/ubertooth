@@ -115,8 +115,14 @@ static int transmit_generic(ubertooth_t* ut, uint32_t syncword, int channel,
 			break;
 		if (cmd_tx_generic_packet(ut->devh, syncword, (uint16_t)channel,
 		                          (uint8_t)pa_level, payload,
-		                          payload_len) < 0)
+		                          payload_len) < 0) {
+			/* How far the run got. libubertooth has named the
+			 * refused request; without this the user cannot tell
+			 * one packet sent from ninety-nine. */
+			fprintf(stderr, "error: the board took %d of %d"
+			        " packets\n", i, count);
 			return -1;
+		}
 	}
 	return 0;
 }

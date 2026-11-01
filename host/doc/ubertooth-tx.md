@@ -37,7 +37,13 @@ Do not rely on it to retransmit a capture.
    digits; required with `-g`. The whole of it is written out, because the
    radio sends all four bytes.
  - `-c <2402-2480>` :
-   the channel the generic packet goes out on, in MHz (default: 2402).
+   the channel the generic packet goes out on, in MHz (default: 2402). That
+   range is the Bluetooth band, which is what every tool here tunes, and it is
+   narrower than the radio: the synthesizer reaches 2268 to 2794 MHz and the
+   board will take any of it, so a receiving board can be set outside the band
+   with `ubertooth-debug -w %fsdiv=`. Transmitting outside the band is a
+   question about what you are licensed to radiate rather than about the
+   radio, so this option does not offer it.
  - `-n <count>` :
    transmit the generic packet this many times, 1 or more (default: 1).
  - `-l <LAP>` :
@@ -182,7 +188,9 @@ too, with the packets not yet handed over not sent.
 1 as well when the board refuses a request the transmit needs: the power level
 a generic packet carries, or a generic packet itself, or the Bluetooth address
 the dump retransmit sends. libubertooth reports the refusal and says which
-request it was.
+request it was. A `-n` run that fails part-way also says how far it got, so a
+reader can tell one packet sent from ninety-nine:
+`error: the board took 7 of 100 packets`.
 
 1 as well when the board refuses the request that ends the dump retransmit: it
 is left sending, and no other tool can open it until it is reset or

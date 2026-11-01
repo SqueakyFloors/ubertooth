@@ -104,16 +104,16 @@ static unsigned build_request(uint8_t length, unsigned payload)
 static int tx_generic_request(unsigned data_in_len)
 {
 	uint8_t i;
-	uint16_t channel;
+	uint16_t tx_channel;
 
 	if (data_in_len < TX_GENERIC_HEADER_LEN)
 		return 0;
 	i = request[offsetof(generic_tx_packet, length)];
 	if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
 		return 0;
-	channel = request[offsetof(generic_tx_packet, channel)]
-	        | ((uint16_t)request[offsetof(generic_tx_packet, channel) + 1] << 8);
-	if (channel < MIN_FREQ || channel > MAX_FREQ)
+	tx_channel = request[offsetof(generic_tx_packet, channel)]
+	           | ((uint16_t)request[offsetof(generic_tx_packet, channel) + 1] << 8);
+	if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
 		return 0;
 	memcpy(&globals.pkt, request, TX_GENERIC_HEADER_LEN + i);
 	return 1;
@@ -532,10 +532,11 @@ static int scan_source(const char *path, struct scan *s)
 				s->copy = lineno;
 		}
 
-		/* The channel refusal. `reg_val` is the handler's own local, so
-		 * this cannot match UBERTOOTH_SET_CHANNEL's check of the same
-		 * two bounds. */
-		if (strstr(flat, "reg_val < MIN_FREQ || reg_val > MAX_FREQ") != NULL)
+		/* The channel refusal. The handler reads the request's channel
+		 * into a local of its own, so this cannot match
+		 * UBERTOOTH_SET_CHANNEL's check of the same two bounds. */
+		if (strstr(flat, "tx_channel < MIN_FREQ || tx_channel > MAX_FREQ")
+		    != NULL)
 			s->channel_check = lineno;
 
 		if (strstr(flat, "len = MIN(tx_pkt.length, DMA_SIZE)") != NULL)

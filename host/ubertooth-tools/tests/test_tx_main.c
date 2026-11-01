@@ -517,7 +517,9 @@ MU_TEST(a_refused_generic_request_exits_one)
 	mu_assert_int_eq(0, fake.generic_packets);
 	mu_assert_int_eq(1, fake.frees);
 
-	/* And a transmit the board refuses part-way stops there. */
+	/* And a transmit the board refuses part-way stops there, saying how far
+	 * it got: the fake board refuses the first packet, so none were taken.
+	 * ubertooth-tx(1), EXIT STATUS quotes this line. */
 	reset();
 	fake.connect_rc = 0;
 	fake.generic_rc = -1;
@@ -526,6 +528,8 @@ MU_TEST(a_refused_generic_request_exits_one)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert_int_eq(1, fake.generic_packets);
 	mu_assert_int_eq(1, fake.frees);
+	mu_assert(strcmp(r.err, "error: the board took 0 of 4 packets\n") == 0,
+	          r.err);
 }
 
 /* Ctrl-C between packets ends the run: the rest are not sent, and an

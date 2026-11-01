@@ -752,6 +752,11 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	size_t length; // string length
 	usb_pkt_rx* p = NULL;
 	uint16_t reg_val;
+	/* The channel a generic transmit asks for, which is a frequency and not
+	 * a register value, so it does not share reg_val above. Named apart
+	 * from the global `channel` the receives tune, which it must not
+	 * shadow. */
+	uint16_t tx_channel;
 	uint8_t i;
 	int32_t drift_ppm;
 
@@ -1373,9 +1378,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * would wait out its lock timeout and send nothing, and leave
 		 * that frequency in the register for whatever ran next.
 		 */
-		reg_val = data[offsetof(generic_tx_packet, channel)]
-		        | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
-		if (reg_val < MIN_FREQ || reg_val > MAX_FREQ)
+		tx_channel = data[offsetof(generic_tx_packet, channel)]
+		           | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
+		if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
 			return 0;
 		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
 		requested_mode = MODE_TX_GENERIC;
