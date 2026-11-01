@@ -806,7 +806,12 @@ cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 # at the front of the run path, which needs the configure step repeated where
 # that changes the path, because a run path is written into the tools as they
 # are linked.
-UBERTOOTH_LIBDIR="$(sed -n 's/^CMAKE_INSTALL_LIBDIR:PATH=//p' \
+#
+# UBERTOOTH_INSTALL_LIBDIR is the build's own answer, written to its cache for
+# this: it is CMAKE_INSTALL_LIBDIR, or what LIB_SUFFIX asked for instead. The
+# entry's type is not matched, because a value this script did not pass is in
+# the cache as UNINITIALIZED rather than as the type the build declares.
+UBERTOOTH_LIBDIR="$(sed -n 's/^UBERTOOTH_INSTALL_LIBDIR:[^=]*=//p' \
 	"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
 case "$UBERTOOTH_LIBDIR" in
 	'')

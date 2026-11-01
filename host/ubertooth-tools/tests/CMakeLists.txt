@@ -308,8 +308,10 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 			# for what the install wrote.
 			"${UBERTOOTH_INSTALL_LIBDIR}"
 			# The library's own source tree, for the builds the test
-			# configures in the other layouts.
-			${CMAKE_SOURCE_DIR})
+			# configures in the other layouts. The project's own
+			# directory rather than CMAKE_SOURCE_DIR, which would be
+			# the root of a superproject that had added this tree.
+			${ubertooth_all_SOURCE_DIR})
 	# Two installs of three small components and one compile for this
 	# build, then one more build of the library alone and the same installs
 	# again for each of the three other layouts: about twenty seconds on an

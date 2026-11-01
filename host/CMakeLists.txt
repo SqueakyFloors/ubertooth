@@ -105,6 +105,13 @@ if(DEFINED LIB_SUFFIX AND NOT "${LIB_SUFFIX}" STREQUAL "")
 	endif()
 endif()
 
+# Written to the cache as well, because this, rather than CMAKE_INSTALL_LIBDIR,
+# is the directory the library goes to, and install.sh reads it back out to
+# give the installed tools a run path that holds it. INTERNAL implies FORCE,
+# so a build command that changes either setting is followed.
+set(UBERTOOTH_INSTALL_LIBDIR "${UBERTOOTH_INSTALL_LIBDIR}" CACHE INTERNAL
+	"The directory libubertooth is installed to, under the prefix")
+
 # The library's directory as it will be on disk: one given as an absolute path
 # is installed to exactly that, wherever the prefix is.
 set(UBERTOOTH_FULL_LIBDIR "${UBERTOOTH_INSTALL_LIBDIR}")

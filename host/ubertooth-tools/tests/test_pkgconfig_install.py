@@ -232,7 +232,14 @@ def build_library(build_dir, cache_entries, forwarded):
 
 work = tempfile.mkdtemp(prefix="libubertooth-pkgconfig.")
 try:
-    check_install("own-layout", work, BUILD_DIR, LIBDIR)
+    # An absolute library directory is installed to exactly that, so this
+    # build's own install cannot be put in a prefix of the test's own. The
+    # layouts below cover the directories a system asks for.
+    if os.path.isabs(LIBDIR):
+        print("note: this build installs the library to %s, an absolute "
+              "directory, so only the layouts below are installed" % LIBDIR)
+    else:
+        check_install("own-layout", work, BUILD_DIR, LIBDIR)
 
     forwarded = forwarded_cache_arguments()
     build_dir = os.path.join(work, "build")

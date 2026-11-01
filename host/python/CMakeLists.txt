@@ -22,9 +22,8 @@ project(ubertooth-python)
 include(GNUInstallDirs)
 
 # The same default and the same older name as the C tools use, declared here
-# as well because this directory is also configured on its own: the wrappers
-# below go beside those tools, and with nothing declaring it they would be
-# installed to the prefix itself.
+# as well because this directory is also configured on its own, where nothing
+# else declares it and the wrappers below would go to the prefix itself.
 set(INSTALL_DEFAULT_BINDIR "${CMAKE_INSTALL_BINDIR}" CACHE STRING
 	"Bin install path, relative to CMAKE_INSTALL_PREFIX")
 
