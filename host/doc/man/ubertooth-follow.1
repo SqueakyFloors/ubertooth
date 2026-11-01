@@ -61,7 +61,7 @@ enable AFH (adaptive frequency hopping); experimental, and needs \fB\-t\fR\. See
 local Bluetooth device to use (default: hci0)\.
 .TP
 \fB\-w <timeslots>\fR
-USB delay in 625us timeslots (default: 5)\.
+USB delay in 625us timeslots (default: 5)\. See THE CLOCK THE BOARD HOPS ON below\.
 .TP
 \fB\-h\fR
 show help\.
@@ -95,6 +95,21 @@ a mode byte that is neither off nor on is refused and printed\.
 .IP "" 0
 .P
 Nothing is set on the Ubertooth until the map has been accepted, so a refused \fB\-a\fR leaves the board alone, and the connection the tool made to the target is dropped on the way out\.
+.SH "THE CLOCK THE BOARD HOPS ON"
+A piconet's hopping sequence is driven by its clock, so following one means putting the board on that clock\. The tool works it out in three reads, taken one after another just before the board is told to hop: the local Bluetooth device's clock, how far the target's clock is from it, and the board's own clock\. The board is given the difference between the target's clock and its own, which is what it adds to the clock it is already running\.
+.P
+The board's clock is left alone\. Earlier releases zeroed it instead and sent the target's clock as it stood, which came to the same thing while the board was idle: the firmware holds its clock at zero and its timer stopped whenever no capture is running\.
+.P
+The run that did not fit is a follow of a board an earlier run left streaming, which happens whenever a capture is killed rather than interrupted\. The clock is running on such a board, and then:
+.IP "\(bu" 4
+the follow hopped as far past the target's clock as its own setup had taken, so a slow machine, a busy USB bus or a capture file that took a moment to create each cost accuracy;
+.IP "\(bu" 4
+the reset moved the clock the records already queued on the board were stamped with, which put the timestamps of the capture out by hours\.
+.IP "" 0
+.P
+Neither now happens\. A follow also no longer resets the clock a later run on the same board reads\.
+.P
+\fB\-w\fR compensates the time between measuring the clocks and the board acting on them: the default is five 625us timeslots, added to the offset\. Raise it if a follow finds nothing on a machine slower than the one the default suits\.
 .SH "EXAMPLES"
 Follow a target whose address you know, writing a PCAP:
 .IP "" 4
@@ -160,17 +175,17 @@ A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubert
 .P
 A page to the target that fails exits 1 as well, before any board is opened: the page is what yields the target's clock offset, and a follow of a named target without it would hop on the local device's clock instead\. A follow keyed on \fB\-l\fR and \fB\-u\fR pages a guessed \fB00:00:<UAP>:<LAP>\fR, so that line also asks for the whole address with \fB\-t\fR (see AFH above)\.
 .P
-A board that refuses the target's address or the clock reset exits 1 before the capture starts, with the request named on standard error\. Following anyway would mean a board that is not set up for the piconet: without the target's address it matches no packet, and with its clock never zeroed it hops on a clock the offset was not measured from\.
+A board that refuses the target's address, or will not report its own clock, exits 1 before it is told to hop, with the request named on standard error\. Following anyway would mean a board that is not set up for the piconet: without the target's address it matches no packet, and without its own clock there is no difference to hop by (see THE CLOCK THE BOARD HOPS ON above)\.
 .P
 Standard output stays empty in that case, and standard error names the request, why the board refused it and the libusb code, adding a note where there is something to try:
 .IP "" 4
 .nf
-error: could not zero the board's clock: the board did not answer in time (libusb \-7)
+error: could not read the board's clock: the board did not answer in time (libusb \-7)
 note: if a mode is running, stop it with ubertooth\-util \-S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power\-cycle its hub port if it stays silent
 .fi
 .IP "" 0
 .P
-That pair is the report, the same one ubertooth\-rx(1) and ubertooth\-scan(1) give: the request named as \fBset the Bluetooth address\fR for the address, and as \fBzero the board's clock\fR for the clock reset\. A request the board's firmware has not got is stalled, which reads \fBerror: could not zero the board's clock: the board's firmware does not support it (stalled, libusb \-9)\fR, with a note naming the board's firmware API version and the one these tools need (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. A board that took only part of either write gives the counts instead, as \fBerror: Bluetooth address write failed: board took 8 of 16 bytes\fR or \fBerror: clock write failed: board took 2 of 4 bytes\fR, and the follow stops on that one line\.
+That pair is the report, the same one ubertooth\-rx(1) and ubertooth\-scan(1) give: the request named as \fBset the Bluetooth address\fR for the address, and as \fBread the board's clock\fR for the clock\. A request the board's firmware has not got is stalled, which reads \fBerror: could not read the board's clock: the board's firmware does not support it (stalled, libusb \-9)\fR, with a note naming the board's firmware API version and the one these tools need (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. A board that took only part of the address, or answered the clock read with fewer bytes than it was asked for, gives the counts instead, as \fBerror: Bluetooth address write failed: board took 8 of 16 bytes\fR or \fBerror: clock read failed: board returned 3 of 4 bytes\fR, and the follow stops on that one line\.
 .P
 A follow whose USB stream fails part\-way also exits 1: the board stopped answering, or dropped off the bus, so the capture stops there and holds only what arrived before it\. The failure is reported on standard error as it happens, as \fBerror: receive transfer failed: <reason>\fR\. A board that never hands the transfer back at all exits 1 too, reported by the \fBwarning:\fR line ubertooth(7) describes rather than that error\.
 .P

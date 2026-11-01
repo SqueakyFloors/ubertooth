@@ -864,25 +864,34 @@ int main(int argc, char *argv[])
 	}
 
 	/* The board's own clock, read here beside the clocks above so that the
-	 * two are measured as close together as the requests allow.
+	 * three are measured as close together as the requests allow.
 	 *
 	 * The board is told to hop by an offset which it adds to the clock it
 	 * is already running, so what it needs is the difference between the
-	 * piconet's clock and its own. This run used to send the difference
-	 * from zero instead, having zeroed CLKN a moment earlier, which cost
-	 * two things. Everything between the reset and the start of the hopping
-	 * -- the endpoint flush, the thread creation, both clock reads -- was
-	 * error in the followed clock, so how well a follow hopped depended on
-	 * how long its own setup took. And the reset moved the clock the board
-	 * stamps its records with, which put the timestamps of the capture
-	 * hours out, because a record sent before the reset and read after it
-	 * carries the period count from before: the host reads that count as a
-	 * difference from the previous record's, so 150 then 0 read as 106
-	 * periods gone by.
+	 * piconet's clock and its own. This run used to zero CLKN instead and
+	 * send the piconet's clock as it stood, which is the same thing only
+	 * while CLKN is not running.
 	 *
-	 * Reading it is also what -w compensates: the piconet's clock was read
-	 * one round trip ago and the board's is read now, so the delay covers
-	 * the time it takes to measure and apply them rather than the whole
+	 * It usually is not: the firmware holds CLKN at zero and stops its
+	 * timer whenever no capture mode is running, and nothing this tool does
+	 * before the request below starts one. The run that does not fit is a
+	 * follow of a board an earlier run left streaming, which this tool
+	 * expects often enough to have a comment of its own further down. CLKN
+	 * is running on such a board, and then the reset cost two things.
+	 * Everything between it and the start of the hopping -- the endpoint
+	 * flush, the thread creation, both reads above -- was error in the
+	 * followed clock, so a follow hopped as far past the piconet's clock as
+	 * its own setup had taken: measured on a board, 145 of the 312.5 us
+	 * ticks for a 20 ms setup and 771 for 200 ms, where one slot is two
+	 * ticks. And the reset moved the clock the board stamps its records
+	 * with, under records already queued on the board: the host reads each
+	 * record's period count as a difference from the previous record's, so
+	 * 150 then 0 read as 106 periods gone by and about 34,700 s was added
+	 * to every later timestamp.
+	 *
+	 * Reading the clock is also what -w compensates: the piconet's clock
+	 * was read a round trip ago and the board's is read now, so the delay
+	 * covers measuring the clocks and applying them rather than the whole
 	 * setup. */
 	r = cmd_read_clock_quiet(ut->devh, &board_clkn);
 	if (r < 0) {

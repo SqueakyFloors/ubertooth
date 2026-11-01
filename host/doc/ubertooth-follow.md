@@ -176,17 +176,22 @@ clock. The board is given the difference between the target's clock and its
 own, which is what it adds to the clock it is already running.
 
 The board's clock is left alone. Earlier releases zeroed it instead and sent
-the target's clock as it stood, which came to the same thing only for the
-instant after the reset. Two things follow from reading it:
+the target's clock as it stood, which came to the same thing while the board
+was idle: the firmware holds its clock at zero and its timer stopped whenever
+no capture is running.
 
- - how well a follow hops no longer depends on how long its own setup took.
-   Everything between the reset and the start of the hopping used to be error
-   in the followed clock, so a slow machine, a busy USB bus or a capture file
-   that took a moment to create each cost accuracy;
- - the timestamps of the capture are the board's own clock throughout. A run
-   that reset the clock mid-stream put them out by hours, and a run that
-   follows one of these keeps the clock the board has been counting since it
-   was plugged in rather than restarting near zero.
+The run that did not fit is a follow of a board an earlier run left streaming,
+which happens whenever a capture is killed rather than interrupted. The clock
+is running on such a board, and then:
+
+ - the follow hopped as far past the target's clock as its own setup had
+   taken, so a slow machine, a busy USB bus or a capture file that took a
+   moment to create each cost accuracy;
+ - the reset moved the clock the records already queued on the board were
+   stamped with, which put the timestamps of the capture out by hours.
+
+Neither now happens. A follow also no longer resets the clock a later run on
+the same board reads.
 
 `-w` compensates the time between measuring the clocks and the board acting on
 them: the default is five 625us timeslots, added to the offset. Raise it if a

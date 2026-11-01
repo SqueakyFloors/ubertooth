@@ -847,11 +847,14 @@
 
 - `ubertooth-follow` reads the board's clock and hops by the difference between
   the piconet's clock and that one, instead of zeroing the board's clock and
-  sending the piconet's as it stood. How well a follow hops no longer depends
-  on how long its own setup took — everything between the reset and the start
-  of the hopping used to be error in the followed clock — and a follow no
-  longer resets the clock its own capture timestamps are taken from, or the one
-  a later run on the same board reads.
+  sending the piconet's as it stood. The two came to the same thing on a board
+  that was idle, where the firmware holds the clock at zero; on a board an
+  earlier run had left streaming, where it is running, the follow used to hop
+  as far past the piconet's clock as its own setup had taken — 145 of the
+  312.5us ticks for a 20ms setup and 771 for 200ms, against two ticks to a
+  slot — and the reset moved the clock the queued records were stamped with,
+  which is what put capture timestamps hours out. Neither now happens, and a
+  follow no longer resets the clock a later run on the same board reads.
   [#507](https://github.com/SqueakyFloors/ubertooth/issues/507)
 
 - The three capture-loss warnings name the board that recorded the capture, so
