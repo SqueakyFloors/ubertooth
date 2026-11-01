@@ -72,7 +72,7 @@ static ubertooth_t* new_handle(void)
 
 	if (ut == NULL)
 		return NULL;
-	register_cleanup_handler(ut, 0);
+	ubertooth_catch_stop_signals();
 	return ut;
 }
 
@@ -417,6 +417,34 @@ MU_TEST(a_freed_handle_is_let_go_of)
 	release_handle(ut);
 }
 
+/* The deprecated register_cleanup_handler() still installs the same handlers
+ * its replacement does, which is what an outside program calling it in this
+ * release gets. The rest of this file calls the replacement, as the tools do;
+ * this one case keeps the superseded entry point covered until it is removed.
+ *
+ * The deprecation warning is switched off just here, so the call does not
+ * make the test build noisy while the rest of the build stays strict. */
+MU_TEST(the_deprecated_entry_point_installs_the_same_handlers)
+{
+	ubertooth_t* ut = ubertooth_init();
+
+	mu_assert_fatal(ut != NULL, "a handle");
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	register_cleanup_handler(ut, 0);
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+	mu_assert_int_eq(0, ubertooth_stopping(ut));
+	raise(SIGINT);
+	mu_assert_int_eq(1, ubertooth_stopping(ut));
+
+	release_handle(ut);
+}
+
 int main(void)
 {
 	MU_RUN(every_caught_signal_stops_the_run);
@@ -430,5 +458,6 @@ int main(void)
 	MU_RUN(a_replay_stops_when_the_user_asks);
 	MU_RUN(a_run_nothing_interrupted_keeps_going);
 	MU_RUN(a_freed_handle_is_let_go_of);
+	MU_RUN(the_deprecated_entry_point_installs_the_same_handlers);
 	return mu_report();
 }
