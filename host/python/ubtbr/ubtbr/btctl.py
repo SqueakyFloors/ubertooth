@@ -844,7 +844,14 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		lt_addr = reason>>5
 		reason &= 0x1f
 		if state == BTCTL_STATE_PAGE_SCAN:
-			log.info ("Page Scan state Ready")
+			# The board reports the scan a second time when a
+			# connection it came up on carried no packet and it went
+			# back to scanning, which it marks with a reason of its
+			# own so the two are not read as one scan starting twice.
+			if reason == BTCTL_REASON_SUCCESS:
+				log.info ("Page Scan state Ready")
+			else:
+				log.info("Page scan resumed")
 		elif state == BTCTL_STATE_CONNECTED:
 			if reason == BTCTL_REASON_SUCCESS:
 				self._ready = True
@@ -896,7 +903,13 @@ class BTCtlPagingCmd(BTCtlCmd):
 		lt_addr = reason>>5
 		reason &= 0x1f
 		if state == BTCTL_STATE_PAGE:
-			log.info("Paging started")
+			# As in BTCtlPageScanCmd above: a page train picked up
+			# again after a connection that carried no packet says so
+			# with a reason of its own.
+			if reason == BTCTL_REASON_SUCCESS:
+				log.info("Paging started")
+			else:
+				log.info("Paging resumed")
 		elif state == BTCTL_STATE_CONNECTED:
 			if reason == BTCTL_REASON_SUCCESS:
 				self._ready = True

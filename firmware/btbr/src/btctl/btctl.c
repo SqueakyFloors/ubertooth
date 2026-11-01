@@ -354,6 +354,12 @@ static inline int btctl_state_transition_valid(btctl_state_t cur, btctl_state_t 
 		return cur == BTCTL_STATE_PAGE
 			|| cur == BTCTL_STATE_PAGE_SCAN
 			|| cur == BTCTL_STATE_CONNECTED;
+	/* A connection that carried no packet goes back to the page or the page
+	 * scan it came from, which still has its own deadline left to run
+	 * (paging_state_resume(), page_scan_state_resume()). */
+	if (next == BTCTL_STATE_PAGE || next == BTCTL_STATE_PAGE_SCAN)
+		return cur == BTCTL_STATE_STANDBY
+			|| cur == BTCTL_STATE_CONNECTED;
 	/* Others states must come from standby */
 	return cur == BTCTL_STATE_STANDBY;
 }

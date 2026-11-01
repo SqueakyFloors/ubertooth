@@ -28,6 +28,7 @@
 #include <ubtbr/rx_task.h>
 #include <ubtbr/tx_task.h>
 #include <ubtbr/central_state.h>
+#include <ubtbr/paging_state.h>
 #include <ubtbr/btctl_intf.h>
 #include <ubtbr/hop.h>
 
@@ -43,6 +44,12 @@ extern btphy_t btphy;
 static struct {
 	uint32_t clkn_start;
 	uint32_t clkn_got_id2;
+	/* The paged device's address, which the page train's access code and
+	 * hop sequence are built from. Kept so the train can be picked up
+	 * again after a connection that retuned both to this board's own
+	 * address; see paging_state_resume(). */
+	uint32_t paged_lap;
+	uint8_t paged_uap;
 	bbhdr_t fhs_hdr;
 	uint8_t fhs_data[20];
 } paging_state;
@@ -200,6 +207,30 @@ static void paging_schedule(unsigned delay)
 	);
 }
 
+/* Pick the page train up again after a connection that carried no packet.
+ *
+ * The ID packet that answers a page message and the ID packet that
+ * acknowledges the page response are the same thing, a bare access code, so
+ * the pager cannot tell them apart: a board that is still page scanning
+ * answers the page response's access code the way it answers a page message,
+ * and that answer lands in the window this pager waits for the
+ * acknowledgment in. The connection then has nobody on the other end, and
+ * link supervision ends it a second later.
+ *
+ * The page the user asked for still has most of its 45 seconds to run, so the
+ * train starts again instead of one stray answer ending the whole attempt.
+ * The deadline is the original one, so however many stray answers arrive, the
+ * command lasts no longer than a single page attempt. */
+void paging_state_resume(void)
+{
+	/* The connection tuned the radio and the hop sequence to this board's
+	 * own address; the page train needs the paged device's back. */
+	btphy_set_mode(BT_MODE_PAGING, paging_state.paged_lap,
+			paging_state.paged_uap);
+	btctl_set_state(BTCTL_STATE_PAGE, BTCTL_REASON_TIMEOUT);
+	paging_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
+}
+
 /* dummy tick handler to start TX'ing with a proper clock */
 static int paging_start_sync(uint8_t p1, uint8_t p2, uint16_t p3)
 {
@@ -227,6 +258,8 @@ void paging_state_setup(uint32_t lap, uint8_t uap)
 {
 	// Reset paging state
 	btphy_set_mode(BT_MODE_PAGING, lap, uap);
+	paging_state.paged_lap = lap;
+	paging_state.paged_uap = uap;
 
 	/* A simple Header for our fhs */ 
 	paging_state.fhs_hdr.lt_addr = 0;		//  This seems right

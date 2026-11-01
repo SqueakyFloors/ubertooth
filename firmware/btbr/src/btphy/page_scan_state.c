@@ -29,6 +29,7 @@
 #include <ubtbr/rx_task.h>
 #include <ubtbr/tx_task.h>
 #include <ubtbr/hop.h>
+#include <ubtbr/page_scan_state.h>
 #include <ubtbr/peripheral_state.h>
 
 #define PAGE_SCAN_MAX_TICKS (CLKN_RATE*60)
@@ -257,6 +258,24 @@ static void page_scan_schedule(unsigned delay)
 	 * answer that led nowhere leaves the response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
 	scan_task_schedule(delay, page_scan_rx_id_cb, NULL);
+}
+
+/* Go back to scanning after a connection that carried no packet.
+ *
+ * This board decoded the page response and acknowledged it, but the central
+ * did not hear that acknowledgment: it says so on its own console and keeps
+ * paging, while this end sits in a connection nobody is talking on until link
+ * supervision ends it a second later. The scan the user asked for still has
+ * most of its 60 seconds to run, and the central's next sweep is 20 ms away,
+ * so the scan starts again instead of one lost acknowledgment ending it. The
+ * deadline is the original one, so this cannot run longer than one scan. */
+void page_scan_state_resume(void)
+{
+	/* The connection tuned the radio and the hop sequence to the central's
+	 * address; a page scan listens on this board's own. */
+	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
+	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_TIMEOUT);
+	page_scan_schedule(0);
 }
 
 /*
