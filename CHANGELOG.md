@@ -835,6 +835,15 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-btbr`'s `l2ping` never reached its L2CAP packet when the
+  device it paged was another Ubertooth. The two boards connected and then sat
+  there, because each side sent `LMP_setup_complete` only on receiving one, so
+  neither sent the first and the link setup never finished. The central now
+  sends its own as soon as its connection request is accepted, and a board in
+  `page_scan` answers an L2CAP echo request, so `l2ping` between two boards
+  reports a round trip.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
   the user asked for unused. A pager cannot tell the ID packet that
