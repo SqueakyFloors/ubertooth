@@ -117,7 +117,7 @@ ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
 .fi
 .IP "" 0
 .SH "A FOLLOW FROM START TO FINISH"
-What a run looks like, from not knowing the target to a capture file\. It needs a Linux machine with a working local Bluetooth device, an Ubertooth carrying \fBbluetooth_rxtx\fR, and a piconet that is carrying traffic throughout: a phone streaming audio to a headset will do\. A piconet that goes quiet stops giving the decoder anything to recover a clock from\.
+What a run looks like, from not knowing the target to a capture file\. It needs a Linux machine with a working local Bluetooth device, an Ubertooth carrying \fBbluetooth_rxtx\fR, and a piconet that is carrying traffic throughout: a phone streaming audio to a headset will do\. A piconet that goes quiet leaves nothing to capture\.
 .IP "1." 4
 Check the local Bluetooth device is there and up\. With none, \fBubertooth\-follow\fR stops before it opens the board, naming the device it looked for\. \fBhciconfig hci0 up\fR brings one up\.
 .IP "2." 4
@@ -189,7 +189,7 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 .SH "CAPTURING TO STANDARD OUTPUT"
 \fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw symbols, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the per\-packet report is not printed; the packets themselves are in the capture\.
 .P
-What the tool is following, the clock the decoder recovers, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
+What the tool is following, the clock it was given for the piconet, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
 .P
 Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-follow \-q \- >> capture\.pcap\fR loses what the file held\.
 .P

@@ -183,8 +183,8 @@ above). Use `-t` for a real target:
 What a run looks like, from not knowing the target to a capture file. It needs
 a Linux machine with a working local Bluetooth device, an Ubertooth carrying
 `bluetooth_rxtx`, and a piconet that is carrying traffic throughout: a phone
-streaming audio to a headset will do. A piconet that goes quiet stops giving
-the decoder anything to recover a clock from.
+streaming audio to a headset will do. A piconet that goes quiet leaves nothing
+to capture.
 
 1. Check the local Bluetooth device is there and up. With none,
    `ubertooth-follow` stops before it opens the board, naming the device it
@@ -319,8 +319,8 @@ for a pipe into another program. Either way the capture owns standard output
 for the whole run, so the per-packet report is not printed; the packets
 themselves are in the capture.
 
-What the tool is following, the clock the decoder recovers, the notes and the
-failures are on standard error and still arrive, and so is the `AFH map:`
+What the tool is following, the clock it was given for the piconet, the notes
+and the failures are on standard error and still arrive, and so is the `AFH map:`
 line of `-a`, which is the answer to that option.
 
 Redirect standard output to a new file or a pipe, not to one being appended
