@@ -748,10 +748,21 @@ static inline int ubertooth_bl_update_payload_check(const uint8_t *payload,
 		*version = (uint16_t)(block[UBERTOOTH_BL_VERSION_OFF_VERSION] |
 			(block[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] << 8));
 
-	/* The two words the processor loads first: a word-aligned stack pointer
-	 * in RAM, and a Thumb reset vector inside the bootloader's own region.
-	 * Erased flash and zeros both fail it. The entry point has only an upper
-	 * bound, because the region starts at address 0. */
+	/*
+	 * The two words the processor loads first: a word-aligned stack pointer
+	 * in RAM, and a Thumb reset vector inside the bootloader's own region,
+	 * above the records at the bottom of it. Erased flash and zeros both
+	 * fail it.
+	 *
+	 * The floor is the end of the version block, and it is not arbitrary: a
+	 * payload that gets this far carries a version block at
+	 * UBERTOOTH_BL_VERSION_OFFSET, checked just above, so no code of its own
+	 * can be there or below it. An entry inside the vector table or inside
+	 * the block is a reset vector no bootloader has, and the checksum this
+	 * code then fills in would make the boot ROM start it anyway -- into
+	 * table entries rather than instructions, on a board with no USB left to
+	 * recover it.
+	 */
 	stack_pointer = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8) |
 		((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
 	reset_vector = (uint32_t)payload[4] | ((uint32_t)payload[5] << 8) |
@@ -763,6 +774,9 @@ static inline int ubertooth_bl_update_payload_check(const uint8_t *payload,
 	if ((reset_vector & 1u) == 0)
 		return UBERTOOTH_BL_UPDATE_VECTORS;
 	entry = reset_vector & ~1u;
+	if (entry < UBERTOOTH_BOOTLOADER_REGION_START +
+	            UBERTOOTH_BL_VERSION_OFFSET + UBERTOOTH_BL_VERSION_LENGTH)
+		return UBERTOOTH_BL_UPDATE_VECTORS;
 	if (entry >= UBERTOOTH_BOOTLOADER_REGION_START +
 	             UBERTOOTH_BOOTLOADER_REGION_LENGTH)
 		return UBERTOOTH_BL_UPDATE_VECTORS;
