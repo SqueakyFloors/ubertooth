@@ -108,6 +108,10 @@ struct scan {
 static struct scan s;
 static const char *path = FW_RXTX_DIR "/bluetooth_rxtx.c";
 static const char *clock_path = FW_RXTX_DIR "/ubertooth_clock.h";
+/* le_gap_tolerance() and le_same_span() are arithmetic both of the mode's
+ * estimators need, so they live in bluetooth_le.c with the rest of the
+ * low-energy arithmetic rather than in the hardware file. */
+static const char *arith_path = FW_RXTX_DIR "/bluetooth_le.c";
 
 /*
  * Is this token a period-sized amount -- the named constant, or a literal of
@@ -252,9 +256,6 @@ static int scan_sources(struct scan *out)
 			if (sscanf(line, " #define LE_PROMISC_GAPS %d",
 			           &value) == 1)
 				out->gaps_kept = value;
-			if (strcmp(fn, "le_gap_tolerance") == 0 &&
-			    sscanf(line, " return (span >> %d)", &value) == 1)
-				out->tolerance_shift = value;
 		}
 
 		if (strcmp(fn, "bt_le_sync") == 0 &&
@@ -316,6 +317,30 @@ static int scan_sources(struct scan *out)
 			out->le_baseclk = value;
 	}
 	fclose(f);
+
+	/* le_gap_tolerance(): how far two readings of one span may be apart. */
+	f = fopen(arith_path, "r");
+	if (f == NULL)
+		return 0;
+	in_block = 0;
+	fn[0] = '\0';
+	while (fgets(line, sizeof(line), f) != NULL) {
+		int value;
+
+		strip_comments(line, &in_block);
+
+		/* Whose body this line is, as in the loop above. */
+		if (line[0] != '\0' && !isspace((unsigned char)line[0]) &&
+		    line[0] != '#' && line[0] != '}' &&
+		    strchr(line, ';') == NULL &&
+		    call_name(line, name, sizeof(name)))
+			snprintf(fn, sizeof(fn), "%s", name);
+
+		if (strcmp(fn, "le_gap_tolerance") == 0 &&
+		    sscanf(line, " return (span >> %d)", &value) == 1)
+			out->tolerance_shift = value;
+	}
+	fclose(f);
 	return 1;
 }
 
@@ -323,7 +348,7 @@ static int scan_sources(struct scan *out)
  * The estimator, modelled
  * ------------------------------------------------------------------------ */
 
-/* DIVIDE_ROUND(), from bluetooth_rxtx.c. */
+/* LE_DIVIDE_ROUND(), from bluetooth_le.h. */
 #define DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
 
 /* As many gaps as the estimator could ever keep. The number it does keep is
@@ -583,7 +608,7 @@ MU_TEST(test_the_sources_were_scanned)
 
 	snprintf(msg, sizeof(msg),
 	         "%s: le_gap_tolerance() does not shift the span, so the model "
-	         "below would allow a different spread", path);
+	         "below would allow a different spread", arith_path);
 	mu_assert(s.tolerance_shift > 0, msg);
 }
 
@@ -1132,7 +1157,8 @@ MU_TEST(test_a_missed_return_is_not_an_interval)
 int main(void)
 {
 	if (!scan_sources(&s)) {
-		printf("could not read %s or %s\n", path, clock_path);
+		printf("could not read %s, %s or %s\n", path, clock_path,
+		       arith_path);
 		return 1;
 	}
 

@@ -28,7 +28,26 @@ extern u8 le_hop_amount;
 
 u16 btle_next_hop(le_state_t *le)
 {
-	u16 phys = btle_channel_index_to_phys(le->channel_idx);
+	u16 phys;
+
+	if (le->chan_sel_2) {
+		/* Algorithm 2 asks for the channel of a given event rather than
+		 * stepping on from the last one, so a missed event costs the
+		 * follower nothing.
+		 *
+		 * The channel map is the unmapped sequence here: promiscuous
+		 * recovery never sees the connection's map, which is given out
+		 * at setup. On a connection using fewer than the 37 channels
+		 * that lands on the right channel for the events whose unmapped
+		 * channel is one the connection kept, and elsewhere for the
+		 * rest. */
+		le->channel_idx = le_csa2_unmapped_channel(le->event_counter,
+				le->access_address);
+		++le->event_counter;
+		return btle_channel_index_to_phys(le->channel_idx);
+	}
+
+	phys = btle_channel_index_to_phys(le->channel_idx);
 	le->channel_idx = (le->channel_idx + le->channel_increment) % 37;
 	return phys;
 }
@@ -372,10 +391,30 @@ static uint16_t le_csa2_prn_e(uint16_t event_counter, uint16_t channel_id) {
  * event counter and the access address alone: an event the follower never saw
  * costs it nothing, because there is no state to carry.
  */
+/* The channel identifier the algorithm gives an access address: its two
+ * halves exclusive-ored together. */
+static uint16_t le_csa2_channel_id(uint32_t access_address) {
+	return (uint16_t)(((access_address >> 16) & 0xffff) ^
+			(access_address & 0xffff));
+}
+
+/*
+ * The channel algorithm 2 picks for an event before the channel map has its
+ * say, which is also the channel of a connection whose map keeps all 37.
+ *
+ * It depends on the access address and the event counter alone. That is what
+ * lets promiscuous recovery search the event counter of a connection whose
+ * map it has never seen.
+ */
+uint8_t le_csa2_unmapped_channel(uint16_t event_counter,
+                                 uint32_t access_address) {
+	return (uint8_t)(le_csa2_prn_e(event_counter,
+			le_csa2_channel_id(access_address)) % 37);
+}
+
 uint8_t le_csa2_channel(uint16_t event_counter, uint32_t access_address,
                         le_channel_remapping_t *remapping) {
-	uint16_t channel_id = (uint16_t)(((access_address >> 16) & 0xffff) ^
-			(access_address & 0xffff));
+	uint16_t channel_id = le_csa2_channel_id(access_address);
 	uint16_t prn = le_csa2_prn_e(event_counter, channel_id);
 	uint8_t unmapped = (uint8_t)(prn % 37);
 
@@ -392,4 +431,265 @@ uint8_t le_csa2_channel(uint16_t event_counter, uint32_t access_address,
 	 * its place in the table from the whole pseudo-random number. */
 	return remapping->remapping_index[
 			(remapping->total_channels * (uint32_t)prn) >> 16];
+}
+
+/*
+ * How far two readings of one span may be apart and still count as the same
+ * span. The connection's own clock may be 500 ppm out and the board's clock
+ * adds to that, so allow about 0.2% of the span, plus half of the 1.25 ms a
+ * connection interval is counted in so that rounding alone never splits two
+ * readings of the same span.
+ *
+ * Both estimators in the promiscuous mode measure spans against a connection
+ * interval and need the same allowance.
+ */
+u32 le_gap_tolerance(u32 span) {
+	return (span >> 9) + LE_CONN_INTERVAL_TICKS / 2;
+}
+
+/* Are these two spans the same one, read twice? */
+int le_same_span(u32 a, u32 b) {
+	u32 shorter = a < b ? a : b;
+	u32 apart = a < b ? b - a : a - b;
+
+	return apart <= le_gap_tolerance(shorter);
+}
+
+/* How many of the gaps a candidate connection interval accounts for. Every
+ * gap between two sightings on one channel is a whole number of connection
+ * events, so it has to be a whole number of the interval. */
+static unsigned le_csa2_interval_score(const u32 *gap, unsigned gap_count,
+                                       u32 interval) {
+	u32 unit = interval * LE_CONN_INTERVAL_TICKS;
+	unsigned i, score = 0;
+
+	for (i = 0; i < gap_count; ++i) {
+		u32 events = LE_DIVIDE_ROUND(gap[i], unit);
+
+		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP)
+			continue;
+		if (le_same_span(gap[i], events * unit))
+			++score;
+	}
+
+	return score;
+}
+
+/*
+ * The connection interval the gaps say, in units of 1.25 ms, or 0 when they
+ * do not say one that can be believed.
+ *
+ * Any gap divided by the number of events it spans is a candidate, so trying
+ * every gap against every event count a gap may span offers the right answer
+ * among a few thousand. Each is then scored against all the gaps.
+ *
+ * Every whole fraction of the right interval divides the same gaps and scores
+ * the same, so a tie goes to the longest. A multiple of it does not divide
+ * them unless every gap happens to span a multiple of that many events, which
+ * two dozen gaps make very unlikely.
+ */
+uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
+	unsigned i, k;
+	unsigned best_score = 0;
+	u32 best = 0;
+
+	if (gap_count <= LE_CSA2_INTERVAL_MISSES)
+		return 0;
+
+	for (i = 0; i < gap_count; ++i) {
+		for (k = 1; k <= LE_CSA2_MAX_EVENT_GAP; ++k) {
+			u32 interval = LE_DIVIDE_ROUND(gap[i],
+					k * LE_CONN_INTERVAL_TICKS);
+			unsigned score;
+
+			if (interval < LE_MIN_CONN_INTERVAL ||
+					interval > LE_MAX_CONN_INTERVAL)
+				continue;
+
+			score = le_csa2_interval_score(gap, gap_count,
+					interval);
+			if (score > best_score ||
+					(score == best_score && interval > best)) {
+				best_score = score;
+				best = interval;
+			}
+		}
+	}
+
+	if (best_score + LE_CSA2_INTERVAL_MISSES < gap_count)
+		return 0;
+
+	return (uint16_t)best;
+}
+
+/*
+ * The event counters whose unmapped channel is the one being listened to, in
+ * ascending order, and where each 256-wide block of counters begins in that
+ * list. About one counter in 37 qualifies, 1771 of the 65536 on average, and
+ * that holds whatever channel map the connection uses, because the unmapped
+ * channel does not depend on the map. The list is long enough for a run six
+ * standard deviations above the average; a search that filled it would be
+ * working from a truncated list, and reports nothing instead.
+ *
+ * Together they are 4.5 KB, which is more than the main RAM bank has to spare
+ * next to the stack, so they live in the other bank.
+ */
+#define LE_CSA2_HITS_MAX 2048
+#define LE_CSA2_BUCKETS 256
+static AHB_SRAM uint16_t le_csa2_hit[LE_CSA2_HITS_MAX];
+static AHB_SRAM uint16_t le_csa2_bucket[LE_CSA2_BUCKETS + 1];
+static unsigned le_csa2_hit_count;
+
+/* Fill the list above for one channel and access address. Returns 0 if there
+ * were more counters than it holds. */
+static int le_csa2_build_hits(uint8_t channel_idx, u32 access_address) {
+	u32 counter;
+	unsigned bucket = 0;
+
+	le_csa2_hit_count = 0;
+	le_csa2_bucket[0] = 0;
+
+	for (counter = 0; counter < 65536; ++counter) {
+		while (bucket < (counter >> 8))
+			le_csa2_bucket[++bucket] = (uint16_t)le_csa2_hit_count;
+
+		if (le_csa2_unmapped_channel((uint16_t)counter,
+				access_address) != channel_idx)
+			continue;
+
+		if (le_csa2_hit_count == LE_CSA2_HITS_MAX)
+			return 0;
+		le_csa2_hit[le_csa2_hit_count++] = (uint16_t)counter;
+	}
+
+	while (bucket < LE_CSA2_BUCKETS)
+		le_csa2_bucket[++bucket] = (uint16_t)le_csa2_hit_count;
+
+	return 1;
+}
+
+/* Is this event counter one of them? The block index narrows it to the
+ * handful of entries that can match, which is what makes scoring tens of
+ * thousands of candidates affordable. */
+static int le_csa2_is_hit(uint16_t counter) {
+	unsigned i = le_csa2_bucket[counter >> 8];
+	unsigned end = le_csa2_bucket[(counter >> 8) + 1];
+
+	for (; i < end; ++i) {
+		if (le_csa2_hit[i] == counter)
+			return 1;
+		if (le_csa2_hit[i] > counter)
+			break;
+	}
+
+	return 0;
+}
+
+/* How many of the sightings a candidate counter accounts for. `back[j]` is
+ * how many events before the newest sighting the jth one was, so the
+ * candidate is the counter of the newest. Counters wrap at 16 bits and the
+ * subtraction wraps with them. */
+static unsigned le_csa2_counter_score(uint16_t counter, const uint16_t *back,
+                                      unsigned count) {
+	unsigned j, score = 0;
+
+	for (j = 0; j < count; ++j)
+		if (le_csa2_is_hit((uint16_t)(counter - back[j])))
+			++score;
+
+	return score;
+}
+
+int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
+                    u32 access_address, le_csa2_recovery_t *out) {
+	/* How many events before the newest sighting each sighting was, newest
+	 * first. */
+	uint16_t back[LE_CSA2_SIGHTINGS];
+	unsigned count = 1;
+	uint16_t interval;
+	u32 unit;
+	unsigned i, j, h;
+	unsigned best = 0, runner_up = 0;
+	uint16_t best_counter = 0;
+
+	memset(out, 0, sizeof(*out));
+
+	if (channel_idx >= LE_HOP_CHANNELS || gap_count + 1 < LE_CSA2_MIN_SCORE ||
+			gap_count + 1 > LE_CSA2_SIGHTINGS)
+		return 0;
+
+	interval = le_csa2_interval(gap, gap_count);
+	if (interval == 0)
+		return 0;
+	unit = (u32)interval * LE_CONN_INTERVAL_TICKS;
+
+	/* Turn the gaps into event offsets, working back from the newest
+	 * sighting. A gap the interval does not account for ends the run:
+	 * every offset beyond it is measured through it, so one such gap would
+	 * move them all. Working back from the newest keeps the sightings
+	 * nearest the hand-over, which is where the follow picks the
+	 * connection up. */
+	back[0] = 0;
+	for (i = gap_count; i-- > 0; ) {
+		u32 events = LE_DIVIDE_ROUND(gap[i], unit);
+
+		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP ||
+				!le_same_span(gap[i], events * unit))
+			break;
+		back[count] = (uint16_t)(back[count - 1] + events);
+		++count;
+	}
+
+	if (count < LE_CSA2_MIN_SCORE)
+		return 0;
+
+	if (!le_csa2_build_hits(channel_idx, access_address))
+		return 0;
+
+	/*
+	 * Each sighting in turn is taken as the one that was a direct visit --
+	 * a visit to the unmapped channel rather than one the map moved here
+	 * -- and every counter that would put that sighting on this channel is
+	 * scored against all of them. On a connection keeping all 37 channels
+	 * the first sighting tried is a direct visit and the answer comes out
+	 * of the first pass; on a connection using fewer, the pass that first
+	 * lands on a direct visit finds it.
+	 *
+	 * A pass whose winner clears both the score and the margin ends the
+	 * search. A counter that accounts for ten sightings or more is not a
+	 * coincidence, so there is nothing to gain by scoring the rest.
+	 */
+	for (j = 0; j < count; ++j) {
+		for (h = 0; h < le_csa2_hit_count; ++h) {
+			uint16_t counter = (uint16_t)(le_csa2_hit[h] + back[j]);
+			unsigned score;
+
+			if (counter == best_counter && best > 0)
+				continue;
+
+			score = le_csa2_counter_score(counter, back, count);
+			if (score > best) {
+				runner_up = best;
+				best = score;
+				best_counter = counter;
+			} else if (score > runner_up) {
+				runner_up = score;
+			}
+		}
+
+		if (best >= LE_CSA2_MIN_SCORE &&
+				best >= runner_up + LE_CSA2_MIN_MARGIN)
+			break;
+	}
+
+	out->sightings = (u8)count;
+	out->score = (u8)best;
+	out->runner_up = (u8)runner_up;
+
+	if (best < LE_CSA2_MIN_SCORE || best < runner_up + LE_CSA2_MIN_MARGIN)
+		return 0;
+
+	out->conn_interval = interval;
+	out->event_counter = best_counter;
+	return 1;
 }

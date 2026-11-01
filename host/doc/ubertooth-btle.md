@@ -82,21 +82,38 @@ Promiscuous mode is an experimental mode for sniffing connections after
 they have already been established. This mode can be used to sniff
 long-lived connections.
 
-Promiscuous mode recovers connections that hop with algorithm 1 only. What
-it has to work out is where the connection goes next, and the first figure
-in that is the connection interval, measured from the spacings between the
-connection's visits to the channel being listened on: under algorithm 1 the
-pattern of those spacings repeats every 37 connection events, however many
-channels the connection's map leaves in use. Algorithm 2 picks each
-connection event's channel from the access address, the event counter, and
-the channel map, so its visits do not repeat on that cycle and no interval
-is reported. The hop increment, which promiscuous mode measures next and
-which only algorithm 1 has at all, is never reached. So on an algorithm-2
-connection promiscuous mode gets as far as the access address and the CRC
-init value and stops there, capturing only the packets that land on the
-channel it is sitting on. Bluetooth 5.0 devices normally use algorithm 2,
-so capture such a connection from its setup with `-f`, which hops with
-either algorithm.
+Promiscuous mode takes connections hopping with either channel selection
+algorithm, by two different routes. What it has to work out is where the
+connection goes next, and it starts from the spacings between the
+connection's visits to the channel it is listening on.
+
+Under algorithm 1 the pattern of those spacings repeats every 37 connection
+events, however many channels the connection's map leaves in use, and that
+gives the connection interval; timing one hop then gives the hop increment,
+and the connection is followed from there.
+
+Algorithm 2 has no hop increment: it takes each event's channel from the
+access address, the 16-bit event counter, and the channel map. The access
+address is known by then, so what remains is the interval -- which still
+divides every spacing -- and the event counter. Promiscuous mode searches for
+them: for each candidate interval and counter it works out where the
+connection would have come to this channel, and takes the pair that accounts
+for what it actually heard. Bluetooth 5.0 devices normally use algorithm 2.
+
+That search starts once the algorithm-1 route has had its chance, after two
+dozen visits to the channel being listened on, which is a few seconds on a
+short connection interval and a minute or more on a long one. It needs no
+channel map, and it declines rather than answer on thin evidence, so a
+connection whose map keeps about half the channels may take two or three
+searches before it is recovered, and a few connections are never recovered
+at all.
+
+A connection recovered this way is followed without its channel map, because
+the map is given out when the connection is made and never repeated. The
+follow lands on the right channel for the events whose channel the map did
+not move, which is roughly as many as the map keeps out of the 37, so a
+capture of such a connection has gaps in it. Capturing from the setup with
+`-f` has the map and does not.
 
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
@@ -215,10 +232,12 @@ Major modes:
  - `-n` :
    No-follow mode: log advertising packets but don't follow connections
  - `-p` :
-   Promiscuous mode: sniff already-established connections that hop with
-   channel selection algorithm 1. An algorithm-2 connection, which is what
-   Bluetooth 5.0 devices normally use, is not recovered: use `-f` and capture
-   it from its setup instead. See DESCRIPTION.
+   Promiscuous mode: sniff already-established connections, hopping with
+   either channel selection algorithm. An algorithm-2 connection, which is
+   what Bluetooth 5.0 devices normally use, takes longer to recover and is
+   then followed without its channel map, so the capture has gaps in it:
+   where the connection can be caught as it is made, `-f` captures all of it.
+   See DESCRIPTION.
 
    It sets no channel of its own, except that an odd frequency becomes 2440
    MHz: the odd frequencies are not BLE data channels, and the board's default

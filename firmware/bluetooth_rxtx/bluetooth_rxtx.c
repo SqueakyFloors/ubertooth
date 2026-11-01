@@ -218,6 +218,19 @@ typedef struct _le_promisc_state_t {
 	/* The sighting on 2404 MHz that the hop increment is counted from,
 	 * which is the same kind of stamp and wants the same clearing. */
 	u32 first_ts;
+
+	/* The same gaps again, for the algorithm-2 search, which needs more of
+	 * them than the estimator above: a ring of its own rather than a
+	 * longer shared one, because the estimator's length is what bounds the
+	 * pattern it looks for.
+	 *
+	 * csa2_gap_count counts how many the ring holds, sightings counts how
+	 * many have arrived in this stage altogether, and csa2_tried is the
+	 * value of that count when the search last ran. */
+	u32 csa2_gap[LE_CSA2_SIGHTINGS - 1];
+	u8 csa2_gap_count;
+	u16 sightings;
+	u16 csa2_tried;
 } le_promisc_state_t;
 le_promisc_state_t le_promisc;
 #define AA_LIST_SIZE (int)(sizeof(le_promisc.active_aa) / sizeof(le_promisc_active_aa_t))
@@ -2843,6 +2856,8 @@ void reset_le() {
 
 	le.channel_idx = 0;
 	le.channel_increment = 0;
+	le.chan_sel_2 = 0;
+	le.event_counter = 0;
 
 	le.conn_epoch = 0;
 	le.interval_timer = 0;
@@ -3612,9 +3627,6 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 	enqueue(LE_PROMISC, (uint8_t*)buf);
 }
 
-// divide, rounding to the nearest integer: round up at 0.5.
-#define DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
-
 /* The longest gap that can be a trip round the channels: 37 channels at the
  * longest connection interval, 148 s. Anything longer is not this connection
  * coming back. */
@@ -3628,9 +3640,8 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
  * with algorithm 2 that does not happen: algorithm 2 picks each event's
  * channel from the access address, the event counter, and the channel map, so
  * the connection's visits to one channel do not repeat on the 37-event cycle
- * the interval estimator looks for. Such a connection is captured from its
- * setup instead, by follow mode, which reads the algorithm out of the
- * advertising and connect packets. */
+ * the interval estimator looks for. promisc_try_csa2() takes those
+ * connections, from the same sightings. */
 void promisc_recover_hop_increment(u8 *packet) {
 	/* The interval the span below is divided by. The estimator hands over
 	 * nothing outside the range a connection may use, but the division is
@@ -3656,7 +3667,7 @@ void promisc_recover_hop_increment(u8 *packet) {
 		if (second_ts < le_promisc.first_ts)
 			second_ts += CLK100NS_PERIOD; // handle rollover
 		// Number of channels hopped between previous and current timestamp.
-		u32 channels_hopped = DIVIDE_ROUND(second_ts - le_promisc.first_ts,
+		u32 channels_hopped = LE_DIVIDE_ROUND(second_ts - le_promisc.first_ts,
 										   le.conn_interval * LE_BASECLK);
 		/* At least one: the two sightings are a whole number of connection
 		 * events apart, and a span shorter than half an interval rounds to
@@ -3696,23 +3707,6 @@ void promisc_recover_hop_increment(u8 *packet) {
 		hop_direct_channel = 2404;
 		do_hop = 1;
 	}
-}
-
-/* How far two spans may be apart and still count as the same one. The
- * connection's own clock may be 500 ppm out and the board's clock adds to
- * that, so allow about 0.2% of the span, plus half of the 1.25 ms a
- * connection interval is counted in so that rounding alone never splits two
- * readings of the same span. */
-static u32 le_gap_tolerance(u32 span) {
-	return (span >> 9) + LE_BASECLK / 2;
-}
-
-/* Are these two spans the same one, read twice? */
-static int le_same_span(u32 a, u32 b) {
-	u32 shorter = a < b ? a : b;
-	u32 apart = a < b ? b - a : a - b;
-
-	return apart <= le_gap_tolerance(shorter);
 }
 
 /* Add a gap to the end of the ring, dropping the oldest. */
@@ -3778,7 +3772,7 @@ static u16 promisc_interval(void) {
 		if (total > LE_PROMISC_MAX_GAP || total < promisc_gap_back(0))
 			continue;
 
-		interval = DIVIDE_ROUND(total, LE_HOP_CHANNELS * LE_BASECLK);
+		interval = LE_DIVIDE_ROUND(total, LE_HOP_CHANNELS * LE_BASECLK);
 
 		/* Nothing outside the range a connection interval may take is
 		 * one. That rules out every pattern totalling less than the
@@ -3800,7 +3794,7 @@ static u16 promisc_interval(void) {
 		unit = interval * LE_BASECLK;
 		for (i = 0; i < period; ++i) {
 			u32 gap = promisc_gap_back(i);
-			u32 events = DIVIDE_ROUND(gap, unit);
+			u32 events = LE_DIVIDE_ROUND(gap, unit);
 
 			if (events < 1 || events > LE_HOP_CHANNELS)
 				return 0;
@@ -3812,6 +3806,92 @@ static u16 promisc_interval(void) {
 	}
 
 	return 0;
+}
+
+/* How many sightings the algorithm-1 stage above is given to itself before the
+ * algorithm-2 search starts as well. That stage settles within about a dozen
+ * sightings when there is a hop increment to find, and never settles when
+ * there is not, so waiting this long keeps the two out of each other's way. */
+#define LE_PROMISC_CSA2_AFTER 24
+
+/* How many new sightings between two algorithm-2 searches. One costs a couple
+ * of hundred milliseconds, which is time the board spends not listening, so a
+ * search that found nothing does not run again on the next packet. */
+#define LE_PROMISC_CSA2_EVERY 8
+
+/* Add a gap to the algorithm-2 ring, dropping the oldest. */
+static void promisc_csa2_note_gap(u32 gap) {
+	unsigned i;
+
+	if (le_promisc.csa2_gap_count < LE_CSA2_SIGHTINGS - 1) {
+		le_promisc.csa2_gap[le_promisc.csa2_gap_count++] = gap;
+		return;
+	}
+
+	for (i = 0; i + 1 < LE_CSA2_SIGHTINGS - 1; ++i)
+		le_promisc.csa2_gap[i] = le_promisc.csa2_gap[i + 1];
+	le_promisc.csa2_gap[LE_CSA2_SIGHTINGS - 2] = gap;
+}
+
+/*
+ * Search for a connection hopping with channel selection algorithm 2 in the
+ * sightings collected so far, and follow it if the search finds one. Returns
+ * whether it did.
+ *
+ * `sighting` is the capture clock at the packet that has just arrived, which
+ * is the event the search's answer belongs to. The search takes a couple of
+ * hundred milliseconds, so the clock is read again afterwards and the event
+ * counter carried forward over the events that went by in the meantime.
+ */
+static int promisc_try_csa2(u32 sighting) {
+	le_csa2_recovery_t rec;
+	u32 now, elapsed, unit, to_next_event;
+	u16 events_ahead;
+
+	if (!le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
+			btle_channel_index(channel), le.access_address, &rec))
+		return 0;
+
+	unit = (u32)rec.conn_interval * LE_BASECLK;
+
+	now = CLK100NS;
+	elapsed = now >= sighting ? now - sighting
+			: (CLK100NS_PERIOD - sighting) + now;
+	to_next_event = unit - elapsed % unit;
+
+	/* Hop to the channel of the next connection event, a little before it
+	 * starts: the receiver then sits on that channel for the whole event.
+	 * An event already this close is skipped, because the hop cannot be
+	 * scheduled finer than the 1.25 ms the interval timer counts in. */
+	events_ahead = 1;
+	if (to_next_event < LE_BASECLK) {
+		to_next_event += unit;
+		events_ahead = 2;
+	}
+
+	le.conn_interval = rec.conn_interval;
+	le.chan_sel_2 = 1;
+	le.event_counter = (u16)(rec.event_counter + elapsed / unit +
+			events_ahead);
+	/* The follow compares a connection update's instant against this, and
+	 * an instant is an event counter, so it starts from the same place and
+	 * the timer below keeps the two in step. */
+	le.conn_count = le.event_counter;
+	le.conn_epoch = clkn;
+	le.interval_timer = (u16)(to_next_event / LE_BASECLK);
+	do_hop = 0;
+	le.link_state = LINK_CONNECTED;
+	le.crc_verify = 0;
+	hop_mode = HOP_BTLE;
+	packet_cb = connection_follow_cb;
+
+	le_promisc_state(2, &le.conn_interval, 2);
+	le_promisc_state(4, &rec.event_counter, 2);
+
+	if (jam_mode != JAM_NONE)
+		le_jam_count = JAM_COUNT_DEFAULT;
+
+	return 1;
 }
 
 void promisc_recover_hop_interval(u8 *packet) {
@@ -3853,6 +3933,17 @@ void promisc_recover_hop_interval(u8 *packet) {
 		return;
 
 	promisc_note_gap(clk_diff);
+	promisc_csa2_note_gap(clk_diff);
+	++le_promisc.sightings;
+
+	if (le_promisc.sightings >= LE_PROMISC_CSA2_AFTER &&
+			(u16)(le_promisc.sightings - le_promisc.csa2_tried) >=
+					LE_PROMISC_CSA2_EVERY) {
+		le_promisc.csa2_tried = le_promisc.sightings;
+		if (promisc_try_csa2(cur_clk))
+			return;
+	}
+
 	obsv_hop_interval = promisc_interval();
 
 	if (obsv_hop_interval == 0) {

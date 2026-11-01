@@ -26,6 +26,19 @@
   clock is recovered against that board's own counter. ubertooth-rx(1),
   SEVERAL BOARDS AT ONCE says what is shared and what is not.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
+- `ubertooth-btle -p` recovers connections that hop with channel selection
+  algorithm 2, which is what Bluetooth 5.0 devices normally use. It used to
+  get as far as the access address and the CRC init value of such a connection
+  and stop, because algorithm 2 has no hop increment to measure. It now
+  searches the connection interval and the 16-bit event counter instead,
+  scoring each candidate against the visits it heard on the channel it is
+  listening to, and follows the connection once one pair clearly accounts for
+  them. It reports the counter it found as `Algorithm 2 event counter`.
+  The search needs no channel map, and the follow does not have one either, so
+  a connection using fewer than the 37 channels is captured with gaps where
+  the map moved an event to a channel the follow did not predict; `-f` still
+  captures the whole of a connection it can see being made.
+  [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
 - `ubertooth-util -w` counts one more wait that gave up: the short lead a
   packet is given to reach the radio's FIFO before the firmware reads it out.
