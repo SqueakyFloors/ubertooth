@@ -104,6 +104,8 @@ left click                  Set marker 1 (yellow) at the pointer
 right click                 Set marker 2 (magenta)
 middle click or ``m``       Show or hide the peak and average markers, and
                             clear the mouse markers
+``n``                       Label the axis and the markers with BLE channel
+                            numbers instead of MHz, or back again
 ``c``                       Clear the graph (also restarts the average)
 ``h``                       Show or hide the key help
 ``q``                       Quit
@@ -121,6 +123,20 @@ What the display shows
   green max-hold trace across the band, smoothed so it moves slowly.
 - **Yellow and magenta markers:** points marked with the left and right mouse
   buttons, with the frequency differences to the peak and to each other.
+
+MHz or BLE channels
+~~~~~~~~~~~~~~~~~~~
+
+The axis and the markers show MHz. Press ``n`` to show BLE channel numbers
+instead — the advertising channels 37, 38, and 39, and the data channels 0 to
+36 — and ``n`` again to go back to MHz.
+
+In channel mode the axis is marked on the channels themselves, so a line on
+the graph lines up with the number under it. A marker names the channel
+nearest the point it sits on, since the sweep steps 1 MHz where the channels
+are 2 MHz apart. The difference between two markers stays in MHz either way,
+written ``(+4 MHz)`` in channel mode. The margin either side of the band has
+no channel, so a point out there keeps its frequency.
 
 Troubleshooting ``ModuleNotFoundError: No module named 'specan'``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
