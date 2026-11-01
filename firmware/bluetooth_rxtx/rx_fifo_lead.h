@@ -14,10 +14,13 @@
 #define __UBERTOOTH_RX_FIFO_LEAD_H
 
 /*
- * One byte of a received packet on the air, in timer 0's 100 ns ticks. Both
- * modes receive at 1 Mbit/s, so a byte takes 8 us. That is the shortest byte
- * time the radio has, so the lead below is at least one byte at any rate --
- * see rx_generic_sync(), whose rate the host chooses.
+ * One byte of a received packet on the air, in timer 0's 100 ns ticks: 8 us,
+ * a byte at 1 Mbit/s.
+ *
+ * That is the fastest the radio sends, so it is the shortest byte time, and
+ * the lead below is at least one byte at any rate. The range test sets the
+ * modem up itself and is always at 1 Mbit/s; rx_generic_sync() takes whatever
+ * rate the host wrote, and its call site says what the slower one costs.
  */
 #define RX_FIFO_BYTE_100NS 80
 

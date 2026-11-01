@@ -38,8 +38,10 @@
   that one line rather than misreading it; flash the board to match.
 - The release's receive-only firmware names itself `bluetooth_rx` instead of
   `bluetooth_rxtx`, so `ubertooth-util -v` and ubertooth-dfu(1) tell a board
-  running it from one running the full image. Any build made with
-  `DISABLE_TX=1` reports the same name.
+  running it from one running the full image. A `DISABLE_TX=1` build from a
+  git checkout reports the same name; one from an unpacked source release
+  keeps the shipped version.h and so reports `bluetooth_rxtx`, which
+  firmware/README now says. Every host tool accepts either name.
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that

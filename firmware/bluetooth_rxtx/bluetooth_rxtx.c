@@ -730,9 +730,11 @@ static void keep_for_next_mode_start(uint8_t what)
  * ego_capture_reset() included, so the length the host stated a moment before
  * has to be put back there as well.
  *
- * Only this bit is cleared, so a jam mode kept for a mode start that has not
- * happened yet is left waiting for one, which is what the other absorbable
- * requests use drop_kept_settings() for.
+ * Only this bit is cleared. The other absorbable requests call
+ * drop_kept_settings(), which throws the whole copy away so it cannot reach a
+ * run the host has moved on from; the E-GO request does not, so a jam mode
+ * kept by a killed `ubertooth-btle -j` survives it and lands on whatever mode
+ * starts next. Nothing today sets both in one run.
  */
 static void apply_kept_cap_len(void)
 {

@@ -24,3 +24,17 @@ environment variable called DISABLE_TX.  For example:
 The resulting firmware will still be named bluetooth_rxtx.bin.dfu but will be
 receive only.  The build records the flags it compiled with, so turning
 DISABLE_TX on or off rebuilds the objects; make clean is not needed first.
+
+The board says which of the two it is running: this build calls itself
+bluetooth_rx in its firmware info block, so ubertooth-util -v and
+ubertooth-dfu name it that way, while the full build calls itself
+bluetooth_rxtx.  Every host tool accepts either, since this is the same
+firmware with its transmit half left out; a tool that transmits is refused by
+the firmware, which answers no transmit request at all.
+
+One exception, in a source release rather than a git checkout: the archive
+ships one version.h per image directory, written for the full build, and a
+build with no git history keeps the shipped header as it is.  So DISABLE_TX=1
+in an unpacked release reports bluetooth_rxtx.  Delete
+firmware/bluetooth_rxtx/version.h first if the name matters, which costs the
+release number in the revision string.

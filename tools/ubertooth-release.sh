@@ -160,7 +160,7 @@ make clean
 # is read out of the image's own Makefile rather than written again here,
 # because the version.h this ships is what a build with no git history uses
 # and the two must not drift apart.
-rx_only_name=$(sed -n 's/^IMAGE_NAME = //p' \
+rx_only_name=$(sed -n '/^ifdef DISABLE_TX$/,/^endif$/{s/^IMAGE_NAME = //p;}' \
 	"${targetdir}/firmware/bluetooth_rxtx/Makefile" | head -1)
 if test -z "${rx_only_name}" ; then
 	echo "error: no receive-only IMAGE_NAME in" \

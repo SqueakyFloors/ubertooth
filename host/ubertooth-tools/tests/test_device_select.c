@@ -605,6 +605,60 @@ MU_TEST(the_image_check_alone_ignores_the_firmware_version)
 	ubertooth_free(ut);
 }
 
+/*
+ * The receive-only build of this image is this image: a board running it is
+ * accepted, by the check on its own and through the version check that every
+ * other tool goes through.
+ *
+ * It is bluetooth_rxtx with its transmit half left out, so it answers every
+ * request these tools make, and it names itself bluetooth_rx so that a board
+ * running it can be told from one running the full image
+ * (firmware/bluetooth_rxtx/Makefile). Comparing the name against the full
+ * image's alone would refuse the release's receive-only image on every
+ * capture tool, which is the whole use of that image. A tool whose job is to
+ * transmit is refused by the firmware, which answers no transmit request.
+ */
+MU_TEST(the_receive_only_image_is_accepted)
+{
+	char msg[512];
+	ubertooth_t *ut;
+
+	bus_with_ubertooths(1);
+	fake.devs[1].image = "bluetooth_rx";
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(0, check_image_capturing(ut, msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
+	mu_assert_int_eq(0, fake.closes);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	/* And through ubertooth_check_api(), which is where every tool other
+	 * than ubertooth-debug meets this check. The version matches, so what
+	 * is left for the check to judge is the image. */
+	bus_with_ubertooths(1);
+	fake.devs[1].bcd = UBERTOOTH_API_VERSION;
+	fake.devs[1].image = "bluetooth_rx";
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(0, check_api_capturing(ut, msg, sizeof(msg)));
+	mu_assert(msg[0] == '\0', msg);
+	mu_assert_int_eq(0, fake.closes);
+	ubertooth_stop(ut);
+	ubertooth_free(ut);
+
+	/* A name that is neither is still refused, so this is not a check that
+	 * lets anything through. */
+	bus_with_ubertooths(1);
+	fake.devs[1].image = "bluetooth_r";
+	ut = select_capturing(NULL, msg, sizeof(msg));
+	mu_assert_fatal(ut != NULL, "the only device opens");
+	mu_assert_int_eq(-1, check_image_capturing(ut, msg, sizeof(msg)));
+	mu_assert(strstr(msg, "running bluetooth_r; this tool needs "
+	                 "bluetooth_rxtx") != NULL, msg);
+	ubertooth_free(ut);
+}
+
 MU_TEST(an_index_in_range_opens_that_device)
 {
 	char msg[256];
@@ -1785,6 +1839,7 @@ int main(void)
 	MU_RUN(a_board_running_the_other_image_is_refused_by_name);
 	MU_RUN(the_expected_image_and_an_unreadable_one_both_pass);
 	MU_RUN(the_image_check_alone_ignores_the_firmware_version);
+	MU_RUN(the_receive_only_image_is_accepted);
 	MU_RUN(an_index_in_range_opens_that_device);
 	MU_RUN(an_index_past_several_devices_opens_nothing);
 	MU_RUN(an_index_too_large_for_an_int_opens_nothing);

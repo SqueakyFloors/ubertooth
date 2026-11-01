@@ -69,6 +69,33 @@ SHIPPED_IMAGES="bluetooth_rxtx btbr"
 # a decision, not an oversight.
 BENCH_ONLY_IMAGES="assembly_test blinky cc2400_test clock_test usb_test"
 
+# What a file's info block may call itself, given the file's stem, as a
+# space-separated list; empty when the stem says nothing about the name, and
+# the block's name is then not checked.
+#
+# Normally the two are the same: each image is named after the directory it is
+# built in. The receive-only build of bluetooth_rxtx is the exception. It is
+# that target with its transmit half left out and names itself bluetooth_rx
+# (IMAGE_NAME under `ifdef DISABLE_TX` in firmware/bluetooth_rxtx/Makefile), so
+# that a board running it can be told from one running the full image, while
+# the file it builds is still bluetooth_rxtx.* and the release ships that file
+# as bluetooth_rx_only.*. So both stems may carry that name.
+image_names_for_stem() {
+    case "$1" in
+    bluetooth_rxtx)
+        echo "bluetooth_rxtx bluetooth_rx"
+        ;;
+    bluetooth_rx_only)
+        echo "bluetooth_rx"
+        ;;
+    *)
+        case " $SHIPPED_IMAGES $BENCH_ONLY_IMAGES " in
+        *" $1 "*) echo "$1" ;;
+        esac
+        ;;
+    esac
+}
+
 # Directories under firmware/ that build no Ubertooth image: shared sources,
 # the host tests, the bootloader, which carries no info block and goes on over
 # ISP or JTAG rather than through `ubertooth-dfu`, and tc13badge, which is code
@@ -201,24 +228,40 @@ check_image() {
     # baked in per image (FW_IMAGE_NAME in firmware/common.mk), so a build
     # that shared one object between images would get this wrong.
     #
-    # Only for a file still named after its build, which is every file --from
-    # finds and every file straight out of firmware/. `ubertooth-dfu` imposes
-    # no such rule, and the release procedure renames bluetooth_rxtx.dfu, so a
-    # published asset checked by hand must not fail for having been renamed.
+    # Only for a file whose stem says what the name should be, which is every
+    # file --from finds, every file straight out of firmware/, and the one name
+    # the release renames a file to. `ubertooth-dfu` imposes no such rule, so a
+    # published asset renamed to anything else must not fail for that.
     claimed=${found%% *}
     stem=$(basename "$path")
     stem=${stem%.*}
-    case " $SHIPPED_IMAGES $BENCH_ONLY_IMAGES " in
-    *" $stem "*)
-        if [ "$claimed" != "$stem" ]; then
+    allowed=$(image_names_for_stem "$stem")
+    if [ -n "$allowed" ]; then
+        matched=0
+        for name in $allowed; do
+            if [ "$claimed" = "$name" ]; then
+                matched=1
+                break
+            fi
+        done
+        if [ "$matched" -eq 0 ]; then
+            # The names on one line, so a reader sees what was found against
+            # what a file of this name may carry without reading a wrap.
+            quoted=""
+            for name in $allowed; do
+                if [ -z "$quoted" ]; then
+                    quoted="\"$name\""
+                else
+                    quoted="$quoted or \"$name\""
+                fi
+            done
             fail "$path: the info block in this image says it is" \
-                 "\"$claimed\", not \"$stem\". ubertooth-dfu would report" \
-                 "the wrong image and -r would verify against the wrong" \
-                 "build."
+                 "\"$claimed\", not $quoted." \
+                 "ubertooth-dfu would report the wrong image and -r would" \
+                 "verify against the wrong build."
             return 1
         fi
-        ;;
-    esac
+    fi
     printf '%s: %s\n' "$path" "${found#* }"
     return 0
 }

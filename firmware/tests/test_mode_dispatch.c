@@ -147,9 +147,13 @@ struct scan {
 	 * it belongs to, and the copy it keeps for the mode that is starting. */
 	int jam_case;
 	int jam_keep;
-	/* UBERTOOTH_RFCAT_SUBCMD: where it keeps a copy of the capture length
-	 * for the mode start that request comes before. */
+	/* UBERTOOTH_RFCAT_SUBCMD: its case, where it keeps a copy of the
+	 * capture length for the mode start that request comes before, and the
+	 * two halves of that copy. */
+	int rfcat_case;
 	int cap_len_keep;
+	int cap_len_saved;
+	int cap_len_applied;
 	/* program_stated_modulation(), which is what lets a modulation arrive
 	 * after the mode request: where it is defined, and where the capture
 	 * loop calls it. What it does there is the model's to check. */
@@ -305,7 +309,7 @@ static int scan_source(const char *path, struct scan *s)
 	int in_absorbed_fn = 0;
 	int in_stated_fn = 0;
 	int in_keep_fn = 0, in_kept_fn = 0;
-	char in_case = 0;   /* 'm' or 'j' inside the two settings' cases */
+	char in_case = 0;   /* 'm', 'j' or 'r' inside the three cases below */
 	char fn[64] = "", name[64];
 	struct request_case current;
 	const char *p;
@@ -348,7 +352,7 @@ static int scan_source(const char *path, struct scan *s)
 		 * asks for a mode, so the request_case machinery below does not
 		 * follow them.
 		 *
-		 * `in_case` is which of the two the lines below belong to, so a
+		 * `in_case` is which of them the lines below belong to, so a
 		 * keep call in some later case cannot stand in for a missing
 		 * one here. A `case` label or a `break;` ends it. */
 		/* The call sites, which pass the mode the request asks for; the
@@ -361,6 +365,9 @@ static int scan_source(const char *path, struct scan *s)
 		} else if (strstr(line, "case UBERTOOTH_JAM_MODE:") != NULL) {
 			s->jam_case = lineno;
 			in_case = 'j';
+		} else if (strstr(line, "case UBERTOOTH_RFCAT_SUBCMD:") != NULL) {
+			s->rfcat_case = lineno;
+			in_case = 'r';
 		} else if (strstr(line, "case ") != NULL ||
 		           strstr(line, "break;") != NULL) {
 			if (in_case == 'j' &&
@@ -380,9 +387,18 @@ static int scan_source(const char *path, struct scan *s)
 		if (in_case == 'j' && s->jam_keep == 0 &&
 		    strstr(line, "keep_for_next_mode_start(KEEP_JAM_MODE)") != NULL)
 			s->jam_keep = lineno;
-		if (s->cap_len_keep == 0 &&
+		if (in_case == 'r' && s->cap_len_keep == 0 &&
 		    strstr(line, "keep_for_next_mode_start(KEEP_CAP_LEN)") != NULL)
 			s->cap_len_keep = lineno;
+		/* The two halves of that copy: what keep_for_next_mode_start()
+		 * saves, and what apply_kept_settings() puts back. A keep bit
+		 * with one half missing is a length silently lost. */
+		if (s->cap_len_saved == 0 &&
+		    strstr(line, "keep_cap_len = packet_len") != NULL)
+			s->cap_len_saved = lineno;
+		if (s->cap_len_applied == 0 &&
+		    strstr(line, "packet_len = keep_cap_len") != NULL)
+			s->cap_len_applied = lineno;
 
 		/* program_stated_modulation(), and the capture loop's call to
 		 * it. The definition is the line that opens the function, so
@@ -1423,11 +1439,29 @@ MU_TEST(test_the_absorbed_ego_request_keeps_the_capture_length)
 	mu_assert(ego->kept_cap_len > ego->capture_reset, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: nothing calls keep_for_next_mode_start(KEEP_CAP_LEN), so "
-	         "no copy of the capture length is kept and `ubertooth-ego -l N` "
-	         "captures at the default whenever a mode start runs its reset",
-	         path);
+	         "%s: the scan found no `case UBERTOOTH_RFCAT_SUBCMD:`, so the "
+	         "check below would pass without reading anything", path);
+	mu_assert_fatal(s.rfcat_case > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the UBERTOOTH_RFCAT_SUBCMD case does not call "
+	         "keep_for_next_mode_start(KEEP_CAP_LEN), so no copy of the "
+	         "capture length is kept and `ubertooth-ego -l N` captures at "
+	         "the default whenever a mode start runs its reset", path);
 	mu_assert(s.cap_len_keep > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: keep_for_next_mode_start() does not save packet_len, so "
+	         "the bit is kept and the length behind it is not: the copy put "
+	         "back is whatever was in keep_cap_len before", path);
+	mu_assert(s.cap_len_saved > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: apply_kept_settings() does not put packet_len back, so a "
+	         "length stated before the mode request is lost on every mode "
+	         "start that runs the reset -- the dispatch's path, which is "
+	         "the ordinary one", path);
+	mu_assert(s.cap_len_applied > 0, msg);
 }
 
 /*

@@ -104,6 +104,15 @@ MU_TEST(test_the_cap_is_a_backstop_and_not_the_bound)
 	mu_assert(RX_FIFO_LEAD_POLLS >= 10000,
 	          "a cap near the turns the wait needs is what ends the wait, "
 	          "not a backstop against a timer that is not running");
+	/*
+	 * And bounded from above, because reaching it is not free: every turn
+	 * is a register read with USB unserviced, so the cap is also how long
+	 * a board with a stopped timer stalls on each packet. A hundred
+	 * thousand turns is about 25 ms.
+	 */
+	mu_assert(RX_FIFO_LEAD_POLLS <= 100000,
+	          "a larger cap makes a board with a stopped timer stall "
+	          "longer on every packet, with USB unserviced");
 }
 
 /* ------------------------------------------------------------------ *
