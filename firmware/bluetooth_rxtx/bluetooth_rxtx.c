@@ -4224,11 +4224,12 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(MDMCTRL, 0x0057);
 	cc2400_set(MDMTST0, 0x134b);
 	/*
-	 * The framing: buffered mode, packet mode, 6 preamble bytes of
-	 * 01010101, the whole 32-bit sync word, CRC off. The radio adds all of
-	 * that and the generic receive programs none of it, so a board meant
-	 * to read this transmit has to be set to the same GRMDM value, with
-	 * the same sync word in SYNCH and SYNCL.
+	 * The framing: buffered mode, packet mode, a preamble of 01010101
+	 * (preamble field 6, more than any other mode here asks for), the
+	 * whole 32-bit sync word, CRC off. The radio adds all of that and the
+	 * generic receive programs none of it, so a board meant to read this
+	 * transmit has to be set to the same GRMDM value, with the same sync
+	 * word in SYNCH and SYNCL.
 	 *
 	 * Packet mode is what puts the payload in the radio's FIFO for the
 	 * write loop below. It is also the bit rx_generic() reads to choose
