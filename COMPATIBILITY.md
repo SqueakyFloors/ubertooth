@@ -23,7 +23,7 @@ Legend:
 | Dimension | Minimum (required) | Tested / known-good | Unsupported | Status of minimum |
 |---|---|---|---|---|
 | **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw); 24.04.4 x86_64 on hardware (host tools) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
-| **Fedora** | none declared: whatever `fedora:latest` is | the `fedora:latest` container, Fedora 44 when it was last run (2026-11-01): the host tools and their tests in `build.yml`'s full tier, and the whole of `install.sh` — `dnf` dependencies, libbtbb, build, install, uninstall — in `install-sh.yml`. Deliberately not pinned, unlike the rest of this matrix: Fedora is here as the canary that ships a newer compiler, CMake and Python first, which is the one thing a pinned image could not tell us | — | ✅ verified in CI only. No Fedora machine has run it, and `install.sh --with-firmware` there is unverified: the firmware packages are listed from the Fedora repositories, not built with |
+| **Fedora** | none declared: whatever `fedora:latest` is ([note below](#fedora-is-the-unpinned-canary)) | `fedora:latest` (CI): the host tools and their tests, and all of `install.sh` | older than `latest`: untested | ✅ verified in CI only; no Fedora machine has run it, and `install.sh --with-firmware` there is unverified |
 | **macOS** | 14 (Sonoma) | 14, 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | ✅ 14 verified in CI |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range); 3.28.3 (Ubuntu 24.04) and 4.4.4 (macOS 26) build the host tools | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
@@ -59,6 +59,23 @@ mirrored on this fork (unmodified upstream code, provided as-is) for convenience
 > Note: this reflects first-hand use of the *upstream* release on 18.04 for a
 > maintainer's typical workflow, not exhaustive feature testing, and not any
 > claim about this fork on 18.04.
+
+### Fedora is the unpinned canary
+Every other row of the matrix names the versions it was exercised against.
+Fedora deliberately does not: the job follows `fedora:latest`, so each run
+takes whatever Fedora ships now. That is the point of having it. Fedora gets a
+new compiler, CMake and Python before the distributions pinned above, so a
+break that would reach an Ubuntu LTS user a year from now shows up here first,
+which is the one thing a pinned image could not tell us. The cost is that a
+green run says nothing about an older Fedora, and that a failure can be the
+new toolchain rather than this tree.
+
+Two CI jobs cover it, both in containers, because GitHub hosts no Fedora
+runner: `build.yml`'s full tier builds the host tools and runs their tests,
+and `install-sh.yml` runs all of `install.sh` — the `dnf` dependencies,
+libbtbb, the build, the install, and the uninstall. Neither covers
+`--with-firmware`: the ARM toolchain packages are named in the script and
+present in the Fedora repositories, but nothing has built firmware with them.
 
 ### Windows is not supported
 libusb on Windows and the absence of udev rules make this impractical. Run the
