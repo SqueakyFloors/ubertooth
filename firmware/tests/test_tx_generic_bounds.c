@@ -534,7 +534,8 @@ static int scan_source(const char *path, struct scan *s)
 
 		/* The channel refusal. The handler reads the request's channel
 		 * into a local of its own, so this cannot match
-		 * UBERTOOTH_SET_CHANNEL's check of the same two bounds. */
+		 * UBERTOOTH_SET_CHANNEL's check, which shares the lower bound
+		 * and takes anything above the upper one as the band sweep. */
 		if (strstr(flat, "tx_channel < MIN_FREQ || tx_channel > MAX_FREQ")
 		    != NULL)
 			s->channel_check = lineno;

@@ -548,6 +548,11 @@ MU_TEST(a_stopped_generic_transmit_sends_no_more_packets)
 	mu_assert_int_eq(0, fake.generic_packets);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
+	/* How far it got, on standard error: a stopped run is not a failure,
+	 * and the count is the only thing that says it sent none of the 100. */
+	mu_assert(strcmp(r.err, "note: stopped after 0 of 100 packets\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 }
 
 /* -h and -V are the same: they end the command before a handle exists. */

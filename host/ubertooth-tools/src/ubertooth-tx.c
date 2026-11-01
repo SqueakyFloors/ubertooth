@@ -47,8 +47,7 @@
  *
  * Measured on two boards: with no gap, and with 200 or 500 us, the second
  * request of a run failed every time ("Input/Output Error (libusb -1)"); with
- * 1 ms, ten of ten were taken. This is twice the figure that worked, which
- * puts a run of packets at about 4 ms each.
+ * 1 ms, ten of ten were taken. This is twice the figure that worked.
  */
 #define TX_GENERIC_GAP_US 2000
 
@@ -110,9 +109,16 @@ static int transmit_generic(ubertooth_t* ut, uint32_t syncword, int channel,
 		 * taken: the board is mid-packet or idle, never left in a mode.
 		 * After the gap rather than before it, because a signal that
 		 * arrives during the gap ends the sleep early, and the packet
-		 * after it must not go out. */
-		if (ubertooth_stopping(ut))
+		 * after it must not go out.
+		 *
+		 * How far the run got is said here as it is on the failure path
+		 * below: a run stopped part-way is not a failure, but the user
+		 * still cannot otherwise tell one packet from ninety-nine. */
+		if (ubertooth_stopping(ut)) {
+			fprintf(stderr, "note: stopped after %d of %d packets\n",
+			        i, count);
 			break;
+		}
 		if (cmd_tx_generic_packet(ut->devh, syncword, (uint16_t)channel,
 		                          (uint8_t)pa_level, payload,
 		                          payload_len) < 0) {

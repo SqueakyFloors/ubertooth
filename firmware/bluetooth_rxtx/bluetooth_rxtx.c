@@ -1372,11 +1372,16 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
 			return 0;
 		/*
-		 * The channel reaches FSDIV unchanged in tx_generic(), so a
-		 * frequency the synthesizer cannot reach is refused here, as
-		 * UBERTOOTH_SET_CHANNEL refuses one. Accepted, the transmit
-		 * would wait out its lock timeout and send nothing, and leave
-		 * that frequency in the register for whatever ran next.
+		 * The channel reaches FSDIV unchanged in tx_generic(), so only
+		 * a frequency the synthesizer can reach is accepted. Taken, one
+		 * outside that range would have the transmit wait out its lock
+		 * timeout and send nothing, and leave that frequency in the
+		 * register for whatever ran next.
+		 *
+		 * Both ends are refused, which is where this differs from
+		 * UBERTOOTH_SET_CHANNEL: there a frequency above MAX_FREQ is
+		 * how the host asks for the band sweep, and nothing here
+		 * sweeps.
 		 */
 		tx_channel = data[offsetof(generic_tx_packet, channel)]
 		           | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
