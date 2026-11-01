@@ -99,14 +99,21 @@ struct rx_board {
 	/* The channel this board was asked for, in MHz, or the value above the
 	 * band that asks for the sweep. */
 	uint16_t channel;
-	/* Whether this board's upper address part (UAP) came from another
-	 * board rather than from its own packets. Such a board is not evidence
-	 * for that value: see rx_share_findings(). */
+	/* Whether the UAP this board holds now came from another board rather
+	 * than from its own packets. Such a board is not evidence for that
+	 * value: see rx_share_findings(). */
 	int uap_handed;
-	/* The UAP this board worked out from its own packets, recorded the
-	 * first time it held one it was not handed. What a board holds at the
-	 * end of a run is not necessarily what it worked out, so this is the
-	 * evidence the agreement and the end-of-run report rest on; see
+	/* Whether this board has ever been handed one, which is what keeps it
+	 * from being handed another. Separate from uap_handed, which goes with
+	 * the value the board holds and is cleared when the library abandons
+	 * it. The value is kept for the end-of-run report, which names it
+	 * where it is not the value the report otherwise gives. */
+	int uap_ever_handed;
+	uint8_t uap_ever_handed_value;
+	/* The UAP this board worked out from its own packets, and whether it
+	 * holds one now. What a board holds at the end of a run is not
+	 * necessarily what it worked out, so this is the evidence the
+	 * agreement and the end-of-run report rest on; see
 	 * rx_share_findings(). */
 	int uap_found;
 	uint8_t uap_found_value;
@@ -229,7 +236,30 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
 	}
 }
 
-/* Notes the UAP a board worked out for itself, once. Called before anything is
+/* Forgets what a board held once the library has abandoned it, so the
+ * agreement and the report rest on what the boards hold now.
+ *
+ * Giving a clock up takes the UAP with it: drop_followed_clock() sets the
+ * piconet's UAP to zero and starts the search over, because discovery cannot
+ * find another while try_hop() is still filtering on this one. This tool asks
+ * for that itself, after a follow has heard nothing for FOLLOW_QUIET_MS, and
+ * the library does it on its own account when header after header fails. The
+ * board then rediscovers and can settle a different value, so a value
+ * remembered from before would be evidence for something no board holds.
+ *
+ * A UAP of zero with the flag clear is the one state the abandoning leaves,
+ * and is also a piconet's initial state, so this is safe to ask every pass. */
+static void rx_forget_abandoned_uap(struct rx_board* board)
+{
+	if (btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID))
+		return;
+	if (btbb_piconet_get_uap(board->pn) != 0)
+		return;
+	board->uap_found = 0;
+	board->uap_handed = 0;
+}
+
+/* Notes the UAP a board worked out for itself. Called before anything is
  * shared, so a board that has just settled one is evidence on the same pass. */
 static void rx_note_own_uap(struct rx_board* board)
 {
@@ -298,8 +328,10 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 
 	/* Two boards that worked out the same UAP from their own packets. At
 	 * most eight boards, so comparing every pair is a few dozen reads. */
-	for (i = 0; i < n_boards; i++)
+	for (i = 0; i < n_boards; i++) {
+		rx_forget_abandoned_uap(&boards[i]);
 		rx_note_own_uap(&boards[i]);
+	}
 	for (i = 0; i < n_boards && !agreed; i++) {
 		if (!boards[i].uap_found)
 			continue;
@@ -328,15 +360,16 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 		 * leaves that board to the library. Handing a known UAP to
 		 * every board is what -u is for.
 		 *
-		 * Once, because a board whose UAP the library has cleared to
-		 * start discovery over would otherwise be handed the same
-		 * value back before a single packet arrived. */
-		if (!agreed || boards[i].uap_found || boards[i].uap_handed)
-			continue;
-		if (btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
+		 * Once in a run, counted by uap_ever_handed rather than by
+		 * what the board holds: a board the library has since taken
+		 * off the handed value is rediscovering, and handing it the
+		 * same value again would stop it before a packet arrived. */
+		if (!agreed || boards[i].uap_found || boards[i].uap_ever_handed)
 			continue;
 		btbb_piconet_set_uap(boards[i].pn, uap);
 		boards[i].uap_handed = 1;
+		boards[i].uap_ever_handed = 1;
+		boards[i].uap_ever_handed_value = uap;
 	}
 }
 
@@ -355,19 +388,27 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 static void rx_report_findings(int n_boards, const uint8_t* merged,
                                const struct rx_board* boards, int told_uap)
 {
-	int i, used = 0, have_uap = 0, disagree = 0;
-	uint8_t uap = 0, other = 0;
+	/* Room for "board 8 0x22" and a separator for every board. */
+	char own[RX_MAX_BOARDS * 20];
+	int i, used = 0, have_uap = 0, disagree = 0, handed = 0;
+	size_t len = 0;
+	uint8_t uap = 0, handed_uap = 0;
 
 	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
 		if (merged[i / 8] & (1 << (i % 8)))
 			used++;
 
-	/* Only what a board worked out for itself, read from what was recorded
-	 * when it did: a board holding a value another board handed it would
-	 * otherwise read as a second board agreeing, which is the cross-check
-	 * this line is for, and what a board holds at the end is not
-	 * necessarily what it found. */
+	/* Only what a board worked out for itself, and only what it holds now:
+	 * a board holding a value another board handed it would otherwise read
+	 * as a second board agreeing, which is the cross-check this line is
+	 * for, and what a board holds at the end is not necessarily what it
+	 * worked out. Boards are numbered as the -U list gave them. */
+	own[0] = '\0';
 	for (i = 0; i < n_boards; i++) {
+		if (boards[i].uap_ever_handed) {
+			handed = 1;
+			handed_uap = boards[i].uap_ever_handed_value;
+		}
 		if (!boards[i].uap_found)
 			continue;
 		if (!have_uap) {
@@ -375,8 +416,12 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 			have_uap = 1;
 		} else if (boards[i].uap_found_value != uap) {
 			disagree = 1;
-			other = boards[i].uap_found_value;
 		}
+		if (len < sizeof(own))
+			len += (size_t)snprintf(own + len, sizeof(own) - len,
+			                        "%sboard %d 0x%02x",
+			                        len > 0 ? ", " : "", i + 1,
+			                        boards[i].uap_found_value);
 	}
 
 	/* Nothing to report where the user gave the UAP with -u: every board
@@ -389,16 +434,24 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 	else if (disagree)
 		/* One of them is wrong, and this run cannot say which: the
 		 * library settles a UAP on the packets it has had, and two
-		 * boards have had different packets. Both values are named,
-		 * because the run acted on neither: a board is never taken
-		 * off its own answer. */
+		 * boards have had different packets. Every board's own answer
+		 * is named, because the run acted on none of them: a board is
+		 * never taken off its own. */
 		fprintf(stderr, "note: %d boards: the boards worked out "
-		        "different UAPs, 0x%02x and 0x%02x among them; one of "
-		        "them is wrong, and each board kept its own\n",
-		        n_boards, uap, other);
+		        "different UAPs, so one of them is wrong: %s\n",
+		        n_boards, own);
 	else
 		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
 		        uap);
+
+	/* Said whenever a board was put on another's answer, which with three
+	 * or more boards can happen in the same run as a disagreement: two
+	 * boards agree, a third worked out something else and keeps it, and a
+	 * fourth that had worked out nothing is put on the agreed value. */
+	if (!told_uap && handed)
+		fprintf(stderr, "note: %d boards: 0x%02x was passed to a "
+		        "board that had worked out none of its own\n",
+		        n_boards, handed_uap);
 
 	fprintf(stderr, "note: %d boards: AFH map: 0x", n_boards);
 	for (i = 0; i < AFH_MAP_BYTES; i++)
@@ -777,11 +830,13 @@ int main(int argc, char* argv[])
 	 * off the output. */
 	if (channel_arg != NULL) {
 		char* words[RX_MAX_BOARDS];
-		/* No more channels than there are boards, so a list longer
-		 * than that is refused as too long rather than reported
-		 * against the limit of eight. */
+		/* Split against the limit of eight rather than against the
+		 * boards named, so that one mistake gets one message: a list
+		 * that does not line up with the boards is reported by the
+		 * mismatch below, in either direction, and only a list longer
+		 * than the tool takes at all is refused as too long. */
 		int n_channels = rx_split_list(channel_arg, "channel", words,
-		                               n_boards);
+		                               RX_MAX_BOARDS);
 
 		if (n_channels < 0)
 			return 1;

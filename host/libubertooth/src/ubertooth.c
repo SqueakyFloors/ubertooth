@@ -2187,8 +2187,10 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 	/* The capture has stopped here, so the clock tracking goes back to
 	 * where a capture starts: a handle used again would otherwise carry the
 	 * wrap count of the capture that just ended into the next one. The same
-	 * goes for a long packet whose last records never arrived. */
+	 * goes for the clock this board was following and the trim sent to hold
+	 * it, and for a long packet whose last records never arrived. */
 	ubertooth_capture_clock_reset(ut);
+	ubertooth_bredr_follow_reset(ut);
 	le_usb_reassembly_reset(&ut->le_reassembly);
 }
 
@@ -2248,6 +2250,7 @@ ubertooth_t* ubertooth_init()
 	ut->short_xfer_warned = 0;
 	ut->stop_ubertooth = 0;
 	ubertooth_capture_clock_reset(ut);
+	ubertooth_bredr_follow_reset(ut);
 	/* Which clock a mode stamps with is the tool's to say, and it says so
 	 * before it starts such a mode; until then, the CLKN-derived one. */
 	ut->clk100ns_period = CLK100NS_PERIOD;

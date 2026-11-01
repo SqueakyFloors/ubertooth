@@ -330,15 +330,22 @@ What the boards pass between them is what they have worked out:
    a wrong UAP filters on it for the rest of the run and works out nothing of
    its own, whether it reached that value itself or was handed it. Two boards
    settling on the same value from different packets is a cross-check a single
-   board cannot make, and it is what makes passing the value on worth doing.
-   It goes only to a board that has worked out none of its own, and only once.
-   A board is never taken off its own answer, even when two others disagree
-   with it: setting a piconet's address part writes that and nothing else, so a
-   board whose clock search has already chosen its candidates would go on
-   narrowing a list picked for the old address and could reach a clock
-   belonging to it. The run names both answers at the end instead and leaves
-   that board to the decoder. Passing `-u` yourself hands a known address part
-   to every board and avoids the question.
+   board cannot make, though it makes a wrong value less likely rather than
+   impossible: a UAP can be settled on the candidates running out as well as
+   on a header's check bits, and two boards can run out the same wrong way.
+   `-u` is how to be sure.
+
+   It goes only to a board that has worked out none of its own, and only once
+   in a run. A board is never taken off its own answer, even when two others
+   disagree with it: setting a piconet's address part writes that and nothing
+   else, so a board whose clock search has already chosen its candidates would
+   go on narrowing a list picked for the old address and could reach a clock
+   belonging to it. The run names every board's own answer at the end instead
+   and leaves those boards to the decoder. What a board holds is what counts,
+   not what it held: giving a clock up takes the address part with it, and a
+   board that then settles on something else is evidence for the new value and
+   not the old. Passing `-u` yourself hands a known address part to every board
+   and avoids the question.
 
 Each board keeps a piconet of its own and recovers the clock from its own
 packets. The clock cannot be pooled: it is recovered as a position in the hop
@@ -356,6 +363,14 @@ them, on standard error:
 
     note: 4 boards: UAP = 0x0d
     note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
+
+Where the boards did not reach the same UAP, each board's own answer is named,
+numbered as `-U` listed them, and a value passed to a board that had worked out
+none of its own is named separately, because that board's value is not one it
+found:
+
+    note: 4 boards: the boards worked out different UAPs, so one of them is wrong: board 1 0x0d, board 2 0x0d, board 3 0xb0
+    note: 4 boards: 0x0d was passed to a board that had worked out none of its own
 
 A survey (`-z`) needs none of this: the table of addresses heard belongs to the
 decoder rather than to a board, so every board's packets reach the one survey

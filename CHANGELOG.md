@@ -2805,10 +2805,12 @@ Fixes with no visible change in normal use.
   rather than taking the caller's word for it.
 - The clock a Classic capture is following, the trim it sends the board to hold
   that clock, and how long its clock search has run belong to the board being
-  read rather than to the process. One board behaves as it did; a capture
-  reading several would have measured each board's correction against another
-  board's history. libubertooth's ubertooth_follow_quiet_ms() and
-  ubertooth_clock_search_ms() take the handle to ask about as a result.
+  read rather than to the process, and go back to where a capture starts when
+  one ends. One board behaves as it did; a capture reading several would have
+  measured each board's correction against another board's history.
+  libubertooth's ubertooth_follow_quiet_ms() and ubertooth_clock_search_ms()
+  take the handle to ask about as a result, and
+  ubertooth_bredr_follow_reset() is new beside them.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 - The LED demo mode (`ubertooth-util -x`) arms its blink timer from a clean
   start and disarms it on the way out, so a second run of it cannot toggle an

@@ -32,6 +32,10 @@
  * Which clock stamps the packets (clk100ns_period) is the tool's choice, not
  * tracking state, and is left as the tool set it. */
 void ubertooth_capture_clock_reset(ubertooth_t* ut);
+/* The Classic follow and clock-trim state for one board, back to where a
+ * capture starts. Called with the above when a capture ends, so a handle used
+ * again does not carry one capture's calibration into the next. */
+void ubertooth_bredr_follow_reset(ubertooth_t* ut);
 
 /* Reads the clock the capture clock tracking measures gaps between records
  * with, to be called as each record arrives and carried with it through the

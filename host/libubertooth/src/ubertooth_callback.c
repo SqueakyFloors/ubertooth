@@ -238,6 +238,19 @@ uint64_t ubertooth_packet_arrival_ns( void )
 	return clock_ns( CLOCK_MONOTONIC );
 }
 
+void ubertooth_bredr_follow_reset( ubertooth_t* ut )
+{
+	ut->br_following = 0;
+	ut->br_calibrated = 0;
+	ut->br_heard_ms = 0;
+	ut->br_clock_gone = 0;
+	ut->br_trim_counter = 0;
+	ut->br_clkn_trim = 0;
+	ut->br_searching = 0;
+	ut->br_search_start_ms = 0;
+	ut->br_clock_confirmed = 0;
+}
+
 void ubertooth_capture_clock_reset( ubertooth_t* ut )
 {
 	ut->abs_start_ns = 0;
