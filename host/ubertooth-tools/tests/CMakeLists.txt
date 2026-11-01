@@ -275,6 +275,38 @@ if(EXISTS "${UBERTOOTH_INSTALL_SH}")
 			${UBERTOOTH_INSTALL_SH}
 			${CMAKE_CURRENT_SOURCE_DIR}/../../doc/ubertooth-util.md)
 	set_tests_properties(install-devices PROPERTIES TIMEOUT 60)
+	# Which package manager install.sh reaches for, and the package names it
+	# asks each one for. The runs install nothing and touch no device: the
+	# privileged steps are printed rather than run (--no-sudo), and the
+	# platform, the package managers and the tools are faked.
+	add_test(
+		NAME install-packages
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_install_packages.py
+			${UBERTOOTH_INSTALL_SH}
+			${CMAKE_CURRENT_SOURCE_DIR}/../../../REQUIREMENTS.md)
+	set_tests_properties(install-packages PROPERTIES TIMEOUT 120)
+endif()
+
+# A program outside this tree, compiled and linked against an install of the
+# library in a temporary prefix with only the flags pkg-config gives for it.
+# It needs the library in this build, because its install is what is being
+# tested, and a pkg-config to ask; a build of the tools alone against an
+# installed libubertooth has neither to offer and skips the case.
+find_package(PkgConfig)
+if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
+	add_test(
+		NAME pkgconfig-install
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_pkgconfig_install.py
+			${CMAKE_COMMAND}
+			${CMAKE_BINARY_DIR}
+			${PKG_CONFIG_EXECUTABLE}
+			${CMAKE_C_COMPILER})
+	# Two installs of three small components and one compile: about two
+	# seconds. A minute catches an install or a compiler that waits on
+	# something.
+	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 60)
 endif()
 
 add_test(

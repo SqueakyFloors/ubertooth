@@ -34,13 +34,44 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15]
+        # The Fedora leg runs in a container, because no hosted runner is
+        # Fedora, and it is the only place the script's dnf path is exercised.
+        # An entry with no container of its own runs on the runner itself: an
+        # empty "container" is the same as none.
+        include:
+          - os: ubuntu-24.04
+          - os: macos-15
+          - os: ubuntu-24.04
+            container: fedora:latest
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     # Above the bounded install step below plus the install.sh run it tests.
-    timeout-minutes: 18
+    # The Fedora leg's run is the longest, because it installs the
+    # dependencies itself instead of having them installed above.
+    timeout-minutes: 25
 
     steps:
     - uses: actions/checkout@v4
+
+    # What the steps below need before install.sh runs, which the hosted
+    # runners have and a Fedora container does not: sudo, which the script
+    # runs its privileged steps through, git for the checkout and for its
+    # libbtbb clone, and findutils for the `find` the uninstall check uses.
+    # Everything else is a dependency of the build, and installing it here
+    # would hide the thing this leg is for: the script's own dnf package list.
+    #
+    # Bounded and retried per attempt by tools/retry.sh, as the Fedora job in
+    # build.yml does, and for the same reason: only the download is bounded,
+    # because killing an rpm transaction part way through leaves the package
+    # database to repair.
+    - name: Install prerequisites (Fedora container)
+      timeout-minutes: 8
+      run: |
+        packages="sudo git findutils"
+        tools/retry.sh 240 dnf -y --setopt=keepcache=1 install \
+          --downloadonly $packages
+        dnf -y --setopt=keepcache=1 install $packages
+      if: matrix.container
 
     # Both install steps get a timeout-minutes of their own, as build.yml's
     # do, so a package source that stops sending bytes fails a step that
@@ -71,7 +102,7 @@ jobs:
         sudo tools/retry.sh 180 sh -c \
           "apt-get $apt_opts update && apt-get $apt_opts install -y -d $packages"
         sudo apt-get install -y $packages
-      if: runner.os == 'Linux'
+      if: runner.os == 'Linux' && !matrix.container
 
     - name: Syntax check
       shell: bash
@@ -81,18 +112,30 @@ jobs:
       # shellcheck's does not replace.
       run: bash -n install.sh
 
-    - name: How the privileged steps run
+    - name: How the privileged steps run, and where the dependencies come from
       shell: bash
       # On macOS a writable --prefix is installed without root, so --no-sudo
-      # still installs. On Debian/Ubuntu every install step runs as root and
-      # --no-sudo only prints them, so the runner's passwordless sudo is used.
-      # The install and the uninstalls below all take this.
+      # still installs. On Linux every install step runs as root and --no-sudo
+      # only prints them, so sudo is used: the runner's passwordless one, or
+      # the container's, where the job is root already. The install and the
+      # uninstalls below all take this.
+      #
+      # The dependencies of the two legs above are installed by the steps
+      # above, so their run uses them (--skip-deps). The Fedora leg has none
+      # installed beforehand on purpose: letting the script install them is
+      # what exercises its dnf package list, which is the one part of the
+      # Fedora path no fake can check.
       run: |
         NO_SUDO=""
         if [ "${{ runner.os }}" = "macOS" ]; then
           NO_SUDO="--no-sudo"
         fi
         echo "NO_SUDO=$NO_SUDO" >> "$GITHUB_ENV"
+        SKIP_DEPS="--skip-deps"
+        if [ -n "${{ matrix.container }}" ]; then
+          SKIP_DEPS=""
+        fi
+        echo "SKIP_DEPS=$SKIP_DEPS" >> "$GITHUB_ENV"
 
     - name: Refuse an uninstall that also asks for an install
       shell: bash
@@ -122,7 +165,7 @@ jobs:
     - name: Smoke run
       shell: bash
       run: |
-        ./install.sh --skip-deps $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv" \
+        ./install.sh $SKIP_DEPS $NO_SUDO --prefix "$RUNNER_TEMP/prefix" --venv "$RUNNER_TEMP/venv" \
           2>&1 | tee "$RUNNER_TEMP/install.log"
 
     - name: Verify install
@@ -137,6 +180,14 @@ jobs:
         # difference.
         grep -q 'What the installed tools report:' "$RUNNER_TEMP/install.log"
         ! grep -q 'the installed ubertooth-util would not run' "$RUNNER_TEMP/install.log"
+        # The install describes itself to pkg-config, so a program of the
+        # user's own can be built against it. The library's own test suite
+        # checks the flags compile and link something; here it is that a real
+        # install, in a prefix of its own, is one pkg-config can answer for at
+        # all -- its Requires names libbtbb, which is the libbtbb this run
+        # installed beside it.
+        PKG_CONFIG_PATH="$RUNNER_TEMP/prefix/lib/pkgconfig:$RUNNER_TEMP/prefix/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
+          pkg-config --print-errors --cflags --libs libubertooth
         # The udev rule is the one file installed outside the prefix, and only
         # where the build found a group to give the device to. Remembered here
         # so the uninstall below is checked against what was really installed.
@@ -155,9 +206,15 @@ jobs:
         test ! -e "$RUNNER_TEMP/prefix/bin/ubertooth-util"
         test ! -e "$RUNNER_TEMP/prefix/share/man/man1/ubertooth-util.1"
         test ! -e "$RUNNER_TEMP/prefix/include/ubertooth.h"
+        # The pkg-config file goes with the headers it describes: the install
+        # recorded it, so the uninstall takes it away again.
+        test ! -e "$RUNNER_TEMP/prefix/lib/pkgconfig/libubertooth.pc"
         # Listed and matched rather than globbed, so the path in this file
-        # does not read as a repository name to the libbtbb pin guard.
-        ls "$RUNNER_TEMP/prefix/lib" | grep -q '^libbtbb\.'
+        # does not read as a repository name to the libbtbb pin guard. Both
+        # library directories are listed, because libbtbb installs to the one
+        # its own system keeps libraries in: lib here, lib64 on Fedora.
+        ls "$RUNNER_TEMP/prefix/lib" "$RUNNER_TEMP/prefix/lib64" 2>/dev/null \
+          | grep -q '^libbtbb\.'
         test -f "$RUNNER_TEMP/prefix/share/ubertooth/install-record/libbtbb-files"
         if [ "${UDEV_RULE:-}" = 1 ]; then
           test ! -e /etc/udev/rules.d/40-ubertooth.rules
