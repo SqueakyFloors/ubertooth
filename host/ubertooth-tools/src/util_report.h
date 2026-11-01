@@ -90,6 +90,16 @@ int util_report_watchdog(FILE *out, const uint8_t *info, size_t len);
 /* The radio wait give-up counts, printed under the watchdog report: one line,
  * from UBERTOOTH_GET_RADIO_TIMEOUTS. Returns 0, or 1 for a NULL reply. */
 int util_report_radio_timeouts(FILE *out, const radio_timeouts *timeouts);
+/* The bootloader report (ubertooth-util -B), from a reply read with
+ * cmd_get_bootloader_info(): one line naming the bootloader and the hash of
+ * its region. Returns 0 when the line says what the bootloader is -- which
+ * includes a board with no version block, the ordinary answer from a
+ * bootloader of the 1.x generation -- and 1 when it carries a block this host
+ * cannot read, which also puts an "error: " line naming the reason on err. */
+int util_report_bootloader(FILE *out, FILE *err,
+                          const struct ubertooth_bootloader_info *info);
+#define UTIL_LABEL_BOOTLOADER "Bootloader"
+
 /* The mode's name, or NULL when the board reports no mode (btbr does not): the
  * report then writes a clause of its own, since no name fits there. */
 const char *util_watchdog_mode_name(unsigned mode);

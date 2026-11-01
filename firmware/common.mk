@@ -660,6 +660,7 @@ program: $(TARGET).hex
 	if [ "$$magic" != "UBTFINFO" ]; then \
 		echo "$(TARGET).bin carries no firmware info block at offset 0x100," \
 		     "so ubertooth-dfu would refuse it" >&2; \
+		rm -f $(TARGET).bin; \
 		exit 1; \
 	fi
 	@magic=`dd if=$(TARGET).bin bs=1 skip=224 count=8 2>/dev/null`; \
