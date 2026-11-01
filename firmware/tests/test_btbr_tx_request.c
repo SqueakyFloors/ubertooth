@@ -19,8 +19,9 @@
 #include <ubtbr/bb.h>
 #include <ubtbr/codec.h>
 
+/* btctl.c defines btctl itself; btphy lives in btphy.c, which is not
+ * linked here, so this test owns it. */
 btphy_t btphy;
-btctl_t btctl;
 
 void __attribute__((noreturn)) die(char *fmt, ...)
 {
