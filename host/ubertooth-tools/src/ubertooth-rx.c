@@ -99,6 +99,14 @@ struct rx_board {
 	/* The channel this board was asked for, in MHz, or the value above the
 	 * band that asks for the sweep. */
 	uint16_t channel;
+	/* The upper address part (UAP) another board handed this one, and
+	 * whether one was. A board that gives up a handed UAP has had header
+	 * after header fail under it, which is evidence against that value, so
+	 * it is not handed the same one again: it goes back to working one out
+	 * from its own packets. Without this it would be handed the value back
+	 * on the next packet and never recover. */
+	int uap_given;
+	uint8_t uap_given_value;
 };
 
 /* The capture files this run was asked for, by the names the user gave. */
@@ -210,11 +218,16 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * another's whatever clock either board is on, and btbb_piconet_set_afh_map()
  * rebuilds the hop tables from the union. Each board then narrows its clock
  * candidates against a map that filled as many times faster as there are
- * boards, and an incomplete map is what makes a wrong clock look right
- * (SqueakyFloors/libbtbb#44).
+ * boards, and an incomplete map is what makes a wrong clock look right: the
+ * candidates are narrowed against hops the piconet never made.
  *
- * The upper address part is a scalar, so the first board to work one out hands
- * it to the rest.
+ * The upper address part (UAP) is a scalar, so the first board to work one out
+ * hands it to the rest. Only a board that worked one out for itself is the
+ * source: a value that was itself handed over is not passed on, which is what
+ * keeps a board that has just given one up from being handed it straight back.
+ * The library settles a UAP from as few as two packets and is sometimes wrong
+ * about it, with one board as with several, so what a handed value saves is
+ * the packets it took and not the chance of being wrong.
  *
  * The clock is not shared and does not need to be: it is the piconet's own, so
  * each board recovers it from its own packets once it has the address. Two
@@ -240,7 +253,7 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 
 		for (j = 0; j < (int)sizeof(next); j++)
 			next[j] |= map[j];
-		if (!have_uap &&
+		if (!have_uap && !boards[i].uap_given &&
 		    btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID)) {
 			uap = btbb_piconet_get_uap(boards[i].pn);
 			have_uap = 1;
@@ -254,9 +267,14 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 	for (i = 0; i < n_boards; i++) {
 		if (grown)
 			btbb_piconet_set_afh_map(boards[i].pn, merged);
-		if (have_uap &&
-		    !btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
-			btbb_piconet_set_uap(boards[i].pn, uap);
+		if (!have_uap ||
+		    btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
+			continue;
+		if (boards[i].uap_given && boards[i].uap_given_value == uap)
+			continue;
+		btbb_piconet_set_uap(boards[i].pn, uap);
+		boards[i].uap_given = 1;
+		boards[i].uap_given_value = uap;
 	}
 }
 
@@ -272,17 +290,35 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 static void rx_report_findings(int n_boards, const uint8_t* merged,
                                const struct rx_board* boards)
 {
-	int i, used = 0;
+	int i, used = 0, have_uap = 0, disagree = 0;
+	uint8_t uap = 0;
 
 	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
 		if (merged[i / 8] & (1 << (i % 8)))
 			used++;
 
-	if (btbb_piconet_get_flag(boards[0].pn, BTBB_UAP_VALID))
-		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
-		        btbb_piconet_get_uap(boards[0].pn));
-	else
+	for (i = 0; i < n_boards; i++) {
+		if (!btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
+			continue;
+		if (!have_uap) {
+			uap = btbb_piconet_get_uap(boards[i].pn);
+			have_uap = 1;
+		} else if (btbb_piconet_get_uap(boards[i].pn) != uap) {
+			disagree = 1;
+		}
+	}
+
+	if (!have_uap)
 		fprintf(stderr, "note: %d boards: no UAP found\n", n_boards);
+	else if (disagree)
+		/* One of them is wrong, and this run cannot say which: the
+		 * library settles a UAP on the packets it has had, and two
+		 * boards have had different packets. */
+		fprintf(stderr, "note: %d boards: the boards ended on "
+		        "different UAPs; one of them is wrong\n", n_boards);
+	else
+		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
+		        uap);
 
 	fprintf(stderr, "note: %d boards: AFH map: 0x", n_boards);
 	for (i = 0; i < AFH_MAP_BYTES; i++)

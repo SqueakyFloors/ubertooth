@@ -303,8 +303,14 @@ pass between them is what they have worked out:
    as there are boards. An incomplete map is what makes a wrong clock look
    right, so this is where the boards help each other most.
 
- - **The UAP.** The first board to settle one hands it to the rest, which saves
-   the others the packets it took.
+ - **The UAP.** The first board to work one out hands it to the rest, which
+   saves them the packets it took. What it does not save is the chance of being
+   wrong: a UAP is settled on as few as two packets of the piconet and is
+   sometimes wrong, with one board as with several, and a wrong one handed over
+   is wrong on every board that took it. A board that then gives it up — header
+   after header failing under it — is not handed the same value again and works
+   out its own, and the run says so when the boards end on different answers.
+   Passing `-u` yourself avoids the question.
 
 Each board keeps a piconet of its own and recovers the clock from its own
 packets. The clock cannot be pooled: it is recovered as a position in the hop

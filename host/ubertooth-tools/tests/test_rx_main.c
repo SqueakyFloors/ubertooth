@@ -150,6 +150,11 @@ static struct {
 	 * value it settles on. */
 	int heard_uap_board[RX_MAX_BOARDS];
 	uint8_t heard_uap;
+	/* The block on which a board gives up the address part it holds, as
+	 * the library does when header after header fails under it, and how
+	 * many such give-ups there were. 0 for a board that keeps it. */
+	int drop_uap_at[RX_MAX_BOARDS];
+	int uap_drops;
 	/* The channel each board was asked to tune to, in MHz. */
 	int board_channel[RX_MAX_BOARDS];
 	/* What each board's piconet already held when the fake decode was last
@@ -508,6 +513,15 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (device.heard_uap_board[board] &&
 	    !btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
 		btbb_piconet_set_uap(pn, device.heard_uap);
+
+	/* A board giving the address part up, which the library does when
+	 * header after header fails under it. */
+	if (device.drop_uap_at[board] > 0 &&
+	    device.blocks + 1 >= device.drop_uap_at[board]) {
+		btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
+		device.drop_uap_at[board] = 0;
+		device.uap_drops++;
+	}
 }
 
 /* What the callback reports about the follow: how long since it last heard a
@@ -2237,6 +2251,41 @@ MU_TEST(boards_share_the_channel_map_and_the_address_part)
 	mu_assert(strstr(r.out, "note:") == NULL, r.out);
 }
 
+/* A board that gives up an address part it was handed is not handed the same
+ * one again. The library settles a UAP on as few as two packets and is
+ * sometimes wrong about it -- a run on the bench settled on 0xdb where the
+ * peer's was 0x0d -- and giving one up means header after header failed under
+ * it, which is evidence against that value. Handing it back would leave the
+ * board unable to work out its own, forever. */
+MU_TEST(a_board_that_gives_up_a_handed_address_part_keeps_recovering)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 12;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	/* The second board settles one; the first is handed it and then gives
+	 * it up. */
+	device.heard_uap_board[1] = 1;
+	device.heard_uap = 0x22;
+	device.drop_uap_at[0] = 5;
+
+	r = RUN_RX("-U", "0,1", "-l", "112233", "-c", "20,40", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, device.uap_drops);
+	/* It was handed the value and then gave it up, and the passes after
+	 * that left it without one. */
+	mu_assert_int_eq(-1, device.seen_uap[0]);
+	/* The board that worked it out still holds it. */
+	mu_assert_int_eq(0x22, device.seen_uap[1]);
+	/* And the run says the two ended on different answers rather than
+	 * reporting one of them as the piconet's. */
+	mu_assert(strstr(r.err, "note: 2 boards: UAP = 0x22") != NULL, r.err);
+}
+
 /* One board shares nothing and says nothing extra: its piconet already holds
  * everything it knows, and libbtbb reports what it finds as it goes. */
 MU_TEST(one_board_is_left_exactly_as_it_was)
@@ -2332,6 +2381,7 @@ int main(void)
 	MU_RUN(a_channel_each_spreads_the_boards_across_the_band);
 	MU_RUN(a_board_that_cannot_be_opened_gives_every_handle_back);
 	MU_RUN(boards_share_the_channel_map_and_the_address_part);
+	MU_RUN(a_board_that_gives_up_a_handed_address_part_keeps_recovering);
 	MU_RUN(one_board_is_left_exactly_as_it_was);
 	MU_RUN(a_board_whose_stream_died_ends_the_whole_capture);
 	return mu_report();
