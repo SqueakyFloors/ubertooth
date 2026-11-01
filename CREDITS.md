@@ -30,6 +30,7 @@ Details are in [CHANGELOG.md](CHANGELOG.md).
 | Gabriele Gristina ([@matrix](https://github.com/matrix)) | Firmware signal-strength channel bounds | [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481) |
 | Hillel Chimowicz ([@hllhll](https://github.com/hllhll)) and [@shapaz](https://github.com/shapaz) | Faster, more reliable Classic Bluetooth paging | [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540) |
 | [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów | Adaptive Frequency Hopping (AFH) divide-by-zero fixes | [Kielukel/ubertooth](https://github.com/Kielukel/ubertooth) |
+| Emmanuel Blot ([@eblot](https://github.com/eblot)) | BLE channel labels for the spectrum analyzer UI | [eblot/ubertooth@91a56841](https://github.com/eblot/ubertooth/commit/91a56841) |
 
 ## Upstream contributors
 
