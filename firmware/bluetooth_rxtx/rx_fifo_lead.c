@@ -5,10 +5,7 @@
  * is.
  */
 
-/* Angle brackets, not quotes: a host test puts a hardware-free stand-in for
- * firmware/common's ubertooth.h earlier on the include path, and a quoted
- * include would always pick up the real one. T0TC comes from there. */
-#include <ubertooth.h>
+#include "ubertooth.h"	/* T0TC */
 
 #include "cc2400_wait.h"
 #include "rx_fifo_lead.h"

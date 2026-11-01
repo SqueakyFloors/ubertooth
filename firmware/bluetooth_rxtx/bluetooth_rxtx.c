@@ -735,6 +735,12 @@ static void keep_for_next_mode_start(uint8_t what)
  * run the host has moved on from; the E-GO request does not, so a jam mode
  * kept by a killed `ubertooth-btle -j` survives it and lands on whatever mode
  * starts next. Nothing today sets both in one run.
+ *
+ * The same throwing away loses a stated length when an absorbable request for
+ * the running mode arrives between the length and the E-GO request: the copy
+ * is gone while the E-GO start still resets the live value. ubertooth-ego
+ * sends no such request, so this needs another program driving the board, and
+ * the length it gets is the mode's default rather than a stale one.
  */
 static void apply_kept_cap_len(void)
 {

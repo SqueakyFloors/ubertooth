@@ -80,6 +80,11 @@ BENCH_ONLY_IMAGES="assembly_test blinky cc2400_test clock_test usb_test"
 # that a board running it can be told from one running the full image, while
 # the file it builds is still bluetooth_rxtx.* and the release ships that file
 # as bluetooth_rx_only.*. So both stems may carry that name.
+#
+# For the bluetooth_rxtx stem that is a loosening, not a tightening: a full
+# build whose block said bluetooth_rx would pass here. One target builds both
+# images under the same file name, so the stem cannot tell them apart; what
+# does is test_fw_info, which pins each build's name to its own make flags.
 image_names_for_stem() {
     case "$1" in
     bluetooth_rxtx)

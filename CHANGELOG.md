@@ -27,9 +27,9 @@
   SEVERAL BOARDS AT ONCE says what is shared and what is not.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 
-- `ubertooth-util -w` counts one more shape of wait that gave up: the short
-  lead a packet is given to reach the radio's FIFO before the firmware reads
-  it out. It was the last timed wait with nothing a user could see, and a
+- `ubertooth-util -w` counts one more wait that gave up: the short lead a
+  packet is given to reach the radio's FIFO before the firmware reads it out.
+  It was the last timed wait with nothing a user could see, and a
   count above zero says the board's timer 0 was not advancing, or was far too
   slow, so that capture's records are wrong throughout rather than only in
   their first byte. The line now ends `packet bytes 0, packet lead 0`. These

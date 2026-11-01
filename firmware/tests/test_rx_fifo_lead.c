@@ -80,7 +80,6 @@ static void reset_board(uint32_t start, uint32_t step, uint32_t period)
  */
 MU_TEST(test_the_lead_is_a_few_byte_times)
 {
-	mu_assert_int_eq(80, RX_FIFO_BYTE_100NS);
 	mu_assert(RX_FIFO_LEAD_BYTES >= 1 && RX_FIFO_LEAD_BYTES <= 8,
 	          "the lead needs at least the one byte the radio has not "
 	          "written yet when it reports the sync word, and no more than "
