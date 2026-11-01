@@ -29,7 +29,9 @@ tool's own and are not this test's business.
 
 What this does not catch. It reads headings, not what is under them, so a
 section emptied of its text passes. GAPS IN A CAPTURE is the one group checked
-against the tools as well, through the call every gap-reporting tool makes;
+against the tools as well, through the call every gap-reporting tool makes,
+and that is read as text: a call commented out in a tool source still counts
+as one;
 for the other groups, including TRANSMIT POWER, a tool added later has to be
 added here by hand, and the heading check above is what makes that visible.
 
@@ -150,8 +152,10 @@ UNPINNED_HEADINGS = {
 
 # The call every tool makes to report the capture losses it counted. A tool
 # that makes it has gaps to describe, so its page belongs in CAPTURE_PAGES or
-# among the exceptions named above it.
+# among the exceptions named above it. Matched as a call, so a tool that only
+# mentions the name in a comment is not read as making it.
 LOSS_REPORT_CALL = "ubertooth_report_capture_losses"
+LOSS_REPORT = re.compile(r"\b%s\s*\(" % LOSS_REPORT_CALL)
 
 # The gap-reporting tools whose page carries no GAPS IN A CAPTURE section,
 # with the reason. Kept apart from CAPTURE_PAGES so the cross-check below has
@@ -265,7 +269,7 @@ def gap_reporting_pages(host_src):
         fail("no tool sources under %s" % host_src)
     for path in sources:
         with open(path, encoding="utf-8", errors="replace") as handle:
-            if LOSS_REPORT_CALL not in handle.read():
+            if not LOSS_REPORT.search(handle.read()):
                 continue
         name = os.path.basename(path)
         page = name[:-len(".c")] + ".md"

@@ -46,13 +46,13 @@ Usage: test_find_stale_paths.py <cmake> <repository root>
                                 <libbtbb include dir> <libbtbb library>
 """
 
-import glob
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
+
+import libubertooth_standin
 
 # The project each case configures. Nothing is compiled except the function
 # checks of FindBTBB and FindUBERTOOTH, so FindBLUETOOTH, which has none, gets
@@ -265,8 +265,11 @@ def check_module(cmake, work, modules, module, material):
                  % (package, case, where, module["prefix"], output))
         # The refusal itself, not the whole output: the status lines above it
         # name the paths that have gone, which is the module saying it is
-        # searching for them again.
-        refusal = output[output.find("CMake Error"):]
+        # searching for them again. The whole output where the error cannot
+        # be found, rather than the tail end of it, so a message this does
+        # not recognize is examined instead of skipped.
+        at = output.find("CMake Error")
+        refusal = output[at:] if at >= 0 else output
         named = [path for path in forbidden if path in refusal]
         if named:
             fail("%s: %s: Find%s.cmake refused a library at %s, which has "
@@ -381,28 +384,6 @@ def check_move(cmake, work, module, material, source, configure_or_fail):
                 libraries or "nothing", second))
 
 
-def required_functions(module_path):
-    """The names in LIBUBERTOOTH_REQUIRED_FUNCTIONS, as the module lists them.
-
-    Read from FindUBERTOOTH.cmake rather than written out again here, so the
-    stand-in satisfies whatever the module asks for today.
-    """
-    with open(module_path, encoding="utf-8") as handle:
-        text = handle.read()
-    block = re.search(r"^set\(LIBUBERTOOTH_REQUIRED_FUNCTIONS\n(.*?)^\)$",
-                      text, re.S | re.M)
-    if not block:
-        fail("no set(LIBUBERTOOTH_REQUIRED_FUNCTIONS ...) block in %s"
-             % module_path)
-    # However far the names are indented, so re-indenting the block in the
-    # module cannot drop one from the stand-in and leave the cases below
-    # failing for a reason that has nothing to do with them.
-    names = re.findall(r"^[ \t]+([a-z_][a-z0-9_]*)", block.group(1), re.M)
-    if not names:
-        fail("%s lists no functions" % module_path)
-    return names
-
-
 def standin_libubertooth(cmake, modules, work):
     """A header and a library standing in for an installed libubertooth.
 
@@ -410,46 +391,14 @@ def standin_libubertooth(cmake, modules, work):
     functions the tools call, so an empty file no longer passes for one in the
     cases above. A stand-in rather than a copy of the real library, because
     nothing here needs libubertooth's own code and the real header would drag
-    libbtbb and libusb into every probe.
+    libbtbb and libusb into every probe. The names come from the module
+    itself, through the helper test_ubertooth_check.py builds its own
+    stand-ins with.
 
     Returns (header directory, library).
     """
-    names = required_functions(os.path.join(modules, "FindUBERTOOTH.cmake"))
-    source = os.path.join(work, "standin")
-    build = os.path.join(work, "standin-build")
-    os.mkdir(source)
-    with open(os.path.join(source, "ubertooth.h"), "w",
-              encoding="utf-8") as handle:
-        handle.write("/* Stands in for libubertooth's header. */\n")
-        for name in names:
-            handle.write("int %s(void);\n" % name)
-    with open(os.path.join(source, "standin.c"), "w",
-              encoding="utf-8") as handle:
-        handle.write('#include "ubertooth.h"\n')
-        for name in names:
-            handle.write("int %s(void) { return 0; }\n" % name)
-    with open(os.path.join(source, "CMakeLists.txt"), "w",
-              encoding="utf-8") as handle:
-        handle.write("cmake_minimum_required(VERSION 3.5...3.27)\n"
-                     "project(libubertooth_standin C)\n"
-                     "add_library(ubertooth SHARED standin.c)\n")
-    for command, what in (([cmake, "-S", source, "-B", build], "configure"),
-                          ([cmake, "--build", build], "build")):
-        done = subprocess.run(command, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True)
-        if done.returncode != 0:
-            fail("could not %s the libubertooth stand-in:\n%s"
-                 % (what, done.stdout))
-    # Under the build directory rather than in it: a multi-config generator
-    # puts the library in a subdirectory named after the configuration.
-    built = [path for path in glob.glob(os.path.join(build, "**",
-                                                     "libubertooth.*"),
-                                        recursive=True)
-             if not path.endswith(".h")]
-    if len(built) != 1:
-        fail("the libubertooth stand-in built %s, expected one library"
-             % (sorted(built) or "nothing"))
-    return source, built[0]
+    names = libubertooth_standin.required_functions(modules)
+    return libubertooth_standin.build(cmake, work, "standin", names, names)
 
 
 def main():

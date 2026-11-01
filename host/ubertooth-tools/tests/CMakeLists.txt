@@ -1415,3 +1415,21 @@ add_test(
 # three times the configures of either and a cold CI runner spends seconds on
 # compiler detection alone.
 set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 240)
+
+# FindUBERTOOTH.cmake must refuse a libubertooth older than these tools, which
+# used to configure cleanly and then fail in the compiler. Runs the real
+# module from a one-line project against three stand-in installs of its own:
+# a complete one it must accept, one with a function missing from the header,
+# and one whose library defines none of them, the last at -O2 and -O2 -flto as
+# well. The counterpart of btbb-check above.
+add_test(
+	NAME ubertooth-check
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_ubertooth_check.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+# Six configures of a project with C in it and three builds of the one-file
+# stand-in: 63 s on a machine busy with parallel builds, where btbb-check's
+# five configures take 52 s. Four times that for a cold CI runner, which
+# spends seconds on compiler detection alone.
+set_tests_properties(ubertooth-check PROPERTIES TIMEOUT 240)
