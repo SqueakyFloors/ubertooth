@@ -57,10 +57,11 @@
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
 
-// The two values conn.terminate_note takes once a packet announcing the end of
-// the connection has been read: how many connection events may still carry
-// packets before that packet is treated as damaged and ignored. The follow
-// ends at the first connection event that carries nothing.
+// conn.terminate_note, the note a packet announcing the end of the connection
+// leaves, counts how many more connection events may carry packets before that
+// packet is treated as damaged and ignored. The follow ends at the first
+// connection event that carries nothing. These are the two values the note
+// starts at.
 //
 // Why the connection has to go quiet first: CRC verification is off by
 // default, so a bit-errored data packet reaches the dispatch that reads these
@@ -68,21 +69,30 @@
 // are all that tell it from a real one. Stopping a healthy follow is the worse
 // of the two mistakes, because nothing re-follows a live connection -- there
 // is no new connection request to hear -- so the capture would go quiet with
-// the connection still running. A connection that really closed stops talking,
-// so waiting costs about one connection event.
+// the connection still running.
 //
-// A missed connection event still ends the follow, since it is indistinguishable
-// from the silence a close leaves. `ubertooth-btle -k1` is what removes the
-// exposure altogether: a damaged packet never reaches the dispatch.
+// Why two events of it. A close is not one packet but a short exchange: the
+// peer that is closing sends this packet, and the other acknowledges it in its
+// own next packet, which is a connection event later when the peripheral is
+// the one closing. Both of those events carry packets and neither says the
+// connection is alive, so the note has to outlast them. A connection in use
+// carries packets in every event, so it spends the budget just as quickly and
+// the note is gone.
 //
-// Normally one event. The mode's loop reads a packet after the receive
-// interrupt has queued it, though, which is often while the connection event
-// it arrived in is still open; that event holds the packet itself, so its own
-// packets say nothing about whether the connection is alive, and its close is
-// given one more. Which case it is comes from the event counter the receive
-// interrupt dated the packet with.
-#define TERMINATE_AFTER_ITS_EVENT 1
-#define TERMINATE_IN_ITS_EVENT    2
+// What it costs: a real close ends the follow one or two connection events
+// later than the packet alone would. A connection that keeps talking for
+// longer than that after the packet keeps its follow, and if the packet was
+// genuine the follow then waits out the supervision timeout as it did before.
+// A connection event the board merely missed is silence too, so a damaged
+// packet followed by a quiet event does still end a follow.
+// `ubertooth-btle -k1` is what removes the exposure altogether: a damaged
+// packet never reaches the dispatch.
+//
+// The two differ by the event the packet arrived in, which the mode's loop may
+// read before or after that event closes; the event counter the receive
+// interrupt dated the packet with says which.
+#define TERMINATE_BUDGET_EVENT_CLOSED 2
+#define TERMINATE_BUDGET_EVENT_OPEN   3
 
 // How long timer1 waits before looking at FS_LOCK again, and how many of
 // those re-checks keep the short interval.
@@ -289,7 +299,8 @@ typedef struct _le_conn_t {
 
 	// How many connection events may still carry packets before a packet
 	// that announced the end of the connection is treated as damaged, and 0
-	// where none has been read. See TERMINATE_AFTER_ITS_EVENT.
+	// where none has been read. See TERMINATE_BUDGET_EVENT_CLOSED, which is
+	// where the whole of this is explained.
 	//
 	// It belongs to the connection rather than being a field of its own:
 	// reset_conn() then clears it, and a packet read just after a follow
@@ -672,7 +683,7 @@ static void finish_conn_event(void) {
 	// An event that carried packets spends one of the note's budget, and
 	// discards the note once the budget runs out: a connection still
 	// delivering packets has not closed, so the packet that said it had was
-	// damaged. See TERMINATE_AFTER_ITS_EVENT.
+	// damaged. See TERMINATE_BUDGET_EVENT_CLOSED.
 	if (conn.terminate_note && had_packets)
 		--conn.terminate_note;
 
@@ -2280,25 +2291,19 @@ static void packet_handler(le_rx_t *buf) {
 				//
 				// The control LLID and the length are all that stands
 				// between a bit-errored data packet and a note written
-				// here, as they are for the two updates above. So the
-				// note is acted on only once the connection goes quiet,
-				// which is what tells a real close from a damaged
-				// packet: see TERMINATE_AFTER_ITS_EVENT for why that is
-				// the better mistake to risk, and what `-k1` does
-				// instead.
+				// here, as they are for the two updates above, so the
+				// note is acted on only once the connection goes quiet.
+				// TERMINATE_BUDGET_EVENT_CLOSED explains that and what
+				// `-k1` does instead.
 				//
-				// The event counter the packet is dated with says
-				// whether the event it arrived in is still open. If the
-				// counter has moved past it, every event that closes
-				// from now on is after the packet.
-				//
-				// Interrupts are held off across reading the counter and
-				// writing the note, because the timer interrupt moves
-				// the counter on and spends the note at every connection
-				// event. Without the guard it could close the packet's
-				// own event between the two, so the note would be
-				// written for an event that had already closed and the
-				// follow would wait one event longer than it should.
+				// Which value the note starts at depends on whether the
+				// event this packet arrived in has closed yet, and the
+				// event counter it is dated with answers that. Reading
+				// that counter and writing the note are one guarded
+				// step: the timer interrupt moves the counter on, and
+				// without the guard it could close the packet's own
+				// event between the two, so the follow would wait one
+				// event longer than it should.
 				case 0x2:
 					if (buf->data[1] == 2) {
 						uint32_t primask = irq_save_disable();
@@ -2306,8 +2311,8 @@ static void packet_handler(le_rx_t *buf) {
 						conn.terminate_note =
 							(buf->in_open_event &&
 							 buf->event_counter == conn.conn_event_counter)
-								? TERMINATE_IN_ITS_EVENT
-								: TERMINATE_AFTER_ITS_EVENT;
+								? TERMINATE_BUDGET_EVENT_OPEN
+								: TERMINATE_BUDGET_EVENT_CLOSED;
 						irq_restore(primask);
 					}
 					break;

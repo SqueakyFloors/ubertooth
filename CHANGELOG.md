@@ -953,10 +953,13 @@
   followed connection but not the one that announces the connection is ending,
   so the capture sat on a closed connection until its supervision timeout, up
   to 32 s, and heard nothing in the meantime. The follow now ends a connection
-  event or two after that packet -- once the connection has gone quiet, so
-  that one damaged packet does not stop a capture of a connection still in use
-  -- and the board goes back to listening on the advertising channel, where a
-  new connection between the same devices can be followed.
+  event or two after that packet, once the connection has gone quiet, and the
+  board goes back to listening on the advertising channel, where a new
+  connection between the same devices can be followed. Waiting for quiet is
+  what keeps one damaged packet from stopping a capture of a connection still
+  in use; the cost is that a connection which carries on talking for longer
+  than that after a real close keeps its follow until the supervision timeout,
+  as before. `ubertooth-btle -k1` rules the mistake out altogether.
   [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005)
   [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015)
 

@@ -2945,14 +2945,25 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	build_terminate(&buf, 0x13);
 	arrived_in_event(&buf, conn.conn_event_counter);
 	packet_handler(&buf);
-	mu_assert_int_eq(TERMINATE_IN_ITS_EVENT, conn.terminate_note);
+	mu_assert_int_eq(TERMINATE_BUDGET_EVENT_OPEN, conn.terminate_note);
 
 	/* ...and dated to an event that has closed, it is noted the other way. */
 	start_fresh();
 	build_terminate(&buf, 0x13);
-	arrived_in_event(&buf, conn.conn_event_counter - 1);
+	arrived_in_event(&buf, (uint16_t)(conn.conn_event_counter - 1));
 	packet_handler(&buf);
-	mu_assert_int_eq(TERMINATE_AFTER_ITS_EVENT, conn.terminate_note);
+	mu_assert_int_eq(TERMINATE_BUDGET_EVENT_CLOSED, conn.terminate_note);
+
+	/*
+	 * ...and one that arrived with no connection event open at all, which
+	 * says nothing about which event it belongs to, is noted as though its
+	 * event had closed. The smaller budget is the right way to be wrong
+	 * here: it ends the follow sooner rather than holding the note longer.
+	 */
+	start_fresh();
+	build_terminate(&buf, 0x13);
+	packet_handler(&buf);
+	mu_assert_int_eq(TERMINATE_BUDGET_EVENT_CLOSED, conn.terminate_note);
 
 	/* ...and one of the wrong length does not. */
 	start_fresh();
@@ -3685,83 +3696,111 @@ MU_TEST(a_terminate_contradicted_by_a_live_connection_is_discarded)
 {
 	le_rx_t buf;
 	unsigned i;
-	/* What the note must hold after each of the busy events below. */
-	static const int expected[] = { TERMINATE_AFTER_ITS_EVENT, 0, 0 };
-
-	anchored_connection(100000);
-	rf_channel = DATA_CHANNEL_MHZ;
-	build_terminate(&buf, 0x13);
-	arrived_in_event(&buf, conn.conn_event_counter);
-
-	packet_handler(&buf);
-
 	/*
-	 * Events in a row carry packets, as a connection in use does. The
-	 * first is the event the terminate arrived in, which spends the one
-	 * extra event that case is given; the second is after it and discards
-	 * the note. Each step is asserted, so the budget cannot quietly grow or
-	 * shrink.
+	 * What the note must hold after each busy event, in each of the two
+	 * orders the loop can read the packet in. Written out rather than
+	 * derived from the constants, so that changing a budget breaks the
+	 * test here, where the behavior is decided, and not somewhere else.
 	 */
-	for (i = 0; i < sizeof(expected) / sizeof(expected[0]); ++i) {
-		conn_event.num_packets = 2;
+	static const int from_open_event[]   = { 2, 1, 0, 0 };
+	static const int from_closed_event[] = { 1, 0, 0, 0 };
+	const int *expected;
+	unsigned count = 4;
+
+	for (expected = from_open_event;; expected = from_closed_event) {
+		anchored_connection(100000);
+		rf_channel = DATA_CHANNEL_MHZ;
+		build_terminate(&buf, 0x13);
+		arrived_in_event(&buf, expected == from_open_event
+				? conn.conn_event_counter
+				: (uint16_t)(conn.conn_event_counter - 1));
+
+		packet_handler(&buf);
+
+		/*
+		 * Event after event carries packets, as a connection in use
+		 * does. The close's own exchange is what the budget is for, and
+		 * a connection that keeps talking past it spends the budget and
+		 * loses the note.
+		 */
+		for (i = 0; i < count; ++i) {
+			conn_event.num_packets = 2;
+			conn_event.opened = 1;
+			conn_event.anchor = conn.last_anchor + conn.conn_interval;
+			fake_t1tc = conn_event.anchor;
+
+			finish_conn_event();
+
+			mu_assert_fatal(!connection_was_reset(),
+			                "a connection still delivering packets "
+			                "lost its follow to one packet that "
+			                "looked like a terminate");
+			mu_assert_int_eq(expected[i], conn.terminate_note);
+		}
+
+		/*
+		 * And the note is gone rather than merely unused: a quiet event
+		 * now leaves the follow in place, as it does on any healthy
+		 * connection that misses an event.
+		 */
+		conn_event.num_packets = 0;
 		conn_event.opened = 1;
-		conn_event.anchor = conn.last_anchor + conn.conn_interval;
-		fake_t1tc = conn_event.anchor;
 
 		finish_conn_event();
 
-		mu_assert_fatal(!connection_was_reset(),
-		                "a connection still delivering packets lost its "
-		                "follow to one packet that looked like a "
-		                "terminate");
-		mu_assert_int_eq(expected[i], conn.terminate_note);
+		mu_assert(!connection_was_reset(),
+		          "a discarded terminate came back at the next quiet "
+		          "event");
+
+		if (expected == from_closed_event)
+			break;
 	}
+}
 
-	/*
-	 * And the note is gone rather than merely unused: a quiet event now
-	 * leaves the follow in place, as it does on any healthy connection
-	 * that misses an event.
-	 */
-	conn_event.num_packets = 0;
-	conn_event.opened = 1;
+/*
+ * A close is an exchange, not one packet: the peer that is closing sends the
+ * packet and the other acknowledges it, which is a connection event later when
+ * the peripheral is the one closing. That acknowledgment carries packets and
+ * says nothing about the connection being alive, so the note has to outlast
+ * it -- otherwise a peripheral-initiated close would leave the follow waiting
+ * out the supervision timeout, which is what this whole area exists to avoid.
+ */
+MU_TEST(a_close_acknowledged_in_the_next_event_still_ends_the_follow)
+{
+	le_rx_t buf;
 
-	finish_conn_event();
-
-	mu_assert(!connection_was_reset(),
-	          "a discarded terminate came back at the next quiet event");
-
-	/*
-	 * The same when the event the packet arrived in has already closed by
-	 * the time the loop reads it, which is the common order. One event
-	 * carrying packets then discards the note, and a capture that misses
-	 * the event after it keeps the follow: without the event counter the
-	 * note would still be held and that missed event would end the follow.
-	 */
+	/* The packet's own event has closed by the time the loop reads it. */
 	anchored_connection(100000);
 	rf_channel = DATA_CHANNEL_MHZ;
 	build_terminate(&buf, 0x13);
-	arrived_in_event(&buf, conn.conn_event_counter - 1);
+	arrived_in_event(&buf, (uint16_t)(conn.conn_event_counter - 1));
 
 	packet_handler(&buf);
 
-	conn_event.num_packets = 2;
+	/* The acknowledgment, one event after the packet. */
+	conn_event.num_packets = 1;
 	conn_event.opened = 1;
 	conn_event.anchor = conn.last_anchor + conn.conn_interval;
 	fake_t1tc = conn_event.anchor;
 
 	finish_conn_event();
 
-	mu_assert_fatal(0 == conn.terminate_note,
-	                "an event after the terminate's own did not discard it");
+	mu_assert_fatal(!connection_was_reset(),
+	                "the acknowledgment event ended the follow, which "
+	                "cannot be told from the connection being alive");
 
+	/* And then the peers stop talking. */
 	conn_event.num_packets = 0;
 	conn_event.opened = 1;
 
 	finish_conn_event();
 
-	mu_assert(!connection_was_reset(),
-	          "a connection that missed one event after a damaged packet "
-	          "lost its follow");
+	mu_assert(connection_was_reset(),
+	          "a close acknowledged in the event after it left the follow "
+	          "waiting out the supervision timeout");
+	mu_assert(!(fake_t1mcr & TMCR_MR0I),
+	          "a connection-event match is still armed with no connection");
+	mu_assert_int_eq(ADV_CHANNEL_MHZ, rf_channel);
 }
 
 /*
@@ -4717,6 +4756,7 @@ int main(void)
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_terminate_ends_the_follow_once_the_connection_goes_quiet);
 	MU_RUN(a_terminate_contradicted_by_a_live_connection_is_discarded);
+	MU_RUN(a_close_acknowledged_in_the_next_event_still_ends_the_follow);
 	MU_RUN(an_ordinary_data_packet_does_not_end_the_follow);
 	MU_RUN(a_terminate_with_nothing_followed_does_not_end_the_next_follow);
 	MU_RUN(a_moment_already_past_is_armed_just_ahead_of_the_counter);

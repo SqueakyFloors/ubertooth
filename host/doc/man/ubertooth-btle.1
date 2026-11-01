@@ -32,7 +32,14 @@ One connection is followed at a time\. A connection request heard while a connec
 .P
 Ubertooth sees a connection end in one of two ways\.
 .P
-A pair of devices that closes the connection says so on the air\. The follow ends at the first connection event after that packet in which nothing is heard, which is normally the next one, so the capture leaves the connection a connection event or two after it closed\. A connection that goes on delivering packets keeps being followed: going quiet is what tells a real close from a damaged packet, since with CRC verification off (\fB\-k\fR, the default) a bit\-errored data packet can look like the one that closes a connection\. A connection event the board simply misses is silence too, so a damaged packet followed by a missed event does still end a follow; \fB\-k1\fR is what removes that exposure, by dropping the packet before the board reads it\. The packet that closes the connection is in the capture; an acknowledgment of it that arrives after the follow has ended is not\.
+A pair of devices that closes the connection says so on the air\. The follow ends at the first connection event in which nothing is heard, counting from the packet that closes the connection and the acknowledgment of it that the other device sends\. In practice that is one or two connection events after the packet, and the capture holds the whole exchange\.
+.P
+Waiting for the connection to go quiet is what tells a real close from a damaged packet\. With CRC verification off (\fB\-k\fR, the default) a bit\-errored data packet can look like the one that closes a connection, and a connection that keeps delivering packets after it keeps being followed\. The wait cuts both ways, and \fB\-k1\fR is the only thing that removes the exposure, by dropping a damaged packet before the board reads it:
+.IP "\(bu" 4
+A connection event the board simply misses is silence too, so a damaged packet followed by a missed event does end a follow\.
+.IP "\(bu" 4
+A connection that carries on for more than a connection event or two after a real close \-\- the devices still exchanging something \-\- keeps its follow and then ends it at the supervision timeout, as a connection that dies without warning does\.
+.IP "" 0
 .P
 A connection that dies without warning ends at its supervision timeout instead\. The connection itself sets that timeout, anywhere from 100 ms to 32 s, and until it has passed a new connection between the same devices is not followed\.
 .P
@@ -203,7 +210,7 @@ Get (\fB\-a\fR) or set (\fB\-a <address>\fR) the access address used in promiscu
 \fB\-k [01]\fR
 Read (\fB\-k\fR) or set (\fB\-k 0\fR or \fB\-k 1\fR) CRC verification (default: 0)\. Any other value is refused\. A set and a read in one command both happen, the set first, so the read reports the new value, in whichever order they are written; two sets are refused, as two values for one setting are everywhere (ubertooth(7), OPTION VALUES)\. In a sniffing mode both run once the mode has started, because entering a mode clears the setting, and the firmware then turns verification on and off itself as it recovers a connection\.
 .IP
-Verification also decides what a follow (\fB\-f\fR) acts on\. With it off, a bit\-errored data packet still reaches the board's reading of the connection, where its length and type fields are all that tell it from a connection update, a channel map change, or the packet that closes the connection\. With it on, such a packet is dropped first, which is the only way to rule the mistake out: a follow waits for the connection to go quiet before a close ends it (DESCRIPTION), and that keeps a live connection followed, but not through a connection event the board misses\.
+Verification also decides what a follow (\fB\-f\fR) acts on\. With it off, a bit\-errored data packet still reaches the board's reading of the connection, where its length and type fields are all that tell it from a connection update, a channel map change, or the packet that closes the connection; with it on, such a packet is dropped before any of that\. It is the only way to rule those mistakes out (DESCRIPTION)\.
 .TP
 \fB\-v\fR
 Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder describes each packet whose data it could not read, on standard error, as the run goes\. Without it a run counts those packets and says how many there were in one line when it ends (DIAGNOSTICS)\. It needs \fB\-f\fR, \fB\-n\fR or \fB\-p\fR, since there is no decode to describe otherwise, and it takes no value\. A capture on standard output (\fB\-q \-\fR, \fB\-c \-\fR) prints no packets at all, so that too is refused: \fBerror: \-v does not go with a capture on standard output: a run that hands the capture that stream prints no packets to describe\fR\.

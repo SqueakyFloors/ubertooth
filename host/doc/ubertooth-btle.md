@@ -40,17 +40,24 @@ that connection ends.
 Ubertooth sees a connection end in one of two ways.
 
 A pair of devices that closes the connection says so on the air. The follow
-ends at the first connection event after that packet in which nothing is
-heard, which is normally the next one, so the capture leaves the connection a
-connection event or two after it closed. A connection that goes on delivering
-packets keeps being followed: going quiet is what tells a real close from a
-damaged packet, since with CRC verification off (`-k`, the default) a
-bit-errored data packet can look like the one that closes a connection. A
-connection event the board simply misses is silence too, so a damaged packet
-followed by a missed event does still end a follow; `-k1` is what removes
-that exposure, by dropping the packet before the board reads it. The packet
-that closes the connection is in the capture; an acknowledgment of it that
-arrives after the follow has ended is not.
+ends at the first connection event in which nothing is heard, counting from
+the packet that closes the connection and the acknowledgment of it that the
+other device sends. In practice that is one or two connection events after
+the packet, and the capture holds the whole exchange.
+
+Waiting for the connection to go quiet is what tells a real close from a
+damaged packet. With CRC verification off (`-k`, the default) a bit-errored
+data packet can look like the one that closes a connection, and a connection
+that keeps delivering packets after it keeps being followed. The wait cuts
+both ways, and `-k1` is the only thing that removes the exposure, by dropping
+a damaged packet before the board reads it:
+
+  * A connection event the board simply misses is silence too, so a damaged
+    packet followed by a missed event does end a follow.
+  * A connection that carries on for more than a connection event or two after
+    a real close -- the devices still exchanging something -- keeps its follow
+    and then ends it at the supervision timeout, as a connection that dies
+    without warning does.
 
 A connection that dies without warning ends at its supervision timeout
 instead. The connection itself sets that timeout, anywhere from 100 ms to
@@ -365,10 +372,8 @@ Miscellaneous:
    bit-errored data packet still reaches the board's reading of the
    connection, where its length and type fields are all that tell it from a
    connection update, a channel map change, or the packet that closes the
-   connection. With it on, such a packet is dropped first, which is the only
-   way to rule the mistake out: a follow waits for the connection to go quiet
-   before a close ends it (DESCRIPTION), and that keeps a live connection
-   followed, but not through a connection event the board misses.
+   connection; with it on, such a packet is dropped before any of that. It is
+   the only way to rule those mistakes out (DESCRIPTION).
  - `-v` :
    Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder
    describes each packet whose data it could not read, on standard error, as
