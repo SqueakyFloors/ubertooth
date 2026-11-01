@@ -7,9 +7,7 @@
  * registers the waits poll are functions rather than variables, so the test
  * can decide what the controller does: answer, or stop answering.
  *
- * Only the registers usbhw_lpc.c touches are here. This file is part of
- * Project Ubertooth and is released under the terms of the GPL. Refer to
- * COPYING for more information.
+ * Only the registers usbhw_lpc.c touches are here.
  */
 
 #ifndef __UBERTOOTH_TESTS_FAKE_LPC17_H

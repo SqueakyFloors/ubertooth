@@ -10,9 +10,6 @@
  * The slot clock is a function call rather than a variable, so the test can
  * advance it on every read: the firmware's waits only read it, and a loop that
  * polls a clock which never moves would not terminate here.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_TEST_BTBR_RX_STUB_H
 #define UBERTOOTH_TEST_BTBR_RX_STUB_H

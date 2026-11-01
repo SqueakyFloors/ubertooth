@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that the .dfu built from a firmware image is a file ubertooth-dfu
 # would accept.
 #

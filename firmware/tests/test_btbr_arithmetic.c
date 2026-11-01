@@ -19,9 +19,6 @@
  * TIMER0 and reads the radio's packet strobe -- so that part is read as text,
  * the way test_cc2400_wait.c reads the same file, and checked against the
  * clock the firmware's own headers define.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <setjmp.h>
 #include <signal.h>

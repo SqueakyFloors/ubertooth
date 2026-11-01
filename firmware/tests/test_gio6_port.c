@@ -19,9 +19,6 @@
  * The same source is built once per board (test_gio6_port_zero,
  * test_gio6_port_one, test_gio6_port_badge): the macros are chosen by the
  * board define, so one binary can only ever see one board.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #include <stdint.h>
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef UBERTOOTH_BTLE_OPTIONS_H
 #define UBERTOOTH_BTLE_OPTIONS_H
 

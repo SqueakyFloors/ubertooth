@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #ifndef UBERTOOTH_SPECAN_OPTIONS_H
 #define UBERTOOTH_SPECAN_OPTIONS_H
 

@@ -7,9 +7,6 @@
  * real register header's include guard, so the pin numbers and the GIO6
  * macros below are the firmware's own -- only the addresses they resolve to
  * are ordinary memory.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_FW_TESTS_STUB_GIO6_UBERTOOTH_H
 #define UBERTOOTH_FW_TESTS_STUB_GIO6_UBERTOOTH_H

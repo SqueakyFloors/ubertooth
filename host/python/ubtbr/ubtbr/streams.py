@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Where this tool's messages go: results, diagnostics, and a reader that left.
 
 Standard output carries what the user asked for and standard error everything
