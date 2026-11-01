@@ -16,7 +16,7 @@ It is \fBexperimental\fR, and it needs the separate \fBbtbr\fR firmware image\. 
 .P
 At startup the tool gives the board the address \fB11:22:33:44:55:66\fR and the local name \fBUbertooth\fR, which is what an inquiring device sees in the Extended Inquiry Response (EIR)\. Change the address with the \fBbdaddr\fR command\.
 .P
-Every command that takes a \fBBD_ADDR\fR takes the six bytes of an address as twelve hex digits, in either case, written \fB11:22:33:44:55:66\fR or \fB112233445566\fR\. Anything else is refused; see DIAGNOSTICS\.
+Every command that takes a \fBBD_ADDR\fR takes the six bytes of an address as twelve hex digits, in either case, written \fB11:22:33:44:55:66\fR or \fB112233445566\fR\. Anything else is refused; see DIAGNOSTICS\. The \fBbdaddr=\fR an inquiry prints is written the second way, so it can be copied into \fBpage\fR, \fBl2ping\fR, or \fBmonitor\fR as it stands\.
 .P
 The host side is the Python module \fBubtbr\fR, which also implements enough of the Link Manager Protocol (LMP) to set up an unencrypted connection\.
 .SH "FIRMWARE"

@@ -880,13 +880,11 @@
   answered; ubertooth-btbr(1), LIMITATIONS says how large it may be.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
-- `ubertooth-btbr`'s prompt refuses an address that is not six bytes, where a
-  short one used to be acted on as a different address: `bdaddr 11:22:33` gave
-  the board the address `00:00:11:22:33` and `page 11:22:33` paged that
-  device, with nothing said about either. `page`, `l2ping`, `monitor`, and
-  `bdaddr` now take twelve hex digits, with or without the five colons, and
-  answer anything else with the line they already gave a word that was too
-  long, `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got 11:22:33)`.
+- `ubertooth-btbr`'s `page`, `l2ping`, `monitor`, and `bdaddr` refuse an
+  address that is not six bytes, where a short one used to be acted on as a
+  different one: `bdaddr 11:22:33` gave the board `00:00:11:22:33` and `page
+  11:22:33` paged that device, with nothing said. An inquiry's `bdaddr=` keeps
+  its leading zeros too, so the address it prints is one the prompt takes.
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up

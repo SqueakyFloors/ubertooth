@@ -497,7 +497,11 @@ class BTCtlFHSPkt:
 		return BTCtlFHSPkt(parity, bdaddr, cls, ltaddr, clk27_2)
 
 	def __str__(self):
-		return "FHS: bdaddr=%x parity=%x cls=%x ltaddr=%x clk=%x"%(
+		# The address keeps its leading zeros, so the word printed here is
+		# one the prompt takes back: it is what a user copies from an
+		# inquiry into page or l2ping, and an address beginning 00: is
+		# common.
+		return "FHS: bdaddr=%012x parity=%x cls=%x ltaddr=%x clk=%x"%(
 			self.bdaddr, self.parity,self.cls,self.ltaddr, self.clk27_2)
 		
 class BTCtlACLPkt:

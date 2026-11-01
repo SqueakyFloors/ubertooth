@@ -2348,9 +2348,18 @@ print("ubtbr: `x` and `q` leave whatever follows them")
 # 0x11, from the underscore.
 
 def requests_sent():
-    """The request code of every packet sent so far, oldest first."""
-    return [struct.unpack("<I", bytes.fromhex(packet)[4:8])[0]
-            for packet in writes()]
+    """The request code of every packet sent so far, oldest first.
+
+    A message longer than the endpoint's 60 bytes is sent as a first packet
+    and then continuations, which carry payload where the first carries the
+    header, so only the first of each message is read here.
+    """
+    codes = []
+    for packet in writes():
+        sent = bytes.fromhex(packet)
+        if sent[:1] == b"S" and len(sent) >= 8:
+            codes.append(struct.unpack("<I", sent[4:8])[0])
+    return codes
 
 
 def set_bdaddr_packet(bdaddr):
@@ -2371,8 +2380,13 @@ REFUSED_ADDRESSES = (
     "0x112233445566",       # the prefix int() takes
     "1_12233445566",        # the underscore int() takes
     "11:2233:4455:66",      # twelve digits, but not the five colons
+    # Too long, but small enough to fit 48 bits, so the value said nothing
+    # about the length and these came through where a larger one did not.
+    "00:11:22:33:44:55:66",
+    "0011223344556",
     "11:22:33:44:55:66:77",
     "11:22:33:44:55:zz",
+    "11:22:33:44:55:66 extra",   # a word after the address
     "",                     # the bare command
 )
 refused = "".join("bdaddr %s\n" % word for word in REFUSED_ADDRESSES) + "q\n"
@@ -2404,14 +2418,45 @@ for command in ("page", "l2ping", "monitor"):
 print("ubtbr: page, l2ping, and monitor refuse a short address as bdaddr does")
 
 # A whole address is taken either way it is written, upper or lower case, and
-# the board is given exactly those six bytes.
-for word in ("AA:BB:CC:DD:EE:FF", "aabbccddeeff", "Aa:bB:cC:Dd:eE:fF"):
+# the board is given exactly those six bytes. The spaces around the last one
+# are Cmd's to strip, not the grammar's, which is what that line is here for.
+for word in ("AA:BB:CC:DD:EE:FF", "aabbccddeeff", "Aa:bB:cC:Dd:eE:fF",
+             "  AA:BB:CC:DD:EE:FF  "):
     status, output, errors = ran(typed="bdaddr %s\nq\n" % word)
     assert status == 0, (word, status, output, errors)
     assert "BD_ADDR must be" not in errors, (word, errors)
     assert "Traceback" not in errors, (word, errors)
     assert set_bdaddr_packet(0xAABBCCDDEEFF) in writes(), (word, writes())
 print("ubtbr: a whole address is taken with or without the colons")
+
+# and page takes one too, as the address it was given: the refusals above
+# would also pass if the grammar refused every address, so one of the three
+# commands that start something is typed with a whole one. It is stopped
+# again rather than left paging.
+status, output, errors = ran(typed="page AA:BB:CC:DD:EE:FF\nidle\nq\n")
+assert status == 0, (status, output, errors)
+assert "BD_ADDR must be" not in errors, errors
+assert "Traceback" not in errors, errors
+assert btctl.BTCTL_PAGING_REQ in requests_sent(), requests_sent()
+paging = (struct.pack("<I", btctl.BTCTL_PAGING_REQ)
+          + struct.pack("<Q", 0xAABBCCDDEEFF))
+assert (b"S\x00" + struct.pack("<H", len(paging)) + paging).hex() in writes(), \
+    writes()
+print("ubtbr: page takes a whole address and pages that one")
+
+# The address an inquiry prints keeps its leading zeros, so it is a word the
+# prompt takes back. It used to be printed as a plain hex number, so a device
+# whose address begins 00: -- many do -- appeared as fewer than twelve
+# digits, and copying that word into page would now be refused.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(0x001122334455),
+], until="RX FHS")
+printed = timed_lines(output, "RX FHS")[0]
+assert "bdaddr=001122334455 " in printed, printed
+assert tool_module.BTCtlPrompt.BDADDR.match(
+    re.search(r"bdaddr=(\S+)", printed).group(1)), printed
+print("ubtbr: the address an inquiry prints is one the prompt takes back")
 
 
 # A session at a terminal leaves the prompt to Cmd, which hands it to the

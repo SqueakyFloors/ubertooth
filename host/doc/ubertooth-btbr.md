@@ -24,7 +24,9 @@ Inquiry Response (EIR). Change the address with the `bdaddr` command.
 
 Every command that takes a `BD_ADDR` takes the six bytes of an address as
 twelve hex digits, in either case, written `11:22:33:44:55:66` or
-`112233445566`. Anything else is refused; see DIAGNOSTICS.
+`112233445566`. Anything else is refused; see DIAGNOSTICS. The `bdaddr=` an
+inquiry prints is written the second way, so it can be copied into `page`,
+`l2ping`, or `monitor` as it stands.
 
 The host side is the Python module `ubtbr`, which also implements enough of
 the Link Manager Protocol (LMP) to set up an unencrypted connection.

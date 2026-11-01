@@ -441,15 +441,12 @@ class BTCtlPrompt(Cmd):
 			self.say(self.PROMPT)
 
 	# An address is six bytes, so twelve hex digits: either with the five
-	# colons the prompt asks for, or with none at all. The length has to be
-	# checked here rather than left to the value, because a shorter word
-	# still names a valid address -- a different one from the one that was
-	# typed. "11:22:33" would become 00:00:11:22:33, so page would page a
-	# device nobody asked for and bdaddr would give the board that address.
-	# Python's int() is more generous than this grammar in two more ways
-	# that would mislead the same way: it takes a "0x" prefix, reading
-	# "0x11" as address 0x11, and underscores between digits, reading "1_1"
-	# as 0x11.
+	# colons the prompt asks for, or with none at all. The length matters as
+	# much as the value, because a word of the wrong length still names a
+	# valid address -- a different one from the one that was typed, which
+	# page would page and bdaddr would give the board. So does anything
+	# Python's int() reads as a number: a "0x" prefix and underscores
+	# between digits both name an address nobody typed.
 	BDADDR = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\Z"
 		r"|[0-9A-Fa-f]{12}\Z")
 
