@@ -92,32 +92,23 @@ struct bl_update_report {
 };
 
 /*
- * Does the region already hold this bootloader?
+ * ubertooth_bl_update_payload_check() over the payload, and then the region
+ * the board has now, which answers UBERTOOTH_BL_UPDATE_SAME when it already
+ * holds the payload and there is nothing to write. The answer and the version
+ * the payload gives go into *report.
  *
  * region is an address rather than a pointer, because the region this is for
  * starts at flash address 0: a pointer parameter would invite a null check
  * that every real call would trip over, and a cast of 0 to a pointer is
  * exactly the argument such a check would turn away. The same reason, and the
- * same shape, as bl_report_crc32() in bl_report.h, and the bytes are read
- * through a volatile pointer for the same reason too -- a compiler may fold a
- * read at address 0 away.
+ * same shape, as bl_report_crc32() in bl_report.h.
  *
- * Compared against the bytes that would be programmed rather than the payload
- * as it sits in the file, so the checksum word this code fills in does not
- * make a board differ from the bootloader it is already running.
- */
-int bl_update_region_matches(const uint8_t *payload, uintptr_t region);
-
-/*
- * ubertooth_bl_update_payload_check() over the payload, with the answer and
- * the version it read written into *report, and then the region if
- * compare_region is set, which answers UBERTOOTH_BL_UPDATE_SAME when the
- * board already holds the payload. region is the board's own region, as an
- * address; it is read only when compare_region is set.
+ * The region is always read, so there is no way to ask for the write without
+ * the comparison: that would be an erase and a program of the bootloader
+ * region for a board that already had it.
  */
 int bl_update_check(const uint8_t *payload, size_t length,
-                    uintptr_t region, int compare_region,
-                    struct bl_update_report *report);
+                    uintptr_t region, struct bl_update_report *report);
 
 /*
  * The checks above, then the part's own, then the write.
@@ -146,7 +137,7 @@ int bl_update_check(const uint8_t *payload, size_t length,
  */
 int bl_update_run(const struct bl_update_ops *ops, void *context,
                   const uint8_t *payload, size_t length,
-                  uintptr_t region, int compare_region, uint8_t *buffer,
+                  uintptr_t region, uint8_t *buffer,
                   struct bl_update_report *report);
 
 /*

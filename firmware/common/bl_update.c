@@ -40,7 +40,18 @@ void bl_update_sector(const uint8_t *payload, unsigned sector, uint8_t *out)
 		out[i] = ubertooth_bl_update_byte(payload, base + i, checksum);
 }
 
-int bl_update_region_matches(const uint8_t *payload, uintptr_t region)
+/*
+ * Does the region already hold this bootloader?
+ *
+ * Compared against the bytes that would be programmed rather than the payload
+ * as it sits in the file, so the checksum word this code fills in does not
+ * make a board differ from the bootloader it is already running.
+ *
+ * The bytes are read through a volatile pointer because the board's region is
+ * at address 0, which a compiler may otherwise fold a read of away;
+ * bl_report_crc32() reads the same region the same way.
+ */
+static int region_matches(const uint8_t *payload, uintptr_t region)
 {
 	const volatile uint8_t *installed = (const volatile uint8_t *)region;
 	const uint32_t checksum = ubertooth_bl_update_vector_checksum(payload);
@@ -54,16 +65,15 @@ int bl_update_region_matches(const uint8_t *payload, uintptr_t region)
 }
 
 int bl_update_check(const uint8_t *payload, size_t length,
-                    uintptr_t region, int compare_region,
-                    struct bl_update_report *report)
+                    uintptr_t region, struct bl_update_report *report)
 {
 	report->part_id = 0;
 	report->sectors_written = 0;
 	report->sectors_verified = 0;
 	report->result = ubertooth_bl_update_payload_check(
 		payload, length, &report->bootloader_version);
-	if (report->result == UBERTOOTH_BL_UPDATE_OK && compare_region &&
-	    bl_update_region_matches(payload, region))
+	if (report->result == UBERTOOTH_BL_UPDATE_OK &&
+	    region_matches(payload, region))
 		report->result = UBERTOOTH_BL_UPDATE_SAME;
 	return report->result;
 }
@@ -98,12 +108,12 @@ static int part_refused(const struct bl_update_ops *ops, void *context,
 
 int bl_update_run(const struct bl_update_ops *ops, void *context,
                   const uint8_t *payload, size_t length,
-                  uintptr_t region, int compare_region, uint8_t *buffer,
+                  uintptr_t region, uint8_t *buffer,
                   struct bl_update_report *report)
 {
 	unsigned sector;
 
-	if (bl_update_check(payload, length, region, compare_region, report) !=
+	if (bl_update_check(payload, length, region, report) !=
 	    UBERTOOTH_BL_UPDATE_OK)
 		return report->result;
 	if (ops == NULL || buffer == NULL) {

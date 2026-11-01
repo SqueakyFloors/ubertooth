@@ -237,17 +237,24 @@ static void build_good_payload(void)
 	memset(installed, 0x5a, sizeof(installed));
 }
 
-/* The installed region is handed over as an address, which is what the board
- * does with flash address 0; the test's own array stands in for it. */
+/*
+ * The installed region is handed over as an address, which is what the board
+ * does with flash address 0; the test's own array stands in for it. A pointer
+ * parameter would have needed a null check, and a cast of 0 to a pointer is
+ * exactly what such a check turns away -- so the board would never have
+ * compared, and would have reprogrammed the region every time it was asked.
+ * The two cases below that get UBERTOOTH_BL_UPDATE_SAME and
+ * UBERTOOTH_BL_UPDATE_OK over the same array are what hold that.
+ */
 static int run(struct bl_update_report *report)
 {
 	return bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
-	                     (uintptr_t)installed, 1, buffer, report);
+	                     (uintptr_t)installed, buffer, report);
 }
 
 static int check_payload(size_t length, struct bl_update_report *report)
 {
-	return bl_update_check(payload, length, (uintptr_t)installed, 1, report);
+	return bl_update_check(payload, length, (uintptr_t)installed, report);
 }
 
 /* ------------------------------------------------------------------ */
@@ -276,7 +283,7 @@ MU_TEST(a_payload_that_is_not_the_whole_region_is_refused)
 	                 check_payload(PAYLOAD_LENGTH + 1, &report));
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_SHORT,
 	                 bl_update_check(NULL, PAYLOAD_LENGTH,
-	                                 (uintptr_t)installed, 1, &report));
+	                                 (uintptr_t)installed, &report));
 }
 
 /*
@@ -412,41 +419,6 @@ MU_TEST(a_region_that_already_holds_the_payload_is_left_alone)
 	mu_assert_int_eq(0, report.sectors_written);
 	mu_assert(part.log[0] == '\0',
 	          "a region that already holds the payload still reached the part");
-}
-
-/*
- * The region is handed over as an address, not a pointer, and the board's
- * region is at flash address 0. A pointer parameter with a null check would
- * have turned every real call away: the board would never compare, and would
- * reprogram the bootloader region every time it was asked. This case is that
- * address.
- */
-MU_TEST(the_region_is_read_at_the_address_it_is_given)
-{
-	struct bl_update_report report;
-
-	build_good_payload();
-	reset_part();
-	memcpy(installed, payload, PAYLOAD_LENGTH);
-	write_le32(installed + UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX * 4,
-	           ubertooth_bl_update_vector_checksum(payload));
-	mu_assert_int_eq(1, bl_update_region_matches(payload,
-	                                             (uintptr_t)installed));
-	installed[PAYLOAD_LENGTH - 1] ^= 0xff;
-	mu_assert_int_eq(0, bl_update_region_matches(payload,
-	                                             (uintptr_t)installed));
-
-	/* And a run told not to compare writes without reading the region at
-	 * all, which is what a caller with no region to read asks for. */
-	build_good_payload();
-	reset_part();
-	memcpy(installed, payload, PAYLOAD_LENGTH);
-	write_le32(installed + UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX * 4,
-	           ubertooth_bl_update_vector_checksum(payload));
-	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_OK,
-	                 bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
-	                               0, 0, buffer, &report));
-	mu_assert_int_eq(4, report.sectors_written);
 }
 
 MU_TEST(a_region_holding_the_payload_with_no_checksum_is_written)
@@ -685,7 +657,7 @@ MU_TEST(a_run_with_no_buffer_writes_nothing)
 	build_good_payload();
 	reset_part();
 	mu_assert(bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
-	                        (uintptr_t)installed, 1, NULL, &report) < 0,
+	                        (uintptr_t)installed, NULL, &report) < 0,
 	          "a run with no buffer to program from was not refused");
 	mu_assert(part.log[0] == '\0', "a run with no buffer reached the part");
 }
@@ -972,7 +944,6 @@ int main(void)
 	MU_RUN(a_payload_with_no_version_block_is_refused);
 	MU_RUN(a_payload_with_no_startable_vector_table_is_refused);
 	MU_RUN(a_region_that_already_holds_the_payload_is_left_alone);
-	MU_RUN(the_region_is_read_at_the_address_it_is_given);
 	MU_RUN(a_region_holding_the_payload_with_no_checksum_is_written);
 	MU_RUN(a_part_that_will_not_name_itself_is_refused);
 	MU_RUN(a_part_without_the_region_is_refused);
