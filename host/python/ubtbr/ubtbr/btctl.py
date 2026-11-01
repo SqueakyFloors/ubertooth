@@ -179,6 +179,10 @@ def l2cap_echo_request(acl):
 	code, identifier, command_length = unpack("<BBH", acl.data[4:8])
 	if code != L2CAP_ECHO_REQ:
 		return None
+	# Zero is not a valid identifier for a command, so there is nothing to
+	# answer it under (Vol 3, Part A, 4).
+	if identifier == 0:
+		return None
 	# The L2CAP length counts the signalling command, its four-byte header
 	# and its data (Vol 3, Part A, 3.1 and 4). Anything else is a packet
 	# this reads nothing out of: a length that does not describe the command
@@ -881,6 +885,12 @@ class BTCtlInquiryScanCmd(BTCtlCmd):
 		self._done = True
 
 class BTCtlPageScanCmd(BTCtlCmd):
+	def __init__(self, bt):
+		super().__init__(bt)
+		# Set when a connection comes up and says so; until then there is no
+		# address to send a packet on.
+		self.lt_addr = None
+
 	def _start(self):
 		self._bt.send_page_scan_cmd()
 		self._lmp = LMPPeripheral(self)
@@ -938,11 +948,22 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# this board gets its round trip. Nothing else on the signalling
 		# channel is handled; this board offers no service to connect to.
 		request = l2cap_echo_request(acl)
-		if request is None:
+		if request is None or self.lt_addr is None:
 			return
 		identifier, data = request
-		self.send_acl(LLID_L2CAP_START,
-			l2cap_signalling_packet(L2CAP_ECHO_RSP, identifier, data))
+		answer = l2cap_signalling_packet(L2CAP_ECHO_RSP, identifier, data)
+		# A response has to carry the request's data back, and this link
+		# sends one-slot packets only: the feature mask offers no others and
+		# a peer asking to send them is refused. A request too big to answer
+		# in one is left alone rather than answered in a packet the peer has
+		# not agreed to receive. `ubertooth-btbr`'s own `l2ping` sends four
+		# bytes and fits; a standard host's default is 44 and does not.
+		if acl_type_for_size(len(answer))[0] not in (DM1, DH1):
+			warn("an L2CAP echo request of %s needs more than the one slot "
+				"this link sends, so it goes unanswered"
+				%byte_count(len(data)))
+			return
+		self.send_acl(LLID_L2CAP_START, answer)
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")

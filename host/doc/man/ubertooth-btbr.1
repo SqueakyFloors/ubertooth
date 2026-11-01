@@ -82,7 +82,7 @@ discover nearby devices; each response is reported with its EIR
 answer inquiries, so nearby devices discover this board
 .TP
 \fBpage_scan\fR
-accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, and another Ubertooth on the same bench needs its transmit level turned down first, as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this way answers an L2CAP echo request, so a peer running \fBl2ping\fR against it sees a reply
+accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, and another Ubertooth on the same bench needs its transmit level turned down first, as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this way answers a small L2CAP echo request, so \fBl2ping\fR from another Ubertooth sees a reply (see LIMITATIONS for how small)
 .TP
 \fBdiscoverable\fR
 \fBinquiry_scan\fR and \fBpage_scan\fR together
@@ -143,6 +143,8 @@ If no FHS appears, the peripheral won the race; try again\.
 The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets cannot be received\. The packet types handled are ID, NULL, POLL, FHS, DM and DH\.
 .IP "\(bu" 4
 Encryption is not implemented\. Packets sent after a connection turns encryption on are reported as raw data, and the AFH map stops being followed, because the LMP packet carrying it is encrypted too\.
+.IP "\(bu" 4
+An L2CAP echo request is answered only when the reply fits one of the one\-slot packets this link sends, which leaves room for 9 bytes of echo data\. \fBl2ping\fR here sends 4 and gets a reply; a standard host's \fBl2ping\fR sends 44 by default, and that request is reported in a \fBwarning:\fR line and left unanswered rather than answered in a packet the peer has not agreed to receive\. \fBl2ping \-s 4\fR from such a host is answered\.
 .IP "\(bu" 4
 The link layer carries Asynchronous Connection\-Less (ACL) traffic only, and does not do role switching or the LMP procedures around it\. A peer asking to send multi\-slot packets is refused as well, and the feature mask this end sends does not offer them, so a connection stays on single\-slot ones: the firmware decodes the multi\-slot kinds, but no capture has exercised that over the air\. A request for any other procedure there is no handler for is refused too, rather than left unanswered, so the peer can get on with the link instead of waiting out a 30\-second LMP response timeout; a PDU that expects no answer is ignored\. Either way the opcode is named in a \fBwarning:\fR line, once per opcode for the life of the connection\.
 .IP "\(bu" 4

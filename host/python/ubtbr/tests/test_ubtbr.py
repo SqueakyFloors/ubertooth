@@ -3479,6 +3479,17 @@ assert central._con.sent == [], central._con.sent
 assert central._con.setups == 0, central._con.setups
 assert warned.getvalue() == "warning: the peer said the setup was complete " \
     "while LMP_FEATURES_REQ was outstanding\n", warned.getvalue()
+# It is remembered, though, so the connection opens when the request this end
+# was in the middle of has run its course, rather than the link sitting there
+# until supervision ends it.
+for op, field, send in central._opening:
+    setattr(central, field, b"")
+central.send_info_req()
+central._con.sent.clear()
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
 
 # The paged board's side sends one and opens once in the same way, which is
 # the role that answers an echo request below.
@@ -3504,16 +3515,22 @@ assert btctl.l2cap_echo_request(
 padded = btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req + b"\x00" * 5)
 assert btctl.l2cap_echo_request(padded) == (0xc8, ECHO_DATA), padded.data.hex()
 
-# The largest request the signalling channel carries is answered, not refused:
-# the MTU bounds the L2CAP payload, so a 44-byte echo payload under a 4-byte
-# command header is exactly the limit, and that is what l2ping sends by
-# default on a standard host.
+# The largest request the signalling channel carries parses: the MTU bounds
+# the L2CAP payload, so a 44-byte echo payload under a 4-byte command header
+# is exactly the limit. Whether it can be answered is a separate question,
+# settled below.
 largest = b"y" * (btctl.L2CAP_SIGNALLING_MTU - 4)
 biggest_req = btctl.l2cap_signalling_packet(
     btctl.L2CAP_ECHO_REQ, 0xc8, largest)
 assert btctl.l2cap_echo_request(
     btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, biggest_req,
         bt_type=btctl.DH5)) == (0xc8, largest), biggest_req.hex()
+
+# Identifier zero is not a valid one for a command, so there is nothing to
+# answer it under.
+assert btctl.l2cap_echo_request(btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+    btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0, ECHO_DATA))) \
+    is None
 
 # Anything that is not a whole echo request on the signalling channel is not
 # one: a continuation fragment, another channel, another code, and a packet
@@ -3550,9 +3567,18 @@ class ReceivedPacket:
 
 
 command = btctl.BTCtlPageScanCmd(SilentDevice())
-command.lt_addr = 1
 answered = []
 command.send_acl = lambda llid, data, flow=1: answered.append((llid, data))
+
+# Until a connection has said which address to send on there is nothing to
+# answer with, and the request is dropped rather than raising.
+assert command.lt_addr is None, command.lt_addr
+with contextlib.redirect_stdout(io.StringIO()):
+    command._handle_l2cap(ReceivedPacket(
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+assert answered == [], answered
+
+command.lt_addr = 1
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     command._handle_l2cap(ReceivedPacket(
@@ -3570,6 +3596,29 @@ with contextlib.redirect_stdout(io.StringIO()):
         btctl.LLID_L2CAP_START,
         btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA))))
 assert answered == [], answered
+
+# A reply has to fit the one-slot packets this link sends. Nine bytes of echo
+# data is the largest that does; ten needs three slots, which the peer has
+# not agreed to receive, so it is reported and left unanswered.
+for size, expected in ((9, btctl.DM1), (10, None)):
+    answered.clear()
+    warned = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(warned):
+        command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+            btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8,
+                b"z" * size), bt_type=btctl.DH5)))
+    if expected is None:
+        assert answered == [], (size, answered)
+        assert warned.getvalue() == "warning: an L2CAP echo request of 10 " \
+            "bytes needs more than the one slot this link sends, so it goes " \
+            "unanswered\n", warned.getvalue()
+    else:
+        assert len(answered) == 1, (size, answered)
+        assert btctl.acl_type_for_size(len(answered[0][1]))[0] == expected, \
+            (size, len(answered[0][1]))
+        assert warned.getvalue() == "", warned.getvalue()
 
 print("ubtbr: an L2CAP echo request is answered with a response")
 

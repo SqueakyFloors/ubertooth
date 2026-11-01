@@ -341,9 +341,11 @@ class LMP:
 		self._unhandled = set()
 		self._rx_tid = 0
 		# Whether this end has sent its LMP_setup_complete and opened the
-		# connection; see setup_complete().
+		# connection, and whether the peer's has arrived; see
+		# setup_complete().
 		self._setup_complete_sent = False
 		self._setup_complete_done = False
+		self._setup_complete_seen = False
 
 	def time(self):
 		return time()-self._start_time
@@ -820,7 +822,10 @@ class LMPCentral(LMP):
 		if not data or u8(data[0]) != LMP_HOST_CONNECTION_REQ:
 			return
 		self._awaiting = None
-		self.send_setup_complete_once()
+		if self._setup_complete_seen:
+			self.setup_complete()
+		else:
+			self.send_setup_complete_once()
 
 	def handle_slot_offset(self, op, data):
 		if len(data) < 8:
@@ -871,10 +876,14 @@ class LMPCentral(LMP):
 		# has been accepted is ahead of the sequence, and is taken at its
 		# word: it can only have finished the setup by accepting that
 		# request, so an LMP_accepted this end never heard is no reason to
-		# leave the link waiting. One that arrives while this end is still
-		# asking the peer about itself, before the connection has been
-		# asked for at all, answers nothing and is ignored.
+		# leave the link waiting.
+		self._setup_complete_seen = True
 		if self._awaiting not in (None, LMP_HOST_CONNECTION_REQ):
+			# Further ahead still: the connection has not been asked for
+			# yet, so there is no setup for this to finish. It is recorded
+			# above, and handle_accepted() acts on it once the request this
+			# end is in the middle of has run its course, rather than
+			# leaving the link to sit until supervision ends it.
 			warn("the peer said the setup was complete while %s was "
 				"outstanding"%op2str(self._awaiting))
 			return
