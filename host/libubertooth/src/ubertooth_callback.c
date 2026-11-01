@@ -1394,6 +1394,18 @@ static uint64_t br_heard_ms;
  * the request below leaves this capture. */
 static int br_clock_gone;
 
+/* Whether a clock search is running with a packet of the piconet behind it and
+ * no clock confirmed in this run yet, and when it started, on the monotonic
+ * clock. See ubertooth_clock_search_ms(). */
+static int br_searching;
+static uint64_t br_search_start_ms;
+
+/* Whether a clock of this piconet's has been confirmed at any point in this
+ * run. It ends the reading above for the rest of the run: a search running
+ * again after a clock was given up is not one that never confirmed one, so a
+ * caller must not be told the search cannot confirm a clock here. */
+static int br_clock_confirmed;
+
 static uint64_t monotonic_ms(void)
 {
 	return clock_ns(CLOCK_MONOTONIC) / 1000000ull;
@@ -1442,6 +1454,13 @@ static void br_stop_following(ubertooth_t* ut)
 		fprintf(stderr, "warning: the board is left receiving on one "
 		        "channel, so this capture may not find the piconet "
 		        "again\n");
+}
+
+long ubertooth_clock_search_ms(void)
+{
+	if (!br_searching)
+		return -1;
+	return (long)(monotonic_ms() - br_search_start_ms);
 }
 
 long ubertooth_follow_quiet_ms(void)
@@ -1688,6 +1707,19 @@ void cb_rx(ubertooth_t* ut, void* args)
 		}
 	}
 
+	/* The clock search now has a packet of this piconet to work with and is
+	 * following no clock, which is where the search begins. Stamped once,
+	 * so the reading is the whole span the search has been running over and
+	 * not the time since the last packet. A band with nothing of the
+	 * piconet on it never reaches here, which is what keeps that case --
+	 * no traffic rather than a search that cannot finish -- out of the
+	 * reading. */
+	if (!br_searching && !br_following && !br_clock_confirmed &&
+	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {
+		br_searching = 1;
+		br_search_start_ms = monotonic_ms();
+	}
+
 	if (r < 0) {
 		/* The library has recovered the piconet's clock. A live capture
 		 * puts the board on the offset it reports, so it hops with the
@@ -1700,6 +1732,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 		br_following = 1;
 		br_clock_gone = 0;
 		br_heard_ms = monotonic_ms();
+		br_searching = 0;
+		br_clock_confirmed = 1;
 	} else if (r == BTBB_PROCESS_LOCK_LOST && br_following) {
 		/* The clock being followed was not this piconet's. The library
 		 * has given it up and started discovery again, so a board put

@@ -93,6 +93,23 @@ uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
  * has stopped talking. */
 long ubertooth_follow_quiet_ms(void);
 
+/* How long the clock search has been running in this capture, in
+ * milliseconds, and -1 when no search is running: nothing of the piconet has
+ * reached the search yet, or a clock of the piconet's has been confirmed at
+ * some point in this run. The reading starts at the first packet of the
+ * piconet the search had to work with, so it is the span the search has had,
+ * not the time since the last packet, and a band with no traffic on it reads
+ * -1 however long the capture runs.
+ *
+ * For a tool that reports what the search cannot reach. The search does not
+ * fail when it cannot reach a clock, it starts over, so nothing it prints
+ * tells a user that it is not going to finish. A confirmed clock ends the
+ * reading for the rest of the run, because a search that is running again
+ * after one was given up has confirmed a clock before.
+ *
+ * How long is long enough is the caller's, as it is above. */
+long ubertooth_clock_search_ms(void);
+
 /* Gives up the clock this capture is following, for a caller that has decided
  * the follow has gone quiet, and leaves the capture as a clock the library
  * gives up itself does: the warning once on standard error, the board back on

@@ -47,6 +47,12 @@ static void usage(FILE *file)
 	fprintf(file, "\t-i <filename> replay a capture saved with -d, with its recorded times\n");
 	fprintf(file, "\t              - if not specified use Ubertooth for live capture\n");
 	fprintf(file, "\n");
+	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
+	fprintf(file, "piconet that uses adapted hopping (AFH), which current controllers do even\n");
+	fprintf(file, "when every channel is allowed, so following such a piconet does not start.\n");
+	fprintf(file, "The piconet's LAP and UAP, and the packets of it this board hears, are\n");
+	fprintf(file, "still recovered, decoded, and captured. See ubertooth-rx(1).\n");
+	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
 	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
 	        NUM_BREDR_CHANNELS - 1);
@@ -161,6 +167,47 @@ static int capture_failed(ubertooth_t* ut, const struct rx_files* files,
  * hold their headers and nothing else. */
 static int replay_read_a_record;
 
+/* How long the clock search may run without confirming a clock before the tool
+ * says what it does not reach, in milliseconds.
+ *
+ * The search cannot report this itself, because it does not fail: it rules its
+ * candidates out and starts over, printing a candidate count each time, so
+ * nothing a user sees separates a search that is getting somewhere from one
+ * that is not going to finish. The tool says so once instead.
+ *
+ * Half a minute, which is long enough that a search which does reach a clock
+ * has had its chance -- the quickest recovery measured on this project's bench
+ * took 11 s -- and short enough that the user is told early in the run rather
+ * than after the counts have scrolled by for minutes. Saying it too early
+ * would be the worse mistake of the two, so the span is several times that
+ * 11 s. Nothing acts on it: the search carries on exactly as before, and the
+ * note only says what the run is going to reach. */
+#define CLOCK_SEARCH_NOTE_MS 30000
+
+/* Says once what the clock search does not reach, for a run whose search has
+ * been going that long with no clock confirmed. Called where the capture
+ * decodes, so a run with no board, and one whose piconet is silent, say
+ * nothing: the reading is -1 until a packet of the piconet reaches the search.
+ *
+ * On standard error, with the rest of the notes, so a capture that has taken
+ * standard output still carries only the capture. */
+static int clock_search_noted;
+
+static void rx_note_clock_search_limit(void)
+{
+	if (clock_search_noted ||
+	    ubertooth_clock_search_ms() < CLOCK_SEARCH_NOTE_MS)
+		return;
+	clock_search_noted = 1;
+	fprintf(stderr, "note: the clock search has run for %d s without "
+	        "confirming a clock; it does not confirm one against a piconet "
+	        "that uses adapted hopping (AFH)\n",
+	        CLOCK_SEARCH_NOTE_MS / 1000);
+	fputs("note: the piconet's LAP and UAP, and the packets of it this "
+	      "board hears, are still recovered, decoded, and captured; see "
+	      "ubertooth-rx(1)\n", stderr);
+}
+
 /* A replay's decode: notes the record, then decodes it like any other. The
  * decode is libubertooth's cb_rx() and notes nothing itself, and a live
  * capture needs no note, so only a replay goes through here. */
@@ -168,6 +215,10 @@ static void replay_decode(ubertooth_t* ut, void* args)
 {
 	replay_read_a_record = 1;
 	cb_rx(ut, args);
+	/* A replay reads its records at the times they were recorded, so a
+	 * search over a recorded capture runs for as long as it did live and
+	 * the note lands in the same place. */
+	rx_note_clock_search_limit();
 }
 
 /* How long a follow may hear nothing of its piconet before the clock it is
@@ -687,6 +738,9 @@ int main(int argc, char* argv[])
 			 * stopped sends no request on its way out. */
 			if (ubertooth_follow_quiet_ms() >= FOLLOW_QUIET_MS)
 				ubertooth_follow_drop_clock(ut, pn);
+			/* And what the search is not going to reach, said once
+			 * a search has been running long enough to say it of. */
+			rx_note_clock_search_limit();
 			ubertooth_bulk_receive(ut, cb_rx, pn);
 		}
 
