@@ -144,7 +144,9 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
  * SYNC_WORD_32 (bits 6:5, 11): match the whole of SYNCH and SYNCL rather than
  * the top 8 bits.
  * CRC (bit 4): the radio appends a CRC on transmit and checks one on receive.
- * Both generic modes leave it off; the range test turns it on at both ends.
+ * The generic transmit leaves it off, and the generic receive reads a fixed
+ * number of bytes out of the FIFO without looking at a CRC result; the range
+ * test turns it on at both ends.
  */
 #define GRMDM_BUFFERED_MASK 0x1800
 #define GRMDM_BUFFERED      0x0800
