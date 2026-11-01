@@ -58,10 +58,19 @@ extern const uint8_t bl_payload[UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH];
  * here.
  *
  * Four KiB of the part's 16 KiB of main SRAM, which this image can spare: it
- * has no capture buffers, no radio and no USB. Word-aligned because the ROM
- * requires a word-aligned source.
+ * has no capture buffers, no radio and no USB.
+ *
+ * The ROM asks for a source on a word boundary and a destination on a
+ * 256-byte one (NXP LPC176x/5x user manual UM10360: a source that is not word
+ * aligned comes back as SRC_ADDR_ERROR). The destinations here are sector
+ * starts, so they are 4 KiB aligned by construction. 256 is asked for of the
+ * buffer -- more than the word the ROM needs -- so that neither requirement
+ * rests on where the linker happened to put it. It costs at most 255 bytes of
+ * SRAM in an image with kilobytes to spare, and the cost of being wrong is a
+ * board with an erased bootloader region.
  */
-static uint32_t sector_buffer[BL_UPDATE_SECTOR_LENGTH / 4];
+static uint32_t sector_buffer[BL_UPDATE_SECTOR_LENGTH / 4]
+	__attribute__((aligned(256)));
 
 /*
  * The boot ROM's In-Application Programming commands used here (NXP
