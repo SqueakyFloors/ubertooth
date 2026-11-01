@@ -19,6 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1171,9 +1172,19 @@ void cb_btle(ubertooth_t* ut, void* args)
 
 	/* Before anything that can return: a record dropped below for a bad
 	 * channel, a filtered address or a broken chain still carries the
-	 * board's word that packets were lost before it. */
+	 * board's word that packets were lost before it.
+	 *
+	 * No ubertooth_watch_signal_level() here. The low-energy engines send a
+	 * record for a packet the board demodulated and for nothing else, so
+	 * "most records at the top of the radio's range" would mean "most
+	 * packets decoded at the top of the range" -- which is an ordinary close
+	 * link and not a deafened receiver: a short packet from a board a few
+	 * centimeters away arrives at the ceiling with a valid CRC. That rule is
+	 * calibrated on records that are samples of the air, as the Basic Rate
+	 * stream's are, and means nothing over records that exist only because a
+	 * packet decoded. ubertooth(7) says to run ubertooth-rx on the same
+	 * channel to tell a deafened receiver from an empty one. */
 	ubertooth_count_capture_losses(ut, rx);
-	ubertooth_watch_signal_level(ut, rx);
 
 	// display LE promiscuous mode state changes
 	if (rx->pkt_type == LE_PROMISC) {

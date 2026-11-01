@@ -12,13 +12,15 @@
   capture reads nothing, or packets with bits wrong, and the board is not at
   fault: two Ubertooths a few centimeters apart do it at every transmit power
   level, 0 included. It takes a receiver held there, not one loud packet.
-  `ubertooth-rx`, `ubertooth-dump -c`/`-l`, `ubertooth-scan`,
-  `ubertooth-afh` and `ubertooth-follow` report it even while they decode
-  nothing, because the board sends them a record for every block of air;
-  `ubertooth-btle` reports it while packets are still arriving. When the
-  capture ends it says how many such stretches there were, so one bad stretch
-  reads differently from a capture that was deaf throughout. ubertooth(7),
-  OUTPUT AND DIAGNOSTICS says what each tool can and cannot see this way.
+  `ubertooth-rx`, `ubertooth-dump` (`-c`, `-l`, and `-g` where the radio is
+  left reading a symbol stream), `ubertooth-scan`, `ubertooth-afh` and
+  `ubertooth-follow` report it even while they decode nothing, because the
+  board sends them a record for every block of air. `ubertooth-btle` does not:
+  its records exist only for packets that decoded, so run `ubertooth-rx` on
+  the same channel instead. When the capture ends it says how many such
+  stretches there were, so one bad stretch reads differently from a capture
+  that was deaf throughout. ubertooth(7), OUTPUT AND DIAGNOSTICS says what
+  each tool can and cannot see this way.
   [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
 
 - The board's generic radio mode is reachable from the command line, as an

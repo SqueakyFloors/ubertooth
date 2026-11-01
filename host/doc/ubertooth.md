@@ -556,17 +556,23 @@ packet from a board a few centimeters away arrives with `rssi=0` and a valid
 CRC. What is reported is a receiver held there, which is judged over a block
 of records rather than one.
 
-Not every capture can report it, because a capture can only judge the records
-it is sent. The Basic Rate stream sends one for every block of air it
-collects, packet or no packet, so `ubertooth-rx`, `ubertooth-dump -c` and
-`-l`, `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow` notice a
-receiver that is pinned even while they decode nothing at all -- which is the
-case worth knowing about, since that is what a deafened receiver looks like.
-`ubertooth-btle` is sent a record only for a packet its board demodulated, so
-it reports this while packets are still arriving and has nothing to go on once
-they stop; under `-p` only the part of a run that is following a connection
-reports it, because the records of the access-address hunt before that state
-no signal figure.
+Only the captures whose records are samples of the air report it, and that is
+the point rather than a limitation. The Basic Rate stream sends a record for
+every block of air it collects, packet or no packet, so `ubertooth-rx`,
+`ubertooth-dump -c` and `-l`, `ubertooth-scan`, `ubertooth-afh` and
+`ubertooth-follow` notice a receiver that is pinned even while they decode
+nothing at all -- which is the case worth knowing about, since that is what a
+deafened receiver looks like.
+
+ubertooth-btle(1) does not report it, under any of `-f`, `-n` and `-p`. Its
+board sends a record for a packet it demodulated and for nothing else, so a
+record at the top of the range there says a packet decoded at the top of the
+range, which an ordinary close link produces all day: a short packet from a
+board a few centimeters away arrives at the ceiling with a valid CRC. Judging
+such records would warn about captures that are working, and the case that
+matters -- a link so loud that nothing decodes -- sends that tool no records
+to judge at all. Run ubertooth-rx(1) on the same channel to tell a deafened
+receiver from an empty one.
 
 The generic receive (`ubertooth-dump -g`) reports it or not according to which
 of its two receives the radio's configuration selects, which GENERIC RADIO

@@ -271,7 +271,11 @@ typedef struct {
 	uint8_t symbol_overwrite_warned;
 
 	/* Whether this capture has already said its signal sits at the top of
-	 * what the radio can report, so it is said once.
+	 * what the radio can report, so it is said once. Never cleared, so on a
+	 * handle that runs more than one stream (ubertooth-afh detects a map,
+	 * then monitors it) it means "a stream on this handle was pinned there",
+	 * said once across both, and the part block the first stream ends on is
+	 * finished by the second stream's records.
 	 *
 	 * The two counters behind it hold one block of records at a time: how
 	 * many of the block carried a signal figure, and how many of those were
@@ -705,12 +709,19 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
  * channel does -- while a receiver that is genuinely pinned there stays there.
  * See the comment on the counters in ubertooth_t.
  *
- * Called by every mode's callback for the records it is handed, beside
- * ubertooth_count_capture_losses(). Records that say nothing about how loud
- * the air was are left out here rather than by the callers: one that states
- * no signal figure, a keep-alive, whose fields hold whatever the record
- * before it left in the buffer, and the continuation records of a long
- * low-energy packet, which repeat the first record's readings.
+ * Called by the callbacks whose records are samples of the air -- the Basic
+ * Rate stream's, which the board sends one of per block of symbols whether or
+ * not a packet was in it -- beside ubertooth_count_capture_losses(). NOT by
+ * the low-energy callback, nor by the spectrum analyzer or E-GO ones, each for
+ * a reason given where the call would have been: a record that exists only
+ * because a packet decoded cannot show a receiver that is decoding nothing,
+ * and the other two state no signal figure at all.
+ *
+ * Records that say nothing about how loud the air was are left out here rather
+ * than by the callers: one that states no signal figure, a keep-alive, whose
+ * fields hold whatever the record before it left in the buffer, and the
+ * continuation records of a long low-energy packet, which repeat the first
+ * record's readings.
  */
 void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx);
 

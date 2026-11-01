@@ -611,29 +611,22 @@ one that has the board search a stream of symbols. Under `-f` and `-n` the
 board receives one whole packet at a time, arming each receive and waiting for
 it, so there is no unread block for the next one to go over.
 
-A receiver being driven harder than it can measure is reported once per
-capture: `warning: the signal is at the top of the receiver's range, so the
-board cannot measure it and may not demodulate it; the boards may be too close
-together, or the transmit power too high`. This is the `rssi=0` case above --
-the level the model has no number above -- seen on packet after packet rather
-than on one. Beyond that point the radio is also past where it demodulates
-reliably, so packets start arriving with bits wrong, and closer still none
-arrives at all. Put more distance or more attenuation between the two boards,
-or turn the transmit power down with `ubertooth-util -a`. When the capture ends
-it says how many such stretches there were: `warning: the capture has 3
-stretches where the signal was at the top of the receiver's range`.
+A receiver being driven harder than the radio can measure is the one capture
+problem this tool does not report, and it is worth knowing how it looks. It is
+the `rssi=0` case above -- the level the model has no number above -- on
+packet after packet rather than on one. Beyond that point the radio is also
+past where it demodulates reliably, so packets start arriving with bits wrong,
+and closer still none arrives at all and the capture simply goes quiet. Put
+more distance or more attenuation between the two boards, or turn the transmit
+power down with `ubertooth-util -a`.
 
-This tool reports it only while packets are still arriving, because under `-f`
-and `-n` the board sends a record for a packet it demodulated and for nothing
-else: a link loud enough to stop every packet leaves the capture with nothing
-to judge, and it goes quiet rather than saying why. Under `-p` only the part
-of a run that is following a connection can report it; the records of the
-access-address hunt before that state no signal figure at all, so that phase
-never does. `ubertooth-rx` is in none of these positions -- the Basic Rate
-stream sends a record for every block of air it collects -- so on a bench
-where two boards hear each other and nothing decodes, running it on the same
-channel is how to tell a deafened receiver from an empty one. See
-ubertooth(7).
+ubertooth-rx(1) does report it, with the message ubertooth(7) gives, and that
+is what to reach for here: this tool's board sends a record for a packet it
+demodulated and for nothing else, so a record at the top of the range means a
+packet that decoded there, which an ordinary close link produces all day. The
+Basic Rate stream sends a record for every block of air instead, so on a bench
+where two boards hear each other and nothing decodes, running `ubertooth-rx`
+on the same channel is how to tell a deafened receiver from an empty one.
 
 Packets whose data the decoder could not read are summed up in one line when
 the run ends: `note: 312 packets held data that could not be decoded; -v

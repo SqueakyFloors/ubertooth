@@ -34,8 +34,11 @@ SIGNAL_VALID = 0x80
 CLK100NS_STEP = 4_000           # 0.4 ms of device clock between records
 RUN_TIMEOUT_S = 60
 WARNING = "warning: the signal is at the top of the receiver's range"
-TOTAL = ("warning: the capture has %d stretches where the signal was at the "
-         "top of the receiver's range")
+TOTAL = ("warning: the capture has %d stretch%s where the signal was at "
+         "the top of the receiver's range")
+# Any form of the total line, for the cases that must print none at all:
+# the singular is "1 stretch where", which "stretches" would not match.
+ANY_TOTAL = "stretch where the signal was at the top"
 
 # What the measurement above gives the fixtures: the raw reading a pinned
 # receiver sat at, the quiet channel's median, and its 26 records in 19937.
@@ -96,7 +99,7 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "quiet.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
-    assert "stretches where" not in result.stderr, result
+    assert ANY_TOTAL not in result.stderr, result
 
     # The link that works, at the transmit power that drives it hardest.
     (work / "working.bin").write_bytes(dump([WORKING_LINK_RAW] * QUIET_RECORDS))
@@ -112,7 +115,7 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "pinned.bin", directory=work)
     assert result.returncode == 0, result
     assert result.stderr.count(WARNING) == 1, result
-    assert TOTAL % 19 in result.stderr, result
+    assert TOTAL % (19, "es") in result.stderr, result
     # On standard error and not on standard output, which carries only what
     # was asked for.
     assert WARNING not in result.stdout, result
@@ -130,7 +133,14 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "short.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
-    assert "stretches where" not in result.stderr, result
+    assert ANY_TOTAL not in result.stderr, result
+
+    # Exactly one block: the total says "1 stretch", not "1 stretches".
+    (work / "one.bin").write_bytes(dump([PINNED_RAW] * 1000))
+    result = run("-i", "one.bin", directory=work)
+    assert result.returncode == 0, result
+    assert result.stderr.count(WARNING) == 1, result
+    assert TOTAL % (1, "") in result.stderr, result
 
     # Keep-alives say nothing about the air. One is a single byte on the wire,
     # so a record of one holds whatever the record before it left in the
