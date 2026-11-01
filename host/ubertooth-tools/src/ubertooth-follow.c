@@ -182,6 +182,25 @@ static int follow_request_failed(ubertooth_t* ut, int sock, uint16_t handle,
 	return 1;
 }
 
+/* The same, for a request the board refused once the receive thread is
+ * running but before any mode of this run has started. The thread is joined
+ * first, and then the board goes back the way follow_release_board() gives it
+ * back: without a STOP, because there is no mode of ours to end and a board
+ * that has just refused a request would answer the STOP no better, which
+ * would put a second failure under the one line that named the request.
+ * ubertooth_close() still finishes the receive transfer before it closes the
+ * board, so nothing is left in flight. */
+static int follow_board_request_failed(ubertooth_t* ut, int sock,
+                                       uint16_t handle, int cc,
+                                       const struct follow_files* files,
+                                       const char* what, int code)
+{
+	report_refused_request(what, code);
+	ubertooth_bulk_thread_stop();
+	follow_release_board(ut, sock, handle, cc, files);
+	return 1;
+}
+
 static void usage(FILE *file)
 {
 	fprintf(file, "ubertooth-follow - active(bluez) CLK discovery and follow for a target address\n");
@@ -233,6 +252,9 @@ int main(int argc, char *argv[])
 	 * error instead. */
 	int capture_took_stdout = 0;
 	uint32_t clock = 0;
+	/* CLKN as the board reports it, which the offset below is measured
+	 * from. */
+	uint32_t board_clkn = 0;
 	uint16_t accuracy = 0, handle = 0, offset = 0;
 	bdaddr_t bdaddr = { { 0 } };
 	btbb_piconet *pn = NULL;
@@ -788,39 +810,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* The target's address and the board's clock are set before the receive
-	 * transfer is submitted below, because zeroing CLKN moves the clock the
-	 * board stamps its records with. A record sent before the reset and read
-	 * after it carries the period count from before: the host reads that
-	 * count as a difference from the previous record's, so 150 then 0 reads
-	 * as 106 periods gone by and adds about 34,700 s to every later
-	 * timestamp. Both requests are synchronous, so the board has them before
-	 * anything is in flight; the asynchronous ones below cannot move up here,
-	 * because the poll thread is what completes them. Both results are
-	 * checked, as the AFH requests below are: a board that took neither
-	 * would follow nothing the user asked for. It used to carry on, having
-	 * printed only a generic line that did not say which request had failed.
-	 * A board without the address matches no packet, and a board whose CLKN
-	 * was never zeroed keeps the clock it has been running since it was
-	 * plugged in, which start-hopping adds its offset to rather than
-	 * replacing, so the follow hops on the wrong clock and every packet time
-	 * is out by however long the board had been up.
-	 *
-	 * What this costs is a slightly staler hop offset. Start-hopping adds its
-	 * offset to whatever CLKN has reached since the reset rather than
-	 * replacing it, so everything between the two is error in the followed
-	 * clock, and the endpoint flush and the thread creation are now inside
-	 * that window: a few of the 312.5 us ticks the hop clock counts, against
-	 * timestamps that were hours out. */
+	/* The target's address is set before the receive transfer is submitted
+	 * below. The request is synchronous, so the board has it before
+	 * anything is in flight; the asynchronous ones below cannot move up
+	 * here, because the poll thread is what completes them. The result is
+	 * checked, as the AFH requests below are: a board without the address
+	 * matches no packet, so a follow that carried on would capture nothing
+	 * the user asked for. It used to carry on, having printed only a
+	 * generic line that did not say which request had failed. */
 	r = cmd_set_bdaddr_quiet(ut->devh, btbb_piconet_get_bdaddr(pn));
 	if (r < 0)
 		return follow_request_failed(ut, sock, handle, cc, &files,
 		                             "set the Bluetooth address", r);
-
-	r = cmd_set_clock_quiet(ut->devh, 0);
-	if (r < 0)
-		return follow_request_failed(ut, sock, handle, cc, &files,
-		                             "zero the board's clock", r);
 
 	// init USB transfer
 	/* Each of the three steps that set the capture up exits 1, like every
@@ -858,7 +859,7 @@ int main(int argc, char *argv[])
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
 	 * rather than hopping from an uninitialised one. The receive thread is
-	 * already running and the link to the target is up by now, so both
+	 * already running and the link to the target is up by now, so all three
 	 * failures leave through follow_cleanup(). */
 	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, HCI_TIMEOUT_MS) < 0) {
 		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
@@ -880,11 +881,63 @@ int main(int argc, char *argv[])
 		}
 		clock += (btohs(offset) << 2);   // Correct offset
 	}
+
+	/* The board's own clock, read here beside the clocks above so that the
+	 * three are measured as close together as the requests allow.
+	 *
+	 * The board is told to hop by an offset which it adds to the clock it
+	 * is already running, so what it needs is the difference between the
+	 * piconet's clock and its own. This run used to zero CLKN instead and
+	 * send the piconet's clock as it stood, which is the same thing only
+	 * while CLKN is not running.
+	 *
+	 * Usually it is not, and the two then come to the same offset: the
+	 * firmware holds CLKN at zero with its timer stopped whenever no
+	 * capture mode is running, and ubertooth_bulk_init() above stops a mode
+	 * an earlier run left streaming and waits for the board to report idle.
+	 * So this is the offset the board wants rather than one that happens to
+	 * be right because its clock reads zero.
+	 *
+	 * Which matters where the board's clock is running after all. A board
+	 * that cannot be read, or will not stop, is a warning there and the
+	 * capture goes ahead, and a board still streaming Classic symbols keeps
+	 * its clock through the request below, because the firmware takes a
+	 * request for the mode a board is already in without a teardown. With
+	 * the reset, everything between it and the start of the hopping -- the
+	 * endpoint flush, the thread creation, both reads above -- was error in
+	 * the followed clock, so the follow hopped that far past the piconet's:
+	 * measured on a board against this read, about 70 of the 312.5 us ticks
+	 * for a 20 ms setup and about 700 for 200 ms, where one slot is two
+	 * ticks.
+	 *
+	 * Neither helps a board left in some other mode -- a spectrum sweep, a
+	 * low energy capture -- that would not stop: the firmware ends that
+	 * mode before it starts this one, and the teardown stops the clock and
+	 * forgets the offset that came with the request, so the board hops from
+	 * zero whichever of the two the host sent.
+	 *
+	 * Only CLKN's low 28 bits are ever used -- the hop sequence reads no
+	 * higher, and a record carries 28 of them -- so the subtraction wrapping
+	 * at 32 bits rather than at 28 does not matter: the low 28 come out the
+	 * same.
+	 *
+	 * Reading the clock is also what -w compensates: the piconet's clock
+	 * was read a round trip ago and the board's is read now, so the delay
+	 * covers measuring the clocks and applying them rather than the whole
+	 * setup. */
+	r = cmd_read_clock_quiet(ut->devh, &board_clkn);
+	if (r < 0)
+		return follow_board_request_failed(ut, sock, handle, cc, &files,
+		                                   "read the board's clock", r);
+
 	/* The delay is counted in the clock's own ticks here, so a large -w
-	 * cannot overflow a signed multiplication on the way: the clock is a
-	 * 32-bit count the board wraps anyway. */
+	 * cannot overflow a signed multiplication on the way. All three terms
+	 * are 32-bit counts the board wraps anyway, so the subtraction is taken
+	 * modulo that and then cast, as libbtbb casts the same difference when
+	 * it hands over a clock of its own. */
 	btbb_piconet_set_clk_offset(pn,
-		clock + (uint32_t)delay * CLKN_TICKS_PER_SLOT);
+		(int)(clock + (uint32_t)delay * CLKN_TICKS_PER_SLOT
+		      - board_clkn));
 	btbb_piconet_set_flag(pn, BTBB_FOLLOWING, 1);
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
 

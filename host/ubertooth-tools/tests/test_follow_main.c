@@ -2,27 +2,30 @@
  * The order in which ubertooth-follow sets a board up, run through its real
  * main() against a scripted library and a scripted BlueZ adapter.
  *
- * Zeroing the board's clock moves the clock the board stamps its records
- * with, so it has to happen before the receive transfer is submitted. It used
- * to happen afterwards: a record sent before the reset and read after it
- * carries the period count from before, the host reads that count as a
- * difference from the previous record's, and 150 followed by 0 reads as 106
- * periods gone by -- about 34,700 s added to every later timestamp.
+ * The board's clock is read rather than set, and the read belongs beside the
+ * clocks the adapter is asked for, just before the board is told to hop: the
+ * offset the board is given is the difference between the piconet's clock and
+ * its own, so time that passes between measuring the two is error in the
+ * followed clock. The tool used to zero CLKN instead, well above the reads,
+ * which on a board an earlier run had left streaming Classic symbols -- the
+ * one board whose clock is running when a follow starts -- made the followed
+ * clock depend on how long the setup took. There is no clock write left,
+ * which is why cmd_set_clock_quiet() is not among the fakes below: a tool
+ * that sent one again would not link.
  *
  * Which requests may move is decided by how they are sent. The address and
- * the clock go out synchronously, so the board has them before anything is in
- * flight. The AFH map set (-a) and the start-hopping request are
- * asynchronous: libusb hands their completions to whoever polls for events,
- * which here is the thread ubertooth_bulk_thread_start() creates, so those two
- * must stay after it.
+ * the clock read go out synchronously. The AFH map set (-a) and the
+ * start-hopping request are asynchronous: libusb hands their completions to
+ * whoever polls for events, which here is the thread
+ * ubertooth_bulk_thread_start() creates, so those two must stay after it.
  *
- * The cases below pin the whole order of requests, not only the two halves
- * that are required, so a request that moves anywhere is caught and looked at.
- * They also pin what a board that refuses one of those two requests gets: a
- * follow set up on neither the target's address nor a zeroed clock would
- * follow something the user did not ask for, so the run stops and says so.
- * Clearing the AFH map, which is what a follow without -a does, is
- * synchronous and under no ordering requirement of its own.
+ * The cases below pin the whole order of requests, not only the halves that
+ * are required, so a request that moves anywhere is caught and looked at.
+ * They also pin what a board that refuses the address or the clock read gets:
+ * a follow set up on neither would follow something the user did not ask for,
+ * so the run stops and says so. Clearing the AFH map, which is what a follow
+ * without -a does, is synchronous and under no ordering requirement of its
+ * own.
  *
  * ubertooth-follow.c is compiled in with main() renamed, as test_scan_main.c
  * does for the other BlueZ tool, and every libubertooth call is a fake here,
@@ -78,7 +81,8 @@ static struct {
 	int api_released;     /* whether that call released the board itself */
 	int bulk_init_rc;     /* returned by ubertooth_bulk_init() */
 	int bdaddr_rc;        /* returned by cmd_set_bdaddr_quiet() */
-	int clock_rc;         /* returned by cmd_set_clock_quiet() */
+	int clock_rc;         /* returned by cmd_read_clock_quiet() */
+	uint32_t board_clkn;  /* the clock that read reports */
 	int thread_start_rc;  /* returned by ubertooth_bulk_thread_start() */
 	int hopping_rc;       /* returned by cmd_start_hopping() */
 	int modulation_rc;    /* returned by cmd_set_modulation() */
@@ -121,7 +125,7 @@ static struct {
 	uint8_t afh_map[AFH_MAP_BYTES];
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
-	 * address, k set the board's clock, i submitted the receive transfer,
+	 * address, k read the board's clock, i submitted the receive transfer,
 	 * p started the poll thread, d set the modulation, m set the AFH map,
 	 * c cleared it, h told the board to start hopping. */
 	char calls[16];
@@ -172,6 +176,10 @@ static void reset_fake(void)
 	dumpfile = NULL;
 	fake_ut.devh = (struct libusb_device_handle*)&fake_devh;
 	fake.blocks_to_end = 2;
+	/* A board that has been running a while, so an offset worked out from
+	 * the wrong end of the subtraction does not read as the right one. The
+	 * faked adapter answers 1000 for the piconet's clock, below. */
+	fake.board_clkn = 600;
 	/* A target using AFH on every channel, so -a reaches the map set. */
 	fake.afh_mode = FOLLOW_AFH_MODE_ON;
 	memset(fake.afh_map, 0xff, sizeof(fake.afh_map));
@@ -352,12 +360,14 @@ int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
 	return fake.bdaddr_rc;
 }
 
-int cmd_set_clock_quiet(struct libusb_device_handle* devh, uint32_t clkn)
+int cmd_read_clock_quiet(struct libusb_device_handle* devh, uint32_t* clock)
 {
 	(void)devh;
-	(void)clkn;
 	record('k');
-	return fake.clock_rc;
+	if (fake.clock_rc < 0)
+		return fake.clock_rc;
+	*clock = fake.board_clkn;
+	return 0;
 }
 
 int cmd_set_afh_map(struct libusb_device_handle* devh, uint8_t* map)
@@ -541,28 +551,28 @@ btbb_piconet* btbb_piconet_new(void)
 
 /* ---- tests -------------------------------------------------------------- */
 
-/* The board's clock is zeroed before the receive transfer is submitted, so no
- * record the host reads can carry a count from before the reset. */
-MU_TEST(the_clock_is_set_before_the_receive_transfer)
+/* The board's clock is read just before the board is told to hop, with
+ * nothing between the two but the requests that have to be there. Time
+ * between the measurement and the hop is error in the followed clock, which
+ * is why the read does not move up to where the clock reset used to be. */
+MU_TEST(the_clock_is_read_just_before_the_hopping_starts)
 {
 	struct run_result r;
 
 	reset_fake();
 	r = RUN(TARGET);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(call_at('k') >= 0, "the board's clock was never set");
-	mu_assert(call_at('i') >= 0, "the receive transfer was never submitted");
-	mu_assert(call_at('k') < call_at('i'),
-	          "the clock was zeroed after the receive transfer was submitted:"
-	          " a record from before the reset carries the period count from"
-	          " before it");
+	mu_assert(call_at('k') >= 0, "the board's clock was never read");
+	mu_assert(call_at('h') >= 0, "the board was never told to hop");
+	mu_assert(call_at('k') < call_at('h'),
+	          "the board's clock was read after it was told to hop");
 	/* The whole order, so a request that moves anywhere is caught: address,
-	 * clock, receive transfer, poll thread, modulation, hopping, AFH map
-	 * cleared. The map goes out after hopping has started because starting a
-	 * mode forgets it, so one sent first would be thrown away; the
-	 * modulation goes before it, because that is what the mode start
+	 * receive transfer, poll thread, clock read, modulation, hopping, AFH
+	 * map cleared. The map goes out after hopping has started because
+	 * starting a mode forgets it, so one sent first would be thrown away;
+	 * the modulation goes before it, because that is what the mode start
 	 * programs the demodulator from and every reset leaves Basic Rate. */
-	mu_assert(strcmp(fake.calls, "akipdhc") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "aipkdhc") == 0, fake.calls);
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.modulation);
 }
 
@@ -576,7 +586,7 @@ MU_TEST(the_asynchronous_requests_stay_after_the_poll_thread)
 	reset_fake();
 	r = RUN("-a", WHOLE_TARGET);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(fake.calls, "akipdhm") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "aipkdhm") == 0, fake.calls);
 	mu_assert(call_at('p') < call_at('m'),
 	          "the AFH map was set before the poll thread was running");
 	mu_assert(call_at('p') < call_at('h'),
@@ -716,7 +726,7 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	 * the exit status, and a shell wraps it into a byte, so a script read
 	 * -1 as 255. */
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "aki") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "ai") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.thread_starts);
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert_int_eq(1, fake.stops);
@@ -733,7 +743,7 @@ MU_TEST(a_stream_that_cannot_start_gives_the_board_back)
 	         " %s\n", strerror(EAGAIN));
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, expected) != NULL, r.err);
-	mu_assert(strcmp(fake.calls, "akip") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "aip") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.receives);
 	mu_assert_int_eq(1, fake.stops);
 
@@ -922,8 +932,8 @@ MU_TEST(a_refused_address_set_exits_1)
 	fake.bdaddr_rc = -9; /* LIBUSB_ERROR_PIPE */
 	r = RUN(TARGET);
 	mu_assert_int_eq(1, r.rc);
-	/* The run stopped at the request: the clock was never set and the
-	 * receive transfer was never submitted. */
+	/* The run stopped at the request: the receive transfer was never
+	 * submitted and the board's clock was never read. */
 	mu_assert(strcmp(fake.calls, "a") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.thread_starts);
 	mu_assert_int_eq(0, fake.receives);
@@ -950,11 +960,17 @@ MU_TEST(a_refused_address_set_exits_1)
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
-/* A board that refused the clock reset keeps the clock it has been running
- * since it was plugged in. Start-hopping adds its offset to that rather than
- * replacing it, so the follow would hop on the wrong clock and every packet
- * time would be out by however long the board had been up. */
-MU_TEST(a_refused_clock_set_exits_1)
+/* Without the board's own clock there is no offset to hop on: the piconet's
+ * clock alone says nothing about how far ahead of the board's it is. So a
+ * board that would not report it stops the run, rather than hopping on a
+ * difference taken from a clock nobody read.
+ *
+ * The receive thread is running by then, so it is joined; the board goes back
+ * without a STOP, as it does for the address, because no mode of this run has
+ * started and a board that has just refused a request would answer the STOP
+ * no better. That is what keeps the report to the one line that named the
+ * request. */
+MU_TEST(a_refused_clock_read_exits_1)
 {
 	struct run_result r;
 
@@ -962,47 +978,52 @@ MU_TEST(a_refused_clock_set_exits_1)
 	fake.clock_rc = -9; /* LIBUSB_ERROR_PIPE */
 	r = RUN(TARGET);
 	mu_assert_int_eq(1, r.rc);
-	/* The address went out first and the run stopped at the clock. */
-	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
-	mu_assert_int_eq(0, fake.thread_starts);
+	/* The capture was set up first and the run stopped at the clock read,
+	 * before the board was told to hop. */
+	mu_assert(strcmp(fake.calls, "aipk") == 0, fake.calls);
+	mu_assert_int_eq(1, fake.thread_starts);
+	mu_assert_int_eq(1, fake.thread_stops);
 	mu_assert_int_eq(0, fake.receives);
-	mu_assert(strstr(r.err, STALLED("zero the board's clock")) != NULL, r.err);
+	mu_assert(strstr(r.err, STALLED("read the board's clock")) != NULL, r.err);
 	mu_assert_int_eq(STALLED_REQUEST_LINES, occurrences(r.err, "error:"));
 	mu_assert(r.out[0] == '\0', r.out);
+	/* Closed, not stopped: a STOP here would be a second request to a board
+	 * that has just refused one, and a second error line under the first. */
+	mu_assert_int_eq(0, fake.stops);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert_int_eq(1, fake.frees);
-	mu_assert_int_eq(0, fake.stops);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
 	reset_fake();
 	fake.clock_rc = -7; /* LIBUSB_ERROR_TIMEOUT */
 	r = RUN(TARGET);
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, NO_ANSWER("zero the board's clock")) != NULL,
+	mu_assert(strstr(r.err, NO_ANSWER("read the board's clock")) != NULL,
 	          r.err);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(1, fake.closes);
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 }
 
 /* A refused request leaves no capture file behind. The files are created once
- * the board is open and its firmware accepted, which for this tool is still
- * above the two requests the follow is built on: zeroing the board's clock has
- * to be the last thing before the receive transfer, so the files cannot move
- * below it. Each failure after they exist removes them again, so a refused run
- * never leaves a header-only capture the user has to tell apart from a capture
- * that ran and caught nothing. Each of the three file options is checked,
- * because each is opened by a writer of its own. */
+ * the board is open and its firmware accepted, which for this tool is above
+ * every request the follow is built on. Each failure after they exist removes
+ * them again, so a refused run never leaves a header-only capture the user
+ * has to tell apart from a capture that ran and caught nothing. Each of the
+ * three file options is checked, because each is opened by a writer of its
+ * own. */
 MU_TEST(a_refused_request_creates_no_file)
 {
 	static const char* const options[] = { "-q", "-r", "-d" };
 	/* The whole range the removal covers, from the first failure after the
 	 * files exist to the last before the capture loop, named by the
 	 * requests that went out before each. The five are the five shapes of
-	 * exit the tool has here: the two synchronous requests, the two steps
-	 * that start the capture and give the board back themselves, and
-	 * everything after the poll thread. */
+	 * exit the tool has here: the address, the two steps that start the
+	 * capture and give the board back themselves, the clock read, and
+	 * everything after it. */
 	static const char* const reached[] = {
-		"a", "ak", "aki", "akip", "akipdh"
+		"a", "ai", "aip", "aipk", "aipkdh"
 	};
 	struct run_result r;
 	struct stat info;
@@ -1020,13 +1041,13 @@ MU_TEST(a_refused_request_creates_no_file)
 				fake.bdaddr_rc = -9; /* LIBUSB_ERROR_PIPE */
 				break;
 			case 1:
-				fake.clock_rc = -9;
-				break;
-			case 2:
 				fake.bulk_init_rc = -1;
 				break;
-			case 3:
+			case 2:
 				fake.thread_start_rc = EAGAIN;
+				break;
+			case 3:
+				fake.clock_rc = -9;
 				break;
 			default:
 				fake.hopping_rc = -9;
@@ -1078,7 +1099,7 @@ MU_TEST(a_destination_the_run_did_not_create_stays)
 	r = RUN("-q", link, TARGET);
 
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "aipk") == 0, fake.calls);
 	/* The link is still there, and so is the file it names. */
 	mu_assert(lstat(link, &info) == 0 && S_ISLNK(info.st_mode), link);
 	mu_assert(stat(target, &info) == 0, target);
@@ -1244,10 +1265,11 @@ MU_TEST(a_failed_page_to_the_guessed_address_asks_for_t)
 	mu_assert(r.out[0] == '\0', r.out);
 }
 
-/* A board that took only part of a write is the third way one of these
- * requests fails. libubertooth has already printed the whole line, naming the
- * request and the counts, so the tool must stop and add nothing: one error
- * line between the two of them, not two. */
+/* A board that took only part of a write, or answered a read with fewer bytes
+ * than it was asked for, is the third way one of these requests fails.
+ * libubertooth has already printed the whole line, naming the request and the
+ * counts, so the tool must stop and add nothing: one error line between the
+ * two of them, not two. */
 MU_TEST(a_truncated_write_stops_the_follow_and_adds_no_second_line)
 {
 	struct run_result r;
@@ -1256,12 +1278,13 @@ MU_TEST(a_truncated_write_stops_the_follow_and_adds_no_second_line)
 	fake.clock_rc = UBERTOOTH_ERROR_SHORT_REPLY;
 	r = RUN(TARGET);
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(fake.calls, "ak") == 0, fake.calls);
+	mu_assert(strcmp(fake.calls, "aipk") == 0, fake.calls);
 	mu_assert_int_eq(0, fake.receives);
 	/* The fake stands in for libubertooth, so it prints no line of its own:
 	 * what this pins is that the tool adds none either. */
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.stops);
 	mu_assert_int_eq(1, fake.closes);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
@@ -1283,23 +1306,65 @@ MU_TEST(the_usb_delay_is_given_to_the_board_in_clock_ticks)
 {
 	struct run_result r;
 
-	/* The faked adapter reads a clock of 1000 ticks, with no offset to the
-	 * target, so the offset the board gets is 1000 plus the delay. */
+	/* The faked adapter reads a clock of 1000 ticks with no offset to the
+	 * target, and the faked board reports 600 of its own, so the offset the
+	 * board gets is 400 plus the delay. */
 	reset_fake();
 	r = RUN(TARGET, "-w", "0");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1000, fake.clkn_offset);
+	mu_assert_int_eq(400, fake.clkn_offset);
 
 	reset_fake();
 	r = RUN(TARGET, "-w", "5");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1010, fake.clkn_offset);
+	mu_assert_int_eq(410, fake.clkn_offset);
 
 	/* The default is the same five slots. */
 	reset_fake();
 	r = RUN(TARGET);
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1010, fake.clkn_offset);
+	mu_assert_int_eq(410, fake.clkn_offset);
+}
+
+/* The board is told to hop by the difference between the piconet's clock and
+ * its own, because that is what it adds the offset to. The whole clock used to
+ * go out instead, with CLKN zeroed a moment earlier so that the two came to
+ * the same thing; a board whose clock was not zero then hopped that far ahead
+ * of the piconet.
+ *
+ * Both clocks wrap, so a piconet behind the board is an offset that wraps with
+ * them: the board adds it and comes out on the piconet's clock either way. */
+MU_TEST(the_board_is_told_the_difference_between_the_two_clocks)
+{
+	struct run_result r;
+
+	/* A board that has been plugged in longer than the piconet's clock has
+	 * been counting: the difference is negative, and the offset wraps. */
+	reset_fake();
+	fake.board_clkn = 3000;
+	r = RUN(TARGET, "-w", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(-2000, fake.clkn_offset);
+
+	/* A board near the end of the range CLKN counts, which it reaches after
+	 * about 15 days plugged in: the difference wraps the other way, and the
+	 * board still ends up on the piconet's 1000 ticks. */
+	reset_fake();
+	fake.board_clkn = 0xfffffc00;
+	r = RUN(TARGET, "-w", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1000 + 0x400, fake.clkn_offset);
+	mu_assert((uint32_t)(fake.board_clkn + (uint32_t)fake.clkn_offset)
+	          == 1000, "the board would not have landed on the piconet's"
+	          " clock");
+
+	/* A board whose clock already reads the piconet's needs no offset at
+	 * all. */
+	reset_fake();
+	fake.board_clkn = 1000;
+	r = RUN(TARGET, "-w", "0");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.clkn_offset);
 }
 
 int main(void)
@@ -1307,7 +1372,7 @@ int main(void)
 	/* This binary does not link libubertooth: the fakes above are the whole
 	 * device, so any library call the tool grows becomes a link error rather
 	 * than a silently real one. */
-	MU_RUN(the_clock_is_set_before_the_receive_transfer);
+	MU_RUN(the_clock_is_read_just_before_the_hopping_starts);
 	MU_RUN(the_asynchronous_requests_stay_after_the_poll_thread);
 	MU_RUN(a_follow_the_board_took_exits_0);
 	MU_RUN(a_stop_while_the_board_was_opened_captures_nothing);
@@ -1320,11 +1385,12 @@ int main(void)
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
 	MU_RUN(a_refused_address_set_exits_1);
-	MU_RUN(a_refused_clock_set_exits_1);
+	MU_RUN(a_refused_clock_read_exits_1);
 	MU_RUN(a_refused_request_creates_no_file);
 	MU_RUN(a_destination_the_run_did_not_create_stays);
 	MU_RUN(a_piconet_that_cannot_be_allocated_exits_one);
 	MU_RUN(a_truncated_write_stops_the_follow_and_adds_no_second_line);
 	MU_RUN(the_usb_delay_is_given_to_the_board_in_clock_ticks);
+	MU_RUN(the_board_is_told_the_difference_between_the_two_clocks);
 	return mu_report();
 }

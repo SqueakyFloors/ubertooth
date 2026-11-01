@@ -1282,9 +1282,9 @@ if(LIBBLUETOOTH_FOUND)
 	set_tests_properties(scan-main PROPERTIES TIMEOUT 10)
 
 	# The same for ubertooth-follow, the other BlueZ tool: the order it sets
-	# a board up in. The board's clock must be zeroed before the receive
-	# transfer is submitted, and the asynchronous requests must stay after
-	# the poll thread that completes them.
+	# a board up in. The board's clock is read just before the board is told
+	# to hop, and the asynchronous requests must stay after the poll thread
+	# that completes them.
 	# request_report.c is the real one, so the cases pin the wording the tool
 	# prints rather than a stub's.
 	add_executable(test-follow-main test_follow_main.c ../src/follow_afh.c

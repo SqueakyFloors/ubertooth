@@ -1150,8 +1150,15 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int cl
 {
 	int i;
 	uint8_t data[6];
+	/* The offset is a difference between two clocks, so it is often
+	 * negative, and the firmware adds it to a 32-bit counter. Shifted as an
+	 * unsigned value, because shifting a negative one right is left to the
+	 * compiler to define; the bytes the board gets are the same on the
+	 * compilers that define it as an arithmetic shift. */
+	uint32_t offset = (uint32_t)clkn_offset;
+
 	for(i=0; i < 4; i++)
-		data[i] = (clkn_offset >> (8*(3-i))) & 0xff;
+		data[i] = (offset >> (8*(3-i))) & 0xff;
 
 	data[4] = (clk100ns_offset >> 8) & 0xff;
 	data[5] = (clk100ns_offset >> 0) & 0xff;
@@ -1195,23 +1202,42 @@ int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn)
 	return r;
 }
 
-uint32_t cmd_get_clock(struct libusb_device_handle* devh)
+int cmd_read_clock_quiet(struct libusb_device_handle* devh, u32 *clock)
 {
-	u32 clock = 0;
 	unsigned char data[4];
 	int r;
 
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_CLOCK, 0, 0,
 			data, 4, 3000);
-	if (r < 0) {
-		report_request_failed(r, UBERTOOTH_GET_CLOCK);
+	if (r < 0)
 		return r;
-	}
 	r = check_reply_length(r, 4, "clock");
 	if (r < 0)
 		return r;
-	clock = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
-	return clock;
+	*clock = data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24;
+	return 0;
+}
+
+int cmd_read_clock(struct libusb_device_handle* devh, u32 *clock)
+{
+	int r = cmd_read_clock_quiet(devh, clock);
+
+	if (r < 0 && r != UBERTOOTH_ERROR_SHORT_REPLY)
+		report_request_failed(r, UBERTOOTH_GET_CLOCK);
+	return r;
+}
+
+/* Kept for API compatibility: an error comes back as the negative libusb
+ * code cast to u32, which cannot be told apart from a clock. CLKN counts
+ * 312.5 us ticks through all 32 bits, so a board that has been plugged in for
+ * about 15 days really does reach the values an error uses. Use
+ * cmd_read_clock() instead. */
+uint32_t cmd_get_clock(struct libusb_device_handle* devh)
+{
+	u32 clock = 0;
+	int r = cmd_read_clock(devh, &clock);
+
+	return r < 0 ? (u32)r : clock;
 }
 
 int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow)
