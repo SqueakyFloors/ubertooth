@@ -2517,6 +2517,13 @@
 
 Fixes with no visible change in normal use.
 
+- `btbr` compares all eight bits of a received packet header's error check,
+  which is the only thing that says the header belongs to the piconet being
+  followed. Seven bits were compared, so a header from elsewhere that matched
+  the access code got through twice as often, and `ubertooth-btbr` reported it
+  as a packet with whatever type, logical transport address and flags that
+  header happened to carry.
+  [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising
