@@ -7,11 +7,11 @@
  * offset the board is given is the difference between the piconet's clock and
  * its own, so time that passes between measuring the two is error in the
  * followed clock. The tool used to zero CLKN instead, well above the reads,
- * which on a board an earlier run had left streaming -- the one case where
- * CLKN is running when a follow starts -- made the followed clock depend on
- * how long the setup took and moved the clock the queued records were stamped
- * with. There is no clock write left, which is why cmd_set_clock_quiet() is
- * not among the fakes below: a tool that sent one again would not link.
+ * which on a board an earlier run had left streaming Classic symbols -- the
+ * one board whose clock is running when a follow starts -- made the followed
+ * clock depend on how long the setup took. There is no clock write left,
+ * which is why cmd_set_clock_quiet() is not among the fakes below: a tool
+ * that sent one again would not link.
  *
  * Which requests may move is decided by how they are sent. The address and
  * the clock read go out synchronously. The AFH map set (-a) and the
