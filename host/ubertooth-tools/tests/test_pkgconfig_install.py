@@ -22,8 +22,9 @@ All three are checked for this build's own library directory, and then for the
 layouts other systems ask for, each configured and built here: lib64, which a
 64-bit Fedora, RHEL or SUSE keeps its libraries in; lib/x86_64-linux-gnu, the
 Debian multiarch layout, which is two directories deep and so needs a longer
-walk back out of libubertooth.pc; and LIB_SUFFIX, the older setting, which
-still decides the directory where a build command passes it.
+walk back out of libubertooth.pc, with the headers in a directory of their own
+as well; and LIB_SUFFIX, the older setting, which still decides the directory
+where a build command passes it.
 
 Nothing is installed outside the temporary prefixes this test makes, no device
 is opened, and the programs it builds are never run.
@@ -41,16 +42,24 @@ CMAKE, BUILD_DIR, PKG_CONFIG, CC, LIBDIR, SOURCE_DIR = sys.argv[1:7]
 # its pkg-config file to, passed in rather than assumed: GNUInstallDirs picks
 # it for the system, and a build command can ask for another one.
 
-# The layouts built here: a name, the cache entry that asks for it, and the
-# directory under the prefix it is then installed to. They are taken in turn
-# in one build directory, so the last of them has the multiarch
-# CMAKE_INSTALL_LIBDIR of the one before it as well as its own LIB_SUFFIX:
+# The layouts built here: a name, the cache entries that ask for it, and the
+# library and header directories under the prefix it is then installed to.
+# They are taken in turn in one build directory, so each one's entries are set
+# over the ones before: the last of them has the multiarch
+# CMAKE_INSTALL_LIBDIR of the one before it as well as its own LIB_SUFFIX, and
 # LIB_SUFFIX decides, which is the rule where a build command carries both.
+# Every entry a layout cares about is passed by that layout, rather than left
+# to the one before.
 LAYOUTS = (
-    ("lib64", "-DCMAKE_INSTALL_LIBDIR=lib64", "lib64"),
-    ("multiarch", "-DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu",
-     "lib/x86_64-linux-gnu"),
-    ("lib-suffix", "-DLIB_SUFFIX=64", "lib64"),
+    ("lib64", ["-DCMAKE_INSTALL_LIBDIR=lib64",
+               "-DCMAKE_INSTALL_INCLUDEDIR=include"],
+     "lib64", "include"),
+    ("multiarch", ["-DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu",
+                   "-DCMAKE_INSTALL_INCLUDEDIR=include/ubertooth"],
+     "lib/x86_64-linux-gnu", "include/ubertooth"),
+    ("lib-suffix", ["-DLIB_SUFFIX=64",
+                    "-DCMAKE_INSTALL_INCLUDEDIR=include"],
+     "lib64", "include"),
 )
 
 # What the configures below take from this build rather than searching for
@@ -156,14 +165,14 @@ for module in ("libbtbb", "libusb-1.0"):
               "names in its Requires" % module)
         sys.exit(0)
 
-def check_install(name, work, build_dir, libdir):
+def check_install(name, work, build_dir, libdir, includedir="include"):
     """That build, installed into two prefixes, described correctly in both."""
     first = os.path.join(work, name + "-first")
     install_into(first, build_dir)
     cflags, libs = flags_for(first, libdir)
 
     # The install's own directories, named by the flags a consumer is given.
-    assert os.path.realpath(os.path.join(first, "include")) in \
+    assert os.path.realpath(os.path.join(first, includedir)) in \
         directories_in(cflags, "-I"), (name, first, cflags)
     assert os.path.realpath(os.path.join(first, libdir)) in \
         directories_in(libs, "-L"), (name, first, libs)
@@ -182,11 +191,11 @@ def check_install(name, work, build_dir, libdir):
     second = os.path.join(work, name + "-second")
     install_into(second, build_dir)
     moved_cflags, moved_libs = flags_for(second, libdir)
-    assert os.path.realpath(os.path.join(second, "include")) in \
+    assert os.path.realpath(os.path.join(second, includedir)) in \
         directories_in(moved_cflags, "-I"), (name, second, moved_cflags)
     assert os.path.realpath(os.path.join(second, libdir)) in \
         directories_in(moved_libs, "-L"), (name, second, moved_libs)
-    assert os.path.realpath(os.path.join(first, "include")) not in \
+    assert os.path.realpath(os.path.join(first, includedir)) not in \
         directories_in(moved_cflags, "-I"), (name, first, second, moved_cflags)
 
 
@@ -205,8 +214,8 @@ def forwarded_cache_arguments():
     return arguments
 
 
-def build_library(build_dir, cache_entry, forwarded):
-    """Configure a build of the library alone with that entry, and build it.
+def build_library(build_dir, cache_entries, forwarded):
+    """Configure a build of the library alone with those entries, and build it.
 
     The library is what the install under test holds, so the tools, the Python
     tools and the tests are left out: this is several seconds, not a build of
@@ -214,11 +223,11 @@ def build_library(build_dir, cache_entry, forwarded):
     of them pays for a configure from nothing and the library is compiled once.
     """
     configured = run([CMAKE, "-S", SOURCE_DIR, "-B", build_dir,
-                      "-DENABLE_PYTHON=OFF", "-DBUILD_TESTING=OFF",
-                      cache_entry] + forwarded)
-    assert configured.returncode == 0, (cache_entry, configured)
+                      "-DENABLE_PYTHON=OFF", "-DBUILD_TESTING=OFF"]
+                     + cache_entries + forwarded)
+    assert configured.returncode == 0, (cache_entries, configured)
     built = run([CMAKE, "--build", build_dir, "--target", "ubertooth"])
-    assert built.returncode == 0, (cache_entry, built)
+    assert built.returncode == 0, (cache_entries, built)
 
 
 work = tempfile.mkdtemp(prefix="libubertooth-pkgconfig.")
@@ -227,9 +236,9 @@ try:
 
     forwarded = forwarded_cache_arguments()
     build_dir = os.path.join(work, "build")
-    for name, cache_entry, libdir in LAYOUTS:
-        build_library(build_dir, cache_entry, forwarded)
-        check_install(name, work, build_dir, libdir)
+    for name, cache_entries, libdir, includedir in LAYOUTS:
+        build_library(build_dir, cache_entries, forwarded)
+        check_install(name, work, build_dir, libdir, includedir)
 finally:
     shutil.rmtree(work, ignore_errors=True)
 

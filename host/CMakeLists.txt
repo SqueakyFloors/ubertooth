@@ -87,13 +87,12 @@ include(GNUInstallDirs)
 
 # LIB_SUFFIX, the older way of asking for the library's directory, still
 # decides where it is set to something, so a build command that passes it
-# installs where it always did. It names the library's directory only, and
-# the headers follow CMAKE_INSTALL_INCLUDEDIR either way. It is tested for
-# being set to something rather than for being true, so that a suffix CMake
-# reads as a false constant -- "0", "N", "NO" -- is still a suffix. An empty
-# LIB_SUFFIX asks for no suffix, which says nothing about which directory is
-# wanted, and leaves CMAKE_INSTALL_LIBDIR in charge rather than quietly
-# turning it into lib.
+# installs where it always did, as it does in libbtbb. It names the library's
+# directory only, and the headers follow CMAKE_INSTALL_INCLUDEDIR either way.
+# It is tested for being set to something rather than for being true, so that
+# a suffix CMake reads as a false constant -- "0", "N", "NO" -- is still a
+# suffix, and an empty one leaves CMAKE_INSTALL_LIBDIR in charge rather than
+# quietly turning it into lib.
 set(UBERTOOTH_INSTALL_LIBDIR "${CMAKE_INSTALL_LIBDIR}")
 if(DEFINED LIB_SUFFIX AND NOT "${LIB_SUFFIX}" STREQUAL "")
 	set(UBERTOOTH_INSTALL_LIBDIR "lib${LIB_SUFFIX}")

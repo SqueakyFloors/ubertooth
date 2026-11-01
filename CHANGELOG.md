@@ -647,7 +647,9 @@
   `-DCMAKE_INSTALL_LIBDIR=` chooses the directory, `-DCMAKE_INSTALL_INCLUDEDIR=`
   the headers', and `LIB_SUFFIX` still decides where a build command passes it.
   `libubertooth.pc` follows, so `pkg-config --libs libubertooth` names the
-  directory the library is really in.
+  directory the library is really in, and `./install.sh` puts that directory
+  first on the installed tools' run path and says so if an earlier install
+  left a libubertooth in `lib`.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - `./install.sh` installs on Fedora. It used to stop on any Linux without
   `apt-get`; it now finds `dnf` and asks it for the same dependencies under
