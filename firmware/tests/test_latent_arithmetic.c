@@ -413,7 +413,7 @@ MU_TEST(test_the_accumulated_drift_figure_stays_within_what_it_can_correct)
  * before it then counts only how far into the new period the wait is, which
  * is never more than the time that really passed, so a deadline built on it
  * cannot end a wait early. test_le_rx_byte_wait.c checks the helper against
- * that premise, over periods from CLK100NS_PER_CLKN ticks up to 68,660.
+ * that premise, over periods from CLK100NS_PER_CLKN ticks upward.
  *
  * The premise is the declared type of clk100ns_offset, not the shape of the
  * assignment: the handler writes CLK100NS_PER_CLKN - 1 plus that offset, and
@@ -423,7 +423,8 @@ MU_TEST(test_the_accumulated_drift_figure_stays_within_what_it_can_correct)
  * the firmware could end a tick early on a packet that was still arriving.
  * Nothing writes a negative offset today -- the two corrections are 1 and
  * 6249, and the host's trim and hop requests take sixteen unsigned bits off
- * the wire -- so the type is all that holds it.
+ * the wire -- so the type is all that holds it. How wide the type is does not
+ * matter, only that it cannot go below zero.
  *
  * The largest value an offset can take, from its declared type. A cast of -1
  * is that type's largest value when it is unsigned, and -1 when it is not.
@@ -434,23 +435,16 @@ MU_TEST(test_the_timer_period_is_never_shorter_than_one_clkn_tick)
 {
 	/* The declared type, checked by the compiler rather than read off the
 	 * line that declares it. */
-	mu_assert((int32_t)CLK100NS_OFFSET_MAX > 0,
+	mu_assert(CLK100NS_OFFSET_MAX > 0,
 	          "clk100ns_offset must be an unsigned type, or a clock "
 	          "correction could make the timer period shorter than "
 	          "CLK100NS_PER_CLKN and every timer 0 wait could end early");
 
-	/* The period the match register gives, at both ends of that type: the
-	 * shortest is the one clk100ns_step() rests on, and the longest is the
-	 * one test_le_rx_byte_wait.c sweeps. */
-	mu_assert_int_eq(CLK100NS_PER_CLKN,
-	                 (int)(CLK100NS_PER_CLKN - 1 + 0 + 1));
-	mu_assert_int_eq(68660,
-	                 (int)(CLK100NS_PER_CLKN - 1
-	                       + (uint32_t)CLK100NS_OFFSET_MAX + 1));
-
 	/* And the two writes to the match register, so that a handler which
 	 * stopped writing the offset, or wrote something else beside it, fails
-	 * here rather than on a board. */
+	 * here rather than on a board. The value written is one less than the
+	 * period, so an offset of zero is a period of CLK100NS_PER_CLKN and an
+	 * offset that cannot be negative can only lengthen it. */
 	mu_assert(holds(rxtx_source, "T0MR0 = 3124 + clk100ns_offset;"),
 	          "the clock interrupt sets the period to CLK100NS_PER_CLKN - 1 "
 	          "plus the offset");

@@ -109,9 +109,11 @@ static uint32_t clear_answer_value;
  * arriving late. USBHwISR() clears CDFULL before writing the endpoint
  * interrupt clear so that such a reply cannot be read as the clear's own.
  *
- * This is the byte to leave there, or -1 for none. It lands one register
- * access after the firmware has taken an answer out of USBCmdData, which in
- * USBHwISR() is the gap between the endpoint's status read and that clear.
+ * This is the byte to leave there, or -1 for none. The controller could put
+ * such a reply up at any moment, so when it lands here is the test's own
+ * scheduling: one register access after the firmware has taken an answer out
+ * of USBCmdData, which in USBHwISR() falls in the gap between the endpoint's
+ * status read and that clear.
  */
 static int leftover_answer;
 static int leftover_answer_due;
@@ -300,16 +302,16 @@ static void fake_engine_command(uint32_t code)
 		break;
 	}
 
-	/* And it reports what it did: CCEMTY once it has taken the command
-	 * code out of the register, CDFULL once the byte the firmware asked
-	 * for is in USBCmdData. Both stay up until the firmware clears them.
-	 */
+	/* And it reports what it did. CCEMTY says the command register is
+	 * empty again, which it is after any phase: the engine has taken what
+	 * was written. CDFULL says the byte the firmware asked for is in
+	 * USBCmdData, so only a read phase raises it. Both stay up until the
+	 * firmware clears them. */
 	if (!fake_engine_answers(code))
 		return;
+	devint_latch |= CCEMTY;
 	if (phase == 0x02u)
 		devint_latch |= CDFULL;
-	else
-		devint_latch |= CCEMTY;
 }
 
 static void fake_apply_writes(void)
@@ -363,7 +365,11 @@ static void fake_apply_writes(void)
 		}
 		/* The answer is ready at once unless the test asked for it
 		 * later, in which case it lands on a read of USBDevIntSt
-		 * further on. */
+		 * further on. A delay of USBHW_POLLS is the one that means
+		 * "not within this wait": Wait4DevIntBounded() reads the
+		 * register that many times, so the answer lands on the read
+		 * after the last of them and no masked poll is left behind for
+		 * the next handshake in the same pass. */
 		if (!answered)
 			break;
 		if (clear_answer_polls == 0) {
@@ -506,13 +512,15 @@ static volatile uint32_t rxdata_value;
 
 volatile uint32_t *fake_devintst(void)
 {
-	/* Realizing an endpoint is the controller reorganizing its buffer
-	 * space rather than a protocol engine command, so EP_RLZED is not a
-	 * latch the firmware clears and goes on whether the engine is
-	 * answering. The engine's own CCEMTY and CDFULL are in devint_latch.
-	 * The event bits the interrupt handler dispatches on are separate
-	 * again, so a test can ask for an endpoint or device-status event
-	 * without pretending the engine answers. */
+	/* EP_RLZED is not modelled as a latch here, though the firmware does
+	 * clear it like one: realizing an endpoint is the controller
+	 * reorganizing its buffer space rather than a protocol engine command,
+	 * it is reached from one place, and no case turns on when it goes up.
+	 * So it is still worked out from whether the engine is answering. The
+	 * engine's own CCEMTY and CDFULL are in devint_latch. The event bits
+	 * the interrupt handler dispatches on are separate again, so a test
+	 * can ask for an endpoint or device-status event without pretending
+	 * the engine answers. */
 	uint32_t ready;
 
 	fake_apply_writes();
@@ -537,10 +545,14 @@ volatile uint32_t *fake_devintst(void)
 }
 
 /*
- * The register the engine's answer arrives in. It is a function so that the
- * fake knows when the firmware has taken an answer: that is the one moment a
- * reply to an earlier command can land without the firmware having asked for
- * anything, which is what `leftover_answer` describes.
+ * The register the engine's answer arrives in. On the part it is a plain
+ * register and reading it does nothing; it is a function here so the fake has
+ * somewhere to count from. A `leftover_answer` has to land after the firmware
+ * has taken the status read's answer and before it writes the endpoint
+ * interrupt clear, and this read is the only access the fake sees in that
+ * stretch -- the controller could put a late reply up at any moment, so which
+ * access the fake hangs it on is the test's own scheduling, not something the
+ * hardware does.
  */
 static volatile uint32_t cmddata_value;
 
