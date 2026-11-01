@@ -5,9 +5,10 @@
  * A BR/EDR header is 10 bits of header information plus an 8-bit HEC
  * (Bluetooth Core, Vol 2 Part B 6.4). The HEC is computed over those 10 bits
  * starting from the piconet's UAP, so it is the only thing that says a header
- * belongs to this piconet: the receiver matched an access code, decoded the
- * 1/3 FEC and unwhitened the header, and nothing else is checked before the
- * payload is decoded and the packet reported.
+ * carries this piconet's UAP: the receiver matched an access code, which goes
+ * by the LAP alone, decoded the 1/3 FEC and unwhitened the header, and
+ * nothing else is checked before the payload is decoded and the packet
+ * reported.
  *
  * So these cases hold three things. A header this piconet sent matches on all
  * eight bits, whitening on or off and whatever the UAP is -- the path from
@@ -335,9 +336,10 @@ MU_TEST(test_two_wrong_air_bits_in_one_group_are_refused)
 /*
  * A HEC that differs in one bit is refused, whichever bit it is. The top bit
  * is the point of this case: a comparison that dropped it would accept one
- * header in 128 from another piconet rather than one in 256, and an accepted
- * header is reported as a packet with whatever type, lt_addr and flags the
- * other piconet's header happened to carry.
+ * header in 128 of those read out of noise rather than one in 256, and an
+ * accepted header is reported as a packet with whatever type, lt_addr and
+ * flags those bits happened to say. What a dropped bit costs against a real
+ * piconet is the case below.
  */
 MU_TEST(test_a_hec_wrong_in_one_bit_is_refused)
 {
@@ -364,13 +366,14 @@ MU_TEST(test_a_hec_wrong_in_one_bit_is_refused)
 }
 
 /*
- * The same header read with the wrong UAP is refused, every pair of UAPs in
- * the list and every header. That is the case the HEC is there for: two
- * piconets on one channel, and a packet of the other one matching this one's
- * access code closely enough to be decoded. No pair is excused, because a
- * different UAP always gives a different HEC -- the UAP is the HEC register's
- * starting value, and for a given header no two starting values lead to the
- * same HEC.
+ * The same header read with the wrong UAP is refused, for every pair of
+ * different UAPs in the list and every header. That is the case the HEC is
+ * there for: two piconets on one channel, and a packet of the other one
+ * matching this one's access code closely enough to be decoded. No such pair
+ * is excused, because a different UAP always gives a different HEC -- the UAP
+ * is the HEC register's starting value, and for a given header no two
+ * starting values lead to the same HEC. Two piconets sharing a UAP is the
+ * limit of what the HEC can do, and nothing here claims otherwise.
  */
 MU_TEST(test_a_header_from_another_piconet_is_refused)
 {

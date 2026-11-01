@@ -833,11 +833,11 @@
   a list without it: `error: -j cannot be combined with -i; choose one of -f,
   -r, -i, or -j`.
 
-- `ubertooth-btbr` no longer reports a packet whose header belongs to another
-  piconet. All eight bits of a header's error check now have to match, where
-  seven did. The check is computed from the piconet's UAP, so the dropped bit
-  cost real coverage: every header of a piconet whose UAP differed from this
-  one in one particular way was accepted, and a header read out of noise
+- `ubertooth-btbr` no longer reports a packet whose header came from a piconet
+  with a different UAP. All eight bits of a header's error check now have to
+  match, where seven did, and the dropped bit cost real coverage: the check is
+  computed from the UAP, so every header of one particular other UAP that got
+  past the access-code match was accepted, and a header read out of noise
   passed one time in 128 instead of one in 256. Either was printed as a packet
   with whatever type, logical transport address and flags it carried.
   [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
