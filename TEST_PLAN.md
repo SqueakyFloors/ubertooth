@@ -646,6 +646,46 @@ in a row show whether the board is hopping and over which channels.*
       afterwards runs on it: a channel set on its own is kept, and the next mode
       starts on it unless that tool sets a channel of its own
 
+### 5e. Following a piconet with `ubertooth-follow` ([issue #518](https://github.com/SqueakyFloors/ubertooth/issues/518))
+*Requires: Linux with BlueZ and a working local Bluetooth device
+(`hciconfig -a` lists one and it goes up); two classic BT devices holding a
+connection that carries traffic throughout, where the device that leads the
+piconet has an address that does not begin `00:00` and will accept a
+connection. The tool is Linux only: there is no BlueZ on macOS.*
+- [ ] Find the piconet with `ubertooth-rx -U <serial> -z -t 30` and confirm its
+      LAP, and the UAP against the leading device's real address (a short
+      survey's UAP is a guess and can be wrong)
+- [ ] Run `ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu.pcap` and
+      record: whether the page succeeded, how long until packets appear, and
+      roughly what fraction of the piconet's traffic the capture holds
+      (compare the packet count against the same window of
+      `ubertooth-rx -l <lap> -u <uap>`)
+- [ ] Run `ubertooth-follow -U <serial> -t <whole address> -q t.pcap` and
+      record the same three things. Both forms name one piconet, so a
+      difference between them is the page, not the follow
+- [ ] Confirm: the page to `00:00:<uap>:<lap>` of the `-l`/`-u` run reaches a
+      target whose real address does not begin `00:00`
+      ([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)).
+      If it does not, record the line it failed with and the local Bluetooth
+      device's own address: a controller refuses to page its own address, which
+      is the one way the placeholder can stop a page
+- [ ] Confirm: the follow still locks on with the board's clock zeroed before
+      the capture starts streaming rather than after
+      ([issue #503](https://github.com/SqueakyFloors/ubertooth/issues/503)) —
+      the reset-to-hop gap is error in the followed clock, and `-w` is what
+      compensates for it. Try `-w 0` and the default `-w 5` and record which
+      locks on
+- [ ] With the piconet held to a reduced AFH map, run
+      `ubertooth-follow -U <serial> -t <whole address> -a -q afh.pcap` and
+      confirm: the `AFH map: 0x...` line matches the map the devices are using,
+      and the capture's channels stay inside it. The map comes from the
+      target's own link, so the target must be the piconet's Central
+- [ ] Confirm: an enhanced data rate packet appears in the capture with a
+      header and no payload, and nothing of an encrypted link's contents is
+      readable — both are limits of the radio and the link, not faults
+- [ ] Interrupt each run with Ctrl-C and confirm exit status 0 with the capture
+      written
+
 ---
 
 ## 6. RSSI (tests the cherry-picked channel bounds, [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481))

@@ -116,6 +116,51 @@ Follow a piconet by the LAP and UAP \fBubertooth\-rx\fR reported for it\. This c
 ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
 .fi
 .IP "" 0
+.SH "A FOLLOW FROM START TO FINISH"
+What a run looks like, from not knowing the target to a capture file\. It needs a Linux machine with a working local Bluetooth device, an Ubertooth carrying \fBbluetooth_rxtx\fR, and a piconet that is carrying traffic throughout: a phone streaming audio to a headset will do\. A piconet that goes quiet stops giving the decoder anything to recover a clock from\.
+.IP "1." 4
+Check the local Bluetooth device is there and up\. With none, \fBubertooth\-follow\fR stops before it opens the board, naming the device it looked for\. \fBhciconfig hci0 up\fR brings one up\.
+.IP "2." 4
+Survey for the piconets around you, thirty seconds to start with and longer in a crowded room\. Each line is a LAP the board heard, with a UAP where it has worked one out\. That UAP is a guess from the packets the board decoded and a short survey can get it wrong, so give the survey time, or take the address from the device itself:
+.IP "" 4
+.nf
+ubertooth\-rx \-z \-t 30
+.fi
+.IP "" 0
+
+.IP "3." 4
+Point the follow at the piconet the target leads: \fB\-t\fR with its whole address if you know it, or \fB\-l\fR and \fB\-u\fR with the four bytes the survey reported\. Either way the tool says what it is following before it opens the board, so a run against the wrong piconet shows in the first line:
+.IP "" 4
+.nf
+ubertooth\-follow \-t 11:22:33:44:55:66 \-q capture\.pcap
+ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
+.fi
+.IP "" 0
+
+.IP "4." 4
+Watch the first lines of the run\. The tool pages the target through the local Bluetooth device to collect the piconet's clock offset, hands that to the board, and starts capturing\. A follow that has locked on prints packets steadily; one that has not prints nothing, or prints \fBAcquired CLK1\-27\fR and loses it again\. The usual causes are a quiet piconet, a wrong UAP, a target that is not the Central of the piconet (see AFH above), and the board being too far from the two devices to hear both\.
+.IP "5." 4
+Add \fB\-a\fR once the capture works without it, if the piconet uses adaptive frequency hopping and the follow is patchy (see AFH above)\. It needs \fB\-t\fR:
+.IP "" 4
+.nf
+ubertooth\-follow \-t 11:22:33:44:55:66 \-a \-q capture\.pcap
+.fi
+.IP "" 0
+
+.IP "6." 4
+Open \fBcapture\.pcap\fR in Wireshark, which has dissected this format since 2\.2\. ubertooth\-rx(1) describes the per\-packet report the run printed, and the project documentation describes the capture format\.
+.IP "" 0
+.SH "WHAT A FOLLOW DOES NOT CAPTURE"
+A capture holds the basic rate packets of one piconet, decoded as far as they can be without the link's keys\. Three things are not in it however well the follow goes:
+.IP "\(bu" 4
+\fBEnhanced data rate payloads\.\fR The board's radio demodulates Gaussian frequency\-shift keying at 1 Mbit/s, which is basic rate\. An enhanced data rate packet starts at basic rate, so its access code and header are decoded and the packet appears in the capture; its payload is sent in a phase\-shift keying the radio cannot demodulate, and that part is missing\.
+.IP "\(bu" 4
+\fBThe contents of an encrypted link\.\fR Encryption covers the payload, and the keys are agreed during pairing, which has usually happened long before a follow starts\. The capture holds the packets, their headers and their timing; what the devices said to each other stays unreadable\.
+.IP "\(bu" 4
+\fBAny piconet but the one named\.\fR A follow hops with one piconet's sequence, so traffic from everything else around it is off\-channel almost all of the time\. Capture a second piconet with a second board, not with a second filter\.
+.IP "" 0
+.P
+Packets lost for other reasons are reported while the run goes; see GAPS IN A CAPTURE below\.
 .SH "ARGUMENTS"
 \fBubertooth\-follow\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P

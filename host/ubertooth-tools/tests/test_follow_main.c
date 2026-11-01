@@ -825,6 +825,40 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	          "-t and -l with -u reached the board as different addresses");
 }
 
+/* A real target's address begins with two bytes a piconet's packets never
+ * carry, the non-significant address part (NAP). So -l and -u cannot name it
+ * and the tool pages 00:00 in its place, while -t pages the address as given.
+ * Those two bytes have one job in a follow -- part of the address the local
+ * Bluetooth device is told to connect to -- and no part in what the board
+ * follows. Naming one target both ways therefore pages two different
+ * addresses and sets the board up identically, which is what makes the two
+ * forms the same follow. Whether a real controller pages the guessed 00:00 as
+ * readily as the whole address is a question about controllers, not about this
+ * code, and needs one to answer. */
+MU_TEST(the_nap_changes_only_the_address_that_is_paged)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-t", "11:22:33:44:55:66");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.paged, "11:22:33:44:55:66") == 0, fake.paged);
+	mu_assert(fake.bdaddr == 0x33445566,
+	          "-t did not give the board the LAP and UAP of its address");
+	mu_assert(strstr(r.err,
+	          "Target 11:22:33:44:55:66: LAP=445566 UAP=33\n") != NULL,
+	          r.err);
+
+	/* The same target named as the four bytes ubertooth-rx recovers. */
+	reset_fake();
+	r = RUN("-l", "445566", "-u", "33");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(fake.paged, "00:00:33:44:55:66") == 0, fake.paged);
+	mu_assert(fake.bdaddr == 0x33445566,
+	          "-l with -u did not give the board the piconet it named");
+	mu_assert(strstr(r.err, "Address: 00:00:33:44:55:66\n") != NULL, r.err);
+}
+
 /* The map -a read is printed either way, and by the tool: it used to come
  * from inside libbtbb, which must not write to standard output. The wording
  * is the one libbtbb used, so a reader and a script see the same line. A
@@ -1314,6 +1348,7 @@ int main(void)
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
+	MU_RUN(the_nap_changes_only_the_address_that_is_paged);
 	MU_RUN(the_afh_map_is_printed_beside_a_capture_on_standard_output);
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
