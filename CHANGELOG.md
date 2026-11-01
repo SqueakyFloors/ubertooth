@@ -2612,7 +2612,6 @@ Fixes with no visible change in normal use.
   start and disarms it on the way out, so a second run of it cannot toggle an
   LED before its own first blink is due.
   [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
-
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising

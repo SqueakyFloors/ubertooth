@@ -42,8 +42,10 @@ Ubertooth sees a connection end in one of two ways.
 A pair of devices that closes the connection says so on the air. The follow
 ends at the first connection event in which nothing is heard, counting from
 the packet that closes the connection and the acknowledgment of it that the
-other device sends. In practice that is one or two connection events after
-the packet, and the capture holds the whole exchange.
+other device sends. In practice that is one or two connection events after the
+packet, and the capture usually holds the whole exchange: an acknowledgment
+the board does not hear is not in it, and counts as the silence that ends the
+follow.
 
 Waiting for the connection to go quiet is what tells a real close from a
 damaged packet. CRC verification is off unless it is asked for, so a

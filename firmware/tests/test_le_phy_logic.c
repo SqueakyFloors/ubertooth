@@ -2955,10 +2955,11 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	mu_assert_int_eq(TERMINATE_BUDGET_EVENT_CLOSED, conn.terminate_note);
 
 	/*
-	 * ...and one that arrived with no connection event open at all, which
-	 * says nothing about which event it belongs to, is noted as though its
-	 * event had closed. The smaller budget is the right way to be wrong
-	 * here: it ends the follow sooner rather than holding the note longer.
+	 * ...and one that arrived with no connection event open at all is
+	 * noted as though its event had closed. Nothing says an event of its
+	 * own is still to come, and the extra unit of budget is there for that
+	 * event's close, so assuming it has passed is the assumption the
+	 * packet supports.
 	 */
 	start_fresh();
 	build_terminate(&buf, 0x13);
@@ -3692,9 +3693,13 @@ MU_TEST(a_terminate_ends_the_follow_once_the_connection_goes_quiet)
  * the rest of the connection, because nothing re-follows a connection that is
  * already up.
  */
+/*
+ * `expected` is the note's value after each connection event that carries
+ * packets, ending at -1. `its_event_still_open` dates the packet the way the
+ * mode's loop would see it in each of the two orders it can read one in.
+ */
 static void a_live_connection_discards_the_note(int its_event_still_open,
-                                                const int *expected,
-                                                unsigned events)
+                                                const int *expected)
 {
 	le_rx_t buf;
 	unsigned i;
@@ -3713,7 +3718,7 @@ static void a_live_connection_discards_the_note(int its_event_still_open,
 	 * close's own exchange is what the budget is for, and a connection that
 	 * keeps talking past it spends the budget and loses the note.
 	 */
-	for (i = 0; i < events; ++i) {
+	for (i = 0; expected[i] >= 0; ++i) {
 		conn_event.num_packets = 2;
 		conn_event.opened = 1;
 		conn_event.anchor = conn.last_anchor + conn.conn_interval;
@@ -3756,13 +3761,54 @@ MU_TEST(a_terminate_contradicted_by_a_live_connection_is_discarded)
 	 * derived from the constants, so that changing a budget breaks the
 	 * test here, where the behavior is decided, and not somewhere else.
 	 */
-	static const int from_open_event[]   = { 2, 1, 0, 0 };
-	static const int from_closed_event[] = { 1, 0, 0, 0 };
+	static const int from_open_event[]   = { 2, 1, 0, 0, -1 };
+	static const int from_closed_event[] = { 1, 0, 0, 0, -1 };
 
-	a_live_connection_discards_the_note(1, from_open_event,
-			sizeof(from_open_event) / sizeof(from_open_event[0]));
-	a_live_connection_discards_the_note(0, from_closed_event,
-			sizeof(from_closed_event) / sizeof(from_closed_event[0]));
+	a_live_connection_discards_the_note(/* its event still open */ 1,
+	                                    from_open_event);
+	a_live_connection_discards_the_note(/* its event still open */ 0,
+	                                    from_closed_event);
+}
+
+/* What the timer interrupt does to the connection event counter that the note
+ * is written against, run where the hardware would run the handler: as the
+ * guard the loop was inside ends. */
+static int the_note_the_timer_saw;
+static void the_timer_counts_the_event_the_note_was_written_against(void)
+{
+	++conn.conn_event_counter;
+	the_note_the_timer_saw = conn.terminate_note;
+}
+
+/*
+ * The note is written against the connection event counter as the loop read
+ * it, not as the timer interrupt left it.
+ *
+ * The value depends on whether the event the packet arrived in has closed, and
+ * the timer closes events and moves that counter on. Read and written in two
+ * unguarded steps, a close landing in between would have the loop decide
+ * "still open" and then write a note for an event already counted, so the
+ * follow would wait one connection event longer than it should.
+ */
+MU_TEST(the_note_is_written_against_the_event_counter_the_loop_read)
+{
+	le_rx_t buf;
+
+	anchored_connection(100000);
+	rf_channel = DATA_CHANNEL_MHZ;
+	build_terminate(&buf, 0x13);
+	arrived_in_event(&buf, conn.conn_event_counter);
+
+	the_note_the_timer_saw = -1;
+	irq_pending_hook = the_timer_counts_the_event_the_note_was_written_against;
+
+	packet_handler(&buf);
+
+	mu_assert(irq_pending_hook == NULL,
+	          "the interrupt never got in, so the note is written without "
+	          "holding interrupts off");
+	mu_assert_int_eq(TERMINATE_BUDGET_EVENT_OPEN, the_note_the_timer_saw);
+	mu_assert_int_eq(0, (int)irq_mask_depth);
 }
 
 /*
@@ -4769,6 +4815,7 @@ int main(void)
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_terminate_ends_the_follow_once_the_connection_goes_quiet);
 	MU_RUN(a_terminate_contradicted_by_a_live_connection_is_discarded);
+	MU_RUN(the_note_is_written_against_the_event_counter_the_loop_read);
 	MU_RUN(a_close_acknowledged_in_the_next_event_still_ends_the_follow);
 	MU_RUN(an_ordinary_data_packet_does_not_end_the_follow);
 	MU_RUN(a_terminate_with_nothing_followed_does_not_end_the_next_follow);

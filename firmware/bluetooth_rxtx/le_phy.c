@@ -94,15 +94,11 @@
 // its close is still to come and spends a unit of the budget, and the event
 // counter the receive interrupt dated the packet with says which case it is.
 //
-// The budget is counted from where the loop reads the packet, not from where
-// it arrived, so connection events that closed while it waited in the queue
-// are not charged against it. The wait is short -- the pool is
-// LE_BUFFER_POOL_SIZE buffers and one of them is always the one being received
-// into, so only a few packets can be outstanding -- and charging for it would
-// be the wrong way round: a note that had expired before it was read would
-// leave a genuine close waiting out the supervision timeout, which is what
-// this exists to avoid, while the cost of not charging is the quiet-event
-// exposure above.
+// Events that closed while the packet waited in the queue are not charged
+// against the budget. The wait is bounded by the pool, which is
+// LE_BUFFER_POOL_SIZE buffers with one always being received into, and
+// charging for it would be the wrong way round: a note expiring before it was
+// read would leave a genuine close to the supervision timeout.
 #define TERMINATE_BUDGET_EVENT_CLOSED 2
 #define TERMINATE_BUDGET_EVENT_OPEN   (TERMINATE_BUDGET_EVENT_CLOSED + 1)
 
@@ -2304,17 +2300,17 @@ static void packet_handler(le_rx_t *buf) {
 				// event, so this loop must not reset it.
 				//
 				// Noted rather than acted on, and only once the
-				// connection has gone quiet: the control LLID and the
-				// length are all that stands between a bit-errored data
-				// packet and this note, as they are for the two updates
-				// above. TERMINATE_BUDGET_EVENT_CLOSED is where that,
-				// and the budget the note starts at, are explained.
+				// connection has gone quiet, because the control LLID
+				// and the length are all that stands between a
+				// bit-errored data packet and this note, as they are
+				// for the two updates above. The budget, and why it is
+				// the better mistake to risk, are at
+				// TERMINATE_BUDGET_EVENT_CLOSED.
 				//
 				// Reading the event counter and writing the note are one
 				// guarded step: the timer interrupt moves the counter
-				// on, and without the guard it could close the packet's
-				// own event between the two, so the follow would wait
-				// one event longer than it should.
+				// on, and a close landing between the two would leave a
+				// note for an event already counted.
 				case 0x2:
 					if (buf->data[1] == 2) {
 						uint32_t primask = irq_save_disable();
