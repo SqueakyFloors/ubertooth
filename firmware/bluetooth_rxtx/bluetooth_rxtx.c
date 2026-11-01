@@ -3063,7 +3063,10 @@ static u32 le_silence_timeout(void)
 	if (!le.chan_sel_2 || le.conn_interval == 0)
 		return 5 * 10000000u;
 
-	events = LE_CSA2_SILENCE_EVENTS * le.conn_interval * LE_BASECLK;
+	/* Unsigned, as LE_PROMISC_MAX_GAP is: at the longest interval a
+	 * connection may use this product is 2.56 billion, which does not fit
+	 * in the int the operands would otherwise promote to. */
+	events = (u32)LE_CSA2_SILENCE_EVENTS * le.conn_interval * LE_BASECLK;
 	return events > 5 * 10000000u ? events : 5 * 10000000u;
 }
 

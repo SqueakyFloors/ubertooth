@@ -102,8 +102,9 @@ for what it actually heard. Bluetooth 5.0 devices normally use algorithm 2.
 
 That search starts once the algorithm-1 route has had its chance, after about
 forty visits to the channel being listened on, and runs again on every set of
-that many after it. Forty visits is a few seconds at a short connection
-interval and a minute or more at a long one. The search needs no channel map,
+that many after it. A connection comes back to one channel about every 37
+events, so forty visits is about eleven seconds at the shortest connection
+interval a connection may use and many minutes at the longest. The search needs no channel map,
 and it declines rather than answer on thin evidence, so a connection whose map
 keeps about half the channels may take two or three sets before it is
 recovered.
