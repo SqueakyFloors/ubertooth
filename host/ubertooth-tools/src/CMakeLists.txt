@@ -73,10 +73,20 @@ endif()
 # build (CI / release) cannot silently ship a reduced tool set. Off by default
 # so a normal build still succeeds with whatever is installed.
 if( REQUIRE_ALL AND NOT ${LIBBLUETOOTH_FOUND} )
-	message( FATAL_ERROR
-		"REQUIRE_ALL is set but libbluetooth was not found; "
-		"ubertooth-scan and ubertooth-follow would be skipped. "
-		"Install libbluetooth-dev (Debian/Ubuntu) / bluez-libs-devel (Fedora).")
+	# On macOS there is nothing to install: BlueZ is Linux only, so this is
+	# the one platform where REQUIRE_ALL can never be met. Say that instead
+	# of naming Linux packages the user cannot get.
+	if( APPLE )
+		message( FATAL_ERROR
+			"REQUIRE_ALL cannot be met on macOS: ubertooth-scan and "
+			"ubertooth-follow need BlueZ, which is Linux only, so they "
+			"are never built here. Configure without REQUIRE_ALL.")
+	else()
+		message( FATAL_ERROR
+			"REQUIRE_ALL is set but libbluetooth was not found; "
+			"ubertooth-scan and ubertooth-follow would be skipped. "
+			"Install libbluetooth-dev (Debian/Ubuntu) / bluez-libs-devel (Fedora).")
+	endif()
 endif()
 
 if ( ${LIBBLUETOOTH_FOUND} )
@@ -131,6 +141,9 @@ message(STATUS "Ubertooth host tools — build summary")
 message(STATUS "  always built: ubertooth-rx tx dump util btle dfu specan ego afh ducky debug")
 if ( ${LIBBLUETOOTH_FOUND} )
 	message(STATUS "  bluez tools:  ENABLED  (ubertooth-scan, ubertooth-follow)")
+elseif( APPLE )
+	message(STATUS "  bluez tools:  DISABLED (ubertooth-scan, ubertooth-follow) — BlueZ is Linux only")
+	message(STATUS "                not available on macOS at all; ubertooth-rx and ubertooth-afh do the same work passively (see COMPATIBILITY.md)")
 else()
 	message(STATUS "  bluez tools:  DISABLED (ubertooth-scan, ubertooth-follow) — libbluetooth NOT found")
 	message(STATUS "                install libbluetooth-dev / bluez-libs-devel, or set -DREQUIRE_ALL=ON to make this an error")

@@ -9,6 +9,8 @@ ubertooth\-scan [\-s] [\-x]
 This tool uses a normal Bluetooth dongle to perform Inquiry Scans and Extended Inquiry scans of Bluetooth devices\. It uses Ubertooth to discover undiscoverable devices and can use BlueZ to scan for discoverable devices\.
 .P
 The Ubertooth capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
+.P
+Requires BlueZ (Linux only)\. An inquiry and the remote names could be done with macOS's public Bluetooth APIs, but the extra device detail of \fB\-x\fR and the AFH map reported for each piconet could not, so this tool is not built on macOS and no macOS version is planned; \fBubertooth\-rx \-z\fR finds the piconets without an adapter, and \fBubertooth\-afh\fR recovers a map\. See COMPATIBILITY\.md for the comparison\.
 .SH "EXAMPLES"
 Use Ubertooth to discover devices and perform Inquiry Scan with BlueZ:
 .IP "" 4
