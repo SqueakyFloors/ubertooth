@@ -20,6 +20,9 @@
 #include "minunit.h"
 #include "source_scan.h"
 #include "ubertooth_interface.h"
+/* For the declared type of clk100ns_offset, which the timer period rests on.
+ * Nothing here is run from the firmware; the header only declares. */
+#include "ubertooth_clock.h"
 
 #ifndef FW_RXTX_DIR
 #define FW_RXTX_DIR "../bluetooth_rxtx"
@@ -32,6 +35,7 @@
 #endif
 
 #define RXTX_SOURCE   FW_RXTX_DIR "/bluetooth_rxtx.c"
+#define CLOCK_SOURCE  FW_RXTX_DIR "/ubertooth_clock.c"
 #define EGO_SOURCE    FW_RXTX_DIR "/ego.c"
 #define COMMON_SOURCE FW_COMMON_DIR "/ubertooth.c"
 #define LE_PHY_SOURCE  FW_RXTX_DIR "/le_phy.c"
@@ -98,6 +102,7 @@ static char *source_flattened(const char *path)
 
 /* The sources every case below reads, flattened once in main(). */
 static char *rxtx_source;
+static char *clock_source;
 static char *le_phy_source;
 static char *ego_source;
 static char *common_source;
@@ -129,6 +134,7 @@ static int holds(const char *flat, const char *code)
 MU_TEST(test_every_scanned_source_opens)
 {
 	mu_assert_fatal(rxtx_source != NULL, RXTX_SOURCE " would not open");
+	mu_assert_fatal(clock_source != NULL, CLOCK_SOURCE " would not open");
 	mu_assert_fatal(le_phy_source != NULL, LE_PHY_SOURCE " would not open");
 	mu_assert_fatal(ego_source != NULL, EGO_SOURCE " would not open");
 	mu_assert_fatal(common_source != NULL, COMMON_SOURCE " would not open");
@@ -398,6 +404,61 @@ MU_TEST(test_the_accumulated_drift_figure_stays_within_what_it_can_correct)
 	          "the drift request stores the bounded figure");
 }
 
+/* ---- the length of the period the clock interrupt sets ------------------ */
+
+/*
+ * Every wait timed by timer 0 measures its steps with clk100ns_step(), and
+ * that helper rests on one thing about this handler: the timer's period is
+ * never shorter than CLK100NS_PER_CLKN ticks. A reading lower than the one
+ * before it then counts only how far into the new period the wait is, which
+ * is never more than the time that really passed, so a deadline built on it
+ * cannot end a wait early. test_le_rx_byte_wait.c checks the helper against
+ * that premise, over periods from CLK100NS_PER_CLKN ticks up to 68,660.
+ *
+ * The premise is the declared type of clk100ns_offset, not the shape of the
+ * assignment: the handler writes CLK100NS_PER_CLKN - 1 plus that offset, and
+ * the hardware's period is one tick more, so an unsigned offset can only
+ * lengthen the period and a signed one could shorten it. A drift correction
+ * of -1 would then give a period of 3124 ticks, one short, and every wait in
+ * the firmware could end a tick early on a packet that was still arriving.
+ * Nothing writes a negative offset today -- the two corrections are 1 and
+ * 6249, and the host's trim and hop requests take sixteen unsigned bits off
+ * the wire -- so the type is all that holds it.
+ *
+ * The largest value an offset can take, from its declared type. A cast of -1
+ * is that type's largest value when it is unsigned, and -1 when it is not.
+ */
+#define CLK100NS_OFFSET_MAX ((__typeof__(clk100ns_offset))-1)
+
+MU_TEST(test_the_timer_period_is_never_shorter_than_one_clkn_tick)
+{
+	/* The declared type, checked by the compiler rather than read off the
+	 * line that declares it. */
+	mu_assert((int32_t)CLK100NS_OFFSET_MAX > 0,
+	          "clk100ns_offset must be an unsigned type, or a clock "
+	          "correction could make the timer period shorter than "
+	          "CLK100NS_PER_CLKN and every timer 0 wait could end early");
+
+	/* The period the match register gives, at both ends of that type: the
+	 * shortest is the one clk100ns_step() rests on, and the longest is the
+	 * one test_le_rx_byte_wait.c sweeps. */
+	mu_assert_int_eq(CLK100NS_PER_CLKN,
+	                 (int)(CLK100NS_PER_CLKN - 1 + 0 + 1));
+	mu_assert_int_eq(68660,
+	                 (int)(CLK100NS_PER_CLKN - 1
+	                       + (uint32_t)CLK100NS_OFFSET_MAX + 1));
+
+	/* And the two writes to the match register, so that a handler which
+	 * stopped writing the offset, or wrote something else beside it, fails
+	 * here rather than on a board. */
+	mu_assert(holds(rxtx_source, "T0MR0 = 3124 + clk100ns_offset;"),
+	          "the clock interrupt sets the period to CLK100NS_PER_CLKN - 1 "
+	          "plus the offset");
+	mu_assert(holds(clock_source, "T0MR0 = 3124;"),
+	          "starting the clock sets the usual period");
+	mu_assert_int_eq(3125, CLK100NS_PER_CLKN);
+}
+
 /* ---- the channel a record reports --------------------------------------- */
 
 /*
@@ -531,6 +592,7 @@ int main(void)
 	printf("latent arithmetic, type and unit tests\n");
 
 	rxtx_source = source_flattened(RXTX_SOURCE);
+	clock_source = source_flattened(CLOCK_SOURCE);
 	le_phy_source = source_flattened(LE_PHY_SOURCE);
 	ego_source = source_flattened(EGO_SOURCE);
 	common_source = source_flattened(COMMON_SOURCE);
@@ -544,6 +606,7 @@ int main(void)
 	MU_RUN(test_a_reversed_crc_init_is_twenty_four_bits_wide);
 	MU_RUN(test_a_large_drift_corrects_every_tick_rather_than_never);
 	MU_RUN(test_the_accumulated_drift_figure_stays_within_what_it_can_correct);
+	MU_RUN(test_the_timer_period_is_never_shorter_than_one_clkn_tick);
 	MU_RUN(test_a_frequency_outside_the_band_reports_no_channel);
 	MU_RUN(test_every_record_reports_its_channel_the_same_way);
 	MU_RUN(test_the_shortest_wait_is_one_pass_not_four_billion);

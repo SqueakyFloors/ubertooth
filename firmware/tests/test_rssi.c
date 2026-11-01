@@ -541,6 +541,56 @@ MU_TEST(test_the_mean_survives_any_number_of_readings)
 	mu_assert_int_eq(-43, rssi_power_mean(&p));
 }
 
+/*
+ * What stops a step counting past what it can hold.
+ *
+ * A step's count is 32 bits, and nothing else limits it: a capture that does
+ * not hop keeps adding readings to the same channel, so without a ceiling the
+ * count would wrap round to zero and the window would forget what it had
+ * heard, or come back with a mean built from a handful of readings. At the
+ * ceiling every step is halved instead, which keeps their proportions and so
+ * the mean, and leaves room for as many readings again.
+ *
+ * Reaching it honestly takes 2^28 readings on one step -- hours of a quiet
+ * channel -- so the counts are seeded at it here and the next reading is the
+ * one that halves them. That is the only way to reach this: a case that only
+ * added readings would run for hours, and the case above, two million of
+ * them, is a hundredth of the way there.
+ */
+MU_TEST(test_a_step_at_its_ceiling_is_halved_rather_than_left_to_wrap)
+{
+	rssi_power_t p;
+	int8_t before;
+
+	rssi_power_reset(&p);
+	/* A window at the ceiling: the strongest step full, and the one
+	 * RSSI_POWER_SPAN dB below it with half as many readings. */
+	p.ref = -40;
+	p.at[0] = RSSI_POWER_STEP_MAX;
+	p.at[RSSI_POWER_SPAN] = RSSI_POWER_STEP_MAX / 2;
+	before = rssi_power_mean(&p);
+
+	rssi_power_add(&p, -40);
+
+	mu_assert_int_eq((int)(RSSI_POWER_STEP_MAX / 2 + 1), (int)p.at[0]);
+	mu_assert_int_eq((int)(RSSI_POWER_STEP_MAX / 4),
+	                 (int)p.at[RSSI_POWER_SPAN]);
+	mu_assert(p.at[0] <= RSSI_POWER_STEP_MAX,
+	          "no step may be left holding more than it can count");
+
+	/* And the figure the halving was for: the mean the readings gave is
+	 * the mean they still give. */
+	mu_assert_int_eq(before, rssi_power_mean(&p));
+
+	/* A reading on a step that is not at the ceiling halves nothing, so
+	 * the window does not lose readings it has room for. */
+	rssi_power_reset(&p);
+	p.ref = -40;
+	p.at[0] = RSSI_POWER_STEP_MAX - 1;
+	rssi_power_add(&p, -40);
+	mu_assert_int_eq((int)RSSI_POWER_STEP_MAX, (int)p.at[0]);
+}
+
 /* The signal figure the loops report is the mean of the readings of this
  * packet, and starting a packet forgets the last one's. */
 MU_TEST(test_the_signal_figure_is_this_packets_readings)
@@ -754,6 +804,7 @@ int main(void)
 	MU_RUN(test_quiet_readings_outside_the_window_do_not_drag_the_mean_down);
 	MU_RUN(test_a_reading_the_window_has_left_behind_stops_counting);
 	MU_RUN(test_the_mean_survives_any_number_of_readings);
+	MU_RUN(test_a_step_at_its_ceiling_is_halved_rather_than_left_to_wrap);
 	MU_RUN(test_the_signal_figure_is_this_packets_readings);
 	MU_RUN(test_a_window_with_a_packet_in_it_gives_both_figures);
 	MU_RUN(test_a_quiet_window_claims_no_background);

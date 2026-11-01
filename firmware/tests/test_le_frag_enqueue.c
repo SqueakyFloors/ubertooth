@@ -110,6 +110,7 @@ static le_pkt_meta sample_meta(void)
 	meta.rssi_min = -80;
 	meta.rssi_avg = -60;
 	meta.rssi_count = 9;
+	meta.rssi_noise = 0;
 	return meta;
 }
 
@@ -278,6 +279,54 @@ MU_TEST(every_record_carries_the_packets_readings)
 	}
 }
 
+/*
+ * The one reading a fragment cannot carry.
+ *
+ * A packet that fits one record carries the background estimate for its
+ * channel in two bytes of that record, and says so with NOISE_ESTIMATE in its
+ * status. A chain uses those same two bytes to state the whole packet's
+ * length and each fragment's place in it, so a fragment has nowhere to put
+ * the figure -- and its status must not claim one, or the host reads the
+ * length byte as a level in dBm.
+ *
+ * The capture path that fragments has no background estimate to begin with,
+ * so the bit is set here rather than waited for. What this case holds is that
+ * a fragment never claims an estimate, whichever mode comes to fragment next.
+ */
+MU_TEST(a_fragment_claims_no_background_estimate)
+{
+	le_pkt_meta meta = sample_meta();
+	unsigned records, i;
+	usb_pkt_rx *r;
+
+	meta.status |= NOISE_ESTIMATE;
+	meta.rssi_noise = (uint8_t)-95;   /* a level in dBm, as the host reads it */
+	fill_whole();
+
+	/* A packet that fits one record keeps it: there those two bytes are
+	 * the figure, which is what the bit says. */
+	usb_queue_init();
+	mu_assert_int_eq(1, usb_enqueue_le_packet(&meta, whole, whole + 4,
+	                                          DMA_SIZE - 4));
+	r = dequeue();
+	mu_assert(r != NULL, "the record was not queued");
+	mu_assert_int_eq(NOISE_ESTIMATE, r->status & NOISE_ESTIMATE);
+	mu_assert_int_eq((uint8_t)-95, r->rssi_noise);
+
+	/* A packet that needs a chain: no record of it claims one, and the
+	 * rest of the status is still the capture's. */
+	usb_queue_init();
+	mu_assert_int_eq(1, usb_enqueue_le_packet(&meta, whole, whole + 4,
+	                                          LONGEST_PACKET - 4));
+	records = queued_records();
+	mu_assert(records > 1, "the packet was not split");
+	for (i = 0; i < records; ++i) {
+		r = dequeue();
+		mu_assert_int_eq(0, r->status & NOISE_ESTIMATE);
+		mu_assert_int_eq(meta.status & ~(int)NOISE_ESTIMATE, r->status);
+	}
+}
+
 /* ------------------------------------------------------------------ *
  * The round trip: what the host makes of the records
  * ------------------------------------------------------------------ */
@@ -364,6 +413,45 @@ MU_TEST(a_single_record_packet_is_handed_over_whole)
 	          "the record does not carry the packet");
 }
 
+/*
+ * And the packet the host hands on claims none either, whatever the records
+ * said.
+ *
+ * A reassembled packet is an ordinary one, so its two fragment bytes go back
+ * to being a noise figure -- and there is none, because the chain could not
+ * carry one. The records a board really sends have the bit clear, but the host
+ * must not depend on that: another build, or a mode added later, would leave
+ * it reporting a fragment's length byte as a level in dBm.
+ */
+MU_TEST(the_host_claims_no_background_estimate_for_a_packet_it_reassembled)
+{
+	le_usb_reassembly state;
+	const uint8_t *data = NULL;
+	uint16_t length = 0;
+	const usb_pkt_rx *metadata = NULL;
+	int completions = 0;
+	usb_pkt_rx *r;
+
+	memset(&state, 0, sizeof(state));
+	usb_queue_init();
+	mu_assert_int_eq(1, queue_packet(DMA_SIZE + 1));
+
+	while ((r = dequeue()) != NULL) {
+		/* As a board that did set the bit would have sent them. */
+		r->status |= NOISE_ESTIMATE;
+		if (reassemble(&state, r, &data, &length, &metadata)
+		    != LE_REASSEMBLY_COMPLETE)
+			continue;
+		++completions;
+		mu_assert_int_eq(0, metadata->status & NOISE_ESTIMATE);
+		/* And the two bytes themselves are no longer a length and an
+		 * index, which is what the bit would have made them mean. */
+		mu_assert_int_eq(0, metadata->rssi_noise);
+		mu_assert_int_eq(0, metadata->reserved);
+	}
+	mu_assert_int_eq(1, completions);
+}
+
 int main(void)
 {
 	printf("LE fragmenting enqueue tests\n");
@@ -374,7 +462,9 @@ int main(void)
 	MU_RUN(a_packet_longer_than_the_host_can_hold_is_refused);
 	MU_RUN(a_ring_without_room_for_every_record_takes_none);
 	MU_RUN(every_record_carries_the_packets_readings);
+	MU_RUN(a_fragment_claims_no_background_estimate);
 	MU_RUN(the_host_puts_a_long_packet_back_together);
 	MU_RUN(a_single_record_packet_is_handed_over_whole);
+	MU_RUN(the_host_claims_no_background_estimate_for_a_packet_it_reassembled);
 	return mu_report();
 }
