@@ -80,6 +80,17 @@ def eprint(msg):
 _encoding_reported = set()
 _encoding_lock = Lock()
 
+def result_lines_dropped():
+	"""True if a decoded line was dropped because it could not be encoded.
+
+	The session's own ending says nothing about it, so the exit status does:
+	a run that printed every packet but one is not a run where everything
+	asked for was printed, which is what status 0 means (ubertooth-btbr(1),
+	EXIT STATUS). A diagnostic lost the same way does not count, because the
+	user asked for the packets and not for the warnings.
+	"""
+	return "standard output" in _encoding_reported
+
 def line_was_not_encodable(stream, name):
 	"""Report a line dropped because its stream could not encode it.
 
@@ -275,6 +286,11 @@ def write_one_line_at_a_time(lines):
 	A reader that leaves, or a descriptor that stops taking writes, part way
 	through is the same loss result() reports for the whole message, so the
 	rest of it goes with the stream.
+
+	eprint() has no retry of its own because nothing builds a diagnostic of
+	several lines out of text from the air: the two that have a `note: ` line
+	under them, open_failure_note() and unread_serials_note(), are the tool's
+	own words, and btctl hands a device name to error() a line at a time.
 	"""
 	def taken(write):
 		try:

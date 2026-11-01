@@ -165,9 +165,10 @@ int main(int argc, char *argv[])
 	 * board is opened; the file itself is opened once the board has been
 	 * accepted, below.
 	 *
-	 * -b is refused too, and named for what it is: it writes one text line
-	 * of '0' and '1' per symbol, which is not binary but is no more use on
-	 * a screen, at tens of thousands of characters a second. */
+	 * -b is refused too, and named for what it is: it writes a '0' or a '1'
+	 * per symbol, a line per captured block, which is text rather than
+	 * binary but no more use on a screen, at tens of thousands of
+	 * characters a second. */
 	const char *refused = bitstream ? "the bitstream dump"
 	                                : "binary dump data";
 

@@ -846,9 +846,9 @@
   at the bench comes first.
 
 - `ubertooth-dump -b` refuses a terminal for what it really writes: `error:
-  stdout is a tty, refusing to write the bitstream dump to it`. That stream is
-  one line of `0` and `1` per symbol, and the refusal it shares with the
-  binary captures used to call it binary.
+  stdout is a tty, refusing to write the bitstream dump to it`. That stream
+  is a `0` or a `1` per symbol, a line per captured block, and the refusal
+  it shares with the binary captures used to call it binary.
 
 - `ubertooth-btbr` carries on when a device name cannot be written in the
   session's character encoding. A name arrives as whatever bytes the air
@@ -2702,10 +2702,6 @@
 
 Fixes with no visible change in normal use.
 
-- The three places the low-energy engine stops receiving -- the end of a whole
-  packet, a byte that arrived with no buffer to put it in, and the recovery
-  from a transfer error -- share one function, so the order the radio, the DMA
-  channel and the SSP are taken down in cannot drift apart between them.
 - Giving up a followed low-energy connection takes one path rather than two.
   The host's request to stop following and the end of the connection itself
   did the same three things in blocks of their own, and a request that arrived

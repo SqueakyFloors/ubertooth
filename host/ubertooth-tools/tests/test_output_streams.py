@@ -306,8 +306,8 @@ CAPTURE_TO_STDOUT = {
     "ubertooth-btle": ((["-n", "-q", "-"], "binary capture data"),),
     # ubertooth-dump streams to standard output with no -d at all, so the
     # bare command line is refused on a terminal too. -b is refused as well,
-    # and is named for what it is: a line of '0' and '1' per symbol is text,
-    # and the refusal used to call it binary.
+    # and is named for what it is: a '0' or a '1' per symbol is text, and
+    # the refusal used to call it binary.
     "ubertooth-dump": (([], "binary dump data"),
                        (["-d", "-"], "binary dump data"),
                        (["-b"], "the bitstream dump"),

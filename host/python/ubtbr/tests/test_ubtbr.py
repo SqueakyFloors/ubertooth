@@ -1649,11 +1649,15 @@ assert "RX FHS: bdaddr=112233445566" in printed, printed
 # each surviving line still carries its own time
 assert all(re.match(r"\d\d:\d\d:\d\d ", line)
            for line in printed.splitlines()), printed
-assert said.getvalue().count("warning: a line could not be written in"
-                             " standard output's character encoding"
-                             " (ascii)") == 1, said.getvalue()
-assert "PYTHONIOENCODING=utf-8" in said.getvalue(), said.getvalue()
+assert said.getvalue().count(
+    "warning: a line could not be written in standard output's character"
+    " encoding (ascii), so it was dropped\n"
+    "note: run the session under an encoding that carries the text, for"
+    " example PYTHONIOENCODING=utf-8\n") == 1, said.getvalue()
+# the stream is there, so this is not the loss output_gone() reports -- but a
+# packet that was asked for was not printed, which the exit status says
 assert not streams.output_gone(), "the stream is there; only the line is lost"
+assert streams.result_lines_dropped(), "a dropped packet must reach the status"
 print("ubtbr: a packet the output encoding cannot carry is one dropped line")
 
 # the same for a diagnostic, which used to point standard error at the bin
