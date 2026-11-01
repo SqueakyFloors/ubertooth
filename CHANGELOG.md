@@ -765,6 +765,12 @@
 
 ### Reliability fixes
 
+- `ubertooth-btbr` no longer reports a packet whose header belongs to another
+  piconet. All eight bits of a header's error check now have to match, where
+  seven did, so a header that got past the access-code match was accepted one
+  time in 128 rather than one in 256 and was printed with whatever type,
+  logical transport address and flags it carried.
+  [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
 - Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
   connection it was following. It hopped with channel selection algorithm 1
   only, so a connection using algorithm 2, which Bluetooth 5.0 devices
@@ -2517,13 +2523,6 @@
 
 Fixes with no visible change in normal use.
 
-- `btbr` compares all eight bits of a received packet header's error check,
-  which is the only thing that says the header belongs to the piconet being
-  followed. Seven bits were compared, so a header from elsewhere that matched
-  the access code got through twice as often, and `ubertooth-btbr` reported it
-  as a packet with whatever type, logical transport address and flags that
-  header happened to carry.
-  [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
   rather than followed. Following one left the board tuned to the advertising

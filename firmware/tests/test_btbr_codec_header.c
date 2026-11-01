@@ -9,11 +9,13 @@
  * 1/3 FEC and unwhitened the header, and nothing else is checked before the
  * payload is decoded and the packet reported.
  *
- * So these cases hold two things. A header this piconet sent matches on all
+ * So these cases hold three things. A header this piconet sent matches on all
  * eight bits, whitening on or off and whatever the UAP is -- the path from
- * the air to the comparison keeps every one of them. And a header whose HEC
+ * the air to the comparison keeps every one of them. A header whose HEC
  * differs in any single bit is refused, the top bit included: one that passed
- * would become a packet line with a wrong type, lt_addr or flags.
+ * would become a packet line with a wrong type, lt_addr or flags. And
+ * ordinary noise still costs nothing: the header travels under 1/3 FEC, so a
+ * single wrong air bit is outvoted and the packet is reported as before.
  *
  * codec.c and bitstream_proc.c are pure logic, so the real ones are linked
  * here. The air buffer is built here rather than by the encoder, so a case
@@ -56,12 +58,21 @@ void __attribute__((noreturn)) die(char *fmt, ...)
 	exit(1);
 }
 
-/* Room for the 4-bit trailer and the 54 air bits of the header, and for the
- * byte unfec13_hdr() reads past the last of them. */
+/* Room for the 4-bit trailer and the 54 air bits of the header, which end in
+ * byte 7, and for the two bytes above that fec13() writes as it fills the
+ * last of them. */
 #define AIR_BUF_SIZE	16
 
-/* One packet's worth of payload, which no case here decodes. */
+/* A payload buffer for the encoder. Nothing here decodes a payload, but
+ * bbcodec_encode_header() reads up to two payload-header bytes from one to
+ * work out how long the packet is, and writes nothing back. */
 #define DATA_BUF_SIZE	8
+
+/* Where the header sits on the air: 18 bits, each sent three times by the 1/3
+ * FEC, after the 4-bit trailer. So header bit i is air bits 4+3i, 5+3i and
+ * 6+3i, and the receiver's majority vote of the three is what it reads. */
+#define HDR_AIR_OFFSET	4
+#define HDR_AIR_BITS	54
 
 /* The trailer that follows the access code. bbcodec_decode_header() does not
  * read it; it is here so the air buffer looks like a real one. */
@@ -131,6 +142,14 @@ static void put_header(uint8_t *air, const hdr_info_t *info, uint8_t hec,
 	fec13(air, hdr_bytes, 4, 18);
 }
 
+/* Flip one of the header's 54 air bits, as noise on the air would. */
+static void flip_air_bit(uint8_t *air, unsigned bit)
+{
+	unsigned i = HDR_AIR_OFFSET + bit;
+
+	air[i >> 3] ^= (uint8_t)(1u << (i & 7));
+}
+
 /*
  * Decode that air buffer the way rx_task.c does. Returns what
  * bbcodec_decode_header() returned, with the header it read in *out_hdr.
@@ -192,8 +211,9 @@ MU_TEST(test_the_whole_hec_survives_the_air)
  */
 MU_TEST(test_the_encoder_writes_the_hec_the_receiver_expects)
 {
-	unsigned h, u;
+	unsigned h, u, w;
 
+	for (w = 0; w < 2; w++)
 	for (u = 0; u < NUM_TEST_UAPS; u++)
 	for (h = 0; h < NUM_TEST_HEADERS; h++) {
 		const hdr_info_t *info = &test_headers[h];
@@ -210,18 +230,90 @@ MU_TEST(test_the_encoder_writes_the_hec_the_receiver_expects)
 		hdr.flags = (uint8_t)info->flags;
 
 		memset(air, 0, sizeof(air));
-		bbcodec_init(&codec, TEST_WHITEN, test_uaps[u], 1, 0);
+		bbcodec_init(&codec, TEST_WHITEN, test_uaps[u], (int)w, 0);
 		bbcodec_encode_header(&codec, air, &hdr, TEST_TRAILER, data);
 
 		hec = hec_compute(pack_header_info(info), test_uaps[u]);
-		put_header(mine, info, hec, 1);
+		put_header(mine, info, hec, (int)w);
 
 		snprintf(message, sizeof(message),
-			"uap %02x header %u: the encoder put different bits "
-			"on the air", test_uaps[u], h);
+			"uap %02x whiten %u header %u: the encoder put "
+			"different bits on the air", test_uaps[u], w, h);
 		/* The header occupies the trailer's byte and the seven above
-		 * it; what the encoder leaves past that is not the header. */
+		 * it; what either side leaves past that is not the header. */
 		mu_assert(memcmp(air, mine, 8) == 0, message);
+	}
+}
+
+/* ---- noise on the air ---- */
+
+/*
+ * One wrong air bit anywhere in the header costs nothing: the 1/3 FEC sends
+ * each header bit three times and the receiver takes the majority, so the
+ * header and its HEC come back whole and the packet is still reported. This
+ * is what the eight-bit comparison has to leave alone -- a check that turned
+ * ordinary noise into a lost packet would cost a capture far more than the
+ * false headers it keeps out.
+ */
+MU_TEST(test_a_single_wrong_air_bit_is_corrected)
+{
+	unsigned h, u, w, bit;
+
+	for (w = 0; w < 2; w++)
+	for (u = 0; u < NUM_TEST_UAPS; u++)
+	for (h = 0; h < NUM_TEST_HEADERS; h++)
+	for (bit = 0; bit < HDR_AIR_BITS; bit++) {
+		const hdr_info_t *info = &test_headers[h];
+		uint8_t air[AIR_BUF_SIZE], hec;
+		bbhdr_t got;
+		char message[128];
+
+		hec = hec_compute(pack_header_info(info), test_uaps[u]);
+		put_header(air, info, hec, (int)w);
+		flip_air_bit(air, bit);
+
+		snprintf(message, sizeof(message),
+			"uap %02x whiten %u header %u: air bit %u wrong cost "
+			"the packet", test_uaps[u], w, h, bit);
+		mu_assert(decode_header(air, test_uaps[u], (int)w, &got) == 0,
+			message);
+		mu_assert(got.hec == hec
+			&& got.lt_addr == info->lt_addr
+			&& got.type == info->type
+			&& got.flags == info->flags, message);
+	}
+}
+
+/*
+ * Two wrong air bits in one of those groups of three outvote the right one,
+ * so a header bit comes back flipped and the HEC no longer matches. The
+ * packet is refused, which is the point: the receiver has no idea what that
+ * header really said. On the seven-bit comparison the last group was the
+ * exception -- damage there flipped the top HEC bit, which nothing looked at.
+ */
+MU_TEST(test_two_wrong_air_bits_in_one_group_are_refused)
+{
+	unsigned h, u, w, hdr_bit;
+
+	for (w = 0; w < 2; w++)
+	for (u = 0; u < NUM_TEST_UAPS; u++)
+	for (h = 0; h < NUM_TEST_HEADERS; h++)
+	for (hdr_bit = 0; hdr_bit < 18; hdr_bit++) {
+		const hdr_info_t *info = &test_headers[h];
+		uint8_t air[AIR_BUF_SIZE], hec;
+		bbhdr_t got;
+		char message[128];
+
+		hec = hec_compute(pack_header_info(info), test_uaps[u]);
+		put_header(air, info, hec, (int)w);
+		flip_air_bit(air, 3 * hdr_bit);
+		flip_air_bit(air, 3 * hdr_bit + 1);
+
+		snprintf(message, sizeof(message),
+			"uap %02x whiten %u header %u: header bit %u voted "
+			"wrong was accepted", test_uaps[u], w, h, hdr_bit);
+		mu_assert(decode_header(air, test_uaps[u], (int)w, &got) != 0,
+			message);
 	}
 }
 
@@ -265,8 +357,9 @@ MU_TEST(test_a_hec_wrong_in_one_bit_is_refused)
  */
 MU_TEST(test_a_header_from_another_piconet_is_refused)
 {
-	unsigned h, u, other;
+	unsigned h, u, w, other;
 
+	for (w = 0; w < 2; w++)
 	for (u = 0; u < NUM_TEST_UAPS; u++)
 	for (h = 0; h < NUM_TEST_HEADERS; h++)
 	for (other = 0; other < NUM_TEST_UAPS; other++) {
@@ -279,7 +372,7 @@ MU_TEST(test_a_header_from_another_piconet_is_refused)
 			continue;
 
 		hec = hec_compute(pack_header_info(info), test_uaps[u]);
-		put_header(air, info, hec, 1);
+		put_header(air, info, hec, (int)w);
 
 		/* Only a UAP that gives this header a different HEC can be
 		 * told apart from the right one: an 8-bit check over 10 bits
@@ -289,10 +382,10 @@ MU_TEST(test_a_header_from_another_piconet_is_refused)
 			continue;
 
 		snprintf(message, sizeof(message),
-			"header %u sent with uap %02x was accepted as uap "
-			"%02x's", h, test_uaps[u], test_uaps[other]);
-		mu_assert(decode_header(air, test_uaps[other], 1, &got) != 0,
-			message);
+			"whiten %u header %u sent with uap %02x was accepted "
+			"as uap %02x's", w, h, test_uaps[u], test_uaps[other]);
+		mu_assert(decode_header(air, test_uaps[other], (int)w, &got)
+			!= 0, message);
 	}
 }
 
@@ -337,6 +430,8 @@ int main(void)
 	printf("btbr packet header HEC tests\n");
 	MU_RUN(test_the_whole_hec_survives_the_air);
 	MU_RUN(test_the_encoder_writes_the_hec_the_receiver_expects);
+	MU_RUN(test_a_single_wrong_air_bit_is_corrected);
+	MU_RUN(test_two_wrong_air_bits_in_one_group_are_refused);
 	MU_RUN(test_a_hec_wrong_in_one_bit_is_refused);
 	MU_RUN(test_a_header_from_another_piconet_is_refused);
 	MU_RUN(test_a_header_unwhitened_the_wrong_way_is_refused);
