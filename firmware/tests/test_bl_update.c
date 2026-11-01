@@ -237,10 +237,17 @@ static void build_good_payload(void)
 	memset(installed, 0x5a, sizeof(installed));
 }
 
+/* The installed region is handed over as an address, which is what the board
+ * does with flash address 0; the test's own array stands in for it. */
 static int run(struct bl_update_report *report)
 {
 	return bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
-	                     installed, buffer, report);
+	                     (uintptr_t)installed, 1, buffer, report);
+}
+
+static int check_payload(size_t length, struct bl_update_report *report)
+{
+	return bl_update_check(payload, length, (uintptr_t)installed, 1, report);
 }
 
 /* ------------------------------------------------------------------ */
@@ -254,8 +261,7 @@ MU_TEST(a_whole_region_is_accepted)
 	build_good_payload();
 	reset_part();
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_OK,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 	mu_assert_int_eq(0x0102, report.bootloader_version);
 }
 
@@ -265,14 +271,12 @@ MU_TEST(a_payload_that_is_not_the_whole_region_is_refused)
 
 	build_good_payload();
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_SHORT,
-	                 bl_update_check(payload, PAYLOAD_LENGTH - 1, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH - 1, &report));
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_SHORT,
-	                 bl_update_check(payload, PAYLOAD_LENGTH + 1, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH + 1, &report));
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_SHORT,
-	                 bl_update_check(NULL, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 bl_update_check(NULL, PAYLOAD_LENGTH,
+	                                 (uintptr_t)installed, 1, &report));
 }
 
 /*
@@ -293,8 +297,7 @@ MU_TEST(every_code_read_protection_value_is_refused)
 		build_good_payload();
 		write_le32(payload + UBERTOOTH_LPC_CRP_OFFSET, values[i]);
 		mu_assert_int_eq(UBERTOOTH_BL_UPDATE_CRP,
-		                 bl_update_check(payload, PAYLOAD_LENGTH,
-		                                 installed, &report));
+		                 check_payload(PAYLOAD_LENGTH, &report));
 		mu_assert(ubertooth_lpc_crp_name(values[i]) != NULL,
 		          "a refused protection value has no name to report");
 	}
@@ -314,8 +317,7 @@ MU_TEST(protection_is_reported_before_any_other_fault)
 	write_le32(payload, 0);
 	write_le32(payload + 4, 0);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_CRP,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 }
 
 /* Any other word asks for nothing, including the two a payload is most likely
@@ -332,8 +334,7 @@ MU_TEST(an_ordinary_word_at_the_protection_offset_is_accepted)
 		build_good_payload();
 		write_le32(payload + UBERTOOTH_LPC_CRP_OFFSET, values[i]);
 		mu_assert_int_eq(UBERTOOTH_BL_UPDATE_OK,
-		                 bl_update_check(payload, PAYLOAD_LENGTH,
-		                                 installed, &report));
+		                 check_payload(PAYLOAD_LENGTH, &report));
 	}
 }
 
@@ -344,8 +345,7 @@ MU_TEST(a_payload_with_no_version_block_is_refused)
 	build_good_payload();
 	payload[UBERTOOTH_BL_VERSION_OFFSET] ^= 0xff;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_NO_VERSION_BLOCK,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 	mu_assert_int_eq(0, report.bootloader_version);
 }
 
@@ -358,45 +358,39 @@ MU_TEST(a_payload_with_no_startable_vector_table_is_refused)
 	write_le32(payload, 0xffffffffu);
 	write_le32(payload + 4, 0xffffffffu);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 
 	/* Zeros. */
 	build_good_payload();
 	write_le32(payload, 0);
 	write_le32(payload + 4, 0);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 
 	/* A stack pointer outside RAM. */
 	build_good_payload();
 	write_le32(payload, 0x00001000u);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 
 	/* A stack pointer that is not word-aligned. */
 	build_good_payload();
 	write_le32(payload, 0x10003fe2u);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 
 	/* An ARM rather than a Thumb reset vector. */
 	build_good_payload();
 	write_le32(payload + 4, 0x00000300u);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 
 	/* An entry point above the bootloader's own region, which is the
 	 * application's code: a bootloader does not start there. */
 	build_good_payload();
 	write_le32(payload + 4, 0x00004001u);
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_VECTORS,
-	                 bl_update_check(payload, PAYLOAD_LENGTH, installed,
-	                                 &report));
+	                 check_payload(PAYLOAD_LENGTH, &report));
 }
 
 /*
@@ -418,6 +412,41 @@ MU_TEST(a_region_that_already_holds_the_payload_is_left_alone)
 	mu_assert_int_eq(0, report.sectors_written);
 	mu_assert(part.log[0] == '\0',
 	          "a region that already holds the payload still reached the part");
+}
+
+/*
+ * The region is handed over as an address, not a pointer, and the board's
+ * region is at flash address 0. A pointer parameter with a null check would
+ * have turned every real call away: the board would never compare, and would
+ * reprogram the bootloader region every time it was asked. This case is that
+ * address.
+ */
+MU_TEST(the_region_is_read_at_the_address_it_is_given)
+{
+	struct bl_update_report report;
+
+	build_good_payload();
+	reset_part();
+	memcpy(installed, payload, PAYLOAD_LENGTH);
+	write_le32(installed + UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX * 4,
+	           ubertooth_bl_update_vector_checksum(payload));
+	mu_assert_int_eq(1, bl_update_region_matches(payload,
+	                                             (uintptr_t)installed));
+	installed[PAYLOAD_LENGTH - 1] ^= 0xff;
+	mu_assert_int_eq(0, bl_update_region_matches(payload,
+	                                             (uintptr_t)installed));
+
+	/* And a run told not to compare writes without reading the region at
+	 * all, which is what a caller with no region to read asks for. */
+	build_good_payload();
+	reset_part();
+	memcpy(installed, payload, PAYLOAD_LENGTH);
+	write_le32(installed + UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX * 4,
+	           ubertooth_bl_update_vector_checksum(payload));
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_OK,
+	                 bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
+	                               0, 0, buffer, &report));
+	mu_assert_int_eq(4, report.sectors_written);
 }
 
 MU_TEST(a_region_holding_the_payload_with_no_checksum_is_written)
@@ -656,7 +685,7 @@ MU_TEST(a_run_with_no_buffer_writes_nothing)
 	build_good_payload();
 	reset_part();
 	mu_assert(bl_update_run(&fake_ops, NULL, payload, PAYLOAD_LENGTH,
-	                        installed, NULL, &report) < 0,
+	                        (uintptr_t)installed, 1, NULL, &report) < 0,
 	          "a run with no buffer to program from was not refused");
 	mu_assert(part.log[0] == '\0', "a run with no buffer reached the part");
 }
@@ -943,6 +972,7 @@ int main(void)
 	MU_RUN(a_payload_with_no_version_block_is_refused);
 	MU_RUN(a_payload_with_no_startable_vector_table_is_refused);
 	MU_RUN(a_region_that_already_holds_the_payload_is_left_alone);
+	MU_RUN(the_region_is_read_at_the_address_it_is_given);
 	MU_RUN(a_region_holding_the_payload_with_no_checksum_is_written);
 	MU_RUN(a_part_that_will_not_name_itself_is_refused);
 	MU_RUN(a_part_without_the_region_is_refused);

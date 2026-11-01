@@ -691,28 +691,26 @@ static inline uint8_t ubertooth_bl_update_byte(const uint8_t *payload,
  * installed bootloader can report itself, it asks for no code read
  * protection, and its vector table is one a part would start.
  *
- * installed is the region a board has now, or NULL where there is nothing to
- * compare against; when it already holds these bytes the answer is
- * UBERTOOTH_BL_UPDATE_SAME and there is nothing to write. The comparison
- * allows for the checksum word, so a payload whose word is zero in the file
- * still reads as the same bootloader once it is installed.
- *
  * *version, when it is not NULL, gets the version the payload's own version
  * block gives, or 0 when there is none.
  *
- * It is here rather than in the firmware, because the firmware and
+ * Whether the board already holds these bytes is a separate question, asked
+ * by bl_update_region_matches() in firmware/common/bl_update.c, because that
+ * one has to read the board's region at flash address 0 and an address is not
+ * a pointer this side of the bus.
+ *
+ * This is here rather than in the firmware, because the firmware and
  * ubertooth-dfu both make these checks over the same bytes -- the host before
  * it writes the updater to a board, the board again before it programs -- and
  * two implementations of them is the one thing this path must not have.
  */
 static inline int ubertooth_bl_update_payload_check(const uint8_t *payload,
                                                     size_t length,
-                                                    const uint8_t *installed,
                                                     uint16_t *version)
 {
 	static const char magic[] = UBERTOOTH_BL_VERSION_MAGIC;
 	const uint8_t *block;
-	uint32_t stack_pointer, reset_vector, entry, checksum;
+	uint32_t stack_pointer, reset_vector, entry;
 	size_t i;
 
 	if (version != NULL)
@@ -763,16 +761,6 @@ static inline int ubertooth_bl_update_payload_check(const uint8_t *payload,
 	if (entry >= UBERTOOTH_BOOTLOADER_REGION_START +
 	             UBERTOOTH_BOOTLOADER_REGION_LENGTH)
 		return UBERTOOTH_BL_UPDATE_VECTORS;
-
-	if (installed != NULL) {
-		checksum = ubertooth_bl_update_vector_checksum(payload);
-		for (i = 0; i < UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH; i++) {
-			if (installed[i] !=
-			    ubertooth_bl_update_byte(payload, i, checksum))
-				return UBERTOOTH_BL_UPDATE_OK;
-		}
-		return UBERTOOTH_BL_UPDATE_SAME;
-	}
 	return UBERTOOTH_BL_UPDATE_OK;
 }
 

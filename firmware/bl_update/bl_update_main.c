@@ -279,7 +279,7 @@ int main(void)
 	TXLED_SET;
 
 	result = bl_update_run(&board_ops, NULL, bl_payload, sizeof(bl_payload),
-	                       (const uint8_t *)UBERTOOTH_BOOTLOADER_REGION_START,
+	                       UBERTOOTH_BOOTLOADER_REGION_START, 1,
 	                       (uint8_t *)sector_buffer, &report);
 
 	USRLED_CLR;
