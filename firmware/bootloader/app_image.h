@@ -221,11 +221,10 @@ static inline bool app_image_table_startable(const uint32_t* const vectors,
  * A longer image can only be on a larger part, and it is more than twice the
  * largest image this tree builds -- btbr, 50282 bytes. An image longer than
  * this is not refused: it is started without the region checksum, on its
- * vector table
- * alone, the way every image was before the record existed. Refusing it would
- * leave a board that will not start a good image, which is worse than
- * checking less of it. One image that reaches that: a whole-region dump taken
- * off a larger part with ubertooth-dfu -u and flashed back, which is 240 KiB
+ * vector table alone, the way every image was before the record existed.
+ * Refusing it would leave a board that will not start a good image, which is
+ * worse than checking less of it. One image that reaches that: a whole-region
+ * dump taken off a larger part with ubertooth-dfu -u and flashed back, 240 KiB
  * from a 256 KiB part. ubertooth-dfu(1) says so.
  */
 #define APP_IMAGE_SMALLEST_FLASH  0x20000u
@@ -330,9 +329,10 @@ static inline bool app_image_region_checksum_ok(
  *
  * The vector table is read first and on its own terms, so a region that holds
  * no image at all is refused without the region checksum reading any of it.
- * Then come the checks the image asks for itself: an image that carries no image check block, or carries one
- * with no flags set, is startable on the two words and the zero-checksum rule
- * alone, which is what every image written before this existed relies on.
+ * Then come the checks the image asks for itself: an image that carries no
+ * image check block, or carries one with no flags set, is startable on the two
+ * words and the zero-checksum rule alone, which is what every image written
+ * before this existed relies on.
  */
 static inline bool app_image_region_startable(const uint32_t* const region,
                                               const uint32_t flash_top)

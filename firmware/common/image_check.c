@@ -69,7 +69,7 @@ const struct ubertooth_image_check_block image_check_block = {
 	UBERTOOTH_IMAGE_CHECK_FORMAT,
 	/* flags: no check is asked for until a host has written the image. */
 	0,
-	/* length, its complement, and the checksum over the length. */
+	/* length, its complement, and the checksum over that many bytes. */
 	0,
 	0,
 	0,
