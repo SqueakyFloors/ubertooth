@@ -2650,7 +2650,7 @@ print("ubtbr: the line tx prints is the one the man page shows")
 # nothing, and leaves the session at the prompt. A length the format cannot
 # carry is caught here rather than on the board, which would refuse it with a
 # line the user has to go looking for.
-for typed, refusal in (
+for typed, refused_with in (
         ("tx", "tx needs a format"),
         ("tx dq1", "no such format 'dq1'"),
         ("tx ev3 0", "ev3 carries 1 to 30 data bytes, not 0"),
@@ -2677,7 +2677,7 @@ for typed, refusal in (
         state_message(*CONNECTED_LT_ADDR_1),
         lmp_message(btctl.LMP_NAME_REQ),
     ], until="LMP_NAME_REQ", then=typed + "\n")
-    assert "error: " + refusal in errors, (typed, errors)
+    assert "error: " + refused_with in errors, (typed, errors)
     assert "TX pkt" not in output, (typed, output)
     assert "Traceback" not in errors, errors
     assert struct.pack("<I", btctl.BTCTL_TX_PKT_REQ).hex() \
