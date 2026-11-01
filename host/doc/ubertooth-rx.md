@@ -294,8 +294,22 @@ a comma-separated list of up to eight boards reads them all in one run, and
 packets as it has boards (see EXAMPLES).
 
 Each board decodes for itself and the run prints every packet of any of them,
-on one stream, each line carrying the channel it was heard on. What the boards
-pass between them is what they have worked out:
+on one stream, each line carrying the channel it was heard on.
+
+**Know this before you read the output: nothing says which board a line came
+from.** The packet lines carry the channel, which tells them apart only where
+`-c` gave each board a channel of its own; with every board sweeping, which is
+the default, they do not. And the recovery's own notes — the candidate counts,
+the address part each board settles on, the clock trim and the drift in PPM,
+and the warning that a clock being followed was not the piconet's — carry no
+board at all, so with several boards they interleave and you cannot tell whose
+is whose. Those lines come from the decoder and from the library underneath
+this tool, which print the same way for one board; giving them a board is
+tracked on
+[#783](https://github.com/SqueakyFloors/ubertooth/issues/783). The merged
+results at the end of the run are the run's, not a board's, and say so.
+
+What the boards pass between them is what they have worked out:
 
  - **The channels this piconet has been heard on.** A channel map records only
    that a channel carried traffic, so the maps join whatever clock each board
@@ -343,17 +357,13 @@ A survey (`-z`) needs none of this: the table of addresses heard belongs to the
 decoder rather than to a board, so every board's packets reach the one survey
 and each address is heard as many times faster as there are boards.
 
-Three things to know about the output and the files. The notes each board's own
-recovery prints — its candidate counts, its UAP, its clock trim and drift, and
-the warning that a clock it was following was not the piconet's — carry no
-board, so with several boards they interleave unattributed; the packet lines
-carry the channel, which identifies them where `-c` gave each board a channel
-of its own. A `-r` or `-q` capture takes every board's packets, and each
-board's times are reconstructed from its own crystal, so records from different
-boards can arrive out of order and drift apart over a long run. `-d` is refused
-with a list: its records carry no board and `-i` replays a whole dump as one
-board's, which would feed one piconet from several unrelated clocks — the thing
-a piconet per board exists to avoid.
+Two things to know about the files, beside the unattributed output above. A
+`-r` or `-q` capture takes every board's packets, and each board's times are
+reconstructed from its own crystal, so records from different boards can arrive
+out of order and drift apart over a long run. `-d` is refused with a list: its
+records carry no board and `-i` replays a whole dump as one board's, which
+would feed one piconet from several unrelated clocks — the thing a piconet per
+board exists to avoid.
 
 Each board costs a receive transfer and a 72 MB ring buffer of its own, which
 is what the limit of eight is about. One board behaves exactly as it did
