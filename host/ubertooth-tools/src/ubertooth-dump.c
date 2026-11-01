@@ -35,8 +35,8 @@ static void usage(FILE *file)
 	fprintf(file, "\t-b only dump received bitstream (GnuRadio style)\n");
 	fprintf(file, "\t-c classic modulation\n");
 	fprintf(file, "\t-l LE modulation\n");
-	fprintf(file, "\t-g generic receive: demodulate with the CC2400 configuration\n");
-	fprintf(file, "\t   already in the radio, which ubertooth-debug -w writes\n");
+	fprintf(file, "\t-g generic receive (experimental): demodulate with the CC2400\n");
+	fprintf(file, "\t   configuration already in the radio, which ubertooth-debug -w writes\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 	fprintf(file, "\t-d <filename> write the dump here ('-' is standard output)\n");
 	fprintf(file, "\nA dump is written for a file or another program, so a terminal on standard\n");
@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
 	 * cannot tell it from a Ctrl-C. The handle is read again after the
 	 * teardown, because cancelling the transfer can be what brings the
 	 * failure out. libubertooth has already printed what failed. */
-	r = rx_dump(ut, bitstream, generic);
+	r = generic ? rx_dump_generic(ut, bitstream) : rx_dump(ut, bitstream);
 
 	ubertooth_stop(ut);
 	/* What the dump is missing, once the records have scrolled past. The

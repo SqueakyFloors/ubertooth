@@ -1904,21 +1904,30 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 	}
 }
 
-/* dump received symbols to stdout */
-int rx_dump(ubertooth_t* ut, int bitstream, int generic)
+/* dump received symbols to stdout, from whichever receive the caller asked for */
+static int rx_dump_from(ubertooth_t* ut, int bitstream,
+                        int (*start)(struct libusb_device_handle*))
 {
 	int r;
-	/* The generic receive takes the radio as it finds it, so the request
-	 * that starts it is the only difference here: the records arrive in the
-	 * same shape and are written by the same callbacks. */
-	int (*start)(struct libusb_device_handle*) =
-		generic ? cmd_rx_generic : cmd_rx_syms;
 
 	if (bitstream)
 		r = stream_rx_usb(ut, cb_dump_bitstream, NULL, start);
 	else
 		r = stream_rx_usb(ut, cb_dump_full, NULL, start);
 	return r < 0 ? r : 0;
+}
+
+int rx_dump(ubertooth_t* ut, int bitstream)
+{
+	return rx_dump_from(ut, bitstream, cmd_rx_syms);
+}
+
+/* The generic receive takes the radio as it finds it, so the request that
+ * starts it is the only difference: the records arrive in the same shape and
+ * are written by the same callbacks. */
+int rx_dump_generic(ubertooth_t* ut, int bitstream)
+{
+	return rx_dump_from(ut, bitstream, cmd_rx_generic);
 }
 
 static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)

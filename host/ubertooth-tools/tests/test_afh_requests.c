@@ -851,7 +851,7 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
 	/* Two: the modulation it reads, then the mode request. A capture that
@@ -880,7 +880,7 @@ MU_TEST(a_generic_dump_asks_for_the_generic_receive)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1, 1);
+	rx_dump_generic(ut, 1);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(2, fake.n);
@@ -913,7 +913,7 @@ MU_TEST(a_dump_states_its_modulation_on_both_sides_of_the_mode_request)
 	ut->capture_modulation = MOD_BT_LOW_ENERGY;
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(3, fake.n);
@@ -949,7 +949,7 @@ MU_TEST(a_refused_modulation_ends_the_dump)
 	ut->capture_modulation = MOD_BT_LOW_ENERGY;
 
 	capture_output();
-	r = rx_dump(ut, 1, 0);
+	r = rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
@@ -1134,7 +1134,7 @@ MU_TEST(a_single_phase_stream_frees_its_receive_transfer)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(1, fake.bulk_submits);
@@ -1205,7 +1205,7 @@ MU_TEST(a_stop_with_a_packet_in_hand_gives_the_transfer_back)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
 	assert_transfer_lifetimes();
@@ -1244,7 +1244,7 @@ MU_TEST(a_cancel_the_device_refuses_leaves_the_transfer_alone)
 			return;
 
 		capture_output();
-		rx_dump(ut, 1, 0);
+		rx_dump(ut, 1);
 		release_output(err, sizeof(err));
 
 		assert_transfer_lifetimes();

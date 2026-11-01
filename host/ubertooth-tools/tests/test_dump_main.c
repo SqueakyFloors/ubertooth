@@ -134,9 +134,8 @@ int ubertooth_open_stopped(void)
 	return 0;
 }
 
-int rx_dump(ubertooth_t* ut, int bitstream, int generic)
+static int fake_dump(ubertooth_t* ut, int generic)
 {
-	(void)bitstream;
 	fake.dumps++;
 	fake.generic = generic;
 	/* The real one states this after it has asked for the capture mode; all
@@ -144,6 +143,18 @@ int rx_dump(ubertooth_t* ut, int bitstream, int generic)
 	fake.capture_modulation = ut->capture_modulation;
 	mu_assert(fake.reach_capture, "no test should reach the capture");
 	return fake.dump_rc;
+}
+
+int rx_dump(ubertooth_t* ut, int bitstream)
+{
+	(void)bitstream;
+	return fake_dump(ut, 0);
+}
+
+int rx_dump_generic(ubertooth_t* ut, int bitstream)
+{
+	(void)bitstream;
+	return fake_dump(ut, 1);
 }
 
 /* The end-of-capture gap report, which the tool calls and no case here reads:

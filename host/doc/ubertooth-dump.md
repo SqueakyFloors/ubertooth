@@ -14,6 +14,9 @@ demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
 
+`-g` is experimental: see THE GENERIC RECEIVE below for what works and what
+does not, and expect the option and its output to change.
+
 `-g` runs the board's generic receive instead. That mode programs no
 demodulator of its own: it receives with whatever CC2400 configuration is
 already in the radio, which `ubertooth-debug -w` is how you put there. It is
@@ -43,8 +46,9 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
  - `-l` :
    Bluetooth Low Energy (BLE) modulation
  - `-g` :
-   Generic receive: demodulate with the CC2400 configuration already in the
-   radio rather than programming one. Cannot be given with `-c` or `-l`
+   Generic receive (experimental): demodulate with the CC2400 configuration
+   already in the radio rather than programming one. Cannot be given with
+   `-c` or `-l`
  - `-d <filename.bin>` :
    Dump to file instead of stdout. A lone `-` is standard output, where the
    stream goes anyway without `-d`
@@ -197,21 +201,30 @@ COMMON OPTIONS.
 
 ## THE GENERIC RECEIVE
 
+Experimental. The symbol-stream half works: `ubertooth-dump -g` with a
+configuration written by hand streams as the Bluetooth captures do. The
+packet-framing half does not yet produce records on our bench, and the
+deviation the board transmits a generic packet at is unsettled, so no tool
+transmits one. Expect the options and the output to change.
+
 With `-g` the board does one of two things, and which one it does comes from
 GRMDM's packet-mode bit, so the configuration decides it:
 
- - with packet mode set, the board waits for the sync word in SYNCH and SYNCL
-   and sends one record per packet: the four sync-word bytes, then 32 bytes
-   read out of the radio's FIFO.
  - with packet mode clear, the board streams demodulated symbols as the
-   Bluetooth captures do, so `-b` prints them as `0` and `1`.
+   Bluetooth captures do, so `-b` prints them as `0` and `1`. This is the half
+   that works.
+ - with packet mode set, the board waits for the sync word in SYNCH and SYNCL
+   and sends one record each time the radio reports one: the four sync-word
+   bytes, then a fixed 32 bytes read out of the radio's FIFO. It reads no
+   length and waits for no end of packet, so a record is a sample of the FIFO
+   rather than necessarily one whole packet.
 
 Packet mode leaves the framing to the radio, so it produces records only when
 GRMDM's preamble length, how much of the sync word it matches and its CRC
 choice all match what is on the air. Getting that right for a protocol is part
 of the setup and nothing reports a mismatch: a wrong choice gives a capture
-with no records in it. The symbol stream asks less of the configuration, which
-is why the worked example in ubertooth(7) uses it.
+with no records in it. Nothing has made it produce a record on our bench yet,
+which is why the worked example in ubertooth(7) uses the symbol stream.
 
 Either way the records are the 68-byte and 401-byte shapes described above:
 the board sends what it received, and this tool writes it out without looking

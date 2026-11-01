@@ -30,13 +30,15 @@ Utility commands:
 
  - ubertooth-dfu(1) : Firmware update tool
  - ubertooth-dump(1) : Dumping raw RF symbols to disk, Bluetooth or generic
+   (experimental)
  - ubertooth-tx(1) : Retransmitting symbols dumped with ubertooth-dump
  - ubertooth-ducky(1) : Driving an Uberducky as a BLE USB Rubber Ducky
  - ubertooth-util(1) : "Everything else"
 
 Less useful commands:
 
- - ubertooth-debug(1) : Reading and writing registers on the CC2400
+ - ubertooth-debug(1) : Reading registers on the CC2400, and writing them
+   (experimental)
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
 
 ## COMMON OPTIONS
@@ -382,6 +384,12 @@ refused.
 
 ## GENERIC RADIO MODE
 
+Experimental. The symbol-stream half works: `ubertooth-dump -g` with a
+configuration written by hand streams as the Bluetooth captures do. The
+packet-framing half does not yet produce records on our bench, and the
+deviation the board transmits a generic packet at is unsettled, so no tool
+transmits one. Expect the options and the output to change.
+
 The CC2400 on an Ubertooth is a plain 2.4 GHz radio, and Bluetooth is only
 what the firmware usually asks it to do. The generic receive hands that choice
 to you: it programs no demodulator of its own and receives with whatever
@@ -422,14 +430,19 @@ the fields come from. Nothing in these tools knows which values make sense
 together: a configuration that does not work gives a capture with nothing in
 it, not an error.
 
-With GRMDM's packet-mode bit set, the board waits for the sync word instead
-and sends one record per packet: the four sync-word bytes, then 32 bytes out
-of the radio's FIFO. It keeps waiting on a quiet channel, answering requests,
-until the capture is stopped. That path asks more of the configuration than
-the symbol stream does, because the radio does the framing: the preamble
-length, how much of the sync word it matches and its CRC choice all have to
-match what is on the air, and a choice that does not gives a capture with no
-records in it rather than a message.
+With GRMDM's packet-mode bit set, the board waits for the sync word instead,
+and sends one record each time the radio reports one: the four sync-word
+bytes, then a fixed 32 bytes read out of the radio's FIFO. It reads no length
+and waits for no end of packet, so a record is a sample of the FIFO and not
+necessarily one whole packet. It keeps waiting on a quiet channel, answering
+requests, until the capture is stopped.
+
+That path asks more of the configuration than the symbol stream does, because
+the radio does the framing: the preamble length, how much of the sync word it
+matches and its CRC choice all have to match what is on the air, and a choice
+that does not gives a capture with no records in it rather than a message.
+This is the half that is not working yet, so treat it as something to
+experiment with rather than to rely on.
 
 The configuration lives in the radio and nothing stores it, so write the
 registers and start the capture as two commands with nothing in between. A
@@ -439,8 +452,8 @@ idle board, so a run that is stopped properly can be set up again and
 restarted.
 
 The board can also transmit one packet with a host-written configuration,
-through a request no tool drives yet; the deviation it transmits at is still
-being settled.
+through a request no tool drives yet: the deviation it transmits at is still
+being settled, and as it stands the board's own receive cannot demodulate it.
 
 ## OUTPUT AND DIAGNOSTICS
 

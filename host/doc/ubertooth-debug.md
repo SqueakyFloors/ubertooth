@@ -11,6 +11,10 @@ ubertooth-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 
+`-w` is experimental, as the generic radio mode it exists for is: see
+ubertooth(7), GENERIC RADIO MODE for what works and what does not. Expect the
+option and its output to change.
+
 `-w` writes registers as well as `-r` reading them. Writing the radio's
 registers by hand is how a generic capture is set up: `ubertooth-dump -g`
 demodulates with whatever configuration is in the CC2400, so `-w` puts the
@@ -45,7 +49,8 @@ Options:
  - `-w <reg>=<value>[,<reg>=<value>[,...]]` :
    Write one or more registers of the CC2400 on Ubertooth. Each register is
    an address `0x00`-`0xff` or a `%name`, as `-r` accepts, and each value is
-   `0x0000`-`0xffff`. Hex needs the `0x`; a number without it is decimal
+   `0x0000`-`0xffff`. Hex needs the `0x`; every other number is decimal, so
+   `010` is ten and not eight (experimental)
  - one `-w` takes the whole list, as one `-r` does, so a second `-w` is
    refused with `error: option '-w' given more than once`
  - `-v <0-2>` :
@@ -154,8 +159,10 @@ a range: unknown name (got %nosuchregister)`. The other reasons are
 `empty value`, `range with no start`, `not an octal digit` and
 `not a name, address or range`.
 
-`-w` takes a list of `<reg>=<value>` pairs. The register is refused the way
-`-r`'s is, and a value outside 16 bits the same way:
+`-w` takes a list of `<reg>=<value>` pairs. A number with a leading `0x` is
+hex and every other number is decimal, so `-w 010=1` writes register ten.
+(`-r` reads a leading zero as octal, which it has always done.) The register
+is refused the way `-r`'s is, and a value outside 16 bits the same way:
 
     $ ubertooth-debug -w 0x100=1
     error: register address must be 0x00-0xff (got 0x100 in 0x100=1)

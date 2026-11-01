@@ -68,9 +68,9 @@ static void usage(FILE *file)
 	    CC2400_REG_ADDRESS_MAX);
     fputs("\t-r <start>-<end> read a consecutive set of CC2400 register(s)\n",
 	  file);
-    fputs("\t-w <reg>=<value>[,...] write CC2400 register(s), each value\n",
+    fputs("\t-w <reg>=<value>[,...] write CC2400 register(s) (experimental),\n",
 	  file);
-    fputs("\t   0x0000-0xffff (example: -w %grmdm=0x0f61,0x0b=0x0029)\n",
+    fputs("\t   each value 0x0000-0xffff (example: -w %grmdm=0x0f61,0x0b=0x0029)\n",
 	  file);
     fputs(OPT_USAGE_SELECT_DEVICE, file);
     fputs("\t-v <0-2> verbosity (default=1)\n", file);

@@ -185,8 +185,8 @@ does which step.
 |---|---|---|
 | [ubertooth-specan](host/doc/ubertooth-specan.md) | Spectrum analyzer: stream of 2.4GHz signal strengths | — |
 | [ubertooth-specan-ui](host/doc/ubertooth-specan-ui.md) | Graphical live spectrum plot of 2.4GHz ([guide](docs/source/specan_ui.rst)) | Python 3.8+: numpy, qtpy, PySide6 or PyQt5 |
-| [ubertooth-dump](host/doc/ubertooth-dump.md) | Raw stream of received bits/symbols, Bluetooth or generic (`-g`) | — |
-| [ubertooth-debug](host/doc/ubertooth-debug.md) | Low-level CC2400 radio register reads and writes | — |
+| [ubertooth-dump](host/doc/ubertooth-dump.md) | Raw stream of received bits/symbols, Bluetooth or generic (`-g`, experimental) | — |
+| [ubertooth-debug](host/doc/ubertooth-debug.md) | Low-level CC2400 radio register reads, and writes (`-w`, experimental) | — |
 
 ### Device administration & firmware
 | Tool | What it does | Needs |

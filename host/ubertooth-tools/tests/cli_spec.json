@@ -394,7 +394,7 @@
         "-h": {"value": "none", "role": "help"},
         "-b": {"value": "none", "role": "modifier", "doc": "bitstream only"},
         "-g": {"value": "none", "role": "generic",
-               "doc": "the generic receive, which demodulates with the CC2400 configuration already in the radio"},
+               "doc": "the generic receive (experimental), which demodulates with the CC2400 configuration already in the radio"},
         "-c": {"value": "none", "role": "modulation", "doc": "classic modulation"},
         "-l": {"value": "none", "role": "modulation", "doc": "LE modulation"},
         "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],

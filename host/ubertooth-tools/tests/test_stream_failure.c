@@ -828,7 +828,7 @@ MU_TEST(a_stream_that_dies_ends_the_capture)
 	mu_assert_fatal(ut != NULL, "a handle");
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(ubertooth_stream_failed(ut), "the stream is marked failed");
@@ -954,7 +954,7 @@ MU_TEST(a_capture_that_was_stopped_is_not_a_failure)
 	mu_assert_fatal(ut != NULL, "a handle");
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(!ubertooth_stream_failed(ut), "no failure recorded");
@@ -985,7 +985,7 @@ MU_TEST(an_interrupt_is_not_a_failure)
 	register_cleanup_handler(ut, 0);
 
 	capture_output();
-	rx_dump(ut, 1, 0);
+	rx_dump(ut, 1);
 	release_output(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(!ubertooth_stream_failed(ut), "no failure recorded");
@@ -1047,7 +1047,7 @@ MU_TEST(a_capture_that_could_not_start_is_reported)
 	mu_assert_fatal(ut != NULL, "a handle");
 
 	capture_output();
-	mu_assert(rx_dump(ut, 1, 0) < 0, "the dump reports it could not start");
+	mu_assert(rx_dump(ut, 1) < 0, "the dump reports it could not start");
 	release_output(out, sizeof(out), err, sizeof(err));
 
 	mu_assert(strstr(err, "error: submitting the receive transfer failed")
@@ -1099,7 +1099,7 @@ MU_TEST(a_capture_whose_collecting_thread_failed_is_reported)
 		}
 
 		capture_output();
-		r = i == 0 ? rx_dump(ut, 1, 0) : rx_afh_r(ut, pn, 0);
+		r = i == 0 ? rx_dump(ut, 1) : rx_afh_r(ut, pn, 0);
 		release_output(out, sizeof(out), err, sizeof(err));
 
 		/* Negative, so the caller reads it as the failure it is: a

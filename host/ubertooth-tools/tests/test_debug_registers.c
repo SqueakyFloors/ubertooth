@@ -265,6 +265,29 @@ MU_TEST(a_write_list_is_parsed_into_registers_and_values)
 	mu_assert_int_eq(0xffff, w[2].value);
 }
 
+/* A number without 0x is decimal, including one written with a leading zero:
+ * strtol's base 0 would read 010 as octal 8, and refuse 08 and 09 as not
+ * numbers at all, neither of which is what the man page says. */
+MU_TEST(a_leading_zero_is_decimal_and_not_octal)
+{
+	debug_register_write w[DEBUG_REGISTER_WRITES_MAX];
+	FILE *err = tmpfile();
+	char line[256];
+	int n = debug_parse_register_writes("010=010,08=09,0x10=0x10", w,
+	                                    DEBUG_REGISTER_WRITES_MAX, err);
+
+	slurp(err, line, sizeof(line));
+	mu_assert_int_eq(3, n);
+	mu_assert_int_eq(0, (long)strlen(line));
+	mu_assert_int_eq(10, w[0].reg);
+	mu_assert_int_eq(10, w[0].value);
+	mu_assert_int_eq(8, w[1].reg);
+	mu_assert_int_eq(9, w[1].value);
+	/* and 0x is still hex */
+	mu_assert_int_eq(16, w[2].reg);
+	mu_assert_int_eq(16, w[2].value);
+}
+
 /* Every way a -w value can be wrong is one line on standard error and no
  * writes at all, so a half-applied configuration cannot reach the radio. */
 MU_TEST(a_bad_write_list_is_refused_whole)
@@ -278,6 +301,9 @@ MU_TEST(a_bad_write_list_is_refused_whole)
 		"0x100=1",          /* past the last register address */
 		"0x20=0x10000",     /* past 16 bits */
 		"0x20=-1",          /* not a value at all */
+		"0x20=0x",          /* a prefix with no digits */
+		"0x20=0x-1",        /* the sign strtol would have taken */
+		"0x20=1f",          /* hex digits without the prefix */
 		"0x20=1,",          /* a trailing comma */
 		"0x20=1,,0x21=2",   /* an empty item */
 		"0x20=1,0x21",      /* the second item has no value */
@@ -351,6 +377,7 @@ MU_TEST(a_refused_write_names_its_register_and_the_rest_are_written)
 int main(void)
 {
 	MU_RUN(a_write_list_is_parsed_into_registers_and_values);
+	MU_RUN(a_leading_zero_is_decimal_and_not_octal);
 	MU_RUN(a_bad_write_list_is_refused_whole);
 	MU_RUN(a_write_list_longer_than_the_bound_is_refused);
 	MU_RUN(a_refused_write_names_its_register_and_the_rest_are_written);

@@ -20,6 +20,11 @@ ubertooth\-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 .PP
+\fB\fC\-w\fR is experimental, as the generic radio mode it exists for is: see
+.BR ubertooth (7),
+GENERIC RADIO MODE for what works and what does not\&. Expect the option and
+its output to change\&.
+.PP
 \fB\fC\-w\fR writes registers as well as \fB\fC\-r\fR reading them\&. Writing
 the radio's registers by hand is how a generic capture is set up:
 \fB\fCubertooth\-dump \-g\fR demodulates with whatever configuration is in the
@@ -64,7 +69,8 @@ OPTION VALUES)
 Write one or more registers of the CC2400 on Ubertooth\&. Each register is an
 address \fB\fC0x00\fR\-\fB\fC0xff\fR or a \fB\fC%name\fR, as \fB\fC\-r\fR
 accepts, and each value is \fB\fC0x0000\fR\-\fB\fC0xffff\fR\&. Hex needs the
-\fB\fC0x\fR; a number without it is decimal
+\fB\fC0x\fR; every other number is decimal, so \fB\fC010\fR is ten and not
+eight (experimental)
 .IP \(bu 2
 one \fB\fC\-w\fR takes the whole list, as one \fB\fC\-r\fR does, so a second
 \fB\fC\-w\fR is refused with
@@ -248,8 +254,11 @@ or as a range: unknown name (got %nosuchregister)\fR\&. The other reasons are
 \fB\fCempty value\fR, \fB\fCrange with no start\fR,
 \fB\fCnot an octal digit\fR and \fB\fCnot a name, address or range\fR\&.
 .PP
-\fB\fC\-w\fR takes a list of \fB\fC<reg>=<value>\fR pairs\&. The register is
-refused the way \fB\fC\-r\fR's is, and a value outside 16 bits the same way:
+\fB\fC\-w\fR takes a list of \fB\fC<reg>=<value>\fR pairs\&. A number with a
+leading \fB\fC0x\fR is hex and every other number is decimal, so
+\fB\fC\-w 010=1\fR writes register ten\&. (\fB\fC\-r\fR reads a leading zero
+as octal, which it has always done\&.) The register is refused the way
+\fB\fC\-r\fR's is, and a value outside 16 bits the same way:
 .PP
 .RS
 

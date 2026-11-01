@@ -36,14 +36,21 @@ int debug_read_registers(debug_read_register_fn read_register, void *context,
 #define WRITE_ITEM_MAX 32
 
 /*
- * One whole number, decimal or 0x-prefixed hex, in [0, max]. Returns 0, or -1
- * for anything that is not the whole of text or is out of range. Nothing is
- * printed: the caller words the failure around the item the user wrote.
+ * One whole number in [0, max]: hex with a leading 0x, decimal otherwise.
+ * Returns 0, or -1 for anything that is not the whole of text or is out of
+ * range. Nothing is printed: the caller words the failure around the item the
+ * user wrote.
+ *
+ * The base is chosen here rather than left to strtol's base 0, which reads a
+ * leading zero as octal: `-w 010=1` would then mean register 8, and `08` would
+ * be refused as not a number. A register value is written in hex or in plain
+ * decimal, and that is what the man page says.
  */
 static int parse_number(const char *text, long max, long *value)
 {
 	char *end;
 	long v;
+	int base = 10;
 
 	if (*text == '\0')
 		return -1;
@@ -51,8 +58,15 @@ static int parse_number(const char *text, long max, long *value)
 	 * register or a value, so they are refused before it runs. */
 	if (*text == '-' || *text == '+' || isspace((unsigned char)*text))
 		return -1;
+	if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+		base = 16;
+		text += 2;
+		/* strtol would take the '-' in "0x-1" as the number's sign. */
+		if (!isxdigit((unsigned char)*text))
+			return -1;
+	}
 	errno = 0;
-	v = strtol(text, &end, 0);
+	v = strtol(text, &end, base);
 	if (errno != 0 || *end != '\0' || v < 0 || v > max)
 		return -1;
 	*value = v;

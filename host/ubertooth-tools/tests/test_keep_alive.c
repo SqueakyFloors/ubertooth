@@ -670,7 +670,7 @@ MU_TEST(a_dump_leaves_out_a_keep_alive_record)
 	ring.stop_when_empty = 1;
 
 	capture_output();
-	mu_assert_int_eq(0, rx_dump(ut, 0, 0));
+	mu_assert_int_eq(0, rx_dump(ut, 0));
 	release_output(out, sizeof(out), err, sizeof(err));
 
 	dumpfile = NULL;
@@ -727,7 +727,7 @@ MU_TEST(a_bitstream_dump_leaves_out_a_keep_alive)
 	ring.stop_when_empty = 1;
 
 	capture_output();
-	mu_assert_int_eq(0, rx_dump(ut, 1, 0));
+	mu_assert_int_eq(0, rx_dump(ut, 1));
 	release_output(out, sizeof(out), err, sizeof(err));
 
 	dumpfile = NULL;

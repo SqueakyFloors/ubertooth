@@ -53,8 +53,10 @@ the full reference for its options.
   ``ubertooth-specan``; see :doc:`specan_ui`. (Needs: Python 3.8+ with numpy,
   qtpy, and PySide6 or PyQt5.)
 - ``ubertooth-dump`` — Raw stream of received bits/symbols off the radio,
-  demodulated as Bluetooth or with a configuration you wrote yourself (``-g``).
-- ``ubertooth-debug`` — Low-level register reads and writes on the CC2400 radio.
+  demodulated as Bluetooth or, experimentally, with a configuration you wrote
+  yourself (``-g``).
+- ``ubertooth-debug`` — Low-level register reads on the CC2400 radio, and
+  experimental register writes (``-w``).
 
 **Device administration and firmware**
 

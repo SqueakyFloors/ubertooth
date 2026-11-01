@@ -12,6 +12,8 @@ ubertooth\-dump \-h
 .SH "DESCRIPTION"
 This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.
 .P
+\fB\-g\fR is experimental: see THE GENERIC RECEIVE below for what works and what does not, and expect the option and its output to change\.
+.P
 \fB\-g\fR runs the board's generic receive instead\. That mode programs no demodulator of its own: it receives with whatever CC2400 configuration is already in the radio, which \fBubertooth\-debug \-w\fR is how you put there\. It is what the board has for a 2\.4 GHz protocol that is not Bluetooth, and ubertooth(7), GENERIC RADIO MODE is the worked example\.
 .P
 The dump is one record per block of symbols the board sends\. Without \fB\-b\fR a record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4 bytes big\-endian, then the whole 64\-byte USB receive packet, 50 bytes of which are the symbols packed 8 per byte\. With \fB\-b\fR a record is one 401\-byte line: the block's 400 symbols as ASCII \fB0\fR and \fB1\fR, then a newline\. The records are back to back with nothing between them, so a reader counts from the start of the dump\. A keep\-alive, which a quiet capture sends and which carries no symbols, writes no record either way\.
@@ -29,7 +31,7 @@ Classic Bluetooth modulation (default)
 Bluetooth Low Energy (BLE) modulation
 .TP
 \fB\-g\fR
-Generic receive: demodulate with the CC2400 configuration already in the radio rather than programming one\. Cannot be given with \fB\-c\fR or \fB\-l\fR
+Generic receive (experimental): demodulate with the CC2400 configuration already in the radio rather than programming one\. Cannot be given with \fB\-c\fR or \fB\-l\fR
 .TP
 \fB\-d <filename\.bin>\fR
 Dump to file instead of stdout\. A lone \fB\-\fR is standard output, where the stream goes anyway without \fB\-d\fR
@@ -83,14 +85,16 @@ A \fB\-d\fR file is opened once the board has been opened and its firmware accep
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "THE GENERIC RECEIVE"
+Experimental\. The symbol\-stream half works: \fBubertooth\-dump \-g\fR with a configuration written by hand streams as the Bluetooth captures do\. The packet\-framing half does not yet produce records on our bench, and the deviation the board transmits a generic packet at is unsettled, so no tool transmits one\. Expect the options and the output to change\.
+.P
 With \fB\-g\fR the board does one of two things, and which one it does comes from GRMDM's packet\-mode bit, so the configuration decides it:
 .IP "\(bu" 4
-with packet mode set, the board waits for the sync word in SYNCH and SYNCL and sends one record per packet: the four sync\-word bytes, then 32 bytes read out of the radio's FIFO\.
+with packet mode clear, the board streams demodulated symbols as the Bluetooth captures do, so \fB\-b\fR prints them as \fB0\fR and \fB1\fR\. This is the half that works\.
 .IP "\(bu" 4
-with packet mode clear, the board streams demodulated symbols as the Bluetooth captures do, so \fB\-b\fR prints them as \fB0\fR and \fB1\fR\.
+with packet mode set, the board waits for the sync word in SYNCH and SYNCL and sends one record each time the radio reports one: the four sync\-word bytes, then a fixed 32 bytes read out of the radio's FIFO\. It reads no length and waits for no end of packet, so a record is a sample of the FIFO rather than necessarily one whole packet\.
 .IP "" 0
 .P
-Packet mode leaves the framing to the radio, so it produces records only when GRMDM's preamble length, how much of the sync word it matches and its CRC choice all match what is on the air\. Getting that right for a protocol is part of the setup and nothing reports a mismatch: a wrong choice gives a capture with no records in it\. The symbol stream asks less of the configuration, which is why the worked example in ubertooth(7) uses it\.
+Packet mode leaves the framing to the radio, so it produces records only when GRMDM's preamble length, how much of the sync word it matches and its CRC choice all match what is on the air\. Getting that right for a protocol is part of the setup and nothing reports a mismatch: a wrong choice gives a capture with no records in it\. Nothing has made it produce a record on our bench yet, which is why the worked example in ubertooth(7) uses the symbol stream\.
 .P
 Either way the records are the 68\-byte and 401\-byte shapes described above: the board sends what it received, and this tool writes it out without looking in it\. Nothing decodes a generic capture, because nothing here knows what protocol it is\.
 .P
