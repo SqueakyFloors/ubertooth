@@ -60,8 +60,7 @@ static void usage(FILE *file)
 }
 
 /*
- * Transmit the generic packet count times, and report how many of them the
- * board took.
+ * Hand the board the generic packet count times, one request each.
  *
  * The board answers each request before it transmits, and it answers no
  * request while a packet is going out, so the requests are handed over one at
