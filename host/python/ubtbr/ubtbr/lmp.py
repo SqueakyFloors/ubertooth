@@ -108,12 +108,13 @@ LMP_POWER_CONTROL_RES           = 32
 # Error codes a refusal carries (Core v5.4 | Vol 1, Part F, 1.3).
 LMP_ERR_UNKNOWN_LMP_PDU         = 0x19
 LMP_ERR_UNSUPPORTED_LMP_FEATURE = 0x1a
+
 # What this end gives as its reason for hanging up when the peer declines the
 # connection. A device ending a link because its own side asked to sends this
 # code, and the receiver reports it to its host as the remote user having
 # ended the connection; 0x16 is the code a controller reports locally and is
 # not one a host may ask for (Core v5.4 | Vol 1, Part F, 1.3).
-LMP_ERR_REMOTE_USER_TERMINATED  = 0x13
+LMP_DETACH_REASON_REMOTE_USER   = 0x13
 
 # Why a peer says it is hanging up: the reasons a detach is seen carrying, as
 # Core v5.4 | Vol 1, Part F, 1.3 names them. Any other code is reported as
@@ -346,10 +347,12 @@ class LMP:
 
 	# How long the link is held after a detach goes out, before the board is
 	# told to go idle. The board cancels what it has queued when it goes
-	# idle, so without this the PDU would not reach a transmit slot.
-	# Vol 2, Part C, 4.1.2 gives the procedure 6 x Tpoll, which is 150 ms at
-	# the poll interval a new connection runs at.
-	DETACH_GRACE = 0.2
+	# idle, so without this the PDU would not reach a transmit slot. What
+	# has to happen in the meantime is the write reaching the board, the
+	# next transmit slot, and a retry or two if the peer does not
+	# acknowledge it; this central transmits in every slot pair, so 30 ms is
+	# about twenty slot pairs of margin.
+	DETACH_GRACE = 0.03
 
 	def __init__(self, con, debug=True):
 		self._debug = debug
@@ -877,7 +880,7 @@ class LMPCentral(LMP):
 			# there until link supervision ended it a second later, and a
 			# peer's LMP_setup_complete arriving in the meantime still
 			# opened the connection.
-			self.detach(LMP_ERR_REMOTE_USER_TERMINATED)
+			self.detach(LMP_DETACH_REASON_REMOTE_USER)
 			return
 		log.info("The peer refused %s: %s"%(op2str(refused), why))
 		setattr(self, field, REFUSED)

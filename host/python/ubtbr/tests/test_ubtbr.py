@@ -1285,7 +1285,7 @@ with contextlib.redirect_stderr(warned):
     central._con.sent.clear()
     central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
 assert central._con.sent == [pdu_sent(lmp.LMP_DETACH,
-    (lmp.LMP_ERR_REMOTE_USER_TERMINATED,), 0)], central._con.sent
+    (lmp.LMP_DETACH_REASON_REMOTE_USER,), 0)], central._con.sent
 assert central._con.stops == 1, central._con.stops
 assert warned.getvalue() == "warning: the peer refused " \
     "LMP_HOST_CONNECTION_REQ: reason 0x0d; closing the link\n", \
@@ -3957,7 +3957,7 @@ def refused_connection(reason=0x0d):
     return central
 
 
-DETACH = pdu_sent(lmp.LMP_DETACH, (lmp.LMP_ERR_REMOTE_USER_TERMINATED,), 0)
+DETACH = pdu_sent(lmp.LMP_DETACH, (lmp.LMP_DETACH_REASON_REMOTE_USER,), 0)
 
 # A peer's LMP_setup_complete that was already on its way does not open the
 # connection afterwards: the board's packets keep arriving while the session
@@ -3998,9 +3998,9 @@ assert central._detached is False
 # A peripheral that hangs up sends the detach under its own transaction ID,
 # as its LMP_setup_complete goes out under: both are transactions it starts.
 peripheral = lmp.LMPPeripheral(CountingConnection())
-peripheral.detach(lmp.LMP_ERR_REMOTE_USER_TERMINATED)
+peripheral.detach(lmp.LMP_DETACH_REASON_REMOTE_USER)
 assert peripheral._con.sent == [pdu_sent(lmp.LMP_DETACH,
-    (lmp.LMP_ERR_REMOTE_USER_TERMINATED,), 1)], peripheral._con.sent
+    (lmp.LMP_DETACH_REASON_REMOTE_USER,), 1)], peripheral._con.sent
 # and until the next connection starts, nothing more goes out: the data a
 # command would send waits on the setup, which a hang-up undoes.
 assert peripheral.setup_is_complete() is False
@@ -4031,7 +4031,7 @@ assert ping_answer() == [], pinged
 pinging._lmp.setup_complete()
 assert [llid for llid, data in ping_answer()] == [btctl.LLID_L2CAP_START], \
     pinged
-pinging._lmp.detach(lmp.LMP_ERR_REMOTE_USER_TERMINATED)
+pinging._lmp.detach(lmp.LMP_DETACH_REASON_REMOTE_USER)
 assert ping_answer() == [], pinged
 
 print("ubtbr: a peer declining the connection ends the link at once")
