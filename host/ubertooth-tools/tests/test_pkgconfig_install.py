@@ -2,7 +2,7 @@
 """A program outside this tree builds against the installed libubertooth.
 
 Run as: test_pkgconfig_install.py <cmake> <build dir> <pkg-config>
-            <C compiler> [LIB_SUFFIX]
+            <C compiler> <install libdir> <source dir>
 
 The install writes libubertooth.pc, so the flags a program needs come from
 `pkg-config --cflags --libs libubertooth` rather than being worked out by hand.
@@ -18,10 +18,21 @@ Three things have to hold for that to be true, and each is checked here:
     libubertooth.pc reads its prefix back from where the file itself is, so an
     install staged or relocated somewhere else is still described correctly.
 
+All three are checked for this build's own library directory, and then for the
+layouts other systems ask for, each configured and built here: lib64, which a
+64-bit Fedora, RHEL or SUSE keeps its libraries in; lib/x86_64-linux-gnu, the
+Debian multiarch layout, which is two directories deep and so needs a longer
+walk back out of libubertooth.pc, with the headers in a directory of their own
+as well; LIB_SUFFIX, the older setting, which still decides the directory
+where a build command passes it; and an absolute library directory, which the
+install writes to wherever the prefix is, so that the file names the
+directories as they stand rather than relative to itself.
+
 Nothing is installed outside the temporary prefixes this test makes, no device
-is opened, and the program it builds is never run.
+is opened, and the programs it builds are never run.
 """
 
+import glob
 import os
 import shutil
 import subprocess
@@ -29,13 +40,39 @@ import sys
 import tempfile
 
 
-CMAKE, BUILD_DIR, PKG_CONFIG, CC = sys.argv[1:5]
-# Which directory under the prefix the library and its pkg-config file are
-# installed to: "lib", or lib plus whatever LIB_SUFFIX the build was given
-# (lib64 on the systems that keep 64-bit libraries there). Passed in rather
-# than assumed, so a build configured with -DLIB_SUFFIX=64 is looked for where
-# it really put things.
-LIBDIR = "lib" + (sys.argv[5] if len(sys.argv) > 5 else "")
+CMAKE, BUILD_DIR, PKG_CONFIG, CC, LIBDIR, SOURCE_DIR = sys.argv[1:7]
+# LIBDIR is the directory under the prefix this build installs the library and
+# its pkg-config file to, passed in rather than assumed: GNUInstallDirs picks
+# it for the system, and a build command can ask for another one.
+
+# The layouts built here: a name, the cache entries that ask for it, and the
+# library and header directories under the prefix it is then installed to.
+# They are taken in turn in one build directory, so each one's entries are set
+# over the ones before: the last of them has the multiarch
+# CMAKE_INSTALL_LIBDIR of the one before it as well as its own LIB_SUFFIX, and
+# LIB_SUFFIX decides, which is the rule where a build command carries both.
+# Every entry a layout cares about is passed by that layout, rather than left
+# to the one before.
+LAYOUTS = (
+    ("lib64", ["-DCMAKE_INSTALL_LIBDIR=lib64",
+               "-DCMAKE_INSTALL_INCLUDEDIR=include"],
+     "lib64", "include"),
+    ("multiarch", ["-DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu",
+                   "-DCMAKE_INSTALL_INCLUDEDIR=include/ubertooth"],
+     "lib/x86_64-linux-gnu", "include/ubertooth"),
+    ("lib-suffix", ["-DLIB_SUFFIX=64",
+                    "-DCMAKE_INSTALL_INCLUDEDIR=include"],
+     "lib64", "include"),
+)
+
+# What the configures below take from this build rather than searching for
+# again: the libbtbb and libusb it found, and how it compiles. So they test
+# the layouts against the same dependencies, and they do not fail where the
+# build was pointed at a libbtbb that only it knows about.
+FORWARDED_CACHE_PREFIXES = ("LIBBTBB_", "LIBUSB_")
+FORWARDED_CACHE_ENTRIES = ("CMAKE_C_COMPILER", "CMAKE_C_FLAGS",
+                           "CMAKE_PREFIX_PATH", "CMAKE_OSX_SYSROOT",
+                           "CMAKE_OSX_DEPLOYMENT_TARGET")
 
 # What the install puts in each of these is what a program building against
 # the library needs: the shared or static library, the headers, and the
@@ -74,7 +111,7 @@ def pkg_config(arguments, path):
     return run([PKG_CONFIG, "--print-errors"] + arguments, env=environment)
 
 
-def install_into(prefix):
+def install_into(prefix, build_dir=None):
     """Install the library, its headers and its .pc file into prefix.
 
     cmake_install.cmake rather than `cmake --install`: the project supports
@@ -84,15 +121,16 @@ def install_into(prefix):
         result = run([CMAKE,
                       "-DCMAKE_INSTALL_PREFIX=" + prefix,
                       "-DCMAKE_INSTALL_COMPONENT=" + component,
-                      "-P", os.path.join(BUILD_DIR, "cmake_install.cmake")])
+                      "-P", os.path.join(build_dir or BUILD_DIR,
+                                         "cmake_install.cmake")])
         # A component this build has nothing in (staticlibs, where only the
         # shared library is built) installs no files and succeeds.
         assert result.returncode == 0, (component, result)
 
 
-def flags_for(prefix):
+def flags_for(prefix, libdir=None):
     """The compile and link flags pkg-config gives for that install."""
-    pkgconfig_dir = os.path.join(prefix, LIBDIR, "pkgconfig")
+    pkgconfig_dir = os.path.join(prefix, libdir or LIBDIR, "pkgconfig")
     assert os.path.isfile(os.path.join(pkgconfig_dir, "libubertooth.pc")), \
         "the install wrote no libubertooth.pc in " + pkgconfig_dir
 
@@ -130,41 +168,119 @@ for module in ("libbtbb", "libusb-1.0"):
               "names in its Requires" % module)
         sys.exit(0)
 
-work = tempfile.mkdtemp(prefix="libubertooth-pkgconfig.")
-try:
-    first = os.path.join(work, "first")
-    install_into(first)
-    cflags, libs = flags_for(first)
+def check_install(name, work, build_dir, libdir, includedir="include",
+                  relocates=True):
+    """That build, installed into a prefix of its own, described correctly."""
+    first = os.path.join(work, name + "-first")
+    install_into(first, build_dir)
+    cflags, libs = flags_for(first, libdir)
 
     # The install's own directories, named by the flags a consumer is given.
-    assert os.path.realpath(os.path.join(first, "include")) in \
-        directories_in(cflags, "-I"), (first, cflags)
-    assert os.path.realpath(os.path.join(first, LIBDIR)) in \
-        directories_in(libs, "-L"), (first, libs)
-    assert "-lubertooth" in libs, libs
+    # The library is looked for in the directory the flags send the linker to,
+    # rather than left to the link step below: that would resolve
+    # -lubertooth from a libubertooth installed on this machine once the -L
+    # named a directory with none in it.
+    assert os.path.realpath(os.path.join(first, includedir)) in \
+        directories_in(cflags, "-I"), (name, first, cflags)
+    installed_libdir = os.path.join(first, libdir)
+    assert os.path.realpath(installed_libdir) in \
+        directories_in(libs, "-L"), (name, first, libs)
+    assert glob.glob(os.path.join(installed_libdir, "libubertooth.*")), \
+        (name, "no libubertooth in " + installed_libdir)
+    assert "-lubertooth" in libs, (name, libs)
 
     # The flags on their own, with nothing of this build directory and no
     # include path of the test's own: what a program outside the tree has.
-    source = os.path.join(work, "probe.c")
+    source = os.path.join(work, name + ".c")
     with open(source, "w") as program:
         program.write(PROGRAM)
-    built = run([CC] + cflags + [source, "-o", os.path.join(work, "probe")] +
+    built = run([CC] + cflags + [source, "-o", os.path.join(work, name)] +
                 libs)
-    assert built.returncode == 0, built
+    assert built.returncode == 0, (name, built)
 
     # The same build installed somewhere else is described as being there.
-    second = os.path.join(work, "second")
-    install_into(second)
-    moved_cflags, moved_libs = flags_for(second)
-    assert os.path.realpath(os.path.join(second, "include")) in \
-        directories_in(moved_cflags, "-I"), (second, moved_cflags)
-    assert os.path.realpath(os.path.join(second, LIBDIR)) in \
-        directories_in(moved_libs, "-L"), (second, moved_libs)
-    assert os.path.realpath(os.path.join(first, "include")) not in \
-        directories_in(moved_cflags, "-I"), (first, second, moved_cflags)
+    # Not for an absolute library directory, which the install writes to
+    # wherever the prefix is: libubertooth.pc lands outside the prefix there
+    # and names the directories as they stand, which the build says at
+    # configure time.
+    if not relocates:
+        return
+    second = os.path.join(work, name + "-second")
+    install_into(second, build_dir)
+    moved_cflags, moved_libs = flags_for(second, libdir)
+    assert os.path.realpath(os.path.join(second, includedir)) in \
+        directories_in(moved_cflags, "-I"), (name, second, moved_cflags)
+    assert os.path.realpath(os.path.join(second, libdir)) in \
+        directories_in(moved_libs, "-L"), (name, second, moved_libs)
+    assert os.path.realpath(os.path.join(first, includedir)) not in \
+        directories_in(moved_cflags, "-I"), (name, first, second, moved_cflags)
+
+
+def forwarded_cache_arguments():
+    """This build's dependencies and compiler, as cache entries to pass on."""
+    arguments = []
+    with open(os.path.join(BUILD_DIR, "CMakeCache.txt")) as cache:
+        for line in cache:
+            entry, separator, kind_and_value = line.partition(":")
+            kind, kind_separator, value = kind_and_value.partition("=")
+            if not separator or not kind_separator or kind == "INTERNAL":
+                continue
+            if entry in FORWARDED_CACHE_ENTRIES or \
+                    entry.startswith(FORWARDED_CACHE_PREFIXES):
+                arguments.append("-D%s:%s=%s" % (entry, kind, value.rstrip()))
+    return arguments
+
+
+def build_library(build_dir, cache_entries, forwarded):
+    """Configure a build of the library alone with those entries, and build it.
+
+    The library is what the install under test holds, so the tools, the Python
+    tools and the tests are left out: this is several seconds, not a build of
+    the tree. One build directory takes the layouts in turn, so only the first
+    of them pays for a configure from nothing and the library is compiled once.
+    """
+    configured = run([CMAKE, "-S", SOURCE_DIR, "-B", build_dir,
+                      "-DENABLE_PYTHON=OFF", "-DBUILD_TESTING=OFF"]
+                     + cache_entries + forwarded)
+    assert configured.returncode == 0, (cache_entries, configured)
+    built = run([CMAKE, "--build", build_dir, "--target", "ubertooth"])
+    assert built.returncode == 0, (cache_entries, built)
+
+
+work = tempfile.mkdtemp(prefix="libubertooth-pkgconfig.")
+try:
+    # An absolute library directory is installed to exactly that, so this
+    # build's own install cannot be put in a prefix of the test's own. The
+    # layouts below cover the directories a system asks for.
+    if os.path.isabs(LIBDIR):
+        print("note: this build installs the library to %s, an absolute "
+              "directory, so only the layouts below are installed" % LIBDIR)
+    else:
+        check_install("own-layout", work, BUILD_DIR, LIBDIR)
+
+    forwarded = forwarded_cache_arguments()
+    build_dir = os.path.join(work, "build")
+    for name, cache_entries, libdir, includedir in LAYOUTS:
+        build_library(build_dir, cache_entries, forwarded)
+        check_install(name, work, build_dir, libdir, includedir)
+
+    # A library directory given as an absolute path, the one layout whose
+    # libubertooth.pc names its directories as they stand. The prefix is given
+    # at configure time, because the headers go under it and the file names
+    # where they were when it was written; LIB_SUFFIX, which the layout before
+    # this one set, is dropped, because it would decide the directory instead.
+    absolute_libdir = os.path.join(work, "absolute-libdir")
+    build_library(build_dir,
+                  ["-ULIB_SUFFIX",
+                   "-DCMAKE_INSTALL_PREFIX=" + os.path.join(work,
+                                                            "absolute-first"),
+                   "-DCMAKE_INSTALL_LIBDIR=" + absolute_libdir,
+                   "-DCMAKE_INSTALL_INCLUDEDIR=include"], forwarded)
+    check_install("absolute", work, build_dir, absolute_libdir,
+                  relocates=False)
 finally:
     shutil.rmtree(work, ignore_errors=True)
 
 print("libubertooth.pc: a program outside the tree compiles and links with "
-      "the flags pkg-config gives, in whichever prefix the library is "
-      "installed")
+      "the flags pkg-config gives, in whichever prefix and whichever library "
+      "directory the library is installed")

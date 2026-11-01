@@ -750,9 +750,22 @@ fi
 # --- 6. host tools --------------------------------------------------------
 # The installed tools find libubertooth and libbtbb under PREFIX through their
 # run path, so a non-default prefix works without ldconfig or DYLD settings.
-# Two directories where libbtbb's is not libubertooth's.
-RPATH="$PREFIX/lib"
-[ "$BTBB_LIBDIR" = "$PREFIX/lib" ] || RPATH="$RPATH;$BTBB_LIBDIR"
+# The directories each library really went into come first and plain lib is the
+# fallback after them, because a library the system keeps in lib64 has to be
+# found there rather than in a copy an earlier install left in lib. libbtbb's
+# directory is the one its install wrote to, read above; libubertooth's is
+# added after the configure step below, which is what works it out.
+#
+# Each directory once, in the order they are to be searched.
+join_rpath() { # <directory>...
+	local joined="" dir
+	for dir in "$@"; do
+		case ";$joined;" in *";$dir;"*) continue ;; esac
+		joined="${joined:+$joined;}$dir"
+	done
+	printf '%s' "$joined"
+}
+RPATH="$(join_rpath "$BTBB_LIBDIR" "$PREFIX/lib")"
 CMAKE_ARGS=(
 	"-DCMAKE_INSTALL_PREFIX=$PREFIX"
 	"-DCMAKE_PREFIX_PATH=$PREFIX"
@@ -786,6 +799,46 @@ CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
 # cached one from before a brew upgrade names a version that is gone.
 cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 	-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
+
+# Which directory libubertooth itself is going into. The configure step asks
+# CMake for the one this system keeps libraries in, the same question libbtbb's
+# install answered above, so the two are normally the same directory. It goes
+# at the front of the run path, which needs the configure step repeated where
+# that changes the path, because a run path is written into the tools as they
+# are linked.
+#
+# UBERTOOTH_INSTALL_LIBDIR is the build's own answer, written to its cache for
+# this: it is CMAKE_INSTALL_LIBDIR, or what LIB_SUFFIX asked for instead. The
+# entry's type is not matched, so the read does not rest on which type the
+# entry carries: a cached value has the type whichever side put it there gave
+# it, and only the value is wanted here.
+UBERTOOTH_LIBDIR="$(sed -n 's/^UBERTOOTH_INSTALL_LIBDIR:[^=]*=//p' \
+	"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
+case "$UBERTOOTH_LIBDIR" in
+	'')
+		UBERTOOTH_LIBDIR="$PREFIX/lib"
+		warn "the host build did not record a library directory, so the tools are built for a libubertooth in $UBERTOOTH_LIBDIR"
+		;;
+	/*) ;;
+	*) UBERTOOTH_LIBDIR="$PREFIX/$UBERTOOTH_LIBDIR" ;;
+esac
+WANTED_RPATH="$(join_rpath "$UBERTOOTH_LIBDIR" "$BTBB_LIBDIR" "$PREFIX/lib")"
+if [ "$WANTED_RPATH" != "$RPATH" ]; then
+	RPATH="$WANTED_RPATH"
+	info "Setting the installed tools' run path to $RPATH"
+	cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
+		"-DCMAKE_INSTALL_RPATH=$RPATH"
+fi
+# An install of an earlier version of these tools put libubertooth in
+# $PREFIX/lib, where this one may no longer be installing it. The run path
+# above finds the new one first, but a copy of the old one left on the system
+# is worth saying out loud, because anything else that loads libubertooth by
+# name can still find it.
+if [ "$UBERTOOTH_LIBDIR" != "$PREFIX/lib" ] &&
+   ls "$PREFIX"/lib/libubertooth.* >/dev/null 2>&1; then
+	warn "an earlier install left libubertooth in $PREFIX/lib; this one installs it to $UBERTOOTH_LIBDIR, so remove the old files when nothing needs them"
+fi
+
 cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
 as_installer cmake --install "$REPO_ROOT/host/build"
 record_installed host "$REPO_ROOT/host/build"

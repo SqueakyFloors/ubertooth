@@ -639,6 +639,18 @@
   name the replacement in a warning, which a build with `-Werror` will stop
   on. It is removed in the release after this one.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- libubertooth installs to the directory your system keeps libraries in,
+  which is where libbtbb already went: `lib64` on a 64-bit Fedora, RHEL or
+  SUSE, `lib/<triplet>` where the prefix is `/usr` on a multiarch Debian or
+  Ubuntu, and `lib` elsewhere. The two used to land in different directories
+  on such a system, so the loader had to be told about both.
+  `-DCMAKE_INSTALL_LIBDIR=` chooses the directory, `-DCMAKE_INSTALL_INCLUDEDIR=`
+  the headers', and `LIB_SUFFIX` still decides where a build command passes it.
+  `libubertooth.pc` follows, so `pkg-config --libs libubertooth` names the
+  directory the library is really in, and `./install.sh` puts that directory
+  first on the installed tools' run path and says so if an earlier install
+  left a libubertooth in `lib`.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - `./install.sh` installs on Fedora. It used to stop on any Linux without
   `apt-get`; it now finds `dnf` and asks it for the same dependencies under
   Fedora's names, the ARM toolchain for `--with-firmware` included, and the
