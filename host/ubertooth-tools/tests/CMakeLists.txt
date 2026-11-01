@@ -1406,7 +1406,7 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..
 		"${LIBBTBB_INCLUDE_DIR}"
 		"${LIBBTBB_LIBRARIES}")
-# Twenty-two configures, fourteen of them of a project with C in it for the
+# Twenty-three configures, sixteen of them of a project with C in it for the
 # function checks of FindBTBB and FindUBERTOOTH and the rest of a project with
 # no languages, which needs no compiler, plus one build of the one-file
 # libubertooth stand-in those checks are pointed at: 19 s on an idle machine,
@@ -1428,8 +1428,9 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_ubertooth_check.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-# Six configures of a project with C in it and three builds of the one-file
-# stand-in: 63 s on a machine busy with parallel builds, where btbb-check's
-# five configures take 52 s. Four times that for a cold CI runner, which
-# spends seconds on compiler detection alone.
+# Seven configures of the one-line project and three of the stand-in, each a
+# project with C in it, and three builds of the stand-in: 63 s on a machine
+# busy with parallel builds and 13 s on an idle one, where btbb-check's five
+# configures take 52 s and 20 s. Four times the worst of that for a cold CI
+# runner, which spends seconds on compiler detection alone.
 set_tests_properties(ubertooth-check PROPERTIES TIMEOUT 240)

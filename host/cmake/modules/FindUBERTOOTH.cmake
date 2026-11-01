@@ -5,6 +5,12 @@
 #  LIBUBERTOOTH_INCLUDE_DIR - the libubertooth include directory
 #  LIBUBERTOOTH_LIBRARIES - Link these to use libubertooth
 #
+# Find libbtbb and libusb first: ubertooth.h includes both of their headers,
+# and the check below compiles against it, so where LIBBTBB_INCLUDE_DIR and
+# LIBUSB_INCLUDE_DIRS are already set they are used. Without them, a libbtbb
+# or a libusb outside the compiler's own include path leaves that check
+# reporting a libubertooth it cannot build against.
+#
 # Copyright (c) 2013  Dominic Spill
 
 

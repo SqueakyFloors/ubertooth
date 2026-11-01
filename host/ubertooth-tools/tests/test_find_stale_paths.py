@@ -30,13 +30,14 @@ be absent, so an honest "not found" passes for those two.
 FindUBERTOOTH has a function check of its own, so the libubertooth each of its
 cases is pointed at is a stand-in built here: a header declaring the functions
 the module asks for and a library defining them, which is enough for the probe
-to pass and keeps this test to the paths it is about. What the search then
-arrives at depends on the machine, and only one of the three answers is the
-full check: where this tree's libubertooth is installed the module finds it
-and reports it, which is the case the host-installed-libubertooth CI job
-exercises; where none is installed it reports nothing found; and where an
-older one is installed it finds and refuses that, and what is checked is that
-its refusal names no path that has gone.
+to pass and keeps this test to the paths it is about. A second stand-in, in a
+prefix no case removes, is where the search is sent once a case has taken its
+install away: LIBUBERTOOTH_DIR is the module's first hint, so the search lands
+there rather than on whatever libubertooth the machine has, and the module has
+an install to report whichever machine this runs on. A machine whose own
+install gets in the way anyway leaves the module refusing it, which is the
+module searching; the case then checks that its refusal names no path that
+has gone, and says so.
 
 A fourth shape is the move itself, in check_move() below: the install goes
 from one prefix to another, both named by nothing but their pkg-config files,
@@ -92,7 +93,11 @@ MODULES = (
      "language": "C"},
     {"package": "UBERTOOTH", "prefix": "LIBUBERTOOTH",
      "header": "ubertooth.h", "library": "libubertooth",
-     "module": "libubertooth", "required": "", "language": "C"},
+     "module": "libubertooth", "required": "", "language": "C",
+     # Where the search is sent once a case has removed its install, so what
+     # it finds next is another stand-in rather than whatever libubertooth
+     # this machine happens to have; see check_module() below.
+     "hint": "LIBUBERTOOTH_DIR"},
     {"package": "BLUETOOTH", "prefix": "LIBBLUETOOTH", "header": "hci.h",
      "library": "libbluetooth", "module": "bluez", "required": "",
      "language": "NONE"},
@@ -120,22 +125,33 @@ def fail(message):
     sys.exit(1)
 
 
-def refused_as_old(output):
+def refused_by_probe(output):
     """Whether a configure failed on FindUBERTOOTH's function check.
 
     The module asks the libubertooth it found for the functions these tools
-    call, so on a machine with an older one installed a search that reaches
-    outside this test's own prefixes ends in that refusal. The probe's result
-    variable says so: it is in the output whichever way the probe failed.
+    call, so a search that reaches past this test's own prefixes and lands on
+    another install can end in that refusal. The probe's result variable says
+    so: it is in the output whichever way the probe failed, and the reason is
+    not read here -- an older library, or one this bare project cannot compile
+    against, look the same from outside.
     """
     return "LIBUBERTOOTH_HAS_REQUIRED_FUNCTIONS - Failed" in output
 
 
-def configure(cmake, source, build, defines, pkg_config_path=None):
-    """Configure the project, returning (status, output on one line)."""
+def configure(cmake, source, build, defines, pkg_config_path=None,
+              hint=None):
+    """Configure the project, returning (status, output on one line).
+
+    hint is the module's own <PREFIX>_DIR environment variable and a prefix to
+    put in it. The modules search that first, so it is how a case that has
+    removed its install decides what the search lands on next, rather than
+    leaving that to whatever the machine has installed.
+    """
     environment = dict(os.environ)
     if pkg_config_path is not None:
         environment["PKG_CONFIG_PATH"] = pkg_config_path
+    if hint is not None:
+        environment[hint[0]] = hint[1]
     done = subprocess.run([cmake, "-S", source, "-B", build] + defines,
                           stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True,
@@ -235,6 +251,19 @@ def check_module(cmake, work, modules, module, material):
               encoding="utf-8") as handle:
         handle.write(PROJECT % dict(module, modules=modules))
 
+    # Where the search is sent after a case has removed the install it was
+    # given: another install of this test's own, in a prefix no case touches.
+    # Without it FindUBERTOOTH would land on whatever libubertooth the machine
+    # has, and refuse an older one, which ends the case early and leaves the
+    # paths it reports unexamined. Only the modules with a hint variable in
+    # MODULES get one; FindBTBB finds the real libbtbb, which is current
+    # wherever these tools build.
+    hint = None
+    if module.get("hint"):
+        fallback = os.path.join(work, "%s-fallback" % package.lower())
+        make_install(module, fallback, material)
+        hint = (module["hint"], fallback)
+
     def configure_or_fail(build, defines, case, where, pkg_config_path=None):
         status, output = configure(cmake, source, build, defines,
                                    pkg_config_path)
@@ -248,18 +277,20 @@ def check_module(cmake, work, modules, module, material):
         reported an answer to check.
 
         The module has to look again rather than hand back what it remembered.
-        It can also look again, find a real install of the library on this
-        machine, and refuse that one: FindUBERTOOTH asks the libubertooth it
-        finds for the functions these tools call, and a developer machine can
-        have an older one installed. That is the module searching, which is
+        Where it has a hint it lands on the fallback install above and
+        reports it, which is the full check.
+
+        It can also look again, land on another library this machine has, and
+        refuse that one: FindUBERTOOTH asks the libubertooth it finds for the
+        functions these tools call. That is the module searching, which is
         what this case is about, so what is checked then is that the refusal
         does not name a path that has gone; there is nothing else to read,
         because a refused configure writes no answer.
         """
-        status, output = configure(cmake, source, build, defines)
+        status, output = configure(cmake, source, build, defines, hint=hint)
         if status == 0:
             return True
-        if not refused_as_old(output):
+        if not refused_by_probe(output):
             fail("%s: %s: configuring %s failed, so the module used a path it "
                  "remembered instead of searching for %s again:\n%s"
                  % (package, case, where, module["prefix"], output))
@@ -275,8 +306,8 @@ def check_module(cmake, work, modules, module, material):
             fail("%s: %s: Find%s.cmake refused a library at %s, which has "
                  "been removed, so it did not search again:\n%s"
                  % (package, case, package, ", ".join(named), output))
-        print("%s: %s: the module searched again and refused the library "
-              "installed on this machine, which is older than these tools; "
+        print("%s: %s: the module searched again and refused what it found, "
+              "which is not a libubertooth these tools can be built against; "
               "the paths it remembered are gone from its message"
               % (package, case))
         return False
@@ -358,12 +389,12 @@ def check_move(cmake, work, module, material, source, configure_or_fail):
     build = os.path.join(work, "%s-moved-build" % package.lower())
     status, output = configure(cmake, source, build, [], pkgconfig_dir(first))
     if status != 0:
-        if not refused_as_old(output):
+        if not refused_by_probe(output):
             fail("%s: %s: configuring against an install in a prefix of its "
                  "own failed:\n%s" % (package, case, output))
-        print("%s: %s: the module did not take the install in %s but the "
-              "library this machine has, which is older than these tools, so "
-              "the move is not checked here" % (package, case, first))
+        print("%s: %s: the module did not take the install in %s but another "
+              "library on this machine, and refused that one, so the move is "
+              "not checked here" % (package, case, first))
         return
     if reported(build)[1] != include:
         print("%s: %s: pkg-config did not lead the module to %s, so the move "
