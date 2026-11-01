@@ -30,7 +30,10 @@
 /* Marks a declaration below as superseded, so a program that still calls it
  * is told at compile time what to call instead. GCC and Clang have the
  * attribute; on any other compiler this expands to nothing and the only
- * notice is the comment above the declaration. */
+ * notice is the comment above the declaration.
+ *
+ * Remove this along with the last declaration that uses it, so an installed
+ * header does not carry a macro nothing needs. */
 #if defined(__GNUC__) || defined(__clang__)
 #define UBERTOOTH_DEPRECATED(msg) __attribute__((deprecated(msg)))
 #else
@@ -426,10 +429,9 @@ int ubertooth_stop_requested(void);
  * a negative result. */
 int ubertooth_open_stopped(void);
 
-/* Deprecated: call ubertooth_catch_stop_signals() above instead. It will be
- * removed in the release after this one, which is the next release to change
- * the library version, so a program that calls it still links against this
- * release.
+/* Deprecated: call ubertooth_catch_stop_signals() above instead. It is still
+ * exported, so a program that calls it builds and links against this release;
+ * it is removed in the release after this one.
  *
  * It is ubertooth_catch_stop_signals(), plus a copy of ut the library keeps
  * for the do_exit = 1 form of the handlers. Nothing in this repository needs

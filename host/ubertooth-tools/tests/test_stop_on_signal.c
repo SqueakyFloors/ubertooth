@@ -64,8 +64,11 @@ usb_pkt_rx fifo_pop(fifo_t* fifo)
 
 /* ---- helpers ------------------------------------------------------------ */
 
-/* A handle that never opened a device, with the library's own handlers
- * installed on it. */
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+
+/* A handle that never opened a device, with the library's stop handlers
+ * installed. They are the process's, not the handle's: the handle is what the
+ * stop is read through, with ubertooth_stopping(). */
 static ubertooth_t* new_handle(void)
 {
 	ubertooth_t* ut = ubertooth_init();
@@ -386,12 +389,14 @@ MU_TEST(a_run_nothing_interrupted_keeps_going)
  * the handle. This pins the part of that a test can see: the handlers survive
  * it, so a run started afterwards still stops on a signal.
  *
- * What it cannot see is the reason ubertooth_free() lets go of the handle. The
- * handler these tools install only sets a flag; the one that would dereference
- * the freed handle is cleanup_exit(), which ubertooth.c installs for
- * register_cleanup_handler(ut, 1) and which no tool asks for. So this case
- * passes either way, and the read-after-free it guards against would need a
- * tool that passed 1 and a sanitizer to catch. */
+ * What it cannot see is the reason ubertooth_free() lets go of the handle the
+ * library was holding. The handler these tools install only sets a flag; the
+ * one that would dereference the freed handle is cleanup_exit(), which
+ * ubertooth.c installs for the deprecated register_cleanup_handler(ut, 1) and
+ * which no tool asks for. Nor is a handle registered here any more, now that
+ * the tools install the handlers before they have one. So this case passes
+ * either way, and the read-after-free it guards against would need a caller
+ * that passed 1 and a sanitizer to catch. */
 MU_TEST(a_freed_handle_is_let_go_of)
 {
 	ubertooth_t* ut = new_handle();
@@ -417,18 +422,34 @@ MU_TEST(a_freed_handle_is_let_go_of)
 	release_handle(ut);
 }
 
-/* The deprecated register_cleanup_handler() still installs the same handlers
- * its replacement does, which is what an outside program calling it in this
- * release gets. The rest of this file calls the replacement, as the tools do;
- * this one case keeps the superseded entry point covered until it is removed.
+/* The deprecated register_cleanup_handler(ut, 0) leaves every one of the five
+ * signals with the same handler its replacement does, which is what an outside
+ * program calling it in this release gets. The rest of this file calls the
+ * replacement, as the tools do; this case keeps the superseded entry point
+ * covered until it is removed.
  *
- * The deprecation warning is switched off just here, so the call does not
- * make the test build noisy while the rest of the build stays strict. */
+ * It reads the handlers back and compares them rather than raising a signal,
+ * because the handler the do_exit = 1 form installs ends the process with
+ * exit(0). Raised here, that would end this test binary mid-case and ctest,
+ * which judges it by its exit status, would read the silence as a pass. Each
+ * handler is read with signal(sig, SIG_DFL), which returns the one that was
+ * installed; release_handle() restores SIG_DFL in any case.
+ *
+ * The deprecation warning is switched off just for the call, so the rest of
+ * the build stays strict. */
 MU_TEST(the_deprecated_entry_point_installs_the_same_handlers)
 {
+	static const int signals[] = { SIGINT, SIGTERM, SIGQUIT, SIGHUP, SIGALRM };
+	void (*replacement[ARRAY_LEN(signals)])(int);
 	ubertooth_t* ut = ubertooth_init();
+	size_t i;
 
 	mu_assert_fatal(ut != NULL, "a handle");
+
+	ubertooth_catch_stop_signals();
+	for (i = 0; i < ARRAY_LEN(signals); i++)
+		replacement[i] = signal(signals[i], SIG_DFL);
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -438,10 +459,12 @@ MU_TEST(the_deprecated_entry_point_installs_the_same_handlers)
 #pragma GCC diagnostic pop
 #endif
 
-	mu_assert_int_eq(0, ubertooth_stopping(ut));
-	raise(SIGINT);
-	mu_assert_int_eq(1, ubertooth_stopping(ut));
+	for (i = 0; i < ARRAY_LEN(signals); i++)
+		mu_assert(signal(signals[i], SIG_DFL) == replacement[i],
+		          "the handler ubertooth_catch_stop_signals() installs");
 
+	/* The handle the library took is given back, so nothing it holds
+	 * outlives this case. */
 	release_handle(ut);
 }
 
