@@ -20,11 +20,11 @@
   of up to eight boards and `-c` a channel for each of them, so
   `ubertooth-rx -U 0,1,2,3 -c 10,30,50,70 -l e9c5ba` hears four channels at
   once. The boards share what they find: the channels the piconet has been
-  heard on join into one map that goes back to every board, and the first
-  board to work out the address part hands it to the rest. Each board recovers
-  the clock from its own packets, because a clock is recovered against that
-  board's own counter. ubertooth-rx(1), SEVERAL BOARDS AT ONCE says what is
-  shared and what is not.
+  heard on join into one map that goes back to every board, and the address
+  part is passed on once two boards have worked out the same one from their
+  own packets. Each board recovers the clock from its own packets, because a
+  clock is recovered against that board's own counter. ubertooth-rx(1),
+  SEVERAL BOARDS AT ONCE says what is shared and what is not.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 
 - The board's generic radio mode is reachable from the command line, as an

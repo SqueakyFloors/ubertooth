@@ -150,11 +150,9 @@ static struct {
 	 * value it settles on. */
 	int heard_uap_board[RX_MAX_BOARDS];
 	uint8_t heard_uap;
-	/* The block on which a board gives up the address part it holds, as
-	 * the library does when header after header fails under it, and how
-	 * many such give-ups there were. 0 for a board that keeps it. */
-	int drop_uap_at[RX_MAX_BOARDS];
-	int uap_drops;
+	/* What the boards after the first settle on, where a case wants them
+	 * to disagree. 0 for "the same as heard_uap". */
+	uint8_t heard_uap_other;
 	/* The channel each board was asked to tune to, in MHz. */
 	int board_channel[RX_MAX_BOARDS];
 	/* What each board's piconet already held when the fake decode was last
@@ -512,16 +510,9 @@ void cb_rx(ubertooth_t* ut, void* args)
 		        (uint8_t)device.heard_channel[board]);
 	if (device.heard_uap_board[board] &&
 	    !btbb_piconet_get_flag(pn, BTBB_UAP_VALID))
-		btbb_piconet_set_uap(pn, device.heard_uap);
-
-	/* A board giving the address part up, which the library does when
-	 * header after header fails under it. */
-	if (device.drop_uap_at[board] > 0 &&
-	    device.blocks + 1 >= device.drop_uap_at[board]) {
-		btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
-		device.drop_uap_at[board] = 0;
-		device.uap_drops++;
-	}
+		btbb_piconet_set_uap(pn,
+		        (board > 0 && device.heard_uap_other != 0)
+		        ? device.heard_uap_other : device.heard_uap);
 }
 
 /* What the callback reports about the follow: how long since it last heard a
@@ -2210,8 +2201,8 @@ MU_TEST(a_board_that_cannot_be_opened_gives_every_handle_back)
  * are unrelated; what passes between them is the channels the piconet has
  * been heard on and its upper address part, neither of which needs a common
  * clock. So a board ends up narrowing its own clock against a channel map
- * that filled three times faster, and gets the address part from whichever
- * board settled it first. */
+ * that filled three times faster, and is handed an address part two other
+ * boards agree on. */
 MU_TEST(boards_share_the_channel_map_and_the_address_part)
 {
 	struct run_result r;
@@ -2225,7 +2216,9 @@ MU_TEST(boards_share_the_channel_map_and_the_address_part)
 	device.heard_channel[0] = 20;
 	device.heard_channel[1] = 40;
 	device.heard_channel[2] = 60;
-	/* Only the second board's packets settle the address part. */
+	/* The first two boards work the address part out from their own
+	 * packets and agree, which is what lets it be passed on. */
+	device.heard_uap_board[0] = 1;
 	device.heard_uap_board[1] = 1;
 	device.heard_uap = 0x22;
 
@@ -2236,8 +2229,7 @@ MU_TEST(boards_share_the_channel_map_and_the_address_part)
 	mu_assert_int_eq(3, device.seen_channels[0]);
 	mu_assert_int_eq(3, device.seen_channels[1]);
 	mu_assert_int_eq(3, device.seen_channels[2]);
-	/* And every board has the address part the second one found. */
-	mu_assert_int_eq(0x22, device.seen_uap[0]);
+	/* And the third board was handed the one the other two agreed on. */
 	mu_assert_int_eq(0x22, device.seen_uap[2]);
 
 	/* The run says what they found between them, on standard error, so a
@@ -2251,39 +2243,64 @@ MU_TEST(boards_share_the_channel_map_and_the_address_part)
 	mu_assert(strstr(r.out, "note:") == NULL, r.out);
 }
 
-/* A board that gives up an address part it was handed is not handed the same
- * one again. The library settles a UAP on as few as two packets and is
- * sometimes wrong about it -- a run on the bench settled on 0xdb where the
- * peer's was 0x0d -- and giving one up means header after header failed under
- * it, which is evidence against that value. Handing it back would leave the
- * board unable to work out its own, forever. */
-MU_TEST(a_board_that_gives_up_a_handed_address_part_keeps_recovering)
+/* One board's address part is not passed on. The library settles one on as few
+ * as two packets and is sometimes wrong -- a bench run settled on 0xdb where
+ * the peer's was 0x0d -- and a board handed a wrong one cannot get out of it,
+ * because the clock search restores the value it was filtering on every time
+ * it runs out of candidates. So it takes two boards working out the same value
+ * from their own packets. */
+MU_TEST(one_board_s_address_part_is_not_passed_on)
 {
 	struct run_result r;
 
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.blocks_to_end = 12;
+	device.blocks_to_end = 9;
 	device.heard_channel[0] = 20;
 	device.heard_channel[1] = 40;
-	/* The second board settles one; the first is handed it and then gives
-	 * it up. */
+	device.heard_channel[2] = 60;
+	/* Only the second board settles one. */
 	device.heard_uap_board[1] = 1;
 	device.heard_uap = 0x22;
-	device.drop_uap_at[0] = 5;
 
-	r = RUN_RX("-U", "0,1", "-l", "112233", "-c", "20,40", "-t", "10");
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "10");
 
 	mu_assert_int_eq(0, r.rc);
-	mu_assert_int_eq(1, device.uap_drops);
-	/* It was handed the value and then gave it up, and the passes after
-	 * that left it without one. */
+	/* The channel map is still shared: it needs no agreeing. */
+	mu_assert_int_eq(3, device.seen_channels[0]);
+	mu_assert_int_eq(3, device.seen_channels[2]);
+	/* The other two boards were handed nothing. */
 	mu_assert_int_eq(-1, device.seen_uap[0]);
-	/* The board that worked it out still holds it. */
-	mu_assert_int_eq(0x22, device.seen_uap[1]);
-	/* And the run says the two ended on different answers rather than
-	 * reporting one of them as the piconet's. */
-	mu_assert(strstr(r.err, "note: 2 boards: UAP = 0x22") != NULL, r.err);
+	mu_assert_int_eq(-1, device.seen_uap[2]);
+	/* And the run reports the one value any board holds. */
+	mu_assert(strstr(r.err, "note: 3 boards: UAP = 0x22") != NULL, r.err);
+}
+
+/* Two boards that worked out different address parts share neither, and the
+ * run says so rather than reporting one of them as the piconet's: one is
+ * wrong, and which is not something the run can tell. */
+MU_TEST(boards_that_disagree_about_the_address_part_say_so)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 6;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_board[1] = 1;
+	/* Each board settles on its own value: the second board's script
+	 * answer differs, which is what two boards disagreeing looks like. */
+	device.heard_uap = 0x22;
+	device.heard_uap_other = 0x33;
+
+	r = RUN_RX("-U", "0,1", "-c", "20,40", "-l", "112233", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "note: 2 boards: the boards ended on "
+	          "different UAPs; one of them is wrong") != NULL, r.err);
+	mu_assert(strstr(r.err, "UAP = 0x") == NULL, r.err);
 }
 
 /* One board shares nothing and says nothing extra: its piconet already holds
@@ -2328,6 +2345,81 @@ MU_TEST(a_board_whose_stream_died_ends_the_whole_capture)
 	 * each of at most eight ring buffers. */
 	mu_assert_int_eq(6, device.blocks);
 	mu_assert_int_eq(3, device.stops);
+}
+
+/* The command lines the lists refuse. Each says what is wrong in one line on
+ * standard error, leaves standard output empty, exits 1, and opens no board:
+ * these are problems with the command line, so they are caught before anything
+ * is claimed. */
+MU_TEST(a_board_or_channel_list_the_tool_will_not_take_is_refused)
+{
+	struct run_result r;
+
+	/* An empty entry: a stray comma names no board. */
+	reset_device();
+	r = RUN_RX("-U", "0,,1", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: the board list has an empty entry\n")
+	          == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, device.connect_calls);
+
+	/* More boards than a capture may read. */
+	reset_device();
+	r = RUN_RX("-U", "0,1,2,3,4,5,6,7,8", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: at most 8 boards can be given\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, device.connect_calls);
+
+	/* The same board twice. */
+	reset_device();
+	r = RUN_RX("-U", "0,1,0", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: board 0 is named twice\n") == 0, r.err);
+	mu_assert_int_eq(0, device.connect_calls);
+
+	/* Channels that do not line up with the boards. */
+	reset_device();
+	r = RUN_RX("-U", "0,1,2", "-c", "10,30", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -c names 2 channels for 3 boards; "
+	          "give one each or one for all\n") == 0, r.err);
+	mu_assert_int_eq(0, device.connect_calls);
+
+	/* More channels than boards is the same mistake, reported as the list
+	 * being too long for the boards named rather than against the eight a
+	 * capture may read. */
+	reset_device();
+	r = RUN_RX("-U", "0,1", "-c", "10,30,50", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: at most 2 channels can be given\n")
+	          == 0, r.err);
+
+	/* An empty channel list entry, reported the same way as a board's. */
+	reset_device();
+	r = RUN_RX("-U", "0,1", "-c", "10,", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: the channel list has an empty entry\n")
+	          == 0, r.err);
+
+	/* A replay reads one saved capture, so it takes one board's worth of
+	 * records. */
+	reset_device();
+	r = RUN_RX("-i", "/nonexistent", "-U", "0,1");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -i names one saved capture, so it "
+	          "cannot be given several boards to read\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+
+	/* And -V reports one board. */
+	reset_device();
+	r = RUN_RX("-U", "0,1", "-V");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -V reports one board; name one with "
+	          "-U, or none to report every board attached\n") == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
 }
 
 int main(void)
@@ -2381,8 +2473,10 @@ int main(void)
 	MU_RUN(a_channel_each_spreads_the_boards_across_the_band);
 	MU_RUN(a_board_that_cannot_be_opened_gives_every_handle_back);
 	MU_RUN(boards_share_the_channel_map_and_the_address_part);
-	MU_RUN(a_board_that_gives_up_a_handed_address_part_keeps_recovering);
+	MU_RUN(one_board_s_address_part_is_not_passed_on);
+	MU_RUN(boards_that_disagree_about_the_address_part_say_so);
 	MU_RUN(one_board_is_left_exactly_as_it_was);
 	MU_RUN(a_board_whose_stream_died_ends_the_whole_capture);
+	MU_RUN(a_board_or_channel_list_the_tool_will_not_take_is_refused);
 	return mu_report();
 }

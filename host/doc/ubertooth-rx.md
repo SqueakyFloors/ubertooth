@@ -285,8 +285,8 @@ the Central's clock.
 ## SEVERAL BOARDS AT ONCE
 
 An Ubertooth receives one 1 MHz channel at a time, and a Classic connection
-hops over 79 of them, so a board parked on a channel hears about one packet in
-79. Every step of following a piconet waits on those sightings: the upper
+hops over 79 of them, so a board parked on a channel hears about one packet of
+it in 79. Every step of following a piconet waits on those sightings: the upper
 address part (UAP), the channels the piconet is using, and the clock. `-U` with
 a comma-separated list of up to eight boards reads them all in one run, and
 `-c` with a channel each spreads them across the band, so the run sees as many
@@ -300,17 +300,22 @@ pass between them is what they have worked out:
    that a channel carried traffic, so the maps join whatever clock each board
    is on. The union is handed back to every board as it grows, so each one
    narrows its clock candidates against a map that filled as many times faster
-   as there are boards. An incomplete map is what makes a wrong clock look
-   right, so this is where the boards help each other most.
+   as there are boards, and the run reports the union when it ends. Whether a
+   fuller map is enough to reach a clock is the question THE CLOCK SEARCH AND
+   ADAPTED HOPPING above describes, and nothing here answers it: the library
+   consults the map only once it has heard the piconet on twenty channels and
+   taken the hopping for adapted, and reaching a clock against an adapted
+   piconet is a limitation of the search itself.
 
- - **The UAP.** The first board to work one out hands it to the rest, which
-   saves them the packets it took. What it does not save is the chance of being
-   wrong: a UAP is settled on as few as two packets of the piconet and is
-   sometimes wrong, with one board as with several, and a wrong one handed over
-   is wrong on every board that took it. A board that then gives it up — header
-   after header failing under it — is not handed the same value again and works
-   out its own, and the run says so when the boards end on different answers.
-   Passing `-u` yourself avoids the question.
+ - **The UAP**, once two boards have worked out the same one from their own
+   packets. Not the first board's: a UAP is settled on as few as two packets
+   and is sometimes wrong, with one board as with several, and a board handed a
+   wrong one cannot get out of it — the clock search restores the value it was
+   filtering on each time it runs out of candidates, so that board filters on
+   the wrong UAP for the rest of the run and works out nothing of its own. Two
+   boards settling on the same value from different packets is a cross-check a
+   single board cannot make. The run says at the end when the boards ended on
+   different answers. Passing `-u` yourself avoids the question.
 
 Each board keeps a piconet of its own and recovers the clock from its own
 packets. The clock cannot be pooled: it is recovered as a position in the hop

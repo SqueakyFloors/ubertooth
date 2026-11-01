@@ -99,15 +99,20 @@ struct rx_board {
 	/* The channel this board was asked for, in MHz, or the value above the
 	 * band that asks for the sweep. */
 	uint16_t channel;
-	/* The upper address part (UAP) another board handed this one, and
-	 * whether one was. A board that gives up a handed UAP has had header
-	 * after header fail under it, which is evidence against that value, so
-	 * it is not handed the same one again: it goes back to working one out
-	 * from its own packets. Without this it would be handed the value back
-	 * on the next packet and never recover. */
-	int uap_given;
-	uint8_t uap_given_value;
+	/* Whether this board's upper address part (UAP) came from another
+	 * board rather than from its own packets. Such a board is not evidence
+	 * for that value: see rx_share_findings(). */
+	int uap_handed;
 };
+
+/* The AFH channel map is ten bytes, bit b of byte i being channel 8i + b: the
+ * order the Core specification's Set_AFH_Host_Channel_Classification and
+ * libbtbb's own printed map both use. libubertooth says the same length for
+ * the board's map, and the merge below reads libbtbb's through that constant,
+ * so the two have to agree. */
+#if AFH_MAP_BYTES != 10
+#error "AFH_MAP_BYTES is not 10; libbtbb's AFH map is ten bytes"
+#endif
 
 /* The capture files this run was asked for, by the names the user gave. */
 struct rx_files {
@@ -148,6 +153,13 @@ static void rx_give_back_boards(struct rx_board* boards, int n_boards, int stop)
 	for (i = n_boards - 1; i >= 0; i--) {
 		ubertooth_t* ut = boards[i].ut;
 
+		/* Before the handle, and on every path, so a run that ends
+		 * where a board refused a request gives back as much as one
+		 * that captured. */
+		if (boards[i].pn != NULL) {
+			btbb_piconet_unref(boards[i].pn);
+			boards[i].pn = NULL;
+		}
 		if (ut == NULL)
 			continue;
 		if (stop)
@@ -221,13 +233,17 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * boards, and an incomplete map is what makes a wrong clock look right: the
  * candidates are narrowed against hops the piconet never made.
  *
- * The upper address part (UAP) is a scalar, so the first board to work one out
- * hands it to the rest. Only a board that worked one out for itself is the
- * source: a value that was itself handed over is not passed on, which is what
- * keeps a board that has just given one up from being handed it straight back.
- * The library settles a UAP from as few as two packets and is sometimes wrong
- * about it, with one board as with several, so what a handed value saves is
- * the packets it took and not the chance of being wrong.
+ * The upper address part (UAP) is a scalar, and it is passed on once two
+ * boards have worked out the same one from their own packets. Not the first
+ * board's: the library settles a UAP on as few as two packets and is sometimes
+ * wrong about it -- a bench run settled on 0xdb where the peer's is 0x0d --
+ * and a wrong one handed over is not something the board it was handed to can
+ * get out of. The library restores the UAP it was filtering on whenever the
+ * clock search runs out of candidates, so that board filters on the wrong
+ * value for the rest of the run and works out nothing of its own. Two boards
+ * settling on the same value from different packets is a cross-check a single
+ * board cannot make, and it is what makes passing the value on worth doing.
+ * A board whose UAP was handed to it is not evidence for it.
  *
  * The clock is not shared and does not need to be: it is the piconet's own, so
  * each board recovers it from its own packets once it has the address. Two
@@ -237,11 +253,17 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * grown. One board shares nothing: its piconet already holds everything it
  * knows, and pushing the map back would only repeat the work
  * btbb_piconet_set_channel_seen() has just done. */
+static int rx_found_uap(const struct rx_board* board)
+{
+	return !board->uap_handed &&
+	       btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID);
+}
+
 static void rx_share_findings(struct rx_board* boards, int n_boards,
                               uint8_t* merged)
 {
 	uint8_t next[AFH_MAP_BYTES];
-	int grown = 0, have_uap = 0, i, j;
+	int grown = 0, agreed = 0, i, j;
 	uint8_t uap = 0;
 
 	if (n_boards < 2)
@@ -253,28 +275,37 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 
 		for (j = 0; j < (int)sizeof(next); j++)
 			next[j] |= map[j];
-		if (!have_uap && !boards[i].uap_given &&
-		    btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID)) {
-			uap = btbb_piconet_get_uap(boards[i].pn);
-			have_uap = 1;
-		}
 	}
 	if (memcmp(next, merged, sizeof(next)) != 0) {
 		memcpy(merged, next, sizeof(next));
 		grown = 1;
 	}
 
+	/* Two boards that worked out the same UAP from their own packets. At
+	 * most eight boards, so comparing every pair is a few dozen reads. */
+	for (i = 0; i < n_boards && !agreed; i++) {
+		if (!rx_found_uap(&boards[i]))
+			continue;
+		for (j = i + 1; j < n_boards; j++) {
+			if (!rx_found_uap(&boards[j]))
+				continue;
+			if (btbb_piconet_get_uap(boards[i].pn) ==
+			    btbb_piconet_get_uap(boards[j].pn)) {
+				uap = btbb_piconet_get_uap(boards[i].pn);
+				agreed = 1;
+				break;
+			}
+		}
+	}
+
 	for (i = 0; i < n_boards; i++) {
 		if (grown)
 			btbb_piconet_set_afh_map(boards[i].pn, merged);
-		if (!have_uap ||
-		    btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
-			continue;
-		if (boards[i].uap_given && boards[i].uap_given_value == uap)
-			continue;
-		btbb_piconet_set_uap(boards[i].pn, uap);
-		boards[i].uap_given = 1;
-		boards[i].uap_given_value = uap;
+		if (agreed &&
+		    !btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID)) {
+			btbb_piconet_set_uap(boards[i].pn, uap);
+			boards[i].uap_handed = 1;
+		}
 	}
 }
 
@@ -297,8 +328,11 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 		if (merged[i / 8] & (1 << (i % 8)))
 			used++;
 
+	/* Only what a board worked out for itself: a board holding a value
+	 * another board handed it would otherwise read as a second board
+	 * agreeing, which is the cross-check this line is for. */
 	for (i = 0; i < n_boards; i++) {
-		if (!btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID))
+		if (!rx_found_uap(&boards[i]))
 			continue;
 		if (!have_uap) {
 			uap = btbb_piconet_get_uap(boards[i].pn);
@@ -570,7 +604,7 @@ int main(int argc, char* argv[])
 	memset(merged_map, 0, sizeof(merged_map));
 	/* One board, opened by whichever name -U gave, or whichever the library
 	 * finds when it gave none. */
-	selectors[0] = NULL;
+	memset(selectors, 0, sizeof(selectors));
 
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
@@ -672,6 +706,23 @@ int main(int argc, char* argv[])
 		                         selectors, RX_MAX_BOARDS);
 		if (n_boards < 0)
 			return 1;
+		/* The same board twice would be opened twice, and the second
+		 * open would fail with whatever libusb says about a board
+		 * already claimed, which tells the user nothing about their
+		 * command line. Naming it once and reading it once is what
+		 * they meant. A board named by index and by serial is the same
+		 * board and is not caught here; the open reports that. */
+		for (i = 1; i < n_boards; i++) {
+			int j;
+
+			for (j = 0; j < i; j++) {
+				if (strcmp(selectors[i], selectors[j]) != 0)
+					continue;
+				fprintf(stderr, "error: board %s is named "
+				        "twice\n", selectors[i]);
+				return 1;
+			}
+		}
 	}
 
 	/* One channel for every board, or one for all of them. Anything else is
@@ -680,8 +731,11 @@ int main(int argc, char* argv[])
 	 * off the output. */
 	if (channel_arg != NULL) {
 		char* words[RX_MAX_BOARDS];
+		/* No more channels than there are boards, so a list longer
+		 * than that is refused as too long rather than reported
+		 * against the limit of eight. */
 		int n_channels = rx_split_list(channel_arg, "channel", words,
-		                               RX_MAX_BOARDS);
+		                               n_boards);
 
 		if (n_channels < 0)
 			return 1;
@@ -701,7 +755,6 @@ int main(int argc, char* argv[])
 				return 1;
 			boards[i].channel = (uint16_t)(bt_channel + BT_FREQ_MIN);
 		}
-		channel = boards[0].channel;
 	} else {
 		for (i = 0; i < n_boards; i++)
 			boards[i].channel = channel;
@@ -712,16 +765,19 @@ int main(int argc, char* argv[])
 	 * alongside them. A command line with both prints both, and the usage
 	 * text comes last so the version is not scrolled off the screen by
 	 * it; the order they were written in does not matter. */
-	/* One answer per board named, so a -V beside a list of boards reports
-	 * every one of them rather than the first and nothing about the rest.
-	 * The first failure is the status; the others are still read. */
-	if (do_version) {
-		for (i = 0; i < n_boards; i++) {
-			r = ubertooth_print_versions(stdout, selectors[i]);
-			if (r != 0 && version_status == 0)
-				version_status = r;
-		}
+	/* -V reports one board, as its own line of the SYNOPSIS says: the
+	 * answer carries the host tools' version once and then the firmware of
+	 * the board named, and with no -U at all it already reports every
+	 * board attached. A list is for a capture, so one beside -V is a
+	 * command line that cannot be answered as asked. */
+	if (do_version && n_boards > 1) {
+		fprintf(stderr, "error: -V reports one board; name one with -U,"
+		        " or none to report every board attached\n");
+		return 1;
 	}
+
+	if (do_version)
+		version_status = ubertooth_print_versions(stdout, selectors[0]);
 	if (do_help)
 		usage(stdout);
 	if (do_version || do_help)
@@ -1216,7 +1272,11 @@ int main(int argc, char* argv[])
 				fprintf(report_stream, "??:??:??:%02X:%02X:%02X\n",
 					   (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
 			//btbb_print_afh_map(pn);
+			/* The walk hands the reference over, so each piconet
+			 * is released once it has been reported. */
+			btbb_piconet_unref(pn);
 		}
+		pn = NULL;
 	}
 	if(dumpfile != NULL)
 		fclose(dumpfile);
