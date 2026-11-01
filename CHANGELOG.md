@@ -947,12 +947,6 @@
   itself still gives it up, and its line reads `searching for its clock and UAP
   again`.
 
-- Fixed: a `ubertooth-btle -p -d` dump left out the four records promiscuous
-  mode works a connection's parameters out from, so replaying the dump with
-  `-i` printed the packets and no access address, CRC init, hop interval, or
-  hop increment -- the only record of which connection the capture belonged
-  to. Those records now go in the dump with the packets.
-
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
   the user asked for unused. A pager cannot tell the ID packet that
@@ -1573,8 +1567,9 @@
   from a handful of packets can be a guess, and a wrong one showed up as a
   follow that decoded nothing and stayed that way for the rest of the run.
   The tool now reports `warning: the clock being followed was not this
-  piconet's; searching for it again`, takes the board off that clock and
-  recovers one again, keeping the lower address part it has already found.
+  piconet's; searching for its clock and UAP again`, takes the board off that
+  clock and recovers one again, keeping the lower address part it has already
+  found.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
 - `ubertooth-rx` also gives up a clock its follow has gone quiet on. A clock
   that is wrong only in the high bits checks out every header it receives and
@@ -1582,8 +1577,8 @@
   packet in eighteen and no header ever fails: such a follow decoded next to
   nothing and kept the clock forever. A follow that hears no packet of its
   piconet for a minute now reports `warning: nothing of this piconet has been
-  heard on the clock being followed; searching for it again` and recovers a
-  clock again, as it does for a clock the decoder gives up. A minute is long
+  heard on the clock being followed; searching for its clock and UAP again`
+  and recovers a clock again, as it does for a clock the decoder gives up. A minute is long
   enough that no working link reaches it, and giving a clock up rules it out,
   so a wrong clock is given up only on a link slow enough for its one packet
   in eighteen to leave a gap that long.
@@ -2810,6 +2805,14 @@ Fixes with no visible change in normal use.
   did the same three things in blocks of their own, and a request that arrived
   in the same connection event as the end of the connection was left set
   behind the follow it had asked to stop.
+
+- A low-energy capture's dump holds the four records promiscuous mode works a
+  connection's parameters out from -- the access address, CRC init, hop
+  interval, and hop increment -- which the low-energy callback used to return
+  on before it reached the write. They are the only record of which connection
+  a promiscuous capture belongs to, so a replay of such a dump had the packets
+  and no way to say what they belonged to. No tool pairs a dump with the
+  low-energy callback today, so nothing a user runs changes.
 
 - `ubertooth-dfu` reads a board that left the bus between being listed and
   being opened as a board that is not in the bootloader, which is what it is,

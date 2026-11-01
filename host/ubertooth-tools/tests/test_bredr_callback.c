@@ -1885,12 +1885,14 @@ MU_TEST(a_uap_the_user_named_is_stated_again_when_the_library_drops_a_clock)
 	btbb_piconet_unref(pn);
 }
 
-/* A clock given up is not the only place the library drops the UAP: discovery
- * starting over does it too, from five places of its own -- a candidate list
- * that winnows to nothing, a rechoose that finds no candidate, a remembered
- * hop pattern that fills up. None of them warns, and none of them can know
- * the user named the UAP. So the restatement is per packet, and this is the
- * case that says so: the UAP goes back with no clock lost and nothing said.
+/* Giving a clock up is where the UAP is really lost, but it is not the only
+ * place the library stops holding one. Discovery starting over keeps the UAP
+ * and clears its valid flag, and one of its restarts -- the remembered hop
+ * pattern filling up -- returns before the line that would set the flag
+ * again, so the record written for that packet would carry no reference UAP.
+ * None of that warns, and none of it can know the user named the UAP. So the
+ * restatement is per packet, and this is the case that says so: the UAP goes
+ * back with no clock lost and nothing said.
  *
  * The library drop is faked by clearing the flag, which is what its reset()
  * does, because the faked decoder entry point does not run the real one. */

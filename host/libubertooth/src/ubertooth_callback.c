@@ -1271,7 +1271,6 @@ void cb_btle(ubertooth_t* ut, void* args)
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		return;
 
-	/* Dump to the file named with -d, if there is one. */
 	dump_one_record(rx, systime);
 
 	/* A packet too long for one record arrives as several. Nothing below
@@ -1860,9 +1859,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 		}
 	}
 
-	/* If dumpfile is specified, write out all banks to the
-	 * file. There could be duplicate data in the dump if more
-	 * than one LAP is found within the span of NUM_BANKS. */
+	/* The dump can hold the same symbols twice, because a bank is written
+	 * once per LAP found within the span of NUM_BANKS. */
 	dump_one_record(rx, systime);
 
 	r = btbb_process_packet(pkt, pn);
