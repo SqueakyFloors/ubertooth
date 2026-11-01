@@ -285,8 +285,11 @@ int cmd_rx_generic(struct libusb_device_handle* devh);
  * to GENERIC_TX_MAX_PAYLOAD bytes.
  *
  * The board answers the request before it transmits, so a return of 0 says
- * the packet was accepted rather than that it is on the air. It cannot take
- * the next one until this packet has gone out.
+ * the packet was accepted rather than that it is on the air. It answers no
+ * request at all while the packet is going out, so a caller sending several
+ * has to leave a gap between them: see TX_GENERIC_GAP_US in ubertooth-tx.c
+ * for the measured figure. Sent back to back, the second one comes back as a
+ * transfer error.
  *
  * Returns 0, or a negative libusb error already reported; -1 for a payload
  * the board would refuse, which is reported here. */

@@ -83,12 +83,14 @@ What a receiving Ubertooth gives back is the sync word it matched and a fixed
 whole on the air and is reported only that far. A payload shorter than 32
 bytes is followed in the record by whatever was next in the radio's FIFO.
 
-`-n` hands the board one request per packet. The board answers each request
-before it transmits and answers nothing while a packet is going out, so it
-takes them one at a time and nothing here paces them; a request taken means
-the packet was accepted, not that anything received it. The transmit starts no
-mode on the board: when the last packet has gone out the board is back to
-whatever it was doing, so there is nothing to stop afterwards.
+`-n` hands the board one request per packet, a few milliseconds apart. The
+board answers each request before it transmits, so a request taken means the
+packet was accepted and not that anything received it; and it answers no
+request at all while a packet is going out, which is why the requests are
+spaced rather than sent back to back. A run of packets therefore goes out at
+roughly 250 a second, and the gap is not settable. The transmit starts no mode
+on the board: when the last packet has gone out the board is back to whatever
+it was doing, so there is nothing to stop afterwards.
 
 ## TRANSMIT POWER
 

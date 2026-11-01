@@ -35,6 +35,23 @@
  * board to. */
 #define TX_GENERIC_DEFAULT_CHANNEL BT_FREQ_MIN
 
+/*
+ * How long to leave between one generic transmit request and the next.
+ *
+ * The board answers no USB request at all while a packet is going out, and a
+ * host controller that gives up on an unanswered control transfer rather than
+ * retrying it hands the request back as a transfer error. So the requests have
+ * to be spaced, and the board is the only thing that knows when it is done:
+ * nothing it reports afterwards tells a packet that has gone out from one the
+ * mode loop has not started yet.
+ *
+ * Measured on two boards: with no gap, and with 200 or 500 us, the second
+ * request of a run failed every time ("Input/Output Error (libusb -1)"); with
+ * 1 ms, ten of ten were taken. This is twice the figure that worked, which
+ * puts a run of packets at about 4 ms each.
+ */
+#define TX_GENERIC_GAP_US 2000
+
 static void usage(FILE *file)
 {
 	fprintf(file, "ubertooth-tx - transmit from an Ubertooth\n");
@@ -62,10 +79,10 @@ static void usage(FILE *file)
 /*
  * Hand the board the generic packet count times, one request each.
  *
- * The board answers each request before it transmits, and it answers no
- * request while a packet is going out, so the requests are handed over one at
- * a time by the board itself: nothing here has to pace them. What a request
- * taken means is that the packet was accepted, not that it was received.
+ * The board answers each request before it transmits, so a request taken
+ * means the packet was accepted rather than that it is on the air, and the
+ * requests are spaced by TX_GENERIC_GAP_US above because the board cannot
+ * answer the next one until this packet has gone out.
  *
  * Nothing is printed on success. There is no mode to stop afterwards either:
  * the firmware transmits one packet per request and goes back to what it was
@@ -91,6 +108,8 @@ static int transmit_generic(ubertooth_t* ut, uint32_t syncword, int channel,
 		 * taken: the board is mid-packet or idle, never left in a mode. */
 		if (ubertooth_stopping(ut))
 			break;
+		if (i > 0)
+			usleep(TX_GENERIC_GAP_US);
 		if (cmd_tx_generic_packet(ut->devh, syncword, (uint16_t)channel,
 		                          (uint8_t)pa_level, payload,
 		                          payload_len) < 0)
