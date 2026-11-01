@@ -1282,7 +1282,8 @@ MU_TEST(a_truncated_write_stops_the_follow_and_adds_no_second_line)
 	 * what this pins is that the tool adds none either. */
 	mu_assert(strstr(r.err, "error:") == NULL, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
-	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(0, fake.stops);
+	mu_assert_int_eq(1, fake.closes);
 	mu_assert(fake.dev_fd_closed, "the run gave the adapter handle back");
 
 	reset_fake();
