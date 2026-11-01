@@ -152,8 +152,8 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
  * over the bytes already read out of it, so it answers a question about the
  * read position rather than about the packet (see cc2400_fifo_read()). The
  * range test reads exactly its own packet length; the generic receive reads a
- * fixed 32 bytes, so its verdict is only aligned for a payload that fills
- * them.
+ * fixed 32 bytes, so a 32-byte payload is where its verdict lines up with
+ * the packet.
  */
 #define GRMDM_BUFFERED_MASK 0x1800
 #define GRMDM_BUFFERED      0x0800

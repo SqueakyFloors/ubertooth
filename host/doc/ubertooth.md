@@ -504,9 +504,9 @@ What has to agree between the two, and what does not:
    programs, so the preamble, the part of the sync word matched, and the CRC
    all match. The CRC bit is what makes the record's CRC byte mean anything:
    with it clear the radio reports a CRC_OK for packets that carry no CRC at
-   all. The payload above is 32 bytes for the same reason -- the receive reads
-   a fixed 32 and the radio answers the CRC question at whatever point the
-   read stopped, so a shorter payload leaves that byte saying nothing. See
+   all. The payload above is 32 bytes because that is the length the CRC byte
+   has been measured at: the receive reads a fixed 32 bytes and the radio
+   answers the CRC question at the point the read stopped. See
    ubertooth-dump(1), THE GENERIC RECEIVE.
  - the sync word: `-a cb876543` is SYNCH `0xcb87` and SYNCL `0x6543`.
  - the channel, less 1 MHz at the receiving end: a transmit tunes the carrier

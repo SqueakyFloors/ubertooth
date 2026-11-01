@@ -270,7 +270,7 @@ ubertooth\-tx \-U 1 \-g 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c
 .P
 What has to agree between the two, and what does not:
 .IP "\(bu" 4
-GRMDM, exactly: \fB0x0f71\fR at the receiving end is the value the transmit programs, so the preamble, the part of the sync word matched, and the CRC all match\. The CRC bit is what makes the record's CRC byte mean anything: with it clear the radio reports a CRC_OK for packets that carry no CRC at all\. The payload above is 32 bytes for the same reason \-\- the receive reads a fixed 32 and the radio answers the CRC question at whatever point the read stopped, so a shorter payload leaves that byte saying nothing\. See ubertooth\-dump(1), THE GENERIC RECEIVE\.
+GRMDM, exactly: \fB0x0f71\fR at the receiving end is the value the transmit programs, so the preamble, the part of the sync word matched, and the CRC all match\. The CRC bit is what makes the record's CRC byte mean anything: with it clear the radio reports a CRC_OK for packets that carry no CRC at all\. The payload above is 32 bytes because that is the length the CRC byte has been measured at: the receive reads a fixed 32 bytes and the radio answers the CRC question at the point the read stopped\. See ubertooth\-dump(1), THE GENERIC RECEIVE\.
 .IP "\(bu" 4
 the sync word: \fB\-a cb876543\fR is SYNCH \fB0xcb87\fR and SYNCL \fB0x6543\fR\.
 .IP "\(bu" 4

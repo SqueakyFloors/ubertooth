@@ -4064,15 +4064,21 @@ void bt_peripheral_le() {
  * One more byte after the payload: 1 when the radio said this packet's CRC
  * checked out, 0 when it did not.
  *
- * Two things have to hold for it to mean anything, and neither is this
- * firmware's to decide. GRMDM has to have the CRC on at this end, which is
- * the host's doing; with it off the radio called packets carrying no CRC at
- * all good. And the payload has to fill the fixed read below: STATUS_CRC_OK
- * compares the next two bytes in the FIFO against the CRC16 over the bytes
- * already read out of it (see cc2400_fifo_read()), so a shorter payload has
- * the read running past the CRC and the comparison lands on whatever followed
- * it. The read has no length to go by -- this framing carries none -- so the
- * receive records the answer and the man pages say when to believe it.
+ * It needs GRMDM to have the CRC on at this end to mean anything, which is
+ * the host's doing: with it off the radio called packets carrying no CRC at
+ * all good.
+ *
+ * The length it can be trusted at is the full read below. STATUS_CRC_OK is
+ * defined against the read position -- the next two bytes in the FIFO against
+ * the CRC16 over the bytes already read out of it (see cc2400_fifo_read(),
+ * where a range test that read the wrong number of bytes is what put that
+ * note there) -- and this read has no length to go by, because the framing
+ * carries none. A 32-byte payload is the case where the read stops where the
+ * CRC is, and the case the bench measured corruption at. Eight-byte payloads
+ * tracked the transmit's CRC bit as well, so the flag is not scrambled by the
+ * shorter read, but nothing has caught a corrupt short packet with it. The
+ * receive records the radio's answer; the man pages say where it has been
+ * checked.
  */
 #define RX_GENERIC_CRC_OFFSET (RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN)
 

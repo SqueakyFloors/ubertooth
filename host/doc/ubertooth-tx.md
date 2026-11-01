@@ -76,10 +76,9 @@ of what goes out: 6 preamble bytes of `01010101`, the whole 32-bit sync word,
 and the radio's CRC, which is GRMDM `0x0f71`. A board reading the packet has
 to be set to the same thing, and with the CRC bit set it can tell a packet
 with a bit error in it from a good one -- this framing has no other check. A
-32-byte payload is what makes that verdict trustworthy: the receive reads a
-fixed 32 bytes and the radio answers the CRC question wherever the read
-stopped, so a shorter payload leaves it meaningless. ubertooth-dump(1), THE
-GENERIC RECEIVE has the detail. ubertooth(7), GENERIC RADIO MODE lists the registers both
+32-byte payload is the length that verdict has been measured at: the receive
+reads a fixed 32 bytes and the radio answers the CRC question wherever the
+read stopped. ubertooth-dump(1), THE GENERIC RECEIVE has the detail. ubertooth(7), GENERIC RADIO MODE lists the registers both
 ends have to agree on and walks a packet from one board to another; this page
 covers only what the options do.
 

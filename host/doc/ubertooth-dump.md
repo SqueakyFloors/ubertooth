@@ -256,16 +256,22 @@ when the radio said the packet's CRC checked out and 0 when it did not, so
 `xxd -s 22 -l 33 packets.bin` shows the first packet's payload and its
 verdict.
 
-Two things have to hold for that byte to mean anything. GRMDM has to have the
-CRC on at this end -- with the bit clear the radio called packets that carried
-no CRC at all good -- and **the payload has to be the full 32 bytes**. The
-radio answers the CRC question about the read position rather than about the
-packet: it compares the two bytes after what has been read out of the FIFO
-against the CRC16 over what was read. The capture reads a fixed 32 bytes,
-because this framing carries no length, so a shorter payload leaves the
-comparison landing on whatever followed the CRC and the byte says nothing.
+That byte needs GRMDM to have the CRC on at this end to mean anything: with
+the bit clear the radio called packets that carried no CRC at all good.
 `ubertooth-tx -g` transmits with the CRC on, and ubertooth(7), GENERIC RADIO
-MODE sets a receiving board to the same value and sends 32 bytes.
+MODE sets a receiving board to the same value.
+
+**Trust it at a 32-byte payload.** The datasheet defines the flag against the
+read position -- the two bytes after what has been read out of the FIFO,
+against the CRC16 over what was read -- and this capture reads a fixed 32
+bytes, because the framing carries no length. A 32-byte payload is therefore
+the case where the read stops where the CRC is, and it is the case that was
+measured: of 200 packets one way, the three whose payload came out corrupted
+were the three the radio marked bad. A shorter payload tracked the transmit's
+CRC too when it was tried (30 packets of 8 bytes: every record good with the
+CRC on, every record bad with it off), so the flag is not simply scrambled,
+but nothing has shown it catching a corrupt short packet. Treat it as
+unverified there rather than as a check.
 
 The configuration has to be in the radio before the capture starts, and it
 survives only while the board is idle: a mode ending puts the radio back
