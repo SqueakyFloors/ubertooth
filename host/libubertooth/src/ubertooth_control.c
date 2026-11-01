@@ -1121,8 +1121,15 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset, int cl
 {
 	int i;
 	uint8_t data[6];
+	/* The offset is a difference between two clocks, so it is often
+	 * negative, and the firmware adds it to a 32-bit counter. Shifted as an
+	 * unsigned value, because shifting a negative one right is left to the
+	 * compiler to define; the bytes the board gets are the same on the
+	 * compilers that define it as an arithmetic shift. */
+	uint32_t offset = (uint32_t)clkn_offset;
+
 	for(i=0; i < 4; i++)
-		data[i] = (clkn_offset >> (8*(3-i))) & 0xff;
+		data[i] = (offset >> (8*(3-i))) & 0xff;
 
 	data[4] = (clk100ns_offset >> 8) & 0xff;
 	data[5] = (clk100ns_offset >> 0) & 0xff;

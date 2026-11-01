@@ -98,16 +98,11 @@ Nothing is set on the Ubertooth until the map has been accepted, so a refused \f
 .SH "THE CLOCK THE BOARD HOPS ON"
 A piconet's hopping sequence is driven by its clock, so following one means putting the board on that clock\. The tool works it out in three reads, taken one after another just before the board is told to hop: the local Bluetooth device's clock, how far the target's clock is from it, and the board's own clock\. The board is given the difference between the target's clock and its own, which is what it adds to the clock it is already running\.
 .P
-The board's clock is left alone\. Earlier releases zeroed it instead and sent the target's clock as it stood, which came to the same thing while the board was idle: the firmware holds its clock at zero and its timer stopped whenever no capture is running\.
+The board's clock is left alone, where earlier releases zeroed it and sent the target's clock as it stood\. The two came to the same thing on an idle board: the firmware holds its clock at zero with its timer stopped whenever no capture is running\.
 .P
-The run that did not fit is a follow of a board an earlier run left streaming, which happens whenever a capture is killed rather than interrupted\. The clock is running on such a board, and then:
-.IP "\(bu" 4
-the follow hopped as far past the target's clock as its own setup had taken, so a slow machine, a busy USB bus or a capture file that took a moment to create each cost accuracy;
-.IP "\(bu" 4
-the reset moved the clock the records already queued on the board were stamped with, which put the timestamps of the capture out by hours\.
-.IP "" 0
+The board whose clock is running is one an earlier run left streaming Classic symbols, which is what a killed capture leaves behind\. Following such a board used to hop as far past the target's clock as the follow's own setup had taken, so a slow machine, a busy USB bus or a capture file that took a moment to create each cost accuracy; the difference does not depend on the setup at all\. A follow also no longer resets the clock a later run on the same board reads\.
 .P
-Neither now happens\. A follow also no longer resets the clock a later run on the same board reads\.
+A board left in some other mode \(em a spectrum sweep, a low energy capture \(em is not helped, and was not before: the firmware ends that mode before it starts the follow, and the teardown stops the clock and forgets the offset that came with the request, so the board hops from zero\. Stop such a board with \fBubertooth\-util \-S\fR before following with it\.
 .P
 \fB\-w\fR compensates the time between measuring the clocks and the board acting on them: the default is five 625us timeslots, added to the offset\. Raise it if a follow finds nothing on a machine slower than the one the default suits\.
 .SH "EXAMPLES"
