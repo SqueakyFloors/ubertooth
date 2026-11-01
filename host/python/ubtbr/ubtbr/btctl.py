@@ -149,19 +149,30 @@ LLID_TO_STR = {
 	LLID_LMP:		"LMP"
 }
 
-# The L2CAP signalling channel, the two codes of the echo procedure, and the
-# largest payload the channel carries (Core v5.4 | Vol 3, Part A, 4, 4.8, and
-# 4.9). An echo request has to be answered with a response carrying the same
-# identifier, which is what makes `l2ping` report a round trip.
+# The L2CAP signalling channel and the two codes of the echo procedure
+# (Core v5.4 | Vol 3, Part A, 4, 4.8, and 4.9). An echo request has to be
+# answered with a response carrying the same identifier, which is what makes
+# `l2ping` report a round trip.
 L2CAP_CID_SIGNALLING	= 1
 L2CAP_ECHO_REQ		= 0x08
 L2CAP_ECHO_RSP		= 0x09
-L2CAP_SIGNALLING_MTU	= 48
 
 def l2cap_signalling_packet(code, identifier, data=b""):
 	"""One L2CAP packet on the signalling channel, ready for an ACL payload."""
 	command = pack("<BBH", code, identifier, len(data)) + data
 	return pack("<HH", len(command), L2CAP_CID_SIGNALLING) + command
+
+def acl_payload(acl):
+	"""The bytes a received ACL packet's own payload header says it carries.
+
+	A packet is padded out to the size of the packet kind that carried it, so
+	what follows the payload is not data the sender put there. For a packet
+	built here rather than received there is no padding and no declared
+	length, and the data is all of it.
+	"""
+	if acl.raw_data is None:
+		return acl.data
+	return acl.data[:max(acl.raw_size - acl.hlen, 0)]
 
 def l2cap_echo_request(acl):
 	"""The identifier and data of an echo request, or None for anything else.
@@ -171,12 +182,15 @@ def l2cap_echo_request(acl):
 	in the smallest packet the link carries, so there is nothing here to
 	reassemble a fragmented one for.
 	"""
-	if acl.llid != LLID_L2CAP_START or len(acl.data) < 8:
+	if acl.llid != LLID_L2CAP_START:
 		return None
-	length, cid = unpack("<HH", acl.data[:4])
+	payload = acl_payload(acl)
+	if len(payload) < 8:
+		return None
+	length, cid = unpack("<HH", payload[:4])
 	if cid != L2CAP_CID_SIGNALLING:
 		return None
-	code, identifier, command_length = unpack("<BBH", acl.data[4:8])
+	code, identifier, command_length = unpack("<BBH", payload[4:8])
 	if code != L2CAP_ECHO_REQ:
 		return None
 	# Zero is not a valid identifier for a command, so there is nothing to
@@ -190,20 +204,11 @@ def l2cap_echo_request(acl):
 	# allows and this does not take apart.
 	if length != 4 + command_length:
 		return None
-	# A command larger than the signalling channel carries gets no answer.
-	# A stack would refuse it and say what it can take; this tool is not one,
-	# and dropping it keeps what goes back on the link to a size the channel
-	# allows. The MTU bounds the L2CAP payload, which is what the length
-	# field counts, so a largest-sized command has a length of exactly the
-	# MTU: 44 bytes of echo data, which is what l2ping sends by default.
-	if length > L2CAP_SIGNALLING_MTU:
+	# A command that runs past the payload the sender declared is not one
+	# this answers: the bytes it would echo back are the packet's padding.
+	if len(payload) < 8 + command_length:
 		return None
-	# The packet is padded out to the size of the packet kind that carried
-	# it, so the data is taken by the length the command gives rather than
-	# to the end of the payload.
-	if len(acl.data) < 8 + command_length:
-		return None
-	return identifier, acl.data[8:8+command_length]
+	return identifier, payload[8:8+command_length]
 
 def reverse8(num):
 	rev8_tbl = [
@@ -890,6 +895,8 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# Set when a connection comes up and says so; until then there is no
 		# address to send a packet on.
 		self.lt_addr = None
+		# Set when the link setup finishes, which is when data may go out.
+		self._setup_done = False
 
 	def _start(self):
 		self._bt.send_page_scan_cmd()
@@ -948,26 +955,29 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# this board gets its round trip. Nothing else on the signalling
 		# channel is handled; this board offers no service to connect to.
 		request = l2cap_echo_request(acl)
-		if request is None or self.lt_addr is None:
+		# Nothing goes out before the link setup has finished, which is the
+		# point at which both ends have agreed the connection is open, and
+		# nothing goes out without the address a connection gives.
+		if request is None or not self._setup_done or self.lt_addr is None:
 			return
 		identifier, data = request
 		answer = l2cap_signalling_packet(L2CAP_ECHO_RSP, identifier, data)
 		# A response has to carry the request's data back, and this link
-		# sends one-slot packets only: the feature mask offers no others and
+		# sends DM1 packets: the feature mask offers no multi-slot kinds and
 		# a peer asking to send them is refused. A request too big to answer
 		# in one is left alone rather than answered in a packet the peer has
 		# not agreed to receive. `ubertooth-btbr`'s own `l2ping` sends four
-		# bytes and fits; a standard host's default is 44 and does not.
-		if acl_type_for_size(len(answer))[0] not in (DM1, DH1):
-			warn("an L2CAP echo request of %s needs more than the one slot "
-				"this link sends, so it goes unanswered"
+		# bytes of echo data and fits; nine is the largest that does.
+		if len(answer) > acl_type_find(DM1)[2]:
+			warn("an L2CAP echo request of %s is more than this link can "
+				"answer in one packet, so it goes unanswered"
 				%byte_count(len(data)))
 			return
 		self.send_acl(LLID_L2CAP_START, answer)
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")
-		pass
+		self._setup_done = True
 
 class BTCtlPagingCmd(BTCtlCmd):
 	LMP_CLS = LMPCentral

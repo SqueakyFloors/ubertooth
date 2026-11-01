@@ -737,7 +737,6 @@ class LMPCentral(LMP):
 		# Only one is outstanding at a time, which is what lets a refusal
 		# be matched to what it answers.
 		self._awaiting = None
-
 		super().__init__(con)
 
 	def start(self):
@@ -798,6 +797,10 @@ class LMPCentral(LMP):
 			# lead to: a peer refusing that is declining the connection
 			# itself, which is a warning rather than a line in the trace.
 			warn("the peer refused %s: %s"%(op2str(refused), why))
+			# The request is answered, refusal and all, so nothing is
+			# outstanding any more. Left set, it let a later
+			# LMP_setup_complete open a connection the peer had declined.
+			self._awaiting = None
 			return
 		log.info("The peer refused %s: %s"%(op2str(refused), why))
 		setattr(self, field, REFUSED)

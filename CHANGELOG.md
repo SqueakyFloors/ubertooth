@@ -841,10 +841,9 @@
   neither sent the first and the link setup never finished. The central now
   sends its own as soon as its connection request is accepted, and a board in
   `page_scan`, which `discoverable` also runs, answers an L2CAP echo request
-  small enough to reply to in the one-slot packets this link sends, so
-  `l2ping` between two boards reports a round trip. A bigger request, such as
-  the 44 bytes a standard host's `l2ping` sends by default, is reported in a
-  `warning:` line and left unanswered.
+  small enough to reply to in the packets this link sends, so `l2ping` between
+  two boards reports a round trip. A request larger than that is not
+  answered; ubertooth-btbr(1), LIMITATIONS says how large it may be.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up

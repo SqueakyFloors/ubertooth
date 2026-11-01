@@ -3387,7 +3387,7 @@ print("ubtbr: -V and -h need no Python libusb1 package")
 
 # Two boards used to sit in a connection that never finished its setup: each
 # side sent LMP_setup_complete only on receiving one, so neither sent the
-# first. 4.1.2 has each end send one and wait for the other's, and the
+# first. 4.1.1 has each end send one and wait for the other's, and the
 # central's goes out as soon as its connection request is accepted.
 
 class CountingConnection(RecordingConnection):
@@ -3515,11 +3515,30 @@ assert btctl.l2cap_echo_request(
 padded = btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req + b"\x00" * 5)
 assert btctl.l2cap_echo_request(padded) == (0xc8, ECHO_DATA), padded.data.hex()
 
-# The largest request the signalling channel carries parses: the MTU bounds
-# the L2CAP payload, so a 44-byte echo payload under a 4-byte command header
-# is exactly the limit. Whether it can be answered is a separate question,
-# settled below.
-largest = b"y" * (btctl.L2CAP_SIGNALLING_MTU - 4)
+
+def received_dm1(payload):
+    """A DM1 as the receive path unpacks one: payload header, then padding."""
+    header = (len(payload) << 3) | (1 << 2) | btctl.LLID_L2CAP_START
+    air = bytes([header]) + payload
+    return btctl.BTCtlACLPkt.unpack(btctl.DM1, air.ljust(1 + 17, b"\x00"))
+
+
+# A request that arrived in a real packet reads the same.
+assert btctl.l2cap_echo_request(received_dm1(echo_req)) == (0xc8, ECHO_DATA)
+
+# A packet whose payload header says the data ends before the command is not
+# answered out of the padding after it: the command here claims four bytes of
+# echo data that the sender never declared.
+short_declared = received_dm1(echo_req)
+assert short_declared.raw_size == 1 + len(echo_req), short_declared.raw_size
+truncated = btctl.BTCtlACLPkt.unpack(btctl.DM1,
+    bytes([(6 << 3) | (1 << 2) | btctl.LLID_L2CAP_START])
+    + echo_req.ljust(17, b"\x00"))
+assert btctl.l2cap_echo_request(truncated) is None, truncated.data.hex()
+
+# A request whose data runs to the end of a larger packet parses; whether it
+# can be answered is a separate question, settled below.
+largest = b"y" * 44
 biggest_req = btctl.l2cap_signalling_packet(
     btctl.L2CAP_ECHO_REQ, 0xc8, largest)
 assert btctl.l2cap_echo_request(
@@ -3550,11 +3569,9 @@ for not_a_request in (
         btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
             struct.pack("<HH", 9, btctl.L2CAP_CID_SIGNALLING)
             + echo_req[4:] + b"\x00"),
-        # one byte larger than the signalling channel carries, so answering
-        # it would put that much back on the link
-        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
-            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 1,
-                b"x" * (btctl.L2CAP_SIGNALLING_MTU - 3)))):
+        # a continuation fragment of a request too big to arrive in one
+        # packet, which nothing here reassembles
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_CONT, b"y" * 20)):
     assert btctl.l2cap_echo_request(not_a_request) is None, \
         not_a_request.data.hex()
 
@@ -3571,13 +3588,18 @@ answered = []
 command.send_acl = lambda llid, data, flow=1: answered.append((llid, data))
 
 # Until a connection has said which address to send on there is nothing to
-# answer with, and the request is dropped rather than raising.
+# answer with, and the request is dropped rather than raising. Nor is one
+# answered before the link setup has finished, which is the point at which
+# both ends have agreed the connection is open.
 assert command.lt_addr is None, command.lt_addr
-with contextlib.redirect_stdout(io.StringIO()):
-    command._handle_l2cap(ReceivedPacket(
-        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
-assert answered == [], answered
+for lt_addr in (None, 1):
+    command.lt_addr = lt_addr
+    with contextlib.redirect_stdout(io.StringIO()):
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    assert answered == [], (lt_addr, answered)
 
+command.handle_setup_complete()
 command.lt_addr = 1
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
@@ -3597,10 +3619,11 @@ with contextlib.redirect_stdout(io.StringIO()):
         btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA))))
 assert answered == [], answered
 
-# A reply has to fit the one-slot packets this link sends. Nine bytes of echo
-# data is the largest that does; ten needs three slots, which the peer has
-# not agreed to receive, so it is reported and left unanswered.
-for size, expected in ((9, btctl.DM1), (10, None)):
+# A reply has to fit the packets this link sends. Nine bytes of echo data is
+# the largest that does; ten would need a packet the peer has not agreed to
+# receive, so it is reported and left unanswered.
+one_packet = btctl.acl_type_find(btctl.DM1)[2]
+for size, answerable in ((9, True), (10, False)):
     answered.clear()
     warned = io.StringIO()
     with contextlib.redirect_stdout(io.StringIO()), \
@@ -3609,16 +3632,16 @@ for size, expected in ((9, btctl.DM1), (10, None)):
             btctl.LLID_L2CAP_START,
             btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8,
                 b"z" * size), bt_type=btctl.DH5)))
-    if expected is None:
-        assert answered == [], (size, answered)
-        assert warned.getvalue() == "warning: an L2CAP echo request of 10 " \
-            "bytes needs more than the one slot this link sends, so it goes " \
-            "unanswered\n", warned.getvalue()
-    else:
+    if answerable:
         assert len(answered) == 1, (size, answered)
-        assert btctl.acl_type_for_size(len(answered[0][1]))[0] == expected, \
+        assert len(answered[0][1]) <= one_packet, \
             (size, len(answered[0][1]))
         assert warned.getvalue() == "", warned.getvalue()
+    else:
+        assert answered == [], (size, answered)
+        assert warned.getvalue() == "warning: an L2CAP echo request of 10 " \
+            "bytes is more than this link can answer in one packet, so it " \
+            "goes unanswered\n", warned.getvalue()
 
 print("ubtbr: an L2CAP echo request is answered with a response")
 

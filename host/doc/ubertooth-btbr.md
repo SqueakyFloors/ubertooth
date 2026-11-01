@@ -221,12 +221,13 @@ If no FHS appears, the peripheral won the race; try again.
 - Encryption is not implemented. Packets sent after a connection turns
   encryption on are reported as raw data, and the AFH map stops being
   followed, because the LMP packet carrying it is encrypted too.
-- An L2CAP echo request is answered only when the reply fits one of the
-  one-slot packets this link sends, which leaves room for 9 bytes of echo
-  data. `l2ping` here sends 4 and gets a reply; a standard host's `l2ping`
-  sends 44 by default, and that request is reported in a `warning:` line and
-  left unanswered rather than answered in a packet the peer has not agreed to
-  receive. `l2ping -s 4` from such a host is answered.
+- An L2CAP echo request is answered when the whole request arrived in one
+  packet and the reply fits one too, which leaves room for 9 bytes of echo
+  data. `l2ping` here sends 4 and gets a reply. A larger request is not
+  reassembled from the fragments it arrives in and is not answered, so a
+  standard host's `l2ping`, which sends 44 bytes of data by default, gets no
+  reply unless it is asked for a smaller payload. The packets it sends are
+  still reported, as every received packet is.
 - The link layer carries Asynchronous Connection-Less (ACL) traffic only, and
   does not do role switching or the LMP procedures around it. A peer asking to
   send multi-slot packets is refused as well, and the feature mask this end
