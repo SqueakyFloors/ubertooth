@@ -17,13 +17,14 @@ FW_BTBR := ../btbr
 FW_COMMON := ../common
 FW_LPCUSB := ../common/lpcusb/target
 FW_BOOT := ../bootloader
+FW_BL_UPDATE := ../bl_update
 FW_BADGE := ../tc13badge
 FW_DIR := ..
 HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -715,6 +716,24 @@ $(BINDIR)/test_bl_version: test_bl_version.c minunit.h source_scan.h \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
 		-o $@ test_bl_version.c $(FW_BOOT)/bl_version.c \
 		$(FW_COMMON)/bl_report.c
+
+# Installing a bootloader. ../common/bl_update.c reaches the part only through
+# function pointers, so the real file is compiled here and the test models a
+# part's flash under it. Its last cases read the linker script, the image's
+# makefile, the assembler file that carries the bootloader, and the image's own
+# source as text, because the offset the host reads the payload from is agreed
+# between all of them; every one is a prerequisite, or editing it would leave
+# the scan that guards it unrun.
+$(BINDIR)/test_bl_update: test_bl_update.c minunit.h source_scan.h \
+		$(FW_COMMON)/bl_update.c $(FW_COMMON)/bl_update.h \
+		$(FW_COMMON)/sections.ld \
+		$(FW_BL_UPDATE)/Makefile $(FW_BL_UPDATE)/bl_payload.S \
+		$(FW_BL_UPDATE)/bl_update_main.c | $(BINDIR)
+	$(CC) $(CFLAGS) -I$(FW_COMMON) $(CPPFLAGS) \
+		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
+		-DFW_BL_UPDATE_DIR='"$(FW_BL_UPDATE)"' \
+		-o $@ test_bl_update.c $(FW_COMMON)/bl_update.c
 
 # The firmware info block every image carries. ../common/fw_info.c is compiled
 # here with the host compiler, against the stub version.h in stubs-fwinfo/, so

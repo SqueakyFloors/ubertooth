@@ -62,6 +62,25 @@ target_include_directories(test-dfu-recovery PRIVATE ../src)
 
 add_test(NAME dfu-recovery COMMAND test-dfu-recovery)
 
+# What --update-bootloader reads out of an updater image, and every refusal it
+# makes before a board is touched. The refusals live in libubertooth's
+# ubertooth_interface.h, where the firmware reads them too, so this and
+# firmware/tests/test_bl_update.c exercise one implementation from both sides.
+add_executable(test-bl-update-file
+	test_bl_update_file.c
+	../src/bl_update_file.c
+	../src/dfu_recovery.c
+	../src/dfu_transition.c)
+
+if(libubertooth_SOURCE_DIR)
+	target_include_directories(test-bl-update-file PRIVATE ${libubertooth_SOURCE_DIR}/src)
+else()
+	target_include_directories(test-bl-update-file PRIVATE ${LIBUBERTOOTH_INCLUDE_DIR})
+endif()
+target_include_directories(test-bl-update-file PRIVATE ../src)
+
+add_test(NAME bl-update-file COMMAND test-bl-update-file)
+
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # ubertooth-dfu checks the image before it opens a device, so the whole
@@ -676,7 +695,8 @@ set_tests_properties(ego-main PROPERTIES TIMEOUT 10)
 add_executable(test-dfu-main
 	test_dfu_main.c
 	../src/dfu_recovery.c
-	../src/dfu_transition.c)
+	../src/dfu_transition.c
+	../src/bl_update_file.c)
 target_link_libraries(test-dfu-main opt-parse-for-tests)
 if(libubertooth_SOURCE_DIR)
 	target_include_directories(test-dfu-main PRIVATE ${libubertooth_SOURCE_DIR}/src)
