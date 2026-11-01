@@ -809,8 +809,9 @@ cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
 #
 # UBERTOOTH_INSTALL_LIBDIR is the build's own answer, written to its cache for
 # this: it is CMAKE_INSTALL_LIBDIR, or what LIB_SUFFIX asked for instead. The
-# entry's type is not matched, because a value this script did not pass is in
-# the cache as UNINITIALIZED rather than as the type the build declares.
+# entry's type is not matched, so the read does not rest on which type the
+# entry carries: a cached value has the type whichever side put it there gave
+# it, and only the value is wanted here.
 UBERTOOTH_LIBDIR="$(sed -n 's/^UBERTOOTH_INSTALL_LIBDIR:[^=]*=//p' \
 	"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
 case "$UBERTOOTH_LIBDIR" in
