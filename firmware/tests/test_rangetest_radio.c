@@ -61,6 +61,11 @@ struct scan {
 	char ticks_text[256];   /* the conversion as written */
 
 	int rx_off_line;        /* where the repeater stops receiving */
+	/* The end of the repeater's reply burst: its last STX, the wait for the
+	 * transmit to finish, and the SRFOFF that switches the radio off. */
+	int repeater_tx_strobe;
+	int repeater_tx_done_wait;
+	int repeater_tx_off;
 
 	int rangetest_fifo_write;  /* cc2400_fifo_write() in the range test */
 	int rangetest_fifo_read;   /* cc2400_fifo_read() in it */
@@ -470,6 +475,20 @@ static int scan_source(const char *path, struct scan *s)
 		    s->rangetest_discard == 0)
 			s->rangetest_discard = lineno;
 
+		if (in_repeater) {
+			if (strstr(line, "cc2400_strobe(STX)") != NULL)
+				s->repeater_tx_strobe = lineno;
+			/* After the last STX, so the two below are the ones at
+			 * the end of the burst and not the receive teardown's. */
+			if (s->repeater_tx_strobe > 0 &&
+			    strstr(line, "STATE_STROBE_FS_ON") != NULL &&
+			    s->repeater_tx_done_wait == 0)
+				s->repeater_tx_done_wait = lineno;
+			if (s->repeater_tx_strobe > 0 &&
+			    strstr(line, "SRFOFF") != NULL &&
+			    s->repeater_tx_off == 0)
+				s->repeater_tx_off = lineno;
+		}
 		/* The SRFOFF that ends the repeater's receive, which has to come
 		 * before the delay rather than after it. */
 		if (in_repeater && strstr(line, "SRFOFF") != NULL &&
@@ -1057,6 +1076,43 @@ MU_TEST(test_the_fifo_is_reached_through_the_helpers)
 }
 
 /*
+ * The repeater's last reply packet leaves the air before the radio is switched
+ * off.
+ *
+ * cc2400_rangetest() waits for the state machine to report STATE_STROBE_FS_ON
+ * -- which it reaches when a transmit finishes -- before its own SRFOFF, and
+ * the repeater did not: it strobed SRFOFF straight after the last STX, so the
+ * sixteenth packet at the top amplifier level was cut off mid-air. The
+ * sender's CRC drops such a packet, which is why nothing reported it, and it
+ * is also why neither end of a range test can be used to check this. The wait
+ * is bounded and services USB, so it cannot hold the board.
+ */
+MU_TEST(test_the_repeaters_last_reply_finishes_before_the_radio_goes_off)
+{
+	char msg[768];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan found no cc2400_strobe(STX) in cc2400_repeater(), "
+	         "so it has no reply burst and the checks below would pass "
+	         "without reading anything", path);
+	mu_assert_fatal(s.repeater_tx_strobe > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: cc2400_repeater() has no SRFOFF after its reply burst, "
+	         "so it leaves the radio transmitting", path,
+	         s.repeater_tx_strobe);
+	mu_assert(s.repeater_tx_off > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: cc2400_repeater() strobes SRFOFF at line %d with no wait "
+	         "for STATE_STROBE_FS_ON between it and the last STX at line "
+	         "%d, so the last packet of the reply burst is cut off mid-air",
+	         path, s.repeater_tx_off, s.repeater_tx_strobe);
+	mu_assert(s.repeater_tx_done_wait > 0 &&
+	          s.repeater_tx_done_wait < s.repeater_tx_off, msg);
+}
+
+/*
  * Neither mode may start clocking the packet out of the FIFO the moment the
  * radio reports a sync word.
  *
@@ -1551,6 +1607,7 @@ int main(void)
 	MU_RUN(test_each_side_takes_only_its_own_packets);
 	MU_RUN(test_a_run_without_a_reply_clears_what_it_discarded_first);
 	MU_RUN(test_the_filter_asks_only_about_the_serial_number);
+	MU_RUN(test_the_repeaters_last_reply_finishes_before_the_radio_goes_off);
 	MU_RUN(test_the_read_waits_for_the_radio_to_have_the_packet);
 	MU_RUN(test_the_shared_fifo_transfers_keep_their_shape);
 	MU_RUN(test_the_badge_listens_past_the_repeaters_turnaround);

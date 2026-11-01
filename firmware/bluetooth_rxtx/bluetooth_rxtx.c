@@ -728,8 +728,11 @@ static void keep_for_next_mode_start(uint8_t what)
  * the dispatch below. The other is an E-GO request that a running E-GO loop
  * absorbs: that does the mode start's work inside the request handler,
  * ego_capture_reset() included, so the length the host stated a moment before
- * has to be put back there as well. The jam mode is dropped on an absorbed
- * request instead, because the requests that drop it run no reset.
+ * has to be put back there as well.
+ *
+ * Only this bit is cleared, so a jam mode kept for a mode start that has not
+ * happened yet is left waiting for one, which is what the other absorbable
+ * requests use drop_kept_settings() for.
  */
 static void apply_kept_cap_len(void)
 {
@@ -4199,8 +4202,19 @@ void rx_generic_sync(void) {
 		}
 		USRLED_SET;
 
-		/* See RX_FIFO_LEAD_BYTES: reading the moment the sync word
-		 * ends returns a byte 0 the radio has not written yet. */
+		/*
+		 * See RX_FIFO_LEAD_BYTES: reading the moment the sync word ends
+		 * returns a byte 0 the radio has not written yet.
+		 *
+		 * The lead is four byte times at 1 Mbit/s. This capture does
+		 * not set the modem up, so the rate is whatever the host wrote
+		 * to MDMCTRL, and the radio also has a 250 kbit/s mode; at that
+		 * rate the same wait is one byte rather than four. Still the
+		 * byte the wait exists for, with nothing to spare -- and the
+		 * record is wrong for another reason at that rate anyway, since
+		 * the read below takes about 14 us a byte and would outrun a
+		 * 32 us byte on the air for the whole record.
+		 */
 		rx_wait_for_fifo();
 		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
 		                 buf + RX_GENERIC_SYNCWORD_LEN);

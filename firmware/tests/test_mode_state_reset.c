@@ -122,9 +122,11 @@ static u8 stated_afh_map[10];
  * further.
  */
 #define KEEP_JAM_MODE   (1 << 0)
+#define KEEP_CAP_LEN    (1 << 1)
 
 static u8 keep_what;
 static u8 keep_jam_mode;
+static u8 keep_cap_len;
 
 /* Whether the board would transmit over the connection it is following, and
  * which modulation the host has asked the radio to receive. */
@@ -270,6 +272,8 @@ static void keep_for_next_mode_start(u8 what)
 		return;
 	if (what & KEEP_JAM_MODE)
 		keep_jam_mode = jam_mode;
+	if (what & KEEP_CAP_LEN)
+		keep_cap_len = packet_len;
 	keep_what |= what;
 }
 
@@ -292,6 +296,19 @@ static void apply_kept_settings(u8 starting_mode)
 		return;
 	if (what & KEEP_JAM_MODE)
 		jam_mode = keep_jam_mode;
+	if (what & KEEP_CAP_LEN)
+		packet_len = keep_cap_len;
+}
+
+/* apply_kept_cap_len(), which the absorbed E-GO request runs after its own
+ * reset: that request does the mode start's work inside the handler, so
+ * nothing else would put the length back. */
+static void apply_kept_cap_len(void)
+{
+	if (!(keep_what & KEEP_CAP_LEN))
+		return;
+	keep_what &= (u8)~KEEP_CAP_LEN;
+	packet_len = keep_cap_len;
 }
 
 /* cc2400_rx(), as far as the modulation is concerned: the radio is programmed
@@ -619,6 +636,7 @@ static int request_ego(u8 ego)
 	ego_mode = ego;
 	if (mode == MODE_EGO && requested_mode == MODE_EGO) {
 		ego_capture_reset();
+		apply_kept_cap_len();
 		forget_hop_state();
 		ego_restart = 1;
 	}
@@ -680,6 +698,16 @@ static void request_modulation(u8 mod)
 }
 
 /* UBERTOOTH_JAM_MODE, which ubertooth-btle sends before its mode request. */
+/* UBERTOOTH_RFCAT_SUBCMD, RFCAT_CAP_LEN. ubertooth-ego sends this BEFORE its
+ * mode request, unlike the channel and the access code, so the value is kept
+ * for the mode start it comes before rather than stated for a named mode. */
+static void request_cap_len(u8 len)
+{
+	packet_len = len;
+	keep_for_next_mode_start(KEEP_CAP_LEN);
+	board_poll();
+}
+
 static void request_jam_mode(u8 jam)
 {
 	jam_mode = jam;
@@ -766,6 +794,7 @@ static void board_reset(void)
 	ego_radio_channel = 0;
 	ego_radio_access_code = 0;
 	packet_len = DOCUMENTED_PACKET_LEN;
+	keep_cap_len = 0;
 	dispatch_held = 0;
 	stated_what = 0;
 	stated_for_mode = MODE_IDLE;
@@ -1508,6 +1537,76 @@ MU_TEST(a_mode_start_puts_the_access_code_back)
 	request_stop();
 	request_ego(EGO_FOLLOW);
 	mu_assert_int_eq(DOCUMENTED_ACCESS_CODE, access_code);
+}
+
+/*
+ * The capture length a run asks for reaches that run, by all three routes a
+ * mode can start.
+ *
+ * ubertooth-ego sends the length BEFORE its mode request -- unlike the channel
+ * and the access code, which go after it -- so the mode start's reset would
+ * throw it away if nothing kept a copy. Without the copy `ubertooth-ego -l N`
+ * would capture at the default and say nothing, which is worse than the
+ * carry-over the reset is there to stop.
+ */
+MU_TEST(a_capture_length_reaches_the_run_that_asked_for_it)
+{
+	/* From idle: no teardown runs, so the value the host set stands on its
+	 * own and nothing is kept. */
+	board_reset();
+	request_cap_len(40);
+	mu_assert_int_eq(0, (int)keep_what);
+	request_ego(EGO_FOLLOW);
+	mu_assert_int_eq(40, (int)packet_len);
+
+	/* From another mode: the reset runs, and the copy kept before the mode
+	 * request is put back after it. */
+	board_reset();
+	request_specan();
+	request_cap_len(24);
+	request_ego(EGO_FOLLOW);
+	mu_assert_int_eq(24, (int)packet_len);
+	mu_assert_int_eq(0, (int)keep_what);
+
+	/*
+	 * And on a board a killed run left capturing, where the E-GO request is
+	 * absorbed: no mode starts, so the request does the mode start's work
+	 * itself -- the reset included -- and has to put the length back there.
+	 */
+	board_reset();
+	request_ego(EGO_FOLLOW);
+	request_cap_len(32);
+	request_ego(EGO_CONTINUOUS_RX);
+	mu_assert_int_eq(MODE_EGO, mode);
+	mu_assert_int_eq(32, (int)packet_len);
+}
+
+/*
+ * And a length from a run that is over does not reach the next one, which is
+ * the carry-over this reset exists for: a second run that asks for nothing
+ * captures at the documented default and not at the first run's length.
+ */
+MU_TEST(a_capture_length_does_not_reach_the_next_run)
+{
+	board_reset();
+	request_specan();
+	request_cap_len(40);
+	request_ego(EGO_FOLLOW);
+	mu_assert_int_eq(40, (int)packet_len);
+
+	request_stop();
+	request_ego(EGO_FOLLOW);
+	mu_assert_int_eq(DOCUMENTED_PACKET_LEN, (int)packet_len);
+
+	/* The same on the absorbed path: the second run states no length, and
+	 * the reset inside the request handler is what puts it back. */
+	board_reset();
+	request_specan();
+	request_cap_len(48);
+	request_ego(EGO_FOLLOW);
+	mu_assert_int_eq(48, (int)packet_len);
+	request_ego(EGO_JAM);
+	mu_assert_int_eq(DOCUMENTED_PACKET_LEN, (int)packet_len);
 }
 
 /* And a code stated after the mode request survives the reset that mode start
@@ -2482,6 +2581,8 @@ int main(void)
 	MU_RUN(an_absorbed_capture_request_keeps_nothing);
 	MU_RUN(an_absorbed_follow_request_keeps_nothing);
 	MU_RUN(a_kept_setting_reaches_the_next_mode_start_and_no_more);
+	MU_RUN(a_capture_length_reaches_the_run_that_asked_for_it);
+	MU_RUN(a_capture_length_does_not_reach_the_next_run);
 	MU_RUN(an_access_code_stated_after_the_mode_request_survives);
 	MU_RUN(an_absorbed_ego_request_resets_the_access_code);
 	MU_RUN(an_afh_map_stated_after_the_hopping_request_survives_a_slow_mode_exit);

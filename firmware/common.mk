@@ -53,21 +53,15 @@ ifeq ($(DISABLE_TX), )
 endif
 
 # What the image calls itself in its firmware info block, which is what
-# ubertooth-util -v and ubertooth-dfu report. It is the make target by default,
-# so every image is named after the directory it is built in.
+# ubertooth-util -v and ubertooth-dfu report. The make target by default, so
+# every image is named after the directory it is built in.
 #
-# A transmit-disabled build is the exception: it is the same target with its
-# transmit half left out, and a board running it must not read as one running
-# the full image. An image that has such a build names it in RX_ONLY_NAME --
-# bluetooth_rxtx ships as bluetooth_rx_only.* and calls itself bluetooth_rx --
-# so the two can be told apart however the image was built, by hand or by the
-# release script. An image with no transmit code to disable keeps its target
-# name.
-#
-# Keep a name within UBERTOOTH_FW_INFO_IMAGE_LEN (16) bytes: fw_info.c has a
-# _Static_assert that fails the build on a longer one.
-RX_ONLY_NAME ?= $(TARGET)
-IMAGE_NAME ?= $(if $(DISABLE_TX),$(RX_ONLY_NAME),$(TARGET))
+# An image with a transmit-disabled build of its own sets this itself, under
+# `ifdef DISABLE_TX`, because that build is the same target with its transmit
+# half left out and a board running it must not read as one running the full
+# image. bluetooth_rxtx does; see its Makefile. A name must fit
+# UBERTOOTH_FW_INFO_IMAGE_LEN (16) bytes, which fw_info.c asserts.
+IMAGE_NAME ?= $(TARGET)
 
 DIRTY = $(shell git status -s --untracked-files=no)
 ifneq ($(DIRTY), )

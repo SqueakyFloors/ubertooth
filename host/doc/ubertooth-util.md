@@ -436,15 +436,19 @@ counts are the times each shape of wait ran out: the synthesizer never
 locking, never going back off, the 16 MHz crystal never reporting stable, the
 radio's state machine never reaching a state, the radio stopping partway
 through delivering a packet's bytes, and the short lead a packet is given to
-reach the radio's FIFO before it is read out of it. `packet bytes` is only
-ever above zero after a `ubertooth-btle -p` capture, the one mode that waits
-for them; `packet lead` only after `ubertooth-dump -g` or a range test, and it
-means the board's timer 0 was not advancing, so those records are wrong
-throughout and not only in their first byte. All zero is what a working board
-shows; a count that climbs during a capture says the
-samples or packets that came out of it are not to be trusted, whatever they
-look like. They are since the board started (a `-r` reset included) and stop
-at 65535.
+reach the radio's FIFO before it is read out of it.
+
+All zero is what a working board shows. A count that climbs during a capture
+says the samples or packets that came out of it are not to be trusted,
+whatever they look like. The counts are since the board started, a `-r` reset
+included, and they stop at 65535.
+
+The last two are above zero only in the modes that wait those two ways.
+`packet bytes` comes from a `ubertooth-btle -p` capture, the one mode that
+waits for a packet's bytes. `packet lead` comes from `ubertooth-dump -g` or a
+range test, and says the board's timer 0 was not advancing, or was far too
+slow to measure the lead; the records of such a capture are wrong throughout
+and not only in their first byte.
 
 `-i` (In-System Programming) is the one hand-over the watchdog cannot be
 switched off for: it keeps the chip running, so the timeout is stretched to

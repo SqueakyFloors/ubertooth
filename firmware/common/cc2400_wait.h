@@ -170,9 +170,10 @@ enum cc2400_wait_shape {
 	 * own, so it calls cc2400_wait_count_timeout() itself. */
 	CC2400_WAIT_RX_BYTES  = 4,
 	/* The lead before a packet is clocked out of the radio's FIFO was never
-	 * measured, because timer 0 was not advancing. Counted from
-	 * rx_wait_for_fifo() in the bluetooth_rxtx image, which times itself
-	 * against that timer and so has a bound of its own. */
+	 * measured, because timer 0 did not advance far enough in 100,000
+	 * reads of it. Counted from rx_wait_for_fifo() in the bluetooth_rxtx
+	 * image, which times itself against that timer and so has a bound of
+	 * its own. */
 	CC2400_WAIT_RX_LEAD   = 5,
 	CC2400_WAIT_SHAPE_COUNT
 };

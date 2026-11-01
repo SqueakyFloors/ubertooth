@@ -30,9 +30,12 @@
 - `ubertooth-util -w` counts one more shape of wait that gave up: the short
   lead a packet is given to reach the radio's FIFO before the firmware reads
   it out. It was the last timed wait with nothing a user could see, and a
-  count above zero says the board's timer 0 was not advancing, so that
-  capture's records are wrong throughout rather than only in their first byte.
-  The line now ends `packet bytes 0, packet lead 0`.
+  count above zero says the board's timer 0 was not advancing, or was far too
+  slow, so that capture's records are wrong throughout rather than only in
+  their first byte. The line now ends `packet bytes 0, packet lead 0`. These
+  tools reading a board that still carries older firmware report
+  `error: radio wait timeouts read failed: board returned 10 of 12 bytes` for
+  that one line rather than misreading it; flash the board to match.
 - The release's receive-only firmware names itself `bluetooth_rx` instead of
   `bluetooth_rxtx`, so `ubertooth-util -v` and ubertooth-dfu(1) tell a board
   running it from one running the full image. Any build made with
