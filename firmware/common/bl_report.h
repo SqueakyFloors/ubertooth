@@ -63,6 +63,12 @@ uint32_t bl_report_crc32(uintptr_t start, size_t length);
  * application runs: an application never writes the flash below itself, and
  * the bootloader only does so after a reset has handed the board back to it.
  *
+ * The region is the flash below the image, so this is for an image linked
+ * with a bootloader under it -- every shipped one. An image linked at 0
+ * instead (LPC17xx_Linker_Script_without_bootloader.ld) would hash its own
+ * first 16 KiB and report it as a 1.x bootloader, so such an image should not
+ * call this at all.
+ *
  * The region's address is a parameter, which each image passes
  * UBERTOOTH_BOOTLOADER_REGION_START for. That lets the test above hand it a
  * region of its own to read, since no host can read the board's address 0.
@@ -72,8 +78,15 @@ void bl_report_init(uintptr_t region);
 /*
  * Copies the UBERTOOTH_BL_REPORT_LENGTH bytes bl_report_init() worked out to
  * out: what the request handler answers with, and a copy of that size and
- * nothing more. Zeros before bl_report_init() has run.
+ * nothing more.
+ *
+ * Returns 1 once there is a report to copy, or 0 before bl_report_init() has
+ * run, in which case out is left alone and the handler refuses the request.
+ * Nothing can reach it that early today -- each image works the report out
+ * before it brings the USB stack up -- but a zeroed report would read as a
+ * board with no version block and a hash of zero, and a wrong answer given
+ * confidently is worse than a refusal.
  */
-void bl_report_build(uint8_t *out);
+int bl_report_build(uint8_t *out);
 
 #endif /* __BL_REPORT_H */

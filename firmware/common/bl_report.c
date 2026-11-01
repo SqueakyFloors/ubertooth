@@ -47,10 +47,10 @@ static void bl_report_map_user_flash(void)
 
 /*
  * A nibble at a time, from a table of sixteen words rather than the usual two
- * hundred and fifty-six. The hash runs inside a USB control request, so it
- * has to be quick: the 16 KiB region takes a couple of milliseconds this way
- * against four or five bit by bit, and the table costs 64 bytes of flash
- * instead of a kilobyte.
+ * hundred and fifty-six: the 16 KiB region takes a couple of milliseconds
+ * this way against four or five bit by bit, for 64 bytes of flash instead of
+ * a kilobyte. The hash is worked out at startup, where neither cost is
+ * pressing, but it is startup all the same.
  *
  * Each entry is the CRC of one nibble value, so two steps consume a byte.
  */
@@ -75,9 +75,11 @@ uint32_t bl_report_crc32(uintptr_t start, size_t length)
 	return ~crc;
 }
 
-/* The answer, worked out once by bl_report_init(). Zeros until then, which is
- * what a handler reached before startup finished would copy. */
+/* The answer, worked out once by bl_report_init(), and whether it is there
+ * yet: a handler reached before startup finished refuses rather than copying
+ * zeros. */
 static uint8_t bl_report[UBERTOOTH_BL_REPORT_LENGTH];
+static int bl_report_ready;
 
 void bl_report_init(uintptr_t region)
 {
@@ -128,12 +130,18 @@ void bl_report_init(uintptr_t region)
 	for (i = 0; i < UBERTOOTH_BL_VERSION_LENGTH; i++)
 		out[UBERTOOTH_BL_REPORT_OFF_BLOCK + i] =
 			have_block ? block[i] : 0;
+
+	/* Last, so nothing can read a half-filled report. */
+	bl_report_ready = 1;
 }
 
-void bl_report_build(uint8_t *out)
+int bl_report_build(uint8_t *out)
 {
 	size_t i;
 
+	if (!bl_report_ready)
+		return 0;
 	for (i = 0; i < UBERTOOTH_BL_REPORT_LENGTH; i++)
 		out[i] = bl_report[i];
+	return 1;
 }

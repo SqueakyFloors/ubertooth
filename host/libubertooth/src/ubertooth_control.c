@@ -872,8 +872,6 @@ int cmd_get_bootloader_info(struct libusb_device_handle* devh,
 	if (info == NULL)
 		return LIBUSB_ERROR_INVALID_PARAM;
 	memset(info, 0, sizeof(*info));
-	/* The board hashes 16 KiB of its own flash before it answers, a couple
-	 * of milliseconds, so the usual deadline is ample. */
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_BOOTLOADER_INFO,
 			0, 0, result, sizeof(result), 1000);
 	if (r < LIBUSB_SUCCESS) {

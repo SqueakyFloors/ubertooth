@@ -227,7 +227,10 @@ int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	/* What this board's bootloader is. Keep this identical to the one in
 	 * bluetooth_rxtx.c. */
 	case UBERTOOTH_GET_BOOTLOADER_INFO:
-		bl_report_build(data);
+		/* Refused until startup has worked the report out, rather than
+		 * answered with a hash of zero. */
+		if (!bl_report_build(data))
+			return 0;
 		*data_len = UBERTOOTH_BL_REPORT_LENGTH;
 		break;
 

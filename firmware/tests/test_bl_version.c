@@ -114,8 +114,9 @@ static char *read_source(const char *path)
  * field after the padding. */
 MU_TEST(the_field_offsets_match_the_struct)
 {
-	mu_assert_int_eq(UBERTOOTH_BL_VERSION_LENGTH,
-	                 (int)sizeof(struct ubertooth_bl_version_block));
+	/* The size is a compile-time assertion in the header
+	 * (ubertooth_bl_version_block_is_48_bytes); what needs checking here is
+	 * where each field landed inside it. */
 	mu_assert_int_eq(UBERTOOTH_BL_VERSION_OFF_MAGIC,
 	                 (int)offsetof(struct ubertooth_bl_version_block, magic));
 	mu_assert_int_eq(UBERTOOTH_BL_VERSION_OFF_FORMAT,
@@ -378,8 +379,18 @@ MU_TEST(the_report_maps_the_user_flash_before_reading_it)
 	mu_assert(strstr(source, "MEMMAP = MEMMAP_USER_FLASH;") != NULL,
 	          "bl_report.c does not put the user flash at the bottom of the "
 	          "address map, so the read could see the boot ROM instead");
-	mu_assert(strstr(source, "bl_report_map_user_flash();") != NULL,
-	          "bl_report_build() does not set the mapping before it reads");
+	{
+		const char *map = strstr(source, "bl_report_map_user_flash();");
+		const char *hash = strstr(source, "bl_report_crc32(region,");
+
+		mu_assert(map != NULL,
+		          "bl_report_init() does not set the mapping at all");
+		mu_assert(hash != NULL,
+		          "bl_report_init() does not hash the region");
+		mu_assert(map < hash,
+		          "bl_report_init() hashes the region before it asks for "
+		          "the user flash, so the first 512 bytes could be ROM");
+	}
 	free(source);
 
 	/* The two values the register takes, against the part's own: user flash
@@ -519,14 +530,31 @@ MU_TEST(each_image_works_the_report_out_at_startup)
 		snprintf(message, sizeof(message), "%s would not open",
 		         startup_paths[i]);
 		mu_assert_fatal(source != NULL, message);
+		const char *init, *usb;
+
 		snprintf(message, sizeof(message),
 		         "%s: does not call bl_report_init("
 		         "UBERTOOTH_BOOTLOADER_REGION_START) at startup, so the "
 		         "hash would be worked out in the request handler",
 		         startup_paths[i]);
-		mu_assert(strstr(source,
-		                 "bl_report_init(UBERTOOTH_BOOTLOADER_REGION_START);")
-		          != NULL, message);
+		init = strstr(source,
+		              "bl_report_init(UBERTOOTH_BOOTLOADER_REGION_START);");
+		mu_assert(init != NULL, message);
+
+		/* Before the USB stack is brought up, which is what makes "at
+		 * startup" mean anything: once the stack is up a request can
+		 * arrive, and one answered before this ran would copy an empty
+		 * cache and report a hash of zero. */
+		usb = strstr(source, "ubertooth_usb_init(");
+		snprintf(message, sizeof(message),
+		         "%s: no ubertooth_usb_init() call to order against",
+		         startup_paths[i]);
+		mu_assert(usb != NULL, message);
+		snprintf(message, sizeof(message),
+		         "%s: bl_report_init() runs after the USB stack is up, so a "
+		         "request arriving first would report a hash of zero",
+		         startup_paths[i]);
+		mu_assert(init < usb, message);
 		free(source);
 	}
 
