@@ -2945,21 +2945,21 @@ MU_TEST(only_the_packets_the_engine_knows_are_acted_on)
 	build_terminate(&buf, 0x13);
 	arrived_in_event(&buf, conn.conn_event_counter);
 	packet_handler(&buf);
-	mu_assert_int_eq(TERMINATE_IN_ITS_EVENT, conn.terminated);
+	mu_assert_int_eq(TERMINATE_IN_ITS_EVENT, conn.terminate_note);
 
 	/* ...and dated to an event that has closed, it is noted the other way. */
 	start_fresh();
 	build_terminate(&buf, 0x13);
 	arrived_in_event(&buf, conn.conn_event_counter - 1);
 	packet_handler(&buf);
-	mu_assert_int_eq(TERMINATE_AFTER_ITS_EVENT, conn.terminated);
+	mu_assert_int_eq(TERMINATE_AFTER_ITS_EVENT, conn.terminate_note);
 
 	/* ...and one of the wrong length does not. */
 	start_fresh();
 	build_terminate(&buf, 0x13);
 	buf.data[1] = 1;       /* one byte short */
 	packet_handler(&buf);
-	mu_assert_int_eq(0, conn.terminated);
+	mu_assert_int_eq(0, conn.terminate_note);
 
 	/*
 	 * A data PDU that is not an LL control PDU is left alone, whatever its
@@ -3681,10 +3681,12 @@ MU_TEST(a_terminate_ends_the_follow_once_the_connection_goes_quiet)
  * the rest of the connection, because nothing re-follows a connection that is
  * already up.
  */
-MU_TEST(a_terminate_a_live_connection_contradicts_is_discarded)
+MU_TEST(a_terminate_contradicted_by_a_live_connection_is_discarded)
 {
 	le_rx_t buf;
 	unsigned i;
+	/* What the note must hold after each of the busy events below. */
+	static const int expected[] = { TERMINATE_AFTER_ITS_EVENT, 0, 0 };
 
 	anchored_connection(100000);
 	rf_channel = DATA_CHANNEL_MHZ;
@@ -3694,11 +3696,13 @@ MU_TEST(a_terminate_a_live_connection_contradicts_is_discarded)
 	packet_handler(&buf);
 
 	/*
-	 * Several events in a row carry packets, as a connection in use does.
-	 * The first is the event the terminate arrived in; the rest are after
-	 * it, and they are what contradicts it.
+	 * Events in a row carry packets, as a connection in use does. The
+	 * first is the event the terminate arrived in, which spends the one
+	 * extra event that case is given; the second is after it and discards
+	 * the note. Each step is asserted, so the budget cannot quietly grow or
+	 * shrink.
 	 */
-	for (i = 0; i < 5; ++i) {
+	for (i = 0; i < sizeof(expected) / sizeof(expected[0]); ++i) {
 		conn_event.num_packets = 2;
 		conn_event.opened = 1;
 		conn_event.anchor = conn.last_anchor + conn.conn_interval;
@@ -3710,9 +3714,8 @@ MU_TEST(a_terminate_a_live_connection_contradicts_is_discarded)
 		                "a connection still delivering packets lost its "
 		                "follow to one packet that looked like a "
 		                "terminate");
+		mu_assert_int_eq(expected[i], conn.terminate_note);
 	}
-
-	mu_assert_int_eq(0, conn.terminated);
 
 	/*
 	 * And the note is gone rather than merely unused: a quiet event now
@@ -3748,7 +3751,7 @@ MU_TEST(a_terminate_a_live_connection_contradicts_is_discarded)
 
 	finish_conn_event();
 
-	mu_assert_fatal(0 == conn.terminated,
+	mu_assert_fatal(0 == conn.terminate_note,
 	                "an event after the terminate's own did not discard it");
 
 	conn_event.num_packets = 0;
@@ -4713,7 +4716,7 @@ int main(void)
 	MU_RUN(the_overdue_test_holds_across_the_counters_wrap);
 	MU_RUN(a_connection_that_times_out_leaves_no_match_armed);
 	MU_RUN(a_terminate_ends_the_follow_once_the_connection_goes_quiet);
-	MU_RUN(a_terminate_a_live_connection_contradicts_is_discarded);
+	MU_RUN(a_terminate_contradicted_by_a_live_connection_is_discarded);
 	MU_RUN(an_ordinary_data_packet_does_not_end_the_follow);
 	MU_RUN(a_terminate_with_nothing_followed_does_not_end_the_next_follow);
 	MU_RUN(a_moment_already_past_is_armed_just_ahead_of_the_counter);

@@ -57,16 +57,30 @@
 // calculated anchor
 #define ANCHOR_EPSILON USEC(3)
 
-// The two values conn.terminated takes when a packet announcing the end of the
-// connection has been read: how many connection events may still carry packets
-// before that packet is treated as damaged and ignored.
+// The two values conn.terminate_note takes once a packet announcing the end of
+// the connection has been read: how many connection events may still carry
+// packets before that packet is treated as damaged and ignored. The follow
+// ends at the first connection event that carries nothing.
 //
-// Normally one. The mode's loop reads a packet after the receive interrupt has
-// queued it, though, which is often while the connection event it arrived in is
-// still open; that event holds the packet itself, so its own packets say
-// nothing about whether the connection is alive, and its close is given one
-// more. Which case it is comes from the event counter the receive interrupt
-// dated the packet with.
+// Why the connection has to go quiet first: CRC verification is off by
+// default, so a bit-errored data packet reaches the dispatch that reads these
+// packets, and the control LLID, a length of 2 and 0x02 where the opcode goes
+// are all that tell it from a real one. Stopping a healthy follow is the worse
+// of the two mistakes, because nothing re-follows a live connection -- there
+// is no new connection request to hear -- so the capture would go quiet with
+// the connection still running. A connection that really closed stops talking,
+// so waiting costs about one connection event.
+//
+// A missed connection event still ends the follow, since it is indistinguishable
+// from the silence a close leaves. `ubertooth-btle -k1` is what removes the
+// exposure altogether: a damaged packet never reaches the dispatch.
+//
+// Normally one event. The mode's loop reads a packet after the receive
+// interrupt has queued it, though, which is often while the connection event
+// it arrived in is still open; that event holds the packet itself, so its own
+// packets say nothing about whether the connection is alive, and its close is
+// given one more. Which case it is comes from the event counter the receive
+// interrupt dated the packet with.
 #define TERMINATE_AFTER_ITS_EVENT 1
 #define TERMINATE_IN_ITS_EVENT    2
 
@@ -273,14 +287,11 @@ typedef struct _le_conn_t {
 	uint16_t channel_map_update_instant;
 	le_channel_remapping_t pending_remapping;
 
-	// Set when a packet announcing the end of the connection has been
-	// read. The follow then ends at the first connection event that
-	// receives nothing, and the note is discarded if the connection keeps
-	// delivering packets; the value is how many connection events may
-	// still carry packets before that happens. See
-	// TERMINATE_AFTER_ITS_EVENT.
+	// How many connection events may still carry packets before a packet
+	// that announced the end of the connection is treated as damaged, and 0
+	// where none has been read. See TERMINATE_AFTER_ITS_EVENT.
 	//
-	// It belongs to the connection rather than being a flag of its own:
+	// It belongs to the connection rather than being a field of its own:
 	// reset_conn() then clears it, and a packet read just after a follow
 	// ended cannot reach into the follow that comes next.
 	//
@@ -290,7 +301,12 @@ typedef struct _le_conn_t {
 	// with it. A write that lands after the interrupt has reset the
 	// connection leaves the note on a connection that is no longer
 	// followed, which is harmless for the same reason.
-	int      terminated;
+	//
+	// The loop writes it only where it reads 0, which is what keeps that
+	// write from being lost: the interrupt's own update is a decrement,
+	// read and written back in steps the loop can land between, and the
+	// value is not 0 anywhere in those steps.
+	int      terminate_note;
 } le_conn_t;
 le_conn_t conn = { 0, };
 
@@ -592,7 +608,7 @@ static void finish_conn_event(void) {
 	int last_anchor_set = 0;
 	// Kept because reset_conn_event() below clears the count, and the
 	// decision about a noted terminate comes after it.
-	int had_packets = conn_event.num_packets > 0;
+	const int had_packets = conn_event.num_packets > 0;
 
 	// two packets -- update anchor
 	if (conn_event.num_packets == 2) {
@@ -659,19 +675,11 @@ static void finish_conn_event(void) {
 	++conn.conn_event_counter;
 
 	// An event that carried packets spends one of the note's budget, and
-	// discards it once the budget runs out: a connection still delivering
-	// packets has not closed, so the packet that said it had was damaged.
-	//
-	// CRC verification is off by default, and a bit-errored data packet can
-	// carry the control LLID, a length of 2, and 0x02 where the opcode
-	// goes. Stopping a healthy follow on that is the worse of the two
-	// mistakes, because nothing re-follows a live connection -- there is no
-	// new connection request to hear -- so the capture would go quiet with
-	// the connection still running. Waiting for silence costs about one
-	// connection event, since a connection that really closed stops
-	// talking.
-	if (conn.terminated && had_packets)
-		--conn.terminated;
+	// discards the note once the budget runs out: a connection still
+	// delivering packets has not closed, so the packet that said it had was
+	// damaged. See TERMINATE_AFTER_ITS_EVENT.
+	if (conn.terminate_note && had_packets)
+		--conn.terminate_note;
 
 	// The connection is over, either because it has gone quiet for longer
 	// than its supervision timeout or because the peers announced the end
@@ -685,7 +693,7 @@ static void finish_conn_event(void) {
 	// of whatever the mode was doing by then -- retuning the radio under an
 	// advertising capture, or under another connection.
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout ||
-	    (conn.terminated && !had_packets)) {
+	    (conn.terminate_note && !had_packets)) {
 		reset_conn();
 		timer1_clear_match();
 		change_channel();
@@ -2278,23 +2286,26 @@ static void packet_handler(le_rx_t *buf) {
 				// The control LLID and the length are all that stands
 				// between a bit-errored data packet and a note written
 				// here, as they are for the two updates above. So the
-				// note is not acted on until the connection goes quiet,
+				// note is acted on only once the connection goes quiet,
 				// which is what tells a real close from a damaged
-				// packet; see TERMINATE_AFTER_ITS_EVENT. A capture that
-				// wants the packet dropped before it ever reaches this
-				// dispatch asks for CRC verification
-				// (`ubertooth-btle -k1`).
+				// packet: see TERMINATE_AFTER_ITS_EVENT for why that is
+				// the better mistake to risk, and what `-k1` does
+				// instead.
 				//
-				// The event counter says whether the event this packet
-				// arrived in is still open. If the counter has moved
-				// past it, every event that closes from now on is after
-				// the packet, and the first silent one ends the follow.
-				// The counter can move on between the comparison and
-				// the write, which costs that follow one more event
-				// before it ends.
+				// The event counter the packet is dated with says
+				// whether the event it arrived in is still open. If the
+				// counter has moved past it, every event that closes
+				// from now on is after the packet. The counter can move
+				// on between the comparison and the write, which costs
+				// that follow one more event before it ends.
+				//
+				// A note already outstanding is left alone. Nothing is
+				// added by a second packet saying the same thing, and
+				// the write is what must not be lost to the interrupt's
+				// decrement: see conn.terminate_note.
 				case 0x2:
-					if (buf->data[1] == 2)
-						conn.terminated =
+					if (buf->data[1] == 2 && !conn.terminate_note)
+						conn.terminate_note =
 							(buf->in_open_event &&
 							 buf->event_counter == conn.conn_event_counter)
 								? TERMINATE_IN_ITS_EVENT

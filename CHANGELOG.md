@@ -953,10 +953,12 @@
   followed connection but not the one that announces the connection is ending,
   so the capture sat on a closed connection until its supervision timeout, up
   to 32 s, and heard nothing in the meantime. The follow now ends a connection
-  event or two after that packet and the board goes back to listening on the
-  advertising channel, where a new connection between the same devices can be
-  followed.
+  event or two after that packet -- once the connection has gone quiet, so
+  that one damaged packet does not stop a capture of a connection still in use
+  -- and the board goes back to listening on the advertising channel, where a
+  new connection between the same devices can be followed.
   [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005)
+  [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015)
 
 - **Script-visible change:** `ubertooth-afh` reports the map of a piconet
   using the whole band instead of a handful of channels. The channel removal
@@ -2607,16 +2609,6 @@ Fixes with no visible change in normal use.
   start and disarms it on the way out, so a second run of it cannot toggle an
   LED before its own first blink is due.
   [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
-
-- A `ubertooth-btle -f` follow waits for the connection to go quiet before the
-  packet that announces its close ends the follow. CRC verification is off by
-  default, so a bit-errored data packet can reach the board's reading of the
-  connection looking like that packet, and the follow would have stopped on a
-  connection that was still running -- with nothing to pick it up again, since
-  there is no new connection request to hear. A connection that goes on
-  delivering packets now keeps being followed, and a real close still ends the
-  follow, about one connection event later than before.
-  [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015)
 
 - A low-energy connection request that names the advertising access address as
   the connection's own, which the specification does not allow, is refused
