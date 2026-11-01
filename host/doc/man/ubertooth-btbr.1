@@ -82,7 +82,7 @@ discover nearby devices; each response is reported with its EIR
 answer inquiries, so nearby devices discover this board
 .TP
 \fBpage_scan\fR
-accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, and another Ubertooth on the same bench needs its transmit level turned down first, as does this one; see TWO BOARDS CLOSE TOGETHER\. A board scanning this way answers an L2CAP echo request, so a peer running \fBl2ping\fR against it gets its round trip
+accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, and another Ubertooth on the same bench needs its transmit level turned down first, as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this way answers an L2CAP echo request, so a peer running \fBl2ping\fR against it sees a reply
 .TP
 \fBdiscoverable\fR
 \fBinquiry_scan\fR and \fBpage_scan\fR together

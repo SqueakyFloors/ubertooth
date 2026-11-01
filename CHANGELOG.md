@@ -840,8 +840,8 @@
   there, because each side sent `LMP_setup_complete` only on receiving one, so
   neither sent the first and the link setup never finished. The central now
   sends its own as soon as its connection request is accepted, and a board in
-  `page_scan` answers an L2CAP echo request, so `l2ping` between two boards
-  reports a round trip.
+  `page_scan`, which `discoverable` also runs, answers an L2CAP echo request,
+  so `l2ping` between two boards reports a round trip.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up

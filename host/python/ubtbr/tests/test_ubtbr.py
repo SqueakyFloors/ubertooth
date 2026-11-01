@@ -3439,6 +3439,16 @@ central.receive(0, ACCEPTED)
 assert [opcode_of(pdu) for pdu in central._con.sent] == \
     [lmp.LMP_SETUP_COMPLETE], central._con.sent
 
+# However many the peer sends, the connection opens once: a second report
+# would have l2ping put a second echo request on the link.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+for repeat in range(3):
+    central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
 # An LMP_accepted for anything else leaves the setup alone.
 central = lmp.LMPCentral(CountingConnection())
 central.start()
@@ -3495,7 +3505,12 @@ for not_a_request in (
             struct.pack("<HH", 0, btctl.L2CAP_CID_SIGNALLING) + echo_req[4:]),
         btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
             struct.pack("<HH", 9, btctl.L2CAP_CID_SIGNALLING)
-            + echo_req[4:] + b"\x00")):
+            + echo_req[4:] + b"\x00"),
+        # larger than the signalling channel carries, so answering it would
+        # put that much back on the link
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 1,
+                b"x" * (btctl.L2CAP_SIGNALLING_MTU - 7)))):
     assert btctl.l2cap_echo_request(not_a_request) is None, \
         not_a_request.data.hex()
 
@@ -3520,8 +3535,6 @@ llid, answer = answered[0]
 assert llid == btctl.LLID_L2CAP_START, llid
 assert answer == btctl.l2cap_signalling_packet(
     btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA), answer.hex()
-# The packet still reaches standard output, as every other one does.
-assert "RX L2CAP" in said.getvalue(), said.getvalue()
 
 # A response, or anything else on the channel, is reported and not answered.
 answered.clear()

@@ -134,9 +134,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
    accept a connection from a device that pages this board; a standard
    Classic controller usually gets through in a few seconds, and another
    Ubertooth on the same bench needs its transmit level turned down first,
-   as does this one; see TWO BOARDS CLOSE TOGETHER. A board scanning this way
-   answers an L2CAP echo request, so a peer running `l2ping` against it gets
-   its round trip
+   as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this
+   way answers an L2CAP echo request, so a peer running `l2ping` against it
+   sees a reply
  - `discoverable` :
    `inquiry_scan` and `page_scan` together
  - `page <BD_ADDR>` :
