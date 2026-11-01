@@ -32,8 +32,8 @@ attempt to recover the clock value, and if that succeeds it will follow
 that piconet.
 
 The clock search does not confirm a clock against a piconet that uses adapted
-hopping, which current controllers do even when every channel is allowed, so
-following such a piconet does not start. The addresses and the packets the
+hopping, which the controllers tested here all do, including when every
+channel is allowed, so following such a piconet does not start. The addresses and the packets the
 board hears are still recovered. See [THE CLOCK SEARCH AND ADAPTED
 HOPPING][].
 
@@ -252,10 +252,10 @@ lists piconets in survey mode (`-z`). It decodes and reports every packet of
 the piconet that lands on whichever channel the board is listening to, and
 writes those packets to a capture file (`-r`, `-q`, `-d`), so a piconet can be
 surveyed, counted, and its traffic captured channel by channel with `-c`. A
-fixed channel is a way of capturing, not a way round the search: the search
-rules candidates out by comparing the channel it predicts with the channel a
-packet arrived on, and on one channel there is nothing in that comparison to
-separate one candidate from another, so a `-c` run reaches a clock no sooner.
+fixed channel is a way of capturing rather than a way round the search: the
+board then hears only the hops that happen to land on that one channel, a
+small share of the piconet's traffic, so the candidate list is given far less
+to narrow it with, and nothing about adapted hopping changes.
 ubertooth-afh(1) recovers the channel map of a piconet whose LAP and UAP are
 known. Where a clock is what is wanted, two routes do not depend on this
 search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a

@@ -1720,7 +1720,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * first packet would let a caller say the search is not going to finish
 	 * before any search had run. Measured on a link that went quiet: four
 	 * packets in 100 s, no candidate list, and the whole span would
-	 * otherwise have read as a search. */
+	 * otherwise have read as a search.
+	 *
+	 * The flag is transient: the library builds the list and compares the
+	 * hop that built it in one call, and a list emptied there is thrown
+	 * away again. So this sees a search whose candidate list outlived the
+	 * packet that built it, which is what every search on the bench has
+	 * done. */
 	if (!br_searching && !br_following && !br_clock_confirmed &&
 	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_HOP_REVERSAL_INIT)) {
 		br_searching = 1;

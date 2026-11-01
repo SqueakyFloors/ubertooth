@@ -2537,8 +2537,8 @@
 
 - Known limitation, now stated instead of left for a user to find: the Classic
   clock search does not confirm a clock against a piconet that uses adapted
-  hopping (AFH), which current controllers do even when every channel is
-  allowed, so `ubertooth-rx -l <lap> -u <uap>` does not start following such a
+  hopping (AFH), which the controllers tested on this project's bench all do,
+  including when every channel is allowed, so `ubertooth-rx -l <lap> -u <uap>` does not start following such a
   piconet. `ubertooth-rx(1)` has a section on it, the usage text says it, and a
   search that has run half a minute without confirming a clock says it once at
   runtime rather than printing candidate counts for the rest of the run. What

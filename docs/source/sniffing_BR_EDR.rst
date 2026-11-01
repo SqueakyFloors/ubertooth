@@ -116,8 +116,8 @@ Typical workflow
 		ubertooth-rx -l 88aabb -u 66 -r capture.pcapng
 
    The clock search does not confirm a clock against a piconet that uses
-   adapted frequency hopping (AFH), which current controllers do even when
-   every channel is allowed, so following such a piconet does not start. The
+   adapted frequency hopping (AFH), which the controllers tested on this
+   project's bench all do, including when every channel is allowed, so following such a piconet does not start. The
    addresses and the packets the board hears are still recovered, and the
    capture above is still written. ``ubertooth-rx(1)``, THE CLOCK SEARCH AND
    ADAPTED HOPPING describes why, and what else reaches a clock.

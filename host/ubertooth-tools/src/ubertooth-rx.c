@@ -48,9 +48,9 @@ static void usage(FILE *file)
 	fprintf(file, "\t              - if not specified use Ubertooth for live capture\n");
 	fprintf(file, "\n");
 	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
-	fprintf(file, "piconet that uses adapted hopping (AFH), which current controllers do, so\n");
-	fprintf(file, "following such a piconet does not start. Its addresses and the packets of\n");
-	fprintf(file, "it this board hears still are. See ubertooth-rx(1).\n");
+	fprintf(file, "piconet that uses adapted hopping (AFH), which the controllers tested here\n");
+	fprintf(file, "all do, so following such a piconet does not start. Its addresses, and the\n");
+	fprintf(file, "packets of it this board hears, are still recovered. See ubertooth-rx(1).\n");
 	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
 	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
