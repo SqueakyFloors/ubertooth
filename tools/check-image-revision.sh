@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that a built firmware image carries the revision `ubertooth-dfu -r`
 # reads out of it.
 #

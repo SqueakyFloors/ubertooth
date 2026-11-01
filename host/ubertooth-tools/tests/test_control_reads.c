@@ -19,7 +19,10 @@
 #include "../../../firmware/tests/minunit.h"
 #include "ubertooth_control.h"
 
-#define REPLY_MAX 32
+/* Room for the longest fixed-size reply read here, the bootloader report's
+ * 52 bytes, with room above it so a reply one byte too long can be scripted
+ * too. */
+#define REPLY_MAX 64
 
 /* How many calls one scripted sequence can answer differently. The poll makes
  * at most three attempts, which is the longest run of calls any read here
@@ -625,6 +628,58 @@ MU_TEST(radio_timeouts_are_read_little_endian)
 	mu_assert_int_eq(0x5a5a, t.fs_lock); /* left untouched */
 }
 
+/*
+ * The bootloader report: the hash of the region first, low byte first, then
+ * the version block. A region with no block is a success -- that is what every
+ * board as shipped answers -- with the reason in the struct, so the caller can
+ * print the hash it did get.
+ */
+MU_TEST(the_bootloader_report_reads_the_hash_and_the_block)
+{
+	struct ubertooth_bootloader_info info;
+	uint8_t *block;
+
+	script(UBERTOOTH_BL_REPORT_LENGTH, 0);
+	fake.reply[0] = 0xb4; fake.reply[1] = 0xe1;
+	fake.reply[2] = 0x2f; fake.reply[3] = 0x9d;
+	block = fake.reply + UBERTOOTH_BL_REPORT_OFF_BLOCK;
+	memcpy(block + UBERTOOTH_BL_VERSION_OFF_MAGIC, UBERTOOTH_BL_VERSION_MAGIC,
+	       UBERTOOTH_BL_VERSION_MAGIC_LEN);
+	block[UBERTOOTH_BL_VERSION_OFF_FORMAT] = UBERTOOTH_BL_VERSION_FORMAT;
+	block[UBERTOOTH_BL_VERSION_OFF_VERSION] = 0x00;
+	block[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] = 0x02; /* 2.00 */
+	memcpy(block + UBERTOOTH_BL_VERSION_OFF_BUILD, "git-1a2b3c4", 11);
+	mu_assert_int_eq(0, cmd_get_bootloader_info(NULL, &info));
+	mu_assert_int_eq(UBERTOOTH_GET_BOOTLOADER_INFO, fake.last_request);
+	mu_assert_int_eq(0x9d2fe1b4, info.crc32);
+	mu_assert_int_eq(UBERTOOTH_BL_VERSION_OK, info.version_result);
+	mu_assert_int_eq(UBERTOOTH_BL_VERSION_FORMAT, info.version.format_version);
+	mu_assert_int_eq(0x0200, info.version.version);
+	mu_assert(strcmp(info.version.build, "git-1a2b3c4") == 0,
+	          info.version.build);
+
+	/* Zeros where the block would be: the firmware sends those for a
+	 * bootloader that has none. The hash is still read. */
+	script(UBERTOOTH_BL_REPORT_LENGTH, 0);
+	fake.reply[0] = 0xc1; fake.reply[1] = 0x73;
+	fake.reply[2] = 0x0a; fake.reply[3] = 0x5f;
+	mu_assert_int_eq(0, cmd_get_bootloader_info(NULL, &info));
+	mu_assert_int_eq(0x5f0a73c1, info.crc32);
+	mu_assert_int_eq(UBERTOOTH_BL_VERSION_NO_MAGIC, info.version_result);
+	mu_assert(info.version.build[0] == '\0',
+	          "a block that was not read left a build string behind");
+
+	/* A reply one byte short: not even the hash can be trusted, so the read
+	 * fails and the struct is left zeroed rather than holding four bytes of
+	 * a reply that did not arrive whole. The firmware info read clears its
+	 * caller's struct the same way. */
+	memset(&info, 0x5a, sizeof(info));
+	script(UBERTOOTH_BL_REPORT_LENGTH - 1, 0x11);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_get_bootloader_info(NULL, &info));
+	mu_assert_int_eq(0, info.crc32);
+}
+
 /* ---- the library writes nothing to standard output --------------------- */
 
 /*
@@ -970,6 +1025,7 @@ int main(void)
 	MU_RUN(range_result_needs_all_6_bytes);
 	MU_RUN(watchdog_state_needs_the_whole_reply);
 	MU_RUN(radio_timeouts_are_read_little_endian);
+	MU_RUN(the_bootloader_report_reads_the_hash_and_the_block);
 	MU_RUN(the_polled_reads_report_nothing);
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(the_quiet_set_forms_report_nothing);

@@ -181,10 +181,30 @@ void ubertooth_report_unsupported_request(const char* what, int code)
 		fprintf(stderr, "error: could not %s: the board's firmware does "
 		        "not support it (stalled)\n", what);
 
-	if (board_api_version_owner != NULL)
-		fprintf(stderr, "note: the board reports firmware API version "
-		        "%x.%02x, libubertooth %s requires %x.%02x\n",
-		        API_MAJOR(board_api_version), API_MINOR(board_api_version),
-		        VERSION, API_MAJOR(UBERTOOTH_API_VERSION),
-		        API_MINOR(UBERTOOTH_API_VERSION));
+	if (board_api_version_owner == NULL)
+		return;
+
+	fprintf(stderr, "note: the board reports firmware API version "
+	        "%x.%02x, libubertooth %s requires %x.%02x\n",
+	        API_MAJOR(board_api_version), API_MINOR(board_api_version),
+	        VERSION, API_MAJOR(UBERTOOTH_API_VERSION),
+	        API_MINOR(UBERTOOTH_API_VERSION));
+
+	/* The other reason a request stalls, which the note above cannot be told
+	 * apart from: a wedged board stalls everything sent to it, whatever its
+	 * firmware implements, so a report that names the firmware alone sends
+	 * the user to reflash a board that is not short of the request at all.
+	 * The question that does separate the two is whether any request gets
+	 * through, and ubertooth-util -r is the recovery for the wedge: it
+	 * resets the board's USB connection and then the board, with nobody at
+	 * the bench. "On the same board" rather than "with the same -U": the
+	 * board this is about is the one the command was working on, which a
+	 * run with one board attached named with no -U at all.
+	 *
+	 * Under the same condition as the note above, which is what says an
+	 * application firmware answered: a board in the DFU bootloader runs
+	 * none, and ubertooth-util cannot reach one. */
+	fprintf(stderr, "note: a board that stalls every request is wedged "
+	        "rather than short of this one; reset it with ubertooth-util -r "
+	        "on the same board\n");
 }

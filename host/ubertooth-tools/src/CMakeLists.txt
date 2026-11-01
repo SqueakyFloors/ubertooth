@@ -19,7 +19,13 @@
 # Boston, MA 02110-1301, USA.
 #
 
-set(INSTALL_DEFAULT_BINDIR "bin" CACHE STRING
+include(GNUInstallDirs)
+
+# Where the tools are installed, under CMAKE_INSTALL_PREFIX. CMAKE_INSTALL_BINDIR
+# is CMake's own setting for this and gives the default; INSTALL_DEFAULT_BINDIR
+# is the older name for it, kept because libbtbb takes it too, so one build
+# command can set the directory for both.
+set(INSTALL_DEFAULT_BINDIR "${CMAKE_INSTALL_BINDIR}" CACHE STRING
 	"Bin install path, relative to CMAKE_INSTALL_PREFIX")
 
 find_package(BTBB REQUIRED)

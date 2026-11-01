@@ -32,7 +32,8 @@ Utility commands:
  - ubertooth-dfu(1) : Firmware update tool
  - ubertooth-dump(1) : Dumping raw RF symbols to disk, Bluetooth or generic
    (experimental)
- - ubertooth-tx(1) : Retransmitting symbols dumped with ubertooth-dump
+ - ubertooth-tx(1) : Transmitting a generic packet (experimental), and
+   retransmitting symbols dumped with ubertooth-dump
  - ubertooth-ducky(1) : Driving an Uberducky as a BLE USB Rubber Ducky
  - ubertooth-util(1) : "Everything else"
 
@@ -347,16 +348,25 @@ the firmware is simply missing a request, the command fails on it:
 
     error: could not set the channel: the board's firmware does not support it (stalled, libusb -9)
     note: the board reports firmware API version <version>, libubertooth 1.1 requires <version>
+    note: a board that stalls every request is wedged rather than short of this one; reset it with ubertooth-util -r on the same board
 
 That is the one wording for a request the board refuses, wherever the request
 came from. The board answers such a request by stalling it and says nothing
-else, so the line names the request that was refused, and the note puts the
-two versions beside each other: different versions name the reflash that
+else, so the line names the request that was refused, and the first note puts
+the two versions beside each other: different versions name the reflash that
 fixes it, and equal versions say the version is not the problem. The libusb
 code is there for a request sent and answered one at a time; a request sent
 without waiting for its answer has only the stall to report, so that line ends
 `(stalled)`. A board in the DFU bootloader runs no application firmware, so
-ubertooth-dfu(1) reports a refused request without the note.
+ubertooth-dfu(1) reports a refused request without either note.
+
+The second note is for the other reason a request stalls, which the first
+cannot be told apart from: a wedged board stalls everything sent to it,
+whatever its firmware implements, so a report naming the firmware would send
+the user to reflash a board that is not short of the request at all. The
+question that separates the two is whether any request gets through, and
+`ubertooth-util -r` is the recovery for the wedge: it resets the board's USB
+connection and then the board, with no one at the bench.
 
 A board that has left the USB bus stalls a request too, on some hosts, and its
 firmware is not the reason: the board whose version the note would quote is
@@ -405,11 +415,12 @@ refused.
 
 ## GENERIC RADIO MODE
 
-Experimental. The symbol-stream half works: `ubertooth-dump -g` with a
-configuration written by hand streams as the Bluetooth captures do. The
-packet-framing half does not yet produce records on our bench, and the
-deviation the board transmits a generic packet at is unsettled, so no tool
-transmits one. Expect the options and the output to change.
+Experimental, and all of it is reachable from the command line now:
+`ubertooth-debug -w` writes the radio's registers, `ubertooth-dump -g`
+receives with them, and `ubertooth-tx -g` transmits one packet. Both halves of
+the receive work on our bench -- the symbol stream, and the packet framing
+where the radio matches a sync word -- and two boards set to the same framing
+pass a payload between them. Expect the options and the output to change.
 
 The CC2400 on an Ubertooth is a plain 2.4 GHz radio, and Bluetooth is only
 what the firmware usually asks it to do. The generic receive hands that choice
@@ -462,8 +473,6 @@ That path asks more of the configuration than the symbol stream does, because
 the radio does the framing: the preamble length, how much of the sync word it
 matches and its CRC choice all have to match what is on the air, and a choice
 that does not gives a capture with no records in it rather than a message.
-This is the half that is not working yet, so treat it as something to
-experiment with rather than to rely on.
 
 The configuration lives in the radio and nothing stores it, so write the
 registers and start the capture as two commands with nothing in between. A
@@ -472,9 +481,52 @@ wrote; the board being idle is what keeps it. `ubertooth-util -S` leaves an
 idle board, so a run that is stopped properly can be set up again and
 restarted.
 
-The board can also transmit one packet with a host-written configuration,
-through a request no tool drives yet: the deviation it transmits at is still
-being settled, and as it stands the board's own receive cannot demodulate it.
+### A generic packet between two boards
+
+`ubertooth-tx -g` transmits one generic packet, and that is the way to see the
+packet-framing receive above work: it is the one transmitter whose framing is
+known. The board frames the packet in the radio -- 6 preamble bytes of
+`01010101`, the whole 32-bit sync word, the radio's CRC, which is GRMDM
+`0x0f71` -- so the receiving board has to be set to the same value and the
+same sync word.
+
+Two boards, the first receiving on 2402 MHz and the second sending it 32
+counted bytes ten times:
+
+    ubertooth-debug -U 0 -w %manand=0x7fff,%lmtst=0x2b22,%mdmtst0=0x134b,%grmdm=0x0f71,%mdmctrl=0x0057,%synch=0xcb87,%syncl=0x6543,%fsdiv=2401
+    ubertooth-dump -U 0 -g -d packets.bin &
+    ubertooth-util -U 1 -a 1
+    ubertooth-tx -U 1 -g 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 -a cb876543 -c 2402 -n 10
+
+What has to agree between the two, and what does not:
+
+ - GRMDM, exactly: `0x0f71` at the receiving end is the value the transmit
+   programs, so the preamble, the part of the sync word matched, and the CRC
+   all match. The CRC bit is what makes the record's CRC byte mean anything:
+   with it clear the radio reports a CRC_OK for packets that carry no CRC at
+   all. The payload above is 32 bytes because that is the length the CRC byte
+   has been measured at: the receive reads a fixed 32 bytes and the radio
+   answers the CRC question at the point the read stopped. See
+   ubertooth-dump(1), THE GENERIC RECEIVE.
+ - the sync word: `-a cb876543` is SYNCH `0xcb87` and SYNCL `0x6543`.
+ - the channel, less 1 MHz at the receiving end: a transmit tunes the carrier
+   directly and a receive subtracts its 1 MHz intermediate frequency, so
+   `-c 2402` goes with FSDIV `2401`.
+ - the deviation: MDMCTRL `0x0057`, which is what the firmware writes for the
+   packet as it stands. It is wider than any of the Bluetooth receives use,
+   and writing it on both boards is the recipe that works whether or not the
+   firmware goes on setting it for the packet.
+ - the power: `ubertooth-util -a` sets it, and two boards side by side at the
+   default 7 are too loud for each other -- the receiving board reads nothing
+   at all. Turn the transmitter down to 0 or 1 for a short path, or put an
+   attenuator in front of the receiver.
+
+Each record in `packets.bin` then holds the sync word the radio matched, the
+payload that followed it, and what the radio made of the packet's CRC;
+ubertooth-dump(1), THE GENERIC RECEIVE says where in the record they are, so a
+counted payload can be checked against what was sent. The receive reads a
+fixed 32 bytes, so keep a payload that is meant to be read back whole to 32
+bytes or fewer.
 
 ## OUTPUT AND DIAGNOSTICS
 
@@ -526,6 +578,70 @@ streaming capture gets, a single byte, and the one-byte "nothing queued"
 answer every poll of a quiet capture gets. The capture runs on and ends as it
 otherwise would, so the warning is the only sign: it says packets were lost,
 it does not fail the run.
+
+A capture also says when its receiver is being driven harder than it can
+measure: `warning: the signal is at the top of the receiver's range, so the
+board cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. Said once per capture, with a
+total when the capture ends: `warning: the capture has 3 stretches where
+the signal was at the top of the receiver's range`, one per block of
+records judged to be there.
+
+The signal figure a record carries comes from the radio on a scale that runs
+out: above a certain reading the host can only say "at least this loud", which
+it reports as 0 dBm, and a receiver held there is also past where it
+demodulates reliably. Every receive that captures turns the board's amplifier
+on and the Basic Rate and low-energy ones turn its high-gain mode on too,
+which is what makes the near end of a bench reach it. On the bench this
+measures as two separate regimes rather than
+a borderline: a transmitting board a few centimeters from the receiver holds
+every record at the top of the scale at every one of the eight transmit power
+levels, while the same board a meter away behind a 20 dB attenuator stays well
+below it even at level 7. So where the link is two boards of your own, the
+warning is about the link rather than the setting of any one option: put more
+distance or more attenuation between them, or turn the transmit power down,
+and the capture has a signal it can both measure and read. Anything else close
+and loud enough will do it too, and the board cannot say what is deafening
+it -- only that something is.
+
+One packet at the top of the scale is not this, and is not reported: a short
+packet from a board a few centimeters away arrives with `rssi=0` and a valid
+CRC. What is reported is a receiver held there, which is judged over a block
+of records rather than one.
+
+Only the captures whose records are samples of the air report it, and that is
+the point rather than a limitation. The Basic Rate stream sends a record for
+every block of air it collects, packet or no packet, so `ubertooth-rx`,
+`ubertooth-dump` with `-c` or `-l` (which is every run that does not ask for
+`-g`), `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow` notice a
+receiver that is pinned even while they decode nothing at all -- which is the
+case worth knowing about, since that is what a deafened receiver looks like.
+
+ubertooth-btle(1) does not report it, under any of `-f`, `-n` and `-p`. Its
+board sends a record for a packet it demodulated and for nothing else, so a
+record at the top of the range there says a packet decoded at the top of the
+range, which an ordinary close link produces all day: a short packet from a
+board a few centimeters away arrives at the ceiling with a valid CRC. Judging
+such records would warn about captures that are working, and the case that
+matters -- a link so loud that nothing decodes -- sends that tool no records
+to judge at all. Run ubertooth-rx(1) on the same channel to tell a deafened
+receiver from an empty one.
+
+The generic receive (`ubertooth-dump -g`) reports it or not according to which
+of its two receives the radio's configuration selects, which GENERIC RADIO
+MODE above describes: with GRMDM's packet-mode bit clear it reads a stream of
+symbols through the same path as a Basic Rate capture, takes a reading per
+poll and reports this as that capture does, while with the bit set the board
+waits on a sync word, takes no readings at all, and its records state no
+signal figure for anything to judge.
+
+ubertooth-ego(1) never reports it: its records state no signal figure either,
+and its receive leaves the high-gain mode off in any case.
+ubertooth-specan(1) is left out for a different reason: its sweep also reads
+the radio with the high-gain mode off and reports the raw readings themselves,
+so its figures are not on the scale this warning is about. The `btbr` image's
+own tools report nothing here at all, because that firmware sends none of
+these records.
 
 libubertooth follows the split already: it returns what it reads to the tool
 that called it and reports its own problems on standard error, so a library

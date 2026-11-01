@@ -103,8 +103,10 @@ figures and what the estimate rests on.
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
 manufacturer, its features, its clock offset, and its channel map as an `AFH
-Map:` line, the field name `hcitool info` gives it. A device that reports AFH
-off has no map to report, and standard error carries a `note:` line saying so.
+Map:` line, the field name `hcitool info` gives it. The manufacturer is named
+from libbtbb's table of Bluetooth SIG company identifiers, and an identifier
+that table does not name reads `not assigned`. A device that reports AFH off
+has no map to report, and standard error carries a `note:` line saying so.
 A survey result's map is the `AFH map:` line above, the spelling it has always
 had.
 
@@ -166,6 +168,21 @@ capture ends it says how many such places there were: `warning: the capture has
 count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
+
+A receiver being driven harder than it can measure is reported once per run:
+`warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. The radio reports the power of each
+block of air on a scale that runs out, and a receiver held at the top of it is
+also past where it demodulates reliably -- so this is the case where nothing
+decodes and the board is not at fault. Put more distance or more attenuation
+between the boards, or turn the transmit power down. See ubertooth(7).
+
+When the capture ends it says how many such stretches there were:
+`warning: the capture has 3 stretches where the signal was at the top of the
+receiver's range`, one per block of records judged to be there. The running
+warning is said once, so the total is what tells one bad stretch from a
+capture that was deaf throughout.
 
 ## EXIT STATUS
 
@@ -244,13 +261,14 @@ Standard error names the request, why the board refused it and the libusb code,
 and adds a note where there is something to try:
 
     error: could not set sweep mode: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r on the same board if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
 
 That pair is the report. A sweep the board's firmware has not got is
 stalled, which reads `error: could not set sweep mode: the board's firmware
-does not support it (stalled, libusb -9)`, with a note naming the board's
-firmware API version and the one these tools need (see ubertooth(7), FIRMWARE
-OF ANOTHER API VERSION). The AFH map this tool prints is only meaningful while
+does not support it (stalled, libusb -9)`, with notes naming the board's
+firmware API version and the one these tools need, and the reset that recovers
+a board which stalls every request (see ubertooth(7), FIRMWARE OF ANOTHER API
+VERSION). The AFH map this tool prints is only meaningful while
 the board sweeps the whole band, so no scan results are printed after that.
 The sweep is refused with the capture already running, so the mode is stopped
 on the way out, and a board that has stopped answering altogether can add a

@@ -4,9 +4,6 @@
  * The real header masks interrupts with the Cortex-M PRIMASK register through
  * inline assembly. The btbr queue helpers use it, and nothing in this test
  * runs concurrently, so here it does nothing.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_TEST_BTBR_SYSTEM_STUB_H
 #define UBERTOOTH_TEST_BTBR_SYSTEM_STUB_H

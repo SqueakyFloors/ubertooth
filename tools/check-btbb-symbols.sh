@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Keep LIBBTBB_REQUIRED_FUNCTIONS in host/cmake/modules/FindBTBB.cmake equal to
 # the libbtbb functions the host sources call.
 #

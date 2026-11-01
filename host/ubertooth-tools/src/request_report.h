@@ -1,24 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * The reports for a capture that could not be started, shared by the
  * ubertooth-* host tools that set one up: a control request the board
  * refused, and the host thread that collects the capture.
- *
- * This file is part of Project Ubertooth.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street,
- * Boston, MA 02110-1301, USA.
  */
 
 #ifndef UBERTOOTH_REQUEST_REPORT_H
@@ -29,7 +13,7 @@
  * most one note on what to try next:
  *
  *     error: could not set the channel: the board did not answer in time (libusb -7)
- *     note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+ *     note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r on the same board if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
  *
  * <what> is the action the tool asked for, written to follow "could not", for
  * example "set the channel". <code> is the libusb error code the request came

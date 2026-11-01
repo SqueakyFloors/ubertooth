@@ -241,12 +241,40 @@ CASES = {
         (("-u", "2481"), "error: upper frequency must be 2402-2480 mhz (got 2481)"),
     ),
     "ubertooth-tx": STRAY + VERSION_STRAY + LAP_UAP + TIMEOUT_SECONDS + (
-        # both halves of the address are needed, before a device is opened
-        ((), "error: -l <lap> and -u <uap> are both required"),
+        # the tool has two transmits, so a command line that names neither is
+        # refused before a device is opened
+        ((), "error: nothing to do: give -g to transmit a generic packet, "
+             "or -l and -u to retransmit to a piconet"),
+        (("-U", NO_SUCH_SERIAL),
+         "error: nothing to do: give -g to transmit a generic packet, "
+         "or -l and -u to retransmit to a piconet"),
+        # both halves of the address are needed for the piconet retransmit
         (("-l", "446688"), "error: -l <lap> and -u <uap> are both required"),
         (("-u", "22"), "error: -l <lap> and -u <uap> are both required"),
         (("-u", "22", "-U", NO_SUCH_SERIAL),
          "error: -l <lap> and -u <uap> are both required"),
+        # the generic packet: its payload, its sync word, and what each of
+        # them is refused without
+        (("-g", "010"), "error: a generic payload must be hex digits, "
+                        "two per byte, 1 to 32 bytes (got 010)"),
+        (("-g", "0102"), "error: -g needs -a <syncword>: the board frames "
+                         "the generic packet with it"),
+        (("-a", "cb876543"), "error: -a, -c and -n are only used with -g, "
+                             "which transmits a generic packet"),
+        (("-g", "0102", "-a", "cb87"),
+         "error: sync word must be 8 hex digits (got cb87)"),
+        (("-g", "0102", "-a", "cb876543", "-c", "2500"),
+         "error: channel must be 2402-2480 mhz (got 2500)"),
+        (("-g", "0102", "-a", "cb876543", "-n", "0"),
+         "error: transmit count must be 1-65535 packets (got 0)"),
+        (("-g", "0102", "-a", "cb876543", "-n", "65536"),
+         "error: transmit count must be 1-65535 packets (got 65536)"),
+        (("-g", "0102", "-a", "cb876543", "-l", "446688"),
+         "error: -g cannot be combined with -l; a generic packet carries "
+         "no piconet address"),
+        (("-g", "0102", "-a", "cb876543", "-t", "5"),
+         "error: -g cannot be combined with -t; a generic transmit ends "
+         "when the packets asked for have gone out"),
     ),
     "ubertooth-util": STRAY + (
         (("-c", "2500"), "error: frequency must be 2402-2480 mhz (got 2500)"),

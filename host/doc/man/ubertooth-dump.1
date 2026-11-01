@@ -12,7 +12,7 @@ ubertooth\-dump \-h
 .SH "DESCRIPTION"
 This tool dumps the raw bitstream received from the CC2400 radio to STDOUT or a file (if specified with \fB\-d\fR)\. It can configure the radio to demodulate Classic Bluetooth with \fB\-c\fR (default), or Bluetooth Low Energy (BLE) with \fB\-l\fR\. Optionally it can decode the binary data and print ASCII 0 and 1 using \fB\-b\fR\.
 .P
-\fB\-g\fR is experimental: see THE GENERIC RECEIVE below for what works and what does not, and expect the option and its output to change\.
+\fB\-g\fR is experimental: see THE GENERIC RECEIVE below for what it asks of a configuration, and expect the option and its output to change\.
 .P
 \fB\-g\fR runs the board's generic receive instead\. That mode programs no demodulator of its own: it receives with whatever CC2400 configuration is already in the radio, which \fBubertooth\-debug \-w\fR is how you put there\. It is what the board has for a 2\.4 GHz protocol that is not Bluetooth, and ubertooth(7), GENERIC RADIO MODE is the worked example\.
 .P
@@ -57,7 +57,7 @@ A refused command line creates and truncates nothing: \fB\-d\fR names its file w
 .SH "DIAGNOSTICS"
 Without \fB\-d\fR, standard output carries the symbol stream and nothing else, and so does \fB\-d \-\fR\. Errors, warnings and the per\-block timestamp go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/capture\.bin: No such file or directory\fR\. That line comes after the board has been selected and its firmware accepted, because that is when the file is opened\.
 .P
-A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. A dump is written for a file or another program, not for a screen\. \fB\-b\fR is refused too although it writes text: that line is the one every tool shares for a capture stream it will not put on a terminal\. Redirect or pipe standard output instead, or give \fB\-d\fR a file\.
+A terminal is refused either way, before any device is opened: \fBerror: stdout is a tty, refusing to write binary dump data to it\fR, exit 1\. A dump is written for a file or another program, not for a screen\. \fB\-b\fR is refused too, and the line names what it writes: \fBerror: stdout is a tty, refusing to write the bitstream dump to it\fR\. That stream is text rather than binary, and no more use on a screen at tens of thousands of characters a second\. Redirect or pipe standard output instead, or give \fB\-d\fR a file\.
 .P
 A command line the tool will not take is reported as that one \fBerror:\fR line on standard error, with no usage text after it: the line describes the problem, and \fB\-h\fR prints the usage text for a reader who wants it\. An option the tool does not know reads \fBerror: unrecognized option '\-Z'\fR; one whose value is missing reads \fBerror: option '\-d' requires a value\fR\.
 .P
@@ -68,6 +68,10 @@ A dump that is losing records says so\. The board holds captured records in a qu
 A capture transfer error is reported the same way\. The chip's transfer controller can report an error on the channel the board receives into: the record it was filling had arrived, so it is kept and marked, while some of its bytes may be wrong and whatever the fault cut short before it is lost\. The first mark warns \fBwarning: the recording board had a transfer error while capturing; what it was receiving was kept, but some of those bytes may be wrong and the capture may be missing packets around it\fR, and when the dump ends it says how many there were: \fBwarning: the capture has 3 transfer errors where a packet may be wrong or missing\fR\. ubertooth\-util(1) \fB\-w\fR reports the board's own count of them since power\-on, over every capture the board has run\.
 .P
 Symbols the board wrote over are reported the same way\. The board receives into one block of symbols while its capture loop reads the one before it, and when a block finishes arriving before the loop has read that one, the new symbols go over the old ones\. The block is gone before anything looked in it for a packet, so this loss has no packet to point at and nothing in the output marks where it happened\. The first one warns \fBwarning: the recording board fell behind while capturing and wrote new symbols over a block it had not read yet; whatever was in the air then is missing from this capture\fR, and when the dump ends it says how many such places there were: \fBwarning: the capture has 3 places where the board wrote new symbols over a block it had not read\fR\. The count is of those places, not of the blocks lost at them: the board has one flag for this and no field to send a number in, so one place can stand for several blocks\.
+.P
+A dump whose receiver is being driven harder than it can measure says so, once: \fBwarning: the signal is at the top of the receiver's range, so the board cannot measure it and may not demodulate it; the boards may be too close together, or the transmit power too high\fR\. The radio reports the power of each block of air on a scale that runs out, and a receiver held at the top of it is also past where it demodulates reliably, so the symbols in the dump are not to be trusted\. Put more distance or more attenuation between the boards, or turn the transmit power down\. It takes a receiver held at the top of the scale: one loud packet is not reported\. When the dump ends it says how many such stretches there were: \fBwarning: the capture has 3 stretches where the signal was at the top of the receiver's range\fR\.
+.P
+With \fB\-c\fR or \fB\-l\fR, which is every run that does not ask for \fB\-g\fR, the board sends a record for every block of air, so the warning arrives whether or not anything is decoding\. With \fB\-g\fR it depends on the configuration in the radio, as the receive itself does: left with GRMDM's packet\-mode bit clear the board reads a stream of symbols and reports this as \fB\-c\fR does, while with the bit set it waits on a sync word and takes no readings at all, so those records state no signal figure and nothing is reported however loud the air\. See ubertooth(7)\.
 .SH "EXIT STATUS"
 0 when the command did what was asked, including \fB\-h\fR, and after the dump is interrupted (Ctrl\-C)\. 1 for a command line the tool will not take, for a \fB\-d\fR file that cannot be opened, and when the selected Ubertooth is not found or cannot be opened\.
 .P
@@ -85,22 +89,28 @@ A \fB\-d\fR file is opened once the board has been opened and its firmware accep
 .P
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "THE GENERIC RECEIVE"
-Experimental\. The symbol\-stream half works: \fBubertooth\-dump \-g\fR with a configuration written by hand streams as the Bluetooth captures do\. The packet\-framing half does not yet produce records on our bench, and the deviation the board transmits a generic packet at is unsettled, so no tool transmits one\. Expect the options and the output to change\.
+Experimental: expect the options and the output to change\. Both halves of it work on our bench, the symbol stream and the packet framing\.
 .P
 With \fB\-g\fR the board does one of two things, and which one it does comes from GRMDM's packet\-mode bit, so the configuration decides it:
 .IP "\(bu" 4
-with packet mode clear, the board streams demodulated symbols as the Bluetooth captures do, so \fB\-b\fR prints them as \fB0\fR and \fB1\fR\. This is the half that works\.
+with packet mode clear, the board streams demodulated symbols as the Bluetooth captures do, so \fB\-b\fR prints them as \fB0\fR and \fB1\fR\.
 .IP "\(bu" 4
-with packet mode set, the board waits for the sync word in SYNCH and SYNCL and sends one record each time the radio reports one: the four sync\-word bytes, then a fixed 32 bytes read out of the radio's FIFO\. It reads no length and waits for no end of packet, so a record is a sample of the FIFO rather than necessarily one whole packet\.
+with packet mode set, the board waits for the sync word in SYNCH and SYNCL and sends one record each time the radio reports one: the four sync\-word bytes, a fixed 32 bytes read out of the radio's FIFO, and the radio's CRC verdict\. It reads no length and waits for no end of packet, so a record is a sample of the FIFO rather than necessarily one whole packet, and a bad CRC is reported rather than dropped\.
 .IP "" 0
 .P
-Packet mode leaves the framing to the radio, so it produces records only when GRMDM's preamble length, how much of the sync word it matches and its CRC choice all match what is on the air\. Getting that right for a protocol is part of the setup and nothing reports a mismatch: a wrong choice gives a capture with no records in it\. Nothing has made it produce a record on our bench yet, which is why the worked example in ubertooth(7) uses the symbol stream\.
+Packet mode leaves the framing to the radio, so it produces records only when GRMDM's preamble length, how much of the sync word it matches and its CRC choice all match what is on the air\. Getting that right for a protocol is part of the setup and nothing reports a mismatch: a wrong choice gives a capture with no records in it\. The one transmitter whose framing is known is \fBubertooth\-tx \-g\fR, so a second Ubertooth is the way to check a packet\-mode setup; ubertooth(7), GENERIC RADIO MODE has both ends of that\.
 .P
-Either way the records are the 68\-byte and 401\-byte shapes described above: the board sends what it received, and this tool writes it out without looking in it\. Nothing decodes a generic capture, because nothing here knows what protocol it is\.
+Either way the records are the 68\-byte and 401\-byte shapes described above: the board sends what it received, and this tool writes it out without looking in it\. Nothing decodes a generic capture, because nothing here knows what protocol it is\. In a packet\-mode record the four sync\-word bytes are at offset 18, the 32 payload bytes at offset 22, and at offset 54 one byte that is 1 when the radio said the packet's CRC checked out and 0 when it did not, so \fBxxd \-s 22 \-l 33 packets\.bin\fR shows the first packet's payload and its verdict\.
+.P
+That byte needs GRMDM to have the CRC on at this end to mean anything: with the bit clear the radio called packets that carried no CRC at all good\. \fBubertooth\-tx \-g\fR transmits with the CRC on, and ubertooth(7), GENERIC RADIO MODE sets a receiving board to the same value\.
+.P
+\fBTrust it at a 32\-byte payload\.\fR The datasheet defines the flag against the read position \-\- the two bytes after what has been read out of the FIFO, against the CRC16 over what was read \-\- and this capture reads a fixed 32 bytes, because the framing carries no length\. A 32\-byte payload is therefore the case where the read stops where the CRC is, and it is the case that was measured: of 200 packets one way, the three whose payload came out corrupted were the three the radio marked bad\. A shorter payload tracked the transmit's CRC too when it was tried (30 packets of 8 bytes: every record good with the CRC on, every record bad with it off), so the flag is not simply scrambled, but nothing has shown it catching a corrupt short packet\. Treat it as unverified there rather than as a check\.
 .P
 The configuration has to be in the radio before the capture starts, and it survives only while the board is idle: a mode ending puts the radio back through its own reset\. So write the registers and start the dump as two commands with nothing in between, as ubertooth(7), GENERIC RADIO MODE shows\.
 .SH "SEE ALSO"
 ubertooth\-debug(1): reads and writes the CC2400 registers a generic capture needs (\fB\-w\fR)
+.P
+ubertooth\-tx(1): the transmitting half of the generic radio mode (\fB\-g\fR), whose framing a packet\-mode capture can be set to match
 .P
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P

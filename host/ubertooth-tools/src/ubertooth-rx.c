@@ -47,6 +47,12 @@ static void usage(FILE *file)
 	fprintf(file, "\t-i <filename> replay a capture saved with -d, with its recorded times\n");
 	fprintf(file, "\t              - if not specified use Ubertooth for live capture\n");
 	fprintf(file, "\n");
+	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
+	fprintf(file, "piconet that uses adapted hopping (AFH), which every controller tested on\n");
+	fprintf(file, "this project's bench does, so following such a piconet does not start. Its\n");
+	fprintf(file, "addresses, and the packets of it this board hears, are still recovered. See\n");
+	fprintf(file, "ubertooth-rx(1).\n");
+	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
 	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
 	        NUM_BREDR_CHANNELS - 1);
@@ -161,6 +167,54 @@ static int capture_failed(ubertooth_t* ut, const struct rx_files* files,
  * hold their headers and nothing else. */
 static int replay_read_a_record;
 
+/* How long the clock search may run without confirming a clock before the tool
+ * says what it does not reach, in milliseconds.
+ *
+ * The search cannot report this itself, because it does not fail: it rules its
+ * candidates out and starts over, printing a candidate count each time, so
+ * nothing a user sees separates a search that is getting somewhere from one
+ * that is not going to finish. The tool says so once instead.
+ *
+ * Half a minute. A search that does reach a clock reaches it within a few
+ * seconds of settling CLK1-6, because every packet of the piconet rules out
+ * most of what is left, so half a minute is several times over what a working
+ * search needs and well short of the minute a working follow is given above.
+ * Saying it too early is the worse mistake of the two, which is what sets the
+ * span: a user told that a search is not going to finish will stop a run that
+ * was about to succeed.
+ *
+ * Nothing acts on it. The search carries on exactly as before and the note
+ * only says what the run is going to reach. */
+#define CLOCK_SEARCH_NOTE_MS 30000
+
+/* Says once what the clock search does not reach, for a run whose search has
+ * been going that long with no clock confirmed. Called where the capture
+ * decodes, so a run with no board, and one whose piconet is silent, say
+ * nothing: the reading is -1 until a packet of the piconet reaches the search.
+ *
+ * On standard error, with the rest of the notes, so a capture that has taken
+ * standard output still carries only the capture. */
+static int clock_search_noted;
+
+static void rx_note_clock_search_limit(void)
+{
+	long ms = ubertooth_clock_search_ms();
+
+	if (clock_search_noted || ms < CLOCK_SEARCH_NOTE_MS)
+		return;
+	clock_search_noted = 1;
+	/* How long the search has really run, not the span that brought it
+	 * here: a run that reaches this late -- a replay reading its records
+	 * at the times they were recorded, say -- would otherwise report a
+	 * search of minutes as half a minute. */
+	fprintf(stderr, "note: the clock search has run for %ld s without "
+	        "confirming a clock; it does not confirm one against a piconet "
+	        "that uses adapted hopping (AFH)\n", ms / 1000);
+	fputs("note: the piconet's LAP and UAP, and the packets of it this "
+	      "board hears, are still recovered, decoded, and captured; see "
+	      "ubertooth-rx(1)\n", stderr);
+}
+
 /* A replay's decode: notes the record, then decodes it like any other. The
  * decode is libubertooth's cb_rx() and notes nothing itself, and a live
  * capture needs no note, so only a replay goes through here. */
@@ -168,6 +222,10 @@ static void replay_decode(ubertooth_t* ut, void* args)
 {
 	replay_read_a_record = 1;
 	cb_rx(ut, args);
+	/* A replay reads its records at the times they were recorded, so a
+	 * search over a recorded capture runs for as long as it did live and
+	 * the note lands in the same place. */
+	rx_note_clock_search_limit();
 }
 
 /* How long a follow may hear nothing of its piconet before the clock it is
@@ -394,8 +452,8 @@ int main(int argc, char* argv[])
 	 * is a problem with the command line, so it is refused here, before a
 	 * board is opened; the stream itself is taken over further down, where
 	 * the file is created. */
-	if (opt_check_capture_destination(pcap_name, "capture data") < 0 ||
-	    opt_check_capture_destination(dump_name, "dump data") < 0)
+	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0 ||
+	    opt_check_capture_destination(dump_name, "binary dump data") < 0)
 		return 1;
 
 	/* Every check has passed, so the handle and its 72 MB fifo can be
@@ -545,7 +603,7 @@ int main(int argc, char* argv[])
 		 * man page says of it; the notes and failures are on standard
 		 * error and still arrive. */
 		int saved_fd;
-		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		char *file = opt_capture_path(pcap_name, "binary capture data", &saved_fd);
 		int failed, create_errno;
 
 		if (file == NULL) {
@@ -573,7 +631,7 @@ int main(int argc, char* argv[])
 		}
 	}
 	if (dump_name != NULL) {
-		dumpfile = opt_open_dump_file(dump_name, "dump data");
+		dumpfile = opt_open_dump_file(dump_name, "binary dump data");
 		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
 			report_stream = stderr;
 		if (dumpfile == NULL) {
@@ -687,6 +745,9 @@ int main(int argc, char* argv[])
 			 * stopped sends no request on its way out. */
 			if (ubertooth_follow_quiet_ms() >= FOLLOW_QUIET_MS)
 				ubertooth_follow_drop_clock(ut, pn);
+			/* And what the search is not going to reach, said once
+			 * a search has been running long enough to say it of. */
+			rx_note_clock_search_limit();
 			ubertooth_bulk_receive(ut, cb_rx, pn);
 		}
 
@@ -735,7 +796,11 @@ int main(int argc, char* argv[])
 	}
 
 	if(survey_mode) {
-		fprintf(report_stream, "Survey Results\n");
+		/* The heading is for a person reading along, not part of the
+		 * result list, so it goes to standard error and leaves standard
+		 * output holding only the addresses a script parses. The same
+		 * split ubertooth-scan(1) prints "Scan results:" with. */
+		fputs("Survey Results\n", stderr);
 		while((pn=btbb_next_survey_result()) != NULL) {
 			lap = btbb_piconet_get_lap(pn);
 			if (btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {

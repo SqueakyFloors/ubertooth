@@ -4,22 +4,34 @@
 
 ### New features
 
+- A capture whose receiver is being driven harder than the radio can measure
+  says so instead of looking like a capture of an empty channel: `warning: the
+  signal is at the top of the receiver's range, so the board cannot measure it
+  and may not demodulate it; the boards may be too close together, or the
+  transmit power too high`, once per run, with a total of such stretches when
+  the capture ends. Two Ubertooths a few centimeters apart do it at every
+  transmit power level, 0 included. ubertooth(7), OUTPUT AND DIAGNOSTICS says
+  which captures can see it.
+  [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
+
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
-  is not Bluetooth can be captured without new firmware.
+  is not Bluetooth can be captured without new firmware, and one packet can be
+  transmitted the same way. ubertooth(7), GENERIC RADIO MODE is the worked
+  example of both.
   `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
-  could only read before, and `ubertooth-dump -g` starts the capture.
-  ubertooth(7), GENERIC RADIO MODE is the worked example.
-  What works and what does not: the raw symbol stream works, and `-g` with a
-  configuration written by hand streams as the Bluetooth captures do. The
-  packet-framing half, where the radio matches a sync word and the board sends
-  one record per detection, has not produced a record on our bench
-  ([#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040) is the open
-  question behind it), and no tool transmits a generic packet because the
-  deviation the firmware transmits at is unsettled. Expect the options and the
-  output of both to change.
+  could only read before; `ubertooth-dump -g` starts the capture; and
+  `ubertooth-tx -g <payload> -a <syncword> [-n <count>]` transmits packets,
+  which is the one transmitter whose framing is known, so two boards set to
+  the same framing are how the packet-framing receive is checked. Both halves
+  of the receive work: the raw symbol stream, and the packet framing where the
+  radio matches a sync word and the board sends one record per detection.
+  What goes on the air carries the radio's CRC, and each record says what the
+  radio made of it, so a payload with a bit error in it is no longer read as a
+  payload. Expect the options and the output to change.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
 
 - `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
   dropping them: a replay has no board to tune and nothing to wait for, so
@@ -47,6 +59,13 @@
   each one's detail as the run goes. Nothing about a malformed packet is called
   an error any more, and the packets themselves are recorded as they arrived.
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
+
+- `ubertooth-util -B` says which bootloader a board has, which nothing used to
+  report, and a bootloader cannot be replaced over USB. One built from this
+  tree reports its version and revision; every board as shipped reports no
+  version block, and a hash of the whole bootloader, which is what tells two
+  such bootloaders apart.
+  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
   stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
@@ -82,10 +101,11 @@
   the address out of the exception frame, which for that fetch is where the
   pointer pointed. Because the record means something new, the breadcrumb starts
   again on the first boot of this firmware: a board's reset, boot, and transfer
-  error counts restart once, as they do after a power cycle. Firmware API 1.57,
-  so a release build of the host tools refuses a board carrying older firmware
-  and a development build warns about it, which is what keeps either from
-  reading an older record's leftover address register as an instruction.
+  error counts restart once, as they do after a power cycle. The firmware API
+  version moved with it, so a release build of the host tools refuses a board
+  carrying older firmware and a development build warns about it, which is what
+  keeps either from reading an older record's leftover address register as an
+  instruction.
   [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
@@ -282,6 +302,11 @@
   error, `-h` exits 0, and a command line with nothing to do is refused. A
   file a tool cannot open is reported as `error: <file>: <reason>`.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Script-visible change:** `ubertooth-rx -z` prints its `Survey Results`
+  heading on standard error, so a survey collected in a file or piped into
+  another program holds the addresses alone. The heading was on standard
+  output above them, as `ubertooth-scan`'s `Scan results:` also used to be.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - **Script-visible change:** a `ubertooth-scan` run collected in a file or
   piped into another program no longer picks up its three headings, the
   progress of `-x` or its failures: those are on standard error now. An
@@ -417,8 +442,12 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.57, last moved by the
-  address a processor fault is recorded at
+- **Reflash required:** the firmware API version is now 1.58, last moved by a
+  generic transmit request carrying how many packets to send, in a field it
+  used to ignore: older firmware would take the request, ignore the count and
+  send one packet, and the version is what stops a host from believing it
+  ([#352](https://github.com/SqueakyFloors/ubertooth/issues/352)), before that
+  by the address a processor fault is recorded at
   ([#764](https://github.com/SqueakyFloors/ubertooth/issues/764)), before that
   by the modulation a mode start keeps for the mode it was stated for, before
   that by the packet's own power and the background in every capture record,
@@ -615,6 +644,25 @@
 
 ### Build and compatibility
 
+- libubertooth's `register_cleanup_handler()` is deprecated in favor of
+  `ubertooth_catch_stop_signals()`, which installs the same stop handlers
+  without needing a device handle. It is still exported, so a program of your
+  own that calls it builds and links against this release; GCC and Clang now
+  name the replacement in a warning, which a build with `-Werror` will stop
+  on. It is removed in the release after this one.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- libubertooth installs to the directory your system keeps libraries in,
+  which is where libbtbb already went: `lib64` on a 64-bit Fedora, RHEL or
+  SUSE, `lib/<triplet>` where the prefix is `/usr` on a multiarch Debian or
+  Ubuntu, and `lib` elsewhere. The two used to land in different directories
+  on such a system, so the loader had to be told about both.
+  `-DCMAKE_INSTALL_LIBDIR=` chooses the directory, `-DCMAKE_INSTALL_INCLUDEDIR=`
+  the headers', and `LIB_SUFFIX` still decides where a build command passes it.
+  `libubertooth.pc` follows, so `pkg-config --libs libubertooth` names the
+  directory the library is really in, and `./install.sh` puts that directory
+  first on the installed tools' run path and says so if an earlier install
+  left a libubertooth in `lib`.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - `./install.sh` installs on Fedora. It used to stop on any Linux without
   `apt-get`; it now finds `dnf` and asks it for the same dependencies under
   Fedora's names, the ARM toolchain for `--with-firmware` included, and the
@@ -660,6 +708,13 @@
   interfaces they use, as a build of the whole tree does, so a strict C
   standard works there too.
   [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
+- Configuring the tools against a libubertooth installed from an older commit
+  is refused in one line that names what is missing and how to install a
+  current one. Such an install used to configure without a word and then fail
+  in the compiler with dozens of errors naming symbols its header has not
+  got: `FindUBERTOOTH.cmake` now asks the libubertooth it found for a few of
+  the functions the tools call, as the libbtbb check already did.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - A program that sets more advertising data than the board can transmit is
   told so, where it used to be taken and then dropped: `cmd_le_set_adv_data()`
   and the board's `UBERTOOTH_LE_SET_ADV_DATA` both refuse anything longer than
@@ -827,6 +882,60 @@
   [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
 
 ### Reliability fixes
+
+- Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
+  already declined, until link supervision ended it a second later. A peer
+  that refuses the connection request now gets a detach, and the command says
+  so and ends straight away.
+  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
+
+- Fixed: `ubertooth-scan -x` reported a device from a company that joined the
+  Bluetooth SIG recently as `Manufacturer: not assigned`. The line is now
+  named from libbtbb's table of company identifiers, which has 4133 of them
+  where the BlueZ table it read before stops at 1037.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
+- The report for a request the board refused names the reset that recovers a
+  board which has stopped answering. Such a board stalls every request sent to
+  it, whatever its firmware implements, so the stall report used to send the
+  user to reflash a board that was not short of the request at all. It now
+  carries a second note, `note: a board that stalls every request is wedged
+  rather than short of this one; reset it with ubertooth-util -r on the same
+  board`, and the note for a request that timed out names the same reset
+  before the unplug it already suggested, so the recovery that needs nobody
+  at the bench comes first.
+
+- `ubertooth-dump -b` refuses a terminal for what it really writes: `error:
+  stdout is a tty, refusing to write the bitstream dump to it`. That stream
+  is a `0` or a `1` per symbol, a line per captured block, and the refusal
+  it shares with the binary captures used to call it binary.
+
+- `ubertooth-btbr` carries on when a device name cannot be written in the
+  session's character encoding. A name arrives as whatever bytes the air
+  carried, and one that is not ASCII ended the command in
+  `BTCtlInquiryCmd stopped: UnicodeEncodeError` on a session not running under
+  UTF-8. That line is dropped now, with one warning saying why and naming
+  `PYTHONIOENCODING=utf-8`, and the packets after it are printed as usual. A
+  diagnostic the encoding could not take used to silence standard error for
+  the rest of the session.
+
+- Fixed: `ubertooth-btbr`'s `l2ping` never reached its L2CAP packet when the
+  device it paged was another Ubertooth. The two boards connected and then sat
+  there, because each side sent `LMP_setup_complete` only on receiving one, so
+  neither sent the first and the link setup never finished. The central now
+  sends its own as soon as its connection request is accepted, and a board in
+  `page_scan`, which `discoverable` also runs, answers an L2CAP echo request
+  small enough to reply to in the packets this link sends, so `l2ping` between
+  two boards sees a reply. A request larger than that is not
+  answered; ubertooth-btbr(1), LIMITATIONS says how large it may be.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
+- `ubertooth-btbr`'s `page`, `l2ping`, `monitor`, and `bdaddr` refuse an
+  address that is not six bytes, where a short one used to be acted on as a
+  different one: `bdaddr 11:22:33` gave the board `00:00:11:22:33` and `page
+  11:22:33` paged that device, with nothing said. An inquiry's `bdaddr=` keeps
+  its leading zeros too, so the address it prints is one the prompt takes.
+  [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
@@ -2554,6 +2663,19 @@
   which stopped being true of follow mode when it learned algorithm 2.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
+- Known limitation, now stated instead of left for a user to find: the Classic
+  clock search does not confirm a clock against a piconet that uses adapted
+  hopping (AFH), which the controllers tested on this project's bench all do,
+  including when every channel is allowed, so `ubertooth-rx -l <lap> -u <uap>`
+  does not start following such a piconet. `ubertooth-rx(1)` has a section on
+  it, the usage text says it, and a search that has run half a minute without
+  confirming a clock says it once at runtime rather than printing candidate
+  counts for the rest of the run. What
+  the tool does reach is unchanged: the LAP, the UAP, survey mode, and the
+  packets of the piconet the board hears, decoded and written to a capture
+  file. The search itself is not changed.
+  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
+
 - The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
   `-h`, which all three accept and every other tool's usage text lists, and
   `ubertooth-util`'s `-t` line spells "initiate".
@@ -2677,6 +2799,20 @@
 
 Fixes with no visible change in normal use.
 
+- The paged board's `LMP_setup_complete` carries the transaction ID the
+  specification gives a transaction the peripheral started, where it carried
+  the one for the central's. Two Ubertooths are lenient about it; a standard
+  controller may not be.
+  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
+- `l2ping` sends nothing on the signalling channel before the link setup has
+  finished or after this end has hung up, which is what the board in
+  `page_scan` already did.
+  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
+- Giving up a followed low-energy connection takes one path rather than two.
+  The host's request to stop following and the end of the connection itself
+  did the same three things in blocks of their own, and a request that arrived
+  in the same connection event as the end of the connection was left set
+  behind the follow it had asked to stop.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.

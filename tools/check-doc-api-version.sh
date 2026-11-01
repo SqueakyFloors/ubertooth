@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Fail when documentation pins the firmware API version into a sample, and
 # when the two documents that state the version for real have gone stale.
 #

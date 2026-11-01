@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "specan_options.h"
 #include "opt_parse.h"
 

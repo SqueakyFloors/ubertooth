@@ -109,9 +109,12 @@ with the reason on the line where that board's version would have been.
 - A request the board's firmware has not got is reported by
   `ubertooth_report_unsupported_request()` and nowhere else, so there is one
   wording for it: an `error: ` line naming the request, and, where a board's
-  firmware API version has been read, a `note: ` putting it beside the one
-  these tools need (ubertooth-dfu talks to the bootloader, which has no such
-  version, so it gets the line alone). Do not write another wording for a
+  firmware API version has been read, two `note: ` lines -- one putting that
+  version beside the one these tools need, one saying that a board which
+  stalls every request is wedged instead and naming `ubertooth-util -r`.
+  Both notes need a version to have been read, because that is what says an
+  application firmware answered: ubertooth-dfu talks to the bootloader, which
+  runs none, so it gets the line alone. Do not write another wording for a
   stalled request, and do not hand one to `show_libusb_error()`.
 
 The three cases, with `ubertooth-ego`:

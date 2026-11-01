@@ -22,9 +22,6 @@
  * here. The air buffer is built here rather than by the encoder, so a case
  * can put a HEC of its choosing on the air; the encoder's own output is
  * checked against it, which keeps the two descriptions of a header honest.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #include <stdarg.h>
 #include <stdint.h>

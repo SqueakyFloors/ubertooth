@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Monotonic clock and sleep for the tools that wait or time something
  * (ubertooth-util's reset wait, ubertooth-specan's -v summary lines), kept in

@@ -761,6 +761,8 @@ static void usage(FILE *output)
 	fprintf(output, "\t-i activate In-System Programming (ISP) mode\n");
 	fprintf(output, "\t   the board answers nothing else until it is power-cycled\n");
 	fprintf(output, "\t-b get hardware board id number\n");
+	fprintf(output, "\t-B get the bootloader this board has: its version and\n");
+	fprintf(output, "\t   build if it reports them, and a CRC-32 of the bootloader either way\n");
 	fprintf(output, "\t-p get microcontroller Part ID\n");
 	fprintf(output, "\t-w get the watchdog state, why the board last reset itself,\n");
 	fprintf(output, "\t   and how many radio waits gave up\n");
@@ -782,7 +784,7 @@ int main(int argc, char *argv[])
 	int do_stop, do_isp, do_leds, do_part, do_reset;
 	int do_serial, do_tx, do_palevel, do_channel, do_led_specan;
 	int do_range_test, do_repeater, do_firmware, do_board_id;
-	int do_range_result, do_all_leds, do_identify;
+	int do_range_result, do_all_leds, do_identify, do_bootloader;
 	/* A set and a read of the same value have their own flags, as the
 	 * squelch pair below does, so one command can do both: the set runs
 	 * first and the read then reports the new value. Sharing a variable
@@ -814,7 +816,7 @@ int main(int argc, char *argv[])
 	do_stop= do_isp= do_leds= do_part= do_reset= -1;
 	do_serial= do_tx= do_palevel= do_channel= do_led_specan= -1;
 	do_range_test= do_repeater= do_firmware= do_board_id= -1;
-	do_range_result= do_all_leds= do_identify= -1;
+	do_range_result= do_all_leds= do_identify= do_bootloader= -1;
 	do_get_leds= do_get_all_leds= do_get_channel= do_get_palevel= 0;
 	do_set_squelch= -1, do_get_squelch= -1; squelch_level= 0;
 	do_number= 0; do_xmas= 0; do_watchdog= -1;
@@ -825,7 +827,7 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
-	const char options[] = ":U:hn::meiIprsStvbwl::a::C::c::d::q::z::VNx";
+	const char options[] = ":U:hn::meiIprsStvbBwl::a::C::c::d::q::z::VNx";
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* An optional value may also be the next word: -c 2440, -z -90. Only
@@ -958,6 +960,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'b':
 			do_board_id= 0;
+			break;
+		case 'B':
+			do_bootloader= 0;
 			break;
 		case 'z':
 			if (optarg) {
@@ -1238,6 +1243,17 @@ int main(int argc, char *argv[])
 	if(do_board_id == 0)
 		status = util_status_merge(status,
 		        util_report_board_id(&report_ops, ut, stdout, stderr));
+	if(do_bootloader == 0) {
+		struct ubertooth_bootloader_info info;
+		int b = cmd_get_bootloader_info(ut->devh, &info);
+
+		if (b < 0)
+			status = util_status_merge(status,
+			        report_read_failed("bootloader information", b));
+		else
+			status = util_status_merge(status,
+			        util_report_bootloader(stdout, stderr, &info));
+	}
 	if(do_get_channel) {
 		int mhz = cmd_get_channel(ut->devh);
 		if (mhz < 0)
@@ -1386,7 +1402,7 @@ int main(int argc, char *argv[])
 		 * tool's own thread, as every other ending of the wait stops it.
 		 * Installed before the test is started, so a signal arriving while
 		 * the start request is in flight is caught as well. */
-		register_cleanup_handler(ut, 0);
+		ubertooth_catch_stop_signals();
 		fprintf(stderr, "Starting range test\n");
 		status = util_status_after(status, cmd_stop(ut->devh)); /* leave any prior mode before starting */
 		started = cmd_range_test(ut->devh);

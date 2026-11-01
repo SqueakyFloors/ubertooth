@@ -1272,7 +1272,8 @@ print("ubtbr: a peer's refusal is recorded and the next request still goes")
 
 # A refusal of the connection request the five lead to is a warning: the
 # peer is declining the connection itself, and there is nothing further to
-# ask it for.
+# ask it for. 4.1.1 has the paging device disconnect the link at once, so a
+# detach goes out and the session ends.
 central = lmp.LMPCentral(RecordingConnection())
 for op, field, send in central._opening:
     setattr(central, field, b"")
@@ -1283,9 +1284,12 @@ with contextlib.redirect_stderr(warned):
         [lmp.LMP_HOST_CONNECTION_REQ], central._con.sent
     central._con.sent.clear()
     central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
-assert central._con.sent == [], central._con.sent
+assert central._con.sent == [pdu_sent(lmp.LMP_DETACH,
+    (lmp.LMP_DETACH_REASON_REMOTE_USER,), 0)], central._con.sent
+assert central._con.stops == 1, central._con.stops
 assert warned.getvalue() == "warning: the peer refused " \
-    "LMP_HOST_CONNECTION_REQ: reason 0x0d\n", warned.getvalue()
+    "LMP_HOST_CONNECTION_REQ: reason 0x0d; closing the link\n", \
+    warned.getvalue()
 print("ubtbr: a peer declining the connection itself is one warning line")
 
 # ---- a command of a super command that will not stop ----------------------
@@ -1605,6 +1609,76 @@ class Terminal(io.StringIO):
 with contextlib.redirect_stderr(Terminal()):
     assert streams.colored("ready", "32;1") == "\x1b[32;1mready\x1b[0m"
 print("ubtbr: a progress line is colored for a terminal and plain otherwise")
+
+# A line the stream's character encoding cannot carry is one lost line, not a
+# lost stream. A device name comes off the air as whatever bytes were sent,
+# and one that is not ASCII -- or the replacement character a name cut
+# mid-character decodes to -- used to end the command in
+# "BTCtlInquiryCmd stopped: UnicodeEncodeError" on a session whose streams are
+# not UTF-8. The line goes, the warning says why once, and the session carries
+# on with the packets that follow.
+
+
+def ascii_stream():
+    """A stream with ASCII under it, as PYTHONIOENCODING=ascii leaves one."""
+    return io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+
+
+def written(stream):
+    stream.flush()
+    return stream.buffer.getvalue().decode("ascii")
+
+
+# The flag that says the warning has been given is a module global, so each
+# case below starts from a session that has not given it yet.
+streams._encoding_reported = set()
+ascii_out, said = ascii_stream(), io.StringIO()
+with contextlib.redirect_stdout(ascii_out), contextlib.redirect_stderr(said):
+    # An inquiry response is one message of several lines, and the name is
+    # only one of them: the packet and the fields around it have to survive
+    # it. The whole message is written in one call, so the encoder refuses
+    # all of it, and the lines are then written again one at a time.
+    streams.result("ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55\n"
+                   "COMPLETE_LOCAL_NAME: '\ufffdbertooth'\n"
+                   "FLAGS: 02 01 06")
+    streams.result("RX FHS: bdaddr=112233445566")
+    streams.result("COMPLETE_LOCAL_NAME: '\ufffdgain'")
+printed = written(ascii_out)
+# only the lines that could not be encoded are gone, and everything around
+# them reached the reader: the stream is kept rather than pointed at the bin
+assert "bertooth" not in printed and "gain" not in printed, printed
+assert "ACL(llid=L2CAP_START" in printed, printed
+assert "FLAGS: 02 01 06" in printed, printed
+assert "RX FHS: bdaddr=112233445566" in printed, printed
+# each surviving line still carries its own time
+assert all(re.match(r"\d\d:\d\d:\d\d ", line)
+           for line in printed.splitlines()), printed
+assert said.getvalue().count(
+    "warning: a line could not be written in standard output's character"
+    " encoding (ascii), so it was dropped\n"
+    "note: run the session under an encoding that carries the text, for"
+    " example PYTHONIOENCODING=utf-8\n") == 1, said.getvalue()
+# the stream is there, so this is not the loss output_gone() reports -- but a
+# packet that was asked for was not printed, which the exit status says
+assert not streams.output_gone(), "the stream is there; only the line is lost"
+assert streams.result_lines_dropped(), "a dropped packet must reach the status"
+print("ubtbr: a packet the output encoding cannot carry is one dropped line")
+
+# the same for a diagnostic, which used to point standard error at the bin
+# for the rest of the session: one warning the encoding could not take and
+# every later error line was lost with it. The flag is not reset here, so
+# this also pins that a lost error line is reported after a lost packet has
+# already been: one flag for both streams left it silent, and a lost error
+# line is the one loss that must not be.
+ascii_err = ascii_stream()
+with contextlib.redirect_stderr(ascii_err):
+    streams.error("could not read the name '\ufffdbertooth'")
+    streams.error("plain words reach the reader")
+assert "plain words reach the reader" in written(ascii_err), written(ascii_err)
+assert "standard error's character encoding (ascii)" in written(ascii_err), \
+    written(ascii_err)
+print("ubtbr: a diagnostic the error encoding cannot carry keeps the stream")
+streams._encoding_reported = set()
 
 # ---- a command that ends after the prompt gave up on it -------------------
 
@@ -2264,6 +2338,143 @@ for typed in ("x\n", "q\n", "x now\n", "q now\n"):
     assert "no such command" not in errors, (typed, errors)
     assert "Traceback" not in errors, (typed, errors)
 print("ubtbr: `x` and `q` leave whatever follows them")
+
+
+# ---- an address the prompt acts on is the one that was typed ---------------
+#
+# A Bluetooth address is six bytes, so twelve hex digits, which is what the
+# prompt's own error line asks for. A shorter word used to be taken and acted
+# on, because the parser read the word as a hex number and only checked that
+# it fit 48 bits: "bdaddr 11:22:33" gave the board the address 00:00:11:22:33
+# and "page 11:22:33" paged that device, three bytes from the one the user
+# meant, with nothing said about it. Two more words int() reads and this
+# grammar does not: "0x11" as address 0x11, from the prefix, and "1_1" as
+# 0x11, from the underscore.
+
+def requests_sent():
+    """The request code of every packet sent so far, oldest first.
+
+    A message longer than the endpoint's 60 bytes is sent as a first packet
+    and then continuations, which carry payload where the first carries the
+    header, so only the first of each message is read here.
+    """
+    codes = []
+    for packet in writes():
+        sent = bytes.fromhex(packet)
+        if sent[:1] == b"S" and len(sent) >= 8:
+            codes.append(struct.unpack("<I", sent[4:8])[0])
+    return codes
+
+
+def address_request(code, bdaddr):
+    """The USB packet the device gets for a request carrying an address."""
+    payload = struct.pack("<I", code) + struct.pack("<Q", bdaddr)
+    return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
+
+
+def set_bdaddr_packet(bdaddr):
+    """The USB packet the device gets for a set-address request."""
+    return address_request(btctl.BTCTL_SET_BDADDR_REQ, bdaddr)
+
+
+# The session gives the board an address of its own on the way up, so that
+# one request is there before anything is typed.
+STARTUP_BDADDR = set_bdaddr_packet(0x112233445566)
+
+REFUSED_ADDRESSES = (
+    "11:22:33",             # short, and a whole address of its own
+    "1122334455",           # short, without the colons
+    "11:22:33:44:55",       # one byte short
+    "0x112233445566",       # the prefix int() takes
+    "1_12233445566",        # the underscore int() takes
+    "11:2233:4455:66",      # twelve digits, but not the five colons
+    # Too long, but small enough to fit 48 bits, so the value said nothing
+    # about the length and these came through where a larger one did not.
+    "00:11:22:33:44:55:66",
+    "0011223344556",
+    "11:22:33:44:55:66:77",
+    "11:22:33:44:55:zz",
+    "11-22-33-44-55-66",    # twelve digits, another separator
+    "11:22:33:44:55:66 extra",   # a word after the address
+    "",                     # the bare command
+)
+refused = "".join("bdaddr %s\n" % word for word in REFUSED_ADDRESSES) + "q\n"
+status, output, errors = ran(typed=refused)
+assert status == 0, (status, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+for word in REFUSED_ADDRESSES:
+    assert ("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)\n" % word
+            ) in errors, (word, errors)
+# and none of them reached the board: the only set-address request is the
+# session's own, from before anything was typed
+assert writes().count(STARTUP_BDADDR) == 1, writes()
+assert requests_sent().count(btctl.BTCTL_SET_BDADDR_REQ) == 1, requests_sent()
+print("ubtbr: an address that is not six bytes is refused, not acted on")
+
+# The same parser serves page, l2ping, and monitor, so a short address is
+# refused there too, and no page train goes out for it.
+for command in ("page", "l2ping", "monitor"):
+    status, output, errors = ran(typed="%s 11:22:33\nq\n" % command)
+    assert status == 0, (command, status, output, errors)
+    assert output == "", (command, output)
+    assert ("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got 11:22:33)\n"
+            in errors), (command, errors)
+    assert "Traceback" not in errors, (command, errors)
+    sent = requests_sent()
+    assert btctl.BTCTL_PAGING_REQ not in sent, (command, sent)
+    assert btctl.BTCTL_MONITOR_REQ not in sent, (command, sent)
+print("ubtbr: page, l2ping, and monitor refuse a short address as bdaddr does")
+
+# A whole address is taken either way it is written, upper or lower case, and
+# the board is given exactly those six bytes. The spaces around the last one
+# are Cmd's to strip, not the grammar's, which is what that line is here for.
+for word, value in (("AA:BB:CC:DD:EE:FF", 0xAABBCCDDEEFF),
+                    ("aabbccddeeff", 0xAABBCCDDEEFF),
+                    ("Aa:bB:cC:Dd:eE:fF", 0xAABBCCDDEEFF),
+                    ("  AA:BB:CC:DD:EE:FF  ", 0xAABBCCDDEEFF),
+                    # the shape the padding below is for: an address whose
+                    # leading bytes are zero, which has to survive the trip
+                    # as those six bytes rather than as its value
+                    ("00:11:22:33:44:55", 0x001122334455),
+                    ("001122334455", 0x001122334455)):
+    status, output, errors = ran(typed="bdaddr %s\nq\n" % word)
+    assert status == 0, (word, status, output, errors)
+    assert "BD_ADDR must be" not in errors, (word, errors)
+    assert "Traceback" not in errors, (word, errors)
+    assert set_bdaddr_packet(value) in writes(), (word, writes())
+print("ubtbr: a whole address is taken with or without the colons")
+
+# and so do the commands that start something, with the address they were
+# given: the refusals above would also pass if the grammar refused every
+# address, so each of those is typed with a whole one too. l2ping pages, so
+# it sends the paging request page does. Each is stopped again rather than
+# left running.
+for command, code in (("page", btctl.BTCTL_PAGING_REQ),
+                      ("l2ping", btctl.BTCTL_PAGING_REQ),
+                      ("monitor", btctl.BTCTL_MONITOR_REQ)):
+    status, output, errors = ran(
+        typed="%s AA:BB:CC:DD:EE:FF\nidle\nq\n" % command)
+    assert status == 0, (command, status, output, errors)
+    assert "BD_ADDR must be" not in errors, (command, errors)
+    assert "Traceback" not in errors, (command, errors)
+    assert address_request(code, 0xAABBCCDDEEFF) in writes(), \
+        (command, writes())
+print("ubtbr: page, l2ping, and monitor act on the address they were given")
+
+# The address an inquiry prints keeps its leading zeros, so it is a word the
+# prompt takes back. It used to be printed as a plain hex number, so a device
+# whose address begins 00: -- many do -- appeared as fewer than twelve
+# digits, and copying that word into page would now be refused.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(0x001122334455),
+], until="RX FHS")
+printed = timed_lines(output, "RX FHS")[0]
+assert "bdaddr=001122334455 " in printed, printed
+assert tool_module.BTCtlPrompt.BDADDR.match(
+    re.search(r"bdaddr=(\S+)", printed).group(1)), printed
+print("ubtbr: the address an inquiry prints is one the prompt takes back")
 
 
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
@@ -3381,5 +3592,448 @@ assert errors == (
 ), errors
 
 print("ubtbr: -V and -h need no Python libusb1 package")
+
+
+# ---- the LMP setup finishes, and an echo request is answered --------------
+
+# Two boards used to sit in a connection that never finished its setup: each
+# side sent LMP_setup_complete only on receiving one, so neither sent the
+# first. 4.1.1 has each end send one and wait for the other's, and the
+# central's goes out as soon as its connection request is accepted.
+
+class CountingConnection(RecordingConnection):
+    """A connection that counts the setups reported complete."""
+
+    def __init__(self):
+        super().__init__()
+        self.setups = 0
+
+    def handle_setup_complete(self):
+        self.setups += 1
+
+
+def central_at_connection_req():
+    """A central that has asked for the connection, with nothing else sent."""
+    central = lmp.LMPCentral(CountingConnection())
+    for op, field, send in central._opening:
+        setattr(central, field, b"")
+    central.start()
+    assert opcode_of(central._con.sent[-1]) == lmp.LMP_HOST_CONNECTION_REQ, \
+        central._con.sent
+    central._con.sent.clear()
+    return central
+
+
+SETUP_COMPLETE = bytes([lmp.LMP_SETUP_COMPLETE << 1])
+ACCEPTED = bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_HOST_CONNECTION_REQ])
+
+# Accepting the connection request sends this end's LMP_setup_complete, and
+# the setup is reported complete once the peer's has arrived.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 0, central._con.setups
+central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# A peer that sends its own first, which a standard controller may do, still
+# gets this end's, and still gets exactly one.
+central = central_at_connection_req()
+central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+
+# However many the peer sends, the connection opens once: a second report
+# would have l2ping put a second echo request on the link.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+for repeat in range(3):
+    central.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# An LMP_accepted that arrives while the connection request is outstanding
+# but names another procedure, or is too short to name one -- which reads as
+# opcode zero once the padding every PDU carries is counted -- leaves the
+# setup where it was.
+for accepted in (bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]),
+                 bytes([lmp.LMP_ACCEPTED << 1]),
+                 bytes([lmp.LMP_ACCEPTED << 1]) + b"\x00" * 16):
+    central = central_at_connection_req()
+    central.receive(0, accepted)
+    assert central._con.sent == [], (accepted.hex(), central._con.sent)
+    assert central._con.setups == 0, accepted.hex()
+    # the connection request is still the one outstanding, so the real
+    # LMP_accepted still works
+    central.receive(0, ACCEPTED)
+    assert [opcode_of(pdu) for pdu in central._con.sent] == \
+        [lmp.LMP_SETUP_COMPLETE], (accepted.hex(), central._con.sent)
+
+# A peer that says the setup is complete while this end is still asking it
+# about itself is answering nothing, and is ignored with a warning: the
+# connection has not been asked for, so there is no setup to finish.
+central = lmp.LMPCentral(CountingConnection())
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    central.start()
+    central._con.sent.clear()
+    central.receive(0, SETUP_COMPLETE)
+assert central._con.sent == [], central._con.sent
+assert central._con.setups == 0, central._con.setups
+assert warned.getvalue() == "warning: the peer said the setup was complete " \
+    "while LMP_FEATURES_REQ was outstanding\n", warned.getvalue()
+# It is remembered, though, so the connection opens when the request this end
+# was in the middle of has run its course, rather than the link sitting there
+# until supervision ends it.
+for op, field, send in central._opening:
+    setattr(central, field, b"")
+central.send_info_req()
+central._con.sent.clear()
+central.receive(0, ACCEPTED)
+assert [opcode_of(pdu) for pdu in central._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], central._con.sent
+assert central._con.setups == 1, central._con.setups
+
+# The paged board's side sends one and opens once in the same way, which is
+# the role that answers an echo request below.
+peripheral = lmp.LMPPeripheral(CountingConnection())
+for repeat in range(3):
+    peripheral.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in peripheral._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], peripheral._con.sent
+assert peripheral._con.setups == 1, peripheral._con.setups
+
+# One session can hold more than one connection: a `page` or `page_scan` that
+# went back to paging or scanning takes the next one on the same link manager.
+# The setup belongs to the connection, so the second one's LMP_setup_complete
+# still goes out and still opens it.
+for side in (lmp.LMPCentral, lmp.LMPPeripheral):
+    link = side(CountingConnection())
+    for connection in range(2):
+        link.connection_started()
+        link._con.sent.clear()
+        if side is lmp.LMPCentral:
+            for op, field, send in link._opening:
+                setattr(link, field, b"")
+            link.start()
+            link.receive(0, ACCEPTED)
+        link.receive(0, SETUP_COMPLETE)
+        assert [opcode_of(pdu) for pdu in link._con.sent].count(
+            lmp.LMP_SETUP_COMPLETE) == 1, \
+            (side, connection, link._con.sent)
+        assert link._con.setups == connection + 1, \
+            (side, connection, link._con.setups)
+
+print("ubtbr: the central sends the first LMP_setup_complete")
+
+# The paged board answers an L2CAP echo request, so a peer running l2ping
+# against it sees a reply.
+
+ECHO_DATA = b"ECHO"
+echo_req = btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8, ECHO_DATA)
+assert btctl.l2cap_echo_request(
+    btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)) == \
+    (0xc8, ECHO_DATA), echo_req.hex()
+
+# Padding to the size of the packet that carried it is not part of the data.
+padded = btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req + b"\x00" * 5)
+assert btctl.l2cap_echo_request(padded) == (0xc8, ECHO_DATA), padded.data.hex()
+
+
+def received_dm1(payload):
+    """A DM1 as the receive path unpacks one: payload header, then padding."""
+    header = (len(payload) << 3) | (1 << 2) | btctl.LLID_L2CAP_START
+    air = bytes([header]) + payload
+    return btctl.BTCtlACLPkt.unpack(btctl.DM1, air.ljust(1 + 17, b"\x00"))
+
+
+# A request that arrived in a real packet reads the same.
+assert btctl.l2cap_echo_request(received_dm1(echo_req)) == (0xc8, ECHO_DATA)
+
+# A packet whose payload header says the data ends before the command is not
+# answered out of the padding after it: the command here claims four bytes of
+# echo data that the sender never declared.
+short_declared = received_dm1(echo_req)
+assert short_declared.raw_size == 1 + len(echo_req), short_declared.raw_size
+truncated = btctl.BTCtlACLPkt.unpack(btctl.DM1,
+    bytes([(6 << 3) | (1 << 2) | btctl.LLID_L2CAP_START])
+    + echo_req.ljust(17, b"\x00"))
+assert btctl.l2cap_echo_request(truncated) is None, truncated.data.hex()
+
+# A request whose data runs to the end of a larger packet parses; whether it
+# can be answered is a separate question, settled below.
+largest = b"y" * 44
+biggest_req = btctl.l2cap_signalling_packet(
+    btctl.L2CAP_ECHO_REQ, 0xc8, largest)
+assert btctl.l2cap_echo_request(
+    btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, biggest_req,
+        bt_type=btctl.DH5)) == (0xc8, largest), biggest_req.hex()
+
+# Identifier zero is not a valid one for a command, so there is nothing to
+# answer it under.
+assert btctl.l2cap_echo_request(btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+    btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0, ECHO_DATA))) \
+    is None
+
+# Anything that is not a whole echo request on the signalling channel is not
+# one: a continuation fragment, another channel, another code, and a packet
+# that ends before its data.
+for not_a_request in (
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_CONT, echo_req),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 4, 0x40) + echo_req[4:]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 1, b"")),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:-1]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req[:6]),
+        # an L2CAP length that does not cover the command it carries, so the
+        # packet does not describe the echo request shaped bytes after it
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 0, btctl.L2CAP_CID_SIGNALLING) + echo_req[4:]),
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
+            struct.pack("<HH", 9, btctl.L2CAP_CID_SIGNALLING)
+            + echo_req[4:] + b"\x00"),
+        # a continuation fragment of a request too big to arrive in one
+        # packet, which nothing here reassembles
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_CONT, b"y" * 20)):
+    assert btctl.l2cap_echo_request(not_a_request) is None, \
+        not_a_request.data.hex()
+
+
+class ReceivedPacket:
+    """A received packet, as the command's L2CAP handler reads one."""
+
+    def __init__(self, acl):
+        self.bt_data = acl
+
+
+command = btctl.BTCtlPageScanCmd(SilentDevice())
+answered = []
+command.send_acl = lambda llid, data, flow=1: answered.append((llid, data))
+
+# Until a connection has said which address to send on there is nothing to
+# answer with, and the request is dropped rather than raising. Nor is one
+# answered before the link setup has finished, which is the point at which
+# both ends have agreed the connection is open.
+assert command.lt_addr is None, command.lt_addr
+for lt_addr in (None, 1):
+    command.lt_addr = lt_addr
+    with contextlib.redirect_stdout(io.StringIO()):
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    assert answered == [], (lt_addr, answered)
+
+# Finishing the setup sends the board's own LMP_setup_complete through the
+# same send_acl, so the recorder starts again from here.
+command._lmp.setup_complete()
+command.lt_addr = 1
+answered.clear()
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    command._handle_l2cap(ReceivedPacket(
+        btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+assert len(answered) == 1, answered
+llid, answer = answered[0]
+assert llid == btctl.LLID_L2CAP_START, llid
+assert answer == btctl.l2cap_signalling_packet(
+    btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA), answer.hex()
+
+# A response, or anything else on the channel, is reported and not answered.
+answered.clear()
+with contextlib.redirect_stdout(io.StringIO()):
+    command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+        btctl.LLID_L2CAP_START,
+        btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA))))
+assert answered == [], answered
+
+# A reply has to fit the packets this link sends. Nine bytes of echo data is
+# the largest that does; ten would need a packet the peer has not agreed to
+# receive, so it is reported and left unanswered.
+for size, answerable in ((9, True), (10, False)):
+    answered.clear()
+    command._said_too_big = False
+    warned = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(warned):
+        command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+            btctl.LLID_L2CAP_START,
+            btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8,
+                b"z" * size), bt_type=btctl.DH5)))
+    if answerable:
+        assert len(answered) == 1, (size, answered)
+        # the 17 bytes the man page's 9 bytes of echo data comes from
+        assert len(answered[0][1]) == 17, (size, len(answered[0][1]))
+        assert warned.getvalue() == "", warned.getvalue()
+    else:
+        assert answered == [], (size, answered)
+        assert warned.getvalue() == "warning: an L2CAP echo request " \
+            "carrying 10 bytes of echo data is more than this link can " \
+            "answer in one packet, so it goes unanswered\n", \
+            warned.getvalue()
+        # and said once for the life of the connection, not once a second
+        # for a peer whose l2ping repeats
+        again = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(again):
+            command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+                btctl.LLID_L2CAP_START,
+                btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc9,
+                    b"z" * size), bt_type=btctl.DH5)))
+        assert again.getvalue() == "", again.getvalue()
+        assert answered == [], answered
+
+# A second connection in the same page scan starts a setup of its own, so the
+# board answers on that one too. This drives the command's own state handler,
+# which is what carries the reset.
+connected = (btctl.BTCTL_STATE_CONNECTED, (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
+
+
+def l2cap_answers():
+    """What went out on the signalling channel, not the link manager's PDUs."""
+    return [data for llid, data in answered if llid == btctl.LLID_L2CAP_START]
+
+
+for connection in range(2):
+    answered.clear()
+    with contextlib.redirect_stdout(io.StringIO()):
+        command._handle_state(*connected)
+        # nothing goes out until this connection's setup has finished
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+        assert l2cap_answers() == [], (connection, answered)
+        command._lmp.receive(0, bytes([lmp.LMP_SETUP_COMPLETE << 1]))
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    assert l2cap_answers() == [btctl.l2cap_signalling_packet(
+        btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA)], (connection, answered)
+
+print("ubtbr: an L2CAP echo request is answered with a response")
+
+
+# ---- the transaction ID of each end's LMP_setup_complete -----------------
+
+# The PDU is a transaction by itself rather than part of the connection
+# request's, so it carries the ID of the end that sent it: 0 for the
+# central's, 1 for the peripheral's (Core v5.4 | Vol 2, Part C, 2.4).
+# Receiving is lenient about the ID, so two boards do not notice; a standard
+# controller may.
+central = central_at_connection_req()
+central.receive(0, ACCEPTED)
+assert central._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 0)], \
+    central._con.sent
+
+peripheral = lmp.LMPPeripheral(CountingConnection())
+peripheral.receive(0, SETUP_COMPLETE)
+assert peripheral._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 1)], \
+    peripheral._con.sent
+
+print("ubtbr: each end's LMP_setup_complete carries its own transaction ID")
+
+
+# ---- a declined connection ends the link --------------------------------
+
+# A peer that refuses the connection request is declining the connection
+# itself. 4.1.1 has the paging device disconnect the link straight away, and
+# 4.1.2's detach is how. Before this, the link was left for link supervision
+# to end a second later.
+
+def refused_connection(reason=0x0d):
+    """A central whose connection request the peer has just refused."""
+    central = lmp.LMPCentral(CountingConnection())
+    for op, field, send in central._opening:
+        setattr(central, field, b"")
+    with contextlib.redirect_stderr(io.StringIO()):
+        central.start()
+        central._con.sent.clear()
+        central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, reason))
+    return central
+
+
+DETACH = pdu_sent(lmp.LMP_DETACH, (lmp.LMP_DETACH_REASON_REMOTE_USER,), 0)
+
+# A peer's LMP_setup_complete that was already on its way does not open the
+# connection afterwards: the board's packets keep arriving while the session
+# stops, and l2ping would put an echo request on a link this end has hung up
+# on.
+central = refused_connection()
+central._con.sent.clear()
+with contextlib.redirect_stderr(io.StringIO()):
+    assert central.receive(0, SETUP_COMPLETE) is False
+assert central._con.sent == [], central._con.sent
+assert central._con.setups == 0, central._con.setups
+
+# Nothing else gets an answer either, and the detach goes out once however
+# many PDUs follow it.
+central = refused_connection()
+central._con.sent.clear()
+with contextlib.redirect_stderr(io.StringIO()):
+    central.receive(0, lmp_pdu(lmp.LMP_NAME_REQ, b"\x00", 1))
+    central.receive(0, refusal(lmp.LMP_HOST_CONNECTION_REQ, 0x0d))
+assert central._con.sent == [], central._con.sent
+assert central._con.stops == 1, central._con.stops
+
+# A refusal of one of the five this end asks for first is not the connection
+# being declined: that request is recorded as refused and the next one goes
+# out, with the link left alone.
+central = lmp.LMPCentral(CountingConnection())
+with contextlib.redirect_stderr(io.StringIO()):
+    central.start()
+    central._con.sent.clear()
+    central.receive(0, refusal(lmp.LMP_FEATURES_REQ, 0x1a))
+assert DETACH not in central._con.sent, central._con.sent
+assert central._con.stops == 0, central._con.stops
+
+# The next connection in the same session starts clean, so a refusal on one
+# does not leave the link manager silent for the one after it.
+central.connection_started()
+assert central._detached is False
+# A peripheral that hangs up sends the detach under its own transaction ID,
+# as its LMP_setup_complete goes out under: both are transactions it starts.
+peripheral = lmp.LMPPeripheral(CountingConnection())
+peripheral.detach(lmp.LMP_DETACH_REASON_REMOTE_USER)
+assert peripheral._con.sent == [pdu_sent(lmp.LMP_DETACH,
+    (lmp.LMP_DETACH_REASON_REMOTE_USER,), 1)], peripheral._con.sent
+# and until the next connection starts, nothing more goes out: the data a
+# command would send waits on the setup, which a hang-up undoes.
+assert peripheral.setup_is_complete() is False
+peripheral.connection_started()
+peripheral._con.sent.clear()
+peripheral.receive(0, SETUP_COMPLETE)
+assert peripheral._con.sent == [pdu_sent(lmp.LMP_SETUP_COMPLETE, (), 1)], \
+    peripheral._con.sent
+
+
+# `l2ping` puts nothing on the signalling channel before the setup has
+# finished or after this end has hung up, as the page scan's answer does.
+pinging = tool_module.BTCtlL2Ping(SilentDevice(), 0x112233445566)
+pinged = []
+pinging.send_acl = lambda llid, data, flow=1: pinged.append((llid, data))
+
+
+def ping_answer():
+    """What l2ping sent for one received signalling packet."""
+    pinged.clear()
+    with contextlib.redirect_stdout(io.StringIO()):
+        pinging._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    return list(pinged)
+
+
+assert ping_answer() == [], pinged
+pinging._lmp.setup_complete()
+assert [llid for llid, data in ping_answer()] == [btctl.LLID_L2CAP_START], \
+    pinged
+pinging._lmp.detach(lmp.LMP_DETACH_REASON_REMOTE_USER)
+assert ping_answer() == [], pinged
+
+print("ubtbr: a peer declining the connection ends the link at once")
 
 WORK.cleanup()

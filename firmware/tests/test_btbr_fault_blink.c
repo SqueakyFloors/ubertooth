@@ -20,9 +20,6 @@
  * Both files are hardware code: they write the board's LEDs and the system
  * timer's registers, so neither can run here and both are read as text, the
  * way test_cc2400_wait.c and test_btbr_arithmetic.c read the files they check.
- *
- * This file is part of Project Ubertooth and is released under the terms of the
- * GPL. Refer to COPYING for more information.
  */
 #include <stdio.h>
 #include <stdlib.h>

@@ -27,6 +27,23 @@
 #include "ubertooth_le_frag.h"
 #include <btbb.h>
 
+/* Marks a declaration below as superseded, so a program that still calls it
+ * is told at compile time what to call instead. GCC and Clang have the
+ * attribute; on any other compiler this expands to nothing and the only
+ * notice is the comment above the declaration.
+ *
+ * Remove this along with the last declaration that uses it, so an installed
+ * header does not carry a macro nothing needs. Defined only if the including
+ * program has not defined the name itself, because this header is installed
+ * and the name is a plain one. */
+#ifndef UBERTOOTH_DEPRECATED
+#if defined(__GNUC__) || defined(__clang__)
+#define UBERTOOTH_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#else
+#define UBERTOOTH_DEPRECATED(msg)
+#endif
+#endif
+
 /* specan output types
  * see https://github.com/dkogan/feedgnuplot for plotter */
 enum specan_modes {
@@ -270,6 +287,27 @@ typedef struct {
 	uint32_t symbol_overwrites;
 	uint8_t symbol_overwrite_warned;
 
+	/* Whether this capture has already said its signal sits at the top of
+	 * what the radio can report, so it is said once. Never cleared, so on a
+	 * handle that runs more than one stream (ubertooth-afh detects a map,
+	 * then monitors it) it means "a stream on this handle was pinned there",
+	 * said once across both, and the part block the first stream ends on is
+	 * finished by the second stream's records.
+	 *
+	 * The two counters behind it hold one block of records at a time: how
+	 * many of the block carried a signal figure, and how many of those were
+	 * at the top. A block that is nearly all at the top is what the warning
+	 * goes on; then both are cleared and the next block is judged on its
+	 * own. One block rather than the whole capture, so a capture that starts
+	 * too loud and is then put right does not carry the first part forever,
+	 * and a loud stretch in the middle of a long quiet capture is still
+	 * noticed. Read how many blocks were at the top with
+	 * ubertooth_signal_ceiling_blocks(). */
+	uint16_t signal_records;
+	uint16_t signal_records_at_ceiling;
+	uint32_t signal_ceiling_blocks;
+	uint8_t signal_ceiling_warned;
+
 	/* What the teardown's STOP request came back with, 0 while none has
 	 * failed. A board that would not take it is left running the mode the
 	 * capture started, and no other tool can open it until it is reset or
@@ -416,14 +454,27 @@ int ubertooth_stop_requested(void);
  * a negative result. */
 int ubertooth_open_stopped(void);
 
-/* ubertooth_catch_stop_signals(), plus the handle for the do_exit = 1 form of
- * the handlers. The host tools call ubertooth_catch_stop_signals() above
- * instead, because they install the handlers before they have a handle; this
- * stays for a caller outside this repository that holds one, and do_exit = 1
- * is not a form to choose (see cleanup_exit() in ubertooth.c).
+/* Deprecated: call ubertooth_catch_stop_signals() above instead. It is still
+ * exported, so a program that calls it builds and links against this release,
+ * though a build with -Werror stops on the warning. It is removed in the
+ * release after this one.
+ *
+ * It is ubertooth_catch_stop_signals(), plus a copy of ut the library keeps
+ * for the do_exit = 1 form of the handlers. Nothing in this repository needs
+ * that copy: the tools install the handlers before they have a handle, and
+ * do_exit = 1 runs ubertooth_stop() from inside a signal handler, which can
+ * deadlock in libusb (see cleanup_exit() in ubertooth.c), so it is not a form
+ * to choose. What replaces each part:
+ *
+ *   register_cleanup_handler(ut, 0)  ->  ubertooth_catch_stop_signals()
+ *   register_cleanup_handler(ut, 1)  ->  ubertooth_catch_stop_signals(), then
+ *                                        end the run on the caller's own
+ *                                        thread when ubertooth_stopping()
+ *                                        reports the stop
  *
  * The library keeps ut until ubertooth_free() gives it back, so nothing the
  * caller has to unregister: free the handle and the handlers let go of it. */
+UBERTOOTH_DEPRECATED("use ubertooth_catch_stop_signals()")
 void register_cleanup_handler(ubertooth_t* ut, int do_exit);
 
 /* 1 once this capture should stop, which is how a receive loop asks. It covers
@@ -668,6 +719,51 @@ int ubertooth_stream_failed(ubertooth_t* ut);
  * packet, which repeat the readings of the record that started it.
  */
 void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
+
+/*
+ * Watches how loud what the board is hearing is, and warns once per capture
+ * when it sits at the top of what the radio can report.
+ *
+ * A record's signal figure is the power of the packet, or of the block of air,
+ * that record holds. The CC2400 reports it on a raw scale the host turns into
+ * dBm, and that scale runs out: every raw reading of RSSI_CEILING_RAW or more
+ * comes out as 0 dBm, so above it the host can no longer say how loud the
+ * signal was, only that it was at least that loud. A receiver held there is
+ * being driven harder than it can measure, and on this radio that is also
+ * where it stops demodulating reliably: the Basic Rate and low-energy
+ * receives turn the board's amplifier and high-gain mode both on, so two
+ * boards on one bench reach it at any transmit power.
+ *
+ * Judged a block of records at a time rather than record by record, because
+ * ordinary air reaches the ceiling now and then -- a Wi-Fi burst on the
+ * channel does -- while a receiver that is genuinely pinned there stays there.
+ * See the comment on the counters in ubertooth_t.
+ *
+ * Called by the callbacks whose records are samples of the air -- the Basic
+ * Rate stream's, which the board sends one of per block of symbols whether or
+ * not a packet was in it -- beside ubertooth_count_capture_losses(). NOT by
+ * the low-energy callback, nor by the spectrum analyzer or E-GO ones, each for
+ * a reason given where the call would have been: a record that exists only
+ * because a packet decoded cannot show a receiver that is decoding nothing,
+ * and the other two state no signal figure at all.
+ *
+ * What it judges is decided here and not by the callers: a Basic Rate record
+ * that states a signal figure, and nothing else. That is the one kind of
+ * record that is a sample of the air rather than the trace of a packet that
+ * decoded, and checking it here is what makes a replay safe -- ubertooth-rx
+ * -i will replay a dump written by any tool, whatever records are in it.
+ */
+void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx);
+
+/*
+ * How many stretches of this capture were at the top of the radio's range: one
+ * per block of records ubertooth_watch_signal_level() judged to be there. 0
+ * for a capture that was never pinned. The running warning is said once, so
+ * this is what tells one bad stretch from a capture that was deaf throughout;
+ * ubertooth_report_capture_losses() prints it when the capture ends, beside
+ * the loss totals.
+ */
+uint32_t ubertooth_signal_ceiling_blocks(ubertooth_t* ut);
 
 /*
  * How many gaps a capture on this handle has: times the board had to drop a

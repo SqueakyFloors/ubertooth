@@ -9,6 +9,8 @@ The following are third party applications that support Ubertooth One, either na
 Kismet
 ~~~~~~
 
+**Status (2026):** the plugins in ``host/kismet`` are written against Kismet 2013-03-R1, the version built below. Kismet has since been rewritten, and they do not build against current releases. Nothing in this tree builds or tests them, and channel hopping on an Ubertooth source does not work: the plugin reports a channel change it never makes. The instructions below are kept for anyone running that older Kismet.
+
 The version of kismet provided by Debian/Ubuntu is 2008-05-R1, which is too old to support the Ubertooth plugin. In order to use Ubertooth with Kismet it is necessary to compile Kismet from source. First make sure that you have completed the instruction in the :doc:`build guide <build_guide>` and then use the following instruction to build Kismet:
 
 	.. code-block:: sh

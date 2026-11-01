@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that tools/check-dfu-package.sh accepts and refuses the packaged
 # images it is meant to.
 #

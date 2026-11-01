@@ -215,6 +215,10 @@ void cb_specan(ubertooth_t* ut, void* args)
 	if (rx.pkt_type == KEEP_ALIVE)
 		return;
 
+	/* No ubertooth_watch_signal_level() here: a spectrum analyzer record
+	 * carries sixteen raw readings in its data bytes and no signal figure
+	 * at all, and the sweep takes them with the high-gain mode off, so its
+	 * readings do not reach the ceiling the capture modes do. */
 	ubertooth_count_capture_losses(ut, &rx);
 
 	/* process each received block */
@@ -448,7 +452,7 @@ int main(int argc, char *argv[])
 		 * ubertooth-btle refuses its capture. A text format is welcome
 		 * on one. */
 		if (output_mode == SPECAN_FILE &&
-		    opt_check_stdout_not_tty("samples") < 0)
+		    opt_check_stdout_not_tty("binary samples") < 0)
 			return 1;
 		dumpfile = stdout;
 	}

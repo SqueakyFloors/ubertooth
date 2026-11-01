@@ -31,10 +31,22 @@ specific LAP. Once a LAP and UAP have been recovered, the tool will
 attempt to recover the clock value, and if that succeeds it will follow
 that piconet.
 
+The clock search does not confirm a clock against a piconet that uses adapted
+hopping, which the controllers tested on this project's bench all do,
+including when every channel is allowed, so following such a piconet does not
+start. The addresses and the packets the board hears are still recovered. See
+[THE CLOCK SEARCH AND ADAPTED HOPPING][].
+
 Survey mode, entered using `-z`, will record all LAPs and attempt to
 calculate the UAPs for any observed LAPs. This mode can be combined with
 a timeout using `-t`, and it can be interrupted at any time using
 `ctrl-C`.
+
+The addresses a survey found go to standard output, one per line, so a survey
+can be piped into another program. The `Survey Results` heading above them is
+for a person reading along and goes to standard error, as ubertooth-scan(1)
+prints `Scan results:`. Earlier releases put the heading on standard output
+with the addresses.
 
 This tool's `-z` is survey mode, not a squelch: only `ubertooth-util -z` sets
 the receive squelch. The capture runs at whatever squelch the board holds when
@@ -201,6 +213,65 @@ leave the board demodulating low energy, and a capture here then found little
 and said nothing about why. The board can still be streaming the previous
 mode's records when the request arrives, so the first few packets of a capture
 started on a board another run left going are that run's.
+
+## THE CLOCK SEARCH AND ADAPTED HOPPING
+
+Following a piconet needs its clock as well as its address, and the clock
+search does not reach one against a piconet that uses adapted frequency
+hopping (AFH). Every controller tested on this project's bench runs its links
+adapted, including when the whole band is allowed, so this is the ordinary case
+rather than a corner of it: against a device whose controller does that,
+`ubertooth-rx -l <lap> -u <uap>` searches for a clock and does not confirm
+one.
+
+Why. The search first settles the low clock bits, CLK1-6, and then has to pick
+the rest out of some two million candidates. It does that by predicting the
+channel each candidate would put the piconet on and ruling out the ones that
+disagree with the channel a packet actually arrived on. Adapted hopping breaks
+both halves of that. The piconet re-maps the channels it has classified as bad,
+and it answers in the second slot of a pair on the channel the first slot used,
+so a candidate taken from the unadapted sequence is contradicted by the very
+packets that would otherwise narrow the list. Predicting an adapted sequence
+instead needs the piconet's exact channel map, and a passive receiver learns
+that a channel is in use only by hearing a packet on it, so for most of a
+capture the map it has is a subset of the real one and the predictions built on
+it are wrong.
+
+What it looks like. The CLK1-6 line and a candidate count repeat, the search
+starting over each time, and no clock is confirmed:
+
+    CLK6 = 0xf found after 2 total packets.
+    26546 initial CLK1-27 candidates
+
+Once a search has been running for half a minute without confirming a clock,
+the tool says so once, on standard error:
+
+    note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)
+    note: the piconet's LAP and UAP, and the packets of it this board hears, are still recovered, decoded, and captured; see ubertooth-rx(1)
+
+The capture is not stopped and the search is not changed: the note says what
+the run is going to reach, so a user is not left reading candidate counts for
+an answer that is not coming.
+
+What does work. Everything this tool does short of hopping along with the
+piconet. It recovers LAPs from the air, calculates the UAP for a LAP, and
+lists piconets in survey mode (`-z`). It decodes and reports every packet of
+the piconet that lands on whichever channel the board is listening to, and
+writes those packets to a capture file (`-r`, `-q`, `-d`), so a piconet can be
+surveyed, counted, and its traffic captured channel by channel with `-c`. A
+fixed channel is a way of capturing rather than a way round the search. It
+neither helps nor hinders the comparison the search rules candidates out by,
+since a packet rules out the same share of them wherever it arrived. What it
+does do is leave the map of channels the piconet has been heard on at the one
+channel the board listens to, and the library treats a piconet as adapted only
+once it has heard packets on at least twenty, so against an adapted piconet a
+fixed channel is further from a clock rather than closer to one.
+ubertooth-afh(1) recovers the channel map of a piconet whose LAP and UAP are
+known. Where a clock is what is wanted, two routes do not depend on this
+search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a
+piconet it joins, and ubertooth-btbr(1) in monitor mode catches the frequency
+hop synchronization (FHS) packet of a connection as it is set up, which carries
+the Central's clock.
 
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
@@ -455,7 +526,8 @@ themselves are in the capture.
 What the run works out still arrives, on standard error: the UAP the decoder
 recovers (`Correct CRC! UAP = 0x22 found after 31 total packets.`), the clock
 it goes on to recover from that UAP, the notes, the warnings, the failures,
-and the survey results of `-z`, which is what that mode was asked for. So
+and the survey results of `-z` below their heading, since the addresses are
+what that mode was asked for. So
 `ubertooth-rx -l 446688 -q - > capture.pcap` reports the UAP it found while
 the capture goes to the file.
 
@@ -510,6 +582,41 @@ A capture read back from a file with `-i` reports the same way: all three
 losses are recorded in the packets, so replaying one warns as it reads them
 and gives the same totals at the end.
 
+## A RECEIVER THAT CANNOT HEAR
+
+A capture whose receiver is being driven harder than it can measure says so,
+once: `warning: the signal is at the top of the receiver's range, so the board
+cannot measure it and may not demodulate it; the boards may be too close
+together, or the transmit power too high`. When the capture ends it says how
+many such stretches there were: `warning: the capture has 3 stretches where
+the signal was at the top of the receiver's range`, one per block of records
+judged to be there. The running warning is said once, so the total is what
+tells one bad stretch from a capture that was deaf throughout.
+
+This is the case where a capture decodes nothing and the board is not at
+fault. The radio reports the power of each block of air on a scale that runs
+out, and a receiver held at the top of it is also past where it demodulates
+reliably, so a transmitter close enough to pin it is one whose packets the
+capture cannot read. The Basic Rate receive turns the board's amplifier and
+high-gain mode both on, so the near end of a bench is close enough: on ours a
+transmitting board a few centimeters away pins the receiver at every one of
+the eight transmit power levels, while the same board a meter away behind a
+20 dB attenuator stays well clear of the top even at full power. Put more
+distance or more attenuation between the two, or turn the transmit power down.
+
+A receiver held at the top of the scale is what gets reported, not one loud
+packet: a short packet from a board a few centimeters away still decodes, so
+the decision is taken over a block of records.
+
+The warning goes on the records the board sends, which this tool gets for
+every block of air whether or not a packet was in it, so it arrives even while
+nothing is decoding. A replay with `-i` reports it from the records in the
+file, so long as they state a signal figure of their own: a dump written by a
+board or a release older than that field holds the channel's running average
+there instead, and such a record is skipped rather than judged, so an older
+capture replays without this warning however loud it was. ubertooth(7)
+describes what each tool can and cannot report this way.
+
 ## EXIT STATUS
 
 A capture that ran to its `-t` timeout, or that was interrupted (Ctrl-C),
@@ -562,15 +669,16 @@ the board refused it and the libusb code, and adds a note where there is
 something to try:
 
     error: could not set the channel: the board did not answer in time (libusb -7)
-    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
+    note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, then reset it with ubertooth-util -r on the same board if it stays silent, and unplug it or power-cycle its hub port if that does not reach it either
 
 That pair is the report: the request named as `set sweep mode` without `-c`,
 since the command then asks for the sweep across the whole band rather than
 for a channel, and as `set the Bluetooth address` for the address request. A
 request the board's firmware has not got is stalled, which reads `error: could
 not set the channel: the board's firmware does not support it (stalled, libusb
--9)`, with a note naming the board's firmware API version and the one these
-tools need (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board
+-9)`, with notes naming the board's firmware API version and the one these
+tools need, and the reset that recovers a board which stalls every request
+(see ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board
 that took only part of the address gives the counts instead, as `error:
 Bluetooth address write failed: board took 8 of 16 bytes`.
 
@@ -626,6 +734,15 @@ long it lasts
 
 ubertooth-scan(1): active device scanning and inquiry using Ubertooth
 and BlueZ
+
+ubertooth-afh(1): recovers the channel map of a piconet whose LAP and UAP
+are known
+
+ubertooth-follow(1): follows a piconet using a local BlueZ adapter for its
+clock
+
+ubertooth-btbr(1): monitor mode catches the FHS packet of a connection as it
+is set up, which carries the Central's clock
 
 ubertooth-dump(1): records the same packets `-i` reads back, with `-d`
 

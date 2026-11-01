@@ -1,23 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Shared command-line value parsing and the one argument rule for every
  * ubertooth-* host tool.
- *
- * This file is part of Project Ubertooth.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; see the file COPYING.  If not, write to
- * the Free Software Foundation, Inc., 51 Franklin Street,
- * Boston, MA 02110-1301, USA.
  */
 
 #ifndef UBERTOOTH_OPT_PARSE_H
@@ -76,6 +60,20 @@ int opt_require_uap(const char *text, uint8_t *uap);
 /* A BLE access address: 1 to 8 hex digits ("12345" is 0x00012345). */
 int opt_parse_access_address(const char *text, uint32_t *address);
 
+/* A string of bytes written as hex digits, two per byte, no 0x prefix and no
+ * separators: "0102ff" is three bytes. Writes at most max_bytes of them and
+ * the count to *length. An odd number of digits is refused rather than read
+ * as a half byte, and so is an empty string: a caller that wants no bytes
+ * leaves the option out. */
+int opt_parse_hex_bytes(const char *text, uint8_t *bytes, size_t max_bytes,
+                        size_t *length);
+
+/* The same, for an option's value: on failure it prints
+ * "error: <what> must be hex digits, two per byte, 1 to <max_bytes> bytes
+ * (got <text>)" so the caller only has to exit. */
+int opt_require_hex_bytes(const char *text, const char *what, uint8_t *bytes,
+                          size_t max_bytes, size_t *length);
+
 /* Bytes in a BD_ADDR, and the length of its printed form
  * "xx:xx:xx:xx:xx:xx" without the terminating NUL. */
 #define OPT_BD_ADDR_BYTES 6
@@ -111,12 +109,14 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap);
 
 /*
  * A bare "-" means standard output, which is only useful for a pipe or a
- * redirect: binary written to a terminal fills it with control characters and
- * can leave it in a strange state. Call this where a tool is about to stream
- * binary to stdout. Returns 0 when stdout is not a terminal, or prints
- * "error: stdout is a tty, refusing to write binary <what> to it" and returns
- * -1, so the caller only has to exit. <what> names what would be written,
- * for example "samples"; NULL reads "output".
+ * redirect: a capture stream written to a terminal fills it with control
+ * characters, or with more lines than a screen holds, and can leave it in a
+ * strange state. Call this where a tool is about to stream one to stdout.
+ * Returns 0 when stdout is not a terminal, or prints
+ * "error: stdout is a tty, refusing to write <what> to it" and returns -1, so
+ * the caller only has to exit. <what> is the whole description of what would
+ * be written, for example "binary samples" or "the bitstream dump"; NULL
+ * reads "this output".
  */
 int opt_check_stdout_not_tty(const char *what);
 

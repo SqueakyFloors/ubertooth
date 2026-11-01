@@ -8,9 +8,6 @@
  * and reads back the enable mask, ICER0 is write-1-to-clear -- or a test
  * cannot tell whether the firmware put the interrupt back. The test supplies
  * the two accessors below.
- *
- * This file is part of Project Ubertooth and is released under the terms of
- * the GPL. Refer to COPYING for more information.
  */
 #ifndef UBERTOOTH_TEST_BTBR_USB_STUB_H
 #define UBERTOOTH_TEST_BTBR_USB_STUB_H

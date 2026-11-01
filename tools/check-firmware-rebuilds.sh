@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Check that changing a compile flag or a linker script rebuilds the firmware.
 #
 #     tools/check-firmware-rebuilds.sh

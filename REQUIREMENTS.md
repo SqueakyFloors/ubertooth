@@ -83,10 +83,10 @@ sudo dnf install git cmake gcc gcc-c++ make pkgconf-pkg-config \
 # then build libbtbb from source (the pinned fork commit), then the host tools
 ```
 
-On Fedora libbtbb installs its library to `lib64` and these tools install
-theirs to `lib`; the build asks pkg-config and CMake where each one is rather
-than assuming, and `install.sh` sets the installed tools' run path to both, so
-a hand-built install may need `/usr/local/lib` and `/usr/local/lib64` in
+On Fedora libbtbb and libubertooth both install to `lib64`, the directory the
+system keeps libraries in; the build asks pkg-config and CMake where that is
+rather than assuming, and `install.sh` sets the installed tools' run path to
+it, so a hand-built install may need `/usr/local/lib64` in
 `/etc/ld.so.conf.d/` where the script needs nothing.
 
 ## Verifying what got built

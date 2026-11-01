@@ -86,10 +86,11 @@ a board left on older firmware; tools built from a clone, which is what
 from the commit you built the tools from before trusting what they report.
 
 Instructions for building libbtbb by hand, with the pin, are in this tree's
-[build guide](docs/source/build_guide.rst). libbtbb installs its library to the
-directory the system keeps libraries in — `lib`, or `lib64` and
-`lib/<triplet>` on the systems that use those — and the host build and
-`install.sh` ask pkg-config and CMake where it is rather than assuming `lib`.
+[build guide](docs/source/build_guide.rst). libbtbb and libubertooth both
+install to the directory the system keeps libraries in — `lib`, or `lib64` and
+`lib/<triplet>` on the systems that use those — so the two land together, and
+the host build and `install.sh` ask pkg-config and CMake where that is rather
+than assuming `lib`. `-DCMAKE_INSTALL_LIBDIR=` chooses it.
 The published
 [readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html)
 documents upstream, not this fork.
@@ -201,7 +202,7 @@ for the operation-by-operation comparison and the alternatives.
 ### Device administration & firmware
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), the board's bootloader (`-B`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
 | [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
 
 ### Special-purpose
@@ -209,7 +210,7 @@ for the operation-by-operation comparison and the alternatives.
 |---|---|---|
 | [ubertooth-ducky](host/doc/ubertooth-ducky.md) | Drive an Uberducky BLE HID-injection gadget | Uberducky hardware |
 | [ubertooth-ego](host/doc/ubertooth-ego.md) | Sniff a Yuneec E-GO skateboard (niche) | Yuneec E-GO |
-| [ubertooth-tx](host/doc/ubertooth-tx.md) | Retransmit dumped symbols — **currently non-functional** | — |
+| [ubertooth-tx](host/doc/ubertooth-tx.md) | Transmit a generic packet (`-g`, experimental); retransmitting dumped symbols is **non-functional** | — |
 
 ### Options every tool has
 

@@ -21,6 +21,23 @@ Before you start:
   older host tools -- a request removed or renumbered, a reply layout an older
   host would misread -- bumps it. A host-only change never touches it.
 
+## License notices
+
+[COPYING](COPYING) licenses the project. A source file does not repeat it: a
+new non-test source file starts with one line naming the license, and nothing
+else about it.
+
+- C and C++: `/* SPDX-License-Identifier: GPL-2.0-or-later */` as line 1.
+- Python and shell: `# SPDX-License-Identifier: GPL-2.0-or-later` as line 1,
+  or line 2 where a `#!` line comes first.
+- Test files -- anything under a `tests/` directory, or named `test_*` --
+  carry no license notice at all.
+
+Notices that came from upstream are kept exactly as they are, and so is any
+notice naming a holder other than the fork. That includes a file upstream
+wrote that was later renamed or moved here: the name changed, the notice does
+not.
+
 ## The checks a pull request has to pass
 
 Everything below runs from `.github/workflows/`, on every pull request that
