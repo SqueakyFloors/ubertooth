@@ -122,12 +122,17 @@ static void full_map(le_channel_remapping_t *remapping)
  * silences none.
  *
  * A sighting is stamped a little after its connection event begins, by a
- * different amount each time. What the board times is the arrival of a
- * packet, and which packet of the event it hears varies: the central's comes
- * first, at the event's start, and the peripheral's answer 150 microseconds
- * later plus however long the central's packet took -- up to about a
- * millisecond for a full one on the 1M PHY. So the gaps the search works from
- * are not exact multiples of the interval even with a perfect clock.
+ * different amount each time, because which packet of the event the board
+ * heard varies: the central's comes first, at the event's start, and the
+ * peripheral's answer after that packet and a 150 microsecond gap. So the
+ * gaps the search works from are not exact multiples of the interval even
+ * with a perfect clock.
+ *
+ * The offsets below run over the whole range LE_CSA2_SIGHTING_SPREAD allows,
+ * taken from the constant rather than written out, so the sweeps are measured
+ * on the hardest case the firmware says it accepts. They used to reach 1.0 ms
+ * against a constant of 2.5 ms, which made every figure here easier than the
+ * board's own.
  */
 static void collect_from(struct sightings *s, u32 access_address,
                          uint16_t interval, uint16_t first_counter,
@@ -164,7 +169,8 @@ static void collect_from(struct sightings *s, u32 access_address,
 		/* Where in its event this sighting was heard. The sequence is
 		 * arbitrary rather than random, so a failure is reproducible. */
 		stamp = (uint64_t)((double)event * unit + 0.5) +
-				(uint64_t)(((event * 7919u) % 11u) * 1000u);
+				(uint64_t)((event * 7919u) %
+						(LE_CSA2_SIGHTING_SPREAD + 1u));
 
 		/* Sightings the mode has already searched from and found
 		 * nothing in: the ring has slid past them. */
@@ -1013,12 +1019,12 @@ MU_TEST(how_often_it_works)
  * map moved to this channel, which no counter predicts, and a set that lands
  * below the threshold is normal rather than a failure.
  *
- * All but one of the sweep's connections are recovered within a few searches.
- * The one that is not stays below the threshold however long the mode watches:
- * how often a map moves a visit onto this particular channel is a property of
- * the access address and the map rather than luck, and for that pair it is
- * high enough to keep the right counter inside the margin of the best wrong
- * one. Declining is the right answer there.
+ * All but three of the sweep's connections are recovered within a few
+ * searches. Those three stay below the threshold however long the mode
+ * watches: how often a map moves a visit onto this particular channel is a
+ * property of the access address and the map rather than luck, and for those
+ * pairs it is high enough to keep the right counter inside the margin of the
+ * best wrong one. Declining is the right answer there.
  */
 MU_TEST(a_declined_search_is_recovered_by_the_next)
 {
@@ -1092,8 +1098,11 @@ MU_TEST(a_declined_search_is_recovered_by_the_next)
 	printf("    recovered %u of %u connections within six searches "
 	       "(%u searches in all)\n", found, trials, searches);
 
+	/* A bar to catch the rate collapsing, not a figure to pin: which
+	 * connections the search cannot reach depends on their access
+	 * addresses and maps, so the count moves when the sweep does. */
 	snprintf(msg, sizeof(msg), "recovered only %u of %u", found, trials);
-	mu_assert(found + 2 >= trials, msg);
+	mu_assert(found + 3 >= trials, msg);
 }
 
 /* ------------------------------------------------------------------------
@@ -1404,6 +1413,277 @@ MU_TEST(the_collector_starts_the_run_again_on_every_break)
 }
 
 /* ------------------------------------------------------------------------
+ * Handing the answer over to the follow
+ * ------------------------------------------------------------------------ */
+
+/*
+ * le_csa2_handoff() turns a search's answer into the three numbers the follow
+ * runs on: the counter of the event to hop to, the follow's own counter, and
+ * how many ticks of the 1.25 ms interval timer to wait first.
+ *
+ * The property it has to have is that the hop lands at, or just before, the
+ * start of the event whose counter it gives the follow -- never after it. Land
+ * after and the receiver tunes to the right channel with the event already
+ * under way, which costs the central's packet every time.
+ *
+ * `elapsed` is the time the search itself took, which is a couple of hundred
+ * milliseconds and so crosses whole events at a short interval. The values
+ * below run from nothing to a few seconds, in steps that are not a multiple
+ * of any interval tried, so the remainder lands everywhere inside an event.
+ */
+MU_TEST(the_handoff_lands_before_the_event_it_names)
+{
+	static const uint16_t intervals[7] = { 6, 12, 24, 40, 100, 800, 3200 };
+	le_csa2_recovery_t rec;
+	le_csa2_handoff_t h;
+	unsigned i;
+	u32 elapsed;
+	char msg[256];
+
+	memset(&rec, 0, sizeof(rec));
+	rec.event_counter = 1000;
+
+	for (i = 0; i < 7; ++i) {
+		u32 unit = (u32)intervals[i] * LE_CONN_INTERVAL_TICKS;
+		u32 worst_early = 0;
+		unsigned unschedulable = 0, late = 0, tried = 0;
+
+		rec.conn_interval = intervals[i];
+
+		for (elapsed = 0; elapsed < 2000000u; elapsed += 1237u) {
+			u32 waited, event_at, early;
+			u16 events;
+
+			++tried;
+			if (!le_csa2_handoff(&rec, elapsed, &h)) {
+				++unschedulable;
+				continue;
+			}
+
+			/* The hop can be scheduled, and is no further off than
+			 * one whole interval: the timer counts down from this
+			 * and the follow reloads it with the interval after. */
+			if (h.interval_timer < 1 ||
+					h.interval_timer > intervals[i])
+				++unschedulable;
+
+			/* How far ahead of the sighting's own event the named
+			 * event is, and the wait the follow will really make.
+			 * The named event begins that many whole intervals
+			 * after the sighting's event began. */
+			events = (u16)(h.event_counter - rec.event_counter);
+			waited = (u32)h.interval_timer *
+					LE_CONN_INTERVAL_TICKS;
+			event_at = (u32)events * unit;
+
+			if (elapsed + waited > event_at) {
+				++late;
+				continue;
+			}
+			early = event_at - (elapsed + waited);
+			if (early > worst_early)
+				worst_early = early;
+		}
+
+		snprintf(msg, sizeof(msg),
+		         "interval %u: %u of %u waits cannot be scheduled",
+		         intervals[i], unschedulable, tried);
+		mu_assert(unschedulable == 0, msg);
+		snprintf(msg, sizeof(msg),
+		         "interval %u: %u of %u hops land after the event they "
+		         "name", intervals[i], late, tried);
+		mu_assert(late == 0, msg);
+		snprintf(msg, sizeof(msg),
+		         "interval %u: a hop lands %lu ticks early, more than "
+		         "the timer's own 1.25 ms", intervals[i],
+		         (unsigned long)worst_early);
+		mu_assert(worst_early < LE_CONN_INTERVAL_TICKS, msg);
+	}
+}
+
+/*
+ * The follow's counter starts one behind the event it is about to hop to,
+ * because its convention is that the counter holds the event now running and
+ * the clock interrupt advances it as each event starts. Both are 16-bit and
+ * wrap, so the step back has to wrap with them: a follow handed counter 0 is
+ * running event 65535.
+ */
+MU_TEST(the_follow_starts_one_event_behind)
+{
+	le_csa2_recovery_t rec;
+	le_csa2_handoff_t h;
+	u32 counter;
+
+	memset(&rec, 0, sizeof(rec));
+	rec.conn_interval = 40;
+
+	for (counter = 0; counter < 65536; ++counter) {
+		rec.event_counter = (uint16_t)counter;
+		if (!le_csa2_handoff(&rec, 1234567u, &h))
+			break;
+		if ((uint16_t)(h.event_counter - 1) != h.conn_count)
+			break;
+	}
+	mu_assert_int_eq(65536, (int)counter);
+
+	/* The wrap itself, with no search time to carry forward: counter
+	 * 65535 names event 0 and the follow runs 65535. */
+	rec.event_counter = 65534;
+	mu_assert_fatal(le_csa2_handoff(&rec, 0, &h), "refused");
+	mu_assert_int_eq(65535, h.event_counter);
+	mu_assert_int_eq(65534, h.conn_count);
+	rec.event_counter = 65535;
+	mu_assert_fatal(le_csa2_handoff(&rec, 0, &h), "refused");
+	mu_assert_int_eq(0, h.event_counter);
+	mu_assert_int_eq(65535, h.conn_count);
+}
+
+/*
+ * An event too close to aim at is skipped for the one after it. The interval
+ * timer counts in 1.25 ms, so a hop cannot be scheduled nearer than that, and
+ * aiming at an event that close would land inside it.
+ */
+MU_TEST(an_event_too_close_is_skipped)
+{
+	le_csa2_recovery_t rec;
+	le_csa2_handoff_t h;
+	u32 unit = 40u * LE_CONN_INTERVAL_TICKS;
+
+	memset(&rec, 0, sizeof(rec));
+	rec.conn_interval = 40;
+	rec.event_counter = 7;
+
+	/* One tick of the timer short of the next event: aimed at, not
+	 * skipped. */
+	mu_assert_fatal(le_csa2_handoff(&rec, unit - LE_CONN_INTERVAL_TICKS,
+	                                &h), "refused");
+	mu_assert_int_eq(8, h.event_counter);
+	mu_assert_int_eq(1, h.interval_timer);
+
+	/* A tick short of that, so the next event is nearer than the timer can
+	 * resolve: the one after it is taken, a whole interval away. */
+	mu_assert_fatal(le_csa2_handoff(&rec,
+	                                unit - LE_CONN_INTERVAL_TICKS + 1u,
+	                                &h), "refused");
+	mu_assert_int_eq(9, h.event_counter);
+	mu_assert_int_eq(40, h.interval_timer);
+
+	/* And right on an event's boundary, which is a whole interval from the
+	 * next one. */
+	mu_assert_fatal(le_csa2_handoff(&rec, unit, &h), "refused");
+	mu_assert_int_eq(9, h.event_counter);
+	mu_assert_int_eq(40, h.interval_timer);
+}
+
+/*
+ * An interval no connection may use is refused rather than followed. A
+ * successful search never answers with one, but the division is by that
+ * number: the LPC17xx leaves DIV_0_TRP clear, so a zero divisor answers 0
+ * instead of faulting and the follow would wait on a timer that never
+ * expires.
+ */
+MU_TEST(the_handoff_refuses_an_impossible_interval)
+{
+	le_csa2_recovery_t rec;
+	le_csa2_handoff_t h;
+
+	memset(&rec, 0, sizeof(rec));
+	rec.event_counter = 1000;
+
+	rec.conn_interval = 0;
+	mu_assert_int_eq(0, le_csa2_handoff(&rec, 1000u, &h));
+	rec.conn_interval = LE_MIN_CONN_INTERVAL - 1;
+	mu_assert_int_eq(0, le_csa2_handoff(&rec, 1000u, &h));
+	rec.conn_interval = LE_MAX_CONN_INTERVAL + 1;
+	mu_assert_int_eq(0, le_csa2_handoff(&rec, 1000u, &h));
+
+	/* Nothing left behind for a caller that does not check. */
+	mu_assert_int_eq(0, h.event_counter);
+	mu_assert_int_eq(0, h.conn_count);
+	mu_assert_int_eq(0, h.interval_timer);
+
+	rec.conn_interval = LE_MIN_CONN_INTERVAL;
+	mu_assert_int_eq(1, le_csa2_handoff(&rec, 1000u, &h));
+	rec.conn_interval = LE_MAX_CONN_INTERVAL;
+	mu_assert_int_eq(1, le_csa2_handoff(&rec, 1000u, &h));
+}
+
+/*
+ * What the mode hands the search as the sighting's time, which is the number
+ * the follow is anchored on and the one thing a model of the collector cannot
+ * see.
+ *
+ * It has to be the stamp the transfer's own interrupt took as the packet came
+ * in, not a reading of the clock in the callback. The callback runs after the
+ * whole PDU has arrived and been dewhitened and checked, which is 2.1 ms later
+ * for the longest packet the 1M PHY carries; nothing re-anchors the follow
+ * afterwards, so a stamp that late puts every hop that far past its event's
+ * start and keeps it there.
+ */
+MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
+{
+	char path[512];
+	char line[512];
+	FILE *f;
+	int in_function = 0, in_block = 0;
+	int takes_the_transfer_stamp = 0, reads_the_clock = 0;
+	int hands_over_through_le_csa2_handoff = 0;
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	f = fopen(path, "r");
+	mu_assert_fatal(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *comment;
+
+		/* Comments say what the code should do; only the code counts
+		 * here. */
+		if (in_block) {
+			if (strstr(line, "*/") == NULL)
+				continue;
+			in_block = 0;
+			continue;
+		}
+		comment = strstr(line, "/*");
+		if (comment != NULL) {
+			if (strstr(comment, "*/") == NULL)
+				in_block = 1;
+			*comment = '\0';
+		}
+
+		if (strstr(line, "void promisc_recover_hop_interval") != NULL)
+			in_function = 1;
+		else if (line[0] == '}')
+			in_function = 0;
+
+		if (strstr(line, "le_csa2_handoff(") != NULL)
+			hands_over_through_le_csa2_handoff = 1;
+
+		if (!in_function)
+			continue;
+
+		if (strstr(line, "cur_clk = idle_buf_clk100ns") != NULL)
+			takes_the_transfer_stamp = 1;
+		if (strstr(line, "cur_clk = CLK100NS") != NULL)
+			reads_the_clock = 1;
+	}
+	fclose(f);
+
+	mu_assert(takes_the_transfer_stamp,
+	          "promisc_recover_hop_interval() does not take the sighting "
+	          "from idle_buf_clk100ns, the stamp the transfer's interrupt "
+	          "took as the packet came in");
+	mu_assert(!reads_the_clock,
+	          "promisc_recover_hop_interval() stamps the sighting by "
+	          "reading the clock, which is after the whole packet has "
+	          "arrived and been checked");
+	mu_assert(hands_over_through_le_csa2_handoff,
+	          "nothing in bluetooth_rxtx.c calls le_csa2_handoff(), so the "
+	          "arithmetic the tests above cover is not the arithmetic the "
+	          "mode runs");
+}
+
+/* ------------------------------------------------------------------------
  * The one number this header keeps a copy of
  * ------------------------------------------------------------------------ */
 
@@ -1464,6 +1744,11 @@ int main(void)
 	MU_RUN(the_silence_allowance_covers_every_map_adopted);
 	MU_RUN(the_collector_starts_the_run_again_on_every_break);
 	MU_RUN(crc_init_comes_from_any_empty_data_pdu);
+	MU_RUN(the_handoff_lands_before_the_event_it_names);
+	MU_RUN(the_follow_starts_one_event_behind);
+	MU_RUN(an_event_too_close_is_skipped);
+	MU_RUN(the_handoff_refuses_an_impossible_interval);
+	MU_RUN(the_sighting_is_stamped_when_the_packet_arrived);
 	MU_RUN(the_interval_unit_matches_the_clock);
 	MU_RUN(how_often_it_works);
 	MU_RUN(a_declined_search_is_recovered_by_the_next);

@@ -3901,52 +3901,35 @@ static void promisc_csa2_note_gap(u32 gap) {
  */
 static int promisc_try_csa2(u32 sighting) {
 	le_csa2_recovery_t rec;
-	u32 now, elapsed, unit, to_next_event;
-	u16 events_ahead;
+	le_csa2_handoff_t handoff;
+	u32 now, elapsed;
 
 	if (!le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
 			btle_channel_index(channel), le.access_address, &rec))
 		return 0;
 
-	unit = (u32)rec.conn_interval * LE_BASECLK;
-
 	now = CLK100NS;
 	elapsed = now >= sighting ? now - sighting
 			: (CLK100NS_PERIOD - sighting) + now;
-	to_next_event = unit - elapsed % unit;
 
-	/* Hop to the channel of the next connection event, a little before it
-	 * starts: the receiver then sits on that channel for the whole event.
-	 * An event already this close is skipped, because the hop cannot be
-	 * scheduled finer than the 1.25 ms the interval timer counts in.
-	 *
-	 * How close to the event's start this lands: the sighting is a
-	 * packet's arrival, which is at the event's start or up to
-	 * LE_CSA2_SIGHTING_SPREAD after it, the division below rounds the wait
-	 * down, and the timer's own grid can add up to another 1.25 ms. So the
-	 * hop happens within a few milliseconds either side of the boundary,
-	 * inside an event of at least 7.5 ms, and the count of whole intervals
-	 * above is unaffected unless the sighting sat within those few
-	 * milliseconds of the next boundary -- which the skip below is for. */
-	events_ahead = 1;
-	if (to_next_event < LE_BASECLK) {
-		to_next_event += unit;
-		events_ahead = 2;
-	}
+	/* How close to a connection event's start the follow begins: the
+	 * sighting is stamped at most LE_CSA2_SIGHTING_SPREAD after the start
+	 * of its own event, the wait le_csa2_handoff() returns is rounded down
+	 * to the interval timer's 1.25 ms, and the timer's grid can add up to
+	 * another 1.25 ms. So the hop happens within about 2.5 ms either side
+	 * of the boundary of an event at least 7.5 ms long, and the receiver
+	 * is on the right channel for the packets that matter. */
+	if (!le_csa2_handoff(&rec, elapsed, &handoff))
+		return 0;
 
 	le.conn_interval = rec.conn_interval;
 	le.chan_sel_2 = 1;
-	le.event_counter = (u16)(rec.event_counter + elapsed / unit +
-			events_ahead);
+	le.event_counter = handoff.event_counter;
 	/* The follow compares a connection update's instant against this, and
-	 * an instant is an event counter. The follow's convention is that it
-	 * holds the counter of the event now running, where event_counter
-	 * above is the counter of the next one, so it starts a step behind;
-	 * the clock interrupt advances it at the start of each event and keeps
-	 * the two in step from there. */
-	le.conn_count = (u16)(le.event_counter - 1);
+	 * an instant is an event counter. */
+	le.conn_count = handoff.conn_count;
 	le.conn_epoch = clkn;
-	le.interval_timer = (u16)(to_next_event / LE_BASECLK);
+	le.interval_timer = handoff.interval_timer;
 	do_hop = 0;
 	le.link_state = LINK_CONNECTED;
 	le.crc_verify = 0;
@@ -3967,7 +3950,32 @@ static int promisc_try_csa2(u32 sighting) {
 }
 
 void promisc_recover_hop_interval(u8 *packet) {
-	u32 cur_clk = CLK100NS;
+	/*
+	 * When the packet arrived, not when this ran.
+	 *
+	 * idle_buf_clk100ns is stamped by the transfer's own interrupt, as the
+	 * four bytes after the access address come in, 72 microseconds into
+	 * the packet. Reading the clock here instead would be after the whole
+	 * PDU has arrived and been dewhitened and checked, which is 2.1 ms
+	 * later for the longest packet the 1M PHY carries.
+	 *
+	 * That matters most for the last sighting before an algorithm-2
+	 * search, because the follow is anchored on it and nothing re-anchors
+	 * it afterwards: a stamp taken a packet's length late puts every hop
+	 * of that follow that far past its connection event's start and keeps
+	 * it there, so the start of every event is missed. It also keeps the
+	 * gaps a packet's length apart from the connection's own grid, which
+	 * both estimators then have to allow for.
+	 *
+	 * The receive transfer is disarmed before the callback runs, so no
+	 * later packet can have overwritten the stamp.
+	 *
+	 * CLKN is still read here. It only has to say whether the gap is
+	 * longer than the capture clock's whole 327-second period, and the
+	 * few milliseconds between the stamp and this line cannot change
+	 * that.
+	 */
+	u32 cur_clk = idle_buf_clk100ns;
 	u32 cur_clkn = clkn;
 	u32 measured, clk_diff;
 	u16 obsv_hop_interval; // observed hop interval

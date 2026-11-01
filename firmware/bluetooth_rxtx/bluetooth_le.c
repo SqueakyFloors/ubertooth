@@ -778,3 +778,58 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	out->event_counter = best_counter;
 	return 1;
 }
+
+/*
+ * Where the follow picks a recovered connection up. Returns whether the
+ * recovery can be followed at all.
+ *
+ * The search is not instant -- it takes a couple of hundred milliseconds, and
+ * the receiver is deaf for all of it -- so by the time an answer exists the
+ * connection has had further events. `elapsed` is how long ago the sighting
+ * the answer belongs to was, in 100 ns ticks. This carries the event counter
+ * forward over the events that went by in the meantime and says how long to
+ * wait before hopping to the next one.
+ *
+ * The hop lands at or just before that event's start, never after it: the
+ * wait is rounded down to the 1.25 ms the interval timer counts in, so the
+ * receiver is already on the right channel when the event begins and sits
+ * there for the whole of it.
+ */
+int le_csa2_handoff(const le_csa2_recovery_t *rec, u32 elapsed,
+                    le_csa2_handoff_t *out) {
+	u32 unit, to_next_event;
+	u16 events_ahead;
+
+	memset(out, 0, sizeof(*out));
+
+	/* A successful search answers with an interval a connection may use,
+	 * but the division below is unforgiving enough to check anyway: the
+	 * LPC17xx leaves DIV_0_TRP clear, so a zero divisor makes UDIV answer
+	 * 0 rather than fault, and the follow would be set up to hop on a
+	 * timer that never expires. */
+	if (rec->conn_interval < LE_MIN_CONN_INTERVAL ||
+			rec->conn_interval > LE_MAX_CONN_INTERVAL)
+		return 0;
+
+	unit = (u32)rec->conn_interval * LE_CONN_INTERVAL_TICKS;
+	to_next_event = unit - elapsed % unit;
+
+	/* An event already closer than one tick of the interval timer is
+	 * skipped for the one after it: a hop cannot be scheduled finer than
+	 * that, so aiming at this one would land inside it. */
+	events_ahead = 1;
+	if (to_next_event < LE_CONN_INTERVAL_TICKS) {
+		to_next_event += unit;
+		events_ahead = 2;
+	}
+
+	out->event_counter = (u16)(rec->event_counter + elapsed / unit +
+			events_ahead);
+	/* The follow's convention is that its counter holds the event now
+	 * running, where event_counter above is the counter of the next one,
+	 * so it starts a step behind; the clock interrupt advances it at the
+	 * start of each event and keeps the two in step from there. */
+	out->conn_count = (u16)(out->event_counter - 1);
+	out->interval_timer = (u16)(to_next_event / LE_CONN_INTERVAL_TICKS);
+	return 1;
+}

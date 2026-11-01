@@ -2867,6 +2867,11 @@ Fixes with no visible change in normal use.
   finished or after this end has hung up, which is what the board in
   `page_scan` already did.
   [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
+- `ubertooth-btle -p` times a connection's returns to the channel it is sitting
+  on from the moment each packet began to arrive rather than from after the
+  whole packet had been read and checked. On a connection carrying full-length
+  packets the two are 2 ms apart, which is time the connection's next event was
+  already under way in.
 - Giving up a followed low-energy connection takes one path rather than two.
   The host's request to stop following and the end of the connection itself
   did the same three things in blocks of their own, and a request that arrived

@@ -162,13 +162,22 @@ int le_same_span(u32 a, u32 b);
  * How late a sighting can be against the start of the connection event it
  * belongs to, in the 100 ns ticks the capture clock counts.
  *
- * What the board times is a packet's arrival, and which packet of an event it
- * hears varies. The central's comes at the event's start; the peripheral's
- * answer follows a 150 microsecond gap and however long the central's packet
- * took, which is up to 2.1 ms for the longest the 1M PHY carries. So the gap
- * between two sightings is not an exact number of connection intervals even
- * with a clock that keeps perfect time, and the search allows for the
- * difference on top of the clock's own.
+ * A sighting is stamped when the four bytes after a packet's access address
+ * have arrived, which is 72 microseconds into the packet on the 1M PHY: one
+ * byte of preamble, four of access address, and those four. So what sets this
+ * figure is which packet of an event the board heard, not how long that
+ * packet is.
+ *
+ * The central's packet starts the event, so a sighting on it is 0.07 ms late.
+ * The peripheral's answer starts 150 microseconds after the central's packet
+ * ends, and the central's packet is up to 2.1 ms long, so a sighting on the
+ * answer is up to 2.1 + 0.15 + 0.07 = 2.32 ms late. 2.5 ms covers both.
+ *
+ * Two things rest on it. The gap between two sightings is not an exact number
+ * of connection intervals even with a clock that keeps perfect time, so the
+ * search allows for the difference on top of the clock's own; and the follow
+ * the search hands over to is anchored on the newest sighting, so this is
+ * also how far past a connection event's start that follow can begin.
  *
  * It has to stay under half the shortest interval, 3.75 ms, or the number of
  * events a gap spans would stop being the nearest whole number.
@@ -256,6 +265,16 @@ typedef struct _le_csa2_recovery_t {
 uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count);
 int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
                     u32 access_address, le_csa2_recovery_t *out);
+
+/* Where a follow picks a recovered connection up: see le_csa2_handoff(). */
+typedef struct _le_csa2_handoff_t {
+	u16 event_counter;   /* the counter of the event the follow hops to */
+	u16 conn_count;      /* the follow's own counter, a step behind */
+	u16 interval_timer;  /* units of 1.25 ms to wait before that hop */
+} le_csa2_handoff_t;
+
+int le_csa2_handoff(const le_csa2_recovery_t *rec, u32 elapsed,
+                    le_csa2_handoff_t *out);
 
 /* The longest payload a PDU's length field may claim, which is what the
  * capture loops use to tell a length from noise.
