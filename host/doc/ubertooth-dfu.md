@@ -131,6 +131,13 @@ from this tree adds the image up before it starts any of it. A sector that is
 only partly written does not add up -- erased flash reads 0xFFFFFFFF -- and
 the board waits in DFU for another image instead.
 
+That bootloader reads no further than the application region of a 128 KiB
+part, the smallest flash these boards carry, because reading flash a part has
+not got could fault and leave a board for the bench. A record claiming more
+than that is not checked, and the image starts on its vector table alone
+rather than being refused. The largest image this tree builds is a third of
+the limit.
+
 The three checks cover different things. A download that stops between blocks
 leaves the vector table erased, which the stack pointer and reset vector
 refuse on their own: the board is handed a block only once all 256 bytes of it

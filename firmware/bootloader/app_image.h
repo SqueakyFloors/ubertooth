@@ -199,6 +199,31 @@ static inline bool app_image_table_startable(const uint32_t* const vectors,
  */
 #define APP_IMAGE_MIN_LENGTH 0x100u
 
+/*
+ * The most flash the region checksum will read, and why there is a limit at
+ * all.
+ *
+ * The length comes out of the image. A length that is wrong by more than the
+ * part has flash would send the sum below reading addresses the part has not
+ * got, and a read that faulted here would take the board with it -- the one
+ * outcome this whole check must not produce, since it leaves someone at the
+ * bench with the entry pin bridged rather than a board waiting in DFU.
+ *
+ * So the sum reads no further than the application region of a 128 KiB part.
+ * That is the floor for these boards: the Ubertooth One schematic specifies
+ * an LPC1754 with 128 KiB and boards in the field read back that or more
+ * (firmware/bootloader/flash.h, lpc_part_flash_size). A longer image can only
+ * be on a larger part, and it is more than three times the largest image this
+ * tree builds.
+ *
+ * An image longer than this is not refused -- it is started without the
+ * region checksum, on its vector table alone, the way every image was before
+ * the record existed. Refusing it would leave a board that will not start a
+ * good image, which is worse than checking less of it.
+ */
+#define APP_IMAGE_SMALLEST_FLASH  0x20000u
+#define APP_IMAGE_REGION_READ_LIMIT (APP_IMAGE_SMALLEST_FLASH - APP_IMAGE_BASE)
+
 /* Does this look like an image check block, rather than whatever else those
  * 32 bytes might hold? An image built before the block existed, an image from
  * another tree, and erased flash all read as absent here, and an absent block
@@ -244,6 +269,28 @@ static inline uint32_t app_image_region_sum(const uint32_t* const region,
 }
 
 /*
+ * Is the length a length an image could have?
+ *
+ * It decides how much flash is read, so it is read carefully. Both copies of
+ * it have to agree -- a length of its own is one word, and a word a program
+ * left part way through could read as anything, while two words that are
+ * still exact complements are a word pair that was programmed whole -- and it
+ * has to be a whole number of words and long enough to hold the block it came
+ * out of. A length that fails any of these comes from a record that was not
+ * programmed whole, and such an image is refused.
+ */
+static inline bool app_image_region_length_ok(
+    const struct ubertooth_image_check_block* const check)
+{
+    const uint32_t length = check->length;
+
+    if( (length ^ check->length_complement) != 0xffffffffu ) {
+        return false;
+    }
+    return (length >= APP_IMAGE_MIN_LENGTH) && ((length & 3u) == 0);
+}
+
+/*
  * Does every byte that was programmed add up?
  *
  * This is the check the vector checksum cannot make. The host writes the
@@ -256,32 +303,15 @@ static inline uint32_t app_image_region_sum(const uint32_t* const region,
  * flash reads 0xFFFFFFFF, which does not add up, so a sector that is only
  * partly written is refused and the board waits in DFU for another image.
  *
- * The length comes out of the image, which is why it is read carefully. It
- * decides how much flash is read, and a part has less flash than the family's
- * largest, so a length nothing checked could send this reading addresses the
- * part has not got. So: both copies of it have to agree, it has to be a whole
- * number of words, it has to be long enough to hold the block it came from,
- * and it has to fit the region. What is left is a length that was programmed
- * whole, and the host only ever writes one the part it is talking to has the
- * flash for.
+ * The caller has already put the length to app_image_region_length_ok() and
+ * to APP_IMAGE_REGION_READ_LIMIT, so what is read here is inside flash the
+ * part has.
  */
 static inline bool app_image_region_checksum_ok(
     const uint32_t* const region,
-    const struct ubertooth_image_check_block* const check,
-    const uint32_t flash_top)
+    const struct ubertooth_image_check_block* const check)
 {
-    const uint32_t length = check->length;
-
-    if( (length ^ check->length_complement) != 0xffffffffu ) {
-        return false;
-    }
-    if( (length < APP_IMAGE_MIN_LENGTH) || ((length & 3u) != 0) ) {
-        return false;
-    }
-    if( length > (flash_top - APP_IMAGE_BASE) ) {
-        return false;
-    }
-    return (app_image_region_sum(region, length / 4u) == 0);
+    return (app_image_region_sum(region, check->length / 4u) == 0);
 }
 
 /*
@@ -309,10 +339,18 @@ static inline bool app_image_region_startable(const uint32_t* const region,
                                    (flags & UBERTOOTH_IMAGE_CHECK_VECTOR) != 0) ) {
         return false;
     }
-    if( (flags & UBERTOOTH_IMAGE_CHECK_REGION) != 0 ) {
-        return app_image_region_checksum_ok(region, check, flash_top);
+    if( (flags & UBERTOOTH_IMAGE_CHECK_REGION) == 0 ) {
+        return true;
     }
-    return true;
+    if( !app_image_region_length_ok(check) ) {
+        return false;
+    }
+    if( check->length > APP_IMAGE_REGION_READ_LIMIT ) {
+        /* More flash than this will read: see the limit's own comment. The
+         * image starts on its vector table alone rather than be refused. */
+        return true;
+    }
+    return app_image_region_checksum_ok(region, check);
 }
 
 #endif//__APP_IMAGE_H_

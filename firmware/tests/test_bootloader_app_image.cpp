@@ -595,8 +595,8 @@ MU_TEST(a_length_that_does_not_agree_with_its_complement_is_not_startable)
 }
 
 /* ...and a length that agrees with itself still has to be one an image could
- * have: long enough to hold the block it came out of, a whole number of
- * words, and inside the region. */
+ * have: long enough to hold the block it came out of, and a whole number of
+ * words. A record that fails either was not programmed whole. */
 MU_TEST(a_length_no_image_could_have_is_not_startable)
 {
 	uint32_t *region = a_region_buffer;
@@ -605,8 +605,7 @@ MU_TEST(a_length_no_image_could_have_is_not_startable)
 		4u,                              /* shorter than the block itself */
 		APP_IMAGE_MIN_LENGTH - 4u,
 		A_REGION_LENGTH + 2u,            /* not a whole number of words */
-		FLASH_TOP - APP_IMAGE_BASE + 4u, /* past the end of the family's flash */
-		0xfffffffcu,
+		A_REGION_LENGTH + 1u,
 	};
 	unsigned i;
 
@@ -620,6 +619,51 @@ MU_TEST(a_length_no_image_could_have_is_not_startable)
 		mu_assert(!app_image_region_startable(region, FLASH_TOP),
 		          "a length no image could have was used");
 	}
+}
+
+/* A length past the flash the smallest of these parts has is not read: a
+ * board that faulted reading flash it has not got would need someone at the
+ * bench, which is worse than anything this check is for. Such an image starts
+ * on its vector table alone instead of being refused, so a board never
+ * refuses a good image on this account. */
+MU_TEST(a_length_past_the_read_limit_is_not_read)
+{
+	uint32_t *region = a_region_buffer;
+	struct ubertooth_image_check_block *check;
+	const uint32_t past_the_limit[] = {
+		APP_IMAGE_REGION_READ_LIMIT + 4u,
+		FLASH_TOP - APP_IMAGE_BASE,
+		0xfffffffcu,
+	};
+	unsigned i;
+
+	mu_assert(APP_IMAGE_REGION_READ_LIMIT < FLASH_TOP - APP_IMAGE_BASE,
+	          "the read limit is no lower than the family's largest part, so "
+	          "it bounds nothing");
+	for (i = 0; i < sizeof(past_the_limit) / sizeof(*past_the_limit); i++) {
+		a_region(region);
+		a_written_region(region, BOTH_CHECKS);
+		/* ...and a word out, so a bootloader that did read that far would
+		 * refuse this image and the test would say so. */
+		region[A_REGION_WORDS - 1] += 1;
+		check = region_check(region);
+		check->length = past_the_limit[i];
+		check->length_complement = ~past_the_limit[i];
+		mu_assert(app_image_region_startable(region, FLASH_TOP),
+		          "an image whose length is past the read limit was refused "
+		          "rather than started unchecked");
+	}
+}
+
+/* The limit is the application region of a 128 KiB part, which is the floor
+ * for these boards, and it has to leave room for the images this tree builds:
+ * bluetooth_rxtx is about 36 KiB. */
+MU_TEST(the_read_limit_is_a_part_the_boards_have)
+{
+	mu_assert_int_eq(0x20000u, APP_IMAGE_SMALLEST_FLASH);
+	mu_assert_int_eq(0x20000u - APP_IMAGE_BASE, APP_IMAGE_REGION_READ_LIMIT);
+	mu_assert(APP_IMAGE_REGION_READ_LIMIT > 64u * 1024u,
+	          "the read limit leaves no room for the images this tree builds");
 }
 
 /* The region check does not rescue a vector table the two words refuse, and
@@ -885,6 +929,8 @@ int main(void)
 	MU_RUN(a_flagged_image_with_a_zero_checksum_word_is_not_startable);
 	MU_RUN(a_length_that_does_not_agree_with_its_complement_is_not_startable);
 	MU_RUN(a_length_no_image_could_have_is_not_startable);
+	MU_RUN(a_length_past_the_read_limit_is_not_read);
+	MU_RUN(the_read_limit_is_a_part_the_boards_have);
 	MU_RUN(erased_flash_is_not_startable_whatever_its_check_block);
 	MU_RUN(the_host_and_the_bootloader_add_up_the_same_words);
 	MU_RUN(run_application_checks_before_it_jumps);
