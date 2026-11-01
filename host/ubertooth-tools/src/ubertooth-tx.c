@@ -60,7 +60,7 @@ static void usage(FILE *file)
 	fprintf(file, "\n");
 	fprintf(file, "    Transmit one generic packet (experimental):\n");
 	fprintf(file, "\t-g <payload> hex digits, two per byte, 1 to %u bytes\n",
-	        (unsigned)GENERIC_TX_MAX_PAYLOAD);
+	        (unsigned)GENERIC_TX_FRAMED_PAYLOAD);
 	fprintf(file, "\t-a <syncword> 8 hex digits, the sync word the board frames\n");
 	fprintf(file, "\t   the packet with - required with -g\n");
 	fprintf(file, "\t-c <%d-%d> channel in MHz [Default: %d]\n",
@@ -141,7 +141,7 @@ int main(int argc, char* argv[])
 	int timeout = 0;
 	/* The generic packet: its payload, the sync word the board frames it
 	 * with, the channel and how many times to send it. */
-	uint8_t payload[GENERIC_TX_MAX_PAYLOAD];
+	uint8_t payload[GENERIC_TX_FRAMED_PAYLOAD];
 	size_t payload_len = 0;
 	int generic = 0, have_syncword = 0, have_channel = 0, have_count = 0;
 	int have_timeout = 0;

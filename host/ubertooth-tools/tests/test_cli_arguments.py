@@ -256,7 +256,7 @@ CASES = {
         # the generic packet: its payload, its sync word, and what each of
         # them is refused without
         (("-g", "010"), "error: a generic payload must be hex digits, "
-                        "two per byte, 1 to 50 bytes (got 010)"),
+                        "two per byte, 1 to 32 bytes (got 010)"),
         (("-g", "0102"), "error: -g needs -a <syncword>: the board frames "
                          "the generic packet with it"),
         (("-a", "cb876543"), "error: -a, -c and -n are only used with -g, "

@@ -165,6 +165,10 @@ MU_TEST(test_the_packet_holds_dma_size_payload_bytes)
 	mu_assert_int_eq(DMA_SIZE, (int)sizeof(globals.pkt.data));
 	mu_assert_int_eq(DMA_SIZE, (int)(sizeof(generic_tx_packet) -
 	                                 TX_GENERIC_HEADER_LEN));
+	/* And the payload a host tool offers is one FIFO load, which is the
+	 * most that goes out as a frame of a known shape. The interface header
+	 * cannot include the radio's own, so the two numbers meet here. */
+	mu_assert_int_eq(CC2400_FIFO_SIZE, GENERIC_TX_FRAMED_PAYLOAD);
 }
 
 /* A full-length packet is accepted whole, payload and all. */

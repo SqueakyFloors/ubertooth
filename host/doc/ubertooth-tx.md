@@ -30,8 +30,9 @@ Do not rely on it to retransmit a capture.
 
  - `-g <payload>` :
    transmit one generic packet carrying these bytes, written as hex digits,
-   two per byte and no separators: `-g 0102ff` is three bytes. 1 to 50 bytes,
-   which is what the request holds. Experimental.
+   two per byte and no separators: `-g 0102ff` is three bytes. 1 to 32 bytes,
+   which is one load of the radio's FIFO and all a receiving board reports.
+   Experimental.
  - `-a <syncword>` :
    the 32-bit sync word the board frames the generic packet with, 8 hex
    digits; required with `-g`. The whole of it is written out, because the
@@ -67,43 +68,34 @@ Do not rely on it to retransmit a capture.
 
 Experimental: expect the options and what goes on the air to change.
 
-The board hands the framing of a generic packet to the radio, so the whole
-description of what a receiver has to be set to is the sync word above plus
-the framing the firmware programs: 6 preamble bytes of `01010101`, the whole
-32-bit sync word, and no CRC, which is GRMDM `0x0f61`. A board reading the
-packet needs that same GRMDM value and the same sync word, its channel one MHz
-lower (the receive has a 1 MHz intermediate frequency and a transmit does
-not), and the same frequency deviation. ubertooth(7), GENERIC RADIO MODE is
-the worked example of both ends.
+The board hands the framing of a generic packet to the radio, so the sync word
+`-a` gives it, plus the framing the firmware programs, is the whole description
+of what goes out: 6 preamble bytes of `01010101`, the whole 32-bit sync word,
+and no CRC, which is GRMDM `0x0f61`. A board reading the packet has to be set
+to the same thing. ubertooth(7), GENERIC RADIO MODE lists the registers both
+ends have to agree on and walks a packet from one board to another; this page
+covers only what the options do.
 
 Two things come from the command line and reach the radio for this one packet:
 the sync word and the channel. The power is the board's own, as TRANSMIT POWER
 below says. Everything else is the configuration already in the radio, which
-`ubertooth-debug -w` writes -- with one exception at the moment, the frequency
-deviation: the firmware writes MDMCTRL `0x0057` for the packet, which is wider
-than any receive in this tree programs. Writing that same value on both boards
-is therefore the recipe that works whether or not the firmware goes on setting
-it.
+`ubertooth-debug -w` writes.
 
-What a receiving Ubertooth gives back is the sync word it matched and a fixed
-32 bytes read out of the radio, so that is as much of a payload as it reports.
-A payload shorter than 32 bytes is followed in the record by whatever was next
-in the radio's FIFO.
+`-g` stops at 32 bytes, which is one load of the radio's FIFO. The request
+itself carries up to 50, but a longer payload is written to the radio a FIFO
+at a time, each piece after the radio has sent the last, and what that leaves
+on the air has not been observed: an Ubertooth receiver reads one FIFO's worth
+per sync word, so it cannot tell one packet from two. 32 bytes is also all a
+receiving board reports, and a shorter payload is followed in its record by
+whatever was next in the radio's FIFO.
 
-A payload longer than 32 bytes is written to the radio in FIFO-sized pieces,
-each one after the radio has sent the last, and what that leaves on the air
-has not been observed: whether the radio carries one packet across the gap
-between pieces, or frames the rest as a second transmission, cannot be told
-from an Ubertooth receiver, which reads one FIFO's worth per sync word either
-way.
-
-`-n` hands the board one request per packet, a few milliseconds apart. The
-board answers each request before it transmits, so a request taken means the
-packet was accepted and not that anything received it; and it answers no
-request at all while a packet is going out, which is why the requests are
-spaced rather than sent back to back. The gap is not settable. The transmit
-starts no mode on the board: when the last packet has gone out the board is
-back to whatever it was doing, so there is nothing to stop afterwards.
+`-n` hands the board one request per packet, 2 ms apart. The board answers each
+request before it transmits, so a request taken means the packet was accepted
+and not that anything received it; and it answers no request at all while a
+packet is going out, which is why the requests are spaced rather than sent back
+to back. The gap is not settable. The transmit starts no mode on the board:
+when the last packet has gone out the board is back to whatever it was doing,
+so there is nothing to stop afterwards.
 
 ## TRANSMIT POWER
 

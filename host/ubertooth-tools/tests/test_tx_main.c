@@ -299,11 +299,11 @@ MU_TEST(the_refusals_allocate_nothing)
 	char* odd_payload[] = { "ubertooth-tx", "-g", "010", NULL };
 	char* empty_payload[] = { "ubertooth-tx", "-g", "", NULL };
 	char* payload_too_long[] = { "ubertooth-tx", "-g",
-	                             /* 51 bytes: one past what the request holds */
+	                             /* 33 bytes: one past the FIFO load that
+	                              * goes out as a frame of a known shape */
 	                             "000102030405060708090a0b0c0d0e0f"
 	                             "101112131415161718191a1b1c1d1e1f"
-	                             "202122232425262728292a2b2c2d2e2f"
-	                             "3031323334353637", NULL };
+	                             "20", NULL };
 	char* short_syncword[] = { "ubertooth-tx", "-g", "0102", "-a", "cb87", NULL };
 	char* payload_without_syncword[] = { "ubertooth-tx", "-g", "0102", NULL };
 	char* syncword_without_payload[] = { "ubertooth-tx", "-a", "cb876543", NULL };
@@ -423,7 +423,7 @@ MU_TEST(the_generic_refusals_read_as_the_page_says)
 	                 " out\n") == 0, r.err);
 	run_main(&r, 3, bad_payload);
 	mu_assert(strcmp(r.err, "error: a generic payload must be hex digits, two"
-	                 " per byte, 1 to 50 bytes (got 010)\n") == 0, r.err);
+	                 " per byte, 1 to 32 bytes (got 010)\n") == 0, r.err);
 	run_main(&r, 5, bad_syncword);
 	mu_assert(strcmp(r.err, "error: sync word must be 8 hex digits"
 	                 " (got cb87)\n") == 0, r.err);

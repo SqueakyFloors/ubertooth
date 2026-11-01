@@ -281,8 +281,9 @@ int cmd_rx_generic(struct libusb_device_handle* devh);
  * CRC). channel is the carrier in MHz, which a transmit tunes directly; a
  * board receiving the packet needs the same frequency less 1 MHz for its
  * intermediate frequency. pa_level is the CC2400 power level for this one
- * packet, 0 to 7; the board puts its own level back afterwards. data_len is 0
- * to GENERIC_TX_MAX_PAYLOAD bytes.
+ * packet, 0 to UBERTOOTH_PA_LEVEL_MAX; the board puts its own level back
+ * afterwards. data_len is 0 to GENERIC_TX_MAX_PAYLOAD bytes, of which
+ * GENERIC_TX_FRAMED_PAYLOAD go out as one frame whose shape is known.
  *
  * The board answers the request before it transmits, so a return of 0 says
  * the packet was accepted rather than that it is on the air. It answers no

@@ -205,6 +205,10 @@ static void test_hex_bytes(void)
 	CHECK(opt_parse_hex_bytes("", bytes, sizeof(bytes), &length) < 0);
 	/* not hex digits, however they are written */
 	CHECK(opt_parse_hex_bytes("zz", bytes, sizeof(bytes), &length) < 0);
+	/* a good first byte and a bad second one: the whole value is checked
+	 * before any of it is written, so that first byte is not left behind */
+	CHECK(opt_parse_hex_bytes("01zz", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("0102zz", bytes, sizeof(bytes), &length) < 0);
 	CHECK(opt_parse_hex_bytes("0x01", bytes, sizeof(bytes), &length) < 0);
 	CHECK(opt_parse_hex_bytes("-1", bytes, sizeof(bytes), &length) < 0);
 	CHECK(opt_parse_hex_bytes(" 01", bytes, sizeof(bytes), &length) < 0);

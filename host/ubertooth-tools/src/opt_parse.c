@@ -125,25 +125,29 @@ int opt_parse_hex_bytes(const char *text, uint8_t *bytes, size_t max_bytes,
                         size_t *length)
 {
 	size_t digits, i;
+	uint32_t value;
 
 	if (text == NULL || bytes == NULL || length == NULL || max_bytes == 0)
 		return -1;
 	digits = strlen(text);
 	if (digits == 0 || digits % 2 != 0 || digits / 2 > max_bytes)
 		return -1;
+	/* The whole value is checked before any of it is written, so a value
+	 * refused part way through -- "01zz" -- leaves the caller's buffer as
+	 * it found it rather than half filled. Nothing but hex digits, so "0x"
+	 * or a sign is refused here rather than read as a byte. */
+	for (i = 0; i < digits; i++)
+		if (!isxdigit((unsigned char)text[i]))
+			return -1;
 	for (i = 0; i < digits; i += 2) {
 		char pair[3];
-		uint32_t byte;
 
 		pair[0] = text[i];
 		pair[1] = text[i + 1];
 		pair[2] = '\0';
-		/* Each pair goes through the same digit check as every other hex
-		 * value, so "0x" or a sign is refused here rather than read as a
-		 * byte. */
-		if (opt_parse_hex(pair, 2, 2, &byte) < 0)
-			return -1;
-		bytes[i / 2] = (uint8_t)byte;
+		/* Cannot fail: both characters are hex digits. */
+		opt_parse_hex(pair, 2, 2, &value);
+		bytes[i / 2] = (uint8_t)value;
 	}
 	*length = digits / 2;
 	return 0;

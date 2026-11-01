@@ -1452,8 +1452,21 @@ int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
 		        " (got %zu)\n", (unsigned)GENERIC_TX_MAX_PAYLOAD, data_len);
 		return -1;
 	}
-	if (data == NULL && data_len > 0)
+	/* The two ways a caller can ask for something the board would not do.
+	 * Reported, rather than a bare -1, because the header says every
+	 * failure here is: a library caller has no other way to tell these
+	 * from a board that refused the request. */
+	if (data == NULL && data_len > 0) {
+		fprintf(stderr, "error: a generic packet of %zu bytes was asked"
+		        " for with no payload\n", data_len);
 		return -1;
+	}
+	if (pa_level > UBERTOOTH_PA_LEVEL_MAX) {
+		fprintf(stderr, "error: the power level for a generic packet is"
+		        " 0 to %u (got %u)\n", (unsigned)UBERTOOTH_PA_LEVEL_MAX,
+		        pa_level);
+		return -1;
+	}
 
 	memset(request, 0, sizeof(request));
 	/* SYNCH is the top half of the sync word and SYNCL the bottom half,

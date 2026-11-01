@@ -1257,17 +1257,38 @@ typedef struct {
 	uint16_t syncl;
 	uint16_t channel;
 	uint8_t  length;
-	/* Only the low three bits reach FREND's PA_LEVEL; unlike
-	 * UBERTOOTH_SET_PALEVEL, a larger value is masked rather than refused. */
+	/* Only the low three bits reach FREND's PA_LEVEL, so the board masks a
+	 * larger value rather than refusing it as UBERTOOTH_SET_PALEVEL does.
+	 * UBERTOOTH_PA_LEVEL_MAX below is the value that means anything. */
 	uint8_t  pa_level;
 	uint8_t  data[DMA_SIZE];
 } generic_tx_packet;
+
+/*
+ * The highest CC2400 power level: three bits in FREND's PA_LEVEL field, which
+ * is what UBERTOOTH_SET_PALEVEL refuses a larger value against.
+ */
+#define UBERTOOTH_PA_LEVEL_MAX 7
 
 /*
  * The most a UBERTOOTH_TX_GENERIC_PACKET request can carry, which is what the
  * firmware refuses a longer payload against.
  */
 #define GENERIC_TX_MAX_PAYLOAD DMA_SIZE
+
+/*
+ * How much of a generic payload goes out as one frame the sender knows the
+ * shape of: one load of the radio's FIFO (CC2400_FIFO_SIZE in the firmware's
+ * cc2400.h, checked against this in test_tx_generic_bounds.c).
+ *
+ * A longer payload is written to the radio a FIFO at a time, each piece after
+ * the radio has sent the last, and whether the radio carries one packet across
+ * that gap or frames the rest separately has not been observed -- an Ubertooth
+ * receiver reads one FIFO's worth per sync word either way, so it cannot tell.
+ * It is also all a generic receive reports. So this is what a tool offers, and
+ * GENERIC_TX_MAX_PAYLOAD above is only what the request will carry.
+ */
+#define GENERIC_TX_FRAMED_PAYLOAD 32
 
 /* BTBR USB interface */
 enum {
