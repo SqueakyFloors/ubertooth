@@ -137,14 +137,20 @@ int bbcodec_decode_header(bbcodec_t *codec, bbhdr_t *out_hdr, uint8_t *in_data)
 	out_hdr->type   = (hdr_data>>3) & 0xf;
 	out_hdr->flags  = (hdr_data>>7) & 7;
 
-	/* Check HEC.
+	/* Check the HEC. All eight bits have to match.
 	 *
-	 * All eight bits have to match. The HEC is the only thing that says a
-	 * header belongs to this piconet before the payload is decoded and the
-	 * packet reported, so a comparison of seven bits would pass one header
-	 * in 128 from elsewhere instead of one in 256. Every stage above keeps
-	 * the eighth bit: the 1/3 FEC decode returns all 18 header bits, and
-	 * the unwhitening is given the whole 18, the HEC included. */
+	 * The HEC is the only thing that says a header belongs to this piconet
+	 * before the payload is decoded and the packet reported, and it is
+	 * computed from the piconet's UAP, so for a given header no two UAPs
+	 * lead to the same HEC. Comparing fewer bits gives that up. The HEC is
+	 * linear in the UAP, so there is one UAP whose HEC for every header is
+	 * this one's but for the top bit: drop that bit and every header that
+	 * piconet sends is accepted. Dropping it also doubles the chance that a
+	 * header read out of noise passes, from 1 in 256 to 1 in 128.
+	 *
+	 * Every stage above keeps the eighth bit: the 1/3 FEC decode returns
+	 * all 18 header bits, and the unwhitening is given the whole 18, the
+	 * HEC included. */
 	hec = hec_compute(hdr_data, codec->uap);
 	if (hec != out_hdr->hec)
 	{

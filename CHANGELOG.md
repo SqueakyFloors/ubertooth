@@ -767,9 +767,11 @@
 
 - `ubertooth-btbr` no longer reports a packet whose header belongs to another
   piconet. All eight bits of a header's error check now have to match, where
-  seven did, so a header that got past the access-code match was accepted one
-  time in 128 rather than one in 256 and was printed with whatever type,
-  logical transport address and flags it carried.
+  seven did. The check is computed from the piconet's UAP, so the dropped bit
+  cost real coverage: every header of a piconet whose UAP differed from this
+  one in one particular way was accepted, and a header read out of noise
+  passed one time in 128 instead of one in 256. Either was printed as a packet
+  with whatever type, logical transport address and flags it carried.
   [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
 - Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
   connection it was following. It hopped with channel selection algorithm 1

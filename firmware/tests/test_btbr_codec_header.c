@@ -107,8 +107,18 @@ static const hdr_info_t test_headers[] = {
 
 /* UAPs to compute the HEC from. 0x00 and 0xff are the ends of the range, and
  * the HEC register is seeded with the UAP, so a seed of all zeros or all ones
- * is worth having among the arbitrary ones. */
-static const uint8_t test_uaps[] = { 0x00, 0x01, 0x0d, 0x41, 0x9e, 0xff };
+ * is worth having among the arbitrary ones.
+ *
+ * 0x4f earns its place. The HEC is linear in the UAP, so for two UAPs the
+ * difference between the HECs they give depends only on the difference
+ * between the UAPs, the same for every header; 0x4f is the one difference
+ * whose two HECs are alike but for the top bit. So a piconet whose UAP is
+ * 0x4f away from this one is the piconet whose every header a seven-bit
+ * comparison accepts, and this list has to hold such a pair (0x00 and 0x4f)
+ * for the case below to mean anything. */
+static const uint8_t test_uaps[] = {
+	0x00, 0x01, 0x0d, 0x41, 0x4f, 0x9e, 0xff
+};
 #define NUM_TEST_UAPS (sizeof(test_uaps)/sizeof(test_uaps[0]))
 
 /* The 10 bits of header information, packed the way the air carries them. */
@@ -239,8 +249,11 @@ MU_TEST(test_the_encoder_writes_the_hec_the_receiver_expects)
 		snprintf(message, sizeof(message),
 			"uap %02x whiten %u header %u: the encoder put "
 			"different bits on the air", test_uaps[u], w, h);
-		/* The header occupies the trailer's byte and the seven above
-		 * it; what either side leaves past that is not the header. */
+		/* Bytes 0 to 7, which hold the trailer and the header's 54
+		 * air bits. The six spare bits at the top of byte 7 are not
+		 * header, and are compared along with them because fec13()
+		 * assigns that byte rather than ORing into it, so both sides
+		 * leave them zero. */
 		mu_assert(memcmp(air, mine, 8) == 0, message);
 	}
 }
@@ -351,9 +364,13 @@ MU_TEST(test_a_hec_wrong_in_one_bit_is_refused)
 }
 
 /*
- * The same header read with the wrong UAP is refused. That is the case the
- * HEC is there for: two piconets on one channel, and a packet of the other
- * one matching this one's access code closely enough to be decoded.
+ * The same header read with the wrong UAP is refused, every pair of UAPs in
+ * the list and every header. That is the case the HEC is there for: two
+ * piconets on one channel, and a packet of the other one matching this one's
+ * access code closely enough to be decoded. No pair is excused, because a
+ * different UAP always gives a different HEC -- the UAP is the HEC register's
+ * starting value, and for a given header no two starting values lead to the
+ * same HEC.
  */
 MU_TEST(test_a_header_from_another_piconet_is_refused)
 {
@@ -374,13 +391,6 @@ MU_TEST(test_a_header_from_another_piconet_is_refused)
 		hec = hec_compute(pack_header_info(info), test_uaps[u]);
 		put_header(air, info, hec, (int)w);
 
-		/* Only a UAP that gives this header a different HEC can be
-		 * told apart from the right one: an 8-bit check over 10 bits
-		 * of header information cannot separate every pair. */
-		if (hec_compute(pack_header_info(info), test_uaps[other])
-				== hec)
-			continue;
-
 		snprintf(message, sizeof(message),
 			"whiten %u header %u sent with uap %02x was accepted "
 			"as uap %02x's", w, h, test_uaps[u], test_uaps[other]);
@@ -391,9 +401,10 @@ MU_TEST(test_a_header_from_another_piconet_is_refused)
 
 /*
  * A whitened header read as an unwhitened one, and the other way round, are
- * both refused. The whitening seed comes from the piconet clock, so this is
- * what a receiver whose clock estimate is wrong sees, and the HEC is what
- * stops it reporting the packet.
+ * both refused, for this seed and every header and UAP in the lists. The
+ * whitening seed comes from the piconet clock, so this is what a receiver
+ * whose clock estimate is wrong sees, and the HEC is what stops it reporting
+ * the packet.
  */
 MU_TEST(test_a_header_unwhitened_the_wrong_way_is_refused)
 {
@@ -409,12 +420,6 @@ MU_TEST(test_a_header_unwhitened_the_wrong_way_is_refused)
 
 		hec = hec_compute(pack_header_info(info), test_uaps[u]);
 		put_header(air, info, hec, (int)w);
-
-		/* A whitening word can leave the 18 bits alone, and then
-		 * there is nothing for the receiver to get wrong. */
-		if (decode_header(air, test_uaps[u], (int)(1 - w), &got) == 0
-				&& got.hec == hec)
-			continue;
 
 		snprintf(message, sizeof(message),
 			"uap %02x header %u: a header sent with whitening %u "
