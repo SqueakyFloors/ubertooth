@@ -624,11 +624,14 @@ or turn the transmit power down with `ubertooth-util -a`.
 This tool reports it only while packets are still arriving, because under `-f`
 and `-n` the board sends a record for a packet it demodulated and for nothing
 else: a link loud enough to stop every packet leaves the capture with nothing
-to judge, and it goes quiet rather than saying why. `ubertooth-rx` is not in
-that position -- the Basic Rate stream sends a record for every block of air
-it collects -- so on a bench where two boards hear each other and nothing
-decodes, running it on the same channel is how to tell a deafened receiver
-from an empty one. See ubertooth(7).
+to judge, and it goes quiet rather than saying why. Under `-p` only the part
+of a run that is following a connection can report it; the records of the
+access-address hunt before that state no signal figure at all, so that phase
+never does. `ubertooth-rx` is in none of these positions -- the Basic Rate
+stream sends a record for every block of air it collects -- so on a bench
+where two boards hear each other and nothing decodes, running it on the same
+channel is how to tell a deafened receiver from an empty one. See
+ubertooth(7).
 
 Packets whose data the decoder could not read are summed up in one line when
 the run ends: `note: 312 packets held data that could not be decoded; -v

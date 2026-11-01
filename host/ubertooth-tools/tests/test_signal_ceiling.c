@@ -365,6 +365,40 @@ MU_TEST(continuation_records_are_left_out)
 	mu_assert(warnings_in(said) == 0, "a continuation record was counted");
 }
 
+/* A keep-alive is one byte on the wire, so every field but its type holds
+ * whatever the record before it left in the buffer -- which on a capture that
+ * has just been loud is a signal figure at the ceiling, with its flag set.
+ * Keep-alives are what a quiet capture gets instead of packets, so counting
+ * them would report a receiver that is hearing nothing at all. */
+MU_TEST(keep_alives_are_left_out)
+{
+	ubertooth_t* ut = fresh();
+	usb_pkt_rx rx;
+	const char* said;
+	unsigned i;
+
+	/* As it comes off the ring: the fields of the loud record before it,
+	 * with only the type overwritten. */
+	signal_record(&rx, PINNED_RAW);
+	rx.pkt_type = KEEP_ALIVE;
+
+	capture_start();
+	for (i = 0; i < BLOCK_RECORDS * 4; i++)
+		ubertooth_watch_signal_level(ut, &rx);
+	said = capture_end();
+
+	mu_assert(warnings_in(said) == 0, "a keep-alive was counted");
+	mu_assert(ubertooth_signal_ceiling_blocks(ut) == 0,
+	          "a keep-alive counted a block");
+
+	/* And a real block afterwards still reports, which shows the
+	 * keep-alives were skipped rather than counted as quiet. */
+	capture_start();
+	hand_over(ut, PINNED_RAW, BLOCK_RECORDS);
+	said = capture_end();
+	mu_assert(warnings_in(said) == 1, "the keep-alives were counted as quiet");
+}
+
 /* Neither argument is trusted, as the loss counting beside it does not trust
  * them: a tool that lost its handle must not take a second fault here. */
 MU_TEST(nothing_is_trusted)
@@ -387,6 +421,7 @@ int main(void)
 	MU_RUN(the_ceiling_is_where_the_scale_runs_out);
 	MU_RUN(records_without_a_figure_are_left_out);
 	MU_RUN(continuation_records_are_left_out);
+	MU_RUN(keep_alives_are_left_out);
 	MU_RUN(nothing_is_trusted);
 	return mu_report();
 }

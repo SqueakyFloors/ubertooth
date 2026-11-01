@@ -706,8 +706,11 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
  * See the comment on the counters in ubertooth_t.
  *
  * Called by every mode's callback for the records it is handed, beside
- * ubertooth_count_capture_losses(). Records that carry no signal figure are
- * ignored here rather than by the callers.
+ * ubertooth_count_capture_losses(). Records that say nothing about how loud
+ * the air was are left out here rather than by the callers: one that states
+ * no signal figure, a keep-alive, whose fields hold whatever the record
+ * before it left in the buffer, and the continuation records of a long
+ * low-energy packet, which repeat the first record's readings.
  */
 void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx);
 

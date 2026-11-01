@@ -70,9 +70,14 @@ extern unsigned int packet_counter_max;
  * radio that is also where it stops demodulating reliably, which is what
  * ubertooth_watch_signal_level() reports.
  *
- * The map below is written in terms of it rather than repeating the number,
- * so the two cannot drift apart: whatever the top segment is changed to, this
- * stays the first reading that reports 0 dBm. */
+ * The map below is written in terms of this rather than repeating the number,
+ * so it stays the first reading that reports 0 dBm whatever the top segment
+ * becomes. That makes it load-bearing twice over, and the two uses have to
+ * move together: it is where the dBm scale ends as well as what the warning
+ * goes on, so changing it to suit the warning would change the dBm figure
+ * every capture reports and every capture file records. Retune the warning
+ * through SIGNAL_BLOCK_RECORDS and SIGNAL_BLOCK_AT_CEILING instead, and
+ * change this only to follow the radio's own curve. */
 #define RSSI_CEILING_RAW 35
 
 static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
@@ -795,13 +800,29 @@ void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx)
 	if (ut == NULL || rx == NULL)
 		return;
 
-	/* Only a record that states the power of what it holds. A record
+	/* Two kinds of record state nothing about how loud the air was, and the
+	 * flag below cannot be trusted to exclude them, so they are named. The
+	 * same two the loss counting above names, for the same reasons.
+	 *
+	 * A keep-alive is one byte on the wire -- the record's type and nothing
+	 * else -- so its every other field holds whatever the record before it
+	 * left in the buffer: the flag, and a signal figure that belonged to a
+	 * different moment. They are what a quiet capture gets instead of
+	 * packets, so a capture that went quiet after a loud stretch would
+	 * otherwise be judged on that stretch's reading over and over.
+	 *
+	 * The continuation records of a long low-energy packet repeat the
+	 * readings of the record that started the packet, flag included, so
+	 * counting them would weigh one packet by how many records it took.
+	 */
+	if (rx->pkt_type == KEEP_ALIVE || rx->pkt_type == LE_PACKET_CONT)
+		return;
+
+	/* And only a record that states the power of what it holds. A record
 	 * without the flag carries either no packet or, from an older board or
 	 * dump, the channel's running average in that field, which is not this
-	 * record's level. The continuation records of a long low-energy packet
-	 * repeat the first record's readings, so counting them would weight one
-	 * packet by how many records it took. */
-	if (!(rx->status & SIGNAL_VALID) || rx->pkt_type == LE_PACKET_CONT)
+	 * record's level. */
+	if (!(rx->status & SIGNAL_VALID))
 		return;
 
 	ut->signal_records++;

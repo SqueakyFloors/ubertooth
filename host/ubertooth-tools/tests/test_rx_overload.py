@@ -46,14 +46,17 @@ QUIET_AT_CEILING = 26
 WORKING_LINK_RAW = 16
 
 
-def record(host_time, clk100ns, rssi_avg):
+KEEP_ALIVE = 3
+
+
+def record(host_time, clk100ns, rssi_avg, pkt_type=BR_PACKET):
     """One Basic Rate record stating a signal figure, carrying no packet.
 
     The Basic Rate stream sends one of these for every block of symbols it
     collects, whether or not a packet was in it, which is why a capture can
     see its receiver pinned while decoding nothing at all.
     """
-    header = struct.pack("<BBBBIbbbB2x", BR_PACKET, SIGNAL_VALID, 39, 0,
+    header = struct.pack("<BBBBIbbbB2x", pkt_type, SIGNAL_VALID, 39, 0,
                          clk100ns, rssi_avg, rssi_avg - 6, rssi_avg, 50)
     return struct.pack(">I", host_time) + header + bytes(50)
 
@@ -118,6 +121,21 @@ with tempfile.TemporaryDirectory() as workdir:
     # 999 records of the pinned fixture.
     (work / "short.bin").write_bytes(dump([PINNED_RAW] * 999))
     result = run("-i", "short.bin", directory=work)
+    assert result.returncode == 0, result
+    assert WARNING not in result.stderr, result
+
+    # Keep-alives say nothing about the air. One is a single byte on the wire,
+    # so a record of one holds whatever the record before it left in the
+    # buffer -- here a signal figure at the ceiling, with its flag set, which
+    # is what a capture that has just been loud leaves there. Counting them
+    # would report a receiver that is hearing nothing at all.
+    base = int(time.time()) - 3600
+    keep_alives = b"".join(
+        record(base, CLK100NS_STEP * (i + 1), PINNED_RAW, KEEP_ALIVE)
+        for i in range(QUIET_RECORDS)
+    )
+    (work / "keepalive.bin").write_bytes(keep_alives)
+    result = run("-i", "keepalive.bin", directory=work)
     assert result.returncode == 0, result
     assert WARNING not in result.stderr, result
 
