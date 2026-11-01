@@ -700,9 +700,9 @@ static inline uint8_t ubertooth_bl_update_byte(const uint8_t *payload,
  * block gives, or 0 when there is none.
  *
  * Whether the board already holds these bytes is a separate question, asked
- * by bl_update_region_matches() in firmware/common/bl_update.c, because that
- * one has to read the board's region at flash address 0 and an address is not
- * a pointer this side of the bus.
+ * by region_matches() in firmware/common/bl_update.c, because that one has to
+ * read the board's region at flash address 0 and an address is not a pointer
+ * this side of the bus.
  *
  * This is here rather than in the firmware, because the firmware and
  * ubertooth-dfu both make these checks over the same bytes -- the host before
@@ -819,8 +819,14 @@ static inline const char *ubertooth_bl_update_result_string(int result)
 		return "this image is not a bootloader updater";
 	case UBERTOOTH_BL_UPDATE_NO_BUFFER:
 		return "there is no buffer to program the bootloader from";
-	default:
+	case UBERTOOTH_BL_UPDATE_FILE_SHORT:
 		return "this file is too short to hold a bootloader updater";
+	default:
+		/* Every result above has its own phrase, so this is a code from a
+		 * newer build than this host. Saying so beats naming one of the
+		 * known outcomes, which would send the reader after the wrong
+		 * thing. */
+		return "the update was refused for a reason this host does not know";
 	}
 }
 

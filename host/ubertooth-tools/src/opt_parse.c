@@ -545,24 +545,10 @@ void opt_report_bad_option(int opt, int argc, char *argv[], const char *options)
 		fputs("error: an option is missing its value\n", stderr);
 		return;
 	}
-	/*
-	 * A long option getopt_long does not know: it leaves no letter behind,
-	 * because there was no letter, and has already stepped past the word.
-	 * So the word itself is quoted back, from where getopt_long left optind.
-	 *
-	 * Only ubertooth-dfu reaches this, for --update-bootloader; every other
-	 * tool passes no long options and its "--bogus" arrives as a rejected
-	 * '-' below.
-	 */
-	if (letter == 0 && optind >= 2 && optind <= argc &&
-	    strncmp(argv[optind - 1], "--", 2) == 0 &&
-	    argv[optind - 1][2] != '\0') {
-		fprintf(stderr, "error: unrecognized option '%s': see -h for the "
-		        "options this tool takes\n", argv[optind - 1]);
-		return;
-	}
 	/* A rejected '-' is a letter inside a word the user wrote, so the whole
-	 * word is quoted back. */
+	 * word is quoted back. No tool takes long options: ubertooth-dfu's
+	 * --update-bootloader is taken out of argv before getopt reads it, so a
+	 * word starting with "--" still arrives here as a rejected '-'. */
 	if (letter == '-') {
 		word = dash_word(argc, argv, options);
 		if (word == NULL)
