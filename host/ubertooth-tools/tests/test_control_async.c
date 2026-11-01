@@ -367,9 +367,23 @@ MU_TEST(every_async_command_frees_what_it_submits)
 	mu_assert_int_eq(0x06, fake.buffer[LIBUSB_CONTROL_SETUP_SIZE + 5]);
 	complete_last();
 
-	mu_assert_int_eq(6, fake.submits);
-	mu_assert_int_eq(6, fake.allocated);
-	mu_assert_int_eq(6, fake.freed);
+	/* The hop offset is a difference between two clocks, so it is often
+	 * negative: ubertooth-follow sends the piconet's clock less the board's,
+	 * and libbtbb hands ubertooth-rx a difference of its own. The four bytes
+	 * are the value's own, taken as a 32-bit count, which is what the
+	 * firmware adds to CLKN. Shifting the offset as a signed int left that
+	 * to the compiler to define. */
+	mu_assert_int_eq(0, cmd_start_hopping(NULL, -2000, 0));
+	assert_setup(UBERTOOTH_START_HOPPING, 6);
+	mu_assert_int_eq(0xff, fake.buffer[LIBUSB_CONTROL_SETUP_SIZE]);
+	mu_assert_int_eq(0xff, fake.buffer[LIBUSB_CONTROL_SETUP_SIZE + 1]);
+	mu_assert_int_eq(0xf8, fake.buffer[LIBUSB_CONTROL_SETUP_SIZE + 2]);
+	mu_assert_int_eq(0x30, fake.buffer[LIBUSB_CONTROL_SETUP_SIZE + 3]);
+	complete_last();
+
+	mu_assert_int_eq(7, fake.submits);
+	mu_assert_int_eq(7, fake.allocated);
+	mu_assert_int_eq(7, fake.freed);
 }
 
 /* The commands that return a value pass a submit failure on, and still free
