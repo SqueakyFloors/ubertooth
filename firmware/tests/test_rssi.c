@@ -575,8 +575,6 @@ MU_TEST(test_a_step_at_its_ceiling_is_halved_rather_than_left_to_wrap)
 	mu_assert_int_eq((int)(RSSI_POWER_STEP_MAX / 2 + 1), (int)p.at[0]);
 	mu_assert_int_eq((int)(RSSI_POWER_STEP_MAX / 4),
 	                 (int)p.at[RSSI_POWER_SPAN]);
-	mu_assert(p.at[0] <= RSSI_POWER_STEP_MAX,
-	          "no step may be left holding more than it can count");
 
 	/* And the figure the halving was for: the mean the readings gave is
 	 * the mean they still give. */

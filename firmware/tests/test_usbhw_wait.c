@@ -113,7 +113,18 @@ static uint32_t clear_answer_value;
  * such a reply up at any moment, so when it lands here is the test's own
  * scheduling: one register access after the firmware has taken an answer out
  * of USBCmdData, which in USBHwISR() falls in the gap between the endpoint's
- * status read and that clear.
+ * status read and that clear. That is why USBCmdData is a function in
+ * stubs-usb/lpc17.h: the fake needs one access to count from, and in that
+ * stretch of USBHwISR() there is no other.
+ *
+ * One thing to know before trusting the case this drives. It rests on the
+ * controller NOT taking CDFULL away itself when the write to USBEpIntClr runs
+ * Select Endpoint/Clear Interrupt -- if it did, the firmware's own clear
+ * would be redundant and no leftover could survive to be misread. The comment
+ * on that line in usbhw_lpc.c reads the manual the other way. The fake
+ * follows what the drivers do: lpcusb here, and NXP's and Keil's, all clear
+ * CCEMTY and CDFULL in software before every command rather than relying on
+ * the engine to do it. Which of the two readings is right is not settled.
  */
 static int leftover_answer;
 static int leftover_answer_due;
@@ -544,16 +555,8 @@ volatile uint32_t *fake_devintst(void)
 	return &devintst_value;
 }
 
-/*
- * The register the engine's answer arrives in. On the part it is a plain
- * register and reading it does nothing; it is a function here so the fake has
- * somewhere to count from. A `leftover_answer` has to land after the firmware
- * has taken the status read's answer and before it writes the endpoint
- * interrupt clear, and this read is the only access the fake sees in that
- * stretch -- the controller could put a late reply up at any moment, so which
- * access the fake hangs it on is the test's own scheduling, not something the
- * hardware does.
- */
+/* The register the engine's answer arrives in. See `leftover_answer` above
+ * for why it is a function. */
 static volatile uint32_t cmddata_value;
 
 volatile uint32_t *fake_cmddata_reg(void)
