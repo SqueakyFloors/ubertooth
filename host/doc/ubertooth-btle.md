@@ -118,8 +118,10 @@ capture of such a connection has gaps in it. Capturing from the setup with
 
 That also means a recovered connection is heard less often than it speaks, so
 promiscuous mode gives an algorithm-2 follow 64 connection intervals of
-silence before it treats the connection as over, where a follow that hears
-every event is given five seconds.
+silence before it treats the connection as over, or five seconds, whichever is
+longer. Five seconds is the longer of the two for any interval under about
+78 ms, which is most connections; the 64 intervals are what matters on a slow
+one, where they can be minutes.
 
 Two limits are worth knowing. The search needs a run of about forty visits to
 the channel being listened on, and a connection at the longest interval the
@@ -272,7 +274,9 @@ Major modes:
    between 2404 MHz and 2406 MHz, from whichever channel the earlier stages
    used. As it
    works a connection out it reports each parameter it has recovered: the
-   access address, the CRC init value, the hop interval, and the hop increment.
+   access address, the CRC init value, the hop interval, and then either the
+   hop increment or, for a connection hopping with algorithm 2, the event
+   counter the follow starts on.
    Those lines go to standard output, or to standard error once `-q -` or
    `-c -` has taken standard output, so a capture written to a file still says
    which connection it is of.
