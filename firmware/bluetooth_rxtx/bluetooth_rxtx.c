@@ -224,9 +224,6 @@ typedef struct _le_promisc_state_t {
 	 * longer shared one, because the estimator's length is what bounds the
 	 * pattern it looks for.
 	 *
-	 * Sharing one ring would mean giving the estimator above a longer one,
-	 * and its length is also what bounds the pattern it looks for.
-	 *
 	 * csa2_gap_count is how many the ring holds and sightings is how many
 	 * have arrived since the last search, which is what gives each
 	 * estimator a run of consecutive returns to work from. */
@@ -3045,25 +3042,25 @@ void bt_generic_le(u8 active_mode)
  * How long a followed connection may go unheard before it is taken to be over
  * and the mode starts again.
  *
- * Five seconds for a connection the board can hear every event of. A
- * connection recovered by the algorithm-2 search is followed without its
+ * Five seconds for a connection the board can hear every event of.
+ *
+ * A connection recovered by the algorithm-2 search is followed without its
  * channel map, so the board lands on the right channel for only some of its
- * events -- about as many as the map keeps out of the 37 -- and at a long
- * connection interval five seconds can pass between two events it does hear.
- * Such a follow is given eight connection intervals instead, so that a
- * connection it is following correctly is not thrown away and recovered again
- * from the beginning, which at the longest interval would take half an hour.
+ * events, and a run of events it does not hear is normal rather than a sign
+ * the connection has gone. It is given LE_CSA2_SILENCE_EVENTS connection
+ * intervals instead -- see the arithmetic there -- so that a connection it is
+ * following correctly is not thrown away and recovered again from the
+ * beginning, which at a long interval takes many minutes.
  */
 static u32 le_silence_timeout(void)
 {
-	u32 eight_intervals;
+	u32 events;
 
 	if (!le.chan_sel_2 || le.conn_interval == 0)
 		return 5 * 10000000u;
 
-	eight_intervals = 8u * le.conn_interval * LE_BASECLK;
-	return eight_intervals > 5 * 10000000u ? eight_intervals
-	                                       : 5 * 10000000u;
+	events = LE_CSA2_SILENCE_EVENTS * le.conn_interval * LE_BASECLK;
+	return events > 5 * 10000000u ? events : 5 * 10000000u;
 }
 
 /*
@@ -3833,15 +3830,43 @@ static u16 promisc_interval(void) {
  * How many sightings in a row the estimator above gets to itself before an
  * algorithm-2 search runs, and again between one search and the next.
  *
- * A search leaves the receiver deaf for a couple of hundred milliseconds, so
- * the two sightings either side of one are not neighbours and the gap between
- * them is not a gap between consecutive returns. The estimator above reads the
- * pattern the gaps repeat and needs a run of consecutive ones: up to sixteen
- * for the longest pattern it looks for, and then five reports that agree. Both
- * estimators therefore start again after every search, and this is comfortably
- * more than the longest run the one above can need.
+ * A search leaves the receiver deaf while it runs, so the two sightings either
+ * side of one are not neighbours and the gap between them is not a gap between
+ * consecutive returns. The estimator above reads the pattern the gaps repeat
+ * and needs a run of consecutive ones: two runs of the longest pattern it
+ * looks for, which is 32 gaps, and then four more reports that agree, so 36.
+ * Both estimators start again after every search, so this has to be more than
+ * that or a connection the estimator above could have settled on would never
+ * get the chance.
  */
-#define LE_PROMISC_CSA2_RUN 32
+#define LE_PROMISC_CSA2_RUN 40
+
+/*
+ * Throw away what both estimators have collected and start again from the
+ * next sighting.
+ *
+ * Both read a run of gaps between consecutive returns to this channel: the one
+ * above looks for the pattern they repeat, and the algorithm-2 search adds
+ * them up to say how many connection events apart the sightings are. So
+ * anything that breaks the run has to empty them, not just leave a gap out.
+ * A ring with a gap missing from the middle is still a chain of numbers that
+ * add up, and every sighting older than the hole then looks nearer the newest
+ * than it was: the search finds the counter that explains those offsets,
+ * scores it well, and adopts an answer that puts the follow on the wrong
+ * channel for every event. Nothing in the answer says so; the capture simply
+ * comes back empty.
+ *
+ * Clearing the stamp is what makes the next sighting an anchor rather than the
+ * end of a gap measured across the break.
+ */
+static void promisc_restart_estimators(void) {
+	le_promisc.gap_count = 0;
+	le_promisc.csa2_gap_count = 0;
+	le_promisc.sightings = 0;
+	le_promisc.consec_intervals = 0;
+	le_promisc.seen_a_packet = 0;
+	le.conn_interval = 0;
+}
 
 /* Add a gap to the algorithm-2 ring, dropping the oldest. */
 static void promisc_csa2_note_gap(u32 gap) {
@@ -3956,9 +3981,12 @@ void promisc_recover_hop_interval(u8 *packet) {
 
 	/* Longer than a trip round the channels at the longest interval the
 	 * specification allows. The connection was away, or the clock wrapped
-	 * more than once: either way the gap says nothing, for or against. */
-	if (clk_diff > LE_PROMISC_MAX_GAP)
+	 * more than once: either way the gap says nothing, for or against, and
+	 * the two sightings it lies between are not neighbours. */
+	if (clk_diff > LE_PROMISC_MAX_GAP) {
+		promisc_restart_estimators();
 		return;
+	}
 
 	promisc_note_gap(clk_diff);
 	promisc_csa2_note_gap(clk_diff);
@@ -3971,15 +3999,9 @@ void promisc_recover_hop_interval(u8 *packet) {
 
 		/* The search was deaf while it ran, so the next gap spans it
 		 * and the sightings either side of it are not neighbours.
-		 * Both estimators start again from the next sighting, which
-		 * also means the next search works from sightings this one has
-		 * not already turned down. */
-		le_promisc.gap_count = 0;
-		le_promisc.csa2_gap_count = 0;
-		le_promisc.sightings = 0;
-		le_promisc.seen_a_packet = 0;
-		le_promisc.consec_intervals = 0;
-		le.conn_interval = 0;
+		 * Starting again also means the next search works from
+		 * sightings this one has not already turned down. */
+		promisc_restart_estimators();
 		return;
 	}
 

@@ -101,8 +101,8 @@ connection would have come to this channel, and takes the pair that accounts
 for what it actually heard. Bluetooth 5.0 devices normally use algorithm 2.
 
 That search starts once the algorithm-1 route has had its chance, after about
-thirty visits to the channel being listened on, and runs again on every set of
-that many after it. Thirty visits is a few seconds at a short connection
+forty visits to the channel being listened on, and runs again on every set of
+that many after it. Forty visits is a few seconds at a short connection
 interval and a minute or more at a long one. The search needs no channel map,
 and it declines rather than answer on thin evidence, so a connection whose map
 keeps about half the channels may take two or three sets before it is
@@ -116,9 +116,18 @@ capture of such a connection has gaps in it. Capturing from the setup with
 `-f` has the map and does not.
 
 That also means a recovered connection is heard less often than it speaks, so
-promiscuous mode gives an algorithm-2 follow eight connection intervals of
+promiscuous mode gives an algorithm-2 follow 32 connection intervals of
 silence before it treats the connection as over, where a follow that hears
 every event is given five seconds.
+
+Two limits are worth knowing. The search needs a run of about forty visits to
+the channel being listened on, and a connection at the longest interval the
+specification allows, 4 s, comes back to one channel so rarely that the board
+cannot time the gaps: at that interval no run is collected and nothing is
+recovered. And the interval it reports is the one the board's clock measured,
+which at a long interval can be a unit of 1.25 ms away from the figure the
+connection was given, because the two clocks differ by a few hundred parts
+per million.
 
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which

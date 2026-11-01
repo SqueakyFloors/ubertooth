@@ -207,6 +207,24 @@ int le_same_span(u32 a, u32 b);
  * connection parameters, is such a gap. */
 #define LE_CSA2_INTERVAL_MISSES 5
 
+/*
+ * How many connection events of silence a follow set up by this search is
+ * given before the connection is taken to be over.
+ *
+ * Such a follow has no channel map, so it lands on the right channel only for
+ * the events whose channel the map did not move -- about as many as the map
+ * keeps out of the 37 -- and a run of events it does not hear says nothing
+ * about the connection.
+ *
+ * The thresholds above only adopt an answer for a map keeping around fifteen
+ * channels or more, which is two events in five heard, so a run this long with
+ * nothing heard has a chance of about three in a hundred million per event. On
+ * a connection that really has gone this is what the mode waits before
+ * starting again: a tenth of a second at the shortest interval and two minutes
+ * at the longest, against the many minutes a recovery costs.
+ */
+#define LE_CSA2_SILENCE_EVENTS 32
+
 typedef struct _le_csa2_recovery_t {
 	u16 conn_interval;  /* in units of 1.25 ms, 0 when nothing was found */
 	u16 event_counter;  /* the counter of the newest sighting */

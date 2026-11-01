@@ -495,6 +495,12 @@ static unsigned le_csa2_interval_score(const u32 *gap, unsigned gap_count,
  * the same, so a tie goes to the longest. A multiple of it does not divide
  * them unless every gap happens to span a multiple of that many events, which
  * two dozen gaps make very unlikely.
+ *
+ * The answer is the interval as the board's clock sees it, which is what the
+ * follow has to hop on, so at a long interval it can be a unit away from the
+ * figure the connection was given: the two clocks differ by a few hundred
+ * parts per million and a unit is a smaller difference than that. The follow
+ * wants the board's figure, not the connection's.
  */
 uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 	unsigned i, k;
@@ -515,6 +521,17 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 			u32 interval = LE_DIVIDE_ROUND(gap[i],
 					k * LE_CONN_INTERVAL_TICKS);
 			unsigned score;
+
+			/* The connection's clock runs a little fast or slow
+			 * against the board's, so a gap divided by its event
+			 * count lands near the whole number of units the
+			 * connection was given rather than on it. One unit
+			 * above the longest interval is the one place where
+			 * that costs the answer: the real interval would be
+			 * left out and a half or a third of it would win the
+			 * tie below. */
+			if (interval == LE_MAX_CONN_INTERVAL + 1)
+				interval = LE_MAX_CONN_INTERVAL;
 
 			if (interval < LE_MIN_CONN_INTERVAL ||
 					interval > LE_MAX_CONN_INTERVAL)
@@ -554,11 +571,11 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
  * unmapped channel does not depend on the map.
  *
  * Together they are 4 KB, which is more than the main RAM bank has to spare
- * next to the stack, so they live in the other bank. The block index is the
- * half-kilobyte that keeps a search to a couple of hundred milliseconds: it
- * narrows a lookup to the handful of entries that can match, where a binary
- * search over the whole list would take about three times as many comparisons
- * for every one of the million lookups a search can make.
+ * next to the stack, so they live in the other bank. The block index costs
+ * half a kilobyte of that and narrows a lookup to the seven or so entries a
+ * block holds, against the eleven steps a binary search over all 1772 would
+ * take; a search makes up to a million lookups, which is the time the
+ * receiver spends deaf.
  */
 #define LE_CSA2_HITS 1772
 #define LE_CSA2_BUCKETS 256
