@@ -780,11 +780,17 @@ MU_TEST(test_tx_generic_waits_on_the_fifo_being_empty)
 
 /*
  * The radio frames a generic transmit itself, and the generic receive programs
- * no framing of its own: it receives with whatever the host left in the
- * registers. So the GRMDM value this transmit writes is the whole description
- * of what goes on the air, and the host mirrors it on the receiving board. Each
- * field below is one a receive of this packet has to agree with, which is why a
- * change to any of them is a change to that contract rather than a detail.
+ * nothing: it receives with whatever the host left in the registers. So the
+ * GRMDM value this transmit writes says how the packet is framed -- preamble,
+ * sync word, CRC, and whether the payload goes through the FIFO at all -- and
+ * the host has to mirror it on the receiving board. The sync word, the
+ * deviation and the channel are the transmit's other half, and they come from
+ * the request and from MDMCTRL rather than from here.
+ *
+ * Each field checked below is one the generic receive needs a particular way,
+ * with the reason in its message. The preamble is the exception: that path
+ * needs a preamble but no particular length, so the check is only that there
+ * is one.
  */
 MU_TEST(test_the_transmits_framing_is_one_the_generic_receive_can_read)
 {
@@ -812,11 +818,11 @@ MU_TEST(test_the_transmits_framing_is_one_the_generic_receive_can_read)
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which puts no "
-	         "preamble in front of the sync word. A board receiving this "
-	         "settles its frequency correction over the preamble -- both "
-	         "receive setups in this file write MDMTST0 for an 8-bit one -- "
-	         "so a packet with none leaves it nothing to settle on", path,
-	         s.tx_grmdm, g);
+	         "preamble in front of the sync word. The receiving board's modem "
+	         "settles its frequency correction over the preamble -- the AFC "
+	         "settling in MDMTST0, which for the generic receive is whatever "
+	         "the host wrote -- so a packet with none leaves it nothing to "
+	         "settle on", path, s.tx_grmdm, g);
 	mu_assert((g & GRMDM_PREAMBLE_MASK) != 0, msg);
 
 	snprintf(msg, sizeof(msg),
@@ -829,10 +835,11 @@ MU_TEST(test_the_transmits_framing_is_one_the_generic_receive_can_read)
 
 	snprintf(msg, sizeof(msg),
 	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which has the "
-	         "radio append a CRC. The generic receive reads a fixed 32 bytes "
-	         "out of the FIFO and checks no CRC, so a receiver set up to "
-	         "match this transmit reads the CRC as payload", path,
-	         s.tx_grmdm, g);
+	         "radio append a CRC. The generic receive reads a fixed number of "
+	         "bytes out of the FIFO and never looks at the radio's CRC "
+	         "result, so the CRC buys nothing there and, for a payload "
+	         "shorter than that read, lands among the bytes the record shows "
+	         "as payload", path, s.tx_grmdm, g);
 	mu_assert((g & GRMDM_CRC) == 0, msg);
 }
 
