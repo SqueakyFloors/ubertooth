@@ -891,30 +891,29 @@ int main(int argc, char *argv[])
 	 * send the piconet's clock as it stood, which is the same thing only
 	 * while CLKN is not running.
 	 *
-	 * It usually is not: the firmware holds CLKN at zero and stops its
-	 * timer whenever no capture mode is running, and nothing this tool does
-	 * before the request below starts one. So on an idle board the reset
-	 * and this read come to the same offset, and the difference below is
-	 * what a board whose clock is running needs.
+	 * Usually it is not, and the two then come to the same offset: the
+	 * firmware holds CLKN at zero with its timer stopped whenever no
+	 * capture mode is running, and ubertooth_bulk_init() above stops a mode
+	 * an earlier run left streaming and waits for the board to report idle.
+	 * So this is the offset the board wants rather than one that happens to
+	 * be right because its clock reads zero.
 	 *
-	 * One board has a running clock: one an earlier run left streaming
-	 * Classic symbols, which is what a killed capture leaves behind and
-	 * which this tool expects often enough to have a comment of its own
-	 * further down. The request below asks for the mode such a board is
-	 * already in, so the firmware takes it without a teardown and the clock
-	 * carries on. With the reset, everything between it and the start of
-	 * the hopping -- the endpoint flush, the thread creation, both reads
-	 * above -- was error in the followed clock, so the follow hopped that
-	 * far past the piconet's: measured on a board against this read, 72 of
-	 * the 312.5 us ticks for a 20 ms setup and 708 for 200 ms, where one
-	 * slot is two ticks.
+	 * Which matters where the board's clock is running after all. A board
+	 * that cannot be read, or will not stop, is a warning there and the
+	 * capture goes ahead, and a board still streaming Classic symbols keeps
+	 * its clock through the request below, because the firmware takes a
+	 * request for the mode a board is already in without a teardown. With
+	 * the reset, everything between it and the start of the hopping -- the
+	 * endpoint flush, the thread creation, both reads above -- was error in
+	 * the followed clock, so the follow hopped that far past the piconet's:
+	 * measured on a board against this read, 72 of the 312.5 us ticks for a
+	 * 20 ms setup and 708 for 200 ms, where one slot is two ticks.
 	 *
-	 * A board left in some other mode -- a spectrum sweep, a low energy
-	 * capture -- is not helped by either: the firmware ends that mode
-	 * before it starts this one, and the teardown stops the clock and
+	 * Neither helps a board left in some other mode -- a spectrum sweep, a
+	 * low energy capture -- that would not stop: the firmware ends that
+	 * mode before it starts this one, and the teardown stops the clock and
 	 * forgets the offset that came with the request, so the board hops from
-	 * zero whichever of the two the host sent. Stopping such a board first
-	 * is what would fix it, and that is not this read's to do.
+	 * zero whichever of the two the host sent.
 	 *
 	 * Only CLKN's low 28 bits are ever used -- the hop sequence reads no
 	 * higher, and a record carries 28 of them -- so the subtraction wrapping

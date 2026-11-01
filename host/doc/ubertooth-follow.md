@@ -177,21 +177,24 @@ between the target's clock and its own, which is what it adds to the clock it
 is already running.
 
 The board's clock is left alone, where earlier releases zeroed it and sent the
-target's clock as it stood. The two came to the same thing on an idle board:
-the firmware holds its clock at zero with its timer stopped whenever no
-capture is running.
+target's clock as it stood. The two come to the same offset on a board whose
+clock is not running, which is the usual case: the firmware holds the clock at
+zero with its timer stopped whenever no capture is running, and a capture
+stops a mode an earlier run left streaming and waits for the board to report
+idle before it reads.
 
-The board whose clock is running is one an earlier run left streaming Classic
-symbols, which is what a killed capture leaves behind. Following such a board
-used to hop as far past the target's clock as the follow's own setup had
-taken, so a slow machine or a busy USB bus cost accuracy; the difference does
-not depend on the setup at all.
+Where the clock is running after all — a board that would not stop, which a
+capture warns about and goes ahead with, or one still streaming Classic
+symbols, which keeps its clock through the follow's own mode request — the
+difference is what keeps the board on the target's clock. Following such a
+board used to hop as far past that clock as the follow's own setup had taken,
+so a slow machine or a busy USB bus cost accuracy.
 
-A board left in some other mode — a spectrum sweep, a low energy capture — is
-not helped, and was not before: the firmware ends that mode before it starts
-the follow, and the teardown stops the clock and forgets the offset that came
-with the request, so the board hops from zero. Stop such a board with
-`ubertooth-util -S` before following with it.
+One board neither helps: one left in some other mode — a spectrum sweep, a
+low energy capture — that would not stop. The firmware ends that mode before
+it starts the follow, and the teardown stops the clock and forgets the offset
+that came with the request, so the board hops from zero. Stop such a board
+with `ubertooth-util -S` before following with it.
 
 `-w` compensates the time between measuring the clocks and the board acting on
 them: the default is five 625us timeslots, added to the offset. Raise it if a
