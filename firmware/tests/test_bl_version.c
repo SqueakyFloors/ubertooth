@@ -426,7 +426,8 @@ MU_TEST(a_region_with_a_block_is_reported_whole)
 	fill_region_with_code();
 	memcpy(region + UBERTOOTH_BL_VERSION_OFFSET, &bl_version_block,
 	       sizeof(bl_version_block));
-	bl_report_build(report, (uintptr_t)region);
+	bl_report_init((uintptr_t)region);
+	bl_report_build(report);
 
 	mu_assert_int_eq(0, ubertooth_bootloader_info_parse(report, sizeof(report),
 	                                                    &info));
@@ -452,7 +453,8 @@ MU_TEST(a_region_with_no_block_still_reports_its_hash)
 	size_t i;
 
 	fill_region_with_code();
-	bl_report_build(report, (uintptr_t)region);
+	bl_report_init((uintptr_t)region);
+	bl_report_build(report);
 
 	mu_assert_int_eq(0, ubertooth_bootloader_info_parse(report, sizeof(report),
 	                                                    &info));
@@ -477,16 +479,68 @@ MU_TEST(the_hash_covers_the_whole_region)
 	struct ubertooth_bootloader_info first, second;
 
 	fill_region_with_code();
-	bl_report_build(report, (uintptr_t)region);
+	bl_report_init((uintptr_t)region);
+	bl_report_build(report);
 	mu_assert_int_eq(0, ubertooth_bootloader_info_parse(report, sizeof(report),
 	                                                    &first));
 
 	region[UBERTOOTH_BOOTLOADER_REGION_LENGTH - 1] ^= 0x01;
-	bl_report_build(report, (uintptr_t)region);
+	bl_report_init((uintptr_t)region);
+	bl_report_build(report);
 	mu_assert_int_eq(0, ubertooth_bootloader_info_parse(report, sizeof(report),
 	                                                    &second));
 	mu_assert(first.crc32 != second.crc32,
 	          "one changed byte at the end of the region left the hash alone");
+}
+
+/*
+ * The hash is worked out at startup, not in the request handler. It takes
+ * milliseconds, and several capture modes answer requests from the USB
+ * interrupt, so a handler that hashed 16 KiB would be long enough inside one
+ * to cost a capture transfer. Each image therefore calls bl_report_init()
+ * where device_id_init() already is, before any mode can run; the handler
+ * copies what it left.
+ *
+ * Both are startup and interrupt code, so this reads the two images as text,
+ * as the tests of the other hardware paths do.
+ */
+MU_TEST(each_image_works_the_report_out_at_startup)
+{
+	static const char *const startup_paths[] = {
+		FW_RXTX_DIR "/bluetooth_rxtx.c",
+		FW_BTBR_DIR "/src/btctl/main.c",
+	};
+	char message[1024];
+	size_t i;
+
+	for (i = 0; i < sizeof(startup_paths) / sizeof(startup_paths[0]); i++) {
+		char *source = read_source(startup_paths[i]);
+
+		snprintf(message, sizeof(message), "%s would not open",
+		         startup_paths[i]);
+		mu_assert_fatal(source != NULL, message);
+		snprintf(message, sizeof(message),
+		         "%s: does not call bl_report_init("
+		         "UBERTOOTH_BOOTLOADER_REGION_START) at startup, so the "
+		         "hash would be worked out in the request handler",
+		         startup_paths[i]);
+		mu_assert(strstr(source,
+		                 "bl_report_init(UBERTOOTH_BOOTLOADER_REGION_START);")
+		          != NULL, message);
+		free(source);
+	}
+
+	/* And the handler's own file does not work it out: that is what the
+	 * scan below reads each case for. */
+	{
+		char *source = read_source(FW_COMMON_DIR "/bl_report.c");
+
+		mu_assert_fatal(source != NULL,
+		                FW_COMMON_DIR "/bl_report.c would not open");
+		mu_assert(strstr(source, "bl_report_crc32(region,") != NULL,
+		          "bl_report_init() does not hash the region it was given");
+		free(source);
+	}
 }
 
 /*
@@ -501,7 +555,7 @@ MU_TEST(both_handlers_return_the_shared_report)
 
 	for (i = 0; i < HANDLER_COUNT; i++) {
 		FILE *file = fopen(handler_paths[i], "r");
-		int in_block = 0, in_case = 0, builds = 0, lengths = 0, regions = 0;
+		int in_block = 0, in_case = 0, builds = 0, lengths = 0;
 
 		snprintf(message, sizeof(message), "%s would not open",
 		         handler_paths[i]);
@@ -516,8 +570,6 @@ MU_TEST(both_handlers_return_the_shared_report)
 				continue;
 			if (calls_identifier(line, "bl_report_build"))
 				builds = 1;
-			if (contains_identifier(line, "UBERTOOTH_BOOTLOADER_REGION_START"))
-				regions = 1;
 			if (contains_identifier(line, "UBERTOOTH_BL_REPORT_LENGTH"))
 				lengths = 1;
 			/* The case ends at its break. */
@@ -534,10 +586,6 @@ MU_TEST(both_handlers_return_the_shared_report)
 		         "bl_report_build(), so the two images could describe the "
 		         "same board differently", handler_paths[i]);
 		mu_assert(builds, message);
-		snprintf(message, sizeof(message),
-		         "%s: the UBERTOOTH_GET_BOOTLOADER_INFO case does not read "
-		         "UBERTOOTH_BOOTLOADER_REGION_START", handler_paths[i]);
-		mu_assert(regions, message);
 		snprintf(message, sizeof(message),
 		         "%s: the UBERTOOTH_GET_BOOTLOADER_INFO case does not use "
 		         "UBERTOOTH_BL_REPORT_LENGTH for the reply length",
@@ -562,6 +610,7 @@ int main(void)
 	MU_RUN(a_region_with_a_block_is_reported_whole);
 	MU_RUN(a_region_with_no_block_still_reports_its_hash);
 	MU_RUN(the_hash_covers_the_whole_region);
+	MU_RUN(each_image_works_the_report_out_at_startup);
 	MU_RUN(both_handlers_return_the_shared_report);
 	return mu_report();
 }

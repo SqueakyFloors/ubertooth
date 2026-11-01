@@ -25,6 +25,8 @@
 #include <ubtbr/vendor_request_handler.h>
 #include <ubtbr/btphy.h>
 #include <watchdog.h>
+#include <bl_report.h>
+#include <ubertooth_interface.h>
 
 int main()
 {
@@ -44,6 +46,10 @@ int main()
 	 * descriptor, and well before this image is running a connection: the
 	 * boot-ROM calls this makes must not happen then. */
 	device_id_init();
+	/* Here for the same reason, and before the first request can arrive:
+	 * hashing the bootloader region takes milliseconds, which is too long
+	 * to spend in a request handler answered from the USB interrupt. */
+	bl_report_init(UBERTOOTH_BOOTLOADER_REGION_START);
 	ubertooth_usb_init(vendor_request_handler);
 
 	/* Initialize memory */

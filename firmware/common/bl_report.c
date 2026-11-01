@@ -75,11 +75,16 @@ uint32_t bl_report_crc32(uintptr_t start, size_t length)
 	return ~crc;
 }
 
-void bl_report_build(uint8_t *out, uintptr_t region)
+/* The answer, worked out once by bl_report_init(). Zeros until then, which is
+ * what a handler reached before startup finished would copy. */
+static uint8_t bl_report[UBERTOOTH_BL_REPORT_LENGTH];
+
+void bl_report_init(uintptr_t region)
 {
 	const volatile uint8_t *block = (const volatile uint8_t *)
 		(region + UBERTOOTH_BL_VERSION_OFFSET);
 	static const char magic[] = UBERTOOTH_BL_VERSION_MAGIC;
+	uint8_t *out = bl_report;
 	uint32_t crc;
 	int have_block = 1;
 	size_t i;
@@ -123,4 +128,12 @@ void bl_report_build(uint8_t *out, uintptr_t region)
 	for (i = 0; i < UBERTOOTH_BL_VERSION_LENGTH; i++)
 		out[UBERTOOTH_BL_REPORT_OFF_BLOCK + i] =
 			have_block ? block[i] : 0;
+}
+
+void bl_report_build(uint8_t *out)
+{
+	size_t i;
+
+	for (i = 0; i < UBERTOOTH_BL_REPORT_LENGTH; i++)
+		out[i] = bl_report[i];
 }

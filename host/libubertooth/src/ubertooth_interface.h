@@ -566,8 +566,8 @@ enum ubertooth_bl_version_result {
  * the bootloader's version and the build string. length is how many bytes are
  * there to read. Returns UBERTOOTH_BL_VERSION_OK, or a negative enum
  * ubertooth_bl_version_result. On failure *out is zeroed, except that an
- * unknown format keeps the format number it found, so a caller can say which
- * one it was.
+ * unknown format keeps the format number it found, for a caller that wants to
+ * name it.
  *
  * No magic is the ordinary answer from a bootloader of the 1.x generation,
  * which is every board as shipped, not a fault: the region simply has code

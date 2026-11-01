@@ -48,20 +48,32 @@
 uint32_t bl_report_crc32(uintptr_t start, size_t length);
 
 /*
- * Fills the UBERTOOTH_BL_REPORT_LENGTH bytes at out: the hash of the whole
- * bootloader region starting at region, then the version block that region
- * carries, or zeros in place of the block when there is none there.
+ * Works out the report once, at startup: the hash of the whole bootloader
+ * region starting at region, then the version block that region carries, or
+ * zeros in place of the block when there is none there.
  *
- * Reading the region is reading flash, which takes no hardware beyond the
- * memory bus, so this runs inside the control request that asks for it. It is
- * the longest-running request in the tree all the same, about 2 ms for the
- * 16 KiB, and several capture modes answer requests from the USB interrupt
- * itself: ask a board for this between captures, not during one.
+ * This is where the cost is. Hashing 16 KiB takes about 2 ms, and the request
+ * that asks for the report is answered from the USB interrupt in several
+ * capture modes, so doing it there would be by some margin the longest thing
+ * in the tree to happen inside one -- long enough to cost a capture transfer.
+ * Here it happens once, before any mode can be running, for the same reason
+ * device_id_init() does.
  *
- * The region's address is a parameter, which the handlers pass
+ * Working it out early is sound because the answer cannot change while the
+ * application runs: an application never writes the flash below itself, and
+ * the bootloader only does so after a reset has handed the board back to it.
+ *
+ * The region's address is a parameter, which each image passes
  * UBERTOOTH_BOOTLOADER_REGION_START for. That lets the test above hand it a
  * region of its own to read, since no host can read the board's address 0.
  */
-void bl_report_build(uint8_t *out, uintptr_t region);
+void bl_report_init(uintptr_t region);
+
+/*
+ * Copies the UBERTOOTH_BL_REPORT_LENGTH bytes bl_report_init() worked out to
+ * out: what the request handler answers with, and a copy of that size and
+ * nothing more. Zeros before bl_report_init() has run.
+ */
+void bl_report_build(uint8_t *out);
 
 #endif /* __BL_REPORT_H */

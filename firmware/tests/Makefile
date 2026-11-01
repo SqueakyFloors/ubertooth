@@ -623,7 +623,7 @@ $(BINDIR)/test_bl_version: test_bl_version.c minunit.h source_scan.h \
 		stubs-fwinfo/version.h $(FW_BOOT)/bl_version.c \
 		$(FW_COMMON)/bl_report.c $(FW_COMMON)/bl_report.h \
 		$(FW_COMMON)/sections.ld $(FW_BOOT)/Makefile \
-		$(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/bluetooth_rxtx.c $(FW_BTBR)/src/btctl/main.c \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
 # The stub is force-included rather than only put on the include path. A
 # quoted #include is resolved against the including file's own directory

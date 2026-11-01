@@ -476,8 +476,14 @@ bootloader built before the block existed — reads:
 
 Those are the 1.x generation, and that is all the line can say about which one
 it is. It is an answer, not a failure, and the command exits 0. The hash is
-what identifies such a bootloader: two boards that report the same hash are
-running the same bootloader, and two that differ are not.
+what identifies such a bootloader: two boards whose hashes differ are running
+different bootloaders, and two that agree are almost certainly running the
+same one.
+
+The hashes in the two samples above are illustrative. There is no one factory
+value to compare against: of five shipped Ubertooth Ones on one bench, every
+one reported a different hash, so a board's own hash is worth recording but
+another board's says nothing about it.
 
 The bootloader does not change when the application is reflashed, so the line
 is a property of the board rather than of the firmware on it. It is the

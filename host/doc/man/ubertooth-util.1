@@ -264,7 +264,9 @@ Bootloader: no version block (factory or earlier, treated as 1\.x), CRC32:0x5f0a
 .fi
 .IP "" 0
 .P
-Those are the 1\.x generation, and that is all the line can say about which one it is\. It is an answer, not a failure, and the command exits 0\. The hash is what identifies such a bootloader: two boards that report the same hash are running the same bootloader, and two that differ are not\.
+Those are the 1\.x generation, and that is all the line can say about which one it is\. It is an answer, not a failure, and the command exits 0\. The hash is what identifies such a bootloader: two boards whose hashes differ are running different bootloaders, and two that agree are almost certainly running the same one\.
+.P
+The hashes in the two samples above are illustrative\. There is no one factory value to compare against: of five shipped Ubertooth Ones on one bench, every one reported a different hash, so a board's own hash is worth recording but another board's says nothing about it\.
 .P
 The bootloader does not change when the application is reflashed, so the line is a property of the board rather than of the firmware on it\. It is the application that reads it, though, so firmware older than this request refuses it, in the wording ubertooth(7) gives for a refused request (OUTPUT AND DIAGNOSTICS) followed by \fBerror: bootloader information read failed\fR\. Reflash the board to read it\.
 .SH "SELECTING A DEVICE"

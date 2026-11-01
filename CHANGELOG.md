@@ -49,10 +49,10 @@
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
 - `ubertooth-util -B` says which bootloader a board has, which nothing used to
-  report, and a bootloader cannot be replaced over USB. This tree's reads as
-  `Bootloader: 2.00 git-1a2b3c4, CRC32:0x9d2fe1b4`; every board as shipped
-  reads `Bootloader: no version block (factory or earlier, treated as 1.x),
-  CRC32:0x5f0a73c1`, where the hash is what tells two such bootloaders apart.
+  report, and a bootloader cannot be replaced over USB. One built from this
+  tree reports its version and revision; every board as shipped reports no
+  version block, and a hash of the whole bootloader, which is what tells two
+  such bootloaders apart.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
