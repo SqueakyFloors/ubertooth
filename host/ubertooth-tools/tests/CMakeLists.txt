@@ -1220,6 +1220,18 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set_tests_properties(doc-example-lines PROPERTIES TIMEOUT 60)
 
+# Several sections of host/doc/*.md are shared by design, the same heading on
+# every page it belongs on. A failed edit took GAPS IN A CAPTURE out of one
+# page while the other gap-reporting pages kept it and nothing noticed, so
+# this pins which pages carry which shared section. Reads the pages and the
+# tool sources; nothing is built or run.
+add_test(
+	NAME doc-shared-sections
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_doc_shared_sections.py
+		${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set_tests_properties(doc-shared-sections PROPERTIES TIMEOUT 60)
+
 # The same approach for ubertooth-scan. Its main() needs the BlueZ headers, so
 # like the tool itself this is built only where libbluetooth is installed; the
 # find_package here is what makes that visible in this directory. FindBLUETOOTH
@@ -1394,9 +1406,31 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..
 		"${LIBBTBB_INCLUDE_DIR}"
 		"${LIBBTBB_LIBRARIES}")
-# Twenty-one configures, seven of them of a project with C in it for
-# FindBTBB's function check and the rest of a project with no languages, which
-# needs no compiler: 19 s here. Twice the limit of btbb-check and
-# libusb-include above, because this is three times the configures of either,
-# and a cold CI runner spends seconds on compiler detection alone.
-set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 120)
+# Twenty-three configures, sixteen of them of a project with C in it for the
+# function checks of FindBTBB and FindUBERTOOTH and the rest of a project with
+# no languages, which needs no compiler, plus one build of the one-file
+# libubertooth stand-in those checks are pointed at: 19 s on an idle machine,
+# 46 s on one busy with parallel builds, and 98 s at load 40 on twelve cores.
+# Four times the limit of btbb-check and libusb-include above, because this is
+# three times the configures of either and a cold CI runner spends seconds on
+# compiler detection alone.
+set_tests_properties(find-stale-paths PROPERTIES TIMEOUT 240)
+
+# FindUBERTOOTH.cmake must refuse a libubertooth older than these tools, which
+# used to configure cleanly and then fail in the compiler. Runs the real
+# module from a one-line project against three stand-in installs of its own:
+# a complete one it must accept, one with a function missing from the header,
+# and one whose library defines none of them, the last at -O2 and -O2 -flto as
+# well. The counterpart of btbb-check above.
+add_test(
+	NAME ubertooth-check
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_ubertooth_check.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+# Seven configures of the one-line project and three of the stand-in, each a
+# project with C in it, and three builds of the stand-in: 63 s on a machine
+# busy with parallel builds and 13 s on an idle one, where btbb-check's five
+# configures take 52 s and 20 s. Four times the worst of that for a cold CI
+# runner, which spends seconds on compiler detection alone.
+set_tests_properties(ubertooth-check PROPERTIES TIMEOUT 240)
