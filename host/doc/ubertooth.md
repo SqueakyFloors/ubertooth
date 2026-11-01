@@ -547,9 +547,10 @@ records judged to be there.
 The signal figure a record carries comes from the radio on a scale that runs
 out: above a certain reading the host can only say "at least this loud", which
 it reports as 0 dBm, and a receiver held there is also past where it
-demodulates reliably. The Basic Rate and low-energy receives turn the board's
-amplifier and high-gain mode both on, which is what makes the near end of a
-bench reach it. On the bench this measures as two separate regimes rather than
+demodulates reliably. Every receive that captures turns the board's amplifier
+on and the Basic Rate and low-energy ones turn its high-gain mode on too,
+which is what makes the near end of a bench reach it. On the bench this
+measures as two separate regimes rather than
 a borderline: a transmitting board a few centimeters from the receiver holds
 every record at the top of the scale at every one of the eight transmit power
 levels, while the same board a meter away behind a 20 dB attenuator stays well
@@ -569,10 +570,9 @@ Only the captures whose records are samples of the air report it, and that is
 the point rather than a limitation. The Basic Rate stream sends a record for
 every block of air it collects, packet or no packet, so `ubertooth-rx`,
 `ubertooth-dump` with `-c` or `-l` (which is every run that does not ask for
-`-g`), `ubertooth-scan`, `ubertooth-afh` and
-`ubertooth-follow` notice a receiver that is pinned even while they decode
-nothing at all -- which is the case worth knowing about, since that is what a
-deafened receiver looks like.
+`-g`), `ubertooth-scan`, `ubertooth-afh` and `ubertooth-follow` notice a
+receiver that is pinned even while they decode nothing at all -- which is the
+case worth knowing about, since that is what a deafened receiver looks like.
 
 ubertooth-btle(1) does not report it, under any of `-f`, `-n` and `-p`. Its
 board sends a record for a packet it demodulated and for nothing else, so a
