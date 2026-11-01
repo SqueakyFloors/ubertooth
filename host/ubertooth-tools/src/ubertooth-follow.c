@@ -906,8 +906,9 @@ int main(int argc, char *argv[])
 	 * the reset, everything between it and the start of the hopping -- the
 	 * endpoint flush, the thread creation, both reads above -- was error in
 	 * the followed clock, so the follow hopped that far past the piconet's:
-	 * measured on a board against this read, 72 of the 312.5 us ticks for a
-	 * 20 ms setup and 708 for 200 ms, where one slot is two ticks.
+	 * measured on a board against this read, about 70 of the 312.5 us ticks
+	 * for a 20 ms setup and about 700 for 200 ms, where one slot is two
+	 * ticks.
 	 *
 	 * Neither helps a board left in some other mode -- a spectrum sweep, a
 	 * low energy capture -- that would not stop: the firmware ends that
