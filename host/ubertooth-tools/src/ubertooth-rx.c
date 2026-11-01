@@ -557,6 +557,12 @@ int main(int argc, char* argv[])
 			btbb_init_piconet(pn, lap);
 			if (have_uap) {
 				btbb_piconet_set_uap(pn, uap);
+				/* Kept for the callback, which states it again
+				 * when a clock is given up: the library drops
+				 * the UAP with the clock, and this one came
+				 * from the user rather than from the air. */
+				ut->follow_uap = uap;
+				ut->follow_uap_stated = 1;
 				/* A board that refused this would follow
 				 * whatever address it was left on, so the
 				 * capture does not start. It is sent here,

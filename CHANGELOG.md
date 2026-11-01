@@ -937,6 +937,25 @@
   its leading zeros too, so the address it prints is one the prompt takes.
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
 
+- Fixed: `ubertooth-rx -l <lap> -u <uap>` threw away the UAP you gave it
+  whenever it stopped following a clock, and worked it out from the air again.
+  A header that fails is checked against the UAP under the clock, so it says
+  one of the two was wrong without saying which, and the library gives both
+  up; a UAP you named is not in doubt. The capture now states it again and the
+  line says so -- `warning: the clock being followed was not this piconet's;
+  searching for its clock again, keeping UAP 0d` -- so the clock search starts
+  from the address you named, and the records written from the next packet
+  onward carry it as the reference UAP. A capture that worked the UAP out
+  itself still gives it up, and its line now reads `searching for its clock
+  and UAP again`.
+
+- Fixed: a `ubertooth-btle -p -d` dump left out the four lines promiscuous
+  mode works a connection's parameters out from, so replaying the dump with
+  `-i` printed the packets and no access address, CRC init, hop interval, or
+  hop increment -- the only record of which connection the capture belonged
+  to. Those records now go into the dump with the packets, and a replay says
+  what the live run said.
+
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
   the user asked for unused. A pager cannot tell the ID packet that
@@ -2794,6 +2813,12 @@ Fixes with no visible change in normal use.
   did the same three things in blocks of their own, and a request that arrived
   in the same connection event as the end of the connection was left set
   behind the follow it had asked to stop.
+
+- `ubertooth-dfu` reads a board that left the bus between being listed and
+  being opened as a board that is not in the bootloader, which is what it is,
+  rather than ending the command with the USB code for it. A board still
+  re-enumerating is looked for again, as the matching search for a board
+  running its application already did.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.

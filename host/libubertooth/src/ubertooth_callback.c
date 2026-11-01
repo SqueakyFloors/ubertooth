@@ -1144,6 +1144,25 @@ out:
 }
 
 
+/* Writes one record to the dump named with -d, in that file's fixed-size
+ * format: the host time it arrived, in network byte order, then the record
+ * exactly as the board sent it. Does nothing when no dump was asked for.
+ *
+ * One record at a time, as received: a packet too long for one record is
+ * several records here, and a replay puts them back together exactly as a
+ * live capture does. */
+static void dump_one_record(const usb_pkt_rx* rx, uint32_t when)
+{
+	uint32_t when_be;
+
+	if (dumpfile == NULL)
+		return;
+	when_be = htobe32(when);
+	fwrite(&when_be, sizeof(when_be), 1, dumpfile);
+	fwrite(rx, sizeof(usb_pkt_rx), 1, dumpfile);
+	fflush(dumpfile);
+}
+
 /*
  * Sniff Bluetooth Low Energy packets.
  */
@@ -1193,6 +1212,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * channel to tell a deafened receiver from an empty one. */
 	ubertooth_count_capture_losses(ut, rx);
 
+	/* The host time this record arrived, which the dump stores with it:
+	 * per record, because that is what the dump's fixed-size format holds.
+	 * A replayed record keeps the one it was recorded with. The packet's
+	 * own time is set again once reassembly has the whole of it. */
+	systime = ubertooth_packet_systime( arrival_ns );
+
 	// display LE promiscuous mode state changes
 	if (rx->pkt_type == LE_PROMISC) {
 		u8 state = rx->data[0];
@@ -1233,14 +1258,16 @@ void cb_btle(ubertooth_t* ut, void* args)
 		};
 		fprintf(out, "\n");
 
+		/* These four readings are the only record of which connection
+		 * a promiscuous capture belongs to, so a dump that left them
+		 * out could not be replayed into the same capture it came
+		 * from: the replay printed packets and no access address.
+		 * Written here rather than below, because the branch returns
+		 * and the record is not a packet. */
+		dump_one_record(rx, systime);
+
 		return;
 	}
-
-	/* The host time this record arrived, which the dump below stores with
-	 * it: per record, because that is what the dump's fixed-size format
-	 * holds. A replayed record keeps the one it was recorded with. The
-	 * packet's own time is set again once reassembly has the whole of it. */
-	systime = ubertooth_packet_systime( arrival_ns );
 
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
@@ -1250,12 +1277,7 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * dump keeps its fixed-size format: a long packet is several records
 	 * there, and a replay puts them back together below exactly as a live
 	 * capture does. */
-	if (dumpfile) {
-		uint32_t systime_be = htobe32(systime);
-		fwrite(&systime_be, sizeof(systime_be), 1, dumpfile);
-		fwrite(rx, sizeof(usb_pkt_rx), 1, dumpfile);
-		fflush(dumpfile);
-	}
+	dump_one_record(rx, systime);
 
 	/* A packet too long for one record arrives as several. Nothing below
 	 * runs until the whole packet is here: a chain still arriving returns,
@@ -1595,6 +1617,28 @@ static void br_stop_following(ubertooth_t* ut)
 		        "again\n");
 }
 
+/* States the user's UAP again on a piconet whose clock has just been given
+ * up, for a capture whose tool recorded one in ut->follow_uap.
+ *
+ * The library drops the UAP with the clock on purpose: a header that fails
+ * its check is dewhitened with CLK1-6 and checked against the UAP, so it says
+ * one of the two was wrong without saying which, and a UAP left in place
+ * would keep discovery from ever finding another. A UAP the user gave with -u
+ * is not in doubt, so for that capture the right starting point is the one the
+ * run itself started from -- the UAP stated, no clock, discovery running --
+ * and this puts the piconet back into it.
+ *
+ * Without this the capture works the UAP out from headers again. That takes
+ * packets the bench may not provide, it can settle on a wrong value where
+ * traffic is sparse, and until it does, the clock search does not start and
+ * every record written carries no reference UAP. */
+static void br_restate_stated_uap(const ubertooth_t* ut, btbb_piconet* pn)
+{
+	if (pn == NULL || !ut->follow_uap_stated)
+		return;
+	btbb_piconet_set_uap(pn, ut->follow_uap);
+}
+
 long ubertooth_clock_search_ms(void)
 {
 	if (!br_searching)
@@ -1624,9 +1668,16 @@ int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 		if (btbb_piconet_drop_clock(pn) <= 0)
 			return 0;
 		br_clock_gone = 1;
-		fprintf(stderr, "warning: nothing of this piconet has been "
-		        "heard on the clock being followed; searching for it "
-		        "again\n");
+		br_restate_stated_uap(ut, pn);
+		if (ut->follow_uap_stated)
+			fprintf(stderr, "warning: nothing of this piconet has "
+			        "been heard on the clock being followed; "
+			        "searching for its clock again, keeping UAP "
+			        "%02x\n", ut->follow_uap);
+		else
+			fprintf(stderr, "warning: nothing of this piconet has "
+			        "been heard on the clock being followed; "
+			        "searching for its clock and UAP again\n");
 	}
 	/* So the warning is said once per clock, and a board that refused the
 	 * request is asked again at the next wait without it being
@@ -1791,12 +1842,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	/* If dumpfile is specified, write out all banks to the
 	 * file. There could be duplicate data in the dump if more
 	 * than one LAP is found within the span of NUM_BANKS. */
-	if (dumpfile) {
-		uint32_t systime_be = htobe32(systime);
-		fwrite(&systime_be, sizeof(systime_be), 1, dumpfile);
-		fwrite(rx, sizeof(usb_pkt_rx), 1, dumpfile);
-		fflush(dumpfile);
-	}
+	dump_one_record(rx, systime);
 
 	r = btbb_process_packet(pkt, pn);
 
@@ -1897,9 +1943,22 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * br_following keeps it that way here regardless: one warning
 		 * per clock the library handed over, and none until it hands
 		 * over another. A replay warns too; it is the same silence for
-		 * the reader of a capture file as for the user of a board. */
-		fprintf(stderr, "warning: the clock being followed was not "
-		        "this piconet's; searching for it again\n");
+		 * the reader of a capture file as for the user of a board.
+		 *
+		 * A failing header is evidence against the clock and the UAP
+		 * together, so the library gives both up. Where the user named
+		 * the UAP it is not in doubt and is stated again, and the
+		 * warning says so: a user whose -u was wrong can see from the
+		 * line that the capture is holding them to it. */
+		br_restate_stated_uap(ut, pn);
+		if (ut->follow_uap_stated)
+			fprintf(stderr, "warning: the clock being followed was "
+			        "not this piconet's; searching for its clock "
+			        "again, keeping UAP %02x\n", ut->follow_uap);
+		else
+			fprintf(stderr, "warning: the clock being followed was "
+			        "not this piconet's; searching for its clock "
+			        "and UAP again\n");
 		br_clock_gone = 1;
 		br_stop_following(ut);
 	}
