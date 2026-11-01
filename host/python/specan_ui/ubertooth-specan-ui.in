@@ -47,7 +47,8 @@ from argparse import ArgumentParser
 # have, and a Qt binding that is missing or broken is exactly when they would
 # be asked.
 from specan.limits import (MIN_FREQ, MAX_FREQ, check_freq_pair, convert_wifi,
-                           eprint, parse_wifi_range, point_at_the_bin)
+                           eprint, parse_wifi_range, point_at_the_bin,
+                           require_freq)
 
 DEFAULT_LOWER_FREQ = 2402
 DEFAULT_UPPER_FREQ = 2480
@@ -309,8 +310,11 @@ def read_command_line():
                            "board")
     parser.add_argument("-U", type=str, dest="device", metavar="index|serial",
                       help="select Ubertooth by index or serial; see ubertooth(7)")
-    parser.add_argument("-l", type=int, dest="lower_freq", help="lower bound for scan, in MHz (no less than " + str(MIN_FREQ) + ")")
-    parser.add_argument("-u", type=int, dest="upper_freq", help="upper bound for scan, in MHz (no more than " + str(MAX_FREQ) + ")")
+    # Read as text and converted below, not by the parser: a value the
+    # parser cannot convert is reported in its words, and these two have the
+    # C tools' line for that.
+    parser.add_argument("-l", type=str, dest="lower_freq", help="lower bound for scan, in MHz (no less than " + str(MIN_FREQ) + ")")
+    parser.add_argument("-u", type=str, dest="upper_freq", help="upper bound for scan, in MHz (no more than " + str(MAX_FREQ) + ")")
     parser.add_argument("--wifi", type=str, nargs='?', dest="wifi", metavar="channel(s)", help="display the spectrum for the wifi channels provided, either as a single number for one channel, or a range (e.g. 1-11) for two channels", const="1", default=False)
     parser.add_argument("--padding", type=int, dest="padding", help="padding on both ends when using --wifi, measured in MHz (default 10)", default=10)
 
@@ -325,8 +329,13 @@ def read_command_line():
     if ubertooth_device is None:
         ubertooth_device = -1
 
-    lower_freq = options.lower_freq
-    upper_freq = options.upper_freq
+    try:
+        lower_freq = (require_freq(options.lower_freq, "lower")
+                      if options.lower_freq is not None else None)
+        upper_freq = (require_freq(options.upper_freq, "upper")
+                      if options.upper_freq is not None else None)
+    except ValueError:
+        sys.exit(1)
 
     if options.wifi:
 
@@ -386,12 +395,34 @@ if __name__ == '__main__':
     COMMAND_LINE = read_command_line()
 
 import threading
-import numpy
 
-from qtpy import QtCore, QtGui, QtWidgets
-from qtpy.QtCore import Qt, QPointF, QLineF
+# What the window needs, and the command line above does not: numpy, and a Qt
+# binding reached through qtpy.
+try:
+    import numpy
 
-from specan import Ubertooth
+    from qtpy import QtCore, QtGui, QtWidgets
+    from qtpy.QtCore import Qt, QPointF, QLineF
+
+    from specan import Ubertooth
+except ImportError as missing:
+    # One "error: " line, the way ubertooth-btbr reports the same thing,
+    # rather than ending the tool in a traceback. Nothing below is defined,
+    # since the exit leaves this module part way through.
+    eprint("error: could not open the window: %s\n" % missing)
+    # Where to get the two packages a user installs, for the module that was
+    # missing. A qtpy that imports but finds no Qt binding raises from inside
+    # itself and names no module; it says what is wrong in its own words,
+    # which the line above carries. Any other name missing here is a broken
+    # install, and naming a package would send that user the wrong way.
+    top_level = (missing.name or "").split(".")[0]
+    if top_level == "numpy":
+        eprint("note: the window needs numpy; install it with "
+               "\"pip install numpy\"\n")
+    elif top_level == "qtpy":
+        eprint("note: the window needs qtpy and a Qt binding; install them "
+               "with \"pip install qtpy pyside6\"\n")
+    sys.exit(1)
 
 # Shown on screen with h and printed to the terminal. Keys work in either case.
 KEY_HELP = (

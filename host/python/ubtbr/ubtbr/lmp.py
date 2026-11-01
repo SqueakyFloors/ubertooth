@@ -5,7 +5,7 @@ from struct import pack, unpack
 # One spelling of a `warning: ` line in the package. btctl imports this
 # module, so its own warn() could only be reached from inside a function;
 # streams.py imports nothing of the package, so there is no cycle here.
-from ubtbr.streams import warn
+from ubtbr.streams import data_to_str, warn
 log = logging.getLogger("btctl")
 LLID_LMP = 3
 
@@ -322,14 +322,13 @@ def pdu2str(pdu):
 	# Plain text, no terminal color: this goes into the packets a capture
 	# holds on standard output, where escapes are something for a reader of
 	# that capture to strip.
-	return ("(tid %d) %-40s | %s"%(tid, opstr, hexlify(pdu).decode()))
+	return ("(tid %d) %-40s | %s"%(tid, opstr, data_to_str(pdu)))
 
 class LMP:
 	# Features supported (Core v5.2 | Vol 2, Part C, table 3.2 p585)
 	# Byte 0's two lowest bits, 3-slot and 5-slot packets, stay clear: a
 	# peer's LMP_MAX_SLOT_REQ for more than one slot is refused, and the
 	# mask has to say what this end will really do.
-	#FEATURES = b"\x00\x00\x00\x00\x08\x08\x19\x00" # With AFH
 	FEATURES = b"\x00\x00\x00\x00\x00\x00\x19\x00" # No AFH
 
 	def __init__(self, con, debug=True):

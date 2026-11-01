@@ -154,7 +154,7 @@ MU_TEST(the_start_functions_fail_with_the_ring_buffer)
 	reset(1);
 	capture_stderr();
 	mu_assert(ubertooth_start(-1) == NULL, "ubertooth_start");
-	mu_assert(ubertooth_start_serial("05f0") == NULL, "ubertooth_start_serial");
+	mu_assert(ubertooth_start_serial("19bb") == NULL, "ubertooth_start_serial");
 	release_stderr(text, sizeof(text));
 
 	mu_assert_int_eq(2, fake.fifo_inits);

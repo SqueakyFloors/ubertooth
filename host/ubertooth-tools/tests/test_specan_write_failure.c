@@ -217,7 +217,7 @@ uint64_t util_clock_now_ms(void)
 #define FAKE_MS_PER_BLOCK 600u
 
 /* The serial number the fake board answers with, which -v names. */
-#define FAKE_SERIAL "1ff0ff1967102caf8334fa5ac52000f5"
+#define FAKE_SERIAL "cc3300112233445566778899aabbccdd"
 
 /* One capture, with dumpfile set to the stream given, and whatever the
  * callback wrote to standard error returned in err. */

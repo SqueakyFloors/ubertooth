@@ -177,6 +177,9 @@ int main(int argc, char* argv[])
 	/* Whether -c named a channel, which decides only how a refused channel
 	 * request is named: a command line without it asks for the sweep. */
 	int have_channel = 0;
+	/* Whether -t named a timeout. A timeout of 0 means "no timeout", so the
+	 * value cannot say whether the option was given. */
+	int have_timeout = 0;
 	int exit_status = 0;
 	const char* infile_name = NULL;
 	/* The three names together, for the failures that have to take back a
@@ -277,6 +280,7 @@ int main(int argc, char* argv[])
 			if (opt_require_count(optarg, 0, "timeout", "seconds",
 			                      "0 for none", &timeout) < 0)
 				return 1;
+			have_timeout = 1;
 			break;
 		case 'z':
 			++survey_mode;
@@ -345,6 +349,22 @@ int main(int argc, char* argv[])
 	 * address, so it cannot reach this.) */
 	if (have_uap && !have_lap) {
 		fprintf(stderr, "error: -u <UAP> requires -l <LAP>\n");
+		return 1;
+	}
+
+	/* A replay has no board to tune and nothing to wait for, so these two
+	 * ask for something it cannot do. They used to be accepted and dropped
+	 * without a word: the file was read on no channel and with no timeout,
+	 * and the user had no way to tell. */
+	if (infile_name != NULL && have_channel) {
+		fprintf(stderr, "error: -c cannot be combined with -i; a replay"
+		        " reads a saved capture rather than tuning a board\n");
+		return 1;
+	}
+	if (infile_name != NULL && have_timeout) {
+		fprintf(stderr, "error: -t cannot be combined with -i; a replay"
+		        " reads a saved capture rather than waiting for a"
+		        " board\n");
 		return 1;
 	}
 

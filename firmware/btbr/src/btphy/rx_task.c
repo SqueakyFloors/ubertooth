@@ -201,7 +201,7 @@ static int rx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 
 	/* A paged device advances its response phase once per central transmit
 	 * slot, and every window it waits for the FHS in is one such slot. */
-	if (btphy.mode == BT_MODE_PERIPH_PAGE_RESPONSE)
+	if (btphy.mode == BT_MODE_PERIPHERAL_PAGE_RESPONSE)
 		hop_increment();
 	chan = hop_channel(rx_clkn);
 

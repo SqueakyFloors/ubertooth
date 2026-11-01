@@ -189,8 +189,8 @@ command and then list the boards, so the next command can name one. Reading
 those serials opens each board briefly, and none is kept open.
 
     error: multiple Ubertooth devices found; select one with -U <index|serial>
-      Device 0: 1cc001038088cb956c43ad61c52000f5
-      Device 1: 05f00014e380df95f4436562c32000f5
+      Device 0: aa1100112233445566778899aabbccdd
+      Device 1: 19bb00112233445566778899aabbccdd
 
 With none attached, every tool says `error: no Ubertooth devices found`.
 
@@ -212,10 +212,10 @@ capture run under `nohup` stops when the terminal closes instead of carrying on
 with its mode left running on the board.
 
 A serial may be shortened to its first few characters, in either case, so
-`-U 1cc0` and `-U 1CC0` select the same board. If those characters start more
+`-U aa11` and `-U AA11` select the same board. If those characters start more
 than one attached board's serial, the tool lists the matching serials and
 selects neither. An all-digits string is read as an index, so include a
-non-digit (`-U 05f` rather than `-U 05`). See ubertooth-util(1), SELECTING A
+non-digit (`-U 19b` rather than `-U 19`). See ubertooth-util(1), SELECTING A
 DEVICE, for the full description and for listing the attached devices.
 
 ## WHEN A BOARD CANNOT BE USED
@@ -227,7 +227,7 @@ for a bug report.
 
 The board opened, and then something else turned out to be holding it:
 
-    error: Ubertooth 05f00014e380df95f4436562c32000f5 is in use by another program (libusb -3)
+    error: Ubertooth 19bb00112233445566778899aabbccdd is in use by another program (libusb -3)
 
 That is another tool from this package, a graphical specan, or anything else
 holding its USB interface; on Linux it may be a kernel driver. Stop that
@@ -275,7 +275,7 @@ own words, and its page says the same about a board that answers nothing.
 A serial-number selector names the reason, because a board it could not read
 may be the board asked for:
 
-    error: no Ubertooth found with serial matching '1cc'
+    error: no Ubertooth found with serial matching 'aa1'
     1 attached Ubertooth device did not answer the serial read
     note: a board that does not answer may be in use by another program, or busy in a mode; stop a mode with ubertooth-util -U <index> -S, or reset a board that answers nothing with -r
 
@@ -292,7 +292,7 @@ tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
 succeeds.
 
-    error: no Ubertooth found with serial matching '1cc'
+    error: no Ubertooth found with serial matching 'aa1'
     note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
 
 A board that cannot be *opened* at all is a different problem, usually file
@@ -306,7 +306,7 @@ run-time images report as their USB device version. A release build refuses
 anything else, naming both versions and which side to replace:
 
     error: Ubertooth firmware API version <version> found, libubertooth 1.1 requires <version>.
-    note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device 1cc0
+    note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device aa11
 
 A build made from a git checkout that is not on a tag is a development build,
 and says the same thing as a warning and carries on, because host tools and
@@ -314,7 +314,7 @@ firmware from different commits are the normal state of lab work and
 debugging:
 
     warning: Ubertooth firmware API version <version> found, libubertooth 1.1 requires <version>.
-    note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device 1cc0
+    note: flash the firmware built from the same source tree, for example: ./install.sh --flash-device aa11
     note: this is a development build, so the command runs on; what it reports may be wrong, and a request this firmware has not got will fail
 
 Both notes are worth reading before the output is trusted. What the two
@@ -359,7 +359,7 @@ as well, as the board is opened, and one carrying the other image is refused
 by name with the line that flashes it:
 
     error: the Ubertooth is running btbr; this tool needs bluetooth_rxtx
-    note: flash it with ubertooth-dfu -U 1cc0 -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r
+    note: flash it with ubertooth-dfu -U aa11 -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r
 
 `btbr` answers the requests both images share and nothing else, so without
 that the command failed on the first request it does not answer, reported as a

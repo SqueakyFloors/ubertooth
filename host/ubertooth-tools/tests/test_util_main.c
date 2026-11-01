@@ -2084,7 +2084,7 @@ MU_TEST(identify_runs_on_when_a_mismatch_is_allowed)
  */
 MU_TEST(the_mismatch_note_names_the_board_it_is_about)
 {
-	const char *serial = "1cc001038088cb956c43ad61c52000f5";
+	const char *serial = "aa1100112233445566778899aabbccdd";
 	struct run_result r;
 
 	reset_fake();
@@ -2092,7 +2092,7 @@ MU_TEST(the_mismatch_note_names_the_board_it_is_about)
 	r = RUN("-I", "-U", serial);
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "./install.sh --flash-device "
-	                        "1cc001038088cb956c43ad61c52000f5\n") != NULL,
+	                        "aa1100112233445566778899aabbccdd\n") != NULL,
 	          r.err);
 	mu_assert(strstr(r.err, "--flash-device all") == NULL,
 	          "and reflashes no other board");

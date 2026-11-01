@@ -235,14 +235,14 @@ MU_TEST(the_note_names_the_side_to_replace_and_the_board)
 		                 "same source tree, for example: ./install.sh "
 		                 "--flash\n") != NULL, err);
 
-		run_mismatch(OLDER, "1cc0");
+		run_mismatch(OLDER, "aa11");
 		mu_assert(strstr(err, "note: flash the firmware built from the "
 		                 "same source tree, for example: ./install.sh "
-		                 "--flash-device 1cc0\n") != NULL, err);
+		                 "--flash-device aa11\n") != NULL, err);
 		mu_assert(strstr(err, "--flash-device all") == NULL,
 		          "and reflashes no other board");
 
-		run_mismatch(NEWER, "1cc0");
+		run_mismatch(NEWER, "aa11");
 		mu_assert(strstr(err, "note: install the host tools built from "
 		                 "the same source tree as the firmware\n") != NULL,
 		          err);
