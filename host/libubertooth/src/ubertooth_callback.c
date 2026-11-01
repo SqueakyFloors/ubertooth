@@ -1709,15 +1709,20 @@ void cb_rx(ubertooth_t* ut, void* args)
 		}
 	}
 
-	/* The clock search now has a packet of this piconet to work with and is
-	 * following no clock, which is where the search begins. Stamped once,
+	/* The library has built a list of clock candidates, which is where the
+	 * CLK1-27 search begins, and no clock is being followed. Stamped once,
 	 * so the reading is the whole span the search has been running over and
-	 * not the time since the last packet. A band with nothing of the
-	 * piconet on it never reaches here, which is what keeps that case --
-	 * no traffic rather than a search that cannot finish -- out of the
-	 * reading. */
+	 * not the time since the last packet.
+	 *
+	 * The candidate list rather than the first packet: a capture that has
+	 * heard a packet or two of the piconet and has not settled CLK1-6 is
+	 * waiting for traffic, not searching, and a reading taken from its
+	 * first packet would let a caller say the search is not going to finish
+	 * before any search had run. Measured on a link that went quiet: four
+	 * packets in 100 s, no candidate list, and the whole span would
+	 * otherwise have read as a search. */
 	if (!br_searching && !br_following && !br_clock_confirmed &&
-	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_UAP_VALID)) {
+	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_HOP_REVERSAL_INIT)) {
 		br_searching = 1;
 		br_search_start_ms = monotonic_ms();
 	}

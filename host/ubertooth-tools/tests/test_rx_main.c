@@ -1933,8 +1933,9 @@ MU_TEST(the_search_note_waits_half_a_minute)
 }
 
 /* A run with no search going says nothing, however long it runs: a capture
- * that has heard nothing of the piconet, and one whose clock was confirmed,
- * are both results of their own and neither is a search that cannot finish. */
+ * that has heard nothing of the piconet, one that has heard too little of it
+ * to settle CLK1-6, and one whose clock was accepted are all results of their
+ * own, and none of them is a search that cannot finish. */
 MU_TEST(a_run_with_no_search_running_says_nothing)
 {
 	struct run_result r;

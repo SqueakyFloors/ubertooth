@@ -94,13 +94,14 @@ uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
 long ubertooth_follow_quiet_ms(void);
 
 /* How long the clock search has been running in this capture, in
- * milliseconds, and -1 when no search is running: nothing of the piconet has
- * reached the search yet, or the library has accepted a clock at some point in
- * this run, whether or not that clock turned out to be the piconet's. The
- * reading starts at the first packet of the
- * piconet the search had to work with, so it is the span the search has had,
- * not the time since the last packet, and a band with no traffic on it reads
- * -1 however long the capture runs.
+ * milliseconds, and -1 when no search is running: the library has not built a
+ * list of clock candidates for this piconet, or it has accepted a clock at
+ * some point in this run, whether or not that clock turned out to be the
+ * piconet's. The reading starts where the library builds that list, so it is
+ * the span the search has had, not the time since the last packet. A capture
+ * that has heard nothing of the piconet, and one that has heard too little to
+ * settle CLK1-6, both read -1 however long they run: neither is a search that
+ * cannot finish.
  *
  * For a tool that reports what the search cannot reach. The search does not
  * fail when it cannot reach a clock, it starts over, so nothing it prints
