@@ -32,16 +32,6 @@
   payload. Expect the options and the output to change.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
 
-- **Reflash required:** the firmware API version is now 1.58. A generic
-  transmit request carries how many packets to send, in a field it used to
-  ignore, and the board sends them back to back. One request per packet does
-  not survive the rate a host can send them at: the board answers no USB
-  request while a packet is going out, so a burst of 30 sent as fast as a host
-  could send them lost 15 of them to transfer errors. With the count in the
-  request, one request for 2000 packets put 2000 on the air in 1.6 seconds and
-  a second board read all 2000 of them. The version moves so that a host
-  asking for a burst cannot be answered by older firmware that would ignore
-  the count and send one packet.
 
 - `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
   dropping them: a replay has no board to tune and nothing to wait for, so
@@ -111,10 +101,11 @@
   the address out of the exception frame, which for that fetch is where the
   pointer pointed. Because the record means something new, the breadcrumb starts
   again on the first boot of this firmware: a board's reset, boot, and transfer
-  error counts restart once, as they do after a power cycle. Firmware API 1.57,
-  so a release build of the host tools refuses a board carrying older firmware
-  and a development build warns about it, which is what keeps either from
-  reading an older record's leftover address register as an instruction.
+  error counts restart once, as they do after a power cycle. The firmware API
+  version moved with it, so a release build of the host tools refuses a board
+  carrying older firmware and a development build warns about it, which is what
+  keeps either from reading an older record's leftover address register as an
+  instruction.
   [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
@@ -451,8 +442,12 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.57, last moved by the
-  address a processor fault is recorded at
+- **Reflash required:** the firmware API version is now 1.58, last moved by a
+  generic transmit request carrying how many packets to send, in a field it
+  used to ignore: older firmware would take the request, ignore the count and
+  send one packet, and the version is what stops a host from believing it
+  ([#352](https://github.com/SqueakyFloors/ubertooth/issues/352)), before that
+  by the address a processor fault is recorded at
   ([#764](https://github.com/SqueakyFloors/ubertooth/issues/764)), before that
   by the modulation a mode start keeps for the mode it was stated for, before
   that by the packet's own power and the background in every capture record,

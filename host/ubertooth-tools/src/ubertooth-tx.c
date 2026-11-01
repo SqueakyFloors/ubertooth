@@ -98,6 +98,15 @@ static int wait_for_burst(ubertooth_t* ut, int count)
 	for (; polls > 0; polls--) {
 		watchdog_info info;
 
+		/*
+		 * Waited before the first read, not after it. The board records
+		 * the mode on the turn of its loop that starts the burst, which
+		 * is after the one that answered the request, so a read sent
+		 * straight away can see the mode it was in before and take that
+		 * for a burst already over. One poll interval is far longer
+		 * than the microseconds that turn takes.
+		 */
+		usleep(TX_GENERIC_POLL_US);
 		if (!stopped && ubertooth_stopping(ut)) {
 			/* Not ubertooth_stop(): that tears the capture handle
 			 * down, and there is no capture here. The board takes
@@ -106,16 +115,12 @@ static int wait_for_burst(ubertooth_t* ut, int count)
 			if (cmd_stop(ut->devh) < 0)
 				return -1;
 		}
-		if (cmd_get_watchdog_quiet(ut->devh, &info) < 0) {
+		if (cmd_get_watchdog_quiet(ut->devh, &info) < 0)
 			/* A board busy with the burst answers this; one that
-			 * will not answer at all is a failure worth reporting,
-			 * and the read says what went wrong. */
-			usleep(TX_GENERIC_POLL_US);
+			 * will not answer at all is reported by the read. */
 			continue;
-		}
 		if (info.mode != MODE_TX_GENERIC)
 			return stopped ? 1 : 0;
-		usleep(TX_GENERIC_POLL_US);
 	}
 	fprintf(stderr, "error: the board was still transmitting after %d"
 	        " packets' worth of time\n", count);

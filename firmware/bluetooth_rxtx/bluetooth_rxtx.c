@@ -4309,25 +4309,15 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(MDMTST0, 0x134b);
 	/*
 	 * The framing: buffered mode, packet mode, a preamble of 01010101
-	 * (preamble field 6, more than any other mode here asks for), the
-	 * whole 32-bit sync word, and the radio's CRC. The radio adds all of
-	 * that and the generic receive programs none of it, so a board meant
-	 * to read this transmit has to be set to the same GRMDM value, with
-	 * the same sync word in SYNCH and SYNCL.
+	 * (field 6; field 7 received nothing at all on the bench), the whole
+	 * 32-bit sync word, and the radio's CRC. The radio adds all of it and
+	 * the generic receive programs none of it, so a board meant to read
+	 * this transmit has to be set to the same GRMDM value and sync word.
 	 *
-	 * The CRC is on because it costs nothing here and gives the receiving
-	 * end something to judge a packet by: this framing has no other check,
-	 * so a payload with a bit error in it reads as a payload. Measured on
-	 * two boards, 30 packets each way: with the CRC on, every packet that
-	 * was detected still arrived and every record carried the radio's
-	 * CRC_OK; with the transmit sending no CRC and the receive checking
-	 * one, the records arrived with CRC_OK clear. The radio reports the
-	 * verdict rather than dropping the packet, which is why the receive
-	 * records it (RX_GENERIC_CRC_OFFSET) instead of counting on silence.
-	 *
-	 * The preamble field is 6 because 7 does not work: with both ends at
-	 * field 7 nothing was received at all, and each transmit took three
-	 * times as long.
+	 * The CRC is on because nothing else in this framing can tell a
+	 * payload with a bit error in it from a payload, and it costs no
+	 * detections. The radio reports its verdict rather than dropping the
+	 * packet, so the receive writes it down: RX_GENERIC_CRC_OFFSET.
 	 *
 	 * Packet mode is what puts the payload in the radio's FIFO for the
 	 * write loop below. It is also the bit rx_generic() reads to choose
