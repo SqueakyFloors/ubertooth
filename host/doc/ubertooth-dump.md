@@ -104,9 +104,11 @@ when the file is opened.
 A terminal is refused either way, before any device is opened:
 `error: stdout is a tty, refusing to write binary dump data to it`, exit 1.
 A dump is written for a file or another program, not for a screen. `-b` is
-refused too although it writes text: that line is the one every tool shares for
-a capture stream it will not put on a terminal. Redirect or pipe standard
-output instead, or give `-d` a file.
+refused too, and the line names what it writes:
+`error: stdout is a tty, refusing to write the bitstream dump to it`. That
+stream is text rather than binary, and no more use on a screen at tens of
+thousands of characters a second. Redirect or pipe standard output instead, or
+give `-d` a file.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the

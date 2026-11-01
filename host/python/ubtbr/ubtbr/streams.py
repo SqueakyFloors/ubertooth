@@ -58,12 +58,63 @@ def eprint(msg):
 	left to report the loss, so the line goes and the exit status is the
 	command's own. The stream is pointed at the bin so the writes to come are
 	safe.
+
+	A line the stream's character encoding cannot carry is the exception, and
+	is handled before those: there the stream is working and only this line
+	is lost, so it is dropped and the stream is kept.
 	"""
 	try:
 		sys.stderr.write(msg)
 		sys.stderr.flush()
+	except UnicodeEncodeError:
+		line_was_not_encodable(sys.stderr, "standard error")
 	except (OSError, ValueError, AttributeError):
 		point_at_the_bin(sys.stderr)
+
+# The streams that have already reported a line their encoding could not
+# carry. Said once per stream, as output_lost() says its loss once: the cause
+# is the session's encoding, so every later line on that stream has the same
+# one. One flag for both streams would have let a lost `error: ` line pass in
+# silence after a packet had already gone, and a lost error line is the one
+# loss that must not be silent.
+_encoding_reported = set()
+_encoding_lock = Lock()
+
+def result_lines_dropped():
+	"""True if a decoded line was dropped because it could not be encoded.
+
+	The session's own ending says nothing about it, so the exit status does:
+	a run that printed every packet but one is not a run where everything
+	asked for was printed, which is what status 0 means (ubertooth-btbr(1),
+	EXIT STATUS). A diagnostic lost the same way does not count, because the
+	user asked for the packets and not for the warnings.
+	"""
+	return "standard output" in _encoding_reported
+
+def line_was_not_encodable(stream, name):
+	"""Report a line dropped because its stream could not encode it.
+
+	A device name arrives as whatever bytes the air carried, and a session
+	whose streams are not UTF-8 -- `PYTHONIOENCODING=ascii`, or a C locale --
+	cannot write every such name. That is one lost line and not a stream that
+	has gone: the lines around it are plain text and reach the reader, so the
+	line is dropped and the session carries on.
+
+	Said once per stream, from whichever thread finds it first; the name is
+	taken before the warning is written, so a warning that meets the same
+	wall reports nothing further rather than calling back into here forever.
+	`name` is both how the stream is spoken of to the user and which of the
+	two this is, so the two are reported separately.
+	"""
+	with _encoding_lock:
+		if name in _encoding_reported:
+			return
+		_encoding_reported.add(name)
+	encoding = getattr(stream, "encoding", None) or "unknown"
+	warn("a line could not be written in %s's character encoding (%s), so "
+	     "it was dropped\nnote: run the session under an encoding that "
+	     "carries the text, for example PYTHONIOENCODING=utf-8"
+	     %(name, encoding))
 
 # Set once standard output has gone away, so the session can end with a
 # status that says what was asked for was not all printed. A command runs on
@@ -224,6 +275,44 @@ def output_lost():
 	# then all there is to say it with.
 	error("standard output has gone away")
 
+def write_one_line_at_a_time(lines):
+	"""Write what the encoder will take of a message it refused whole.
+
+	Called only from result()'s encoding handler, so at least one of these
+	lines holds a character the stream cannot encode. Each line is offered on
+	its own: the ones that can go reach the reader and the ones that cannot
+	are dropped, with the warning given once.
+
+	A reader that leaves, or a descriptor that stops taking writes, part way
+	through is the same loss result() reports for the whole message, so the
+	rest of it goes with the stream.
+
+	eprint() has no retry of its own because nothing builds a diagnostic of
+	several lines out of text from the air: the two that have a `note: ` line
+	under them, open_failure_note() and unread_serials_note(), are the tool's
+	own words, and btctl hands a device name to error() a line at a time.
+	"""
+	def taken(write):
+		try:
+			write()
+		except UnicodeEncodeError:
+			line_was_not_encodable(sys.stdout, "standard output")
+		except OSError as problem:
+			# The two losses result() takes, taken the same way: a reader
+			# that has left, and a descriptor that refuses every write.
+			# Any other failure is the command's own to report.
+			if not isinstance(problem, BrokenPipeError) \
+					and problem.errno != errno.EBADF:
+				raise
+			output_lost()
+			return False
+		return True
+
+	for line in lines:
+		if not taken(lambda: sys.stdout.write(line)):
+			return
+	taken(sys.stdout.flush)
+
 def result(msg):
 	"""Report what a command decoded: a packet, or an inquiry response.
 
@@ -235,17 +324,33 @@ def result(msg):
 	a reader gets is packets and nothing else.
 	"""
 	now = strftime("%H:%M:%S")
+	lines = ["%s %s\n"%(now, line) for line in msg.splitlines() if line]
 	try:
 		# Written in one go, so that a message of several lines reaches the
 		# reader whole: an inquiry response and the EIR fields under it are
 		# one message, and nothing should land between their lines.
-		sys.stdout.write("".join("%s %s\n"%(now, line)
-			for line in msg.splitlines() if line))
+		sys.stdout.write("".join(lines))
 		sys.stdout.flush()
 	except BrokenPipeError:
 		# Whatever was reading the capture has stopped, which is what
 		# `ubertooth-btbr | head -5` does.
 		output_lost()
+	except UnicodeEncodeError:
+		# The reader is still there and the stream still works: one line of
+		# this message holds a character the stream's encoding cannot
+		# carry, which a device name from the air can, in a session that is
+		# not running under UTF-8. The write above is one call, so the
+		# encoder refused the whole message for that one line; the lines
+		# are written again one at a time, and only the line nothing can
+		# encode is lost. An inquiry response therefore keeps its packet
+		# and the fields around the name.
+		#
+		# Writing them separately gives up the one thing the single write
+		# was for, that nothing lands between the lines of one message.
+		# That is the smaller loss: another thread's line in the middle of
+		# a response is still a reader's to sort out, where a dropped
+		# packet is gone.
+		write_one_line_at_a_time(lines)
 	except OSError as problem:
 		# The stream is there and the descriptor under it refuses the write
 		# with EBADF. A session asked for on such a descriptor is refused

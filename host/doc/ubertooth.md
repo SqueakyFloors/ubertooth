@@ -347,16 +347,25 @@ the firmware is simply missing a request, the command fails on it:
 
     error: could not set the channel: the board's firmware does not support it (stalled, libusb -9)
     note: the board reports firmware API version <version>, libubertooth 1.1 requires <version>
+    note: a board that stalls every request is wedged rather than short of this one; reset it with ubertooth-util -r on the same board
 
 That is the one wording for a request the board refuses, wherever the request
 came from. The board answers such a request by stalling it and says nothing
-else, so the line names the request that was refused, and the note puts the
-two versions beside each other: different versions name the reflash that
+else, so the line names the request that was refused, and the first note puts
+the two versions beside each other: different versions name the reflash that
 fixes it, and equal versions say the version is not the problem. The libusb
 code is there for a request sent and answered one at a time; a request sent
 without waiting for its answer has only the stall to report, so that line ends
 `(stalled)`. A board in the DFU bootloader runs no application firmware, so
-ubertooth-dfu(1) reports a refused request without the note.
+ubertooth-dfu(1) reports a refused request without either note.
+
+The second note is for the other reason a request stalls, which the first
+cannot be told apart from: a wedged board stalls everything sent to it,
+whatever its firmware implements, so a report naming the firmware would send
+the user to reflash a board that is not short of the request at all. The
+question that separates the two is whether any request gets through, and
+`ubertooth-util -r` is the recovery for the wedge: it resets the board's USB
+connection and then the board, with no one at the bench.
 
 A board that has left the USB bus stalls a request too, on some hosts, and its
 firmware is not the reason: the board whose version the note would quote is

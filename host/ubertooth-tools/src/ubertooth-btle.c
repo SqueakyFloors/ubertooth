@@ -511,7 +511,7 @@ int main(int argc, char *argv[])
 	 * is a problem with the command line, so it is refused here, before a
 	 * board is opened; the stream itself is taken over further down, where
 	 * the file is created. */
-	if (opt_check_capture_destination(pcap_name, "capture data") < 0)
+	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0)
 		return 1;
 
 	/* Interference is accepted but no capture mode acts on it yet, so an
@@ -577,7 +577,7 @@ int main(int argc, char *argv[])
 	}
 	if (pcap_name != NULL) {
 		int saved_fd;
-		char *file = opt_capture_path(pcap_name, "capture data", &saved_fd);
+		char *file = opt_capture_path(pcap_name, "binary capture data", &saved_fd);
 		int create_result, create_errno;
 
 		if (!file) {

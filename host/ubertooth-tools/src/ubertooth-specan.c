@@ -452,7 +452,7 @@ int main(int argc, char *argv[])
 		 * ubertooth-btle refuses its capture. A text format is welcome
 		 * on one. */
 		if (output_mode == SPECAN_FILE &&
-		    opt_check_stdout_not_tty("samples") < 0)
+		    opt_check_stdout_not_tty("binary samples") < 0)
 			return 1;
 		dumpfile = stdout;
 	}

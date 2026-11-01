@@ -845,6 +845,41 @@
 
 ### Reliability fixes
 
+- The report for a request the board refused names the reset that recovers a
+  board which has stopped answering. Such a board stalls every request sent to
+  it, whatever its firmware implements, so the stall report used to send the
+  user to reflash a board that was not short of the request at all. It now
+  carries a second note, `note: a board that stalls every request is wedged
+  rather than short of this one; reset it with ubertooth-util -r on the same
+  board`, and the note for a request that timed out names the same reset
+  before the unplug it already suggested, so the recovery that needs nobody
+  at the bench comes first.
+
+- `ubertooth-dump -b` refuses a terminal for what it really writes: `error:
+  stdout is a tty, refusing to write the bitstream dump to it`. That stream
+  is a `0` or a `1` per symbol, a line per captured block, and the refusal
+  it shares with the binary captures used to call it binary.
+
+- `ubertooth-btbr` carries on when a device name cannot be written in the
+  session's character encoding. A name arrives as whatever bytes the air
+  carried, and one that is not ASCII ended the command in
+  `BTCtlInquiryCmd stopped: UnicodeEncodeError` on a session not running under
+  UTF-8. That line is dropped now, with one warning saying why and naming
+  `PYTHONIOENCODING=utf-8`, and the packets after it are printed as usual. A
+  diagnostic the encoding could not take used to silence standard error for
+  the rest of the session.
+
+- Fixed: `ubertooth-btbr`'s `l2ping` never reached its L2CAP packet when the
+  device it paged was another Ubertooth. The two boards connected and then sat
+  there, because each side sent `LMP_setup_complete` only on receiving one, so
+  neither sent the first and the link setup never finished. The central now
+  sends its own as soon as its connection request is accepted, and a board in
+  `page_scan`, which `discoverable` also runs, answers an L2CAP echo request
+  small enough to reply to in the packets this link sends, so `l2ping` between
+  two boards sees a reply. A request larger than that is not
+  answered; ubertooth-btbr(1), LIMITATIONS says how large it may be.
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
   the user asked for unused. A pager cannot tell the ID packet that
@@ -2688,6 +2723,11 @@
 
 Fixes with no visible change in normal use.
 
+- Giving up a followed low-energy connection takes one path rather than two.
+  The host's request to stop following and the end of the connection itself
+  did the same three things in blocks of their own, and a request that arrived
+  in the same connection event as the end of the connection was left set
+  behind the follow it had asked to stop.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.

@@ -134,7 +134,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
    accept a connection from a device that pages this board; a standard
    Classic controller usually gets through in a few seconds, and another
    Ubertooth on the same bench needs its transmit level turned down first,
-   as does this one; see TWO BOARDS CLOSE TOGETHER
+   as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this
+   way answers a small L2CAP echo request, so `l2ping` from another Ubertooth
+   sees a reply (see LIMITATIONS for how small)
  - `discoverable` :
    `inquiry_scan` and `page_scan` together
  - `page <BD_ADDR>` :
@@ -219,6 +221,13 @@ If no FHS appears, the peripheral won the race; try again.
 - Encryption is not implemented. Packets sent after a connection turns
   encryption on are reported as raw data, and the AFH map stops being
   followed, because the LMP packet carrying it is encrypted too.
+- An L2CAP echo request is answered when the whole request arrived in one
+  packet and the reply fits one too, which leaves room for 9 bytes of echo
+  data. `l2ping` here sends 4 and gets a reply. A larger request is not
+  reassembled from the fragments it arrives in and is not answered, so a
+  standard host's `l2ping`, which sends 44 bytes of data by default, gets no
+  reply unless it is asked for a smaller payload. The packets it sends are
+  still reported, as every received packet is.
 - The link layer carries Asynchronous Connection-Less (ACL) traffic only, and
   does not do role switching or the LMP procedures around it. A peer asking to
   send multi-slot packets is refused as well, and the feature mask this end
@@ -310,6 +319,20 @@ prompt of a session nobody is editing at a terminal included, goes to standard
 error. A command line the tool will not take, a board it cannot select, open
 or set up, and anything that goes wrong during a session, are reported as the
 one-line `error: `, `warning: ` and `note: ` lines the other tools use.
+
+A line the session's character encoding cannot carry is dropped rather than
+ending the command. A device name arrives as whatever bytes the air sent, so a
+session that is not running under UTF-8 meets one it cannot write, and the
+replacement character a name cut mid-character decodes to does the same. The
+line goes, the rest of the message around it is printed, and the loss is said
+once per stream:
+
+    warning: a line could not be written in standard output's character encoding (ascii), so it was dropped
+    note: run the session under an encoding that carries the text, for example PYTHONIOENCODING=utf-8
+
+A decoded line lost that way is a packet that was asked for and not printed,
+so the session exits 1 (see EXIT STATUS). A diagnostic lost that way is not,
+and leaves the status alone.
 
 A message from the board the session could not read is one of those, naming
 what arrived:
@@ -406,7 +429,9 @@ same way. See FIRMWARE.
 0 for `-h`, and when the session ended cleanly, which is `exit`, `q`, `x` or
 Ctrl-D with nothing left running and everything asked for printed. 1 for a
 command line the tool will not take, when standard output went away before
-all that was asked for had been printed,
+all that was asked for had been printed, when a decoded line was dropped
+because the session's character encoding could not carry it (see
+DIAGNOSTICS),
 when a session was asked for and the Python `libusb1` package is not
 installed, when no Ubertooth is found, when `-U` names no board or more than one, when
 the one it names cannot be opened or is in use by another program, when the
