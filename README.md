@@ -179,7 +179,7 @@ does which step.
 | [ubertooth-afh](host/doc/ubertooth-afh.md) | Passively recover a piconet's AFH channel map | an active piconet |
 | [ubertooth-follow](host/doc/ubertooth-follow.md) | Active clock discovery + follow a piconet for a target address | BlueZ + target; **Linux only** |
 | [ubertooth-scan](host/doc/ubertooth-scan.md) | Active inquiry scan (uses a BlueZ dongle + Ubertooth) | BlueZ dongle; **Linux only** |
-| [ubertooth-btbr](host/doc/ubertooth-btbr.md) | **Experimental**, and the only tool that needs the separate `btbr` firmware: take part in Classic BT — inquiry, paging, and `monitor` mode (capture a connection as it is set up) | the `btbr` image; a Classic BT peer |
+| [ubertooth-btbr](host/doc/ubertooth-btbr.md) | **Experimental**, and the only tool that needs the separate `btbr` firmware: take part in Classic BT — inquiry, paging, `monitor` mode (capture a connection as it is set up), and transmitting chosen packet types | the `btbr` image; a Classic BT peer |
 
 `ubertooth-follow` and `ubertooth-scan` drive a second, ordinary Bluetooth
 adapter through BlueZ, so they are built on Linux only and are not coming to

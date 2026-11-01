@@ -1338,6 +1338,8 @@ typedef enum {
 	/* Hand the chip to its on-chip programmer, queued so that the control
 	 * transfer that asked for it is answered first; see BTCTL_RESET_REQ. */
 	BTCTL_ISP_REQ		= 33,
+	/* One packet of a chosen basic-rate format, in a btctl_tx_pkt_req_t */
+	BTCTL_TX_PKT_REQ	= 34,
 	/* Device -> Host */
 	BTCTL_RX_PKT		= 40,
 	BTCTL_STATE_RESP	= 41
@@ -1407,5 +1409,50 @@ typedef struct {
 	bbhdr_t bb_hdr;		// header (only lt_addr/type/flags are relevant)
 	uint8_t bt_data[0];	// maximum data size for an ACL packet
 } __attribute__((packed)) btctl_tx_pkt_t;
+
+/* The basic-rate packet formats the device can be asked to transmit.
+ *
+ * Named rather than numbered, because a TYPE code in the packet header means
+ * different things on an asynchronous link and on a synchronous one
+ * (Bluetooth Core, Vol 2 Part B, Table 6.2): HV3 and EV3 are both code 7 and
+ * differ only in what the payload holds, so the name is what says which of
+ * the two to build. The device knows each format's air layout; the host says
+ * which format, how many data bytes, and what the bytes are.
+ */
+typedef enum btctl_tx_format_e {
+	BTCTL_FMT_DM1	= 0,
+	BTCTL_FMT_DH1	= 1,
+	BTCTL_FMT_DM3	= 2,
+	BTCTL_FMT_DH3	= 3,
+	BTCTL_FMT_DM5	= 4,
+	BTCTL_FMT_DH5	= 5,
+	BTCTL_FMT_AUX1	= 6,
+	BTCTL_FMT_DV	= 7,
+	BTCTL_FMT_HV1	= 8,
+	BTCTL_FMT_HV2	= 9,
+	BTCTL_FMT_HV3	= 10,
+	BTCTL_FMT_EV3	= 11,
+	BTCTL_FMT_EV4	= 12,
+	BTCTL_FMT_EV5	= 13,
+	BTCTL_FMT_COUNT
+} btctl_tx_format_t;
+
+/* One packet to put on the air exactly as given, in the next transmit slot of
+ * a connection, and again in each of the next repeat-1 transmit slots. It
+ * carries no acknowledgment of its own and is never retransmitted, so a peer
+ * that cannot make sense of it costs nothing: the point is the packet being
+ * transmitted, not the peer accepting it.
+ *
+ * data_size counts the bytes after the payload header, which the host writes
+ * into data itself for a format that has one. The device adds the CRC where
+ * the format has one.
+ */
+typedef struct {
+	uint8_t lt_addr;
+	uint8_t format;		// btctl_tx_format_t
+	uint16_t repeat;	// transmit slots to spend on it, at least 1
+	uint16_t data_size;	// payload bytes supplied in data
+	uint8_t data[0];
+} __attribute__((packed)) btctl_tx_pkt_req_t;
 
 #endif /* __UBERTOOTH_INTERFACE_H */

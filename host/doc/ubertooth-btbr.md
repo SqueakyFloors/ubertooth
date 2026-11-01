@@ -153,6 +153,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `monitor <BD_ADDR>` :
    watch for a connection being set up to the given peripheral; see MONITOR
    MODE
+ - `tx <format> [<length>] [<count>] [<hex>]` :
+   transmit one packet of a chosen basic-rate format on the connection that
+   is up; see TRANSMITTING CHOSEN PACKET TYPES
  - `bdaddr <BD_ADDR>` :
    set this board's address
  - `idle` :
@@ -219,11 +222,70 @@ connection from the other device:
 
 If no FHS appears, the peripheral won the race; try again.
 
+## TRANSMITTING CHOSEN PACKET TYPES
+
+A real stack sends DM1, DH1, and their longer relatives and almost nothing
+else, so the packet types below are hard to find on the air at all. `tx` puts
+one of them there: with a connection up, it hands the board a packet built to
+that format, and the board transmits it in its next transmit slot.
+
+    ubertooth-btbr
+    bt> page C8:85:41:2A:1B:2A
+    bt> tx aux1 29
+    bt> tx ev3 17 20
+    bt> tx hv3
+    bt> tx dh5 339 5 00ff00ff...
+
+The formats, with the data bytes each carries. A data length excludes the
+payload header the format may have, which `tx` writes itself, and the 2-byte
+CRC it may have, which the board adds:
+
+ - `dm1` 0-17, `dh1` 0-27, `dm3` 0-121, `dh3` 0-183, `dm5` 0-224, `dh5` 0-339 :
+   the asynchronous data packets a connection carries anyway, here at a length
+   of your choosing
+ - `aux1` 0-29 :
+   like a `dh1` but with no CRC, so nothing detects a bit error in it
+ - `dv` 0-9 :
+   10 bytes of voice, then a data field built like a `dm1`'s
+ - `hv1` 10, `hv2` 20, `hv3` 30 :
+   the synchronous voice packets, each one fixed length with no CRC, under
+   rate 1/3, rate 2/3, and no error correction in turn
+ - `ev3` 1-30, `ev4` 1-120, `ev5` 1-180 :
+   the enhanced synchronous packets, which carry a CRC and a length that is
+   agreed when the link is set up rather than written in the packet
+
+`<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
+many of the board's transmit slots to spend on the packet, which is the way to
+make one easy for a receiver to catch; the packet is not acknowledged and not
+retransmitted, so a peer that ignores it costs nothing.
+
+`<hex>` is the data bytes, as an even number of hex digits of exactly
+`<length>` bytes. Without it the data is a counted pattern, `00 01 02 ... ff`
+and over again. Either way the line `tx` prints on standard output is what
+went on the air:
+
+    TX pkt: ev3 len=17 slots=20 data=000102030405060708090a0b0c0d0e0f10
+
+`hv3` and `ev3` go out with the same TYPE code in the packet header, which is
+what the two mean on a synchronous and on an enhanced synchronous link
+(Bluetooth Core, Vol 2 Part B, Table 6.2). They differ in the payload: an
+`hv3` is 30 bytes with nothing to check them, an `ev3` any agreed length with
+a CRC. A receiver has to tell them apart from that, which is why both are here.
+
+A length the format will not carry is refused before anything is sent, and so
+is a `tx` with no connection up: there is no transmit slot without one. The
+peer is free to ignore or reject any of these packets, and a real controller
+will reject most of them, because nothing negotiated a synchronous link; the
+packet is on the air either way, which is the point.
+
 ## LIMITATIONS
 
 - The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets
-  cannot be received. The packet types handled are ID, NULL, POLL, FHS, DM and
-  DH.
+  cannot be received. The packet types received are ID, NULL, POLL, FHS, DM and
+  DH; `tx` transmits more than that, but a packet of one of those extra
+  formats arriving here is not decoded, because a TYPE code alone does not say
+  which format a synchronous packet is and this firmware has no synchronous
+  link to tell it.
 - Encryption is not implemented. Packets sent after a connection turns
   encryption on are reported as raw data, and the AFH map stops being
   followed, because the LMP packet carrying it is encrypted too.

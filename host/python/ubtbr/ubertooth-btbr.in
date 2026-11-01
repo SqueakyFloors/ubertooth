@@ -696,6 +696,91 @@ class BTCtlPrompt(Cmd):
 		self.stdout.write("monitor <PERIPHERAL_BD_ADDR>: Sniff connection"
 			" establishment to given device\n")
 
+	def _tx_pattern(self, count):
+		"""Bytes to fill a payload with, so a receiver can check them."""
+		return bytes(i & 0xff for i in range(count))
+
+	def _parse_tx(self, inp):
+		"""Read a tx command line, or report what is wrong with it.
+
+		Returns (name, format, data, voice, slots), or None.
+		"""
+		words = inp.split()
+		if not words:
+			error("tx needs a format: %s"%", ".join(sorted(TX_FORMATS)))
+			return None
+		if len(words) > 4:
+			error("tx takes a format, a length, a count and a payload "
+				"(got %d words)"%len(words))
+			return None
+		name = words[0].lower()
+		fmt = TX_FORMATS.get(name)
+		if fmt is None:
+			error("no such format '%s'; one of %s"
+				%(words[0], ", ".join(sorted(TX_FORMATS))))
+			return None
+		length = fmt.max
+		if len(words) > 1:
+			try:
+				length = int(words[1], 0)
+			except ValueError:
+				error("length must be a number (got %s)"%words[1])
+				return None
+			if length < fmt.min or length > fmt.max:
+				error("%s carries %d to %d data bytes, not %d"
+					%(name, fmt.min, fmt.max, length))
+				return None
+		slots = 1
+		if len(words) > 2:
+			try:
+				slots = int(words[2], 0)
+			except ValueError:
+				error("count must be a number (got %s)"%words[2])
+				return None
+			if slots < 1:
+				error("count must be at least 1 (got %d)"%slots)
+				return None
+		if len(words) > 3:
+			try:
+				data = unhexlify(words[3])
+			except Exception:
+				error("payload must be an even number of hex digits "
+					"(got %s)"%words[3])
+				return None
+			if len(data) != length:
+				error("payload of %s where the length says %d"
+					%(byte_count(len(data)), length))
+				return None
+		else:
+			data = self._tx_pattern(length)
+
+		return name, fmt, data, self._tx_pattern(fmt.voice), slots
+
+	def do_tx(self, inp):
+		parsed = self._parse_tx(inp)
+		if parsed is None:
+			return
+		name, fmt, data, voice, slots = parsed
+		# The connection's logical transport address, which only a command
+		# that reached a connection has. Without one there is nothing to
+		# transmit on, and the board would refuse the packet.
+		lt_addr = getattr(self._cmd, "lt_addr", None) if self._cmd else None
+		if lt_addr is None:
+			error("tx needs a connection: page a device, or page_scan and "
+				"let one page this board")
+			return
+		self._bt.send_tx_pkt_cmd(fmt, data, voice, lt_addr, slots)
+		# What went on the air, on standard output with the capture: this is
+		# the only record of what a receiver's decode has to be compared
+		# with, and the board reports nothing back about a packet it sent.
+		result("TX pkt: %s len=%d slots=%d data=%s"%(
+			name, len(data), slots, hexlify(data).decode()))
+
+	def help_tx(self):
+		self.stdout.write("tx <format> [<length>] [<count>] [<hex>]:"
+			" Transmit one packet of the given format\n"
+			"    formats: %s\n"%", ".join(sorted(TX_FORMATS)))
+
 	def emptyline(self):
 		pass
 

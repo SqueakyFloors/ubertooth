@@ -41,8 +41,9 @@ the full reference for its options.
 - ``ubertooth-scan`` — Active inquiry scan using a BlueZ dongle plus Ubertooth.
   **Linux only**, for the same reason. (Needs: a BlueZ Bluetooth dongle.)
 
-- ``ubertooth-btbr`` — Take part in Classic BT: inquiry, paging, and *monitor*
-  mode, which captures a connection as it is set up. **Experimental**, and the
+- ``ubertooth-btbr`` — Take part in Classic BT: inquiry, paging, *monitor*
+  mode, which captures a connection as it is set up, and transmitting chosen
+  packet types on a connection. **Experimental**, and the
   only tool that needs the separate ``btbr`` firmware image rather than
   ``bluetooth_rxtx`` (see :ref:`the-two-firmware-images` and
   :doc:`sniffing_BR_EDR`). (Needs: the ``btbr`` image and a Classic BT peer.)

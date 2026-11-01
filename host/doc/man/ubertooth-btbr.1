@@ -98,6 +98,9 @@ page a device and then exchange Logical Link Control and Adaptation Protocol (L2
 \fBmonitor <BD_ADDR>\fR
 watch for a connection being set up to the given peripheral; see MONITOR MODE
 .TP
+\fBtx <format> [<length>] [<count>] [<hex>]\fR
+transmit one packet of a chosen basic\-rate format on the connection that is up; see TRANSMITTING CHOSEN PACKET TYPES
+.TP
 \fBbdaddr <BD_ADDR>\fR
 set this board's address
 .TP
@@ -140,9 +143,51 @@ bt> monitor 11:22:33:44:55:66
 .IP "" 0
 .P
 If no FHS appears, the peripheral won the race; try again\.
+.SH "TRANSMITTING CHOSEN PACKET TYPES"
+A real stack sends DM1, DH1, and their longer relatives and almost nothing else, so the packet types below are hard to find on the air at all\. \fBtx\fR puts one of them there: with a connection up, it hands the board a packet built to that format, and the board transmits it in its next transmit slot\.
+.IP "" 4
+.nf
+ubertooth\-btbr
+bt> page C8:85:41:2A:1B:2A
+bt> tx aux1 29
+bt> tx ev3 17 20
+bt> tx hv3
+bt> tx dh5 339 5 00ff00ff\|\.\|\.\|\.
+.fi
+.IP "" 0
+.P
+The formats, with the data bytes each carries\. A data length excludes the payload header the format may have, which \fBtx\fR writes itself, and the 2\-byte CRC it may have, which the board adds:
+.TP
+\fBdm1\fR 0\-17, \fBdh1\fR 0\-27, \fBdm3\fR 0\-121, \fBdh3\fR 0\-183, \fBdm5\fR 0\-224, \fBdh5\fR 0\-339
+the asynchronous data packets a connection carries anyway, here at a length of your choosing
+.TP
+\fBaux1\fR 0\-29
+like a \fBdh1\fR but with no CRC, so nothing detects a bit error in it
+.TP
+\fBdv\fR 0\-9
+10 bytes of voice, then a data field built like a \fBdm1\fR's
+.TP
+\fBhv1\fR 10, \fBhv2\fR 20, \fBhv3\fR 30
+the synchronous voice packets, each one fixed length with no CRC, under rate 1/3, rate 2/3, and no error correction in turn
+.TP
+\fBev3\fR 1\-30, \fBev4\fR 1\-120, \fBev5\fR 1\-180
+the enhanced synchronous packets, which carry a CRC and a length that is agreed when the link is set up rather than written in the packet
+.P
+\fB<length>\fR defaults to the format's maximum, \fB<count>\fR to 1\. \fB<count>\fR is how many of the board's transmit slots to spend on the packet, which is the way to make one easy for a receiver to catch; the packet is not acknowledged and not retransmitted, so a peer that ignores it costs nothing\.
+.P
+\fB<hex>\fR is the data bytes, as an even number of hex digits of exactly \fB<length>\fR bytes\. Without it the data is a counted pattern, \fB00 01 02 \|\.\|\.\|\. ff\fR and over again\. Either way the line \fBtx\fR prints on standard output is what went on the air:
+.IP "" 4
+.nf
+TX pkt: ev3 len=17 slots=20 data=000102030405060708090a0b0c0d0e0f10
+.fi
+.IP "" 0
+.P
+\fBhv3\fR and \fBev3\fR go out with the same TYPE code in the packet header, which is what the two mean on a synchronous and on an enhanced synchronous link (Bluetooth Core, Vol 2 Part B, Table 6\.2)\. They differ in the payload: an \fBhv3\fR is 30 bytes with nothing to check them, an \fBev3\fR any agreed length with a CRC\. A receiver has to tell them apart from that, which is why both are here\.
+.P
+A length the format will not carry is refused before anything is sent, and so is a \fBtx\fR with no connection up: there is no transmit slot without one\. The peer is free to ignore or reject any of these packets, and a real controller will reject most of them, because nothing negotiated a synchronous link; the packet is on the air either way, which is the point\.
 .SH "LIMITATIONS"
 .IP "\(bu" 4
-The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets cannot be received\. The packet types handled are ID, NULL, POLL, FHS, DM and DH\.
+The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets cannot be received\. The packet types received are ID, NULL, POLL, FHS, DM and DH; \fBtx\fR transmits more than that, but a packet of one of those extra formats arriving here is not decoded, because a TYPE code alone does not say which format a synchronous packet is and this firmware has no synchronous link to tell it\.
 .IP "\(bu" 4
 Encryption is not implemented\. Packets sent after a connection turns encryption on are reported as raw data, and the AFH map stops being followed, because the LMP packet carrying it is encrypted too\.
 .IP "\(bu" 4

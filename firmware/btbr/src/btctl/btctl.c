@@ -23,6 +23,7 @@
 #include <string.h>
 #include <ubtbr/btctl_intf.h>
 #include <ubtbr/btphy.h>
+#include <ubtbr/codec.h>
 #include <ubtbr/system.h>
 #include <ubtbr/rf.h>
 #include <ubtbr/hop.h>
@@ -36,15 +37,22 @@
 
 btctl_t btctl;
 
-static void btctl_flush_acl_tx_queue(void)
+static void btctl_flush_queue(msg_queue_t *q)
 {
 	msg_t *msg;
 
-	/* Flush the acl tx queue */
-	while ((msg = safe_dequeue(&btctl.acl_tx_q)) != NULL)
+	while ((msg = safe_dequeue(q)) != NULL)
 	{
 		msg_free(msg);
 	}
+}
+
+static void btctl_flush_acl_tx_queue(void)
+{
+	/* Both carry packets for a connection, so a new page or page scan
+	 * leaves neither behind to go out on the next one. */
+	btctl_flush_queue(&btctl.acl_tx_q);
+	btctl_flush_queue(&btctl.pkt_tx_q);
 }
 
 static void btctl_handle_debug_req(msg_t *msg)
@@ -215,6 +223,62 @@ static void btctl_handle_tx_acl_req(msg_t *msg)
 	btctl_acl_tx_enqueue(msg);
 }
 
+/* One packet of a chosen format, to go on the air as the host composed it.
+ *
+ * Returns whether the request was taken. A request this firmware cannot carry
+ * out is refused with a line saying why, rather than transmitted as something
+ * else: the host chose this format and this length on purpose, so a packet of
+ * another shape would be worse than none.
+ */
+static int btctl_handle_tx_pkt_req(msg_t *msg)
+{
+	btctl_hdr_t *hdr = (btctl_hdr_t*)msg->data;
+	btctl_tx_pkt_req_t *req = (btctl_tx_pkt_req_t*)hdr->data;
+	const bbcodec_types_t *t;
+	unsigned min_data, max_data, data_size;
+	uint8_t air_type;
+
+	if (btctl.state != BTCTL_STATE_CONNECTED)
+	{
+		cprintf("Cannot transmit a packet outside a connection\n");
+		return 0;
+	}
+	t = bbcodec_tx_format(req->format, &air_type);
+	if (t == NULL)
+	{
+		cprintf("Unknown tx format %d\n", req->format);
+		return 0;
+	}
+	if (req->repeat == 0)
+	{
+		cprintf("Tx packet asked for 0 slots\n");
+		return 0;
+	}
+	/* What the host supplied, less the parts it does not choose the size
+	 * of: the voice field and the payload header. */
+	if (req->data_size < t->voice_bytes + t->payload_header_bytes)
+	{
+		cprintf("Tx packet of %d bytes is too short for format %d\n",
+			req->data_size, req->format);
+		return 0;
+	}
+	data_size = req->data_size - t->voice_bytes - t->payload_header_bytes;
+	bbcodec_tx_format_limits(t, &min_data, &max_data);
+	if (data_size < min_data || data_size > max_data)
+	{
+		cprintf("Format %d carries %d to %d data bytes, not %d\n",
+			req->format, min_data, max_data, data_size);
+		return 0;
+	}
+	if (btctl_pkt_tx_enqueue(msg) != 0)
+	{
+		cprintf("Tx packet queue full\n");
+		return 0;
+	}
+
+	return 1;
+}
+
 static void btctl_handle_inquiry_scan_req(msg_t *msg)
 {
 	inquiry_scan_state_setup();
@@ -296,6 +360,12 @@ static void btctl_handle_msg(msg_t *msg)
 		btctl_handle_tx_acl_req(msg);
 		// don't free tx messages
 		goto end_nofree;
+	case BTCTL_TX_PKT_REQ:
+		/* Queued, so the message belongs to the queue; a refused
+		 * request is freed below like any other. */
+		if (btctl_handle_tx_pkt_req(msg))
+			goto end_nofree;
+		break;
 	case BTCTL_INQUIRY_SCAN_REQ:
 		btctl_handle_inquiry_scan_req(msg);
 		break;
@@ -423,4 +493,5 @@ void btctl_init(void)
 	msg_queue_init(&btctl.rx_q);
 	msg_queue_init(&btctl.tx_q);
 	msg_queue_init(&btctl.acl_tx_q);
+	msg_queue_init(&btctl.pkt_tx_q);
 }

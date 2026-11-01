@@ -10,6 +10,8 @@ typedef struct btctl_s {
 	msg_queue_t rx_q;
 	msg_queue_t tx_q;
 	msg_queue_t acl_tx_q;
+	/* Packets the host composed in full, waiting for a transmit slot */
+	msg_queue_t pkt_tx_q;
 	msg_t *eir_msg;
 	btctl_tx_pkt_t *eir_pkt;
 } btctl_t;
@@ -100,5 +102,17 @@ static inline msg_t *btctl_acl_tx_dequeue(void)
 static inline int btctl_acl_tx_enqueue(msg_t *msg)
 {
 	return safe_enqueue(&btctl.acl_tx_q, msg);
+}
+
+/* Called by the connected task to retrieve the next host-composed packet */
+static inline msg_t *btctl_pkt_tx_dequeue(void)
+{
+	return safe_dequeue(&btctl.pkt_tx_q);
+}
+
+/* Enqueue a host-composed packet to put on the air in connected state */
+static inline int btctl_pkt_tx_enqueue(msg_t *msg)
+{
+	return safe_enqueue(&btctl.pkt_tx_q, msg);
 }
 #endif
