@@ -115,6 +115,12 @@ static void write_le32(uint8_t *bytes, uint32_t value)
 	bytes[3] = (uint8_t)(value >> 24);
 }
 
+static uint32_t read_le32(const uint8_t *bytes)
+{
+	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
+	       ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+}
+
 /* The largest unsigned .bin -s will read: signing adds the suffix, so an
  * input capped here produces an image -d still accepts. */
 static unsigned long max_unsigned_image_size(void)
@@ -1146,6 +1152,39 @@ static int send_block(libusb_device_handle* devh, int block, uint8_t* buffer,
 	return 0;
 }
 
+/* Where the LPC vector checksum sits and what it covers: the word at offset
+ * 0x1c of the vector table is the two's complement of the seven words in
+ * front of it, so all eight add up to zero (NXP LPC176x/5x user manual
+ * UM10360, "Criterion for valid user code"). The bootloader reads the same
+ * eight words (firmware/bootloader/app_image.h,
+ * app_image_vector_checksum_ok). */
+#define VECTOR_CHECKSUM_INDEX 7u
+
+/* Fill in the checksum over the vector table in this block, so that the board
+ * can tell a first block that reached the flash whole from one that did not.
+ *
+ * The word is NXP's, reserved for exactly this, and an image file from this
+ * tree leaves it zero: the application's vector table does not fill it in
+ * (firmware/common/LPC17xx_Interrupts.c) and no build step does either. So a
+ * read-back of a board flashed by this tool differs from the image file in
+ * this one word, which ubertooth-dfu(1) records.
+ *
+ * It is written over rather than checked, so that what goes to the board is
+ * always a checksum the board will accept: an image carrying a wrong one
+ * would otherwise be flashed and then refused at the next power-up. An image
+ * carrying the right one is unchanged by this. */
+static void fill_vector_checksum(uint8_t *block)
+{
+	uint32_t sum = 0;
+	unsigned i;
+
+	for (i = 0; i < VECTOR_CHECKSUM_INDEX; i++)
+		sum += read_le32(block + i * 4);
+	/* Two's complement, so the eight words add up to zero. Done in unsigned
+	 * arithmetic: negating a signed value this large is not defined. */
+	write_le32(block + VECTOR_CHECKSUM_INDEX * 4, 0u - sum);
+}
+
 /* Read block index of the image and send it to the block of flash that holds
  * it. Reports what went wrong and returns negative either way, so the caller
  * only has to stop. */
@@ -1160,6 +1199,10 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
 		        "the image\n", index);
 		return -1;
 	}
+	/* The image's first block is the vector table, and the download order
+	 * below writes it last. */
+	if (index == 0)
+		fill_vector_checksum(buffer);
 	return send_block(devh, first_block + index, buffer, blocks_sent);
 }
 
@@ -1179,7 +1222,9 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  *   1. the first block is written as erased flash (0xFF), which leaves no
  *      stack pointer and no reset vector for anything to start from;
  *   2. every block above the first sector is written;
- *   3. the first sector is written, the vector table with it.
+ *   3. the first sector is written, the vector table with it, and the
+ *      checksum over that table filled in so the board can tell a first
+ *      block that arrived whole from one that did not.
  *
  * Step 1 is also what erases the first sector, and that is why step 3 writes
  * the whole sector rather than the vector table on its own: the bootloader

@@ -269,7 +269,21 @@ reach.*
       application, so a board left this way is recovered over USB
 - [ ] Known gap: an interruption inside the last 4 KiB leaves a startable
       half-written image, because the sector holding the vector table has to
-      be written as a whole. Such a board does need the entry pin
+      be written as a whole. Such a board does need the entry pin. The
+      checksum over the vector table does not reach that far: it covers the
+      vector table, which is written whole or not at all
+
+### 2g-2. A flashed board carries the vector checksum
+
+*Any board, no ISP: this is the host half of 2g-1, and a board carrying an
+earlier bootloader ignores the checksum and runs as it always did.*
+
+- [ ] Flash with `ubertooth-dfu -U <serial> -d bluetooth_rxtx.dfu -r`, then
+      read the flash back with `ubertooth-dfu -U <serial> -u <dump> -r`
+- [ ] Confirm: the board comes back running the image just written, and the
+      first eight words of the dump add up to zero with the word at offset
+      0x1c not zero — the checksum the tool filled in
+
 
 ### 2h. Flashing back off the btbr image
 

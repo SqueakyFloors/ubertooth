@@ -272,9 +272,10 @@ static void run_bootloader()
 	leds_off();
 }
 
-/* Is there an application in flash to start? The two words the processor
- * would load are read out of the application region and put to the check in
- * app_image.h, which says what it does and does not ask.
+/* Is there an application in flash to start? The vector table at the start of
+ * the application region -- the two words the processor would load, and the
+ * checksum word over the eight -- is put to the check in app_image.h, which
+ * says what it does and does not ask.
  *
  * The bound is the largest part in the family rather than the flash this part
  * has, because the part has to be asked over In-Application Programming and
@@ -284,8 +285,7 @@ static bool application_startable() {
 	const uint32_t* const vectors =
 		reinterpret_cast<const uint32_t*>(APP_IMAGE_BASE);
 
-	return app_image_startable(vectors[0], vectors[1],
-	                           LPC_FLASH_SIZE_FALLBACK);
+	return app_image_table_startable(vectors, LPC_FLASH_SIZE_FALLBACK);
 }
 
 static void run_application() {
