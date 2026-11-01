@@ -1401,6 +1401,18 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		           | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
 		if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
 			return 0;
+		/*
+		 * A burst is running, and it sends from tx_pkt: this request
+		 * would splice its payload into the packets the burst has left
+		 * and then lose the count it asked for, because the burst read
+		 * one already. Refused instead, which the host sees at once --
+		 * and refused before the copy, or the splice has happened by
+		 * the time the refusal is decided. Nothing shipped here sends a
+		 * second request during a burst, since ubertooth-tx waits for
+		 * the board, so this is for anything else on the bus.
+		 */
+		if (mode == MODE_TX_GENERIC)
+			return 0;
 		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
 		/* wValue is how many of this packet to send. A host that leaves
 		 * it 0 gets one, which is what every host did before the field

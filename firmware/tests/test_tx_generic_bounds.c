@@ -475,6 +475,7 @@ struct scan {
 	int carried_check;    /* the request carries the payload it declares */
 	int channel_check;    /* the channel is one the synthesizer can reach */
 	int repeat_read;      /* the burst count read out of the request */
+	int busy_refusal;     /* a request during a burst is refused */
 	int burst_label;      /* where a packet of the burst starts */
 	int burst_loop;       /* the jump back for the next packet */
 	int restore_first;    /* the first register the restore puts back */
@@ -552,6 +553,8 @@ static int scan_source(const char *path, struct scan *s)
 
 		if (strstr(flat, "tx_pkt_repeat = request_params[0]") != NULL)
 			s->repeat_read = lineno;
+		if (strstr(flat, "if (mode == MODE_TX_GENERIC)") != NULL)
+			s->busy_refusal = lineno;
 		if (strstr(flat, "send_one:") != NULL)
 			s->burst_label = lineno;
 		if (strstr(flat, "goto send_one;") != NULL)
@@ -776,6 +779,13 @@ MU_TEST(test_the_burst_loop_is_inside_the_register_restore)
 	         "jump at line %d), so the checks below would pass without "
 	         "reading anything", path, s.burst_label, s.burst_loop);
 	mu_assert(s.burst_label > 0 && s.burst_loop > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: a generic transmit request that arrives while a burst "
+	         "is running is not refused, so its payload would be spliced "
+	         "into the packets the burst has left and the count it asked "
+	         "for dropped", path, s.case_line);
+	mu_assert(s.busy_refusal > 0 && s.busy_refusal < s.copy, msg);
 
 	snprintf(msg, sizeof(msg),
 	         "%s: the burst loop at line %d jumps back to line %d, and the "
