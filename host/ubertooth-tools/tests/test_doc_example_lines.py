@@ -206,7 +206,7 @@ NOT_PINNED = [
     # through a macro that leaves the request's name open, so the page's
     # wording of the name is not checked, only the rest of the line.
     ("ubertooth-follow.md",
-     "error: could not zero the board's clock: the board did not answer in "
+     "error: could not read the board's clock: the board did not answer in "
      "time (libusb -7)"),
     ("ubertooth-rx.md",
      "error: could not set the channel: the board did not answer in time "
