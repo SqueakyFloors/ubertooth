@@ -4,15 +4,6 @@
 
 ### New features
 
-- `ubertooth-scan -x` names the manufacturer of a recent device. The
-  `Manufacturer:` line now reads libbtbb's table of Bluetooth SIG company
-  identifiers, which covers every identifier the SIG assigns; the BlueZ table
-  it read before ends at identifier 1037, so a device from a company that
-  joined the SIG later read `Manufacturer: not assigned`. The pin moves on to
-  the libbtbb that offers that lookup as `btbb_company_name()`
-  ([`0176769`](https://github.com/SqueakyFloors/libbtbb/commit/017676965a77cd7b00bfede343b7800dee6aa6a5)).
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-
 - A capture whose receiver is being driven harder than the radio can measure
   says so instead of looking like a capture of an empty channel: `warning: the
   signal is at the top of the receiver's range, so the board cannot measure it
@@ -879,6 +870,12 @@
   [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
 
 ### Reliability fixes
+
+- Fixed: `ubertooth-scan -x` reported a device from a company that joined the
+  Bluetooth SIG recently as `Manufacturer: not assigned`. The line is now
+  named from libbtbb's table of company identifiers, which has 4133 of them
+  where the BlueZ table it read before stops at 1037.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 - The report for a request the board refused names the reset that recovers a
   board which has stopped answering. Such a board stalls every request sent to

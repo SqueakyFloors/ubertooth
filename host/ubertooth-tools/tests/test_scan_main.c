@@ -862,7 +862,9 @@ MU_TEST(the_manufacturer_line_names_a_recent_company)
 {
 	struct run_result r;
 
-	/* 1447 is well above where BlueZ's table stops. */
+	/* 1447 is well above where BlueZ's table stops. The name is the one the
+	 * pinned libbtbb's table gives it, so a pin bump that renames the
+	 * company is what would change this line. */
 	reset_fake();
 	fake.inquiry_responses = 1;
 	fake.version_manufacturer = 1447;
