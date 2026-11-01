@@ -2,6 +2,7 @@
 import atexit
 import errno
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -439,17 +440,22 @@ class BTCtlPrompt(Cmd):
 		if not self._editor_draws_prompt:
 			self.say(self.PROMPT)
 
+	# An address is six bytes, so twelve hex digits: either with the five
+	# colons the prompt asks for, or with none at all. The length matters as
+	# much as the value, because a word of the wrong length still names a
+	# valid address -- a different one from the one that was typed, which
+	# page would page and bdaddr would give the board. So does anything
+	# Python's int() reads as a number: a "0x" prefix and underscores
+	# between digits both name an address nobody typed.
+	BDADDR = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\Z"
+		r"|[0-9A-Fa-f]{12}\Z")
+
 	def _parse_bdaddr(self, inp):
-		bdaddr = None
-		try:
-			bdaddr = int(inp.replace(":",""),16)
-		except:
-			pass
-		if bdaddr is None or bdaddr < 0 or bdaddr >= (1<<48):
+		if self.BDADDR.match(inp) is None:
 			# A diagnostic, so not on standard output.
 			error("BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)"%inp)
-		else:
-			return bdaddr
+			return None
+		return int(inp.replace(":",""),16)
 
 	def start_cmd(self, cls, *args):
 		if self._cmd is not None and (self._cmd.done() or self._gave_up):

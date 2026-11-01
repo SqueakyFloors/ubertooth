@@ -2336,6 +2336,143 @@ for typed in ("x\n", "q\n", "x now\n", "q now\n"):
 print("ubtbr: `x` and `q` leave whatever follows them")
 
 
+# ---- an address the prompt acts on is the one that was typed ---------------
+#
+# A Bluetooth address is six bytes, so twelve hex digits, which is what the
+# prompt's own error line asks for. A shorter word used to be taken and acted
+# on, because the parser read the word as a hex number and only checked that
+# it fit 48 bits: "bdaddr 11:22:33" gave the board the address 00:00:11:22:33
+# and "page 11:22:33" paged that device, three bytes from the one the user
+# meant, with nothing said about it. Two more words int() reads and this
+# grammar does not: "0x11" as address 0x11, from the prefix, and "1_1" as
+# 0x11, from the underscore.
+
+def requests_sent():
+    """The request code of every packet sent so far, oldest first.
+
+    A message longer than the endpoint's 60 bytes is sent as a first packet
+    and then continuations, which carry payload where the first carries the
+    header, so only the first of each message is read here.
+    """
+    codes = []
+    for packet in writes():
+        sent = bytes.fromhex(packet)
+        if sent[:1] == b"S" and len(sent) >= 8:
+            codes.append(struct.unpack("<I", sent[4:8])[0])
+    return codes
+
+
+def address_request(code, bdaddr):
+    """The USB packet the device gets for a request carrying an address."""
+    payload = struct.pack("<I", code) + struct.pack("<Q", bdaddr)
+    return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
+
+
+def set_bdaddr_packet(bdaddr):
+    """The USB packet the device gets for a set-address request."""
+    return address_request(btctl.BTCTL_SET_BDADDR_REQ, bdaddr)
+
+
+# The session gives the board an address of its own on the way up, so that
+# one request is there before anything is typed.
+STARTUP_BDADDR = set_bdaddr_packet(0x112233445566)
+
+REFUSED_ADDRESSES = (
+    "11:22:33",             # short, and a whole address of its own
+    "1122334455",           # short, without the colons
+    "11:22:33:44:55",       # one byte short
+    "0x112233445566",       # the prefix int() takes
+    "1_12233445566",        # the underscore int() takes
+    "11:2233:4455:66",      # twelve digits, but not the five colons
+    # Too long, but small enough to fit 48 bits, so the value said nothing
+    # about the length and these came through where a larger one did not.
+    "00:11:22:33:44:55:66",
+    "0011223344556",
+    "11:22:33:44:55:66:77",
+    "11:22:33:44:55:zz",
+    "11-22-33-44-55-66",    # twelve digits, another separator
+    "11:22:33:44:55:66 extra",   # a word after the address
+    "",                     # the bare command
+)
+refused = "".join("bdaddr %s\n" % word for word in REFUSED_ADDRESSES) + "q\n"
+status, output, errors = ran(typed=refused)
+assert status == 0, (status, output, errors)
+assert output == "", output
+assert "Traceback" not in errors, errors
+for word in REFUSED_ADDRESSES:
+    assert ("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got %s)\n" % word
+            ) in errors, (word, errors)
+# and none of them reached the board: the only set-address request is the
+# session's own, from before anything was typed
+assert writes().count(STARTUP_BDADDR) == 1, writes()
+assert requests_sent().count(btctl.BTCTL_SET_BDADDR_REQ) == 1, requests_sent()
+print("ubtbr: an address that is not six bytes is refused, not acted on")
+
+# The same parser serves page, l2ping, and monitor, so a short address is
+# refused there too, and no page train goes out for it.
+for command in ("page", "l2ping", "monitor"):
+    status, output, errors = ran(typed="%s 11:22:33\nq\n" % command)
+    assert status == 0, (command, status, output, errors)
+    assert output == "", (command, output)
+    assert ("error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got 11:22:33)\n"
+            in errors), (command, errors)
+    assert "Traceback" not in errors, (command, errors)
+    sent = requests_sent()
+    assert btctl.BTCTL_PAGING_REQ not in sent, (command, sent)
+    assert btctl.BTCTL_MONITOR_REQ not in sent, (command, sent)
+print("ubtbr: page, l2ping, and monitor refuse a short address as bdaddr does")
+
+# A whole address is taken either way it is written, upper or lower case, and
+# the board is given exactly those six bytes. The spaces around the last one
+# are Cmd's to strip, not the grammar's, which is what that line is here for.
+for word, value in (("AA:BB:CC:DD:EE:FF", 0xAABBCCDDEEFF),
+                    ("aabbccddeeff", 0xAABBCCDDEEFF),
+                    ("Aa:bB:cC:Dd:eE:fF", 0xAABBCCDDEEFF),
+                    ("  AA:BB:CC:DD:EE:FF  ", 0xAABBCCDDEEFF),
+                    # the shape the padding below is for: an address whose
+                    # leading bytes are zero, which has to survive the trip
+                    # as those six bytes rather than as its value
+                    ("00:11:22:33:44:55", 0x001122334455),
+                    ("001122334455", 0x001122334455)):
+    status, output, errors = ran(typed="bdaddr %s\nq\n" % word)
+    assert status == 0, (word, status, output, errors)
+    assert "BD_ADDR must be" not in errors, (word, errors)
+    assert "Traceback" not in errors, (word, errors)
+    assert set_bdaddr_packet(value) in writes(), (word, writes())
+print("ubtbr: a whole address is taken with or without the colons")
+
+# and so do the commands that start something, with the address they were
+# given: the refusals above would also pass if the grammar refused every
+# address, so each of those is typed with a whole one too. l2ping pages, so
+# it sends the paging request page does. Each is stopped again rather than
+# left running.
+for command, code in (("page", btctl.BTCTL_PAGING_REQ),
+                      ("l2ping", btctl.BTCTL_PAGING_REQ),
+                      ("monitor", btctl.BTCTL_MONITOR_REQ)):
+    status, output, errors = ran(
+        typed="%s AA:BB:CC:DD:EE:FF\nidle\nq\n" % command)
+    assert status == 0, (command, status, output, errors)
+    assert "BD_ADDR must be" not in errors, (command, errors)
+    assert "Traceback" not in errors, (command, errors)
+    assert address_request(code, 0xAABBCCDDEEFF) in writes(), \
+        (command, writes())
+print("ubtbr: page, l2ping, and monitor act on the address they were given")
+
+# The address an inquiry prints keeps its leading zeros, so it is a word the
+# prompt takes back. It used to be printed as a plain hex number, so a device
+# whose address begins 00: -- many do -- appeared as fewer than twelve
+# digits, and copying that word into page would now be refused.
+output, errors = canned_session("inquiry", [
+    state_message(btctl.BTCTL_STATE_INQUIRY),
+    fhs_message(0x001122334455),
+], until="RX FHS")
+printed = timed_lines(output, "RX FHS")[0]
+assert "bdaddr=001122334455 " in printed, printed
+assert tool_module.BTCtlPrompt.BDADDR.match(
+    re.search(r"bdaddr=(\S+)", printed).group(1)), printed
+print("ubtbr: the address an inquiry prints is one the prompt takes back")
+
+
 # A session at a terminal leaves the prompt to Cmd, which hands it to the
 # terminal's line editor: the editor draws it and counts its width while it
 # redraws the line being edited, so one written behind its back would put the
