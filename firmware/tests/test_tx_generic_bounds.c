@@ -90,6 +90,10 @@ static unsigned build_request(uint8_t length, unsigned payload)
 
 	request[offsetof(generic_tx_packet, length)] = length;
 	request[offsetof(generic_tx_packet, pa_level)] = 7;
+	/* A channel the synthesizer can reach, so every test above this one is
+	 * about the length rather than about the channel. */
+	request[offsetof(generic_tx_packet, channel)] = BT_FREQ_MIN & 0xff;
+	request[offsetof(generic_tx_packet, channel) + 1] = BT_FREQ_MIN >> 8;
 	for (i = 0; i < payload && TX_GENERIC_HEADER_LEN + i < sizeof(request);
 	     i++)
 		request[TX_GENERIC_HEADER_LEN + i] = 0xa5;
@@ -100,11 +104,16 @@ static unsigned build_request(uint8_t length, unsigned payload)
 static int tx_generic_request(unsigned data_in_len)
 {
 	uint8_t i;
+	uint16_t tx_channel;
 
 	if (data_in_len < TX_GENERIC_HEADER_LEN)
 		return 0;
 	i = request[offsetof(generic_tx_packet, length)];
 	if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
+		return 0;
+	tx_channel = request[offsetof(generic_tx_packet, channel)]
+	           | ((uint16_t)request[offsetof(generic_tx_packet, channel) + 1] << 8);
+	if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
 		return 0;
 	memcpy(&globals.pkt, request, TX_GENERIC_HEADER_LEN + i);
 	return 1;
@@ -156,6 +165,10 @@ MU_TEST(test_the_packet_holds_dma_size_payload_bytes)
 	mu_assert_int_eq(DMA_SIZE, (int)sizeof(globals.pkt.data));
 	mu_assert_int_eq(DMA_SIZE, (int)(sizeof(generic_tx_packet) -
 	                                 TX_GENERIC_HEADER_LEN));
+	/* And the payload a host tool offers is one FIFO load, which is the
+	 * most that goes out as a frame of a known shape. The interface header
+	 * cannot include the radio's own, so the two numbers meet here. */
+	mu_assert_int_eq(CC2400_FIFO_SIZE, GENERIC_TX_FRAMED_PAYLOAD);
 }
 
 /* A full-length packet is accepted whole, payload and all. */
@@ -224,6 +237,37 @@ MU_TEST(test_a_request_shorter_than_it_claims_is_refused)
 	mu_assert_int_eq(0, tx_generic_request(TX_GENERIC_HEADER_LEN +
 	                                       DMA_SIZE - 1));
 	mu_assert_int_eq(0, globals.pkt.length);
+}
+
+/*
+ * The channel goes into FSDIV unchanged, so only a frequency the synthesizer
+ * can reach is accepted. One outside that range used to be taken: the
+ * transmit then waited out its lock timeout, sent nothing, and left that
+ * frequency in the register for whatever ran next.
+ */
+MU_TEST(test_a_channel_the_radio_cannot_tune_is_refused)
+{
+	const uint16_t refused[] = { 0, 1, MIN_FREQ - 1, MAX_FREQ + 1, 0xffff };
+	const uint16_t accepted[] = { MIN_FREQ, BT_FREQ_MIN, BT_FREQ_MAX,
+	                              MAX_FREQ };
+	unsigned len, i;
+
+	for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+		reset_state();
+		len = build_request(4, 4);
+		request[offsetof(generic_tx_packet, channel)] = refused[i] & 0xff;
+		request[offsetof(generic_tx_packet, channel) + 1] = refused[i] >> 8;
+		mu_assert_int_eq(0, tx_generic_request(len));
+		mu_assert_int_eq(0, globals.pkt.length);
+	}
+	for (i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
+		reset_state();
+		len = build_request(4, 4);
+		request[offsetof(generic_tx_packet, channel)] = accepted[i] & 0xff;
+		request[offsetof(generic_tx_packet, channel) + 1] = accepted[i] >> 8;
+		mu_assert_int_eq(1, tx_generic_request(len));
+		mu_assert_int_eq(accepted[i], globals.pkt.channel);
+	}
 }
 
 /* A request too short to hold the header is refused before the length is read. */
@@ -429,6 +473,14 @@ struct scan {
 	int length_read;      /* the length byte is read at its own offset */
 	int length_check;     /* the length byte is at most DMA_SIZE */
 	int carried_check;    /* the request carries the payload it declares */
+	int channel_check;    /* the channel is one the synthesizer can reach */
+	int repeat_read;      /* the burst count read out of the request */
+	int busy_refusal;     /* a request during a burst is refused */
+	int burst_label;      /* where a packet of the burst starts */
+	int burst_loop;       /* the jump back for the next packet */
+	int restore_first;    /* the first register the restore puts back */
+	int tx_crc;           /* the transmit framing turns the radio CRC on */
+	int rx_crc;           /* the receive records the radio CRC verdict */
 	int copy;             /* the memcpy into tx_pkt */
 	int copies;           /* how many memcpy's into tx_pkt the file has */
 	int last_return;      /* the last refusal before the copy */
@@ -490,6 +542,30 @@ static int scan_source(const char *path, struct scan *s)
 			    s->copy == 0)
 				s->copy = lineno;
 		}
+
+		/* The channel refusal. The handler reads the request's channel
+		 * into a local of its own, so this cannot match
+		 * UBERTOOTH_SET_CHANNEL's check, which shares the lower bound
+		 * and takes anything above the upper one as the band sweep. */
+		if (strstr(flat, "tx_channel < MIN_FREQ || tx_channel > MAX_FREQ")
+		    != NULL)
+			s->channel_check = lineno;
+
+		if (strstr(flat, "tx_pkt_repeat = request_params[0]") != NULL)
+			s->repeat_read = lineno;
+		if (strstr(flat, "if (mode == MODE_TX_GENERIC)") != NULL)
+			s->busy_refusal = lineno;
+		if (strstr(flat, "send_one:") != NULL)
+			s->burst_label = lineno;
+		if (strstr(flat, "goto send_one;") != NULL)
+			s->burst_loop = lineno;
+		if (s->restore_first == 0 &&
+		    strstr(flat, "cc2400_set(SYNCH, synch)") != NULL)
+			s->restore_first = lineno;
+		if (strstr(flat, "cc2400_set(GRMDM, 0x0f61 | GRMDM_CRC)") != NULL)
+			s->tx_crc = lineno;
+		if (strstr(flat, "buf[RX_GENERIC_CRC_OFFSET] =") != NULL)
+			s->rx_crc = lineno;
 
 		if (strstr(flat, "len = MIN(tx_pkt.length, DMA_SIZE)") != NULL)
 			s->length_clamped = lineno;
@@ -656,6 +732,13 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	mu_assert(s.carried_check > 0, msg);
 
 	snprintf(msg, sizeof(msg),
+	         "%s:%d: the generic transmit request does not check its channel "
+	         "against MIN_FREQ and MAX_FREQ, so a frequency the synthesizer "
+	         "cannot reach would go into FSDIV and be left there",
+	         path, s.case_line);
+	mu_assert(s.channel_check > 0, msg);
+
+	snprintf(msg, sizeof(msg),
 	         "%s: the only copy into tx_pkt must be bounded by "
 	         "TX_GENERIC_HEADER_LEN plus the length byte that was checked; "
 	         "the file has %d copies into it and the bounded one is at line "
@@ -670,7 +753,70 @@ MU_TEST(test_the_handler_refuses_before_it_copies)
 	         s.length_check, s.carried_check);
 	mu_assert(s.header_check < s.copy && s.length_read < s.copy &&
 	          s.length_check < s.copy && s.carried_check < s.copy &&
-	          s.last_return < s.copy, msg);
+	          s.channel_check < s.copy && s.last_return < s.copy, msg);
+}
+
+/*
+ * One request can ask for a burst, and every packet of it has to go out with
+ * the framing the first one had. The loop therefore sits inside the register
+ * save and restore: a first attempt put it after the restore, so packets two
+ * and on went out with the Bluetooth registers the restore had put back, and
+ * a board set to this framing read one packet of thirty.
+ */
+MU_TEST(test_the_burst_loop_is_inside_the_register_restore)
+{
+	char msg[640];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the generic transmit request does not read a packet "
+	         "count out of its wValue, so one request cannot carry a burst "
+	         "and the host is back to a request per packet",
+	         path, s.case_line);
+	mu_assert(s.repeat_read > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the scan did not find the burst loop (label at line %d, "
+	         "jump at line %d), so the checks below would pass without "
+	         "reading anything", path, s.burst_label, s.burst_loop);
+	mu_assert(s.burst_label > 0 && s.burst_loop > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: a generic transmit request that arrives while a burst "
+	         "is running is not refused, so its payload would be spliced "
+	         "into the packets the burst has left and the count it asked "
+	         "for dropped", path, s.case_line);
+	mu_assert(s.busy_refusal > 0 && s.busy_refusal < s.copy, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the burst loop at line %d jumps back to line %d, and the "
+	         "register restore starts at line %d: the loop has to be inside "
+	         "the restore, or every packet after the first goes out with "
+	         "the registers the restore put back",
+	         path, s.burst_loop, s.burst_label, s.restore_first);
+	mu_assert(s.restore_first > 0 && s.burst_label < s.burst_loop &&
+	          s.burst_loop < s.restore_first, msg);
+}
+
+/*
+ * The framing the transmit programs turns the radio's CRC on, and the receive
+ * writes down what the radio made of it. Without the CRC a payload with a bit
+ * error in it reads as a payload: this framing has no other check.
+ */
+MU_TEST(test_the_framing_carries_a_crc_and_the_receive_records_it)
+{
+	char msg[640];
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the generic transmit does not write GRMDM with GRMDM_CRC, "
+	         "so what it sends carries no CRC and a receiving board has "
+	         "nothing to judge a packet by", path);
+	mu_assert(s.tx_crc > 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: the generic receive does not record the radio CRC verdict "
+	         "at RX_GENERIC_CRC_OFFSET, so a corrupt packet reads like a "
+	         "good one", path);
+	mu_assert(s.rx_crc > 0, msg);
 }
 
 MU_TEST(test_the_fifo_write_is_clamped_and_chunked)
@@ -852,6 +998,7 @@ int main(void)
 	MU_RUN(test_a_payload_one_over_the_limit_is_refused);
 	MU_RUN(test_the_longest_possible_length_is_refused);
 	MU_RUN(test_a_request_shorter_than_it_claims_is_refused);
+	MU_RUN(test_a_channel_the_radio_cannot_tune_is_refused);
 	MU_RUN(test_a_request_shorter_than_the_header_is_refused);
 	MU_RUN(test_the_old_unchecked_copy_ran_past_the_packet);
 	MU_RUN(test_tx_generic_never_writes_more_than_dma_size);
@@ -866,6 +1013,8 @@ int main(void)
 	scanned = scan_source(path, &s);
 	MU_RUN(test_source_was_scanned);
 	MU_RUN(test_the_handler_refuses_before_it_copies);
+	MU_RUN(test_the_burst_loop_is_inside_the_register_restore);
+	MU_RUN(test_the_framing_carries_a_crc_and_the_receive_records_it);
 	MU_RUN(test_the_fifo_write_is_clamped_and_chunked);
 	MU_RUN(test_le_transmit_waits_on_the_fifo_being_empty);
 	MU_RUN(test_tx_generic_waits_on_the_fifo_being_empty);

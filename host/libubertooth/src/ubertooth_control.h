@@ -275,6 +275,33 @@ int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value);
  * already in the radio instead of programming one. Returns 0, or a negative
  * libusb error already reported. */
 int cmd_rx_generic(struct libusb_device_handle* devh);
+/* Transmit `count` generic packets, all the same: the board frames them in
+ * the radio, so the whole description of what goes on the air is this sync
+ * word plus the framing tx_generic() programs (6 preamble bytes, the whole
+ * 32-bit sync word, the radio's CRC). channel is the carrier in MHz, which a
+ * transmit tunes directly; a board receiving the packet needs the same
+ * frequency less 1 MHz for its intermediate frequency. pa_level is the CC2400
+ * power level for these packets, 0 to UBERTOOTH_PA_LEVEL_MAX; the board puts
+ * its own level back afterwards. data_len is 0 to GENERIC_TX_MAX_PAYLOAD
+ * bytes, of which GENERIC_TX_FRAMED_PAYLOAD go out as one frame whose shape
+ * is known.
+ *
+ * One request carries the whole burst, because the board answers no request
+ * at all while a packet is going out: one request per packet loses the second
+ * packet of a fast burst to a transfer error. The board answers this request
+ * before the first packet and then transmits them back to back, about 1.3 ms
+ * each, so it is still in the generic transmit mode when this returns -- a
+ * caller that needs the air clear reads the mode out of the watchdog
+ * breadcrumb (cmd_get_watchdog_quiet()) until it is no longer
+ * MODE_TX_GENERIC. UBERTOOTH_STOP ends a burst; it took 27 ms to be answered
+ * in the middle of one.
+ *
+ * Returns 0, or a negative libusb error already reported; -1 for a request
+ * the board would refuse, which is reported here. */
+int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
+                          uint16_t channel, uint8_t pa_level,
+                          const uint8_t* data, size_t data_len,
+                          uint16_t count);
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address);
 int cmd_le_set_adv_data(struct libusb_device_handle* devh, uint8_t *data, unsigned data_len);
 int cmd_btle_set_target(struct libusb_device_handle* devh, uint8_t *mac_address, uint8_t mac_mask);

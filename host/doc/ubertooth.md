@@ -32,7 +32,8 @@ Utility commands:
  - ubertooth-dfu(1) : Firmware update tool
  - ubertooth-dump(1) : Dumping raw RF symbols to disk, Bluetooth or generic
    (experimental)
- - ubertooth-tx(1) : Retransmitting symbols dumped with ubertooth-dump
+ - ubertooth-tx(1) : Transmitting a generic packet (experimental), and
+   retransmitting symbols dumped with ubertooth-dump
  - ubertooth-ducky(1) : Driving an Uberducky as a BLE USB Rubber Ducky
  - ubertooth-util(1) : "Everything else"
 
@@ -414,11 +415,12 @@ refused.
 
 ## GENERIC RADIO MODE
 
-Experimental. The symbol-stream half works: `ubertooth-dump -g` with a
-configuration written by hand streams as the Bluetooth captures do. The
-packet-framing half does not yet produce records on our bench, and the
-deviation the board transmits a generic packet at is unsettled, so no tool
-transmits one. Expect the options and the output to change.
+Experimental, and all of it is reachable from the command line now:
+`ubertooth-debug -w` writes the radio's registers, `ubertooth-dump -g`
+receives with them, and `ubertooth-tx -g` transmits one packet. Both halves of
+the receive work on our bench -- the symbol stream, and the packet framing
+where the radio matches a sync word -- and two boards set to the same framing
+pass a payload between them. Expect the options and the output to change.
 
 The CC2400 on an Ubertooth is a plain 2.4 GHz radio, and Bluetooth is only
 what the firmware usually asks it to do. The generic receive hands that choice
@@ -471,8 +473,6 @@ That path asks more of the configuration than the symbol stream does, because
 the radio does the framing: the preamble length, how much of the sync word it
 matches and its CRC choice all have to match what is on the air, and a choice
 that does not gives a capture with no records in it rather than a message.
-This is the half that is not working yet, so treat it as something to
-experiment with rather than to rely on.
 
 The configuration lives in the radio and nothing stores it, so write the
 registers and start the capture as two commands with nothing in between. A
@@ -481,9 +481,52 @@ wrote; the board being idle is what keeps it. `ubertooth-util -S` leaves an
 idle board, so a run that is stopped properly can be set up again and
 restarted.
 
-The board can also transmit one packet with a host-written configuration,
-through a request no tool drives yet: the deviation it transmits at is still
-being settled, and as it stands the board's own receive cannot demodulate it.
+### A generic packet between two boards
+
+`ubertooth-tx -g` transmits one generic packet, and that is the way to see the
+packet-framing receive above work: it is the one transmitter whose framing is
+known. The board frames the packet in the radio -- 6 preamble bytes of
+`01010101`, the whole 32-bit sync word, the radio's CRC, which is GRMDM
+`0x0f71` -- so the receiving board has to be set to the same value and the
+same sync word.
+
+Two boards, the first receiving on 2402 MHz and the second sending it 32
+counted bytes ten times:
+
+    ubertooth-debug -U 0 -w %manand=0x7fff,%lmtst=0x2b22,%mdmtst0=0x134b,%grmdm=0x0f71,%mdmctrl=0x0057,%synch=0xcb87,%syncl=0x6543,%fsdiv=2401
+    ubertooth-dump -U 0 -g -d packets.bin &
+    ubertooth-util -U 1 -a 1
+    ubertooth-tx -U 1 -g 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 -a cb876543 -c 2402 -n 10
+
+What has to agree between the two, and what does not:
+
+ - GRMDM, exactly: `0x0f71` at the receiving end is the value the transmit
+   programs, so the preamble, the part of the sync word matched, and the CRC
+   all match. The CRC bit is what makes the record's CRC byte mean anything:
+   with it clear the radio reports a CRC_OK for packets that carry no CRC at
+   all. The payload above is 32 bytes because that is the length the CRC byte
+   has been measured at: the receive reads a fixed 32 bytes and the radio
+   answers the CRC question at the point the read stopped. See
+   ubertooth-dump(1), THE GENERIC RECEIVE.
+ - the sync word: `-a cb876543` is SYNCH `0xcb87` and SYNCL `0x6543`.
+ - the channel, less 1 MHz at the receiving end: a transmit tunes the carrier
+   directly and a receive subtracts its 1 MHz intermediate frequency, so
+   `-c 2402` goes with FSDIV `2401`.
+ - the deviation: MDMCTRL `0x0057`, which is what the firmware writes for the
+   packet as it stands. It is wider than any of the Bluetooth receives use,
+   and writing it on both boards is the recipe that works whether or not the
+   firmware goes on setting it for the packet.
+ - the power: `ubertooth-util -a` sets it, and two boards side by side at the
+   default 7 are too loud for each other -- the receiving board reads nothing
+   at all. Turn the transmitter down to 0 or 1 for a short path, or put an
+   attenuator in front of the receiver.
+
+Each record in `packets.bin` then holds the sync word the radio matched, the
+payload that followed it, and what the radio made of the packet's CRC;
+ubertooth-dump(1), THE GENERIC RECEIVE says where in the record they are, so a
+counted payload can be checked against what was sent. The receive reads a
+fixed 32 bytes, so keep a payload that is meant to be read back whole to 32
+bytes or fewer.
 
 ## OUTPUT AND DIAGNOSTICS
 

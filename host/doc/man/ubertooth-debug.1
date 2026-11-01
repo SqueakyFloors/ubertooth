@@ -22,8 +22,8 @@ may be of interest to curious hackers.
 .PP
 \fB\fC\-w\fR is experimental, as the generic radio mode it exists for is: see
 .BR ubertooth (7),
-GENERIC RADIO MODE for what works and what does not\&. Expect the option and
-its output to change\&.
+GENERIC RADIO MODE for what that mode does and what it asks of a
+configuration\&. Expect the option and its output to change\&.
 .PP
 \fB\fC\-w\fR writes registers as well as \fB\fC\-r\fR reading them\&. Writing
 the radio's registers by hand is how a generic capture is set up:
@@ -295,6 +295,9 @@ VALUES describes how option values are written
 .PP
 ubertooth\-dump(1): the generic receive, which reads with the configuration
 \fB\fC\-w\fR leaves in the radio
+.PP
+ubertooth\-tx(1): the generic transmit (\fB\fC\-g\fR), which puts a packet on
+the air for such a capture to read
 
 .SH AUTHOR
 .PP

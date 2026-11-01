@@ -168,6 +168,62 @@ static void test_access_address(void)
 	CHECK(aa == 0xdeadbeefu);
 }
 
+/* The payload reader behind ubertooth-tx -g: bytes written as hex digit
+ * pairs, into a buffer whose size the caller gives. */
+static void test_hex_bytes(void)
+{
+	uint8_t bytes[4];
+	size_t length;
+
+	memset(bytes, 0xaa, sizeof(bytes));
+	length = 99;
+	CHECK(opt_parse_hex_bytes("0102ff", bytes, sizeof(bytes), &length) == 0);
+	CHECK(length == 3);
+	CHECK(bytes[0] == 0x01 && bytes[1] == 0x02 && bytes[2] == 0xff);
+	/* only the bytes it read: the rest of the caller's buffer is its own */
+	CHECK(bytes[3] == 0xaa);
+
+	/* either case of digit, and one byte is enough */
+	CHECK(opt_parse_hex_bytes("AbCd", bytes, sizeof(bytes), &length) == 0);
+	CHECK(length == 2 && bytes[0] == 0xab && bytes[1] == 0xcd);
+	CHECK(opt_parse_hex_bytes("00", bytes, sizeof(bytes), &length) == 0);
+	CHECK(length == 1 && bytes[0] == 0x00);
+
+	/* exactly max_bytes is accepted */
+	CHECK(opt_parse_hex_bytes("01020304", bytes, sizeof(bytes), &length) == 0);
+	CHECK(length == 4 && bytes[3] == 0x04);
+
+	/* refused, and the buffer and the length are left alone */
+	memset(bytes, 0xaa, sizeof(bytes));
+	length = 99;
+	/* one byte more than the buffer holds */
+	CHECK(opt_parse_hex_bytes("0102030405", bytes, sizeof(bytes), &length) < 0);
+	/* an odd number of digits is not half a byte */
+	CHECK(opt_parse_hex_bytes("010", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("1", bytes, sizeof(bytes), &length) < 0);
+	/* no bytes at all: a caller that wants none leaves the option out */
+	CHECK(opt_parse_hex_bytes("", bytes, sizeof(bytes), &length) < 0);
+	/* not hex digits, however they are written */
+	CHECK(opt_parse_hex_bytes("zz", bytes, sizeof(bytes), &length) < 0);
+	/* a good first byte and a bad second one: the whole value is checked
+	 * before any of it is written, so that first byte is not left behind */
+	CHECK(opt_parse_hex_bytes("01zz", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("0102zz", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("0x01", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("-1", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes(" 01", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("01 02", bytes, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("01:02", bytes, sizeof(bytes), &length) < 0);
+	/* nowhere to write to, and nowhere to write the length */
+	CHECK(opt_parse_hex_bytes("0102", NULL, sizeof(bytes), &length) < 0);
+	CHECK(opt_parse_hex_bytes("0102", bytes, sizeof(bytes), NULL) < 0);
+	CHECK(opt_parse_hex_bytes(NULL, bytes, sizeof(bytes), &length) < 0);
+	/* a buffer with no room takes nothing, not one byte */
+	CHECK(opt_parse_hex_bytes("01", bytes, 0, &length) < 0);
+	CHECK(bytes[0] == 0xaa && bytes[3] == 0xaa);
+	CHECK(length == 99);
+}
+
 static void test_bd_addr(void)
 {
 	const uint8_t expected[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
@@ -561,6 +617,7 @@ int main(void)
 	test_hex();
 	test_lap_and_uap();
 	test_access_address();
+	test_hex_bytes();
 	test_bd_addr();
 	test_bd_addr_diagnostic();
 	test_bd_addr_lap_uap();

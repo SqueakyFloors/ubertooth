@@ -12,8 +12,8 @@ on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 
 `-w` is experimental, as the generic radio mode it exists for is: see
-ubertooth(7), GENERIC RADIO MODE for what works and what does not. Expect the
-option and its output to change.
+ubertooth(7), GENERIC RADIO MODE for what that mode does and what it asks of
+a configuration. Expect the option and its output to change.
 
 `-w` writes registers as well as `-r` reading them. Writing the radio's
 registers by hand is how a generic capture is set up: `ubertooth-dump -g`
@@ -192,6 +192,9 @@ how option values are written
 
 ubertooth-dump(1): the generic receive, which reads with the configuration
 `-w` leaves in the radio
+
+ubertooth-tx(1): the generic transmit (`-g`), which puts a packet on the air
+for such a capture to read
 
 ## AUTHOR
 

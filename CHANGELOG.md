@@ -17,19 +17,21 @@
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
-  is not Bluetooth can be captured without new firmware.
+  is not Bluetooth can be captured without new firmware, and one packet can be
+  transmitted the same way. ubertooth(7), GENERIC RADIO MODE is the worked
+  example of both.
   `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
-  could only read before, and `ubertooth-dump -g` starts the capture.
-  ubertooth(7), GENERIC RADIO MODE is the worked example.
-  What works and what does not: the raw symbol stream works, and `-g` with a
-  configuration written by hand streams as the Bluetooth captures do. The
-  packet-framing half, where the radio matches a sync word and the board sends
-  one record per detection, has not produced a record on our bench
-  ([#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040) is the open
-  question behind it), and no tool transmits a generic packet because the
-  deviation the firmware transmits at is unsettled. Expect the options and the
-  output of both to change.
+  could only read before; `ubertooth-dump -g` starts the capture; and
+  `ubertooth-tx -g <payload> -a <syncword> [-n <count>]` transmits packets,
+  which is the one transmitter whose framing is known, so two boards set to
+  the same framing are how the packet-framing receive is checked. Both halves
+  of the receive work: the raw symbol stream, and the packet framing where the
+  radio matches a sync word and the board sends one record per detection.
+  What goes on the air carries the radio's CRC, and each record says what the
+  radio made of it, so a payload with a bit error in it is no longer read as a
+  payload. Expect the options and the output to change.
   [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
 
 - `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
   dropping them: a replay has no board to tune and nothing to wait for, so
@@ -99,10 +101,11 @@
   the address out of the exception frame, which for that fetch is where the
   pointer pointed. Because the record means something new, the breadcrumb starts
   again on the first boot of this firmware: a board's reset, boot, and transfer
-  error counts restart once, as they do after a power cycle. Firmware API 1.57,
-  so a release build of the host tools refuses a board carrying older firmware
-  and a development build warns about it, which is what keeps either from
-  reading an older record's leftover address register as an instruction.
+  error counts restart once, as they do after a power cycle. The firmware API
+  version moved with it, so a release build of the host tools refuses a board
+  carrying older firmware and a development build warns about it, which is what
+  keeps either from reading an older record's leftover address register as an
+  instruction.
   [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
 
 - The three tools written in Python — `ubertooth-btbr`, `btle-extcap.py` and
@@ -439,8 +442,12 @@
   those tools still cannot drive that image and now fail on the first request
   it does not answer.
   [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- **Reflash required:** the firmware API version is now 1.57, last moved by the
-  address a processor fault is recorded at
+- **Reflash required:** the firmware API version is now 1.58, last moved by a
+  generic transmit request carrying how many packets to send, in a field it
+  used to ignore: older firmware would take the request, ignore the count and
+  send one packet, and the version is what stops a host from believing it
+  ([#352](https://github.com/SqueakyFloors/ubertooth/issues/352)), before that
+  by the address a processor fault is recorded at
   ([#764](https://github.com/SqueakyFloors/ubertooth/issues/764)), before that
   by the modulation a mode start keeps for the mode it was stated for, before
   that by the packet's own power and the background in every capture record,

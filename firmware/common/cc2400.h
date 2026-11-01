@@ -144,9 +144,16 @@ static inline uint16_t frend_keep_pa_level(uint16_t frend)
  * SYNC_WORD_32 (bits 6:5, 11): match the whole of SYNCH and SYNCL rather than
  * the top 8 bits.
  * CRC (bit 4): the radio appends a CRC on transmit and checks one on receive.
- * The generic transmit leaves it off, and the generic receive reads a fixed
- * number of bytes out of the FIFO without looking at a CRC result; the range
- * test turns it on at both ends.
+ * The generic transmit turns it on and the generic receive records what the
+ * radio made of it, as the range test does at both ends.
+ *
+ * Reading that verdict means reading the FIFO to the end of the payload
+ * first: STATUS_CRC_OK is the next two bytes in the FIFO against the CRC16
+ * over the bytes already read out of it, so it answers a question about the
+ * read position rather than about the packet (see cc2400_fifo_read()). The
+ * range test reads exactly its own packet length; the generic receive reads a
+ * fixed 32 bytes, so a 32-byte payload is where its verdict lines up with
+ * the packet.
  */
 #define GRMDM_BUFFERED_MASK 0x1800
 #define GRMDM_BUFFERED      0x0800

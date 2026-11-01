@@ -210,7 +210,7 @@ for the operation-by-operation comparison and the alternatives.
 |---|---|---|
 | [ubertooth-ducky](host/doc/ubertooth-ducky.md) | Drive an Uberducky BLE HID-injection gadget | Uberducky hardware |
 | [ubertooth-ego](host/doc/ubertooth-ego.md) | Sniff a Yuneec E-GO skateboard (niche) | Yuneec E-GO |
-| [ubertooth-tx](host/doc/ubertooth-tx.md) | Retransmit dumped symbols — **currently non-functional** | — |
+| [ubertooth-tx](host/doc/ubertooth-tx.md) | Transmit a generic packet (`-g`, experimental); retransmitting dumped symbols is **non-functional** | — |
 
 ### Options every tool has
 

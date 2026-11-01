@@ -14,8 +14,8 @@ demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
 
-`-g` is experimental: see THE GENERIC RECEIVE below for what works and what
-does not, and expect the option and its output to change.
+`-g` is experimental: see THE GENERIC RECEIVE below for what it asks of a
+configuration, and expect the option and its output to change.
 
 `-g` runs the board's generic receive instead. That mode programs no
 demodulator of its own: it receives with whatever CC2400 configuration is
@@ -224,35 +224,54 @@ COMMON OPTIONS.
 
 ## THE GENERIC RECEIVE
 
-Experimental. The symbol-stream half works: `ubertooth-dump -g` with a
-configuration written by hand streams as the Bluetooth captures do. The
-packet-framing half does not yet produce records on our bench, and the
-deviation the board transmits a generic packet at is unsettled, so no tool
-transmits one. Expect the options and the output to change.
+Experimental: expect the options and the output to change. Both halves of it
+work on our bench, the symbol stream and the packet framing.
 
 With `-g` the board does one of two things, and which one it does comes from
 GRMDM's packet-mode bit, so the configuration decides it:
 
  - with packet mode clear, the board streams demodulated symbols as the
-   Bluetooth captures do, so `-b` prints them as `0` and `1`. This is the half
-   that works.
+   Bluetooth captures do, so `-b` prints them as `0` and `1`.
  - with packet mode set, the board waits for the sync word in SYNCH and SYNCL
    and sends one record each time the radio reports one: the four sync-word
-   bytes, then a fixed 32 bytes read out of the radio's FIFO. It reads no
-   length and waits for no end of packet, so a record is a sample of the FIFO
-   rather than necessarily one whole packet.
+   bytes, a fixed 32 bytes read out of the radio's FIFO, and the radio's CRC
+   verdict. It reads no length and waits for no end of packet, so a record is
+   a sample of the FIFO rather than necessarily one whole packet, and a bad
+   CRC is reported rather than dropped.
 
 Packet mode leaves the framing to the radio, so it produces records only when
 GRMDM's preamble length, how much of the sync word it matches and its CRC
 choice all match what is on the air. Getting that right for a protocol is part
 of the setup and nothing reports a mismatch: a wrong choice gives a capture
-with no records in it. Nothing has made it produce a record on our bench yet,
-which is why the worked example in ubertooth(7) uses the symbol stream.
+with no records in it. The one transmitter whose framing is known is
+`ubertooth-tx -g`, so a second Ubertooth is the way to check a packet-mode
+setup; ubertooth(7), GENERIC RADIO MODE has both ends of that.
 
 Either way the records are the 68-byte and 401-byte shapes described above:
 the board sends what it received, and this tool writes it out without looking
 in it. Nothing decodes a generic capture, because nothing here knows what
-protocol it is.
+protocol it is. In a packet-mode record the four sync-word bytes are at offset
+18, the 32 payload bytes at offset 22, and at offset 54 one byte that is 1
+when the radio said the packet's CRC checked out and 0 when it did not, so
+`xxd -s 22 -l 33 packets.bin` shows the first packet's payload and its
+verdict.
+
+That byte needs GRMDM to have the CRC on at this end to mean anything: with
+the bit clear the radio called packets that carried no CRC at all good.
+`ubertooth-tx -g` transmits with the CRC on, and ubertooth(7), GENERIC RADIO
+MODE sets a receiving board to the same value.
+
+**Trust it at a 32-byte payload.** The datasheet defines the flag against the
+read position -- the two bytes after what has been read out of the FIFO,
+against the CRC16 over what was read -- and this capture reads a fixed 32
+bytes, because the framing carries no length. A 32-byte payload is therefore
+the case where the read stops where the CRC is, and it is the case that was
+measured: of 200 packets one way, the three whose payload came out corrupted
+were the three the radio marked bad. A shorter payload tracked the transmit's
+CRC too when it was tried (30 packets of 8 bytes: every record good with the
+CRC on, every record bad with it off), so the flag is not simply scrambled,
+but nothing has shown it catching a corrupt short packet. Treat it as
+unverified there rather than as a check.
 
 The configuration has to be in the radio before the capture starts, and it
 survives only while the board is idle: a mode ending puts the radio back
@@ -263,6 +282,9 @@ commands with nothing in between, as ubertooth(7), GENERIC RADIO MODE shows.
 
 ubertooth-debug(1): reads and writes the CC2400 registers a generic capture
 needs (`-w`)
+
+ubertooth-tx(1): the transmitting half of the generic radio mode (`-g`), whose
+framing a packet-mode capture can be set to match
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
 long it lasts

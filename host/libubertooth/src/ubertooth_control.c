@@ -20,6 +20,7 @@
  */
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <btbb.h>
@@ -1431,6 +1432,76 @@ int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value)
 int cmd_rx_generic(struct libusb_device_handle* devh)
 {
 	return ubertooth_cmd_sync(devh, CTRL_OUT, UBERTOOTH_RX_GENERIC, NULL, 0);
+}
+
+int cmd_tx_generic_packet(struct libusb_device_handle* devh, uint32_t syncword,
+                          uint16_t channel, uint8_t pa_level,
+                          const uint8_t* data, size_t data_len,
+                          uint16_t count)
+{
+	/* The firmware copies the request's bytes straight over a
+	 * generic_tx_packet, so the fields go in at that structure's offsets,
+	 * each 16-bit one least significant byte first as the board's compiler
+	 * lays it out. Written out rather than sent as a structure of our own,
+	 * which would carry this host's padding and byte order into the
+	 * request. */
+	uint8_t request[sizeof(generic_tx_packet)];
+	const size_t header_len = offsetof(generic_tx_packet, data);
+	int r;
+
+	if (count == 0) {
+		fputs("error: a generic transmit of no packets was asked for\n",
+		      stderr);
+		return -1;
+	}
+	if (data_len > GENERIC_TX_MAX_PAYLOAD) {
+		fprintf(stderr, "error: a generic packet carries at most %u bytes"
+		        " (got %zu)\n", (unsigned)GENERIC_TX_MAX_PAYLOAD, data_len);
+		return -1;
+	}
+	/* The two ways a caller can ask for something the board would not do.
+	 * Reported, rather than a bare -1, because the header says every
+	 * failure here is: a library caller has no other way to tell these
+	 * from a board that refused the request. */
+	if (data == NULL && data_len > 0) {
+		fprintf(stderr, "error: a generic packet of %zu bytes was asked"
+		        " for with no payload\n", data_len);
+		return -1;
+	}
+	if (pa_level > UBERTOOTH_PA_LEVEL_MAX) {
+		fprintf(stderr, "error: the power level for a generic packet is"
+		        " 0 to %u (got %u)\n", (unsigned)UBERTOOTH_PA_LEVEL_MAX,
+		        pa_level);
+		return -1;
+	}
+
+	memset(request, 0, sizeof(request));
+	/* SYNCH is the top half of the sync word and SYNCL the bottom half,
+	 * which is the order the radio sends them in. */
+	request[offsetof(generic_tx_packet, synch)]     = (syncword >> 16) & 0xff;
+	request[offsetof(generic_tx_packet, synch) + 1] = (syncword >> 24) & 0xff;
+	request[offsetof(generic_tx_packet, syncl)]     = syncword & 0xff;
+	request[offsetof(generic_tx_packet, syncl) + 1] = (syncword >> 8) & 0xff;
+	request[offsetof(generic_tx_packet, channel)]     = channel & 0xff;
+	request[offsetof(generic_tx_packet, channel) + 1] = (channel >> 8) & 0xff;
+	request[offsetof(generic_tx_packet, length)]   = (uint8_t)data_len;
+	request[offsetof(generic_tx_packet, pa_level)] = pa_level;
+	if (data_len > 0)
+		memcpy(request + header_len, data, data_len);
+
+	/* The count travels in the setup packet, which is why one request can
+	 * ask for a whole burst: the board answers it before the first packet
+	 * and sends the rest without the host saying anything more. Sent as a
+	 * request of its own per packet, the second one of a fast burst comes
+	 * back as a transfer error, because the board answers nothing while a
+	 * packet is going out. */
+	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_TX_GENERIC_PACKET,
+			count, 0, request, (uint16_t)(header_len + data_len), 1000);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_TX_GENERIC_PACKET);
+		return r;
+	}
+	return 0;
 }
 
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address)
