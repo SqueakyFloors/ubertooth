@@ -85,7 +85,8 @@ COMPATIBILITY.md for the comparison.
  - `-b <hciN>` :
    local Bluetooth device to use (default: hci0).
  - `-w <timeslots>` :
-   USB delay in 625us timeslots (default: 5).
+   USB delay in 625us timeslots (default: 5). See THE CLOCK THE BOARD HOPS ON
+   below.
  - `-h` :
    show help.
 
@@ -164,6 +165,32 @@ The map that comes back is used only when it could be a hop sequence at all:
 Nothing is set on the Ubertooth until the map has been accepted, so a refused
 `-a` leaves the board alone, and the connection the tool made to the target is
 dropped on the way out.
+
+## THE CLOCK THE BOARD HOPS ON
+
+A piconet's hopping sequence is driven by its clock, so following one means
+putting the board on that clock. The tool works it out in three reads, taken
+one after another just before the board is told to hop: the local Bluetooth
+device's clock, how far the target's clock is from it, and the board's own
+clock. The board is given the difference between the target's clock and its
+own, which is what it adds to the clock it is already running.
+
+The board's clock is left alone. Earlier releases zeroed it instead and sent
+the target's clock as it stood, which came to the same thing only for the
+instant after the reset. Two things follow from reading it:
+
+ - how well a follow hops no longer depends on how long its own setup took.
+   Everything between the reset and the start of the hopping used to be error
+   in the followed clock, so a slow machine, a busy USB bus or a capture file
+   that took a moment to create each cost accuracy;
+ - the timestamps of the capture are the board's own clock throughout. A run
+   that reset the clock mid-stream put them out by hours, and a run that
+   follows one of these keeps the clock the board has been counting since it
+   was plugged in rather than restarting near zero.
+
+`-w` compensates the time between measuring the clocks and the board acting on
+them: the default is five 625us timeslots, added to the offset. Raise it if a
+follow finds nothing on a machine slower than the one the default suits.
 
 ## EXAMPLES
 
@@ -316,29 +343,30 @@ target without it would hop on the local device's clock instead. A follow keyed
 on `-l` and `-u` pages a guessed `00:00:<UAP>:<LAP>`, so that line also asks
 for the whole address with `-t` (see AFH above).
 
-A board that refuses the target's address or the clock reset exits 1 before the
-capture starts, with the request named on standard error. Following anyway
-would mean a board that is not set up for the piconet: without the target's
-address it matches no packet, and with its clock never zeroed it hops on a
-clock the offset was not measured from.
+A board that refuses the target's address, or will not report its own clock,
+exits 1 before it is told to hop, with the request named on standard error.
+Following anyway would mean a board that is not set up for the piconet:
+without the target's address it matches no packet, and without its own clock
+there is no difference to hop by (see THE CLOCK THE BOARD HOPS ON above).
 
 Standard output stays empty in that case, and standard error names the request,
 why the board refused it and the libusb code, adding a note where there is
 something to try:
 
-    error: could not zero the board's clock: the board did not answer in time (libusb -7)
+    error: could not read the board's clock: the board did not answer in time (libusb -7)
     note: if a mode is running, stop it with ubertooth-util -S; a board that does not answer at all usually resets itself within a few seconds, so run the command again, and unplug it or power-cycle its hub port if it stays silent
 
 That pair is the report, the same one ubertooth-rx(1) and ubertooth-scan(1)
 give: the request named as `set the Bluetooth address` for the address, and as
-`zero the board's clock` for the clock reset. A request the board's firmware
-has not got is stalled, which reads `error: could not zero the board's clock:
-the board's firmware does not support it (stalled, libusb -9)`, with a note
-naming the board's firmware API version and the one these tools need (see
+`read the board's clock` for the clock. A request the board's firmware has not
+got is stalled, which reads `error: could not read the board's clock: the
+board's firmware does not support it (stalled, libusb -9)`, with a note naming
+the board's firmware API version and the one these tools need (see
 ubertooth(7), FIRMWARE OF ANOTHER API VERSION). A board that took only part of
-either write gives the counts instead, as `error: Bluetooth address write
-failed: board took 8 of 16 bytes` or `error: clock write failed: board took 2
-of 4 bytes`, and the follow stops on that one line.
+the address, or answered the clock read with fewer bytes than it was asked
+for, gives the counts instead, as `error: Bluetooth address write failed:
+board took 8 of 16 bytes` or `error: clock read failed: board returned 3 of 4
+bytes`, and the follow stops on that one line.
 
 A follow whose USB stream fails part-way also exits 1: the board stopped
 answering, or dropped off the bus, so the capture stops there and holds only

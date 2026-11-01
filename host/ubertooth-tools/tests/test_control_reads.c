@@ -255,6 +255,43 @@ MU_TEST(read_access_address_returns_errors_separately)
 	mu_assert(aa == 0xdeadbeefu, "left untouched on an error");
 }
 
+/* The same for the clock, and here it is not only tidier: CLKN counts
+ * 312.5 us ticks through all 32 bits, so a board left plugged in for about 15
+ * days really does reach the values the u32-returning cmd_get_clock() uses
+ * for its errors. A caller that has to tell the two apart asks for
+ * cmd_read_clock(). */
+MU_TEST(read_clock_returns_errors_separately)
+{
+	uint32_t clock = 0xdeadbeef;
+
+	script(4, 0);
+	fake.reply[0] = 0x78; fake.reply[1] = 0x56;
+	fake.reply[2] = 0x34; fake.reply[3] = 0x12;
+	mu_assert_int_eq(0, cmd_read_clock(NULL, &clock));
+	mu_assert(clock == 0x12345678u, "clock");
+	mu_assert_int_eq(UBERTOOTH_GET_CLOCK, fake.last_request);
+
+	/* A clock in the range the error codes occupy, which cmd_get_clock()
+	 * cannot report and this call can. */
+	script(4, 0);
+	fake.reply[0] = 0x18; fake.reply[1] = 0xfc;
+	fake.reply[2] = 0xff; fake.reply[3] = 0xff;
+	mu_assert_int_eq(0, cmd_read_clock(NULL, &clock));
+	mu_assert(clock == 0xfffffc18u, "a clock that reads as an error code");
+
+	clock = 0xdeadbeef;
+	script(3, 0x11);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_clock(NULL, &clock));
+	mu_assert(clock == 0xdeadbeefu, "left untouched on a short reply");
+	script(0, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_clock(NULL, &clock));
+	mu_assert(clock == 0xdeadbeefu, "left untouched on an empty reply");
+
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE, cmd_read_clock(NULL, &clock));
+	mu_assert(clock == 0xdeadbeefu, "left untouched on an error");
+}
+
 /* Captures standard error over one call and returns what it holds. */
 static void run_captured(void (*call)(void), char *text, size_t size)
 {
@@ -315,6 +352,11 @@ static void set_channel(void) { cmd_set_channel(NULL, 2441); }
 static void set_bdaddr_quiet(void) { cmd_set_bdaddr_quiet(NULL, 0x112233); }
 static void set_clock_quiet(void) { cmd_set_clock_quiet(NULL, 0); }
 static void set_clock(void) { cmd_set_clock(NULL, 0); }
+static void read_clock_quiet(void)
+{
+	cmd_read_clock_quiet(NULL, &(uint32_t){0});
+}
+static void read_clock(void) { cmd_read_clock(NULL, &(uint32_t){0}); }
 
 /* A tool that names the request itself asks for the quiet form, so the whole
  * failure is the one line the tool prints. The reporting form keeps its own
@@ -378,10 +420,37 @@ MU_TEST(the_quiet_set_forms_report_nothing)
 	mu_assert(strcmp(text, "error: clock write failed: "
 	    "board took 2 of 4 bytes\n") == 0, text);
 
+	/* The clock read has the same pair, because ubertooth-follow names that
+	 * request itself: the quiet form is silent for a transfer error and
+	 * keeps the complete line a truncated reply has, and the reporting form
+	 * prints its own. */
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	run_captured(read_clock_quiet, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	script(3, 0x11);
+	run_captured(read_clock_quiet, text, sizeof(text));
+	mu_assert(strcmp(text, "error: clock read failed: "
+	    "board returned 3 of 4 bytes\n") == 0, text);
+
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	run_captured(read_clock, text, sizeof(text));
+	mu_assert(strcmp(text,
+	    "error: the Ubertooth did not answer in time (libusb -7)\n") == 0,
+	    text);
+
+	script(3, 0x11);
+	run_captured(read_clock, text, sizeof(text));
+	mu_assert(strcmp(text, "error: clock read failed: "
+	    "board returned 3 of 4 bytes\n") == 0, text);
+
 	/* A request the board took says nothing either way. */
 	script(0, 0);
 	mu_assert_int_eq(0, cmd_set_channel_quiet(NULL, 2441));
 	run_captured(set_channel, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(4, 0);
+	run_captured(read_clock, text, sizeof(text));
 	mu_assert(text[0] == '\0', text);
 	script(4, 0);
 	mu_assert_int_eq(0, cmd_set_clock_quiet(NULL, 0));
@@ -906,6 +975,7 @@ int main(void)
 	MU_RUN(the_quiet_set_forms_report_nothing);
 	MU_RUN(four_and_two_byte_reads_need_their_full_length);
 	MU_RUN(read_access_address_returns_errors_separately);
+	MU_RUN(read_clock_returns_errors_separately);
 	MU_RUN(no_read_writes_to_standard_output);
 	MU_RUN(a_board_that_does_not_answer_is_reported_in_words);
 	MU_RUN(other_libusb_errors_keep_their_own_report);

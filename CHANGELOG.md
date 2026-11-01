@@ -845,6 +845,15 @@
   resumed`.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 
+- `ubertooth-follow` reads the board's clock and hops by the difference between
+  the piconet's clock and that one, instead of zeroing the board's clock and
+  sending the piconet's as it stood. How well a follow hops no longer depends
+  on how long its own setup took — everything between the reset and the start
+  of the hopping used to be error in the followed clock — and a follow no
+  longer resets the clock its own capture timestamps are taken from, or the one
+  a later run on the same board reads.
+  [#507](https://github.com/SqueakyFloors/ubertooth/issues/507)
+
 - The three capture-loss warnings name the board that recorded the capture, so
   a replay no longer reads as if a board were attached: `warning: the recording
   board's packet queue filled up ...` where it used to say `the board's`.

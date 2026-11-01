@@ -233,6 +233,9 @@ int main(int argc, char *argv[])
 	 * error instead. */
 	int capture_took_stdout = 0;
 	uint32_t clock = 0;
+	/* CLKN as the board reports it, which the offset below is measured
+	 * from. */
+	uint32_t board_clkn = 0;
 	uint16_t accuracy = 0, handle = 0, offset = 0;
 	bdaddr_t bdaddr = { { 0 } };
 	btbb_piconet *pn = NULL;
@@ -788,39 +791,18 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* The target's address and the board's clock are set before the receive
-	 * transfer is submitted below, because zeroing CLKN moves the clock the
-	 * board stamps its records with. A record sent before the reset and read
-	 * after it carries the period count from before: the host reads that
-	 * count as a difference from the previous record's, so 150 then 0 reads
-	 * as 106 periods gone by and adds about 34,700 s to every later
-	 * timestamp. Both requests are synchronous, so the board has them before
-	 * anything is in flight; the asynchronous ones below cannot move up here,
-	 * because the poll thread is what completes them. Both results are
-	 * checked, as the AFH requests below are: a board that took neither
-	 * would follow nothing the user asked for. It used to carry on, having
-	 * printed only a generic line that did not say which request had failed.
-	 * A board without the address matches no packet, and a board whose CLKN
-	 * was never zeroed keeps the clock it has been running since it was
-	 * plugged in, which start-hopping adds its offset to rather than
-	 * replacing, so the follow hops on the wrong clock and every packet time
-	 * is out by however long the board had been up.
-	 *
-	 * What this costs is a slightly staler hop offset. Start-hopping adds its
-	 * offset to whatever CLKN has reached since the reset rather than
-	 * replacing it, so everything between the two is error in the followed
-	 * clock, and the endpoint flush and the thread creation are now inside
-	 * that window: a few of the 312.5 us ticks the hop clock counts, against
-	 * timestamps that were hours out. */
+	/* The target's address is set before the receive transfer is submitted
+	 * below. The request is synchronous, so the board has it before
+	 * anything is in flight; the asynchronous ones below cannot move up
+	 * here, because the poll thread is what completes them. The result is
+	 * checked, as the AFH requests below are: a board without the address
+	 * matches no packet, so a follow that carried on would capture nothing
+	 * the user asked for. It used to carry on, having printed only a
+	 * generic line that did not say which request had failed. */
 	r = cmd_set_bdaddr_quiet(ut->devh, btbb_piconet_get_bdaddr(pn));
 	if (r < 0)
 		return follow_request_failed(ut, sock, handle, cc, &files,
 		                             "set the Bluetooth address", r);
-
-	r = cmd_set_clock_quiet(ut->devh, 0);
-	if (r < 0)
-		return follow_request_failed(ut, sock, handle, cc, &files,
-		                             "zero the board's clock", r);
 
 	// init USB transfer
 	/* Each of the three steps that set the capture up exits 1, like every
@@ -858,7 +840,7 @@ int main(int argc, char *argv[])
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
 	 * rather than hopping from an uninitialised one. The receive thread is
-	 * already running and the link to the target is up by now, so both
+	 * already running and the link to the target is up by now, so all three
 	 * failures leave through follow_cleanup(). */
 	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, HCI_TIMEOUT_MS) < 0) {
 		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
@@ -880,11 +862,46 @@ int main(int argc, char *argv[])
 		}
 		clock += (btohs(offset) << 2);   // Correct offset
 	}
+
+	/* The board's own clock, read here beside the clocks above so that the
+	 * two are measured as close together as the requests allow.
+	 *
+	 * The board is told to hop by an offset which it adds to the clock it
+	 * is already running, so what it needs is the difference between the
+	 * piconet's clock and its own. This run used to send the difference
+	 * from zero instead, having zeroed CLKN a moment earlier, which cost
+	 * two things. Everything between the reset and the start of the hopping
+	 * -- the endpoint flush, the thread creation, both clock reads -- was
+	 * error in the followed clock, so how well a follow hopped depended on
+	 * how long its own setup took. And the reset moved the clock the board
+	 * stamps its records with, which put the timestamps of the capture
+	 * hours out, because a record sent before the reset and read after it
+	 * carries the period count from before: the host reads that count as a
+	 * difference from the previous record's, so 150 then 0 read as 106
+	 * periods gone by.
+	 *
+	 * Reading it is also what -w compensates: the piconet's clock was read
+	 * one round trip ago and the board's is read now, so the delay covers
+	 * the time it takes to measure and apply them rather than the whole
+	 * setup. */
+	r = cmd_read_clock_quiet(ut->devh, &board_clkn);
+	if (r < 0) {
+		/* Not follow_request_failed(): that gives the board back
+		 * without a STOP, which is right only before a mode has
+		 * started. The receive transfer is in flight by now. */
+		report_refused_request("read the board's clock", r);
+		follow_cleanup(ut, sock, handle, cc, &files);
+		return 1;
+	}
+
 	/* The delay is counted in the clock's own ticks here, so a large -w
-	 * cannot overflow a signed multiplication on the way: the clock is a
-	 * 32-bit count the board wraps anyway. */
+	 * cannot overflow a signed multiplication on the way. All three terms
+	 * are 32-bit counts the board wraps anyway, so the subtraction is taken
+	 * modulo that and then cast, as libbtbb casts the same difference when
+	 * it hands over a clock of its own. */
 	btbb_piconet_set_clk_offset(pn,
-		clock + (uint32_t)delay * CLKN_TICKS_PER_SLOT);
+		(int)(clock + (uint32_t)delay * CLKN_TICKS_PER_SLOT
+		      - board_clkn));
 	btbb_piconet_set_flag(pn, BTBB_FOLLOWING, 1);
 	btbb_piconet_set_flag(pn, BTBB_CLK27_VALID, 1);
 

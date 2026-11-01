@@ -240,6 +240,15 @@ int cmd_set_clock(struct libusb_device_handle* devh, u32 clkn);
 /* See cmd_set_channel_quiet(). A transfer the board truncated carries its own
  * complete line and returns UBERTOOTH_ERROR_SHORT_REPLY, as the reads do. */
 int cmd_set_clock_quiet(struct libusb_device_handle* devh, u32 clkn);
+/* Reads CLKN, the board's own clock, into *clock: 312.5 us ticks since the
+ * board started, plus whatever offsets it has been given since. Returns 0, or
+ * a negative error as the reads above do. The whole 32-bit range is a clock,
+ * so an error has to come back separately; see cmd_get_clock() below. */
+int cmd_read_clock(struct libusb_device_handle* devh, u32 *clock);
+/* See cmd_set_channel_quiet(). A reply the board truncated carries its own
+ * complete line and returns UBERTOOTH_ERROR_SHORT_REPLY. */
+int cmd_read_clock_quiet(struct libusb_device_handle* devh, u32 *clock);
+/* Deprecated: an error is indistinguishable from a clock. */
 uint32_t cmd_get_clock(struct libusb_device_handle* devh);
 int cmd_set_afh_map(struct libusb_device_handle* devh, u8* afh_map);
 int cmd_clear_afh_map(struct libusb_device_handle* devh);
