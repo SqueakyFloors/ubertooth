@@ -851,7 +851,7 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1);
+	rx_dump(ut, 1, 0);
 	release_output(err, sizeof(err));
 
 	/* Two: the modulation it reads, then the mode request. A capture that
@@ -859,6 +859,33 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	mu_assert_int_eq(2, fake.n);
 	mu_assert_int_eq(1, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert_int_eq(0, sent(UBERTOOTH_AFH));
+	mu_assert(err[0] == '\0', err);
+
+	assert_transfer_lifetimes();
+	release_handle(ut);
+}
+
+/* `ubertooth-dump -g` asks for the generic receive instead, which is the one
+ * mode that demodulates with the configuration already in the radio. Asking
+ * for symbols as well would start a mode that programs its own. */
+MU_TEST(a_generic_dump_asks_for_the_generic_receive)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	rx_dump(ut, 1, 1);
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(2, fake.n);
+	mu_assert_int_eq(1, sent(UBERTOOTH_RX_GENERIC));
+	mu_assert_int_eq(0, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert(err[0] == '\0', err);
 
 	assert_transfer_lifetimes();
@@ -886,7 +913,7 @@ MU_TEST(a_dump_states_its_modulation_on_both_sides_of_the_mode_request)
 	ut->capture_modulation = MOD_BT_LOW_ENERGY;
 
 	capture_output();
-	rx_dump(ut, 1);
+	rx_dump(ut, 1, 0);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(3, fake.n);
@@ -922,7 +949,7 @@ MU_TEST(a_refused_modulation_ends_the_dump)
 	ut->capture_modulation = MOD_BT_LOW_ENERGY;
 
 	capture_output();
-	r = rx_dump(ut, 1);
+	r = rx_dump(ut, 1, 0);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
@@ -1107,7 +1134,7 @@ MU_TEST(a_single_phase_stream_frees_its_receive_transfer)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1);
+	rx_dump(ut, 1, 0);
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(1, fake.bulk_submits);
@@ -1178,7 +1205,7 @@ MU_TEST(a_stop_with_a_packet_in_hand_gives_the_transfer_back)
 		return;
 
 	capture_output();
-	rx_dump(ut, 1);
+	rx_dump(ut, 1, 0);
 	release_output(err, sizeof(err));
 
 	assert_transfer_lifetimes();
@@ -1217,7 +1244,7 @@ MU_TEST(a_cancel_the_device_refuses_leaves_the_transfer_alone)
 			return;
 
 		capture_output();
-		rx_dump(ut, 1);
+		rx_dump(ut, 1, 0);
 		release_output(err, sizeof(err));
 
 		assert_transfer_lifetimes();
@@ -1598,6 +1625,7 @@ int main(void)
 	MU_RUN(an_interrupt_during_detection_ends_the_run);
 	MU_RUN(a_packet_after_the_timer_does_not_re_arm_the_transfer);
 	MU_RUN(a_symbol_capture_still_asks_for_symbols);
+	MU_RUN(a_generic_dump_asks_for_the_generic_receive);
 	MU_RUN(a_dump_states_its_modulation_on_both_sides_of_the_mode_request);
 	MU_RUN(a_refused_modulation_ends_the_dump);
 	MU_RUN(a_refused_mode_request_joins_the_poll_thread);

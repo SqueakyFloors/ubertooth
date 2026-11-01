@@ -29,14 +29,14 @@ Useful commands:
 Utility commands:
 
  - ubertooth-dfu(1) : Firmware update tool
- - ubertooth-dump(1) : Dumping raw RF symbols to disk
+ - ubertooth-dump(1) : Dumping raw RF symbols to disk, Bluetooth or generic
  - ubertooth-tx(1) : Retransmitting symbols dumped with ubertooth-dump
  - ubertooth-ducky(1) : Driving an Uberducky as a BLE USB Rubber Ducky
  - ubertooth-util(1) : "Everything else"
 
 Less useful commands:
 
- - ubertooth-debug(1) : Peeking at registers on the CC2400
+ - ubertooth-debug(1) : Reading and writing registers on the CC2400
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
 
 ## COMMON OPTIONS
@@ -379,6 +379,64 @@ one running firmware older than the info block, which a development build
 reaches because it reports the version mismatch and runs on. Both are boards
 somebody means to use, and neither can be told from the other, so neither is
 refused.
+
+## GENERIC RADIO MODE
+
+The CC2400 on an Ubertooth is a plain 2.4 GHz radio, and Bluetooth is only
+what the firmware usually asks it to do. The generic receive hands that choice
+to you: it programs no demodulator of its own and receives with whatever
+configuration is already in the radio's registers. So a 2.4 GHz protocol that
+is not Bluetooth can be captured without new firmware, as long as the CC2400
+can be set up for it.
+
+Two commands do it. `ubertooth-debug -w` writes the registers, and
+`ubertooth-dump -g` starts the capture:
+
+    ubertooth-debug -w %manand=0x7fff,%lmtst=0x2b22,%mdmtst0=0x134b,%grmdm=0x0101,%fsdiv=2401,%mdmctrl=0x0029
+    ubertooth-dump -g -b -d symbols.txt
+
+One `-w` takes the whole list, so the registers go in one of them.
+
+That example is Bluetooth Basic Rate, as a case you can check against
+`ubertooth-dump -c`: GFSK at 160 kHz deviation (MDMCTRL `0x0029`) on 2402 MHz
+(FSDIV is the frequency in MHz less the 1 MHz intermediate frequency), with
+GRMDM `0x0101` for un-buffered mode and no packet framing. The board streams
+demodulated symbols and `-b` prints them as `0` and `1`.
+
+The registers that matter, and what each decides:
+
+ - MDMCTRL : the frequency deviation, which is the data rate the demodulator
+   expects. `0x0029` is 160 kHz, `0x0040` is 250 kHz.
+ - FSDIV : the channel, as the frequency in MHz less 1 for the intermediate
+   frequency.
+ - GRMDM : buffered or un-buffered, packet mode or not, how many preamble
+   bytes, how much of the sync word to match, and whether the radio checks a
+   CRC. Its packet-mode bit is what the board reads to choose between the two
+   receives below.
+ - SYNCH and SYNCL : the sync word, in packet mode.
+ - MANAND, LMTST and MDMTST0 : the analog and test settings the Bluetooth
+   receives use; a protocol at a different rate may want others.
+
+`ubertooth-debug -r` reads any of them back, and the CC2400 datasheet is where
+the fields come from. Nothing in these tools knows which values make sense
+together: a configuration that does not work gives a capture with nothing in
+it, not an error.
+
+With GRMDM's packet-mode bit set, the board waits for the sync word instead
+and sends one record per packet: the four sync-word bytes, then 32 bytes out
+of the radio's FIFO. It keeps waiting on a quiet channel, answering requests,
+until the capture is stopped.
+
+The configuration lives in the radio and nothing stores it, so write the
+registers and start the capture as two commands with nothing in between. A
+mode ending takes the radio through its own reset, which clears what `-w`
+wrote; the board being idle is what keeps it. `ubertooth-util -S` leaves an
+idle board, so a run that is stopped properly can be set up again and
+restarted.
+
+The board can also transmit one packet with a host-written configuration,
+through a request no tool drives yet; the deviation it transmits at is still
+being settled.
 
 ## OUTPUT AND DIAGNOSTICS
 

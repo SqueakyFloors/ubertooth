@@ -4,6 +4,16 @@
 
 ### New features
 
+- The board's generic radio mode is reachable from the command line. It
+  demodulates with whatever CC2400 configuration the host has written rather
+  than a Bluetooth one, so a 2.4 GHz protocol that is not Bluetooth can be
+  captured without new firmware. `ubertooth-debug -w <reg>=<value>[,...]`
+  writes the registers, which the tool could only read before, and
+  `ubertooth-dump -g` starts the capture. ubertooth(7), GENERIC RADIO MODE is
+  the worked example. Transmitting with a host-written configuration is not
+  exposed yet.
+  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
 - A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
   packet whose data did not match its own length fields used to put a line
   reading `Error: attempt to read past end of buffer` on standard error, which

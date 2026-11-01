@@ -52,6 +52,9 @@ static struct {
 	 * nothing without it. */
 	int capture_modulation;
 	int dump_rc;        /* what rx_dump() returns */
+	/* Whether the tool asked for the generic receive: -1 where no dump ran,
+	 * so a case that never reached one cannot read as 0. */
+	int generic;
 	int stream_failed;  /* what ubertooth_stream_failed() reports */
 	/* 1 for the cases that are meant to run a whole dump; the fakes below
 	 * refuse to be reached without it. */
@@ -131,10 +134,11 @@ int ubertooth_open_stopped(void)
 	return 0;
 }
 
-int rx_dump(ubertooth_t* ut, int bitstream)
+int rx_dump(ubertooth_t* ut, int bitstream, int generic)
 {
 	(void)bitstream;
 	fake.dumps++;
+	fake.generic = generic;
 	/* The real one states this after it has asked for the capture mode; all
 	 * this fake does is record what the tool asked for. */
 	fake.capture_modulation = ut->capture_modulation;
@@ -223,6 +227,7 @@ static void reset(void)
 	memset(&fake, 0, sizeof(fake));
 	fake.api_rc = -1; /* so no test runs into the capture loop */
 	fake.capture_modulation = NO_MODULATION;
+	fake.generic = -1; /* so a case that ran no dump cannot read as "not -g" */
 	dumpfile = NULL;
 }
 
@@ -506,6 +511,53 @@ MU_TEST(the_modulation_options_reach_the_board)
 	mu_assert_int_eq(MOD_BT_BASIC_RATE, fake.capture_modulation);
 }
 
+/* -g asks for the generic receive, and a command line with neither -g nor a
+ * modulation asks for the symbol capture as it always did. */
+MU_TEST(the_generic_option_reaches_the_board)
+{
+	char* with_g[] = { "ubertooth-dump", "-g", NULL };
+	char* without_g[] = { "ubertooth-dump", NULL };
+	struct run r;
+
+	reset();
+	fake.api_rc = 0;
+	fake.reach_capture = 1;
+	run_main(&r, 2, with_g);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.generic);
+
+	reset();
+	fake.api_rc = 0;
+	fake.reach_capture = 1;
+	run_main(&r, 1, without_g);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, fake.generic);
+}
+
+/* -g says to use the modulation already in the radio and -c and -l name one
+ * for the board to program, so a command line with both is refused before any
+ * board is opened. */
+MU_TEST(the_generic_option_is_refused_with_a_modulation)
+{
+	char* g_then_c[] = { "ubertooth-dump", "-g", "-c", NULL };
+	char* l_then_g[] = { "ubertooth-dump", "-l", "-g", NULL };
+	struct run r;
+
+	reset();
+	run_main(&r, 3, g_then_c);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.starts);
+	mu_assert_int_eq(0, fake.dumps);
+	mu_assert(strstr(r.err, "-g cannot be combined with -c") != NULL, r.err);
+
+	reset();
+	run_main(&r, 3, l_then_g);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.starts);
+	mu_assert_int_eq(0, fake.dumps);
+	mu_assert(strstr(r.err, "-g cannot be combined with -l") != NULL, r.err);
+}
+
 /* The -U value reaches the library as the user wrote it. */
 MU_TEST(the_device_selector_is_passed_through)
 {
@@ -538,6 +590,8 @@ int main(void)
 	MU_RUN(a_dump_the_board_refused_exits_one);
 	MU_RUN(a_dump_file_that_cannot_be_opened_starts_no_dump);
 	MU_RUN(the_modulation_options_reach_the_board);
+	MU_RUN(the_generic_option_reaches_the_board);
+	MU_RUN(the_generic_option_is_refused_with_a_modulation);
 	MU_RUN(the_device_selector_is_passed_through);
 	return mu_report();
 }

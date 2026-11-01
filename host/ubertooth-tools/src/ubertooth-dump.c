@@ -35,6 +35,8 @@ static void usage(FILE *file)
 	fprintf(file, "\t-b only dump received bitstream (GnuRadio style)\n");
 	fprintf(file, "\t-c classic modulation\n");
 	fprintf(file, "\t-l LE modulation\n");
+	fprintf(file, "\t-g generic receive: demodulate with the CC2400 configuration\n");
+	fprintf(file, "\t   already in the radio, which ubertooth-debug -w writes\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
 	fprintf(file, "\t-d <filename> write the dump here ('-' is standard output)\n");
 	fprintf(file, "\nA dump is written for a file or another program, so a terminal on standard\n");
@@ -61,6 +63,7 @@ int main(int argc, char *argv[])
 	int first_exit_option = 0;
 	int do_version = 0, version_status = 0;
 	int bitstream = 0;
+	int generic = 0;
 	int modulation = MOD_BT_BASIC_RATE;
 	/* The option that chose the modulation, so a refused pair names both as
 	 * the user wrote them. */
@@ -76,7 +79,7 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
-	const char options[] = ":bhVclU:d:";
+	const char options[] = ":bghVclU:d:";
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
@@ -85,6 +88,9 @@ int main(int argc, char *argv[])
 		switch(opt) {
 		case 'b':
 			bitstream = 1;
+			break;
+		case 'g':
+			generic = 1;
 			break;
 		case 'c':
 		case 'l':
@@ -123,6 +129,17 @@ int main(int argc, char *argv[])
 			opt_report_bad_option(opt, argc, argv, options);
 			return 1;
 		}
+	}
+
+	/* -g and a modulation ask for two different things: -c and -l name a
+	 * demodulator for the board to program, and -g says to use the one
+	 * already configured in the radio. Taking both would mean the dump
+	 * overwrote part of the configuration it was asked to read with. */
+	if (generic && modulation_option != 0) {
+		fprintf(stderr, "error: -g cannot be combined with -%c;"
+		        " the generic receive uses the modulation already in the"
+		        " radio\n", modulation_option);
+		return 1;
 	}
 
 	/* ubertooth-dump takes no operands: refuse a leftover word before any
@@ -206,7 +223,12 @@ int main(int argc, char *argv[])
 	 * Nothing is asked of the radio until the dump starts, which is after
 	 * the -d file has been opened above, so a dump that never ran leaves
 	 * the board's modulation as it found it. A board that refuses the
-	 * request ends the run; libubertooth says what failed. */
+	 * request ends the run; libubertooth says what failed.
+	 *
+	 * With -g this is the default, Basic Rate, and it is stated all the
+	 * same: the request only records which demodulator a mode start would
+	 * program, and the generic receive programs none, so nothing it says
+	 * reaches the radio. What -w left in the CC2400 is what -g reads with. */
 	ut->capture_modulation = modulation;
 
 	/* A dump that could not start, or whose stream died part-way, holds
@@ -214,7 +236,7 @@ int main(int argc, char *argv[])
 	 * cannot tell it from a Ctrl-C. The handle is read again after the
 	 * teardown, because cancelling the transfer can be what brings the
 	 * failure out. libubertooth has already printed what failed. */
-	r = rx_dump(ut, bitstream);
+	r = rx_dump(ut, bitstream, generic);
 
 	ubertooth_stop(ut);
 	/* What the dump is missing, once the records have scrolled past. The

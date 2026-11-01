@@ -52,8 +52,9 @@ the full reference for its options.
 - ``ubertooth-specan-ui`` — Graphical live spectrum plot of 2.4 GHz, built on
   ``ubertooth-specan``; see :doc:`specan_ui`. (Needs: Python 3.8+ with numpy,
   qtpy, and PySide6 or PyQt5.)
-- ``ubertooth-dump`` — Raw stream of received bits/symbols off the radio.
-- ``ubertooth-debug`` — Low-level register reads from the CC2400 radio.
+- ``ubertooth-dump`` — Raw stream of received bits/symbols off the radio,
+  demodulated as Bluetooth or with a configuration you wrote yourself (``-g``).
+- ``ubertooth-debug`` — Low-level register reads and writes on the CC2400 radio.
 
 **Device administration and firmware**
 

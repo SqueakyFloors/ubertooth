@@ -756,8 +756,12 @@ int rx_file_report(int result, const char* filename);
 /* Dumps received symbols until the capture is stopped. Returns 0 when it was
  * stopped normally, or a negative error, already reported, if the capture
  * could not be started -- including a collecting thread that could not be
- * created -- or its stream died part-way. */
-int rx_dump(ubertooth_t* ut, int full);
+ * created -- or its stream died part-way.
+ *
+ * With generic set, the board runs the generic receive instead of the symbol
+ * stream: it demodulates with the CC2400 configuration already in the radio,
+ * which the caller is expected to have written itself. */
+int rx_dump(ubertooth_t* ut, int full, int generic);
 
 /* Returned by rx_afh() when the initial detection phase (-t) ended without a
  * single packet from the piconet, so there is no map to report. */
