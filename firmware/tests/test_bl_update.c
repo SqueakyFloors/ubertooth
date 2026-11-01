@@ -736,9 +736,15 @@ static char *read_source(const char *path)
 	return text;
 }
 
-/* A makefile's text, comments and all: a makefile's `#` comments are not C
- * comments, and the recipe this reads is one line of shell. */
-static char *read_plain(const char *path)
+/*
+ * A makefile's text. A makefile's `#` comments are not C comments, so
+ * strip_comments() cannot be used on one; skip_comments drops whole comment
+ * lines instead, which is what a check that something is ABSENT needs -- the
+ * prose beside it says why it is absent, and a search over that prose would
+ * find the very word it is looking for. A check that something is present
+ * passes either way and reads the file whole.
+ */
+static char *read_makefile(const char *path, int skip_comments)
 {
 	char line[1024];
 	char *text = NULL;
@@ -748,7 +754,14 @@ static char *read_plain(const char *path)
 	if (file == NULL)
 		return NULL;
 	while (fgets(line, sizeof(line), file) != NULL) {
-		size_t length = strlen(line);
+		size_t length;
+		const char *at = line;
+
+		while (*at == ' ' || *at == '\t')
+			at++;
+		if (skip_comments && *at == '#')
+			continue;
+		length = strlen(line);
 
 		if (used + length + 1 > size) {
 			char *grown = realloc(text, size + length + 4096);
@@ -767,6 +780,17 @@ static char *read_plain(const char *path)
 	}
 	fclose(file);
 	return text;
+}
+
+/* The two readings of a makefile the cases below ask for. */
+static char *read_plain(const char *path)
+{
+	return read_makefile(path, 0);
+}
+
+static char *read_makefile_recipes(const char *path)
+{
+	return read_makefile(path, 1);
 }
 
 /*
@@ -882,19 +906,41 @@ MU_TEST(the_image_is_named_what_the_host_looks_for)
  * than the three seconds the application's watchdog allows, and a reset in the
  * middle of the write is the one failure that leaves a board needing the
  * serial programming interface.
+ *
+ * What stops it is the source list: watchdog.c arms the watchdog, and nothing
+ * else in the tree does. So this reads the list rather than a define -- a
+ * define that says so and a build that links the file anyway would be the
+ * worst of both.
  */
 MU_TEST(the_image_does_not_arm_the_watchdog)
 {
-	char *text = read_plain(FW_BL_UPDATE_DIR "/Makefile");
+	char *text = read_makefile_recipes(FW_BL_UPDATE_DIR "/Makefile");
 
 	mu_assert_fatal(text != NULL, "firmware/bl_update/Makefile would not open");
-	mu_assert(strstr(text, "UBERTOOTH_NO_WATCHDOG") != NULL,
-	          "the updater image does not build with UBERTOOTH_NO_WATCHDOG, "
-	          "so a watchdog could reset the board while the bootloader "
-	          "region is being written");
 	mu_assert(strstr(text, "watchdog.c") == NULL,
-	          "the updater image links watchdog.c");
+	          "the updater image links watchdog.c, so the watchdog could "
+	          "reset the board while the bootloader region is being written");
 	free(text);
+}
+
+/*
+ * The buffer the ROM programs from is aligned well past what it asks for.
+ * A source that is not on a word boundary is refused, and the refusal would
+ * come after the region had been erased.
+ */
+MU_TEST(the_programming_buffer_is_aligned)
+{
+	char *text = read_source(FW_BL_UPDATE_DIR "/bl_update_main.c");
+
+	mu_assert_fatal(text != NULL,
+	                "firmware/bl_update/bl_update_main.c would not open");
+	mu_assert(strstr(text, "__attribute__((aligned(256)))") != NULL,
+	          "the buffer the boot ROM programs from is not aligned, so its "
+	          "address rests on where the linker put it");
+	free(text);
+	/* And the addresses it programs to are sector starts, so each is on the
+	 * 256-byte boundary the ROM asks of a destination. */
+	mu_assert_int_eq(0, (int)(BL_UPDATE_SECTOR_LENGTH % 256u));
 }
 
 /* Interrupts are off for every ROM call: flash is not readable while it is
@@ -963,6 +1009,7 @@ int main(void)
 	MU_RUN(the_built_image_carries_the_payload_at_the_offset);
 	MU_RUN(the_image_is_named_what_the_host_looks_for);
 	MU_RUN(the_image_does_not_arm_the_watchdog);
+	MU_RUN(the_programming_buffer_is_aligned);
 	MU_RUN(the_rom_is_called_with_interrupts_off);
 	MU_RUN(the_board_is_returned_to_dfu);
 	return mu_report();

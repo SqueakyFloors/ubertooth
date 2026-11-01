@@ -16,13 +16,14 @@ SRC = bl_update_main.c \
 # The bootloader this image carries, included by the assembler.
 ASRC = bl_payload.S
 
-# UBERTOOTH_NO_WATCHDOG: this image must not arm the watchdog or write the
-# breadcrumb. Programming the whole bootloader region takes longer than the
-# three seconds the application's watchdog allows, and a reset in the middle
-# of it is the one thing that leaves a board needing the serial programming
-# interface. reset() still works: it starts the watchdog itself, with the
-# shortest timeout the counter takes, which is how every image resets.
-UBERTOOTH_OPTS = -DUBERTOOTH_NO_WATCHDOG
+# Nothing above arms the watchdog, and that is deliberate: programming the
+# whole bootloader region takes longer than the three seconds the
+# application's watchdog allows, and a reset in the middle of that write is
+# the one failure that leaves a board needing the serial programming
+# interface. watchdog.c is what arms it, and the files that write the
+# breadcrumb are the shared USB stack, so leaving all of them out of SRC above
+# is the whole of it. reset() still works: it starts the watchdog itself, with
+# the shortest timeout the counter takes, which is how every image resets.
 
 include ../common.mk
 
