@@ -104,7 +104,7 @@ left click                  Set marker 1 (yellow) at the pointer
 right click                 Set marker 2 (magenta)
 middle click or ``m``       Show or hide the peak and average markers, and
                             clear the mouse markers
-``b``                       Label the axis and the markers with BLE channel
+``n``                       Label the axis and the markers with BLE channel
                             numbers instead of MHz, or back again
 ``c``                       Clear the graph (also restarts the average)
 ``h``                       Show or hide the key help
@@ -127,9 +127,9 @@ What the display shows
 MHz or BLE channels
 ~~~~~~~~~~~~~~~~~~~
 
-The axis and the markers show MHz. Press ``b`` to show BLE channel numbers
+The axis and the markers show MHz. Press ``n`` to show BLE channel numbers
 instead — the advertising channels 37, 38, and 39, and the data channels 0 to
-36 — and ``b`` again to go back to MHz.
+36 — and ``n`` again to go back to MHz.
 
 In channel mode the axis is marked on the channels themselves, so a line on
 the graph lines up with the number under it. A marker names the channel

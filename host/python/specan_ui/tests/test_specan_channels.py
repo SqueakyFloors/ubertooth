@@ -93,12 +93,12 @@ for frequency in sorted(CHANNEL_OF_FREQUENCY):
 assert channels.frequency_label(2400, True) == '2400 MHz'
 assert channels.frequency_label(2483, True) == '2483 MHz'
 
-# The gap between two markers is in MHz in either mode, because a difference
-# between channel numbers would say nothing about the gap on the air. The
-# unit is spelled out where nothing beside it is in MHz.
-assert channels.difference_label(-4, False) == '(-4)'
+# The gap between two markers is in MHz in both modes, and says so in both,
+# because a difference between channel numbers would say nothing about the gap
+# on the air. It is the one figure on screen that is never a channel number.
+assert channels.difference_label(-4, False) == '(-4 MHz)'
 assert channels.difference_label(-4, True) == '(-4 MHz)'
-assert channels.difference_label(6, False) == '(+6)'
+assert channels.difference_label(6, False) == '(+6 MHz)'
 assert channels.difference_label(6, True) == '(+6 MHz)'
 
 print("specan/channels.py: both sets of labels, and the switch between them")
@@ -108,10 +108,20 @@ print("specan/channels.py: both sets of labels, and the switch between them")
 # both ends of the band named.
 marks = channels.axis_ticks(2400, 2482)
 assert marks == [
-    (2402, '37'), (2412, '4'), (2422, '9'), (2432, '13'), (2442, '18'),
-    (2452, '23'), (2462, '28'), (2472, '33'), (2480, '39'),
+    (2402, '37'), (2412, '4'), (2422, '9'), (2426, '38'), (2432, '13'),
+    (2442, '18'), (2452, '23'), (2462, '28'), (2472, '33'), (2480, '39'),
 ], marks
 assert marks[0][0] == 2402 and marks[-1][0] == 2480, marks
+
+# Channel 38 is named wherever it is in the plot, which an even spacing reaches
+# only by chance. It is the tenth mark of the whole band, one past the spacing
+# cap, and the gap either side of it is uneven: both are the price of naming
+# the advertising channel a sweep is most often watched for. 37 and 39 are the
+# band's ends and an even spacing names them anyway.
+for low in range(2398, 2427):
+    for high in range(2427, 2485):
+        named = [text for _, text in channels.axis_ticks(low, high)]
+        assert '38' in named, (low, high, named)
 
 # A narrower plot is marked only where it reaches, and a plot of a few
 # channels names every one of them rather than leaving the axis blank or
@@ -143,12 +153,17 @@ for low, high, expected in (
 # However narrow or wide the plot, the axis is never crowded past what can be
 # read, never blank while a channel is in view, and never has one mark pushed
 # up against another: the lowest and highest channel of the plot are both
-# named, and the gaps between marks stay within a factor of two of each other,
-# so the one at the top is not squeezed in beside its neighbor.
+# named, and no two marks are closer than the channels themselves.
+#
+# The even spacing keeps its gaps within a factor of two of each other, so the
+# mark at the top is not squeezed in beside its neighbor. A plot holding
+# channel 38 is exempt from that one: 38 is added to the spacing rather than
+# chosen by it, so it can be one mark past the cap and can leave an uneven gap
+# either side. That is the price of always naming it.
 for low in range(2398, 2484):
     for high in range(low + 1, 2485):
         got = channels.axis_ticks(low, high)
-        assert len(got) <= channels.MOST_CHANNEL_MARKS, (low, high, got)
+        assert len(got) <= channels.MOST_CHANNEL_MARKS + 1, (low, high, got)
         in_view = [mhz for mhz in CHANNEL_OF_FREQUENCY if low <= mhz < high]
         assert bool(got) == bool(in_view), (low, high, got)
         if not got:
@@ -156,7 +171,11 @@ for low in range(2398, 2484):
         assert got[0][0] == min(in_view), (low, high, got)
         assert got[-1][0] == max(in_view), (low, high, got)
         gaps = [second[0] - first[0] for first, second in zip(got, got[1:])]
-        if gaps:
+        if not gaps:
+            continue
+        # No mark is ever closer to its neighbor than the channels themselves.
+        assert min(gaps) >= 2, (low, high, got)
+        if '38' not in [text for _, text in got]:
             assert max(gaps) <= 2 * min(gaps), (low, high, got)
 
 print("specan/channels.py: the channel marks of the axis")

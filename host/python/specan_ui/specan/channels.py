@@ -104,12 +104,10 @@ def difference_label(mhz, ble_channels):
     A difference between channel numbers would say nothing about the gap on
     the air, because the advertising channels sit among the data channels
     rather than after them: channels 10 and 11 are 4 MHz apart where 9 and 10
-    are 2. The unit is spelled out in channel mode, where no label beside it
-    is in megahertz.
+    are 2. The unit is spelled out in both modes, so the one figure on screen
+    that is never a channel number says what it is.
     """
-    if ble_channels:
-        return '(%+.0f MHz)' % mhz
-    return '(%+.0f)' % mhz
+    return '(%+.0f MHz)' % mhz
 
 
 def _every_nth(count, step):
@@ -143,6 +141,11 @@ def axis_ticks(low_mhz, high_mhz):
     within MOST_CHANNEL_MARKS. The whole band comes out at every fifth
     channel. An even spacing means that widening the plot by one channel can
     be what pushes it to the next step and so leaves fewer marks on screen.
+
+    The three advertising channels are always named when they are in the plot.
+    An even spacing names 37 and 39 anyway, because they are the band's ends,
+    but it reaches 38 only by chance, and a sweep is most often watched to see
+    what the advertising channels are carrying.
     """
     inside = [(mhz, '%d' % channel) for mhz, channel in channels()
               if low_mhz <= mhz < high_mhz]
@@ -153,4 +156,6 @@ def axis_ticks(low_mhz, high_mhz):
     while len(chosen) > MOST_CHANNEL_MARKS:
         step += 1
         chosen = _every_nth(len(inside), step)
-    return [inside[position] for position in chosen]
+    advertising = {position for position, (_, label) in enumerate(inside)
+                   if label in ('37', '38', '39')}
+    return [inside[position] for position in sorted(set(chosen) | advertising)]

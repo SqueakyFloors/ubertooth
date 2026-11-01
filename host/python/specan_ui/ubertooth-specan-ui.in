@@ -399,7 +399,7 @@ KEY_HELP = (
     ('left click', 'set marker 1 (yellow) at the pointer'),
     ('right click', 'set marker 2 (magenta); shows the difference'),
     ('middle click or m', 'show / hide peak and average markers, clear mouse markers'),
-    ('b', 'label the axis and markers in BLE channels / in MHz'),
+    ('n', 'label the axis and markers in BLE channel numbers / in MHz'),
     ('c', 'clear the graph'),
     ('h', 'show / hide this help'),
     ('q', 'quit'),
@@ -841,7 +841,7 @@ class Window(QtWidgets.QWidget):
             self.render_area._mouse_y2 = None
             self.render_area._hide_markers = not self.render_area._hide_markers
             return
-        if key == 'B':
+        if key == 'N':
             self.render_area.toggle_ble_channels()
             return
         if key == 'C':

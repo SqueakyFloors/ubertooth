@@ -65,7 +65,7 @@ Cyan dotted line, labeled "Avg: N dBm": the average of the green trace across th
 Yellow and magenta lines: points marked with the left and right mouse buttons, with the frequency differences to the peak and to each other\.
 .IP "" 0
 .P
-The axis and the markers show MHz\. Pressing \fBb\fR shows BLE channel numbers instead \-\- the advertising channels 37, 38, and 39, and the data channels 0 to 36 \-\- and pressing it again goes back to MHz\. In channel mode the axis is marked on the channels themselves, so a line on the graph lines up with the number under it\. A marker names the channel nearest the point it sits on, since the sweep steps 1 MHz where the channels are 2 MHz apart\. The difference between two markers stays in MHz either way, written \fB(+4 MHz)\fR in channel mode\. The margin either side of the band has no channel, so a point out there keeps its frequency\.
+The axis and the markers show MHz\. Pressing \fBn\fR shows BLE channel numbers instead \-\- the advertising channels 37, 38, and 39, and the data channels 0 to 36 \-\- and pressing it again goes back to MHz\. In channel mode the axis is marked on the channels themselves, so a line on the graph lines up with the number under it, and the three advertising channels are always named when they are in the plot\. A marker names the channel nearest the point it sits on, since the sweep steps 1 MHz where the channels are 2 MHz apart\. The difference between two markers is in MHz in both modes, written \fB(+4 MHz)\fR, because the gap between two channel numbers says nothing about the gap on the air\. The margin either side of the band has no channel, so a point out there keeps its frequency\.
 .SH "KEYS AND MOUSE"
 Press \fBh\fR in the window to show this list on screen\. Keys work in upper or lower case\. There are two mouse markers, one per button: clicking again moves that marker\. On a Mac trackpad, right click is a two\-finger click or Control\-click\.
 .TP
@@ -78,7 +78,7 @@ set marker 2 (magenta); the frequency differences to marker 1 and to the peak ar
 \fBmiddle click\fR or \fBm\fR
 show or hide the peak and average markers, and clear the mouse markers
 .TP
-\fBb\fR
+\fBn\fR
 label the axis and the markers with BLE channel numbers instead of MHz, or back again
 .TP
 \fBc\fR
