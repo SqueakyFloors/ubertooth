@@ -3,4 +3,10 @@ Most people:  You want plugin-ubertooth
 Testers / People running BLEEDING EDGE KISMET - you want
 plugin-ubertooth-phyneutral!
 
-
+Status (2026): both plugins are written against Kismet 2013-03-R1 (see
+docs/source/third_party_software.rst). Kismet has since been rewritten,
+and these plugins do not build against current releases. Nothing in this
+tree builds them, and they are not tested. Channel hopping does not work
+in either one: PacketSource_Ubertooth::SetChannel() has its channel
+request commented out, yet it reports success. They are kept as they
+were, for anyone running that older Kismet.
