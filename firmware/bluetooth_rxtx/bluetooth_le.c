@@ -464,8 +464,16 @@ static unsigned le_csa2_interval_score(const u32 *gap, unsigned gap_count,
 	unsigned i, score = 0;
 
 	for (i = 0; i < gap_count; ++i) {
-		u32 events = LE_DIVIDE_ROUND(gap[i], unit);
+		u32 events;
 
+		/* Longer than the connection can be away and still be coming
+		 * back, and the one bound the multiplication below needs: the
+		 * product is about the gap itself, so a gap near the top of
+		 * the clock's range could carry it past what fits. */
+		if (gap[i] > LE_PROMISC_MAX_GAP)
+			continue;
+
+		events = LE_DIVIDE_ROUND(gap[i], unit);
 		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP)
 			continue;
 		if (le_same_span(gap[i], events * unit))
@@ -497,6 +505,9 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 		return 0;
 
 	for (i = 0; i < gap_count; ++i) {
+		if (gap[i] > LE_PROMISC_MAX_GAP)
+			continue;
+
 		for (k = 1; k <= LE_CSA2_MAX_EVENT_GAP; ++k) {
 			u32 interval = LE_DIVIDE_ROUND(gap[i],
 					k * LE_CONN_INTERVAL_TICKS);
@@ -631,8 +642,12 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
 	 * connection up. */
 	back[0] = 0;
 	for (i = gap_count; i-- > 0; ) {
-		u32 events = LE_DIVIDE_ROUND(gap[i], unit);
+		u32 events;
 
+		if (gap[i] > LE_PROMISC_MAX_GAP)
+			break;
+
+		events = LE_DIVIDE_ROUND(gap[i], unit);
 		if (events < 1 || events > LE_CSA2_MAX_EVENT_GAP ||
 				!le_same_span(gap[i], events * unit))
 			break;

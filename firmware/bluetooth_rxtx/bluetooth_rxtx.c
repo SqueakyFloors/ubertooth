@@ -3627,12 +3627,6 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 	enqueue(LE_PROMISC, (uint8_t*)buf);
 }
 
-/* The longest gap that can be a trip round the channels: 37 channels at the
- * longest connection interval, 148 s. Anything longer is not this connection
- * coming back. */
-#define LE_PROMISC_MAX_GAP \
-	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_BASECLK)
-
 /* Works the hop increment out from how long the connection takes to get from
  * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
  * 1 has an increment to find. This stage is also reached only after the

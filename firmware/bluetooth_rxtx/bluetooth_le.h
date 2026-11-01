@@ -148,6 +148,13 @@ uint8_t le_csa2_unmapped_channel(uint16_t event_counter,
  * none of the clock's hardware; test_promisc_csa2.c fails if the two differ. */
 #define LE_CONN_INTERVAL_TICKS 12500
 
+/* The longest gap that can be a trip round the channels: 37 channels at the
+ * longest connection interval, 148 s. Anything longer is not the connection
+ * coming back. It is also what bounds the arithmetic below, where a gap is
+ * multiplied back out of the events it spans. */
+#define LE_PROMISC_MAX_GAP \
+	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_CONN_INTERVAL_TICKS)
+
 u32 le_gap_tolerance(u32 span);
 int le_same_span(u32 a, u32 b);
 
