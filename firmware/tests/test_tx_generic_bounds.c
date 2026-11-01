@@ -811,6 +811,15 @@ MU_TEST(test_the_transmits_framing_is_one_the_generic_receive_can_read)
 	mu_assert((g & GRMDM_BUFFERED_MASK) == GRMDM_BUFFERED, msg);
 
 	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which puts no "
+	         "preamble in front of the sync word. A board receiving this "
+	         "settles its frequency correction over the preamble -- both "
+	         "receive setups in this file write MDMTST0 for an 8-bit one -- "
+	         "so a packet with none leaves it nothing to settle on", path,
+	         s.tx_grmdm, g);
+	mu_assert((g & GRMDM_PREAMBLE_MASK) != 0, msg);
+
+	snprintf(msg, sizeof(msg),
 	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which matches "
 	         "only part of the sync word. The request carries a whole 32-bit "
 	         "sync word and the generic receive puts all four bytes of it in "
