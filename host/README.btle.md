@@ -205,10 +205,12 @@ At this point, we have all four values needed to follow a connection,
 and we enter connection following mode as though we observed the initial
 connect packet.
 
-A hop amount exists only under channel selection algorithm 1. Algorithm 2
-works each connection event's channel out from the access address and the
-event counter, so there is no hop amount to recover and this method does
-not reach such a connection. Connection following handles both
+Both of the last two values are algorithm-1 values: a hop amount exists
+only under channel selection algorithm 1, and the interval above comes out
+of spacings that repeat only under algorithm 1 as well. Algorithm 2 works
+each connection event's channel out from the access address and the event
+counter, so neither can be recovered from such a connection and this
+method stops after the CRC init. Connection following handles both
 algorithms, because the advertising and connect packets say which one the
 connection chose.
 

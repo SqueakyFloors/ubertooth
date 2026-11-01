@@ -155,12 +155,14 @@ counter; follow mode hops with whichever algorithm the connection chose.
 
 **Recovering a connection already in progress.** `ubertooth-btle -p` works the
 four values out from the connection's own traffic instead of from
-`CONNECT_IND`: the access address and CRCInit from the packets, the interval
-and the hop increment from how often the connection returns to the channel
-being listened on. The increment is an algorithm-1 quantity, so this recovery
-reaches algorithm-1 connections only. Algorithm 2 has no increment to measure,
-and recovering it would mean searching instead for the event counter whose
-computed channel sequence matches where the packets appear.
+`CONNECT_IND`: the access address and CRCInit from the packets, then the
+interval from the spacings between the connection's visits to one channel,
+which repeat every 37 events under algorithm 1, and then the hop increment.
+Algorithm 2 gives no repeating pattern of visits, and has no increment either,
+so this recovery stops after the CRCInit and reaches algorithm-1 connections
+only. Recovering an algorithm-2 connection would mean searching instead for
+the event counter whose computed channel sequence matches the channels the
+packets appear on.
 
 **Whitening by channel, not clock.** LE whitening uses the same kind of 7-bit
 register (x⁷ + x⁴ + 1), but seeds it from the index of the channel the packet
