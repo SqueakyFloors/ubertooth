@@ -636,6 +636,17 @@
   `install.sh` and the build guides check out the new commit; a libbtbb
   without what the tools use is still refused at configure time, by name.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+- The pin moves on to the current libbtbb
+  ([`50bbc76`](https://github.com/SqueakyFloors/libbtbb/commit/50bbc76d383e4038ee6dadccad55f0161c1cb029)),
+  which names the Bluetooth connection roles Central and Peripheral in the
+  library's own printed output: a printed LE packet now reads
+  `LL_PERIPHERAL_FEATURE_REQ` where it read `LL_SLAVE_FEATURE_REQ`, and an
+  advertising data type reads `(Peripheral Connection Interval Range)`.
+  Nothing else a user sees moves — no installed header, no exported symbol,
+  and no byte of a capture record — and the library's other two commits are
+  its own documentation. `install.sh` and the build guides check out the new
+  commit.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
