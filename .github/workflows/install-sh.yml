@@ -212,9 +212,16 @@ jobs:
         # Listed and matched rather than globbed, so the path in this file
         # does not read as a repository name to the libbtbb pin guard. Both
         # library directories are listed, because libbtbb installs to the one
-        # its own system keeps libraries in: lib here, lib64 on Fedora.
-        ls "$RUNNER_TEMP/prefix/lib" "$RUNNER_TEMP/prefix/lib64" 2>/dev/null \
-          | grep -q '^libbtbb\.'
+        # its own system keeps libraries in: lib here, lib64 on Fedora. Each
+        # is listed only if it is there, because this shell stops on the first
+        # command that fails, "ls" of a directory that does not exist
+        # included.
+        for d in lib lib64; do
+          if [ -d "$RUNNER_TEMP/prefix/$d" ]; then
+            ls "$RUNNER_TEMP/prefix/$d"
+          fi
+        done > "$RUNNER_TEMP/libraries-left.txt"
+        grep -q '^libbtbb\.' "$RUNNER_TEMP/libraries-left.txt"
         test -f "$RUNNER_TEMP/prefix/share/ubertooth/install-record/libbtbb-files"
         if [ "${UDEV_RULE:-}" = 1 ]; then
           test ! -e /etc/udev/rules.d/40-ubertooth.rules

@@ -72,6 +72,18 @@ PACKAGE_MANAGERS = {
 }
 
 
+# The system directories the runs below take their real tools from, and the
+# names that must not come from them: which package manager the script can
+# find is what each case is about, and on a Debian or Ubuntu machine the real
+# apt-get is in one of these directories. They are hidden by building the
+# whole PATH out of one directory of links, leaving those names out, rather
+# than by naming the handful of tools the script uses: a tool it reaches for
+# later would otherwise go missing here and fail a case for the wrong reason.
+SYSTEM_DIRECTORIES = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
+HIDDEN = ("apt", "apt-get", "dnf", "dnf5", "microdnf", "yum", "zypper",
+          "pacman", "brew")
+
+
 def run_with_fakes(arguments, package_managers):
     """Run install.sh with those package managers present; return it.
 
@@ -84,16 +96,25 @@ def run_with_fakes(arguments, package_managers):
         fakes = dict(FAKES)
         for name in package_managers:
             fakes[name] = PACKAGE_MANAGERS[name]
+        # The real tools first, so that a fake written below replaces one.
+        for system in SYSTEM_DIRECTORIES:
+            if not os.path.isdir(system):
+                continue
+            for name in os.listdir(system):
+                link = os.path.join(binaries, name)
+                if name in HIDDEN or name in fakes or os.path.lexists(link):
+                    continue
+                os.symlink(os.path.join(system, name), link)
         for name, body in fakes.items():
             path = os.path.join(binaries, name)
             with open(path, "w") as fake:
                 fake.write("#!/bin/sh\n%s\n" % body)
             os.chmod(path, 0o755)
-        # Replaced rather than prepended to, so a package manager or an
-        # Ubertooth install on this machine cannot stand in for a fake.
+        # The whole PATH, not a directory ahead of it: a package manager or an
+        # Ubertooth install on this machine must not be reachable behind the
+        # links.
         environment = dict(os.environ)
-        environment["PATH"] = os.pathsep.join(
-            [binaries, "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+        environment["PATH"] = binaries
         # The script is bash (its shebang, "set -o pipefail"), so it is run as
         # bash rather than through /bin/sh, which is dash on Debian and Ubuntu.
         completed = subprocess.run(
