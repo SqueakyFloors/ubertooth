@@ -147,10 +147,22 @@ used-channel map and the hop increment ([Vol 6] Part B, 2.3.3.1, 4.5.1).
 the next unmapped channel is (last + hopIncrement) mod 37, with the hop
 increment a value from 5 to 16, and unused channels remapped into the used set
 ([Vol 6] Part B, 4.5.8.2). Nothing has to be recovered — catch the
-`CONNECT_IND` and the rest follows. The costs are that you must be listening
-on the right advertising channel at the right moment, and that Bluetooth 5
-devices often negotiate channel selection algorithm 2 ([Vol 6] Part B,
-4.5.8.3), which Ubertooth does not implement.
+`CONNECT_IND` and the rest follows. The cost is that you must be listening on
+the right advertising channel at the right moment. Bluetooth 5 devices often
+negotiate channel selection algorithm 2 ([Vol 6] Part B, 4.5.8.3), which picks
+each connection event's channel from the access address, the event counter, and
+the channel map; follow mode hops with whichever algorithm the connection chose.
+
+**Recovering a connection already in progress.** `ubertooth-btle -p` works the
+four values out from the connection's own traffic instead of from
+`CONNECT_IND`: the access address and CRCInit from the packets, then the
+interval from the spacings between the connection's visits to one channel,
+whose pattern repeats every 37 events under algorithm 1, and then the hop
+increment. An algorithm-2 connection gives neither figure: its visits do not
+repeat on that cycle, and it has no increment at all. Recovering one would mean
+working from its arithmetic instead — searching for the event counter and
+channel map whose computed channel sequence matches the channels the packets
+appear on.
 
 **Whitening by channel, not clock.** LE whitening uses the same kind of 7-bit
 register (x⁷ + x⁴ + 1), but seeds it from the index of the channel the packet

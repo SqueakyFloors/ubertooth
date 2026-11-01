@@ -2494,6 +2494,18 @@
 
 ### Documentation
 
+- `ubertooth-btle(1)`, the tool's `-h` text, and the capture guide say that
+  promiscuous mode, `-p`, recovers connections that hop with channel selection
+  algorithm 1: on an algorithm-2 connection, which is what Bluetooth 5.0
+  devices normally use, it reports an access address and a CRC init value and
+  goes no further, and such a connection is captured from its setup with `-f`.
+  The man page also says which channels `-p` listens on as it works a
+  connection out, where it used to name only the one the board was tuned to,
+  and the capture guide and
+  the concepts chapter no longer say Ubertooth implements algorithm 1 only,
+  which stopped being true of follow mode when it learned algorithm 2.
+  [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
+
 - The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
   `-h`, which all three accept and every other tool's usage text lists, and
   `ubertooth-util`'s `-t` line spells "initiate".

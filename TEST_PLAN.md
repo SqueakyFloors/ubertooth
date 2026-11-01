@@ -449,20 +449,28 @@ nRF52840 DKs) plus one Ubertooth.*
       other capture path in the firmware and the one whose long-packet
       handling is covered only by unit tests. `-p` cannot be pointed at a
       connection: leave it running on the established connection and wait
-      while it finds the access address, CRCInit, hop interval and hop
-      increment, which it reports as it goes. Data PDUs appear only after
-      that, so allow a minute or two before expecting packets.
-- [ ] Confirm: the same complete payloads once it is following
+      while it works the connection out, reporting each parameter as it goes.
+      Allow a minute or two.
 - [ ] Confirm: the access address is reported, as the first of the four
       parameters and before the CRC init value, and matches the one the
       capture's packets carry
-- [ ] Confirm: the hop interval, if one is reported, is the connection's own,
-      within a 1.25 ms unit of what the peer says it negotiated. It is worked
+- [ ] Confirm: the packets of that connection which land on the channel the
+      board is holding are recorded whole, 251-byte payloads included
+- [ ] Confirm: with the nRF52840 DKs as the endpoints, which negotiate channel
+      selection algorithm 2, the run reports the access address and then no
+      interval and no increment, and never follows. That is the documented
+      limit of `-p`, not a failure of this step; see ubertooth-btle(1). Raise
+      the squelch while the board is idle first (`ubertooth-util -z-60`, which
+      gates only the discovery pass): at the default -120 dBm candidate
+      addresses from ambient traffic crowd the search and the run may not get
+      as far as the CRC init value.
+- [ ] Confirm, only with endpoints that hop with algorithm 1, which the DKs
+      cannot be made to do: the hop interval is the connection's own, within a
+      1.25 ms unit of what the peer says it negotiated, and the same complete
+      payloads arrive once the capture is following. The interval is worked
       out from several returns to one channel in a row, so allow ten seconds
-      or more after the CRC init value. A run that reports the access address
-      and the CRC init value and no interval is the honest outcome on a link
-      the board hears only part of, and not a failure of this step; a figure
-      that disagrees with the peer's is.
+      or more after the CRC init value. A figure that disagrees with the
+      peer's is a failure.
 
 ### 3d. Promiscuous mode finds its own access address
 
@@ -479,7 +487,7 @@ before the first step so nothing is carried over.*
       CRCInit, and captures its packets. The target left on the board must not
       send it to `8e89bed6`, where it would capture nothing.
 - [ ] Run `ubertooth-btle -a <that access address>`, then `ubertooth-btle -p`
-- [ ] Confirm: it follows that address at once, with no discovery pass, and
+- [ ] Confirm: it takes that address at once, with no discovery pass, and
       every packet it reports carries it
 - [ ] With that `-p` still running, drop the connection for a minute and
       bring it back up
