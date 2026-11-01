@@ -262,6 +262,143 @@ static inline const char *ubertooth_fw_info_result_string(int result)
 }
 
 /*
+ * The image check block: what a board needs to tell a whole application from
+ * a half-written one.
+ *
+ * ubertooth-dfu writes an image in an order that leaves nothing startable
+ * behind if the transfer stops: erased flash goes where the vector table
+ * belongs, the rest of the image follows, and the first 4 KiB sector --
+ * vector table and all -- is written last. A bootloader from this tree
+ * refuses a vector table that reads as erased flash, so a transfer that
+ * stopped leaves a board waiting in DFU for another image.
+ *
+ * Two things that order cannot settle on its own:
+ *
+ *   - whether the first block was programmed whole. The checksum word at
+ *     offset 0x1c answers that, and the bootloader accepts a zero word as
+ *     "no checksum" so that every image built before the word was filled in
+ *     still starts. An image whose word is zero therefore gets no
+ *     protection.
+ *   - whether the fifteen blocks after the vector table arrived. Writing the
+ *     region's first block erases the sector it starts
+ *     (firmware/bootloader/flash.h, Flash::write), so the vector table has to
+ *     be written before the rest of its own sector, and an interruption in
+ *     between leaves a startable table in front of a sector that is only
+ *     partly written.
+ *
+ * This block closes both. ubertooth-dfu fills it in as it writes, with flags
+ * saying which of the two checks it filled in, how many bytes it wrote, and a
+ * checksum over them. firmware/common/image_check.c reserves the 32 bytes and
+ * firmware/common/sections.ld puts them at UBERTOOTH_IMAGE_CHECK_OFFSET, just
+ * below the firmware info block.
+ *
+ * The offset is inside the image's first 256 bytes on purpose, so the block
+ * reaches the flash in the same program as the vector table it describes:
+ * anything written later could be the part an interruption leaves out, and a
+ * check the board cannot find is a check it does not make. The host's
+ * _Static_assert in ubertooth-dfu.c holds the two together.
+ *
+ * Backward compatibility, both ways round. An image from an earlier build
+ * carries no block, and a bootloader that finds no magic makes neither check,
+ * so it starts what it always started. An image built from this tree but
+ * written by an earlier ubertooth-dfu carries the block with its flags left
+ * at zero, which reads the same way. And a bootloader from an earlier release
+ * ignores these 32 bytes, so an image written by this tool still starts on the
+ * board it is already on.
+ */
+#define UBERTOOTH_IMAGE_CHECK_OFFSET 0xe0
+/* The 8 bytes a block starts with, no terminator. */
+#define UBERTOOTH_IMAGE_CHECK_MAGIC "UBTIMGCK"
+#define UBERTOOTH_IMAGE_CHECK_MAGIC_LEN 8
+/* The layout below. A block with any other number is not read. */
+#define UBERTOOTH_IMAGE_CHECK_FORMAT 1
+#define UBERTOOTH_IMAGE_CHECK_LENGTH 32
+
+/* The checksum word at offset 0x1c is filled in, so the eight words of the
+ * vector table add up to zero. A board refuses a flagged image whose words do
+ * not, including one whose word is zero. */
+#define UBERTOOTH_IMAGE_CHECK_VECTOR 0x0001u
+/* length, length_complement and checksum are filled in, so a board can put
+ * every byte that was programmed to the checksum before it starts any of
+ * them. */
+#define UBERTOOTH_IMAGE_CHECK_REGION 0x0002u
+
+/*
+ * The block as it sits in an image: 32 bytes, no padding, every multi-byte
+ * field little-endian as the ARM stores it.
+ *
+ * length is how many bytes were programmed from the start of the application
+ * region, and checksum is the two's complement of the sum of that many bytes
+ * read as little-endian 32-bit words, so the whole of what was written adds up
+ * to zero. The checksum word is one of the words in that sum, in the same
+ * arrangement as the vector checksum at 0x1c.
+ *
+ * length_complement is the bitwise complement of length, and both have to
+ * agree before a board uses either. A bootloader addresses flash with this
+ * length, and a length of its own is one word that a program interrupted part
+ * way through could leave at any value; two words that still agree is a
+ * different matter.
+ */
+struct ubertooth_image_check_block {
+	uint8_t magic[UBERTOOTH_IMAGE_CHECK_MAGIC_LEN];
+	uint16_t format_version;
+	uint16_t flags;
+	uint32_t length;
+	uint32_t length_complement;
+	uint32_t checksum;
+	uint8_t reserved[8];
+};
+
+/* Where each field starts, for a reader working on raw bytes. */
+#define UBERTOOTH_IMAGE_CHECK_OFF_MAGIC 0
+#define UBERTOOTH_IMAGE_CHECK_OFF_FORMAT 8
+#define UBERTOOTH_IMAGE_CHECK_OFF_FLAGS 10
+#define UBERTOOTH_IMAGE_CHECK_OFF_LENGTH 12
+#define UBERTOOTH_IMAGE_CHECK_OFF_LENGTH_COMPLEMENT 16
+#define UBERTOOTH_IMAGE_CHECK_OFF_CHECKSUM 20
+#define UBERTOOTH_IMAGE_CHECK_OFF_RESERVED 24
+
+/* The layout is the wire format, so a compiler that padded the struct would
+ * silently move every field after the padding. */
+typedef char ubertooth_image_check_block_is_32_bytes[
+	sizeof(struct ubertooth_image_check_block) == UBERTOOTH_IMAGE_CHECK_LENGTH ? 1 : -1];
+
+/* The block this image carries. Defined in firmware/common/image_check.c,
+ * which every run-time image links. */
+extern const struct ubertooth_image_check_block image_check_block;
+
+/*
+ * The sum the region checksum is worked out from: length bytes read as
+ * little-endian 32-bit words, added up and allowed to wrap.
+ *
+ * ubertooth-dfu calls this over the image it is about to write, and stores the
+ * two's complement of what it gets. The bootloader adds the same words up
+ * straight out of flash, where they are already 32-bit values in the
+ * processor's own order, so it has a loop of its own
+ * (firmware/bootloader/app_image.h, app_image_region_sum): at every power-up
+ * it reads tens of thousands of words, and reading them a byte at a time
+ * would cost four times the work for the same answer.
+ *
+ * firmware/tests/test_bootloader_app_image.cpp puts the two against each
+ * other on the same bytes. They have to agree: a board whose sum differs from
+ * the host's refuses the image it was just given.
+ *
+ * length is rounded down to a whole number of words.
+ */
+static inline uint32_t ubertooth_image_check_sum(const uint8_t *bytes,
+                                                 size_t length)
+{
+	uint32_t sum = 0;
+	size_t i;
+
+	for (i = 0; i + 4 <= length; i += 4)
+		sum += (uint32_t)bytes[i] | ((uint32_t)bytes[i + 1] << 8) |
+		       ((uint32_t)bytes[i + 2] << 16) |
+		       ((uint32_t)bytes[i + 3] << 24);
+	return sum;
+}
+
+/*
  * LED spectrum analyzer (ubertooth-util -q N): the threshold is -N dBm. The
  * CC2400 measures RSSI from about -120 to -20 dBm, so N outside 20-120 is
  * either never or always reached. The default, -85 dBm, shows Wi-Fi activity

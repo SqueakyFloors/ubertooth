@@ -267,22 +267,28 @@ reach.*
       reason given in 2f
 - [ ] Confirm: the flash succeeds and the board comes back running the
       application, so a board left this way is recovered over USB
-- [ ] Known gap: an interruption inside the last 4 KiB leaves a startable
-      half-written image, because the sector holding the vector table has to
-      be written as a whole. Such a board does need the entry pin. The
-      checksum over the vector table does not reach that far: it covers the
-      vector table, which is written whole or not at all
+- [ ] Repeat the interruption inside the transfer's last row of dots, which is
+      the sector holding the vector table: that sector has to be written as a
+      whole, so the board ends up with a vector table in front of flash that
+      is only partly written
+- [ ] Confirm: the same result. The record the tool writes with the vector
+      table covers every byte of the image, so the bootloader finds that the
+      image does not add up and waits in DFU rather than starting it
 
-### 2g-2. A flashed board carries the vector checksum
+### 2g-2. A flashed board carries the vector checksum and the record
 
 *Any board, no ISP: this is the host half of 2g-1, and a board carrying an
-earlier bootloader ignores the checksum and runs as it always did.*
+earlier bootloader ignores both and runs as it always did.*
 
 - [ ] Flash with `ubertooth-dfu -U <serial> -d bluetooth_rxtx.dfu -r`, then
       read the flash back with `ubertooth-dfu -U <serial> -u <dump> -r`
 - [ ] Confirm: the board comes back running the image just written, and the
       first eight words of the dump add up to zero with the word at offset
       0x1c not zero — the checksum the tool filled in
+- [ ] Confirm: the dump reads `UBTIMGCK` at offset 0xe0, with flags 0x0003 at
+      0xea, a length at 0xec that matches the image rounded up to whole
+      256-byte blocks, its bitwise complement at 0xf0, and that many bytes of
+      the dump, read as little-endian words, adding up to zero
 
 
 ### 2h. Flashing back off the btbr image

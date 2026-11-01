@@ -351,9 +351,18 @@ FW_INFO_SRC = $(LIBS_PATH)/fw_info.c
 FW_INFO_OBJ = $(call per_image,$(FW_INFO_SRC:%.c=%.o))
 OBJ += $(FW_INFO_OBJ)
 
+# The image check block (../common/image_check.c), which every image carries
+# so that ubertooth-dfu can record what it wrote and a board can put the image
+# to that record before it starts it. Added here for the same reason as the
+# block above: an image must not be able to leave it out, because an image
+# without it is written with no check over it at all.
+IMAGE_CHECK_SRC = $(LIBS_PATH)/image_check.c
+IMAGE_CHECK_OBJ = $(call per_image,$(IMAGE_CHECK_SRC:%.c=%.o))
+OBJ += $(IMAGE_CHECK_OBJ)
+
 # Define all listing files.
 LST = $(call per_image,$(SRC:%.c=%.lst) $(CPPSRC:%.cpp=%.lst) $(ASRC:%.S=%.lst)) \
-	$(FW_INFO_OBJ:%.o=%.lst)
+	$(FW_INFO_OBJ:%.o=%.lst) $(IMAGE_CHECK_OBJ:%.o=%.lst)
 
 # Compiler flags to generate dependency files.
 GENDEPFLAGS = -MMD -MP -MD
@@ -631,14 +640,18 @@ program: $(TARGET).hex
 	@echo $(MSG_FLASH) $@
 	$(OBJCOPY) -O $(FORMAT) $< $@
 
-# The firmware info block has to be in the finished image: ubertooth-dfu
-# refuses a file without one, so an image that lost it cannot be flashed at
-# all. The ASSERTs in ../common/sections.ld cannot catch that on their own,
-# because they have to allow a zero-length block (the bootloader shares the
-# script and carries none), so check the bytes at the offset here. 256 is
-# UBERTOOTH_FW_INFO_OFFSET and UBTFINFO is UBERTOOTH_FW_INFO_MAGIC, both from
+# Both fixed-offset blocks have to be in the finished image. ubertooth-dfu
+# refuses a file with no firmware info block, so an image that lost that one
+# cannot be flashed at all, and it writes an image with no image check block
+# with no check over it, so an image that lost that one starts on a board
+# whatever state it reached the flash in. The ASSERTs in
+# ../common/sections.ld cannot catch either on its own, because they have to
+# allow a zero-length block (the bootloader shares the script and carries
+# neither), so check the bytes at both offsets here. 224 and 256 are
+# UBERTOOTH_IMAGE_CHECK_OFFSET and UBERTOOTH_FW_INFO_OFFSET, and UBTIMGCK and
+# UBTFINFO are their magics, all from
 # host/libubertooth/src/ubertooth_interface.h; firmware/tests/test_fw_info.c
-# checks that these two agree with it.
+# checks that these agree with it.
 %.bin: %.elf
 	@echo
 	@echo $(MSG_FLASH) $@
@@ -647,6 +660,12 @@ program: $(TARGET).hex
 	if [ "$$magic" != "UBTFINFO" ]; then \
 		echo "$(TARGET).bin carries no firmware info block at offset 0x100," \
 		     "so ubertooth-dfu would refuse it" >&2; \
+		exit 1; \
+	fi
+	@magic=`dd if=$(TARGET).bin bs=1 skip=224 count=8 2>/dev/null`; \
+	if [ "$$magic" != "UBTIMGCK" ]; then \
+		echo "$(TARGET).bin carries no image check block at offset 0xe0," \
+		     "so ubertooth-dfu would write it with no check over it" >&2; \
 		exit 1; \
 	fi
 

@@ -279,7 +279,7 @@ MU_TEST(a_checksummed_vector_table_is_startable)
 
 	a_vector_table(vectors);
 	checksum_the_table(vectors);
-	mu_assert(app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(app_image_table_startable(vectors, FLASH_TOP, false),
 	          "an image carrying a correct checksum was refused");
 }
 
@@ -292,7 +292,7 @@ MU_TEST(a_vector_table_with_no_checksum_is_startable)
 
 	a_vector_table(vectors);
 	mu_assert_int_eq(0, vectors[APP_IMAGE_CHECKSUM_INDEX]);
-	mu_assert(app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(app_image_table_startable(vectors, FLASH_TOP, false),
 	          "an image carrying no checksum was refused");
 }
 
@@ -306,13 +306,13 @@ MU_TEST(a_wrong_checksum_is_not_startable)
 	a_vector_table(vectors);
 	checksum_the_table(vectors);
 	vectors[APP_IMAGE_CHECKSUM_INDEX] += 1;
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "an image whose checksum was wrong was accepted");
 
 	a_vector_table(vectors);
 	checksum_the_table(vectors);
 	vectors[3] = APP_IMAGE_BASE + 0x2001u;
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "a vector table that changed under its checksum was accepted");
 }
 
@@ -332,7 +332,7 @@ MU_TEST(a_first_block_programmed_part_way_is_not_startable)
 		vectors[i] = 0xffffffffu;
 	mu_assert(app_image_startable(vectors[0], vectors[1], FLASH_TOP),
 	          "the two words were meant to read plausibly");
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "a first block that was not programmed whole was accepted");
 }
 
@@ -345,12 +345,12 @@ MU_TEST(erased_flash_is_not_startable_whatever_its_checksum)
 
 	for (i = 0; i < APP_IMAGE_CHECKED_WORDS; i++)
 		vectors[i] = 0xffffffffu;
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "erased flash was taken for an application");
 	/* ...and one whose eight erased words happen to add up is still refused,
 	 * since the two words are read as well. */
 	checksum_the_table(vectors);
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "erased flash with a correct checksum was accepted");
 }
 
@@ -363,19 +363,19 @@ MU_TEST(a_checksummed_table_with_bad_words_is_not_startable)
 	a_vector_table(vectors);
 	vectors[0] = 0x8000u;              /* a stack pointer in flash */
 	checksum_the_table(vectors);
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "a checksum covered for a stack pointer outside RAM");
 
 	a_vector_table(vectors);
 	vectors[1] = REAL_RESET_VECTOR & ~1u;  /* no Thumb bit */
 	checksum_the_table(vectors);
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "a checksum covered for a reset vector without the Thumb bit");
 
 	a_vector_table(vectors);
 	vectors[1] = 0x1001u;              /* inside the bootloader */
 	checksum_the_table(vectors);
-	mu_assert(!app_image_table_startable(vectors, FLASH_TOP),
+	mu_assert(!app_image_table_startable(vectors, FLASH_TOP, false),
 	          "a checksum covered for a reset vector outside the region");
 }
 
@@ -385,6 +385,277 @@ MU_TEST(the_checksum_word_is_the_one_the_part_defines)
 {
 	mu_assert_int_eq(0x1cu, APP_IMAGE_CHECKSUM_INDEX * 4);
 	mu_assert_int_eq(0x20u, APP_IMAGE_CHECKED_WORDS * 4);
+}
+
+/* ---- the image check block ---------------------------------------------- */
+
+/* A region four blocks long: enough to hold the vector table, the image check
+ * block, and blocks above them for a checksum to have something to say. */
+#define A_REGION_LENGTH 0x400u
+#define A_REGION_WORDS (A_REGION_LENGTH / 4u)
+
+/* Declared as words so the block inside it is word-aligned, as it is in
+ * flash: the region starts at a sector boundary and the offset is a multiple
+ * of 32. */
+static uint32_t a_region_buffer[A_REGION_WORDS];
+
+static struct ubertooth_image_check_block *region_check(uint32_t *region)
+{
+	return (struct ubertooth_image_check_block *)
+	       ((uint8_t *)region + UBERTOOTH_IMAGE_CHECK_OFFSET);
+}
+
+/* A region as an image file holds it: a vector table with no checksum, an
+ * image check block with its magic and nothing filled in, and arbitrary
+ * content everywhere else. This is what a board flashed by an earlier host
+ * tool carries. */
+static void a_region(uint32_t *region)
+{
+	struct ubertooth_image_check_block *check;
+	unsigned i;
+
+	for (i = 0; i < A_REGION_WORDS; i++)
+		region[i] = 0x01010101u * (i % 23u);
+	a_vector_table(region);
+	check = region_check(region);
+	memset(check, 0, sizeof(*check));
+	memcpy(check->magic, UBERTOOTH_IMAGE_CHECK_MAGIC,
+	       UBERTOOTH_IMAGE_CHECK_MAGIC_LEN);
+	check->format_version = UBERTOOTH_IMAGE_CHECK_FORMAT;
+}
+
+/* ...and the same region after ubertooth-dfu has written it: the vector
+ * checksum, the flags, the length twice over, and the two's complement of the
+ * sum of every word, so the whole of it adds up to zero. Worked out here
+ * rather than copied from the tool, so the two have to agree about the rule
+ * and not only about a number. */
+static void a_written_region(uint32_t *region, uint16_t flags)
+{
+	struct ubertooth_image_check_block *check = region_check(region);
+	uint32_t sum = 0;
+	unsigned i;
+
+	checksum_the_table(region);
+	check->flags = flags;
+	check->length = A_REGION_LENGTH;
+	check->length_complement = ~A_REGION_LENGTH;
+	check->checksum = 0;
+	for (i = 0; i < A_REGION_WORDS; i++)
+		sum += region[i];
+	check->checksum = 0u - sum;
+}
+
+#define BOTH_CHECKS (UBERTOOTH_IMAGE_CHECK_VECTOR | UBERTOOTH_IMAGE_CHECK_REGION)
+
+MU_TEST(an_image_the_host_wrote_whole_is_startable)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	mu_assert(app_image_region_startable(region, FLASH_TOP),
+	          "an image written whole was refused");
+}
+
+/* The block has to reach the flash with the vector table it describes, so it
+ * lives inside the image's first 256 bytes: the block the host writes whole
+ * or not at all. */
+MU_TEST(the_block_is_inside_the_image_first_block)
+{
+	mu_assert(UBERTOOTH_IMAGE_CHECK_OFFSET + UBERTOOTH_IMAGE_CHECK_LENGTH <=
+	          0x100u,
+	          "the image check block is not inside the image's first block");
+	mu_assert(UBERTOOTH_IMAGE_CHECK_OFFSET >= APP_IMAGE_CHECKED_WORDS * 4,
+	          "the image check block overlaps the words the checksum covers");
+}
+
+/* The gap this closes. The host writes the region's first block before the
+ * rest of the sector it starts, because writing that block is what erases the
+ * sector, so an interruption in between leaves a vector table that reads
+ * perfectly in front of erased flash. The table and its checksum both pass;
+ * the region checksum is what refuses it. */
+MU_TEST(a_sector_left_part_written_is_not_startable)
+{
+	uint32_t *region = a_region_buffer;
+	unsigned i;
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	/* Erased flash from the end of the check block to the end of the first
+	 * 4 KiB sector, which here is the rest of the buffer. */
+	for (i = (UBERTOOTH_IMAGE_CHECK_OFFSET + UBERTOOTH_IMAGE_CHECK_LENGTH) / 4u;
+	     i < A_REGION_WORDS; i++)
+		region[i] = 0xffffffffu;
+	mu_assert(app_image_table_startable(region, FLASH_TOP, true),
+	          "the vector table was meant to still read perfectly");
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "an image whose sector was left part written was accepted");
+}
+
+/* One word out anywhere in the region, which is what a block that did not
+ * program as it should leaves. */
+MU_TEST(a_single_word_out_is_not_startable)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	region[A_REGION_WORDS - 1] += 1;
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "an image with a word out at the top was accepted");
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	region[(UBERTOOTH_IMAGE_CHECK_OFFSET / 4u) - 1] += 1;
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "an image with a word out below the block was accepted");
+}
+
+/* An image from a tree that has no image check block: the 32 bytes hold the
+ * image's own code or data, the magic does not match, and the checks are the
+ * ones that were made before the block existed. Such an image has to start:
+ * refusing it would leave a board waiting in DFU for the image it already
+ * has. */
+MU_TEST(an_image_with_no_check_block_is_startable)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	memset(region_check(region), 0x5a, UBERTOOTH_IMAGE_CHECK_LENGTH);
+	mu_assert(app_image_region_startable(region, FLASH_TOP),
+	          "an image carrying no image check block was refused");
+}
+
+/* An image built from this tree but written by an earlier host tool: the
+ * block is there with its flags at zero, which asks for nothing. The vector
+ * checksum word is zero too, and that still means "no checksum". */
+MU_TEST(an_unwritten_check_block_asks_for_nothing)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	mu_assert_int_eq(0, region[APP_IMAGE_CHECKSUM_INDEX]);
+	mu_assert_int_eq(0, region_check(region)->flags);
+	mu_assert(app_image_region_startable(region, FLASH_TOP),
+	          "an image no host had written was refused");
+}
+
+/* A block in a format this bootloader does not know is a block it cannot
+ * read, so it asks for nothing rather than guessing at the fields. */
+MU_TEST(a_check_block_in_an_unknown_format_asks_for_nothing)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	region_check(region)->format_version = UBERTOOTH_IMAGE_CHECK_FORMAT + 1;
+	region[A_REGION_WORDS - 1] += 1;
+	mu_assert(app_image_region_startable(region, FLASH_TOP),
+	          "a block in an unknown format was read anyway");
+}
+
+/* An image that says for itself that its checksum word is filled in does not
+ * get the zero-word escape: a zero word there is eight words that do not add
+ * up, not an image that predates the checksum. */
+MU_TEST(a_flagged_image_with_a_zero_checksum_word_is_not_startable)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	a_written_region(region, UBERTOOTH_IMAGE_CHECK_VECTOR);
+	region[APP_IMAGE_CHECKSUM_INDEX] = 0;
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "a flagged image whose checksum word was zero was accepted");
+	/* The same words with the flag clear are accepted, which is what keeps
+	 * every image written before this startable. */
+	region_check(region)->flags = 0;
+	mu_assert(app_image_region_startable(region, FLASH_TOP),
+	          "an unflagged image whose checksum word was zero was refused");
+}
+
+/* The length decides how much flash is read, so it is read carefully: the two
+ * copies have to agree. A length of its own is one word, and a word a program
+ * left part way through could read as anything. */
+MU_TEST(a_length_that_does_not_agree_with_its_complement_is_not_startable)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	region_check(region)->length_complement += 1;
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "a length whose two copies disagreed was used");
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	region_check(region)->length_complement = 0xffffffffu;
+	region_check(region)->length = 0;
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "a length of zero was used");
+}
+
+/* ...and a length that agrees with itself still has to be one an image could
+ * have: long enough to hold the block it came out of, a whole number of
+ * words, and inside the region. */
+MU_TEST(a_length_no_image_could_have_is_not_startable)
+{
+	uint32_t *region = a_region_buffer;
+	struct ubertooth_image_check_block *check;
+	const uint32_t no_image_could_have[] = {
+		4u,                              /* shorter than the block itself */
+		APP_IMAGE_MIN_LENGTH - 4u,
+		A_REGION_LENGTH + 2u,            /* not a whole number of words */
+		FLASH_TOP - APP_IMAGE_BASE + 4u, /* past the end of the family's flash */
+		0xfffffffcu,
+	};
+	unsigned i;
+
+	for (i = 0; i < sizeof(no_image_could_have) / sizeof(*no_image_could_have);
+	     i++) {
+		a_region(region);
+		a_written_region(region, BOTH_CHECKS);
+		check = region_check(region);
+		check->length = no_image_could_have[i];
+		check->length_complement = ~no_image_could_have[i];
+		mu_assert(!app_image_region_startable(region, FLASH_TOP),
+		          "a length no image could have was used");
+	}
+}
+
+/* The region check does not rescue a vector table the two words refuse, and
+ * it is not reached by a region that holds no image at all: erased flash
+ * costs two words and no more. */
+MU_TEST(erased_flash_is_not_startable_whatever_its_check_block)
+{
+	uint32_t *region = a_region_buffer;
+	unsigned i;
+
+	for (i = 0; i < A_REGION_WORDS; i++)
+		region[i] = 0xffffffffu;
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "erased flash was taken for an application");
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	region[0] = 0x8000u;  /* a stack pointer in flash */
+	mu_assert(!app_image_region_startable(region, FLASH_TOP),
+	          "a region checksum covered for a stack pointer outside RAM");
+}
+
+/* The host adds the words up a byte at a time out of a file and the
+ * bootloader a word at a time out of flash. They have to come to the same
+ * number: a board whose sum differs from the host's refuses the image it was
+ * just given. */
+MU_TEST(the_host_and_the_bootloader_add_up_the_same_words)
+{
+	uint32_t *region = a_region_buffer;
+
+	a_region(region);
+	a_written_region(region, BOTH_CHECKS);
+	mu_assert_int_eq(app_image_region_sum(region, A_REGION_WORDS),
+	                 ubertooth_image_check_sum((const uint8_t *)region,
+	                                           A_REGION_LENGTH));
+	mu_assert_int_eq(0, app_image_region_sum(region, A_REGION_WORDS));
 }
 
 /* ---- the guard in front of the jump ------------------------------------- */
@@ -556,9 +827,10 @@ MU_TEST(the_bootloader_asks_the_whole_check)
 	function = strstr(collapsed, "application_startable() {");
 	mu_assert_fatal(function != NULL,
 	                "application_startable()'s body is not in bootloader.cpp");
-	mu_assert(strstr(function, "app_image_table_startable(") != NULL,
-	          "application_startable() no longer puts the vector table to "
-	          "app_image_table_startable()");
+	mu_assert(strstr(function, "app_image_region_startable(") != NULL,
+	          "application_startable() no longer puts the region to "
+	          "app_image_region_startable(), so the checks the image asks for "
+	          "are not made");
 }
 
 MU_TEST(main_runs_the_bootloader_when_there_is_nothing_to_start)
@@ -603,6 +875,18 @@ int main(void)
 	MU_RUN(erased_flash_is_not_startable_whatever_its_checksum);
 	MU_RUN(a_checksummed_table_with_bad_words_is_not_startable);
 	MU_RUN(the_checksum_word_is_the_one_the_part_defines);
+	MU_RUN(an_image_the_host_wrote_whole_is_startable);
+	MU_RUN(the_block_is_inside_the_image_first_block);
+	MU_RUN(a_sector_left_part_written_is_not_startable);
+	MU_RUN(a_single_word_out_is_not_startable);
+	MU_RUN(an_image_with_no_check_block_is_startable);
+	MU_RUN(an_unwritten_check_block_asks_for_nothing);
+	MU_RUN(a_check_block_in_an_unknown_format_asks_for_nothing);
+	MU_RUN(a_flagged_image_with_a_zero_checksum_word_is_not_startable);
+	MU_RUN(a_length_that_does_not_agree_with_its_complement_is_not_startable);
+	MU_RUN(a_length_no_image_could_have_is_not_startable);
+	MU_RUN(erased_flash_is_not_startable_whatever_its_check_block);
+	MU_RUN(the_host_and_the_bootloader_add_up_the_same_words);
 	MU_RUN(run_application_checks_before_it_jumps);
 	MU_RUN(the_check_and_the_jump_use_the_same_address);
 	MU_RUN(the_bound_and_the_sector_size_match_flash_h);

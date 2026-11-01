@@ -118,34 +118,43 @@ stops there, so it needs the same trip to the bench it always did; a
 bootloader is installed with ISP or JTAG rather than over USB, so this part of
 the fix reaches a board only when someone puts it there.
 
-One window remains, in the last 4 KiB. The bootloader erases a flash sector
-when the first block of it is written, so the sector holding the vector table
-has to be written as a whole, vector table first, and an interruption inside
-it still leaves a board that starts a partly written image. The checksum does
-not reach that far: it covers the vector table alone, which is written whole
-or not at all. That board has to be recovered at the bench, as MANUALLY
-ENTERING BOOTLOADER below describes.
+The last step writes a whole 4 KiB sector, because the bootloader erases a
+flash sector when the first block of it is written, so the vector table goes
+in before the fifteen blocks that share its sector. An interruption in
+between would leave a board a vector table that reads perfectly in front of
+flash that is only partly written, and the checksum over the table says
+nothing about it. So the same step records what the whole download wrote: how
+many bytes, and a checksum over them, in 32 bytes of the image reserved for
+it at offset 0xe0. Those bytes are in the same 256 the vector table is in, so
+a board that finds a vector table finds the record with it, and a bootloader
+from this tree adds the image up before it starts any of it. A sector that is
+only partly written does not add up -- erased flash reads 0xFFFFFFFF -- and
+the board waits in DFU for another image instead.
 
-The two checks cover different things. A download that stops between blocks
+The three checks cover different things. A download that stops between blocks
 leaves the vector table erased, which the stack pointer and reset vector
 refuse on their own: the board is handed a block only once all 256 bytes of it
 have arrived, so a transfer that stops writes nothing of the block it was on.
-The checksum covers a first block whose programming did not finish -- a board
-that lost power part way through that one program, which on a bus-powered
-board is what a pulled cable does. Neither says anything about the fifteen
-blocks above it: flash left part way through an erase or a program reads as it
-pleases.
+The checksum over the table covers a first block whose programming did not
+finish -- a board that lost power part way through that one program, which on
+a bus-powered board is what a pulled cable does. The record covers every byte
+of the image, which is what the other two cannot reach: flash left part way
+through an erase or a program reads as it pleases.
 
 A board whose application was put there by other means -- a programmer over
 ISP or JTAG, or another loader -- may hold something in that word already. If
 it is not a checksum over the table, a bootloader from this tree will not
-start it, and one `ubertooth-dfu -d` puts an image there that it does.
+start it, and one `ubertooth-dfu -d` puts an image there that it does. Such an
+image carries no record either, and a bootloader from this tree then makes
+neither check and starts it on the stack pointer and reset vector alone, as
+earlier releases did.
 
-An image this tree builds leaves the word at offset 0x1c zero, so the checksum
-is the one byte-for-byte difference between such a file and the flash written
-from it: a read-back with `-u` differs from the file in those four bytes and
-nowhere else. An image that already carries the right checksum is written
-unchanged.
+An image this tree builds leaves the word at offset 0x1c zero and the record
+at offset 0xe0 empty, so those are the only byte-for-byte differences between
+such a file and the flash written from it: a read-back with `-u` differs from
+the file in the four bytes at 0x1c and in the fourteen from 0xea to 0xf8, and
+nowhere else. An image that already carries the right checksum keeps it, and a
+record from some earlier download is written over with this one.
 
 What the detach request returns says nothing about where the board ended up,
 in either direction. It can fail because the bootloader resets while the

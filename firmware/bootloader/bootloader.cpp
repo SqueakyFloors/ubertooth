@@ -272,20 +272,33 @@ static void run_bootloader()
 	leds_off();
 }
 
-/* Is there an application in flash to start? The vector table at the start of
- * the application region -- the two words the processor would load, and the
- * checksum word over the eight -- is put to the check in app_image.h, which
- * says what it does and does not ask.
+/* Is there an application in flash to start? The application region is put to
+ * the check in app_image.h, which says what it does and does not ask: the two
+ * words the processor would load, the checksum word over the vector table,
+ * and, for an image that carries a checksum over the whole of what was
+ * written, every word of it.
  *
  * The bound is the largest part in the family rather than the flash this part
  * has, because the part has to be asked over In-Application Programming and
  * this runs on every power-up, before anything else is set up. The check only
- * has to tell an image from no image, and 512 KiB does that. */
+ * has to tell an image from no image, and 512 KiB does that.
+ *
+ * The answer is worked out once. main() asks before it decides what to run and
+ * run_application() asks again before it jumps, and the whole-region checksum
+ * reads every word the host wrote, which is not work to do twice. Nothing
+ * programs flash between the two: every path that writes an image resets the
+ * board afterwards. */
 static bool application_startable() {
-	const uint32_t* const vectors =
-		reinterpret_cast<const uint32_t*>(APP_IMAGE_BASE);
+	static bool answer_known = false;
+	static bool answer = false;
 
-	return app_image_table_startable(vectors, LPC_FLASH_SIZE_FALLBACK);
+	if (!answer_known) {
+		answer = app_image_region_startable(
+			reinterpret_cast<const uint32_t*>(APP_IMAGE_BASE),
+			LPC_FLASH_SIZE_FALLBACK);
+		answer_known = true;
+	}
+	return answer;
 }
 
 static void run_application() {

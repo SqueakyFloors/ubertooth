@@ -1220,15 +1220,20 @@
   `ubertooth-dfu -d` recovers the board rather than someone at the bench with
   the entry pin bridged. The tool fills in the checksum the part reserves over
   that vector table and the bootloader checks it, so a board that lost power
-  part way through programming that one block is not started either; the one
-  word this adds is the only difference between an image file and the flash
-  written from it. The bootloader half takes effect only on a board carrying a
-  bootloader built from this tree, which is installed with ISP or JTAG; a
-  download interrupted inside its last 4 KiB is still one for the bench either
-  way. A read of the image file that fails part way through now
-  fails the download as well, where it used to end the transfer and report
-  success.
-  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
+  part way through programming that one block is not started either. It also
+  records how many bytes it wrote and a checksum over all of them, in 32 bytes
+  of the image reserved for it, and the bootloader adds the whole image up
+  before it starts any of it: a download interrupted in its last 4 KiB, which
+  used to leave a board for the bench, now leaves one waiting in DFU as well.
+  The four bytes of the vector checksum and fourteen of that record are the
+  only differences between an image file and the flash written from it. The
+  bootloader half takes effect only on a board carrying a bootloader built
+  from this tree, which is installed with ISP or JTAG. A read of the image
+  file that fails part way through now fails the download as well, where it
+  used to end the transfer and report success.
+  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242),
+  [#1039](https://github.com/SqueakyFloors/ubertooth/issues/1039),
+  [#1041](https://github.com/SqueakyFloors/ubertooth/issues/1041)
 - **Script-visible change:** the `rssi=` figure `ubertooth-btle` prints beside
   a packet is that packet's own level in dBm, the same number the signal field
   of a `-q` or `-r` capture carries for it. It used to be the weakest reading

@@ -599,6 +599,7 @@ $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 # at the firmware tree as well.
 $(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
 		stubs-fwinfo/version.h $(FW_COMMON)/fw_info.c \
+		$(FW_COMMON)/image_check.c \
 		$(FW_COMMON)/sections.ld ../common.mk \
 		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/ubertooth_usb.c \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
@@ -608,7 +609,8 @@ $(BINDIR)/test_fw_info: test_fw_info.c minunit.h source_scan.h \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' -DFW_DIR='".."' \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \
-		-o $@ test_fw_info.c $(FW_COMMON)/fw_info.c
+		-o $@ test_fw_info.c $(FW_COMMON)/fw_info.c \
+		$(FW_COMMON)/image_check.c
 
 # The range test and the repeater are hardware loops, so this scans
 # cc2400_rangetest.c as text for the radio writes they need and for the shape
