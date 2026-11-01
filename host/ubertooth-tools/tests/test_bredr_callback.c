@@ -366,37 +366,50 @@ static void collect_streams(void)
 	collect_one(&captured_output, last_stdout, sizeof(last_stdout));
 }
 
-static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
+/* A second handle, for the cases about what belongs to one board. */
+static ubertooth_t second_ut;
+
+static void run_callback_on(ubertooth_t* ut,
+                            void (*cb)(ubertooth_t*, void*), void* args)
 {
 	/* The follow and the clock trim are kept across calls, where the rest
 	 * of the handle is zeroed. They are cb_rx()'s state for one board and
 	 * they live on the handle, and in a real capture that is the same
 	 * handle for every record: a clock the library handed over on one
 	 * record is still being followed on the next. */
-	ubertooth_t keep = last_ut;
+	ubertooth_t keep = *ut;
 
-	memset(&last_ut, 0, sizeof(last_ut));
-	last_ut.br_following = keep.br_following;
-	last_ut.br_calibrated = keep.br_calibrated;
-	last_ut.br_heard_ms = keep.br_heard_ms;
-	last_ut.br_clock_gone = keep.br_clock_gone;
-	last_ut.br_trim_counter = keep.br_trim_counter;
-	last_ut.br_clkn_trim = keep.br_clkn_trim;
-	last_ut.clk100ns_period = CLK100NS_PERIOD;
-	last_ut.capture_channel = capture_channel;
+	memset(ut, 0, sizeof(*ut));
+	ut->br_following = keep.br_following;
+	ut->br_calibrated = keep.br_calibrated;
+	ut->br_heard_ms = keep.br_heard_ms;
+	ut->br_clock_gone = keep.br_clock_gone;
+	ut->br_trim_counter = keep.br_trim_counter;
+	ut->br_clkn_trim = keep.br_clkn_trim;
+	ut->br_searching = keep.br_searching;
+	ut->br_search_start_ms = keep.br_search_start_ms;
+	ut->br_clock_confirmed = keep.br_clock_confirmed;
+	ut->clk100ns_period = CLK100NS_PERIOD;
+	ut->capture_channel = capture_channel;
 	/* Never dereferenced: the writers above are fakes. They only have to
 	 * be something other than NULL, which is what makes the callback
 	 * write. */
 	if (capture_files) {
-		last_ut.h_pcap_bredr = (btbb_pcap_handle*)&last_ut;
-		last_ut.h_pcapng_bredr = (btbb_pcapng_handle*)&last_ut;
+		ut->h_pcap_bredr = (btbb_pcap_handle*)ut;
+		ut->h_pcapng_bredr = (btbb_pcapng_handle*)ut;
 	}
 	next_index = 0;
 
 	capture_streams();
 	while (next_index < next_count)
-		cb(&last_ut, args);
+		cb(ut, args);
 	collect_streams();
+}
+
+/* The usual run, on the one handle the cases read afterwards. */
+static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
+{
+	run_callback_on(&last_ut, cb, args);
 }
 
 /* The summary a tool prints when its capture ends, read off the handle the
@@ -949,6 +962,56 @@ MU_TEST(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for)
 	/* And the drift the second trim measured over that second. */
 	mu_assert_int_eq(1, seen.drifts);
 	mu_assert_int_eq(-15, (int)seen.drift_ppm_sent);
+
+	btbb_piconet_unref(pn);
+}
+
+/* The clock trim belongs to the board being read, not to the process. Two
+ * boards have their own crystals and their own CLKN counters, so a correction
+ * measured against one board's trim history says nothing about the other's,
+ * and the requests it produces go to one board. A capture reading several
+ * boards would otherwise compute each board's drift from another board's
+ * history and send the fix to whichever board the packet came from.
+ *
+ * Here the first board is calibrated by a run of packets and then a second
+ * board is given one packet. Its first correction has nothing to measure a
+ * drift over, so it trims and reports no drift. With one set of state for the
+ * process it would have inherited the first board's calibration and reported
+ * a drift measured against that board's clock. */
+MU_TEST(the_clock_trim_belongs_to_the_board_being_read)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+	unsigned i;
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	/* Both boards start as a capture finds them, with nothing calibrated:
+	 * the handle is what carries that from one record to the next, so a
+	 * case about it says where each board begins. */
+	memset(&last_ut, 0, sizeof(last_ut));
+	memset(&second_ut, 0, sizeof(second_ut));
+
+	/* The first board, calibrated and then trimmed again a second later,
+	 * which is the sequence that reports a drift. */
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(2500, 2), 0, 10);
+	for (i = 1; i < 4; i++)
+		fill_packet(&next_packets[i],
+		            clk100ns_for_clk_offset(2500, 100 * i), 0, 10);
+	fill_packet(&next_packets[4], clk100ns_for_clk_offset(2100, 1602), 0, 10);
+	next_count = 5;
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(2, seen.trims);
+	mu_assert_int_eq(1, seen.drifts);
+
+	/* The second board, one packet, with the first board's calibration
+	 * still on its own handle. */
+	memset(&seen, 0, sizeof(seen));
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(2100, 4000), 0, 10);
+	next_count = 1;
+	run_callback_on(&second_ut, cb_rx, pn);
+
+	mu_assert_int_eq(1, seen.trims);
+	mu_assert_int_eq(0, seen.drifts);
 
 	btbb_piconet_unref(pn);
 }
@@ -1853,5 +1916,6 @@ int main(void)
 	MU_RUN(a_board_that_will_not_come_off_a_quiet_clock_is_asked_again);
 	MU_RUN(a_clock_given_up_for_silence_warns_once_and_frees_the_board);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
+	MU_RUN(the_clock_trim_belongs_to_the_board_being_read);
 	return mu_report();
 }

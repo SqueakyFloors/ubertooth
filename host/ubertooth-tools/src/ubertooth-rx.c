@@ -55,7 +55,7 @@ static void usage(FILE *file)
 	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
 	fprintf(file, "piconet that uses adapted hopping (AFH), which every controller tested on\n");
 	fprintf(file, "this project's bench does, so following such a piconet does not start. Its\n");
-	fprintf(file, "addresses, and the packets of it this board hears, are still recovered. See\n");
+	fprintf(file, "addresses, and the packets of it the boards hear, are still recovered. See\n");
 	fprintf(file, "ubertooth-rx(1).\n");
 	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
@@ -301,11 +301,20 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
 	for (i = 0; i < n_boards; i++) {
 		if (grown)
 			btbb_piconet_set_afh_map(boards[i].pn, merged);
-		if (agreed &&
-		    !btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID)) {
-			btbb_piconet_set_uap(boards[i].pn, uap);
-			boards[i].uap_handed = 1;
-		}
+		if (!agreed)
+			continue;
+		/* To a board with none, and over a board whose own answer is
+		 * not the one the others reached. That board is the one the
+		 * merge is most use to: it cannot get off a wrong UAP by
+		 * itself, because the library restores the value it was
+		 * filtering on each time the clock search runs out of
+		 * candidates, so without this it would spend the run on a
+		 * value two other boards have contradicted. */
+		if (btbb_piconet_get_flag(boards[i].pn, BTBB_UAP_VALID) &&
+		    btbb_piconet_get_uap(boards[i].pn) == uap)
+			continue;
+		btbb_piconet_set_uap(boards[i].pn, uap);
+		boards[i].uap_handed = 1;
 	}
 }
 
@@ -317,9 +326,12 @@ static void rx_share_findings(struct rx_board* boards, int n_boards,
  * On standard error, as the library's own discovery notes are, so a capture
  * writing to standard output is unaffected. The map reads in the order
  * btbb_print_afh_map() and hcitool print it: byte 0 first, bit b of byte i
- * being channel 8i + b. */
+ * being channel 8i + b.
+ *
+ * told_uap says the user gave the address part with -u, in which case there is
+ * nothing to report about it: every board was started on that value. */
 static void rx_report_findings(int n_boards, const uint8_t* merged,
-                               const struct rx_board* boards)
+                               const struct rx_board* boards, int told_uap)
 {
 	int i, used = 0, have_uap = 0, disagree = 0;
 	uint8_t uap = 0;
@@ -342,14 +354,22 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 		}
 	}
 
-	if (!have_uap)
+	/* Nothing to report where the user gave the UAP with -u: every board
+	 * was started on it, so the line would hand their own value back as a
+	 * finding. */
+	if (told_uap)
+		;
+	else if (!have_uap)
 		fprintf(stderr, "note: %d boards: no UAP found\n", n_boards);
 	else if (disagree)
 		/* One of them is wrong, and this run cannot say which: the
 		 * library settles a UAP on the packets it has had, and two
-		 * boards have had different packets. */
-		fprintf(stderr, "note: %d boards: the boards ended on "
-		        "different UAPs; one of them is wrong\n", n_boards);
+		 * boards have had different packets. The value named is the
+		 * one the run went with, which is either what two boards
+		 * agreed on or, with none agreeing, the first that turned up. */
+		fprintf(stderr, "note: %d boards: the boards worked out "
+		        "different UAPs, 0x%02x among them; one of them is "
+		        "wrong\n", n_boards, uap);
 	else
 		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
 		        uap);
@@ -491,8 +511,8 @@ static void rx_note_clock_search_limit(ubertooth_t* ut)
 	fprintf(stderr, "note: the clock search has run for %ld s without "
 	        "confirming a clock; it does not confirm one against a piconet "
 	        "that uses adapted hopping (AFH)\n", ms / 1000);
-	fputs("note: the piconet's LAP and UAP, and the packets of it this "
-	      "board hears, are still recovered, decoded, and captured; see "
+	fputs("note: the piconet's LAP and UAP, and the packets of it the "
+	      "boards hear, are still recovered, decoded, and captured; see "
 	      "ubertooth-rx(1)\n", stderr);
 }
 
@@ -820,6 +840,20 @@ int main(int argc, char* argv[])
 	if (infile_name != NULL && n_boards > 1) {
 		fprintf(stderr, "error: -i names one saved capture, so it"
 		        " cannot be given several boards to read\n");
+		return 1;
+	}
+
+	/* A dump record carries no board, and -i hands a whole dump to one
+	 * piconet, so a dump holding several boards' records would be replayed
+	 * as one board's: the clock each record was stamped with is its own
+	 * board's, and placing another board's record in that recovery puts it
+	 * at a point in the hop pattern it was never heard at. There is no
+	 * right way to replay such a file, so it is not written. The PCAP and
+	 * PCAPNG captures are for a reader rather than for this tool's
+	 * recovery and do take every board; see SEVERAL BOARDS AT ONCE. */
+	if (dump_name != NULL && n_boards > 1) {
+		fprintf(stderr, "error: -d writes one dump for -i to replay as"
+		        " one board, so it cannot be given several boards\n");
 		return 1;
 	}
 	if (infile_name != NULL && have_timeout) {
@@ -1232,7 +1266,8 @@ int main(int argc, char* argv[])
 		 * something to merge: one board's result is its own piconet's,
 		 * and libbtbb reports that as it goes. */
 		if (have_lap && n_boards > 1)
-			rx_report_findings(n_boards, merged_map, boards);
+			rx_report_findings(n_boards, merged_map, boards,
+			                   have_uap);
 	} else {
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */

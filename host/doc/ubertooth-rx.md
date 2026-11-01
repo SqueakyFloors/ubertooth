@@ -188,7 +188,7 @@ Miscellaneous:
  - `-U <index|serial>[,...]` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE. A comma-separated list of up to eight
-   reads them all together; see SEVERAL BOARDS AT ONCE
+   reads them all together, by index or serial each; see SEVERAL BOARDS AT ONCE
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -257,7 +257,7 @@ Once a search has been running for half a minute without confirming a clock,
 the tool says so once, on standard error:
 
     note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)
-    note: the piconet's LAP and UAP, and the packets of it this board hears, are still recovered, decoded, and captured; see ubertooth-rx(1)
+    note: the piconet's LAP and UAP, and the packets of it the boards hear, are still recovered, decoded, and captured; see ubertooth-rx(1)
 
 The capture is not stopped and the search is not changed: the note says what
 the run is going to reach, so a user is not left reading candidate counts for
@@ -282,6 +282,7 @@ search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a
 piconet it joins, and ubertooth-btbr(1) in monitor mode catches the frequency
 hop synchronization (FHS) packet of a connection as it is set up, which carries
 the Central's clock.
+
 ## SEVERAL BOARDS AT ONCE
 
 An Ubertooth receives one 1 MHz channel at a time, and a Classic connection
@@ -309,13 +310,17 @@ pass between them is what they have worked out:
 
  - **The UAP**, once two boards have worked out the same one from their own
    packets. Not the first board's: a UAP is settled on as few as two packets
-   and is sometimes wrong, with one board as with several, and a board handed a
-   wrong one cannot get out of it — the clock search restores the value it was
-   filtering on each time it runs out of candidates, so that board filters on
-   the wrong UAP for the rest of the run and works out nothing of its own. Two
-   boards settling on the same value from different packets is a cross-check a
-   single board cannot make. The run says at the end when the boards ended on
-   different answers. Passing `-u` yourself avoids the question.
+   and is sometimes wrong, with one board as with several, and a board cannot
+   get off a wrong one by itself — the clock search restores the value it was
+   filtering on each time it runs out of candidates, so a board that settled on
+   a wrong UAP filters on it for the rest of the run and works out nothing of
+   its own, whether it reached that value itself or was handed it. Two boards
+   settling on the same value from different packets is a cross-check a single
+   board cannot make, and it is what makes passing the value on worth doing.
+   A board whose own answer is not the one the two reached is put on theirs,
+   which is the one case where the merge can get a board out of a wrong UAP.
+   The run says at the end when the boards worked out different answers.
+   Passing `-u` yourself avoids the question.
 
 Each board keeps a piconet of its own and recovers the clock from its own
 packets. The clock cannot be pooled: it is recovered as a position in the hop
@@ -337,6 +342,18 @@ them, on standard error:
 A survey (`-z`) needs none of this: the table of addresses heard belongs to the
 decoder rather than to a board, so every board's packets reach the one survey
 and each address is heard as many times faster as there are boards.
+
+Three things to know about the output and the files. The notes each board's own
+recovery prints — its candidate counts, its UAP, its clock trim and drift, and
+the warning that a clock it was following was not the piconet's — carry no
+board, so with several boards they interleave unattributed; the packet lines
+carry the channel, which identifies them where `-c` gave each board a channel
+of its own. A `-r` or `-q` capture takes every board's packets, and each
+board's times are reconstructed from its own crystal, so records from different
+boards can arrive out of order and drift apart over a long run. `-d` is refused
+with a list: its records carry no board and `-i` replays a whole dump as one
+board's, which would feed one piconet from several unrelated clocks — the thing
+a piconet per board exists to avoid.
 
 Each board costs a receive transfer and a 72 MB ring buffer of its own, which
 is what the limit of eight is about. One board behaves exactly as it did

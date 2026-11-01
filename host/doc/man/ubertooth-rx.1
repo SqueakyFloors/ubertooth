@@ -127,7 +127,7 @@ Miscellaneous:
 print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
 .TP
 \fB\-U <index|serial>[,\|\.\|\.\|\.]\fR
-select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE\. A comma\-separated list of up to eight reads them all together; see SEVERAL BOARDS AT ONCE
+select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE\. A comma\-separated list of up to eight reads them all together, by index or serial each; see SEVERAL BOARDS AT ONCE
 .TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
@@ -156,7 +156,7 @@ Once a search has been running for half a minute without confirming a clock, the
 .IP "" 4
 .nf
 note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)
-note: the piconet's LAP and UAP, and the packets of it this board hears, are still recovered, decoded, and captured; see ubertooth\-rx(1)
+note: the piconet's LAP and UAP, and the packets of it the boards hear, are still recovered, decoded, and captured; see ubertooth\-rx(1)
 .fi
 .IP "" 0
 .P
@@ -170,7 +170,7 @@ Each board decodes for itself and the run prints every packet of any of them, on
 .IP "\(bu" 4
 \fBThe channels this piconet has been heard on\.\fR A channel map records only that a channel carried traffic, so the maps join whatever clock each board is on\. The union is handed back to every board as it grows, so each one narrows its clock candidates against a map that filled as many times faster as there are boards, and the run reports the union when it ends\. Whether a fuller map is enough to reach a clock is the question THE CLOCK SEARCH AND ADAPTED HOPPING above describes, and nothing here answers it: the library consults the map only once it has heard the piconet on twenty channels and taken the hopping for adapted, and reaching a clock against an adapted piconet is a limitation of the search itself\.
 .IP "\(bu" 4
-\fBThe UAP\fR, once two boards have worked out the same one from their own packets\. Not the first board's: a UAP is settled on as few as two packets and is sometimes wrong, with one board as with several, and a board handed a wrong one cannot get out of it \(em the clock search restores the value it was filtering on each time it runs out of candidates, so that board filters on the wrong UAP for the rest of the run and works out nothing of its own\. Two boards settling on the same value from different packets is a cross\-check a single board cannot make\. The run says at the end when the boards ended on different answers\. Passing \fB\-u\fR yourself avoids the question\.
+\fBThe UAP\fR, once two boards have worked out the same one from their own packets\. Not the first board's: a UAP is settled on as few as two packets and is sometimes wrong, with one board as with several, and a board cannot get off a wrong one by itself \(em the clock search restores the value it was filtering on each time it runs out of candidates, so a board that settled on a wrong UAP filters on it for the rest of the run and works out nothing of its own, whether it reached that value itself or was handed it\. Two boards settling on the same value from different packets is a cross\-check a single board cannot make, and it is what makes passing the value on worth doing\. A board whose own answer is not the one the two reached is put on theirs, which is the one case where the merge can get a board out of a wrong UAP\. The run says at the end when the boards worked out different answers\. Passing \fB\-u\fR yourself avoids the question\.
 .IP "" 0
 .P
 Each board keeps a piconet of its own and recovers the clock from its own packets\. The clock cannot be pooled: it is recovered as a position in the hop pattern relative to the board's own CLKN counter, and two boards' counters are unrelated, so a packet from one board placed in the other's recovery would sit at a position it was never heard at\. Pooling would need the offset between the two boards' clocks known to better than one CLKN tick, 312\.5 us, and tracked as their crystals drift\. Nothing on the host measures that: the firmware batches records and the bulk endpoint is polled, so a record's arrival time is many ticks away from its reception time\. The piconet's own clock is the shared time base instead, and each board reaches it by itself\.
@@ -184,6 +184,8 @@ note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
 .IP "" 0
 .P
 A survey (\fB\-z\fR) needs none of this: the table of addresses heard belongs to the decoder rather than to a board, so every board's packets reach the one survey and each address is heard as many times faster as there are boards\.
+.P
+Three things to know about the output and the files\. The notes each board's own recovery prints \(em its candidate counts, its UAP, its clock trim and drift, and the warning that a clock it was following was not the piconet's \(em carry no board, so with several boards they interleave unattributed; the packet lines carry the channel, which identifies them where \fB\-c\fR gave each board a channel of its own\. A \fB\-r\fR or \fB\-q\fR capture takes every board's packets, and each board's times are reconstructed from its own crystal, so records from different boards can arrive out of order and drift apart over a long run\. \fB\-d\fR is refused with a list: its records carry no board and \fB\-i\fR replays a whole dump as one board's, which would feed one piconet from several unrelated clocks \(em the thing a piconet per board exists to avoid\.
 .P
 Each board costs a receive transfer and a 72 MB ring buffer of its own, which is what the limit of eight is about\. One board behaves exactly as it did before: there is nothing to merge and nothing extra is printed\. A board that cannot be opened, or whose receive stream fails, ends the run with status 1 rather than carrying on with fewer boards than were asked for: the channels it was covering would go unheard with nothing saying which\. \fB\-i\fR reads one saved capture and so takes one board's worth of records; it refuses a list\.
 .SH "DISCOVERING UNDISCOVERABLE DEVICES"

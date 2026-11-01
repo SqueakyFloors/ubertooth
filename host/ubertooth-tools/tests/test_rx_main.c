@@ -153,8 +153,20 @@ static struct {
 	/* What the boards after the first settle on, where a case wants them
 	 * to disagree. 0 for "the same as heard_uap". */
 	uint8_t heard_uap_other;
-	/* The channel each board was asked to tune to, in MHz. */
+	/* The channel each board was asked to tune to, in MHz, and the
+	 * requests each board was sent, one letter each in the order they
+	 * arrived. Each fake handle is its own board's, so a request is
+	 * recorded against the board it went to: a bug that sent every
+	 * channel to one board would otherwise pass. */
 	int board_channel[RX_MAX_BOARDS];
+	char board_calls[RX_MAX_BOARDS][8];
+	/* Which board the scripted follow and search readings belong to; every
+	 * other board reads -1, as a board with no clock and no search does.
+	 * So a case can put a quiet follow on one board and check that the
+	 * loop asks that board and no other. */
+	int reading_board;
+	/* Which boards were asked to give a clock up. */
+	int drops_board[RX_MAX_BOARDS];
 	/* What each board's piconet already held when the fake decode was last
 	 * handed it: how many channels it has been told this piconet uses, and
 	 * the upper address part where it has one, -1 for none. A board holding
@@ -207,6 +219,9 @@ static ubertooth_t* fake_handle(int board)
 
 /* Which board a handle belongs to, so a fake handed a handle knows which
  * board's script to follow. -1 for a handle this test did not allocate. */
+/* Which board a request's USB handle belongs to. */
+static int devh_board(const struct libusb_device_handle* devh);
+
 static int board_index(const ubertooth_t* ut)
 {
 	int i;
@@ -215,6 +230,26 @@ static int board_index(const ubertooth_t* ut)
 		if (fake_handle(i) == ut)
 			return i;
 	return -1;
+}
+
+static int devh_board(const struct libusb_device_handle* devh)
+{
+	return board_index((const ubertooth_t*)devh);
+}
+
+/* What a board was asked for, in order. */
+static void record_board(const struct libusb_device_handle* devh, char call)
+{
+	int board = devh_board(devh);
+	size_t length;
+
+	if (board < 0)
+		return;
+	length = strlen(device.board_calls[board]);
+	if (length + 1 < sizeof(device.board_calls[board])) {
+		device.board_calls[board][length] = call;
+		device.board_calls[board][length + 1] = '\0';
+	}
 }
 
 /* One handle per call, as the library hands out one per board. The tool asks
@@ -226,7 +261,8 @@ ubertooth_t* ubertooth_init(void)
 	if (device.inits >= RX_MAX_BOARDS)
 		return NULL;
 	ut = fake_handle(device.inits++);
-	ut->devh = (struct libusb_device_handle*)&device;
+	/* Its own handle, so every request below can be attributed. */
+	ut->devh = (struct libusb_device_handle*)ut;
 	/* Not a real ring buffer: the fake receive below never fills one, and
 	 * the packet callback is faked too. */
 	ut->fifo = (fifo_t*)malloc(1);
@@ -340,10 +376,12 @@ void ubertooth_set_timeout(ubertooth_t* ut, int seconds)
  * each board was asked for is taken in the order the requests arrive. */
 int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
 {
-	(void)devh;
+	int board = devh_board(devh);
+
 	record('c');
-	if (device.channels_set < RX_MAX_BOARDS)
-		device.board_channel[device.channels_set] = channel;
+	record_board(devh, 'c');
+	if (board >= 0)
+		device.board_channel[board] = channel;
 	device.channels_set++;
 	device.last_channel = channel;
 	return device.channel_rc;
@@ -353,25 +391,25 @@ int cmd_set_channel_quiet(struct libusb_device_handle* devh, uint16_t channel)
  * error is the tool's own report. */
 int cmd_rx_syms_quiet(struct libusb_device_handle* devh)
 {
-	(void)devh;
 	record('s');
+	record_board(devh, 's');
 	device.rx_syms_calls++;
 	return device.rx_syms_rc;
 }
 
 int cmd_set_bdaddr_quiet(struct libusb_device_handle* devh, uint64_t address)
 {
-	(void)devh;
 	(void)address;
 	record('b');
+	record_board(devh, 'b');
 	device.bdaddrs_set++;
 	return device.bdaddr_rc;
 }
 
 int cmd_set_modulation_quiet(struct libusb_device_handle* devh, uint16_t mod)
 {
-	(void)devh;
 	record('m');
+	record_board(devh, 'm');
 	device.modulations_set++;
 	device.last_modulation = mod;
 	return device.modulation_rc;
@@ -408,14 +446,16 @@ int ubertooth_bulk_receive(ubertooth_t* ut, rx_callback cb, void* cb_args)
 	device.blocks++;
 	/* The time this block took, and a packet of the followed piconet in it
 	 * where the case asked for one, which is what the callback stamps. */
-	if (device.follow_quiet_ms >= 0)
+	if (device.follow_quiet_ms >= 0 &&
+	    board_index(ut) == device.reading_board)
 		device.follow_quiet_ms = device.hear_per_block
 		                       ? 0
 		                       : device.follow_quiet_ms + device.block_ms;
 	/* A clock search runs on through the blocks: unlike the reading above,
 	 * hearing the piconet is what keeps it going rather than what starts it
 	 * again. */
-	if (device.clock_search_ms >= 0)
+	if (device.clock_search_ms >= 0 &&
+	    board_index(ut) == device.reading_board)
 		device.clock_search_ms += device.block_ms;
 	if (device.blocks < device.blocks_to_end)
 		return 0;
@@ -524,14 +564,14 @@ void cb_rx(ubertooth_t* ut, void* args)
  * confirmed at some point. The cases move it on through the blocks above. */
 long ubertooth_clock_search_ms(ubertooth_t* ut)
 {
-	(void)ut;
-	return device.clock_search_ms;
+	return board_index(ut) == device.reading_board
+	       ? device.clock_search_ms : -1;
 }
 
 long ubertooth_follow_quiet_ms(ubertooth_t* ut)
 {
-	(void)ut;
-	return device.follow_quiet_ms;
+	return board_index(ut) == device.reading_board
+	       ? device.follow_quiet_ms : -1;
 }
 
 /* Giving that clock up. The real one warns on standard error and takes the
@@ -540,8 +580,11 @@ long ubertooth_follow_quiet_ms(ubertooth_t* ut)
  * clock that was given up leaves the capture following nothing. */
 int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 {
-	(void)ut;
+	int board = board_index(ut);
+
 	(void)pn;
+	if (board >= 0)
+		device.drops_board[board]++;
 	device.drops++;
 	device.follow_quiet_ms = 0;
 	if (device.drop_result <= 0)
@@ -1972,7 +2015,7 @@ MU_TEST(a_follow_that_stays_quiet_is_asked_about_once_per_wait)
 /* The two lines the tool says about it, each as one literal, so a reworded
  * message or a changed span fails here and in the man page check with it. */
 static const char SEARCH_NOTE[] = "note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)\n";
-static const char SEARCH_NOTE_REACH[] = "note: the piconet's LAP and UAP, and the packets of it this board hears, are still recovered, decoded, and captured; see ubertooth-rx(1)\n";
+static const char SEARCH_NOTE_REACH[] = "note: the piconet's LAP and UAP, and the packets of it the boards hear, are still recovered, decoded, and captured; see ubertooth-rx(1)\n";
 
 /* How many times a line appears in a captured stream. */
 static int lines_like(const char* stream, const char* line)
@@ -2298,8 +2341,9 @@ MU_TEST(boards_that_disagree_about_the_address_part_say_so)
 	r = RUN_RX("-U", "0,1", "-c", "20,40", "-l", "112233", "-t", "10");
 
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.err, "note: 2 boards: the boards ended on "
-	          "different UAPs; one of them is wrong") != NULL, r.err);
+	mu_assert(strstr(r.err, "note: 2 boards: the boards worked out "
+	          "different UAPs, 0x22 among them; one of them is wrong")
+	          != NULL, r.err);
 	mu_assert(strstr(r.err, "UAP = 0x") == NULL, r.err);
 }
 
@@ -2413,6 +2457,16 @@ MU_TEST(a_board_or_channel_list_the_tool_will_not_take_is_refused)
 	          "cannot be given several boards to read\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
 
+	/* A dump is replayed as one board's records, so it takes one board. */
+	reset_device();
+	r = RUN_RX("-U", "0,1", "-d", "/tmp/rx-main-never-written", "-t", "10");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -d writes one dump for -i to replay as"
+	          " one board, so it cannot be given several boards\n") == 0,
+	          r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, device.connect_calls);
+
 	/* And -V reports one board. */
 	reset_device();
 	r = RUN_RX("-U", "0,1", "-V");
@@ -2420,6 +2474,106 @@ MU_TEST(a_board_or_channel_list_the_tool_will_not_take_is_refused)
 	mu_assert(strcmp(r.err, "error: -V reports one board; name one with "
 	          "-U, or none to report every board attached\n") == 0, r.err);
 	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/* Two boards agreeing outweighs a third board's own answer: the odd board is
+ * put on the value they reached. It is the board the merge is most use to,
+ * because it cannot get off a wrong address part by itself -- the library
+ * restores the value it was filtering on each time the clock search runs out
+ * of candidates. */
+MU_TEST(two_boards_agreeing_correct_a_third)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 9;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_channel[2] = 60;
+	/* The first board settles on its own answer, which the other two
+	 * contradict: the script gives every board after the first the other
+	 * value, so boards two and three agree. */
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_board[2] = 1;
+	device.heard_uap = 0x33;
+	device.heard_uap_other = 0x22;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	/* The first board ends up on the value the other two agreed. */
+	mu_assert_int_eq(0x22, device.seen_uap[0]);
+	mu_assert(strstr(r.err, "note: 3 boards: UAP = 0x22") != NULL, r.err);
+}
+
+/* Each board is sent its own requests. The modulation, the capture and the
+ * channel go to one board before the next is set up, so a bug that sent all
+ * three to the first board would leave the others with none. */
+MU_TEST(every_board_is_sent_its_own_requests)
+{
+	struct run_result r;
+	int i;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-u", "22",
+	           "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	for (i = 0; i < 3; i++)
+		mu_assert(strcmp(device.board_calls[i], "bmsc") == 0,
+		          device.board_calls[i]);
+	mu_assert_int_eq(2402 + 20, device.board_channel[0]);
+	mu_assert_int_eq(2402 + 40, device.board_channel[1]);
+	mu_assert_int_eq(2402 + 60, device.board_channel[2]);
+	/* The user gave the address part, so the run has nothing of its own to
+	 * report about it and does not hand their value back as a finding. */
+	mu_assert(strstr(r.err, "UAP") == NULL, r.err);
+}
+
+/* The follow is per board: only the board whose follow has gone quiet is asked
+ * to give its clock up. Before the follow state moved onto the handle there
+ * was one reading for the process, so the ask went wherever the loop was. */
+MU_TEST(only_the_quiet_board_is_asked_to_give_its_clock_up)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.block_ms = 30000;
+	device.blocks_to_end = 9;
+	/* The third board is the one following a clock and hearing nothing. */
+	device.reading_board = 2;
+	device.follow_quiet_ms = 0;
+
+	r = RUN_RX("-U", "0,1,2", "-l", "112233", "-u", "22", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, device.drops_board[0]);
+	mu_assert_int_eq(0, device.drops_board[1]);
+	mu_assert(device.drops_board[2] > 0, "the quiet board was asked");
+}
+
+/* -c may be written before -U: how many channels are allowed depends on the
+ * boards, which is why the lists are read once the whole command line has
+ * parsed rather than as each option arrives. */
+MU_TEST(the_channel_list_may_come_before_the_board_list)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 3;
+
+	r = RUN_RX("-c", "20,40,60", "-U", "0,1,2", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(2402 + 20, device.board_channel[0]);
+	mu_assert_int_eq(2402 + 60, device.board_channel[2]);
 }
 
 int main(void)
@@ -2478,5 +2632,9 @@ int main(void)
 	MU_RUN(one_board_is_left_exactly_as_it_was);
 	MU_RUN(a_board_whose_stream_died_ends_the_whole_capture);
 	MU_RUN(a_board_or_channel_list_the_tool_will_not_take_is_refused);
+	MU_RUN(two_boards_agreeing_correct_a_third);
+	MU_RUN(every_board_is_sent_its_own_requests);
+	MU_RUN(only_the_quiet_board_is_asked_to_give_its_clock_up);
+	MU_RUN(the_channel_list_may_come_before_the_board_list);
 	return mu_report();
 }
