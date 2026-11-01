@@ -4,6 +4,23 @@
 
 ### New features
 
+- The board's generic radio mode is reachable from the command line, as an
+  **experimental** feature. It demodulates with whatever CC2400 configuration
+  the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
+  is not Bluetooth can be captured without new firmware.
+  `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
+  could only read before, and `ubertooth-dump -g` starts the capture.
+  ubertooth(7), GENERIC RADIO MODE is the worked example.
+  What works and what does not: the raw symbol stream works, and `-g` with a
+  configuration written by hand streams as the Bluetooth captures do. The
+  packet-framing half, where the radio matches a sync word and the board sends
+  one record per detection, has not produced a record on our bench
+  ([#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040) is the open
+  question behind it), and no tool transmits a generic packet because the
+  deviation the firmware transmits at is unsettled. Expect the options and the
+  output of both to change.
+  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
 - `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
   dropping them: a replay has no board to tune and nothing to wait for, so
   `ubertooth-rx -i capture.bin -c 39` now says `error: -c cannot be combined

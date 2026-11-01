@@ -78,8 +78,8 @@ NOTHING_TO_DO = {
                      "the map is detected for one piconet",
     "ubertooth-btle": "error: nothing to do: choose a major mode "
                       "(-f, -n or -p), or -a, -k, -s or -t",
-    "ubertooth-debug": "error: -r <reg>[,<reg>[,...]] is required: at least "
-                       "one register to read",
+    "ubertooth-debug": "error: nothing to do: give -r to read registers, "
+                       "or -w to write them",
     "ubertooth-dfu": "error: nothing to do: give -d to write an image, -u to "
                      "read one back, -s to sign one, or -r to reset",
     "ubertooth-ducky": "error: nothing to do: give -q to quack, or -b to "

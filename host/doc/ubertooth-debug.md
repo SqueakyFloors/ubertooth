@@ -1,8 +1,9 @@
-# ubertooth-debug(1) -- read CC2400 radio registers
+# ubertooth-debug(1) -- read and write CC2400 radio registers
 
 ## SYNOPSIS
 
     ubertooth-debug -r <number>[,<number>[,...]]
+    ubertooth-debug -w <reg>=<value>[,<reg>=<value>[,...]]
 
 ## DESCRIPTION
 
@@ -10,8 +11,19 @@ ubertooth-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 
-It reads and does not write: there is no option for setting a register, and no
-other tool has one either.
+`-w` is experimental, as the generic radio mode it exists for is: see
+ubertooth(7), GENERIC RADIO MODE for what works and what does not. Expect the
+option and its output to change.
+
+`-w` writes registers as well as `-r` reading them. Writing the radio's
+registers by hand is how a generic capture is set up: `ubertooth-dump -g`
+demodulates with whatever configuration is in the CC2400, so `-w` puts the
+channel, data rate, sync word and framing there first. ubertooth(7), GENERIC
+RADIO MODE is the worked example.
+
+Nothing here knows which values a register accepts: these are the radio's own
+registers, and the value is written as given. A configuration that does not
+make sense gives a board that receives nothing, not an error.
 
 Register reads are debugging work, so this tool drives whatever firmware
 revision a board is carrying and makes no version check. It does check which
@@ -34,6 +46,13 @@ Options:
    with `error: option '-r' given more than once`, because it used to replace
    the first one's registers without a word. Write them together instead,
    `-r %main,0x02-0x05` (ubertooth(7), OPTION VALUES)
+ - `-w <reg>=<value>[,<reg>=<value>[,...]]` :
+   Write one or more registers of the CC2400 on Ubertooth. Each register is
+   an address `0x00`-`0xff` or a `%name`, as `-r` accepts, and each value is
+   `0x0000`-`0xffff`. Hex needs the `0x`; every other number is decimal, so
+   `010` is ten and not eight (experimental)
+ - one `-w` takes the whole list, as one `-r` does, so a second `-w` is
+   refused with `error: option '-w' given more than once`
  - `-v <0-2>` :
    Sets the level of verbosity, default is 1.
  - `-U <index|serial>` :
@@ -71,6 +90,15 @@ Dump all registers with:
 
     ubertooth-debug -r 0x00-0x70
 
+Write a register, then read it back in the same command: the writes happen
+first, so this reports what the board took.
+
+    ubertooth-debug -w %grmdm=0x0f61 -r %grmdm
+
+Several registers in one command, mixing names and addresses:
+
+    ubertooth-debug -w %mdmctrl=0x0029,%grmdm=0x0f61,0x0f=0x0997
+
 ## EXIT STATUS
 
 `ubertooth-debug` exits with 0 when every requested register was read, and 1
@@ -79,6 +107,11 @@ standard error, after libubertooth's own line for a USB error such as a
 timeout. A short reply prints the single line `error: register 0x<reg> read
 failed: board returned <n> of 2 bytes`. The remaining registers are still read
 and decoded.
+
+A failed write prints `error: register 0x<reg> write failed`, again after
+libubertooth's own line, and the remaining registers are still written: one
+register the board refused does not hide the rest. A command that asked for
+both writes and reads does both, and exits 1 if either had a failure.
 
 A board running the other firmware image exits 1 as well, with no register
 read and the two lines that name the image and flash the right one:
@@ -126,8 +159,26 @@ a range: unknown name (got %nosuchregister)`. The other reasons are
 `empty value`, `range with no start`, `not an octal digit` and
 `not a name, address or range`.
 
-`-r` is required: without it the command is refused with
-`error: -r <reg>[,<reg>[,...]] is required: at least one register to read`,
+`-w` takes a list of `<reg>=<value>` pairs. A number with a leading `0x` is
+hex and every other number is decimal, so `-w 010=1` writes register ten.
+(`-r` reads a leading zero as octal, which it has always done.) The register
+is refused the way `-r`'s is, and a value outside 16 bits the same way:
+
+    $ ubertooth-debug -w 0x100=1
+    error: register address must be 0x00-0xff (got 0x100 in 0x100=1)
+    $ ubertooth-debug -w 0x20=0x10000
+    error: register value must be 0x0000-0xffff (got 0x10000 in 0x20=0x10000)
+
+An item that is not a pair at all, a missing value, an empty item between two
+commas and a trailing comma are all refused in one line as
+`error: register write must be <reg>=<value> (got ...)`, and a `%name` the
+table does not have as
+`error: no CC2400 register is called %nosuch (in %nosuch=1)`. Nothing is
+written when any item is refused, so a configuration cannot reach the radio
+half-applied.
+
+Either `-r` or `-w` is needed: a command line with neither is refused with
+`error: nothing to do: give -r to read registers, or -w to write them`,
 on standard error and with exit status 1. A bare `ubertooth-debug`, with no
 arguments at all, prints the usage text after that line; every other refused
 command line is the `error: ` line alone, and `-h` prints the usage text on
@@ -135,8 +186,12 @@ standard output.
 
 ## SEE ALSO
 
-ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
+ubertooth(7): overview of Project Ubertooth; GENERIC RADIO MODE describes how
+`-w` and `ubertooth-dump -g` are used together, and OPTION VALUES describes
+how option values are written
+
+ubertooth-dump(1): the generic receive, which reads with the configuration
+`-w` leaves in the radio
 
 ## AUTHOR
 

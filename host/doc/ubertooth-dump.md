@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
 
-    ubertooth-dump [-b] [-c | -l] [-d <filename.bin>|-] [-U <index|serial>]
+    ubertooth-dump [-b] [-c | -l | -g] [-d <filename.bin>|-] [-U <index|serial>]
     ubertooth-dump [-U <index|serial>] -V
     ubertooth-dump -h
 
@@ -13,6 +13,15 @@ STDOUT or a file (if specified with `-d`). It can configure the radio to
 demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
+
+`-g` is experimental: see THE GENERIC RECEIVE below for what works and what
+does not, and expect the option and its output to change.
+
+`-g` runs the board's generic receive instead. That mode programs no
+demodulator of its own: it receives with whatever CC2400 configuration is
+already in the radio, which `ubertooth-debug -w` is how you put there. It is
+what the board has for a 2.4 GHz protocol that is not Bluetooth, and
+ubertooth(7), GENERIC RADIO MODE is the worked example.
 
 The dump is one record per block of symbols the board sends. Without `-b` a
 record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4
@@ -36,6 +45,10 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
    Classic Bluetooth modulation (default)
  - `-l` :
    Bluetooth Low Energy (BLE) modulation
+ - `-g` :
+   Generic receive (experimental): demodulate with the CC2400 configuration
+   already in the radio rather than programming one. Cannot be given with
+   `-c` or `-l`
  - `-d <filename.bin>` :
    Dump to file instead of stdout. A lone `-` is standard output, where the
    stream goes anyway without `-d`
@@ -66,6 +79,13 @@ The board demodulates one modulation at a time, so `-c` and `-l` in one
 command are refused before any device is opened:
 `error: -l cannot be combined with -c; a capture uses one modulation`. The
 second one used to be the one used, and the other was dropped without a word.
+
+`-g` and a modulation ask for two different things, so they are refused
+together as well: `error: -g cannot be combined with -c; the generic receive
+uses the modulation already in the radio`. `-c` and `-l` name a demodulator
+for the board to program, and `-g` says to use the one already configured, so
+a dump that took both would overwrite part of the configuration it was asked
+to read with.
 
 A refused command line creates and truncates nothing: `-d` names its file
 while the command line is read, and it is opened only once every check has
@@ -179,13 +199,53 @@ problem with the command rather than with the board.
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
 COMMON OPTIONS.
 
+## THE GENERIC RECEIVE
+
+Experimental. The symbol-stream half works: `ubertooth-dump -g` with a
+configuration written by hand streams as the Bluetooth captures do. The
+packet-framing half does not yet produce records on our bench, and the
+deviation the board transmits a generic packet at is unsettled, so no tool
+transmits one. Expect the options and the output to change.
+
+With `-g` the board does one of two things, and which one it does comes from
+GRMDM's packet-mode bit, so the configuration decides it:
+
+ - with packet mode clear, the board streams demodulated symbols as the
+   Bluetooth captures do, so `-b` prints them as `0` and `1`. This is the half
+   that works.
+ - with packet mode set, the board waits for the sync word in SYNCH and SYNCL
+   and sends one record each time the radio reports one: the four sync-word
+   bytes, then a fixed 32 bytes read out of the radio's FIFO. It reads no
+   length and waits for no end of packet, so a record is a sample of the FIFO
+   rather than necessarily one whole packet.
+
+Packet mode leaves the framing to the radio, so it produces records only when
+GRMDM's preamble length, how much of the sync word it matches and its CRC
+choice all match what is on the air. Getting that right for a protocol is part
+of the setup and nothing reports a mismatch: a wrong choice gives a capture
+with no records in it. Nothing has made it produce a record on our bench yet,
+which is why the worked example in ubertooth(7) uses the symbol stream.
+
+Either way the records are the 68-byte and 401-byte shapes described above:
+the board sends what it received, and this tool writes it out without looking
+in it. Nothing decodes a generic capture, because nothing here knows what
+protocol it is.
+
+The configuration has to be in the radio before the capture starts, and it
+survives only while the board is idle: a mode ending puts the radio back
+through its own reset. So write the registers and start the dump as two
+commands with nothing in between, as ubertooth(7), GENERIC RADIO MODE shows.
+
 ## SEE ALSO
+
+ubertooth-debug(1): reads and writes the CC2400 registers a generic capture
+needs (`-w`)
 
 ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
 long it lasts
 
-ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
-option values are written
+ubertooth(7): overview of Project Ubertooth; GENERIC RADIO MODE is the worked
+example of `-g`, and OPTION VALUES describes how option values are written
 
 ## AUTHOR
 

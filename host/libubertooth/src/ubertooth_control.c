@@ -1385,6 +1385,26 @@ int cmd_read_register(struct libusb_device_handle* devh, u8 reg)
 	return (data[0] << 8) | data[1];
 }
 
+int cmd_write_register(struct libusb_device_handle* devh, u8 reg, u16 value)
+{
+	int r;
+
+	/* The register address and the value both travel in the setup packet,
+	 * so there is no data stage to come up short. */
+	r = libusb_control_transfer(devh, CTRL_OUT, UBERTOOTH_WRITE_REGISTER,
+			reg, value, NULL, 0, 1000);
+	if (r < 0) {
+		report_request_failed(r, UBERTOOTH_WRITE_REGISTER);
+		return r;
+	}
+	return 0;
+}
+
+int cmd_rx_generic(struct libusb_device_handle* devh)
+{
+	return ubertooth_cmd_sync(devh, CTRL_OUT, UBERTOOTH_RX_GENERIC, NULL, 0);
+}
+
 int cmd_btle_peripheral(struct libusb_device_handle* devh, u8 *mac_address)
 {
 	int r;
