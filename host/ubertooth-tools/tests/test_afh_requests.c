@@ -923,7 +923,10 @@ MU_TEST(a_generic_dump_asks_for_the_generic_receive)
 	rx_dump_generic(ut, 1);
 	release_output(err, sizeof(err));
 
-	mu_assert_int_eq(2, fake.n);
+	/* Three: the mode read every stream start makes, then the modulation
+	 * and the mode request. */
+	mu_assert_int_eq(3, fake.n);
+	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.requests[0]);
 	mu_assert_int_eq(1, sent(UBERTOOTH_RX_GENERIC));
 	mu_assert_int_eq(0, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert(err[0] == '\0', err);
