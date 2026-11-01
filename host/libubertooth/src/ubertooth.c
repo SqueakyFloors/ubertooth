@@ -1421,6 +1421,80 @@ static void ubertooth_bulk_stop(ubertooth_t* ut)
 	rx_xfer_release(ut, xfer);
 }
 
+/* How long to give a board to leave a mode an earlier run left it in, as a
+ * number of short waits. A stop is acted on by the running mode's loop at its
+ * next turn and then costs a radio strobe and the wait for the synthesizer to
+ * unlock, so a board that is still answering is idle within a few
+ * milliseconds; this is a bound on one that is not. */
+#define IDLE_WAITS 100
+#define IDLE_WAIT_US 10000
+
+/*
+ * Stop a mode an earlier run left running, and wait until the board says it
+ * has ended.
+ *
+ * A stream start clears the board's bulk IN endpoint (below), which discards
+ * what a mode that has ended left in it. That is enough for a board that is
+ * idle, which is what a tool exiting normally leaves: every one of them sends
+ * STOP on the way out, and leaving a mode drops the firmware's own queue.
+ *
+ * A board still streaming is the case this covers. Its mode's loop can hand
+ * the endpoint another packet in the gap between the clear and the mode
+ * request the caller sends next, by which time the receive transfer is already
+ * submitted, so the new capture reads a packet of somebody else's -- a
+ * basic-rate dump opening with low-energy records. It needs a previous capture
+ * that was killed without stopping the board.
+ *
+ * Asking the board to stop is not enough on its own: UBERTOOTH_STOP only sets
+ * the requested mode, the dispatch acts on it at its next turn, and the
+ * control transfer has returned long before that, so "stop, then clear" leaves
+ * a smaller version of the same gap. What closes it is waiting until the board
+ * reports MODE_IDLE: the breadcrumb UBERTOOTH_GET_WATCHDOG answers with is
+ * written by the mode dispatch, after the teardown that drops the queue, so a
+ * board that reports idle has nothing left to send and the clear that follows
+ * is the last word on the endpoint.
+ *
+ * Nothing is sent to a board that is already idle, which is every normal run:
+ * the mode read is one control request, and a capture start is not a hot path.
+ *
+ * A board that will not stop is a warning rather than a failure. The capture
+ * works; it may just open with a packet or two of the previous mode's, which
+ * is what every capture did before this.
+ */
+static void idle_the_board(ubertooth_t* ut)
+{
+	watchdog_info info;
+	int i;
+
+	/* The quiet form: a board part-way through a mode stalls the odd control
+	 * request, and a mode this cannot read is one it cannot act on either,
+	 * so there is nothing to report that the capture itself will not. */
+	if (cmd_get_watchdog_quiet(ut->devh, &info) < 0)
+		return;
+	/* MODE_UNKNOWN is the btbr image, which runs its own states and reports
+	 * no mode: there is none to stop. */
+	if (info.mode == MODE_IDLE || info.mode == MODE_UNKNOWN)
+		return;
+
+	fprintf(stderr, "warning: the board is still in mode %u from an earlier "
+	        "run; stopping it first (ubertooth-util -w names the modes)\n",
+	        (unsigned)info.mode);
+
+	if (cmd_stop(ut->devh) < 0)
+		return;
+
+	for (i = 0; i < IDLE_WAITS; i++) {
+		usleep(IDLE_WAIT_US);
+		if (cmd_get_watchdog_quiet(ut->devh, &info) == 0 &&
+		    info.mode == MODE_IDLE)
+			return;
+	}
+
+	fprintf(stderr, "warning: it has not stopped after %d ms; this capture "
+	        "may open with a packet or two of the earlier run's\n",
+	        IDLE_WAITS * IDLE_WAIT_US / 1000);
+}
+
 int ubertooth_bulk_init(ubertooth_t* ut)
 {
 	struct libusb_transfer* xfer;
@@ -1436,6 +1510,10 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 		        "finish\n");
 		return -1;
 	}
+
+	/* A mode an earlier run left streaming is stopped before the clear
+	 * below, so that nothing can be handed to the endpoint after it. */
+	idle_the_board(ut);
 
 	/*
 	 * Start from an empty pipe. The board's bulk IN endpoint has two
@@ -1455,11 +1533,10 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 	 * host's toggle back to DATA0 to match, so the two stay in step.
 	 *
 	 * Doing it before the mode request is what keeps it from discarding
-	 * anything the caller wants: nothing has been asked for yet. It does not
-	 * close the window on a board still running a mode somebody else
-	 * started, whose loop can hand the endpoint another packet between this
-	 * and the mode request. A tool that exits normally sends STOP, so the
-	 * board this runs against is idle and has already dropped its queue.
+	 * anything the caller wants: nothing has been asked for yet. And doing
+	 * it on an idle board, which idle_the_board() above has just made sure
+	 * of, is what makes it the last word: a board still in a mode could hand
+	 * the endpoint another packet between this and the mode request.
 	 *
 	 * A board that refuses it is worth a word but not a failure: the stream
 	 * works, it may just open with a packet or two from before.

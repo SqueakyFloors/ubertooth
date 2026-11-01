@@ -130,6 +130,15 @@ error: the Ubertooth did not answer in time (libusb \-7)
 .P
 A board that has stopped answering control requests does this: it happens after some captures end, and a board left in a mode that keeps polling can do it too\. Try \fBubertooth\-util [\-U <selector>] \-S\fR to stop a mode and \fBubertooth\-util \-r\fR to reset the board; a board that answers neither usually resets itself, as the next paragraphs describe\. The line says only what happened, because what it means depends on what the command was doing: mid\-flash, for instance, it is a bootloader that lost its place, and no mode is involved\.
 .P
+A board still answering, left in a mode by a run that was killed, needs no \fB\-S\fR before a capture: every capture reads which mode the board is in, stops a mode it finds and waits for the board to report itself idle before it reads\. It says so, because the capture it stopped was somebody's:
+.IP "" 4
+.nf
+warning: the board is still in mode 9 from an earlier run; stopping it first (ubertooth\-util \-w names the modes)
+.fi
+.IP "" 0
+.P
+Without that wait, the stopped mode could hand the board's receive endpoint one more packet before the new capture's own mode had started, and the capture would open with a packet or two of the earlier run's\. A board that does not reach idle within a second is a second warning, and the capture goes ahead\.
+.P
 A board running this tree's firmware usually recovers itself: it resets about three seconds after it stops servicing USB, drops off the bus and comes back idle, so the fix is to run the command again\. \fBubertooth\-util [\-U <selector>] \-w\fR then says how often that has happened and which mode and which wait the board was in the last time\.
 .P
 Not every board gets that self\-reset, and where it does not the fallback is always the same: unplug the board or power\-cycle its hub port\. That is what the \fBnote:\fR line the tools print after the error names (see ubertooth\-rx(1), EXIT STATUS)\. Firmware without the watchdog, such as \fB2020\-12\-R1\fR, has no self\-reset at all\. Neither has anything that feeds the watchdog from its loop rather than from a USB service pass \(em the six modes that service USB from the interrupt, and the \fBbtbr\fR image \(em because that loop keeps turning when the USB path alone has died (see ubertooth\-util(1), WATCHDOG)\. The bootloader runs with the watchdog off by design, so a \fB\-7\fR mid\-flash, where no mode is involved, waits for nothing either; ubertooth\-dfu(1) reports that one in its own words, and its page says the same about a board that answers nothing\.

@@ -841,6 +841,18 @@
   passed one time in 128 instead of one in 256. Either was printed as a packet
   with whatever type, logical transport address and flags it carried.
   [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
+- Fixed: a capture started against a board that a killed run had left
+  streaming could open with that run's packets — a Basic Rate dump beginning
+  with low-energy records. A stream start already emptied the board's receive
+  endpoint, but a board still in a mode could put another packet there in the
+  moment between that and the capture's own mode request. Every capture now
+  reads which mode the board is in, stops a mode it finds and waits for the
+  board to report itself idle before it reads, saying so on standard error:
+  `warning: the board is still in mode 9 from an earlier run; stopping it
+  first`. A board that will not stop is a warning too, and the capture goes
+  ahead as it did before.
+  [#438](https://github.com/SqueakyFloors/ubertooth/issues/438)
+
 - Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
   connection it was following. It hopped with channel selection algorithm 1
   only, so a connection using algorithm 2, which Bluetooth 5.0 devices

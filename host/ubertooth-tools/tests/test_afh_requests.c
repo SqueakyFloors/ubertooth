@@ -104,8 +104,16 @@ static struct {
 	pthread_t main_thread;
 	int clear_halts;                /* libusb_clear_halt() calls */
 	int clear_halt_at_submit;       /* bulk transfers submitted by then */
+	int clear_halt_at_request;      /* control requests sent by then */
 	unsigned char clear_halt_ep;    /* the endpoint of the last one */
 	int refuse_clear_halt;          /* fail libusb_clear_halt() */
+	/* The mode the board reports in its watchdog breadcrumb, and how many
+	 * reads it reports it for before it reports idle. 0 reports the mode
+	 * every time, which is a board that will not stop. */
+	uint8_t reported_mode;
+	int reported_mode_reads;
+	int idle_after_reads;
+	int mode_reads;                 /* watchdog reads answered */
 } fake;
 
 /* The handle the receive loop under test is using, so the faked fifo can stop
@@ -223,6 +231,19 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle* devh,
 		return LIBUSB_ERROR_PIPE; /* the board stalled it */
 	if (data != NULL && wLength > 0)
 		memset(data, 0, wLength);
+	/* The watchdog breadcrumb, whose seventh byte is the mode the board is
+	 * in now. Everything else about it reads as zero, which is what an
+	 * unused field reports. */
+	if (bRequest == UBERTOOTH_GET_WATCHDOG && data != NULL &&
+	    wLength >= UBERTOOTH_WATCHDOG_INFO_LEN) {
+		fake.mode_reads++;
+		if (fake.reported_mode != MODE_IDLE &&
+		    (fake.idle_after_reads == 0 ||
+		     fake.mode_reads <= fake.idle_after_reads)) {
+			data[6] = fake.reported_mode;
+			fake.reported_mode_reads++;
+		}
+	}
 	return wLength;
 }
 
@@ -235,6 +256,7 @@ int LIBUSB_CALL libusb_clear_halt(libusb_device_handle* devh,
 	fake.clear_halts++;
 	fake.clear_halt_ep = endpoint;
 	fake.clear_halt_at_submit = fake.bulk_submits;
+	fake.clear_halt_at_request = fake.n;
 	return fake.refuse_clear_halt ? LIBUSB_ERROR_PIPE : 0;
 }
 
@@ -584,8 +606,8 @@ static void assert_transfer_lifetimes(void)
 MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_STOP
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH, UBERTOOTH_STOP
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -610,9 +632,10 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 	mu_assert(err[0] == '\0', err);
 
 	/* The mode request goes out once the bulk transfer is in place, and the
-	 * channel before any of it. */
+	 * channel and the mode read before any of it. */
 	mu_assert_int_eq(0, fake.bulk_at[0]);
-	mu_assert(fake.bulk_at[1] >= 1, "AFH is asked for after the bulk submit");
+	mu_assert_int_eq(0, fake.bulk_at[1]);
+	mu_assert(fake.bulk_at[3] >= 1, "AFH is asked for after the bulk submit");
 
 	assert_transfer_lifetimes();
 	release_handle(ut);
@@ -624,8 +647,9 @@ MU_TEST(the_detection_phase_starts_the_stream_with_afh)
 MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_STOP, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_GET_WATCHDOG,
+		UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -659,7 +683,8 @@ MU_TEST(the_monitor_phase_after_a_detected_map_asks_for_afh_again)
 MU_TEST(the_monitor_alone_asks_for_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -692,7 +717,8 @@ MU_TEST(the_monitor_alone_asks_for_afh)
 MU_TEST(the_r_format_loop_asks_for_afh)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -725,8 +751,9 @@ MU_TEST(the_r_format_loop_asks_for_afh)
 MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_STOP, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH, UBERTOOTH_STOP, UBERTOOTH_GET_WATCHDOG,
+		UBERTOOTH_SET_MOD, UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -764,8 +791,8 @@ MU_TEST(the_timer_that_ends_detection_still_starts_the_monitor)
 MU_TEST(an_interrupt_during_detection_ends_the_run)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH,
-		UBERTOOTH_STOP
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH, UBERTOOTH_STOP
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -854,9 +881,12 @@ MU_TEST(a_symbol_capture_still_asks_for_symbols)
 	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
-	/* Two: the modulation it reads, then the mode request. A capture that
-	 * reads Basic Rate needs no second statement after the request. */
-	mu_assert_int_eq(2, fake.n);
+	/* Three: the mode the board is in, so a mode an earlier run left
+	 * running can be stopped, then the modulation this capture reads, then
+	 * the mode request. A capture that reads Basic Rate needs no second
+	 * statement after the request. */
+	mu_assert_int_eq(3, fake.n);
+	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.requests[0]);
 	mu_assert_int_eq(1, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert_int_eq(0, sent(UBERTOOTH_AFH));
 	mu_assert(err[0] == '\0', err);
@@ -889,12 +919,13 @@ MU_TEST(a_dump_states_its_modulation_on_both_sides_of_the_mode_request)
 	rx_dump(ut, 1);
 	release_output(err, sizeof(err));
 
-	mu_assert_int_eq(3, fake.n);
-	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[0]);
-	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[0]);
-	mu_assert_int_eq(UBERTOOTH_RX_SYMBOLS, fake.requests[1]);
-	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[2]);
-	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[2]);
+	mu_assert_int_eq(4, fake.n);
+	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.requests[0]);
+	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[1]);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[1]);
+	mu_assert_int_eq(UBERTOOTH_RX_SYMBOLS, fake.requests[2]);
+	mu_assert_int_eq(UBERTOOTH_SET_MOD, fake.requests[3]);
+	mu_assert_int_eq(MOD_BT_LOW_ENERGY, fake.values[3]);
 	mu_assert(err[0] == '\0', err);
 
 	assert_transfer_lifetimes();
@@ -926,7 +957,8 @@ MU_TEST(a_refused_modulation_ends_the_dump)
 	release_output(err, sizeof(err));
 
 	mu_assert_int_eq(LIBUSB_ERROR_PIPE, r);
-	mu_assert_int_eq(1, fake.n);
+	/* The mode read the stream start makes, then the refused modulation. */
+	mu_assert_int_eq(2, fake.n);
 	mu_assert_int_eq(0, sent(UBERTOOTH_RX_SYMBOLS));
 	mu_assert_int_eq(1, do_exit); /* the poll thread was stopped */
 	/* the library reports the refusal; the caller adds nothing */
@@ -944,7 +976,8 @@ MU_TEST(a_refused_modulation_ends_the_dump)
 MU_TEST(a_refused_mode_request_joins_the_poll_thread)
 {
 	static const uint8_t expected[] = {
-		UBERTOOTH_SET_CHANNEL, UBERTOOTH_SET_MOD, UBERTOOTH_AFH
+		UBERTOOTH_SET_CHANNEL, UBERTOOTH_GET_WATCHDOG, UBERTOOTH_SET_MOD,
+		UBERTOOTH_AFH
 	};
 	char err[256] = "";
 	ubertooth_t* ut;
@@ -1273,9 +1306,11 @@ MU_TEST(a_transfer_that_never_comes_back_keeps_the_device_open)
 	mu_assert_int_eq(0, fake.closes);
 	mu_assert_int_eq(0, fake.exits);
 	mu_assert(ut->devh != NULL, "the device is left open");
-	/* nothing was asked of the board, the stop least of all */
+	/* nothing was asked of the board, the stop least of all: the one request
+	 * is the mode read the stream start makes, which found an idle board */
 	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
-	mu_assert(fake.n == 0, requests_text());
+	mu_assert_int_eq(1, sent(UBERTOOTH_GET_WATCHDOG));
+	mu_assert(fake.n == 1, requests_text());
 	/* a warning, on standard error: the teardown itself did what it could,
 	 * and the exit status below is what says the capture fell short */
 	mu_assert(strstr(err, "warning: the receive transfer did not finish; the "
@@ -1585,6 +1620,140 @@ MU_TEST(a_refused_pipe_clear_warns_and_still_streams)
 	release_handle(ut);
 }
 
+/*
+ * Clearing the pipe is the last word on the endpoint only if nothing can put
+ * a packet in it afterwards, and a board still running a mode can: its loop
+ * hands the endpoint another packet in the gap between the clear and the mode
+ * request the caller sends next, and the receive transfer is submitted by
+ * then, so this capture reads a packet of the earlier run's. So the stream
+ * start reads the mode the board is in, stops a mode it finds, and waits for
+ * the board to report idle before it clears.
+ *
+ * The order is what matters: the stop goes out before the clear, so what the
+ * stopped mode left in the endpoint is what the clear discards.
+ */
+MU_TEST(a_stream_stops_a_mode_an_earlier_run_left_running)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	fake.reported_mode = MODE_BT_FOLLOW_LE;
+	fake.idle_after_reads = 1; /* idle from the second read on */
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, sent(UBERTOOTH_STOP));
+	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.requests[0]);
+	mu_assert_int_eq(UBERTOOTH_STOP, fake.requests[1]);
+	/* The clear comes after the stop and the read that saw it take, and
+	 * before the transfer: three requests by then, none of them the
+	 * caller's mode request, which this does not send. */
+	mu_assert_int_eq(3, fake.clear_halt_at_request);
+	mu_assert_int_eq(1, fake.clear_halts);
+	mu_assert_int_eq(0, fake.clear_halt_at_submit);
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert(strstr(err, "warning: the board is still in mode 9 from an "
+	          "earlier run; stopping it first (ubertooth-util -w names the "
+	          "modes)\n") != NULL, err);
+
+	release_handle(ut);
+}
+
+/* An idle board is every normal run: a tool that exits sends STOP, so there
+ * is nothing to stop and nothing is sent. The read that says so is the one
+ * request. */
+MU_TEST(an_idle_board_is_read_once_and_left_alone)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, fake.n);
+	mu_assert_int_eq(UBERTOOTH_GET_WATCHDOG, fake.requests[0]);
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
+	mu_assert_int_eq(1, fake.clear_halts);
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert(err[0] == '\0', err);
+
+	release_handle(ut);
+}
+
+/*
+ * A board that will not leave its mode is a warning, not a failure: the
+ * capture works, it may just open with a packet or two of the earlier run's,
+ * which is what every capture did before the stop was sent at all. A board
+ * that cannot be reset is also the one case where the wait has to end by
+ * itself.
+ */
+MU_TEST(a_board_that_will_not_stop_warns_and_still_streams)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	fake.reported_mode = MODE_BT_FOLLOW_LE; /* and never idle */
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(1, sent(UBERTOOTH_STOP));
+	mu_assert(fake.mode_reads > 1, "the wait read the mode again");
+	mu_assert_int_eq(1, fake.clear_halts);
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert(ut->rx_xfer != NULL, "a transfer in place");
+	mu_assert(strstr(err, "has not stopped after 1000 ms") != NULL, err);
+
+	release_handle(ut);
+}
+
+/* A mode read the board refuses teaches nothing, so nothing is sent on it and
+ * the stream starts as it did before: the capture's own requests report their
+ * own failures. */
+MU_TEST(a_refused_mode_read_still_streams)
+{
+	char err[256] = "";
+	ubertooth_t* ut;
+
+	reset();
+	fake.refuse_request = UBERTOOTH_GET_WATCHDOG;
+	ut = new_handle();
+	mu_assert(ut != NULL, "a handle");
+	if (ut == NULL)
+		return;
+
+	capture_output();
+	mu_assert_int_eq(0, ubertooth_bulk_init(ut));
+	release_output(err, sizeof(err));
+
+	mu_assert_int_eq(0, sent(UBERTOOTH_STOP));
+	mu_assert_int_eq(1, fake.clear_halts);
+	mu_assert_int_eq(1, fake.bulk_submits);
+	mu_assert(err[0] == '\0', err);
+
+	release_handle(ut);
+}
+
 int main(void)
 {
 	/* Nothing here should look for a board; make sure of it. */
@@ -1615,6 +1784,10 @@ int main(void)
 	MU_RUN(a_refused_re_arm_gives_the_transfer_back);
 	MU_RUN(a_stream_clears_the_receive_pipe_before_it_reads);
 	MU_RUN(a_refused_pipe_clear_warns_and_still_streams);
+	MU_RUN(a_stream_stops_a_mode_an_earlier_run_left_running);
+	MU_RUN(an_idle_board_is_read_once_and_left_alone);
+	MU_RUN(a_board_that_will_not_stop_warns_and_still_streams);
+	MU_RUN(a_refused_mode_read_still_streams);
 	reset(); /* release the last case's transfer bodies */
 	return mu_report();
 }

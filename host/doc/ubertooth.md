@@ -255,6 +255,18 @@ only what happened, because what it means depends on what the command was
 doing: mid-flash, for instance, it is a bootloader that lost its place, and no
 mode is involved.
 
+A board still answering, left in a mode by a run that was killed, needs no
+`-S` before a capture: every capture reads which mode the board is in, stops a
+mode it finds and waits for the board to report itself idle before it reads.
+It says so, because the capture it stopped was somebody's:
+
+    warning: the board is still in mode 9 from an earlier run; stopping it first (ubertooth-util -w names the modes)
+
+Without that wait, the stopped mode could hand the board's receive endpoint
+one more packet before the new capture's own mode had started, and the capture
+would open with a packet or two of the earlier run's. A board that does not
+reach idle within a second is a second warning, and the capture goes ahead.
+
 A board running this tree's firmware usually recovers itself: it resets about
 three seconds after it stops servicing USB, drops off the bus and comes back
 idle, so the fix is to run the command again. `ubertooth-util [-U <selector>]
