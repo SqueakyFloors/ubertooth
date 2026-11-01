@@ -2613,7 +2613,8 @@ for typed, format_code, repeat, payload, printed in (
         ("tx ev3 3 1 aabbcc", 11, 1, b"\xaa\xbb\xcc", "data=aabbcc"),
         # 10 voice bytes, then a DM1-shaped data field
         ("tx dv 9", 7, 1, counted(10) + payload_header(9) + counted(9),
-            "dv len=9"),
+            "payload=" + (counted(10) + payload_header(9)
+                          + counted(9)).hex()),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [
         state_message(*CONNECTED_LT_ADDR_1),
@@ -2638,7 +2639,11 @@ for typed, refusal in (
         ("tx dh5 340", "dh5 carries 0 to 339 data bytes, not 340"),
         ("tx ev3 x", "length must be a number (got x)"),
         ("tx ev3 3 x", "count must be a number (got x)"),
-        ("tx ev3 3 0", "count must be at least 1 (got 0)"),
+        ("tx ev3 3 0", "count must be 1 to 400 (got 0)"),
+        ("tx ev3 3 401", "count must be 1 to 400 (got 401)"),
+        # a count that does not fit the device's field used to end the tool
+        # in a struct.error from the pack below it
+        ("tx ev3 3 70000", "count must be 1 to 400 (got 70000)"),
         ("tx ev3 3 1 aabb", "payload of 2 bytes where the length says 3"),
         ("tx ev3 3 1 zz", "payload must be an even number of hex digits"),
         ("tx ev3 3 1 aabbcc extra", "tx takes a format, a length, a count"),

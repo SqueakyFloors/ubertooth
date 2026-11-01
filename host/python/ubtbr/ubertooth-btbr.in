@@ -737,13 +737,19 @@ class BTCtlPrompt(Cmd):
 			except ValueError:
 				error("count must be a number (got %s)"%words[2])
 				return None
-			if slots < 1:
-				error("count must be at least 1 (got %d)"%slots)
+			if slots < 1 or slots > BTCTL_TX_PKT_MAX_SLOTS:
+				# The device refuses the same range, for the reason
+				# its own limit gives: nothing else goes out while
+				# the packet does, so a longer run would end the
+				# connection on link supervision.
+				error("count must be 1 to %d (got %d)"
+					%(BTCTL_TX_PKT_MAX_SLOTS, slots))
 				return None
 		if len(words) > 3:
 			try:
 				data = unhexlify(words[3])
-			except Exception:
+				# binascii.Error is a ValueError
+			except ValueError:
 				error("payload must be an even number of hex digits "
 					"(got %s)"%words[3])
 				return None
@@ -773,8 +779,12 @@ class BTCtlPrompt(Cmd):
 		# What went on the air, on standard output with the capture: this is
 		# the only record of what a receiver's decode has to be compared
 		# with, and the board reports nothing back about a packet it sent.
-		result("TX pkt: %s len=%d slots=%d data=%s"%(
-			name, len(data), slots, hexlify(data).decode()))
+		# The whole payload, voice field and payload header included, since
+		# those are on the air too and a decoder has to recover them; the
+		# device adds the CRC, which is not here.
+		result("TX pkt: %s len=%d slots=%d data=%s payload=%s"%(
+			name, len(data), slots, hexlify(data).decode(),
+			hexlify(self._bt.tx_payload(fmt, data, voice)).decode()))
 
 	def help_tx(self):
 		self.stdout.write("tx <format> [<length>] [<count>] [<hex>]:"

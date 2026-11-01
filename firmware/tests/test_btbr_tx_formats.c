@@ -157,18 +157,23 @@ static void encode(packet_t *p, unsigned format, unsigned data_bytes)
 
 /* Read the packet back off the air and compare it with what went on.
  *
- * The decoder is given the same format, because a TYPE code does not say
- * which format a synchronous packet is and the air carries no length for the
- * EV packets; everything else -- the whitening, the error correction, the
- * payload header and the CRC -- it works out for itself.
+ * The decoder is given the same format, because a TYPE code does not say which
+ * format a synchronous packet is and the air carries no length for the EV
+ * packets; everything else -- the whitening, the error correction, the payload
+ * header and the CRC -- it works out for itself.
+ *
+ * Two parts of a transmitted packet have no receive path in the firmware, so
+ * this reads them: the voice field of a DV, which carries neither a length nor
+ * a CRC, and a payload under the rate 1/3 code, which only HV1 uses.
  */
 static void decode_and_compare(packet_t *p, const char *name)
 {
 	static uint8_t out[DATA_BUF_SIZE];
 	bbcodec_t rx;
 	bbhdr_t rx_hdr;
+	uint8_t *data = out + p->t->voice_bytes;
 	uint16_t out_size = 0;
-	uint8_t flags;
+	uint8_t flags = 0;
 	int rc = 0;
 	unsigned chunk, expect_total;
 	char message[128];
@@ -185,34 +190,52 @@ static void decode_and_compare(packet_t *p, const char *name)
 	mu_assert(rx_hdr.lt_addr == TEST_LT_ADDR, message);
 
 	/* The header decode looked the TYPE code up in the asynchronous
-	 * table; this is the format the sender chose. The voice field comes
-	 * off the air here, because it carries no length and no CRC and the
-	 * chunk decoder below is about the data field. */
-	bbcodec_set_tx_format(&rx, p->t,
-		p->t->payload_header_bytes ? 0 : p->data_bytes);
+	 * table; this is the format the sender chose. The fields are set here
+	 * rather than through bbcodec_set_tx_format(), which also moves the
+	 * data field past the voice bytes: those come off the air below, so
+	 * the chunk decoder starts at the data field itself. */
+	rx.t = p->t;
+	rx.fixed_length = p->t->payload_header_bytes ? 0 : p->data_bytes;
+
 	if (p->t->voice_bytes)
 	{
 		null_decode(out, p->air, rx.air_off_b, p->t->voice_bytes);
 		whiten(out, out, 8*p->t->voice_bytes, &rx.whiten_state);
 		rx.air_off_b += 8*p->t->voice_bytes;
 	}
-	/* The whole buffer, as the receive task hands over a whole bank of air
-	 * bytes rather than the packet's own length: the first chunk is
-	 * decoded before any payload header has said how long the packet is,
-	 * so a buffer cut to the packet would come up short. */
-	for (chunk = 0; chunk < DATA_BUF_SIZE/CODEC_RX_CHUNK_SIZE + 2; chunk++)
+
+	if (p->t->fec == BB_FEC_13)
 	{
-		rc = bbcodec_decode_chunk(&rx, out, &rx_hdr, p->air,
-			sizeof(p->air));
-		if (rc == BBCODEC_DONE)
-			break;
-		snprintf(message, sizeof(message),
-			"%s: the payload is not cut short", name);
-		mu_assert_fatal(rc != BBCODEC_SHORT, message);
+		/* unfec13() takes the majority of each bit's three copies by
+		 * ORing into its output, so the buffer it writes has to be
+		 * clear; the memset above does that. */
+		unfec13(data, p->air, rx.air_off_b, 8*p->data_bytes);
+		whiten(data, data, 8*p->data_bytes, &rx.whiten_state);
+		out_size = (uint16_t) p->data_bytes;
 	}
-	snprintf(message, sizeof(message), "%s: the payload decodes", name);
-	mu_assert_fatal(rc == BBCODEC_DONE, message);
-	flags = bbcodec_decode_finalize(&rx, out, &out_size);
+	else
+	{
+		/* The whole buffer, as the receive task hands over a whole
+		 * bank of air bytes rather than the packet's own length: the
+		 * first chunk is decoded before any payload header has said
+		 * how long the packet is, so a buffer cut to the packet would
+		 * come up short. */
+		for (chunk = 0;
+		     chunk < DATA_BUF_SIZE/CODEC_RX_CHUNK_SIZE + 2; chunk++)
+		{
+			rc = bbcodec_decode_chunk(&rx, data, &rx_hdr, p->air,
+				sizeof(p->air));
+			if (rc == BBCODEC_DONE)
+				break;
+			snprintf(message, sizeof(message),
+				"%s: the payload is not cut short", name);
+			mu_assert_fatal(rc != BBCODEC_SHORT, message);
+		}
+		snprintf(message, sizeof(message), "%s: the payload decodes",
+			name);
+		mu_assert_fatal(rc == BBCODEC_DONE, message);
+		flags = bbcodec_decode_finalize(&rx, data, &out_size);
+	}
 
 	expect_total = p->t->voice_bytes + p->t->payload_header_bytes
 		+ p->data_bytes;
@@ -229,6 +252,7 @@ static void decode_and_compare(packet_t *p, const char *name)
 		mu_assert((flags & (1<<BBPKT_F_GOOD_CRC)) != 0, message);
 	}
 }
+
 
 /* Each format's packet occupies the air bits the specification gives it, and
  * comes back off the air as it went on. */

@@ -71,6 +71,10 @@ BTCTL_MONITOR_REQ	= 32
 # ubertooth_interface.h so it is not given to something else.
 BTCTL_ISP_REQ		= 33
 BTCTL_TX_PKT_REQ	= 34
+# The most transmit slots one packet may be given, as the device has it:
+# nothing else goes out while it does, so a longer one would end the
+# connection on link supervision.
+BTCTL_TX_PKT_MAX_SLOTS	= 400
 # Device -> Host 
 BTCTL_RX_PKT		= 40
 BTCTL_STATE_RESP	= 41
@@ -1727,16 +1731,26 @@ class BTCtl:
 		device is told how many bytes came with the packet and adds
 		the CRC where the format has one.
 		"""
-		payload = voice
-		if fmt.hlen:
-			payload += pack("<" + ("B" if fmt.hlen == 1 else "H"),
-				(len(data)<<3) | ((flow&1)<<2) | (llid&3))
-		payload += data
+		payload = self.tx_payload(fmt, data, voice, llid, flow)
 		cmd = pack("<BBHH", lt_addr, fmt.code, repeat,
 			len(payload)) + payload
 		log.debug("send tx pkt: format %d, %s, %d slots"
 			%(fmt.code, byte_count(len(payload)), repeat))
 		self._send_cmd(BTCTL_TX_PKT_REQ, cmd)
+
+	@staticmethod
+	def tx_payload(fmt, data, voice=b"", llid=LLID_L2CAP_START, flow=1):
+		"""The payload bytes a tx packet goes on the air with.
+
+		The voice field where the format has one, then the payload header
+		where it has one, then the data. The device adds the CRC, so that
+		is not here.
+		"""
+		payload = voice
+		if fmt.hlen:
+			payload += pack("<" + ("B" if fmt.hlen == 1 else "H"),
+				(len(data)<<3) | ((flow&1)<<2) | (llid&3))
+		return payload + data
 
 	def send_set_eir_cmd(self, eir_data):
 		acl = BTCtlACLPkt(LLID_L2CAP_START, eir_data, 1)

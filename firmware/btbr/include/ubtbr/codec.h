@@ -60,7 +60,9 @@ typedef struct bbcodec_s {
 	unsigned fixed_length;
 	/* Where the data field starts in the caller's buffer, past the voice
 	 * bytes above. The length, the CRC and the error correction are all
-	 * about the data field, so they all count from here. */
+	 * about the data field, so they all count from here. Transmit only:
+	 * no format received here has a voice field, so it stays zero on the
+	 * receive side and the decoder does not read it. */
 	unsigned data_offset;
 
 	// decoding state

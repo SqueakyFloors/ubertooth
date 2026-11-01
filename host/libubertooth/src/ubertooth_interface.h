@@ -1437,6 +1437,13 @@ typedef enum btctl_tx_format_e {
 	BTCTL_FMT_COUNT
 } btctl_tx_format_t;
 
+/* The most transmit slots one packet may be given. Nothing else goes out
+ * while it does, so the peer has nothing to answer and the connection would
+ * end on link supervision, which is a second: a central slot comes round
+ * every 1.25 ms, so this is half of that second.
+ */
+#define BTCTL_TX_PKT_MAX_SLOTS 400
+
 /* One packet to put on the air exactly as given, in the next transmit slot of
  * a connection, and again in each of the next repeat-1 transmit slots. It
  * carries no acknowledgment of its own and is never retransmitted, so a peer

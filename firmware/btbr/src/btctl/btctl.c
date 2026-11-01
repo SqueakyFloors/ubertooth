@@ -47,10 +47,10 @@ static void btctl_flush_queue(msg_queue_t *q)
 	}
 }
 
-static void btctl_flush_acl_tx_queue(void)
+/* Both queues carry packets for a connection, so a new page or page scan
+ * leaves neither behind to go out on the next one. */
+static void btctl_flush_tx_queues(void)
 {
-	/* Both carry packets for a connection, so a new page or page scan
-	 * leaves neither behind to go out on the next one. */
 	btctl_flush_queue(&btctl.acl_tx_q);
 	btctl_flush_queue(&btctl.pkt_tx_q);
 }
@@ -203,7 +203,7 @@ static void btctl_handle_paging_req(msg_t *msg)
 	uint32_t lap = req->bdaddr & 0xffffff;
 	uint8_t uap = (req->bdaddr >> 24) & 0xff;
 
-	btctl_flush_acl_tx_queue();
+	btctl_flush_tx_queues();
 
 	/* Start paging */
 	paging_state_setup(lap, uap);
@@ -249,9 +249,19 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 		cprintf("Unknown tx format %d\n", req->format);
 		return 0;
 	}
-	if (req->repeat == 0)
+	if (req->repeat == 0 || req->repeat > BTCTL_TX_PKT_MAX_SLOTS)
 	{
-		cprintf("Tx packet asked for 0 slots\n");
+		/* A packet held for longer than link supervision allows ends
+		 * the connection it needs: nothing else goes out while it
+		 * does, so the peer has nothing to answer. */
+		cprintf("Tx packet asked for %d slots, 1 to %d allowed\n",
+			req->repeat, BTCTL_TX_PKT_MAX_SLOTS);
+		return 0;
+	}
+	if (req->lt_addr == 0 || req->lt_addr > 7)
+	{
+		/* Zero is the broadcast address and there is no eighth */
+		cprintf("Tx packet on transport address %d\n", req->lt_addr);
 		return 0;
 	}
 	/* The bytes the host really sent. The message is built from the length
@@ -281,6 +291,25 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 			req->format, min_data, max_data, data_size);
 		return 0;
 	}
+	/* For a format with a payload header, that header is what the encoder
+	 * takes the length from, and the host wrote it: a header claiming more
+	 * than the host sent would have the encoder read past the payload, and
+	 * one claiming more than the format carries would go on the air with a
+	 * length its own payload contradicts. */
+	if (t->payload_header_bytes != 0)
+	{
+		uint8_t *data = req->data + t->voice_bytes;
+		unsigned claimed = t->payload_header_bytes == 1 ?
+			(data[0] >> 3) :
+			(0x3ff & ((data[0] | (data[1] << 8)) >> 3));
+
+		if (claimed != data_size)
+		{
+			cprintf("Tx packet header says %d data bytes, %d sent\n",
+				claimed, data_size);
+			return 0;
+		}
+	}
 	if (btctl_pkt_tx_enqueue(msg) != 0)
 	{
 		cprintf("Tx packet queue full\n");
@@ -297,7 +326,7 @@ static void btctl_handle_inquiry_scan_req(msg_t *msg)
 
 static void btctl_handle_page_scan_req(msg_t *msg)
 {
-	btctl_flush_acl_tx_queue();
+	btctl_flush_tx_queues();
 	page_scan_state_setup();
 }
 

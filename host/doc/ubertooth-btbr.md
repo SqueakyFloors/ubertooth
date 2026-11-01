@@ -257,14 +257,22 @@ CRC it may have, which the board adds:
 `<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
 many of the board's transmit slots to spend on the packet, which is the way to
 make one easy for a receiver to catch; the packet is not acknowledged and not
-retransmitted, so a peer that ignores it costs nothing.
+retransmitted, so a peer that ignores it costs nothing. It is at most 400,
+which is half a second of the board's transmit slots: nothing else goes out
+while the packet does, so the peer has nothing to answer, and a longer run
+would end the connection on link supervision. To put one format on the air for
+longer, send `tx` again.
 
 `<hex>` is the data bytes, as an even number of hex digits of exactly
 `<length>` bytes. Without it the data is a counted pattern, `00 01 02 ... ff`
 and over again. Either way the line `tx` prints on standard output is what
-went on the air:
+went on the air: `data=` is the data bytes, and `payload=` the whole payload,
+which adds the voice field where the format has one and the payload header
+where it has one. The board adds the CRC, which is in neither:
 
-    TX pkt: ev3 len=17 slots=20 data=000102030405060708090a0b0c0d0e0f10
+    TX pkt: ev3 len=17 slots=20 data=000102...10 payload=000102...10
+    TX pkt: dv len=9 slots=20 data=000102030405060708 \
+        payload=c0c6c4c2d0d6d4d2e0e64e000102030405060708
 
 `hv3` and `ev3` go out with the same TYPE code in the packet header, which is
 what the two mean on a synchronous and on an enhanced synchronous link

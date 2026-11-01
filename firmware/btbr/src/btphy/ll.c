@@ -302,10 +302,10 @@ void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr)
 	ll->loc_seqn = 1;
 	ll->loc_arqn = 0;
 
-	/* TX message */
-	ll->cur_tx_msg = NULL;
-	ll->cur_pkt_msg = NULL;
-	ll->pkt_slots_left = 0;
+	/* TX message. Freed rather than dropped: a connection set up without
+	 * the one before it having ended through ll_reset() would otherwise
+	 * leak the buffer, and there are sixteen of them. */
+	ll_reset(ll);
 
 	/* Stats / timeout */
 	ll->rx_count = 0;
