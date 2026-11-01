@@ -928,6 +928,11 @@ class BTCtlPageScanCmd(BTCtlCmd):
 				self._ready = True
 				self.lt_addr = lt_addr
 				log.info("Connection ready, lt_addr=%d"%self.lt_addr)
+				# A scan that went back to scanning takes the next
+				# connection on the same link manager, and its setup has
+				# not happened yet.
+				self._setup_done = False
+				self._lmp.connection_started()
 			else:
 				log.info("Connection status %d"%reason)
 		else:
@@ -969,9 +974,9 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# not agreed to receive. `ubertooth-btbr`'s own `l2ping` sends four
 		# bytes of echo data and fits; nine is the largest that does.
 		if len(answer) > acl_type_find(DM1)[2]:
-			warn("an L2CAP echo request of %s is more than this link can "
-				"answer in one packet, so it goes unanswered"
-				%byte_count(len(data)))
+			warn("an L2CAP echo request of %s of echo data is more than "
+				"this link can answer in one packet, so it goes "
+				"unanswered"%byte_count(len(data)))
 			return
 		self.send_acl(LLID_L2CAP_START, answer)
 
@@ -1009,6 +1014,10 @@ class BTCtlPagingCmd(BTCtlCmd):
 				self._ready = True
 				self.lt_addr = lt_addr
 				log.info("Connection ready, lt_addr=%d"%self.lt_addr)
+				# A page that went back to the page train takes the next
+				# connection on the same link manager, and its setup has
+				# not happened yet.
+				self._lmp.connection_started()
 				self._lmp.start()
 			else:
 				log.info ("Connection status %d"%reason)

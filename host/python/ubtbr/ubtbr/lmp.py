@@ -642,6 +642,19 @@ class LMP:
 	def lmp_send_setup_complete(self, **kwargs):
 		return self.lmp_send(LMP_SETUP_COMPLETE, b'', **kwargs)
 
+	def connection_started(self):
+		"""A connection has come up: its setup has not happened yet.
+
+		One session can hold more than one connection -- a `page` or
+		`page_scan` that went back to paging or scanning takes the next one
+		on the same link manager -- so the setup state belongs to the
+		connection rather than to the session. Left set, it would stop the
+		second connection's LMP_setup_complete ever going out.
+		"""
+		self._setup_complete_sent = False
+		self._setup_complete_done = False
+		self._setup_complete_seen = False
+
 	def send_setup_complete_once(self):
 		"""Say this end has finished the setup, if it has not already.
 
@@ -798,8 +811,8 @@ class LMPCentral(LMP):
 			# itself, which is a warning rather than a line in the trace.
 			warn("the peer refused %s: %s"%(op2str(refused), why))
 			# The request is answered, refusal and all, so nothing is
-			# outstanding any more. Left set, it let a later
-			# LMP_setup_complete open a connection the peer had declined.
+			# outstanding any more. Left set, a stray LMP_accepted
+			# afterwards read as this request being accepted.
 			self._awaiting = None
 			return
 		log.info("The peer refused %s: %s"%(op2str(refused), why))

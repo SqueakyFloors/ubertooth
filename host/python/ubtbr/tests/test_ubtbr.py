@@ -3500,6 +3500,27 @@ assert [opcode_of(pdu) for pdu in peripheral._con.sent] == \
     [lmp.LMP_SETUP_COMPLETE], peripheral._con.sent
 assert peripheral._con.setups == 1, peripheral._con.setups
 
+# One session can hold more than one connection: a `page` or `page_scan` that
+# went back to paging or scanning takes the next one on the same link manager.
+# The setup belongs to the connection, so the second one's LMP_setup_complete
+# still goes out and still opens it.
+for side in (lmp.LMPCentral, lmp.LMPPeripheral):
+    link = side(CountingConnection())
+    for connection in range(2):
+        link.connection_started()
+        link._con.sent.clear()
+        if side is lmp.LMPCentral:
+            for op, field, send in link._opening:
+                setattr(link, field, b"")
+            link.start()
+            link.receive(0, ACCEPTED)
+        link.receive(0, SETUP_COMPLETE)
+        assert [opcode_of(pdu) for pdu in link._con.sent].count(
+            lmp.LMP_SETUP_COMPLETE) == 1, \
+            (side, connection, link._con.sent)
+        assert link._con.setups == connection + 1, \
+            (side, connection, link._con.setups)
+
 print("ubtbr: the central sends the first LMP_setup_complete")
 
 # The paged board answers an L2CAP echo request, so a peer running l2ping
@@ -3622,7 +3643,6 @@ assert answered == [], answered
 # A reply has to fit the packets this link sends. Nine bytes of echo data is
 # the largest that does; ten would need a packet the peer has not agreed to
 # receive, so it is reported and left unanswered.
-one_packet = btctl.acl_type_find(btctl.DM1)[2]
 for size, answerable in ((9, True), (10, False)):
     answered.clear()
     warned = io.StringIO()
@@ -3634,14 +3654,14 @@ for size, answerable in ((9, True), (10, False)):
                 b"z" * size), bt_type=btctl.DH5)))
     if answerable:
         assert len(answered) == 1, (size, answered)
-        assert len(answered[0][1]) <= one_packet, \
-            (size, len(answered[0][1]))
+        # the 17 bytes the man page's 9 bytes of echo data comes from
+        assert len(answered[0][1]) == 17, (size, len(answered[0][1]))
         assert warned.getvalue() == "", warned.getvalue()
     else:
         assert answered == [], (size, answered)
         assert warned.getvalue() == "warning: an L2CAP echo request of 10 " \
-            "bytes is more than this link can answer in one packet, so it " \
-            "goes unanswered\n", warned.getvalue()
+            "bytes of echo data is more than this link can answer in one " \
+            "packet, so it goes unanswered\n", warned.getvalue()
 
 print("ubtbr: an L2CAP echo request is answered with a response")
 
