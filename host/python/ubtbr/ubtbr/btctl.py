@@ -899,6 +899,10 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# the object is whole from the moment it exists: _handle_l2cap() asks
 		# it whether the setup has finished.
 		self._lmp = LMPPeripheral(self)
+		# An echo request too big to answer is said once for the life of a
+		# connection, as an unhandled LMP opcode is: a peer whose l2ping
+		# repeats every second would otherwise get a line a second.
+		self._said_too_big = False
 
 	def _start(self):
 		self._bt.send_page_scan_cmd()
@@ -933,6 +937,7 @@ class BTCtlPageScanCmd(BTCtlCmd):
 				# connection on the same link manager, and its setup has
 				# not happened yet.
 				self._lmp.connection_started()
+				self._said_too_big = False
 			else:
 				log.info("Connection status %d"%reason)
 		else:
@@ -975,9 +980,11 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# not agreed to receive. `ubertooth-btbr`'s own `l2ping` sends four
 		# bytes of echo data and fits; nine is the largest that does.
 		if len(answer) > acl_type_find(DM1)[2]:
-			warn("an L2CAP echo request carrying %s of echo data is more "
-				"than this link can answer in one packet, so it goes "
-				"unanswered"%byte_count(len(data)))
+			if not self._said_too_big:
+				self._said_too_big = True
+				warn("an L2CAP echo request carrying %s of echo data is "
+					"more than this link can answer in one packet, so it "
+					"goes unanswered"%byte_count(len(data)))
 			return
 		self.send_acl(LLID_L2CAP_START, answer)
 

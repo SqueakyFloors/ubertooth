@@ -3648,6 +3648,7 @@ assert answered == [], answered
 # receive, so it is reported and left unanswered.
 for size, answerable in ((9, True), (10, False)):
     answered.clear()
+    command._said_too_big = False
     warned = io.StringIO()
     with contextlib.redirect_stdout(io.StringIO()), \
             contextlib.redirect_stderr(warned):
@@ -3666,6 +3667,17 @@ for size, answerable in ((9, True), (10, False)):
             "carrying 10 bytes of echo data is more than this link can " \
             "answer in one packet, so it goes unanswered\n", \
             warned.getvalue()
+        # and said once for the life of the connection, not once a second
+        # for a peer whose l2ping repeats
+        again = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(again):
+            command._handle_l2cap(ReceivedPacket(btctl.BTCtlACLPkt(
+                btctl.LLID_L2CAP_START,
+                btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc9,
+                    b"z" * size), bt_type=btctl.DH5)))
+        assert again.getvalue() == "", again.getvalue()
+        assert answered == [], answered
 
 # A second connection in the same page scan starts a setup of its own, so the
 # board answers on that one too. This drives the command's own state handler,
