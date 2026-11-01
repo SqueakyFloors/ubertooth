@@ -293,19 +293,14 @@ typedef struct _le_conn_t {
 	//
 	// It belongs to the connection rather than being a field of its own:
 	// reset_conn() then clears it, and a packet read just after a follow
-	// ended cannot reach into the follow that comes next.
+	// ended cannot reach into the follow that comes next. A write that
+	// lands after the interrupt has reset the connection leaves the note
+	// on a connection that is no longer followed, which is harmless for
+	// the same reason.
 	//
-	// Written from the mode's loop without holding interrupts off, where
-	// the two updates above need a guard, because this is one word on its
-	// own: there is no second field the interrupt could read out of step
-	// with it. A write that lands after the interrupt has reset the
-	// connection leaves the note on a connection that is no longer
-	// followed, which is harmless for the same reason.
-	//
-	// The loop writes it only where it reads 0, which is what keeps that
-	// write from being lost: the interrupt's own update is a decrement,
-	// read and written back in steps the loop can land between, and the
-	// value is not 0 anywhere in those steps.
+	// The mode's loop writes it with interrupts held off, as it does the
+	// two updates above, because the value it writes depends on the
+	// connection event counter that the timer interrupt moves on.
 	int      terminate_note;
 } le_conn_t;
 le_conn_t conn = { 0, };
@@ -2295,21 +2290,26 @@ static void packet_handler(le_rx_t *buf) {
 				// The event counter the packet is dated with says
 				// whether the event it arrived in is still open. If the
 				// counter has moved past it, every event that closes
-				// from now on is after the packet. The counter can move
-				// on between the comparison and the write, which costs
-				// that follow one more event before it ends.
+				// from now on is after the packet.
 				//
-				// A note already outstanding is left alone. Nothing is
-				// added by a second packet saying the same thing, and
-				// the write is what must not be lost to the interrupt's
-				// decrement: see conn.terminate_note.
+				// Interrupts are held off across reading the counter and
+				// writing the note, because the timer interrupt moves
+				// the counter on and spends the note at every connection
+				// event. Without the guard it could close the packet's
+				// own event between the two, so the note would be
+				// written for an event that had already closed and the
+				// follow would wait one event longer than it should.
 				case 0x2:
-					if (buf->data[1] == 2 && !conn.terminate_note)
+					if (buf->data[1] == 2) {
+						uint32_t primask = irq_save_disable();
+
 						conn.terminate_note =
 							(buf->in_open_event &&
 							 buf->event_counter == conn.conn_event_counter)
 								? TERMINATE_IN_ITS_EVENT
 								: TERMINATE_AFTER_ITS_EVENT;
+						irq_restore(primask);
+					}
 					break;
 			}
 		}
