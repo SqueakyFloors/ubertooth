@@ -3524,7 +3524,7 @@ for side in (lmp.LMPCentral, lmp.LMPPeripheral):
 print("ubtbr: the central sends the first LMP_setup_complete")
 
 # The paged board answers an L2CAP echo request, so a peer running l2ping
-# against it gets a round trip.
+# against it sees a reply.
 
 ECHO_DATA = b"ECHO"
 echo_req = btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 0xc8, ECHO_DATA)
@@ -3620,8 +3620,11 @@ for lt_addr in (None, 1):
             btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
     assert answered == [], (lt_addr, answered)
 
-command.handle_setup_complete()
+# Finishing the setup sends the board's own LMP_setup_complete through the
+# same send_acl, so the recorder starts again from here.
+command._lmp.setup_complete()
 command.lt_addr = 1
+answered.clear()
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     command._handle_l2cap(ReceivedPacket(
@@ -3659,9 +3662,35 @@ for size, answerable in ((9, True), (10, False)):
         assert warned.getvalue() == "", warned.getvalue()
     else:
         assert answered == [], (size, answered)
-        assert warned.getvalue() == "warning: an L2CAP echo request of 10 " \
-            "bytes of echo data is more than this link can answer in one " \
-            "packet, so it goes unanswered\n", warned.getvalue()
+        assert warned.getvalue() == "warning: an L2CAP echo request " \
+            "carrying 10 bytes of echo data is more than this link can " \
+            "answer in one packet, so it goes unanswered\n", \
+            warned.getvalue()
+
+# A second connection in the same page scan starts a setup of its own, so the
+# board answers on that one too. This drives the command's own state handler,
+# which is what carries the reset.
+connected = (btctl.BTCTL_STATE_CONNECTED, (1 << 5) | btctl.BTCTL_REASON_SUCCESS)
+
+
+def l2cap_answers():
+    """What went out on the signalling channel, not the link manager's PDUs."""
+    return [data for llid, data in answered if llid == btctl.LLID_L2CAP_START]
+
+
+for connection in range(2):
+    answered.clear()
+    with contextlib.redirect_stdout(io.StringIO()):
+        command._handle_state(*connected)
+        # nothing goes out until this connection's setup has finished
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+        assert l2cap_answers() == [], (connection, answered)
+        command._lmp.receive(0, bytes([lmp.LMP_SETUP_COMPLETE << 1]))
+        command._handle_l2cap(ReceivedPacket(
+            btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req)))
+    assert l2cap_answers() == [btctl.l2cap_signalling_packet(
+        btctl.L2CAP_ECHO_RSP, 0xc8, ECHO_DATA)], (connection, answered)
 
 print("ubtbr: an L2CAP echo request is answered with a response")
 

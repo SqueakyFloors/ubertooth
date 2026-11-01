@@ -152,7 +152,7 @@ LLID_TO_STR = {
 # The L2CAP signalling channel and the two codes of the echo procedure
 # (Core v5.4 | Vol 3, Part A, 4, 4.8, and 4.9). An echo request has to be
 # answered with a response carrying the same identifier, which is what makes
-# `l2ping` report a round trip.
+# `l2ping` see a reply.
 L2CAP_CID_SIGNALLING	= 1
 L2CAP_ECHO_REQ		= 0x08
 L2CAP_ECHO_RSP		= 0x09
@@ -895,12 +895,13 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# Set when a connection comes up and says so; until then there is no
 		# address to send a packet on.
 		self.lt_addr = None
-		# Set when the link setup finishes, which is when data may go out.
-		self._setup_done = False
+		# Built here rather than in _start(), as the paging command's is, so
+		# the object is whole from the moment it exists: _handle_l2cap() asks
+		# it whether the setup has finished.
+		self._lmp = LMPPeripheral(self)
 
 	def _start(self):
 		self._bt.send_page_scan_cmd()
-		self._lmp = LMPPeripheral(self)
 
 	def send_acl(self, llid, data, flow=1):
 		self._bt.send_acl_cmd(llid, data, flow, self.lt_addr)
@@ -931,7 +932,6 @@ class BTCtlPageScanCmd(BTCtlCmd):
 				# A scan that went back to scanning takes the next
 				# connection on the same link manager, and its setup has
 				# not happened yet.
-				self._setup_done = False
 				self._lmp.connection_started()
 			else:
 				log.info("Connection status %d"%reason)
@@ -957,13 +957,14 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		acl = pkt.bt_data
 		result("RX L2CAP: %s"%acl)
 		# An echo request is answered, so a peer running `l2ping` against
-		# this board gets its round trip. Nothing else on the signalling
+		# this board sees a reply. Nothing else on the signalling
 		# channel is handled; this board offers no service to connect to.
 		request = l2cap_echo_request(acl)
 		# Nothing goes out before the link setup has finished, which is the
 		# point at which both ends have agreed the connection is open, and
 		# nothing goes out without the address a connection gives.
-		if request is None or not self._setup_done or self.lt_addr is None:
+		if (request is None or self.lt_addr is None
+				or not self._lmp.setup_is_complete()):
 			return
 		identifier, data = request
 		answer = l2cap_signalling_packet(L2CAP_ECHO_RSP, identifier, data)
@@ -974,15 +975,14 @@ class BTCtlPageScanCmd(BTCtlCmd):
 		# not agreed to receive. `ubertooth-btbr`'s own `l2ping` sends four
 		# bytes of echo data and fits; nine is the largest that does.
 		if len(answer) > acl_type_find(DM1)[2]:
-			warn("an L2CAP echo request of %s of echo data is more than "
-				"this link can answer in one packet, so it goes "
+			warn("an L2CAP echo request carrying %s of echo data is more "
+				"than this link can answer in one packet, so it goes "
 				"unanswered"%byte_count(len(data)))
 			return
 		self.send_acl(LLID_L2CAP_START, answer)
 
 	def handle_setup_complete(self):
 		log.info("LMP setup complete")
-		self._setup_done = True
 
 class BTCtlPagingCmd(BTCtlCmd):
 	LMP_CLS = LMPCentral

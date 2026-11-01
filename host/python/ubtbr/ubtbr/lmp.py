@@ -654,6 +654,15 @@ class LMP:
 		self._setup_complete_sent = False
 		self._setup_complete_done = False
 		self._setup_complete_seen = False
+		# These two are a connection's as well: the trace counts seconds
+		# from the connection coming up, and an opcode is reported once for
+		# the life of one.
+		self._unhandled = set()
+		self._start_time = time()
+
+	def setup_is_complete(self):
+		"""Have both ends finished the setup, so that data may go out?"""
+		return self._setup_complete_done
 
 	def send_setup_complete_once(self):
 		"""Say this end has finished the setup, if it has not already.
