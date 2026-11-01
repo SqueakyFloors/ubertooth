@@ -228,7 +228,14 @@ void ll_prepare_tx(link_layer_t *ll, ll_tx_t *tx)
 	tx->fmt = NULL;
 	tx->data_bytes = 0;
 
-	if (ll_prepare_pkt_tx(ll, tx))
+	/* A chosen packet goes out only while no ACL message is waiting to be
+	 * acknowledged. Every packet carries the link's SEQN, and the peer's
+	 * next ARQN acknowledges whichever packet it last read: if both an ACL
+	 * message and a chosen packet went out under one SEQN, that ARQN would
+	 * free the ACL message as delivered when the peer may never have had
+	 * it, and the peer would discard the chosen packet as a repeat of the
+	 * ACL it already took. One owner of the SEQN at a time avoids both. */
+	if (ll->cur_tx_msg == NULL && ll_prepare_pkt_tx(ll, tx))
 		goto set_flags;
 
 	if (ll->cur_tx_msg == NULL)

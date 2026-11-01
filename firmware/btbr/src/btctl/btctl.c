@@ -47,8 +47,8 @@ static void btctl_flush_queue(msg_queue_t *q)
 	}
 }
 
-/* Both queues carry packets for a connection, so a new page or page scan
- * leaves neither behind to go out on the next one. */
+/* Both queues carry packets for a connection, so going idle, or starting a
+ * new page or page scan, leaves neither behind to go out on the next one. */
 static void btctl_flush_tx_queues(void)
 {
 	btctl_flush_queue(&btctl.acl_tx_q);
@@ -160,6 +160,10 @@ static void btctl_handle_idle_req(msg_t *msg)
 	/* Cancel everything we can */
 	btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_SUCCESS);
 
+	/* Anything still queued for a connection has none to go out on, and
+	 * its buffers are wanted elsewhere: there are sixteen in all. */
+	btctl_flush_tx_queues();
+
 	/* Let some time to tasks to complete (FIXME: wrap)*/
 	wait_clkn = CENTRAL_CLKN+30;
 
@@ -235,12 +239,23 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 	btctl_hdr_t *hdr = (btctl_hdr_t*)msg->data;
 	btctl_tx_pkt_req_t *req = (btctl_tx_pkt_req_t*)hdr->data;
 	const bbcodec_types_t *t;
-	unsigned min_data, max_data, data_size;
+	unsigned min_data, max_data, data_size, max_slots;
 	uint8_t air_type;
 
 	if (btctl.state != BTCTL_STATE_CONNECTED)
 	{
 		cprintf("Cannot transmit a packet outside a connection\n");
+		return 0;
+	}
+	/* Every field read below is in the request, so the message has to be
+	 * long enough to hold one before any of them is believed: a short
+	 * message would otherwise have this branch on bytes left behind by
+	 * whatever used the buffer last. */
+	if ((unsigned)msg_write_len(msg) < sizeof(btctl_hdr_t) + sizeof(*req))
+	{
+		cprintf("Tx packet request is %d bytes, %d needed\n",
+			msg_write_len(msg),
+			sizeof(btctl_hdr_t) + sizeof(*req));
 		return 0;
 	}
 	t = bbcodec_tx_format(req->format, &air_type);
@@ -249,13 +264,17 @@ static int btctl_handle_tx_pkt_req(msg_t *msg)
 		cprintf("Unknown tx format %d\n", req->format);
 		return 0;
 	}
-	if (req->repeat == 0 || req->repeat > BTCTL_TX_PKT_MAX_SLOTS)
+	/* The slots the whole run occupies, which is the repeat count times
+	 * the slots one packet of this format fills: a five-slot DH5 spends
+	 * five of them per repetition, so counting repetitions alone would let
+	 * a run take five times the air time the limit is meant to allow. The
+	 * board answers nothing but this packet while the run lasts, and the
+	 * link ends if the peer goes unheard for SUPERVISION_TO. */
+	max_slots = BTCTL_TX_PKT_MAX_SLOTS / t->nslots;
+	if (req->repeat == 0 || req->repeat > max_slots)
 	{
-		/* A packet held for longer than link supervision allows ends
-		 * the connection it needs: nothing else goes out while it
-		 * does, so the peer has nothing to answer. */
-		cprintf("Tx packet asked for %d slots, 1 to %d allowed\n",
-			req->repeat, BTCTL_TX_PKT_MAX_SLOTS);
+		cprintf("Tx packet asked for %d, 1 to %d allowed for format %d\n",
+			req->repeat, max_slots, req->format);
 		return 0;
 	}
 	if (req->lt_addr == 0 || req->lt_addr > 7)

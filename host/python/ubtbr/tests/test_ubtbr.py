@@ -2615,14 +2615,6 @@ for typed, format_code, repeat, payload, printed in (
         ("tx dv 9", 7, 1, counted(10) + payload_header(9) + counted(9),
             "payload=" + (counted(10) + payload_header(9)
                           + counted(9)).hex()),
-        # The whole line, as ubertooth-btbr(1) shows it: once for a format
-        # whose payload is the data and nothing else, and once for one that
-        # carries a voice field and a payload header in front of it.
-        ("tx ev3 3 20", 11, 20, counted(3),
-            "TX pkt: ev3 len=3 slots=20 data=000102 payload=000102"),
-        ("tx dv 3 20", 7, 20, counted(10) + payload_header(3) + counted(3),
-            "TX pkt: dv len=3 slots=20 data=000102"
-            " payload=000102030405060708091e000102"),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [
         state_message(*CONNECTED_LT_ADDR_1),
@@ -2633,6 +2625,26 @@ for typed, format_code, repeat, payload, printed in (
     assert tx_request(1, format_code, repeat, payload) in writes(), \
         (typed, writes())
 print("ubtbr: tx puts one packet of a chosen format on the air")
+
+# The whole line, as ubertooth-btbr(1) shows it, timestamp included: once for
+# a format whose payload is the data and nothing else, and once for one that
+# carries a voice field and a payload header in front of it. The page quotes
+# both, so a reworded line has to be a reworded page.
+for typed, expected in (
+        ("tx ev3 3 20",
+            r"\d\d:\d\d:\d\d TX pkt: ev3 len=3 slots=20 data=000102"
+            r" payload=000102"),
+        ("tx dv 3 20",
+            r"\d\d:\d\d:\d\d TX pkt: dv len=3 slots=20 data=000102"
+            r" payload=000102030405060708091e000102"),
+):
+    output, errors = canned_session("page 11:22:33:44:55:66", [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ", then=typed + "\n")
+    assert len(timed_lines(output, "TX pkt")) == 1, output
+    assert re.fullmatch(expected, timed_lines(output, "TX pkt")[0]), output
+print("ubtbr: the line tx prints is the one the man page shows")
 
 # A tx command the tool will not take says why on standard error, sends
 # nothing, and leaves the session at the prompt. A length the format cannot
@@ -2647,11 +2659,15 @@ for typed, refusal in (
         ("tx dh5 340", "dh5 carries 0 to 339 data bytes, not 340"),
         ("tx ev3 x", "length must be a number (got x)"),
         ("tx ev3 3 x", "count must be a number (got x)"),
-        ("tx ev3 3 0", "count must be 1 to 400 (got 0)"),
-        ("tx ev3 3 401", "count must be 1 to 400 (got 401)"),
+        ("tx ev3 3 0", "count must be 1 to 400 for ev3 (got 0)"),
+        ("tx ev3 3 401", "count must be 1 to 400 for ev3 (got 401)"),
+        # The bound is on the slots the run occupies, so a five-slot DH5
+        # may be repeated a fifth as often and a three-slot EV4 a third.
+        ("tx dh5 339 81", "count must be 1 to 80 for dh5 (got 81)"),
+        ("tx ev4 120 134", "count must be 1 to 133 for ev4 (got 134)"),
         # a count that does not fit the device's field used to end the tool
         # in a struct.error from the pack below it
-        ("tx ev3 3 70000", "count must be 1 to 400 (got 70000)"),
+        ("tx ev3 3 70000", "count must be 1 to 400 for ev3 (got 70000)"),
         ("tx ev3 3 1 aabb", "payload of 2 bytes where the length says 3"),
         ("tx ev3 3 1 zz", "payload must be an even number of hex digits"),
         ("tx ev3 3 1 aabbcc extra", "tx takes a format, a length, a count"),

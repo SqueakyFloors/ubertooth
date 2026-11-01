@@ -325,6 +325,11 @@ void bbcodec_encode_header(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr,
 void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr, uint8_t *in_data)
 {
 	const bbcodec_types_t *t = codec->t;
+	/* One byte of headroom for the 2/3 pad written at tmp[byte_num] below.
+	 * The chunk size being a multiple of 5 already keeps that write inside
+	 * the array, so the byte is never reached; it is here so a chunk size
+	 * that stopped being a multiple of 5 would pad into the temporary
+	 * rather than past it. */
 	uint8_t tmp[CODEC_TX_CHUNK_SIZE+1];
 	unsigned byte_left, byte_num, body_total, body_num, i, out_bitlen;
 
@@ -373,7 +378,8 @@ void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr, 
 	{
 		/* Rate 1/3 is only the HV1 payload, ten bytes, so one chunk
 		 * covers it; fec13() wants an even bit offset, which 58 and
-		 * every multiple of 24 above it are. */
+		 * every multiple of 24 above it are. Transmit only: see
+		 * bbcodec_decode_chunk(), which refuses this code. */
 		out_bitlen = byte_num*8*3;
 		fec13(air_data+(codec->air_off_b>>3), tmp,
 			codec->air_off_b&7, byte_num*8);
@@ -456,8 +462,12 @@ int bbcodec_decode_chunk(bbcodec_t *codec, uint8_t *out, bbhdr_t *in_hdr, uint8_
 	if (bit_av < 0)
 		DIE("dec_nc: error av %d of %d\n", in_length, codec->air_off_b);
 
-	/* Rate 1/3 is not reached: it covers a voice payload, which only the
-	 * transmit side has a format for. */
+	/* Rate 1/3 covers a voice payload, which only the transmit side has a
+	 * format for, so no packet received here carries it. Caught rather
+	 * than left to the plain branch below, which would hand back the
+	 * coded bits as though they were the payload. */
+	if (t->fec == BB_FEC_13)
+		DIE("dec_nc: rate 1/3\n");
 	in_bitlen = bbcodec_fec_air_bits(t->fec, byte_num);
 	if (bit_av < in_bitlen)
 		return BBCODEC_SHORT;

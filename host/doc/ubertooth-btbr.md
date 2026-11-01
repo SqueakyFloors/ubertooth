@@ -234,7 +234,8 @@ that format, and the board transmits it in its next transmit slot.
     bt> tx aux1 29
     bt> tx ev3 17 20
     bt> tx hv3
-    bt> tx dh5 339 5 00ff00ff...
+    bt> tx dh5 339 5
+    bt> tx dm1 4 1 deadbeef
 
 The formats, with the data bytes each carries. A data length excludes the
 payload header the format may have, which `tx` writes itself, and the 2-byte
@@ -257,21 +258,28 @@ CRC it may have, which the board adds:
 `<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
 many of the board's transmit slots to spend on the packet, which is the way to
 make one easy for a receiver to catch; the packet is not acknowledged and not
-retransmitted, so a peer that ignores it costs nothing. It is at most 400,
-which is half a second of the board's transmit slots: nothing else goes out
-while the packet does, so the peer has nothing to answer, and a longer run
-would end the connection on link supervision. To put one format on the air for
-longer, send `tx` again.
+retransmitted on the peer's say-so, so a peer that ignores it costs nothing.
+What is bounded is the air slots the whole run occupies, 400 of them: that is
+400 of a one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or
+`ev4`, and 80 of a five-slot `dh5`. Nothing else goes out while the run lasts,
+and the board ends a connection whose peer has gone unheard for a second; 400
+slots is half of that second. To put one format on the air for longer, send
+`tx` again.
 
 `<hex>` is the data bytes, as an even number of hex digits of exactly
 `<length>` bytes. Without it the data is a counted pattern, `00 01 02 ... ff`
-and over again. Either way the line `tx` prints on standard output is what
-went on the air: `data=` is the data bytes, and `payload=` the whole payload,
+and over again. Either way the line `tx` prints on standard output is the
+packet the board was asked for, which is what a receiver's decode has to be
+compared with: `data=` is the data bytes, and `payload=` the whole payload,
 which adds the voice field where the format has one and the payload header
 where it has one. The board adds the CRC, which is in neither:
 
-    TX pkt: ev3 len=3 slots=20 data=000102 payload=000102
-    TX pkt: dv len=3 slots=20 data=000102 payload=000102030405060708091e000102
+    19:18:58 TX pkt: ev3 len=3 slots=20 data=000102 payload=000102
+    19:18:58 TX pkt: dv len=3 slots=20 data=000102 payload=000102030405060708091e000102
+
+The board does not report back on a packet it has sent, so the line says what
+was asked for and not that it reached the air. To see the packet itself, have
+a second board capture the connection.
 
 `hv3` and `ev3` go out with the same TYPE code in the packet header, which is
 what the two mean on a synchronous and on an enhanced synchronous link

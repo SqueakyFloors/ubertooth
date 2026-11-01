@@ -1437,18 +1437,22 @@ typedef enum btctl_tx_format_e {
 	BTCTL_FMT_COUNT
 } btctl_tx_format_t;
 
-/* The most transmit slots one packet may be given. Nothing else goes out
- * while it does, so the peer has nothing to answer and the connection would
- * end on link supervision, which is a second: a central slot comes round
- * every 1.25 ms, so this is half of that second.
+/* The most air slots one run of a packet may occupy: the repeat count times
+ * the slots the format itself fills, so a five-slot DH5 may be repeated 80
+ * times and a one-slot DM1 400. The board sends nothing but this packet while
+ * the run lasts, and the link ends if the peer goes unheard for the
+ * supervision timeout, which this firmware sets to a second. At a central
+ * slot every 1.25 ms, 400 slots is half of that second.
  */
 #define BTCTL_TX_PKT_MAX_SLOTS 400
 
 /* One packet to put on the air exactly as given, in the next transmit slot of
- * a connection, and again in each of the next repeat-1 transmit slots. It
- * carries no acknowledgment of its own and is never retransmitted, so a peer
- * that cannot make sense of it costs nothing: the point is the packet being
- * transmitted, not the peer accepting it.
+ * a connection, and again in each of the next repeat-1 transmit slots. It is
+ * never retransmitted on the peer's say-so, so a peer that cannot make sense
+ * of it costs nothing: the point is the packet being transmitted, not the
+ * peer accepting it. It does carry the link's ARQN and SEQN, like every other
+ * packet, which is why the device sends one only while no ACL message of its
+ * own is waiting to be acknowledged.
  *
  * data_size counts the bytes after the payload header, which the host writes
  * into data itself for a format that has one. The device adds the CRC where

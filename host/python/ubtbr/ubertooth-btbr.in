@@ -737,13 +737,17 @@ class BTCtlPrompt(Cmd):
 			except ValueError:
 				error("count must be a number (got %s)"%words[2])
 				return None
-			if slots < 1 or slots > BTCTL_TX_PKT_MAX_SLOTS:
-				# The device refuses the same range, for the reason
-				# its own limit gives: nothing else goes out while
-				# the packet does, so a longer run would end the
-				# connection on link supervision.
-				error("count must be 1 to %d (got %d)"
-					%(BTCTL_TX_PKT_MAX_SLOTS, slots))
+			# The limit is on the slots the run occupies, so a
+			# format whose packet fills several slots may be
+			# repeated proportionally fewer times. The device
+			# refuses the same range, for the reason its own limit
+			# gives: nothing else goes out while the packet does,
+			# so a longer run would end the connection on link
+			# supervision.
+			most = BTCTL_TX_PKT_MAX_SLOTS // fmt.slots
+			if slots < 1 or slots > most:
+				error("count must be 1 to %d for %s (got %d)"
+					%(most, name, slots))
 				return None
 		if len(words) > 3:
 			try:

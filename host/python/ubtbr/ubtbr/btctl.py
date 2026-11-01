@@ -154,23 +154,26 @@ ACL_TYPE_TBL = [
 # format has one and the voice field where it has one; the lengths are
 # Bluetooth Core, Vol 2 Part B, Table 6.5 and Table 6.6. hlen is the payload
 # header this side writes, and voice the field it fills with voice bytes.
-TxFormat = namedtuple("TxFormat", "code hlen voice min max")
+# slots is how many air slots one packet of the format fills (Table 6.2),
+# which is what bounds the count: the limit is on the slots a run occupies,
+# not on the number of packets in it.
+TxFormat = namedtuple("TxFormat", "code hlen voice min max slots")
 
 TX_FORMATS = {
-	"dm1":  TxFormat( 0, 1,  0,  0,  17),
-	"dh1":  TxFormat( 1, 1,  0,  0,  27),
-	"dm3":  TxFormat( 2, 2,  0,  0, 121),
-	"dh3":  TxFormat( 3, 2,  0,  0, 183),
-	"dm5":  TxFormat( 4, 2,  0,  0, 224),
-	"dh5":  TxFormat( 5, 2,  0,  0, 339),
-	"aux1": TxFormat( 6, 1,  0,  0,  29),
-	"dv":   TxFormat( 7, 1, 10,  0,   9),
-	"hv1":  TxFormat( 8, 0,  0, 10,  10),
-	"hv2":  TxFormat( 9, 0,  0, 20,  20),
-	"hv3":  TxFormat(10, 0,  0, 30,  30),
-	"ev3":  TxFormat(11, 0,  0,  1,  30),
-	"ev4":  TxFormat(12, 0,  0,  1, 120),
-	"ev5":  TxFormat(13, 0,  0,  1, 180),
+	"dm1":  TxFormat( 0, 1,  0,  0,  17, 1),
+	"dh1":  TxFormat( 1, 1,  0,  0,  27, 1),
+	"dm3":  TxFormat( 2, 2,  0,  0, 121, 3),
+	"dh3":  TxFormat( 3, 2,  0,  0, 183, 3),
+	"dm5":  TxFormat( 4, 2,  0,  0, 224, 5),
+	"dh5":  TxFormat( 5, 2,  0,  0, 339, 5),
+	"aux1": TxFormat( 6, 1,  0,  0,  29, 1),
+	"dv":   TxFormat( 7, 1, 10,  0,   9, 1),
+	"hv1":  TxFormat( 8, 0,  0, 10,  10, 1),
+	"hv2":  TxFormat( 9, 0,  0, 20,  20, 1),
+	"hv3":  TxFormat(10, 0,  0, 30,  30, 1),
+	"ev3":  TxFormat(11, 0,  0,  1,  30, 1),
+	"ev4":  TxFormat(12, 0,  0,  1, 120, 3),
+	"ev5":  TxFormat(13, 0,  0,  1, 180, 3),
 }
 
 LLID_L2CAP_CONT		= 1
