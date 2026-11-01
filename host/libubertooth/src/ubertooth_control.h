@@ -195,7 +195,8 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
  * bootloader region, always, and the version block the region carries, if it
  * carries one. A board with no block is a success with info->version_result
  * saying why there is nothing to show -- that is the ordinary answer from a
- * factory or earlier bootloader, and the hash is what identifies it.
+ * bootloader of the 1.x generation, which is every board as shipped, and the
+ * hash is what identifies it.
  *
  * Returns 0 when the board answered, or a negative libusb error.
  * LIBUSB_ERROR_PIPE means the firmware does not implement the request, which

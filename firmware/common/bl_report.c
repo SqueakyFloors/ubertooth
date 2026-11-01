@@ -27,6 +27,25 @@
 #include "ubertooth_interface.h"
 
 /*
+ * Put the user flash at the bottom of the address map, where bl_report_build()
+ * reads it from.
+ *
+ * FW_HOST_TEST is the host build of this file: firmware/tests/
+ * test_bl_version.c runs the report against a region of its own and has no
+ * registers to write, so the store compiles to nothing there and the test
+ * reads this file as text to show it is still made.
+ */
+#ifdef FW_HOST_TEST
+static void bl_report_map_user_flash(void) { }
+#else
+#include "lpc17.h"
+static void bl_report_map_user_flash(void)
+{
+	MEMMAP = MEMMAP_USER_FLASH;
+}
+#endif
+
+/*
  * A nibble at a time, from a table of sixteen words rather than the usual two
  * hundred and fifty-six. The hash runs inside a USB control request, so it
  * has to be quick: the 16 KiB region takes a couple of milliseconds this way
@@ -61,10 +80,29 @@ void bl_report_build(uint8_t *out, uintptr_t region)
 	const volatile uint8_t *block = (const volatile uint8_t *)
 		(region + UBERTOOTH_BL_VERSION_OFFSET);
 	static const char magic[] = UBERTOOTH_BL_VERSION_MAGIC;
-	uint32_t crc = bl_report_crc32(region,
-	                               UBERTOOTH_BOOTLOADER_REGION_LENGTH);
+	uint32_t crc;
 	int have_block = 1;
 	size_t i;
+
+	/*
+	 * Ask for the user flash at the bottom of the address map before
+	 * reading it. The part maps either the flash or the boot ROM over the
+	 * lowest addresses (firmware/common/lpc17.h, MEMMAP), and the window
+	 * covers the first 512 bytes -- which is where the version block sits.
+	 * A Cortex-M3 finds its vector table through VTOR, so this image never
+	 * needed the register and never set it: the mapping is whatever the
+	 * boot ROM and the bootloader left behind. With the boot ROM mapped,
+	 * this read would hash 512 bytes of ROM and find no block on a board
+	 * that has one.
+	 *
+	 * Setting it costs one store and changes nothing else in this image,
+	 * which reads nothing at the bottom of the map. It is also the state a
+	 * running application should already be in, since the bootloader
+	 * itself executes from there.
+	 */
+	bl_report_map_user_flash();
+
+	crc = bl_report_crc32(region, UBERTOOTH_BOOTLOADER_REGION_LENGTH);
 
 	out[UBERTOOTH_BL_REPORT_OFF_CRC + 0] = (uint8_t)(crc & 0xff);
 	out[UBERTOOTH_BL_REPORT_OFF_CRC + 1] = (uint8_t)((crc >> 8) & 0xff);

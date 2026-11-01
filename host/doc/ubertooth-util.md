@@ -451,7 +451,7 @@ about 71 minutes first.
 `-B` says which bootloader the board has:
 
     $ ubertooth-util -B
-    Bootloader: 1.00 git-1a2b3c4, CRC32:0x9d2fe1b4
+    Bootloader: 2.00 git-1a2b3c4, CRC32:0x9d2fe1b4
 
 The bootloader is the first 16 KiB of the board's flash. It is what
 ubertooth-dfu(1) talks to, so it is also what cannot be replaced over USB: it
@@ -462,24 +462,29 @@ reports which one that is.
 
 The line has two parts. The version and the build string come from a block the
 bootloader carries at a fixed place, which this tree's bootloader fills in with
-its version and the revision it was built from. The `CRC32` is of the whole
-16 KiB region, computed on the board, and is there whatever else the line says.
+its version and the revision it was built from. Numbering starts at 2.00: the
+first bootloader to carry a block is the one the first release ships, so the
+version says which generation of bootloader a board has. The `CRC32` is of the
+whole 16 KiB region, computed on the board, and is there whatever else the line
+says.
 
 A board whose bootloader has no such block — every board as shipped, and any
 bootloader built before the block existed — reads:
 
     $ ubertooth-util -B
-    Bootloader: no version block (factory or earlier bootloader), CRC32:0x5f0a73c1
+    Bootloader: no version block (factory or earlier, treated as 1.x), CRC32:0x5f0a73c1
 
-That is an answer, not a failure, and the command exits 0. The hash is what
-identifies such a bootloader: two boards that report the same hash are running
-the same bootloader, and two that differ are not.
+Those are the 1.x generation, and that is all the line can say about which one
+it is. It is an answer, not a failure, and the command exits 0. The hash is
+what identifies such a bootloader: two boards that report the same hash are
+running the same bootloader, and two that differ are not.
 
 The bootloader does not change when the application is reflashed, so the line
-is a property of the board rather than of the firmware on it. It is read by the
-application, though, so firmware older than this request answers `error: the
-board refused to read the bootloader information`: reflash the board to read
-it.
+is a property of the board rather than of the firmware on it. It is the
+application that reads it, though, so firmware older than this request refuses
+it, in the wording ubertooth(7) gives for a refused request (OUTPUT AND
+DIAGNOSTICS) followed by `error: bootloader information read failed`. Reflash
+the board to read it.
 
 ## SELECTING A DEVICE
 

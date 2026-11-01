@@ -30,7 +30,7 @@
  * UBERTOOTH_GET_BOOTLOADER_INFO's reply, built here so that both images
  * answer the request with the same bytes.
  *
- * firmware/tests/test_bl_report.c runs both functions below.
+ * firmware/tests/test_bl_version.c runs both functions below.
  */
 
 /*
@@ -53,7 +53,10 @@ uint32_t bl_report_crc32(uintptr_t start, size_t length);
  * carries, or zeros in place of the block when there is none there.
  *
  * Reading the region is reading flash, which takes no hardware beyond the
- * memory bus, so this runs inside the control request that asks for it.
+ * memory bus, so this runs inside the control request that asks for it. It is
+ * the longest-running request in the tree all the same, about 2 ms for the
+ * 16 KiB, and several capture modes answer requests from the USB interrupt
+ * itself: ask a board for this between captures, not during one.
  *
  * The region's address is a parameter, which the handlers pass
  * UBERTOOTH_BOOTLOADER_REGION_START for. That lets the test above hand it a

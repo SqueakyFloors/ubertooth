@@ -49,16 +49,10 @@
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
 - `ubertooth-util -B` says which bootloader a board has, which nothing used to
-  report. A bootloader can only be installed over ISP or JTAG, so a board
-  keeps the one it came with through every firmware update, and a bug fixed in
-  this tree's bootloader reaches only a board someone reflashed at the bench.
-  The bootloader built here now carries its version and the revision it was
-  built from in a fixed-layout block, and the firmware reports that block
-  along with a CRC-32 of the whole 16 KiB bootloader region: `Bootloader: 1.00
-  git-1a2b3c4, CRC32:0x9d2fe1b4`. A board whose bootloader has no such block —
-  every board as shipped — reads `Bootloader: no version block (factory or
-  earlier bootloader), CRC32:0x5f0a73c1`, and the hash is what tells two such
-  bootloaders apart.
+  report, and a bootloader cannot be replaced over USB. This tree's reads as
+  `Bootloader: 2.00 git-1a2b3c4, CRC32:0x9d2fe1b4`; every board as shipped
+  reads `Bootloader: no version block (factory or earlier, treated as 1.x),
+  CRC32:0x5f0a73c1`, where the hash is what tells two such bootloaders apart.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most

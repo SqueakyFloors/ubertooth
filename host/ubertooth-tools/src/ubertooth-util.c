@@ -1252,7 +1252,7 @@ int main(int argc, char *argv[])
 			        report_read_failed("bootloader information", b));
 		else
 			status = util_status_merge(status,
-			        util_report_bootloader(stdout, &info));
+			        util_report_bootloader(stdout, stderr, &info));
 	}
 	if(do_get_channel) {
 		int mhz = cmd_get_channel(ut->devh);

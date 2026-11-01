@@ -578,14 +578,14 @@ MU_TEST(the_bootloader_report_reads_the_hash_and_the_block)
 	       UBERTOOTH_BL_VERSION_MAGIC_LEN);
 	block[UBERTOOTH_BL_VERSION_OFF_FORMAT] = UBERTOOTH_BL_VERSION_FORMAT;
 	block[UBERTOOTH_BL_VERSION_OFF_VERSION] = 0x00;
-	block[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] = 0x01; /* 1.00 */
+	block[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] = 0x02; /* 2.00 */
 	memcpy(block + UBERTOOTH_BL_VERSION_OFF_BUILD, "git-1a2b3c4", 11);
 	mu_assert_int_eq(0, cmd_get_bootloader_info(NULL, &info));
 	mu_assert_int_eq(UBERTOOTH_GET_BOOTLOADER_INFO, fake.last_request);
 	mu_assert_int_eq(0x9d2fe1b4, info.crc32);
 	mu_assert_int_eq(UBERTOOTH_BL_VERSION_OK, info.version_result);
 	mu_assert_int_eq(UBERTOOTH_BL_VERSION_FORMAT, info.version.format_version);
-	mu_assert_int_eq(0x0100, info.version.version);
+	mu_assert_int_eq(0x0200, info.version.version);
 	mu_assert(strcmp(info.version.build, "git-1a2b3c4") == 0,
 	          info.version.build);
 

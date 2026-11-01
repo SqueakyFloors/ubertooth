@@ -36,15 +36,22 @@
  * made every tool refuse a board running that image, whatever revision it was
  * built from, except for the version reports, which read any firmware.
  *
- * During development it is bumped in every pull request that changes firmware
- * behaviour the host relies on: a new, removed or changed request, or a
- * changed behaviour of an existing one. Host-only changes leave it alone, so
- * a board carrying firmware from an earlier commit is normally, but not
- * always, refused: commits that leave the firmware interface alone share the
- * number before them, which is why it is the revision the `Firmware version:`
- * line shows beside the version that identifies a build. A bump also updates
- * CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned strings in the
- * tests.
+ * During development it does not move. The host tools and the firmware are
+ * built, installed and flashed together, and a development build only warns
+ * when the two disagree, so an ordinary firmware change -- a new request, a
+ * new mode, a fix -- leaves the number where it is. It moves only for a
+ * change that really does break an older host tool: a request removed or
+ * renumbered, or a reply or record layout an older host would misread. Such a
+ * bump also updates CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the
+ * pinned strings in the tests.
+ *
+ * So a board carrying firmware from an earlier commit is normally accepted,
+ * which is why this number is not the revision the `Firmware version:` line
+ * shows beside it: that line carries the build's own revision, and this
+ * number only says which host tools will work with the board at all.
+ *
+ * A request the firmware on a board has not got is reported where it is
+ * asked for, as a refused request, rather than by this number.
  *
  * A release moves it to the next major version, to mark that its host tools
  * and firmware only work with each other; the first fork release takes 0x0200
@@ -54,7 +61,7 @@
  * as 1.10), then 0x0111 (1.11), and so on to 0x0119 (1.19); after 0x0119
  * comes 0x0120, not 0x011a.
  */
-#define UBERTOOTH_API_VERSION 0x0158
+#define UBERTOOTH_API_VERSION 0x0157
 
 /*
  * The bootloader's bcdDevice, which is fixed on purpose and is the one version
@@ -431,8 +438,8 @@ static inline uint32_t ubertooth_image_check_sum(const uint8_t *bytes,
  *
  * The factory bootloader, and every bootloader built before this block, have
  * their own code at the offset instead, so a reader that finds no magic
- * learns nothing from those bytes. That is what the hash in
- * UBERTOOTH_GET_BOOTLOADER_INFO is for.
+ * learns nothing from those bytes beyond which generation they belong to.
+ * That is what the hash in UBERTOOTH_GET_BOOTLOADER_INFO is for.
  */
 #define UBERTOOTH_BL_VERSION_OFFSET UBERTOOTH_FW_INFO_OFFSET
 /* The 8 bytes a block starts with, no terminator. */
@@ -445,16 +452,23 @@ static inline uint32_t ubertooth_image_check_sum(const uint8_t *bytes,
 
 /*
  * The version the bootloader puts in its block, binary-coded decimal like the
- * API version above: 0x0100 reads as 1.00.
+ * API version above: 0x0200 reads as 2.00.
  *
- * This is not the bootloader's USB bcdDevice, which is frozen
- * (UBERTOOTH_BOOTLOADER_API_VERSION) so that ubertooth-dfu works against any
- * board. Nothing refuses a board over this number either. It is here so that
- * a released bootloader can be named in one word beside the revision it was
- * built from, and so raising it is the one edit a release needs. Raise it
- * when a release ships a bootloader that behaves differently from the last.
+ * It starts at 2.00 rather than 1.00. The first bootloader to carry a block
+ * at all is the one the first fork release ships, which takes 2.00 as the
+ * firmware API does, so the numbering says which generation a bootloader
+ * belongs to: a board with no block carries one from before the block
+ * existed, which is the 1.x generation, and -B says so.
+ *
+ * This is not the bootloader's USB bcdDevice, which stays at 0x0100
+ * (UBERTOOTH_BOOTLOADER_API_VERSION) because that number is the DFU protocol
+ * version and ubertooth-dfu has to work against any board. Nothing refuses a
+ * board over this number either. It is here so that a released bootloader can
+ * be named in one word beside the revision it was built from, and so raising
+ * it is the one edit a release needs. Raise it when a release ships a
+ * bootloader that behaves differently from the last.
  */
-#define UBERTOOTH_BOOTLOADER_VERSION 0x0100
+#define UBERTOOTH_BOOTLOADER_VERSION 0x0200
 
 /*
  * The block as it sits in flash: 48 bytes, no padding, the two 16-bit fields
@@ -551,10 +565,13 @@ enum ubertooth_bl_version_result {
  * Reads the version block at raw into *out: the magic, the format version,
  * the bootloader's version and the build string. length is how many bytes are
  * there to read. Returns UBERTOOTH_BL_VERSION_OK, or a negative enum
- * ubertooth_bl_version_result, and leaves *out zeroed on failure.
+ * ubertooth_bl_version_result. On failure *out is zeroed, except that an
+ * unknown format keeps the format number it found, so a caller can say which
+ * one it was.
  *
- * No magic is the ordinary answer from a factory or earlier bootloader, not a
- * fault: the region simply has code where a block would be.
+ * No magic is the ordinary answer from a bootloader of the 1.x generation,
+ * which is every board as shipped, not a fault: the region simply has code
+ * where a block would be.
  */
 static inline int ubertooth_bl_version_parse(const uint8_t *raw, size_t length,
                                              struct ubertooth_bl_version *out)
@@ -638,13 +655,13 @@ static inline const char *ubertooth_bl_version_result_string(int result)
 	case UBERTOOTH_BL_VERSION_OK:
 		return "the bootloader version block was read";
 	case UBERTOOTH_BL_VERSION_NO_MAGIC:
-		return "no version block (factory or earlier bootloader)";
+		return "no version block (factory or earlier, treated as 1.x)";
 	case UBERTOOTH_BL_VERSION_FORMAT_UNKNOWN:
 		return "the bootloader version block is in a format this host does not know";
 	case UBERTOOTH_BL_VERSION_BAD_TEXT:
 		return "the bootloader version block holds no readable build string";
 	default:
-		return "there are not 48 bytes of bootloader version block to read";
+		return "there is not a whole bootloader version block to read";
 	}
 }
 

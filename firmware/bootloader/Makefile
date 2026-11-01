@@ -515,6 +515,7 @@ program: $(TARGET).hex
 	if [ "$$magic" != "UBTBLVER" ]; then \
 		echo "$(TARGET).bin carries no version block at offset 0x100," \
 		     "so a board flashed with it could not report its bootloader" >&2; \
+		rm -f $(TARGET).bin; \
 		exit 1; \
 	fi
 

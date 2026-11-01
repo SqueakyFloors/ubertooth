@@ -35,6 +35,7 @@
 #include "minunit.h"
 #include "source_scan.h"
 #include "bl_report.h"
+#include "lpc17.h"
 #include "ubertooth_interface.h"
 #include "version.h"
 
@@ -169,12 +170,26 @@ MU_TEST(the_host_reads_the_block_the_bootloader_builds)
 	          "the block does not carry the revision version.h gives");
 }
 
-/* The version the block reports is not the frozen bcdDevice: a release can
- * raise one and must not raise the other. */
-MU_TEST(the_blocks_version_is_not_the_frozen_bcddevice)
+/*
+ * The two version numbers a bootloader has, which must not be confused. The
+ * block's version says which generation of bootloader this is and moves with
+ * a release; the DFU-mode bcdDevice is the DFU protocol version and stays
+ * where it is, because ubertooth-dfu has to work against any board.
+ */
+MU_TEST(the_blocks_version_is_not_the_dfu_protocol_version)
 {
 	mu_assert(UBERTOOTH_BOOTLOADER_API_VERSION == 0x0100,
-	          "the bootloader's bcdDevice has moved, and nothing may move it");
+	          "the bootloader's DFU-mode bcdDevice has moved, and nothing "
+	          "may move it");
+	mu_assert(UBERTOOTH_BOOTLOADER_VERSION != UBERTOOTH_BOOTLOADER_API_VERSION,
+	          "the block's version and the DFU protocol version are the same "
+	          "number, so one could be read for the other");
+	/* 2.00 and up. A bootloader that carries a block is from the first fork
+	 * release or later, so a board with no block is the 1.x generation, and
+	 * that is what -B tells the user. */
+	mu_assert(UBERTOOTH_BOOTLOADER_VERSION >= 0x0200,
+	          "the block's version is below 2.00, which is the generation a "
+	          "board with no block is reported as");
 	/* Binary-coded decimal, as the API version is, so each nibble of the
 	 * low byte is a decimal digit. */
 	mu_assert((UBERTOOTH_BOOTLOADER_VERSION & 0x0f) <= 9 &&
@@ -342,6 +357,37 @@ MU_TEST(the_built_bootloader_carries_the_magic_at_the_offset)
 
 /* ---- the report an application makes of it ----------------------------- */
 
+/*
+ * The report asks for the user flash at the bottom of the address map before
+ * it reads there. The part maps either the flash or the boot ROM over the
+ * first 512 bytes, which is where the block sits, and a Cortex-M3 finds its
+ * vector table through VTOR instead, so nothing else in this firmware ever
+ * had a reason to set the register. With the boot ROM mapped, the report
+ * would hash 512 bytes of ROM and find no block on a board that has one.
+ *
+ * The store reaches a register, so the host build of bl_report.c compiles it
+ * to nothing and this reads the file as text, as the tests of the other
+ * hardware paths do.
+ */
+MU_TEST(the_report_maps_the_user_flash_before_reading_it)
+{
+	char *source = read_source(FW_COMMON_DIR "/bl_report.c");
+
+	mu_assert_fatal(source != NULL,
+	                FW_COMMON_DIR "/bl_report.c would not open");
+	mu_assert(strstr(source, "MEMMAP = MEMMAP_USER_FLASH;") != NULL,
+	          "bl_report.c does not put the user flash at the bottom of the "
+	          "address map, so the read could see the boot ROM instead");
+	mu_assert(strstr(source, "bl_report_map_user_flash();") != NULL,
+	          "bl_report_build() does not set the mapping before it reads");
+	free(source);
+
+	/* The two values the register takes, against the part's own: user flash
+	 * is 1 and the boot ROM 0 (NXP LPC176x/5x user manual UM10360). */
+	mu_assert_int_eq(0, MEMMAP_BOOT_ROM);
+	mu_assert_int_eq(1, MEMMAP_USER_FLASH);
+}
+
 /* The hash is the usual CRC-32, so a value can be checked against any other
  * implementation of it. These four are the published ones. */
 MU_TEST(the_hash_is_the_usual_crc32)
@@ -506,11 +552,12 @@ int main(void)
 	MU_RUN(the_field_offsets_match_the_struct);
 	MU_RUN(the_block_starts_with_the_magic_the_host_looks_for);
 	MU_RUN(the_host_reads_the_block_the_bootloader_builds);
-	MU_RUN(the_blocks_version_is_not_the_frozen_bcddevice);
+	MU_RUN(the_blocks_version_is_not_the_dfu_protocol_version);
 	MU_RUN(the_linker_script_puts_the_block_where_the_host_looks);
 	MU_RUN(the_offset_clears_the_checksum_and_the_protection_word);
 	MU_RUN(the_bootloader_build_reads_the_block_back_out_of_the_image);
 	MU_RUN(the_built_bootloader_carries_the_magic_at_the_offset);
+	MU_RUN(the_report_maps_the_user_flash_before_reading_it);
 	MU_RUN(the_hash_is_the_usual_crc32);
 	MU_RUN(a_region_with_a_block_is_reported_whole);
 	MU_RUN(a_region_with_no_block_still_reports_its_hash);

@@ -634,7 +634,7 @@ $(BINDIR)/test_bl_version: test_bl_version.c minunit.h source_scan.h \
 # header expands to nothing. Both headers use the same guard; the bootloader's
 # Makefile writes the generated one.
 	$(CC) $(CFLAGS) -include stubs-fwinfo/version.h -Istubs-fwinfo \
-		-I$(FW_COMMON) $(CPPFLAGS) \
+		-I$(FW_COMMON) $(CPPFLAGS) -DFW_HOST_TEST \
 		-DFW_RXTX_DIR='"$(FW_RXTX)"' -DFW_BTBR_DIR='"$(FW_BTBR)"' \
 		-DFW_COMMON_DIR='"$(FW_COMMON)"' \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' \

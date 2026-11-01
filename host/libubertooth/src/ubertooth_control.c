@@ -884,11 +884,11 @@ int cmd_get_bootloader_info(struct libusb_device_handle* devh,
 		return check_reply_length(r, (int)sizeof(result),
 		                         "bootloader information");
 	/* Whether the region carries a version block is the board's answer, not
-	 * a failure of the read: it is left in info->version_result for the
-	 * caller to report. */
-	if (ubertooth_bootloader_info_parse(result, (size_t)r, info) != 0)
-		return check_reply_length(r, UBERTOOTH_BL_REPORT_LENGTH,
-		                         "bootloader information");
+	 * a failure of the read: the parse only reports a reply too short to
+	 * hold the hash, which the length check above has already caught, and
+	 * it leaves the rest in info->version_result for the caller to
+	 * report. */
+	ubertooth_bootloader_info_parse(result, (size_t)r, info);
 	return 0;
 }
 
