@@ -33,9 +33,11 @@
  * puts the built image's bytes at that offset against the bootloader binary
  * they came from.
  *
- * A bootloader larger than the region would make the .space below negative,
- * which the assembler refuses: that is the check that the payload fits, and
- * it is the same 16 KiB the bootloader's own linker script gives it.
+ * A bootloader larger than the region would make the .space below negative.
+ * The assembler only warns about that and emits nothing, so what catches it
+ * is the ASSERT in ../common/sections.ld that holds this section to exactly
+ * 0x4000 bytes: the link fails. That is the same 16 KiB the bootloader's own
+ * linker script gives it.
  */
 	.section .bl_payload, "a", %progbits
 	.align 2

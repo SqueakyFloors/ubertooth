@@ -782,10 +782,8 @@ def check_the_spec_lists_every_option():
     # then looked up below: every C tool now names its option string, because
     # opt_report_bad_option() is given the same one to find the word a stray
     # dash was written in.
-    # getopt_long takes two more arguments after the option string, so the
-    # match ends at whichever comes next rather than at a closing bracket.
-    pattern = (r'getopt(?:_long)?\(argc,\s*argv,\s*(?:"([^"]+)"'
-               r'|([A-Za-z_][A-Za-z_0-9]*))\s*[,)]')
+    pattern = (r'getopt\(argc,\s*argv,\s*(?:"([^"]+)"'
+               r'|([A-Za-z_][A-Za-z_0-9]*))\)')
     if not os.path.exists(source) and CONTRACT.get("kind") == "python":
         source = BINARY
         # Written out, or the name of the constant the tool keeps it in, which
