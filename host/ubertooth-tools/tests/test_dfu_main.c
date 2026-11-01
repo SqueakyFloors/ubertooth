@@ -2730,6 +2730,355 @@ MU_TEST(a_read_back_failing_part_way_finishes_its_row_of_dots_first)
 	remove_dump();
 }
 
+/* ---- --update-bootloader, end to end ----------------------------------- */
+
+/*
+ * These cases drive the whole option through main(), which is the only place
+ * several of its parts meet: the word is taken out of the command line, the
+ * file is checked, the hash the board will report afterwards is printed, the
+ * image is written like any other, and then the board coming back in the
+ * bootloader is read as the success it is for this option alone.
+ *
+ * The file check has its own cases in test_bl_update_file.c and the board's
+ * side of the write has its own in firmware/tests/test_bl_update.c. What is
+ * only visible here is that a refusal stops before any board is opened, and
+ * that the run reports an installed bootloader as a success.
+ */
+
+/* An updater image is an ordinary signed image whose info block names
+ * bl_update, carrying the 16 KiB of bootloader region at the offset the host
+ * and the board both read it from. */
+#define UPDATER_PAYLOAD ((long)UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET + \
+                         (long)UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH)
+
+/* How many blocks that image is written in. The suffix goes to the board with
+ * the rest of the file, so it is the payload plus the suffix rounded up, and
+ * the region ends part way into the last block. */
+#define UPDATER_BLOCKS (int)((UPDATER_PAYLOAD + DFU_SUFFIX_LENGTH + \
+                              BLOCK_SIZE - 1) / BLOCK_SIZE)
+
+static uint8_t updater_region[UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH];
+
+/*
+ * A bootloader a part would start, built the way test_bl_update_file.c builds
+ * it: a word-aligned stack pointer in SRAM, a Thumb reset vector above the
+ * version block, the version block itself, and no protection word. The filler
+ * is not all one byte, so a region that matched by accident would show up.
+ */
+static void build_installable_region(void)
+{
+	static const char magic[] = UBERTOOTH_BL_VERSION_MAGIC;
+	size_t i;
+
+	for (i = 0; i < sizeof(updater_region); i++)
+		updater_region[i] = (uint8_t)(i * 31u + 7u);
+	write_le32(updater_region, 0x10003fe0u);
+	write_le32(updater_region + 4, 0x00000301u);
+	write_le32(updater_region + UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX * 4, 0);
+	write_le32(updater_region + UBERTOOTH_LPC_CRP_OFFSET, 0xffffffffu);
+	memcpy(updater_region + UBERTOOTH_BL_VERSION_OFFSET, magic,
+	       UBERTOOTH_BL_VERSION_MAGIC_LEN);
+	write_le32(updater_region + UBERTOOTH_BL_VERSION_OFFSET +
+	           UBERTOOTH_BL_VERSION_OFF_VERSION, 0x0102u);
+}
+
+/*
+ * Put bytes into an image's payload at an offset and sign it again, because
+ * the suffix CRC covers the payload. patch_image_payload() above fills a run
+ * with one byte; this one carries a region a case has built.
+ */
+static void patch_image_bytes(const char *path, long payload, long offset,
+                              const uint8_t *source, long length)
+{
+	FILE *file = fopen(path, "rb");
+	FILE *payload_file = tmpfile();
+	FILE *image;
+	uint8_t *bytes = malloc((size_t)payload);
+
+	mu_assert_fatal(file != NULL && payload_file != NULL && bytes != NULL,
+	                "cannot rewrite the test image");
+	mu_assert_fatal(fread(bytes, 1, (size_t)payload, file) == (size_t)payload,
+	                "the test image is shorter than its payload");
+	fclose(file);
+	mu_assert_fatal(offset + length <= payload,
+	                "the patch runs past the test image's payload");
+	memcpy(bytes + offset, source, (size_t)length);
+	mu_assert_fatal(fwrite(bytes, 1, (size_t)payload, payload_file) ==
+	                (size_t)payload, "cannot write the test payload");
+	free(bytes);
+	image = fopen(path, "w+b");
+	mu_assert_fatal(image != NULL, "cannot reopen the test image");
+	mu_assert_fatal(sign("the test payload", payload_file, path, image,
+	                     U1_DFU_VENDORID, U1_DFU_PRODUCTID) == 0,
+	                "cannot sign the test image again");
+	fclose(payload_file);
+	fclose(image);
+}
+
+/*
+ * An updater image at sized_image_path, carrying however much of the region
+ * fits in payload bytes: the full region for the cases that install one, and
+ * less than all of it for the case that gives the host a file too short to
+ * hold one.
+ */
+static void write_updater_image(long payload)
+{
+	long carried = payload - UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET;
+
+	build_installable_region();
+	if (carried > (long)sizeof(updater_region))
+		carried = (long)sizeof(updater_region);
+	write_image_with(sized_image_path, UBERTOOTH_BL_UPDATE_IMAGE_NAME,
+	                 IMAGE_REVISION, payload, UBERTOOTH_FW_INFO_FORMAT,
+	                 IMAGE_API);
+	patch_image_bytes(sized_image_path, payload,
+	                  UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET, updater_region,
+	                  carried);
+}
+
+/* The hash the file check computes over the region the board will hold, which
+ * is what the run must print for the user to compare against
+ * `ubertooth-util -B` afterwards. */
+static uint32_t updater_image_crc32(void)
+{
+	FILE *file = fopen(sized_image_path, "rb");
+	struct bl_update_file info;
+	int result;
+
+	if (file == NULL) {
+		fprintf(stderr, "cannot read the updater image back\n");
+		exit(1);
+	}
+	result = bl_update_file_check(file, UBERTOOTH_BL_UPDATE_IMAGE_NAME, &info);
+	fclose(file);
+	if (result != UBERTOOTH_BL_UPDATE_OK) {
+		/* The cases below rest on this image being one the host accepts, so
+		 * a test image that is not stops the run rather than failing each
+		 * case with the same message. */
+		fprintf(stderr, "the test updater image is not one this host "
+		        "accepts: %s\n", ubertooth_bl_update_result_string(result));
+		exit(1);
+	}
+	return info.region_crc32;
+}
+
+/* A board that runs the updater and comes back where the next image is
+ * written from, which is what the option asks for. */
+static void board_that_installs_the_bootloader(void)
+{
+	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.detach_returns_to_dfu = 1;
+}
+
+/*
+ * The success path, and the bug that hid it: the ordinary detach reports a
+ * board that comes back in the bootloader as one that did not reset, which for
+ * every other image is a failure and for this one is the outcome asked for.
+ * The run has to end 0, say nothing on standard error that starts with
+ * "error: ", and tell the user what to do next.
+ */
+MU_TEST(an_update_that_leaves_the_board_in_dfu_is_a_success)
+{
+	struct run_result r;
+	char expected[80];
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	snprintf(expected, sizeof(expected), "CRC32:0x%08x",
+	         (unsigned)updater_image_crc32());
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	/* The result, so standard output. */
+	mu_assert(strstr(r.out, "The board is in DFU.") != NULL, r.out);
+	mu_assert(strstr(r.out, "ubertooth-util -B") != NULL,
+	          "the run did not say how to check which bootloader the board "
+	          "ended up with");
+	/* Progress and the hash, so standard error. */
+	mu_assert(strstr(r.err, "Bootloader to install: version 1.02") != NULL,
+	          r.err);
+	mu_assert(strstr(r.err, expected) != NULL,
+	          "the run did not print the hash the board will report");
+	mu_assert(strstr(r.err, "After the update") != NULL, r.err);
+	/* It really waited for the board rather than assuming it. */
+	mu_assert(strstr(r.err, "return to DFU") != NULL,
+	          "the run did not wait for the board to come back in DFU");
+}
+
+/*
+ * The write itself: the whole image reaches the board, in the order every
+ * download uses -- the vector table blank first and the real one last -- and
+ * the bytes the board is left with are the payload the host hashed. The host
+ * writes over the image's own checksum word and record, both of which sit
+ * below the payload, so nothing it does can disturb the region it checked.
+ */
+MU_TEST(an_update_writes_the_whole_image_with_the_vector_table_last)
+{
+	struct run_result r;
+	int expected[DNLOADS_FOR_BLOCKS(UPDATER_BLOCKS)];
+	int i, count = 0;
+
+	expected[count++] = 0;
+	for (i = SECTOR_BLOCKS; i < UPDATER_BLOCKS; i++)
+		expected[count++] = i;
+	for (i = 0; i < SECTOR_BLOCKS; i++)
+		expected[count++] = i;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	assert_write_order(expected, count);
+	mu_assert(fake.dnload_blank[0], "the vector table was not blanked first");
+	mu_assert(!fake.dnload_blank[count - SECTOR_BLOCKS],
+	          "the vector table written last was blank");
+	/* The region the board was left holding, read back out of the image it
+	 * was given: byte for byte the one the hash was printed for. */
+	mu_assert(fake.region_blocks >= UPDATER_BLOCKS,
+	          "the board was not given the whole image");
+	mu_assert(memcmp(fake.region + UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET,
+	                 updater_region, sizeof(updater_region)) == 0,
+	          "the bootloader region the board was given is not the one the "
+	          "host checked");
+}
+
+/*
+ * A board that does not come back is the one outcome the run cannot put right,
+ * so it fails and says to leave the board powered rather than reporting an
+ * update that may be half written as done.
+ */
+MU_TEST(an_update_whose_board_stays_away_fails_and_says_to_leave_it_powered)
+{
+	struct run_result r;
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	/* It reset, ran the updater, and never enumerated again. */
+	fake.detach_drops_off_bus = 1;
+	write_updater_image(UPDATER_PAYLOAD);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "did not return to DFU") != NULL, r.err);
+	mu_assert(strstr(r.err, "leave it powered") != NULL,
+	          "the failure did not say to leave the board powered");
+	/* The image did reach the board, so the user is not told to write it
+	 * again. */
+	mu_assert(fake.dnload_calls > 0, "nothing was written to the board");
+}
+
+/* The option needs an image to write, and says which one, before any device is
+ * opened. */
+MU_TEST(an_update_with_no_image_is_refused_before_any_board)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	r = RUN("-U", "0", "--update-bootloader");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "--update-bootloader needs -d") != NULL, r.err);
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.dnload_calls);
+}
+
+/*
+ * The four refusals the host makes over the file, each driven through the
+ * whole command. What matters for every one of them is the same thing: the run
+ * ends 1 and the board is never opened, so a bootloader the board would refuse
+ * cannot reach a board that has already erased the one it had.
+ */
+static void assert_refused_before_any_board(struct run_result *r,
+                                            const char *phrase)
+{
+	mu_assert_int_eq(1, r->rc);
+	mu_assert(strstr(r->err, phrase) != NULL, r->err);
+	mu_assert(r->out[0] == '\0', r->out);
+	mu_assert_int_eq(0, fake.opens);
+	mu_assert_int_eq(0, fake.flash_calls);
+	mu_assert_int_eq(0, fake.dnload_calls);
+	mu_assert_int_eq(0, fake.detach_calls);
+}
+
+MU_TEST(an_image_too_short_for_a_whole_region_is_refused_before_any_board)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	/* A sector short of the region: the file simply has nothing to read at
+	 * the top of it. */
+	write_updater_image(UPDATER_PAYLOAD - SECTOR_SIZE);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	assert_refused_before_any_board(
+		&r, "too short to hold a bootloader updater");
+}
+
+MU_TEST(a_region_with_no_version_block_is_refused_before_any_board)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	memset(updater_region + UBERTOOTH_BL_VERSION_OFFSET, 0xff,
+	       UBERTOOTH_BL_VERSION_MAGIC_LEN);
+	patch_image_bytes(sized_image_path, UPDATER_PAYLOAD,
+	                  UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET, updater_region,
+	                  (long)sizeof(updater_region));
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	assert_refused_before_any_board(&r, "has no version block");
+}
+
+MU_TEST(a_region_with_no_startable_vector_table_is_refused_before_any_board)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	/* A reset vector of 1: Thumb, inside the vector table itself, which is
+	 * entries rather than instructions. */
+	write_le32(updater_region + 4, 0x00000001u);
+	patch_image_bytes(sized_image_path, UPDATER_PAYLOAD,
+	                  UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET, updater_region,
+	                  (long)sizeof(updater_region));
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	assert_refused_before_any_board(
+		&r, "no vector table a part would start");
+}
+
+/*
+ * The refusal with no way back: a protection word cannot be undone from
+ * outside the part, and a board that took one cannot report that it did. So
+ * this one is named with the word itself and what it means.
+ */
+MU_TEST(a_region_asking_for_code_read_protection_is_refused_before_any_board)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	write_le32(updater_region + UBERTOOTH_LPC_CRP_OFFSET,
+	           UBERTOOTH_LPC_CRP1);
+	patch_image_bytes(sized_image_path, UPDATER_PAYLOAD,
+	                  UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET, updater_region,
+	                  (long)sizeof(updater_region));
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	assert_refused_before_any_board(&r, "asks for code read protection");
+	mu_assert(strstr(r.err, "cannot be undone from outside the part") != NULL,
+	          "the refusal did not say the protection cannot be undone");
+}
+
+/*
+ * An ordinary firmware image with the option: without the name check, 16 KiB
+ * of that image's code would be written over the bootloader region.
+ */
+MU_TEST(an_ordinary_image_is_not_taken_as_an_updater)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_image_of(sized_image_path, IMAGE_REVISION, UPDATER_PAYLOAD);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	assert_refused_before_any_board(&r, "is not a bootloader updater");
+}
+
 int main(void)
 {
 	char directory[] = "/tmp/ubertooth-dfu-test.XXXXXX";
@@ -2829,6 +3178,15 @@ int main(void)
 	MU_RUN(a_flash_failing_part_way_finishes_its_row_of_dots_first);
 	MU_RUN(a_status_read_failing_part_way_finishes_its_row_of_dots_first);
 	MU_RUN(a_read_back_failing_part_way_finishes_its_row_of_dots_first);
+	MU_RUN(an_update_that_leaves_the_board_in_dfu_is_a_success);
+	MU_RUN(an_update_writes_the_whole_image_with_the_vector_table_last);
+	MU_RUN(an_update_whose_board_stays_away_fails_and_says_to_leave_it_powered);
+	MU_RUN(an_update_with_no_image_is_refused_before_any_board);
+	MU_RUN(an_image_too_short_for_a_whole_region_is_refused_before_any_board);
+	MU_RUN(a_region_with_no_version_block_is_refused_before_any_board);
+	MU_RUN(a_region_with_no_startable_vector_table_is_refused_before_any_board);
+	MU_RUN(a_region_asking_for_code_read_protection_is_refused_before_any_board);
+	MU_RUN(an_ordinary_image_is_not_taken_as_an_updater);
 
 	remove_dump();
 	unlink(image_path);
