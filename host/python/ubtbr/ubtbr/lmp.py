@@ -340,6 +340,10 @@ class LMP:
 		# the life of the connection rather than once per PDU.
 		self._unhandled = set()
 		self._rx_tid = 0
+		# Whether this end has sent its LMP_setup_complete and opened the
+		# connection; see setup_complete().
+		self._setup_complete_sent = False
+		self._setup_complete_done = False
 
 	def time(self):
 		return time()-self._start_time
@@ -636,6 +640,31 @@ class LMP:
 	def lmp_send_setup_complete(self, **kwargs):
 		return self.lmp_send(LMP_SETUP_COMPLETE, b'', **kwargs)
 
+	def send_setup_complete_once(self):
+		"""Say this end has finished the setup, if it has not already.
+
+		The setup ends when each side has sent an LMP_setup_complete and
+		received the other's, and data may go out once both have been
+		exchanged (Vol 2, Part C, 4.1.1).
+		"""
+		if self._setup_complete_sent:
+			return
+		self._setup_complete_sent = True
+		self.lmp_send_setup_complete()
+
+	def setup_complete(self):
+		"""The peer has finished the setup, so both ends now have.
+
+		Sends this end's if it has not gone yet, then opens the connection,
+		once however many the peer sends: a second open would have l2ping
+		put a second echo request on the link.
+		"""
+		self.send_setup_complete_once()
+		if self._setup_complete_done:
+			return
+		self._setup_complete_done = True
+		self._con.handle_setup_complete()
+
 	def lmp_send_set_afh(self, instant, mode, cmap):
 		assert(len(cmap)==10)
 		log.info("Send AFH req: instant=%d, (cur %d), mode=%d"%(
@@ -706,12 +735,7 @@ class LMPCentral(LMP):
 		# Only one is outstanding at a time, which is what lets a refusal
 		# be matched to what it answers.
 		self._awaiting = None
-		# Has this end sent its own LMP_setup_complete, and has it reported
-		# the setup complete? The setup ends when each side has sent one
-		# and received the other's (Vol 2, Part C, 4.1.2), so neither
-		# happens twice however many the peer sends.
-		self._setup_complete_sent = False
-		self._setup_complete_done = False
+
 		super().__init__(con)
 
 	def start(self):
@@ -782,9 +806,9 @@ class LMPCentral(LMP):
 
 		Only the connection request needs anything done. Accepting it is
 		the last step of the setup, and what follows is the exchange
-		_send_setup_complete_once() describes. The central sends the first
-		one, so a peer that waits for it -- another Ubertooth does -- is
-		not left waiting forever.
+		setup_complete() describes. The central sends the first one, so a
+		peer that waits for it -- another Ubertooth does -- is not left
+		waiting forever.
 		"""
 		if self._awaiting != LMP_HOST_CONNECTION_REQ:
 			return
@@ -796,7 +820,7 @@ class LMPCentral(LMP):
 		if not data or u8(data[0]) != LMP_HOST_CONNECTION_REQ:
 			return
 		self._awaiting = None
-		self._send_setup_complete_once()
+		self.send_setup_complete_once()
 
 	def handle_slot_offset(self, op, data):
 		if len(data) < 8:
@@ -842,32 +866,19 @@ class LMPCentral(LMP):
 			self.rmt_enc_key_size_mask = data
 		self.send_info_req()
 
-	def _send_setup_complete_once(self):
-		"""Send this end's LMP_setup_complete, if it has not already.
-
-		The setup ends when each side has sent one of these and received
-		the other's, and data may go out once both have been exchanged
-		(Vol 2, Part C, 4.1.2).
-		"""
-		if self._setup_complete_sent:
-			return
-		self._setup_complete_sent = True
-		self.lmp_send_setup_complete()
-
 	def handle_setup_complete(self, op, data):
-		# A peer that sent its own first, which a standard controller may
-		# do, still gets this end's. One that sends it before this end's
-		# connection request has been accepted is ahead of the sequence,
-		# and is taken at its word: it can only have finished the setup by
-		# accepting that request, so an LMP_accepted this end never heard
-		# is no reason to leave the link waiting.
-		self._send_setup_complete_once()
-		# The connection opens once, whatever the peer repeats: a second
-		# report would have l2ping put a second echo request on the link.
-		if self._setup_complete_done:
+		# A peer that sends its own before this end's connection request
+		# has been accepted is ahead of the sequence, and is taken at its
+		# word: it can only have finished the setup by accepting that
+		# request, so an LMP_accepted this end never heard is no reason to
+		# leave the link waiting. One that arrives while this end is still
+		# asking the peer about itself, before the connection has been
+		# asked for at all, answers nothing and is ignored.
+		if self._awaiting not in (None, LMP_HOST_CONNECTION_REQ):
+			warn("the peer said the setup was complete while %s was "
+				"outstanding"%op2str(self._awaiting))
 			return
-		self._setup_complete_done = True
-		self._con.handle_setup_complete()
+		self.setup_complete()
 
 class LMPPeripheral(LMP):
 	def __init__(self, con):
@@ -898,8 +909,7 @@ class LMPPeripheral(LMP):
 		self.lmp_send_accepted(op, tid=self._rx_tid)
 
 	def handle_setup_complete(self, op, data):
-		self.lmp_send_setup_complete()
-		self._con.handle_setup_complete()
+		self.setup_complete()
 
 	def handle_set_afh(self, op, data):
 		if len(data) < AFH_PARAMETERS_LEN:

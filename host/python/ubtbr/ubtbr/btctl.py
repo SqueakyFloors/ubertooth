@@ -150,9 +150,9 @@ LLID_TO_STR = {
 }
 
 # The L2CAP signalling channel, the two codes of the echo procedure, and the
-# largest packet the channel carries (Core v5.4 | Vol 3, Part A, 4, 4.8, 4.9,
-# and 5.1). An echo request has to be answered with a response carrying the
-# same identifier, which is what makes `l2ping` report a round trip.
+# largest payload the channel carries (Core v5.4 | Vol 3, Part A, 4, 4.8, and
+# 4.9). An echo request has to be answered with a response carrying the same
+# identifier, which is what makes `l2ping` report a round trip.
 L2CAP_CID_SIGNALLING	= 1
 L2CAP_ECHO_REQ		= 0x08
 L2CAP_ECHO_RSP		= 0x09
@@ -179,15 +179,20 @@ def l2cap_echo_request(acl):
 	code, identifier, command_length = unpack("<BBH", acl.data[4:8])
 	if code != L2CAP_ECHO_REQ:
 		return None
-	# The L2CAP length counts the whole signalling command, its four-byte
-	# header and its data (Vol 3, Part A, 3.1 and 4). A length that says
-	# anything else does not describe the command that follows it, so there
-	# is no request here to answer.
+	# The L2CAP length counts the signalling command, its four-byte header
+	# and its data (Vol 3, Part A, 3.1 and 4). Anything else is a packet
+	# this reads nothing out of: a length that does not describe the command
+	# after it, or a packet carrying several commands, which the channel
+	# allows and this does not take apart.
 	if length != 4 + command_length:
 		return None
-	# A packet larger than the signalling channel carries is malformed, and
-	# answering it would send that much back over the link.
-	if 4 + length > L2CAP_SIGNALLING_MTU:
+	# A command larger than the signalling channel carries gets no answer.
+	# A stack would refuse it and say what it can take; this tool is not one,
+	# and dropping it keeps what goes back on the link to a size the channel
+	# allows. The MTU bounds the L2CAP payload, which is what the length
+	# field counts, so a largest-sized command has a length of exactly the
+	# MTU: 44 bytes of echo data, which is what l2ping sends by default.
+	if length > L2CAP_SIGNALLING_MTU:
 		return None
 	# The packet is padded out to the size of the packet kind that carried
 	# it, so the data is taken by the length the command gives rather than

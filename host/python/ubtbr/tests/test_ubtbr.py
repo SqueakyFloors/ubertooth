@@ -3449,17 +3449,10 @@ assert [opcode_of(pdu) for pdu in central._con.sent] == \
     [lmp.LMP_SETUP_COMPLETE], central._con.sent
 assert central._con.setups == 1, central._con.setups
 
-# An LMP_accepted for anything else leaves the setup alone.
-central = lmp.LMPCentral(CountingConnection())
-central.start()
-central._con.sent.clear()
-central.receive(0, bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]))
-assert central._con.sent == [], central._con.sent
-assert central._con.setups == 0, central._con.setups
-
-# ... and so does one that arrives while the connection request is
-# outstanding but names another procedure, or is too short to name one, which
-# reads as opcode zero once the padding every PDU carries is counted.
+# An LMP_accepted that arrives while the connection request is outstanding
+# but names another procedure, or is too short to name one -- which reads as
+# opcode zero once the padding every PDU carries is counted -- leaves the
+# setup where it was.
 for accepted in (bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]),
                  bytes([lmp.LMP_ACCEPTED << 1]),
                  bytes([lmp.LMP_ACCEPTED << 1]) + b"\x00" * 16):
@@ -3472,6 +3465,29 @@ for accepted in (bytes([lmp.LMP_ACCEPTED << 1, lmp.LMP_MAX_SLOT_REQ]),
     central.receive(0, ACCEPTED)
     assert [opcode_of(pdu) for pdu in central._con.sent] == \
         [lmp.LMP_SETUP_COMPLETE], (accepted.hex(), central._con.sent)
+
+# A peer that says the setup is complete while this end is still asking it
+# about itself is answering nothing, and is ignored with a warning: the
+# connection has not been asked for, so there is no setup to finish.
+central = lmp.LMPCentral(CountingConnection())
+warned = io.StringIO()
+with contextlib.redirect_stderr(warned):
+    central.start()
+    central._con.sent.clear()
+    central.receive(0, SETUP_COMPLETE)
+assert central._con.sent == [], central._con.sent
+assert central._con.setups == 0, central._con.setups
+assert warned.getvalue() == "warning: the peer said the setup was complete " \
+    "while LMP_FEATURES_REQ was outstanding\n", warned.getvalue()
+
+# The paged board's side sends one and opens once in the same way, which is
+# the role that answers an echo request below.
+peripheral = lmp.LMPPeripheral(CountingConnection())
+for repeat in range(3):
+    peripheral.receive(0, SETUP_COMPLETE)
+assert [opcode_of(pdu) for pdu in peripheral._con.sent] == \
+    [lmp.LMP_SETUP_COMPLETE], peripheral._con.sent
+assert peripheral._con.setups == 1, peripheral._con.setups
 
 print("ubtbr: the central sends the first LMP_setup_complete")
 
@@ -3487,6 +3503,17 @@ assert btctl.l2cap_echo_request(
 # Padding to the size of the packet that carried it is not part of the data.
 padded = btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, echo_req + b"\x00" * 5)
 assert btctl.l2cap_echo_request(padded) == (0xc8, ECHO_DATA), padded.data.hex()
+
+# The largest request the signalling channel carries is answered, not refused:
+# the MTU bounds the L2CAP payload, so a 44-byte echo payload under a 4-byte
+# command header is exactly the limit, and that is what l2ping sends by
+# default on a standard host.
+largest = b"y" * (btctl.L2CAP_SIGNALLING_MTU - 4)
+biggest_req = btctl.l2cap_signalling_packet(
+    btctl.L2CAP_ECHO_REQ, 0xc8, largest)
+assert btctl.l2cap_echo_request(
+    btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START, biggest_req,
+        bt_type=btctl.DH5)) == (0xc8, largest), biggest_req.hex()
 
 # Anything that is not a whole echo request on the signalling channel is not
 # one: a continuation fragment, another channel, another code, and a packet
@@ -3506,11 +3533,11 @@ for not_a_request in (
         btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
             struct.pack("<HH", 9, btctl.L2CAP_CID_SIGNALLING)
             + echo_req[4:] + b"\x00"),
-        # larger than the signalling channel carries, so answering it would
-        # put that much back on the link
+        # one byte larger than the signalling channel carries, so answering
+        # it would put that much back on the link
         btctl.BTCtlACLPkt(btctl.LLID_L2CAP_START,
             btctl.l2cap_signalling_packet(btctl.L2CAP_ECHO_REQ, 1,
-                b"x" * (btctl.L2CAP_SIGNALLING_MTU - 7)))):
+                b"x" * (btctl.L2CAP_SIGNALLING_MTU - 3)))):
     assert btctl.l2cap_echo_request(not_a_request) is None, \
         not_a_request.data.hex()
 
