@@ -4300,8 +4300,25 @@ void tx_generic(u8 prev_mode) {
 
 	cc2400_set(SYNCH, tx_pkt.synch);
 	cc2400_set(SYNCL, tx_pkt.syncl);
+	/*
+	 * About 340 kHz of frequency deviation: twice the Basic Rate one, and
+	 * wider than any other mode here sets. A board in the generic receive
+	 * demodulates it with its own modem set to either deviation.
+	 */
 	cc2400_set(MDMCTRL, 0x0057);
 	cc2400_set(MDMTST0, 0x134b);
+	/*
+	 * The framing: buffered mode, packet mode, a preamble of 01010101
+	 * (preamble field 6, more than any other mode here asks for), the
+	 * whole 32-bit sync word, CRC off. The radio adds all of that and the
+	 * generic receive programs none of it, so a board meant to read this
+	 * transmit has to be set to the same GRMDM value, with the same sync
+	 * word in SYNCH and SYNCL.
+	 *
+	 * Packet mode is what puts the payload in the radio's FIFO for the
+	 * write loop below. It is also the bit rx_generic() reads to choose
+	 * the packet receive, which is why the restore below matters.
+	 */
 	cc2400_set(GRMDM, 0x0f61);
 	cc2400_set(FSDIV, tx_pkt.channel);
 	/*

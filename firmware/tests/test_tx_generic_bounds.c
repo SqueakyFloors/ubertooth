@@ -448,7 +448,21 @@ struct scan {
 	int wait_bound;       /* ...and where its poll count is used */
 	int waits_checked;    /* calls whose result is acted on, in both loops */
 	int loop_end;         /* the loop that keeps going while bytes are left */
+	int tx_grmdm;         /* tx_generic()'s own write of GRMDM */
+	char tx_grmdm_text[256];
+	long tx_grmdm_value;  /* the GRMDM value it writes, -1 if not a number */
 };
+
+/* The value of `cc2400_set(<reg>, 0x1234);`, or -1 when the line writes
+ * something that is not a hex number. */
+static long hex_value_written(const char *flat)
+{
+	const char *p = strstr(flat, "0x");
+
+	if (p == NULL)
+		return -1;
+	return strtol(p, NULL, 16);
+}
 
 static int scan_source(const char *path, struct scan *s)
 {
@@ -527,6 +541,19 @@ static int scan_source(const char *path, struct scan *s)
 		if (in_fn == 1 && s->le_wait == 0 &&
 		    strstr(flat, "fifo_wait_empty()") != NULL)
 			s->le_wait = lineno;
+
+		/*
+		 * The framing tx_generic() sends with. The first write is the
+		 * setup; the write at the end of the function puts the saved
+		 * value back, which test_grmdm_rx_generic.c checks.
+		 */
+		if (in_fn == 2 && s->tx_grmdm == 0 &&
+		    strstr(flat, "cc2400_set(GRMDM,") != NULL) {
+			s->tx_grmdm = lineno;
+			snprintf(s->tx_grmdm_text, sizeof(s->tx_grmdm_text),
+			         "%s", flat);
+			s->tx_grmdm_value = hex_value_written(flat);
+		}
 		if (strstr(flat, "} while (sent < len);") != NULL)
 			s->loop_end = lineno;
 
@@ -751,6 +778,71 @@ MU_TEST(test_tx_generic_waits_on_the_fifo_being_empty)
 	mu_assert(s.gio_in_tx < s.drain_wait, msg);
 }
 
+/*
+ * The radio frames a generic transmit itself, and the generic receive programs
+ * nothing: it receives with whatever the host left in the registers. So the
+ * GRMDM value this transmit writes says how the packet is framed -- preamble,
+ * sync word, CRC, and whether the payload goes through the FIFO at all -- and
+ * the host has to mirror it on the receiving board. The sync word, the
+ * deviation and the channel are the transmit's other half, and they come from
+ * the request and from MDMCTRL rather than from here.
+ *
+ * Each field checked below is one the generic receive needs a particular way,
+ * with the reason in its message. The preamble is the exception: that path
+ * needs a preamble but no particular length, so the check is only that there
+ * is one.
+ */
+MU_TEST(test_the_transmits_framing_is_one_the_generic_receive_can_read)
+{
+	char msg[768];
+	long g = s.tx_grmdm_value;
+
+	snprintf(msg, sizeof(msg),
+	         "%s: tx_generic() writes no GRMDM value of its own, so the "
+	         "framing below cannot be checked", path);
+	mu_assert_fatal(s.tx_grmdm > 0 && g >= 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which is not "
+	         "packet mode. The radio then puts a raw symbol stream on the "
+	         "air instead of framing the FIFO, and the write loop below has "
+	         "nothing to feed", path, s.tx_grmdm, g);
+	mu_assert(grmdm_packet_mode((uint16_t)g), msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which is not "
+	         "buffered mode, so the payload does not go through the radio's "
+	         "FIFO -- which is where this function writes it", path,
+	         s.tx_grmdm, g);
+	mu_assert((g & GRMDM_BUFFERED_MASK) == GRMDM_BUFFERED, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which puts no "
+	         "preamble in front of the sync word. The receiving board's modem "
+	         "settles its frequency correction over the preamble -- the AFC "
+	         "settling in MDMTST0, which for the generic receive is whatever "
+	         "the host wrote -- so a packet with none leaves it nothing to "
+	         "settle on", path, s.tx_grmdm, g);
+	mu_assert((g & GRMDM_PREAMBLE_MASK) != 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which matches "
+	         "only part of the sync word. The request carries a whole 32-bit "
+	         "sync word and the generic receive puts all four bytes of it in "
+	         "every record, so both ends read all 32 bits", path, s.tx_grmdm,
+	         g);
+	mu_assert((g & GRMDM_SYNC_WORD_32) == GRMDM_SYNC_WORD_32, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: tx_generic() sends with GRMDM 0x%04lx, which has the "
+	         "radio append a CRC. The generic receive reads a fixed number of "
+	         "bytes out of the FIFO and never looks at the radio's CRC "
+	         "result, so the CRC buys nothing there and, for a payload "
+	         "shorter than that read, lands among the bytes the record shows "
+	         "as payload", path, s.tx_grmdm, g);
+	mu_assert((g & GRMDM_CRC) == 0, msg);
+}
+
 int main(void)
 {
 	printf("generic transmit packet bounds tests\n");
@@ -777,5 +869,6 @@ int main(void)
 	MU_RUN(test_the_fifo_write_is_clamped_and_chunked);
 	MU_RUN(test_le_transmit_waits_on_the_fifo_being_empty);
 	MU_RUN(test_tx_generic_waits_on_the_fifo_being_empty);
+	MU_RUN(test_the_transmits_framing_is_one_the_generic_receive_can_read);
 	return mu_report();
 }
