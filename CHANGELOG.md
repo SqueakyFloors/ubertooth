@@ -1350,14 +1350,7 @@
   for 200ms, against two ticks to a slot. The difference now does not depend on
   the setup at all, and a follow no longer resets the clock a later run on the
   same board reads.
-
-- `ubertooth-follow` hops by the difference between the piconet's clock and the
-  board's, which it now reads, instead of zeroing the board's clock and sending
-  the piconet's as it stood. Where the board's clock is running — one that
-  would not stop, or one still streaming Classic symbols — the follow used to
-  hop as far past the piconet's clock as its own setup had taken; the
-  difference does not depend on the setup at all.
-  [#507](https://github.com/SqueakyFloors/ubertooth/issues/507)  [#507](https://github.com/SqueakyFloors/ubertooth/issues/507)
+  [#507](https://github.com/SqueakyFloors/ubertooth/issues/507)
 
 - The three capture-loss warnings name the board that recorded the capture, so
   a replay no longer reads as if a board were attached: `warning: the recording
