@@ -1,6 +1,7 @@
 import usb1
 import sys
 from binascii import hexlify, unhexlify
+from collections import namedtuple
 from threading import Thread, Event, Lock
 from queue import Queue, Empty
 from struct import pack, unpack
@@ -69,6 +70,11 @@ BTCTL_MONITOR_REQ	= 32
 # over USB (ubertooth-util -i), and the number is kept in step with
 # ubertooth_interface.h so it is not given to something else.
 BTCTL_ISP_REQ		= 33
+BTCTL_TX_PKT_REQ	= 34
+# The most transmit slots one packet may be given, as the device has it:
+# nothing else goes out while it does, so a longer one would end the
+# connection on link supervision.
+BTCTL_TX_PKT_MAX_SLOTS	= 400
 # Device -> Host 
 BTCTL_RX_PKT		= 40
 BTCTL_STATE_RESP	= 41
@@ -138,6 +144,37 @@ ACL_TYPE_TBL = [
 	(DH3,	2,	183,	0	),
 	(DH5,	2,	339,	0	)
 ]
+
+# The packet formats the device can be asked to transmit, in the order of
+# btctl_tx_format_t in ubertooth_interface.h. The device knows each one's air
+# layout; this side only has to name it, and to know how many data bytes it
+# carries so a length the device would refuse is reported here instead.
+#
+# min and max are data bytes, which exclude the payload header where the
+# format has one and the voice field where it has one; the lengths are
+# Bluetooth Core, Vol 2 Part B, Table 6.5 and Table 6.6. hlen is the payload
+# header this side writes, and voice the field it fills with voice bytes.
+# slots is how many air slots one packet of the format fills (Table 6.2),
+# which is what bounds the count: the limit is on the slots a run occupies,
+# not on the number of packets in it.
+TxFormat = namedtuple("TxFormat", "code hlen voice min max slots")
+
+TX_FORMATS = {
+	"dm1":  TxFormat( 0, 1,  0,  0,  17, 1),
+	"dh1":  TxFormat( 1, 1,  0,  0,  27, 1),
+	"dm3":  TxFormat( 2, 2,  0,  0, 121, 3),
+	"dh3":  TxFormat( 3, 2,  0,  0, 183, 3),
+	"dm5":  TxFormat( 4, 2,  0,  0, 224, 5),
+	"dh5":  TxFormat( 5, 2,  0,  0, 339, 5),
+	"aux1": TxFormat( 6, 1,  0,  0,  29, 1),
+	"dv":   TxFormat( 7, 1, 10,  0,   9, 1),
+	"hv1":  TxFormat( 8, 0,  0, 10,  10, 1),
+	"hv2":  TxFormat( 9, 0,  0, 20,  20, 1),
+	"hv3":  TxFormat(10, 0,  0, 30,  30, 1),
+	"ev3":  TxFormat(11, 0,  0,  1,  30, 1),
+	"ev4":  TxFormat(12, 0,  0,  1, 120, 3),
+	"ev5":  TxFormat(13, 0,  0,  1, 180, 3),
+}
 
 LLID_L2CAP_CONT		= 1
 LLID_L2CAP_START	= 2
@@ -1686,6 +1723,37 @@ class BTCtl:
 		payload = bb_hdr.pack() + acl.pack()
 		log.debug("send bb %s, acl: %s"%(bb_hdr,acl))
 		self._send_cmd(BTCTL_TX_ACL_REQ, payload)
+
+	def send_tx_pkt_cmd(self, fmt, data, voice=b"", lt_addr=1, repeat=1,
+			llid=LLID_L2CAP_START, flow=1):
+		"""Put one packet of the given format on the air as it is.
+
+		fmt is a TxFormat from TX_FORMATS, data the data bytes, and
+		voice the voice bytes for a format that has a voice field. The
+		payload header, where the format has one, is written here; the
+		device is told how many bytes came with the packet and adds
+		the CRC where the format has one.
+		"""
+		payload = self.tx_payload(fmt, data, voice, llid, flow)
+		cmd = pack("<BBHH", lt_addr, fmt.code, repeat,
+			len(payload)) + payload
+		log.debug("send tx pkt: format %d, %s, %d slots"
+			%(fmt.code, byte_count(len(payload)), repeat))
+		self._send_cmd(BTCTL_TX_PKT_REQ, cmd)
+
+	@staticmethod
+	def tx_payload(fmt, data, voice=b"", llid=LLID_L2CAP_START, flow=1):
+		"""The payload bytes a tx packet goes on the air with.
+
+		The voice field where the format has one, then the payload header
+		where it has one, then the data. The device adds the CRC, so that
+		is not here.
+		"""
+		payload = voice
+		if fmt.hlen:
+			payload += pack("<" + ("B" if fmt.hlen == 1 else "H"),
+				(len(data)<<3) | ((flow&1)<<2) | (llid&3))
+		return payload + data
 
 	def send_set_eir_cmd(self, eir_data):
 		acl = BTCtlACLPkt(LLID_L2CAP_START, eir_data, 1)

@@ -107,14 +107,13 @@ static void central_state_schedule_tx(unsigned skip_slots)
 {
 	/* Wait for next tx slot */
 	unsigned delay = skip_slots * 4 + (3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
-	bbhdr_t *tx_hdr;
-	uint8_t *tx_data;
+	ll_tx_t tx;
 
-	ll_prepare_tx(&central_state.ll, &tx_hdr, &tx_data);
+	ll_prepare_tx(&central_state.ll, &tx);
 
-	tx_task_schedule(delay,
+	tx_task_schedule_fmt(delay,
 		tx_done_cb, NULL,
-		tx_hdr, tx_data);
+		tx.hdr, tx.data, tx.fmt, tx.data_bytes);
 }
 
 /* Called by paging task once the Peripheral acknowledged our FHS */

@@ -2572,12 +2572,22 @@ int ubertooth_get_api(ubertooth_t *ut, uint16_t *version) {
 	return 0;
 }
 
-/* The image a tool that makes this check needs on the board. The other image
- * this tree builds, btbr, answers the shared requests and nothing else; it is
- * driven by ubertooth-btbr, which is a Python tool and does not come through
- * here. ubertooth-util and ubertooth-dfu make no such check, because they
- * have to work on whatever firmware a board is carrying. */
+/* The image a tool that makes this check needs on the board, and the name the
+ * message tells the user to flash. The other image this tree builds, btbr,
+ * answers the shared requests and nothing else; it is driven by
+ * ubertooth-btbr, which is a Python tool and does not come through here.
+ * ubertooth-util and ubertooth-dfu make no such check, because they have to
+ * work on whatever firmware a board is carrying. */
 #define UBERTOOTH_TOOLS_IMAGE "bluetooth_rxtx"
+
+/* The receive-only build of that image, which the release ships as
+ * bluetooth_rx_only.*: the same firmware with its transmit half left out, so
+ * it answers every request these tools make. It has to be accepted here or a
+ * board carrying it would be refused by every tool, which is the whole use of
+ * that image. A tool whose job is to transmit is refused by the firmware,
+ * which answers no transmit request at all, and that is where the user is
+ * told. */
+#define UBERTOOTH_TOOLS_IMAGE_RX_ONLY "bluetooth_rx"
 
 /* Refuses a board running another of this tree's firmware images; the
  * contract is on ubertooth_check_image() in ubertooth.h.
@@ -2605,7 +2615,8 @@ int ubertooth_check_image(ubertooth_t *ut)
 
 	if (cmd_get_firmware_info_quiet(ut->devh, &info) < 0)
 		return 0;
-	if (strcmp(info.image, UBERTOOTH_TOOLS_IMAGE) == 0)
+	if (strcmp(info.image, UBERTOOTH_TOOLS_IMAGE) == 0 ||
+	    strcmp(info.image, UBERTOOTH_TOOLS_IMAGE_RX_ONLY) == 0)
 		return 0;
 
 	fprintf(stderr, "error: the Ubertooth is running %s; this tool needs "

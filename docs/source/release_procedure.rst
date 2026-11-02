@@ -78,7 +78,11 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     * For Ubertooth One these are bluetooth_rxtx (full and receive-only),
       btbr, the bootloader and assembly_test, which is what
       ``tools/ubertooth-release.sh`` builds and copies into
-      ``ubertooth-one-firmware-bin``.
+      ``ubertooth-one-firmware-bin``. The receive-only image ships as
+      ``bluetooth_rx_only.*`` and calls itself ``bluetooth_rx`` in its
+      firmware info block, so a board running it can be told from one running
+      the full image; the script takes that name from the image's own
+      Makefile.
 
     * The script pins the firmware build stamp, and a release built by hand
       should pass the same on every make line:

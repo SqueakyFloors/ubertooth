@@ -30,7 +30,7 @@
 
 /* How many rollover sites bluetooth_rxtx.c has today, so a scan that matched
  * nothing cannot pass. Update it when one is added or removed. */
-#define ROLLOVER_SITES 3
+#define ROLLOVER_SITES 4
 
 /* The channels a low-energy connection hops over, which is how many
  * connection events pass between two sightings on one channel. */
@@ -103,11 +103,20 @@ struct scan {
 	int queue_init_line;
 	int announce_guarded_by_mode;
 	int flag_in_state;       /* and the flag that says it is set */
+
+	/* LE_SAME_EVENT_GAP, as the firmware has it: the model below keeps a
+	 * copy of this number, and the two have to agree. */
+	int same_event_gap;
 };
 
 static struct scan s;
 static const char *path = FW_RXTX_DIR "/bluetooth_rxtx.c";
 static const char *clock_path = FW_RXTX_DIR "/ubertooth_clock.h";
+/* le_gap_tolerance() and le_same_span() are arithmetic both of the mode's
+ * estimators need, so they live in bluetooth_le.c with the rest of the
+ * low-energy arithmetic rather than in the hardware file. */
+static const char *arith_path = FW_RXTX_DIR "/bluetooth_le.c";
+static const char *le_header_path = FW_RXTX_DIR "/bluetooth_le.h";
 
 /*
  * Is this token a period-sized amount -- the named constant, or a literal of
@@ -252,9 +261,6 @@ static int scan_sources(struct scan *out)
 			if (sscanf(line, " #define LE_PROMISC_GAPS %d",
 			           &value) == 1)
 				out->gaps_kept = value;
-			if (strcmp(fn, "le_gap_tolerance") == 0 &&
-			    sscanf(line, " return (span >> %d)", &value) == 1)
-				out->tolerance_shift = value;
 		}
 
 		if (strcmp(fn, "bt_le_sync") == 0 &&
@@ -316,6 +322,48 @@ static int scan_sources(struct scan *out)
 			out->le_baseclk = value;
 	}
 	fclose(f);
+
+	/* LE_SAME_EVENT_GAP: the longest two packets of one connection event
+	 * can be apart, which is what tells a continuation from the first
+	 * packet of the next event. */
+	f = fopen(le_header_path, "r");
+	if (f == NULL)
+		return 0;
+	in_block = 0;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		unsigned value;
+
+		strip_comments(line, &in_block);
+		if (sscanf(line, " #define LE_SAME_EVENT_GAP %uu", &value) == 1
+		    || sscanf(line, " #define LE_SAME_EVENT_GAP %u",
+		              &value) == 1)
+			out->same_event_gap = (int)value;
+	}
+	fclose(f);
+
+	/* le_gap_tolerance(): how far two readings of one span may be apart. */
+	f = fopen(arith_path, "r");
+	if (f == NULL)
+		return 0;
+	in_block = 0;
+	fn[0] = '\0';
+	while (fgets(line, sizeof(line), f) != NULL) {
+		int value;
+
+		strip_comments(line, &in_block);
+
+		/* Whose body this line is, as in the loop above. */
+		if (line[0] != '\0' && !isspace((unsigned char)line[0]) &&
+		    line[0] != '#' && line[0] != '}' &&
+		    strchr(line, ';') == NULL &&
+		    call_name(line, name, sizeof(name)))
+			snprintf(fn, sizeof(fn), "%s", name);
+
+		if (strcmp(fn, "le_gap_tolerance") == 0 &&
+		    sscanf(line, " return (span >> %d)", &value) == 1)
+			out->tolerance_shift = value;
+	}
+	fclose(f);
 	return 1;
 }
 
@@ -323,7 +371,7 @@ static int scan_sources(struct scan *out)
  * The estimator, modelled
  * ------------------------------------------------------------------------ */
 
-/* DIVIDE_ROUND(), from bluetooth_rxtx.c. */
+/* LE_DIVIDE_ROUND(), from bluetooth_le.h. */
 #define DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
 
 /* As many gaps as the estimator could ever keep. The number it does keep is
@@ -334,10 +382,18 @@ static int scan_sources(struct scan *out)
 /* The range a connection interval may take, in units of 1.25 ms, from
  * bluetooth_le.h. */
 #define LE_MIN_CONN_INTERVAL 6
+
+/* LE_SAME_EVENT_GAP, as bluetooth_le.h has it: the longest two packets of one
+ * connection event can be apart, which is what the estimator tells a
+ * continuation from the first packet of the next event by. */
+#define LE_SAME_EVENT_GAP 25000u
 #define LE_MAX_CONN_INTERVAL 3200
 
 struct estimator {
 	uint32_t prev_clk;
+	/* When any packet was last seen, as against prev_clk, which is the
+	 * last one taken as the start of a connection event. */
+	uint32_t last_clk;
 	int seen_a_packet;
 	/* The gap lengths seen and how often each has been seen. */
 	uint32_t gap[LE_PROMISC_GAPS];
@@ -362,6 +418,7 @@ static void following_since(struct estimator *e, uint32_t last)
 {
 	estimator_init(e);
 	e->prev_clk = last;
+	e->last_clk = last;
 	e->seen_a_packet = 1;
 }
 
@@ -464,12 +521,13 @@ static uint16_t interval_from_gaps(const struct estimator *e)
 static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 {
 	uint32_t cur_clk = now;
-	uint32_t measured, clk_diff;
+	uint32_t measured, since_packet, clk_diff;
 	uint16_t obsv_hop_interval;
 
 	if (!e->seen_a_packet) {
 		e->seen_a_packet = 1;
 		e->prev_clk = cur_clk;
+		e->last_clk = cur_clk;
 		return e->conn_interval;
 	}
 
@@ -478,10 +536,20 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 		measured += period;
 	clk_diff = measured - e->prev_clk;
 
-	/* shorter than one connection interval: two packets of one event */
-	if (clk_diff < LE_MIN_CONN_INTERVAL * (uint32_t)s.le_baseclk)
+	/* Closer to the packet before it than two packets of one event can be,
+	 * so it is a later packet of the event now running rather than the
+	 * start of the next one. Measured from the previous packet, whatever
+	 * it was, so that a busy event does not start an event of its own part
+	 * way through. */
+	since_packet = cur_clk;
+	if (since_packet < e->last_clk)
+		since_packet += period;
+	if (since_packet - e->last_clk < LE_SAME_EVENT_GAP) {
+		e->last_clk = cur_clk;
 		return e->conn_interval;
+	}
 
+	e->last_clk = cur_clk;
 	e->prev_clk = cur_clk;
 
 	if (clk_diff > (uint32_t)LE_CHANNELS * LE_MAX_CONN_INTERVAL *
@@ -568,6 +636,13 @@ MU_TEST(test_the_sources_were_scanned)
 	         "on a neighbouring site's constant", path);
 	mu_assert(s.interval_site >= 0, msg);
 
+	snprintf(msg, sizeof(msg),
+	         "%s: LE_SAME_EVENT_GAP is %d, where the model below uses %u -- "
+	         "retune one and every case here passes against the other",
+	         le_header_path, s.same_event_gap,
+	         (unsigned)LE_SAME_EVENT_GAP);
+	mu_assert(s.same_event_gap == (int)LE_SAME_EVENT_GAP, msg);
+
 	snprintf(msg, sizeof(msg), "%s: LE_BASECLK not found", clock_path);
 	mu_assert(s.le_baseclk > 0, msg);
 	mu_assert_int_eq(12500, s.le_baseclk);
@@ -583,7 +658,7 @@ MU_TEST(test_the_sources_were_scanned)
 
 	snprintf(msg, sizeof(msg),
 	         "%s: le_gap_tolerance() does not shift the span, so the model "
-	         "below would allow a different spread", path);
+	         "below would allow a different spread", arith_path);
 	mu_assert(s.tolerance_shift > 0, msg);
 }
 
@@ -739,20 +814,165 @@ MU_TEST(test_packets_from_one_connection_event_are_ignored)
 	trips(&e, &at, 16, 2);
 	mu_assert_int_eq(2, seen_count(&e, gap));
 
-	/* A second packet 1 ms later, and a second exchange 5 ms after that:
-	 * the same connection event both times. */
+	/* The answer 1 ms later, and a second exchange 2.2 ms after that: the
+	 * same connection event both times. */
 	at += 10000u;
 	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
-	at += 50000u;
+	at += 22000u;
 	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
 	mu_assert_int_eq(0, seen_count(&e, 10000u));
-	mu_assert_int_eq(0, seen_count(&e, 50000u));
+	mu_assert_int_eq(0, seen_count(&e, 32000u));
 
 	/* The next event's packet is a trip measured from the first packet of
 	 * the event before it, not from the extras inside it. */
-	at -= 60000u;
+	at -= 32000u;
 	mu_assert_int_eq(16, trips(&e, &at, 16, 1));
 	mu_assert_int_eq(3, seen_count(&e, gap));
+}
+
+/*
+ * A busy connection event runs longer than the shortest connection interval,
+ * and none of it is a visit to this channel either.
+ *
+ * Two exchanges of full-length packets on the 1M PHY take about 9 ms, against
+ * the 7.5 ms the shortest interval allows, so measuring the silence from the
+ * event's start rather than from the packet before would make the third packet
+ * of such an event the start of an event of its own -- 9 ms into the real one.
+ * The run of gaps would then hold spans that are not a whole number of
+ * connection intervals, and the follow the algorithm-2 search sets up would be
+ * anchored that far into an event.
+ *
+ * So the silence is measured from the previous packet, whatever it was, and a
+ * run of packets no more than one interval apart is one event however long it
+ * goes on.
+ */
+MU_TEST(test_a_busy_event_is_still_one_event)
+{
+	struct estimator e;
+	uint32_t gap = round_the_channels(40);   /* a 50 ms connection */
+	uint32_t at = 1000000u;
+	uint32_t start;
+	int i;
+
+	following_since(&e, at);
+	trips(&e, &at, 40, 2);
+	mu_assert_int_eq(2, seen_count(&e, gap));
+
+	/* Eight full-length packets back to back, each 2.25 ms after the one
+	 * before it, so the event runs 18 ms: far longer than the shortest
+	 * connection interval, and well inside this connection's own 50 ms. */
+	start = at;
+	for (i = 1; i <= 8; i++) {
+		at = start + i * 22500u;
+		mu_assert_int_eq(40, a_packet_at(&e, at, firmware_period()));
+	}
+	mu_assert_int_eq(0, seen_count(&e, 22500u));
+	mu_assert_int_eq(0, seen_count(&e, 90000u));
+	mu_assert_int_eq(2, e.gap_count);
+
+	/* The next visit is a trip measured from the first packet of the busy
+	 * event, not from where it ran to. */
+	at = start + gap;
+	mu_assert_int_eq(40, a_packet_at(&e, at, firmware_period()));
+	mu_assert_int_eq(3, seen_count(&e, gap));
+}
+
+/*
+ * Two connection events in a row on this channel, at the shortest interval a
+ * connection may use. A reduced channel map puts them there: it moves the
+ * events of the channels it dropped onto the channels it kept, so one channel
+ * can come up twice running.
+ *
+ * Then the answer of the first event and the first packet of the second are
+ * less than one connection interval apart, and the second still has to be a
+ * sighting. This is why the threshold is the longest two packets of one event
+ * can be apart and not one connection interval: measured from the previous
+ * packet against a threshold of one interval, the second event's packet would
+ * read as a continuation of the first, the chain would never end, and nothing
+ * would be recorded again.
+ *
+ * Two offsets for the answer: just after its event's start, as an empty PDU
+ * gives, and 2.34 ms in, as an answer to a full-length packet gives.
+ */
+MU_TEST(test_two_events_in_a_row_are_two_sightings)
+{
+	static const uint32_t answer_at[2] = { 3000u, 23400u };
+	uint32_t unit = LE_MIN_CONN_INTERVAL * 12500u;
+	unsigned k;
+
+	for (k = 0; k < 2; k++) {
+		struct estimator e;
+		uint32_t at = 1000000u;
+		char msg[160];
+
+		following_since(&e, at);
+
+		/* The first event and its answer. */
+		at += unit;
+		a_packet_at(&e, at, firmware_period());
+		a_packet_at(&e, at + answer_at[k], firmware_period());
+		mu_assert_int_eq(1, e.gap_count);
+
+		/* The next event, one interval later, and its answer. */
+		at += unit;
+		a_packet_at(&e, at, firmware_period());
+		a_packet_at(&e, at + answer_at[k], firmware_period());
+
+		snprintf(msg, sizeof(msg),
+		         "an answer %lu ticks into its event: %d gaps from two "
+		         "events in a row", (unsigned long)answer_at[k],
+		         e.gap_count);
+		mu_assert(e.gap_count == 2, msg);
+		snprintf(msg, sizeof(msg),
+		         "an answer %lu ticks into its event: %d of the gaps "
+		         "are one connection interval",
+		         (unsigned long)answer_at[k], seen_count(&e, unit));
+		mu_assert(seen_count(&e, unit) == 2, msg);
+	}
+}
+
+/*
+ * The two conditions together: two events in a row on this channel, and the
+ * first of them dense enough to run to within one same-event gap of the
+ * second's start. The second event's first packet then reads as a
+ * continuation of the first event and that sighting is dropped.
+ *
+ * That is the case this threshold cannot tell apart, and it is the harmless
+ * direction. The stamp an event's start is measured from stays on an event
+ * boundary, so the next gap is still a whole number of connection intervals --
+ * two of them rather than one, which is a return nobody heard, and both
+ * estimators already allow for those.
+ */
+MU_TEST(test_a_dropped_sighting_leaves_the_grid_alone)
+{
+	struct estimator e;
+	uint32_t unit = LE_MIN_CONN_INTERVAL * 12500u;
+	uint32_t at = 1000000u;
+	uint32_t start;
+	int i;
+
+	following_since(&e, at);
+
+	/* The first event: full-length packets every 2.25 ms, the last of them
+	 * 0.75 ms short of the next event's start. */
+	at += unit;
+	start = at;
+	a_packet_at(&e, at, firmware_period());
+	for (i = 1; i * 22500u < unit; i++)
+		a_packet_at(&e, start + i * 22500u, firmware_period());
+	mu_assert_int_eq(1, e.gap_count);
+
+	/* The next event, one interval after the first one started. Its first
+	 * packet is inside one same-event gap of the last packet heard, so it
+	 * is taken for a continuation and no sighting is recorded. */
+	a_packet_at(&e, start + unit, firmware_period());
+	mu_assert_int_eq(1, e.gap_count);
+
+	/* The event after that is two intervals from the first, and that is
+	 * the gap recorded: a whole number of intervals, not an offset. */
+	a_packet_at(&e, start + 2 * unit, firmware_period());
+	mu_assert_int_eq(2, e.gap_count);
+	mu_assert_int_eq(1, seen_count(&e, 2 * unit));
 }
 
 /*
@@ -1132,7 +1352,8 @@ MU_TEST(test_a_missed_return_is_not_an_interval)
 int main(void)
 {
 	if (!scan_sources(&s)) {
-		printf("could not read %s or %s\n", path, clock_path);
+		printf("could not read %s, %s or %s\n", path, clock_path,
+		       arith_path);
 		return 1;
 	}
 
@@ -1145,6 +1366,9 @@ int main(void)
 	MU_RUN(test_a_gap_shorter_than_the_shortfall_wraps_instead);
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
+	MU_RUN(test_a_busy_event_is_still_one_event);
+	MU_RUN(test_two_events_in_a_row_are_two_sightings);
+	MU_RUN(test_a_dropped_sighting_leaves_the_grid_alone);
 	MU_RUN(test_a_reduced_channel_map_still_gives_the_interval);
 	MU_RUN(test_part_of_a_pattern_is_not_the_pattern);
 	MU_RUN(test_a_single_odd_gap_is_not_the_answer);

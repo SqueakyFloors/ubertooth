@@ -1240,6 +1240,15 @@ void cb_btle(ubertooth_t* ut, void* args)
 			case 3:
 				fprintf(out, "Hop increment: %u\n", *(const uint8_t *)val);
 				break;
+			case 4:
+				/* A connection hopping with channel selection
+				 * algorithm 2 has no hop increment: its channel
+				 * per event comes from the access address and
+				 * this counter, which is the one the follow
+				 * starts on. */
+				fprintf(out, "Algorithm 2 event counter: %u\n",
+				        *(const uint16_t *)val);
+				break;
 			default:
 				fprintf(out, "Unknown %u\n", state);
 				break;

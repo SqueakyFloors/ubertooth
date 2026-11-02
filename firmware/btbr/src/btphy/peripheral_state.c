@@ -106,14 +106,13 @@ static void peripheral_state_schedule_tx(unsigned skip_slots)
 {
 	/* Wait for next tx slot */
 	unsigned delay = 4*skip_slots+(3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX()));
-	bbhdr_t *tx_hdr;
-	uint8_t *tx_data;
+	ll_tx_t tx;
 
-	ll_prepare_tx(&peripheral_state.ll, &tx_hdr, &tx_data);
+	ll_prepare_tx(&peripheral_state.ll, &tx);
 
-	tx_task_schedule(delay,
+	tx_task_schedule_fmt(delay,
 		tx_done_cb, NULL,
-		tx_hdr, tx_data);
+		tx.hdr, tx.data, tx.fmt, tx.data_bytes);
 }
 
 static void peripheral_state_schedule_rx(unsigned skip_slots)

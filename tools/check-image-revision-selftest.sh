@@ -260,6 +260,33 @@ want_empty_stdout
 want_stderr "the info block in this image says it is"
 want_stderr '"bluetooth_rxtx", not "btbr"'
 
+# The receive-only build of bluetooth_rxtx is the one image whose block names
+# something other than its file: it is that target with its transmit half left
+# out and calls itself bluetooth_rx, so that a board running it can be told
+# from one running the full image. The file it builds keeps the target's name,
+# and the release ships that file as bluetooth_rx_only.*, so the name is
+# accepted under both stems and under no other.
+write_image "$work/bluetooth_rxtx.bin" bluetooth_rx git-deadbeef
+run "a receive-only build under its target's name" "$work/bluetooth_rxtx.bin"
+want_status 0
+want_empty_stderr
+want_stdout "git-deadbeef"
+
+cp "$work/bluetooth_rxtx.bin" "$work/bluetooth_rx_only.bin"
+run "a receive-only build under the name the release ships" \
+    "$work/bluetooth_rx_only.bin"
+want_status 0
+want_empty_stderr
+want_stdout "git-deadbeef"
+
+# And the full image is still refused under that name, so the rename above
+# cannot be used to pass an image off as the receive-only one.
+write_image "$work/bluetooth_rx_only.bin" bluetooth_rxtx git-deadbeef
+run "the full image under the receive-only name" "$work/bluetooth_rx_only.bin"
+want_status 1
+want_empty_stdout
+want_stderr '"bluetooth_rxtx", not "bluetooth_rx"'
+
 # The same block under a name that is not a build's. `ubertooth-dfu` has no
 # rule about the filename, and the release procedure renames the image it
 # publishes, so a renamed file is checked for its revision and nothing more.

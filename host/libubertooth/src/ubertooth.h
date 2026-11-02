@@ -609,6 +609,11 @@ int ubertooth_check_api(ubertooth_t *ut);
  * when the command may go on, or -1 for another image, already reported by
  * name with the line that flashes the right one.
  *
+ * The receive-only build of that image, which reports itself as bluetooth_rx,
+ * counts as the same image: it is bluetooth_rxtx with its transmit half left
+ * out, so it answers every request these tools make, and a tool that wants to
+ * transmit is refused by the firmware rather than here.
+ *
  * This is the image half of ubertooth_check_api(), for a tool that drives
  * whatever firmware version a board is carrying but still needs this image's
  * requests: ubertooth-debug, which reads CC2400 registers. Every other tool

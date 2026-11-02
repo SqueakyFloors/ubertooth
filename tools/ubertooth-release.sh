@@ -74,7 +74,14 @@ git archive --format=tar  HEAD | (cd "${targetdir}" && tar xf -)
 # `make clean` deletes version.h along with the rest of the build output, so
 # this runs after every clean below rather than once here. Without that the
 # images report "git-unknown" instead of the release.
+#
+# $1, when given, is the name the bluetooth_rxtx image calls itself in its
+# firmware info block. The receive-only image below is the same target built
+# with DISABLE_TX, so it needs a name of its own; a board flashed with it
+# otherwise reads as one running the full image.
 write_version_headers() {
+	local rxtx_name d imgdir imgname
+	rxtx_name="${1:-bluetooth_rxtx}"
 	# Not the bootloader: it includes no version.h and carries no firmware
 	# info block.
 	for imgdir in bluetooth_rxtx btbr assembly_test; do
@@ -83,12 +90,17 @@ write_version_headers() {
 			echo "error: no ${d} to write version.h into" >&2
 			exit 1
 		fi
+		if test "${imgdir}" = "bluetooth_rxtx" ; then
+			imgname="${rxtx_name}"
+		else
+			imgname="${imgdir}"
+		fi
 		cat > "${d}/version.h" <<EOF
 /* Generated for release ${version} by tools/ubertooth-release.sh. */
 #ifndef UBERTOOTH_VERSION_H
 #define UBERTOOTH_VERSION_H
 #define GIT_REVISION "${version}"
-#define FW_IMAGE_NAME "${imgdir}"
+#define FW_IMAGE_NAME "${imgname}"
 #define COMPILE_BY "${version_by}"
 #define COMPILE_HOST "${version_host}"
 #define TIMESTAMP "${build_date}"
@@ -142,8 +154,21 @@ cp assembly_test/assembly_test.hex "${targetdir}/ubertooth-one-firmware-bin/"
 cp assembly_test/assembly_test.bin "${targetdir}/ubertooth-one-firmware-bin/"
 make clean
 
-# Receive Only firmware
-write_version_headers
+# Receive Only firmware. It names itself in its firmware info block, so that
+# ubertooth-util -v tells a board running it from one running the full image;
+# the file names below do not fit that block's 16-byte image field. The name
+# is read out of the image's own Makefile rather than written again here,
+# because the version.h this ships is what a build with no git history uses
+# and the two must not drift apart.
+rx_only_name=$(sed -n '/^ifdef DISABLE_TX$/,/^endif$/{s/^[[:space:]]*IMAGE_NAME[[:space:]]*[:?]\{0,1\}=[[:space:]]*//p;}' \
+	"${targetdir}/firmware/bluetooth_rxtx/Makefile" | head -1)
+if test -z "${rx_only_name}" ; then
+	echo "error: no receive-only IMAGE_NAME in" \
+	     "firmware/bluetooth_rxtx/Makefile" >&2
+	exit 1
+fi
+echo "  receive-only image name: ${rx_only_name}"
+write_version_headers "${rx_only_name}"
 DISABLE_TX=1 make "${stamp[@]}" bluetooth_rxtx
 cp bluetooth_rxtx/bluetooth_rxtx.hex "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.hex"
 cp bluetooth_rxtx/bluetooth_rxtx.bin "${targetdir}/ubertooth-one-firmware-bin/bluetooth_rx_only.bin"

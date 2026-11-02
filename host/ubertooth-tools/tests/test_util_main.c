@@ -1046,6 +1046,7 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	fake.watchdog.fault_addr = 0x4000c008;
 	fake.timeouts.fs_lock = 3;
 	fake.timeouts.fsm = 65535;
+	fake.timeouts.rx_lead = 7;
 	r = RUN("-w");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.watchdog_calls);
@@ -1061,7 +1062,8 @@ MU_TEST(the_watchdog_state_is_reported_and_a_failed_read_fails)
 	mu_assert_int_eq(1, fake.timeouts_calls);
 	mu_assert(strstr(r.out, "Radio waits that gave up since boot: "
 	                 "synthesizer lock 3, unlock 0, oscillator 0, "
-	                 "state machine 65535, packet bytes 0\n") != NULL,
+	                 "state machine 65535, packet bytes 0, "
+	                 "packet lead 7\n") != NULL,
 	          r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 

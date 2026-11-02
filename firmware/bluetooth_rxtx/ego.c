@@ -56,19 +56,26 @@ volatile uint32_t access_code = EGO_DEFAULT_ACCESS_CODE;
 volatile int access_code_len = EGO_DEFAULT_ACCESS_CODE_LEN;
 
 /*
- * Put the access code back to the one ubertooth-ego(1) documents.
+ * Put the access code and the capture length back to the ones
+ * ubertooth-ego(1) documents.
  *
  * The mode dispatch calls this as a mode starts, for the reason it forgets the
- * AFH map there: the code belongs to the capture that asked for it. It used to
+ * AFH map there: both belong to the capture that asked for them. They used to
  * be set once at boot and kept until the board was reset, so an
  * `ubertooth-ego -a 11223344` left 11223344 on the board and the next run
  * captured with it while reporting nothing -- a capture that looks like a
  * default-access-code run and is not one.
+ *
+ * The length does not show that way today, because ubertooth-ego states one on
+ * every run, but any program can send these requests over USB: one that sets a
+ * length and a later one that does not would otherwise capture at the length
+ * the first asked for.
  */
-void ego_access_code_reset(void)
+void ego_capture_reset(void)
 {
 	access_code = EGO_DEFAULT_ACCESS_CODE;
 	access_code_len = EGO_DEFAULT_ACCESS_CODE_LEN;
+	packet_len = EGO_DEFAULT_PACKET_LEN;
 }
 
 typedef enum _ego_state_t {
@@ -94,7 +101,7 @@ typedef struct _ego_fsm_state_t {
 
 typedef void (*ego_st_handler)(ego_fsm_state_t *);
 
-uint8_t packet_len = 18;
+volatile uint8_t packet_len = EGO_DEFAULT_PACKET_LEN;
 /* The longest capture the host may ask for, in bytes. ubertooth-ego refuses
  * anything outside 1 to this (EGO_PACKET_LENGTH_MIN/MAX in the host's
  * ego_options.h); rfcat_subcommand() below refuses it too, because any

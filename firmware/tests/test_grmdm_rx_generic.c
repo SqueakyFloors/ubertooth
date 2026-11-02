@@ -32,8 +32,6 @@
 #include "minunit.h"
 #include "source_scan.h"
 #include "ubertooth_interface.h"
-/* clk100ns_step(), the firmware's own, for the runnable model at the end. */
-#include "ubertooth_clock.h"
 
 /* The values the firmware writes to GRMDM, from the cc2400_set(GRMDM, ...)
  * calls in firmware/bluetooth_rxtx. Whether each is packet mode is read from
@@ -47,26 +45,6 @@
 /* Buffering (bit 11) and packet mode (bit 10) are separate choices: the eGo
  * mode is un-buffered and in packet mode. */
 #define GRMDM_EGO_2FSK        0x04c0
-
-/*
- * rx_generic_wait_for_fifo(), every code line of it with the spacing
- * flattened and the comments left out. Each line of it can be left standing
- * while the wait is taken apart around it -- a `waited = 0;` below the
- * addition, a `break;` before the lead has passed -- so the whole function is
- * pinned as written and not only its pieces. The range test's copy of the
- * wait is pinned the same way in test_rangetest_radio.c.
- */
-#define WAIT_BODY \
-	"{ " \
-	"u32 last = T0TC; " \
-	"u32 waited = 0; " \
-	"u32 polls = RX_GENERIC_LEAD_POLLS; " \
-	"while (waited < RX_GENERIC_LEAD_100NS && polls-- > 0) { " \
-	"u32 now = T0TC; " \
-	"waited += clk100ns_step(last, now); " \
-	"last = now; " \
-	"} " \
-	"}"
 
 MU_TEST(test_the_packet_mode_bit_is_bit_ten)
 {
@@ -129,19 +107,10 @@ struct scan {
 	long syncword_len;     /* RX_GENERIC_SYNCWORD_LEN, -1 when not found */
 	long data_len;         /* RX_GENERIC_DATA_LEN, -1 when not found */
 
-	/* The wait before the record's own FIFO read. */
-	int wait_call;         /* its call inside the capture loop */
-	int wait_def;          /* rx_generic_wait_for_fifo()'s definition */
-	int wait_counter;      /* it reads the 100 ns counter */
-	int wait_helper;       /* and measures each step with clk100ns_step() */
-	int wait_modulo;       /* or modulo a fixed period, which it must not */
-	int wait_length;       /* its length is RX_GENERIC_LEAD_100NS */
-	int wait_cap;          /* and it gives up after RX_GENERIC_LEAD_POLLS */
-	char wait_body[1024];  /* every code line of it, flattened */
-	long lead_bytes;       /* RX_GENERIC_LEAD_BYTES */
-	long byte_100ns;       /* RX_GENERIC_BYTE_100NS */
-	char lead_text[SCAN_LINE_MAX];  /* RX_GENERIC_LEAD_100NS as written */
-	int lead_from_byte;    /* the lead is that many byte times */
+	/* The shared wait before the record's own FIFO read. What the wait
+	 * itself does is in test_rx_fifo_lead, which runs it; all this file
+	 * needs is that the capture calls it, and calls it first. */
+	int wait_call;
 
 	/* The radio registers tx_generic() touches. */
 	int tx_generic;
@@ -307,14 +276,12 @@ static void scan_source(struct scan *s)
 	char line[512];
 	char name[64];
 	int lineno = 0, in_block = 0, in_rx_generic = 0, in_rx_generic_sync = 0;
-	int in_wait = 0, in_tx_generic = 0;
+	int in_tx_generic = 0;
 	FILE *f = fopen(path, "r");
 
 	memset(s, 0, sizeof(*s));
 	s->syncword_len = read_define("RX_GENERIC_SYNCWORD_LEN");
 	s->data_len = read_define("RX_GENERIC_DATA_LEN");
-	s->lead_bytes = read_define("RX_GENERIC_LEAD_BYTES");
-	s->byte_100ns = read_define("RX_GENERIC_BYTE_100NS");
 	if (f == NULL)
 		return;
 	s->opened = 1;
@@ -327,13 +294,6 @@ static void scan_source(struct scan *s)
 			s->truth_test++;
 			if (s->truth_test_line == 0)
 				s->truth_test_line = lineno;
-		}
-
-		if (strstr(line, "define RX_GENERIC_LEAD_100NS") != NULL) {
-			collapse_spaces(line, s->lead_text, sizeof(s->lead_text));
-			if (contains_identifier(s->lead_text, "RX_GENERIC_LEAD_BYTES") &&
-			    contains_identifier(s->lead_text, "RX_GENERIC_BYTE_100NS"))
-				s->lead_from_byte = 1;
 		}
 
 		if (in_tx_generic) {
@@ -368,40 +328,9 @@ static void scan_source(struct scan *s)
 			continue;
 		}
 
-		if (in_wait) {
-			char flat[SCAN_LINE_MAX];
-
-			/* strip_comments() has already run, so what is left of
-			 * a comment is an empty line: comments are out of the
-			 * body below, which leaves them free to be rewritten. */
-			collapse_spaces(line, flat, sizeof(flat));
-			if (flat[0] != '\0') {
-				if (s->wait_body[0] != '\0')
-					strncat(s->wait_body, " ",
-					        sizeof(s->wait_body) -
-					        strlen(s->wait_body) - 1);
-				strncat(s->wait_body, flat,
-				        sizeof(s->wait_body) -
-				        strlen(s->wait_body) - 1);
-			}
-			if (contains_identifier(line, "T0TC"))
-				s->wait_counter = lineno;
-			if (contains_identifier(line, "clk100ns_step"))
-				s->wait_helper = lineno;
-			if (strchr(line, '%') != NULL)
-				s->wait_modulo = lineno;
-			if (contains_identifier(line, "RX_GENERIC_LEAD_100NS"))
-				s->wait_length = lineno;
-			if (contains_identifier(line, "RX_GENERIC_LEAD_POLLS"))
-				s->wait_cap = lineno;
-			if (line[0] == '}')
-				in_wait = 0;
-			continue;
-		}
-
 		if (in_rx_generic_sync) {
 			if (s->wait_call == 0 &&
-			    contains_identifier(line, "rx_generic_wait_for_fifo"))
+			    contains_identifier(line, "rx_wait_for_fifo"))
 				s->wait_call = lineno;
 			if (s->packet_read == 0 &&
 			    strstr(line, "cc2400_fifo_read(RX_GENERIC_DATA_LEN") != NULL)
@@ -438,9 +367,6 @@ static void scan_source(struct scan *s)
 			} else if (strcmp(name, "rx_generic_sync") == 0) {
 				in_rx_generic_sync = 1;
 				s->rx_generic_sync = lineno;
-			} else if (strcmp(name, "rx_generic_wait_for_fifo") == 0) {
-				in_wait = 1;
-				s->wait_def = lineno;
 			} else if (strcmp(name, "tx_generic") == 0) {
 				in_tx_generic = 1;
 				s->tx_generic = lineno;
@@ -563,8 +489,9 @@ MU_TEST(test_the_record_buffer_is_the_size_enqueue_copies)
  * five.
  *
  * rx_generic_sync() is hardware code that cannot run here, so this is a scan,
- * as the checks above are: the wait exists, it is a wait on the 100 ns
- * counter with a bound, and it runs before the read rather than after it.
+ * as the checks above are: the capture calls the shared wait, and calls it
+ * before the read rather than after it. What the wait itself does -- the lead,
+ * the bound, the step arithmetic -- is in test_rx_fifo_lead, which runs it.
  */
 MU_TEST(test_the_capture_waits_for_the_first_byte_before_it_reads)
 {
@@ -576,14 +503,9 @@ MU_TEST(test_the_capture_waits_for_the_first_byte_before_it_reads)
 	mu_assert(s.opened && s.rx_generic_sync > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: rx_generic_wait_for_fifo() is not defined; the capture "
-	         "has nothing to let the radio write byte 0 with", path);
-	mu_assert(s.wait_def > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: the capture loop never calls "
-	         "rx_generic_wait_for_fifo(), so byte 0 of every record is read "
-	         "before the radio has written it", path, s.rx_generic_sync);
+	         "%s:%d: the capture loop never calls rx_wait_for_fifo(), so "
+	         "byte 0 of every record is read before the radio has written "
+	         "it", path, s.rx_generic_sync);
 	mu_assert(s.wait_call > 0, msg);
 
 	snprintf(msg, sizeof(msg),
@@ -596,200 +518,6 @@ MU_TEST(test_the_capture_waits_for_the_first_byte_before_it_reads)
 	         "does nothing for the byte it is there for", path, s.wait_call,
 	         s.packet_read);
 	mu_assert(s.wait_call < s.packet_read, msg);
-}
-
-/*
- * The wait itself. It has to read the 100 ns counter, measure each step with
- * the shared clk100ns_step() -- `now - last` across the counter's reset is a
- * huge unsigned number and would end the wait at once -- and give up after a
- * bound, so a counter that is not advancing cannot leave the board answering
- * no control request until the watchdog resets it.
- */
-MU_TEST(test_the_wait_is_a_bounded_wait_on_the_counter)
-{
-	char msg[768];
-
-	snprintf(msg, sizeof(msg),
-	         "%s: no rx_generic_wait_for_fifo() to wait in", path);
-	mu_assert(s.wait_def > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() does not read T0TC, so it "
-	         "is not waiting on the clock", path, s.wait_def);
-	mu_assert(s.wait_counter > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() does not measure its steps "
-	         "with clk100ns_step(), the shared helper in ubertooth_clock.h. "
-	         "A step taken as `now - last` across the counter's reset is a "
-	         "huge unsigned number, which ends the wait at once",
-	         path, s.wait_def);
-	mu_assert(s.wait_helper > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() takes a step modulo a fixed "
-	         "period. The timer's period is whatever is in its "
-	         "match register: a clock drift fix lengthens it, and the host "
-	         "can set a length of its own through UBERTOOTH_TRIM_CLOCK or "
-	         "UBERTOOTH_START_HOPPING. For some of those lengths a fixed "
-	         "modulus returns a figure far larger than the step took, and "
-	         "counting it ends the wait before the radio has written byte 0",
-	         path, s.wait_modulo);
-	mu_assert(s.wait_modulo == 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() does not wait "
-	         "RX_GENERIC_LEAD_100NS", path, s.wait_def);
-	mu_assert(s.wait_length > 0, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s:%d: rx_generic_wait_for_fifo() has no RX_GENERIC_LEAD_POLLS "
-	         "cap, so a timer that is not running leaves it spinning and "
-	         "the board answers nothing", path, s.wait_def);
-	mu_assert(s.wait_cap > 0, msg);
-
-	/*
-	 * And the whole function, so that nothing can be added between the
-	 * lines the checks above name.
-	 */
-	{
-		/* Its own buffer: this message carries the function twice. */
-		static char body_msg[4096];
-
-		snprintf(body_msg, sizeof(body_msg),
-		         "%s:%d: rx_generic_wait_for_fifo() reads\n  %s\nand it "
-		         "has to read\n  %s\nComments are not compared, so only "
-		         "the code has changed. Anything added between these "
-		         "lines -- another write to `waited`, a guard that drops "
-		         "a step, an exit before the lead has passed -- waits "
-		         "for a length no test here knows, and the wait exists "
-		         "to be exactly this long",
-		         path, s.wait_def, s.wait_body, WAIT_BODY);
-		mu_assert(strcmp(s.wait_body, WAIT_BODY) == 0, body_msg);
-	}
-}
-
-/*
- * How long the wait is. One byte time is the least that can work, since the
- * wait starts at or after the end of the sync word; much more than a handful
- * costs packets, because the radio goes on writing into the same 32-byte FIFO
- * while the record is read out of it. And the length has to be written as byte
- * times, not as a bare tick count: a modulation change would then move it
- * without anyone noticing.
- */
-MU_TEST(test_the_lead_is_a_few_byte_times)
-{
-	char msg[768];
-
-	snprintf(msg, sizeof(msg),
-	         "%s: RX_GENERIC_BYTE_100NS is %ld. A byte at 1 Mbit/s is 8 us "
-	         "on the air, which is 80 of timer 0's 100 ns ticks -- the "
-	         "shortest byte time the radio has, so the lead is at least one "
-	         "byte at any rate the host configures", path, s.byte_100ns);
-	mu_assert(s.byte_100ns == 80, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: RX_GENERIC_LEAD_BYTES is %ld. It needs at least the one "
-	         "byte the radio has not written yet, and a long wait fills the "
-	         "FIFO the record is being read out of", path, s.lead_bytes);
-	mu_assert(s.lead_bytes >= 1 && s.lead_bytes <= 8, msg);
-
-	snprintf(msg, sizeof(msg),
-	         "%s: RX_GENERIC_LEAD_100NS is `%s`, which is not "
-	         "RX_GENERIC_LEAD_BYTES byte times: a wait written as a bare "
-	         "tick count stops tracking the air rate", path, s.lead_text);
-	mu_assert(s.lead_from_byte, msg);
-}
-
-/*
- * The arithmetic the wait is built on, run here because the firmware's own
- * copy of it reads a hardware register this cannot.
- *
- * Timer 0 resets at the end of each period, so the wait adds up the steps it
- * sees instead of comparing against a deadline the reset would carry it past,
- * and clk100ns_step() -- the firmware's own, from ubertooth_clock.h -- turns
- * each pair of readings into a time. The scan above pins that the firmware
- * uses that helper, and this says what it has to come to. The range test has
- * the same accumulation in cc2400_rangetest.c.
- */
-#define CLKN_PERIOD ((uint32_t)CLK100NS_PER_CLKN)  /* 312.5 us in 100 ns ticks */
-
-/*
- * The firmware's loop, with the counter supplied instead of read. uint32_t
- * throughout, as T0TC and the firmware's own variables are: the wraparound of
- * that width is what the step helper has to turn back into a time, and a
- * 64-bit model of it would give different numbers.
- */
-static uint32_t accumulate(const uint32_t *counter, unsigned n,
-                           uint32_t target, uint32_t cap)
-{
-	uint32_t last = counter[0], waited = 0, polls = cap;
-	unsigned i = 1;
-
-	while (waited < target && polls-- > 0) {
-		uint32_t now = counter[i < n ? i : n - 1];
-
-		waited += clk100ns_step(last, now);
-		i++;
-		last = now;
-	}
-	return waited;
-}
-
-MU_TEST(test_the_wait_adds_up_steps_across_the_counters_reset)
-{
-	/* A counter advancing 100 ticks a turn reaches 320 on the fourth. */
-	static const uint32_t plain[] = { 0, 100, 200, 300, 400, 500 };
-	/* And one that resets partway: 3000, 3100, then 25 and on. The step
-	 * from 3100 to 25 is 50 ticks of real time, not a huge number. */
-	static const uint32_t wraps[] = { 3000, 3100, 25, 125, 225, 325 };
-	uint32_t got;
-
-	got = accumulate(plain, 6, 320, 1000);
-	mu_assert(got >= 320 && got < 420, "a plain count must reach the lead");
-
-	got = accumulate(wraps, 6, 320, 1000);
-	mu_assert(got >= 320 && got < 420,
-	          "a count that crosses the counter's reset must still add up "
-	          "to the lead, not end the wait at once");
-
-	/* The subtraction the helper replaces: `now - last` across the reset is
-	 * a huge unsigned number, which is the bug it is there for. */
-	mu_assert((uint32_t)(25u - 3100u) > 320u,
-	          "a bare subtraction across the reset must be the large number "
-	          "this guards against");
-
-	/*
-	 * The period is not always CLK100NS_PER_CLKN. A step across the reset
-	 * of a longer one cannot be known in full -- nothing in the wait knows
-	 * how long that period was -- so the helper counts only how far into
-	 * the new period the second reading is. For the pair below that is 10
-	 * ticks where 384 really passed. Undercounting is the safe direction:
-	 * over-counting is what ends the wait before the radio has written
-	 * byte 0, which is what the wait is for. The sweep of every reading of
-	 * every period length the timer can hold is in test_rangetest_radio.c,
-	 * whose wait shares this helper and this lead.
-	 */
-	{
-		static const uint32_t extended[] = {
-			9000, 10, 110, 210, 310, 410, 510
-		};
-
-		mu_assert_int_eq(10, (int)clk100ns_step(9000, 10));
-		got = accumulate(extended, 7, 320, 1000);
-		mu_assert(got >= 320 && got < 420,
-		          "a step out of a period that was not the usual length "
-		          "must be undercounted, never over-counted");
-	}
-
-	/* A counter that is not advancing is ended by the cap, not by the
-	 * target. */
-	{
-		static const uint32_t stuck[] = { 7, 7 };
-
-		got = accumulate(stuck, 2, 320, 50);
-		mu_assert(got < 320, "a stopped counter must give up short");
-	}
 }
 
 /* ---- the registers tx_generic() puts back ------------------------------ */
@@ -897,9 +625,6 @@ int main(void)
 	MU_RUN(test_the_generic_record_fits_what_enqueue_copies);
 	MU_RUN(test_the_record_buffer_is_the_size_enqueue_copies);
 	MU_RUN(test_the_capture_waits_for_the_first_byte_before_it_reads);
-	MU_RUN(test_the_wait_is_a_bounded_wait_on_the_counter);
-	MU_RUN(test_the_lead_is_a_few_byte_times);
-	MU_RUN(test_the_wait_adds_up_steps_across_the_counters_reset);
 	MU_RUN(test_tx_generic_puts_every_register_it_touches_back);
 	return mu_report();
 }

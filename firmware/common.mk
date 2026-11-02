@@ -52,6 +52,17 @@ ifeq ($(DISABLE_TX), )
 	UBERTOOTH_OPTS += -DTX_ENABLE
 endif
 
+# What the image calls itself in its firmware info block, which is what
+# ubertooth-util -v and ubertooth-dfu report. The make target by default, so
+# every image is named after the directory it is built in.
+#
+# An image with a transmit-disabled build of its own sets this itself, under
+# `ifdef DISABLE_TX`, because that build is the same target with its transmit
+# half left out and a board running it must not read as one running the full
+# image. bluetooth_rxtx does; see its Makefile. A name must fit
+# UBERTOOTH_FW_INFO_IMAGE_LEN (16) bytes, which fw_info.c asserts.
+IMAGE_NAME ?= $(TARGET)
+
 DIRTY = $(shell git status -s --untracked-files=no)
 ifneq ($(DIRTY), )
 	DIRTY_FLAG = *
@@ -445,7 +456,7 @@ VERSION_HOST := $(shell hostname -s)
 # exactly, rather than parsed back out of the header. The image name is part of
 # it because the header carries that too, and the firmware info block is built
 # from it.
-VERSION_ID := $(VERSION_NOW)|$(VERSION_BY)|$(VERSION_HOST)|$(TARGET)
+VERSION_ID := $(VERSION_NOW)|$(VERSION_BY)|$(VERSION_HOST)|$(IMAGE_NAME)
 
 .PHONY: force-version-check
 $(VERSION_HEADER): force-version-check
@@ -466,7 +477,7 @@ $(VERSION_HEADER): force-version-check
 				echo '#define GIT_REVISION "$(VERSION_NOW)"'; \
 				echo '#define COMPILE_BY "$(VERSION_BY)"'; \
 				echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
-				echo '#define FW_IMAGE_NAME "$(TARGET)"'; \
+				echo '#define FW_IMAGE_NAME "$(IMAGE_NAME)"'; \
 				echo '#define TIMESTAMP "'"`date`"'"'; \
 				echo '#endif'; \
 			} > $(VERSION_HEADER); \
@@ -480,7 +491,7 @@ $(VERSION_HEADER): force-version-check
 			echo '#define GIT_REVISION "git-unknown"'; \
 			echo '#define COMPILE_BY "$(VERSION_BY)"'; \
 			echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
-			echo '#define FW_IMAGE_NAME "$(TARGET)"'; \
+			echo '#define FW_IMAGE_NAME "$(IMAGE_NAME)"'; \
 			echo '#define TIMESTAMP "'"`date`"'"'; \
 			echo '#endif'; \
 		} > $(VERSION_HEADER); \

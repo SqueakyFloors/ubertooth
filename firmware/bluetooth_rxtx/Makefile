@@ -3,6 +3,16 @@
 # Target file name (without extension).
 TARGET = bluetooth_rxtx
 
+# A build with the transmit half left out is a different image from the same
+# target, so it says so: a board running it would otherwise read exactly like
+# one running the full image. Not bluetooth_rx_only, the name the release
+# gives the files, which is two bytes past what the firmware info block holds.
+# ubertooth.c accepts this name alongside the full one. See IMAGE_NAME in
+# ../common.mk.
+ifdef DISABLE_TX
+IMAGE_NAME = bluetooth_rx
+endif
+
 # List C source files here. (C dependencies are automatically generated.)
 SRC = $(TARGET).c \
 	bluetooth.c \
@@ -15,6 +25,7 @@ SRC = $(TARGET).c \
 	le_phy.c \
 	queue.c \
 	cc2400_rangetest.c \
+	rx_fifo_lead.c \
 	ego.c \
 	debug_uart.c \
 	tinyprintf.c \

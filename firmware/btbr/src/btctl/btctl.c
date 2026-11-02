@@ -23,6 +23,7 @@
 #include <string.h>
 #include <ubtbr/btctl_intf.h>
 #include <ubtbr/btphy.h>
+#include <ubtbr/codec.h>
 #include <ubtbr/system.h>
 #include <ubtbr/rf.h>
 #include <ubtbr/hop.h>
@@ -36,15 +37,22 @@
 
 btctl_t btctl;
 
-static void btctl_flush_acl_tx_queue(void)
+static void btctl_flush_queue(msg_queue_t *q)
 {
 	msg_t *msg;
 
-	/* Flush the acl tx queue */
-	while ((msg = safe_dequeue(&btctl.acl_tx_q)) != NULL)
+	while ((msg = safe_dequeue(q)) != NULL)
 	{
 		msg_free(msg);
 	}
+}
+
+/* Both queues carry packets for a connection, so going idle, or starting a
+ * new page or page scan, leaves neither behind to go out on the next one. */
+static void btctl_flush_tx_queues(void)
+{
+	btctl_flush_queue(&btctl.acl_tx_q);
+	btctl_flush_queue(&btctl.pkt_tx_q);
 }
 
 static void btctl_handle_debug_req(msg_t *msg)
@@ -152,6 +160,10 @@ static void btctl_handle_idle_req(msg_t *msg)
 	/* Cancel everything we can */
 	btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_SUCCESS);
 
+	/* Anything still queued for a connection has none to go out on, and
+	 * its buffers are wanted elsewhere: there are sixteen in all. */
+	btctl_flush_tx_queues();
+
 	/* Let some time to tasks to complete (FIXME: wrap)*/
 	wait_clkn = CENTRAL_CLKN+30;
 
@@ -195,7 +207,7 @@ static void btctl_handle_paging_req(msg_t *msg)
 	uint32_t lap = req->bdaddr & 0xffffff;
 	uint8_t uap = (req->bdaddr >> 24) & 0xff;
 
-	btctl_flush_acl_tx_queue();
+	btctl_flush_tx_queues();
 
 	/* Start paging */
 	paging_state_setup(lap, uap);
@@ -215,6 +227,128 @@ static void btctl_handle_tx_acl_req(msg_t *msg)
 	btctl_acl_tx_enqueue(msg);
 }
 
+/* One packet of a chosen format, to go on the air as the host composed it.
+ *
+ * Returns whether the request was taken. A request this firmware cannot carry
+ * out is refused with a line saying why, rather than transmitted as something
+ * else: the host chose this format and this length on purpose, so a packet of
+ * another shape would be worse than none.
+ */
+static int btctl_handle_tx_pkt_req(msg_t *msg)
+{
+	btctl_hdr_t *hdr = (btctl_hdr_t*)msg->data;
+	btctl_tx_pkt_req_t *req = (btctl_tx_pkt_req_t*)hdr->data;
+	const bbcodec_types_t *t;
+	unsigned min_data, max_data, data_size, max_slots;
+	uint8_t air_type;
+
+	if (btctl.state != BTCTL_STATE_CONNECTED)
+	{
+		cprintf("Cannot transmit a packet outside a connection\n");
+		return 0;
+	}
+	/* Every field read below is in the request, so the message has to be
+	 * long enough to hold one before any of them is believed: a short
+	 * message would otherwise have this branch on bytes left behind by
+	 * whatever used the buffer last. */
+	if ((unsigned)msg_write_len(msg) < sizeof(btctl_hdr_t) + sizeof(*req))
+	{
+		cprintf("Tx packet request is %u bytes, %u needed\n",
+			(unsigned)msg_write_len(msg),
+			(unsigned)(sizeof(btctl_hdr_t) + sizeof(*req)));
+		return 0;
+	}
+	t = bbcodec_tx_format(req->format, &air_type);
+	if (t == NULL)
+	{
+		cprintf("Unknown tx format %d\n", req->format);
+		return 0;
+	}
+	/* The slots the whole run occupies, which is the repeat count times
+	 * the slots one packet of this format fills: a five-slot DH5 spends
+	 * five of them per repetition, so counting repetitions alone would let
+	 * a run take five times the air time the limit is meant to allow. The
+	 * board answers nothing but this packet while the run lasts, and the
+	 * link ends if the peer goes unheard for SUPERVISION_TO. */
+	max_slots = BTCTL_TX_PKT_MAX_SLOTS / t->nslots;
+	if (req->repeat == 0 || req->repeat > max_slots)
+	{
+		cprintf("Tx packet asked for %d, 1 to %d allowed for format %d\n",
+			req->repeat, max_slots, req->format);
+		return 0;
+	}
+	if (req->lt_addr == 0 || req->lt_addr > 7)
+	{
+		/* Zero is the broadcast address and there is no eighth */
+		cprintf("Tx packet on transport address %d\n", req->lt_addr);
+		return 0;
+	}
+	/* The bytes the host really sent. The message is built from the length
+	 * the host framed it with and handed over only once it is full, so
+	 * this is that length: a data_size larger than it would have the
+	 * encoder read past the message. */
+	if ((unsigned)msg_write_len(msg) <
+		sizeof(btctl_hdr_t) + sizeof(*req) + req->data_size)
+	{
+		cprintf("Tx packet says %d payload bytes in a message of %d\n",
+			req->data_size, msg_write_len(msg));
+		return 0;
+	}
+	/* What the host supplied, less the parts it does not choose the size
+	 * of: the voice field and the payload header. */
+	if (req->data_size < t->voice_bytes + t->payload_header_bytes)
+	{
+		cprintf("Tx packet of %d bytes is too short for format %d\n",
+			req->data_size, req->format);
+		return 0;
+	}
+	data_size = req->data_size - t->voice_bytes - t->payload_header_bytes;
+	bbcodec_tx_format_limits(t, &min_data, &max_data);
+	if (data_size < min_data || data_size > max_data)
+	{
+		cprintf("Format %d carries %d to %d data bytes, not %d\n",
+			req->format, min_data, max_data, data_size);
+		return 0;
+	}
+	/* For a format with a payload header, that header is what the encoder
+	 * takes the length from, and the host wrote it: a header claiming more
+	 * than the host sent would have the encoder read past the payload, and
+	 * one claiming more than the format carries would go on the air with a
+	 * length its own payload contradicts. */
+	if (t->payload_header_bytes != 0)
+	{
+		uint8_t *data = req->data + t->voice_bytes;
+		unsigned claimed = t->payload_header_bytes == 1 ?
+			(data[0] >> 3) :
+			(0x3ff & ((data[0] | (data[1] << 8)) >> 3));
+
+		if (claimed != data_size)
+		{
+			cprintf("Tx packet header says %d data bytes, %d sent\n",
+				claimed, data_size);
+			return 0;
+		}
+	}
+	/* One run waiting is enough. The cap above bounds the slots one run
+	 * occupies, and the board's own data and link-manager traffic waits
+	 * for all of it; letting requests pile up in the queue would add
+	 * another run's worth of waiting for each one, and the queue holds
+	 * seven. Refused rather than queued, so the host is told.
+	 */
+	if (!msg_queue_empty(&btctl.pkt_tx_q))
+	{
+		cprintf("Tx packet already waiting, send this one after it\n");
+		return 0;
+	}
+	if (btctl_pkt_tx_enqueue(msg) != 0)
+	{
+		cprintf("Tx packet queue full\n");
+		return 0;
+	}
+
+	return 1;
+}
+
 static void btctl_handle_inquiry_scan_req(msg_t *msg)
 {
 	inquiry_scan_state_setup();
@@ -222,7 +356,7 @@ static void btctl_handle_inquiry_scan_req(msg_t *msg)
 
 static void btctl_handle_page_scan_req(msg_t *msg)
 {
-	btctl_flush_acl_tx_queue();
+	btctl_flush_tx_queues();
 	page_scan_state_setup();
 }
 
@@ -296,6 +430,12 @@ static void btctl_handle_msg(msg_t *msg)
 		btctl_handle_tx_acl_req(msg);
 		// don't free tx messages
 		goto end_nofree;
+	case BTCTL_TX_PKT_REQ:
+		/* Queued, so the message belongs to the queue; a refused
+		 * request is freed below like any other. */
+		if (btctl_handle_tx_pkt_req(msg))
+			goto end_nofree;
+		break;
 	case BTCTL_INQUIRY_SCAN_REQ:
 		btctl_handle_inquiry_scan_req(msg);
 		break;
@@ -423,4 +563,5 @@ void btctl_init(void)
 	msg_queue_init(&btctl.rx_q);
 	msg_queue_init(&btctl.tx_q);
 	msg_queue_init(&btctl.acl_tx_q);
+	msg_queue_init(&btctl.pkt_tx_q);
 }

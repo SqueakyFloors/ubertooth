@@ -29,17 +29,109 @@
 #include <ubtbr/btphy.h>
 
 const bbcodec_types_t bbcodec_acl_types[16] = {
-/* 				ns   	hlen 	plen 	fec23 	crc	*/
-	[BB_TYPE_NULL]	= {	1,	0,	0,	0,	0},
-	[BB_TYPE_POLL]	= {	1,	0,	0,	0,	0},
-	[BB_TYPE_FHS]	= {	1,	0,	18,	1,	1},
-	[BB_TYPE_DM1]	= {	1,	1,	17,	1,	1},
-	[BB_TYPE_DH1]	= {	1,	1,	27,	0,	1},
-	[BB_TYPE_DM3]	= {	3,	2,	121,	1,	1},
-	[BB_TYPE_DH3]	= {	3,	2,	183,	0,	1},
-	[BB_TYPE_DM5]	= {	5,	2,	224,	1,	1},
-	[BB_TYPE_DH5]	= {	5,	2,	339,	0,	1} 
+/* 				ns   	hlen 	plen 	fec		crc	voice	*/
+	[BB_TYPE_NULL]	= {	1,	0,	0,	BB_FEC_NONE,	0,	0},
+	[BB_TYPE_POLL]	= {	1,	0,	0,	BB_FEC_NONE,	0,	0},
+	[BB_TYPE_FHS]	= {	1,	0,	18,	BB_FEC_23,	1,	0},
+	[BB_TYPE_DM1]	= {	1,	1,	17,	BB_FEC_23,	1,	0},
+	[BB_TYPE_DH1]	= {	1,	1,	27,	BB_FEC_NONE,	1,	0},
+	[BB_TYPE_DM3]	= {	3,	2,	121,	BB_FEC_23,	1,	0},
+	[BB_TYPE_DH3]	= {	3,	2,	183,	BB_FEC_NONE,	1,	0},
+	[BB_TYPE_DM5]	= {	5,	2,	224,	BB_FEC_23,	1,	0},
+	[BB_TYPE_DH5]	= {	5,	2,	339,	BB_FEC_NONE,	1,	0}
 };
+
+/* The formats a synchronous or an unprotected logical transport uses, which
+ * the asynchronous table above has no entry for: the lengths are Bluetooth
+ * Core, Vol 2 Part B, Table 6.5 and Table 6.6.
+ *
+ * These are transmit-only. A TYPE code does not say which format it is -- a
+ * received packet of code 7 is an HV3 on a synchronous link and an EV3 on an
+ * enhanced one -- and this firmware has no synchronous link to tell it which,
+ * so nothing decodes one. On transmit the caller has already said.
+ */
+/* 					ns  hlen plen	fec		crc voice */
+/* AUX1 is a DH1 with no CRC, so a bit error in it is not detected */
+static const bbcodec_types_t bbcodec_type_aux1 =
+	{	1,  1,	29,	BB_FEC_NONE,	0,  0 };
+/* 10 voice bytes, then a data field of up to 9 bytes built like a DM1's */
+static const bbcodec_types_t bbcodec_type_dv =
+	{	1,  1,	9,	BB_FEC_23,	1,  10 };
+static const bbcodec_types_t bbcodec_type_hv1 =
+	{	1,  0,	10,	BB_FEC_13,	0,  0 };
+static const bbcodec_types_t bbcodec_type_hv2 =
+	{	1,  0,	20,	BB_FEC_23,	0,  0 };
+static const bbcodec_types_t bbcodec_type_hv3 =
+	{	1,  0,	30,	BB_FEC_NONE,	0,  0 };
+/* EV3 shares HV3's TYPE code and EV4 and EV5 have codes of their own. Each
+ * carries a CRC and a length agreed when the link was set up, so the caller's
+ * length stands rather than the maximum here. */
+static const bbcodec_types_t bbcodec_type_ev3 =
+	{	1,  0,	30,	BB_FEC_NONE,	1,  0 };
+static const bbcodec_types_t bbcodec_type_ev4 =
+	{	3,  0,	120,	BB_FEC_23,	1,  0 };
+static const bbcodec_types_t bbcodec_type_ev5 =
+	{	3,  0,	180,	BB_FEC_NONE,	1,  0 };
+
+/* The formats the host can ask to transmit, in the order of
+ * btctl_tx_format_t, each with the TYPE code it goes out with. The
+ * asynchronous ones are the entries above rather than copies of them, so the
+ * two descriptions of a DM1 cannot drift apart.
+ */
+static const struct {
+	uint8_t air_type;
+	const bbcodec_types_t *t;
+} bbcodec_tx_formats[BTCTL_FMT_COUNT] = {
+	[BTCTL_FMT_DM1]  = { BB_TYPE_DM1,  &bbcodec_acl_types[BB_TYPE_DM1]  },
+	[BTCTL_FMT_DH1]  = { BB_TYPE_DH1,  &bbcodec_acl_types[BB_TYPE_DH1]  },
+	[BTCTL_FMT_DM3]  = { BB_TYPE_DM3,  &bbcodec_acl_types[BB_TYPE_DM3]  },
+	[BTCTL_FMT_DH3]  = { BB_TYPE_DH3,  &bbcodec_acl_types[BB_TYPE_DH3]  },
+	[BTCTL_FMT_DM5]  = { BB_TYPE_DM5,  &bbcodec_acl_types[BB_TYPE_DM5]  },
+	[BTCTL_FMT_DH5]  = { BB_TYPE_DH5,  &bbcodec_acl_types[BB_TYPE_DH5]  },
+	[BTCTL_FMT_AUX1] = { BB_TYPE_AUX1, &bbcodec_type_aux1 },
+	[BTCTL_FMT_DV]   = { BB_TYPE_DV,   &bbcodec_type_dv   },
+	[BTCTL_FMT_HV1]  = { BB_TYPE_HV1,  &bbcodec_type_hv1  },
+	[BTCTL_FMT_HV2]  = { BB_TYPE_HV2,  &bbcodec_type_hv2  },
+	[BTCTL_FMT_HV3]  = { BB_TYPE_HV3,  &bbcodec_type_hv3  },
+	[BTCTL_FMT_EV3]  = { BB_TYPE_HV3,  &bbcodec_type_ev3  },
+	[BTCTL_FMT_EV4]  = { BB_TYPE_EV4,  &bbcodec_type_ev4  },
+	[BTCTL_FMT_EV5]  = { BB_TYPE_EV5,  &bbcodec_type_ev5  },
+};
+
+const bbcodec_types_t *bbcodec_tx_format(unsigned format, uint8_t *air_type)
+{
+	if (format >= BTCTL_FMT_COUNT)
+		return NULL;
+	/* A hole left by a format number this table does not fill */
+	if (bbcodec_tx_formats[format].t == NULL)
+		return NULL;
+	*air_type = bbcodec_tx_formats[format].air_type;
+
+	return bbcodec_tx_formats[format].t;
+}
+
+void bbcodec_tx_format_limits(const bbcodec_types_t *t,
+		unsigned *min_data, unsigned *max_data)
+{
+	*max_data = t->payload_bytes;
+	if (t->payload_header_bytes != 0)
+	{
+		/* The length rides in the payload header, so an empty data
+		 * field is a packet like any other. */
+		*min_data = 0;
+	}
+	else if (t->has_crc)
+	{
+		/* An eSCO payload: any length the type carries, down to the
+		 * one information byte the CRC needs something to cover. */
+		*min_data = 1;
+	}
+	else
+	{
+		/* A voice payload is the one length its type always has. */
+		*min_data = *max_data;
+	}
+}
 
 /* Unwhiten n bits from packed input into packed output. 
  * update whiten seed in packet.
@@ -54,6 +146,8 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 {
 	const bbcodec_types_t *t = codec->t;
 	unsigned payload_bits, hdr_len;
+	/* The data field starts past the voice bytes, which carry no length */
+	uint8_t *data = payload ? payload + codec->data_offset : NULL;
 
 	if (t->payload_bytes != 0 && payload == NULL)
 		DIE("No payload for type %p\n", codec->t);
@@ -69,13 +163,16 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 		switch(hdr_len)
 		{
 		case 1:
-			codec->payload_length = payload[0]>>3;
+			codec->payload_length = data[0]>>3;
 			break;
 		case 2:
-			codec->payload_length = 0x3ff & ((payload[0]|(payload[1]<<8))>>3);
+			codec->payload_length = 0x3ff & ((data[0]|(data[1]<<8))>>3);
 			break;
 		default: // 0
-			codec->payload_length = t->payload_bytes;
+			/* A length nothing in the packet carries: the one the
+			 * caller asked for, or the one the type always has. */
+			codec->payload_length = codec->fixed_length ?
+				codec->fixed_length : t->payload_bytes;
 			break;
 		}
 		if (codec->payload_length > t->payload_bytes)
@@ -88,10 +185,8 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 	codec->coded_total = (hdr_len + codec->payload_length);
 	if (t->has_crc)
 		codec->coded_total += 2;
-	if (t->has_fec23)
-		payload_bits = BBCODEC_FEC23_AIR_BITS(codec->coded_total);
-	else
-		payload_bits = codec->coded_total*8;
+	payload_bits = bbcodec_fec_air_bits(t->fec, codec->coded_total)
+		+ 8*t->voice_bytes;
 	codec->air_bytes = BYTE_ALIGN(58+payload_bits);
 }
 
@@ -197,21 +292,50 @@ void bbcodec_encode_header(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr,
 	/* encoder output position */
 	codec->air_off_b = 58;
 
-	/* Configure codec type */
-	bbcodec_set_payload_type(codec, in_hdr->type);
+	/* Configure codec type, unless the caller chose the format itself
+	 * (bbcodec_set_tx_format): a TYPE code alone does not say which
+	 * format a synchronous packet is. */
+	if (codec->t == NULL)
+		bbcodec_set_payload_type(codec, in_hdr->type);
 
 	/* Set codec type / payload length */
 	bbcodec_calc_payload_length(codec, in_data);
+
+	/* A DV packet's voice bytes come before its data field and carry
+	 * neither a length nor a CRC. They are whitened like the rest of the
+	 * payload, so they go out here and the data field's chunks carry on
+	 * from the whitening state and the air position they leave behind. */
+	if (codec->t->voice_bytes)
+	{
+		uint8_t voice[BB_VOICE_BYTES_MAX];
+
+		if (codec->t->voice_bytes > sizeof(voice))
+			DIE("voice field of %d bytes\n", codec->t->voice_bytes);
+		if (codec->use_whiten)
+			bbcodec_unwhiten(&codec->whiten_state, voice, in_data,
+				codec->t->voice_bytes*8);
+		else
+			memcpy(voice, in_data, codec->t->voice_bytes);
+		null_encode(air_data+(codec->air_off_b>>3), voice,
+			codec->air_off_b&7, codec->t->voice_bytes);
+		codec->air_off_b += 8*codec->t->voice_bytes;
+	}
 }
 
 void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr, uint8_t *in_data)
 {
 	const bbcodec_types_t *t = codec->t;
-	uint8_t tmp[CODEC_TX_CHUNK_SIZE], *inp;
-	unsigned byte_left, crc_num, byte_num, out_bitlen;
+	/* One byte of headroom for the 2/3 pad written at tmp[byte_num] below.
+	 * The chunk size being a multiple of 5 already keeps that write inside
+	 * the array, so the byte is never reached; it is here so a chunk size
+	 * that stopped being a multiple of 5 would pad into the temporary
+	 * rather than past it. */
+	uint8_t tmp[CODEC_TX_CHUNK_SIZE+1];
+	unsigned byte_left, byte_num, body_total, body_num, i, out_bitlen;
 
-	/* Current input pointer */
-	inp = in_data + codec->coded_pos;
+	/* The data field, the only part a length, a CRC or error correction
+	 * applies to, starts past any voice bytes. */
+	uint8_t *data = in_data + codec->data_offset;
 
 	/* total encode bytes left including crc */
 	byte_left = codec->coded_total - codec->coded_pos;
@@ -220,31 +344,51 @@ void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr, 
 	if (byte_left == 0)
 		return;
 
-	/* If the crc calculation is not done yet */
-	if (!codec->rx_raw && t->has_crc && byte_left > 2)
-	{
-		/* Num bytes we're going to crc */
-		crc_num = MIN(byte_left-2, CODEC_TX_CHUNK_SIZE);
-
-		codec->crc_state = crc_compute(inp, crc_num, codec->crc_state);
-
-		/* If the crc calculation is done, write crc in in_data */
-		if (codec->coded_pos+byte_left == codec->coded_total)
-		{
-			in_data[codec->coded_total-2] = 0xff & codec->crc_state;
-			in_data[codec->coded_total-1] = 0xff & (codec->crc_state>>8);
-		}
-	}
-
 	/* Num bytes we're going to encode */
 	byte_num = MIN(byte_left, CODEC_TX_CHUNK_SIZE);
 
+	/* How much of the packet is the caller's bytes rather than the CRC,
+	 * and how much of that falls in this chunk. The caller's buffer holds
+	 * the payload and no more, so the CRC is gathered here instead of
+	 * being written back into it: writing it there put two bytes past the
+	 * end of the message the host framed to its payload. */
+	body_total = codec->coded_total - (t->has_crc ? 2 : 0);
+	body_num = codec->coded_pos < body_total ?
+		MIN(byte_num, body_total - codec->coded_pos) : 0;
+
+	memcpy(tmp, data + codec->coded_pos, body_num);
+	/* Only the receive side is ever raw, so the checksum is written for
+	 * every format that has one. Were this skipped, the bytes the CRC
+	 * would have filled would go on the air uninitialized: the payload
+	 * ends at body_total and nothing else has written past it. */
+	if (t->has_crc)
+	{
+		if (body_num != 0)
+			codec->crc_state = crc_compute(tmp, body_num,
+				codec->crc_state);
+		/* The CRC goes out low byte first, once every byte it covers
+		 * has gone through crc_compute() above. */
+		for (i = body_num; i < byte_num; i++)
+			tmp[i] = 0xff & (codec->crc_state >>
+				(8*(codec->coded_pos + i - body_total)));
+	}
+
 	/* whiten the encode bytes */
 	if (codec->use_whiten)
-		bbcodec_unwhiten(&codec->whiten_state, tmp, inp, byte_num*8);
+		bbcodec_unwhiten(&codec->whiten_state, tmp, tmp, byte_num*8);
 
 	/* Encode data in the air buffer */
-	if (t->has_fec23)
+	if (t->fec == BB_FEC_13)
+	{
+		/* Rate 1/3 is only the HV1 payload, ten bytes, so one chunk
+		 * covers it; fec13() wants an even bit offset, which 58 and
+		 * every multiple of 24 above it are. Transmit only: see
+		 * bbcodec_decode_chunk(), which refuses this code. */
+		out_bitlen = byte_num*8*3;
+		fec13(air_data+(codec->air_off_b>>3), tmp,
+			codec->air_off_b&7, byte_num*8);
+	}
+	else if (t->fec == BB_FEC_23)
 	{
 		out_bitlen = BBCODEC_FEC23_AIR_BITS(byte_num);
 
@@ -322,20 +466,23 @@ int bbcodec_decode_chunk(bbcodec_t *codec, uint8_t *out, bbhdr_t *in_hdr, uint8_
 	if (bit_av < 0)
 		DIE("dec_nc: error av %d of %d\n", in_length, codec->air_off_b);
 
-	if (t->has_fec23)
+	/* Rate 1/3 covers a voice payload, which only the transmit side has a
+	 * format for, so no packet received here carries it. Caught rather
+	 * than left to the plain branch below, which would hand back the
+	 * coded bits as though they were the payload. */
+	if (t->fec == BB_FEC_13)
+		DIE("dec_nc: rate 1/3\n");
+	in_bitlen = bbcodec_fec_air_bits(t->fec, byte_num);
+	if (bit_av < in_bitlen)
+		return BBCODEC_SHORT;
+	if (t->fec == BB_FEC_23)
 	{
-		in_bitlen = BBCODEC_FEC23_AIR_BITS(byte_num);
-		if (bit_av < in_bitlen)
-			return BBCODEC_SHORT;
 		/* TODO: return unfec23 error for pkt->flags ?
 		 * For now, we're just relying on CRC to check validity of message. */
 		unfec23(outp, in_data, codec->air_off_b, 8*byte_num);
 	}
 	else
 	{
-		in_bitlen = 8*byte_num;
-		if (bit_av < in_bitlen)
-			return BBCODEC_SHORT;
 		null_decode(outp, in_data, codec->air_off_b, byte_num);
 	}
 	if (codec->use_whiten)

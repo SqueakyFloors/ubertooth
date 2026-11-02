@@ -294,9 +294,11 @@ MU_TEST(test_every_payload_length_survives_the_round_trip)
 		total = build_payload(data, fec23_types[i].type, length,
 			0x2a74f + length);
 		encode_packet(&enc, air, data, fec23_types[i].type);
-		/* What went out, checksum included: the encoder writes
-		 * the checksum into the caller's buffer. */
-		memcpy(sent, data, total);
+		/* What went out, less the checksum: the encoder keeps that of
+		 * its own and leaves the caller's buffer alone, so only the
+		 * payload is here to compare. The checksum is checked by the
+		 * decoder's own answer below. */
+		memcpy(sent, data, total - 2);
 
 		/* Noise past the point the transmitter stops at. */
 		fill_pattern(air + enc.air_bytes,
@@ -323,7 +325,7 @@ MU_TEST(test_every_payload_length_survives_the_round_trip)
 		snprintf(message, sizeof(message),
 			"%s payload %u: payload changed",
 			fec23_types[i].name, length);
-		mu_assert(memcmp(sent, out, total) == 0, message);
+		mu_assert(memcmp(sent, out, total - 2) == 0, message);
 	}
 }
 

@@ -465,9 +465,12 @@ MU_TEST(every_image_gets_the_block_from_the_shared_makefile)
 	          "block could be linked into another");
 	mu_assert(strstr(makefile, "OBJ += $(FW_INFO_OBJ)") != NULL,
 	          "common.mk does not link the firmware info block into the image");
-	mu_assert(strstr(makefile, "#define FW_IMAGE_NAME \"$(TARGET)\"") != NULL,
+	mu_assert(strstr(makefile, "#define FW_IMAGE_NAME \"$(IMAGE_NAME)\"") != NULL,
 	          "common.mk does not give version.h the image name the block is "
 	          "built from");
+	mu_assert(strstr(makefile, "IMAGE_NAME ?= $(TARGET)") != NULL,
+	          "common.mk does not default the image name to the target, so "
+	          "an image that sets none would be left without one");
 	free(makefile);
 }
 

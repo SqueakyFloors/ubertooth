@@ -38,6 +38,10 @@ static struct {
 	bbhdr_t *user_hdr;
 	bbcodec_t codec;
 	uint8_t *user_data;
+	/* The format the caller chose, or NULL to take it from the header's
+	 * TYPE code, with the data length that format needs told separately. */
+	const bbcodec_types_t *user_fmt;
+	unsigned user_data_bytes;
 	unsigned data_size;
 	uint8_t air_data[BYTE_ALIGN(4+54+MAX_ACL_SIZE*12)]; // to contain trailer+header+payload
 	uint8_t *p;
@@ -98,6 +102,10 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 		bbcodec_init(&tx_task.codec,
 			btphy_whiten_seed(tx_clkn),
 			btphy.chan_uap, 1, 0);
+
+		if (tx_task.user_fmt)
+			bbcodec_set_tx_format(&tx_task.codec, tx_task.user_fmt,
+				tx_task.user_data_bytes);
 
 		memset(tx_task.air_data, 0, sizeof(tx_task.air_data));
 		/* encode the header in tx buffer & configure codec */
@@ -186,17 +194,27 @@ void tx_task_reset(void)
 	btphy_rf_disable_int();
 	tx_task.user_hdr = NULL;
 	tx_task.user_data = NULL;
+	tx_task.user_fmt = NULL;
+	tx_task.user_data_bytes = 0;
 	tx_task.p = NULL;
 }
 
-void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void*cbarg, bbhdr_t *hdr, uint8_t *data)
+void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
+		bbhdr_t *hdr, uint8_t *data,
+		const bbcodec_types_t *fmt, unsigned data_bytes)
 {
-	unsigned bitsize = 0;
 	if (tx_task.user_hdr)
 		DIE("txs: already got pkt");
 	tx_task.cb = cb;
 	tx_task.cb_arg = cbarg;
 	tx_task.user_hdr = hdr;
 	tx_task.user_data = data;
+	tx_task.user_fmt = fmt;
+	tx_task.user_data_bytes = data_bytes;
 	tdma_schedule_set(delay, tx_sched_set, 0);
+}
+
+void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void*cbarg, bbhdr_t *hdr, uint8_t *data)
+{
+	tx_task_schedule_fmt(delay, cb, cbarg, hdr, data, NULL, 0);
 }
