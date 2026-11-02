@@ -1144,6 +1144,25 @@ out:
 }
 
 
+/* Writes one record to the dump named with -d, in that file's fixed-size
+ * format: the host time it arrived, in network byte order, then the record
+ * exactly as the board sent it. Does nothing when no dump was asked for.
+ *
+ * One record at a time, as received, so a packet too long for one record is
+ * several records here and a replay puts them back together exactly as a live
+ * capture does. */
+static void dump_one_record(const usb_pkt_rx* rx, uint32_t when)
+{
+	uint32_t when_be;
+
+	if (dumpfile == NULL)
+		return;
+	when_be = htobe32(when);
+	fwrite(&when_be, sizeof(when_be), 1, dumpfile);
+	fwrite(rx, sizeof(usb_pkt_rx), 1, dumpfile);
+	fflush(dumpfile);
+}
+
 /*
  * Sniff Bluetooth Low Energy packets.
  */
@@ -1193,6 +1212,12 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * channel to tell a deafened receiver from an empty one. */
 	ubertooth_count_capture_losses(ut, rx);
 
+	/* The host time this record arrived, which the dump stores with it:
+	 * per record, because that is what the dump's fixed-size format holds.
+	 * A replayed record keeps the one it was recorded with. The packet's
+	 * own time is set again once reassembly has the whole of it. */
+	systime = ubertooth_packet_systime( arrival_ns );
+
 	// display LE promiscuous mode state changes
 	if (rx->pkt_type == LE_PROMISC) {
 		u8 state = rx->data[0];
@@ -1233,29 +1258,20 @@ void cb_btle(ubertooth_t* ut, void* args)
 		};
 		fprintf(out, "\n");
 
+		/* These four readings are the only record of which connection
+		 * a promiscuous capture belongs to, so they go in the dump
+		 * too. Written here because this branch returns: the record is
+		 * not a packet and never reaches the write below. */
+		dump_one_record(rx, systime);
+
 		return;
 	}
-
-	/* The host time this record arrived, which the dump below stores with
-	 * it: per record, because that is what the dump's fixed-size format
-	 * holds. A replayed record keeps the one it was recorded with. The
-	 * packet's own time is set again once reassembly has the whole of it. */
-	systime = ubertooth_packet_systime( arrival_ns );
 
 	/* Sanity check */
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		return;
 
-	/* Dump to sumpfile if specified. One record at a time, as received, so a
-	 * dump keeps its fixed-size format: a long packet is several records
-	 * there, and a replay puts them back together below exactly as a live
-	 * capture does. */
-	if (dumpfile) {
-		uint32_t systime_be = htobe32(systime);
-		fwrite(&systime_be, sizeof(systime_be), 1, dumpfile);
-		fwrite(rx, sizeof(usb_pkt_rx), 1, dumpfile);
-		fflush(dumpfile);
-	}
+	dump_one_record(rx, systime);
 
 	/* A packet too long for one record arrives as several. Nothing below
 	 * runs until the whole packet is here: a chain still arriving returns,
@@ -1595,6 +1611,54 @@ static void br_stop_following(ubertooth_t* ut)
 		        "again\n");
 }
 
+/* Puts the user's UAP back whenever the library has stopped holding it, for a
+ * capture whose tool recorded one in ut->follow_uap. A UAP the user gave is
+ * not in doubt, and the library has no way to know that.
+ *
+ * Giving a clock up is where it is really lost: libbtbb zeroes the UAP there
+ * as well as clearing its flag, so the next packet goes to the brute-force
+ * search with nothing to filter on. That search takes packets a quiet bench
+ * may not provide and can settle on a wrong value, and until it does, the
+ * clock search cannot start.
+ *
+ * Called per packet, not only on those two paths, for two smaller reasons.
+ * Discovery starting over keeps the UAP but clears the flag, and one of its
+ * restarts -- the remembered hop pattern filling up -- returns before the
+ * line that would set the flag again, so the record written for that packet
+ * would carry no reference UAP for a reader to check its header against. And
+ * the flag reaches further than the drop paths do, so this does not have to
+ * track every place the library clears it.
+ *
+ * It cannot fight the library. While the UAP is held, libbtbb rules out every
+ * clock candidate whose UAP differs from it, so it never installs a different
+ * one for this to overwrite. Stated unconditionally rather than only where the
+ * library has let go: the setter writes the UAP and raises its flag and does
+ * nothing else, so on the packets where nothing was lost -- almost all of them
+ * -- it writes back what is already there. Testing first would save two stores
+ * a packet and cost a branch that no test could tell was there. */
+static void br_restate_stated_uap(const ubertooth_t* ut, btbb_piconet* pn)
+{
+	if (pn == NULL || !ut->follow_uap_stated)
+		return;
+	btbb_piconet_set_uap(pn, ut->follow_uap);
+}
+
+/* Writes what a clock-given-up warning says about the UAP, as the tail of its
+ * line.
+ *
+ * Where the user gave one it is named, and the line says it is being put
+ * back rather than kept: on the lost-lock path libbtbb has already said on
+ * this same stream that the clock and the UAP both went, so a line claiming
+ * the UAP was never dropped would contradict the one above it. */
+static void br_uap_tail(const ubertooth_t* ut, char* buf, size_t len)
+{
+	if (ut->follow_uap_stated)
+		snprintf(buf, len, "its clock again, and putting UAP %02x back",
+		         ut->follow_uap);
+	else
+		snprintf(buf, len, "its clock and UAP again");
+}
+
 long ubertooth_clock_search_ms(void)
 {
 	if (!br_searching)
@@ -1621,12 +1685,19 @@ int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 	br_heard_ms = monotonic_ms();
 
 	if (!br_clock_gone) {
+		char tail[64];
+
 		if (btbb_piconet_drop_clock(pn) <= 0)
 			return 0;
 		br_clock_gone = 1;
+		/* Here as well as per packet: no packet of this piconet may
+		 * arrive for a long time, and the clock search wants the UAP
+		 * from the first one that does. */
+		br_restate_stated_uap(ut, pn);
+		br_uap_tail(ut, tail, sizeof(tail));
 		fprintf(stderr, "warning: nothing of this piconet has been "
-		        "heard on the clock being followed; searching for it "
-		        "again\n");
+		        "heard on the clock being followed; searching for "
+		        "%s\n", tail);
 	}
 	/* So the warning is said once per clock, and a board that refused the
 	 * request is asked again at the next wait without it being
@@ -1788,17 +1859,17 @@ void cb_rx(ubertooth_t* ut, void* args)
 		}
 	}
 
-	/* If dumpfile is specified, write out all banks to the
-	 * file. There could be duplicate data in the dump if more
-	 * than one LAP is found within the span of NUM_BANKS. */
-	if (dumpfile) {
-		uint32_t systime_be = htobe32(systime);
-		fwrite(&systime_be, sizeof(systime_be), 1, dumpfile);
-		fwrite(rx, sizeof(usb_pkt_rx), 1, dumpfile);
-		fflush(dumpfile);
-	}
+	/* The dump can hold the same symbols twice, because a bank is written
+	 * once per LAP found within the span of NUM_BANKS. */
+	dump_one_record(rx, systime);
 
 	r = btbb_process_packet(pkt, pn);
+
+	/* A UAP the user gave goes back before the record below is written, so
+	 * the packet that made the library drop it is itself recorded with the
+	 * UAP a reader needs to check its header. See
+	 * br_restate_stated_uap(). */
+	br_restate_stated_uap(ut, pn);
 
 	/* The reference upper address part (UAP) the capture records alongside
 	 * this packet, read now that the decoder has had the packet. A packet
@@ -1897,9 +1968,17 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * br_following keeps it that way here regardless: one warning
 		 * per clock the library handed over, and none until it hands
 		 * over another. A replay warns too; it is the same silence for
-		 * the reader of a capture file as for the user of a board. */
+		 * the reader of a capture file as for the user of a board.
+		 *
+		 * The UAP went with the clock, and a UAP the user gave has
+		 * already gone back above, so the line names it: a user whose
+		 * -u was wrong can see which UAP the capture is holding them
+		 * to. */
+		char tail[64];
+
+		br_uap_tail(ut, tail, sizeof(tail));
 		fprintf(stderr, "warning: the clock being followed was not "
-		        "this piconet's; searching for it again\n");
+		        "this piconet's; searching for %s\n", tail);
 		br_clock_gone = 1;
 		br_stop_following(ut);
 	}

@@ -323,7 +323,11 @@ static int get_usb_identity(libusb_device *device,
  * libusb error. With no expected path, fail rather than choosing ambiguously.
  * A NULL devh asks only whether such a device is there, which is how the
  * detach tells a board that reset from one still in the bootloader: the
- * matching rules are the ones above, not a second copy of them. */
+ * matching rules are the ones above, not a second copy of them.
+ *
+ * "Absent" covers a device that was listed and had already left the bus by
+ * the time it was opened, which is what a board re-enumerating looks like.
+ * find_ubertooth_application_device() reads that the same way. */
 static int find_ubertooth_dfu_device(
 	libusb_context *ctx,
 	const struct dfu_usb_identity *expected_identity,
@@ -380,6 +384,15 @@ static int find_ubertooth_dfu_device(
 	result = libusb_open(match, devh);
 	if (result == 0)
 		result = 1;
+	else if (result == LIBUSB_ERROR_NO_DEVICE)
+		/* The device left the bus between the listing above and this
+		 * open, so it is absent rather than one that would not open.
+		 * The same reading as in find_ubertooth_application_device():
+		 * a board in the middle of re-enumerating is looked for again
+		 * by the callers that poll, and the one caller that reports to
+		 * the user goes on to the application-to-DFU transition
+		 * instead of ending the command with a libusb code. */
+		result = 0;
 
 done:
 	libusb_free_device_list(usb_list, 1);

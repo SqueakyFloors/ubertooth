@@ -95,6 +95,11 @@ static int set_channel_result;
  * the way a tool does beside its own channel request. */
 static uint16_t capture_channel;
 
+/* The UAP the capture's tool read off its own command line, and whether it
+ * read one, as ubertooth-rx -u leaves them on the handle. */
+static uint8_t stated_uap;
+static int uap_stated;
+
 /* What the faked capture writers report: negative is a failed write. */
 static int pcap_write_result;
 static int pcapng_write_result;
@@ -371,6 +376,8 @@ static void run_callback(void (*cb)(ubertooth_t*, void*), void* args)
 	memset(&last_ut, 0, sizeof(last_ut));
 	last_ut.clk100ns_period = CLK100NS_PERIOD;
 	last_ut.capture_channel = capture_channel;
+	last_ut.follow_uap = stated_uap;
+	last_ut.follow_uap_stated = uap_stated;
 	/* Never dereferenced: the writers above are fakes. They only have to
 	 * be something other than NULL, which is what makes the callback
 	 * write. */
@@ -437,6 +444,8 @@ static void reset_state(void)
 	rx_syms_result = 0;
 	set_channel_result = 0;
 	capture_channel = 0;
+	stated_uap = 0;
+	uap_stated = 0;
 	pcap_write_result = 0;
 	pcapng_write_result = 0;
 	capture_files = 0;
@@ -1287,7 +1296,13 @@ MU_TEST(a_capture_that_lost_nothing_reports_nothing)
  * and a test that pinned a fragment of it would let the page drift. */
 #define LOST_CLOCK_WARNING \
 	"warning: the clock being followed was not this piconet's; " \
-	"searching for it again\n"
+	"searching for its clock and UAP again\n"
+
+/* The same line for a capture whose user named the UAP with -u: that one is
+ * not a guess, so it goes back and the line names it. */
+#define LOST_CLOCK_WARNING_KEPT_UAP \
+	"warning: the clock being followed was not this piconet's; " \
+	"searching for its clock again, and putting UAP 0d back\n"
 
 MU_TEST(a_capture_that_cannot_be_written_says_so_once)
 {
@@ -1606,7 +1621,12 @@ MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
  * these words, as it does the lost-clock line above. */
 #define QUIET_CLOCK_WARNING \
 	"warning: nothing of this piconet has been heard on the clock being " \
-	"followed; searching for it again\n"
+	"followed; searching for its clock and UAP again\n"
+
+/* And the same for a UAP the user named. */
+#define QUIET_CLOCK_WARNING_KEPT_UAP \
+	"warning: nothing of this piconet has been heard on the clock being " \
+	"followed; searching for its clock again, and putting UAP 0d back\n"
 
 /* A clock that is not the piconet's fails no header, so the library has
  * nothing to act on and the silence is the tool's to judge. What the tool
@@ -1790,6 +1810,155 @@ MU_TEST(a_clock_given_up_for_silence_warns_once_and_frees_the_board)
 	btbb_piconet_unref(pn);
 }
 
+/* ---- a UAP the user named survives a clock being given up --------------- */
+
+/* The library drops the UAP along with a clock it stops following, because a
+ * header that fails is checked against the UAP under the clock and so says
+ * nothing about which of the two was wrong. A UAP the user gave with -u is
+ * not one of the two, so the capture states it again and the warning names
+ * it; without that, the clock search has to work the UAP out from the air
+ * again before it can start.
+ *
+ * The faked drop does not clear the piconet's UAP, so these cases put a
+ * different value there first: a UAP that reads back as the stated one can
+ * only have been stated again. */
+MU_TEST(a_uap_the_user_named_is_stated_again_when_a_quiet_clock_is_dropped)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	stated_uap = 0x0d;
+	uap_stated = 1;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+
+	/* What the library would be left holding after the drop. */
+	btbb_piconet_set_uap(pn, 0x99);
+
+	memset(&seen, 0, sizeof(seen));
+	mu_assert_int_eq(1, run_drop_clock(pn));
+
+	mu_assert_int_eq(0x0d, btbb_piconet_get_uap(pn));
+	mu_assert_int_eq(1, btbb_piconet_get_flag(pn, BTBB_UAP_VALID));
+	mu_assert_int_eq(1, stderr_lines_with(QUIET_CLOCK_WARNING_KEPT_UAP));
+	/* And not the line for a capture that is searching for both. */
+	mu_assert_int_eq(0, stderr_lines_with(QUIET_CLOCK_WARNING));
+
+	btbb_piconet_unref(pn);
+}
+
+/* The same for the clock the library gives up itself, which is the other way
+ * a follow ends. */
+MU_TEST(a_uap_the_user_named_is_stated_again_when_the_library_drops_a_clock)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	stated_uap = 0x0d;
+	uap_stated = 1;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	fill_packet(&next_packets[1],
+	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 102), 0, 10);
+	next_count = 2;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	btbb_piconet_set_uap(pn, 0x99);
+
+	memset(&seen, 0, sizeof(seen));
+	next_index = 0;
+	process_packet_result = BTBB_PROCESS_LOCK_LOST;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0x0d, btbb_piconet_get_uap(pn));
+	mu_assert_int_eq(1, btbb_piconet_get_flag(pn, BTBB_UAP_VALID));
+	mu_assert_int_eq(1, stderr_lines_with(LOST_CLOCK_WARNING_KEPT_UAP));
+	mu_assert_int_eq(0, stderr_lines_with(LOST_CLOCK_WARNING));
+
+	btbb_piconet_unref(pn);
+}
+
+/* Giving a clock up is where the UAP is really lost, but it is not the only
+ * place the library stops holding one. Discovery starting over keeps the UAP
+ * and clears its valid flag, and one of its restarts -- the remembered hop
+ * pattern filling up -- returns before the line that would set the flag
+ * again, so the record written for that packet would carry no reference UAP.
+ * None of that warns, and none of it can know the user named the UAP. So the
+ * restatement is per packet, and this is the case that says so: the UAP goes
+ * back with no clock lost and nothing said.
+ *
+ * The library drop is faked by clearing the flag, which is what its reset()
+ * does, because the faked decoder entry point does not run the real one. */
+MU_TEST(a_uap_the_user_named_goes_back_when_discovery_starts_over)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	stated_uap = 0x0d;
+	uap_stated = 1;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	/* No clock recovered and none lost: an ordinary packet. */
+	process_packet_result = 0;
+	btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
+
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(0x0d, btbb_piconet_get_uap(pn));
+	mu_assert_int_eq(1, btbb_piconet_get_flag(pn, BTBB_UAP_VALID));
+	/* Nothing is said about it: discovery starting over is not a failure,
+	 * and a line per packet would bury the capture. */
+	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+	mu_assert_int_eq(0, stderr_lines_with("UAP"));
+
+	/* A UAP discovery derived for itself is replaced too: the user's is
+	 * the one that is not a guess. */
+	btbb_piconet_set_uap(pn, 0x99);
+	next_index = 0;
+	memset(&seen, 0, sizeof(seen));
+	run_callback(cb_rx, pn);
+	mu_assert_int_eq(0x0d, btbb_piconet_get_uap(pn));
+
+	btbb_piconet_unref(pn);
+}
+
+/* A capture whose user named no UAP is left exactly as it was: the library
+ * worked that UAP out from the air, the evidence against it stands, and
+ * discovery is free to find another. */
+MU_TEST(a_uap_the_capture_worked_out_itself_is_left_dropped)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	capture_channel = 2450;
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	run_callback(cb_rx, pn);
+	btbb_piconet_set_uap(pn, 0x99);
+
+	memset(&seen, 0, sizeof(seen));
+	mu_assert_int_eq(1, run_drop_clock(pn));
+
+	mu_assert_int_eq(0x99, btbb_piconet_get_uap(pn));
+	mu_assert_int_eq(1, stderr_lines_with(QUIET_CLOCK_WARNING));
+	mu_assert_int_eq(0, stderr_lines_with("putting UAP"));
+
+	btbb_piconet_unref(pn);
+}
+
 int main(void)
 {
 	MU_RUN(the_decoder_is_told_only_the_symbols_the_record_holds);
@@ -1839,6 +2008,10 @@ int main(void)
 	MU_RUN(a_clock_the_library_will_not_give_up_leaves_the_capture_alone);
 	MU_RUN(a_board_that_will_not_come_off_a_quiet_clock_is_asked_again);
 	MU_RUN(a_clock_given_up_for_silence_warns_once_and_frees_the_board);
+	MU_RUN(a_uap_the_user_named_is_stated_again_when_a_quiet_clock_is_dropped);
+	MU_RUN(a_uap_the_user_named_is_stated_again_when_the_library_drops_a_clock);
+	MU_RUN(a_uap_the_user_named_goes_back_when_discovery_starts_over);
+	MU_RUN(a_uap_the_capture_worked_out_itself_is_left_dropped);
 	MU_RUN(a_calibrated_follow_sends_the_trim_the_measured_offset_calls_for);
 	return mu_report();
 }

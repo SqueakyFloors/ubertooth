@@ -133,6 +133,16 @@ typedef struct {
 	 * set one, which is also what a replay leaves it as. */
 	uint16_t capture_channel;
 
+	/* The piconet's upper address part (UAP) as the user stated it on the
+	 * command line, and 1 once a capture has stated one. cb_rx() puts it
+	 * back when the library stops holding it; br_restate_stated_uap()
+	 * says why.
+	 *
+	 * Zero and not stated where no capture said one, which is also what a
+	 * replay of a capture file leaves them as. */
+	uint8_t follow_uap;
+	int follow_uap_stated;
+
 	/* The modulation this capture wants the board to receive, for the
 	 * streams libubertooth starts itself (rx_dump(), rx_afh()). It is
 	 * stated on either side of the mode request: before it, so that the
