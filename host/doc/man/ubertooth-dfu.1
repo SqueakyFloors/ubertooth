@@ -148,6 +148,8 @@ ubertooth\-util \-B
 .fi
 .IP "" 0
 .P
+No bootloader has been installed this way on a real part yet: the refusals below have been run on a board, and the write itself only against a model of the part's flash\. So have a serial adapter wired up and the programming entry pin reachable before you start, because they are what recovers a board from an interrupted write\.
+.P
 \fBbl_update\.dfu\fR is an ordinary firmware image, built by \fBmake \-C firmware bl_update\fR, that carries the 16 KiB of bootloader region to install\. The command writes it like any image and resets the board; the image programs the bootloader region through the part's own In\-Application Programming commands, reads it back, and resets into DFU\. It has no USB of its own, so the board comes back in DFU rather than as an application, and this command waits for it there\.
 .P
 The image is what does the writing, so it writes whenever a board runs it: \fBubertooth\-dfu \-d bl_update\.dfu \-r\fR, with no \fB\-\-update\-bootloader\fR, programs the bootloader region as well, and none of the host's checks below run first\. Install it with \fB\-\-update\-bootloader\fR, and keep \fBbl_update\.dfu\fR out of the place you keep the images you flash by habit\.

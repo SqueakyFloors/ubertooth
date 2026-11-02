@@ -317,6 +317,12 @@ interface or JTAG. `--update-bootloader` does it over USB, in one command:
     ubertooth-dfu -d bluetooth_rxtx.dfu -r
     ubertooth-util -B
 
+No bootloader has been installed this way on a real part yet: the refusals
+below have been run on a board, and the write itself only against a model of
+the part's flash. So have a serial adapter wired up and the programming entry
+pin reachable before you start, because they are what recovers a board from an
+interrupted write.
+
 `bl_update.dfu` is an ordinary firmware image, built by `make -C firmware
 bl_update`, that carries the 16 KiB of bootloader region to install. The
 command writes it like any image and resets the board; the image programs the

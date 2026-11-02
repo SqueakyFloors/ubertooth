@@ -31,8 +31,10 @@ There is a third image, ``bl_update``, which a board does not run for long: it
 installs a bootloader and resets into DFU, so that the bootloader can be
 updated over USB instead of over the serial programming interface. It is built
 with ``make -C firmware bl_update`` and written with
-``ubertooth-dfu --update-bootloader``; see ubertooth-dfu(1), UPDATING THE
-BOOTLOADER, for the whole procedure and for what an interrupted write leaves.
+``ubertooth-dfu --update-bootloader``. No bootloader has been installed that
+way on a real part yet; see ubertooth-dfu(1), UPDATING THE BOOTLOADER, for the
+whole procedure, for what has been checked, and for what an interrupted write
+leaves.
 Flashing it leaves the application region holding it, so one of the two images
 above has to be written again afterwards.
 

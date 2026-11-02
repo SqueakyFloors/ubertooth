@@ -13,7 +13,8 @@ to get there.
 
 Install it with `ubertooth-dfu --update-bootloader -d bl_update.dfu`.
 ubertooth-dfu(1), UPDATING THE BOOTLOADER is the procedure, the refusals, and
-what an interrupted write leaves; this file does not repeat them.
+what an interrupted write leaves; this file does not repeat them. No part has
+been programmed with this image yet, so keep a serial adapter to hand.
 
 Writing this image to a board is what programs the bootloader, so it programs
 it whichever way the image got there: flashed as ordinary firmware, with no

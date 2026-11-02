@@ -100,9 +100,12 @@
   firmware again and check the result with `ubertooth-util -B`. The host and
   the image both refuse a bootloader that is not the whole region, carries no
   version block, has no vector table a part would start, or asks for code read
-  protection at 0x2fc, which cannot be undone. Losing power while the region is
-  written still leaves a board that needs a serial adapter; ubertooth-dfu(1),
-  UPDATING THE BOOTLOADER says what is and is not safe.
+  protection at 0x2fc, which cannot be undone. The region write has not been
+  exercised on a board yet: what has been checked is the host's refusals, on a
+  real board, and the write itself against a model of the part's flash. Losing
+  power while the region is written still leaves a board that needs a serial
+  adapter; ubertooth-dfu(1), UPDATING THE BOOTLOADER says what is and is not
+  safe.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - The board's generic radio mode is reachable from the command line, as an
