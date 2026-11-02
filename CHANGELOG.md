@@ -155,10 +155,9 @@
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
 - `ubertooth-util -B` says which bootloader a board has, which nothing used to
-  report, and a bootloader cannot be replaced over USB. One built from this
-  tree reports its version and revision; every board as shipped reports no
-  version block, and a hash of the whole bootloader, which is what tells two
-  such bootloaders apart.
+  report. One built from this tree reports its version and revision; every
+  board as shipped reports no version block, and a hash of the whole
+  bootloader, which is what tells two such bootloaders apart.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - The release improves the bootloader and the flashing path, and a board runs

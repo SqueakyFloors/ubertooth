@@ -6,14 +6,14 @@ This page describes how to load compiled firmware onto an Ubertooth One. Other p
 
 There are three ways to program an Ubertooth board: the USB bootloader, the ISP bootloader, and JTAG.
 
-Please note that it is not possible to replace the board's USB bootloader via ubertooth-dfu, because the bootloader accepts writes only from address 0x4000, where the application region starts, and reads back only from there as well. Installing a bootloader needs ISP or JTAG.
+A bootloader cannot replace itself over USB, because it accepts writes only from address 0x4000, where the application region starts, and reads back only from there as well. ``ubertooth-dfu --update-bootloader`` installs one from the ``bl_update`` image instead, which carries the bootloader as an ordinary application and programs the region once the board runs it. No part has been programmed that way yet, so in practice installing a bootloader still means ISP or JTAG; see ubertooth-dfu(1), UPDATING THE BOOTLOADER.
 
 
 
 USB bootloader
 ~~~~~~~~~~~~~~
 
-This is the recommended method of loading code onto an Ubertooth Zero or Ubertooth One provided that the USB bootloader is already installed (at the time of manufacture, for example). If you need to install the bootloader itself, you will have to use either ISP or JTAG.
+This is the recommended method of loading code onto an Ubertooth Zero or Ubertooth One provided that the USB bootloader is already installed (at the time of manufacture, for example). To install the bootloader itself, ``ubertooth-dfu --update-bootloader`` writes one from the ``bl_update`` image, but no part has been programmed that way yet, so ISP or JTAG is still the route in practice. See ubertooth-dfu(1), UPDATING THE BOOTLOADER.
 
 The bootloader executes every time the device starts up from reset or power cycle. Normally it just gets out of the way and passes control to the application firmware very quickly. Alternatively it can enter DFU mode which permits firmware upload and download over USB. There are two ways to tell the bootloader that you want it to enter DFU mode:
 

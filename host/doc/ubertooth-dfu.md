@@ -115,8 +115,9 @@ one at offset 0x1c, so a first block whose programming did not finish does not
 add up and is refused as well. A
 board carrying an earlier bootloader jumps into the blank table instead and
 stops there, so it needs the same trip to the bench it always did; a
-bootloader is installed with ISP or JTAG rather than over USB, so this part of
-the fix reaches a board only when someone puts it there.
+bootloader reaches a board over ISP, over JTAG, or with `--update-bootloader`
+(see [UPDATING THE BOOTLOADER][]), so this part of the fix reaches a board
+only when someone puts it there.
 
 The last step writes a whole 4 KiB sector, because the bootloader erases a
 flash sector when the first block of it is written, so the vector table goes
