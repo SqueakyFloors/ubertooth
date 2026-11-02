@@ -78,6 +78,11 @@ is the schematic and
 the board layout, both in the file format KiCad used in 2011. Board makers
 build Ubertooth One hardware from these files.
 
+To read the schematic without installing KiCad, see
+`ubertooth-one-schematic.pdf <https://github.com/SqueakyFloors/ubertooth/blob/main/hardware/ubertooth-one/ubertooth-one-schematic.pdf>`__.
+``make-schematic-pdf.sh``, in the same directory, regenerates it from
+``ubertooth-one.sch``.
+
 The board is a four-layer 1.6 mm PCB, copper order Front, Inner3, Inner2,
 Back: 35 um copper, 0.35 mm dielectric, 18 um, 0.76 mm, 18 um, 0.35 mm, 35 um,
 on DE104iML or an equivalent substrate (Er=4.42 at 2.4 GHz, TanD=0.016). Both
