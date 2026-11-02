@@ -346,10 +346,10 @@ int util_report_radio_timeouts(FILE *out, const radio_timeouts *timeouts)
 	 * again. */
 	fprintf(out, "Radio waits that gave up since boot: "
 	        "synthesizer lock %u, unlock %u, oscillator %u, "
-	        "state machine %u, packet bytes %u\n",
+	        "state machine %u, packet bytes %u, packet lead %u\n",
 	        (unsigned)timeouts->fs_lock, (unsigned)timeouts->fs_unlock,
 	        (unsigned)timeouts->xosc, (unsigned)timeouts->fsm,
-	        (unsigned)timeouts->rx_bytes);
+	        (unsigned)timeouts->rx_bytes, (unsigned)timeouts->rx_lead);
 	return 0;
 }
 

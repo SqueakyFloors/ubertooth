@@ -27,6 +27,21 @@
   SEVERAL BOARDS AT ONCE says what is shared and what is not.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 
+- `ubertooth-util -w` counts one more wait that gave up: the short lead a
+  packet is given to reach the radio's FIFO before the firmware reads it out.
+  It was the last timed wait with nothing a user could see, and a
+  count above zero says the board's timer 0 was not advancing, or was far too
+  slow, so that capture's records are wrong throughout rather than only in
+  their first byte. The line now ends `packet bytes 0, packet lead 0`. These
+  tools reading a board that still carries older firmware report
+  `error: radio wait timeouts read failed: board returned 10 of 12 bytes` for
+  that one line rather than misreading it; flash the board to match.
+- The release's receive-only firmware names itself `bluetooth_rx` instead of
+  `bluetooth_rxtx`, so `ubertooth-util -v` and ubertooth-dfu(1) tell a board
+  running it from one running the full image. A `DISABLE_TX=1` build from a
+  git checkout reports the same name; one from an unpacked source release
+  keeps the shipped version.h and so reports `bluetooth_rxtx`, which
+  firmware/README now says. Every host tool accepts either name.
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
@@ -2826,6 +2841,12 @@ Fixes with no visible change in normal use.
   did the same three things in blocks of their own, and a request that arrived
   in the same connection event as the end of the connection was left set
   behind the follow it had asked to stop.
+- The range test's repeater lets its last reply finish on the air before it
+  switches the radio off, as the sender already did, so the reply burst is
+  sixteen whole packets at the top amplifier level and not fifteen.
+- An E-GO capture length set by one run no longer stays on the board for the
+  next one, which the access code already did not. The tool states a length on
+  every run, so this shows only to another program talking to the board.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
