@@ -116,7 +116,16 @@ version, the features and each feature page are left out rather than reported
 as unknown or, in the features' case, as zero. Earlier releases left the line
 out in silence, and printed zeroed features as the device's own. The device's
 own line above the report still reads `[unknown]` when no name comes back,
-since that line is a result either way.
+since that line is a result either way, and standard error carries a `note:`
+line saying why the name did not come back.
+
+Every read of a device has a deadline: 25 seconds for its name, 20 seconds for
+the LMP version and the features, and a second each for the clock offset and
+the channel map. So a device that answers the page and then says nothing costs
+the scan that long and becomes a result, rather than holding the run with the
+results so far printed and nothing after them. `-t` does not cover these reads:
+it bounds the Ubertooth capture, which has finished by the time a survey result
+is printed.
 
 Everything else this tool prints goes to standard error: the three headings
 that say which half of the scan is running (`HCI scan`, `Ubertooth scan` and
