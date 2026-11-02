@@ -1564,6 +1564,58 @@ MU_TEST(the_search_for_the_returned_application_tells_its_outcomes_apart)
 	mu_assert_int_eq(0, fake.lists);
 }
 
+/* The search for a device in DFU reads a vanished device the same way. It is
+ * the other half of the pair above, and its callers need the same answer: the
+ * polling ones look again for a board still re-enumerating, and the one that
+ * reports to the user goes on to the application-to-DFU transition instead of
+ * ending the command with a libusb code for a board that is simply not in the
+ * bootloader any more.
+ *
+ * A listing that could not be read keeps its libusb code here. This search
+ * has no outcome of its own for it and no second return value to carry it,
+ * and its callers read 0, 1, and negative; the one that reports it already
+ * gives the user words rather than the number. */
+MU_TEST(the_search_for_a_dfu_device_reads_a_vanished_device_as_absent)
+{
+	struct dfu_usb_identity identity;
+	libusb_device_handle *devh = FAKE_HANDLE;
+
+	board_in_dfu();
+	mu_assert_int_eq(0, get_usb_identity(FAKE_DEVICE, &identity));
+
+	mu_assert_int_eq(1, find_ubertooth_dfu_device(
+		(libusb_context *)&fake, &identity, &devh));
+	mu_assert(devh == FAKE_HANDLE, "the opened handle was not returned");
+
+	/* Nothing in the bootloader: absent. */
+	fake.present = 0;
+	mu_assert_int_eq(0, find_ubertooth_dfu_device(
+		(libusb_context *)&fake, &identity, &devh));
+	mu_assert(devh == NULL, "a search that found nothing returned a handle");
+
+	/* Listed, then gone by the time it was opened. The fix: this is a
+	 * board that is not there, which is what every caller polls for, and
+	 * not one that would not open. */
+	fake.present = 1;
+	fake.open_rc = LIBUSB_ERROR_NO_DEVICE;
+	mu_assert_int_eq(0, find_ubertooth_dfu_device(
+		(libusb_context *)&fake, &identity, &devh));
+	mu_assert(devh == NULL, "a device that had gone returned a handle");
+
+	/* A device that is there and will not open is reported as itself, so
+	 * the two are still told apart. */
+	fake.open_rc = LIBUSB_ERROR_ACCESS;
+	mu_assert_int_eq(LIBUSB_ERROR_ACCESS, find_ubertooth_dfu_device(
+		(libusb_context *)&fake, &identity, &devh));
+
+	/* An unreadable listing keeps its own code. */
+	fake.open_rc = 0;
+	fake.list_rc = LIBUSB_ERROR_NO_MEM;
+	mu_assert_int_eq(LIBUSB_ERROR_NO_MEM, find_ubertooth_dfu_device(
+		(libusb_context *)&fake, &identity, &devh));
+	mu_assert_int_eq(0, fake.lists);
+}
+
 /* The same three outcomes, end to end: a board that keeps leaving the bus
  * between the listing and the open is a board that did not come back, so the
  * line must not blame something holding its interface. */
@@ -2790,6 +2842,7 @@ int main(void)
 	MU_RUN(a_board_that_will_not_name_its_image_fails_the_verification);
 	MU_RUN(a_board_that_does_not_come_back_says_the_firmware_was_written);
 	MU_RUN(the_search_for_the_returned_application_tells_its_outcomes_apart);
+	MU_RUN(the_search_for_a_dfu_device_reads_a_vanished_device_as_absent);
 	MU_RUN(a_board_that_goes_between_the_listing_and_the_open_is_reported_as_absent);
 	MU_RUN(a_board_that_will_not_be_claimed_is_not_reported_as_missing);
 	MU_RUN(a_board_that_will_not_report_its_revision_says_the_flash_is_unchecked);
