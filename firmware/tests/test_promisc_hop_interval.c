@@ -902,6 +902,50 @@ MU_TEST(test_two_events_in_a_row_are_two_sightings)
 }
 
 /*
+ * The two conditions together: two events in a row on this channel, and the
+ * first of them dense enough to run to within one same-event gap of the
+ * second's start. The second event's first packet then reads as a
+ * continuation of the first event and that sighting is dropped.
+ *
+ * That is the case this threshold cannot tell apart, and it is the harmless
+ * direction. The stamp an event's start is measured from stays on an event
+ * boundary, so the next gap is still a whole number of connection intervals --
+ * two of them rather than one, which is a return nobody heard, and both
+ * estimators already allow for those.
+ */
+MU_TEST(test_a_dropped_sighting_leaves_the_grid_alone)
+{
+	struct estimator e;
+	uint32_t unit = LE_MIN_CONN_INTERVAL * 12500u;
+	uint32_t at = 1000000u;
+	uint32_t start;
+	int i;
+
+	following_since(&e, at);
+
+	/* The first event: full-length packets every 2.25 ms, the last of them
+	 * 0.75 ms short of the next event's start. */
+	at += unit;
+	start = at;
+	a_packet_at(&e, at, firmware_period());
+	for (i = 1; i * 22500u < unit; i++)
+		a_packet_at(&e, start + i * 22500u, firmware_period());
+	mu_assert_int_eq(1, e.gap_count);
+
+	/* The next event, one interval after the first one started. Its first
+	 * packet is inside one same-event gap of the last packet heard, so it
+	 * is taken for a continuation and no sighting is recorded. */
+	a_packet_at(&e, start + unit, firmware_period());
+	mu_assert_int_eq(1, e.gap_count);
+
+	/* The event after that is two intervals from the first, and that is
+	 * the gap recorded: a whole number of intervals, not an offset. */
+	a_packet_at(&e, start + 2 * unit, firmware_period());
+	mu_assert_int_eq(2, e.gap_count);
+	mu_assert_int_eq(1, seen_count(&e, 2 * unit));
+}
+
+/*
  * A connection whose channel map is not the full 37 comes back to this channel
  * several times a trip, at uneven spacings, so dividing by 37 flat would put
  * the interval out by whatever that spacing was. The gaps are still whole
@@ -1294,6 +1338,7 @@ int main(void)
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
 	MU_RUN(test_a_busy_event_is_still_one_event);
 	MU_RUN(test_two_events_in_a_row_are_two_sightings);
+	MU_RUN(test_a_dropped_sighting_leaves_the_grid_alone);
 	MU_RUN(test_a_reduced_channel_map_still_gives_the_interval);
 	MU_RUN(test_part_of_a_pattern_is_not_the_pattern);
 	MU_RUN(test_a_single_odd_gap_is_not_the_answer);

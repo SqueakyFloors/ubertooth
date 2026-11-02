@@ -1381,8 +1381,13 @@ MU_TEST(the_collector_starts_the_run_again_on_every_break)
 	}
 	fclose(f);
 
-	/* The five counters and the stamp. */
-	mu_assert_int_eq(5, restart_clears);
+	/* The five counters this knows about, and the stamp. More than five is
+	 * a field added since, which the per-field checks above cover; fewer
+	 * means one it clears today is not cleared any more. */
+	snprintf(msg, sizeof(msg),
+	         "promisc_restart_estimators() clears %d of the five counters",
+	         restart_clears);
+	mu_assert(restart_clears >= 5, msg);
 	mu_assert(restart_clears_stamp,
 	          "promisc_restart_estimators() leaves the last sighting's "
 	          "stamp, so the next gap is measured across the break");
@@ -1406,11 +1411,13 @@ MU_TEST(the_collector_starts_the_run_again_on_every_break)
 	 * so. */
 	mu_assert_fatal(gaps_kept > 0 && run_length > 0,
 	                "LE_PROMISC_GAPS or LE_PROMISC_CSA2_RUN not found");
+	/* Two runs of the longest pattern the estimator looks for, which is
+	 * half the ring, so `gaps_kept` gaps in all; then five more reports
+	 * that agree with the first, which is five more gaps. */
 	snprintf(msg, sizeof(msg),
 	         "LE_PROMISC_CSA2_RUN is %d, against the %d gaps the "
-	         "algorithm-1 estimator can need", run_length,
-	         2 * gaps_kept + 4);
-	mu_assert(run_length >= 2 * gaps_kept + 4, msg);
+	         "algorithm-1 estimator can need", run_length, gaps_kept + 5);
+	mu_assert(run_length >= gaps_kept + 5, msg);
 }
 
 /* ------------------------------------------------------------------------

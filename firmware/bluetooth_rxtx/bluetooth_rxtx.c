@@ -3849,10 +3849,10 @@ static u16 promisc_interval(void) {
  * side of one are not neighbours and the gap between them is not a gap between
  * consecutive returns. The estimator above reads the pattern the gaps repeat
  * and needs a run of consecutive ones: two runs of the longest pattern it
- * looks for, so 16 gaps, the pattern being capped at half the ring,
- * and then four more reports that agree, so 20. Both estimators start again
- * after every search, so this has to be more than that or a connection the
- * estimator above could have settled on would never get the chance.
+ * looks for, so 16 gaps, the pattern being capped at half the ring, and then
+ * five more reports that agree, so 21. Both estimators start again after every
+ * search, so this has to be more than that or a connection the estimator
+ * above could have settled on would never get the chance.
  */
 #define LE_PROMISC_CSA2_RUN 40
 
@@ -4045,7 +4045,11 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 *
 	 * What is left over: the board may miss the packets before the one it
 	 * hears, which puts the sighting deeper into its event than this
-	 * allows for. LE_CSA2_SIGHTING_SPREAD says what that costs.
+	 * allows for, and the search's allowances are wide enough to take the
+	 * resulting gap for a whole number of intervals rather than refuse it.
+	 * Every older offset then shifts and the winning score falls, which is
+	 * why a wrong counter still cannot be adopted.
+	 * LE_CSA2_SIGHTING_SPREAD says the rest.
 	 *
 	 * And the other way round: an event dense enough to run to within
 	 * LE_SAME_EVENT_GAP of the next event's start swallows that event's

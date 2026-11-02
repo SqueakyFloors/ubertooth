@@ -199,11 +199,13 @@ _Static_assert(LE_SAME_EVENT_GAP >= 261u * 80u + 1500u,
  * board may have missed the ones before it -- a length the capture refused, a
  * CRC that failed, or simply a packet the radio was not ready for. Then the
  * sighting is as deep into its event as those packets went. What follows is
- * degradation, not a wrong answer: a gap that is not a whole number of
- * connection intervals is where the search's walk back stops, so it works
- * from a shorter run, and a follow anchored that deep into an event misses
- * the start of every event it then hops to. Open findings on the pull request
- * track both.
+ * degradation, not a wrong answer. The allowances below are wide enough that
+ * such a gap is usually taken for a whole number of connection intervals
+ * rather than refused, so every older sighting's offset shifts and the winning
+ * score falls: a wrong counter still cannot reach the bar, and the search
+ * declines instead. And a follow anchored that deep into an event misses the
+ * start of every event it then hops to. Open findings on the pull request
+ * track the second of those.
  *
  * Two things rest on the figure. The gap between two sightings is not an exact
  * number of connection intervals even with a clock that keeps perfect time, so
