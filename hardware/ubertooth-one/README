@@ -28,6 +28,14 @@ from these files.
 
 Both are in the file format KiCad used in 2011.
 
+	ubertooth-one-schematic.pdf	the schematic as a PDF
+	make-schematic-pdf.sh		regenerates that PDF
+
+Read the PDF to follow the schematic without installing KiCad. The script
+needs KiCad 9 or later and Python 3. It leaves the design files alone, and
+checks what it is about to plot against ubertooth-one.net before writing the
+PDF, so a conversion that lost a connection writes nothing.
+
 The board carries an LPC1754 or an LPC1756 depending on the build. The
 schematic calls for an LPC1754, with 128 KB of flash; boards in the field are a
 mix, and the LPC1756, with 256 KB, is the other part they are built with. The
