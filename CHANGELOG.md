@@ -963,6 +963,16 @@
 
 ### Reliability fixes
 
+- Fixed: a board carrying a bootloader built from this tree could not be
+  flashed over USB at all. Every `ubertooth-dfu` download failed partway with
+  the chip's `errPROG` and left the board in the bootloader with no firmware,
+  so the only way back was another ISP session. The boot ROM routine that
+  copies RAM into flash refuses a source address off a word boundary, and the
+  buffer each download block is programmed out of had moved off one. Such a
+  board now flashes and verifies. A board carrying the original bootloader was
+  never affected.
+  [#491](https://github.com/SqueakyFloors/ubertooth/issues/491)
+
 - Fixed: `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of a
   piconet that adapts its hopping, which current controllers do, so its follow
   never started. It now finds the clock and follows.
