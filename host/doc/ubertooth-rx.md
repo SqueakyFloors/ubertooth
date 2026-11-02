@@ -370,10 +370,14 @@ them, on standard error:
 
 Where the boards did not reach the same UAP, each board's own answer is named,
 numbered as `-U` listed them, and any board put on another's answer is named
-separately with the value it was given, because that value is not one it found:
+separately with the value it was given, because that value is not one it found.
+It is said of the run rather than of how the board ended: a board can be put on
+another's answer, have the library take that value off it, and reach one of its
+own afterwards, in which case it appears in both lines.
+
 
     note: 4 boards: the boards worked out different UAPs, so one of them is wrong: board 1 0x0d, board 2 0x0d, board 3 0xb0
-    note: 4 boards: put on another board's answer, having worked out none of their own: board 4 0x0d
+    note: 4 boards: put on another board's answer during the run: board 4 0x0d
 
 A survey (`-z`) needs none of this: the table of addresses heard belongs to the
 decoder rather than to a board, so every board's packets reach the one survey

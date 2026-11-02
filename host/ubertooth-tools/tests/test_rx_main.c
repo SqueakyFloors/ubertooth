@@ -174,6 +174,11 @@ static struct {
 	 * with it, as libbtbb's does. That happens outside the decode, so a
 	 * case can reach the state no packet follows. */
 	int abandon_uap_on_drop;
+	/* What a board settles on once its clock has been given up, where the
+	 * blocks keep flowing: the drop and the new value land in the same
+	 * turn of the loop, so nothing in between sees the board hold none,
+	 * which is the window a remembered reading goes stale in. */
+	uint8_t heard_uap_after_drop[RX_MAX_BOARDS];
 	/* The block from which every board's ring buffer is empty: the receive
 	 * hands the decoder nothing and says so, and the follow's silence goes
 	 * on being measured, which is how a quiet follow is noticed. The run
@@ -563,6 +568,12 @@ int ubertooth_stop_failed(ubertooth_t* ut)
  * reach a different value the second time. */
 static uint8_t fake_settled_uap(int board)
 {
+	/* What it reaches after a clock was given up, which is the case the
+	 * blocks keep flowing through: the drop and the new value land in the
+	 * same turn of the loop, so nothing ever sees the board hold none. */
+	if (device.drops_board[board] > 0 &&
+	    device.heard_uap_after_drop[board] != 0)
+		return device.heard_uap_after_drop[board];
 	if (device.abandon_uap_at[board] != 0 &&
 	    device.blocks > device.abandon_uap_at[board] &&
 	    device.heard_uap_again[board] != 0)
@@ -2640,7 +2651,7 @@ MU_TEST(a_disagreement_and_a_board_with_none_are_both_reported)
 	          "different UAPs, so one of them is wrong: board 1 0x0d, "
 	          "board 2 0x0d, board 3 0xb0\n") != NULL, r.err);
 	mu_assert(strstr(r.err, "note: 4 boards: put on another board's "
-	          "answer, having worked out none of their own: board 4 0x0d")
+	          "answer during the run: board 4 0x0d")
 	          != NULL, r.err);
 }
 
@@ -2686,7 +2697,7 @@ MU_TEST(every_board_put_on_another_s_answer_is_named_with_its_value)
 	mu_assert_int_eq(0x0d, device.seen_uap[2]);
 	mu_assert_int_eq(0xb0, device.seen_uap[3]);
 	mu_assert(strstr(r.err, "note: 4 boards: put on another board's "
-	          "answer, having worked out none of their own: board 3 0x0d, "
+	          "answer during the run: board 3 0x0d, "
 	          "board 4 0xb0") != NULL, r.err);
 }
 
@@ -2808,6 +2819,90 @@ MU_TEST(a_user_given_address_part_is_not_put_back_after_the_library_drops_it)
 	mu_assert_int_eq(-1, device.seen_uap[2]);
 	/* And the user's own value is not handed back to them as a finding. */
 	mu_assert(strstr(r.err, "UAP") == NULL, r.err);
+}
+
+/* What a board holds is read every pass rather than remembered, because there
+ * is no moment a caller can rely on seeing a board hold nothing. The clock is
+ * given up at the top of a board's turn and its next block arrives in the same
+ * turn, and one header that checks out is enough for the library to settle a
+ * different value -- so a reading taken once and kept would stay on the value
+ * from before the drop for the rest of the run, and the run would report it,
+ * agree on it, and pass it on. */
+MU_TEST(a_board_that_settles_again_right_after_a_drop_is_read_again)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 12;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	/* Both boards reach 0x22 to begin with. */
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_value[0] = 0x22;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_value[1] = 0x22;
+	/* The first board is the one following a clock. Two of its blocks take
+	 * it past the minute the ask waits for, so the clock is given up at
+	 * the top of its third turn -- with the blocks still arriving, so the
+	 * board settles on 0x33 in that same turn and is never seen holding
+	 * none. */
+	device.reading_board = 0;
+	device.follow_quiet_ms = 0;
+	device.block_ms = 30000;
+	device.abandon_uap_on_drop = 1;
+	device.heard_uap_after_drop[0] = 0x33;
+
+	r = RUN_RX("-U", "0,1", "-c", "20,40", "-l", "112233", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(device.drops_board[0] > 0, "the quiet board was asked");
+	/* 0x33 is what the first board holds by the end, so the boards no
+	 * longer agree and the run says so with the values they hold. */
+	mu_assert(strstr(r.err, "note: 2 boards: the boards worked out "
+	          "different UAPs, so one of them is wrong: board 1 0x33, "
+	          "board 2 0x22\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "UAP = 0x") == NULL, r.err);
+}
+
+/* A board put on another's answer that then reaches one of its own is named in
+ * both lines, and each is true of it: the run did pass it a value, and it does
+ * hold an answer of its own by the end. */
+MU_TEST(a_board_put_on_another_s_answer_can_still_reach_its_own)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 24;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_channel[2] = 60;
+	/* The first two boards reach 0x22, so the third, which works out
+	 * nothing of its own, is put on it. */
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_value[0] = 0x22;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_value[1] = 0x22;
+	/* The third board is then taken off the value it was given, on its
+	 * third block, and reaches 0x33 of its own after that. It settles
+	 * nothing before then, which is why it was given one at all. */
+	device.heard_uap_board[2] = 1;
+	device.settle_uap_at[2] = 9;
+	device.abandon_uap_at[2] = 8;
+	device.heard_uap_again[2] = 0x33;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0x33, device.seen_uap[2]);
+	/* Its own answer counts, so the run reports a disagreement. */
+	mu_assert(strstr(r.err, "different UAPs, so one of them is wrong: "
+	          "board 1 0x22, board 2 0x22, board 3 0x33\n") != NULL,
+	          r.err);
+	/* And the run still says it was passed a value, because it was. */
+	mu_assert(strstr(r.err, "note: 3 boards: put on another board's "
+	          "answer during the run: board 3 0x22\n") != NULL, r.err);
 }
 
 /* A survey takes a list too: every board on it is opened, set up, read, and
@@ -3018,6 +3113,8 @@ int main(void)
 	MU_RUN(every_board_put_on_another_s_answer_is_named_with_its_value);
 	MU_RUN(the_report_reads_the_boards_again_before_it_prints);
 	MU_RUN(a_user_given_address_part_is_not_put_back_after_the_library_drops_it);
+	MU_RUN(a_board_that_settles_again_right_after_a_drop_is_read_again);
+	MU_RUN(a_board_put_on_another_s_answer_can_still_reach_its_own);
 	MU_RUN(an_address_part_the_library_took_back_stops_being_evidence);
 	MU_RUN(a_survey_reads_every_board_on_the_list);
 	MU_RUN(every_stop_reason_ends_every_board);

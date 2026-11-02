@@ -110,11 +110,11 @@ struct rx_board {
 	 * where it is not the value the report otherwise gives. */
 	int uap_ever_handed;
 	uint8_t uap_ever_handed_value;
-	/* The UAP this board worked out from its own packets, and whether it
-	 * holds one now. What a board holds at the end of a run is not
-	 * necessarily what it worked out, so this is the evidence the
-	 * agreement and the end-of-run report rest on; see
-	 * rx_share_findings(). */
+	/* The UAP this board holds that it worked out itself, and whether it
+	 * holds one at all. Read from the piconet every pass rather than
+	 * remembered, because a board does not keep the value it reaches for
+	 * the length of a run: see rx_read_own_uap(). This is the evidence the
+	 * agreement and the end-of-run report rest on. */
 	int uap_found;
 	uint8_t uap_found_value;
 };
@@ -236,55 +236,71 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
 	}
 }
 
-/* Forgets what a board held once the library has abandoned it, so the
- * agreement and the report rest on what the boards hold now.
+/* Reads the UAP a board holds, every time, rather than remembering the first
+ * one it held. Nothing here is kept from one call to the next except whether
+ * the value came from another board.
  *
- * Giving a clock up takes the UAP with it: drop_followed_clock() sets the
- * piconet's UAP to zero and starts the search over, because discovery cannot
- * find another while try_hop() is still filtering on this one. This tool asks
- * for that itself, after a follow has heard nothing for FOLLOW_QUIET_MS, and
- * the library does it on its own account when header after header fails. The
- * board then rediscovers and can settle a different value, so a value
- * remembered from before would be evidence for something no board holds.
+ * Reading rather than remembering is the point. A board does not keep the UAP
+ * it reaches for the length of a run: giving a clock up takes the UAP with it,
+ * because discovery cannot find another while the hop reversal is still
+ * filtering on this one, so drop_followed_clock() sets the piconet's UAP to
+ * zero and starts the search over. This tool asks for that itself once a
+ * follow has heard nothing for FOLLOW_QUIET_MS, and the library does it on its
+ * own account when header after header fails. The board then rediscovers, and
+ * one packet whose header checks out is enough to settle a different value --
+ * so there is no moment a caller can rely on seeing a board hold nothing, and
+ * a value noted once would be evidence for something no board holds.
  *
- * A UAP of zero with the flag clear is the one state the abandoning leaves,
- * and is also a piconet's initial state, so this is safe to ask every pass. */
-static void rx_forget_abandoned_uap(struct rx_board* board)
+ * Reading every time is safe because a piconet's UAP can only change value by
+ * passing through zero: drop_followed_clock() is the only writer of a
+ * different value, btbb_uap_from_header() rules out any candidate whose UAP
+ * does not match a valid one, and try_hop()'s tail restores the value it was
+ * filtering on. So the value a board holds with BTBB_UAP_VALID set is the one
+ * it reached, and reading it is reading the board's own answer.
+ *
+ * A UAP of zero with the flag clear is a board holding none: the state the
+ * abandoning leaves, and a piconet's initial state. Between the two, the flag
+ * clear with a value still there is the search having run out of candidates,
+ * which the next hop attempt restores the value from -- the board still holds
+ * it, so nothing changes. */
+static void rx_read_own_uap(struct rx_board* board)
 {
-	if (btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID))
-		return;
-	if (btbb_piconet_get_uap(board->pn) != 0)
-		return;
-	board->uap_found = 0;
-	board->uap_handed = 0;
-}
+	uint8_t uap;
 
-/* Notes the UAP a board worked out for itself. Called before anything is
- * shared, so a board that has just settled one is evidence on the same pass. */
-static void rx_note_own_uap(struct rx_board* board)
-{
-	if (board->uap_found || board->uap_handed)
+	if (!btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID)) {
+		if (btbb_piconet_get_uap(board->pn) == 0) {
+			board->uap_found = 0;
+			board->uap_handed = 0;
+		}
 		return;
-	if (!btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID))
+	}
+
+	uap = btbb_piconet_get_uap(board->pn);
+	/* A board stops counting as handed once what it holds is not what it
+	 * was handed: the library took that value off it and it has reached
+	 * one of its own, which is evidence like any other. */
+	if (board->uap_handed && uap != board->uap_ever_handed_value)
+		board->uap_handed = 0;
+	/* A board holding a value another board handed it is not evidence for
+	 * it: that would read as a second board agreeing, which is the whole
+	 * of the cross-check. */
+	if (board->uap_handed)
 		return;
 	board->uap_found = 1;
-	board->uap_found_value = btbb_piconet_get_uap(board->pn);
+	board->uap_found_value = uap;
 }
 
-/* Reads what every board holds now. Run before anything is shared, and again
- * before the end-of-run report: the library can take a value off a board at a
- * point no packet follows it, because this tool asks for that when a follow
- * has gone quiet, and a piconet that has gone away is exactly the run where
- * no board decodes anything afterwards. Without the second read the report
- * would name a value no board still held. */
+/* What every board holds. Read before anything is shared, and again before the
+ * end-of-run report, because the library can take a value off a board at a
+ * point no packet follows it -- this tool asks for that when a follow has gone
+ * quiet, and a piconet that has gone away is exactly the run where no board
+ * decodes anything afterwards. */
 static void rx_read_own_uaps(struct rx_board* boards, int n_boards)
 {
 	int i;
 
-	for (i = 0; i < n_boards; i++) {
-		rx_forget_abandoned_uap(&boards[i]);
-		rx_note_own_uap(&boards[i]);
-	}
+	for (i = 0; i < n_boards; i++)
+		rx_read_own_uap(&boards[i]);
 }
 
 /* Hands every board what the others have found, which is the whole of what
@@ -479,11 +495,14 @@ static void rx_report_findings(int n_boards, const uint8_t* merged,
 	 * agreed value -- and a long run can pass on more than one value,
 	 * because the boards that agreed can themselves be taken off it and
 	 * settle on something else. So each board is named with the value it
-	 * was given rather than one value for the run. */
+	 * was given rather than one value for the run.
+	 *
+	 * Said of the run rather than of how the board ended: a board put on
+	 * another's answer can have the library take that value off it and
+	 * reach one of its own afterwards, which the line above then names. */
 	if (!told_uap && passed_len > 0)
 		fprintf(stderr, "note: %d boards: put on another board's "
-		        "answer, having worked out none of their own: %s\n",
-		        n_boards, passed);
+		        "answer during the run: %s\n", n_boards, passed);
 
 	fprintf(stderr, "note: %d boards: AFH map: 0x", n_boards);
 	for (i = 0; i < AFH_MAP_BYTES; i++)

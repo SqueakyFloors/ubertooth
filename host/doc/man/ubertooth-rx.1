@@ -191,11 +191,11 @@ note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
 .fi
 .IP "" 0
 .P
-Where the boards did not reach the same UAP, each board's own answer is named, numbered as \fB\-U\fR listed them, and any board put on another's answer is named separately with the value it was given, because that value is not one it found:
+Where the boards did not reach the same UAP, each board's own answer is named, numbered as \fB\-U\fR listed them, and any board put on another's answer is named separately with the value it was given, because that value is not one it found\. It is said of the run rather than of how the board ended: a board can be put on another's answer, have the library take that value off it, and reach one of its own afterwards, in which case it appears in both lines\.
 .IP "" 4
 .nf
 note: 4 boards: the boards worked out different UAPs, so one of them is wrong: board 1 0x0d, board 2 0x0d, board 3 0xb0
-note: 4 boards: put on another board's answer, having worked out none of their own: board 4 0x0d
+note: 4 boards: put on another board's answer during the run: board 4 0x0d
 .fi
 .IP "" 0
 .P
