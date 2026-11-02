@@ -179,6 +179,11 @@ static struct {
 	 * turn of the loop, so nothing in between sees the board hold none,
 	 * which is the window a remembered reading goes stale in. */
 	uint8_t heard_uap_after_drop[RX_MAX_BOARDS];
+	/* The block at which a board's piconet has BTBB_UAP_VALID cleared with
+	 * the address part left in place, as libbtbb's search does when it runs
+	 * out of candidates. The board still holds its answer, so a run must
+	 * not read it as a board with none. */
+	int unvalidate_uap_at[RX_MAX_BOARDS];
 	/* The block from which every board's ring buffer is empty: the receive
 	 * hands the decoder nothing and says so, and the follow's silence goes
 	 * on being measured, which is how a quiet follow is noticed. The run
@@ -622,6 +627,15 @@ void cb_rx(ubertooth_t* ut, void* args)
 	if (device.abandon_uap_at[board] != 0 &&
 	    device.blocks == device.abandon_uap_at[board]) {
 		btbb_piconet_set_uap(pn, 0);
+		btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
+		return;
+	}
+
+	/* The clock search running out of candidates: the valid flag goes, the
+	 * address part stays, and the next hop attempt filters on it again. A
+	 * board in this state still holds its answer. */
+	if (device.unvalidate_uap_at[board] != 0 &&
+	    device.blocks == device.unvalidate_uap_at[board]) {
 		btbb_piconet_set_flag(pn, BTBB_UAP_VALID, 0);
 		return;
 	}
@@ -2905,6 +2919,97 @@ MU_TEST(a_board_put_on_another_s_answer_can_still_reach_its_own)
 	          "answer during the run: board 3 0x22\n") != NULL, r.err);
 }
 
+/* A board whose clock search has run out of candidates still holds its answer:
+ * the valid flag goes and the address part stays, and the next hop attempt
+ * filters on it again. Reading that as a board with none would let the other
+ * boards' agreement be written over an answer the board had worked out, which
+ * is the one thing the merge must not do. */
+MU_TEST(a_board_between_candidate_lists_still_holds_its_own_answer)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 12;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_channel[2] = 60;
+	/* The first board works out 0x33; the other two agree on 0x22. */
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_value[0] = 0x33;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_value[1] = 0x22;
+	device.heard_uap_board[2] = 1;
+	device.heard_uap_value[2] = 0x22;
+	/* On its second block the first board's valid flag goes, with 0x33
+	 * left in place. The other two have agreed by then, so a run that read
+	 * it as a board with none would put it on 0x22 in that pass. */
+	device.unvalidate_uap_at[0] = 3;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "10");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0x33, device.seen_uap[0]);
+	mu_assert(strstr(r.err, "different UAPs, so one of them is wrong: "
+	          "board 1 0x33, board 2 0x22, board 3 0x22\n") != NULL,
+	          r.err);
+	mu_assert(strstr(r.err, "put on another board's answer") == NULL,
+	          r.err);
+}
+
+/* A board handed a value, asked by this tool to give its clock up, and then
+ * reaching that same value from its own packets is evidence for it. The value
+ * alone cannot tell that apart from the board still holding what it was
+ * handed, so the mark is cleared where the ask was made. */
+MU_TEST(a_handed_board_that_reaches_the_same_value_itself_counts_for_it)
+{
+	struct run_result r;
+
+	reset_device();
+	device.end = END_BY_TIMEOUT;
+	device.blocks_to_end = 24;
+	device.heard_channel[0] = 20;
+	device.heard_channel[1] = 40;
+	device.heard_channel[2] = 60;
+	/* The first two boards reach 0x22, so the third is put on it. */
+	device.heard_uap_board[0] = 1;
+	device.heard_uap_value[0] = 0x22;
+	device.heard_uap_board[1] = 1;
+	device.heard_uap_value[1] = 0x22;
+	/* The third board works out nothing until later, which is why it is
+	 * given a value at all. It is the one following a clock, and it is
+	 * asked to give it up once its silence reaches the minute: two of its
+	 * blocks at half a minute each. The address part goes with the clock,
+	 * and the board then reaches 0x22 from its own packets, in the same
+	 * turn of the loop as the ask. */
+	device.heard_uap_board[2] = 1;
+	device.settle_uap_at[2] = 5;
+	device.reading_board = 2;
+	device.follow_quiet_ms = 0;
+	device.block_ms = 30000;
+	device.abandon_uap_on_drop = 1;
+	device.heard_uap_after_drop[2] = 0x22;
+	/* And the second board is taken off 0x22 inside the decode and reaches
+	 * 0x33, so the run ends with the boards disagreeing and every board's
+	 * own answer named. A third board still counting as handed would be
+	 * missing from that list. */
+	device.abandon_uap_at[1] = 4;
+	device.heard_uap_again[1] = 0x33;
+
+	r = RUN_RX("-U", "0,1,2", "-c", "20,40,60", "-l", "112233", "-t", "600");
+
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(device.drops_board[2] > 0, "the quiet board was asked");
+	mu_assert_int_eq(0x22, device.seen_uap[2]);
+	/* The third board's 0x22 is its own now, so the list names it. */
+	mu_assert(strstr(r.err, "different UAPs, so one of them is wrong: "
+	          "board 1 0x22, board 2 0x33, board 3 0x22\n") != NULL,
+	          r.err);
+	/* And it was passed a value earlier in the run, which still stands. */
+	mu_assert(strstr(r.err, "note: 3 boards: put on another board's "
+	          "answer during the run: board 3 0x22\n") != NULL, r.err);
+}
+
 /* A survey takes a list too: every board on it is opened, set up, read, and
  * stopped, the results are printed, and the run exits 0. A survey has no
  * piconet per board -- the table of addresses heard belongs to the decoder --
@@ -3115,6 +3220,8 @@ int main(void)
 	MU_RUN(a_user_given_address_part_is_not_put_back_after_the_library_drops_it);
 	MU_RUN(a_board_that_settles_again_right_after_a_drop_is_read_again);
 	MU_RUN(a_board_put_on_another_s_answer_can_still_reach_its_own);
+	MU_RUN(a_board_between_candidate_lists_still_holds_its_own_answer);
+	MU_RUN(a_handed_board_that_reaches_the_same_value_itself_counts_for_it);
 	MU_RUN(an_address_part_the_library_took_back_stops_being_evidence);
 	MU_RUN(a_survey_reads_every_board_on_the_list);
 	MU_RUN(every_stop_reason_ends_every_board);

@@ -251,18 +251,21 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * so there is no moment a caller can rely on seeing a board hold nothing, and
  * a value noted once would be evidence for something no board holds.
  *
- * Reading every time is safe because a piconet's UAP can only change value by
- * passing through zero: drop_followed_clock() is the only writer of a
- * different value, btbb_uap_from_header() rules out any candidate whose UAP
- * does not match a valid one, and try_hop()'s tail restores the value it was
- * filtering on. So the value a board holds with BTBB_UAP_VALID set is the one
- * it reached, and reading it is reading the board's own answer.
+ * What makes reading every pass enough is the packet, not the value: the only
+ * writer of a different UAP is the library's header discovery, which runs on a
+ * packet, and the capture loop reads every board whenever a pass decoded one.
+ * So a reading is never older than the last packet a board had. It is not true
+ * that a piconet's UAP has to pass through zero to change -- the search
+ * running out of candidates leaves the old value with BTBB_UAP_VALID clear,
+ * and the next packet can settle a different one from there without the value
+ * ever being zero -- which is why nothing here is cached across a packet.
  *
- * A UAP of zero with the flag clear is a board holding none: the state the
- * abandoning leaves, and a piconet's initial state. Between the two, the flag
- * clear with a value still there is the search having run out of candidates,
- * which the next hop attempt restores the value from -- the board still holds
- * it, so nothing changes. */
+ * A UAP of zero with the flag clear is a board holding none: the state giving a
+ * clock up leaves, and a piconet's initial state. The flag clear with a value
+ * still there is the search having run out of candidates, which is a board
+ * that still holds its answer, so the reading is left alone. Treating that as
+ * a board with nothing would let the others' agreement be written over an
+ * answer the board had worked out, which is the one thing this must not do. */
 static void rx_read_own_uap(struct rx_board* board)
 {
 	uint8_t uap;
@@ -278,7 +281,17 @@ static void rx_read_own_uap(struct rx_board* board)
 	uap = btbb_piconet_get_uap(board->pn);
 	/* A board stops counting as handed once what it holds is not what it
 	 * was handed: the library took that value off it and it has reached
-	 * one of its own, which is evidence like any other. */
+	 * one of its own, which is evidence like any other.
+	 *
+	 * A board that reaches the same value again by itself is the case this
+	 * cannot see, because the value is all there is to go on. Where this
+	 * tool asked for the drop it clears the mark itself, in the capture
+	 * loop; where the library dropped the clock on its own account, inside
+	 * the decode, the board goes on counting as handed and its answer is
+	 * left out of the report and out of the agreement. That is the
+	 * cautious way round -- a value is reported by fewer boards than hold
+	 * it, and passed on to fewer -- and telling the two apart needs the
+	 * library to say when it started discovery over. */
 	if (board->uap_handed && uap != board->uap_ever_handed_value)
 		board->uap_handed = 0;
 	/* A board holding a value another board handed it is not evidence for
@@ -1354,9 +1367,18 @@ int main(int argc, char* argv[])
 				 * Per board: each has its own clock from the
 				 * library and hears the piconet for itself. */
 				if (ubertooth_follow_quiet_ms(boards[i].ut)
-				    >= FOLLOW_QUIET_MS)
+				    >= FOLLOW_QUIET_MS) {
 					ubertooth_follow_drop_clock(boards[i].ut,
 					                            boards[i].pn);
+					/* The address part goes with the
+					 * clock, so whatever this board
+					 * reaches next is its own, even where
+					 * it is the value it was handed. Only
+					 * a drop this tool asked for can be
+					 * known about here: see
+					 * rx_read_own_uap(). */
+					boards[i].uap_handed = 0;
+				}
 				/* And what the search is not going to reach,
 				 * said once a search has been running long
 				 * enough to say it of. */
