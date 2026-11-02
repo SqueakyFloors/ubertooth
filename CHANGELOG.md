@@ -55,7 +55,6 @@
   git checkout reports the same name; one from an unpacked source release
   keeps the shipped version.h and so reports `bluetooth_rxtx`, which
   firmware/README now says. Every host tool accepts either name.
-<<<<<<< HEAD
 - Fixed: `ubertooth-btle -p` stopped at the access address on a connection
   that had data flowing, reporting nothing else and capturing only what
   landed on the channel it was sitting on. It recovers a connection's CRC
@@ -77,8 +76,6 @@
   follows -- waited on one of those turning up. Neither bit changes the value
   the mode works back from, so neither is waited on any more.
 
-=======
->>>>>>> 5024b4e70 (rebase: keep main's #745 entries beside this PR's #736 entry)
 - `ubertooth-btbr` can put packet types on the air that a real stack almost
   never sends, which is what a Classic decoder needs to be tested against.
   With a connection up, `tx <format> [<length>] [<count>] [<hex>]` transmits
@@ -89,10 +86,7 @@
   ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
   their lengths.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-<<<<<<< HEAD
 
-=======
->>>>>>> 5024b4e70 (rebase: keep main's #745 entries beside this PR's #736 entry)
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
