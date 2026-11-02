@@ -392,6 +392,74 @@ MU_TEST(the_promiscuous_report_follows_the_tools_report_stream)
 	ubertooth_free(ut);
 }
 
+/*
+ * Those same lines go into the dump written with -d, so that replaying the
+ * dump with -i produces the capture it came from. They are the only record of
+ * which connection a promiscuous capture belongs to: a dump that left them
+ * out replayed as packets with no access address, no CRC init, and no hop
+ * settings, and nothing in the file said which connection they were of.
+ *
+ * The round trip is what this checks: one record live, read back out of the
+ * file, and replayed through the same callback.
+ */
+MU_TEST(a_promiscuous_report_is_dumped_and_comes_back_on_a_replay)
+{
+	ubertooth_t* ut = ubertooth_init();
+	usb_pkt_rx rx = promiscuous_access_address(0xdeadbeef);
+	btle_options opts = { .allowed_access_address_errors = 32,
+	                      .report_stream = stdout };
+	usb_pkt_rx written;
+	char out[8192] = "";
+	char err[2048] = "";
+	uint32_t when;
+	FILE* dump;
+	long size;
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	dump = tmpfile();
+	mu_assert_fatal(dump != NULL, "a dump file");
+	dumpfile = dump;
+
+	fifo_push(ut->fifo, &rx, 0);
+	capture_output();
+	cb_btle(ut, &opts);
+	fflush(stdout);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	dumpfile = NULL;
+
+	/* The live run still reports the line, as it always did. */
+	mu_assert(strstr(out, "Access Address: deadbeef") != NULL, out);
+
+	/* And the file holds exactly one record, the one the board sent. A
+	 * size that is not a whole number of records would mean the dump
+	 * cannot be read back at all. */
+	fflush(dump);
+	mu_assert_fatal(fseek(dump, 0, SEEK_END) == 0, "seek the dump");
+	size = ftell(dump);
+	mu_assert_int_eq((int)(sizeof(uint32_t) + PKT_LEN), (int)size);
+	rewind(dump);
+	mu_assert_fatal(fread(&when, 1, sizeof(when), dump) == sizeof(when),
+	                "the record's time");
+	mu_assert_fatal(fread(&written, 1, PKT_LEN, dump) == PKT_LEN,
+	                "the record itself");
+	mu_assert_int_eq(LE_PROMISC, written.pkt_type);
+
+	/* Replaying it says the same thing, which is the point: before this,
+	 * a replay of a promiscuous capture printed no access address. */
+	rewind(dump);
+	infile = dump;
+	capture_output();
+	mu_assert_int_eq(0, stream_rx_file(ut, dump, cb_btle, &opts));
+	fflush(stdout);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	infile = NULL;
+
+	mu_assert(strstr(out, "Access Address: deadbeef") != NULL, out);
+
+	fclose(dump);
+	ubertooth_free(ut);
+}
+
 /* ---- the level printed beside a packet ---------------------------------- */
 
 /* Where the signal level sits in a PCAP file holding one low-energy packet:
@@ -652,6 +720,7 @@ int main(void)
 	MU_RUN(verbose_describes_the_field_the_decoder_could_not_read);
 	MU_RUN(a_capture_on_standard_output_prints_no_dump_and_no_complaint);
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
+	MU_RUN(a_promiscuous_report_is_dumped_and_comes_back_on_a_replay);
 	MU_RUN(the_dump_reports_the_level_the_capture_records);
 	MU_RUN(a_quiet_gap_longer_than_a_period_is_reported_whole);
 	MU_RUN(the_ego_gap_holds_a_quiet_period_too);

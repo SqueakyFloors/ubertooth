@@ -973,6 +973,13 @@
   confirmed.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 
+- Fixed: a device that answered `ubertooth-scan`'s page and then said nothing
+  held the scan forever, with the results so far printed and nothing after
+  them. The name read behind each result now has the same 25-second deadline
+  as the rest of the tool's reads, so such a device becomes an `[unknown]`
+  result, with a `note:` on standard error saying why, and the scan carries on.
+  [#1090](https://github.com/SqueakyFloors/ubertooth/issues/1090)
+
 - Fixed: `ubertooth-btle -p` often stopped at the access address on a
   connection that had data flowing, reporting nothing else and capturing only
   what landed on the channel it was sitting on. It recovers a connection's CRC
@@ -1049,6 +1056,16 @@
   which is how the rest of the tools and docs spell it: `error: could not
   start the spectrum analyzer: ...` and the same for the LED one.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
+- Fixed: `ubertooth-rx -l <lap> -u <uap>` threw the UAP you gave it away with
+  every clock it stopped following, and worked the UAP out from the air again
+  -- which takes packets, can settle on a wrong value, and leaves the records
+  with no reference UAP until it does. A UAP you name is now put back, and the
+  line says so:
+  `warning: the clock being followed was not this piconet's; searching for its
+  clock again, and putting UAP 0d back`. A capture that worked the UAP out
+  itself still gives it up, and its line reads `searching for its clock and UAP
+  again`.
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
@@ -1670,8 +1687,9 @@
   from a handful of packets can be a guess, and a wrong one showed up as a
   follow that decoded nothing and stayed that way for the rest of the run.
   The tool now reports `warning: the clock being followed was not this
-  piconet's; searching for it again`, takes the board off that clock and
-  recovers one again, keeping the lower address part it has already found.
+  piconet's; searching for its clock and UAP again`, takes the board off that
+  clock and recovers one again, keeping the lower address part it has already
+  found.
   [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
 - `ubertooth-rx` also gives up a clock its follow has gone quiet on. A clock
   that is wrong only in the high bits checks out every header it receives and
@@ -1679,11 +1697,11 @@
   packet in eighteen and no header ever fails: such a follow decoded next to
   nothing and kept the clock forever. A follow that hears no packet of its
   piconet for a minute now reports `warning: nothing of this piconet has been
-  heard on the clock being followed; searching for it again` and recovers a
-  clock again, as it does for a clock the decoder gives up. A minute is long
-  enough that no working link reaches it, and giving a clock up rules it out,
-  so a wrong clock is given up only on a link slow enough for its one packet
-  in eighteen to leave a gap that long.
+  heard on the clock being followed; searching for its clock and UAP again`
+  and recovers a clock again, as it does for a clock the decoder gives up. A
+  minute is long enough that no working link reaches it, and giving a clock up
+  rules it out, so a wrong clock is given up only on a link slow enough for
+  its one packet in eighteen to leave a gap that long.
   [#903](https://github.com/SqueakyFloors/ubertooth/issues/903)
 - A Classic capture that cannot be written says so, once per capture, instead
   of running to the end looking like one that was being written: `warning:
@@ -2915,6 +2933,18 @@ Fixes with no visible change in normal use.
 - An E-GO capture length set by one run no longer stays on the board for the
   next one, which the access code already did not. The tool states a length on
   every run, so this shows only to another program talking to the board.
+- A low-energy capture's dump holds the four records promiscuous mode works a
+  connection's parameters out from -- the access address, CRC init, hop
+  interval, and hop increment -- which the low-energy callback used to return
+  on before it reached the write. They are the only record of which connection
+  a promiscuous capture belongs to, so a replay of such a dump had the packets
+  and no way to say what they belonged to. No tool pairs a dump with the
+  low-energy callback today, so nothing a user runs changes.
+- `ubertooth-dfu` reads a board that left the bus between being listed and
+  being opened as a board that is not in the bootloader, which is what it is,
+  rather than ending the command with the USB code for it. A board still
+  re-enumerating is looked for again, as the matching search for a board
+  running its application already did.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
