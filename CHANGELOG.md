@@ -890,11 +890,6 @@
 
 ### Reliability fixes
 
-- The two errors that name the spectrum analyzer spell it the American way,
-  which is how the rest of the tools and docs spell it: `error: could not
-  start the spectrum analyzer: ...` and the same for the LED one.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-
 - Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
   already declined, until link supervision ended it a second later. A peer
   that refuses the connection request now gets a detach, and the command says
@@ -954,6 +949,11 @@
   `bdaddr 00:11:22:33:44:55` was echoed as `Set bdaddr 1122334455`, and the
   `fhs: ba=` line of a `page_scan` or `monitor` session dropped them the same
   way from the address it read off the air. Both now print twelve digits.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
+- The two errors that name the spectrum analyzer spell it the American way,
+  which is how the rest of the tools and docs spell it: `error: could not
+  start the spectrum analyzer: ...` and the same for the LED one.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
