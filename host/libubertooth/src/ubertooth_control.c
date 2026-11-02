@@ -126,14 +126,14 @@ static const char* request_name(uint8_t request)
 		case UBERTOOTH_SET_ISP:            return "enter the programmer";
 		case UBERTOOTH_FLASH:              return "start the firmware update";
 		case BOOTLOADER_FLASH:             return "start the bootloader update";
-		case UBERTOOTH_SPECAN:             return "start the spectrum analyser";
+		case UBERTOOTH_SPECAN:             return "start the spectrum analyzer";
 		case UBERTOOTH_GET_PALEVEL:        return "read the transmit power level";
 		case UBERTOOTH_SET_PALEVEL:        return "set the transmit power level";
 		case UBERTOOTH_REPEATER:           return "start the repeater";
 		case UBERTOOTH_RANGE_TEST:         return "start the range test";
 		case UBERTOOTH_RANGE_CHECK:        return "read the range test result";
 		case UBERTOOTH_GET_REV_NUM:        return "read the firmware revision";
-		case UBERTOOTH_LED_SPECAN:         return "start the LED spectrum analyser";
+		case UBERTOOTH_LED_SPECAN:         return "start the LED spectrum analyzer";
 		case UBERTOOTH_GET_BOARD_ID:       return "read the board ID";
 		case UBERTOOTH_SET_SQUELCH:        return "set the squelch level";
 		case UBERTOOTH_GET_SQUELCH:        return "read the squelch level";
@@ -1268,7 +1268,11 @@ int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_addre
 
 /* Kept for API compatibility: an error comes back as the negative libusb
  * code cast to u32, which cannot be told apart from an address. Use
- * cmd_read_access_address() instead. */
+ * cmd_read_access_address() instead.
+ *
+ * Deprecated; documented with the declaration in ubertooth_control.h. The
+ * attribute there reports calls, and a definition is not one, so this does
+ * not warn. */
 u32 cmd_get_access_address(struct libusb_device_handle* devh)
 {
 	u32 access_address = 0;
