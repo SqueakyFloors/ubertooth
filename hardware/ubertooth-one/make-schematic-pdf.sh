@@ -32,7 +32,7 @@
 
 set -eu
 
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd) || exit 1
 out="$here/ubertooth-one-schematic.pdf"
 kicad=
 
