@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -248,6 +248,19 @@ $(BINDIR)/test_le_whitening: test_le_whitening.c minunit.h \
 	$(CC) $(CFLAGS) -Istubs-lephy $(CPPFLAGS) -I$(FW_LPCUSB) -I$(FW_COMMON) \
 		-DUBERTOOTH_ONE -DFW_HOST_TEST \
 		-o $@ test_le_whitening.c $(FW_RXTX)/bluetooth_le.c
+
+# Passive recovery of an algorithm-2 connection in the promiscuous mode. The
+# search is pure arithmetic in bluetooth_le.c, so it runs here as it does on
+# the board; FW_RXTX_DIR lets the test read LE_BASECLK out of the clock header
+# and check the copy of it in bluetooth_le.h.
+$(BINDIR)/test_promisc_csa2: test_promisc_csa2.c minunit.h \
+		stubs-lephy/ubertooth.h stubs-lephy/lpc17.h \
+		$(FW_RXTX)/bluetooth_le.c $(FW_RXTX)/bluetooth_le.h \
+		$(FW_RXTX)/ubertooth_clock.h \
+		$(FW_COMMON)/ubertooth.h $(FW_COMMON)/lpc17.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-lephy $(CPPFLAGS) -I$(FW_LPCUSB) -I$(FW_COMMON) \
+		-DUBERTOOTH_ONE -DFW_HOST_TEST -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_promisc_csa2.c $(FW_RXTX)/bluetooth_le.c
 
 # How long a capture the target filter needs before it compares the address in
 # it. The filter runs inside the capture loop, so it is modelled here and

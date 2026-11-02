@@ -26,6 +26,19 @@
   clock is recovered against that board's own counter. ubertooth-rx(1),
   SEVERAL BOARDS AT ONCE says what is shared and what is not.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
+- `ubertooth-btle -p` recovers connections that hop with channel selection
+  algorithm 2, which is what Bluetooth 5.0 devices normally use. It used to
+  get as far as the access address and the CRC init value of such a connection
+  and stop, because algorithm 2 has no hop increment to measure. It now
+  searches the connection interval and the 16-bit event counter instead,
+  scoring each candidate against the visits it heard on the channel it is
+  listening to, and follows the connection once one pair clearly accounts for
+  them. It reports the counter it found as `Algorithm 2 event counter`.
+  The search needs no channel map, and the follow does not have one either, so
+  a connection using fewer than the 37 channels is captured with gaps where
+  the map moved an event to a channel the follow did not predict; `-f` still
+  captures the whole of a connection it can see being made.
+  [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
 - `ubertooth-util -w` counts one more wait that gave up: the short lead a
   packet is given to reach the radio's FIFO before the firmware reads it out.
@@ -42,6 +55,27 @@
   git checkout reports the same name; one from an unpacked source release
   keeps the shipped version.h and so reports `bluetooth_rxtx`, which
   firmware/README now says. Every host tool accepts either name.
+- Fixed: `ubertooth-btle -p` stopped at the access address on a connection
+  that had data flowing, reporting nothing else and capturing only what
+  landed on the channel it was sitting on. It recovers a connection's CRC
+  init value from an empty data PDU, and it was waiting for one whose two
+  acknowledgment bits were both clear, which a busy connection rarely sends:
+  a 50 ms link between two development boards sent 54 empty PDUs past the
+  board in 150 seconds and not one of them had both bits clear. Any empty
+  data PDU will do, and now any is taken.
+- Fixed: `ubertooth-btle -p` often stopped at the access address on a
+  connection that had data flowing, reporting nothing else and capturing only
+  what landed on the channel it was sitting on. It recovers a connection's CRC
+  init value from an empty data PDU, and it was waiting for one whose two
+  acknowledgment bits happened to be both clear, which is one such PDU in a
+  few hundred on a busy connection: of 2666 the board heard from a 50 ms link
+  between two development boards, ten had both bits clear. Everything the mode
+  recovers after that -- the interval, the hop increment, the hop sequence it
+  follows -- waited on one of those turning up. Any empty data PDU will do, and
+  now any is taken.
+  follows -- waited on one of those turning up. Neither bit changes the value
+  the mode works back from, so neither is waited on any more.
+
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
@@ -917,6 +951,17 @@
   [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
 
 ### Reliability fixes
+
+- Fixed: `ubertooth-btle -p` often stopped at the access address on a
+  connection that had data flowing, reporting nothing else and capturing only
+  what landed on the channel it was sitting on. It recovers a connection's CRC
+  init value from an empty data PDU, and it was waiting for one whose two
+  acknowledgment bits happened to be both clear, which is one such PDU in a
+  few hundred on a busy connection: of 2666 the board heard from a 50 ms link
+  between two development boards, ten had both bits clear. Everything the mode
+  recovers after that -- the interval, the hop increment, the hop sequence it
+  follows -- waited on one of those turning up. Neither bit changes the value
+  the mode works back from, so neither is waited on any more.
 
 - Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
   already declined, until link supervision ended it a second later. A peer
@@ -2836,6 +2881,14 @@ Fixes with no visible change in normal use.
   finished or after this end has hung up, which is what the board in
   `page_scan` already did.
   [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
+- `ubertooth-btle -p` times a connection's returns to the channel it is sitting
+  on more closely. It stamps each return at the moment the packet began to
+  arrive rather than after the whole packet had been read and checked, which on
+  a connection carrying full-length packets is 2 ms later; and it treats a run
+  of packets less than one connection interval apart as the single connection
+  event it is, however long that event runs. A busy event of full-length
+  packets is longer than the shortest interval, so part way through it used to
+  be taken for the start of the next one.
 - Giving up a followed low-energy connection takes one path rather than two.
   The host's request to stop following and the end of the connection itself
   did the same three things in blocks of their own, and a request that arrived

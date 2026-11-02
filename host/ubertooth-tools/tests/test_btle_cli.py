@@ -250,9 +250,10 @@ result = subprocess.run([BINARY, "-h"], capture_output=True, text=True,
 # script checking "ubertooth-btle -h" read as a failure.
 assert result.returncode == 0, result
 assert "Usage:" in result.stdout, result
-# The one capability limit a user has to know before choosing -p: it recovers
-# algorithm 1 connections, and a modern connection needs -f instead.
-assert "-p recovers algorithm 1 connections; use -f for algorithm 2" \
+# The one capability limit a user has to know before choosing -p: it takes an
+# algorithm-2 connection too, but without the channel map, so the capture has
+# gaps that -f would not leave.
+assert "-f captures all of an algorithm 2 connection, -p part of it" \
     in result.stdout, result
 assert result.stderr == "", result
 result = subprocess.run([BINARY, "-Z"], capture_output=True, text=True,

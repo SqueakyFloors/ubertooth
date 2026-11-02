@@ -213,11 +213,35 @@ typedef struct _le_promisc_state_t {
 	 * reading of a clock that has since restarted, and the gap computed
 	 * from it belongs to nothing. */
 	u32 prev_clk;
+	/* The same moment on CLKN, which does not come round again for a
+	 * fortnight. The capture clock does every 327 s, and a gap longer than
+	 * that cannot be told from a short one without this. */
+	u32 prev_clkn;
 	u8 seen_a_packet;
+
+	/* When any packet was last seen, as against prev_clk above, which is
+	 * the last one taken as the start of a connection event. The two
+	 * differ while an event is running: the peripheral's answer and any
+	 * further exchange of the same event move this and leave that alone.
+	 * Which is how a packet is told from an event -- see
+	 * promisc_recover_hop_interval(). */
+	u32 last_clk;
 
 	/* The sighting on 2404 MHz that the hop increment is counted from,
 	 * which is the same kind of stamp and wants the same clearing. */
 	u32 first_ts;
+
+	/* The same gaps again, for the algorithm-2 search, which needs more of
+	 * them than the estimator above: a ring of its own rather than a
+	 * longer shared one, because the estimator's length is what bounds the
+	 * pattern it looks for.
+	 *
+	 * csa2_gap_count is how many the ring holds and sightings is how many
+	 * have arrived since the last search, which is what gives each
+	 * estimator a run of consecutive returns to work from. */
+	u32 csa2_gap[LE_CSA2_SIGHTINGS - 1];
+	u8 csa2_gap_count;
+	u16 sightings;
 } le_promisc_state_t;
 le_promisc_state_t le_promisc;
 #define AA_LIST_SIZE (int)(sizeof(le_promisc.active_aa) / sizeof(le_promisc_active_aa_t))
@@ -2843,6 +2867,8 @@ void reset_le() {
 
 	le.channel_idx = 0;
 	le.channel_increment = 0;
+	le.chan_sel_2 = 0;
+	le.event_counter = 0;
 
 	le.conn_epoch = 0;
 	le.interval_timer = 0;
@@ -3023,6 +3049,34 @@ void bt_generic_le(u8 active_mode)
 	cs_trigger_disable();
 }
 
+
+/*
+ * How long a followed connection may go unheard before it is taken to be over
+ * and the mode starts again.
+ *
+ * Five seconds for a connection the board can hear every event of.
+ *
+ * A connection recovered by the algorithm-2 search is followed without its
+ * channel map, so the board lands on the right channel for only some of its
+ * events, and a run of events it does not hear is normal rather than a sign
+ * the connection has gone. It is given LE_CSA2_SILENCE_EVENTS connection
+ * intervals instead -- see the arithmetic there -- so that a connection it is
+ * following correctly is not thrown away and recovered again from the
+ * beginning, which at a long interval takes many minutes.
+ */
+static u32 le_silence_timeout(void)
+{
+	u32 events;
+
+	if (!le.chan_sel_2 || le.conn_interval == 0)
+		return 5 * 10000000u;
+
+	/* Unsigned, as LE_PROMISC_MAX_GAP is: at the longest interval a
+	 * connection may use this product is 2.56 billion, which does not fit
+	 * in the int the operands would otherwise promote to. */
+	events = (u32)LE_CSA2_SILENCE_EVENTS * le.conn_interval * LE_BASECLK;
+	return events > 5 * 10000000u ? events : 5 * 10000000u;
+}
 
 /*
  * Keeps reads of the low-energy receive buffer after the wait that ended
@@ -3303,7 +3357,7 @@ void bt_le_sync(u8 active_mode)
 			now += CLK100NS_PERIOD; // handle rollover
 		if  ( // timeout
 			((le.link_state == LINK_CONNECTED || le.link_state == LINK_CONN_PENDING)
-			&& (now - le.last_packet > 50000000))
+			&& (now - le.last_packet > le_silence_timeout()))
 			// jam finished
 			|| (le_jam_count == 1)
 			)
@@ -3612,15 +3666,6 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 	enqueue(LE_PROMISC, (uint8_t*)buf);
 }
 
-// divide, rounding to the nearest integer: round up at 0.5.
-#define DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
-
-/* The longest gap that can be a trip round the channels: 37 channels at the
- * longest connection interval, 148 s. Anything longer is not this connection
- * coming back. */
-#define LE_PROMISC_MAX_GAP \
-	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_BASECLK)
-
 /* Works the hop increment out from how long the connection takes to get from
  * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
  * 1 has an increment to find. This stage is also reached only after the
@@ -3628,9 +3673,8 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
  * with algorithm 2 that does not happen: algorithm 2 picks each event's
  * channel from the access address, the event counter, and the channel map, so
  * the connection's visits to one channel do not repeat on the 37-event cycle
- * the interval estimator looks for. Such a connection is captured from its
- * setup instead, by follow mode, which reads the algorithm out of the
- * advertising and connect packets. */
+ * the interval estimator looks for. promisc_try_csa2() takes those
+ * connections, from the same sightings. */
 void promisc_recover_hop_increment(u8 *packet) {
 	/* The interval the span below is divided by. The estimator hands over
 	 * nothing outside the range a connection may use, but the division is
@@ -3656,7 +3700,7 @@ void promisc_recover_hop_increment(u8 *packet) {
 		if (second_ts < le_promisc.first_ts)
 			second_ts += CLK100NS_PERIOD; // handle rollover
 		// Number of channels hopped between previous and current timestamp.
-		u32 channels_hopped = DIVIDE_ROUND(second_ts - le_promisc.first_ts,
+		u32 channels_hopped = LE_DIVIDE_ROUND(second_ts - le_promisc.first_ts,
 										   le.conn_interval * LE_BASECLK);
 		/* At least one: the two sightings are a whole number of connection
 		 * events apart, and a span shorter than half an interval rounds to
@@ -3696,23 +3740,6 @@ void promisc_recover_hop_increment(u8 *packet) {
 		hop_direct_channel = 2404;
 		do_hop = 1;
 	}
-}
-
-/* How far two spans may be apart and still count as the same one. The
- * connection's own clock may be 500 ppm out and the board's clock adds to
- * that, so allow about 0.2% of the span, plus half of the 1.25 ms a
- * connection interval is counted in so that rounding alone never splits two
- * readings of the same span. */
-static u32 le_gap_tolerance(u32 span) {
-	return (span >> 9) + LE_BASECLK / 2;
-}
-
-/* Are these two spans the same one, read twice? */
-static int le_same_span(u32 a, u32 b) {
-	u32 shorter = a < b ? a : b;
-	u32 apart = a < b ? b - a : a - b;
-
-	return apart <= le_gap_tolerance(shorter);
 }
 
 /* Add a gap to the end of the ring, dropping the oldest. */
@@ -3778,7 +3805,7 @@ static u16 promisc_interval(void) {
 		if (total > LE_PROMISC_MAX_GAP || total < promisc_gap_back(0))
 			continue;
 
-		interval = DIVIDE_ROUND(total, LE_HOP_CHANNELS * LE_BASECLK);
+		interval = LE_DIVIDE_ROUND(total, LE_HOP_CHANNELS * LE_BASECLK);
 
 		/* Nothing outside the range a connection interval may take is
 		 * one. That rules out every pattern totalling less than the
@@ -3800,7 +3827,7 @@ static u16 promisc_interval(void) {
 		unit = interval * LE_BASECLK;
 		for (i = 0; i < period; ++i) {
 			u32 gap = promisc_gap_back(i);
-			u32 events = DIVIDE_ROUND(gap, unit);
+			u32 events = LE_DIVIDE_ROUND(gap, unit);
 
 			if (events < 1 || events > LE_HOP_CHANNELS)
 				return 0;
@@ -3814,9 +3841,164 @@ static u16 promisc_interval(void) {
 	return 0;
 }
 
+/*
+ * How many sightings in a row the estimator above gets to itself before an
+ * algorithm-2 search runs, and again between one search and the next.
+ *
+ * A search leaves the receiver deaf while it runs, so the two sightings either
+ * side of one are not neighbours and the gap between them is not a gap between
+ * consecutive returns. The estimator above reads the pattern the gaps repeat
+ * and needs a run of consecutive ones: two runs of the longest pattern it
+ * looks for, so 16 gaps, the pattern being capped at half the ring, and then
+ * five more reports that agree, so 21. Both estimators start again after every
+ * search, so this has to be more than that or a connection the estimator
+ * above could have settled on would never get the chance.
+ */
+#define LE_PROMISC_CSA2_RUN 40
+
+/*
+ * Throw away what both estimators have collected and start again from the
+ * next sighting.
+ *
+ * Both read a run of gaps between consecutive returns to this channel: the one
+ * above looks for the pattern they repeat, and the algorithm-2 search adds
+ * them up to say how many connection events apart the sightings are. So
+ * anything that breaks the run has to empty them, not just leave a gap out.
+ * A ring with a gap missing from the middle is still a chain of numbers that
+ * add up, and every sighting older than the hole then looks nearer the newest
+ * than it was: the search finds the counter that explains those offsets,
+ * scores it well, and adopts an answer that puts the follow on the wrong
+ * channel for every event. Nothing in the answer says so; the capture simply
+ * comes back empty.
+ *
+ * Clearing the stamp is what makes the next sighting an anchor rather than the
+ * end of a gap measured across the break.
+ */
+static void promisc_restart_estimators(void) {
+	le_promisc.gap_count = 0;
+	le_promisc.csa2_gap_count = 0;
+	le_promisc.sightings = 0;
+	le_promisc.consec_intervals = 0;
+	le_promisc.seen_a_packet = 0;
+	le.conn_interval = 0;
+}
+
+/* Add a gap to the algorithm-2 ring, dropping the oldest. */
+static void promisc_csa2_note_gap(u32 gap) {
+	unsigned i;
+
+	if (le_promisc.csa2_gap_count < LE_CSA2_SIGHTINGS - 1) {
+		le_promisc.csa2_gap[le_promisc.csa2_gap_count++] = gap;
+		return;
+	}
+
+	for (i = 0; i + 1 < LE_CSA2_SIGHTINGS - 1; ++i)
+		le_promisc.csa2_gap[i] = le_promisc.csa2_gap[i + 1];
+	le_promisc.csa2_gap[LE_CSA2_SIGHTINGS - 2] = gap;
+}
+
+/*
+ * Search for a connection hopping with channel selection algorithm 2 in the
+ * sightings collected so far, and follow it if the search finds one. Returns
+ * whether it did.
+ *
+ * `sighting` is the capture clock at the packet that has just arrived, which
+ * is the event the search's answer belongs to. The search takes a couple of
+ * hundred milliseconds, so the clock is read again afterwards and the event
+ * counter carried forward over the events that went by in the meantime.
+ */
+static int promisc_try_csa2(u32 sighting) {
+	le_csa2_recovery_t rec;
+	le_csa2_handoff_t handoff;
+	u32 now, elapsed;
+
+	if (!le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
+			btle_channel_index(channel), le.access_address, &rec))
+		return 0;
+
+	now = CLK100NS;
+	elapsed = now >= sighting ? now - sighting
+			: (CLK100NS_PERIOD - sighting) + now;
+
+	/* Where the follow's first hop lands against the connection's real
+	 * event boundary.
+	 *
+	 * Everything that rounds here rounds early. The wait le_csa2_handoff()
+	 * returns is rounded down to the interval timer's 1.25 ms, and the
+	 * timer counts on a grid taken from conn_epoch, which is read below:
+	 * its first tick falls within 1.25 ms of that reading, so the
+	 * countdown finishes up to 0.3125 ms before the wait asked for and
+	 * never after it.
+	 *
+	 * So the hop is between about 1.6 ms early and however deep in its own
+	 * event the sighting was. That depth is the part nothing here can
+	 * bound or correct -- see LE_CSA2_SIGHTING_SPREAD -- and at the far end
+	 * of it the receiver tunes a third of the way into a 7.5 ms event and
+	 * misses the central's packet of every event the follow then hops to.
+	 * Which packets of an event this follow hears is therefore settled
+	 * here and never revisited. */
+	if (!le_csa2_handoff(&rec, elapsed, &handoff))
+		return 0;
+
+	le.conn_interval = rec.conn_interval;
+	le.chan_sel_2 = 1;
+	le.event_counter = handoff.event_counter;
+	/* The follow compares a connection update's instant against this, and
+	 * an instant is an event counter. */
+	le.conn_count = handoff.conn_count;
+	le.conn_epoch = clkn;
+	le.interval_timer = handoff.interval_timer;
+	do_hop = 0;
+	le.link_state = LINK_CONNECTED;
+	le.crc_verify = 0;
+	hop_mode = HOP_BTLE;
+	packet_cb = connection_follow_cb;
+
+	le_promisc_state(2, &le.conn_interval, 2);
+	/* The counter the follow starts on, not the one the search answered
+	 * with: the search's answer belongs to a sighting a few hundred
+	 * milliseconds old, and this is the figure a reader can line up
+	 * against the connection. */
+	le_promisc_state(4, &le.event_counter, 2);
+
+	if (jam_mode != JAM_NONE)
+		le_jam_count = JAM_COUNT_DEFAULT;
+
+	return 1;
+}
+
 void promisc_recover_hop_interval(u8 *packet) {
-	u32 cur_clk = CLK100NS;
-	u32 measured, clk_diff;
+	/*
+	 * When the packet arrived, not when this ran.
+	 *
+	 * idle_buf_clk100ns is stamped by the transfer's own interrupt, as the
+	 * four bytes after the access address come in: one byte of preamble,
+	 * four of access address, and those four, so 72 microseconds into the
+	 * packet on the 1M PHY, plus whatever a higher-priority interrupt
+	 * delays the handler by. Reading the clock here instead would be after
+	 * the whole PDU has arrived and been dewhitened and checked, which is
+	 * 2.1 ms later for the longest packet the PHY carries.
+	 *
+	 * That matters most for the last sighting before an algorithm-2
+	 * search, because the follow is anchored on it and nothing re-anchors
+	 * it afterwards: a stamp taken a packet's length late puts every hop
+	 * of that follow that far past its connection event's start and keeps
+	 * it there, so the start of every event is missed. It also keeps the
+	 * gaps a packet's length apart from the connection's own grid, which
+	 * both estimators then have to allow for.
+	 *
+	 * The receive transfer is disarmed before the callback runs, so no
+	 * later packet can have overwritten the stamp.
+	 *
+	 * CLKN is still read here. It only has to say whether the gap is
+	 * longer than the capture clock's whole 327-second period, and the
+	 * few milliseconds between the stamp and this line cannot change
+	 * that.
+	 */
+	u32 cur_clk = idle_buf_clk100ns;
+	u32 cur_clkn = clkn;
+	u32 measured, since_packet, clk_diff;
+	int same_event;
 	u16 obsv_hop_interval; // observed hop interval
 
 	/* The first packet of a pass is the start of the measurement, not the
@@ -3824,6 +4006,19 @@ void promisc_recover_hop_interval(u8 *packet) {
 	if (!le_promisc.seen_a_packet) {
 		le_promisc.seen_a_packet = 1;
 		le_promisc.prev_clk = cur_clk;
+		le_promisc.prev_clkn = cur_clkn;
+		le_promisc.last_clk = cur_clk;
+		return;
+	}
+
+	/* Longer than the capture clock's whole period, which the undoing
+	 * below can only put back once: a gap of a period and a bit comes out
+	 * as the bit, and a short gap that long is a lie the search would take
+	 * for a real one. CLKN counts the same time and does not come round
+	 * again for a fortnight, so it is the one that can tell. */
+	if (cur_clkn - le_promisc.prev_clkn > CLK100NS_PERIOD /
+			CLK100NS_PER_CLKN) {
+		promisc_restart_estimators();
 		return;
 	}
 
@@ -3832,27 +4027,96 @@ void promisc_recover_hop_interval(u8 *packet) {
 		measured += CLK100NS_PERIOD; // handle rollover
 	clk_diff = measured - le_promisc.prev_clk;
 
-	/* Shorter than one connection interval, so both packets belong to the
-	 * same connection event -- the central's and the peripheral's halves
-	 * of one exchange, or a second exchange in the same event. That is not
-	 * a visit to this channel, and the sighting does not become the one the
-	 * next gap is measured from either: the event's first packet is where
-	 * the connection's own grid is. */
-	if (clk_diff < LE_MIN_CONN_INTERVAL * LE_BASECLK)
+	/*
+	 * Does this packet start a connection event, or continue the one now
+	 * running?
+	 *
+	 * Two packets of one event are no further apart than
+	 * LE_SAME_EVENT_GAP: the longest packet the radio can be waiting for,
+	 * and the gap the specification puts before the answer to it. So a
+	 * packet closer than that to the one before it is the peripheral's
+	 * answer, or another exchange of the same event, and a packet further
+	 * away is the first of its own event.
+	 *
+	 * Both halves of that matter, and each was wrong on its own.
+	 *
+	 * Measuring from the last packet taken as an event's start, rather
+	 * than from the previous packet, let a busy event start events of its
+	 * own: an event of several exchanges runs longer than the threshold,
+	 * so part way through it a packet was taken for the start of the next
+	 * one, as much as a threshold's worth into the real event.
+	 *
+	 * And the threshold cannot be the shortest connection interval. At
+	 * that interval the previous event's answer and the next event's first
+	 * packet are less than one interval apart, so with the two measured
+	 * from each other every packet after the first would read as a
+	 * continuation and no sighting would ever be recorded again -- for the
+	 * algorithm-1 route as much as this one.
+	 *
+	 * What is left over: the board may miss the packets before the one it
+	 * hears, which puts the sighting deeper into its event than this
+	 * allows for, and the search's allowances are wide enough to take the
+	 * resulting gap for a whole number of intervals rather than refuse it.
+	 * Every older offset then shifts and the winning score falls, which is
+	 * why a wrong counter still cannot be adopted.
+	 * LE_CSA2_SIGHTING_SPREAD says the rest.
+	 *
+	 * And the other way round: an event dense enough to run to within
+	 * LE_SAME_EVENT_GAP of the next event's start swallows that event's
+	 * first packet. That one is harmless -- it is a return nobody heard,
+	 * which both estimators already allow for, and the gap it leaves is
+	 * still a whole number of intervals.
+	 *
+	 * The rollover is undone against the previous packet's own stamp here,
+	 * not against the reading taken for the gap above: that one is undone
+	 * against the start of the event before, which may be on the far side
+	 * of the wrap, and a continuation would then look a whole clock period
+	 * away and be recorded as a sighting with a gap of microseconds.
+	 *
+	 * A packet this leaves out is not lost: the capture still records it.
+	 * What is being collected here is only the timing of the connection's
+	 * returns to this channel.
+	 */
+	since_packet = cur_clk;
+	if (since_packet < le_promisc.last_clk)
+		since_packet += CLK100NS_PERIOD; // handle rollover
+	same_event = since_packet - le_promisc.last_clk < LE_SAME_EVENT_GAP;
+	le_promisc.last_clk = cur_clk;
+	if (same_event)
 		return;
 
 	/* The clock reading, not the value the rollover was undone on: that
 	 * one is above the clock's range, so the next sighting would measure a
 	 * gap from a time the clock never shows. */
 	le_promisc.prev_clk = cur_clk;
+	le_promisc.prev_clkn = cur_clkn;
 
 	/* Longer than a trip round the channels at the longest interval the
 	 * specification allows. The connection was away, or the clock wrapped
-	 * more than once: either way the gap says nothing, for or against. */
-	if (clk_diff > LE_PROMISC_MAX_GAP)
+	 * more than once: either way the gap says nothing, for or against, and
+	 * the two sightings it lies between are not neighbours. */
+	if (clk_diff > LE_PROMISC_MAX_GAP) {
+		promisc_restart_estimators();
 		return;
+	}
 
 	promisc_note_gap(clk_diff);
+	promisc_csa2_note_gap(clk_diff);
+	++le_promisc.sightings;
+
+	if (le_promisc.sightings >= LE_PROMISC_CSA2_RUN &&
+			le_promisc.csa2_gap_count == LE_CSA2_SIGHTINGS - 1) {
+		if (promisc_try_csa2(cur_clk))
+			return;
+
+		/* The search was deaf while it ran, so the next gap spans it
+		 * and the sightings either side of it are not neighbours.
+		 * Starting again also means the next search works from
+		 * sightings this one has not already turned down. */
+		promisc_restart_estimators();
+		return;
+	}
+
 	obsv_hop_interval = promisc_interval();
 
 	if (obsv_hop_interval == 0) {
@@ -3880,11 +4144,48 @@ void promisc_recover_hop_interval(u8 *packet) {
 	}
 }
 
+/*
+ * An empty data PDU's header, with the two sequence bits masked off.
+ *
+ * CRCInit is worked out backwards from the CRC of a packet whose contents are
+ * known, and an empty data PDU is the one packet of a connection whose
+ * contents can be known without it: two header bytes and nothing else. Its
+ * header is LLID 1 with a payload length of zero, and the acknowledgment bits
+ * -- next expected sequence number and sequence number -- are whatever the
+ * connection's traffic has made them, so they are masked out and the rest is
+ * compared.
+ *
+ * The bits above those are required clear, and that is deliberate restraint
+ * rather than a rule of the protocol. The more-data bit is as free as the
+ * acknowledgment bits, and the bit above it carries constant-tone information
+ * from Core 5.2 onwards. Both could be masked out too, and a connection whose
+ * empty PDUs set the more-data bit would then be recovered sooner. But this
+ * comparison runs before there is a CRC to check a candidate against, so every
+ * bit left in it is what stands between a false synchronization on noise and a
+ * CRCInit worked out from nothing -- which the mode has no way back from.
+ * Widening it is a measurement for another change.
+ *
+ * Reading them as part of the header is what the mode did, and it meant
+ * waiting for an empty PDU that happened to carry both bits clear. On a
+ * connection with data flowing that is one empty PDU in a few hundred: of
+ * 2666 the board heard from a 50 ms link between two development boards, ten
+ * had both bits clear. So everything the mode recovers after the access
+ * address -- the CRCInit, the connection interval, the hop increment, the
+ * algorithm-2 search -- waited on luck, and a capture could run for minutes
+ * and report nothing more. The access-address half of the mode has always
+ * accepted all four headers.
+ */
+#define LE_EMPTY_PDU_HEADER_MASK 0xf3
+#define LE_EMPTY_PDU_HEADER 0x01
+
 void promisc_follow_cb(u8 *packet) {
 	int i;
 
 	// get the CRCInit
-	if (!le.crc_verify && packet[4] == 0x01 && packet[5] == 0x00) {
+	if (!le.crc_verify &&
+			(packet[4] & LE_EMPTY_PDU_HEADER_MASK) ==
+					LE_EMPTY_PDU_HEADER &&
+			packet[5] == 0x00) {
 		u32 crc = (packet[8] << 16) | (packet[7] << 8) | packet[6];
 
 		le.crc_init = btle_reverse_crc(crc, packet + 4, 2);

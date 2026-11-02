@@ -51,6 +51,14 @@ typedef struct _le_state_t {
     u8 channel_idx;             // current channel index
     u8 channel_increment;       // amount to hop
 
+    /* Set when the connection hops with channel selection algorithm 2, which
+     * has no hop increment: each event's channel comes from the access
+     * address and the event counter below. Promiscuous recovery sets both
+     * once it has worked the counter out; a connection followed from its
+     * setup is handled by le_phy.c, which keeps its own copy. */
+    u8 chan_sel_2;
+    u16 event_counter;          // the counter of the next connection event
+
     u32 conn_epoch;             // reference time for the start of the connection
     u16 volatile interval_timer;// number of intervals remaining before next hop
     u16 conn_interval;          // connection-specific hop interval
@@ -128,6 +136,195 @@ void le_parse_channel_map(uint8_t *channel_map, le_channel_remapping_t *remappin
 uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping);
 uint8_t le_csa2_channel(uint16_t event_counter, uint32_t access_address,
                         le_channel_remapping_t *remapping);
+uint8_t le_csa2_unmapped_channel(uint16_t event_counter,
+                                 uint32_t access_address);
+
+/* Divide, rounding to the nearest integer: round up at 0.5. */
+#define LE_DIVIDE_ROUND(N, D) (((N) + (D)/2) / (D))
+
+/* 1.25 ms, the unit a connection interval is counted in, in the 100 ns ticks
+ * the capture clock counts. The same number as LE_BASECLK in
+ * ubertooth_clock.h, written again here so that this file's arithmetic needs
+ * none of the clock's hardware; test_promisc_csa2.c fails if the two differ. */
+#define LE_CONN_INTERVAL_TICKS 12500
+
+/* The longest gap that can be a trip round the channels: 37 channels at the
+ * longest connection interval, 148 s. Anything longer is not the connection
+ * coming back. It is also what bounds the arithmetic below, where a gap is
+ * multiplied back out of the events it spans. */
+#define LE_PROMISC_MAX_GAP \
+	((u32)LE_HOP_CHANNELS * LE_MAX_CONN_INTERVAL * LE_CONN_INTERVAL_TICKS)
+
+u32 le_gap_tolerance(u32 span);
+int le_same_span(u32 a, u32 b);
+
+/*
+ * How far apart two packets of one connection event can be, in the 100 ns
+ * ticks the capture clock counts: the longest packet the 1M PHY carries,
+ * 2.1 ms, and the 150 microsecond gap the specification puts between a packet
+ * and the answer to it. 2.5 ms rounds that up.
+ *
+ * This is what tells a packet of the event now running from the first packet
+ * of the next one, which is what a sighting has to be. It cannot be the
+ * shortest connection interval: a busy event runs longer than that, so part
+ * way through one such event a packet would be taken for the start of the
+ * next.
+ */
+#define LE_SAME_EVENT_GAP 25000u
+/* 261 bytes is the longest packet the 1M PHY carries -- preamble, access
+ * address, header, 251 payload bytes and CRC -- at 8 microseconds a byte, and
+ * 1500 ticks is the 150 microsecond gap before the answer to it. */
+_Static_assert(LE_SAME_EVENT_GAP >= 261u * 80u + 1500u,
+               "two packets of one connection event can be further apart "
+               "than this");
+
+/*
+ * How late a sighting usually is against the start of the connection event it
+ * belongs to, in the same ticks.
+ *
+ * A sighting is stamped when the four bytes after a packet's access address
+ * have arrived, which is 72 microseconds into the packet on the 1M PHY: one
+ * byte of preamble, four of access address, and those four. So what sets this
+ * figure is which packet of an event the board heard, not how long that
+ * packet is.
+ *
+ * The central's packet starts the event, so a sighting on it is 0.07 ms late.
+ * The peripheral's answer starts 150 microseconds after the central's packet
+ * ends, and the central's packet is up to 2.1 ms long, so a sighting on the
+ * answer is up to 2.32 ms late. 2.5 ms covers both, which is why it is the
+ * same number as LE_SAME_EVENT_GAP above.
+ *
+ * It is not a bound the collector can guarantee, and nothing here claims one.
+ * A sighting is the first packet of its event that the board heard, and the
+ * board may have missed the ones before it -- a length the capture refused, a
+ * CRC that failed, or simply a packet the radio was not ready for. Then the
+ * sighting is as deep into its event as those packets went. What follows is
+ * degradation, not a wrong answer. The allowances below are wide enough that
+ * such a gap is usually taken for a whole number of connection intervals
+ * rather than refused, so every older sighting's offset shifts and the winning
+ * score falls: a wrong counter still cannot reach the bar, and the search
+ * declines instead. And a follow anchored that deep into an event misses the
+ * start of every event it then hops to. Open findings on the pull request
+ * track the second of those.
+ *
+ * Two things rest on the figure. The gap between two sightings is not an exact
+ * number of connection intervals even with a clock that keeps perfect time, so
+ * the search allows for the difference on top of the clock's own; and the
+ * follow the search hands over to is anchored on the newest sighting.
+ *
+ * It has to stay under half the shortest interval, 3.75 ms. Two sightings each
+ * this late can put a gap that much either side of a whole number of
+ * connection intervals, and past half an interval the whole number nearest the
+ * gap is no longer the number of events it really spans -- which is the one
+ * step of the search that has no way of noticing it went wrong. Nothing else
+ * in the arithmetic would complain, so the bound is checked here rather than
+ * left as a remark.
+ */
+#define LE_CSA2_SIGHTING_SPREAD 25000u
+_Static_assert(2 * LE_CSA2_SIGHTING_SPREAD <
+               (unsigned)LE_MIN_CONN_INTERVAL * LE_CONN_INTERVAL_TICKS,
+               "a sighting may be more than half a connection interval late");
+_Static_assert(LE_SAME_EVENT_GAP <= LE_CSA2_SIGHTING_SPREAD,
+               "a sighting can be later than the search allows for");
+
+/*
+ * Passive recovery of a connection that hops with channel selection
+ * algorithm 2 (Core 5.4, Vol 6, Part B, 4.5.8.3), from packets heard on one
+ * data channel.
+ *
+ * Algorithm 1 is a running sum of a hop increment, so a listener can work the
+ * increment out by timing one hop. Algorithm 2 has no increment: the channel
+ * of a connection event is a hash of the access address and the 16-bit event
+ * counter, reduced to one of the channels the map keeps. The access address
+ * is known by the time this runs, so what is left to find is the connection
+ * interval and where in the counter's range the connection is.
+ *
+ * Both come from the times the connection was heard on the one channel the
+ * mode listens to. Every gap between two sightings is a whole number of
+ * connection intervals, which pins the interval; the gaps then say how many
+ * events apart the sightings are, and the counter is the value that puts the
+ * algorithm's channel on this channel at those events.
+ *
+ * The counter is scored rather than solved. A sighting the predicted sequence
+ * does not account for is a point not scored, not a candidate ruled out: on a
+ * connection using fewer than the 37 channels a sighting may be a visit the
+ * map moved here from a channel it dropped, and those cannot be predicted
+ * without knowing the map. About a map's worth of sightings are still direct
+ * visits, so the right counter outscores every other by a wide margin.
+ */
+
+/* How many sightings the search works from: the more it has, the further the
+ * right counter stands above the best wrong one. */
+#define LE_CSA2_SIGHTINGS 24
+
+/* The most connection events two sightings on one channel may be apart and
+ * still be used. The channel comes up about once in 37 events, so a gap of
+ * several hundred events is the connection having been away rather than a
+ * visit nobody heard, and leaving those out keeps the candidate intervals in
+ * a range worth searching. */
+#define LE_CSA2_MAX_EVENT_GAP 256
+
+/* How many sightings the answer must account for, and by how much it must
+ * beat the best other counter. A wrong counter puts a predicted visit on this
+ * channel about once in 37 events, so these two leave the chance of adopting
+ * one well under a percent. */
+#define LE_CSA2_MIN_SCORE 10
+#define LE_CSA2_MIN_MARGIN 3
+
+/* How many of the gaps the connection interval may fail to account for. A gap
+ * longer than LE_CSA2_MAX_EVENT_GAP events, or one taken across a change of
+ * connection parameters, is such a gap. */
+#define LE_CSA2_INTERVAL_MISSES 5
+
+/*
+ * How many connection events of silence a follow set up by this search is
+ * given before the connection is taken to be over.
+ *
+ * Such a follow has no channel map, so it lands on the right channel only for
+ * the events whose channel the map did not move, and a run of events it cannot
+ * hear says nothing about whether the connection is still there. The runs are
+ * not short: they are a property of the access address and the map rather than
+ * chance. This figure is above the longest such run counted on the real
+ * channel sequences of the connections this search adopts an answer for, with
+ * room to spare (test_promisc_csa2.c counts them again and fails if a run
+ * reaches it).
+ *
+ * So this is what the mode waits on a connection that really has gone: a few
+ * seconds at a short interval, where the five-second floor wins anyway, and
+ * about two minutes at the longest interval a connection can be recovered at.
+ * Waiting is the cheaper mistake -- recovering a connection again from the
+ * access address takes longer than that.
+ *
+ * It is not the cheaper mistake for a connection that is still there and that
+ * the follow has gone deaf to, which nothing in the follow corrects: two
+ * clocks a few tens of parts per million apart cover a millisecond of an
+ * event in under a minute. The mode then holds a follow that will hear
+ * nothing again for this long before starting over. An open finding on the
+ * pull request tracks the re-anchoring that would stop it happening.
+ */
+#define LE_CSA2_SILENCE_EVENTS 64
+
+typedef struct _le_csa2_recovery_t {
+	u16 conn_interval;  /* in units of 1.25 ms, 0 when nothing was found */
+	u16 event_counter;  /* the counter of the newest sighting */
+	u8  sightings;      /* how many the search had to work from */
+	u8  score;          /* how many of them the answer accounts for */
+	u8  runner_up;      /* the best score of any other counter */
+} le_csa2_recovery_t;
+
+uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count);
+int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
+                    u32 access_address, le_csa2_recovery_t *out);
+
+/* Where a follow picks a recovered connection up: see le_csa2_handoff(). */
+typedef struct _le_csa2_handoff_t {
+	u16 event_counter;   /* the counter of the event the follow hops to */
+	u16 conn_count;      /* the follow's own counter, a step behind */
+	u16 interval_timer;  /* units of 1.25 ms to wait before that hop */
+} le_csa2_handoff_t;
+
+int le_csa2_handoff(const le_csa2_recovery_t *rec, u32 elapsed,
+                    le_csa2_handoff_t *out);
 
 /* The longest payload a PDU's length field may claim, which is what the
  * capture loops use to tell a length from noise.
