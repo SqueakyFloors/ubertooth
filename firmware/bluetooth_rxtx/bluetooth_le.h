@@ -159,8 +159,28 @@ u32 le_gap_tolerance(u32 span);
 int le_same_span(u32 a, u32 b);
 
 /*
- * How late a sighting can be against the start of the connection event it
- * belongs to, in the 100 ns ticks the capture clock counts.
+ * How far apart two packets of one connection event can be, in the 100 ns
+ * ticks the capture clock counts: the longest packet the 1M PHY carries,
+ * 2.1 ms, and the 150 microsecond gap the specification puts between a packet
+ * and the answer to it. 2.5 ms rounds that up.
+ *
+ * This is what tells a packet of the event now running from the first packet
+ * of the next one, which is what a sighting has to be. It cannot be the
+ * shortest connection interval: a busy event runs longer than that, so part
+ * way through one such event a packet would be taken for the start of the
+ * next.
+ */
+#define LE_SAME_EVENT_GAP 25000u
+/* 261 bytes is the longest packet the 1M PHY carries -- preamble, access
+ * address, header, 251 payload bytes and CRC -- at 8 microseconds a byte, and
+ * 1500 ticks is the 150 microsecond gap before the answer to it. */
+_Static_assert(LE_SAME_EVENT_GAP >= 261u * 80u + 1500u,
+               "two packets of one connection event can be further apart "
+               "than this");
+
+/*
+ * How late a sighting usually is against the start of the connection event it
+ * belongs to, in the same ticks.
  *
  * A sighting is stamped when the four bytes after a packet's access address
  * have arrived, which is 72 microseconds into the packet on the 1M PHY: one
@@ -171,13 +191,24 @@ int le_same_span(u32 a, u32 b);
  * The central's packet starts the event, so a sighting on it is 0.07 ms late.
  * The peripheral's answer starts 150 microseconds after the central's packet
  * ends, and the central's packet is up to 2.1 ms long, so a sighting on the
- * answer is up to 2.1 + 0.15 + 0.07 = 2.32 ms late. 2.5 ms covers both.
+ * answer is up to 2.32 ms late. 2.5 ms covers both, which is why it is the
+ * same number as LE_SAME_EVENT_GAP above.
  *
- * Two things rest on it. The gap between two sightings is not an exact number
- * of connection intervals even with a clock that keeps perfect time, so the
- * search allows for the difference on top of the clock's own; and the follow
- * the search hands over to is anchored on the newest sighting, so this is
- * also how far past a connection event's start that follow can begin.
+ * It is not a bound the collector can guarantee, and nothing here claims one.
+ * A sighting is the first packet of its event that the board heard, and the
+ * board may have missed the ones before it -- a length the capture refused, a
+ * CRC that failed, or simply a packet the radio was not ready for. Then the
+ * sighting is as deep into its event as those packets went. What follows is
+ * degradation, not a wrong answer: a gap that is not a whole number of
+ * connection intervals is where the search's walk back stops, so it works
+ * from a shorter run, and a follow anchored that deep into an event misses
+ * the start of every event it then hops to. Open findings on the pull request
+ * track both.
+ *
+ * Two things rest on the figure. The gap between two sightings is not an exact
+ * number of connection intervals even with a clock that keeps perfect time, so
+ * the search allows for the difference on top of the clock's own; and the
+ * follow the search hands over to is anchored on the newest sighting.
  *
  * It has to stay under half the shortest interval, 3.75 ms, or the number of
  * events a gap spans would stop being the nearest whole number. The whole
@@ -188,6 +219,8 @@ int le_same_span(u32 a, u32 b);
 _Static_assert(2 * LE_CSA2_SIGHTING_SPREAD <
                (unsigned)LE_MIN_CONN_INTERVAL * LE_CONN_INTERVAL_TICKS,
                "a sighting may be more than half a connection interval late");
+_Static_assert(LE_SAME_EVENT_GAP <= LE_CSA2_SIGHTING_SPREAD,
+               "a sighting can be later than the search allows for");
 
 /*
  * Passive recovery of a connection that hops with channel selection

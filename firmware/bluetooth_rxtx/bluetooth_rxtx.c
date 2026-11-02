@@ -4021,37 +4021,44 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 * Does this packet start a connection event, or continue the one now
 	 * running?
 	 *
-	 * Connection events are at least LE_MIN_CONN_INTERVAL apart, so a
-	 * packet that follows that much silence is the first of its event. One
-	 * that follows the previous packet sooner is a later packet of the
-	 * same event: the peripheral's answer, or another exchange where the
-	 * central asked for more.
+	 * Two packets of one event are no further apart than
+	 * LE_SAME_EVENT_GAP: the longest packet the radio can be waiting for,
+	 * and the gap the specification puts before the answer to it. So a
+	 * packet closer than that to the one before it is the peripheral's
+	 * answer, or another exchange of the same event, and a packet further
+	 * away is the first of its own event.
 	 *
-	 * The silence is measured from the previous packet, whatever it was,
-	 * and not from the last packet taken as an event's start. A busy event
-	 * can run longer than the shortest connection interval -- two
-	 * exchanges of full-length packets take about 9 ms against that 7.5 ms
-	 * -- and measured from the event's start, every 7.5 ms of such an
-	 * event started an event of its own, as much as 10 ms into the real
-	 * one. Two things followed from that. The run of gaps gained spans
-	 * that are not a whole number of connection intervals, which the
-	 * search walks back to and stops at, so it worked from a shorter run
-	 * than it had collected; and the follow was anchored wherever the last
-	 * of those false starts happened to fall, far outside the
-	 * LE_CSA2_SIGHTING_SPREAD its arithmetic allows for.
+	 * Both halves of that matter, and each was wrong on its own.
 	 *
-	 * Measured against the reading the rollover has been undone on, so a
+	 * Measuring from the last packet taken as an event's start, rather
+	 * than from the previous packet, let a busy event start events of its
+	 * own: an event of several exchanges runs longer than the threshold,
+	 * so part way through it a packet was taken for the start of the next
+	 * one, as much as a threshold's worth into the real event.
+	 *
+	 * And the threshold cannot be the shortest connection interval. At
+	 * that interval the previous event's answer and the next event's first
+	 * packet are less than one interval apart, so with the two measured
+	 * from each other every packet after the first would read as a
+	 * continuation and no sighting would ever be recorded again -- for the
+	 * algorithm-1 route as much as this one.
+	 *
+	 * What is left over: the board may miss the packets before the one it
+	 * hears, which puts the sighting deeper into its event than this
+	 * allows for. LE_CSA2_SIGHTING_SPREAD says what that costs.
+	 *
+	 * Measured against the reading the rollover has been undone on. A
 	 * continuation arriving just after the capture clock has come round
-	 * reads as a long silence and is taken for an event's start. That
-	 * costs one sighting every 327 s at worst, and the run it breaks is
-	 * started again rather than taken across the break.
+	 * therefore reads as a long silence and is taken for an event's start,
+	 * which puts one gap in the run that is not a whole number of
+	 * intervals. That happens once every 327 s at worst, and it is where
+	 * the search's walk back stops rather than an answer that is wrong.
 	 *
 	 * A packet this leaves out is not lost: the capture still records it.
 	 * What is being collected here is only the timing of the connection's
 	 * returns to this channel.
 	 */
-	same_event = measured - le_promisc.last_clk <
-			(u32)LE_MIN_CONN_INTERVAL * LE_BASECLK;
+	same_event = measured - le_promisc.last_clk < LE_SAME_EVENT_GAP;
 	le_promisc.last_clk = cur_clk;
 	if (same_event)
 		return;
@@ -4121,13 +4128,20 @@ void promisc_recover_hop_interval(u8 *packet) {
  * CRCInit is worked out backwards from the CRC of a packet whose contents are
  * known, and an empty data PDU is the one packet of a connection whose
  * contents can be known without it: two header bytes and nothing else. Its
- * header is LLID 1 with a payload length of zero. Three of its other bits are
- * whatever the connection's traffic has made them -- the two acknowledgment
- * bits, next expected sequence number and sequence number, and the more-data
- * bit, which an empty PDU sets to hold the connection event open -- so those
- * are masked out and the rest is compared. The three bits above them are
- * reserved and have to be clear, which is worth keeping as a check that this
- * is a header at all.
+ * header is LLID 1 with a payload length of zero, and the acknowledgment bits
+ * -- next expected sequence number and sequence number -- are whatever the
+ * connection's traffic has made them, so they are masked out and the rest is
+ * compared.
+ *
+ * The bits above those are required clear, and that is deliberate restraint
+ * rather than a rule of the protocol. The more-data bit is as free as the
+ * acknowledgment bits, and the bit above it carries constant-tone information
+ * from Core 5.2 onwards. Both could be masked out too, and a connection whose
+ * empty PDUs set the more-data bit would then be recovered sooner. But this
+ * comparison runs before there is a CRC to check a candidate against, so every
+ * bit left in it is what stands between a false synchronization on noise and a
+ * CRCInit worked out from nothing -- which the mode has no way back from.
+ * Widening it is a measurement for another change.
  *
  * Reading them as part of the header is what the mode did, and it meant
  * waiting for an empty PDU that happened to carry both bits clear. On a
@@ -4139,7 +4153,7 @@ void promisc_recover_hop_interval(u8 *packet) {
  * and report nothing more. The access-address half of the mode has always
  * accepted all four headers.
  */
-#define LE_EMPTY_PDU_HEADER_MASK 0xe3
+#define LE_EMPTY_PDU_HEADER_MASK 0xf3
 #define LE_EMPTY_PDU_HEADER 0x01
 
 void promisc_follow_cb(u8 *packet) {

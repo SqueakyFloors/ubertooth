@@ -123,11 +123,15 @@ longer. Five seconds is the longer of the two for any interval under about
 78 ms, which is most connections; the 64 intervals are what matters on a slow
 one, where they can be minutes.
 
-Two limits are worth knowing. The search needs a run of about forty visits to
-the channel being listened on, and a connection at the longest interval the
+Three limits are worth knowing. The search needs a run of about forty visits
+to the channel being listened on, and a connection at the longest interval the
 specification allows, 4 s, comes back to one channel so rarely that the board
 cannot time the gaps: at that interval no run is collected and nothing is
-recovered. And the interval it reports is the one the board's clock measured,
+recovered. A connection whose channel map keeps less than about a third of the
+37 channels is out of reach as well: too many of the visits the board hears
+are events the map moved to this channel, which no event counter predicts, so
+the search never gets a winner clear enough to adopt. And the interval it
+reports is the one the board's clock measured,
 which at a long interval can be a unit of 1.25 ms away from the figure the
 connection was given, because the two clocks differ by a few hundred parts
 per million.

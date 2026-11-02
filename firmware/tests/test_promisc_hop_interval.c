@@ -359,6 +359,11 @@ static int scan_sources(struct scan *out)
 /* The range a connection interval may take, in units of 1.25 ms, from
  * bluetooth_le.h. */
 #define LE_MIN_CONN_INTERVAL 6
+
+/* LE_SAME_EVENT_GAP, as bluetooth_le.h has it: the longest two packets of one
+ * connection event can be apart, which is what the estimator tells a
+ * continuation from the first packet of the next event by. */
+#define LE_SAME_EVENT_GAP 25000u
 #define LE_MAX_CONN_INTERVAL 3200
 
 struct estimator {
@@ -508,13 +513,12 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 		measured += period;
 	clk_diff = measured - e->prev_clk;
 
-	/* Closer to the packet before it than one connection interval, so it
-	 * is a later packet of the event now running rather than the start of
-	 * the next one. Measured from the previous packet, whatever it was, so
-	 * that a busy event running longer than the shortest interval does not
-	 * start an event of its own part way through. */
-	if (measured - e->last_clk <
-			LE_MIN_CONN_INTERVAL * (uint32_t)s.le_baseclk) {
+	/* Closer to the packet before it than two packets of one event can be,
+	 * so it is a later packet of the event now running rather than the
+	 * start of the next one. Measured from the previous packet, whatever
+	 * it was, so that a busy event does not start an event of its own part
+	 * way through. */
+	if (measured - e->last_clk < LE_SAME_EVENT_GAP) {
 		e->last_clk = cur_clk;
 		return e->conn_interval;
 	}
@@ -777,18 +781,18 @@ MU_TEST(test_packets_from_one_connection_event_are_ignored)
 	trips(&e, &at, 16, 2);
 	mu_assert_int_eq(2, seen_count(&e, gap));
 
-	/* A second packet 1 ms later, and a second exchange 5 ms after that:
-	 * the same connection event both times. */
+	/* The answer 1 ms later, and a second exchange 2.2 ms after that: the
+	 * same connection event both times. */
 	at += 10000u;
 	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
-	at += 50000u;
+	at += 22000u;
 	mu_assert_int_eq(16, a_packet_at(&e, at, firmware_period()));
 	mu_assert_int_eq(0, seen_count(&e, 10000u));
-	mu_assert_int_eq(0, seen_count(&e, 50000u));
+	mu_assert_int_eq(0, seen_count(&e, 32000u));
 
 	/* The next event's packet is a trip measured from the first packet of
 	 * the event before it, not from the extras inside it. */
-	at -= 60000u;
+	at -= 32000u;
 	mu_assert_int_eq(16, trips(&e, &at, 16, 1));
 	mu_assert_int_eq(3, seen_count(&e, gap));
 }
@@ -821,16 +825,16 @@ MU_TEST(test_a_busy_event_is_still_one_event)
 	trips(&e, &at, 40, 2);
 	mu_assert_int_eq(2, seen_count(&e, gap));
 
-	/* Five exchanges of full-length packets, 4.5 ms apart, so the event
-	 * runs 18 ms: longer than the 7.5 ms filter, and well inside the
-	 * connection's own 50 ms. */
+	/* Eight full-length packets back to back, each 2.25 ms after the one
+	 * before it, so the event runs 18 ms: far longer than the shortest
+	 * connection interval, and well inside this connection's own 50 ms. */
 	start = at;
-	for (i = 1; i <= 5; i++) {
-		at = start + i * 45000u;
+	for (i = 1; i <= 8; i++) {
+		at = start + i * 22500u;
 		mu_assert_int_eq(40, a_packet_at(&e, at, firmware_period()));
 	}
+	mu_assert_int_eq(0, seen_count(&e, 22500u));
 	mu_assert_int_eq(0, seen_count(&e, 90000u));
-	mu_assert_int_eq(0, seen_count(&e, 45000u));
 	mu_assert_int_eq(2, e.gap_count);
 
 	/* The next visit is a trip measured from the first packet of the busy
@@ -838,6 +842,60 @@ MU_TEST(test_a_busy_event_is_still_one_event)
 	at = start + gap;
 	mu_assert_int_eq(40, a_packet_at(&e, at, firmware_period()));
 	mu_assert_int_eq(3, seen_count(&e, gap));
+}
+
+/*
+ * Two connection events in a row on this channel, at the shortest interval a
+ * connection may use. A reduced channel map puts them there: it moves the
+ * events of the channels it dropped onto the channels it kept, so one channel
+ * can come up twice running.
+ *
+ * Then the answer of the first event and the first packet of the second are
+ * less than one connection interval apart, and the second still has to be a
+ * sighting. This is why the threshold is the longest two packets of one event
+ * can be apart and not one connection interval: measured from the previous
+ * packet against a threshold of one interval, the second event's packet would
+ * read as a continuation of the first, the chain would never end, and nothing
+ * would be recorded again.
+ *
+ * Two offsets for the answer: just after its event's start, as an empty PDU
+ * gives, and 2.34 ms in, as an answer to a full-length packet gives.
+ */
+MU_TEST(test_two_events_in_a_row_are_two_sightings)
+{
+	static const uint32_t answer_at[2] = { 3000u, 23400u };
+	uint32_t unit = LE_MIN_CONN_INTERVAL * 12500u;
+	unsigned k;
+
+	for (k = 0; k < 2; k++) {
+		struct estimator e;
+		uint32_t at = 1000000u;
+		char msg[160];
+
+		following_since(&e, at);
+
+		/* The first event and its answer. */
+		at += unit;
+		a_packet_at(&e, at, firmware_period());
+		a_packet_at(&e, at + answer_at[k], firmware_period());
+		mu_assert_int_eq(1, e.gap_count);
+
+		/* The next event, one interval later, and its answer. */
+		at += unit;
+		a_packet_at(&e, at, firmware_period());
+		a_packet_at(&e, at + answer_at[k], firmware_period());
+
+		snprintf(msg, sizeof(msg),
+		         "an answer %lu ticks into its event: %d gaps from two "
+		         "events in a row", (unsigned long)answer_at[k],
+		         e.gap_count);
+		mu_assert(e.gap_count == 2, msg);
+		snprintf(msg, sizeof(msg),
+		         "an answer %lu ticks into its event: %d of the gaps "
+		         "are one connection interval",
+		         (unsigned long)answer_at[k], seen_count(&e, unit));
+		mu_assert(seen_count(&e, unit) == 2, msg);
+	}
 }
 
 /*
@@ -1232,6 +1290,7 @@ int main(void)
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
 	MU_RUN(test_a_busy_event_is_still_one_event);
+	MU_RUN(test_two_events_in_a_row_are_two_sightings);
 	MU_RUN(test_a_reduced_channel_map_still_gives_the_interval);
 	MU_RUN(test_part_of_a_pattern_is_not_the_pattern);
 	MU_RUN(test_a_single_odd_gap_is_not_the_answer);
