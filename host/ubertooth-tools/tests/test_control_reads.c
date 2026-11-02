@@ -125,6 +125,23 @@ static void script_attempts(int first, int second, int third)
 	fake.sequence_len = SEQUENCE_MAX;
 }
 
+/* cmd_get_access_address() is deprecated in favor of
+ * cmd_read_access_address(), but it is still exported and so still needs the
+ * coverage below. The calls go through this one place so the deprecation
+ * warning is switched off once rather than at each of them, and the rest of
+ * the file stays strict. */
+static u32 deprecated_get_access_address(void)
+{
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	return cmd_get_access_address(NULL);
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+}
+
 /* The one-byte reads, each returning the byte as a non-negative int. */
 typedef int (*byte_read)(struct libusb_device_handle *);
 static const struct {
@@ -215,10 +232,10 @@ MU_TEST(four_and_two_byte_reads_need_their_full_length)
 	script(4, 0);
 	fake.reply[0] = 0x78; fake.reply[1] = 0x56; fake.reply[2] = 0x34; fake.reply[3] = 0x12;
 	mu_assert(cmd_get_clock(NULL) == 0x12345678u, "clock");
-	mu_assert(cmd_get_access_address(NULL) == 0x12345678u, "access address");
+	mu_assert(deprecated_get_access_address() == 0x12345678u, "access address");
 	script(3, 0x11);
 	mu_assert(cmd_get_clock(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "short clock");
-	mu_assert(cmd_get_access_address(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "short access address");
+	mu_assert(deprecated_get_access_address() == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "short access address");
 
 	script(2, 0);
 	fake.reply[0] = 0x12; fake.reply[1] = 0x34;
@@ -229,7 +246,7 @@ MU_TEST(four_and_two_byte_reads_need_their_full_length)
 	/* an empty reply, as seen in follow mode */
 	script(0, 0);
 	mu_assert(cmd_get_clock(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "empty clock");
-	mu_assert(cmd_get_access_address(NULL) == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "empty access address");
+	mu_assert(deprecated_get_access_address() == (uint32_t)UBERTOOTH_ERROR_SHORT_REPLY, "empty access address");
 	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY, cmd_read_register(NULL, 0x05));
 }
 
@@ -690,7 +707,7 @@ MU_TEST(no_read_writes_to_standard_output)
 	fake.reply[0] = 0x78; fake.reply[1] = 0x56;
 	fake.reply[2] = 0x34; fake.reply[3] = 0x12;
 	(void)cmd_get_clock(NULL);
-	(void)cmd_get_access_address(NULL);
+	(void)deprecated_get_access_address();
 	script(2, 0);
 	(void)cmd_get_channel(NULL);
 	(void)cmd_read_register(NULL, 0x05);

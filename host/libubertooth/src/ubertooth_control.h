@@ -41,6 +41,25 @@
 
 #include <stdio.h>
 
+/* Marks a declaration as superseded, so a program that still calls it is told
+ * at compile time what to call instead. GCC and Clang have the attribute; on
+ * any other compiler this expands to nothing and the only notice is the
+ * comment above the declaration.
+ *
+ * It lives here rather than in ubertooth.h because both headers have a
+ * declaration that needs it and this is the one ubertooth.h includes. Remove
+ * it along with the last declaration that uses it, so an installed header does
+ * not carry a macro nothing needs. Defined only if the including program has
+ * not defined the name itself, because this header is installed and the name
+ * is a plain one. */
+#ifndef UBERTOOTH_DEPRECATED
+#if defined(__GNUC__) || defined(__clang__)
+#define UBERTOOTH_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#else
+#define UBERTOOTH_DEPRECATED(msg)
+#endif
+#endif
+
 #define u8 uint8_t
 #define u16 uint16_t
 #define u32 uint32_t
@@ -125,9 +144,9 @@ int cmd_set_usrled(struct libusb_device_handle* devh, u16 state);
 
 /* The fixed-size reads below return their value (>= 0), or a negative error:
  * a libusb error, or UBERTOOTH_ERROR_SHORT_REPLY, never a value made from
- * stale bytes. cmd_get_clock() and cmd_get_access_address() return an
- * unsigned value, so an error comes back as that negative code cast to u32;
- * cmd_read_access_address() reports errors separately. */
+ * stale bytes. cmd_get_clock() and the deprecated cmd_get_access_address()
+ * return an unsigned value, so an error comes back as that negative code cast
+ * to u32; cmd_read_access_address() reports errors separately. */
 int cmd_get_usrled(struct libusb_device_handle* devh);
 int cmd_set_rxled(struct libusb_device_handle* devh, u16 state);
 int cmd_get_rxled(struct libusb_device_handle* devh);
@@ -259,7 +278,13 @@ int cmd_clear_afh_map(struct libusb_device_handle* devh);
 int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow);
 /* Returns 0 and writes *access_address, or a negative libusb error. */
 int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_address);
-/* Deprecated: an error is indistinguishable from an address. */
+/* Deprecated: call cmd_read_access_address() above instead, which reports an
+ * error separately from the address. Here a failure comes back as the negative
+ * libusb code cast to u32, and no access address is ruled out, so there is no
+ * value a caller can read as "it did not work". It is still exported, so a
+ * program that calls it builds and links against this release, though a build
+ * with -Werror stops on the warning. */
+UBERTOOTH_DEPRECATED("use cmd_read_access_address()")
 u32 cmd_get_access_address(struct libusb_device_handle* devh);
 int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address);
 int cmd_get_crc_verify(struct libusb_device_handle* devh);
