@@ -359,9 +359,13 @@ starts its serial programmer, which is the one state such a board can be
 recovered from, and it needs a serial adapter wired to the board.
 
 One window is left: a loss of power inside the single program of the first
-sector, after the checksum has reached flash and before the rest of that
-sector has. That is the same window an ordinary firmware write has, and the
-image check block is what narrows it there.
+sector. The vector table is at the start of that sector, so the checksum
+reaches flash first and the window is the whole 4 KiB program, not its tail.
+A board left in it holds a checksum the boot ROM accepts in front of code that
+was never finished, so it starts that code instead of its serial programmer:
+recovering it needs the programming entry pin held as well as the serial
+adapter. Nothing here narrows that window; it is the one state this procedure
+can leave that the write order does not cover.
 
 ## READING FLASH BACK
 

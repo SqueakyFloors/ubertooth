@@ -1036,6 +1036,27 @@ MU_TEST(the_rom_is_called_with_interrupts_off)
 	free(text);
 }
 
+/*
+ * The user flash is asked for at the bottom of the address map before the
+ * region is read. The part maps either the flash or the boot ROM over the
+ * lowest 512 bytes, and both reads of the region start at address 0: the
+ * comparison that decides whether to write, and the ROM's compare of the
+ * first sector afterwards. With the ROM mapped, a board that already holds
+ * this bootloader looks as though it does not, and all four sectors are
+ * erased and written again for nothing.
+ */
+MU_TEST(the_user_flash_is_mapped_before_the_region_is_read)
+{
+	char *text = read_source(FW_BL_UPDATE_DIR "/bl_update_main.c");
+
+	mu_assert_fatal(text != NULL,
+	                "firmware/bl_update/bl_update_main.c would not open");
+	mu_assert(is_assignment_of(text, "MEMMAP", "MEMMAP_USER_FLASH"),
+	          "the updater does not map the user flash, so a read at address "
+	          "0 may see the boot ROM instead of the region");
+	free(text);
+}
+
 /* The board is returned to DFU however the run ended: this image sits in the
  * application region, so a board left running it is a board that cannot be
  * flashed. */
@@ -1084,6 +1105,7 @@ int main(void)
 	MU_RUN(the_image_does_not_arm_the_watchdog);
 	MU_RUN(the_programming_buffer_is_aligned);
 	MU_RUN(the_rom_is_called_with_interrupts_off);
+	MU_RUN(the_user_flash_is_mapped_before_the_region_is_read);
 	MU_RUN(the_board_is_returned_to_dfu);
 	return mu_report();
 }
