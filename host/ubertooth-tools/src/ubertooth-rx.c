@@ -30,6 +30,11 @@
 #include <string.h>
 #include <unistd.h>
 
+/* How many boards one capture may read at once. Each one costs a 72 MB ring
+ * buffer and a USB transfer of its own, and the band holds 79 channels, so
+ * this is only here to stop a mistyped list from asking for hundreds. */
+#define RX_MAX_BOARDS 8
+
 static void usage(FILE *file)
 {
 	fprintf(file, "ubertooth-rx - passive Classic Bluetooth discovery/decode\n");
@@ -50,12 +55,13 @@ static void usage(FILE *file)
 	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
 	fprintf(file, "piconet that uses adapted hopping (AFH), which every controller tested on\n");
 	fprintf(file, "this project's bench does, so following such a piconet does not start. Its\n");
-	fprintf(file, "addresses, and the packets of it this board hears, are still recovered. See\n");
+	fprintf(file, "addresses, and the packets of it the boards hear, are still recovered. See\n");
 	fprintf(file, "ubertooth-rx(1).\n");
 	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
 	fprintf(file, "\t-c <0-%d> set a fixed bluetooth channel [Default: sweep]\n",
 	        NUM_BREDR_CHANNELS - 1);
+	fprintf(file, "\t   - one per board, comma separated, to spread them out\n");
 	fprintf(file, "\t-s sweep all channels - the default; a -c channel wins over it\n");
 	fprintf(file, "\t-e max_ac_errors (default: %d, range: 0-%d)\n",
 	        max_ac_errors, MAX_AC_ERRORS);
@@ -69,22 +75,58 @@ static void usage(FILE *file)
 	fprintf(file, "Miscellaneous:\n");
 	fprintf(file, "\t-V print version information\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, file);
+	fprintf(file, "\t   - up to %d boards, comma separated, read together\n",
+	        RX_MAX_BOARDS);
 }
 
-/* Names the request the board refused, says why and what to try, and gives the
- * board back rather than capturing with settings the user did not ask for.
- * Closed without a STOP: no mode has started yet, so there is nothing to stop,
- * and a STOP to a board that is not answering would only add a second failure
- * to the report. A refused request is not proof that the board never got it --
- * a transfer can time out after it arrived -- so the message says only what
- * the tool knows. */
-static int request_failed(ubertooth_t* ut, const char* what, int code)
-{
-	report_refused_request(what, code);
-	ubertooth_close(ut);
-	ubertooth_free(ut);
-	return 1;
-}
+/* One board of a capture: the handle, the piconet it feeds, and what it was
+ * asked to tune to.
+ *
+ * A piconet each, not one between them. libbtbb anchors a piconet's clock
+ * recovery on the first packet's CLKN and works in differences from it, and
+ * two boards' CLKN counters are unrelated, so a packet from the second board
+ * would be placed at a point in the hop pattern it was never heard at. What
+ * the boards share is what they have worked out -- the channels the piconet
+ * has been heard on, and its upper address part -- which needs no common
+ * clock: see rx_share_findings(). The piconet itself is the shared time base,
+ * and each board recovers its clock from its own packets.
+ *
+ * pn is NULL for a survey, which keeps a piconet per address inside libbtbb,
+ * and for a run given no -l. */
+struct rx_board {
+	ubertooth_t* ut;
+	btbb_piconet* pn;
+	/* The channel this board was asked for, in MHz, or the value above the
+	 * band that asks for the sweep. */
+	uint16_t channel;
+	/* Whether the UAP this board holds now came from another board rather
+	 * than from its own packets. Such a board is not evidence for that
+	 * value: see rx_share_findings(). */
+	int uap_handed;
+	/* Whether this board has ever been handed one, which is what keeps it
+	 * from being handed another. Separate from uap_handed, which goes with
+	 * the value the board holds and is cleared when the library abandons
+	 * it. The value is kept for the end-of-run report, which names it
+	 * where it is not the value the report otherwise gives. */
+	int uap_ever_handed;
+	uint8_t uap_ever_handed_value;
+	/* The UAP this board holds that it worked out itself, and whether it
+	 * holds one at all. Read from the piconet every pass rather than
+	 * remembered, because a board does not keep the value it reaches for
+	 * the length of a run: see rx_read_own_uap(). This is the evidence the
+	 * agreement and the end-of-run report rest on. */
+	int uap_found;
+	uint8_t uap_found_value;
+};
+
+/* The AFH channel map is ten bytes, bit b of byte i being channel 8i + b: the
+ * order the Core specification's Set_AFH_Host_Channel_Classification and
+ * libbtbb's own printed map both use. libubertooth says the same length for
+ * the board's map, and the merge below reads libbtbb's through that constant,
+ * so the two have to agree. */
+#if AFH_MAP_BYTES != 10
+#error "AFH_MAP_BYTES is not 10; libbtbb's AFH map is ten bytes"
+#endif
 
 /* The capture files this run was asked for, by the names the user gave. */
 struct rx_files {
@@ -92,6 +134,408 @@ struct rx_files {
 	const char* pcap;    /* -q */
 	const char* dump;    /* -d */
 };
+
+/* Takes the shared capture writers off every board but the first.
+ *
+ * The writers live on the first board's handle, and every other board's handle
+ * points at the same ones so that a packet from any board reaches the one
+ * file. A teardown writes out and closes whatever its handle holds, so without
+ * this one file would be closed once per board. */
+static void rx_unshare_files(struct rx_board* boards, int n_boards)
+{
+	int i;
+
+	for (i = 1; i < n_boards; i++) {
+		if (boards[i].ut == NULL)
+			continue;
+		boards[i].ut->h_pcap_bredr = NULL;
+		boards[i].ut->h_pcapng_bredr = NULL;
+	}
+}
+
+/* Gives every board this run opened back and forgets it.
+ *
+ * `stop` sends the teardown's STOP, for a board that may be left in a mode a
+ * request has started; without it the board is only closed, which is right
+ * where no mode has started yet and where a board that has stopped answering
+ * would turn the STOP into a second failure in the report. */
+static void rx_give_back_boards(struct rx_board* boards, int n_boards, int stop)
+{
+	int i;
+
+	rx_unshare_files(boards, n_boards);
+	for (i = n_boards - 1; i >= 0; i--) {
+		ubertooth_t* ut = boards[i].ut;
+
+		/* Before the handle, and on every path, so a run that ends
+		 * where a board refused a request gives back as much as one
+		 * that captured. */
+		if (boards[i].pn != NULL) {
+			btbb_piconet_unref(boards[i].pn);
+			boards[i].pn = NULL;
+		}
+		if (ut == NULL)
+			continue;
+		if (stop)
+			ubertooth_stop(ut);
+		else
+			ubertooth_close(ut);
+		ubertooth_free(ut);
+		boards[i].ut = NULL;
+	}
+}
+
+/* Whether the capture is ending: the user's Ctrl-C, the -t timer, or a board
+ * whose receive stream failed. ubertooth_stopping() is what folds the first two
+ * into a handle, so every board is asked rather than stopping at the first that
+ * says yes.
+ *
+ * Any one board ends the run. A capture that has lost one of its boards is no
+ * longer the capture that was asked for: the channels it was covering go
+ * unheard and the merge below has one fewer source, so it ends and the exit
+ * status says so. */
+static int rx_stopping(struct rx_board* boards, int n_boards)
+{
+	int i, stopping = 0;
+
+	for (i = 0; i < n_boards; i++)
+		if (ubertooth_stopping(boards[i].ut))
+			stopping = 1;
+	return stopping;
+}
+
+/* The words of a comma-separated list, in order. They point into `text`, which
+ * this writes a NUL over each comma of, so the caller's buffer has to outlive
+ * them. Returns how many words there were, or -1 with an error line for an
+ * empty word or a list longer than `max`: "-U 0,,1" and a mistyped list of
+ * fifty are both named rather than half accepted. */
+static int rx_split_list(char* text, const char* what, char** words, int max)
+{
+	int n = 0;
+	char* p = text;
+
+	for (;;) {
+		char* comma = strchr(p, ',');
+
+		if (comma != NULL)
+			*comma = '\0';
+		if (*p == '\0') {
+			fprintf(stderr, "error: the %s list has an empty "
+			        "entry\n", what);
+			return -1;
+		}
+		if (n == max) {
+			fprintf(stderr, "error: at most %d %s%s can be given\n",
+			        max, what, max == 1 ? "" : "s");
+			return -1;
+		}
+		words[n++] = p;
+		if (comma == NULL)
+			return n;
+		p = comma + 1;
+	}
+}
+
+/* Reads the UAP a board holds, every time, rather than remembering the first
+ * one it held. Nothing here is kept from one call to the next except whether
+ * the value came from another board.
+ *
+ * Reading rather than remembering is the point. A board does not keep the UAP
+ * it reaches for the length of a run: giving a clock up takes the UAP with it,
+ * because discovery cannot find another while the hop reversal is still
+ * filtering on this one, so drop_followed_clock() sets the piconet's UAP to
+ * zero and starts the search over. This tool asks for that itself once a
+ * follow has heard nothing for FOLLOW_QUIET_MS, and the library does it on its
+ * own account when header after header fails. The board then rediscovers, and
+ * one packet whose header checks out is enough to settle a different value --
+ * so there is no moment a caller can rely on seeing a board hold nothing, and
+ * a value noted once would be evidence for something no board holds.
+ *
+ * What makes reading every pass enough is the packet, not the value: the only
+ * writer of a different UAP is the library's header discovery, which runs on a
+ * packet, and the capture loop reads every board whenever a pass decoded one.
+ * So a reading is never older than the last packet a board had. It is not true
+ * that a piconet's UAP has to pass through zero to change -- the search
+ * running out of candidates leaves the old value with BTBB_UAP_VALID clear,
+ * and the next packet can settle a different one from there without the value
+ * ever being zero -- which is why nothing here is cached across a packet.
+ *
+ * A UAP of zero with the flag clear is a board holding none: the state giving a
+ * clock up leaves, and a piconet's initial state. The flag clear with a value
+ * still there is the search having run out of candidates, which is a board
+ * that still holds its answer, so the reading is left alone. Treating that as
+ * a board with nothing would let the others' agreement be written over an
+ * answer the board had worked out, which is the one thing this must not do. */
+static void rx_read_own_uap(struct rx_board* board)
+{
+	uint8_t uap;
+
+	if (!btbb_piconet_get_flag(board->pn, BTBB_UAP_VALID)) {
+		if (btbb_piconet_get_uap(board->pn) == 0) {
+			board->uap_found = 0;
+			board->uap_handed = 0;
+		}
+		return;
+	}
+
+	uap = btbb_piconet_get_uap(board->pn);
+	/* A board stops counting as handed once what it holds is not what it
+	 * was handed: the library took that value off it and it has reached
+	 * one of its own, which is evidence like any other.
+	 *
+	 * A board that reaches the same value again by itself is the case this
+	 * cannot see, because the value is all there is to go on. Where this
+	 * tool asked for the drop it clears the mark itself, in the capture
+	 * loop; where the library dropped the clock on its own account, inside
+	 * the decode, the board goes on counting as handed and its answer is
+	 * left out of the report and out of the agreement. That is the
+	 * cautious way round -- a value is reported by fewer boards than hold
+	 * it, and passed on to fewer -- and telling the two apart needs the
+	 * library to say when it started discovery over. */
+	if (board->uap_handed && uap != board->uap_ever_handed_value)
+		board->uap_handed = 0;
+	/* A board holding a value another board handed it is not evidence for
+	 * it: that would read as a second board agreeing, which is the whole
+	 * of the cross-check. */
+	if (board->uap_handed)
+		return;
+	board->uap_found = 1;
+	board->uap_found_value = uap;
+}
+
+/* What every board holds. Read before anything is shared, and again before the
+ * end-of-run report, because the library can take a value off a board at a
+ * point no packet follows it -- this tool asks for that when a follow has gone
+ * quiet, and a piconet that has gone away is exactly the run where no board
+ * decodes anything afterwards. */
+static void rx_read_own_uaps(struct rx_board* boards, int n_boards)
+{
+	int i;
+
+	for (i = 0; i < n_boards; i++)
+		rx_read_own_uap(&boards[i]);
+}
+
+/* Hands every board what the others have found, which is the whole of what
+ * boards reading one piconet share.
+ *
+ * The channel maps join. btbb_piconet_set_channel_seen() records only that a
+ * channel carried this piconet's traffic, so one board's map ORs with
+ * another's whatever clock either board is on, and btbb_piconet_set_afh_map()
+ * rebuilds the hop tables from the union. Each board then narrows its clock
+ * candidates against a map that filled as many times faster as there are
+ * boards, and an incomplete map is what makes a wrong clock look right: the
+ * candidates are narrowed against hops the piconet never made.
+ *
+ * The upper address part (UAP) is a scalar, and it is passed on once two
+ * boards have worked out the same one from their own packets. Not the first
+ * board's: the library settles a UAP on as few as two packets and is sometimes
+ * wrong about it -- a bench run settled on 0xdb where the peer's is 0x0d --
+ * and a wrong one handed over is not something the board it was handed to can
+ * get out of. The library restores the UAP it was filtering on whenever the
+ * clock search runs out of candidates, so that board filters on the wrong
+ * value for the rest of the run and works out nothing of its own. Two boards
+ * settling on the same value from different packets is a cross-check a single
+ * board cannot make, and it is what makes passing the value on worth doing.
+ * A board whose UAP was handed to it is not evidence for it. The value goes
+ * only to a board that has worked out none of its own, and only once; a board
+ * is never taken off its own answer, for the reason the loop below gives.
+ *
+ * The clock is not shared and does not need to be: it is the piconet's own, so
+ * each board recovers it from its own packets once it has the address. Two
+ * boards agreeing on one is evidence a single board cannot produce.
+ *
+ * `merged` carries the union between calls, so a map is pushed only when it has
+ * grown. One board shares nothing: its piconet already holds everything it
+ * knows, and pushing the map back would only repeat the work
+ * btbb_piconet_set_channel_seen() has just done. */
+static void rx_share_findings(struct rx_board* boards, int n_boards,
+                              uint8_t* merged, int told_uap)
+{
+	uint8_t next[AFH_MAP_BYTES];
+	int grown = 0, agreed = 0, i, j;
+	uint8_t uap = 0;
+
+	if (n_boards < 2)
+		return;
+
+	memcpy(next, merged, sizeof(next));
+	for (i = 0; i < n_boards; i++) {
+		const uint8_t* map = btbb_piconet_get_afh_map(boards[i].pn);
+
+		for (j = 0; j < (int)sizeof(next); j++)
+			next[j] |= map[j];
+	}
+	if (memcmp(next, merged, sizeof(next)) != 0) {
+		memcpy(merged, next, sizeof(next));
+		grown = 1;
+	}
+
+	/* Two boards that worked out the same UAP from their own packets. At
+	 * most eight boards, so comparing every pair is a few dozen reads. */
+	rx_read_own_uaps(boards, n_boards);
+	for (i = 0; i < n_boards && !agreed; i++) {
+		if (!boards[i].uap_found)
+			continue;
+		for (j = i + 1; j < n_boards; j++) {
+			if (boards[j].uap_found &&
+			    boards[j].uap_found_value ==
+			    boards[i].uap_found_value) {
+				uap = boards[i].uap_found_value;
+				agreed = 1;
+				break;
+			}
+		}
+	}
+
+	for (i = 0; i < n_boards; i++) {
+		if (grown)
+			btbb_piconet_set_afh_map(boards[i].pn, merged);
+		/* Only to a board that has worked out none of its own, and
+		 * only once. A board is never taken off its own answer, even
+		 * when two others disagree with it: btbb_piconet_set_uap()
+		 * writes the address part and nothing else, so a board whose
+		 * clock search has already chosen its candidates would go on
+		 * narrowing a list picked for the old address and could reach
+		 * a clock belonging to it, which this tool would then put the
+		 * board on. The run reports the disagreement instead and
+		 * leaves that board to the library. Handing a known UAP to
+		 * every board is what -u is for.
+		 *
+		 * Once in a run, counted by uap_ever_handed rather than by
+		 * what the board holds: a board the library has since taken
+		 * off the handed value is rediscovering, and handing it the
+		 * same value again would stop it before a packet arrived. */
+		/* Nothing is passed on where -u gave the UAP. Every board was
+		 * started on the user's value, so there is nothing a board
+		 * knows that another does not; and a board the library has
+		 * since taken off that value is rediscovering, which is what
+		 * one board given -u does too. Putting it back would make a
+		 * run of several boards behave unlike a run of one. */
+		if (told_uap)
+			continue;
+		if (!agreed || boards[i].uap_found || boards[i].uap_ever_handed)
+			continue;
+		btbb_piconet_set_uap(boards[i].pn, uap);
+		boards[i].uap_handed = 1;
+		boards[i].uap_ever_handed = 1;
+		boards[i].uap_ever_handed_value = uap;
+	}
+}
+
+/* What the boards found between them, once the capture has ended: the address
+ * part, and the channels this piconet was heard on across all of them. A
+ * single board's result is its own piconet's and libbtbb reports it already,
+ * so this is said only where there was something to merge.
+ *
+ * On standard error, as the library's own discovery notes are, so a capture
+ * writing to standard output is unaffected. The map reads in the order
+ * btbb_print_afh_map() and hcitool print it: byte 0 first, bit b of byte i
+ * being channel 8i + b.
+ *
+ * told_uap says the user gave the address part with -u, in which case there is
+ * nothing to report about it: every board was started on that value. */
+static void rx_report_findings(int n_boards, const uint8_t* merged,
+                               const struct rx_board* boards, int told_uap)
+{
+	/* Room for "board 8 0x22" and a separator for every board, once for
+	 * the answers the boards worked out and once for the values passed
+	 * to boards that had none. */
+	char own[RX_MAX_BOARDS * 20];
+	char passed[RX_MAX_BOARDS * 20];
+	int i, used = 0, have_uap = 0, disagree = 0;
+	size_t len = 0, passed_len = 0;
+	uint8_t uap = 0;
+
+	for (i = 0; i < NUM_BREDR_CHANNELS; i++)
+		if (merged[i / 8] & (1 << (i % 8)))
+			used++;
+
+	/* Only what a board worked out for itself, and only what it holds now:
+	 * a board holding a value another board handed it would otherwise read
+	 * as a second board agreeing, which is the cross-check this line is
+	 * for, and what a board holds at the end is not necessarily what it
+	 * worked out. Boards are numbered as the -U list gave them. */
+	own[0] = '\0';
+	passed[0] = '\0';
+	for (i = 0; i < n_boards; i++) {
+		if (boards[i].uap_ever_handed && passed_len < sizeof(passed))
+			passed_len += (size_t)snprintf(
+			        passed + passed_len,
+			        sizeof(passed) - passed_len,
+			        "%sboard %d 0x%02x",
+			        passed_len > 0 ? ", " : "", i + 1,
+			        boards[i].uap_ever_handed_value);
+		if (!boards[i].uap_found)
+			continue;
+		if (!have_uap) {
+			uap = boards[i].uap_found_value;
+			have_uap = 1;
+		} else if (boards[i].uap_found_value != uap) {
+			disagree = 1;
+		}
+		if (len < sizeof(own))
+			len += (size_t)snprintf(own + len, sizeof(own) - len,
+			                        "%sboard %d 0x%02x",
+			                        len > 0 ? ", " : "", i + 1,
+			                        boards[i].uap_found_value);
+	}
+
+	/* Nothing to report where the user gave the UAP with -u: every board
+	 * was started on it, so the line would hand their own value back as a
+	 * finding. */
+	if (told_uap)
+		;
+	else if (!have_uap)
+		fprintf(stderr, "note: %d boards: no UAP found\n", n_boards);
+	else if (disagree)
+		/* One of them is wrong, and this run cannot say which: the
+		 * library settles a UAP on the packets it has had, and two
+		 * boards have had different packets. Every board's own answer
+		 * is named, because the run acted on none of them: a board is
+		 * never taken off its own. */
+		fprintf(stderr, "note: %d boards: the boards worked out "
+		        "different UAPs, so one of them is wrong: %s\n",
+		        n_boards, own);
+	else
+		fprintf(stderr, "note: %d boards: UAP = 0x%02x\n", n_boards,
+		        uap);
+
+	/* Every board that was put on another's answer, and what it was put
+	 * on. With three or more boards this can happen in the same run as a
+	 * disagreement -- two boards agree, a third worked out something else
+	 * and keeps it, and a fourth that had worked out nothing is put on the
+	 * agreed value -- and a long run can pass on more than one value,
+	 * because the boards that agreed can themselves be taken off it and
+	 * settle on something else. So each board is named with the value it
+	 * was given rather than one value for the run.
+	 *
+	 * Said of the run rather than of how the board ended: a board put on
+	 * another's answer can have the library take that value off it and
+	 * reach one of its own afterwards, which the line above then names. */
+	if (!told_uap && passed_len > 0)
+		fprintf(stderr, "note: %d boards: put on another board's "
+		        "answer during the run: %s\n", n_boards, passed);
+
+	fprintf(stderr, "note: %d boards: AFH map: 0x", n_boards);
+	for (i = 0; i < AFH_MAP_BYTES; i++)
+		fprintf(stderr, "%02x", merged[i]);
+	fprintf(stderr, ", %d of %d channels heard\n", used,
+	        NUM_BREDR_CHANNELS);
+}
+
+/* Names the request a board refused, says why and what to try, and gives
+ * every board back rather than capturing with settings the user did not ask
+ * for. A refused request is not proof that the board never got it -- a
+ * transfer can time out after it arrived -- so the message says only what the
+ * tool knows. */
+static int request_failed(struct rx_board* boards, int n_boards,
+                          const char* what, int code)
+{
+	report_refused_request(what, code);
+	rx_give_back_boards(boards, n_boards, 0);
+	return 1;
+}
 
 /* Takes the capture files away again, for a failure between creating them and
  * the first packet: a refused run then leaves no empty capture behind.
@@ -104,9 +548,9 @@ struct rx_files {
  * opt_discard_capture_file()'s decision. */
 static void rx_discard_files(ubertooth_t* ut, const struct rx_files* files)
 {
-	if (ut->h_pcapng_bredr != NULL)
+	if (ut != NULL && ut->h_pcapng_bredr != NULL)
 		opt_discard_capture_file(files->pcapng);
-	if (ut->h_pcap_bredr != NULL)
+	if (ut != NULL && ut->h_pcap_bredr != NULL)
 		opt_discard_capture_file(files->pcap);
 	if (dumpfile != NULL)
 		opt_discard_capture_file(files->dump);
@@ -116,11 +560,11 @@ static void rx_discard_files(ubertooth_t* ut, const struct rx_files* files)
  * before any mode has started, taking those files with it. The caller has
  * already said what failed. Closed without a STOP for the same reason
  * request_failed() does not send one. */
-static int setup_failed(ubertooth_t* ut, const struct rx_files* files)
+static int setup_failed(struct rx_board* boards, int n_boards,
+                        const struct rx_files* files)
 {
-	rx_discard_files(ut, files);
-	ubertooth_close(ut);
-	ubertooth_free(ut);
+	rx_discard_files(boards[0].ut, files);
+	rx_give_back_boards(boards, n_boards, 0);
 	return 1;
 }
 
@@ -130,11 +574,11 @@ static int setup_failed(ubertooth_t* ut, const struct rx_files* files)
  * failed. Every failure from the files down to the capture loop goes through
  * one of these three helpers, so a path added between them cannot forget the
  * files. */
-static int transfer_failed(ubertooth_t* ut, const struct rx_files* files)
+static int transfer_failed(struct rx_board* boards, int n_boards,
+                           const struct rx_files* files)
 {
-	rx_discard_files(ut, files);
-	ubertooth_stop(ut);
-	ubertooth_free(ut);
+	rx_discard_files(boards[0].ut, files);
+	rx_give_back_boards(boards, n_boards, 1);
 	return 1;
 }
 
@@ -149,14 +593,14 @@ static int transfer_failed(ubertooth_t* ut, const struct rx_files* files)
  *
  * The poll thread is running by now and nothing else joins it:
  * ubertooth_stop() frees the libusb context it polls. */
-static int capture_failed(ubertooth_t* ut, const struct rx_files* files,
+static int capture_failed(struct rx_board* boards, int n_boards,
+                          const struct rx_files* files,
                           const char* what, int code)
 {
 	report_refused_request(what, code);
-	rx_discard_files(ut, files);
+	rx_discard_files(boards[0].ut, files);
 	ubertooth_bulk_thread_stop();
-	ubertooth_stop(ut);
-	ubertooth_free(ut);
+	rx_give_back_boards(boards, n_boards, 1);
 	return 1;
 }
 
@@ -196,9 +640,9 @@ static int replay_read_a_record;
  * standard output still carries only the capture. */
 static int clock_search_noted;
 
-static void rx_note_clock_search_limit(void)
+static void rx_note_clock_search_limit(ubertooth_t* ut)
 {
-	long ms = ubertooth_clock_search_ms();
+	long ms = ubertooth_clock_search_ms(ut);
 
 	if (clock_search_noted || ms < CLOCK_SEARCH_NOTE_MS)
 		return;
@@ -210,8 +654,8 @@ static void rx_note_clock_search_limit(void)
 	fprintf(stderr, "note: the clock search has run for %ld s without "
 	        "confirming a clock; it does not confirm one against a piconet "
 	        "that uses adapted hopping (AFH)\n", ms / 1000);
-	fputs("note: the piconet's LAP and UAP, and the packets of it this "
-	      "board hears, are still recovered, decoded, and captured; see "
+	fputs("note: the piconet's LAP and UAP, and the packets of it the "
+	      "boards hear, are still recovered, decoded, and captured; see "
 	      "ubertooth-rx(1)\n", stderr);
 }
 
@@ -225,7 +669,7 @@ static void replay_decode(ubertooth_t* ut, void* args)
 	/* A replay reads its records at the times they were recorded, so a
 	 * search over a recorded capture runs for as long as it did live and
 	 * the note lands in the same place. */
-	rx_note_clock_search_limit();
+	rx_note_clock_search_limit(ut);
 }
 
 /* How long a follow may hear nothing of its piconet before the clock it is
@@ -275,19 +719,35 @@ int main(int argc, char* argv[])
 	 * where -h cannot. */
 	int do_help = 0, do_version = 0, version_status = 0;
 	opt_once once = {0};
-	int r;
+	int r, i;
 	int timeout = 0;
-	char* ubertooth_device = NULL;
+	/* The -U and -c lists as the user wrote them, split in place once the
+	 * whole command line has parsed. */
+	char* ubertooth_devices = NULL;
+	char* channel_arg = NULL;
+	/* The boards this capture reads, in the order -U named them, and the
+	 * selectors for them. One board unless -U named more. */
+	struct rx_board boards[RX_MAX_BOARDS];
+	char* selectors[RX_MAX_BOARDS];
+	int n_boards = 1;
+	/* The first board's piconet, for the parts of the run that are about
+	 * the one piconet rather than about a board: the address recorded in
+	 * the capture file, and the survey results. */
 	btbb_piconet* pn = NULL;
+	/* The channels the boards were heard on, across all of them. Reported
+	 * when the capture ends. */
+	uint8_t merged_map[AFH_MAP_BYTES];
 	uint32_t lap = 0;
 	uint8_t uap = 0;
 	/* Above the Bluetooth band, which the firmware reads as "sweep the
 	 * whole band": the default when no -c names a fixed channel. */
 	uint16_t channel = 9999;
 
-	/* Allocated once the whole command line has been accepted (below):
-	 * every refusal above returns without a board, and the handle carries a
-	 * 72 MB fifo. */
+	/* The first board's handle, for the steps that are about this run
+	 * rather than about one board: the capture files, the timer, and the
+	 * replay. Allocated once the whole command line has been accepted
+	 * (below): every refusal above returns without a board, and each handle
+	 * carries a 72 MB fifo. */
 	ubertooth_t* ut = NULL;
 
 	/* Where the survey results go: standard output, unless a capture on "-"
@@ -302,6 +762,13 @@ int main(int argc, char* argv[])
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
 	const char options[] = ":hVi:l:u:U:d:e:r:sq:t:zc:";
+
+	memset(boards, 0, sizeof(boards));
+	memset(merged_map, 0, sizeof(merged_map));
+	/* One board, opened by whichever name -U gave, or whichever the library
+	 * finds when it gave none. */
+	memset(selectors, 0, sizeof(selectors));
+
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
@@ -322,7 +789,7 @@ int main(int argc, char* argv[])
 			have_uap++;
 			break;
 		case 'U':
-			ubertooth_device = optarg;
+			ubertooth_devices = optarg;
 			break;
 		/* The capture and dump files are named here and opened once the
 		 * whole command line has been accepted, so a refused command
@@ -365,15 +832,13 @@ int main(int argc, char* argv[])
 		case 'z':
 			++survey_mode;
 			break;
-		case 'c': {
-			int bt_channel;
-			if (opt_require_int(optarg, 0, NUM_BREDR_CHANNELS - 1,
-			                    "channel", "", &bt_channel) < 0)
-				return 1;
-			channel = (uint16_t)(bt_channel + BT_FREQ_MIN);
+		case 'c':
+			/* Read once the whole command line has parsed: it may
+			 * name one channel per board, so how many are allowed
+			 * depends on -U, which may come after it. */
+			channel_arg = optarg;
 			have_channel = 1;
 			break;
-		}
 		case 'V':
 			do_version = 1;
 			break;
@@ -395,13 +860,89 @@ int main(int argc, char* argv[])
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
 
+	/* The boards, and then the channels for them. A capture may read
+	 * several boards at once: each hears one 1 MHz channel at a time, so
+	 * one parked on a channel sees about one packet in 79 of a connection,
+	 * and every step of following one waits on those sightings. */
+	if (ubertooth_devices != NULL) {
+		n_boards = rx_split_list(ubertooth_devices, "board",
+		                         selectors, RX_MAX_BOARDS);
+		if (n_boards < 0)
+			return 1;
+		/* The same board twice would be opened twice, and the second
+		 * open would fail with whatever libusb says about a board
+		 * already claimed, which tells the user nothing about their
+		 * command line. Naming it once and reading it once is what
+		 * they meant. A board named by index and by serial is the same
+		 * board and is not caught here; the open reports that. */
+		for (i = 1; i < n_boards; i++) {
+			int j;
+
+			for (j = 0; j < i; j++) {
+				if (strcmp(selectors[i], selectors[j]) != 0)
+					continue;
+				fprintf(stderr, "error: board %s is named "
+				        "twice\n", selectors[i]);
+				return 1;
+			}
+		}
+	}
+
+	/* One channel for every board, or one for all of them. Anything else is
+	 * a command line whose boards and channels do not line up, and guessing
+	 * which board got which channel is not something a user could read back
+	 * off the output. */
+	if (channel_arg != NULL) {
+		char* words[RX_MAX_BOARDS];
+		/* Split against the limit of eight rather than against the
+		 * boards named, so that one mistake gets one message: a list
+		 * that does not line up with the boards is reported by the
+		 * mismatch below, in either direction, and only a list longer
+		 * than the tool takes at all is refused as too long. */
+		int n_channels = rx_split_list(channel_arg, "channel", words,
+		                               RX_MAX_BOARDS);
+
+		if (n_channels < 0)
+			return 1;
+		if (n_channels != 1 && n_channels != n_boards) {
+			fprintf(stderr, "error: -c names %d channel%s for %d "
+			        "board%s; give one each or one for all\n",
+			        n_channels, n_channels == 1 ? "" : "s",
+			        n_boards, n_boards == 1 ? "" : "s");
+			return 1;
+		}
+		for (i = 0; i < n_boards; i++) {
+			int bt_channel;
+
+			if (opt_require_int(words[n_channels == 1 ? 0 : i], 0,
+			                    NUM_BREDR_CHANNELS - 1,
+			                    "channel", "", &bt_channel) < 0)
+				return 1;
+			boards[i].channel = (uint16_t)(bt_channel + BT_FREQ_MIN);
+		}
+	} else {
+		for (i = 0; i < n_boards; i++)
+			boards[i].channel = channel;
+	}
+
 	/* -h and -V end the command, but only once the whole command line
 	 * has parsed: a bad option value or a stray word is reported even
 	 * alongside them. A command line with both prints both, and the usage
 	 * text comes last so the version is not scrolled off the screen by
 	 * it; the order they were written in does not matter. */
+	/* -V reports one board, as its own line of the SYNOPSIS says: the
+	 * answer carries the host tools' version once and then the firmware of
+	 * the board named, and with no -U at all it already reports every
+	 * board attached. A list is for a capture, so one beside -V is a
+	 * command line that cannot be answered as asked. */
+	if (do_version && n_boards > 1) {
+		fprintf(stderr, "error: -V reports one board; name one with -U,"
+		        " or none to report every board attached\n");
+		return 1;
+	}
+
 	if (do_version)
-		version_status = ubertooth_print_versions(stdout, ubertooth_device);
+		version_status = ubertooth_print_versions(stdout, selectors[0]);
 	if (do_help)
 		usage(stdout);
 	if (do_version || do_help)
@@ -441,6 +982,25 @@ int main(int argc, char* argv[])
 		        " reads a saved capture rather than tuning a board\n");
 		return 1;
 	}
+	if (infile_name != NULL && n_boards > 1) {
+		fprintf(stderr, "error: -i names one saved capture, so it"
+		        " cannot be given several boards to read\n");
+		return 1;
+	}
+
+	/* A dump record carries no board, and -i hands a whole dump to one
+	 * piconet, so a dump holding several boards' records would be replayed
+	 * as one board's: the clock each record was stamped with is its own
+	 * board's, and placing another board's record in that recovery puts it
+	 * at a point in the hop pattern it was never heard at. There is no
+	 * right way to replay such a file, so it is not written. The PCAP and
+	 * PCAPNG captures are for a reader rather than for this tool's
+	 * recovery and do take every board; see SEVERAL BOARDS AT ONCE. */
+	if (dump_name != NULL && n_boards > 1) {
+		fprintf(stderr, "error: -d writes one dump for -i to replay as"
+		        " one board, so it cannot be given several boards\n");
+		return 1;
+	}
 	if (infile_name != NULL && have_timeout) {
 		fprintf(stderr, "error: -t cannot be combined with -i; a replay"
 		        " reads a saved capture rather than waiting for a"
@@ -456,11 +1016,20 @@ int main(int argc, char* argv[])
 	    opt_check_capture_destination(dump_name, "binary dump data") < 0)
 		return 1;
 
-	/* Every check has passed, so the handle and its 72 MB fifo can be
-	 * allocated: the capture files below are kept on it. */
-	ut = ubertooth_init();
-	if (ut == NULL)
-		return 1;
+	/* Every check has passed, so the handles and their 72 MB fifos can be
+	 * allocated, one per board: the capture files below are kept on the
+	 * first. */
+	for (i = 0; i < n_boards; i++) {
+		boards[i].ut = ubertooth_init();
+		if (boards[i].ut == NULL) {
+			/* libubertooth has said what it could not allocate.
+			 * Whatever was allocated before it goes back, so a run
+			 * that ends here leaves nothing behind. */
+			rx_give_back_boards(boards, n_boards, 0);
+			return 1;
+		}
+	}
+	ut = boards[0].ut;
 
 	/* And the replay's input can be opened: a refused command line creates
 	 * and truncates nothing. It is read, not written, so it comes before
@@ -474,7 +1043,7 @@ int main(int argc, char* argv[])
 			 * shape as the other file-open failures. */
 			fprintf(stderr, "error: %s: %s\n",
 			        infile_name, strerror(errno));
-			ubertooth_free(ut);
+			rx_give_back_boards(boards, n_boards, 0);
 			return 1;
 		}
 	}
@@ -487,36 +1056,41 @@ int main(int argc, char* argv[])
 	ubertooth_catch_stop_signals();
 
 	if (infile == NULL) {
-		r = ubertooth_connect_select(ut, ubertooth_device);
-		if (r < 0) {
-			/* The library has closed whatever it opened; the close
-			 * here is what ends the libusb session it started. */
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return ubertooth_open_stopped() ? 0 : 1;
-		}
+		/* Every board named, in turn. One that cannot be opened or
+		 * whose firmware this host will not drive ends the run: a
+		 * capture spread over fewer boards than were asked for would
+		 * leave channels unheard with nothing saying which. */
+		for (i = 0; i < n_boards; i++) {
+			r = ubertooth_connect_select(boards[i].ut,
+			                             selectors[i]);
+			if (r < 0) {
+				/* The library has closed whatever it opened;
+				 * the close here is what ends the libusb
+				 * session it started. */
+				rx_give_back_boards(boards, n_boards, 0);
+				return ubertooth_open_stopped() ? 0 : 1;
+			}
 
-		r = ubertooth_check_api(ut);
-		if (r < 0) {
-			/* A refused version was released inside
-			 * ubertooth_check_api(); one it could not read at all
-			 * leaves the board open. Closing covers both, because
-			 * closing a board already released does nothing, and it
-			 * sends no STOP to a firmware this host will not
-			 * drive. */
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 1;
-		}
+			r = ubertooth_check_api(boards[i].ut);
+			if (r < 0) {
+				/* A refused version was released inside
+				 * ubertooth_check_api(); one it could not read
+				 * at all leaves the board open. Closing covers
+				 * both, because closing a board already
+				 * released does nothing, and it sends no STOP
+				 * to a firmware this host will not drive. */
+				rx_give_back_boards(boards, n_boards, 0);
+				return 1;
+			}
 
-		/* Stopped while the board was being opened: the run ends
-		 * here, with the board given back and no capture file left
-		 * behind, rather than starting a mode and stopping it
-		 * again. */
-		if (ubertooth_stop_requested()) {
-			ubertooth_close(ut);
-			ubertooth_free(ut);
-			return 0;
+			/* Stopped while a board was being opened: the run ends
+			 * here, with every board given back and no capture file
+			 * left behind, rather than starting a mode and stopping
+			 * it again. */
+			if (ubertooth_stop_requested()) {
+				rx_give_back_boards(boards, n_boards, 0);
+				return 0;
+			}
 		}
 	}
 
@@ -531,44 +1105,54 @@ int main(int argc, char* argv[])
 		 * command left it, so it is given back here rather than left
 		 * claimed, as ubertooth-scan does on the same failure. A replay
 		 * opened none, and the stop then does nothing. */
-		ubertooth_stop(ut);
-		ubertooth_free(ut);
+		rx_give_back_boards(boards, n_boards, 1);
 		return 1;
 	}
 
 	if(survey_mode) {
 		// auto-flush stdout so that wrapper scripts work
 		setvbuf(stdout, NULL, _IONBF, 0);
+		/* One survey for every board. The table libbtbb keeps per
+		 * address is the process's, not a board's, and the receive loop
+		 * below is single-threaded, so every board's packets reach the
+		 * one survey and each address is heard as many times faster as
+		 * there are boards. */
 		btbb_init_survey();
 	} else {
 		if (have_lap) {
-			pn = btbb_piconet_new();
-			if (pn == NULL) {
-				/* Out of memory, which the next line would
-				 * dereference. A capture with no piconet to
-				 * follow has nothing to do, so the run ends
-				 * here, and the STOP covers a mode an earlier
-				 * command left running. */
-				fputs("error: out of memory\n", stderr);
-				ubertooth_stop(ut);
-				ubertooth_free(ut);
-				return 1;
+			/* A piconet per board: see struct rx_board. */
+			for (i = 0; i < n_boards; i++) {
+				boards[i].pn = btbb_piconet_new();
+				if (boards[i].pn == NULL) {
+					/* Out of memory, which the next line
+					 * would dereference. A capture with no
+					 * piconet to follow has nothing to do,
+					 * so the run ends here, and the STOP
+					 * covers a mode an earlier command left
+					 * running. */
+					fputs("error: out of memory\n", stderr);
+					rx_give_back_boards(boards, n_boards, 1);
+					return 1;
+				}
+				btbb_init_piconet(boards[i].pn, lap);
+				if (have_uap)
+					btbb_piconet_set_uap(boards[i].pn, uap);
 			}
-			btbb_init_piconet(pn, lap);
-			if (have_uap) {
-				btbb_piconet_set_uap(pn, uap);
-				/* A board that refused this would follow
-				 * whatever address it was left on, so the
-				 * capture does not start. It is sent here,
-				 * with the rest of the setup that can fail,
-				 * so a board that refuses it leaves no empty
-				 * capture behind either. A replay sends no
-				 * request at all. */
-				if (infile == NULL) {
-					r = cmd_set_bdaddr_quiet(ut->devh,
+			pn = boards[0].pn;
+			/* A board that refused this would follow whatever
+			 * address it was left on, so the capture does not
+			 * start. It is sent here, with the rest of the setup
+			 * that can fail, so a board that refuses it leaves no
+			 * empty capture behind either. A replay sends no
+			 * request at all. */
+			if (have_uap && infile == NULL) {
+				for (i = 0; i < n_boards; i++) {
+					r = cmd_set_bdaddr_quiet(
+					        boards[i].ut->devh,
 					        btbb_piconet_get_bdaddr(pn));
 					if (r < 0)
-						return request_failed(ut,
+						return request_failed(boards,
+						        n_boards,
 						        "set the Bluetooth address",
 						        r);
 				}
@@ -594,7 +1178,7 @@ int main(int argc, char* argv[])
 	if (pcapng_name != NULL &&
 	    btbb_pcapng_create_file(pcapng_name, "Ubertooth", &ut->h_pcapng_bredr)) {
 		opt_report_create_failure(pcapng_name, errno);
-		return setup_failed(ut, &files);
+		return setup_failed(boards, n_boards, &files);
 	}
 	if (pcap_name != NULL) {
 		/* A lone "-" is standard output, which the capture then owns:
@@ -609,7 +1193,7 @@ int main(int argc, char* argv[])
 		if (file == NULL) {
 			if (saved_fd >= 0)
 				close(saved_fd);
-			return setup_failed(ut, &files);
+			return setup_failed(boards, n_boards, &files);
 		}
 		errno = 0;
 		failed = btbb_pcap_create_file(file, &ut->h_pcap_bredr);
@@ -627,7 +1211,7 @@ int main(int argc, char* argv[])
 			/* The name the user gave, not the /dev/fd path a lone
 			 * "-" is opened through. */
 			opt_report_create_failure(pcap_name, create_errno);
-			return setup_failed(ut, &files);
+			return setup_failed(boards, n_boards, &files);
 		}
 	}
 	if (dump_name != NULL) {
@@ -639,7 +1223,7 @@ int main(int argc, char* argv[])
 			 * what gets them written out and shut, and it gives the
 			 * board back. The files this run created are taken away
 			 * first, so the write lands in a file already gone. */
-			return setup_failed(ut, &files);
+			return setup_failed(boards, n_boards, &files);
 		}
 	}
 
@@ -658,17 +1242,31 @@ int main(int argc, char* argv[])
 			        "address in the capture file\n");
 	}
 
+	/* One capture file, however many boards write into it: the writers are
+	 * on the first board's handle and the rest are pointed at the same
+	 * ones, because the callback writes through the handle the packet came
+	 * from. rx_unshare_files() takes the copies off again before the
+	 * teardown, so the file is closed once. */
+	for (i = 1; i < n_boards; i++) {
+		boards[i].ut->h_pcapng_bredr = ut->h_pcapng_bredr;
+		boards[i].ut->h_pcap_bredr = ut->h_pcap_bredr;
+	}
+
 	if (infile == NULL) {
+		/* One timer for the run, not one per board: it is an alarm, and
+		 * it stops whichever capture is running. */
 		if (timeout)
 			ubertooth_set_timeout(ut, timeout);
 
 		// init USB transfer
-		r = ubertooth_bulk_init(ut);
-		if (r < 0) {
-			/* nothing is in flight, but the board is still open and in
-			 * whatever mode an earlier command left it. libubertooth has
-			 * already said what failed, so the status is all this adds. */
-			return transfer_failed(ut, &files);
+		for (i = 0; i < n_boards; i++) {
+			r = ubertooth_bulk_init(boards[i].ut);
+			if (r < 0) {
+				/* nothing is in flight, but the board is still open and in
+				 * whatever mode an earlier command left it. libubertooth has
+				 * already said what failed, so the status is all this adds. */
+				return transfer_failed(boards, n_boards, &files);
+			}
 		}
 
 		r = ubertooth_bulk_thread_start();
@@ -680,99 +1278,167 @@ int main(int argc, char* argv[])
 			report_capture_thread_failure(r);
 			/* The receive transfer is in flight and the board is about to
 			 * be left in its mode: give both back before returning. */
-			return transfer_failed(ut, &files);
+			return transfer_failed(boards, n_boards, &files);
 		}
 
-		/* The modulation this capture reads, Classic, stated before the
-		 * capture request and not after it as the channel is: see
-		 * ubertooth-util(1), CARRY-OVER BETWEEN RUNS. Without it, a
-		 * board an interrupted `ubertooth-dump -l` had left set to low
-		 * energy captured here at that deviation, finding little and
-		 * saying nothing. */
-		r = cmd_set_modulation_quiet(ut->devh, MOD_BT_BASIC_RATE);
-		if (r < 0)
-			return capture_failed(ut, &files, "set the modulation", r);
+		/* Every board in turn, with all three requests sent to one
+		 * board before the next is set up: they belong together,
+		 * because the mode start between them is what makes a board
+		 * forget its channel. */
+		for (i = 0; i < n_boards; i++) {
+			/* The modulation this capture reads, Classic, stated
+			 * before the capture request and not after it as the
+			 * channel is: see ubertooth-util(1), CARRY-OVER BETWEEN
+			 * RUNS. Without it, a board an interrupted
+			 * `ubertooth-dump -l` had left set to low energy
+			 * captured here at that deviation, finding little and
+			 * saying nothing. */
+			r = cmd_set_modulation_quiet(boards[i].ut->devh,
+			                             MOD_BT_BASIC_RATE);
+			if (r < 0)
+				return capture_failed(boards, n_boards, &files,
+				                      "set the modulation", r);
 
-		// tell ubertooth to send packets
-		/* The quiet form, so this failure reads as the one "error: " line
-		 * capture_failed() prints, like the channel request below. The
-		 * reporting form would hand it to libubertooth's shared sink
-		 * instead, which does not name the request that failed. */
-		r = cmd_rx_syms_quiet(ut->devh);
-		if (r < 0)
-			return capture_failed(ut, &files, "start the capture", r);
+			// tell ubertooth to send packets
+			/* The quiet form, so this failure reads as the one "error: " line
+			 * capture_failed() prints, like the channel request below. The
+			 * reporting form would hand it to libubertooth's shared sink
+			 * instead, which does not name the request that failed. */
+			r = cmd_rx_syms_quiet(boards[i].ut->devh);
+			if (r < 0)
+				return capture_failed(boards, n_boards, &files,
+				                      "start the capture", r);
 
-		/* Tell the board how to tune for this capture after asking for
-		 * the capture, not before. Starting a mode puts the board's hop
-		 * mode back to "no hopping", so a sweep stated first is thrown
-		 * away: the capture then ran on one channel while the user had
-		 * asked for the whole band, and nothing said so.
-		 *
-		 * The board keeps what arrives after the request for the mode it
-		 * is starting, whatever it was doing before. A board left in a
-		 * mode that captures nothing -- a killed ubertooth-specan say --
-		 * used to lose this request, because it runs the reset a moment
-		 * after this one has been answered, on the way out of that mode.
-		 *
-		 * The board stays on whatever it was tuned to until this
-		 * request arrives and the next hop acts on it, which takes up
-		 * to 40 ms. Blocks captured in that window carry the channel
-		 * they were captured on, as every block does, so they are
-		 * reported for what they are rather than mislabelled.
-		 *
-		 * A board that refused this would capture on a channel the user
-		 * did not ask for and say nothing about it, so the run ends
-		 * instead. */
-		r = cmd_set_channel_quiet(ut->devh, channel);
-		if (r < 0)
-			return capture_failed(ut, &files,
-			                      have_channel ? "set the channel"
-			                                   : "set sweep mode", r);
-		/* Kept for the callback, which starts a mode again when the
-		 * library gives up a clock and has to restate this. */
-		ut->capture_channel = channel;
+			/* Tell the board how to tune for this capture after asking for
+			 * the capture, not before. Starting a mode puts the board's hop
+			 * mode back to "no hopping", so a sweep stated first is thrown
+			 * away: the capture then ran on one channel while the user had
+			 * asked for the whole band, and nothing said so.
+			 *
+			 * The board keeps what arrives after the request for the mode it
+			 * is starting, whatever it was doing before. A board left in a
+			 * mode that captures nothing -- a killed ubertooth-specan say --
+			 * used to lose this request, because it runs the reset a moment
+			 * after this one has been answered, on the way out of that mode.
+			 *
+			 * The board stays on whatever it was tuned to until this
+			 * request arrives and the next hop acts on it, which takes up
+			 * to 40 ms. Blocks captured in that window carry the channel
+			 * they were captured on, as every block does, so they are
+			 * reported for what they are rather than mislabelled.
+			 *
+			 * A board that refused this would capture on a channel the user
+			 * did not ask for and say nothing about it, so the run ends
+			 * instead. */
+			r = cmd_set_channel_quiet(boards[i].ut->devh,
+			                          boards[i].channel);
+			if (r < 0)
+				return capture_failed(boards, n_boards, &files,
+				                      have_channel ? "set the channel"
+				                                   : "set sweep mode", r);
+			/* Kept for the callback, which starts a mode again when the
+			 * library gives up a clock and has to restate this. */
+			boards[i].ut->capture_channel = boards[i].channel;
+		}
 
 		// receive and process each packet
-		while(!ubertooth_stopping(ut)) {
-			/* A follow that locked onto the wrong clock hears next
-			 * to nothing rather than failing, so nothing in the
-			 * packets that do arrive reports it: the clock is given
-			 * up on the wait above instead. A negative reading is a
-			 * capture following no clock the library gave it, and
-			 * the drop starts the wait again whatever comes of it,
-			 * so a follow that stays quiet asks once per wait.
-			 * Before the receive, so a capture that has just been
-			 * stopped sends no request on its way out. */
-			if (ubertooth_follow_quiet_ms() >= FOLLOW_QUIET_MS)
-				ubertooth_follow_drop_clock(ut, pn);
-			/* And what the search is not going to reach, said once
-			 * a search has been running long enough to say it of. */
-			rx_note_clock_search_limit();
-			ubertooth_bulk_receive(ut, cb_rx, pn);
+		/* Round robin over the boards. One loop and one thread, so
+		 * libbtbb is called once at a time whatever it is reading: that
+		 * is what lets several boards feed one survey, and what the
+		 * library's threading rules ask for. */
+		while(!rx_stopping(boards, n_boards)) {
+			/* Whether any board handed the decoder a record this
+			 * time round, so the merge below runs when there is
+			 * something new to merge rather than on every spin of
+			 * a loop that is mostly waiting. */
+			int decoded = 0;
+
+			for (i = 0; i < n_boards; i++) {
+				/* A follow that locked onto the wrong clock hears next
+				 * to nothing rather than failing, so nothing in the
+				 * packets that do arrive reports it: the clock is given
+				 * up on the wait above instead. A negative reading is a
+				 * capture following no clock the library gave it, and
+				 * the drop starts the wait again whatever comes of it,
+				 * so a follow that stays quiet asks once per wait.
+				 * Before the receive, so a capture that has just been
+				 * stopped sends no request on its way out.
+				 *
+				 * Per board: each has its own clock from the
+				 * library and hears the piconet for itself. */
+				if (ubertooth_follow_quiet_ms(boards[i].ut)
+				    >= FOLLOW_QUIET_MS) {
+					ubertooth_follow_drop_clock(boards[i].ut,
+					                            boards[i].pn);
+					/* The address part goes with the
+					 * clock, so whatever this board
+					 * reaches next is its own, even where
+					 * it is the value it was handed. Only
+					 * a drop this tool asked for can be
+					 * known about here: see
+					 * rx_read_own_uap(). */
+					boards[i].uap_handed = 0;
+				}
+				/* And what the search is not going to reach,
+				 * said once a search has been running long
+				 * enough to say it of. */
+				rx_note_clock_search_limit(boards[i].ut);
+				if (ubertooth_bulk_receive(boards[i].ut, cb_rx,
+				                           boards[i].pn) >= 0)
+					decoded = 1;
+			}
+			/* What one board has learned, handed to the others. */
+			if (have_lap && decoded)
+				rx_share_findings(boards, n_boards, merged_map,
+				                  have_uap);
 		}
 
 		ubertooth_bulk_thread_stop();
 
-		ubertooth_stop(ut);
+		/* The capture file goes back to the one handle that will write
+		 * it out, before any board is torn down. */
+		rx_unshare_files(boards, n_boards);
 
-		/* What the capture is missing, once the packets have scrolled
-		 * past. The counts are of the places a loss was marked, not of
-		 * the packets lost at them. */
-		ubertooth_report_capture_losses(ut);
+		for (i = 0; i < n_boards; i++) {
+			ubertooth_stop(boards[i].ut);
 
-		/* A capture whose stream died stopped there, so it holds less than
-		 * was asked for. The exit status has to say so, or a caller cannot
-		 * tell it from a timeout or a Ctrl-C. The handle is read after the
-		 * teardown, because cancelling the transfer can be what brings the
-		 * failure out. The survey results below are still printed, since
-		 * they are what did arrive, and libubertooth has already printed
-		 * what failed.
+			/* What the capture is missing, once the packets have
+			 * scrolled past. The counts are of the places a loss
+			 * was marked, not of the packets lost at them, and each
+			 * board counts its own. */
+			ubertooth_report_capture_losses(boards[i].ut);
+
+			/* A capture whose stream died stopped there, so it holds less than
+			 * was asked for. The exit status has to say so, or a caller cannot
+			 * tell it from a timeout or a Ctrl-C. The handle is read after the
+			 * teardown, because cancelling the transfer can be what brings the
+			 * failure out. The survey results below are still printed, since
+			 * they are what did arrive, and libubertooth has already printed
+			 * what failed.
+			 *
+			 * A teardown the board refused counts the same way: that board
+			 * is left running the mode this capture started, and no other
+			 * tool can open it until it is reset or re-plugged. */
+			if (ubertooth_stream_failed(boards[i].ut) ||
+			    ubertooth_stop_failed(boards[i].ut))
+				exit_status = 1;
+		}
+
+		/* What the boards found between them. Only where there was
+		 * something to merge: one board's result is its own piconet's,
+		 * and libbtbb reports that as it goes.
 		 *
-		 * A teardown the board refused counts the same way: that board
-		 * is left running the mode this capture started, and no other
-		 * tool can open it until it is reset or re-plugged. */
-		if (ubertooth_stream_failed(ut) || ubertooth_stop_failed(ut))
-			exit_status = 1;
+		 * What each board holds is read once more first. The run can
+		 * end with the library having taken a value off a board since
+		 * the last packet arrived -- the ask goes out when a follow
+		 * has gone quiet, which is the state a piconet that has gone
+		 * away leaves -- and the report is about what the boards hold
+		 * rather than what they held. */
+		if (have_lap && n_boards > 1) {
+			rx_read_own_uaps(boards, n_boards);
+			rx_report_findings(n_boards, merged_map, boards,
+			                   have_uap);
+		}
 	} else {
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */
@@ -812,14 +1478,18 @@ int main(int argc, char* argv[])
 				fprintf(report_stream, "??:??:??:%02X:%02X:%02X\n",
 					   (lap >> 16) & 0xFF, (lap >> 8) & 0xFF, lap & 0xFF);
 			//btbb_print_afh_map(pn);
+			/* The walk hands the reference over, so each piconet
+			 * is released once it has been reported. */
+			btbb_piconet_unref(pn);
 		}
+		pn = NULL;
 	}
 	if(dumpfile != NULL)
 		fclose(dumpfile);
-	/* The capture files the handle holds, for a replay as for a capture:
-	 * the close does nothing to a handle that opened no board. */
-	ubertooth_close(ut);
-	ubertooth_free(ut);
+	/* The capture files the first board's handle holds, for a replay as for
+	 * a capture: the close does nothing to a handle that opened no board,
+	 * and a board already stopped above is not stopped twice. */
+	rx_give_back_boards(boards, n_boards, 0);
 
 	return exit_status;
 }
