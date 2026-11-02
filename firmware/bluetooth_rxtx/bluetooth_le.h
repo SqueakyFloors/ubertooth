@@ -180,9 +180,14 @@ int le_same_span(u32 a, u32 b);
  * also how far past a connection event's start that follow can begin.
  *
  * It has to stay under half the shortest interval, 3.75 ms, or the number of
- * events a gap spans would stop being the nearest whole number.
+ * events a gap spans would stop being the nearest whole number. The whole
+ * search rests on that rounding, and nothing else in the arithmetic would
+ * complain, so the bound is checked here rather than left as a remark.
  */
 #define LE_CSA2_SIGHTING_SPREAD 25000u
+_Static_assert(2 * LE_CSA2_SIGHTING_SPREAD <
+               (unsigned)LE_MIN_CONN_INTERVAL * LE_CONN_INTERVAL_TICKS,
+               "a sighting may be more than half a connection interval late");
 
 /*
  * Passive recovery of a connection that hops with channel selection

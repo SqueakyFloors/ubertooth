@@ -3849,7 +3849,7 @@ static u16 promisc_interval(void) {
  * side of one are not neighbours and the gap between them is not a gap between
  * consecutive returns. The estimator above reads the pattern the gaps repeat
  * and needs a run of consecutive ones: two runs of the longest pattern it
- * looks for, which is 16 gaps because it caps the pattern at half the ring,
+ * looks for, so 16 gaps, the pattern being capped at half the ring,
  * and then four more reports that agree, so 20. Both estimators start again
  * after every search, so this has to be more than that or a connection the
  * estimator above could have settled on would never get the chance.
@@ -3962,10 +3962,12 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 * When the packet arrived, not when this ran.
 	 *
 	 * idle_buf_clk100ns is stamped by the transfer's own interrupt, as the
-	 * four bytes after the access address come in, 72 microseconds into
-	 * the packet. Reading the clock here instead would be after the whole
-	 * PDU has arrived and been dewhitened and checked, which is 2.1 ms
-	 * later for the longest packet the 1M PHY carries.
+	 * four bytes after the access address come in: one byte of preamble,
+	 * four of access address, and those four, so 72 microseconds into the
+	 * packet on the 1M PHY, plus whatever a higher-priority interrupt
+	 * delays the handler by. Reading the clock here instead would be after
+	 * the whole PDU has arrived and been dewhitened and checked, which is
+	 * 2.1 ms later for the longest packet the PHY carries.
 	 *
 	 * That matters most for the last sighting before an algorithm-2
 	 * search, because the follow is anchored on it and nothing re-anchors
@@ -4119,10 +4121,13 @@ void promisc_recover_hop_interval(u8 *packet) {
  * CRCInit is worked out backwards from the CRC of a packet whose contents are
  * known, and an empty data PDU is the one packet of a connection whose
  * contents can be known without it: two header bytes and nothing else. Its
- * header is LLID 1 with a payload length of zero, and the acknowledgment bits
- * -- next expected sequence number and sequence number -- are whatever the
- * connection's traffic has made them, so they are masked out and the rest is
- * compared.
+ * header is LLID 1 with a payload length of zero. Three of its other bits are
+ * whatever the connection's traffic has made them -- the two acknowledgment
+ * bits, next expected sequence number and sequence number, and the more-data
+ * bit, which an empty PDU sets to hold the connection event open -- so those
+ * are masked out and the rest is compared. The three bits above them are
+ * reserved and have to be clear, which is worth keeping as a check that this
+ * is a header at all.
  *
  * Reading them as part of the header is what the mode did, and it meant
  * waiting for an empty PDU that happened to carry both bits clear. On a
@@ -4134,7 +4139,7 @@ void promisc_recover_hop_interval(u8 *packet) {
  * and report nothing more. The access-address half of the mode has always
  * accepted all four headers.
  */
-#define LE_EMPTY_PDU_HEADER_MASK 0xf3
+#define LE_EMPTY_PDU_HEADER_MASK 0xe3
 #define LE_EMPTY_PDU_HEADER 0x01
 
 void promisc_follow_cb(u8 *packet) {

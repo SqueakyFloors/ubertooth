@@ -585,7 +585,7 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
  * next to the stack, so they live in the other bank. The block index costs
  * half a kilobyte of that and narrows a lookup to the seven or so entries a
  * block holds, against the eleven steps a binary search over all 1772 would
- * take; a search makes up to a million lookups, which is the time the
+ * take; a search makes about 43 thousand of them, and all of that is time the
  * receiver spends deaf.
  */
 #define LE_CSA2_HITS 1772
@@ -790,10 +790,12 @@ int le_csa2_recover(const u32 *gap, unsigned gap_count, uint8_t channel_idx,
  * forward over the events that went by in the meantime and says how long to
  * wait before hopping to the next one.
  *
- * The hop lands at or just before that event's start, never after it: the
- * wait is rounded down to the 1.25 ms the interval timer counts in, so the
- * receiver is already on the right channel when the event begins and sits
- * there for the whole of it.
+ * The hop lands at or just before that event's start as the sighting marks
+ * it: the wait is rounded down to the 1.25 ms the interval timer counts in,
+ * so it is never later than the sighting's own place in its event. Where that
+ * is in the real event is LE_CSA2_SIGHTING_SPREAD's business -- 0.07 ms when
+ * the central's packet was the sighting, up to 2.32 ms when it was missed and
+ * the peripheral's answer was -- and nothing here can know which.
  */
 int le_csa2_handoff(const le_csa2_recovery_t *rec, u32 elapsed,
                     le_csa2_handoff_t *out) {

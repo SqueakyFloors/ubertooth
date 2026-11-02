@@ -1248,12 +1248,14 @@ MU_TEST(crc_init_comes_from_any_empty_data_pdu)
 	mu_assert_fatal(mask != 0 && want >= 0,
 	                "the empty-PDU header constants were not found");
 
-	/* The four headers an empty data PDU can carry: LLID 1, no more data,
-	 * reserved bits clear, and the two acknowledgment bits either way. All
-	 * four have to pass. */
+	/* The eight headers an empty data PDU can carry: LLID 1, the three
+	 * reserved bits clear, and the two acknowledgment bits and the
+	 * more-data bit each either way. All eight have to pass, because the
+	 * CRCInit is worked back from the header bytes the packet really
+	 * carried and none of those three bits changes that. */
 	for (header = 0; header < 256; ++header) {
 		int is_empty_pdu = (header & 0x03) == 0x01 &&
-				(header & 0xf0) == 0x00;
+				(header & 0xe0) == 0x00;
 		int accepted = ((int)header & mask) == want;
 		char msg[96];
 
@@ -1425,6 +1427,12 @@ MU_TEST(the_collector_starts_the_run_again_on_every_break)
  * start of the event whose counter it gives the follow -- never after it. Land
  * after and the receiver tunes to the right channel with the event already
  * under way, which costs the central's packet every time.
+ *
+ * "The event's start" here means where the sighting puts it, which is all this
+ * function is given: it cannot know how far into its own event the sighting
+ * was. That is the collector's business, and it is what
+ * LE_CSA2_SIGHTING_SPREAD bounds and what
+ * test_promisc_hop_interval.c's test_a_busy_event_is_still_one_event covers.
  *
  * `elapsed` is the time the search itself took, which is a couple of hundred
  * milliseconds and so crosses whole events at a short interval. The values
