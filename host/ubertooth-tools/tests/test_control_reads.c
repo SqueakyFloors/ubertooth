@@ -125,11 +125,9 @@ static void script_attempts(int first, int second, int third)
 	fake.sequence_len = SEQUENCE_MAX;
 }
 
-/* cmd_get_access_address() is deprecated in favor of
- * cmd_read_access_address(), but it is still exported and so still needs the
- * coverage below. The calls go through this one place so the deprecation
- * warning is switched off once rather than at each of them, and the rest of
- * the file stays strict. */
+/* cmd_get_access_address() is deprecated but still exported, so it still
+ * needs the coverage below. The four calls go through here so the warning is
+ * switched off once and the rest of the file stays strict. */
 static u32 deprecated_get_access_address(void)
 {
 #if defined(__GNUC__) || defined(__clang__)

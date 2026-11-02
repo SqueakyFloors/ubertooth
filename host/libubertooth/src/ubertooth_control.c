@@ -1268,11 +1268,8 @@ int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_addre
 
 /* Kept for API compatibility: an error comes back as the negative libusb
  * code cast to u32, which cannot be told apart from an address. Use
- * cmd_read_access_address() instead.
- *
- * Deprecated; documented with the declaration in ubertooth_control.h. The
- * attribute there reports calls, and a definition is not one, so this does
- * not warn. */
+ * cmd_read_access_address() instead. The attribute on the declaration reports
+ * calls, and a definition is not one, so this does not warn. */
 u32 cmd_get_access_address(struct libusb_device_handle* devh)
 {
 	u32 access_address = 0;

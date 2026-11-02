@@ -48,8 +48,7 @@ static int monitor1_canceled(void)
 
 static int start_monitor2(uint8_t p1, uint8_t p2, uint16_t p3)
 {
-	/* Twelve hex digits, so the address read out of the FHS packet can be
-	 * copied into page, l2ping, or monitor as it stands. */
+	/* Twelve digits, so the address can be copied into page or l2ping. */
 	cprintf("fhs: ba=%012llx clk27_2=%x lta=%d\n",
 		monitor1_state.fhs_info.bdaddr,
 		monitor1_state.fhs_info.clk27_2,

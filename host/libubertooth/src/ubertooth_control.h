@@ -279,11 +279,9 @@ int cmd_btle_sniffing(struct libusb_device_handle* devh, uint8_t do_follow);
 /* Returns 0 and writes *access_address, or a negative libusb error. */
 int cmd_read_access_address(struct libusb_device_handle* devh, u32 *access_address);
 /* Deprecated: call cmd_read_access_address() above instead, which reports an
- * error separately from the address. Here a failure comes back as the negative
- * libusb code cast to u32, and no access address is ruled out, so there is no
- * value a caller can read as "it did not work". It is still exported, so a
- * program that calls it builds and links against this release, though a build
- * with -Werror stops on the warning. */
+ * error separately from the address. Still exported, so a program that calls
+ * it builds and links against this release, though a build with -Werror stops
+ * on the warning. */
 UBERTOOTH_DEPRECATED("use cmd_read_access_address()")
 u32 cmd_get_access_address(struct libusb_device_handle* devh);
 int cmd_set_access_address(struct libusb_device_handle* devh, u32 access_address);
