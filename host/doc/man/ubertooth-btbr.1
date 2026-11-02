@@ -257,7 +257,7 @@ The last of those is a board that left the USB bus, stopped answering, or sent a
 .P
 A single command the board refused is not that\. It is reported on standard error (see DIAGNOSTICS), the prompt stays up, and the session goes on and ends with the status its own ending gives it, the way a shell reports a failed command without failing itself\. One message the tool could not read is not that either: it is dropped and the session goes on, which costs the capture that message and nothing else (see LIMITATIONS)\.
 .SH "SEE ALSO"
-ubertooth\-rx(1): passive Classic Bluetooth discovery, and following where the clock search reaches a clock; THE CLOCK SEARCH AND ADAPTED HOPPING says when it does not
+ubertooth\-rx(1): passive Classic Bluetooth discovery and following, on the \fBbluetooth_rxtx\fR firmware; THE CLOCK SEARCH says what recovering a clock from the air takes
 .P
 ubertooth\-dfu(1): flashing the firmware images
 .P

@@ -473,9 +473,9 @@ that message and nothing else (see LIMITATIONS).
 
 ## SEE ALSO
 
-ubertooth-rx(1): passive Classic Bluetooth discovery, and following where the
-clock search reaches a clock; THE CLOCK SEARCH AND ADAPTED HOPPING says when
-it does not
+ubertooth-rx(1): passive Classic Bluetooth discovery and following, on the
+`bluetooth_rxtx` firmware; THE CLOCK SEARCH says what recovering a clock from
+the air takes
 
 ubertooth-dfu(1): flashing the firmware images
 

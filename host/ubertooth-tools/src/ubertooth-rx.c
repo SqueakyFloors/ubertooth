@@ -52,10 +52,11 @@ static void usage(FILE *file)
 	fprintf(file, "\t-i <filename> replay a capture saved with -d, with its recorded times\n");
 	fprintf(file, "\t              - if not specified use Ubertooth for live capture\n");
 	fprintf(file, "\n");
-	fprintf(file, "Known limitation: the clock search does not confirm a clock against a\n");
-	fprintf(file, "piconet that uses adapted hopping (AFH), which every controller tested on\n");
-	fprintf(file, "this project's bench does, so following such a piconet does not start. Its\n");
-	fprintf(file, "addresses, and the packets of it the boards hear, are still recovered. See\n");
+	fprintf(file, "The clock search takes hops of the piconet to tell the candidate clocks\n");
+	fprintf(file, "apart, so a clock arrives some way into a capture, and a link heard rarely\n");
+	fprintf(file, "or held to a few channels may give no clock at all: one is confirmed only\n");
+	fprintf(file, "while no other candidate explains the hops nearly as well. Its addresses,\n");
+	fprintf(file, "and the packets of it the boards hear, are recovered either way. See\n");
 	fprintf(file, "ubertooth-rx(1).\n");
 	fprintf(file, "\n");
 	fprintf(file, "Configuration:\n");
@@ -612,26 +613,28 @@ static int capture_failed(struct rx_board* boards, int n_boards,
 static int replay_read_a_record;
 
 /* How long the clock search may run without confirming a clock before the tool
- * says what it does not reach, in milliseconds.
+ * says what it is waiting for, in milliseconds.
  *
- * The search cannot report this itself, because it does not fail: it rules its
- * candidates out and starts over, printing a candidate count each time, so
- * nothing a user sees separates a search that is getting somewhere from one
- * that is not going to finish. The tool says so once instead.
+ * The search cannot report this itself. It prints a candidate count for each
+ * list it builds and nothing else, so a user watching those counts cannot tell
+ * a search that is narrowing from one that has little to narrow with: the
+ * difference is in the hops that arrive, not in the counts. The tool says so
+ * once instead.
  *
- * Half a minute. A search that does reach a clock reaches it within a few
- * seconds of settling CLK1-6, because every packet of the piconet rules out
- * most of what is left, so half a minute is several times over what a working
- * search needs and well short of the minute a working follow is given above.
- * Saying it too early is the worse mistake of the two, which is what sets the
- * span: a user told that a search is not going to finish will stop a run that
- * was about to succeed.
+ * Two minutes. A clock takes enough hops of the piconet to tell the candidates
+ * apart, which is tens of them, and a sweeping receiver hears a fraction of a
+ * link's packets, so a search of some seconds is ordinary and one of minutes
+ * is not a fault: the busiest link this project's bench makes gave a clock 34
+ * seconds into the search, which is why the span is not the half minute it
+ * first was. Two minutes is long enough that a capture which reaches a clock
+ * says nothing at all, and short enough to reach a user who is waiting on a
+ * link that will not give the search enough.
  *
- * Nothing acts on it. The search carries on exactly as before and the note
- * only says what the run is going to reach. */
-#define CLOCK_SEARCH_NOTE_MS 30000
+ * Nothing acts on it. The search carries on exactly as before, and a clock
+ * confirmed after the note is reported as any other is. */
+#define CLOCK_SEARCH_NOTE_MS 120000
 
-/* Says once what the clock search does not reach, for a run whose search has
+/* Says once what the clock search is waiting for, for a run whose search has
  * been going that long with no clock confirmed. Called where the capture
  * decodes, so a run with no board, and one whose piconet is silent, say
  * nothing: the reading is -1 until a packet of the piconet reaches the search.
@@ -650,13 +653,14 @@ static void rx_note_clock_search_limit(ubertooth_t* ut)
 	/* How long the search has really run, not the span that brought it
 	 * here: a run that reaches this late -- a replay reading its records
 	 * at the times they were recorded, say -- would otherwise report a
-	 * search of minutes as half a minute. */
+	 * search of an hour as two minutes. */
 	fprintf(stderr, "note: the clock search has run for %ld s without "
-	        "confirming a clock; it does not confirm one against a piconet "
-	        "that uses adapted hopping (AFH)\n", ms / 1000);
+	        "confirming a clock; it needs enough hops of the piconet to "
+	        "tell the candidate clocks apart, which a link heard rarely, or "
+	        "held to a few channels, may not give\n", ms / 1000);
 	fputs("note: the piconet's LAP and UAP, and the packets of it the "
-	      "boards hear, are still recovered, decoded, and captured; see "
-	      "ubertooth-rx(1)\n", stderr);
+	      "boards hear, are recovered, decoded, and captured either way; "
+	      "see ubertooth-rx(1)\n", stderr);
 }
 
 /* A replay's decode: notes the record, then decodes it like any other. The

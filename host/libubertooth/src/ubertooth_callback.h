@@ -116,18 +116,19 @@ long ubertooth_follow_quiet_ms(ubertooth_t* ut);
  * ubertooth_follow_quiet_ms() for the follow and the packets themselves for
  * the search.
  *
- * For a tool that reports what the search cannot reach. The search does not
- * fail when it cannot reach a clock, it starts over, so nothing it prints
- * tells a user that it is not going to finish. An accepted clock ends the
- * reading for the rest of the run, because a search that is running again
- * after one was given up did get that far once.
+ * For a tool that reports what the search is waiting for. The search prints a
+ * candidate count for each list it builds and nothing else, so nothing it
+ * prints tells a user how long it has been going or how little it has had to
+ * narrow with. An accepted clock ends the reading for the rest of the run,
+ * because a search that is running again after one was given up did get that
+ * far once.
  *
  * How long is long enough is the caller's, as it is above.
  *
  * Per board: a capture reading several boards asks each one separately,
- * because each runs a search of its own. What the search cannot reach is the
- * library's limitation rather than one board's, so a tool reporting it needs
- * only one board to have run that long. */
+ * because each runs a search of its own. What a search is waiting for is the
+ * same for every board, so a tool reporting it needs only one board to have
+ * run that long. */
 long ubertooth_clock_search_ms(ubertooth_t* ut);
 
 /* Gives up the clock this capture is following, for a caller that has decided
