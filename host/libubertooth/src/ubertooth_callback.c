@@ -238,6 +238,19 @@ uint64_t ubertooth_packet_arrival_ns( void )
 	return clock_ns( CLOCK_MONOTONIC );
 }
 
+void ubertooth_bredr_follow_reset( ubertooth_t* ut )
+{
+	ut->br_following = 0;
+	ut->br_calibrated = 0;
+	ut->br_heard_ms = 0;
+	ut->br_clock_gone = 0;
+	ut->br_trim_counter = 0;
+	ut->br_clkn_trim = 0;
+	ut->br_searching = 0;
+	ut->br_search_start_ms = 0;
+	ut->br_clock_confirmed = 0;
+}
+
 void ubertooth_capture_clock_reset( ubertooth_t* ut )
 {
 	ut->abs_start_ns = 0;
@@ -1512,38 +1525,43 @@ static int drift_ppm( int32_t correction_100ns, uint32_t clkn_ticks )
 
 /* ---- following a piconet's clock ---------------------------------------- */
 
-/* Whether the library has handed this capture a clock of the piconet's that it
- * has not since given up. Only then is there a clock to be told about losing,
- * and a board to take off its offset. */
-static int br_following;
-
-/* Whether the clock trim has been measured against the offset being followed.
- * A clock handed over, or given up, starts that again. */
-static int br_calibrated;
-
-/* When a packet of that piconet was last heard, on the monotonic clock. A
- * clock handed over starts it, because nothing has been heard on that clock
- * yet. See ubertooth_follow_quiet_ms(). */
-static uint64_t br_heard_ms;
-
-/* Whether the library has no clock for this piconet any more while the board
- * may still be hopping on the old offset, which is where a board that refused
- * the request below leaves this capture. */
-static int br_clock_gone;
-
-/* Whether a clock search is running with a packet of the piconet behind it and
- * no clock confirmed in this run yet, and when it started, on the monotonic
- * clock. See ubertooth_clock_search_ms(). */
-static int br_searching;
-static uint64_t br_search_start_ms;
-
-/* Whether the library has accepted a clock at any point in this run, whether
- * or not it turned out to be the piconet's. It ends the reading above for the
- * rest of the run: a search running again after a clock was accepted and lost
- * is not one that never got that far, and a caller must not be told that the
- * search cannot confirm a clock in a run where it did. That a clock was wrong
- * is reported where it is lost. */
-static int br_clock_confirmed;
+/* The state below lives on the handle, one set per board, because every value
+ * in it describes one board: its crystal's drift, the requests sent to it, and
+ * the clock the library handed the capture reading it. The fields are
+ * ut->br_following, ut->br_calibrated, ut->br_heard_ms, ut->br_clock_gone,
+ * ut->br_trim_counter and ut->br_clkn_trim.
+ *
+ * ut->br_following: whether the library has handed this capture a clock of the
+ * piconet's that it has not since given up. Only then is there a clock to be
+ * told about losing, and a board to take off its offset.
+ *
+ * ut->br_calibrated: whether the clock trim has been measured against the
+ * offset being followed. A clock handed over, or given up, starts that again.
+ *
+ * ut->br_heard_ms: when a packet of that piconet was last heard, on the
+ * monotonic clock. A clock handed over starts it, because nothing has been
+ * heard on that clock yet. See ubertooth_follow_quiet_ms().
+ *
+ * ut->br_clock_gone: whether the library has no clock for this piconet any
+ * more while the board may still be hopping on the old offset, which is where
+ * a board that refused the request below leaves this capture.
+ *
+ * ut->br_trim_counter and ut->br_clkn_trim: how far the access code has been
+ * arriving from CLK_TUNE_TIME, and the CLKN the last trim was sent at, which
+ * is what the drift in PPM is measured over.
+ *
+ * ut->br_searching and ut->br_search_start_ms: whether a clock search is
+ * running on this board with a packet of the piconet behind it and no clock
+ * confirmed yet, and when it started, on the monotonic clock. See
+ * ubertooth_clock_search_ms().
+ *
+ * ut->br_clock_confirmed: whether the library has accepted a clock for this
+ * board at any point in this run, whether or not it turned out to be the
+ * piconet's. It ends the reading above for the rest of the run: a search
+ * running again after a clock was accepted and lost is not one that never got
+ * that far, and a caller must not be told that the search cannot confirm a
+ * clock in a run where it did. That a clock was wrong is reported where it is
+ * lost. */
 
 static uint64_t monotonic_ms(void)
 {
@@ -1565,11 +1583,11 @@ static uint64_t monotonic_ms(void)
  * next report arrives or the next wait is up. */
 static void br_stop_following(ubertooth_t* ut)
 {
-	br_calibrated = 0;
+	ut->br_calibrated = 0;
 
 	if (infile != NULL) {
-		br_following = 0;
-		br_clock_gone = 0;
+		ut->br_following = 0;
+		ut->br_clock_gone = 0;
 		return;
 	}
 
@@ -1582,8 +1600,8 @@ static void br_stop_following(ubertooth_t* ut)
 		return;
 	}
 
-	br_following = 0;
-	br_clock_gone = 0;
+	ut->br_following = 0;
+	ut->br_clock_gone = 0;
 	/* Only when this capture set a channel. A caller that set none --
 	 * ubertooth-follow, which shares this callback -- leaves the field
 	 * zero, and zero is not a channel: it would be clamped to the bottom
@@ -1595,35 +1613,35 @@ static void br_stop_following(ubertooth_t* ut)
 		        "again\n");
 }
 
-long ubertooth_clock_search_ms(void)
+long ubertooth_clock_search_ms(ubertooth_t* ut)
 {
-	if (!br_searching)
+	if (!ut->br_searching)
 		return -1;
-	return (long)(monotonic_ms() - br_search_start_ms);
+	return (long)(monotonic_ms() - ut->br_search_start_ms);
 }
 
-long ubertooth_follow_quiet_ms(void)
+long ubertooth_follow_quiet_ms(ubertooth_t* ut)
 {
-	if (!br_following)
+	if (!ut->br_following)
 		return -1;
-	return (long)(monotonic_ms() - br_heard_ms);
+	return (long)(monotonic_ms() - ut->br_heard_ms);
 }
 
 int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn)
 {
-	if (!br_following)
+	if (!ut->br_following)
 		return 0;
 
 	/* The wait starts again whatever comes of this, so a caller whose
 	 * follow stays quiet asks once per wait rather than once per record:
 	 * for a clock the library will not give up, and for a board that will
 	 * not come off one it has. */
-	br_heard_ms = monotonic_ms();
+	ut->br_heard_ms = monotonic_ms();
 
-	if (!br_clock_gone) {
+	if (!ut->br_clock_gone) {
 		if (btbb_piconet_drop_clock(pn) <= 0)
 			return 0;
-		br_clock_gone = 1;
+		ut->br_clock_gone = 1;
 		fprintf(stderr, "warning: nothing of this piconet has been "
 		        "heard on the clock being followed; searching for it "
 		        "again\n");
@@ -1650,8 +1668,6 @@ void cb_rx(ubertooth_t* ut, void* args)
 	uint32_t lap = LAP_ANY;
 	uint8_t uap = UAP_ANY;
 
-	static int trim_counter = 0;
-	static uint32_t clkn_trim = 0;
 	static int pcap_bredr_warned = 0;
 	static int pcapng_bredr_warned = 0;
 
@@ -1730,25 +1746,25 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * decoder takes the packet, because the clock trim below keeps some
 	 * packets back from it: what a tool watching for silence has to see is
 	 * every packet of the piconet that arrived. */
-	if (br_following)
-		br_heard_ms = monotonic_ms();
+	if (ut->br_following)
+		ut->br_heard_ms = monotonic_ms();
 
 	/* calibrate Ubertooth clock such that the first bit of the AC
 	 * arrives CLK_TUNE_TIME after the rising edge of CLKN */
 	if (pn != NULL && infile == NULL) {
 		/* The correction this packet calls for. Its sign, and nothing
 		 * else, decides which form the trim takes; the two were chosen
-		 * by trim_counter instead, so a calibrated follow reached the
-		 * "delay" form with a correction that was really an advance,
-		 * and vice versa. */
+		 * by the trim counter instead, so a calibrated follow reached
+		 * the "delay" form with a correction that was really an
+		 * advance, and vice versa. */
 		int32_t correction = clock_correction_100ns( clk_offset );
 		/* Forward CLKN ticks since the last trim, masked because CLKN
 		 * starts over. */
-		uint32_t since_trim = (clkn - clkn_trim) & CLKN_MASK;
+		uint32_t since_trim = (clkn - ut->br_clkn_trim) & CLKN_MASK;
 
-		if (trim_counter < -CLOCK_TRIM_THRESHOLD
-		    || trim_counter > CLOCK_TRIM_THRESHOLD
-		    || (correction != 0 && !br_calibrated)) {
+		if (ut->br_trim_counter < -CLOCK_TRIM_THRESHOLD
+		    || ut->br_trim_counter > CLOCK_TRIM_THRESHOLD
+		    || (correction != 0 && !ut->br_calibrated)) {
 			/* Which way the clock is about to move, read from the
 			 * correction and not from the raw offset. The offset
 			 * runs through one slot and starts over, so an offset
@@ -1761,8 +1777,8 @@ void cb_rx(ubertooth_t* ut, void* args)
 			        correction < 0 ? "<" : ">");
 			fprintf(stderr, "note: CLK100ns trim: %d\n", correction);
 			cmd_trim_clock(ut->devh, clock_trim_field(correction));
-			trim_counter = 0;
-			if (br_calibrated) {
+			ut->br_trim_counter = 0;
+			if (ut->br_calibrated) {
 				int ppm = drift_ppm(correction, since_trim);
 
 				fprintf(stderr, "note: clock drifted %d in %f s, "
@@ -1772,19 +1788,19 @@ void cb_rx(ubertooth_t* ut, void* args)
 				       ppm, ppm < 0 ? "slow" : "fast");
 				cmd_fix_clock_drift(ut->devh, (int16_t) ppm);
 			}
-			clkn_trim = clkn;
-			br_calibrated = 1;
+			ut->br_clkn_trim = clkn;
+			ut->br_calibrated = 1;
 			goto out;
 		}
 
 		if (clk_offset < CLK_TUNE_TIME - CLK_TUNE_OFFSET) {
-			trim_counter--;
+			ut->br_trim_counter--;
 			goto out;
 		} else if (clk_offset > CLK_TUNE_TIME + CLK_TUNE_OFFSET) {
-			trim_counter++;
+			ut->br_trim_counter++;
 			goto out;
 		} else {
-			trim_counter = 0;
+			ut->br_trim_counter = 0;
 		}
 	}
 
@@ -1865,10 +1881,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * away again. So this sees a search whose candidate list outlived the
 	 * packet that built it, which is what every search on the bench has
 	 * done. */
-	if (!br_searching && !br_following && !br_clock_confirmed &&
+	if (!ut->br_searching && !ut->br_following && !ut->br_clock_confirmed &&
 	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_HOP_REVERSAL_INIT)) {
-		br_searching = 1;
-		br_search_start_ms = monotonic_ms();
+		ut->br_searching = 1;
+		ut->br_search_start_ms = monotonic_ms();
 	}
 
 	if (r < 0) {
@@ -1879,13 +1895,13 @@ void cb_rx(ubertooth_t* ut, void* args)
 		if (infile == NULL)
 			cmd_start_hopping(ut->devh,
 			                  btbb_piconet_get_clk_offset(pn), 0);
-		br_calibrated = 0;
-		br_following = 1;
-		br_clock_gone = 0;
-		br_heard_ms = monotonic_ms();
-		br_searching = 0;
-		br_clock_confirmed = 1;
-	} else if (r == BTBB_PROCESS_LOCK_LOST && br_following) {
+		ut->br_calibrated = 0;
+		ut->br_following = 1;
+		ut->br_clock_gone = 0;
+		ut->br_heard_ms = monotonic_ms();
+		ut->br_searching = 0;
+		ut->br_clock_confirmed = 1;
+	} else if (r == BTBB_PROCESS_LOCK_LOST && ut->br_following) {
 		/* The clock being followed was not this piconet's. The library
 		 * has given it up and started discovery again, so a board put
 		 * on that offset has to come off it. The clock the library
@@ -1894,13 +1910,14 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * One warning per lost clock, not one per packet. The library
 		 * reports a loss once -- the headers that failed are counted
 		 * inside it, and giving the clock up resets that count -- and
-		 * br_following keeps it that way here regardless: one warning
-		 * per clock the library handed over, and none until it hands
-		 * over another. A replay warns too; it is the same silence for
-		 * the reader of a capture file as for the user of a board. */
+		 * the following flag keeps it that way here regardless: one
+		 * warning per clock the library handed over, and none until it
+		 * hands over another. A replay warns too; it is the same
+		 * silence for the reader of a capture file as for the user of
+		 * a board. */
 		fprintf(stderr, "warning: the clock being followed was not "
 		        "this piconet's; searching for it again\n");
-		br_clock_gone = 1;
+		ut->br_clock_gone = 1;
 		br_stop_following(ut);
 	}
 

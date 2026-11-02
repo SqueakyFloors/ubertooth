@@ -13,6 +13,19 @@
   transmit power level, 0 included. ubertooth(7), OUTPUT AND DIAGNOSTICS says
   which captures can see it.
   [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
+- `ubertooth-rx` reads several boards in one run. A board hears one 1 MHz
+  channel at a time, so parked on one it sees about one packet in 79 of a
+  Classic connection, and finding the piconet's address part and the channels
+  it is using waits on those sightings. `-U` now takes a comma-separated list
+  of up to eight boards and `-c` a channel for each of them, so
+  `ubertooth-rx -U 0,1,2,3 -c 10,30,50,70 -l e9c5ba` hears four channels at
+  once. The boards share what they find: the channels the piconet has been
+  heard on join into one map that goes back to every board, and the address
+  part is passed on once two boards have worked out the same one from their
+  own packets. Each board recovers the clock from its own packets, because a
+  clock is recovered against that board's own counter. ubertooth-rx(1),
+  SEVERAL BOARDS AT ONCE says what is shared and what is not.
+  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
@@ -651,6 +664,13 @@
   name the replacement in a warning, which a build with `-Werror` will stop
   on. It is removed in the release after this one.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- libubertooth's `cmd_get_access_address()` is deprecated in favor of
+  `cmd_read_access_address()`, which reports an error separately from the
+  address instead of returning both as one `u32`. The header said it was
+  deprecated already; GCC and Clang now name the replacement in a warning
+  too, which a build with `-Werror` will stop on. It is still exported and
+  still works as it did.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - libubertooth installs to the directory your system keeps libraries in,
   which is where libbtbb already went: `lib64` on a 64-bit Fedora, RHEL or
   SUSE, `lib/<triplet>` where the prefix is `/usr` on a multiarch Debian or
@@ -883,30 +903,14 @@
 
 ### Reliability fixes
 
-- Fixed: `ubertooth-rx -l <lap> -u <uap>` searched for a piconet's clock and
-  never confirmed one against a device whose controller adapts its hopping,
-  which every controller tested on this project's bench does even when the
-  whole band is allowed. It printed candidate counts for as long as the capture
-  ran and the follow it advertises never started. The tools are now built
-  against a libbtbb
-  ([`52b2afc`](https://github.com/SqueakyFloors/libbtbb/commit/52b2afcb0c4b8b03412dac759aad88debdfb18e2))
-  whose search scores each candidate on the hops it explains, counts a
-  prediction on a channel the board has never heard neither for it nor against
-  it, and accepts a clock only while no other candidate explains the hops
-  nearly as well. Following now starts, and the clock is the piconet's own: on
-  the bench it matched the controller's own clock readings, and the packet rate
-  rose from a couple a second to tens as the board hopped with the link
-  instead of sweeping past it. A capture that cannot tell two clocks apart
-  still ends with none, which is that rule declining to guess; earlier releases
-  took whichever candidate was last standing, which against an adapted piconet
-  was often a clock the piconet was not using.
+- Fixed: `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of a
+  piconet that adapts its hopping, which current controllers do, so its follow
+  never started. It now finds the clock and follows.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
 
-- A Classic capture record carries the packet's type and payload as soon as
-  CLK1-6 is settled, where a capture of a piconet whose address part was known
-  held the addresses and signal levels until hop reversal confirmed the whole
-  clock. Dewhitening a header and a payload takes CLK1-6 and nothing more.
-  Same pin.
+- Classic capture records carry each packet's type and payload as soon as the
+  first part of the clock is known, instead of only after the whole clock is
+  confirmed.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 
 - Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
@@ -962,6 +966,18 @@
   11:22:33` paged that device, with nothing said. An inquiry's `bdaddr=` keeps
   its leading zeros too, so the address it prints is one the prompt takes.
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
+
+- Fixed: the addresses the `btbr` firmware printed lost their leading zeros,
+  so they were not the twelve hex digits the prompt takes back.
+  `bdaddr 00:11:22:33:44:55` was echoed as `Set bdaddr 1122334455`, and the
+  `fhs: ba=` line of a `page_scan` or `monitor` session dropped them the same
+  way from the address it read off the air. Both now print twelve digits.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
+- The two errors that name the spectrum analyzer spell it the American way,
+  which is how the rest of the tools and docs spell it: `error: could not
+  start the spectrum analyzer: ...` and the same for the LED one.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
@@ -2670,16 +2686,8 @@
   which stopped being true of follow mode when it learned algorithm 2.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
-- `ubertooth-rx(1)` has a section on the Classic clock search, THE CLOCK
-  SEARCH: what it needs (hops of the piconet to tell the candidate clocks
-  apart, adapted hopping included, over a channel map it learns as the capture
-  runs), what an accepted clock means and how to check one, why a run can end
-  with no clock, and what the tool reaches without one. The usage text says
-  the same in three lines, and a search that has run half a minute without
-  confirming a clock says once what it is waiting for rather than leaving a
-  user to read candidate counts. `ubertooth-follow(1)`, `ubertooth-btbr(1)`,
-  the sniffing guide and the concepts chapter point at that section instead of
-  promising a follow with nothing said about what it takes.
+- `ubertooth-rx(1)` explains the clock search: what it needs, and why a run
+  can end without a clock.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
 
 - The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
@@ -2805,10 +2813,8 @@
 
 Fixes with no visible change in normal use.
 
-- The pinned library builds the table its hop selection reads when it is
-  initialized rather than on the first hop, so a program that decodes on
-  several threads does not race on it, and the library says which of its calls
-  are safe together.
+- The pinned library no longer races when more than one thread decodes at the
+  same time.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 - The paged board's `LMP_setup_complete` carries the transaction ID the
   specification gives a transaction the peripheral started, where it carried
@@ -2827,6 +2833,15 @@ Fixes with no visible change in normal use.
 - The search for an access code in a bank of captured symbols tells the library
   how many symbols the bank holds, so the library checks the search bound
   rather than taking the caller's word for it.
+- The clock a Classic capture is following, the trim it sends the board to hold
+  that clock, and how long its clock search has run belong to the board being
+  read rather than to the process, and go back to where a capture starts when
+  one ends. One board behaves as it did; a capture reading several would have
+  measured each board's correction against another board's history.
+  libubertooth's ubertooth_follow_quiet_ms() and ubertooth_clock_search_ms()
+  take the handle to ask about as a result, and
+  ubertooth_bredr_follow_reset() is new beside them.
+  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 - The LED demo mode (`ubertooth-util -x`) arms its blink timer from a clean
   start and disarms it on the way out, so a second run of it cannot toggle an
   LED before its own first blink is due.

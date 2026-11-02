@@ -277,7 +277,8 @@ void btphy_set_bdaddr(uint64_t bdaddr)
 	btphy.my_uap = 0xff & (bdaddr>>24);
 	btphy.my_nap = 0xffff & (bdaddr>>32);
 	btphy.my_sw = btbb_gen_syncword(btphy.my_lap);
-	cprintf("Set bdaddr %llx -> sw %llx\n", bdaddr, btphy.my_sw);
+	/* Twelve digits, so the echo is an address the prompt takes back. */
+	cprintf("Set bdaddr %012llx -> sw %llx\n", bdaddr, btphy.my_sw);
 }
 
 void btphy_init(void)

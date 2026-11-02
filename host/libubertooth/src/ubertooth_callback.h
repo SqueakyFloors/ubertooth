@@ -32,6 +32,10 @@
  * Which clock stamps the packets (clk100ns_period) is the tool's choice, not
  * tracking state, and is left as the tool set it. */
 void ubertooth_capture_clock_reset(ubertooth_t* ut);
+/* The Classic follow and clock-trim state for one board, back to where a
+ * capture starts. Called with the above when a capture ends, so a handle used
+ * again does not carry one capture's calibration into the next. */
+void ubertooth_bredr_follow_reset(ubertooth_t* ut);
 
 /* Reads the clock the capture clock tracking measures gaps between records
  * with, to be called as each record arrives and carried with it through the
@@ -90,8 +94,12 @@ uint32_t ubertooth_packet_systime(uint64_t arrival_ns);
  * against its own threshold rather than two clocks against each other. How
  * long a silence is long enough is the caller's: only the tool knows it asked
  * the board to hop with the piconet, and what its user wants of a piconet that
- * has stopped talking. */
-long ubertooth_follow_quiet_ms(void);
+ * has stopped talking.
+ *
+ * Per board: a capture reading several boards asks each one separately,
+ * because each has its own clock from the library and hears the piconet for
+ * itself. */
+long ubertooth_follow_quiet_ms(ubertooth_t* ut);
 
 /* How long the clock search has been running in this capture, in
  * milliseconds, and -1 when no search is running: the library has not built a
@@ -115,8 +123,13 @@ long ubertooth_follow_quiet_ms(void);
  * because a search that is running again after one was given up did get that
  * far once.
  *
- * How long is long enough is the caller's, as it is above. */
-long ubertooth_clock_search_ms(void);
+ * How long is long enough is the caller's, as it is above.
+ *
+ * Per board: a capture reading several boards asks each one separately,
+ * because each runs a search of its own. What a search is waiting for is the
+ * same for every board, so a tool reporting it needs only one board to have
+ * run that long. */
+long ubertooth_clock_search_ms(ubertooth_t* ut);
 
 /* Gives up the clock this capture is following, for a caller that has decided
  * the follow has gone quiet, and leaves the capture as a clock the library

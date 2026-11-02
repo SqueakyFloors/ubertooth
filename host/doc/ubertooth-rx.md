@@ -2,9 +2,9 @@
 
 ## SYNOPSIS
 
-    ubertooth-rx [-l <lap> [-u <uap>] | -z] [-c <0-78> | -s] [-e <0-5>]
+    ubertooth-rx [-l <lap> [-u <uap>] | -z] [-c <0-78>[,...] | -s] [-e <0-5>]
     [-t <seconds>] [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
-    [-U <index|serial>]
+    [-U <index|serial>[,...]]
     ubertooth-rx -i <file.bin> [-l <lap> [-u <uap>] | -z] [-e <0-5>]
     [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
     ubertooth-rx [-U <index|serial>] -V
@@ -79,6 +79,11 @@ Decode a capture saved earlier, writing a PCAP of it:
 
     ubertooth-rx -i capture.bin -q capture.pcap
 
+Read one piconet with four boards, each on a channel of its own, so the run
+sees four times as much of it:
+
+    ubertooth-rx -U 0,1,2,3 -c 10,30,50,70 -l e9c5ba
+
 ## OPTIONS
 
 Major modes:
@@ -102,9 +107,13 @@ Options:
    without `-b`, which writes the same records) instead of capturing live with
    an Ubertooth. See [REPLAYING A SAVED CAPTURE][].
 
- - `-c <0-78>` :
+ - `-c <0-78>[,...]` :
    Fixed channel for all major modes. If not specified will sweep
-   through all channels.
+   through all channels. With several boards, a comma-separated list gives one
+   channel to each, in the order `-U` named them, which is how the boards are
+   spread across the band; a single channel is given to all of them. Any other
+   count is refused, because which board got which channel would then be a
+   guess. See SEVERAL BOARDS AT ONCE.
 
  - `-s` :
    Sweep through all channels. This is the default, so `-s` only states it
@@ -176,9 +185,10 @@ Miscellaneous:
    print the version: the host tools, then the firmware version and build of
    each attached board; see ubertooth(7), COMMON OPTIONS
 
- - `-U <index|serial>` :
+ - `-U <index|serial>[,...]` :
    select an Ubertooth by enumeration index or serial number; see
-   ubertooth(7), SELECTING A DEVICE
+   ubertooth(7), SELECTING A DEVICE. A comma-separated list of up to eight
+   reads them all together, by index or serial each; see SEVERAL BOARDS AT ONCE
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -273,7 +283,7 @@ it decodes keep failing (see GAPS IN A CAPTURE).
 A search still running after two minutes says so once, on standard error:
 
     note: the clock search has run for 120 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give
-    note: the piconet's LAP and UAP, and the packets of it this board hears, are recovered, decoded, and captured either way; see ubertooth-rx(1)
+    note: the piconet's LAP and UAP, and the packets of it the boards hear, are recovered, decoded, and captured either way; see ubertooth-rx(1)
 
 The capture is not stopped and the search is not changed: the note says what
 the search is waiting for, so a user reading candidate counts has something to
@@ -296,6 +306,122 @@ depend on this search: ubertooth-follow(1) asks a local BlueZ adapter for the
 clock of a piconet it joins, and ubertooth-btbr(1) in monitor mode catches the
 frequency hop synchronization (FHS) packet of a connection as it is set up,
 which carries the Central's clock.
+
+## SEVERAL BOARDS AT ONCE
+
+An Ubertooth receives one 1 MHz channel at a time, and a Classic connection
+hops over 79 of them, so a board parked on a channel hears about one packet of
+it in 79. Every step of following a piconet waits on those sightings: the upper
+address part (UAP), the channels the piconet is using, and the clock. `-U` with
+a comma-separated list of up to eight boards reads them all in one run, and
+`-c` with a channel each spreads them across the band, so the run sees as many
+packets as it has boards (see EXAMPLES).
+
+Each board decodes for itself and the run prints every packet of any of them,
+on one stream, each line carrying the channel it was heard on.
+
+**Know this before you read the output: nothing says which board a line came
+from.** The packet lines carry the channel, which tells them apart only where
+`-c` gave each board a channel of its own; with every board sweeping, which is
+the default, they do not. And the recovery's own notes — the candidate counts,
+the address part each board settles on, the clock trim and the drift in PPM,
+and the warning that a clock being followed was not the piconet's — carry no
+board at all, so with several boards they interleave and you cannot tell whose
+is whose. Those lines come from the decoder and from the library underneath
+this tool, which print the same way for one board; giving them a board is
+tracked on
+[#783](https://github.com/SqueakyFloors/ubertooth/issues/783). The merged
+results at the end of the run are the run's, not a board's, and say so.
+
+What the boards pass between them is what they have worked out:
+
+ - **The channels this piconet has been heard on.** A channel map records only
+   that a channel carried traffic, so the maps join whatever clock each board
+   is on. The union is handed back to every board as it grows, so each one
+   narrows its clock candidates against a map that filled as many times faster
+   as there are boards, and the run reports the union when it ends. The search
+   consults the map only once it has heard the piconet on twenty channels and
+   taken the hopping for adapted; from there a fuller map predicts the adapted
+   sequence better, so more boards should reach a clock sooner than one does.
+   By how much has not been measured. THE CLOCK SEARCH above says what the
+   search needs of a capture.
+
+ - **The UAP**, once two boards have worked out the same one from their own
+   packets. Not the first board's: a UAP is settled on as few as two packets
+   and is sometimes wrong, with one board as with several, and a board cannot
+   get off a wrong one by itself — the clock search restores the value it was
+   filtering on each time it runs out of candidates, so a board that settled on
+   a wrong UAP filters on it for the rest of the run and works out nothing of
+   its own, whether it reached that value itself or was handed it. Two boards
+   settling on the same value from different packets is a cross-check a single
+   board cannot make, though it makes a wrong value less likely rather than
+   impossible: a UAP can be settled on the candidates running out as well as
+   on a header's check bits, and two boards can run out the same wrong way.
+   `-u` is how to be sure.
+
+   It goes only to a board that has worked out none of its own, and only once
+   in a run. A board is never taken off its own answer, even when two others
+   disagree with it: setting a piconet's address part writes that and nothing
+   else, so a board whose clock search has already chosen its candidates would
+   go on narrowing a list picked for the old address and could reach a clock
+   belonging to it. The run names every board's own answer at the end instead
+   and leaves those boards to the decoder. What a board holds is what counts,
+   not what it held: giving a clock up takes the address part with it, and a
+   board that then settles on something else is evidence for the new value and
+   not the old, which the run reads once more before it reports.
+
+   Passing `-u` yourself hands a known address part to every board and avoids
+   all of this: nothing is passed between boards, because no board knows
+   anything another does not, and a board the library takes that value off is
+   left to rediscover exactly as a single board given `-u` is.
+
+Each board keeps a piconet of its own and recovers the clock from its own
+packets. The clock cannot be pooled: it is recovered as a position in the hop
+pattern relative to the board's own CLKN counter, and two boards' counters are
+unrelated, so a packet from one board placed in the other's recovery would sit
+at a position it was never heard at. Pooling would need the offset between the
+two boards' clocks known to better than one CLKN tick, 312.5 us, and tracked as
+their crystals drift. Nothing on the host measures that: the firmware batches
+records and the bulk endpoint is polled, so a record's arrival time is many
+ticks away from its reception time. The piconet's own clock is the shared time
+base instead, and each board reaches it by itself.
+
+When the capture ends, a run with several boards says what they found between
+them, on standard error:
+
+    note: 4 boards: UAP = 0x0d
+    note: 4 boards: AFH map: 0x00000000ffffffffff00, 40 of 79 channels heard
+
+Where the boards did not reach the same UAP, each board's own answer is named,
+numbered as `-U` listed them, and any board put on another's answer is named
+separately with the value it was given, because that value is not one it found.
+It is said of the run rather than of how the board ended: a board can be put on
+another's answer, have the library take that value off it, and reach one of its
+own afterwards, in which case it appears in both lines.
+
+
+    note: 4 boards: the boards worked out different UAPs, so one of them is wrong: board 1 0x0d, board 2 0x0d, board 3 0xb0
+    note: 4 boards: put on another board's answer during the run: board 4 0x0d
+
+A survey (`-z`) needs none of this: the table of addresses heard belongs to the
+decoder rather than to a board, so every board's packets reach the one survey
+and each address is heard as many times faster as there are boards.
+
+Two things to know about the files, beside the unattributed output above. A
+`-r` or `-q` capture takes every board's packets, and each board's times are
+reconstructed from its own crystal, so records from different boards can arrive
+out of order and drift apart over a long run. `-d` is refused with a list: its
+records carry no board and `-i` replays a whole dump as one board's, which
+would feed one piconet from several unrelated clocks — the thing a piconet per
+board exists to avoid.
+
+Each board costs a receive transfer and a 72 MB ring buffer of its own, which
+is what the limit of eight is about. One board behaves exactly as it did
+before: there is nothing to merge and nothing extra is printed. A board that
+cannot be opened, or whose receive stream fails, ends the run with status 1
+rather than carrying on with fewer boards than were asked for: the channels it
+was covering would go unheard with nothing saying which. `-i` reads one saved
+capture and so takes one board's worth of records; it refuses a list.
 
 ## DISCOVERING UNDISCOVERABLE DEVICES
 
