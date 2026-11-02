@@ -139,7 +139,9 @@ static int page_scan_canceled(void)
 
 static void page_scan_tx_cb(void *arg)
 {
-	cprintf("fhs: ba=%llx clk27_2=%x lta=%d\n",
+	/* Twelve hex digits, so the address read out of the FHS packet can be
+	 * copied into page, l2ping, or monitor as it stands. */
+	cprintf("fhs: ba=%012llx clk27_2=%x lta=%d\n",
 		page_scan_state.fhs_info.bdaddr,
 		page_scan_state.fhs_info.clk27_2,
 		page_scan_state.fhs_info.lt_addr);

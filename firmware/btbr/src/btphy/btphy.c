@@ -277,7 +277,11 @@ void btphy_set_bdaddr(uint64_t bdaddr)
 	btphy.my_uap = 0xff & (bdaddr>>24);
 	btphy.my_nap = 0xffff & (bdaddr>>32);
 	btphy.my_sw = btbb_gen_syncword(btphy.my_lap);
-	cprintf("Set bdaddr %llx -> sw %llx\n", bdaddr, btphy.my_sw);
+	/* The address as the twelve hex digits the user typed, leading zeros and
+	 * all, so the echo is an address ubertooth-btbr's prompt takes back. The
+	 * syncword after it is derived from the address and is not an input to
+	 * anything, so it is printed as it comes. */
+	cprintf("Set bdaddr %012llx -> sw %llx\n", bdaddr, btphy.my_sw);
 }
 
 void btphy_init(void)
