@@ -31,11 +31,11 @@ specific LAP. Once a LAP and UAP have been recovered, the tool will
 attempt to recover the clock value, and if that succeeds it will follow
 that piconet.
 
-The clock search does not confirm a clock against a piconet that uses adapted
-hopping, which the controllers tested on this project's bench all do,
-including when every channel is allowed, so following such a piconet does not
-start. The addresses and the packets the board hears are still recovered. See
-[THE CLOCK SEARCH AND ADAPTED HOPPING][].
+The clock search takes time, and it can end a run with no clock: it accepts
+one only while no other candidate explains the piconet's hops nearly as well,
+so a capture that cannot tell two clocks apart follows neither. The addresses
+and the packets the board hears are recovered either way. See [THE CLOCK
+SEARCH][].
 
 Survey mode, entered using `-z`, will record all LAPs and attempt to
 calculate the UAPs for any observed LAPs. This mode can be combined with
@@ -224,64 +224,88 @@ and said nothing about why. The board can still be streaming the previous
 mode's records when the request arrives, so the first few packets of a capture
 started on a board another run left going are that run's.
 
-## THE CLOCK SEARCH AND ADAPTED HOPPING
+## THE CLOCK SEARCH
 
-Following a piconet needs its clock as well as its address, and the clock
-search does not reach one against a piconet that uses adapted frequency
-hopping (AFH). Every controller tested on this project's bench runs its links
-adapted, including when the whole band is allowed, so this is the ordinary case
-rather than a corner of it: against a device whose controller does that,
-`ubertooth-rx -l <lap> -u <uap>` searches for a clock and does not confirm
-one.
+Following a piconet needs its clock as well as its address. The search first
+settles the low clock bits, CLK1-6, from the timing of the packets, and then
+has to pick the rest out of some two million candidates. It does that by
+predicting the channel each candidate would put the piconet on and comparing
+that with the channel a packet actually arrived on.
 
-Why. The search first settles the low clock bits, CLK1-6, and then has to pick
-the rest out of some two million candidates. It does that by predicting the
-channel each candidate would put the piconet on and ruling out the ones that
-disagree with the channel a packet actually arrived on. Adapted hopping breaks
-both halves of that. The piconet re-maps the channels it has classified as bad,
-and it answers in the second slot of a pair on the channel the first slot used,
-so a candidate taken from the unadapted sequence is contradicted by the very
-packets that would otherwise narrow the list. Predicting an adapted sequence
-instead needs the piconet's exact channel map, and a passive receiver learns
-that a channel is in use only by hearing a packet on it, so for most of a
-capture the map it has is a subset of the real one and the predictions built on
-it are wrong.
+Adapted hopping. A controller re-maps the channels it has classified as bad
+and hops over the ones that are left, which is adapted frequency hopping
+(AFH); every controller tested on this project's bench does it, including when
+the whole band is allowed, so it is the ordinary case rather than a corner of
+it. Predicting a hop then needs the piconet's channel map as well as its clock,
+and a passive receiver learns that a channel is in use only by hearing a packet
+on it, so for much of a capture the map it has is a subset of the real one. The
+search works with that: a prediction that falls on a channel the board has
+never heard counts neither for a candidate nor against it, and the candidate
+list is chosen again, smaller each time, as the map fills in.
 
-What it looks like. The CLK1-6 line and a candidate count repeat, the search
-starting over each time, and no clock is confirmed:
+How a clock is accepted. Each candidate scores the hops it explains, less a
+weight for each hop it contradicts, and a clock is confirmed only once its
+score passes a floor and is clear of every other candidate's by a margin. The
+scoring is what lets the piconet's own clock survive hops it does not explain,
+and a real link has some: a controller re-classifies channels while a capture
+runs, and the two clocks drift apart. The margin is what stops a wrong clock
+being confirmed where the hops do not single one out, so a run that ends with
+no clock is that rule declining to guess rather than a search that broke down.
+Earlier releases took whichever candidate was last standing, which against an
+adapted piconet was often a clock the piconet was not using: the board then
+hopped on it and decoded nothing.
 
-    CLK6 = 0xf found after 2 total packets.
-    26546 initial CLK1-27 candidates
+How long it takes. Enough hops have to arrive to tell the candidates apart,
+and a receiver sweeping the band hears only a fraction of a piconet's packets,
+so a clock arrives some way into a capture rather than at once — tens of
+seconds to a few minutes against a busy link on this project's bench, and
+longer against a quiet one. A piconet the controller has held to a small part
+of the band gives the search fewer hops that rule anything out, and a capture
+of one can run its length without confirming a clock.
 
-Once a search has been running for half a minute without confirming a clock,
-the tool says so once, on standard error:
+What it looks like. The search reports each candidate list it builds, the list
+shrinking as the map fills in, and then the clock with the score it was
+accepted on:
 
-    note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)
-    note: the piconet's LAP and UAP, and the packets of it the boards hear, are still recovered, decoded, and captured; see ubertooth-rx(1)
+    CLK6 = 0x34 found after 8 total packets.
+    26652 initial CLK1-27 candidates
+    Hopping pattern appears to be AFH
+    1299752 CLK1-27 candidates for the new hop sequence
+    Acquired CLK1-27 = 0x0019c7e (score 15, next best 9, drift 0 slots)
+    got CLK1-27
+
+From `got CLK1-27` the board is put on the piconet's clock and hops with it
+instead of sweeping past it, so the packet rate rises sharply and stays up.
+That rise is how a lock is checked: a clock that is not the piconet's leaves
+the rate where it was, and the library gives such a clock up once the headers
+it decodes keep failing (see GAPS IN A CAPTURE).
+
+A search still running after two minutes says so once, on standard error:
+
+    note: the clock search has run for 120 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give
+    note: the piconet's LAP and UAP, and the packets of it the boards hear, are recovered, decoded, and captured either way; see ubertooth-rx(1)
 
 The capture is not stopped and the search is not changed: the note says what
-the run is going to reach, so a user is not left reading candidate counts for
-an answer that is not coming.
+the search is waiting for, so a user reading candidate counts has something to
+read them against.
 
-What does work. Everything this tool does short of hopping along with the
-piconet. It recovers LAPs from the air, calculates the UAP for a LAP, and
-lists piconets in survey mode (`-z`). It decodes and reports every packet of
-the piconet that lands on whichever channel the board is listening to, and
-writes those packets to a capture file (`-r`, `-q`, `-d`), so a piconet can be
-surveyed, counted, and its traffic captured channel by channel with `-c`. A
-fixed channel is a way of capturing rather than a way round the search. It
-neither helps nor hinders the comparison the search rules candidates out by,
-since a packet rules out the same share of them wherever it arrived. What it
-does do is leave the map of channels the piconet has been heard on at the one
-channel the board listens to, and the library treats a piconet as adapted only
-once it has heard packets on at least twenty, so against an adapted piconet a
-fixed channel is further from a clock rather than closer to one.
-ubertooth-afh(1) recovers the channel map of a piconet whose LAP and UAP are
-known. Where a clock is what is wanted, two routes do not depend on this
-search: ubertooth-follow(1) asks a local BlueZ adapter for the clock of a
-piconet it joins, and ubertooth-btbr(1) in monitor mode catches the frequency
-hop synchronization (FHS) packet of a connection as it is set up, which carries
-the Central's clock.
+What works without a clock. Everything this tool does short of hopping along
+with the piconet. It recovers LAPs from the air, calculates the UAP for a LAP,
+and lists piconets in survey mode (`-z`). It decodes and reports every packet
+of the piconet that lands on whichever channel the board is listening to,
+header and payload once CLK1-6 is settled, and writes those packets to a
+capture file (`-r`, `-q`, `-d`), so a piconet can be surveyed, counted, and its
+traffic captured channel by channel with `-c`. A fixed channel is a way of
+capturing rather than a way round the search: the piconet's own map is then
+known to the search at one channel, almost every prediction falls on a channel
+the board has never heard, and hops that count neither way narrow nothing. So
+against an adapted piconet a fixed channel is further from a clock rather than
+closer to one. ubertooth-afh(1) recovers the channel map of a piconet whose LAP
+and UAP are known. Where a clock is what is wanted sooner, two routes do not
+depend on this search: ubertooth-follow(1) asks a local BlueZ adapter for the
+clock of a piconet it joins, and ubertooth-btbr(1) in monitor mode catches the
+frequency hop synchronization (FHS) packet of a connection as it is set up,
+which carries the Central's clock.
 
 ## SEVERAL BOARDS AT ONCE
 
@@ -315,12 +339,12 @@ What the boards pass between them is what they have worked out:
    that a channel carried traffic, so the maps join whatever clock each board
    is on. The union is handed back to every board as it grows, so each one
    narrows its clock candidates against a map that filled as many times faster
-   as there are boards, and the run reports the union when it ends. Whether a
-   fuller map is enough to reach a clock is the question THE CLOCK SEARCH AND
-   ADAPTED HOPPING above describes, and nothing here answers it: the library
+   as there are boards, and the run reports the union when it ends. The search
    consults the map only once it has heard the piconet on twenty channels and
-   taken the hopping for adapted, and reaching a clock against an adapted
-   piconet is a limitation of the search itself.
+   taken the hopping for adapted; from there a fuller map predicts the adapted
+   sequence better, so more boards should reach a clock sooner than one does.
+   By how much has not been measured. THE CLOCK SEARCH above says what the
+   search needs of a capture.
 
  - **The UAP**, once two boards have worked out the same one from their own
    packets. Not the first board's: a UAP is settled on as few as two packets
