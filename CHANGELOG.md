@@ -883,6 +883,32 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-rx -l <lap> -u <uap>` searched for a piconet's clock and
+  never confirmed one against a device whose controller adapts its hopping,
+  which every controller tested on this project's bench does even when the
+  whole band is allowed. It printed candidate counts for as long as the capture
+  ran and the follow it advertises never started. The tools are now built
+  against a libbtbb
+  ([`52b2afc`](https://github.com/SqueakyFloors/libbtbb/commit/52b2afcb0c4b8b03412dac759aad88debdfb18e2))
+  whose search scores each candidate on the hops it explains, counts a
+  prediction on a channel the board has never heard neither for it nor against
+  it, and accepts a clock only while no other candidate explains the hops
+  nearly as well. Following now starts, and the clock is the piconet's own: on
+  the bench it matched the controller's own clock readings, and the packet rate
+  rose from a couple a second to tens as the board hopped with the link
+  instead of sweeping past it. A capture that cannot tell two clocks apart
+  still ends with none, which is that rule declining to guess; earlier releases
+  took whichever candidate was last standing, which against an adapted piconet
+  was often a clock the piconet was not using.
+  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
+
+- A Classic capture record carries the packet's type and payload as soon as
+  CLK1-6 is settled, where a capture of a piconet whose address part was known
+  held the addresses and signal levels until hop reversal confirmed the whole
+  clock. Dewhitening a header and a payload takes CLK1-6 and nothing more.
+  Same pin.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+
 - Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
   already declined, until link supervision ended it a second later. A peer
   that refuses the connection request now gets a detach, and the command says
@@ -2644,17 +2670,16 @@
   which stopped being true of follow mode when it learned algorithm 2.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
 
-- Known limitation, now stated instead of left for a user to find: the Classic
-  clock search does not confirm a clock against a piconet that uses adapted
-  hopping (AFH), which the controllers tested on this project's bench all do,
-  including when every channel is allowed, so `ubertooth-rx -l <lap> -u <uap>`
-  does not start following such a piconet. `ubertooth-rx(1)` has a section on
-  it, the usage text says it, and a search that has run half a minute without
-  confirming a clock says it once at runtime rather than printing candidate
-  counts for the rest of the run. What
-  the tool does reach is unchanged: the LAP, the UAP, survey mode, and the
-  packets of the piconet the board hears, decoded and written to a capture
-  file. The search itself is not changed.
+- `ubertooth-rx(1)` has a section on the Classic clock search, THE CLOCK
+  SEARCH: what it needs (hops of the piconet to tell the candidate clocks
+  apart, adapted hopping included, over a channel map it learns as the capture
+  runs), what an accepted clock means and how to check one, why a run can end
+  with no clock, and what the tool reaches without one. The usage text says
+  the same in three lines, and a search that has run half a minute without
+  confirming a clock says once what it is waiting for rather than leaving a
+  user to read candidate counts. `ubertooth-follow(1)`, `ubertooth-btbr(1)`,
+  the sniffing guide and the concepts chapter point at that section instead of
+  promising a follow with nothing said about what it takes.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
 
 - The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
@@ -2780,6 +2805,11 @@
 
 Fixes with no visible change in normal use.
 
+- The pinned library builds the table its hop selection reads when it is
+  initialized rather than on the first hop, so a program that decodes on
+  several threads does not race on it, and the library says which of its calls
+  are safe together.
+  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
 - The paged board's `LMP_setup_complete` carries the transaction ID the
   specification gives a transaction the peripheral started, where it carried
   the one for the central's. Two Ubertooths are lenient about it; a standard

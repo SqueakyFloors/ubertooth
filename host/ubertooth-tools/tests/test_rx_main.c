@@ -1865,12 +1865,12 @@ MU_TEST(a_follow_that_stays_quiet_is_asked_about_once_per_wait)
 	mu_assert_int_eq(4, device.drops);
 }
 
-/* ---- a clock search that is not going to finish ------------------------- */
+/* ---- a clock search that has not confirmed a clock yet ------------------ */
 
 /* The two lines the tool says about it, each as one literal, so a reworded
  * message or a changed span fails here and in the man page check with it. */
-static const char SEARCH_NOTE[] = "note: the clock search has run for 30 s without confirming a clock; it does not confirm one against a piconet that uses adapted hopping (AFH)\n";
-static const char SEARCH_NOTE_REACH[] = "note: the piconet's LAP and UAP, and the packets of it this board hears, are still recovered, decoded, and captured; see ubertooth-rx(1)\n";
+static const char SEARCH_NOTE[] = "note: the clock search has run for 30 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give\n";
+static const char SEARCH_NOTE_REACH[] = "note: the piconet's LAP and UAP, and the packets of it this board hears, are recovered, decoded, and captured either way; see ubertooth-rx(1)\n";
 
 /* How many times a line appears in a captured stream. */
 static int lines_like(const char* stream, const char* line)
@@ -1885,10 +1885,10 @@ static int lines_like(const char* stream, const char* line)
 	return found;
 }
 
-/* A search against an adapted-hopping piconet rules its candidates out and
- * starts over, printing a count each time and never confirming a clock, so
- * nothing it prints says the run is not going to reach one. The tool says so
- * itself, once, however long the capture runs after that. */
+/* A search prints a candidate count for each list it builds and nothing else,
+ * so a user watching those counts cannot tell how long it has been going or
+ * how little it has had to narrow with. The tool says so itself, once,
+ * however long the capture runs after that. */
 MU_TEST(a_search_that_does_not_confirm_a_clock_says_so_once)
 {
 	struct run_result r;
@@ -1911,8 +1911,8 @@ MU_TEST(a_search_that_does_not_confirm_a_clock_says_so_once)
 }
 
 /* And the span is half a minute, pinned either side of the moment it is up.
- * Saying it early would tell a user that a search still working is not going
- * to finish, so the value is worth a case of its own. */
+ * A capture that reaches a clock quickly should say nothing at all, so the
+ * value is worth a case of its own. */
 MU_TEST(the_search_note_waits_half_a_minute)
 {
 	struct run_result r;
@@ -1945,8 +1945,8 @@ MU_TEST(the_search_note_waits_half_a_minute)
 
 /* A run with no search going says nothing, however long it runs: a capture
  * that has heard nothing of the piconet, one that has heard too little of it
- * to settle CLK1-6, and one whose clock was accepted are all results of their
- * own, and none of them is a search that cannot finish. */
+ * to settle CLK1-6, and one whose clock was accepted are all states of their
+ * own, and in none of them is a search waiting for hops. */
 MU_TEST(a_run_with_no_search_running_says_nothing)
 {
 	struct run_result r;
@@ -1975,7 +1975,7 @@ MU_TEST(a_run_with_no_search_running_says_nothing)
 
 /* A replay of a recorded capture says it too: the search runs over those
  * records for as long as it did live, and the reader of a capture file is owed
- * the same answer as the user of a board. The span it reports is the one the
+ * the same report as the user of a board. The span it reports is the one the
  * search has really had, not the half minute that brought it here, which a
  * replay is where the two come apart. */
 MU_TEST(a_replay_whose_search_does_not_confirm_a_clock_says_so)

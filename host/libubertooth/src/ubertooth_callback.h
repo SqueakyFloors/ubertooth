@@ -108,11 +108,12 @@ long ubertooth_follow_quiet_ms(void);
  * ubertooth_follow_quiet_ms() for the follow and the packets themselves for
  * the search.
  *
- * For a tool that reports what the search cannot reach. The search does not
- * fail when it cannot reach a clock, it starts over, so nothing it prints
- * tells a user that it is not going to finish. An accepted clock ends the
- * reading for the rest of the run, because a search that is running again
- * after one was given up did get that far once.
+ * For a tool that reports what the search is waiting for. The search prints a
+ * candidate count for each list it builds and nothing else, so nothing it
+ * prints tells a user how long it has been going or how little it has had to
+ * narrow with. An accepted clock ends the reading for the rest of the run,
+ * because a search that is running again after one was given up did get that
+ * far once.
  *
  * How long is long enough is the caller's, as it is above. */
 long ubertooth_clock_search_ms(void);
