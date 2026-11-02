@@ -173,7 +173,14 @@ static uint8_t dfu_descriptors[] = {
 
 static Flash flash;
 static DFU dfu(flash);
-static uint8_t dfu_buffer[DFU::transfer_size];
+/* Word-aligned, because the boot ROM's "copy RAM to flash" refuses a source
+ * address that is not on a word boundary (UM10360, IAP), and every DFU
+ * download block is programmed straight out of this buffer. Nothing else
+ * placed it: it landed on a word boundary by chance in earlier builds, and a
+ * later one moved it to 0x10000bc6, where every write failed with errPROG. */
+alignas(4) static uint8_t dfu_buffer[DFU::transfer_size];
+static_assert(__alignof__(dfu_buffer) >= 4,
+              "IAP needs the DFU buffer on a word boundary");
 static uint32_t count = 0;
 static bool use_timeout = false;
 
