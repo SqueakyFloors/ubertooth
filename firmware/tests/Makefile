@@ -23,7 +23,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -402,6 +402,44 @@ $(BINDIR)/test_btbr_page_response: test_btbr_page_response.c minunit.h \
 # and both connection state machines are included into the test, so the stubs
 # are the same two as above: the diagnostics stand-in and the interrupt-mask one
 # the message queue headers pull in.
+# Which message the link layer gives a transmit slot, and when it frees it.
+# Linked against the real ll.c, with the two queues and the format table faked
+# so a test can say what is waiting.
+# What the device makes of a transmit request from the host: every refusal
+# that keeps the encoder inside the message, reached through btctl_work() the
+# way the host's own request reaches it. Linked against the real btctl.c,
+# codec.c and queue.c, so the format table and the length limits are the ones
+# the board uses.
+$(BINDIR)/test_btbr_tx_request: test_btbr_tx_request.c minunit.h \
+		stubs-btbr/ubtbr/debug.h stubs-btbr-rx/ubtbr/system.h \
+		stubs-btbr-tx/board_calls.h \
+		$(FW_BTBR)/src/btctl/btctl.c \
+		$(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/src/util/queue.c \
+		$(FW_BTBR)/include/ubtbr/btctl_intf.h \
+		$(FW_BTBR)/include/ubtbr/codec.h | $(BINDIR)
+# codec.c takes the packet header in two calls that do not read it, and keeps
+# a decode pointer one branch does not use; neither is what this tests.
+	$(CC) $(CFLAGS) -Istubs-btbr -Istubs-btbr-rx \
+		-I$(FW_BTBR)/include -I$(FW_COMMON) $(CPPFLAGS) \
+		-DFW_HOST_TEST -DT1TC='btphy.central_clkn' \
+		-include stubs-btbr-tx/board_calls.h \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-o $@ test_btbr_tx_request.c $(FW_BTBR)/src/btctl/btctl.c \
+		$(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/src/util/queue.c
+
+$(BINDIR)/test_btbr_tx_queue: test_btbr_tx_queue.c minunit.h \
+		stubs-btbr/ubtbr/debug.h stubs-btbr-rx/ubtbr/system.h \
+		$(FW_BTBR)/src/btphy/ll.c \
+		$(FW_BTBR)/include/ubtbr/ll.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+	$(CC) $(CFLAGS) -Istubs-btbr -Istubs-btbr-rx -I$(FW_BTBR)/include \
+		$(CPPFLAGS) -DT1TC='btphy.central_clkn' \
+		-o $@ test_btbr_tx_queue.c $(FW_BTBR)/src/btphy/ll.c
+
 $(BINDIR)/test_btbr_connection_end: test_btbr_connection_end.c minunit.h \
 		stubs-btbr/ubtbr/debug.h stubs-btbr-rx/ubtbr/system.h \
 		$(FW_BTBR)/src/btphy/ll.c \
@@ -486,6 +524,21 @@ $(BINDIR)/test_btbr_codec_header: test_btbr_codec_header.c minunit.h \
 		-o $@ test_btbr_codec_header.c $(FW_BTBR)/src/codec/codec.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
 
+# The basic-rate packet formats the host can ask btbr to transmit: each one's
+# air size, and the bytes coming back off the air as they went on. Linked the
+# same way as the two codec tests above, against the real codec.c.
+$(BINDIR)/test_btbr_tx_formats: test_btbr_tx_formats.c minunit.h \
+		stubs-btbr/ubtbr/debug.h $(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/include/ubtbr/bb.h $(FW_BTBR)/include/ubtbr/codec.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# codec.c takes the packet header in two calls that do not read it, and keeps
+# a decode pointer one branch does not use. Neither is what this tests.
+	$(CC) $(CFLAGS) -Istubs-btbr -I$(FW_BTBR)/include $(CPPFLAGS) \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-o $@ test_btbr_tx_formats.c $(FW_BTBR)/src/codec/codec.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c
+
 # The USB hardware layer reaches the controller only through the register
 # macros in lpc17.h, so stubs-usb/ supplies a fake one and this links the real
 # usbhw_lpc.c against it. -DLPC17xx picks that branch of the file; -Istubs-usb
@@ -518,7 +571,6 @@ $(BINDIR)/test_usbhw_wait: test_usbhw_wait.c minunit.h stubs-usb/lpc17.h \
 # way to the host -- so FW_BTBR_DIR points at that image.
 $(BINDIR)/test_usb_queue: test_usb_queue.c minunit.h source_scan.h \
 		stubs-usbq/usbapi.h \
-		stubs-usbq/ubertooth.h stubs/ubertooth.h \
 		$(FW_RXTX)/ubertooth_usb.c $(FW_RXTX)/ubertooth_usb.h \
 		$(FW_RXTX)/bluetooth_rxtx.c $(FW_RXTX)/le_phy.c $(FW_RXTX)/ego.c \
 		$(FW_BTBR)/src/btctl/btctl.c \

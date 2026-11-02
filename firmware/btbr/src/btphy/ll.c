@@ -168,10 +168,87 @@ end:
 	return rc;
 }
 
-void ll_prepare_tx(link_layer_t *ll, bbhdr_t **tx_hdr, uint8_t **tx_data)
+/* Take the next host-composed packet, if the link has slots to spare for one.
+ * Returns whether tx now describes it. */
+static int ll_prepare_pkt_tx(link_layer_t *ll, ll_tx_t *tx)
+{
+	btctl_hdr_t *btctl_hdr;
+	btctl_tx_pkt_req_t *req;
+	uint8_t air_type;
+
+	/* The packet held from the last slot has been transmitted by now, so
+	 * a packet with no slots left is finished with. */
+	if (ll->cur_pkt_msg != NULL && ll->pkt_slots_left == 0)
+	{
+		msg_free(ll->cur_pkt_msg);
+		ll->cur_pkt_msg = NULL;
+	}
+	if (ll->cur_pkt_msg == NULL)
+	{
+		ll->cur_pkt_msg = btctl_pkt_tx_dequeue();
+		if (ll->cur_pkt_msg == NULL)
+			return 0;
+		btctl_hdr = (btctl_hdr_t*)ll->cur_pkt_msg->data;
+		req = (btctl_tx_pkt_req_t*)btctl_hdr->data;
+		ll->pkt_slots_left = req->repeat;
+	}
+	btctl_hdr = (btctl_hdr_t*)ll->cur_pkt_msg->data;
+	req = (btctl_tx_pkt_req_t*)btctl_hdr->data;
+
+	/* The transport the request names has to be this link's. Only the
+	 * range was checked when the request arrived, where this link was not
+	 * in reach; a packet addressed to another transport would go on the
+	 * air for a connection the board does not have. */
+	if (req->lt_addr != ll->lt_addr)
+	{
+		cprintf("Tx packet for transport %d, this link is %d\n",
+			req->lt_addr, ll->lt_addr);
+		msg_free(ll->cur_pkt_msg);
+		ll->cur_pkt_msg = NULL;
+		return 0;
+	}
+	tx->fmt = bbcodec_tx_format(req->format, &air_type);
+	if (tx->fmt == NULL)
+	{
+		/* The request was checked when it arrived, so this cannot
+		 * happen; dropping the packet is still better than
+		 * transmitting with no format. */
+		msg_free(ll->cur_pkt_msg);
+		ll->cur_pkt_msg = NULL;
+		return 0;
+	}
+	LL_DEBUG('X');
+	ll->pkt_hdr.lt_addr = req->lt_addr;
+	ll->pkt_hdr.type = air_type;
+	tx->hdr = &ll->pkt_hdr;
+	tx->data = req->data;
+	/* A format with a payload header carries its own length, so only the
+	 * rest have to be told one: the voice field aside, every byte the
+	 * host supplied is data. */
+	if (tx->fmt->payload_header_bytes == 0)
+		tx->data_bytes = req->data_size - tx->fmt->voice_bytes;
+	ll->pkt_slots_left--;
+
+	return 1;
+}
+
+void ll_prepare_tx(link_layer_t *ll, ll_tx_t *tx)
 {
 	btctl_hdr_t *btctl_hdr;
 	btctl_tx_pkt_t *tx_pkt;
+
+	tx->fmt = NULL;
+	tx->data_bytes = 0;
+
+	/* A chosen packet goes out only while no ACL message is waiting to be
+	 * acknowledged. Every packet carries the link's SEQN, and the peer's
+	 * next ARQN acknowledges whichever packet it last read: if both an ACL
+	 * message and a chosen packet went out under one SEQN, that ARQN would
+	 * free the ACL message as delivered when the peer may never have had
+	 * it, and the peer would discard the chosen packet as a repeat of the
+	 * ACL it already took. One owner of the SEQN at a time avoids both. */
+	if (ll->cur_tx_msg == NULL && ll_prepare_pkt_tx(ll, tx))
+		goto set_flags;
 
 	if (ll->cur_tx_msg == NULL)
 	{
@@ -195,8 +272,8 @@ void ll_prepare_tx(link_layer_t *ll, bbhdr_t **tx_hdr, uint8_t **tx_data)
 			LL_DEBUG('N');
 			ll->tx_hdr.type = BB_TYPE_NULL;
 		}
-		*tx_hdr = &ll->tx_hdr;
-		*tx_data = NULL;
+		tx->hdr = &ll->tx_hdr;
+		tx->data = NULL;
 	}
 	else{
 		LL_DEBUG('T');
@@ -204,12 +281,13 @@ void ll_prepare_tx(link_layer_t *ll, bbhdr_t **tx_hdr, uint8_t **tx_data)
 		if (btctl_hdr->type != BTCTL_TX_ACL_REQ)
 			DIE("BTCTL_TX_ACL_REQ expected\n");
 		tx_pkt = (btctl_tx_pkt_t*)btctl_hdr->data;
-		*tx_hdr =  &tx_pkt->bb_hdr;
-		*tx_data = tx_pkt->bt_data;
+		tx->hdr =  &tx_pkt->bb_hdr;
+		tx->data = tx_pkt->bt_data;
 	}
 
+set_flags:
 	/* Write ll flags in tx header */
-	(*tx_hdr)->flags =
+	tx->hdr->flags =
 		(ll->loc_arqn<<BTHDR_ARQN)
 		 | (ll->loc_seqn<<BTHDR_SEQN)
 		 | (1<<BTHDR_FLOW);
@@ -224,6 +302,12 @@ void ll_reset(link_layer_t *ll)
 		msg_free(ll->cur_tx_msg);
 		ll->cur_tx_msg = NULL;
 	}
+	if (ll->cur_pkt_msg)
+	{
+		msg_free(ll->cur_pkt_msg);
+		ll->cur_pkt_msg = NULL;
+	}
+	ll->pkt_slots_left = 0;
 }
 
 void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr)
@@ -237,8 +321,10 @@ void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr)
 	ll->loc_seqn = 1;
 	ll->loc_arqn = 0;
 
-	/* TX message */
-	ll->cur_tx_msg = NULL;
+	/* TX message. Freed rather than dropped: a connection set up without
+	 * the one before it having ended through ll_reset() would otherwise
+	 * leak the buffer, and there are sixteen of them. */
+	ll_reset(ll);
 
 	/* Stats / timeout */
 	ll->rx_count = 0;

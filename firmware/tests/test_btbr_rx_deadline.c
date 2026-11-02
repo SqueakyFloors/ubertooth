@@ -232,7 +232,7 @@ int tdma_schedule_set(uint8_t frame_offset, const struct tdma_sched_item *item_s
  * else. The deadline paths all return before reaching it. */
 static bbcodec_types_t fake_codec_type = {
 	1 /* nslots */, 1 /* payload_header_bytes */, 17 /* payload_bytes */,
-	0 /* has_fec23 */, 1 /* has_crc */
+	BB_FEC_NONE /* fec */, 1 /* has_crc */, 0 /* voice_bytes */
 };
 
 static unsigned codec_chunk_calls;

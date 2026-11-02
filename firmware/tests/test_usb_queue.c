@@ -3681,6 +3681,7 @@ static struct btctl_request btctl_requests[] = {
 	{ "BTCTL_INQUIRY_REQ",           "btctl_handle_inquiry_req",            0, 0 },
 	{ "BTCTL_PAGING_REQ",            "btctl_handle_paging_req",             0, 0 },
 	{ "BTCTL_TX_ACL_REQ",            "btctl_handle_tx_acl_req",             0, 0 },
+	{ "BTCTL_TX_PKT_REQ",            "btctl_handle_tx_pkt_req",             0, 0 },
 	{ "BTCTL_INQUIRY_SCAN_REQ",      "btctl_handle_inquiry_scan_req",       0, 0 },
 	{ "BTCTL_PAGE_SCAN_REQ",         "btctl_handle_page_scan_req",          0, 0 },
 	{ "BTCTL_MONITOR_REQ",           "btctl_handle_monitor_req",            0, 0 },

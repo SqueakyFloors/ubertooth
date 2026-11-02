@@ -119,13 +119,23 @@ void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 	armed_rx_arg = cbarg;
 }
 
-void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void *cbarg,
-			bbhdr_t *hdr, uint8_t *data)
+void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void *cbarg,
+			bbhdr_t *hdr, uint8_t *data,
+			const bbcodec_types_t *fmt, unsigned data_bytes)
 {
-	(void)delay; (void)hdr; (void)data;
+	(void)delay; (void)hdr; (void)data; (void)fmt; (void)data_bytes;
 	armed_tx_cb = cb;
 	armed_tx_arg = cbarg;
 	tx_count++;
+}
+
+/* The air layout of a format the host asked for. Nothing here enqueues such a
+ * packet, so the link layer never asks; the real one lives in codec.c, which
+ * these tests do not link. */
+const bbcodec_types_t *bbcodec_tx_format(unsigned format, uint8_t *air_type)
+{
+	(void)format; (void)air_type;
+	return NULL;
 }
 
 void tx_task_reset(void) { }

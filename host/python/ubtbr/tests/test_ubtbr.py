@@ -2572,6 +2572,126 @@ for typed, started, resumed in (
 print("ubtbr: a page or page scan running again after a dead connection"
       " says so")
 
+
+def tx_request(lt_addr, format_code, repeat, payload):
+    """The packet the tool writes for one "tx" command, in hex.
+
+    btctl_tx_pkt_req_t: the logical transport address, the format, how many
+    slots to spend on it, how many payload bytes follow, then those bytes.
+    """
+    return framed(btctl.BTCTL_TX_PKT_REQ,
+                  struct.pack("<BBHH", lt_addr, format_code, repeat,
+                              len(payload)) + bytes(payload))
+
+
+def counted(count):
+    """The payload "tx" fills a packet with when none is given."""
+    return bytes(i & 0xff for i in range(count))
+
+
+def payload_header(length):
+    """The one-byte payload header "tx" writes: length, flow, L2CAP start."""
+    return bytes(((length << 3) | (1 << 2) | btctl.LLID_L2CAP_START,))
+
+
+# "tx" puts one packet of a chosen format on the air and says on standard
+# output what it sent, which is the only record of what a receiver's decode
+# has to be compared with. Three formats, for the three shapes a payload has:
+# a payload header and a CRC (DH1), neither (HV3), and a CRC with the length
+# agreed elsewhere (EV3).
+for typed, format_code, repeat, payload, printed in (
+        # a payload header of its own, written here: the length, the flow
+        # bit and the LLID, then the four data bytes
+        ("tx dh1 4", 1, 1, payload_header(4) + counted(4), "dh1 len=4"),
+        # 30 voice bytes, no payload header and no CRC
+        ("tx hv3", 10, 1, counted(30), "hv3 len=30"),
+        # a length the link agreed, so the bytes are the whole payload
+        ("tx ev3 17", 11, 1, counted(17), "ev3 len=17"),
+        # the same packet in four transmit slots in a row
+        ("tx ev3 17 4", 11, 4, counted(17), "ev3 len=17 count=4"),
+        # and a payload the user chose
+        ("tx ev3 3 1 aabbcc", 11, 1, b"\xaa\xbb\xcc", "data=aabbcc"),
+        # 10 voice bytes, then a DM1-sized data field
+        ("tx dv 9", 7, 1, counted(10) + payload_header(9) + counted(9),
+            "payload=" + (counted(10) + payload_header(9)
+                          + counted(9)).hex()),
+):
+    output, errors = canned_session("page 11:22:33:44:55:66", [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ", then=typed + "\n")
+    assert "Connection ready" in errors, errors
+    assert printed in output, (printed, output)
+    assert tx_request(1, format_code, repeat, payload) in writes(), \
+        (typed, writes())
+print("ubtbr: tx puts one packet of a chosen format on the air")
+
+# The whole line, as ubertooth-btbr(1) shows it, timestamp included: once for
+# a format whose payload is the data and nothing else, and once for one that
+# carries a voice field and a payload header in front of it. The page quotes
+# both, so a reworded line has to be a reworded page.
+for typed, expected in (
+        ("tx ev3 3 20",
+            r"\d\d:\d\d:\d\d TX pkt: ev3 len=3 count=20 data=000102"
+            r" payload=000102"),
+        ("tx dv 3 20",
+            r"\d\d:\d\d:\d\d TX pkt: dv len=3 count=20 data=000102"
+            r" payload=000102030405060708091e000102"),
+):
+    output, errors = canned_session("page 11:22:33:44:55:66", [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ", then=typed + "\n")
+    assert len(timed_lines(output, "TX pkt")) == 1, output
+    assert re.fullmatch(expected, timed_lines(output, "TX pkt")[0]), output
+print("ubtbr: the line tx prints is the one the man page shows")
+
+# A tx command the tool will not take says why on standard error, sends
+# nothing, and leaves the session at the prompt. A length the format cannot
+# carry is caught here rather than on the board, which would refuse it with a
+# line the user has to go looking for.
+for typed, refused_with in (
+        ("tx", "tx needs a format"),
+        ("tx dq1", "no such format 'dq1'"),
+        ("tx ev3 0", "ev3 carries 1 to 30 data bytes, not 0"),
+        ("tx ev3 31", "ev3 carries 1 to 30 data bytes, not 31"),
+        ("tx hv3 29", "hv3 carries 30 to 30 data bytes, not 29"),
+        ("tx dh5 340", "dh5 carries 0 to 339 data bytes, not 340"),
+        ("tx ev3 x", "length must be a number (got x)"),
+        ("tx ev3 3 x", "count must be a number (got x)"),
+        ("tx ev3 3 0", "count must be 1 to 400 for ev3 (got 0)"),
+        ("tx ev3 3 401", "count must be 1 to 400 for ev3 (got 401)"),
+        # The bound is on the slots the run occupies, so a five-slot DH5
+        # may be repeated a fifth as often and a three-slot EV4 a third.
+        ("tx dh5 339 81", "count must be 1 to 80 for dh5 (got 81)"),
+        ("tx ev4 120 134", "count must be 1 to 133 for ev4 (got 134)"),
+        # a count that does not fit the device's field used to end the tool
+        # in a struct.error from the pack below it
+        ("tx ev3 3 70000", "count must be 1 to 400 for ev3 (got 70000)"),
+        ("tx ev3 3 1 aabb", "payload of 2 bytes where the length says 3"),
+        ("tx ev3 3 1 zz", "payload must be hex digits, an even number of them"),
+        ("tx ev3 3 1 aab", "payload must be hex digits, an even number of them"),
+        ("tx ev3 3 1 aabbcc extra", "tx takes a format, a length, a count"),
+):
+    output, errors = canned_session("page 11:22:33:44:55:66", [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ", then=typed + "\n")
+    assert "error: " + refused_with in errors, (typed, errors)
+    assert "TX pkt" not in output, (typed, output)
+    assert "Traceback" not in errors, errors
+    assert struct.pack("<I", btctl.BTCTL_TX_PKT_REQ).hex() \
+        not in "".join(writes()), (typed, writes())
+print("ubtbr: a tx command the tool will not take says why and sends nothing")
+
+# and with no connection there is nothing to transmit on, so it says that
+# instead of sending a packet the board would refuse.
+status, output, errors = ran(typed="tx ev3 17\nq\n")
+assert status == 0, (status, output, errors)
+assert "error: tx needs a connection" in errors, errors
+assert "TX pkt" not in output, output
+print("ubtbr: tx with no connection says so")
+
 # A message from the board that ends before the packet it says it carries.
 # The packet is dropped with a warning naming what arrived, and the session
 # goes on to the next one: reading a short FHS anyway raised an IndexError on

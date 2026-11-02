@@ -76,6 +76,17 @@
   follows -- waited on one of those turning up. Neither bit changes the value
   the mode works back from, so neither is waited on any more.
 
+- `ubertooth-btbr` can put packet types on the air that a real stack almost
+  never sends, which is what a Classic decoder needs to be tested against.
+  With a connection up, `tx <format> [<length>] [<count>] [<hex>]` transmits
+  one packet built to that format: AUX1, DV, the HV voice packets, the EV
+  synchronous ones, and DM or DH at any length the format carries, including
+  the odd and boundary lengths. The data is a counted pattern unless you give
+  the bytes, and the line the command prints is what went on the air.
+  ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
+  their lengths.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
