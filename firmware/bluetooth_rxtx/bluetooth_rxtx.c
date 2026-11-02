@@ -3920,13 +3920,23 @@ static int promisc_try_csa2(u32 sighting) {
 	elapsed = now >= sighting ? now - sighting
 			: (CLK100NS_PERIOD - sighting) + now;
 
-	/* How close to a connection event's start the follow begins: the
-	 * sighting is stamped at most LE_CSA2_SIGHTING_SPREAD after the start
-	 * of its own event, the wait le_csa2_handoff() returns is rounded down
-	 * to the interval timer's 1.25 ms, and the timer's grid can add up to
-	 * another 1.25 ms. So the hop happens within about 2.5 ms either side
-	 * of the boundary of an event at least 7.5 ms long, and the receiver
-	 * is on the right channel for the packets that matter. */
+	/* Where the follow's first hop lands against the connection's real
+	 * event boundary.
+	 *
+	 * Everything that rounds here rounds early. The wait le_csa2_handoff()
+	 * returns is rounded down to the interval timer's 1.25 ms, and the
+	 * timer counts on a grid taken from conn_epoch, which is read below:
+	 * its first tick falls within 1.25 ms of that reading, so the
+	 * countdown finishes up to 0.3125 ms before the wait asked for and
+	 * never after it.
+	 *
+	 * So the hop is between about 1.6 ms early and however deep in its own
+	 * event the sighting was. That depth is the part nothing here can
+	 * bound or correct -- see LE_CSA2_SIGHTING_SPREAD -- and at the far end
+	 * of it the receiver tunes a third of the way into a 7.5 ms event and
+	 * misses the central's packet of every event the follow then hops to.
+	 * Which packets of an event this follow hears is therefore settled
+	 * here and never revisited. */
 	if (!le_csa2_handoff(&rec, elapsed, &handoff))
 		return 0;
 

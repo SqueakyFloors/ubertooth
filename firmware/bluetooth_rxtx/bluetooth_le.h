@@ -212,10 +212,13 @@ _Static_assert(LE_SAME_EVENT_GAP >= 261u * 80u + 1500u,
  * the search allows for the difference on top of the clock's own; and the
  * follow the search hands over to is anchored on the newest sighting.
  *
- * It has to stay under half the shortest interval, 3.75 ms, or the number of
- * events a gap spans would stop being the nearest whole number. The whole
- * search rests on that rounding, and nothing else in the arithmetic would
- * complain, so the bound is checked here rather than left as a remark.
+ * It has to stay under half the shortest interval, 3.75 ms. Two sightings each
+ * this late can put a gap that much either side of a whole number of
+ * connection intervals, and past half an interval the whole number nearest the
+ * gap is no longer the number of events it really spans -- which is the one
+ * step of the search that has no way of noticing it went wrong. Nothing else
+ * in the arithmetic would complain, so the bound is checked here rather than
+ * left as a remark.
  */
 #define LE_CSA2_SIGHTING_SPREAD 25000u
 _Static_assert(2 * LE_CSA2_SIGHTING_SPREAD <
@@ -291,6 +294,13 @@ _Static_assert(LE_SAME_EVENT_GAP <= LE_CSA2_SIGHTING_SPREAD,
  * about two minutes at the longest interval a connection can be recovered at.
  * Waiting is the cheaper mistake -- recovering a connection again from the
  * access address takes longer than that.
+ *
+ * It is not the cheaper mistake for a connection that is still there and that
+ * the follow has gone deaf to, which nothing in the follow corrects: two
+ * clocks a few tens of parts per million apart cover a millisecond of an
+ * event in under a minute. The mode then holds a follow that will hear
+ * nothing again for this long before starting over. An open finding on the
+ * pull request tracks the re-anchoring that would stop it happening.
  */
 #define LE_CSA2_SILENCE_EVENTS 64
 

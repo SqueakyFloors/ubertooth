@@ -1434,11 +1434,13 @@ MU_TEST(the_collector_starts_the_run_again_on_every_break)
  * after and the receiver tunes to the right channel with the event already
  * under way, which costs the central's packet every time.
  *
- * "The event's start" here means where the sighting puts it, which is all this
+ * So this covers the arithmetic, not where the board's hop really lands. "The
+ * event's start" here is where the sighting puts it, which is all this
  * function is given: it cannot know how far into its own event the sighting
- * was. That is the collector's business, and it is what
- * LE_CSA2_SIGHTING_SPREAD bounds and what
- * test_promisc_hop_interval.c's test_a_busy_event_is_still_one_event covers.
+ * was, and the firmware's hop is that much later than anything checked here.
+ * How deep a sighting can be is the collector's business --
+ * LE_CSA2_SIGHTING_SPREAD, and test_promisc_hop_interval.c's
+ * test_a_busy_event_is_still_one_event.
  *
  * `elapsed` is the time the search itself took, which is a couple of hundred
  * milliseconds and so crosses whole events at a short interval. The values

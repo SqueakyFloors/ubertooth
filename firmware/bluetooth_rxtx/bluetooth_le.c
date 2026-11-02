@@ -389,8 +389,10 @@ static uint16_t le_csa2_prn_e(uint16_t event_counter, uint16_t channel_id) {
  * Algorithm 1's channel is a running sum of the hop increment, so a follower
  * has to count every event and stay in step. This one is a function of the
  * event counter and the access address alone: an event the follower never saw
- * costs it nothing, because there is no state to carry.
+ * costs it nothing, because there is no state to carry. The three functions
+ * below are the whole of it.
  */
+
 /* The channel identifier the algorithm gives an access address: its two
  * halves exclusive-ored together. */
 static uint16_t le_csa2_channel_id(uint32_t access_address) {

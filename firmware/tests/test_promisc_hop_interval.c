@@ -103,6 +103,10 @@ struct scan {
 	int queue_init_line;
 	int announce_guarded_by_mode;
 	int flag_in_state;       /* and the flag that says it is set */
+
+	/* LE_SAME_EVENT_GAP, as the firmware has it: the model below keeps a
+	 * copy of this number, and the two have to agree. */
+	int same_event_gap;
 };
 
 static struct scan s;
@@ -112,6 +116,7 @@ static const char *clock_path = FW_RXTX_DIR "/ubertooth_clock.h";
  * estimators need, so they live in bluetooth_le.c with the rest of the
  * low-energy arithmetic rather than in the hardware file. */
 static const char *arith_path = FW_RXTX_DIR "/bluetooth_le.c";
+static const char *le_header_path = FW_RXTX_DIR "/bluetooth_le.h";
 
 /*
  * Is this token a period-sized amount -- the named constant, or a literal of
@@ -315,6 +320,24 @@ static int scan_sources(struct scan *out)
 		if (sscanf(line, " #define LE_BASECLK (%d)", &value) == 1 ||
 		    sscanf(line, " #define LE_BASECLK %d", &value) == 1)
 			out->le_baseclk = value;
+	}
+	fclose(f);
+
+	/* LE_SAME_EVENT_GAP: the longest two packets of one connection event
+	 * can be apart, which is what tells a continuation from the first
+	 * packet of the next event. */
+	f = fopen(le_header_path, "r");
+	if (f == NULL)
+		return 0;
+	in_block = 0;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		unsigned value;
+
+		strip_comments(line, &in_block);
+		if (sscanf(line, " #define LE_SAME_EVENT_GAP %uu", &value) == 1
+		    || sscanf(line, " #define LE_SAME_EVENT_GAP %u",
+		              &value) == 1)
+			out->same_event_gap = (int)value;
 	}
 	fclose(f);
 
@@ -612,6 +635,13 @@ MU_TEST(test_the_sources_were_scanned)
 	         "promisc_recover_hop_interval(), so the model below would run "
 	         "on a neighbouring site's constant", path);
 	mu_assert(s.interval_site >= 0, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s: LE_SAME_EVENT_GAP is %d, where the model below uses %u -- "
+	         "retune one and every case here passes against the other",
+	         le_header_path, s.same_event_gap,
+	         (unsigned)LE_SAME_EVENT_GAP);
+	mu_assert(s.same_event_gap == (int)LE_SAME_EVENT_GAP, msg);
 
 	snprintf(msg, sizeof(msg), "%s: LE_BASECLK not found", clock_path);
 	mu_assert(s.le_baseclk > 0, msg);

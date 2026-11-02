@@ -136,6 +136,13 @@ which at a long interval can be a unit of 1.25 ms away from the figure the
 connection was given, because the two clocks differ by a few hundred parts
 per million.
 
+A recovered connection using all 37 channels is not captured whole either. The
+follow starts from one packet of one connection event, and where in that event
+the packet fell is where every later hop lands: on the bench the share of a
+connection's packets a recovered follow catches varied by a factor of four
+between runs of the same connection, and held steady within a run. Capturing
+from the setup with `-f` does not have that.
+
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
 mode to use, use follow mode.
