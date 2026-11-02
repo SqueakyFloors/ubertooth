@@ -1837,10 +1837,17 @@ static int plan_upload(struct dfu_runtime_context *runtime)
  * getopt does not take long options, and the getopt the tools carry for
  * platforms without a GNU one does not answer getopt_long the way glibc does,
  * so the word is taken out of the command line here instead, before getopt
- * sees it. That costs nothing a user notices: the word has no value of its
- * own, it has to be written out in full, and anything else beginning with
- * "--" still reaches getopt and is reported by opt_report_bad_option() with
- * the whole word quoted, as it always was.
+ * sees it. The word has no value of its own, it has to be written out in
+ * full, and anything else beginning with "--" still reaches getopt and is
+ * reported by opt_report_bad_option() with the whole word quoted, as it
+ * always was.
+ *
+ * The one thing a user could notice is that this scan runs before getopt and
+ * so does not know which options take a value: written where a value belongs,
+ * as in "-U --update-bootloader", the word is taken out and the option then
+ * consumes whatever follows. That command line is refused either way, because
+ * no board has that serial and the file name is left over as a stray word, so
+ * it costs an unhelpful message rather than a wrong action.
  *
  * Returns 1 when the word was there, and removes every copy of it from argv
  * so that getopt sees the rest of the command line as if it had not been
