@@ -651,6 +651,12 @@
   name the replacement in a warning, which a build with `-Werror` will stop
   on. It is removed in the release after this one.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- libubertooth's `cmd_get_access_address()` carries the same deprecation, so a
+  program that calls it is told to call `cmd_read_access_address()` instead,
+  which reports an error separately from the address. The header has said it
+  was deprecated for a while; now the compiler says so too. It is still
+  exported and still works as it did.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - libubertooth installs to the directory your system keeps libraries in,
   which is where libbtbb already went: `lib64` on a 64-bit Fedora, RHEL or
   SUSE, `lib/<triplet>` where the prefix is `/usr` on a multiarch Debian or
@@ -883,6 +889,11 @@
 
 ### Reliability fixes
 
+- The two errors that name the spectrum analyzer spell it the American way,
+  which is how the rest of the tools and docs spell it: `error: could not
+  start the spectrum analyzer: ...` and the same for the LED one.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
 - Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
   already declined, until link supervision ended it a second later. A peer
   that refuses the connection request now gets a detach, and the command says
@@ -936,6 +947,13 @@
   11:22:33` paged that device, with nothing said. An inquiry's `bdaddr=` keeps
   its leading zeros too, so the address it prints is one the prompt takes.
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
+
+- The addresses the `btbr` firmware prints keep their leading zeros, so they
+  are the twelve hex digits the prompt takes back. `bdaddr 00:11:22:33:44:55`
+  was echoed as `Set bdaddr 1122334455`, and the `fhs: ba=` line of a
+  `page_scan` or `monitor` session dropped the leading zeros of the address it
+  read off the air the same way.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
