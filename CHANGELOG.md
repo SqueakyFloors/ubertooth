@@ -963,6 +963,13 @@
 
 ### Reliability fixes
 
+- Fixed: a device that answered `ubertooth-scan`'s page and then said nothing
+  held the scan forever, with the results so far printed and nothing after
+  them. The name read behind each result now has the same 25-second deadline
+  as the rest of the tool's reads, so such a device becomes an `[unknown]`
+  result, with a `note:` on standard error saying why, and the scan carries on.
+  [#1090](https://github.com/SqueakyFloors/ubertooth/issues/1090)
+
 - Fixed: `ubertooth-btle -p` often stopped at the access address on a
   connection that had data flowing, reporting nothing else and capturing only
   what landed on the channel it was sitting on. It recovers a connection's CRC

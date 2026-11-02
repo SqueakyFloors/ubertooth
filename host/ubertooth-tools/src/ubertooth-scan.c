@@ -51,6 +51,12 @@
 #error "FOLLOW_AFH_MAP_BYTES disagrees with libubertooth's AFH_MAP_BYTES"
 #endif
 
+/* Milliseconds to wait for a remote device to answer the name read, which both
+ * the results line and the report of -x ask for. With a zero timeout BlueZ
+ * blocks in read() with nothing to interrupt it, so a device that answers the
+ * page and then says nothing holds the tool forever. */
+#define REMOTE_NAME_TIMEOUT_MS 25000
+
 static void usage(FILE *file)
 {
 	fprintf(file, "ubertooth-scan - active(Bluez) device scan and inquiry supported by Ubertooth\n");
@@ -196,7 +202,8 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	 * line missing from the report with nothing on standard error used to
 	 * look like a device that has no name or no version. */
 	errno = 0;
-	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name, 25000) == 0) {
+	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name,
+	                         REMOTE_NAME_TIMEOUT_MS) == 0) {
 		printf("\tDevice Name: %s\n", name);
 	} else {
 		report_failure("reading the device name failed");
@@ -334,10 +341,29 @@ int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
 						  char* printable_addr, uint8_t extended,
 						  int whole_address)
 {
-	char name[248] = { 0 };
+	/* A remote name is 248 bytes and BlueZ writes at most one less than the
+	 * length it is given, so 249 is what holds the longest name: the same
+	 * size extra_info() reads it into. */
+	char name[249] = { 0 };
 
-	if (hci_read_remote_name(dev_handle, bdaddr, sizeof(name), name, 0) < 0)
-			strcpy(name, "[unknown]");
+	errno = 0;
+	if (hci_read_remote_name(dev_handle, bdaddr, sizeof(name), name,
+	                         REMOTE_NAME_TIMEOUT_MS) < 0) {
+		/* A device that will not give its name is still a result, so
+		 * the line is printed and the run's status is unaffected. The
+		 * reason goes to standard error, because "[unknown]" on its own
+		 * reads like a device that has no name rather than one that
+		 * never answered. errno is cleared first, and tested before it
+		 * is reported, for the reason the reads in extra_info() do the
+		 * same: BlueZ does not promise an errno for every failure. */
+		if (errno != 0)
+			fprintf(stderr, "note: reading the name of %s failed: "
+			        "%s\n", printable_addr, strerror(errno));
+		else
+			fprintf(stderr, "note: reading the name of %s failed\n",
+			        printable_addr);
+		strcpy(name, "[unknown]");
+	}
 
 	printf("%s\t%s\n", printable_addr, name);
 	if (extended)

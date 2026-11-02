@@ -95,6 +95,10 @@ static struct {
 	/* The reads of the report that can each fail on their own, and the
 	 * errno they all leave behind. */
 	int name_fails;
+	/* Milliseconds the last name read was given. A zero timeout is BlueZ's
+	 * "no deadline", which is what used to hold the tool forever on a
+	 * device that answered the page and then said nothing. */
+	int name_timeout;
 	int version_fails;
 	uint16_t version_manufacturer; /* what the device says it was made by */
 	int features_fail;
@@ -276,7 +280,7 @@ int hci_read_remote_name(int dd, const bdaddr_t* ba, int len, char* name,
 {
 	(void)dd;
 	(void)ba;
-	(void)to;
+	fake.name_timeout = to;
 	if (fake.name_fails) {
 		errno = fake.read_errno;
 		return -1;
@@ -818,6 +822,39 @@ MU_TEST(the_survey_results_are_the_whole_of_standard_output)
 	          r.err);
 }
 
+/* The name read behind a device's results line is bounded. BlueZ takes a zero
+ * timeout as no deadline and blocks in read() with nothing to interrupt it, so
+ * a device that answered the page and then said nothing used to hold the run
+ * here, with the results so far printed and nothing after them. A device that
+ * does not answer in time is a result, `[unknown]`, with the reason on standard
+ * error and the status still 0. */
+MU_TEST(a_name_that_never_comes_back_is_a_result_not_the_end_of_the_run)
+{
+	const uint8_t map[AFH_MAP_BYTES] = { 0 };
+	char expected[128];
+	struct run_result r;
+
+	/* A piconet whose UAP the scan recovered, which is the only kind a name
+	 * is read for, and a read that runs out of time: ETIMEDOUT is what
+	 * BlueZ leaves behind. */
+	reset_fake();
+	one_survey_result(0x9e8b33, 0x44, map);
+	fake.name_fails = 1;
+	fake.read_errno = ETIMEDOUT;
+	r = RUN("-t", "5");
+	mu_assert_int_eq(0, r.rc);
+	/* The number, not just that there is one: ubertooth-scan(1) and the
+	 * CHANGELOG both tell the user it is 25 seconds. */
+	mu_assert_int_eq(25000, fake.name_timeout);
+	mu_assert(strstr(r.out, "??:??:44:9E:8B:33\t[unknown]\n") != NULL,
+	          r.out);
+	snprintf(expected, sizeof(expected),
+	         "note: reading the name of ??:??:44:9E:8B:33 failed: %s\n",
+	         strerror(ETIMEDOUT));
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert(strstr(r.err, "error:") == NULL, r.err);
+}
+
 /* The extended report of -x: every line describing the device goes to standard
  * output, and the progress line that precedes it goes to standard error, so a
  * caller collecting the report does not find "Requesting information ..." in
@@ -1295,6 +1332,7 @@ int main(void)
 	MU_RUN(a_refused_sweep_keeps_the_bluez_results);
 	MU_RUN(an_inquiry_that_failed_is_named_and_exits_1);
 	MU_RUN(the_survey_results_are_the_whole_of_standard_output);
+	MU_RUN(a_name_that_never_comes_back_is_a_result_not_the_end_of_the_run);
 	MU_RUN(the_extended_report_of_a_device_is_on_standard_output);
 	MU_RUN(a_remote_without_afh_is_noted_on_standard_error);
 	MU_RUN(a_failed_afh_map_read_is_named_and_prints_no_map);
