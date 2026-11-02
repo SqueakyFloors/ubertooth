@@ -835,21 +835,17 @@ MU_TEST(a_name_that_never_comes_back_is_a_result_not_the_end_of_the_run)
 	struct run_result r;
 
 	/* A piconet whose UAP the scan recovered, which is the only kind a name
-	 * is read for. The read is given a deadline whether it answers ... */
-	reset_fake();
-	one_survey_result(0x9e8b33, 0x44, map);
-	r = RUN("-t", "5");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(fake.name_timeout > 0, "the name read was given a deadline");
-
-	/* ... or runs out of time, which is the errno BlueZ leaves behind. */
+	 * is read for, and a read that runs out of time: ETIMEDOUT is what
+	 * BlueZ leaves behind. */
 	reset_fake();
 	one_survey_result(0x9e8b33, 0x44, map);
 	fake.name_fails = 1;
 	fake.read_errno = ETIMEDOUT;
 	r = RUN("-t", "5");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(fake.name_timeout > 0, "the name read was given a deadline");
+	/* The number, not just that there is one: ubertooth-scan(1) and the
+	 * CHANGELOG both tell the user it is 25 seconds. */
+	mu_assert_int_eq(25000, fake.name_timeout);
 	mu_assert(strstr(r.out, "??:??:44:9E:8B:33\t[unknown]\n") != NULL,
 	          r.out);
 	snprintf(expected, sizeof(expected),

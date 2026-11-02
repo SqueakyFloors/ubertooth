@@ -100,6 +100,13 @@ never heard both loud and quiet in one receive window leaves it with no
 estimate, and the line reads `n=none snr=none`; ubertooth-rx(1) describes both
 figures and what the estimate rests on.
 
+The name on a device's line is read from the device itself, and that read waits
+25 seconds for an answer. A device that does not answer in that time has
+`[unknown]` on its line, with a `note:` on standard error saying why, and the
+scan goes on to the next result. Earlier releases gave that read no deadline,
+so a device that answered the page and then said nothing held the run there:
+the results so far printed, and nothing after them.
+
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
 manufacturer, its features, its clock offset, and its channel map as an `AFH
@@ -116,16 +123,15 @@ version, the features and each feature page are left out rather than reported
 as unknown or, in the features' case, as zero. Earlier releases left the line
 out in silence, and printed zeroed features as the device's own. The device's
 own line above the report still reads `[unknown]` when no name comes back,
-since that line is a result either way, and standard error carries a `note:`
-line saying why the name did not come back.
+since that line is a result either way.
 
 Every read of a device has a deadline: 25 seconds for its name, 20 seconds for
 the LMP version and the features, and a second each for the clock offset and
-the channel map. So a device that answers the page and then says nothing costs
-the scan that long and becomes a result, rather than holding the run with the
-results so far printed and nothing after them. `-t` does not cover these reads:
-it bounds the Ubertooth capture, which has finished by the time a survey result
-is printed.
+the channel map. `-x` reads the name a second time for its report, so a device
+that answers the page and then says nothing costs 25 seconds on its own line
+and 25 more inside the report, and standard error names both reads. `-t` is
+not one of these deadlines: it bounds the Ubertooth capture, which has finished
+by the time a survey result is printed.
 
 Everything else this tool prints goes to standard error: the three headings
 that say which half of the scan is running (`HCI scan`, `Ubertooth scan` and
