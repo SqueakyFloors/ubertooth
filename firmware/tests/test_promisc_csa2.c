@@ -1628,6 +1628,7 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 	int in_function = 0, in_block = 0;
 	int takes_the_transfer_stamp = 0, reads_the_clock = 0;
 	int hands_over_through_le_csa2_handoff = 0;
+	int event_starts_after_a_silence = 0;
 
 	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
 	f = fopen(path, "r");
@@ -1666,6 +1667,8 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 			takes_the_transfer_stamp = 1;
 		if (strstr(line, "cur_clk = CLK100NS") != NULL)
 			reads_the_clock = 1;
+		if (strstr(line, "measured - le_promisc.last_clk") != NULL)
+			event_starts_after_a_silence = 1;
 	}
 	fclose(f);
 
@@ -1681,6 +1684,11 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 	          "nothing in bluetooth_rxtx.c calls le_csa2_handoff(), so the "
 	          "arithmetic the tests above cover is not the arithmetic the "
 	          "mode runs");
+	mu_assert(event_starts_after_a_silence,
+	          "promisc_recover_hop_interval() does not measure the silence "
+	          "before a sighting from the previous packet, so a busy event "
+	          "running past the shortest connection interval starts an "
+	          "event of its own part way through");
 }
 
 /* ------------------------------------------------------------------------

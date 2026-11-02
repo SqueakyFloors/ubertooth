@@ -219,6 +219,14 @@ typedef struct _le_promisc_state_t {
 	u32 prev_clkn;
 	u8 seen_a_packet;
 
+	/* When any packet was last seen, as against prev_clk above, which is
+	 * the last one taken as the start of a connection event. The two
+	 * differ while an event is running: the peripheral's answer and any
+	 * further exchange of the same event move this and leave that alone.
+	 * Which is how a packet is told from an event -- see
+	 * promisc_recover_hop_interval(). */
+	u32 last_clk;
+
 	/* The sighting on 2404 MHz that the hop increment is counted from,
 	 * which is the same kind of stamp and wants the same clearing. */
 	u32 first_ts;
@@ -3978,6 +3986,7 @@ void promisc_recover_hop_interval(u8 *packet) {
 	u32 cur_clk = idle_buf_clk100ns;
 	u32 cur_clkn = clkn;
 	u32 measured, clk_diff;
+	int same_event;
 	u16 obsv_hop_interval; // observed hop interval
 
 	/* The first packet of a pass is the start of the measurement, not the
@@ -3986,6 +3995,7 @@ void promisc_recover_hop_interval(u8 *packet) {
 		le_promisc.seen_a_packet = 1;
 		le_promisc.prev_clk = cur_clk;
 		le_promisc.prev_clkn = cur_clkn;
+		le_promisc.last_clk = cur_clk;
 		return;
 	}
 
@@ -4005,21 +4015,43 @@ void promisc_recover_hop_interval(u8 *packet) {
 		measured += CLK100NS_PERIOD; // handle rollover
 	clk_diff = measured - le_promisc.prev_clk;
 
-	/* Shorter than the shortest connection interval, so both packets
-	 * belong to the same connection event -- the central's and the
-	 * peripheral's halves of one exchange, or a second exchange in the same
-	 * event. That is not a visit to this channel, and the sighting does not
-	 * become the one the next gap is measured from either, so the gaps stay
-	 * measured from near the start of an event.
+	/*
+	 * Does this packet start a connection event, or continue the one now
+	 * running?
 	 *
-	 * Near, not at: this filter is the shortest interval, not this
-	 * connection's, so on a longer one a busy event can run past it and a
-	 * later packet of the same event does become the mark. The gap after
-	 * that one is then off the connection's grid by however far into the
-	 * event it was, which the search allows for up to
-	 * LE_CSA2_SIGHTING_SPREAD and otherwise reads as a gap that does not
-	 * fit -- a run that breaks rather than an answer that is wrong. */
-	if (clk_diff < LE_MIN_CONN_INTERVAL * LE_BASECLK)
+	 * Connection events are at least LE_MIN_CONN_INTERVAL apart, so a
+	 * packet that follows that much silence is the first of its event. One
+	 * that follows the previous packet sooner is a later packet of the
+	 * same event: the peripheral's answer, or another exchange where the
+	 * central asked for more.
+	 *
+	 * The silence is measured from the previous packet, whatever it was,
+	 * and not from the last packet taken as an event's start. A busy event
+	 * can run longer than the shortest connection interval -- two
+	 * exchanges of full-length packets take about 9 ms against that 7.5 ms
+	 * -- and measured from the event's start, every 7.5 ms of such an
+	 * event started an event of its own, as much as 10 ms into the real
+	 * one. Two things followed from that. The run of gaps gained spans
+	 * that are not a whole number of connection intervals, which the
+	 * search walks back to and stops at, so it worked from a shorter run
+	 * than it had collected; and the follow was anchored wherever the last
+	 * of those false starts happened to fall, far outside the
+	 * LE_CSA2_SIGHTING_SPREAD its arithmetic allows for.
+	 *
+	 * Measured against the reading the rollover has been undone on, so a
+	 * continuation arriving just after the capture clock has come round
+	 * reads as a long silence and is taken for an event's start. That
+	 * costs one sighting every 327 s at worst, and the run it breaks is
+	 * started again rather than taken across the break.
+	 *
+	 * A packet this leaves out is not lost: the capture still records it.
+	 * What is being collected here is only the timing of the connection's
+	 * returns to this channel.
+	 */
+	same_event = measured - le_promisc.last_clk <
+			(u32)LE_MIN_CONN_INTERVAL * LE_BASECLK;
+	le_promisc.last_clk = cur_clk;
+	if (same_event)
 		return;
 
 	/* The clock reading, not the value the rollover was undone on: that

@@ -2868,10 +2868,13 @@ Fixes with no visible change in normal use.
   `page_scan` already did.
   [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
 - `ubertooth-btle -p` times a connection's returns to the channel it is sitting
-  on from the moment each packet began to arrive rather than from after the
-  whole packet had been read and checked. On a connection carrying full-length
-  packets the two are 2 ms apart, which is time the connection's next event was
-  already under way in.
+  on more closely. It stamps each return at the moment the packet began to
+  arrive rather than after the whole packet had been read and checked, which on
+  a connection carrying full-length packets is 2 ms later; and it treats a run
+  of packets less than one connection interval apart as the single connection
+  event it is, however long that event runs. A busy event of full-length
+  packets is longer than the shortest interval, so part way through it used to
+  be taken for the start of the next one.
 - Giving up a followed low-energy connection takes one path rather than two.
   The host's request to stop following and the end of the connection itself
   did the same three things in blocks of their own, and a request that arrived

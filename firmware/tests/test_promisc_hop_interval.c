@@ -363,6 +363,9 @@ static int scan_sources(struct scan *out)
 
 struct estimator {
 	uint32_t prev_clk;
+	/* When any packet was last seen, as against prev_clk, which is the
+	 * last one taken as the start of a connection event. */
+	uint32_t last_clk;
 	int seen_a_packet;
 	/* The gap lengths seen and how often each has been seen. */
 	uint32_t gap[LE_PROMISC_GAPS];
@@ -387,6 +390,7 @@ static void following_since(struct estimator *e, uint32_t last)
 {
 	estimator_init(e);
 	e->prev_clk = last;
+	e->last_clk = last;
 	e->seen_a_packet = 1;
 }
 
@@ -495,6 +499,7 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 	if (!e->seen_a_packet) {
 		e->seen_a_packet = 1;
 		e->prev_clk = cur_clk;
+		e->last_clk = cur_clk;
 		return e->conn_interval;
 	}
 
@@ -503,10 +508,18 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 		measured += period;
 	clk_diff = measured - e->prev_clk;
 
-	/* shorter than one connection interval: two packets of one event */
-	if (clk_diff < LE_MIN_CONN_INTERVAL * (uint32_t)s.le_baseclk)
+	/* Closer to the packet before it than one connection interval, so it
+	 * is a later packet of the event now running rather than the start of
+	 * the next one. Measured from the previous packet, whatever it was, so
+	 * that a busy event running longer than the shortest interval does not
+	 * start an event of its own part way through. */
+	if (measured - e->last_clk <
+			LE_MIN_CONN_INTERVAL * (uint32_t)s.le_baseclk) {
+		e->last_clk = cur_clk;
 		return e->conn_interval;
+	}
 
+	e->last_clk = cur_clk;
 	e->prev_clk = cur_clk;
 
 	if (clk_diff > (uint32_t)LE_CHANNELS * LE_MAX_CONN_INTERVAL *
@@ -777,6 +790,53 @@ MU_TEST(test_packets_from_one_connection_event_are_ignored)
 	 * the event before it, not from the extras inside it. */
 	at -= 60000u;
 	mu_assert_int_eq(16, trips(&e, &at, 16, 1));
+	mu_assert_int_eq(3, seen_count(&e, gap));
+}
+
+/*
+ * A busy connection event runs longer than the shortest connection interval,
+ * and none of it is a visit to this channel either.
+ *
+ * Two exchanges of full-length packets on the 1M PHY take about 9 ms, against
+ * the 7.5 ms the shortest interval allows, so measuring the silence from the
+ * event's start rather than from the packet before would make the third packet
+ * of such an event the start of an event of its own -- 9 ms into the real one.
+ * The run of gaps would then hold spans that are not a whole number of
+ * connection intervals, and the follow the algorithm-2 search sets up would be
+ * anchored that far into an event.
+ *
+ * So the silence is measured from the previous packet, whatever it was, and a
+ * run of packets no more than one interval apart is one event however long it
+ * goes on.
+ */
+MU_TEST(test_a_busy_event_is_still_one_event)
+{
+	struct estimator e;
+	uint32_t gap = round_the_channels(40);   /* a 50 ms connection */
+	uint32_t at = 1000000u;
+	uint32_t start;
+	int i;
+
+	following_since(&e, at);
+	trips(&e, &at, 40, 2);
+	mu_assert_int_eq(2, seen_count(&e, gap));
+
+	/* Five exchanges of full-length packets, 4.5 ms apart, so the event
+	 * runs 18 ms: longer than the 7.5 ms filter, and well inside the
+	 * connection's own 50 ms. */
+	start = at;
+	for (i = 1; i <= 5; i++) {
+		at = start + i * 45000u;
+		mu_assert_int_eq(40, a_packet_at(&e, at, firmware_period()));
+	}
+	mu_assert_int_eq(0, seen_count(&e, 90000u));
+	mu_assert_int_eq(0, seen_count(&e, 45000u));
+	mu_assert_int_eq(2, e.gap_count);
+
+	/* The next visit is a trip measured from the first packet of the busy
+	 * event, not from where it ran to. */
+	at = start + gap;
+	mu_assert_int_eq(40, a_packet_at(&e, at, firmware_period()));
 	mu_assert_int_eq(3, seen_count(&e, gap));
 }
 
@@ -1171,6 +1231,7 @@ int main(void)
 	MU_RUN(test_a_gap_shorter_than_the_shortfall_wraps_instead);
 	MU_RUN(test_an_ordinary_gap_is_untouched);
 	MU_RUN(test_packets_from_one_connection_event_are_ignored);
+	MU_RUN(test_a_busy_event_is_still_one_event);
 	MU_RUN(test_a_reduced_channel_map_still_gives_the_interval);
 	MU_RUN(test_part_of_a_pattern_is_not_the_pattern);
 	MU_RUN(test_a_single_odd_gap_is_not_the_answer);
