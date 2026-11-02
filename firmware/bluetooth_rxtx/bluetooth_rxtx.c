@@ -3987,7 +3987,7 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 */
 	u32 cur_clk = idle_buf_clk100ns;
 	u32 cur_clkn = clkn;
-	u32 measured, clk_diff;
+	u32 measured, since_packet, clk_diff;
 	int same_event;
 	u16 obsv_hop_interval; // observed hop interval
 
@@ -4047,18 +4047,26 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 * hears, which puts the sighting deeper into its event than this
 	 * allows for. LE_CSA2_SIGHTING_SPREAD says what that costs.
 	 *
-	 * Measured against the reading the rollover has been undone on. A
-	 * continuation arriving just after the capture clock has come round
-	 * therefore reads as a long silence and is taken for an event's start,
-	 * which puts one gap in the run that is not a whole number of
-	 * intervals. That happens once every 327 s at worst, and it is where
-	 * the search's walk back stops rather than an answer that is wrong.
+	 * And the other way round: an event dense enough to run to within
+	 * LE_SAME_EVENT_GAP of the next event's start swallows that event's
+	 * first packet. That one is harmless -- it is a return nobody heard,
+	 * which both estimators already allow for, and the gap it leaves is
+	 * still a whole number of intervals.
+	 *
+	 * The rollover is undone against the previous packet's own stamp here,
+	 * not against the reading taken for the gap above: that one is undone
+	 * against the start of the event before, which may be on the far side
+	 * of the wrap, and a continuation would then look a whole clock period
+	 * away and be recorded as a sighting with a gap of microseconds.
 	 *
 	 * A packet this leaves out is not lost: the capture still records it.
 	 * What is being collected here is only the timing of the connection's
 	 * returns to this channel.
 	 */
-	same_event = measured - le_promisc.last_clk < LE_SAME_EVENT_GAP;
+	since_packet = cur_clk;
+	if (since_packet < le_promisc.last_clk)
+		since_packet += CLK100NS_PERIOD; // handle rollover
+	same_event = since_packet - le_promisc.last_clk < LE_SAME_EVENT_GAP;
 	le_promisc.last_clk = cur_clk;
 	if (same_event)
 		return;

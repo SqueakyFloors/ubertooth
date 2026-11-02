@@ -1674,7 +1674,7 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 			takes_the_transfer_stamp = 1;
 		if (strstr(line, "cur_clk = CLK100NS") != NULL)
 			reads_the_clock = 1;
-		if (strstr(line, "measured - le_promisc.last_clk") != NULL)
+		if (strstr(line, "since_packet - le_promisc.last_clk") != NULL)
 			event_starts_after_a_silence = 1;
 	}
 	fclose(f);

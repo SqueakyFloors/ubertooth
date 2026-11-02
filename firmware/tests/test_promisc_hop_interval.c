@@ -30,7 +30,7 @@
 
 /* How many rollover sites bluetooth_rxtx.c has today, so a scan that matched
  * nothing cannot pass. Update it when one is added or removed. */
-#define ROLLOVER_SITES 3
+#define ROLLOVER_SITES 4
 
 /* The channels a low-energy connection hops over, which is how many
  * connection events pass between two sightings on one channel. */
@@ -498,7 +498,7 @@ static uint16_t interval_from_gaps(const struct estimator *e)
 static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 {
 	uint32_t cur_clk = now;
-	uint32_t measured, clk_diff;
+	uint32_t measured, since_packet, clk_diff;
 	uint16_t obsv_hop_interval;
 
 	if (!e->seen_a_packet) {
@@ -518,7 +518,10 @@ static uint16_t a_packet_at(struct estimator *e, uint32_t now, uint32_t period)
 	 * start of the next one. Measured from the previous packet, whatever
 	 * it was, so that a busy event does not start an event of its own part
 	 * way through. */
-	if (measured - e->last_clk < LE_SAME_EVENT_GAP) {
+	since_packet = cur_clk;
+	if (since_packet < e->last_clk)
+		since_packet += period;
+	if (since_packet - e->last_clk < LE_SAME_EVENT_GAP) {
 		e->last_clk = cur_clk;
 		return e->conn_interval;
 	}

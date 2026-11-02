@@ -67,12 +67,14 @@
   connection that had data flowing, reporting nothing else and capturing only
   what landed on the channel it was sitting on. It recovers a connection's CRC
   init value from an empty data PDU, and it was waiting for one whose two
-  acknowledgment bits happened to be both clear, which is one empty PDU in a
+  acknowledgment bits happened to be both clear, which is one such PDU in a
   few hundred on a busy connection: of 2666 the board heard from a 50 ms link
   between two development boards, ten had both bits clear. Everything the mode
   recovers after that -- the interval, the hop increment, the hop sequence it
   follows -- waited on one of those turning up. Any empty data PDU will do, and
   now any is taken.
+  follows -- waited on one of those turning up. Neither bit changes the value
+  the mode works back from, so neither is waited on any more.
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
   the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
