@@ -177,16 +177,18 @@ static int replay_read_a_record;
  * difference is in the hops that arrive, not in the counts. The tool says so
  * once instead.
  *
- * Half a minute. A clock takes enough hops of the piconet to tell the
- * candidates apart, which is tens of them, and a sweeping receiver hears a
- * fraction of a link's packets, so a search of some seconds is ordinary and
- * one of minutes is not a fault. Half a minute is long enough that a capture
- * which reaches a clock quickly says nothing at all, and short enough to reach
- * a user who is waiting on a link that will not give the search enough.
+ * Two minutes. A clock takes enough hops of the piconet to tell the candidates
+ * apart, which is tens of them, and a sweeping receiver hears a fraction of a
+ * link's packets, so a search of some seconds is ordinary and one of minutes
+ * is not a fault: the busiest link this project's bench makes gave a clock 34
+ * seconds into the search, which is why the span is not the half minute it
+ * first was. Two minutes is long enough that a capture which reaches a clock
+ * says nothing at all, and short enough to reach a user who is waiting on a
+ * link that will not give the search enough.
  *
  * Nothing acts on it. The search carries on exactly as before, and a clock
  * confirmed after the note is reported as any other is. */
-#define CLOCK_SEARCH_NOTE_MS 30000
+#define CLOCK_SEARCH_NOTE_MS 120000
 
 /* Says once what the clock search is waiting for, for a run whose search has
  * been going that long with no clock confirmed. Called where the capture

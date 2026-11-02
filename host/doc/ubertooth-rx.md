@@ -270,9 +270,9 @@ That rise is how a lock is checked: a clock that is not the piconet's leaves
 the rate where it was, and the library gives such a clock up once the headers
 it decodes keep failing (see GAPS IN A CAPTURE).
 
-A search still running after half a minute says so once, on standard error:
+A search still running after two minutes says so once, on standard error:
 
-    note: the clock search has run for 30 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give
+    note: the clock search has run for 120 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give
     note: the piconet's LAP and UAP, and the packets of it this board hears, are recovered, decoded, and captured either way; see ubertooth-rx(1)
 
 The capture is not stopped and the search is not changed: the note says what

@@ -1869,7 +1869,7 @@ MU_TEST(a_follow_that_stays_quiet_is_asked_about_once_per_wait)
 
 /* The two lines the tool says about it, each as one literal, so a reworded
  * message or a changed span fails here and in the man page check with it. */
-static const char SEARCH_NOTE[] = "note: the clock search has run for 30 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give\n";
+static const char SEARCH_NOTE[] = "note: the clock search has run for 120 s without confirming a clock; it needs enough hops of the piconet to tell the candidate clocks apart, which a link heard rarely, or held to a few channels, may not give\n";
 static const char SEARCH_NOTE_REACH[] = "note: the piconet's LAP and UAP, and the packets of it this board hears, are recovered, decoded, and captured either way; see ubertooth-rx(1)\n";
 
 /* How many times a line appears in a captured stream. */
@@ -1910,10 +1910,10 @@ MU_TEST(a_search_that_does_not_confirm_a_clock_says_so_once)
 	mu_assert_int_eq(0, lines_like(r.out, SEARCH_NOTE));
 }
 
-/* And the span is half a minute, pinned either side of the moment it is up.
+/* And the span is two minutes, pinned either side of the moment it is up.
  * A capture that reaches a clock quickly should say nothing at all, so the
  * value is worth a case of its own. */
-MU_TEST(the_search_note_waits_half_a_minute)
+MU_TEST(the_search_note_waits_two_minutes)
 {
 	struct run_result r;
 
@@ -1921,7 +1921,7 @@ MU_TEST(the_search_note_waits_half_a_minute)
 	 * span. */
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 29999;
+	device.block_ms = 119999;
 	device.blocks_to_end = 2;
 	device.clock_search_ms = 0;
 
@@ -1933,7 +1933,7 @@ MU_TEST(the_search_note_waits_half_a_minute)
 	/* And one that takes exactly the span. */
 	reset_device();
 	device.end = END_BY_TIMEOUT;
-	device.block_ms = 30000;
+	device.block_ms = 120000;
 	device.blocks_to_end = 2;
 	device.clock_search_ms = 0;
 
@@ -2040,7 +2040,7 @@ int main(void)
 	MU_RUN(a_working_follow_and_a_capture_with_no_clock_keep_going);
 	MU_RUN(a_follow_that_stays_quiet_is_asked_about_once_per_wait);
 	MU_RUN(a_search_that_does_not_confirm_a_clock_says_so_once);
-	MU_RUN(the_search_note_waits_half_a_minute);
+	MU_RUN(the_search_note_waits_two_minutes);
 	MU_RUN(a_run_with_no_search_running_says_nothing);
 	MU_RUN(a_replay_whose_search_does_not_confirm_a_clock_says_so);
 	return mu_report();
