@@ -325,6 +325,12 @@ reads it back, and resets into DFU. It has no USB of its own, so the board
 comes back in DFU rather than as an application, and this command waits for
 it there.
 
+The image is what does the writing, so it writes whenever a board runs it:
+`ubertooth-dfu -d bl_update.dfu -r`, with no `--update-bootloader`, programs
+the bootloader region as well, and none of the host's checks below run first.
+Install it with `--update-bootloader`, and keep `bl_update.dfu` out of the
+place you keep the images you flash by habit.
+
 That leaves the application region holding the updater, which is why the
 second line above is part of the procedure: write your firmware again, then
 `ubertooth-util -B` reports the bootloader the board now has. The hash it

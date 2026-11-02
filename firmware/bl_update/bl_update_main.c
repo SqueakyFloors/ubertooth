@@ -247,6 +247,22 @@ int main(void)
 	gpio_init();
 	clock_start();
 
+	/*
+	 * Ask for the user flash at the bottom of the address map before any of
+	 * the region is read. The part maps either the flash or the boot ROM
+	 * over the lowest 512 bytes (firmware/common/lpc17.h, MEMMAP), and both
+	 * reads of the region start at address 0: the comparison that decides
+	 * whether to write at all, and the ROM's own compare of sector 0 after
+	 * it is written. A Cortex-M3 finds its vector table through VTOR, so
+	 * this image never needs the register for itself, and the mapping on
+	 * entry is whatever the boot ROM and the bootloader left behind. With
+	 * the boot ROM mapped, a board that already holds this bootloader would
+	 * look as though it did not, and the ROM would compare sector 0 against
+	 * the wrong bytes. firmware/common/bl_report.c sets it for the same
+	 * reason.
+	 */
+	MEMMAP = MEMMAP_USER_FLASH;
+
 	/* All three LEDs on while the region is being written, so that a board
 	 * in the middle of it is not mistaken for one that has finished. */
 	USRLED_SET;

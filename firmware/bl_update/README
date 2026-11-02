@@ -15,6 +15,11 @@ Install it with `ubertooth-dfu --update-bootloader -d bl_update.dfu`.
 ubertooth-dfu(1), UPDATING THE BOOTLOADER is the procedure, the refusals, and
 what an interrupted write leaves; this file does not repeat them.
 
+Writing this image to a board is what programs the bootloader, so it programs
+it whichever way the image got there: flashed as ordinary firmware, with no
+`--update-bootloader`, it writes the region too, and the host's checks do not
+run first.
+
 The refusals and the write order are in ../common/bl_update.c and
 ubertooth_interface.h, not here: this image is the part that needs the part,
 and ../tests/test_bl_update.c runs everything else on a host.
