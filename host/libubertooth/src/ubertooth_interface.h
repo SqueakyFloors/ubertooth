@@ -522,6 +522,315 @@ extern const struct ubertooth_bl_version_block bl_version_block;
 #define UBERTOOTH_LPC_CRP_LENGTH 4
 
 /*
+ * The four values that mean something to the boot ROM, from the same chapter
+ * of the manual. Any other word, including the 0xffffffff of erased flash and
+ * the zero an image that does not use the word leaves, asks for no protection
+ * at all.
+ *
+ * CRP1 and CRP2 shut the debug interface and leave a reduced set of serial
+ * programming commands; CRP3 shuts serial programming as well, so the part
+ * can only ever run the code already in it; NO_ISP turns the entry pin into
+ * an ordinary input, so bridging it no longer reaches the ROM's programmer.
+ * None of them can be undone from outside the part: with CRP3 or NO_ISP there
+ * is no way back in at all unless the code in flash offers one.
+ *
+ * That is why these are refused rather than passed on. Everything else in
+ * this tree can be put right by writing flash again.
+ */
+#define UBERTOOTH_LPC_CRP1   0x12345678u
+#define UBERTOOTH_LPC_CRP2   0x87654321u
+#define UBERTOOTH_LPC_CRP3   0x43218765u
+#define UBERTOOTH_LPC_NO_ISP 0x4e697370u
+
+/* Does this word ask the boot ROM for protection? */
+static inline int ubertooth_lpc_crp_is_protection(uint32_t word)
+{
+	return word == UBERTOOTH_LPC_CRP1 || word == UBERTOOTH_LPC_CRP2 ||
+	       word == UBERTOOTH_LPC_CRP3 || word == UBERTOOTH_LPC_NO_ISP;
+}
+
+/* What to call it in a refusal. NULL for a word that asks for nothing, so a
+ * caller cannot print a name for a value that has none. */
+static inline const char *ubertooth_lpc_crp_name(uint32_t word)
+{
+	switch (word) {
+	case UBERTOOTH_LPC_CRP1:
+		return "CRP1";
+	case UBERTOOTH_LPC_CRP2:
+		return "CRP2";
+	case UBERTOOTH_LPC_CRP3:
+		return "CRP3";
+	case UBERTOOTH_LPC_NO_ISP:
+		return "NO_ISP";
+	default:
+		return NULL;
+	}
+}
+
+/*
+ * The bootloader updater image: how a host finds the bootloader it carries.
+ *
+ * The updater is an ordinary application image, written over USB like any
+ * firmware. What makes it the updater is its firmware info block, whose image
+ * name is UBERTOOTH_BL_UPDATE_IMAGE_NAME, and the 16 KiB of bootloader it
+ * carries at a fixed offset from the start of the image.
+ *
+ * The offset is fixed for the same reason the other blocks' offsets are: a
+ * host reads the bootloader out of the file without searching it, so
+ * ubertooth-dfu can say what the board's bootloader region will hold before
+ * anything is written. firmware/common/sections.ld puts the payload there and
+ * firmware/tests/test_bl_update.c reads the built image back to show it is
+ * where these numbers say.
+ *
+ * The payload is the whole region, padded to 16 KiB with the 0xff of erased
+ * flash, rather than just the bootloader's own bytes. One length means the
+ * updater writes all four sectors the same way, and it means a region
+ * installed over USB reads exactly as the same bootloader installed over ISP
+ * does, so one bootloader has one hash however it got onto the board.
+ */
+#define UBERTOOTH_BL_UPDATE_IMAGE_NAME "bl_update"
+#define UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET 0x200
+#define UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH UBERTOOTH_BOOTLOADER_REGION_LENGTH
+
+/*
+ * Why an update was refused.
+ *
+ * The updater on the board and ubertooth-dfu make the same checks over the
+ * same bytes -- the host before it writes anything, the board again before it
+ * programs -- so they share one list of answers and one set of words for
+ * them. A disagreement between the two is then a disagreement about the
+ * bytes, not about what the bytes mean.
+ *
+ * UBERTOOTH_BL_UPDATE_OK is a payload worth writing. UBERTOOTH_BL_UPDATE_SAME
+ * is not a refusal: the region already holds these bytes, so there is nothing
+ * to write and the board is returned to DFU as if the write had happened.
+ */
+enum ubertooth_bl_update_result {
+	UBERTOOTH_BL_UPDATE_OK = 0,
+	UBERTOOTH_BL_UPDATE_SAME = 1,
+	/* The payload */
+	UBERTOOTH_BL_UPDATE_SHORT = -1,
+	UBERTOOTH_BL_UPDATE_NO_VERSION_BLOCK = -2,
+	UBERTOOTH_BL_UPDATE_CRP = -3,
+	UBERTOOTH_BL_UPDATE_VECTORS = -4,
+	/* The part */
+	UBERTOOTH_BL_UPDATE_PART_UNREADABLE = -5,
+	UBERTOOTH_BL_UPDATE_PART_TOO_SMALL = -6,
+	/* The write */
+	UBERTOOTH_BL_UPDATE_PREPARE_FAILED = -7,
+	UBERTOOTH_BL_UPDATE_ERASE_FAILED = -8,
+	UBERTOOTH_BL_UPDATE_WRITE_FAILED = -9,
+	UBERTOOTH_BL_UPDATE_READ_BACK_FAILED = -10,
+	/* The file, which only the host reads */
+	UBERTOOTH_BL_UPDATE_NOT_UPDATER = -11,
+	UBERTOOTH_BL_UPDATE_FILE_SHORT = -12,
+	/* A caller that asked for the write without lending the RAM it is
+	 * programmed from. Its own answer, so a mistake in the one program that
+	 * installs a bootloader is not reported to a user as something wrong
+	 * with the bootloader. */
+	UBERTOOTH_BL_UPDATE_NO_BUFFER = -13,
+};
+
+/*
+ * The word of a bootloader's vector table the boot ROM reads, and how many
+ * words it adds up: the word at offset 0x1c holds the two's complement of the
+ * seven in front of it, so all eight come to zero (UM10360, "Criterion for
+ * valid user code"). A part whose word at address 0 does not satisfy that
+ * starts the ROM's serial programmer instead of the flash.
+ *
+ * The same arrangement as the application's vector checksum one region higher
+ * (firmware/bootloader/app_image.h, and fill_vector_checksum() in
+ * ubertooth-dfu.c).
+ */
+#define UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX 7u
+#define UBERTOOTH_BL_UPDATE_CHECKED_WORDS 8u
+
+/*
+ * Where a bootloader's initial stack pointer may point. Looser than any part
+ * in this family is, for the reason firmware/bootloader/app_image.h gives for
+ * the application's version of this check: what it is for is erased flash and
+ * zeros, and both are far outside it.
+ */
+#define UBERTOOTH_BL_UPDATE_RAM_BASE 0x10000000u
+#define UBERTOOTH_BL_UPDATE_RAM_LIMIT 0x10010000u
+
+/* The checksum word a bootloader's vector table needs. words is the first
+ * UBERTOOTH_BL_UPDATE_CHECKED_WORDS * 4 bytes of the region. */
+static inline uint32_t ubertooth_bl_update_vector_checksum(const uint8_t *words)
+{
+	uint32_t sum = 0;
+	unsigned i;
+
+	for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX; i++)
+		sum += (uint32_t)words[i * 4] |
+		       ((uint32_t)words[i * 4 + 1] << 8) |
+		       ((uint32_t)words[i * 4 + 2] << 16) |
+		       ((uint32_t)words[i * 4 + 3] << 24);
+	/* Unsigned throughout: negating a signed value this large is not
+	 * defined. */
+	return 0u - sum;
+}
+
+/*
+ * One byte of the region as it would be programmed: the payload's own byte,
+ * except in the checksum word, which is filled in.
+ *
+ * Both the board and the host need the programmed bytes rather than the
+ * file's: the board programs them and reads them back, and the host works out
+ * the hash the board will report afterwards. One function so the two cannot
+ * differ by that one word.
+ */
+static inline uint8_t ubertooth_bl_update_byte(const uint8_t *payload,
+                                               size_t offset, uint32_t checksum)
+{
+	const size_t word = UBERTOOTH_BL_UPDATE_CHECKSUM_INDEX * 4;
+
+	if (offset >= word && offset < word + 4)
+		return (uint8_t)(checksum >> ((offset - word) * 8));
+	return payload[offset];
+}
+
+/*
+ * Everything that can be asked of a bootloader's 16 KiB before any part is
+ * touched: it is the whole region, it carries a version block so the
+ * installed bootloader can report itself, it asks for no code read
+ * protection, and its vector table is one a part would start.
+ *
+ * *version, when it is not NULL, gets the version the payload's own version
+ * block gives, or 0 when there is none.
+ *
+ * Whether the board already holds these bytes is a separate question, asked
+ * by region_matches() in firmware/common/bl_update.c, because that one has to
+ * read the board's region at flash address 0 and an address is not a pointer
+ * this side of the bus.
+ *
+ * This is here rather than in the firmware, because the firmware and
+ * ubertooth-dfu both make these checks over the same bytes -- the host before
+ * it writes the updater to a board, the board again before it programs -- and
+ * two implementations of them is the one thing this path must not have.
+ */
+static inline int ubertooth_bl_update_payload_check(const uint8_t *payload,
+                                                    size_t length,
+                                                    uint16_t *version)
+{
+	static const char magic[] = UBERTOOTH_BL_VERSION_MAGIC;
+	const uint8_t *block;
+	uint32_t stack_pointer, reset_vector, entry;
+	size_t i;
+
+	if (version != NULL)
+		*version = 0;
+	if (payload == NULL || length != UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH)
+		return UBERTOOTH_BL_UPDATE_SHORT;
+
+	/* The protection word first. It is the one mistake with no way back, so
+	 * a payload that is wrong in some other way as well is still reported as
+	 * the protection it asks for: that is the reason a user has to be
+	 * given. */
+	if (ubertooth_lpc_crp_is_protection(
+			(uint32_t)payload[UBERTOOTH_LPC_CRP_OFFSET] |
+			((uint32_t)payload[UBERTOOTH_LPC_CRP_OFFSET + 1] << 8) |
+			((uint32_t)payload[UBERTOOTH_LPC_CRP_OFFSET + 2] << 16) |
+			((uint32_t)payload[UBERTOOTH_LPC_CRP_OFFSET + 3] << 24)))
+		return UBERTOOTH_BL_UPDATE_CRP;
+
+	/* A bootloader with no version block is not refused because it would
+	 * not work -- it would -- but because installing one leaves a board that
+	 * reports "no version block", which is also what a factory bootloader
+	 * reports. An update must not make a board harder to identify than it
+	 * was. */
+	block = payload + UBERTOOTH_BL_VERSION_OFFSET;
+	for (i = 0; i < UBERTOOTH_BL_VERSION_MAGIC_LEN; i++) {
+		if (block[i] != (uint8_t)magic[i])
+			return UBERTOOTH_BL_UPDATE_NO_VERSION_BLOCK;
+	}
+	if (version != NULL)
+		*version = (uint16_t)(block[UBERTOOTH_BL_VERSION_OFF_VERSION] |
+			(block[UBERTOOTH_BL_VERSION_OFF_VERSION + 1] << 8));
+
+	/*
+	 * The two words the processor loads first: a word-aligned stack pointer
+	 * in RAM, and a Thumb reset vector inside the bootloader's own region,
+	 * above the records at the bottom of it. Erased flash and zeros both
+	 * fail it.
+	 *
+	 * The floor is the end of the version block, and it is not arbitrary: a
+	 * payload that gets this far carries a version block at
+	 * UBERTOOTH_BL_VERSION_OFFSET, checked just above, so no code of its own
+	 * can be there or below it. An entry inside the vector table or inside
+	 * the block is a reset vector no bootloader has, and the checksum this
+	 * code then fills in would make the boot ROM start it anyway -- into
+	 * table entries rather than instructions, on a board with no USB left to
+	 * recover it.
+	 */
+	stack_pointer = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8) |
+		((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
+	reset_vector = (uint32_t)payload[4] | ((uint32_t)payload[5] << 8) |
+		((uint32_t)payload[6] << 16) | ((uint32_t)payload[7] << 24);
+	if (stack_pointer <= UBERTOOTH_BL_UPDATE_RAM_BASE ||
+	    stack_pointer > UBERTOOTH_BL_UPDATE_RAM_LIMIT ||
+	    (stack_pointer & 3u) != 0)
+		return UBERTOOTH_BL_UPDATE_VECTORS;
+	if ((reset_vector & 1u) == 0)
+		return UBERTOOTH_BL_UPDATE_VECTORS;
+	entry = reset_vector & ~1u;
+	if (entry < UBERTOOTH_BOOTLOADER_REGION_START +
+	            UBERTOOTH_BL_VERSION_OFFSET + UBERTOOTH_BL_VERSION_LENGTH)
+		return UBERTOOTH_BL_UPDATE_VECTORS;
+	if (entry >= UBERTOOTH_BOOTLOADER_REGION_START +
+	             UBERTOOTH_BOOTLOADER_REGION_LENGTH)
+		return UBERTOOTH_BL_UPDATE_VECTORS;
+	return UBERTOOTH_BL_UPDATE_OK;
+}
+
+/* One phrase naming what was found. Written so that it reads after "the
+ * update was refused: ". */
+static inline const char *ubertooth_bl_update_result_string(int result)
+{
+	switch (result) {
+	case UBERTOOTH_BL_UPDATE_OK:
+		return "the bootloader can be written";
+	case UBERTOOTH_BL_UPDATE_SAME:
+		return "the board already has this bootloader";
+	case UBERTOOTH_BL_UPDATE_SHORT:
+		return "the bootloader it carries is not 16 KiB";
+	case UBERTOOTH_BL_UPDATE_NO_VERSION_BLOCK:
+		return "the bootloader it carries has no version block, so a board "
+		       "flashed with it could not report which bootloader it has";
+	case UBERTOOTH_BL_UPDATE_CRP:
+		return "the bootloader it carries asks for code read protection, "
+		       "which cannot be undone";
+	case UBERTOOTH_BL_UPDATE_VECTORS:
+		return "the bootloader it carries has no vector table a part would "
+		       "start";
+	case UBERTOOTH_BL_UPDATE_PART_UNREADABLE:
+		return "the part would not say which part it is";
+	case UBERTOOTH_BL_UPDATE_PART_TOO_SMALL:
+		return "the part has no flash for the whole bootloader region";
+	case UBERTOOTH_BL_UPDATE_PREPARE_FAILED:
+		return "the part would not prepare the bootloader sectors";
+	case UBERTOOTH_BL_UPDATE_ERASE_FAILED:
+		return "the part would not erase the bootloader sectors";
+	case UBERTOOTH_BL_UPDATE_WRITE_FAILED:
+		return "the part would not program the bootloader sectors";
+	case UBERTOOTH_BL_UPDATE_READ_BACK_FAILED:
+		return "the bootloader read back from flash is not the one written";
+	case UBERTOOTH_BL_UPDATE_NOT_UPDATER:
+		return "this image is not a bootloader updater";
+	case UBERTOOTH_BL_UPDATE_NO_BUFFER:
+		return "there is no buffer to program the bootloader from";
+	case UBERTOOTH_BL_UPDATE_FILE_SHORT:
+		return "this file is too short to hold a bootloader updater";
+	default:
+		/* Every result above has its own phrase, so this is a code from a
+		 * newer build than this host. Saying so beats naming one of the
+		 * known outcomes, which would send the reader after the wrong
+		 * thing. */
+		return "the update was refused for a reason this host does not know";
+	}
+}
+
+/*
  * UBERTOOTH_GET_BOOTLOADER_INFO's reply: the CRC-32 of the whole bootloader
  * region first, as four bytes with the low byte first, then the version block
  * -- or that many zeros when the region carries no block.

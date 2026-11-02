@@ -644,6 +644,12 @@ jobs:
         echo "::group::firmware: bootloader"
         make bootloader
         echo "::endgroup::"
+        # The bootloader updater carries the bootloader built above, so
+        # it is built after it and through its own target for the same
+        # reason: building it builds the bootloader.
+        echo "::group::firmware: bl_update"
+        make bl_update
+        echo "::endgroup::"
 
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
@@ -1426,6 +1432,12 @@ jobs:
         done
         echo "::group::firmware: bootloader"
         make bootloader
+        echo "::endgroup::"
+        # The bootloader updater carries the bootloader built above, so
+        # it is built after it and through its own target for the same
+        # reason: building it builds the bootloader.
+        echo "::group::firmware: bl_update"
+        make bl_update
         echo "::endgroup::"
 
   # Fedora as an early-warning canary: it ships newer CMake/Python/GCC sooner

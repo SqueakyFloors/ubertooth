@@ -61,7 +61,13 @@ self=$(basename "$0")
 # The firmware images users flash with `ubertooth-dfu`, and whose revision -r
 # verifies. Each name is both the directory under firmware/ and the stem of the
 # built file, so bluetooth_rxtx builds bluetooth_rxtx.bin.
-SHIPPED_IMAGES="bluetooth_rxtx btbr"
+#
+# bl_update is one of them: a user writes it to install a bootloader
+# (ubertooth-dfu(1), UPDATING THE BOOTLOADER). It is the one that -r does not
+# verify afterwards, because it has no USB of its own and returns the board to
+# DFU rather than coming back as an application; its revision still has to be
+# the tree's, which is what this check is for.
+SHIPPED_IMAGES="bluetooth_rxtx btbr bl_update"
 
 # Images built at the bench to test a board, never flashed to run it. They
 # carry the info block too (firmware/common.mk links fw_info.c into every

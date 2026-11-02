@@ -244,7 +244,7 @@ its CRC verify setting, which warns and will be removed. See the
 
 ### Which firmware a tool needs
 
-There are two firmware images, and a board carries one at a time.
+Two firmware images run the tools, and a board carries one at a time.
 `ubertooth-btbr` needs `btbr`; every other tool needs `bluetooth_rxtx`, the
 standard image that `./install.sh --flash-device` builds and writes. Switch a
 board to `btbr` and back with:

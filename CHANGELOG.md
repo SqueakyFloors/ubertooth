@@ -86,6 +86,21 @@
   ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
   their lengths.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+- A bootloader can be installed over USB. Until now a new bootloader reached a
+  board only over the serial programming interface or JTAG, because a
+  bootloader refuses USB writes to its own region, so the bootloader fixes in
+  this release reached only boards someone had reflashed that way.
+  `make -C firmware bl_update` builds an image that carries a bootloader, and
+  `ubertooth-dfu --update-bootloader -d bl_update.dfu` writes it: the image
+  programs the bootloader region through the part's own programming commands,
+  reads it back, and leaves the board in DFU, so the next step is to write your
+  firmware again and check the result with `ubertooth-util -B`. The host and
+  the image both refuse a bootloader that is not the whole region, carries no
+  version block, has no vector table a part would start, or asks for code read
+  protection at 0x2fc, which cannot be undone. Losing power while the region is
+  written still leaves a board that needs a serial adapter; ubertooth-dfu(1),
+  UPDATING THE BOOTLOADER says what is and is not safe.
+  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration

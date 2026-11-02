@@ -2,6 +2,11 @@ For testing a new board, see: assembly_test/README
 
 The general purpose firmware including Bluetooth functions is bluetooth_rxtx.
 
+bl_update installs a bootloader over USB rather than running on the board; see
+bl_update/README and ubertooth-dfu(1). It is built with `make bl_update`, not
+by `make all`, because building it builds the bootloader, which needs the ARM
+C++ runtime.
+
 This firmware is intended to be compiled with a particular toolchain:
 
     https://launchpad.net/gcc-arm-embedded

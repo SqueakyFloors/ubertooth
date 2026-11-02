@@ -32,6 +32,7 @@
 #include "dfu.h"
 #include "dfu_transition.h"
 #include "dfu_recovery.h"
+#include "bl_update_file.h"
 #include "opt_parse.h"
 
 static struct timespec operation_started;
@@ -539,6 +540,10 @@ struct dfu_runtime_context {
 	int download_checked;    /* the image has been put against the part */
 	int download_refused;    /* ...and does not fit the flash it has */
 	int want_part_id;        /* a transfer needs the part ID; a reset does not */
+	/* --update-bootloader: the image this run just wrote has no USB of its
+	 * own and resets into DFU when it has finished, so a board that comes
+	 * back in the bootloader is this run working, not failing. */
+	int expect_return_to_dfu;
 	uint32_t part_id;        /* the part ID read from the application */
 	int part_id_read;        /* ...and whether it was read at all */
 	unsigned app_attempts;
@@ -991,7 +996,16 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 		if (presence < 0)
 			fprintf(stderr, "error: detach failed: could not tell whether "
 			        "the board left DFU (usb_error=%d)\n", presence);
-		else if (presence == DFU_PRESENCE_RETURNED) {
+		else if (presence == DFU_PRESENCE_RETURNED &&
+		         runtime->expect_return_to_dfu) {
+			/* What --update-bootloader asked for: the board reset, ran the
+			 * updater, and came back where the next image is written from.
+			 * The run that wrote any other image would be failing here. */
+			log_dfu_stage("the board reset and returned to DFU, as the "
+			              "bootloader updater does");
+			runtime->board_left_the_bus = went;
+			return 0;
+		} else if (presence == DFU_PRESENCE_RETURNED) {
 			fprintf(stderr, "error: detach failed: the board reset and came "
 			        "back in the bootloader\n");
 			/* The flash already holds the image, so say it before the
@@ -1757,6 +1771,9 @@ static void usage(FILE *file)
 	fputs("\t              write back)\n", file);
 	fputs("\t-d <filename> download - write DFU file to device\n", file);
 	fputs("\t-r reset Ubertooth after other operations complete\n", file);
+	fputs("\t--update-bootloader install the bootloader carried by the\n", file);
+	fputs("\t              bl_update image given with -d; the board is left\n", file);
+	fputs("\t              in DFU, so write your firmware again afterwards\n", file);
 	fputs("\n", file);
 	fputs("Miscellaneous:\n", file);
 	fputs("\t-s <filename> add DFU suffix to binary firmware file\n", file);
@@ -1809,6 +1826,113 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 #define FUNC_UPLOAD   (1<<1)
 #define FUNC_SIGN     (1<<2)
 #define FUNC_RESET    (1<<3)
+#define FUNC_UPDATE_BL (1<<4)
+
+/*
+ * --update-bootloader, the one option in these tools that is a word rather
+ * than a letter. It is a word because it writes the one region of flash a
+ * later run cannot rewrite, and a letter is too easy to reach for by
+ * accident.
+ *
+ * getopt does not take long options, and the getopt the tools carry for
+ * platforms without a GNU one does not answer getopt_long the way glibc does,
+ * so the word is taken out of the command line here instead, before getopt
+ * sees it. The word has no value of its own, it has to be written out in
+ * full, and anything else beginning with "--" still reaches getopt and is
+ * reported by opt_report_bad_option() with the whole word quoted, as it
+ * always was.
+ *
+ * The one thing a user could notice is that this scan runs before getopt and
+ * so does not know which options take a value: written where a value belongs,
+ * as in "-U --update-bootloader", the word is taken out and the option then
+ * consumes whatever follows. That command line is refused either way, because
+ * no board has that serial and the file name is left over as a stray word, so
+ * it costs an unhelpful message rather than a wrong action.
+ *
+ * Returns 1 when the word was there, and removes every copy of it from argv
+ * so that getopt sees the rest of the command line as if it had not been
+ * written. A "--" stops the search, so the word after one is left alone and
+ * refused as the stray argument it is.
+ */
+#define OPT_UPDATE_BOOTLOADER_WORD "--update-bootloader"
+
+static int take_update_bootloader_word(int *argc, char *argv[])
+{
+	int found = 0;
+	int from, to;
+
+	for (from = 1, to = 1; from < *argc; from++) {
+		if (strcmp(argv[from], "--") == 0) {
+			/* Everything from here is left exactly as it was. */
+			while (from < *argc)
+				argv[to++] = argv[from++];
+			break;
+		}
+		if (strcmp(argv[from], OPT_UPDATE_BOOTLOADER_WORD) == 0) {
+			found = 1;
+			continue;
+		}
+		argv[to++] = argv[from];
+	}
+	*argc = to;
+	argv[to] = NULL;
+	return found;
+}
+
+/*
+ * How long the board is given to install the bootloader and come back in DFU.
+ *
+ * The updater erases four sectors and programs 16 KiB -- a sector erase is
+ * about a tenth of a second on this part and a 4 KiB program a thousandth
+ * (NXP LPC176x/5x user manual UM10360, "Flash memory access") -- and then
+ * resets and enumerates. Ten seconds is several times over that, and it is
+ * not a figure anything depends on: it only decides when this stops waiting
+ * and says so.
+ */
+#define UPDATE_BL_POLLS 40
+#define UPDATE_BL_POLL_INTERVAL_MS 250
+
+/*
+ * Wait for the board to return to DFU after it has run the updater.
+ *
+ * There is nothing else to wait for: the updater has no USB of its own, so
+ * the board never comes back as an application, and what it does when it has
+ * finished -- whether it wrote the bootloader or refused to -- is to reset
+ * into DFU. Returns 0 once the board is there, or 1 having said why not.
+ *
+ * The result of the update itself is not read here. The board is in DFU, which
+ * answers no vendor request, so the way to see which bootloader it now has is
+ * to write an application and ask that: `ubertooth-util -B` prints the hash,
+ * and --update-bootloader has already printed the hash to expect.
+ */
+static int wait_for_dfu_after_update(struct dfu_runtime_context *runtime,
+                                     const struct dfu_usb_identity *identity)
+{
+	libusb_device_handle *devh = NULL;
+	int poll;
+
+	/* Progress, so standard error. */
+	fprintf(stderr, "Waiting for the board to install the bootloader and "
+	        "return to DFU: ");
+	fflush(stderr);
+	for (poll = 0; poll < UPDATE_BL_POLLS; poll++) {
+		int found = open_matching_dfu(runtime, identity, (void **)&devh);
+
+		if (found == 1) {
+			close_dfu_device(devh, 0);
+			end_progress_row();
+			return 0;
+		}
+		progress_dot();
+		transition_sleep_ms(runtime, UPDATE_BL_POLL_INTERVAL_MS);
+	}
+	end_progress_row();
+	fprintf(stderr, "error: the board did not return to DFU within %u "
+	        "seconds; it may still be writing the bootloader, so leave it "
+	        "powered and look for it in DFU before doing anything else\n",
+	        (UPDATE_BL_POLLS * UPDATE_BL_POLL_INTERVAL_MS) / 1000u);
+	return 1;
+}
 
 /* How a claim failure names the board: by the -U string, which is all this
  * tool knows about it. NULL without one, which the reporter reads as "the
@@ -1863,6 +1987,12 @@ int main(int argc, char **argv) {
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
 	const char options[] = ":hVd:u:s:rU:";
+	/* Taken out of the command line before getopt reads it: see
+	 * take_update_bootloader_word(). The board has to run the image for
+	 * anything to happen, so this is a reset as well; -r alongside it says
+	 * the same thing twice and changes nothing. */
+	if (take_update_bootloader_word(&argc, argv))
+		functions |= FUNC_UPDATE_BL | FUNC_RESET;
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
@@ -1947,6 +2077,16 @@ int main(int argc, char **argv) {
 	if (do_version || first_exit_option == 'h')
 		goto end_without_device;
 
+	/* The updater is written like any other image, so there has to be one
+	 * to write. Refused here, before any device is opened, like every other
+	 * check on the command line. */
+	if ((functions & FUNC_UPDATE_BL) && !(functions & FUNC_DOWNLOAD)) {
+		fputs("error: --update-bootloader needs -d <bl_update.dfu>, the "
+		      "image carrying the bootloader to install\n", stderr);
+		exit_status = 1;
+		goto end_without_device;
+	}
+
 	/* No function is no work: the tool used to exit 0 having touched
 	 * nothing and said nothing, so a mistyped command looked like a
 	 * firmware update that had worked. */
@@ -1989,7 +2129,25 @@ int main(int argc, char **argv) {
 			exit_status = 1;
 			goto end_without_device;
 		}
-		if (functions & FUNC_RESET) {
+		/* The bootloader this image carries, put to the same checks the
+		 * board will make over the same bytes. A bootloader the board
+		 * would refuse is refused here instead, with nothing written and
+		 * no board touched: the refusal that matters most is a code read
+		 * protection value, which a board cannot report after the fact
+		 * because there is no way back into it. */
+		if (functions & FUNC_UPDATE_BL) {
+			struct bl_update_file update = {0};
+
+			bl_update_file_check(downfile, image_info.image, &update);
+			if (bl_update_file_report(stderr, downfile_name, &update) != 0) {
+				exit_status = 1;
+				goto end_without_device;
+			}
+			fprintf(stderr, "After the update, `ubertooth-util -B` will "
+			        "report CRC32:0x%08x\n",
+			        (unsigned)update.region_crc32);
+			fflush(stderr);
+		} else if (functions & FUNC_RESET) {
 			fprintf(stderr, "DFU expected revision: %s\n",
 			        image_info.revision);
 			fflush(stderr);
@@ -2092,6 +2250,7 @@ int main(int argc, char **argv) {
 	/* Both transfers are bounded by the part's flash size, so both ask the
 	 * application for its part ID; a bare reset has nothing to bound. */
 	runtime.want_part_id = (functions & (FUNC_UPLOAD|FUNC_DOWNLOAD)) != 0;
+	runtime.expect_return_to_dfu = (functions & FUNC_UPDATE_BL) != 0;
 	runtime.upload_name = upfile_name;
 	if (functions & FUNC_DOWNLOAD) {
 		runtime.download_name = downfile_name;
@@ -2295,7 +2454,23 @@ int main(int argc, char **argv) {
 		interface_claimed = 0;
 	}
 
-	if ((functions & FUNC_DOWNLOAD) && (functions & FUNC_RESET)) {
+	/* The updater has no USB, so there is no application to verify: what
+	 * says it ran is the board being in DFU. It may already be there, since
+	 * the detach above waits long enough to see it come back. */
+	if (functions & FUNC_UPDATE_BL) {
+		log_dfu_stage("waiting for the board to return to DFU");
+		if (wait_for_dfu_after_update(&runtime, &selected_identity) != 0) {
+			exit_status = 1;
+			goto cleanup;
+		}
+		log_dfu_stage("the board returned to DFU");
+		/* The result, so standard output: what the user has to do next, and
+		 * how to see which bootloader the board ended up with. */
+		printf("The board is in DFU. Write your firmware again "
+		       "(ubertooth-dfu -d bluetooth_rxtx.dfu -r), then check the "
+		       "bootloader with ubertooth-util -B.\n");
+		fflush(stdout);
+	} else if ((functions & FUNC_DOWNLOAD) && (functions & FUNC_RESET)) {
 		const struct dfu_verify_config verify_config = {
 			.polls = 20,
 			.poll_interval_ms = 250,

@@ -124,7 +124,8 @@ target_sources(ubertooth-util PRIVATE
 
 target_sources(ubertooth-dfu PRIVATE
 	dfu_transition.c
-	dfu_recovery.c)
+	dfu_recovery.c
+	bl_update_file.c)
 
 if ( ${LIBBLUETOOTH_FOUND} )
 	# The AFH map validation and state decisions of -a. Free of BlueZ, so
