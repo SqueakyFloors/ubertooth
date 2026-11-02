@@ -27,23 +27,6 @@
 #include "ubertooth_le_frag.h"
 #include <btbb.h>
 
-/* Marks a declaration below as superseded, so a program that still calls it
- * is told at compile time what to call instead. GCC and Clang have the
- * attribute; on any other compiler this expands to nothing and the only
- * notice is the comment above the declaration.
- *
- * Remove this along with the last declaration that uses it, so an installed
- * header does not carry a macro nothing needs. Defined only if the including
- * program has not defined the name itself, because this header is installed
- * and the name is a plain one. */
-#ifndef UBERTOOTH_DEPRECATED
-#if defined(__GNUC__) || defined(__clang__)
-#define UBERTOOTH_DEPRECATED(msg) __attribute__((deprecated(msg)))
-#else
-#define UBERTOOTH_DEPRECATED(msg)
-#endif
-#endif
-
 /* specan output types
  * see https://github.com/dkogan/feedgnuplot for plotter */
 enum specan_modes {

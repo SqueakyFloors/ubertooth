@@ -651,6 +651,13 @@
   name the replacement in a warning, which a build with `-Werror` will stop
   on. It is removed in the release after this one.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- libubertooth's `cmd_get_access_address()` is deprecated in favor of
+  `cmd_read_access_address()`, which reports an error separately from the
+  address instead of returning both as one `u32`. The header said it was
+  deprecated already; GCC and Clang now name the replacement in a warning
+  too, which a build with `-Werror` will stop on. It is still exported and
+  still works as it did.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - libubertooth installs to the directory your system keeps libraries in,
   which is where libbtbb already went: `lib64` on a 64-bit Fedora, RHEL or
   SUSE, `lib/<triplet>` where the prefix is `/usr` on a multiarch Debian or
@@ -936,6 +943,18 @@
   11:22:33` paged that device, with nothing said. An inquiry's `bdaddr=` keeps
   its leading zeros too, so the address it prints is one the prompt takes.
   [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
+
+- Fixed: the addresses the `btbr` firmware printed lost their leading zeros,
+  so they were not the twelve hex digits the prompt takes back.
+  `bdaddr 00:11:22:33:44:55` was echoed as `Set bdaddr 1122334455`, and the
+  `fhs: ba=` line of a `page_scan` or `monitor` session dropped them the same
+  way from the address it read off the air. Both now print twelve digits.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
+- The two errors that name the spectrum analyzer spell it the American way,
+  which is how the rest of the tools and docs spell it: `error: could not
+  start the spectrum analyzer: ...` and the same for the LED one.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
