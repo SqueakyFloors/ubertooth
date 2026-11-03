@@ -101,10 +101,17 @@ install(FILES ${c_headers}
 # path, so an install that is still here after a `brew upgrade libusb` names a
 # directory that has gone; configuring the build again writes the new one.
 set(LIBUBERTOOTH_PC_CFLAGS "")
+# The same directory is kept whole, with no exception for /usr/include, as the
+# hint ubertoothConfig.cmake gives its own search for that header.
+set(UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR "")
 foreach(dir IN LISTS LIBUSB_INCLUDE_DIRS)
-	if(EXISTS "${dir}/libusb-1.0/libusb.h" AND
-	   NOT "${dir}" STREQUAL "/usr/include")
-		string(APPEND LIBUBERTOOTH_PC_CFLAGS " -I${dir}")
+	if(EXISTS "${dir}/libusb-1.0/libusb.h")
+		if(NOT UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR)
+			set(UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR "${dir}")
+		endif()
+		if(NOT "${dir}" STREQUAL "/usr/include")
+			string(APPEND LIBUBERTOOTH_PC_CFLAGS " -I${dir}")
+		endif()
 	endif()
 endforeach()
 
@@ -114,11 +121,33 @@ endforeach()
 # carries the pthread calls), CMAKE_DL_LIBS is a library name (empty on macOS,
 # where libc carries dladdr()).
 set(LIBUBERTOOTH_PC_LIBS_PRIVATE "")
+# The same two, as a CMake list, for ubertoothConfig.cmake below.
+set(UBERTOOTH_CONFIG_PRIVATE_LIBS "")
 if(CMAKE_THREAD_LIBS_INIT)
 	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " ${CMAKE_THREAD_LIBS_INIT}")
+	list(APPEND UBERTOOTH_CONFIG_PRIVATE_LIBS "${CMAKE_THREAD_LIBS_INIT}")
 endif()
 foreach(lib IN LISTS CMAKE_DL_LIBS)
 	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " -l${lib}")
+	list(APPEND UBERTOOTH_CONFIG_PRIVATE_LIBS "-l${lib}")
+endforeach()
+
+# Where this build found libbtbb, as hints for ubertoothConfig.cmake's own
+# search. The library is a path from find_library(), so the directory it is in
+# is the one to look in; one set by hand to a bare link name leaves the hint
+# empty, and the search then looks where it would have anyway.
+set(UBERTOOTH_CONFIG_BTBB_INCLUDEDIR "${LIBBTBB_INCLUDE_DIR}")
+set(UBERTOOTH_CONFIG_BTBB_LIBDIR "")
+foreach(lib IN LISTS LIBBTBB_LIBRARIES)
+	if(IS_ABSOLUTE "${lib}" AND NOT UBERTOOTH_CONFIG_BTBB_LIBDIR)
+		get_filename_component(UBERTOOTH_CONFIG_BTBB_LIBDIR "${lib}" DIRECTORY)
+	endif()
+endforeach()
+set(UBERTOOTH_CONFIG_LIBUSB_LIBDIR "")
+foreach(lib IN LISTS LIBUSB_LIBRARIES)
+	if(IS_ABSOLUTE "${lib}" AND NOT UBERTOOTH_CONFIG_LIBUSB_LIBDIR)
+		get_filename_component(UBERTOOTH_CONFIG_LIBUSB_LIBDIR "${lib}" DIRECTORY)
+	endif()
 endforeach()
 
 # The directories libubertooth.pc names have to be the ones the install writes
@@ -175,3 +204,41 @@ configure_file(
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
 		DESTINATION ${UBERTOOTH_INSTALL_LIBDIR}/pkgconfig
 		COMPONENT pkgconfig)
+
+# ubertoothConfig.cmake, so that a CMake project outside this tree reaches the
+# installed library the way CMake projects reach a library: find_package() and
+# an imported target. libubertooth.pc, written above, answers the same
+# questions for pkg-config, and FindUBERTOOTH.cmake in this tree reads that
+# file -- but a CMake consumer tries find_package() first, and with no config
+# file to find it had to be given a Find module of its own or the paths by
+# hand. The file itself says what each part of it is for.
+include(CMakePackageConfigHelpers)
+
+# Beside the library, in the directory CMake searches for a package of this
+# name: <prefix>/<libdir>/cmake/<name>. configure_package_config_file works
+# out the way back from here to the prefix, so the file describes the install
+# it is in rather than the prefix this build was configured with.
+set(UBERTOOTH_INSTALL_CMAKEDIR "${UBERTOOTH_INSTALL_LIBDIR}/cmake/ubertooth")
+
+# PATH_VARS: each of these becomes PACKAGE_<name> in the file, relative to the
+# prefix it is read from. One given to the build as an absolute path is
+# written as it stands, which is right, because the install writes to exactly
+# that wherever the prefix is.
+configure_package_config_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/ubertoothConfig.cmake.in
+	${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfig.cmake
+	INSTALL_DESTINATION "${UBERTOOTH_INSTALL_CMAKEDIR}"
+	PATH_VARS CMAKE_INSTALL_INCLUDEDIR UBERTOOTH_INSTALL_LIBDIR)
+
+# SameMajorVersion, which is what the library's SOVERSION promises: a consumer
+# asking for 1.0 is served by this 1.1, and one asking for 2.0 is not.
+write_basic_package_version_file(
+	${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfigVersion.cmake
+	VERSION ${VERSION}
+	COMPATIBILITY SameMajorVersion)
+
+install(FILES
+		${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfig.cmake
+		${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfigVersion.cmake
+		DESTINATION ${UBERTOOTH_INSTALL_CMAKEDIR}
+		COMPONENT cmakeconfig)

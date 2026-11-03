@@ -321,6 +321,33 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 300)
 endif()
 
+# The same install reached the way a CMake project reaches it:
+# find_package(ubertooth) and the imported target, with nothing but
+# CMAKE_PREFIX_PATH to go on. It needs the library in this build, because its
+# install is what is being tested.
+if(libubertooth_SOURCE_DIR)
+	add_test(
+		NAME cmake-package-install
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_cmake_package_install.py
+			${CMAKE_COMMAND}
+			${CMAKE_BINARY_DIR}
+			# The directory this build installs the library to, which
+			# GNUInstallDirs picks for the system: where the test looks
+			# for what the install wrote.
+			"${UBERTOOTH_INSTALL_LIBDIR}"
+			# The library's own source tree, for the lib64 build the
+			# test configures. The project's own directory rather than
+			# CMAKE_SOURCE_DIR, which would be the root of a
+			# superproject that had added this tree.
+			${ubertooth_all_SOURCE_DIR})
+	# Three configures of a consumer project, each of which detects the
+	# compiler from nothing, and one configure and build of the library in
+	# the lib64 layout: a minute or two on an idle machine, and several
+	# times that on one busy with parallel builds.
+	set_tests_properties(cmake-package-install PROPERTIES TIMEOUT 600)
+endif()
+
 # What ubertooth-rx says when its receiver is pinned at the top of the
 # radio's range, replayed through -i from recorded RSSI sequences the test
 # builds itself. The whole tool runs, so this covers the message reaching the

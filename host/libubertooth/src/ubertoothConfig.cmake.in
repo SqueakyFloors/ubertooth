@@ -1,0 +1,116 @@
+# ubertoothConfig.cmake, so that a CMake project outside this tree can say
+#
+#     find_package(ubertooth REQUIRED)
+#     target_link_libraries(my-program PRIVATE ubertooth::ubertooth)
+#
+# and get the installed library, the directory its headers are in, and the two
+# libraries whose headers those headers include. libubertooth.pc describes the
+# same install to pkg-config; the build writes both files side by side from
+# the same directories, so they say the same thing.
+#
+# PACKAGE_INIT below is CMake's own block, which works out PACKAGE_PREFIX_DIR
+# from where this file itself is. So a prefix given at install time
+# (cmake --install --prefix), or an install staged or copied somewhere else,
+# is still described correctly -- the same reason libubertooth.pc reads its
+# prefix back from pcfiledir. The two directories under it are written
+# relative to it for the same reason; a directory given to the build as an
+# absolute path is written as it stands, because the install writes to exactly
+# that wherever the prefix is.
+@PACKAGE_INIT@
+
+set(_ubertooth_includedir "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+set(_ubertooth_libdir "@PACKAGE_UBERTOOTH_INSTALL_LIBDIR@")
+
+# The library the install wrote, looked for under the file names this system
+# gives a library. CMAKE_FIND_LIBRARY_SUFFIXES puts the shared one first, so
+# an install holding both is described by the shared library, as find_library
+# would choose it.
+#
+# Not find_library itself, which remembers its answer in the cache: the same
+# build installed into a second prefix would then be described by the first
+# prefix's path, and relocating the install is exactly what this file is
+# written to survive.
+set(_ubertooth_library "")
+foreach(_ubertooth_libprefix IN LISTS CMAKE_FIND_LIBRARY_PREFIXES)
+	foreach(_ubertooth_libsuffix IN LISTS CMAKE_FIND_LIBRARY_SUFFIXES)
+		set(_ubertooth_candidate
+			"${_ubertooth_libdir}/${_ubertooth_libprefix}ubertooth${_ubertooth_libsuffix}")
+		if(NOT _ubertooth_library AND EXISTS "${_ubertooth_candidate}")
+			set(_ubertooth_library "${_ubertooth_candidate}")
+		endif()
+	endforeach()
+endforeach()
+
+# libbtbb and libusb, whose headers the installed headers include: ubertooth.h
+# includes <btbb.h>, and ubertooth_control.h, which every one of them reaches,
+# includes <libusb-1.0/libusb.h>. libubertooth.pc names both in its Requires
+# and leaves them to pkg-config, which resolves them on the machine the
+# program is built on; this file searches for them there too, with the
+# directories this build found them in as hints rather than as answers, so an
+# install carried to another machine uses the ones that are there.
+#
+# The libusb search asks for the header at the spelling the Ubertooth headers
+# use, so the directory it reports is the one that include resolves against.
+find_path(ubertooth_btbb_INCLUDE_DIR NAMES btbb.h
+	HINTS "@UBERTOOTH_CONFIG_BTBB_INCLUDEDIR@")
+find_library(ubertooth_btbb_LIBRARY NAMES btbb
+	HINTS "@UBERTOOTH_CONFIG_BTBB_LIBDIR@")
+find_path(ubertooth_libusb_INCLUDE_DIR NAMES libusb-1.0/libusb.h
+	HINTS "@UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR@")
+find_library(ubertooth_libusb_LIBRARY NAMES usb-1.0
+	HINTS "@UBERTOOTH_CONFIG_LIBUSB_LIBDIR@")
+mark_as_advanced(ubertooth_btbb_INCLUDE_DIR ubertooth_btbb_LIBRARY
+	ubertooth_libusb_INCLUDE_DIR ubertooth_libusb_LIBRARY)
+
+# What is missing, said in one line, rather than a target whose location or
+# include directory is empty and a compiler error later on.
+set(_ubertooth_missing "")
+if(NOT _ubertooth_library)
+	list(APPEND _ubertooth_missing
+		"the libubertooth this file was installed beside, in ${_ubertooth_libdir}")
+endif()
+if(NOT EXISTS "${_ubertooth_includedir}/ubertooth.h")
+	list(APPEND _ubertooth_missing "ubertooth.h in ${_ubertooth_includedir}")
+endif()
+if(NOT ubertooth_btbb_INCLUDE_DIR OR NOT ubertooth_btbb_LIBRARY)
+	list(APPEND _ubertooth_missing "libbtbb, whose header ubertooth.h includes")
+endif()
+if(NOT ubertooth_libusb_INCLUDE_DIR OR NOT ubertooth_libusb_LIBRARY)
+	list(APPEND _ubertooth_missing
+		"libusb-1.0, whose header the Ubertooth headers include")
+endif()
+if(_ubertooth_missing)
+	string(REPLACE ";" ", " _ubertooth_missing "${_ubertooth_missing}")
+	set(ubertooth_NOT_FOUND_MESSAGE
+		"this install does not have ${_ubertooth_missing}")
+	set(ubertooth_FOUND FALSE)
+	return()
+endif()
+
+# The libraries a program linking the static library needs on top of those
+# two, which libubertooth.pc lists in its Libs.private: the threads the
+# capture ring buffer runs on, and the loader library the version report reads
+# a library path from. Named for the shared library as well, where the library
+# carries them itself, because an extra -lpthread on a link line costs a
+# consumer nothing and telling the two installs apart here would.
+set(_ubertooth_private_libs "@UBERTOOTH_CONFIG_PRIVATE_LIBS@")
+
+if(NOT TARGET ubertooth::ubertooth)
+	# UNKNOWN, so that one target serves the shared library and the static
+	# one: an UNKNOWN imported library is linked by the path it names,
+	# whichever it is.
+	add_library(ubertooth::ubertooth UNKNOWN IMPORTED)
+	set(_ubertooth_link "${ubertooth_btbb_LIBRARY}"
+		"${ubertooth_libusb_LIBRARY}")
+	if(_ubertooth_private_libs)
+		list(APPEND _ubertooth_link ${_ubertooth_private_libs})
+	endif()
+	set_target_properties(ubertooth::ubertooth PROPERTIES
+		IMPORTED_LOCATION "${_ubertooth_library}"
+		INTERFACE_INCLUDE_DIRECTORIES
+			"${_ubertooth_includedir};${ubertooth_btbb_INCLUDE_DIR};${ubertooth_libusb_INCLUDE_DIR}"
+		INTERFACE_LINK_LIBRARIES "${_ubertooth_link}")
+	unset(_ubertooth_link)
+endif()
+
+check_required_components(ubertooth)

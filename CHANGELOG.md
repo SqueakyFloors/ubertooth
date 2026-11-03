@@ -792,6 +792,15 @@
   from where it is installed, so a staged or relocated install describes the
   directories it really landed in.
   [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
+- The install also writes `ubertoothConfig.cmake`, so a CMake project of your
+  own says `find_package(ubertooth REQUIRED)` and links
+  `ubertooth::ubertooth`. The target carries the installed library, its header
+  directory, and libbtbb and libusb, whose headers the Ubertooth headers
+  include, so nothing else has to be found or named by hand; a version can be
+  asked for, and any 1.x satisfies a request for 1.0. It reads its prefix back
+  from where it is installed, as `libubertooth.pc` does.
+  host/README.cmake.md has the three lines a consumer needs.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - Configuring on macOS no longer tells you to install a Linux package to get
   `ubertooth-scan` and `ubertooth-follow`. It says BlueZ is Linux only and
   points at `ubertooth-rx` and `ubertooth-afh`, which cover much of the same

@@ -100,7 +100,9 @@ Build dependencies (required vs optional, and what each enables) are listed in [
 The install writes `libubertooth.pc`, so a program of your own built against
 the installed library takes its flags from
 `pkg-config --cflags --libs libubertooth` rather than being given them by
-hand.
+hand. A CMake project of your own finds the same install with
+`find_package(ubertooth)` and links `ubertooth::ubertooth`; see
+[host/README.cmake.md](host/README.cmake.md).
 
 ## Quick install (Debian/Ubuntu, Fedora and macOS)
 
