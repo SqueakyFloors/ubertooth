@@ -1114,6 +1114,16 @@
   before a board is opened.
   [#1142](https://github.com/SqueakyFloors/ubertooth/issues/1142)
 
+- Fixed: `ubertooth-btle -p -R promisc.bin -d - >> promisc.bin` read the
+  records it was appending and never ended, growing the dump until a `ulimit`
+  stopped it, with nothing said. A replay compared the name it was given
+  against the dump, and a shell redirection leaves no name to compare; a
+  capture written to `-` is now compared by the descriptor it would really go
+  to, so a standard output pointed at the dump is refused:
+  `error: -d would write over the dump -R is replaying (standard output)`,
+  exit 1, with the dump left as it was. `-q -` and `-c -` are covered too.
+  [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141)
+
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
   saying why named two of the three reasons the bootloader runs. All three are
   now named, and a run that wrote no image is told to write a whole one, which

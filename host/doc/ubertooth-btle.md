@@ -578,7 +578,13 @@ writing, which truncates it, so the dump would be emptied before a record of
 it was read. `error: -d would write over the dump -R is replaying
 (promisc.bin)`, exit 1, with the file left as it was. It is the file that is
 compared and not the name, so `./promisc.bin`, a symbolic link to it and a
-hard link to it are all refused.
+hard link to it are all refused, and so is a `-d -`, `-q -` or `-c -` whose
+standard output the shell has already pointed at the dump. Naming that same
+standard output as `/dev/stdout` or `/dev/fd/1` is not recognized on macOS and
+the BSDs, where those entries do not lead back to the open file. What the
+check cannot cover at all is a redirection of the whole run,
+`ubertooth-btle -p -R promisc.bin > promisc.bin`: the shell has emptied the
+file before ubertooth-btle(1) starts, as it would for any command.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

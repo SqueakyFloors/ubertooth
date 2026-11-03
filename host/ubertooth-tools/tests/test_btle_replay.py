@@ -90,10 +90,13 @@ FIXTURE = b"".join(RECORDS)
 PARAMETER_LINES = ["LE Promisc - " + line for _, _, line in PROMISC_PARAMETERS]
 
 
-def run(*arguments, directory, text=True):
+def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
+    """One ubertooth-btle run. `stdout` takes an open file for the cases that
+    need this process's standard output pointed somewhere in particular."""
     return subprocess.run(
         [BINARY, *arguments],
-        capture_output=True,
+        stdout=stdout,
+        stderr=subprocess.PIPE,
         text=text,
         timeout=RUN_TIMEOUT_S,
         check=False,
@@ -244,6 +247,59 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-p", "-R", "same.bin", "-d", "other.bin", directory=work)
     assert result.returncode == 0, result
     assert (work / "other.bin").read_bytes() == FIXTURE, result
+
+    # A shell that has already pointed standard output at the dump is the one
+    # destination a name cannot catch: "-" names no file, so the descriptor is
+    # what has to be compared. The run would otherwise read the records it was
+    # appending and never end. Each capture option that can take "-" is
+    # checked, not only the dump.
+    for option, letter in (("-d", "d"), ("-q", "q"), ("-c", "c")):
+        with open(work / "same.bin", "ab") as appended:
+            result = run("-p", "-R", "same.bin", option, "-", directory=work,
+                         stdout=appended)
+        assert result.returncode == 1, (option, result)
+        assert result.stderr == (
+            f"error: -{letter} would write over the dump -R is replaying"
+            " (standard output)\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
+
+    # Standard output pointed at a file that is not the dump is an ordinary
+    # dump to it, which is what keeps the check above off a run like
+    # `-d - > elsewhere.bin`.
+    with open(work / "elsewhere.bin", "wb") as elsewhere:
+        result = run("-p", "-R", "same.bin", "-d", "-", directory=work,
+                     stdout=elsewhere)
+    assert result.returncode == 0, result
+    assert (work / "elsewhere.bin").read_bytes() == FIXTURE, result
+
+    # Whatever the two have in common counts, a character device included, so
+    # a replay of /dev/null dumping to /dev/null is refused. Nothing is lost
+    # there; comparing only regular files is what this gives up, and that
+    # would let a named pipe through.
+    result = run("-p", "-R", "/dev/null", "-d", "/dev/null", directory=work)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -R is"
+                             " replaying (/dev/null)\n"), result
+
+    # A named pipe is an ordinary destination, so nothing here may disturb it:
+    # a check that opened the destination to identify it would hand the reader
+    # an end of file and leave the writer with nobody to write to.
+    fifo = work / "dump.fifo"
+    os.mkfifo(fifo)
+    reader = subprocess.Popen([sys.executable, "-c",
+                               "import sys; sys.stdout.buffer.write("
+                               "open(sys.argv[1], 'rb').read())",
+                               str(fifo)], stdout=subprocess.PIPE)
+    try:
+        result = run("-p", "-R", "same.bin", "-d", str(fifo), directory=work)
+        assert result.returncode == 0, result
+        assert reader.communicate(timeout=RUN_TIMEOUT_S)[0] == FIXTURE, result
+    finally:
+        # A regression that leaves the writer waiting for a reader would
+        # otherwise leave this process behind and hang the whole test run.
+        if reader.poll() is None:
+            reader.kill()
+            reader.wait(timeout=RUN_TIMEOUT_S)
 
     # The same read as the follow mode's dump instead. The two modes stamp
     # their packets with different clocks, which is why the mode has to be

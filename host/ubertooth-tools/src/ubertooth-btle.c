@@ -218,28 +218,49 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * for both would empty the dump before reading a record of it -- and a dump is
  * the only copy of what promiscuous mode worked out about a connection.
  *
- * The file is identified rather than the name: the device and inode numbers of
- * the open input against those of the name about to be written, so "./x.bin"
- * beside "x.bin", a symbolic link and a hard link are all caught. A name that
- * does not exist yet, which is the ordinary case, and a lone "-" cannot be
- * stat()ed and so cannot be the input.
+ * The file is identified rather than the name, by device and inode numbers, so
+ * "./x.bin" beside "x.bin", a symbolic link and a hard link are all caught.
+ * Anything the two share counts, a character device included, because
+ * comparing only regular files would let a named pipe through.
+ *
+ * A lone "-" has no name to compare and is this process's standard output, so
+ * that descriptor is what gets looked at. That catches the one destination a
+ * name cannot: a shell that has already pointed standard output at the dump,
+ * as in `-R x.bin -d - >> x.bin`, which reads the records it is appending and
+ * never ends. An input that turns out to hold descriptor 1 is not that case:
+ * standard output was closed before this run started and fopen() took the
+ * number. The dump writer reports the closed output itself, when its fdopen()
+ * of a descriptor opened for reading fails.
+ *
+ * A destination that cannot be stat()ed is not identified: a name that does
+ * not exist yet is the ordinary case, and for the rest -- a directory on the
+ * path that cannot be searched, a symbolic link loop -- the writer is about to
+ * report the real reason itself.
  *
  * Called with the input open and before any writer opens, so a refused run
  * has written nothing. Returns -1 once the refusal is printed. */
 static int output_is_the_replay(const char* output_name, char option)
 {
 	struct stat input_file, output_file;
+	int to_stdout = opt_writes_to_stdout(output_name);
 
 	if (infile == NULL || output_name == NULL)
 		return 0;
-	if (fstat(fileno(infile), &input_file) != 0 ||
-	    stat(output_name, &output_file) != 0)
+	if (fstat(fileno(infile), &input_file) != 0)
 		return 0;
+	if (to_stdout) {
+		if (fileno(infile) == fileno(stdout) ||
+		    fstat(fileno(stdout), &output_file) != 0)
+			return 0;
+	} else if (stat(output_name, &output_file) != 0) {
+		return 0;
+	}
 	if (input_file.st_dev != output_file.st_dev ||
 	    input_file.st_ino != output_file.st_ino)
 		return 0;
 	fprintf(stderr, "error: -%c would write over the dump -R is replaying"
-	        " (%s)\n", option, output_name);
+	        " (%s)\n", option,
+	        to_stdout ? "standard output" : output_name);
 	return -1;
 }
 
