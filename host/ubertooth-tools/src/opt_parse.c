@@ -234,17 +234,21 @@ int opt_check_stdout_not_tty(const char *what)
 }
 
 /* The absolute paths that name this process's own descriptor 1, besides the
- * documented "-". Both are fixed names on the descriptor filesystem that
- * macOS and Linux mount on /dev/fd.
+ * documented "-". The first two are fixed names on the descriptor filesystem
+ * that macOS and Linux mount on /dev/fd.
  *
  * /dev/fd/<n> for any other <n> is deliberately not here: it reaches whatever
  * the caller's shell opened on that descriptor, which the name alone does not
- * say. Nor is /proc/self/fd/1, which names descriptor 1 on Linux and nothing
- * at all elsewhere: taking it for standard output on a platform that has no
- * /proc would turn a destination that cannot be created into a silent
- * redirect. */
+ * say. */
 static const char *const stdout_paths[] = {
 	"/dev/stdout", "/dev/fd/1",
+#ifdef __linux__
+	/* Linux names the same descriptor here as well. It is behind the
+	 * conditional because on a platform with no /proc this path names
+	 * nothing at all, and taking it for standard output there would turn a
+	 * destination that cannot be created into a silent redirect. */
+	"/proc/self/fd/1",
+#endif
 };
 
 /* The next component of *at, with its length in *len, or NULL at the end of
@@ -343,12 +347,50 @@ int opt_check_capture_destination(const char *filename, const char *what)
  * tool prints can land in the middle of the capture stream. Returns the
  * descriptor the capture is to be written to, or -1 once the reason has been
  * printed. <what> names the data, for the tty refusal above. */
+/* Whether this process's standard output is the null device, which is where
+ * take_stdout() leaves it once a capture has the real one. */
+static int stdout_is_null_device(void)
+{
+	struct stat out, null;
+
+	return fstat(STDOUT_FILENO, &out) == 0 && stat("/dev/null", &null) == 0 &&
+	       S_ISCHR(out.st_mode) && out.st_rdev == null.st_rdev;
+}
+
+/* Whether a capture already has this process's standard output.
+ *
+ * A second dup() of descriptor 1 would hand that capture the null device the
+ * first one left behind, and the capture would be thrown away with nothing
+ * said. Each tool checks its own pair of capture options and names the two
+ * that clashed; this is the backstop for a pair whose check does not see two
+ * spellings as the same destination.
+ *
+ * The flag alone is not enough, because a test harness runs a tool's main()
+ * several times in one process and gives the streams back between runs: the
+ * descriptor is asked as well, so a restored standard output is not refused
+ * for what an earlier run did. The flag is needed too, because a user is
+ * free to redirect standard output to the null device, and the first capture
+ * of such a run must still be allowed. */
+static int stdout_already_captured(void)
+{
+	static int given_away = 0;
+	int already = given_away && stdout_is_null_device();
+
+	given_away = 1;
+	return already;
+}
+
 static int take_stdout(const char *what)
 {
 	int saved_fd, null_fd;
 
 	if (opt_check_stdout_not_tty(what) < 0)
 		return -1;
+	if (stdout_already_captured()) {
+		fprintf(stderr, "error: only one capture can be written to "
+		        "standard output\n");
+		return -1;
+	}
 
 	fflush(stdout);
 	saved_fd = dup(STDOUT_FILENO);

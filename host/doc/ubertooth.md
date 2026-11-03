@@ -147,7 +147,8 @@ and `--padding` -- take `--name value` or `--name=value`, never attached
 without the `=`. A lone `-` as the value of
 a file option means standard output, so `ubertooth-btle -q -` writes the
 capture to stdout. A capture destination that names the same descriptor by
-path -- `/dev/stdout` or `/dev/fd/1`, with any redundant `/` or `.` between
+path -- `/dev/stdout` or `/dev/fd/1`, and `/proc/self/fd/1` on Linux, with any
+redundant `/` or `.` between
 the names in it -- is that stream too, so the capture owns it and the tool's
 own report lines stay out of it. `/dev/fd/N` for any other `N` is an ordinary
 file name: it reaches whatever the calling shell opened on that descriptor,
@@ -157,8 +158,9 @@ a file name like any other, and there is no such file. Any other value is a
 file name too, including one that starts with `-`, so a forgotten file name
 writes a file rather than guessing. A destination whose writer seeks back over
 what it has written cannot be `-` at all, which a pipe does not allow: the
-PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse it and say what to use
-instead. Standard output carries one stream, so two capture options cannot
+PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse that value and say what
+to use instead; `-r /dev/stdout` is refused as well, as a name that already
+exists. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
 report there.
 

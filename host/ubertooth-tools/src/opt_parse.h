@@ -127,14 +127,16 @@ int opt_check_stdout_not_tty(const char *what);
  * spell it out again. NULL, a tool given no such option, is not standard
  * output.
  *
- * The documented value is the lone "-". The two fixed names of descriptor 1
- * on the descriptor filesystem count too -- /dev/stdout and /dev/fd/1, with
- * any redundant separators or "." elements between names -- because a user
- * who writes one of those means the same stream, and a capture that shared it
- * with the tool's own report would have report lines in the middle of the
- * capture data. /dev/fd/<n> for any other <n> is an ordinary file name here:
- * it reaches whatever the caller's shell opened on that descriptor, which the
- * name alone does not say.
+ * The documented value is the lone "-". The fixed names of descriptor 1 on
+ * the descriptor filesystem count too -- /dev/stdout and /dev/fd/1, plus
+ * /proc/self/fd/1 on Linux, with any redundant separators or "." elements
+ * between names -- because a user who writes one of those means the same
+ * stream, and a capture that shared it with the tool's own report would have
+ * report lines in the middle of the capture data. /dev/fd/<n> for any other
+ * <n> is an ordinary file name here: it reaches whatever the caller's shell
+ * opened on that descriptor, which the name alone does not say. So is a name
+ * that ends in a separator or a "." element ("/dev/stdout/."), which asks for
+ * something inside a file that is not a directory.
  */
 int opt_writes_to_stdout(const char *filename);
 
@@ -166,8 +168,10 @@ int opt_check_capture_destination(const char *filename, const char *what);
  * Either way, taking standard output sends the tool's own standard output to
  * /dev/null for the rest of the run, so nothing it prints can land in the
  * middle of the capture; a tool whose lines the user still needs there has to
- * print them to standard error instead. Both return NULL once the reason
- * has been printed, which for standard output includes its being a terminal.
+ * print them to standard error instead. Only one capture can have the stream,
+ * so a second one asking for it is refused rather than written to the null
+ * device. Both return NULL once the reason has been printed, which for
+ * standard output includes its being a terminal.
  * <what> names the data in that refusal, for example "capture data".
  */
 char *opt_capture_path(const char *filename, const char *what, int *saved_fd);

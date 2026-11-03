@@ -19,6 +19,7 @@ access code of each record is computed from the Bluetooth Core specification
 (Vol 2, Part B 6.3.3) in the bit order libbtbb decodes.
 """
 
+import errno
 import os
 import pty
 import struct
@@ -91,7 +92,11 @@ EXPECTED_DUMP = b"".join(RECORDS)
 # reaches device selection. LC_ALL, because a refusal may quote strerror().
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C")
 
-# Every spelling that names this process's descriptor 1.
+ON_LINUX = sys.platform.startswith("linux")
+
+# Every spelling that names this process's descriptor 1. /proc/self/fd/1 is
+# one on Linux and names nothing elsewhere, so it is checked on each platform
+# for the answer that platform must give.
 STDOUT_NAMES = [
     "-",
     "/dev/stdout",
@@ -100,6 +105,8 @@ STDOUT_NAMES = [
     "/dev/fd/./1",
     "//dev//fd//1",
 ]
+if ON_LINUX:
+    STDOUT_NAMES += ["/proc/self/fd/1", "/proc/./self/fd/1"]
 
 # A name ending in "/." asks for something inside the name before it, and
 # neither of these is a directory, so it cannot be created on any platform and
@@ -109,6 +116,10 @@ NOT_STDOUT_NAMES = [
     "/dev/stdout/.",
     "/dev/fd/1/.",
 ]
+if sys.platform == "darwin":
+    # No /proc here, so this is a destination that cannot be created rather
+    # than a name for descriptor 1.
+    NOT_STDOUT_NAMES.append("/proc/self/fd/1")
 
 failures = []
 
@@ -151,9 +162,13 @@ def run_to_tty(binary, arguments, directory):
         os.set_blocking(reader, False)
         try:
             written = os.read(reader, 4096)
-        except OSError:
-            # Nothing to read: BlockingIOError where the terminal is still
-            # open at the other end, EIO on Linux once it is not.
+        except OSError as problem:
+            # Nothing to read: EAGAIN where the terminal is still open at the
+            # other end, EIO on Linux once it is not. Any other reason is a
+            # read that failed, and reporting it as "nothing was written"
+            # would let the checks below pass without looking.
+            if problem.errno not in (errno.EAGAIN, errno.EIO):
+                raise
             written = b""
     finally:
         if writer >= 0:
@@ -266,6 +281,33 @@ with tempfile.TemporaryDirectory() as workdir:
     # ubertooth-follow shares the helper for its own rule that only one
     # capture can have standard output, so a pair written two ways is still
     # refused, before any device is opened.
+    # Two captures cannot share the stream. ubertooth-rx names the pair it
+    # recognizes; a pair written two ways gets the shared helpers' refusal
+    # instead, so neither capture is quietly sent to the null device.
+    for first, second in (("-", "-"), ("/dev/stdout", "-"),
+                          ("-", "/dev/fd/1")):
+        target = work / "pair.out"
+        status, errors = run_to_file(
+            ["-i", "full.bin", "-q", first, "-d", second], work, target)
+        check(status == 1, "-q %s -d %s exits 1" % (first, second), str(status))
+        check("cannot both write to standard output" in errors
+              or "only one capture can be written to standard output" in errors,
+              "-q %s -d %s is refused" % (first, second), errors)
+        # The pair this tool names is refused while it is reading its command
+        # line, so nothing is written at all. A pair it does not recognize
+        # reaches the helper as the second capture is opened, by which time
+        # the first has written its header; what matters there is that
+        # neither capture is quietly sent to the null device, and that no
+        # report text joins what did arrive.
+        written = target.read_bytes()
+        if first == second:
+            check(written == b"",
+                  "-q %s -d %s writes nothing to descriptor 1"
+                  % (first, second), repr(written[:40]))
+        check(b"systime=" not in written,
+              "-q %s -d %s keeps the report off descriptor 1"
+              % (first, second))
+
     if FOLLOW is None:
         print("skipping the ubertooth-follow case, the tool is not built here")
     else:
