@@ -179,6 +179,14 @@ whatever is on it. A transmitter louder than the packet, on the same channel at
 the same moment, is what the signal figure describes, and the packet is then
 part of the background.
 
+Both figures are readings the board took for that one packet and sent with it,
+so a replay of a `-d` dump with `-i` reports what the live capture reported. A
+dump holds only the receive windows a packet was found in, which is fewer
+records than the board sent, and neither figure depends on the records around
+it, so the levels come out the same either way, including on the first packets
+of a channel. A capture can therefore be measured again from its dump, and two
+captures of the same air compared.
+
 Miscellaneous:
 
  - `-V` :
