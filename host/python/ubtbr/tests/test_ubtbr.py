@@ -62,10 +62,12 @@ What is checked:
     command and receive threads were alive.
 """
 
+import concurrent.futures
 import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import itertools
 import logging
 import os
 import re
@@ -74,6 +76,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 WRAPPER = sys.argv[1]
@@ -83,6 +86,11 @@ MODULE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 # a case that regresses fails on its own assertion instead of on the CTest
 # timeout.
 DEADLINE = 10
+# How many sessions of the tool each() runs at once. A session is almost all
+# waiting, so the number of processors is not what bounds this; it is kept
+# here so that even a loaded machine gets every session of one batch to the
+# point its case waits for well inside the deadline above.
+AT_ONCE = 8
 
 # Stands in for usb1. Only the pieces ubtbr uses are here, and none of them
 # touch a device.
@@ -283,7 +291,30 @@ FAKE_USB1 = FAKE_USB1.replace("ONE_BOARD", repr(ONE_BOARD))
 WORK = tempfile.TemporaryDirectory()
 with open(os.path.join(WORK.name, "usb1.py"), "w") as fake:
     fake.write(FAKE_USB1)
-WRITES_FILE = os.path.join(WORK.name, "writes")
+
+
+# The case a thread is running, and the numbers handed out. A case that runs
+# side by side with others needs files of its own; they are numbered rather
+# than named after the thread, because a pool reuses thread identifiers once
+# it has been shut down, which would hand a later case a finished one's files.
+SESSION_NUMBERS = itertools.count(1)
+SESSION = threading.local()
+
+
+def session_file(name):
+    """One of the fake device's files, for the case running here.
+
+    The cases that run in series share session 0; each case run by each()
+    takes a number of its own, so one case's packets can never turn up in
+    another's assertion.
+    """
+    return os.path.join(WORK.name,
+                        "%s-%d" % (name, getattr(SESSION, "number", 0)))
+
+
+def writes_file():
+    """Where this case's session records what it sent to the device."""
+    return session_file("writes")
 
 # The modules live in the source tree, and a test must not leave a __pycache__
 # behind in it.
@@ -352,9 +383,9 @@ sys.stderr = records
 
 def recorded_writes():
     """Every packet sent so far with the timeout it got, oldest first."""
-    if not os.path.exists(WRITES_FILE):
+    if not os.path.exists(writes_file()):
         return []
-    with open(WRITES_FILE) as recorded:
+    with open(writes_file()) as recorded:
         return [line.split() for line in recorded.read().splitlines()]
 
 
@@ -371,6 +402,35 @@ def wait_until(predicate):
             return True
         time.sleep(0.05)
     return predicate()
+
+
+def each(cases, check):
+    """Run the check on every case at once, and report the first that failed.
+
+    Almost all of a session's time is spent waiting rather than working: the
+    tool spends a second settling the device it thinks it opened, and a few
+    tenths starting an interpreter. A table of cases that do not depend on
+    one another therefore costs the same assertions far less wall-clock time
+    run side by side, and one more entry in the table costs almost nothing.
+    Use it only where the cases really are independent: each case gets files
+    of its own from the fake device, but they share the tool, the machine,
+    and everything this test holds in memory.
+
+    A case that failed is raised with its own failure as the cause, so the
+    report shows both the line that failed and which case reached it.
+    """
+    def numbered(case):
+        """Give this case a session of its own, then check it."""
+        SESSION.number = next(SESSION_NUMBERS)
+        return check(case)
+
+    with concurrent.futures.ThreadPoolExecutor(AT_ONCE) as pool:
+        started = [(case, pool.submit(numbered, case)) for case in cases]
+    for case, result in started:
+        failure = result.exception()
+        if failure is not None:
+            raise AssertionError("case %r raised %s"
+                                 % (case, type(failure).__name__)) from failure
 
 
 # ---- a command the device never answers still stops ------------------------
@@ -1908,11 +1968,13 @@ print("ubtbr: a child whose thread is refused is reported, not a traceback")
 
 # ---- the tool, driven through its prompt ----------------------------------
 
+# The writes file named here is the one a case on this thread reads back.
+# tool() names the running case's own, for the cases that run side by side.
 ENVIRONMENT = dict(
     os.environ,
     PYTHONPATH=os.pathsep.join((WORK.name, MODULE_DIR)),
     PYTHONDONTWRITEBYTECODE="1",
-    UBTBR_FAKE_WRITES=WRITES_FILE,
+    UBTBR_FAKE_WRITES=writes_file(),
 )
 
 
@@ -1931,13 +1993,14 @@ assert os.path.dirname(found.stdout.strip()) == WORK.name, \
 
 
 def tool(environment=None, arguments=()):
-    if os.path.exists(WRITES_FILE):
-        os.remove(WRITES_FILE)
+    if os.path.exists(writes_file()):
+        os.remove(writes_file())
     return subprocess.Popen(
         [sys.executable, WRAPPER] + list(arguments),
         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True,
-        env=environment or ENVIRONMENT)
+        env=dict(environment or ENVIRONMENT,
+                 UBTBR_FAKE_WRITES=writes_file()))
 
 
 def ran(arguments=(), typed="", **fakes):
@@ -2121,7 +2184,11 @@ print("ubtbr: a command runs after Ctrl-C ended a discoverable")
 # nothing. It now goes to standard output with the time in front of it, and
 # the progress a command makes stays on standard error without one.
 
-READS_FILE = os.path.join(WORK.name, "reads")
+def reads_file():
+    """Where this case's session finds the packets its device sends."""
+    return session_file("reads")
+
+
 # The address the fake device reports, as the FHS packet carries it: the
 # lowest 24 bits are the LAP, then the UAP, then the NAP.
 FAKE_BDADDR = 0x112233445566
@@ -2196,9 +2263,9 @@ def canned_session(typed, packets, until, then=""):
     the last of them; `then` is typed just before it, for commands that are
     about what the session has already printed.
     """
-    with open(READS_FILE, "w") as canned:
+    with open(reads_file(), "w") as canned:
         canned.write("".join(packet + "\n" for packet in packets))
-    running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+    running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=reads_file(),
                         UBTBR_FAKE_READS_AFTER="4"))
     running.stdin.write(typed + "\n")
     running.stdin.flush()
@@ -2332,11 +2399,15 @@ print("ubtbr: an unknown command at the prompt is one error line, not silence")
 # and the two short spellings of leaving are read the same way, so `x` and
 # `q` with a word after them leave as `exit <word>` does rather than being
 # refused as commands that do not exist
-for typed in ("x\n", "q\n", "x now\n", "q now\n"):
+
+def leaves(typed):
     status, output, errors = ran(typed=typed)
     assert status == 0, (typed, status, output, errors)
     assert "no such command" not in errors, (typed, errors)
     assert "Traceback" not in errors, (typed, errors)
+
+
+each(("x\n", "q\n", "x now\n", "q now\n"), leaves)
 print("ubtbr: `x` and `q` leave whatever follows them")
 
 
@@ -2414,7 +2485,8 @@ print("ubtbr: an address that is not six bytes is refused, not acted on")
 
 # The same parser serves page, l2ping, and monitor, so a short address is
 # refused there too, and no page train goes out for it.
-for command in ("page", "l2ping", "monitor"):
+
+def refuses_short_address(command):
     status, output, errors = ran(typed="%s 11:22:33\nq\n" % command)
     assert status == 0, (command, status, output, errors)
     assert output == "", (command, output)
@@ -2424,25 +2496,33 @@ for command in ("page", "l2ping", "monitor"):
     sent = requests_sent()
     assert btctl.BTCTL_PAGING_REQ not in sent, (command, sent)
     assert btctl.BTCTL_MONITOR_REQ not in sent, (command, sent)
+
+
+each(("page", "l2ping", "monitor"), refuses_short_address)
 print("ubtbr: page, l2ping, and monitor refuse a short address as bdaddr does")
 
 # A whole address is taken either way it is written, upper or lower case, and
 # the board is given exactly those six bytes. The spaces around the last one
 # are Cmd's to strip, not the grammar's, which is what that line is here for.
-for word, value in (("AA:BB:CC:DD:EE:FF", 0xAABBCCDDEEFF),
-                    ("aabbccddeeff", 0xAABBCCDDEEFF),
-                    ("Aa:bB:cC:Dd:eE:fF", 0xAABBCCDDEEFF),
-                    ("  AA:BB:CC:DD:EE:FF  ", 0xAABBCCDDEEFF),
-                    # the shape the padding below is for: an address whose
-                    # leading bytes are zero, which has to survive the trip
-                    # as those six bytes rather than as its value
-                    ("00:11:22:33:44:55", 0x001122334455),
-                    ("001122334455", 0x001122334455)):
+
+def takes_whole_address(case):
+    word, value = case
     status, output, errors = ran(typed="bdaddr %s\nq\n" % word)
     assert status == 0, (word, status, output, errors)
     assert "BD_ADDR must be" not in errors, (word, errors)
     assert "Traceback" not in errors, (word, errors)
     assert set_bdaddr_packet(value) in writes(), (word, writes())
+
+
+each((("AA:BB:CC:DD:EE:FF", 0xAABBCCDDEEFF),
+      ("aabbccddeeff", 0xAABBCCDDEEFF),
+      ("Aa:bB:cC:Dd:eE:fF", 0xAABBCCDDEEFF),
+      ("  AA:BB:CC:DD:EE:FF  ", 0xAABBCCDDEEFF),
+      # an address whose leading bytes are zero, which has to survive the
+      # trip as those six bytes rather than as its value, which is what the
+      # padding below is for
+      ("00:11:22:33:44:55", 0x001122334455),
+      ("001122334455", 0x001122334455)), takes_whole_address)
 print("ubtbr: a whole address is taken with or without the colons")
 
 # and so do the commands that start something, with the address they were
@@ -2450,9 +2530,9 @@ print("ubtbr: a whole address is taken with or without the colons")
 # address, so each of those is typed with a whole one too. l2ping pages, so
 # it sends the paging request page does. Each is stopped again rather than
 # left running.
-for command, code in (("page", btctl.BTCTL_PAGING_REQ),
-                      ("l2ping", btctl.BTCTL_PAGING_REQ),
-                      ("monitor", btctl.BTCTL_MONITOR_REQ)):
+
+def acts_on_address(case):
+    command, code = case
     status, output, errors = ran(
         typed="%s AA:BB:CC:DD:EE:FF\nidle\nq\n" % command)
     assert status == 0, (command, status, output, errors)
@@ -2460,6 +2540,11 @@ for command, code in (("page", btctl.BTCTL_PAGING_REQ),
     assert "Traceback" not in errors, (command, errors)
     assert address_request(code, 0xAABBCCDDEEFF) in writes(), \
         (command, writes())
+
+
+each((("page", btctl.BTCTL_PAGING_REQ),
+      ("l2ping", btctl.BTCTL_PAGING_REQ),
+      ("monitor", btctl.BTCTL_MONITOR_REQ)), acts_on_address)
 print("ubtbr: page, l2ping, and monitor act on the address they were given")
 
 # The address an inquiry prints keeps its leading zeros, so it is a word the
@@ -2527,7 +2612,9 @@ NAME_REQ = (r"\d\d:\d\d:\d\d RX LMP: BBHdr\(lt_addr=1, type=DM1, flags=\)"
 # manager's, so it belongs with the rest of that trace on standard error and
 # not in the capture, which is what the man page says.
 DETACHED = "Peer detached: reason 0x13, the peer's user ended the connection"
-for typed in ("page_scan", "page 11:22:33:44:55:66"):
+
+
+def prints_lmp_packets(typed):
     output, errors = canned_session(typed, [
         state_message(*CONNECTED_LT_ADDR_1),
         lmp_message(btctl.LMP_NAME_REQ),
@@ -2542,6 +2629,9 @@ for typed in ("page_scan", "page 11:22:33:44:55:66"):
     assert time_prefixed(errors) == [], errors
     assert DETACHED in errors, errors
     assert DETACHED not in output, output
+
+
+each(("page_scan", "page 11:22:33:44:55:66"), prints_lmp_packets)
 print("ubtbr: a connection's LMP packets go to standard output as well")
 
 # A page or a page scan whose connection carried no packet goes back to what
@@ -2549,11 +2639,9 @@ print("ubtbr: a connection's LMP packets go to standard output as well")
 # differently from the first report, so a reader can tell a page train that
 # has started again from one that is starting, and is not read as the command
 # having ended.
-for typed, started, resumed in (
-        ("page 11:22:33:44:55:66", btctl.BTCTL_STATE_PAGE,
-            "Paging resumed"),
-        ("page_scan", btctl.BTCTL_STATE_PAGE_SCAN,
-            "Page scan resumed")):
+
+def says_it_resumed(case):
+    typed, started, resumed = case
     output, errors = canned_session(typed, [
         state_message(started, btctl.BTCTL_REASON_SUCCESS),
         state_message(btctl.BTCTL_STATE_CONNECTED, btctl.BTCTL_REASON_PAGED),
@@ -2569,6 +2657,11 @@ for typed, started, resumed in (
     done = "Paging done" if "page " in typed else "Page scan done"
     assert done not in errors, errors
     assert "Connection ready, lt_addr=1\n" in errors, errors
+
+
+each((("page 11:22:33:44:55:66", btctl.BTCTL_STATE_PAGE, "Paging resumed"),
+      ("page_scan", btctl.BTCTL_STATE_PAGE_SCAN, "Page scan resumed")),
+     says_it_resumed)
 print("ubtbr: a page or page scan running again after a dead connection"
       " says so")
 
@@ -2604,7 +2697,20 @@ def payload_header(length):
 # has to be compared with. Three formats, for the three shapes a payload has:
 # a payload header and a CRC (DH1), neither (HV3), and a CRC with the length
 # agreed elsewhere (EV3).
-for typed, format_code, repeat, payload, printed in (
+
+def transmits(case):
+    typed, format_code, repeat, payload, printed = case
+    output, errors = canned_session("page 11:22:33:44:55:66", [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ", then=typed + "\n")
+    assert "Connection ready" in errors, errors
+    assert printed in output, (printed, output)
+    assert tx_request(1, format_code, repeat, payload) in writes(), \
+        (typed, writes())
+
+
+each((
         # a payload header of its own, written here: the length, the flow
         # bit and the LLID, then the four data bytes
         ("tx dh1 4", 1, 1, payload_header(4) + counted(4), "dh1 len=4"),
@@ -2629,42 +2735,53 @@ for typed, format_code, repeat, payload, printed in (
             counted_voice(10) + payload_header(3) + b"\xaa\xbb\xcc",
             "payload=" + (counted_voice(10) + payload_header(3)
                           + b"\xaa\xbb\xcc").hex()),
-):
-    output, errors = canned_session("page 11:22:33:44:55:66", [
-        state_message(*CONNECTED_LT_ADDR_1),
-        lmp_message(btctl.LMP_NAME_REQ),
-    ], until="LMP_NAME_REQ", then=typed + "\n")
-    assert "Connection ready" in errors, errors
-    assert printed in output, (printed, output)
-    assert tx_request(1, format_code, repeat, payload) in writes(), \
-        (typed, writes())
+), transmits)
 print("ubtbr: tx puts one packet of a chosen format on the air")
 
 # The whole line, as ubertooth-btbr(1) shows it, timestamp included: once for
 # a format whose payload is the data and nothing else, and once for one that
 # carries a voice field and a payload header in front of it. The page quotes
 # both, so a reworded line has to be a reworded page.
-for typed, expected in (
-        ("tx ev3 3 20",
-            r"\d\d:\d\d:\d\d TX pkt: ev3 len=3 count=20 data=000102"
-            r" payload=000102"),
-        ("tx dv 3 20",
-            r"\d\d:\d\d:\d\d TX pkt: dv len=3 count=20 data=000102"
-            r" payload=a0a1a2a3a4a5a6a7a8a91e000102"),
-):
+
+def prints_the_documented_line(case):
+    typed, expected = case
     output, errors = canned_session("page 11:22:33:44:55:66", [
         state_message(*CONNECTED_LT_ADDR_1),
         lmp_message(btctl.LMP_NAME_REQ),
     ], until="LMP_NAME_REQ", then=typed + "\n")
     assert len(timed_lines(output, "TX pkt")) == 1, output
     assert re.fullmatch(expected, timed_lines(output, "TX pkt")[0]), output
+
+
+each((
+        ("tx ev3 3 20",
+            r"\d\d:\d\d:\d\d TX pkt: ev3 len=3 count=20 data=000102"
+            r" payload=000102"),
+        ("tx dv 3 20",
+            r"\d\d:\d\d:\d\d TX pkt: dv len=3 count=20 data=000102"
+            r" payload=a0a1a2a3a4a5a6a7a8a91e000102"),
+), prints_the_documented_line)
 print("ubtbr: the line tx prints is the one the man page shows")
 
 # A tx command the tool will not take says why on standard error, sends
 # nothing, and leaves the session at the prompt. A length the format cannot
 # carry is caught here rather than on the board, which would refuse it with a
 # line the user has to go looking for.
-for typed, refused_with in (
+
+def refuses_tx(case):
+    typed, refused_with = case
+    output, errors = canned_session("page 11:22:33:44:55:66", [
+        state_message(*CONNECTED_LT_ADDR_1),
+        lmp_message(btctl.LMP_NAME_REQ),
+    ], until="LMP_NAME_REQ", then=typed + "\n")
+    assert "error: " + refused_with in errors, (typed, errors)
+    assert "TX pkt" not in output, (typed, output)
+    assert "Traceback" not in errors, errors
+    assert struct.pack("<I", btctl.BTCTL_TX_PKT_REQ).hex() \
+        not in "".join(writes()), (typed, writes())
+
+
+each((
         ("tx", "tx needs a format"),
         ("tx dq1", "no such format 'dq1'"),
         ("tx ev3 0", "ev3 carries 1 to 30 data bytes, not 0"),
@@ -2686,16 +2803,7 @@ for typed, refused_with in (
         ("tx ev3 3 1 zz", "payload must be hex digits, an even number of them"),
         ("tx ev3 3 1 aab", "payload must be hex digits, an even number of them"),
         ("tx ev3 3 1 aabbcc extra", "tx takes a format, a length, a count"),
-):
-    output, errors = canned_session("page 11:22:33:44:55:66", [
-        state_message(*CONNECTED_LT_ADDR_1),
-        lmp_message(btctl.LMP_NAME_REQ),
-    ], until="LMP_NAME_REQ", then=typed + "\n")
-    assert "error: " + refused_with in errors, (typed, errors)
-    assert "TX pkt" not in output, (typed, output)
-    assert "Traceback" not in errors, errors
-    assert struct.pack("<I", btctl.BTCTL_TX_PKT_REQ).hex() \
-        not in "".join(writes()), (typed, writes())
+), refuses_tx)
 print("ubtbr: a tx command the tool will not take says why and sends nothing")
 
 # and with no connection there is nothing to transmit on, so it says that
@@ -2806,11 +2914,11 @@ OUTPUT_GONE = "error: standard output has gone away\n"
 # prompt still ends the session, and the status says the capture is not all
 # there. The flush the interpreter does on the way out used to fail as well,
 # which ended the tool in status 120 and a message of its own.
-with open(READS_FILE, "w") as canned:
+with open(reads_file(), "w") as canned:
     canned.write(state_message(btctl.BTCTL_STATE_INQUIRY) + "\n")
     for _ in range(100):
         canned.write(fhs_message(FAKE_BDADDR) + "\n")
-running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=READS_FILE,
+running = tool(dict(ENVIRONMENT, UBTBR_FAKE_READS=reads_file(),
                     UBTBR_FAKE_READS_AFTER="4", UBTBR_FAKE_READ_DELAY="0.05"))
 running.stdin.write("inquiry\n")
 running.stdin.flush()
@@ -2930,8 +3038,8 @@ print("ubtbr: -h on a standard output that cannot be written is reported too")
 # opened. A session needs the stream twice over, for the capture and for the
 # interpreter's own input(), which will not read a line without it; it used
 # to get as far as the first read and end in a traceback there.
-if os.path.exists(WRITES_FILE):
-    os.remove(WRITES_FILE)
+if os.path.exists(writes_file()):
+    os.remove(writes_file())
 running = subprocess.Popen(
     [sys.executable, WRAPPER], stdin=subprocess.PIPE,
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -2959,8 +3067,8 @@ print("ubtbr: a session with no standard output is refused, no board opened")
 # written is a question the operating system answers the same way on all of
 # them, and it says nothing about a reader having left, which the case above
 # covers.
-if os.path.exists(WRITES_FILE):
-    os.remove(WRITES_FILE)
+if os.path.exists(writes_file()):
+    os.remove(writes_file())
 running = subprocess.Popen(
     [sys.executable, WRAPPER], stdin=subprocess.PIPE,
     stderr=subprocess.PIPE, text=True, env=ENVIRONMENT,
@@ -3098,35 +3206,38 @@ print("ubtbr: no Ubertooth is one error line and exit 1")
 
 OTHER_BOARD = "ee5500112233445566778899aabbccdd"
 TWO_BOARDS = ",".join((ONE_BOARD, OTHER_BOARD))
-OPENED_FILE = os.path.join(WORK.name, "opened")
-SERIAL_READS_FILE = os.path.join(WORK.name, "serial-reads")
-OPENS_FILE = os.path.join(WORK.name, "opens")
+SELECTION_MARKERS = ("opened", "serial-reads", "opens")
 
 
 def opened():
     """The serial of the board the last run opened, or None if it opened none."""
-    if not os.path.exists(OPENED_FILE):
+    if not os.path.exists(session_file("opened")):
         return None
-    with open(OPENED_FILE) as marker:
+    with open(session_file("opened")) as marker:
         return marker.read()
 
 
-def touched(path):
+def touched(name):
     """Every board the last run read a serial from, or opened, oldest first."""
-    if not os.path.exists(path):
+    if not os.path.exists(session_file(name)):
         return []
-    with open(path) as noted:
+    with open(session_file(name)) as noted:
         return noted.read().splitlines()
 
 
+def forget_selection():
+    """Drop what this case's last run recorded about the boards it reached."""
+    for name in SELECTION_MARKERS:
+        if os.path.exists(session_file(name)):
+            os.remove(session_file(name))
+
+
 def selecting(arguments, typed="", serials=TWO_BOARDS, **fakes):
-    for path in (OPENED_FILE, SERIAL_READS_FILE, OPENS_FILE):
-        if os.path.exists(path):
-            os.remove(path)
+    forget_selection()
     return ran(arguments, typed, UBTBR_FAKE_SERIALS=serials,
-               UBTBR_FAKE_OPENED=OPENED_FILE,
-               UBTBR_FAKE_SERIAL_READS=SERIAL_READS_FILE,
-               UBTBR_FAKE_OPENS=OPENS_FILE, **fakes)
+               UBTBR_FAKE_OPENED=session_file("opened"),
+               UBTBR_FAKE_SERIAL_READS=session_file("serial-reads"),
+               UBTBR_FAKE_OPENS=session_file("opens"), **fakes)
 
 
 # several boards and no -U: refused, with the boards listed, and no board
@@ -3154,10 +3265,14 @@ print("ubtbr: -U <serial> reaches that board")
 # the first characters of a serial are enough, in either case. They have to
 # include a non-digit: an all-digits argument is an index, which is the rule
 # ubertooth(7) states and every tool follows.
-for prefix in ("aa11", "AA11", ONE_BOARD.upper()):
+
+def selected_by_prefix(prefix):
     status, output, errors = selecting(("-U", prefix), "q\n")
     assert status == 0, (prefix, status, output, errors)
     assert opened() == ONE_BOARD, (prefix, opened())
+
+
+each(("aa11", "AA11", ONE_BOARD.upper()), selected_by_prefix)
 print("ubtbr: a serial prefix selects a board, in either case")
 
 # a prefix that starts both serials names neither
@@ -3186,29 +3301,28 @@ print("ubtbr: an unmatched serial is one error line")
 status, output, errors = selecting(("-U", "1"), "q\n")
 assert status == 0, (status, output, errors)
 assert opened() == OTHER_BOARD, opened()
-assert touched(SERIAL_READS_FILE) == [], touched(SERIAL_READS_FILE)
-assert touched(OPENS_FILE) == [OTHER_BOARD], touched(OPENS_FILE)
+assert touched("serial-reads") == [], touched("serial-reads")
+assert touched("opens") == [OTHER_BOARD], touched("opens")
 status, output, errors = selecting(("-U", "0"), "q\n")
 assert status == 0, (status, output, errors)
 assert opened() == ONE_BOARD, opened()
-assert touched(SERIAL_READS_FILE) == [], touched(SERIAL_READS_FILE)
+assert touched("serial-reads") == [], touched("serial-reads")
 print("ubtbr: -U <index> is a position in the list, and reads no serial")
 
 # an empty -U is no selection at all, as it is in the other tools
 status, output, errors = selecting(("-U", ""), "q\n", serials=ONE_BOARD)
 assert status == 0, (status, output, errors)
 assert opened() == ONE_BOARD, opened()
-assert touched(SERIAL_READS_FILE) == [], touched(SERIAL_READS_FILE)
+assert touched("serial-reads") == [], touched("serial-reads")
 print("ubtbr: an empty -U takes the only attached board")
 
 # an index no board has, including a nonzero index with one board attached:
 # opening the only board for any index would hide that indexes renumber. The
 # last is past what a C int holds, which libubertooth has a case of its own
 # for because atoi() would wrap it into a real index.
-for serials, selector, attached in ((TWO_BOARDS, "9", 2),
-                                    (ONE_BOARD, "1", 1),
-                                    (TWO_BOARDS, "4294967296", 2),
-                                    (TWO_BOARDS, "9" * 5000, 2)):
+
+def refuses_index(case):
+    serials, selector, attached = case
     status, output, errors = selecting(("-U", selector), serials=serials)
     assert status == 1, (selector, status, output, errors)
     assert output == "", (selector, output)
@@ -3217,6 +3331,12 @@ for serials, selector, attached in ((TWO_BOARDS, "9", 2),
                       "select a board by serial with -U<serial>\n"
                       % (selector, attached)), errors
     assert opened() is None, opened()
+
+
+each(((TWO_BOARDS, "9", 2),
+      (ONE_BOARD, "1", 1),
+      (TWO_BOARDS, "4294967296", 2),
+      (TWO_BOARDS, "9" * 5000, 2)), refuses_index)
 print("ubtbr: an index no board has is refused, and names the count")
 
 # a board whose serial cannot be read keeps its place in the list, so it can
@@ -3319,7 +3439,9 @@ print("ubtbr: a setup that failed names the board it was talking to")
 # that, not as a board that took none of the session's requests. BUSY is what
 # Linux gives and ACCESS what macOS gives, and neither is a permissions
 # problem here, because a board nobody may open never reaches the claim.
-for failure, code in (("busy", -6), ("access", -3)):
+
+def reports_board_in_use(case):
+    failure, code = case
     status, output, errors = selecting(("-U", ONE_BOARD),
                                        UBTBR_FAKE_CLAIM_ERROR=failure)
     assert status == 1, (failure, status, output, errors)
@@ -3327,6 +3449,9 @@ for failure, code in (("busy", -6), ("access", -3)):
     assert errors == ("error: Ubertooth %s is in use by another program "
                       "(libusb %d)\n" % (ONE_BOARD, code)), errors
     assert not writes(), writes()
+
+
+each((("busy", -6), ("access", -3)), reports_board_in_use)
 # any other claim failure is reported as itself
 status, output, errors = selecting(("-U", ONE_BOARD),
                                    UBTBR_FAKE_CLAIM_ERROR="other")
@@ -3382,9 +3507,7 @@ for arguments, said in ((("-h", "-f", "nine"),
 print("ubtbr: a bad command line is reported even alongside -h")
 
 # the cases below run against one board, as the ones above this section did
-for selection_marker in (OPENED_FILE, SERIAL_READS_FILE, OPENS_FILE):
-    if os.path.exists(selection_marker):
-        os.remove(selection_marker)
+forget_selection()
 
 # an option value that is not a number: one error line, not the traceback
 # out of int(). Refused before a board is opened, so a wrong command line
