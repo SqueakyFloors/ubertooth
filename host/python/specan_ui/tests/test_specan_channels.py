@@ -101,6 +101,11 @@ assert channels.difference_label(-4, True) == '(-4 MHz)'
 assert channels.difference_label(6, False) == '(+6 MHz)'
 assert channels.difference_label(6, True) == '(+6 MHz)'
 
+# The caption at the end of the axis names the mode, since the tick labels
+# are bare numbers in both of them.
+assert channels.axis_caption(False) == 'MHz'
+assert channels.axis_caption(True) == 'BLE ch'
+
 print("specan/channels.py: both sets of labels, and the switch between them")
 
 
