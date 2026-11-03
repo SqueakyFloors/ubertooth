@@ -67,6 +67,7 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import itertools
 import logging
 import os
 import re
@@ -86,9 +87,9 @@ MODULE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 # timeout.
 DEADLINE = 10
 # How many sessions of the tool each() runs at once. A session is almost all
-# waiting, so this can be well above the number of processors; it is kept
-# small enough that a loaded machine still gets every session of a batch to
-# the point a case waits for inside the deadline above.
+# waiting, so the number of processors is not what bounds this; it is kept
+# here so that even a loaded machine gets every session of one batch to the
+# point its case waits for well inside the deadline above.
 AT_ONCE = 8
 
 # Stands in for usb1. Only the pieces ubtbr uses are here, and none of them
@@ -292,14 +293,23 @@ with open(os.path.join(WORK.name, "usb1.py"), "w") as fake:
     fake.write(FAKE_USB1)
 
 
-def session_file(name):
-    """One of the fake device's files, for the case running on this thread.
+# The case a thread is running, and the numbers handed out. A case that runs
+# side by side with others needs files of its own; they are numbered rather
+# than named after the thread, because a pool reuses thread identifiers once
+# it has been shut down, which would hand a later case a finished one's files.
+SESSION_NUMBERS = itertools.count(1)
+SESSION = threading.local()
 
-    A table of independent cases is run side by side, each case on a thread
-    of its own, so the file a session's writes go to has to belong to that
-    case alone: one case's packets must not turn up in another's assertion.
+
+def session_file(name):
+    """One of the fake device's files, for the case running here.
+
+    The cases that run in series share session 0; each case run by each()
+    takes a number of its own, so one case's packets can never turn up in
+    another's assertion.
     """
-    return os.path.join(WORK.name, "%s-%d" % (name, threading.get_ident()))
+    return os.path.join(WORK.name,
+                        "%s-%d" % (name, getattr(SESSION, "number", 0)))
 
 
 def writes_file():
@@ -406,15 +416,21 @@ def each(cases, check):
     of its own from the fake device, but they share the tool, the machine,
     and everything this test holds in memory.
 
-    A case that failed is raised with the original assertion as its cause, so
-    the failure shows both the line that failed and which case reached it.
+    A case that failed is raised with its own failure as the cause, so the
+    report shows both the line that failed and which case reached it.
     """
+    def numbered(case):
+        """Give this case a session of its own, then check it."""
+        SESSION.number = next(SESSION_NUMBERS)
+        return check(case)
+
     with concurrent.futures.ThreadPoolExecutor(AT_ONCE) as pool:
-        started = [(case, pool.submit(check, case)) for case in cases]
+        started = [(case, pool.submit(numbered, case)) for case in cases]
     for case, result in started:
         failure = result.exception()
         if failure is not None:
-            raise AssertionError("case %r" % (case,)) from failure
+            raise AssertionError("case %r raised %s"
+                                 % (case, type(failure).__name__)) from failure
 
 
 # ---- a command the device never answers still stops ------------------------
