@@ -130,138 +130,142 @@ function(btbb_rebuild_instructions out)
 endfunction()
 
 
-# The commit the libbtbb that was found was built from, where it can be read.
+# The commit the libbtbb that was found was built from, where that can be
+# read, with libbtbb's trailing "*" if the tree it was built from had
+# uncommitted changes. <reason> says why it could not be read, for the report
+# to give the right one: "none", "ambiguous", or "no-file".
 #
-# libbtbb's build compiles its own release string into the library
+# libbtbb's build compiles its release string into the library
 # (-DRELEASE="git-<abbreviated commit>") and returns it from
-# btbb_get_release(), and that is the only commit it records anywhere: the
-# version in libbtbb.pc is the library's ABI version, 1.3, which changes when
-# the ABI does and not when a commit does, and btbb.h has no version macro at
-# all. So the string is read out of the library file, which needs no compiler
-# to build a program, no loader to run one, and works just as well for a
-# static library or a cross-compiled build.
-#
-# Sets <out> to the abbreviated commit, with libbtbb's trailing "*" if the
-# tree it was built from had uncommitted changes, or to the empty string when
-# it cannot be read. Two different candidates mean some other string in the
-# library matched as well -- a build directory named after a commit, say --
-# and nothing here can tell which one is libbtbb's, so that is "cannot be
-# read" rather than a guess, and <ambiguous> says which of the two it was so
-# the report can give the right reason.
-function(btbb_library_commit out ambiguous)
+# btbb_get_release(). That is the only commit it records anywhere: the version
+# in libbtbb.pc is the library's ABI version, which moves with the ABI and not
+# with a commit, and btbb.h has no version macro. So the string is read out of
+# the library file, which needs no compiler to build a program and no loader
+# to run one, and so works for a static library and for a cross-compiled
+# build.
+function(btbb_library_commit out reason)
+  set(${out} "" PARENT_SCOPE)
+
+  # The first entry, which is the libbtbb find_library() found; a hand-set
+  # list names it first too. Only that one, so the commit reported is always
+  # the commit of the library the report names. An entry that is not an
+  # absolute path is a bare link name the user set, and there is no file.
+  list(GET LIBBTBB_LIBRARIES 0 library)
+  if(NOT IS_ABSOLUTE "${library}" OR NOT EXISTS "${library}"
+     OR IS_DIRECTORY "${library}")
+    set(${reason} "no-file" PARENT_SCOPE)
+    return()
+  endif()
+
   # Seven hex digits at least, written out because CMake's regular
-  # expressions have no repetition count: that is the shortest abbreviation
-  # git produces for a repository this size, and a shorter match would be
-  # compared against the pin on too few characters to mean anything.
+  # expressions have no repetition count: a shorter match would be compared
+  # against the pin on too few characters to mean anything.
   set(hex "[0-9a-fA-F]")
   set(pattern "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
 
+  # Each run of printable bytes holding the pattern, then the pattern out of
+  # each run. Two steps because the pattern cannot be anchored: libbtbb's
+  # string sits in the library next to whatever the compiler put beside it.
+  file(STRINGS "${library}" runs REGEX "${pattern}" LENGTH_MAXIMUM 4096)
   set(candidates "")
-  foreach(library IN LISTS LIBBTBB_LIBRARIES)
-    # A library entry that is not an absolute path is a bare link name the
-    # user set, and there is no file here to read.
-    if(NOT IS_ABSOLUTE "${library}" OR NOT EXISTS "${library}")
-      continue()
-    endif()
-    # Each run of printable bytes that holds the pattern, then the pattern
-    # itself out of each run. Two steps because the pattern is not anchored:
-    # libbtbb's string sits in the library next to whatever the compiler put
-    # beside it, so the run file(STRINGS) returns can carry other text on
-    # either side of it.
-    file(STRINGS "${library}" runs REGEX "${pattern}" LENGTH_MAXIMUM 4096)
-    foreach(run IN LISTS runs)
-      string(REGEX MATCHALL "${pattern}" matches "${run}")
-      list(APPEND candidates ${matches})
-    endforeach()
+  foreach(run IN LISTS runs)
+    string(REGEX MATCHALL "${pattern}" matches "${run}")
+    list(APPEND candidates ${matches})
   endforeach()
 
   list(REMOVE_DUPLICATES candidates)
   list(LENGTH candidates count)
-  if(count GREATER 1)
-    set(${out} "" PARENT_SCOPE)
-    set(${ambiguous} TRUE PARENT_SCOPE)
-    return()
+  if(count EQUAL 1)
+    string(REGEX REPLACE "^git-" "" commit "${candidates}")
+    set(${out} "${commit}" PARENT_SCOPE)
+    set(${reason} "" PARENT_SCOPE)
+  elseif(count EQUAL 0)
+    set(${reason} "none" PARENT_SCOPE)
+  else()
+    # Something else in the library matched as well, a build directory named
+    # after a commit for instance, and nothing here can tell which one is
+    # libbtbb's. Reported as unknown rather than guessed, either way round: a
+    # guess that picked the pin would hide a stale library, and one that
+    # picked the other would warn about a correct install.
+    set(${reason} "ambiguous" PARENT_SCOPE)
   endif()
-  set(${ambiguous} FALSE PARENT_SCOPE)
-  if(count EQUAL 0)
-    set(${out} "" PARENT_SCOPE)
-    return()
-  endif()
-  string(REGEX REPLACE "^git-" "" commit "${candidates}")
-  set(${out} "${commit}" PARENT_SCOPE)
 endfunction()
 
 
 # Say which libbtbb this build found and which commit the tree is built
-# against, every time, and warn when the two are not the same.
+# against, every time, and warn when they are not the same.
 #
-# The function check below refuses a libbtbb that cannot satisfy a call the
-# host makes, which is what a pin bump that adds an entry point leaves behind.
-# A bump that only changes how libbtbb behaves adds no entry point, so that
-# check passes and the tools then run with the older library's behavior, which
-# looks exactly like a change in the host's own code. One line in the
-# configure log is what tells a reader of a measurement which libbtbb it was
-# measured against.
+# The check below refuses a libbtbb missing a function the host calls, which
+# is what a pin bump that adds one leaves behind. A bump that only changes how
+# libbtbb behaves adds no function, so that check passes and the tools then
+# run with the older library's behavior, which looks exactly like a change in
+# the host's own code. This line is what tells a reader of a measurement which
+# libbtbb it was measured against.
 #
-# Not a refusal: a libbtbb from a distribution package is unlikely to record a
-# commit at all, and may well be fine for what its user is doing. The
-# mismatch a reader has to see is reported, and the build goes on.
+# A warning and not a refusal, because a libbtbb from a distribution package
+# records no commit at all and may be fine for what its user is doing. So
+# "cannot be read" is reported and nothing warns, except where commit-looking
+# strings disagree: that is the one unknown where the library may well be the
+# wrong one, and a silent line is how this went unnoticed before.
 #
-# message(STATUS) for the line that is always printed, because it belongs with
-# the rest of the configure report on standard output, beside the other
-# STATUS lines this module writes. message(WARNING) for the mismatch, because
-# the user has to see it among hundreds of lines of configure and build
-# output, and CMake puts a warning on standard error.
+# message(STATUS) for the line that is always printed, which belongs with the
+# rest of the configure report beside this module's other STATUS lines.
+# message(WARNING) for the rest, which CMake puts on standard error, so it is
+# visible among the hundreds of lines a configure and build produce.
 function(btbb_report_pin)
-  btbb_library_commit(commit ambiguous)
-  # The library rather than the header: the behavior a measurement sees comes
-  # from the library, and this is the path the commit was read from. The first
-  # entry, because that is the one find_library() found; a hand-set list of
-  # several is reported by its first too, which still names the install.
+  btbb_library_commit(commit reason)
   list(GET LIBBTBB_LIBRARIES 0 library)
 
   # STREQUAL rather than if(NOT commit), which asks whether the value is one
   # of CMake's false constants and would answer for a commit of "0".
   if(commit STREQUAL "")
-    if(ambiguous)
+    if(reason STREQUAL "ambiguous")
       set(why "more than one commit is recorded in it, so which one is "
               "libbtbb's own cannot be told")
+    elseif(reason STREQUAL "no-file")
+      set(why "there is no library file at that path to read it from")
     else()
-      set(why "a libbtbb records the commit it was built from only when it "
-              "was built from a git clone")
+      # No cause asserted: a libbtbb built from a source archive records a
+      # release name instead of a commit, and one built with git's
+      # abbreviation set unusually short records a commit this does not read.
+      set(why "nothing in it reads as the commit it was built from")
     endif()
     message(STATUS "libbtbb: ${library}, commit unknown (" ${why} "); this "
       "tree is built against ${LIBBTBB_PINNED_REF}")
+    if(NOT reason STREQUAL "ambiguous")
+      return()
+    endif()
+    btbb_rebuild_instructions(fix)
+    message(WARNING
+      "the commit the libbtbb found at ${library} was built from cannot be "
+      "told from the library, because " ${why} ", so this build cannot say "
+      "whether it is the libbtbb this tree is built against "
+      "(${LIBBTBB_PINNED_REF}).\n" "${fix}")
     return()
   endif()
 
-  # libbtbb marks a tree with uncommitted changes by appending "*" to the
-  # commit, so a library built from the pinned commit plus local edits is not
-  # the pinned libbtbb and is reported as its own case.
+  # libbtbb appends "*" to the commit for a tree with uncommitted changes, so
+  # a library built from the pinned commit plus local edits is not the pinned
+  # libbtbb and is reported as its own case.
   set(modified FALSE)
   if(commit MATCHES "\\*$")
     set(modified TRUE)
     string(REGEX REPLACE "\\*$" "" commit "${commit}")
   endif()
 
-  # Either can be the abbreviation of the other: libbtbb records git's short
-  # form, the pin is written in full, and a pin could be written short. A
-  # prefix search rather than a regular expression match, so a commit is only
-  # ever compared as text.
+  # libbtbb records git's abbreviation and the pin is written in full, which
+  # the libbtbb pin workflow enforces by reading it out of build.yml, so the
+  # recorded commit has to be a prefix of the pin and not the other way about.
+  # A prefix search rather than a regular expression match, so a commit is
+  # only ever compared as text.
   string(TOLOWER "${commit}" commit_lower)
   string(TOLOWER "${LIBBTBB_PINNED_REF}" pin_lower)
   string(FIND "${pin_lower}" "${commit_lower}" commit_at)
-  string(FIND "${commit_lower}" "${pin_lower}" pin_at)
-  if(commit_at EQUAL 0 OR pin_at EQUAL 0)
-    set(agrees TRUE)
-  else()
-    set(agrees FALSE)
-  endif()
 
-  # The pin in full even here, as in every other case: the line is read out of
-  # the log a measurement was taken from, where "the pinned commit" alone
-  # would send the reader looking for which commit that was.
-  if(agrees AND NOT modified)
+  # The pin in full even where they agree, as in every other case: the line is
+  # read out of the log a measurement was taken from, where "the pinned
+  # commit" alone would send the reader looking for which commit that was.
+  if(commit_at EQUAL 0 AND NOT modified)
     message(STATUS "libbtbb: ${library}, built from commit ${commit}, which "
       "is the commit this tree is built against (${LIBBTBB_PINNED_REF})")
     return()
@@ -277,9 +281,8 @@ function(btbb_report_pin)
 
   btbb_rebuild_instructions(fix)
   # Nothing here about whether the build will succeed: the check below has not
-  # run yet, and it refuses a libbtbb missing something these tools call. What
-  # this warning is about is the libbtbb that will be linked if the build does
-  # go on.
+  # run yet, and it refuses a libbtbb missing something these tools call. This
+  # is about the libbtbb that will be linked if the build does go on.
   message(WARNING
     "the libbtbb found at ${library} was ${built}, which is not the libbtbb "
     "this tree is built against (${LIBBTBB_PINNED_REF}). These tools behave "

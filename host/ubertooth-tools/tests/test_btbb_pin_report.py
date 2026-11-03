@@ -1,37 +1,17 @@
 #!/usr/bin/env python3
 """The configure step must say which libbtbb it found and which one is pinned.
 
-FindBTBB.cmake refuses a libbtbb that is missing an entry point the host
-calls, which is what a pin bump that adds one leaves behind. A bump that only
-changes how libbtbb behaves adds no entry point, so that check passes and the
-tools run with the older library's behavior -- which, measured on a bench,
-looks exactly like a change in the host's own code. So the configure step also
-reports which libbtbb it found, and warns when that is not the pinned one.
+FindBTBB.cmake refuses a libbtbb missing a function the host calls. A pin bump
+that only changes how libbtbb behaves adds no function, so it also reports the
+commit the library it found was built from beside the commit the tree is built
+against, and warns when they differ.
 
-libbtbb compiles the commit it was built from into the library and returns it
-from btbb_get_release(); nothing it installs records the commit anywhere else
-(libbtbb.pc carries the library's ABI version, which does not move with a
-commit). The module reads that string out of the library file, so these cases
-are files holding the string a real libbtbb would hold.
-
-This runs the real FindBTBB.cmake from a one-line project against:
-
-  * a library built from the pinned commit, which must be named as the pinned
-    one and must not warn;
-  * a library built from another commit, which must warn, must name both
-    commits, and must still configure -- the report is advisory, and making it
-    fatal would stop a build against a distribution-packaged libbtbb that is
-    otherwise fine;
-  * a library built from the pinned commit with uncommitted changes on top,
-    which must warn and say so;
-  * a library recording no commit, and one recording two, where the commit
-    cannot be read: each must say so and name the pin, and neither must warn,
-    because nothing here knows that library is the wrong one;
-  * a library whose only candidate string is too short to be a commit, which
-    must not be compared against the pin on a few characters.
-
-Every case must name the pinned commit, whichever way it went: that is the
-line a reader of a measurement needs in the configure log.
+libbtbb compiles that commit into the library, and the module reads the string
+back out of the library file, so each case here is a file holding the release
+string a real libbtbb would hold. Every case must configure successfully: the
+report is advisory, and making it fatal would stop a build against a
+distribution-packaged libbtbb that is otherwise fine. Every case must name the
+pin, which is what a reader of a measurement needs in the log.
 
 Usage: test_btbb_pin_report.py <cmake> <repository root>
 """
@@ -90,15 +70,13 @@ def module_guards(module):
 
 
 def pinned_ref(repo_root):
-    """The pinned libbtbb commit, or None where the workflow file is absent.
+    """The pinned libbtbb commit.
 
-    Read from .github/workflows/build.yml rather than from FindBTBB.cmake, so
-    the commit the report names is checked against the pin itself and not
-    against its own copy of it.
+    Read from .github/workflows/build.yml, where the pin is decided, rather
+    than from FindBTBB.cmake, so the commit the report names is checked
+    against the pin itself and not against its own copy of it.
     """
     build_yml = os.path.join(repo_root, ".github", "workflows", "build.yml")
-    if not os.path.exists(build_yml):
-        return None
     with open(build_yml, encoding="utf-8") as handle:
         found = re.search(r"^  LIBBTBB_REF: *(\S+)$", handle.read(), re.M)
     if not found:
@@ -133,16 +111,6 @@ def main():
     module_guards(os.path.join(modules, "FindBTBB.cmake"))
 
     ref = pinned_ref(repo_root)
-    if ref is None:
-        print("no .github/workflows/build.yml here; reading the pin from "
-              "FindBTBB.cmake instead")
-        with open(os.path.join(modules, "FindBTBB.cmake"),
-                  encoding="utf-8") as handle:
-            found = re.search(r'set\(LIBBTBB_PINNED_REF "(\S+)"\)',
-                              handle.read())
-        if not found:
-            fail("FindBTBB.cmake does not set LIBBTBB_PINNED_REF")
-        ref = found.group(1)
     # What libbtbb records: git's abbreviation of the commit, not the full
     # hash the pin is written as. The report has to see through that.
     short = ref[:7]
@@ -167,13 +135,23 @@ def main():
             # name, release strings in the library, must warn, wording the
             # report has to carry
             ("pinned", ["git-%s" % short], False, [short]),
+            # The commit as git may abbreviate it in capitals, which must read
+            # as the same commit and not as another one.
+            ("pinned-upper", ["git-%s" % short.upper()], False, [short]),
             ("other-commit", ["git-%s" % other], True, [short, other]),
             ("modified", ["git-%s*" % short], True,
              [short, "uncommitted changes"]),
+            # Nothing a commit can be read from. No warning: a libbtbb from a
+            # distribution package looks like this and may be fine.
             ("no-commit", [], False, ["commit unknown"]),
-            ("two-commits", ["git-%s" % short, "git-%s" % other], False,
-             ["commit unknown"]),
+            # A string too short to be compared against the pin on enough
+            # characters to mean anything, so it is not read as a commit.
             ("too-short", ["git-abc"], False, ["commit unknown"]),
+            # The library's own commit and another string that looks like one.
+            # This one does warn: the library may well be the wrong one, and a
+            # status line among hundreds is how that went unnoticed before.
+            ("two-commits", ["git-%s" % short, "git-%s" % other], True,
+             ["commit unknown", "more than one commit"]),
         )
 
         for name, releases, must_warn, wanted in cases:
@@ -217,6 +195,19 @@ def main():
             if "commit unknown" in wanted and "built from commit" in output:
                 fail("the %s case names a commit it cannot have read:\n%s"
                      % (name, output))
+
+        # A LIBBTBB_LIBRARIES the user set to a bare link name: there is no
+        # file to read, which is a different answer from a library that
+        # records no commit, and saying the wrong one sends the reader to the
+        # wrong place.
+        status, output = configure(cmake, source,
+                                   os.path.join(work, "build-no-file"),
+                                   include_dir, "btbb")
+        if status != 0:
+            fail("a bare library name was refused:\n%s" % output)
+        if "no library file at that path" not in output:
+            fail("a library name with no file behind it is not reported as "
+                 "such:\n%s" % output)
 
     print("PASS")
 
