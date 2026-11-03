@@ -139,31 +139,6 @@ typedef struct {
 	 * starting from idle resets nothing. */
 	uint8_t capture_modulation;
 
-	/* Where this capture's results go: the packet report the callbacks
-	 * write per packet, the AFH map ubertooth-afh detects, and the records
-	 * a dump writes when the user named no file for them. The tool owns
-	 * the stream, so nothing here has to name standard output, and a tool
-	 * whose results belong somewhere else says so once instead of being
-	 * printed over.
-	 *
-	 * Set by the tool beside the request itself, like the two fields
-	 * above. NULL where no capture set one, which reads as standard
-	 * output: that is where a plain run wants its results, and where a
-	 * tool built against an older library left them. Every tool here
-	 * leaves it so. Read it through ubertooth_result_stream().
-	 *
-	 * Diagnostics are not results and do not come through here: a warning,
-	 * a note or an error from the library is on standard error whatever a
-	 * tool sets.
-	 *
-	 * The decoded detail under a Classic or low-energy packet comes from
-	 * libbtbb (btbb_print_packet(), lell_print()), which takes no stream
-	 * and writes to standard output. So a tool that sets this to anything
-	 * else gets its own lines there and that detail on standard output;
-	 * the two would have to be read together. Nothing is split today,
-	 * because every tool here leaves this at standard output. */
-	FILE* result_stream;
-
 	le_usb_reassembly le_reassembly;
 
 	btbb_pcap_handle* h_pcap_bredr;
@@ -365,6 +340,30 @@ typedef struct {
 	int br_searching;
 	uint64_t br_search_start_ms;
 	int br_clock_confirmed;
+
+	/* Where this capture's results go: the packet report the callbacks
+	 * write per packet, the AFH map ubertooth-afh detects, and the records
+	 * a dump writes when the user named no file for them. The tool owns
+	 * the stream, so nothing in the library has to name standard output.
+	 *
+	 * Set by the tool beside its own capture request, as capture_channel
+	 * and capture_modulation are. NULL where no capture set one, which
+	 * reads as standard output; every tool here leaves it so. Read it
+	 * through ubertooth_result_stream(), which is where that default
+	 * lives. Last in the handle, as rx_xfer_state says, so that no
+	 * offset above it moved.
+	 *
+	 * Diagnostics are not results and do not come through here: a warning,
+	 * a note or an error from the library is on standard error whatever a
+	 * tool sets.
+	 *
+	 * The decoded detail under a Classic or low-energy packet is printed by
+	 * libbtbb, from btbb_process_packet() and lell_print(), which take no
+	 * stream and write to standard output. A tool that points this
+	 * somewhere else gets its own lines there and that detail on standard
+	 * output, and the two have to be read together. Nothing is split
+	 * today, because every tool leaves this at standard output. */
+	FILE* result_stream;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);
@@ -845,22 +844,12 @@ uint32_t ubertooth_symbol_overwrites(ubertooth_t* ut);
  */
 void ubertooth_report_capture_losses(ubertooth_t* ut);
 
-/* The stream this capture's results go to: what the tool put in
- * result_stream, or standard output where it set none. Every line and every
- * record the callbacks write goes here, so a tool reads this to find out
- * where its own results are going -- and so that nothing inside the library
- * decides. NULL is never returned.
+/* The stream this capture's results go to: result_stream, or standard output
+ * where the tool set none. For a tool that has to find out where its own
+ * results are going, and for the library, which asks rather than naming a
+ * stream itself. NULL is never returned.
  */
 FILE* ubertooth_result_stream(ubertooth_t* ut);
-
-/* Writes a piconet's AFH channel map on the caller's stream, as one line:
- * "AFH map: 0x" and the ten bytes of the map, the channel order the spec's
- * Set_AFH_Host_Channel_Classification uses. Same text as libbtbb's
- * btbb_print_afh_map(), which takes no stream and so writes to standard
- * output whatever the tool chose; this is here so the map goes where the tool
- * asked for its results.
- */
-void ubertooth_print_afh_map(FILE* out, btbb_piconet* pn);
 
 /* Whether the STOP request that ends a capture was refused on this handle.
  * Such a board is left running the mode the capture started, and no other

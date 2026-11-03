@@ -892,10 +892,10 @@ uint32_t ubertooth_symbol_overwrites(ubertooth_t* ut)
 
 FILE* ubertooth_result_stream(ubertooth_t* ut)
 {
-	/* A handle with no stream of its own, and a caller with no handle at
-	 * all, both read as standard output: that is where a plain run wants
-	 * its results, and it is what a tool built against an older library
-	 * got. This is the one place in the library that names that stream. */
+	/* The one place in the library that names standard output for a
+	 * result. A handle with no stream of its own, and a caller with no
+	 * handle at all, both read as that; see result_stream in
+	 * ubertooth.h. */
 	if (ut == NULL || ut->result_stream == NULL)
 		return stdout;
 	return ut->result_stream;
@@ -1268,12 +1268,14 @@ void cb_btle(ubertooth_t* ut, void* args)
 		 * standard output, where a plain run wants them -- unless that
 		 * caller also said a capture had taken standard output, in which
 		 * case standard output is /dev/null and these lines would reach
-		 * nobody. */
+		 * nobody. Only then: a caller whose results go somewhere else has
+		 * said where it wants them, and /dev/null is not it. */
 		FILE* out = ubertooth_result_stream(ut);
 
 		if (opts != NULL && opts->report_stream != NULL)
 			out = opts->report_stream;
-		else if (opts != NULL && opts->capture_took_stdout)
+		else if (opts != NULL && opts->capture_took_stdout
+		         && out == stdout)
 			out = stderr;
 
 		fprintf(out, "--------------------\n");
@@ -1448,11 +1450,6 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * the run ends; libbtbb's count is per field, so the comparison here
 	 * is what makes the summary per packet. */
 	uint64_t malformed_before = lell_malformed_count(LELL_MALFORMED_ANY, 0);
-	/* The decoded fields come from libbtbb, which takes no stream and
-	 * writes them to standard output: the lines above are ordered with
-	 * them, so this capture's own stream is flushed first. See
-	 * result_stream in ubertooth.h. */
-	fflush(dump);
 	lell_print(pkt);
 	if (opts != NULL &&
 	    lell_malformed_count(LELL_MALFORMED_ANY, 0) != malformed_before)

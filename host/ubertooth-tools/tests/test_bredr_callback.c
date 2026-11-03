@@ -2071,7 +2071,9 @@ MU_TEST(a_packet_report_goes_to_the_stream_the_tool_named)
 	mu_assert(strstr(line, "systime=") != NULL, line);
 	mu_assert(strstr(line, "LAP=") != NULL, line);
 	/* And nothing on standard output, which is where it used to go
-	 * whatever the tool wanted. */
+	 * whatever the tool wanted. This is the library's own line only: the
+	 * decoder is faked here, where a real run would still have libbtbb
+	 * print the detail under the packet to standard output. */
 	mu_assert_int_eq(0, (int)strlen(last_stdout));
 
 	fclose(results);
