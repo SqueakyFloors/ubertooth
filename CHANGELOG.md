@@ -920,6 +920,18 @@
   is still refused at configure time, by name. `install.sh` and the build
   guides check out the new commit.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+- The pin moves on once more, to libbtbb
+  ([`7e1cdf0`](https://github.com/SqueakyFloors/libbtbb/commit/7e1cdf0336857a714da1af8c7496fe32453ac6d0)),
+  which finishes that work. Fixed: a Classic capture given only a LAP, which
+  worked the address part (UAP) out for itself, went on searching for the
+  address part it had just found, so CLK1-27 never arrived and
+  `ubertooth-rx -l <LAP>` with no `-u` read the piconet's packets without ever
+  reaching follow mode; it now goes on to the clock search
+  ([libbtbb issue 136](https://github.com/SqueakyFloors/libbtbb/issues/136)).
+  The tools call no new library function, so a libbtbb without what they use
+  is still refused at configure time, by name. `install.sh` and the build
+  guides check out the new commit.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
