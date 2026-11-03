@@ -79,9 +79,9 @@ static void report_progress_if_due(void)
  * and -g/-G make, named separately, because that is what the user set. */
 static void report_output_target(int output_mode, const char *dump_name)
 {
-	/* NULL, or a bare "-", is standard output; anything else is the file
-	 * -d named. */
-	const char *where = (dump_name == NULL || strcmp(dump_name, "-") == 0)
+	/* NULL, or a value that names standard output, is standard output;
+	 * anything else is the file -d named. */
+	const char *where = (dump_name == NULL || opt_writes_to_stdout(dump_name))
 	                    ? NULL : dump_name;
 
 	switch (output_mode) {
@@ -437,17 +437,16 @@ int main(int argc, char *argv[])
 	 * capture of a sweep has always been; the screen with no format asked
 	 * for gets one text line per sample.
 	 *
-	 * Only a bare "-" means stdout (the one argument rule, as
-	 * ubertooth-btle -r already checks). Any other value is a file name,
-	 * including one starting with "-", so "-d -x" writes the file "-x"
-	 * rather than silently streaming samples to stdout and dropping a
-	 * mistyped option.
+	 * Which values mean stdout is opt_writes_to_stdout()'s to say. Any
+	 * other value is a file name, including one starting with "-", so
+	 * "-d -x" writes the file "-x" rather than silently streaming samples
+	 * to stdout and dropping a mistyped option.
 	 *
 	 * Settled here, where the rest of the command line is checked; the file
 	 * itself is opened once the board has been accepted, below. */
 	if (dump_name != NULL && format_option == 0)
 		output_mode = SPECAN_FILE;
-	if (dump_name == NULL || strcmp(dump_name, "-") == 0) {
+	if (dump_name == NULL || opt_writes_to_stdout(dump_name)) {
 		/* The raw records are binary, so a terminal is refused the way
 		 * ubertooth-btle refuses its capture. A text format is welcome
 		 * on one. */

@@ -434,6 +434,30 @@ add_test(
 # the test. Ninety leaves that deadline room to fire first and say so.
 set_tests_properties(rx-replay PROPERTIES TIMEOUT 90)
 
+# The capture destinations that name this process's standard output: "-" and
+# the fixed names of descriptor 1 on a descriptor filesystem. Checked on a
+# replay of a fixture the test builds, so no board is involved, plus the
+# terminal refusal of two more tools that share the same helpers. About thirty
+# short runs.
+set(STDOUT_NAME_TOOLS
+	$<TARGET_FILE:ubertooth-rx>
+	$<TARGET_FILE:ubertooth-specan>
+	$<TARGET_FILE:ubertooth-dump>)
+# ubertooth-follow needs BlueZ, so it is not built on macOS; its case is left
+# out there rather than failing to configure.
+if(TARGET ubertooth-follow)
+	list(APPEND STDOUT_NAME_TOOLS $<TARGET_FILE:ubertooth-follow>)
+endif()
+add_test(
+	NAME stdout-capture-names
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_stdout_capture_names.py
+		${STDOUT_NAME_TOOLS})
+# About 1 s idle and 3 s on a machine busy with parallel builds. Ninety leaves
+# the test's own thirty-second per-run deadline room to fire first and name
+# the run that timed out.
+set_tests_properties(stdout-capture-names PROPERTIES TIMEOUT 90)
+
 # The dump and replay path of ubertooth-btle (-d, -R), on a fixture the test
 # builds itself: the five parameter records promiscuous mode sends and one
 # advertising packet. It checks that the records come back byte for byte, that

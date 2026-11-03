@@ -233,9 +233,106 @@ int opt_check_stdout_not_tty(const char *what)
 	return 0;
 }
 
+/* The absolute paths that name this process's own descriptor 1, besides the
+ * documented "-". The first two are fixed names on the descriptor filesystem
+ * that macOS and Linux mount on /dev/fd.
+ *
+ * /dev/fd/<n> for any other <n> is deliberately not here: it reaches whatever
+ * the caller's shell opened on that descriptor, which the name alone does not
+ * say. */
+static const char *const stdout_paths[] = {
+	"/dev/stdout", "/dev/fd/1",
+#ifdef __linux__
+	/* Linux names the same descriptor here as well. It is behind the
+	 * conditional because on a platform with no /proc this path names
+	 * nothing at all, and taking it for standard output there would turn a
+	 * destination that cannot be created into a silent redirect. */
+	"/proc/self/fd/1",
+#endif
+};
+
+/* The next component of *at, with its length in *len, or NULL at the end of
+ * the path; *at is left after it. A run of separators and a "." element are
+ * both nothing between two names, so both are skipped. */
+static const char *next_component(const char **at, size_t *len)
+{
+	const char *s = *at;
+	const char *start;
+
+	for (;;) {
+		while (*s == '/')
+			s++;
+		if (*s == '\0') {
+			*at = s;
+			return NULL;
+		}
+		start = s;
+		while (*s != '/' && *s != '\0')
+			s++;
+		if (s - start != 1 || start[0] != '.') {
+			*at = s;
+			*len = (size_t)(s - start);
+			return start;
+		}
+	}
+}
+
+/* Whether an absolute path the user wrote names the same file as one of the
+ * names above, allowing the redundant separators and "." elements a path may
+ * carry between two names ("/dev/./stdout", "//dev//fd//1").
+ *
+ * Only the text is compared. The destination is never opened to find out what
+ * it is: opening a path can block until a reader arrives on a named pipe,
+ * change the modem lines of a serial device, and leaves a descriptor behind
+ * on a command line that is about to be refused. Symbolic links are not
+ * followed either, because that answers a different question -- where
+ * /dev/stdout points at this moment -- rather than which descriptor the user
+ * named. ".." is left alone for the same reason: the element above a symbolic
+ * link is not the directory the text suggests. */
+static int names_same_file(const char *path, const char *name)
+{
+	size_t path_len = 0, name_len = 0;
+	size_t length = strlen(path);
+	const char *a, *b;
+
+	/* A path that ends in a separator or a "." element asks for something
+	 * inside the name before it, and neither of these is a directory, so
+	 * "/dev/stdout/" and "/dev/stdout/." are not it. The platform decides
+	 * what opening such a name does; this only declines to call it
+	 * standard output. */
+	if (length == 0 || path[length - 1] == '/')
+		return 0;
+	if (length >= 2 && path[length - 1] == '.' && path[length - 2] == '/')
+		return 0;
+	/* Every name above is absolute, so "dev/stdout" in the working
+	 * directory is an ordinary file of that name. */
+	if (path[0] != '/')
+		return 0;
+
+	for (;;) {
+		a = next_component(&path, &path_len);
+		b = next_component(&name, &name_len);
+		if (a == NULL || b == NULL)
+			return a == NULL && b == NULL;
+		if (path_len != name_len || memcmp(a, b, path_len) != 0)
+			return 0;
+	}
+}
+
 int opt_writes_to_stdout(const char *filename)
 {
-	return filename != NULL && strcmp(filename, "-") == 0;
+	size_t i;
+
+	if (filename == NULL)
+		return 0;
+	/* The lone "-" exactly: "./-" is how a file of that name is written,
+	 * so it stays an ordinary file. */
+	if (strcmp(filename, "-") == 0)
+		return 1;
+	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
+		if (names_same_file(filename, stdout_paths[i]))
+			return 1;
+	return 0;
 }
 
 int opt_check_capture_destination(const char *filename, const char *what)
@@ -250,12 +347,50 @@ int opt_check_capture_destination(const char *filename, const char *what)
  * tool prints can land in the middle of the capture stream. Returns the
  * descriptor the capture is to be written to, or -1 once the reason has been
  * printed. <what> names the data, for the tty refusal above. */
+/* Whether this process's standard output is the null device, which is where
+ * take_stdout() leaves it once a capture has the real one. */
+static int stdout_is_null_device(void)
+{
+	struct stat out, null;
+
+	return fstat(STDOUT_FILENO, &out) == 0 && stat("/dev/null", &null) == 0 &&
+	       S_ISCHR(out.st_mode) && out.st_rdev == null.st_rdev;
+}
+
+/* Whether a capture already has this process's standard output.
+ *
+ * A second dup() of descriptor 1 would hand that capture the null device the
+ * first one left behind, and the capture would be thrown away with nothing
+ * said. Each tool checks its own pair of capture options and names the two
+ * that clashed; this is the backstop for a pair whose check does not see two
+ * spellings as the same destination.
+ *
+ * The flag alone is not enough, because a test harness runs a tool's main()
+ * several times in one process and gives the streams back between runs: the
+ * descriptor is asked as well, so a restored standard output is not refused
+ * for what an earlier run did. The flag is needed too, because a user is
+ * free to redirect standard output to the null device, and the first capture
+ * of such a run must still be allowed. */
+static int stdout_already_captured(void)
+{
+	static int given_away = 0;
+	int already = given_away && stdout_is_null_device();
+
+	given_away = 1;
+	return already;
+}
+
 static int take_stdout(const char *what)
 {
 	int saved_fd, null_fd;
 
 	if (opt_check_stdout_not_tty(what) < 0)
 		return -1;
+	if (stdout_already_captured()) {
+		fprintf(stderr, "error: only one capture can be written to "
+		        "standard output\n");
+		return -1;
+	}
 
 	fflush(stdout);
 	saved_fd = dup(STDOUT_FILENO);
@@ -299,7 +434,7 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	*saved_fd = -1;
 	if (filename == NULL)
 		return NULL;
-	if (strcmp(filename, "-") != 0)
+	if (!opt_writes_to_stdout(filename))
 		return copy_name(filename);
 
 	*saved_fd = take_stdout(what);
@@ -366,7 +501,7 @@ FILE *opt_open_dump_file(const char *filename, const char *what)
 
 	if (filename == NULL)
 		return NULL;
-	if (strcmp(filename, "-") != 0) {
+	if (!opt_writes_to_stdout(filename)) {
 		stream = fopen(filename, "w");
 		if (stream == NULL)
 			fprintf(stderr, "error: %s: %s\n", filename, strerror(errno));

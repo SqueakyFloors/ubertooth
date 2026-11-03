@@ -34,7 +34,7 @@ Bluetooth Low Energy (BLE) modulation
 Generic receive (experimental): demodulate with the CC2400 configuration already in the radio rather than programming one\. Cannot be given with \fB\-c\fR or \fB\-l\fR
 .TP
 \fB\-d <filename\.bin>\fR
-Dump to file instead of stdout\. A lone \fB\-\fR is standard output, where the stream goes anyway without \fB\-d\fR
+Dump to file instead of stdout\. A lone \fB\-\fR, or a path that names this process's descriptor 1 such as \fB/dev/stdout\fR, is standard output, where the stream goes anyway without \fB\-d\fR
 .TP
 \fB\-U <index|serial>\fR
 select an Ubertooth by enumeration index or serial number; see ubertooth(7), SELECTING A DEVICE

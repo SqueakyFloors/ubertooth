@@ -371,8 +371,7 @@ int main(int argc, char *argv[])
 
 	/* Standard output carries one stream, so only one capture can have it:
 	 * a PCAP file and a packet dump interleaved there would be neither. */
-	if (pcap_name != NULL && dump_name != NULL &&
-	    strcmp(pcap_name, "-") == 0 && strcmp(dump_name, "-") == 0) {
+	if (opt_writes_to_stdout(pcap_name) && opt_writes_to_stdout(dump_name)) {
 		fputs("error: -q and -d cannot both write to standard output\n",
 		      stderr);
 		return 1;
