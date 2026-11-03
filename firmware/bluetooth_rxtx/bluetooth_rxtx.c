@@ -3914,9 +3914,8 @@ static int promisc_try_csa2(u32 sighting) {
 	uint8_t site;
 	int found;
 
-	/* The longest the capture holds the processor without going round its
-	 * own loop, and nothing out here names it: see
-	 * WATCHDOG_SITE_LE_CSA2. */
+	/* The longest this capture goes without feeding the watchdog from its
+	 * own loop: see WATCHDOG_SITE_LE_CSA2. */
 	site = watchdog_mark(WATCHDOG_SITE_LE_CSA2);
 	found = le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
 			btle_channel_index(channel), le.access_address, &rec);
