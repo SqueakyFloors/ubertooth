@@ -1096,6 +1096,14 @@
   was not sent, waits for nothing, and gives the byte count back.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
+- Fixed: `ubertooth-btbr` took any `-f` or `-b` value up to 65535 and the
+  board then used the low bits of it, so `-f 64` set the same offset as
+  `-f 0` and `-b 4` allowed no access-code bit errors at all, the opposite of
+  raising the tolerance. Each is now refused with its real range,
+  `error: -f must be 0-63 (got 64)` and `error: -b must be 0-3 (got 4)`,
+  before a board is opened.
+  [#1142](https://github.com/SqueakyFloors/ubertooth/issues/1142)
+
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
   saying why named two of the three reasons the bootloader runs. All three are
   now named, and a run that wrote no image is told to write a whole one, which

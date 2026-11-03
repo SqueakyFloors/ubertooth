@@ -57,20 +57,19 @@ one `btbr` was flashed onto.
 
  - `-U <index|serial>` :
    which Ubertooth to use. See SELECTING A DEVICE.
- - `-f <0-65535>` :
+ - `-f <0-63>` :
    frequency offset, written to the radio's `MOD_OFFSET` field (the top of its
    `MDMCTRL` register). Sent to the board before the prompt opens, and only
    when given; a run without it leaves the firmware's own value, which is 0.
-   That field is six bits wide, and the board keeps the low six bits of what
-   it is given: a value above 63 is taken rather than refused, and takes
-   effect as those six bits, so `-f 64` sets the same offset as `-f 0`.
- - `-b <0-65535>` :
+   The range is the width of that field, six bits, and the field holds a
+   signed number of 15.625 kHz steps: 0 to 31 are the offsets from 0 up to
+   +484 kHz, and 32 to 63 are the negative ones, 32 meaning -500 kHz and 63
+   meaning -15.625 kHz.
+ - `-b <0-3>` :
    how many bit errors a received access code may have and still count as a
    match. A higher value finds more packets and more noise. A run without it
-   leaves the firmware's own value, which allows one error. The radio's field
-   is two bits wide, and the board keeps the low two bits of what it is given:
-   a value above 3 is taken rather than refused, and takes effect as those two
-   bits, so `-b 4` allows no errors at all.
+   leaves the firmware's own value, which allows one error. The range is the
+   width of the field the radio keeps it in, two bits.
  - `-V` :
    print the version and end the command: the host tools, then the firmware
    version and build of the board `-U` names, or of each attached board. The
@@ -477,9 +476,10 @@ does need it, and says so in one line rather than a traceback:
     error: could not start the session: No module named 'usb1'
     note: a session needs the Python libusb1 package, which ships the usb1 module; install it with "pip install libusb1"
 
-An option value outside 0-65535, or one that is not a number, is refused
-before the board is opened: `error: -f must be 0-65535 (got bad)`, exit
-status 1. An address the prompt will not take is one line,
+An option value outside the range the radio's field has, or one that is not a
+number, is refused before the board is opened: `error: -b must be 0-3 (got
+4)`, `error: -f must be 0-63 (got bad)`, exit status 1. An address the prompt
+will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
 prompt up. Only the two spellings above are taken, so `bdaddr 11:22:33` is an
 error rather than the address `00:00:11:22:33`, and so are a twelve-digit word

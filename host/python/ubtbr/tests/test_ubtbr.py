@@ -3495,7 +3495,7 @@ print("ubtbr: a command line the tool will not take is one error line")
 # -h ends the command only once the whole line has parsed, as in the other
 # tools, so a bad value or a stray word is reported even alongside it
 for arguments, said in ((("-h", "-f", "nine"),
-                         "error: -f must be 0-65535 (got nine)\n"),
+                         "error: -f must be 0-63 (got nine)\n"),
                         (("-h", "stray"), "error: unexpected argument "
                                           "'stray'\n"),
                         (("-U", "0", "-U", "1", "-h"),
@@ -3509,25 +3509,52 @@ print("ubtbr: a bad command line is reported even alongside -h")
 # the cases below run against one board, as the ones above this section did
 forget_selection()
 
-# an option value that is not a number: one error line, not the traceback
-# out of int(). Refused before a board is opened, so a wrong command line
-# touches nothing and says what is wrong with it rather than reporting
-# whatever the board did first: there is no device here to find, and the
-# answer is still about the option.
-# "nine" is not a number; -5 and 70000 do not fit the 16 bits the request
-# packs, and used to reach the packing and raise from there, which left the
-# device open and the receive thread inside libusb.
-for bad in ("nine", "-5", "70000"):
-    running = subprocess.Popen([sys.executable, WRAPPER, "-f", bad],
+# an option value that is not a number, or outside the range the radio's
+# field has: one error line, not the traceback out of int(). Refused before a
+# board is opened, so a wrong command line touches nothing and says what is
+# wrong with it rather than reporting whatever the board did first: there is
+# no device here to find, and the answer is still about the option.
+# "nine" is not a number; the rest are values the firmware would have kept
+# the low bits of, so -f 64 used to set the same offset as -f 0 and -b 4 to
+# allow no access-code errors at all, the opposite of what it asks for. 70000
+# does not fit the 16 bits of the request either, and used to reach the
+# packing and raise from there, which left the device open and the receive
+# thread inside libusb.
+for option, bad, range_said in (("-f", "nine", "0-63"),
+                                ("-f", "-5", "0-63"),
+                                ("-f", "64", "0-63"),
+                                ("-f", "70000", "0-63"),
+                                ("-b", "4", "0-3"),
+                                ("-b", "-1", "0-3")):
+    running = subprocess.Popen([sys.executable, WRAPPER, option, bad],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True,
                                env=dict(ENVIRONMENT, UBTBR_FAKE_NO_DEVICE="1"))
     output, errors = running.communicate("", timeout=DEADLINE * 2)
-    assert running.returncode == 1, (bad, running.returncode, output, errors)
-    assert output == "", (bad, output)
-    assert errors == "error: -f must be 0-65535 (got %s)\n" % bad, repr(errors)
-    assert not writes(), (bad, writes())
+    assert running.returncode == 1, (option, bad, running.returncode, output,
+                                     errors)
+    assert output == "", (option, bad, output)
+    assert errors == "error: %s must be %s (got %s)\n" % (option, range_said,
+                                                          bad), repr(errors)
+    assert not writes(), (option, bad, writes())
 print("ubtbr: a bad option value is refused before a board is opened")
+
+
+def setting_request(code, value):
+    """The USB packet the device gets for a request carrying one 16-bit value."""
+    payload = struct.pack("<I", code) + struct.pack("<H", value)
+    return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
+
+
+# the highest value of each range is still taken, and reaches the board as
+# itself: the refusals above draw the line where the radio's field ends, not
+# short of it
+status, output, errors = ran(("-f", "63", "-b", "3"), "q\n")
+assert status == 0, (status, output, errors)
+assert setting_request(btctl.BTCTL_SET_FREQ_OFF_REQ, 63) in writes(), writes()
+assert setting_request(btctl.BTCTL_SET_MAX_AC_ERRORS_REQ, 3) in writes(), \
+    writes()
+print("ubtbr: the top of each option's range is sent to the board as itself")
 
 # an interrupt before the prompt is up, which is the window the hang shortly
 # after start lives in: the tool ends, with no traceback and nothing on
@@ -3683,7 +3710,7 @@ assert errors == "", errors
 status, output, errors = version_ran(("-V", "-f", "bad"))
 assert status == 1, (status, output, errors)
 assert output == "", output
-assert errors == "error: -f must be 0-65535 (got bad)\n", errors
+assert errors == "error: -f must be 0-63 (got bad)\n", errors
 
 # ubertooth-util not on the PATH: one error line, not a traceback
 status, output, errors = version_ran(("-V",), path=NO_UTIL_DIR)
@@ -3816,7 +3843,7 @@ assert errors == "", errors
 status, output, errors = version_ran(("-f", "bad"), PYTHONPATH=NO_USB1)
 assert status == 1, (status, output, errors)
 assert output == "", output
-assert errors == "error: -f must be 0-65535 (got bad)\n", errors
+assert errors == "error: -f must be 0-63 (got bad)\n", errors
 
 # A call that does open a board needs the package, which is what says it was
 # really out of reach above. That is one error line naming what is missing
