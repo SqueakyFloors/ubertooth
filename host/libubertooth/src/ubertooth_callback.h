@@ -151,6 +151,14 @@ long ubertooth_clock_search_ms(ubertooth_t* ut);
  * the warning being repeated. */
 int ubertooth_follow_drop_clock(ubertooth_t* ut, btbb_piconet* pn);
 
+/* Writes a piconet's AFH channel map on the caller's stream, as one line:
+ * "AFH map: 0x" and the ten bytes of the map, the channel order the spec's
+ * Set_AFH_Host_Channel_Classification uses. Same text as libbtbb's
+ * btbb_print_afh_map(), which takes no stream and so writes to standard
+ * output whatever the tool chose; this is here so the map goes where the tool
+ * asked for its results. */
+void ubertooth_print_afh_map(FILE* out, btbb_piconet* pn);
+
 void cb_afh_initial(ubertooth_t* ut, void* args);
 void cb_afh_monitor(ubertooth_t* ut, void* args);
 void cb_afh_r(ubertooth_t* ut, void* args);

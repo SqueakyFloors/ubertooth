@@ -106,6 +106,11 @@ static uint16_t capture_channel;
 static uint8_t stated_uap;
 static int uap_stated;
 
+/* The stream this capture's tool said its results go to, which
+ * run_callback() puts on the handle the same way. NULL for most cases: that
+ * is a plain run, whose results go to standard output. */
+static FILE* result_stream;
+
 /* What the faked capture writers report: negative is a failed write. */
 static int pcap_write_result;
 static int pcapng_write_result;
@@ -410,6 +415,9 @@ static void run_callback_on(ubertooth_t* ut,
 	ut->capture_channel = capture_channel;
 	ut->follow_uap = stated_uap;
 	ut->follow_uap_stated = uap_stated;
+	/* Where the tool said its results go. NULL for most cases, which is
+	 * the standard output a plain run uses. */
+	ut->result_stream = result_stream;
 	/* Never dereferenced: the writers above are fakes. They only have to
 	 * be something other than NULL, which is what makes the callback
 	 * write. */
@@ -490,6 +498,7 @@ static void reset_state(void)
 	capture_files = 0;
 	infile = NULL;
 	dumpfile = NULL;
+	result_stream = NULL;
 }
 
 /* The timestamp a record needs to carry for its access code, found at the
@@ -2038,6 +2047,89 @@ MU_TEST(a_clock_given_up_for_silence_warns_once_and_frees_the_board)
 	btbb_piconet_unref(pn);
 }
 
+/* ---- where a capture's results go --------------------------------------- */
+
+/* The report beside each packet is the tool's result, so the tool says where
+ * it goes. The library used to write it to standard output itself, which left
+ * a tool no say in the matter. */
+MU_TEST(a_packet_report_goes_to_the_stream_the_tool_named)
+{
+	char line[256] = "";
+	FILE* results = tmpfile();
+
+	reset_state();
+	mu_assert_fatal(results != NULL, "a stream for the results");
+	result_stream = results;
+
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, NULL);
+
+	rewind(results);
+	mu_assert_fatal(fgets(line, sizeof(line), results) != NULL,
+	                "a report on the tool's stream");
+	mu_assert(strstr(line, "systime=") != NULL, line);
+	mu_assert(strstr(line, "LAP=") != NULL, line);
+	/* And nothing on standard output, which is where it used to go
+	 * whatever the tool wanted. This is the library's own line only: the
+	 * decoder is faked here, where a real run would still have libbtbb
+	 * print the detail under the packet to standard output. */
+	mu_assert_int_eq(0, (int)strlen(last_stdout));
+
+	fclose(results);
+	result_stream = NULL;
+}
+
+/* A caller that names no stream, which every tool here is, gets standard
+ * output: the same line in the same place as before. */
+MU_TEST(a_report_with_no_stream_named_goes_to_standard_output)
+{
+	reset_state();
+	fill_packet(&next_packets[0], 40000, 0, 10);
+	next_count = 1;
+	run_callback(cb_rx, NULL);
+
+	mu_assert(strstr(last_stdout, "systime=") != NULL, last_stdout);
+	mu_assert(strstr(last_stdout, "LAP=") != NULL, last_stdout);
+}
+
+/* The AFH map goes to the tool's stream too, which means the library prints
+ * it rather than calling libbtbb's btbb_print_afh_map(). The two have to put
+ * the same line on the air for a user, so they are checked against each
+ * other: a byte printed out of order or a digit dropped shows here. */
+MU_TEST(the_afh_map_line_is_the_one_libbtbb_prints)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+	uint8_t* map;
+	char ours[128] = "";
+	FILE* results = tmpfile();
+
+	reset_state();
+	mu_assert_fatal(pn != NULL, "a piconet");
+	mu_assert_fatal(results != NULL, "a stream for the results");
+
+	map = btbb_piconet_get_afh_map(pn);
+	map[0] = 0x01;
+	map[3] = 0xa5;
+	map[9] = 0x7f;
+
+	ubertooth_print_afh_map(results, pn);
+	rewind(results);
+	mu_assert_fatal(fgets(ours, sizeof(ours), results) != NULL, "a map line");
+	fclose(results);
+
+	capture_streams();
+	btbb_print_afh_map(pn);
+	fflush(stdout);
+	collect_streams();
+
+	mu_assert(strcmp(last_stdout, ours) == 0, ours);
+	/* Not an empty comparison: both carry the map. */
+	mu_assert(strstr(ours, "AFH map: 0x01") != NULL, ours);
+
+	btbb_piconet_unref(pn);
+}
+
 /* ---- a UAP the user named survives a clock being given up --------------- */
 
 /* The library drops the UAP along with a clock it stops following, because a
@@ -2218,6 +2310,9 @@ int main(void)
 	MU_RUN(a_keep_alive_does_not_count_as_symbols_written_over);
 	MU_RUN(the_end_of_a_capture_counts_every_kind_of_loss);
 	MU_RUN(a_capture_that_lost_nothing_reports_nothing);
+	MU_RUN(a_packet_report_goes_to_the_stream_the_tool_named);
+	MU_RUN(a_report_with_no_stream_named_goes_to_standard_output);
+	MU_RUN(the_afh_map_line_is_the_one_libbtbb_prints);
 	/* These run cb_rx() with a piconet, which keeps state between packets
 	 * -- the clock trim's counters, and whether the library has handed
 	 * this capture a clock -- so they come last, and in this order,

@@ -780,6 +780,15 @@
 
 ### Build and compatibility
 
+- libubertooth lets the calling program say where a capture's results go,
+  instead of writing them to standard output itself: the `result_stream`
+  field of `ubertooth_t`, read with the new
+  `ubertooth_result_stream()`. A handle that sets none writes to standard
+  output as before, so every tool here, and a program of your own, behaves
+  exactly as it did. `ubertooth_print_afh_map()` writes an AFH channel map on
+  a stream you choose, in the line libbtbb's `btbb_print_afh_map()` prints on
+  standard output.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - The configure step says which libbtbb it found, the commit that library was
   built from, and the commit these tools are built against, and warns when the
   two commits differ. A libbtbb older than the pin used to be accepted

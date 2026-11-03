@@ -340,6 +340,26 @@ typedef struct {
 	int br_searching;
 	uint64_t br_search_start_ms;
 	int br_clock_confirmed;
+
+	/* Where this capture's results go: the packet report the callbacks
+	 * write per packet, the AFH map ubertooth-afh detects, and the records
+	 * a dump writes when the user named no file for them. The tool owns
+	 * the stream, so nothing in the library has to name standard output.
+	 *
+	 * Set by the tool beside its own capture request, as capture_channel
+	 * and capture_modulation are. NULL where no capture set one, which
+	 * reads as standard output; every tool here leaves it so. Read it
+	 * through ubertooth_result_stream(). Last in the handle so that no
+	 * offset above it moved.
+	 *
+	 * Diagnostics are not results and do not come through here: a warning,
+	 * a note or an error from the library is on standard error whatever a
+	 * tool sets. Neither is the decoded detail under a Classic or
+	 * low-energy packet, which libbtbb prints to standard output from
+	 * btbb_process_packet() and lell_print(): a tool that points this
+	 * somewhere else gets its own lines there and that detail on standard
+	 * output, and has to read the two together. */
+	FILE* result_stream;
 } ubertooth_t;
 
 typedef void (*rx_callback)(ubertooth_t* ut, void* args);
@@ -820,6 +840,13 @@ uint32_t ubertooth_symbol_overwrites(ubertooth_t* ut);
  */
 void ubertooth_report_capture_losses(ubertooth_t* ut);
 
+/* The stream this capture's results go to: result_stream, or standard output
+ * where the tool set none. For a tool that has to find out where its own
+ * results are going, and for the library, which asks rather than naming a
+ * stream itself. NULL is never returned.
+ */
+FILE* ubertooth_result_stream(ubertooth_t* ut);
+
 /* Whether the STOP request that ends a capture was refused on this handle.
  * Such a board is left running the mode the capture started, and no other
  * tool can open it until it is reset or re-plugged, so the run did not do
@@ -867,10 +894,11 @@ int rx_file_report(int result, const char* filename);
  * failed, already reported, rather than because the capture was stopped. */
 #define UBERTOOTH_ERROR_STREAM_FAILED (-2001)
 
-/* Dumps received symbols until the capture is stopped. Returns 0 when it was
- * stopped normally, or a negative error, already reported, if the capture
- * could not be started -- including a collecting thread that could not be
- * created -- or its stream died part-way. */
+/* Dumps received symbols until the capture is stopped. The records go to the
+ * file in dumpfile, or to the handle's result stream when the tool opened
+ * none. Returns 0 when it was stopped normally, or a negative error, already
+ * reported, if the capture could not be started -- including a collecting
+ * thread that could not be created -- or its stream died part-way. */
 int rx_dump(ubertooth_t* ut, int full);
 
 /* The same dump from the board's generic receive, which demodulates with the
@@ -885,8 +913,9 @@ int rx_dump_generic(ubertooth_t* ut, int full);
 #define UBERTOOTH_AFH_NO_PACKETS (-2000)
 
 /* Detect the piconet's AFH map, then monitor it for changes until stopped.
- * With a nonzero timeout, the detection phase runs for that many seconds and
- * the map is printed before monitoring starts. pn must be a piconet whose map
+ * Every map goes to the handle's result stream. With a nonzero timeout, the
+ * detection phase runs for that many seconds and the map is printed before
+ * monitoring starts. pn must be a piconet whose map
  * is still empty, as btbb_piconet_new() leaves it: "no packet was received" is
  * read from the map after the detection phase.
  *
