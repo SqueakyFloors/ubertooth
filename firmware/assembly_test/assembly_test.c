@@ -749,7 +749,6 @@ void bt_stream_rx()
 	u8 *tmp = NULL;
 	u8 epstat;
 	unsigned polls;
-	int i;
 
 	RXLED_SET;
 
@@ -904,7 +903,6 @@ int find_giac(u8 *buf)
 void bt_test_rx()
 {
 	u8 *tmp = NULL;
-	int i;
 	int countdown = 0;
 	int num_giacs = 0;
 

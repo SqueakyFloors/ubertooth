@@ -134,7 +134,6 @@ int main(int argc, char *argv[])
      * every register written once is the most one -w can ask for. */
     debug_register_write writeList[DEBUG_REGISTER_WRITES_MAX];
     int writeListN = 0;
-    int i;
 
     /* set command states to negative as a starter
      * setting to positive is value of specified argument */

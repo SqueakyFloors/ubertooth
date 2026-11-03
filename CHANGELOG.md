@@ -82,7 +82,10 @@
   one packet built to that format: AUX1, DV, the HV voice packets, the EV
   synchronous ones, and DM or DH at any length the format carries, including
   the odd and boundary lengths. The data is a counted pattern unless you give
-  the bytes, and the line the command prints is what went on the air.
+  the bytes, and the line the command prints is what went on the air. A DV
+  packet's two fields get patterns that start at different bytes, `a0` for the
+  voice field and `00` for the data field, so a decoder can see where the
+  voice field ends without knowing how long either field is.
   ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
   their lengths.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)

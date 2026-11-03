@@ -117,7 +117,6 @@ void __attribute__((noreturn)) die (char *fmt, ...)
 
 static void dump_debug_registers(void)
 {
-	int i;
 	extern uint32_t _stack_bottom;
 	volatile uint32_t _stk[1] = {0xdeadbeef}, *stk;
 	early_printf("CFSR=%08x\n", SCB_CFSR);

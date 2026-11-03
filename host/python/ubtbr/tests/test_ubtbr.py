@@ -2584,9 +2584,14 @@ def tx_request(lt_addr, format_code, repeat, payload):
                               len(payload)) + bytes(payload))
 
 
-def counted(count):
+def counted(count, base=0x00):
     """The payload "tx" fills a packet with when none is given."""
-    return bytes(i & 0xff for i in range(count))
+    return bytes((base + i) & 0xff for i in range(count))
+
+
+def counted_voice(count):
+    """The fill "tx" gives a voice field, which starts above the data's."""
+    return counted(count, 0xa0)
 
 
 def payload_header(length):
@@ -2611,10 +2616,19 @@ for typed, format_code, repeat, payload, printed in (
         ("tx ev3 17 4", 11, 4, counted(17), "ev3 len=17 count=4"),
         # and a payload the user chose
         ("tx ev3 3 1 aabbcc", 11, 1, b"\xaa\xbb\xcc", "data=aabbcc"),
-        # 10 voice bytes, then a DM1-sized data field
-        ("tx dv 9", 7, 1, counted(10) + payload_header(9) + counted(9),
-            "payload=" + (counted(10) + payload_header(9)
+        # 10 voice bytes, then a DM1-sized data field. The voice field's fill
+        # starts at 0xa0 and the data field's at 0x00, so the boundary between
+        # them is visible in the bytes a receiver decodes.
+        ("tx dv 9", 7, 1,
+            counted_voice(10) + payload_header(9) + counted(9),
+            "payload=" + (counted_voice(10) + payload_header(9)
                           + counted(9)).hex()),
+        # a chosen payload replaces a DV's data field and nothing else: the
+        # voice field keeps its own fill
+        ("tx dv 3 1 aabbcc", 7, 1,
+            counted_voice(10) + payload_header(3) + b"\xaa\xbb\xcc",
+            "payload=" + (counted_voice(10) + payload_header(3)
+                          + b"\xaa\xbb\xcc").hex()),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [
         state_message(*CONNECTED_LT_ADDR_1),
@@ -2636,7 +2650,7 @@ for typed, expected in (
             r" payload=000102"),
         ("tx dv 3 20",
             r"\d\d:\d\d:\d\d TX pkt: dv len=3 count=20 data=000102"
-            r" payload=000102030405060708091e000102"),
+            r" payload=a0a1a2a3a4a5a6a7a8a91e000102"),
 ):
     output, errors = canned_session("page 11:22:33:44:55:66", [
         state_message(*CONNECTED_LT_ADDR_1),

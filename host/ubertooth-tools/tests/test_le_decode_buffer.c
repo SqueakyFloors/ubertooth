@@ -160,7 +160,6 @@ static void run_capture(void)
 	int saved, saved_err;
 	FILE* err;
 	FILE* out;
-	long len = 0;
 
 	memset(&ut, 0, sizeof(ut));
 	ut.fifo = fifo_init();

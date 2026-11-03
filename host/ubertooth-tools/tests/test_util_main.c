@@ -3116,8 +3116,6 @@ MU_TEST(serial_listing_with_several_devices_exits_zero)
 	mu_assert(strstr(r.out, LISTED_SERIAL("1")) != NULL, "second serial");
 }
 
-#define SERIAL_VALUE "a1a2a3a4a5a6a7a8a9aaabacadaeafb0"
-
 MU_TEST(each_identity_query_alone_lists_every_device_compactly)
 {
 	struct { const char *option; const char *expected; } cases[] = {

@@ -389,23 +389,6 @@ void cc2400_set(u8 reg, u16 val)
 	cc2400_spi(24, out);
 }
 
-/* read 8 bit value from a register */
-u8 cc2400_get8(u8 reg)
-{
-	u16 in;
-
-	u16 out = (reg | 0x80) << 8;
-	in = cc2400_spi(16, out);
-	return in & 0xFF;
-}
-
-/* write 8 bit value to a register */
-void cc2400_set8(u8 reg, u8 val)
-{
-	u32 out = (reg << 8) | val;
-	cc2400_spi(16, out);
-}
-
 /*
  * The hold the CC2400 needs at the end of a FIFO transfer, before CSN rises.
  * The datasheet calls it t_ps and asks for 300 nanoseconds, FIFO accesses
