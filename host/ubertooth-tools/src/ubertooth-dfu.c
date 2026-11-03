@@ -879,6 +879,22 @@ static const struct dfu_idle_ops IDLE_OPS = {
 	.sleep_ms = transition_sleep_ms,
 };
 
+/* Wait, bounded, for the bootloader to be idle, reporting nothing. For a
+ * caller that will say in its own words what a board that would not become
+ * idle means, rather than ending the command: an `error: ` line belongs to a
+ * run that fails, so the one caller whose run goes on cannot use the reporting
+ * form below. Returns 0, or a negative enum dfu_idle_result. */
+static int enter_dfu_mode_quiet(libusb_device_handle* devh)
+{
+	const struct dfu_idle_config config = {
+		.max_polls = DFU_IDLE_DEFAULT_MAX_POLLS,
+		.poll_interval_ms = DFU_IDLE_DEFAULT_POLL_INTERVAL_MS,
+	};
+	struct dfu_idle_report report;
+
+	return dfu_reach_idle(&IDLE_OPS, NULL, devh, &config, &report);
+}
+
 /* Wait, bounded, for the bootloader to be idle, so a board that answers
  * nothing ends the command with a message instead of spinning. Returns 0, or
  * a negative enum dfu_idle_result. */
@@ -2014,7 +2030,10 @@ static int read_bootloader_region_once(libusb_device_handle *devh,
 	const int blocks = (int)(BOOTLOADER_SIZE / BLOCK_SIZE);
 	int block, rv;
 
-	rv = enter_dfu_mode(devh);
+	/* Quietly: a board that will not become idle leaves this check unmade,
+	 * and the run goes on to say what it said before, so an `error: ` line
+	 * here would be one the exit status does not match. */
+	rv = enter_dfu_mode_quiet(devh);
 	if (rv < 0)
 		return rv;
 	for (block = 0; block < blocks; block++) {
@@ -2094,18 +2113,27 @@ static int read_bootloader_region(libusb_device_handle *devh,
  * is always of the flash. The two comparisons here are therefore made
  * differently:
  *
- *   - an installed bootloader is recognized by the region ABOVE that window,
- *     which is flash either way, so a successful update is confirmed whichever
- *     way the map is set;
+ *   - the whole region hashing to the image's number is the board holding that
+ *     bootloader, and says nothing about the window either way;
  *   - nothing installed has to be the whole region hashing to exactly what the
  *     board reported before the run, which is provably a region that did not
- *     change.
+ *     change;
+ *   - failing both, a region whose bytes ABOVE the window are the image's is an
+ *     update that worked with the boot ROM reading back over the window, so a
+ *     successful update is still confirmed whichever way the map is set.
  *
- * Everything else is reported as a check that could not be made, and the run
- * ends as it did before. That asymmetry is deliberate: a false refusal on the
- * one write a user cannot undo over USB would be worse than the quiet success
- * this replaces, so a refusal needs proof and a confirmation does not have to
- * carry the window's uncertainty.
+ * They are asked in that order, and the order carries the argument. Two
+ * bootloaders can differ only inside the window, since the vector table and
+ * the version block both live there, and for such a pair a board that
+ * installed nothing has the image's bytes above the window. Asking the
+ * provable question first refuses that board instead of congratulating it.
+ * What is left is a region that is neither bootloader whole and not what the
+ * board had: that is reported as a check that could not be made, and the run
+ * ends as it did before.
+ *
+ * The asymmetry is deliberate: a false refusal on the one write a user cannot
+ * undo over USB would be worse than the quiet success this replaces, so a
+ * refusal is only ever made on proof.
  *
  * Returns one of the three below, having said what it found.
  */
@@ -2162,10 +2190,18 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	         "0x%08x (before: 0x%08x, image: 0x%08x)", (unsigned)board.crc32,
 	         (unsigned)runtime->bl_crc32_before, (unsigned)image_crc32);
 	log_dfu_stage(stage);
-	/* Above the window, so the part's memory map cannot turn an update that
-	 * worked into one that could not be checked. */
-	if (board.crc32_above_window == image->region_crc32_above_window)
+	/* The whole region, which is the one comparison that needs nothing said
+	 * about the window: this is the board holding exactly the bootloader the
+	 * image carries, whether this run put it there or it was already there. */
+	if (board.crc32 == image_crc32)
 		return BL_INSTALL_CONFIRMED;
+	/* The unchanged region comes before the above-window comparison, not
+	 * after it. Two bootloaders can differ only inside the window -- the
+	 * vector table and the version block both live there, so a rebuild that
+	 * only stamps a new version is exactly that -- and for such a pair the
+	 * region above the window matches the image on a board that installed
+	 * nothing. Asking the provable question first means that board is
+	 * refused rather than congratulated. */
 	if (board.crc32 == runtime->bl_crc32_before) {
 		fprintf(stderr, "error: no bootloader was installed: the region "
 		        "still holds the one the board reported before this run "
@@ -2190,6 +2226,12 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 		fflush(stderr);
 		return BL_INSTALL_UNCHANGED;
 	}
+	/* The region changed, and above the window it is the image's bootloader:
+	 * the window is where the two differ, which is the part's boot ROM
+	 * reading back over it. So this is an update that worked, and the memory
+	 * map cannot turn it into a check that could not be made. */
+	if (board.crc32_above_window == image->region_crc32_above_window)
+		return BL_INSTALL_CONFIRMED;
 	/* A warning rather than a note: the region holds neither bootloader
 	 * whole, so something is worth looking at, but it is not proof that
 	 * nothing was installed either -- a part-written region reads like this

@@ -365,15 +365,22 @@ check could not be made, claims nothing about the region, and sends you to
 `ubertooth-util -B`, which is also what it does when the region will not read
 back.
 
-The two comparisons are made differently, because the part covers the lowest
-512 bytes of the address map with either the user flash or its own boot ROM and
-the bootloader does not choose which. An installed bootloader is recognized by
-the region above those bytes, which is the flash either way, so an update that
-worked is reported as such whichever way the map is set. Nothing installed has
-to be the whole region hashing to exactly what the board reported before the
-run. A region that holds neither bootloader whole, as a write that stopped part
-way would leave it, is a `warning: ` and status 0: only a region that is
-provably unchanged is refused.
+The comparison is made in three steps, because the part covers the lowest 512
+bytes of the address map with either the user flash or its own boot ROM and the
+bootloader does not choose which. The whole region hashing to the image's
+number is the board holding that bootloader. Failing that, the whole region
+hashing to exactly what the board reported before the run is nothing installed,
+and that is the `error: `. Failing both, a region whose bytes above those 512
+are the image's is an update that worked with the boot ROM reading back over
+them, and is reported as installed.
+
+The order matters: the vector table and the version block both live in those
+512 bytes, so two builds of one bootloader can differ only there, and for such
+a pair a board that installed nothing already has the image's bytes above them.
+Asking the provable question first refuses that board. What is left -- a region
+that is neither bootloader whole and not what the board had, as a write that
+stopped part way would leave it -- is a `warning: ` and status 0. Only a region
+that is provably unchanged is refused.
 
 Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table
