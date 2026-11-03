@@ -90,7 +90,8 @@ COMPATIBILITY.md for the comparison.
    each attached board; see ubertooth(7), COMMON OPTIONS
  - `-r <filename>` :
    capture packets to a PCAPNG file. A PcapNG writer seeks back over what it
-   has written, which standard output cannot do, so `-r -` is refused:
+   has written, which standard output cannot do, so a value naming that stream
+   is refused, `-r -` and `-r /dev/stdout` alike:
    `error: PCAPNG capture to stdout is not supported; use -q -`
  - `-q <filename>` :
    capture packets to a PCAP file. `-q -` writes the capture to standard
@@ -246,9 +247,8 @@ path that names this process's descriptor 1, such as `/dev/stdout` or
 including one that starts with `-`: `-q -x` writes the file `-x`. Standard
 output carries one stream, so `-q` and `-d` cannot both have it in one
 command: `error: -q and -d cannot both write to standard output`. `-r` is not
-part of that pair, since it never has the stream: a lone `-` is refused above,
-and a path naming the stream is refused by the PcapNG writer, which will not
-open a destination that exists already.
+part of that pair, since it never has the stream: every value naming standard
+output is refused when `-r` is read, not only a lone `-`.
 
 A file name cannot be shared either. Each of `-r`, `-q` and `-d` opens its own
 destination for writing, which truncates whatever another has put there, so no

@@ -292,10 +292,19 @@ int main(int argc, char *argv[])
 		 * leaves the filesystem alone. */
 		case 'r':
 			/* A PcapNG writer seeks back to finish the blocks it has
-			 * written, which standard output cannot do, so a lone "-"
-			 * is refused here rather than taken as the file name "-".
-			 * The PCAP writer does not seek: -q takes it. */
-			if (strcmp(optarg, "-") == 0) {
+			 * written, which standard output cannot do, so a value
+			 * naming that stream is refused here rather than taken
+			 * as a file name. The PCAP writer does not seek: -q
+			 * takes it.
+			 *
+			 * Every spelling is refused, not just a lone "-", so
+			 * that "/dev/stdout" is answered on the command line
+			 * too. Left to the writer it would only fail after the
+			 * device was open, and the failure would be a confusing
+			 * one: the stream's own device node already exists, so
+			 * the writer's refusal to overwrite a file is what the
+			 * user would be told. */
+			if (opt_writes_to_stdout(optarg)) {
 				fputs("error: PCAPNG capture to stdout is not supported;"
 				      " use -q -\n", stderr);
 				return 1;

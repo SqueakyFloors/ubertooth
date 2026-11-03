@@ -139,6 +139,19 @@ with tempfile.TemporaryDirectory() as work:
         check(output == b"", "%s writes nothing to standard output" % written,
               repr(output[:60]))
 
+    # A PcapNG capture cannot have standard output at all, so -r refuses every
+    # spelling of it on the command line. Were one spelling to slip through,
+    # the pair above would reach neither gate: this check leaves it alone as
+    # the other rule's, and that rule covers -q and -d.
+    for named in ("-", "/dev/stdout", "/dev/fd/1", "//dev//fd//1"):
+        status, output, errors = run(["-r", named, "-q", "-"], work)
+        check(status == 1, "-r %s exits 1" % named, str(status))
+        check(errors == "error: PCAPNG capture to stdout is not supported;"
+              " use -q -\n",
+              "-r %s is refused on the command line" % named, errors)
+        check(output == b"", "-r %s writes nothing to standard output" % named,
+              repr(output[:60]))
+
 for line in failures:
     print(line)
 if failures:
