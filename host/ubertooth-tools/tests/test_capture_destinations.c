@@ -330,6 +330,34 @@ static void test_standard_output_pointed_at_a_file(void)
 	check_accepted("points-at-dash", "redirected.bin");
 	check_accepted("redirected.bin", "points-at-dash");
 
+	/* A link pointing at a path that names descriptor 1 does reach this
+	 * stream, so it is the same destination as the file the stream is on.
+	 * The target is recognized by its text: looking it up answers with a
+	 * device of its own on the BSDs, where the pair would be missed. */
+	unlink("points-at-stream");
+	if (symlink("/dev/stdout", "points-at-stream") == 0) {
+		check_refused("points-at-stream", "redirected.bin",
+		              "error: -q and -d cannot both write to one file"
+		              " (points-at-stream and redirected.bin)\n");
+		check_refused("redirected.bin", "points-at-stream",
+		              "error: -q and -d cannot both write to one file"
+		              " (redirected.bin and points-at-stream)\n");
+		check_accepted("points-at-stream", "elsewhere.bin");
+		/* The same link beside a "-" the user wrote. Both reach this
+		 * stream, so both reach the file it is on, and the target has
+		 * to be recognized by its text: looking it up answers with a
+		 * device of its own on the BSDs, and the pair was missed. */
+		check_refused("-", "points-at-stream",
+		              "error: -q and -d cannot both write to one file"
+		              " (standard output and points-at-stream)\n");
+		check_refused("points-at-stream", "-",
+		              "error: -q and -d cannot both write to one file"
+		              " (points-at-stream and standard output)\n");
+	} else {
+		printf("skipping the link-to-the-stream case: %s\n",
+		       strerror(errno));
+	}
+
 	fflush(stdout);
 	dup2(saved, STDOUT_FILENO);
 	close(saved);
@@ -466,7 +494,8 @@ static void clean_up(void)
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
 		"dangling.bin", "sink.bin", "redirected.bin", "-",
-		"points-at-dash", "sub/pointer.bin", "sub/updown.bin",
+		"points-at-dash", "points-at-stream",
+		"sub/pointer.bin", "sub/updown.bin",
 	};
 	char sub[sizeof(work) + 8];
 	size_t i;

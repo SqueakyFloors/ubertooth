@@ -255,19 +255,21 @@ destination for writing, which truncates whatever another has put there, so no
 two of them may name one file: `error: -q and -d cannot both write to
 capture.pcap`, exit 1, with the file left as it was. The file is identified
 rather than the name, so two spellings of one path, a symbolic link, a hard
-link, and `-q -` beside a `-d` naming the file the shell has pointed standard
-output at are all caught. A value meaning the stream is compared by that
-descriptor alone and never as a path, so `-q -` beside `-d ./-` is two
-destinations — the stream and the file named `-` — unless the shell really has
-pointed standard output at that file.
+link, `-q -` beside a `-d` naming the file the shell has pointed standard
+output at, and a link pointing at that stream are all caught. A value meaning
+the stream is compared by that descriptor alone and never as a path, so `-q -`
+beside `-d ./-` is two destinations — the stream and the file named `-` —
+unless the shell really has pointed standard output at that file.
 
 Writing both captures to `/dev/null` is not refused, since nothing is kept
-there and nothing is lost. Nor is a chain of symbolic links whose middle
-element is missing, or two names whose directory does not exist yet either.
-`/dev/fd/3` and the names like it reach whatever the calling shell opened on
-that descriptor: Linux makes those symbolic links, so they are followed and
-caught there, while on the BSDs they are served by a filesystem of their own
-and are not.
+there and nothing is lost. Some pairs that are one file cannot be told apart
+from the names alone and are not refused either: a symbolic link that cannot
+be resolved, two names whose directory does not exist yet, two names a
+case-folding filesystem would make one file while neither is there yet, and,
+on the BSDs, `/dev/fd/3` and the names like it, which Linux makes symbolic
+links and the BSDs serve from a filesystem of their own. Each of these needs
+the destination identified after it is open and before it is truncated; see
+ubertooth(7) and the capture-destination notes there.
 
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the

@@ -279,8 +279,10 @@ static const char *next_component(const char **at, size_t *len)
 
 /* Whether a path ends inside the name before it: a trailing separator or "."
  * element asks for something within that name, and nothing a capture option
- * names is a directory. The platform decides what opening such a name does;
- * the comparisons below only decline to call it the same file as anything. */
+ * names is a directory. The platform decides what opening such a name does,
+ * so the comparisons below decline to reason about one: they call it the same
+ * destination as nothing but the very same text, and the writer's own open
+ * reports it. */
 static int ends_inside_a_name(const char *path)
 {
 	size_t length = strlen(path);
@@ -448,19 +450,19 @@ static int same_directory_entry(const char *first, const char *second)
 	       first_info.st_ino == second_info.st_ino;
 }
 
-/* Which file a writer given this destination would write to: 0 once <where>
- * holds its device and inode numbers, -1 when they cannot be had -- a name
- * that does not exist yet, which is the ordinary case for a capture, or a
- * path that cannot be looked up at all. The caller below treats both the same
- * way, as a destination a writer would create, which is why a matched pair of
- * them is refused here rather than left to the writer's own open.
+/* Which file a writer given this PATH would write to: 0 once <where> holds
+ * its device and inode numbers, -1 when they cannot be had -- a name that does
+ * not exist yet, which is the ordinary case for a capture, or a path that
+ * cannot be looked up at all. The caller treats both the same way, as a
+ * destination a writer would create, which is why a matched pair of them is
+ * refused here rather than left to the writer's own open.
  *
- * A value that means standard output has no name to look up, so the
- * descriptor is what to ask: the calling shell may have pointed the stream at
- * a file another capture option also names. Looking a name up costs it
- * nothing; opening one to learn more would, because an open blocks until a
- * reader arrives on a named pipe and lowers a serial device's modem lines
- * when it is closed, so no destination is opened here. */
+ * A path that names descriptor 1 has no file of its own to look up, so the
+ * descriptor is what to ask.
+ *
+ * Looking a name up costs it nothing; opening one to learn more would, because
+ * an open blocks until a reader arrives on a named pipe and lowers a serial
+ * device's modem lines when it is closed, so no destination is opened here. */
 static int path_file(const char *path, struct stat *where)
 {
 	if (path == NULL)
@@ -470,9 +472,17 @@ static int path_file(const char *path, struct stat *where)
 	return stat(path, where) == 0 ? 0 : -1;
 }
 
-/* The same question asked of an option VALUE rather than of a path. The two
- * differ in the lone "-", which is the stream when the user wrote it and an
- * ordinary name wherever else it appears. */
+/* The same question asked of an option VALUE rather than of a path.
+ *
+ * This is where the whole value-against-path distinction lives, and it is one
+ * character wide. A lone "-" is standard output because the user typed it
+ * there; it is not a path, and the stream has no name to look up, so the
+ * descriptor is what to ask -- the calling shell may have pointed the stream
+ * at a file another capture option also names. Everywhere else a "-" is the
+ * ordinary file of that name: "./-" is how that file is written, and a
+ * symbolic link whose target happens to read "-" points at it. Two review
+ * rounds found a bug on each side of this line, so keep the two callers
+ * apart: a value the user wrote comes here, a path comes to path_file(). */
 static int destination_file(const char *name, struct stat *where)
 {
 	if (name != NULL && strcmp(name, "-") == 0)
@@ -480,39 +490,68 @@ static int destination_file(const char *name, struct stat *where)
 	return path_file(name, where);
 }
 
+/* Whether a destination is standard output, asked of the value the user wrote
+ * and of the path it resolved to.
+ *
+ * The two differ in the lone "-". It is the stream as something the user
+ * typed, and an ordinary file of that name anywhere else, so a link whose
+ * target happens to read "-" points at that file. The paths that name
+ * descriptor 1 mean the stream either way. */
+static int names_the_stream(const char *value, const char *path, int resolved)
+{
+	return resolved ? names_descriptor_one(path)
+	                : opt_writes_to_stdout(value);
+}
+
+/* Which file a writer given this destination would write to, reading the value
+ * the user wrote or the path it resolved to by the same rule. */
+static int written_file(const char *value, const char *path, int resolved,
+                        struct stat *where)
+{
+	return resolved ? path_file(path, where)
+	                : destination_file(value, where);
+}
+
 /* Whether two capture destinations are one file. */
 static int same_destination(const char *first, const char *second)
 {
 	char first_target[PATH_MAX], second_target[PATH_MAX];
+	const char *first_path, *second_path;
+	int first_linked, second_linked;
 	struct stat first_file, second_file;
 
-	/* A value meaning standard output names a stream, not a path, so
-	 * neither comparison below applies to it: "-" is the stream while
-	 * "./-" is an ordinary file of that name, and the two texts reduce to
-	 * each other. Only the descriptor says which file the stream is on,
-	 * and the same goes for a symbolic link pointing at a file called
-	 * "-", whose target must not be read as the stream either. */
-	if (opt_writes_to_stdout(first) || opt_writes_to_stdout(second))
-		return destination_file(first, &first_file) == 0 &&
-		       destination_file(second, &second_file) == 0 &&
+	/* A writer writes through a symbolic link, so the link's target is the
+	 * destination. Resolved before the stream test below, because a link
+	 * pointing at "/dev/stdout" does reach the stream and has to be
+	 * recognized as it: on the BSDs that name is a device of its own, so
+	 * looking it up as a path answers with the wrong device number and the
+	 * pair would be missed. */
+	first_linked = link_target(first, first_target, sizeof(first_target));
+	second_linked = link_target(second, second_target, sizeof(second_target));
+	first_path = first_linked ? first_target : first;
+	second_path = second_linked ? second_target : second;
+
+	/* Either destination being the stream leaves nothing to compare as a
+	 * path: "-" is the stream while "./-" is an ordinary file of that
+	 * name, and the two texts reduce to each other. The descriptor is the
+	 * only thing that says which file the stream is on. */
+	if (names_the_stream(first, first_path, first_linked) ||
+	    names_the_stream(second, second_path, second_linked))
+		return written_file(first, first_path, first_linked,
+		                    &first_file) == 0 &&
+		       written_file(second, second_path, second_linked,
+		                    &second_file) == 0 &&
 		       first_file.st_dev == second_file.st_dev &&
 		       first_file.st_ino == second_file.st_ino;
 
-	if (link_target(first, first_target, sizeof(first_target)))
-		first = first_target;
-	if (link_target(second, second_target, sizeof(second_target)))
-		second = second_target;
-
-	if (same_path_text(first, second) ||
-	    same_directory_entry(first, second))
+	if (same_path_text(first_path, second_path) ||
+	    same_directory_entry(first_path, second_path))
 		return 1;
 	/* Both destinations exist, so the files behind them can be compared,
 	 * which catches a hard link and a directory that the lookup above
-	 * could not reach. Each is looked up as a path, not as a value: by
-	 * here neither option asked for the stream, and what a link resolved
-	 * to is text this code read rather than text the user wrote. */
-	if (path_file(first, &first_file) != 0 ||
-	    path_file(second, &second_file) != 0)
+	 * could not reach. */
+	if (written_file(first, first_path, first_linked, &first_file) != 0 ||
+	    written_file(second, second_path, second_linked, &second_file) != 0)
 		return 0;
 	return first_file.st_dev == second_file.st_dev &&
 	       first_file.st_ino == second_file.st_ino;

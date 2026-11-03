@@ -166,43 +166,37 @@ typedef struct {
  * Pass every capture destination of the run. Returns 0, or prints one
  * "error: " line naming the two options that clashed and returns -1. Call it
  * once the capture options are parsed and before any destination is opened,
- * so a refused run creates and truncates nothing.
+ * so a refused run creates and truncates nothing. No destination is opened in
+ * order to identify it either.
  *
- * Two destinations are one file when, after following one symbolic link
- * (a writer writes through one, and one pointing at a file that is not there
- * yet creates it):
+ * Two destinations are one file whether or not they are spelled alike: two
+ * spellings of one path, a name that does not exist yet beside another route
+ * to it, a symbolic link, a hard link, and a value meaning standard output
+ * beside the file the calling shell has pointed that stream at. opt_parse.c
+ * says how each of those is answered, and which destinations a writer would
+ * not overwrite and so are not refused ("/dev/null" twice, a directory).
  *
- *  - the text says so, allowing the redundant separators and "." elements a
- *    path may carry ("./cap.bin" beside "cap.bin"); or
- *  - the last element is the same name and the directories above it look up
- *    to one directory, which reduces ".." and the links in the path and
- *    answers for a name that does not exist yet; or
- *  - both already exist with the same device and inode number, which catches
- *    a hard link.
+ * Two destinations that both mean standard output are not this check's: one
+ * stream cannot carry two captures however they are spelled, and each tool
+ * has its own rule for that pair. Keep the two in step -- a capture option
+ * able to hold such a value that the tool's own rule does not reach would
+ * fall between the two gates.
  *
- * A value that means standard output names a stream and not a path, so it is
- * identified from descriptor 1 alone: the calling shell may have pointed the
- * stream at a file another option also names, while "./-" beside "-" is an
- * ordinary file beside the stream. Two destinations that both mean standard
- * output are not this check's at all, because one stream cannot carry two
- * captures whatever they are spelled. Each tool refuses that pair with its own
- * one-capture-on-standard-output rule, and refuses the stream outright for a
- * capture that cannot use it, such as a PcapNG capture that has to seek back
- * over what it wrote. A tool whose rule does not reach one of its capture
- * options would let such a pair past both gates, so keep the two in step.
+ * Not caught, all of them for want of the destination being identified after
+ * it is open and before it is truncated, which reaches into how every writer
+ * opens its file, which is a separate piece of work:
  *
- * Only a destination a writer would overwrite is refused. The null device
- * keeps nothing, so "-q /dev/null -d /dev/null" discards both captures as
- * asked; a directory is no destination at all and the writer's own open says
- * so. Everything else, a terminal and a serial line included, is refused like
- * a file.
- *
- * Not caught: a chain of symbolic links whose middle element is missing, two
- * names whose directory does not exist yet either, and, on the BSDs, a
- * destination reached through a descriptor the calling shell opened
- * ("/dev/fd/3"), which is a symbolic link on Linux and a device of its own
- * there. All of these need each destination identified after it is open and
- * before it is truncated, which reaches into how every writer opens its file.
+ *  - a symbolic link this check cannot resolve: a chain whose middle element
+ *    is missing, or a target too long to hold;
+ *  - two names whose directory does not exist yet either;
+ *  - two names a case-folding or name-normalizing filesystem would make one
+ *    file ("newcap.bin" beside "NEWCAP.BIN" on APFS, vfat or NTFS), while
+ *    neither is there yet. Once one of them exists it is caught, by its
+ *    device and inode number. Whether a name is folded is the filesystem's
+ *    rule and is not knowable from the name, so this check does not guess;
+ *  - on the BSDs, a destination reached through a descriptor the calling
+ *    shell opened ("/dev/fd/3"), which is a symbolic link on Linux and a
+ *    device of its own there.
  */
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
                                  size_t count);
