@@ -291,6 +291,20 @@ int hci_read_clock_offset(int dd, uint16_t handle, uint16_t* clkoffset, int to)
 	return 0;
 }
 
+/* The local adapter's own address, which a run with no target follows. The
+ * bytes are least significant first, so this is 66:55:44:33:22:11: LAP 332211
+ * under UAP 44, the same UAP the target macros below name. */
+int hci_read_bd_addr(int dd, bdaddr_t* bdaddr, int to)
+{
+	int i;
+
+	(void)dd;
+	(void)to;
+	for (i = 0; i < 6; i++)
+		bdaddr->b[i] = (uint8_t)(0x11 * (i + 1));
+	return 0;
+}
+
 /* ---- faked Ubertooth ---------------------------------------------------- */
 
 ubertooth_t* ubertooth_init()
@@ -825,6 +839,35 @@ MU_TEST(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet)
 	          "-t and -l with -u reached the board as different addresses");
 }
 
+/* A UAP this tool was given is kept on the handle, where the callback puts it
+ * back whenever libbtbb stops holding it. None of the three ways the tool
+ * learns a UAP is a guess off the air, so all three are kept: -t, -u, and the
+ * local adapter's own address. */
+MU_TEST(a_uap_the_tool_was_given_is_kept_for_the_callback)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN(TARGET);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake_ut.follow_uap_stated);
+	mu_assert_int_eq(0x44, fake_ut.follow_uap);
+
+	reset_fake();
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake_ut.follow_uap_stated);
+	mu_assert_int_eq(0x44, fake_ut.follow_uap);
+
+	/* No target: the faked adapter's own address, 66:55:44:33:22:11, so
+	 * LAP 332211 under UAP 44. */
+	reset_fake();
+	r = RUN();
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake_ut.follow_uap_stated);
+	mu_assert_int_eq(0x44, fake_ut.follow_uap);
+}
+
 /* The map -a read is printed either way, and by the tool: it used to come
  * from inside libbtbb, which must not write to standard output. The wording
  * is the one libbtbb used, so a reader and a script see the same line. A
@@ -1316,6 +1359,7 @@ int main(void)
 	MU_RUN(a_stream_that_cannot_start_gives_the_board_back);
 	MU_RUN(an_adapter_that_cannot_be_used_exits_1_on_standard_error);
 	MU_RUN(a_whole_address_and_its_lap_and_uap_follow_the_same_piconet);
+	MU_RUN(a_uap_the_tool_was_given_is_kept_for_the_callback);
 	MU_RUN(the_afh_map_is_printed_beside_a_capture_on_standard_output);
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);

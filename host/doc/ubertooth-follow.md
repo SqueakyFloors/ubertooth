@@ -38,6 +38,18 @@ ways, and the tool does not reconcile them. With no target at all, the address
 is read from the local Bluetooth device — note this may yield the wrong
 address in some cases, so naming the target explicitly is recommended.
 
+A clock read through the adapter can still turn out not to be the piconet's,
+and the capture then goes back to searching for one, as ubertooth-rx(1)
+describes under THE CLOCK SEARCH. The UAP is not searched for again. However
+the target was named, its UAP came from the command line or from the local
+Bluetooth device rather than from the air, so a header that fails to decode is
+no evidence against it: the UAP is put back and the warning names it.
+
+    warning: the clock being followed was not this piconet's; searching for its clock again, and putting UAP 44 back
+
+If that UAP is in fact wrong, nothing of the piconet will decode, and the line
+above says which one the tool is holding you to.
+
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
 board was idle, and the firmware resets it on every mode change, so it never
