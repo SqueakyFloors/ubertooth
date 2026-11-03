@@ -1087,6 +1087,16 @@
   on.
   [#1139](https://github.com/SqueakyFloors/ubertooth/issues/1139)
 
+- Fixed: a `btbr` connection or page could also stop forever when the slot the
+  transmit itself needed was already full. The board said only
+  `tdma_schedule bucket overflow`, no part of the transmit ran, and nothing
+  told the link the slot was over, so it went silent and the next packet it
+  handed over stopped the firmware with `txs: already got pkt`. It now says
+  the packet was not sent, gives the packet back, and reports the failed
+  transmit. A transmit that lost only the slot it would have started in is
+  reported as a dropped packet too, where it used to be dropped in silence.
+  [#1151](https://github.com/SqueakyFloors/ubertooth/issues/1151)
+
 - Fixed: when the `btbr` image's radio had not tuned in time for a transmit
   slot, the board said only `TX: RF not FS_ON`, and then spent the next slot
   waiting for an end of transmission that could not come, counting a radio
