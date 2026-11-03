@@ -3612,6 +3612,12 @@ Fixes with no visible change in normal use.
   and no shipped tool reads the mark yet, so nothing in a capture looks
   different today.
   [#849](https://github.com/SqueakyFloors/ubertooth/issues/849)
+- A promiscuous capture starts following the connection it has worked out
+  without a stray retune. The board set the follow up in two steps, and a
+  clock tick landing between them could ask for a hop before there was a
+  connection to time it, which cost the capture its place and left it waiting
+  for the search to run again.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
