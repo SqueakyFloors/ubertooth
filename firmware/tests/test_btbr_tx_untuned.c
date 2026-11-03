@@ -237,6 +237,19 @@ void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr,
 
 #include "../btbr/src/btphy/tx_task.c"
 
+/*
+ * The scheduler underneath, so the order the three transmit tasks run in is
+ * the firmware's own. It marks a parameter it does not read with `__unused`,
+ * which the ARM toolchain's headers supply and a host's C library may not, so
+ * it is spelled out here -- after the host headers above, which on some
+ * platforms use the same name for a structure member. Included rather than
+ * linked for that reason alone.
+ */
+#ifndef __unused
+#define __unused __attribute__((unused))
+#endif
+#include "../btbr/src/btphy/tdma_sched.c"
+
 /* ---- driving whole slots ---- */
 
 /*

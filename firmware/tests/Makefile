@@ -443,7 +443,7 @@ $(BINDIR)/test_btbr_tx_queue: test_btbr_tx_queue.c minunit.h \
 
 # What the transmit task does when the radio's synthesizer has not locked.
 # tx_task.c is included into the test (see its header comment), because its
-# slot tasks are static, and the real tdma_sched.c is linked so the order the
+# slot tasks are static, and the real tdma_sched.c with it, so the order the
 # three tasks run in is the firmware's own. stubs-btbr-rx/ supplies the
 # hardware-free ubertooth.h with the fake slot clock, and stubs-btbr/ the
 # diagnostics stand-in.
@@ -462,7 +462,6 @@ $(BINDIR)/test_btbr_tx_untuned: test_btbr_tx_untuned.c minunit.h \
 		$(CPPFLAGS) -I$(FW_COMMON) -DT1TC='btphy.central_clkn' \
 		-Wno-unused-parameter -Wno-address-of-packed-member \
 		-o $@ test_btbr_tx_untuned.c \
-		$(FW_BTBR)/src/btphy/tdma_sched.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
 
 $(BINDIR)/test_btbr_connection_end: test_btbr_connection_end.c minunit.h \
