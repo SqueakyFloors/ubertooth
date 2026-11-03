@@ -1223,12 +1223,21 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
 	                 "back in the bootloader\n") != NULL,
 	          "the board back in the bootloader was not reported");
 	/* The causes any board can be in, before the one that needs the header:
-	 * a user who never fitted a bridge has to be told something true. */
+	 * a user who never fitted a bridge has to be told something true. All
+	 * three of the bootloader's entry conditions are named, so a board left
+	 * half-written by an earlier download sees its own reason too. */
 	mu_assert(strstr(r.err, "note: the bootloader runs instead of the "
 	                 "application when something asks the board into DFU "
-	                 "again, or when its bootloader entry pin reads grounded "
-	                 "as the board resets\n") != NULL,
+	                 "again, when its bootloader entry pin reads grounded "
+	                 "as the board resets, or when the board holds no whole "
+	                 "application image to start\n") != NULL,
 	          "the general causes were not named");
+	/* This run wrote nothing, so a half-written image from an earlier
+	 * download is still the likeliest reason, and writing a whole one is
+	 * what clears it. */
+	mu_assert(strstr(r.err, "note: an interrupted download leaves the board "
+	                 "without one, so write a whole image: -d <image> -r\n")
+	          != NULL, "writing a whole image was not suggested");
 	mu_assert(strstr(r.err, "note: if the expansion-header bridge is still "
 	                 "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
 	                 "One), then unplug the board and plug it back in\n")
@@ -1240,8 +1249,11 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
 	          "a board back in the bootloader was reported as detached");
 	mu_assert(strstr(r.err, "still in DFU") == NULL,
 	          "a board that did reset was reported as never having left");
-	/* The general causes come before the bridge. */
+	/* The general causes come before the two remedies. */
 	mu_assert(strstr(r.err, "something asks the board into DFU") <
+	          strstr(r.err, "interrupted download"),
+	          "a remedy was offered before the general causes");
+	mu_assert(strstr(r.err, "interrupted download") <
 	          strstr(r.err, "expansion-header bridge"),
 	          "the bridge was suggested before the general causes");
 	mu_assert_int_eq(0, (int)strlen(r.out));
@@ -1294,6 +1306,10 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_before_verification)
 	mu_assert(strstr(r.err, "the firmware was written") <
 	          strstr(r.err, "the bootloader runs instead"),
 	          "the causes came before what is known about the flash");
+	/* The board holds a whole image, so the one entry condition it cannot be
+	 * in is the half-written one: do not send the reader to write again. */
+	mu_assert(strstr(r.err, "interrupted download") == NULL,
+	          "a completed write was told to write a whole image");
 	mu_assert(strstr(r.out, "Verified firmware revision") == NULL,
 	          "a board in the bootloader was reported as verified");
 	mu_assert_int_eq(0, fake.revision_calls);

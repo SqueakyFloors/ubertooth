@@ -395,7 +395,9 @@ already in DFU, so the run would end at `DFU entry failed` instead.*
 - [ ] Confirm: it exits 1 with
       `error: detach failed: the board reset and came back in the bootloader`,
       then the `note:` lines saying the firmware was written, naming the
-      bootloader's two entry conditions, and telling you to remove the bridge.
+      bootloader's three entry conditions, and telling you to remove the
+      bridge. The note about an interrupted download is not among them,
+      because this run wrote a whole image.
       No bare libusb status line in front of them, and no second copy of the
       failure from cleanup
 - [ ] Unplug the board, remove the bridge, plug it back in, and run

@@ -1040,6 +1040,14 @@
 
 ### Reliability fixes
 
+- Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
+  saying why named two of the three reasons the bootloader runs. A board left
+  without a whole image to start, which is what an interrupted download
+  leaves behind, was given two reasons that did not apply to it. That reason
+  is now named as well, and a run that wrote nothing is told to write a whole
+  image.
+  [#1133](https://github.com/SqueakyFloors/ubertooth/issues/1133)
+
 - Fixed: a board carrying a bootloader built from this tree could not be
   flashed over USB at all. `ubertooth-dfu` failed on the first firmware block
   and left the board in the bootloader with no firmware. The boot ROM routine
