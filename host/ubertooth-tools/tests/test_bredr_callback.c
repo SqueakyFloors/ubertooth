@@ -1715,6 +1715,13 @@ MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
  * below, and no amount of descheduling turns one into the other. */
 #define HEARD_LONG_AGO_MS 5000
 
+/* What a restarted wait reads under, in milliseconds: the bound the clock
+ * handover is held to a few lines down as well. A restart puts the reading
+ * back to the microseconds a callback takes, so a whole second is room to
+ * spare for a delayed reading, while still being near enough zero to fail a
+ * restart that stamped some stale moment instead of the present one. */
+#define WAIT_RESTARTED_MS 1000
+
 /* A clock that is not the piconet's fails no header, so the library has
  * nothing to act on and the silence is the tool's to judge. What the tool
  * reads is the moment a packet of the piconet last arrived. The cases that
@@ -1738,7 +1745,8 @@ MU_TEST(how_long_a_follow_has_heard_nothing_is_there_for_the_tool)
 	process_packet_result = -1;
 	run_callback(cb_rx, pn);
 	at_clock = ubertooth_follow_quiet_ms(&last_ut);
-	mu_assert(at_clock >= 0 && at_clock < 1000, "a clock was handed over");
+	mu_assert(at_clock >= 0 && at_clock < WAIT_RESTARTED_MS,
+	          "a clock was handed over");
 
 	/* A record with no access code in it is not this piconet, so the wait
 	 * goes on growing however many arrive: that is the silence the tool is
@@ -1756,10 +1764,9 @@ MU_TEST(how_long_a_follow_has_heard_nothing_is_there_for_the_tool)
 	mu_assert(after_quiet >= HEARD_LONG_AGO_MS, "the wait grew");
 
 	/* A packet of the piconet starts it again: from the same seconds of
-	 * silence, the reading goes back to near enough no time at all. Half
-	 * the silence is the bound, which leaves it well clear of both -- a
-	 * wait that did not restart reads the full HEARD_LONG_AGO_MS, and a
-	 * wait that did would have to be delayed by seconds to reach it. */
+	 * silence, the reading goes back to near enough no time at all. The
+	 * reading cannot be negative either, which is what a follow wrongly
+	 * forgotten would read. */
 	reset_state();
 	last_ut.br_heard_ms = monotonic_ms() - HEARD_LONG_AGO_MS;
 	fill_packet(&next_packets[0],
@@ -1767,7 +1774,7 @@ MU_TEST(how_long_a_follow_has_heard_nothing_is_there_for_the_tool)
 	next_count = 1;
 	run_callback(cb_rx, pn);
 	after_packet = ubertooth_follow_quiet_ms(&last_ut);
-	mu_assert(after_packet >= 0 && after_packet < HEARD_LONG_AGO_MS / 2,
+	mu_assert(after_packet >= 0 && after_packet < WAIT_RESTARTED_MS,
 	          "the wait started again");
 
 	/* And there is nothing to read once that clock has been given up. */
@@ -1784,6 +1791,7 @@ MU_TEST(how_long_a_follow_has_heard_nothing_is_there_for_the_tool)
 MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
 {
 	btbb_piconet* pn = btbb_piconet_new();
+	long after_restart;
 
 	reset_state();
 	btbb_init_piconet(pn, 0x123456);
@@ -1804,10 +1812,12 @@ MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
 	mu_assert_int_eq(0, seen.channels_set);
 	mu_assert_int_eq(0, (int)strlen(last_stderr));
 	/* The follow is still there to be watched, and the wait starts again,
-	 * so a tool asks once per wait rather than once per record. The
-	 * seconds of silence set above are gone from the reading, with the
-	 * same bound and the same room either side as the case before. */
-	mu_assert(ubertooth_follow_quiet_ms(&last_ut) < HEARD_LONG_AGO_MS / 2,
+	 * so a tool asks once per wait rather than once per record: the
+	 * seconds of silence set above are gone from the reading, held to the
+	 * same bound as the case before, and the follow is still there for the
+	 * reading to be a wait at all rather than the -1 of no follow. */
+	after_restart = ubertooth_follow_quiet_ms(&last_ut);
+	mu_assert(after_restart >= 0 && after_restart < WAIT_RESTARTED_MS,
 	          "the wait started again");
 
 	/* Put the capture back where the next case expects it: off the
