@@ -292,10 +292,19 @@ int main(int argc, char *argv[])
 		 * leaves the filesystem alone. */
 		case 'r':
 			/* A PcapNG writer seeks back to finish the blocks it has
-			 * written, which standard output cannot do, so a lone "-"
-			 * is refused here rather than taken as the file name "-".
-			 * The PCAP writer does not seek: -q takes it. */
-			if (strcmp(optarg, "-") == 0) {
+			 * written, which standard output cannot do, so a value
+			 * naming that stream is refused here rather than taken
+			 * as a file name. The PCAP writer does not seek: -q
+			 * takes it.
+			 *
+			 * Every spelling is refused, not just a lone "-", so
+			 * that "/dev/stdout" is answered on the command line
+			 * too. Left to the writer it would only fail after the
+			 * device was open, and the failure would be a confusing
+			 * one: the stream's own device node already exists, so
+			 * the writer's refusal to overwrite a file is what the
+			 * user would be told. */
+			if (opt_writes_to_stdout(optarg)) {
 				fputs("error: PCAPNG capture to stdout is not supported;"
 				      " use -q -\n", stderr);
 				return 1;
@@ -419,6 +428,24 @@ int main(int argc, char *argv[])
 	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0 ||
 	    opt_check_capture_destination(dump_name, "binary dump data") < 0)
 		return 1;
+
+	/* No two captures may be one file: each writer opens its own
+	 * destination for writing, which truncates what another has put there,
+	 * so a run given one name twice would keep one format and lose the
+	 * rest. Asked here, with the rest of the command line, so a refused run
+	 * creates and truncates nothing. */
+	{
+		const opt_capture_dest destinations[] = {
+			{ "-r", pcapng_name },
+			{ "-q", pcap_name },
+			{ "-d", dump_name },
+		};
+
+		if (opt_check_destinations_differ(destinations,
+		                                  sizeof(destinations) /
+		                                  sizeof(destinations[0])) < 0)
+			return 1;
+	}
 
 	/* Whether a capture will own this process's standard output, which the
 	 * command line already says. Known before the stream is actually taken

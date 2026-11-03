@@ -131,6 +131,26 @@ target_link_libraries(test-opt-parse opt-parse-for-tests)
 
 add_test(NAME opt-parse COMMAND test-opt-parse)
 
+# Which pairs of capture destinations are one file. It works on names and on
+# files it creates itself, so it needs no board and no tool.
+add_executable(test-capture-destinations test_capture_destinations.c)
+target_link_libraries(test-capture-destinations opt-parse-for-tests)
+
+add_test(NAME capture-destinations COMMAND test-capture-destinations)
+
+# The same rule as a user meets it, on the one shipped tool with more than one
+# capture destination that is not held by an open change. ubertooth-follow
+# needs BlueZ, so it is not built on macOS and the test is left out there.
+# A dozen short runs, none of which opens a device.
+if(TARGET ubertooth-follow)
+	add_test(
+		NAME follow-destinations
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_follow_destinations.py
+			$<TARGET_FILE:ubertooth-follow>)
+	set_tests_properties(follow-destinations PROPERTIES TIMEOUT 90)
+endif()
+
 add_executable(test-specan-options
 	test_specan_options.c
 	../src/specan_options.c)

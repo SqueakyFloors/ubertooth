@@ -1124,6 +1124,14 @@
   exit 1, with the dump left as it was. `-q -` and `-c -` are covered too.
   [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141)
 
+- Fixed: a run that gave two capture options one file name kept whichever
+  format was written last and said nothing about the other, because each
+  writer truncates the file the previous one filled. Two capture destinations
+  that are one file are now refused before either is opened, naming both
+  options, with the file left as it was. `ubertooth-follow` has it; the same
+  one-line call in `ubertooth-rx` and `ubertooth-btle` is still to come.
+  [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149)
+
 - Fixed: a capture sent to `/dev/stdout` had the tool's own report lines mixed
   into it, because only the lone `-` counted as standard output. `/dev/stdout`
   and `/dev/fd/1`, and `/proc/self/fd/1` on Linux, now mean that stream too, so

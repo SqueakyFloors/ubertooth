@@ -277,68 +277,419 @@ static const char *next_component(const char **at, size_t *len)
 	}
 }
 
-/* Whether an absolute path the user wrote names the same file as one of the
- * names above, allowing the redundant separators and "." elements a path may
- * carry between two names ("/dev/./stdout", "//dev//fd//1").
- *
- * Only the text is compared. The destination is never opened to find out what
- * it is: opening a path can block until a reader arrives on a named pipe,
- * change the modem lines of a serial device, and leaves a descriptor behind
- * on a command line that is about to be refused. Symbolic links are not
- * followed either, because that answers a different question -- where
- * /dev/stdout points at this moment -- rather than which descriptor the user
- * named. ".." is left alone for the same reason: the element above a symbolic
- * link is not the directory the text suggests. */
-static int names_same_file(const char *path, const char *name)
+/* Whether a path ends inside the name before it: a trailing separator or "."
+ * element asks for something within that name, and nothing a capture option
+ * names is a directory. The platform decides what opening such a name does,
+ * so the comparisons below decline to reason about one: they call it the same
+ * destination as nothing but the very same text, and the writer's own open
+ * reports it. */
+static int ends_inside_a_name(const char *path)
 {
-	size_t path_len = 0, name_len = 0;
 	size_t length = strlen(path);
+
+	if (length == 0 || path[length - 1] == '/')
+		return 1;
+	return length >= 2 && path[length - 1] == '.' && path[length - 2] == '/';
+}
+
+/* Whether two paths name one file by their text alone, allowing the redundant
+ * separators and "." elements a path may carry between two names
+ * ("/dev/./stdout", "//dev//fd//1", "./cap.bin" beside "cap.bin"). Two paths
+ * that do not agree on being absolute are two names, so a relative
+ * "dev/stdout" is an ordinary file of that name.
+ *
+ * Only the text is compared. A path is never opened to find out what it is:
+ * opening one can block until a reader arrives on a named pipe, change the
+ * modem lines of a serial device, and leaves a descriptor behind on a command
+ * line that is about to be refused. ".." is not reduced and a relative path is
+ * not resolved against the working directory, because the element above a
+ * symbolic link is not the directory the text suggests. */
+static int same_path_text(const char *first, const char *second)
+{
+	size_t first_len = 0, second_len = 0;
 	const char *a, *b;
 
-	/* A path that ends in a separator or a "." element asks for something
-	 * inside the name before it, and neither of these is a directory, so
-	 * "/dev/stdout/" and "/dev/stdout/." are not it. The platform decides
-	 * what opening such a name does; this only declines to call it
-	 * standard output. */
-	if (length == 0 || path[length - 1] == '/')
+	if ((first[0] == '/') != (second[0] == '/'))
 		return 0;
-	if (length >= 2 && path[length - 1] == '.' && path[length - 2] == '/')
-		return 0;
-	/* Every name above is absolute, so "dev/stdout" in the working
-	 * directory is an ordinary file of that name. */
-	if (path[0] != '/')
-		return 0;
+	if (ends_inside_a_name(first) || ends_inside_a_name(second))
+		return strcmp(first, second) == 0;
 
 	for (;;) {
-		a = next_component(&path, &path_len);
-		b = next_component(&name, &name_len);
+		a = next_component(&first, &first_len);
+		b = next_component(&second, &second_len);
 		if (a == NULL || b == NULL)
 			return a == NULL && b == NULL;
-		if (path_len != name_len || memcmp(a, b, path_len) != 0)
+		if (first_len != second_len || memcmp(a, b, first_len) != 0)
 			return 0;
 	}
 }
 
-int opt_writes_to_stdout(const char *filename)
+/* Whether a path names this process's descriptor 1, such as "/dev/stdout" or
+ * "/dev/fd/1".
+ *
+ * The lone "-" is deliberately not one of these. "-" is a value the user
+ * writes on the command line, not a path anything resolves to, so a "-" that
+ * turned up as the text of something else -- the target readlink() read, for
+ * instance -- is the ordinary file of that name.
+ *
+ * The names above are compared as text, not followed: that answers a
+ * different question -- where /dev/stdout points at this moment -- rather than
+ * which descriptor the user named. */
+static int names_descriptor_one(const char *name)
 {
 	size_t i;
 
+	if (name == NULL)
+		return 0;
+	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
+		if (same_path_text(name, stdout_paths[i]))
+			return 1;
+	return 0;
+}
+
+int opt_writes_to_stdout(const char *filename)
+{
 	if (filename == NULL)
 		return 0;
 	/* The lone "-" exactly: "./-" is how a file of that name is written,
 	 * so it stays an ordinary file. */
 	if (strcmp(filename, "-") == 0)
 		return 1;
-	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
-		if (names_same_file(filename, stdout_paths[i]))
-			return 1;
-	return 0;
+	return names_descriptor_one(filename);
 }
 
 int opt_check_capture_destination(const char *filename, const char *what)
 {
 	if (opt_writes_to_stdout(filename))
 		return opt_check_stdout_not_tty(what);
+	return 0;
+}
+
+/* Where a writer given <name> would actually write, when <name> is a symbolic
+ * link: a writer writes through a link, so the link's target is the
+ * destination. Returns 1 and fills <out> with that target, resolved against
+ * the link's own directory where it is relative, or 0 when <name> is not a
+ * symbolic link, cannot be read, or the answer would not fit.
+ *
+ * stat() below answers this for a link whose target exists, by reporting the
+ * target's own device and inode numbers. A link to a file that is not there
+ * yet has to be read instead, and it matters: a writer creates what such a
+ * link points at, so "-q cap.bin -d link" with "link" pointing at a
+ * "cap.bin" that does not exist yet is one file, and both writers would
+ * create it.
+ *
+ * A chain is followed to its end, because the writer's own open does: a chain
+ * ending at a file that is not there yet loses a capture exactly as a single
+ * link would. The walk is bounded, which is what stops a link that points at
+ * itself. Reaching that bound, or a target that will not fit, answers 0 like
+ * any other name this cannot resolve, rather than handing back a path that is
+ * itself still a link: an answer that is not the end of the chain would be
+ * read as one. stat() follows the whole chain anyway wherever its end
+ * exists, so only a chain that long AND dangling goes unseen. */
+#define CAPTURE_LINK_HOPS 16
+
+static int link_target(const char *name, char *out, size_t size)
+{
+	char current[PATH_MAX], target[PATH_MAX], resolved[PATH_MAX];
+	struct stat info;
+	ssize_t length;
+	const char *slash;
+	int hops;
+
+	if ((size_t)snprintf(current, sizeof(current), "%s", name) >=
+	    sizeof(current))
+		return 0;
+
+	for (hops = 0; ; hops++) {
+		/* Not a link, so this is the end of the chain and the answer. */
+		if (lstat(current, &info) != 0 || !S_ISLNK(info.st_mode))
+			break;
+		/* Still a link, with no way to follow it any further: the walk
+		 * is used up, the link cannot be read, or its target will not
+		 * fit. The end of the chain is not known, and answering with
+		 * this path would present a link as the destination it points
+		 * at, so answer with nothing. The caller then compares the name
+		 * the user gave, and stat() follows the whole chain wherever
+		 * its end exists, so only a chain this long AND dangling goes
+		 * unseen. */
+		if (hops == CAPTURE_LINK_HOPS)
+			return 0;
+		length = readlink(current, target, sizeof(target) - 1);
+		/* A target filling the buffer may have been cut short, and a
+		 * cut-short path is a different place; it counts as one that
+		 * will not fit. */
+		if (length <= 0 || length == (ssize_t)(sizeof(target) - 1))
+			return 0;
+		target[length] = '\0';
+
+		/* A relative target is read against the directory of the link
+		 * holding it, which is not the working directory and not the
+		 * directory of the name the user wrote once a chain has moved. */
+		slash = strrchr(current, '/');
+		if (target[0] == '/' || slash == NULL) {
+			if ((size_t)snprintf(resolved, sizeof(resolved), "%s",
+			                     target) >= sizeof(resolved))
+				return 0;
+		} else if ((size_t)snprintf(resolved, sizeof(resolved), "%.*s%s",
+		                            (int)(slash - current + 1), current,
+		                            target) >= sizeof(resolved)) {
+			return 0;
+		}
+		snprintf(current, sizeof(current), "%s", resolved);
+	}
+
+	if (hops == 0)
+		return 0;
+	return (size_t)snprintf(out, size, "%s", current) < size;
+}
+
+/* The last element of a path, which is the name a writer would create. */
+static const char *final_name(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash != NULL ? slash + 1 : path;
+}
+
+/* The directory a path's last element sits in, as a path to look up. */
+static int directory_of(const char *path, char *out, size_t size)
+{
+	const char *slash = strrchr(path, '/');
+
+	if (slash == NULL)
+		return (size_t)snprintf(out, size, ".") < size;
+	if (slash == path)
+		return (size_t)snprintf(out, size, "/") < size;
+	return (size_t)snprintf(out, size, "%.*s", (int)(slash - path), path) <
+	       size;
+}
+
+/* Whether two destinations are one entry of one directory: the same last
+ * element, in two paths that look up to one directory.
+ *
+ * This is what answers for a destination that does not exist yet, where there
+ * is no file to compare. The lookup reduces the ".." elements and the
+ * symbolic links above the name, which the text comparison deliberately
+ * leaves alone, so "cap.bin" and "sub/../cap.bin" are one file, and so are a
+ * name in the working directory and its absolute path. */
+static int same_directory_entry(const char *first, const char *second)
+{
+	char first_dir[PATH_MAX], second_dir[PATH_MAX];
+	struct stat first_info, second_info;
+
+	if (ends_inside_a_name(first) || ends_inside_a_name(second))
+		return 0;
+	if (strcmp(final_name(first), final_name(second)) != 0)
+		return 0;
+	if (!directory_of(first, first_dir, sizeof(first_dir)) ||
+	    !directory_of(second, second_dir, sizeof(second_dir)))
+		return 0;
+	return stat(first_dir, &first_info) == 0 &&
+	       stat(second_dir, &second_info) == 0 &&
+	       first_info.st_dev == second_info.st_dev &&
+	       first_info.st_ino == second_info.st_ino;
+}
+
+/* Which file a writer given this PATH would write to: 0 once <where> holds
+ * its device and inode numbers, -1 when they cannot be had -- a name that does
+ * not exist yet, which is the ordinary case for a capture, or a path that
+ * cannot be looked up at all. The caller treats both the same way, as a
+ * destination a writer would create, which is why a matched pair of them is
+ * refused here rather than left to the writer's own open.
+ *
+ * A path that names descriptor 1 has no file of its own to look up, so the
+ * descriptor is what to ask.
+ *
+ * Looking a name up costs it nothing; opening one to learn more would, because
+ * an open blocks until a reader arrives on a named pipe and lowers a serial
+ * device's modem lines when it is closed, so no destination is opened here. */
+static int path_file(const char *path, struct stat *where)
+{
+	if (path == NULL)
+		return -1;
+	if (names_descriptor_one(path))
+		return fstat(STDOUT_FILENO, where) == 0 ? 0 : -1;
+	return stat(path, where) == 0 ? 0 : -1;
+}
+
+/* The same question asked of an option VALUE rather than of a path.
+ *
+ * This is where the whole value-against-path distinction lives, and it is one
+ * character wide. A lone "-" is standard output because the user typed it
+ * there; it is not a path, and the stream has no name to look up, so the
+ * descriptor is what to ask -- the calling shell may have pointed the stream
+ * at a file another capture option also names. Everywhere else a "-" is the
+ * ordinary file of that name: "./-" is how that file is written, and a
+ * symbolic link whose target happens to read "-" points at it. Two review
+ * rounds found a bug on each side of this line, so keep the two callers
+ * apart: a value the user wrote comes here, a path comes to path_file(). */
+static int destination_file(const char *name, struct stat *where)
+{
+	if (name != NULL && strcmp(name, "-") == 0)
+		return fstat(STDOUT_FILENO, where) == 0 ? 0 : -1;
+	return path_file(name, where);
+}
+
+/* Whether a destination is standard output, asked of the value the user wrote
+ * and of the path it resolved to.
+ *
+ * The two differ in the lone "-". It is the stream as something the user
+ * typed, and an ordinary file of that name anywhere else, so a link whose
+ * target happens to read "-" points at that file. The paths that name
+ * descriptor 1 mean the stream either way. */
+static int names_the_stream(const char *value, const char *path, int resolved)
+{
+	return resolved ? names_descriptor_one(path)
+	                : opt_writes_to_stdout(value);
+}
+
+/* Which file a writer given this destination would write to, reading the value
+ * the user wrote or the path it resolved to by the same rule. */
+static int written_file(const char *value, const char *path, int resolved,
+                        struct stat *where)
+{
+	return resolved ? path_file(path, where)
+	                : destination_file(value, where);
+}
+
+/* Whether two capture destinations are one file. */
+static int same_destination(const char *first, const char *second)
+{
+	char first_target[PATH_MAX], second_target[PATH_MAX];
+	const char *first_path, *second_path;
+	int first_linked, second_linked;
+	struct stat first_file, second_file;
+
+	/* A writer writes through a symbolic link, so the link's target is the
+	 * destination. Resolved before the stream test below, because a link
+	 * pointing at "/dev/stdout" does reach the stream and has to be
+	 * recognized as it: on the BSDs that name is a device of its own, so
+	 * looking it up as a path answers with the wrong device number and the
+	 * pair would be missed.
+	 *
+	 * A value that already means the stream is not resolved, because it is
+	 * not a path to resolve. Handing "-" to a path operation would read
+	 * whatever link happens to be called "-" in the working directory and
+	 * put its target where the stream should be. */
+	first_linked = !opt_writes_to_stdout(first) &&
+	               link_target(first, first_target, sizeof(first_target));
+	second_linked = !opt_writes_to_stdout(second) &&
+	                link_target(second, second_target, sizeof(second_target));
+	first_path = first_linked ? first_target : first;
+	second_path = second_linked ? second_target : second;
+
+	/* Either destination being the stream leaves nothing to compare as a
+	 * path: "-" is the stream while "./-" is an ordinary file of that
+	 * name, and the two texts reduce to each other. The descriptor is the
+	 * only thing that says which file the stream is on, so a destination
+	 * with no file yet cannot be that file, and a failed lookup here
+	 * answers "not the same" rather than being passed on. */
+	if (names_the_stream(first, first_path, first_linked) ||
+	    names_the_stream(second, second_path, second_linked))
+		return written_file(first, first_path, first_linked,
+		                    &first_file) == 0 &&
+		       written_file(second, second_path, second_linked,
+		                    &second_file) == 0 &&
+		       first_file.st_dev == second_file.st_dev &&
+		       first_file.st_ino == second_file.st_ino;
+
+	if (same_path_text(first_path, second_path) ||
+	    same_directory_entry(first_path, second_path))
+		return 1;
+	/* Both destinations exist, so the files behind them can be compared,
+	 * which catches a hard link and a directory that the lookup above
+	 * could not reach. */
+	if (written_file(first, first_path, first_linked, &first_file) != 0 ||
+	    written_file(second, second_path, second_linked, &second_file) != 0)
+		return 0;
+	return first_file.st_dev == second_file.st_dev &&
+	       first_file.st_ino == second_file.st_ino;
+}
+
+/* Whether one writer at this destination would overwrite what another put
+ * there, which is what the refusal is for.
+ *
+ * A regular file keeps whichever writer truncated it last, and a name that
+ * does not exist yet becomes one. The null device is the one destination that
+ * keeps nothing and loses nothing, so two captures may share it:
+ * "-q /dev/null -d /dev/null" discards both, which is what that command line
+ * asks for. Every other character device is refused like a file, because two
+ * capture streams interleaved on a terminal or a serial line are neither
+ * capture. A directory is no destination at all, and the writer's own open
+ * says so better than a line about a file would.
+ *
+ * Asked of one of a matched pair, since a match means the two are one object
+ * and this is a question about that object. */
+static int writers_would_overwrite(const char *name)
+{
+	struct stat info, null;
+
+	if (destination_file(name, &info) != 0)
+		return 1;
+	if (S_ISDIR(info.st_mode))
+		return 0;
+	return !(S_ISCHR(info.st_mode) && stat("/dev/null", &null) == 0 &&
+	         info.st_rdev == null.st_rdev);
+}
+
+/* What to call a destination in the refusal: the name the user wrote, or
+ * "standard output" for a value that means the stream rather than a file. */
+static const char *destination_text(const char *name)
+{
+	return opt_writes_to_stdout(name) ? "standard output" : name;
+}
+
+int opt_check_destinations_differ(const opt_capture_dest *destinations,
+                                 size_t count)
+{
+	size_t i, j;
+
+	if (destinations == NULL)
+		return 0;
+	for (i = 0; i < count; i++) {
+		const char *first = destinations[i].name;
+
+		/* An empty name is no destination at all, and the writer's own
+		 * open reports it. */
+		if (first == NULL || first[0] == '\0')
+			continue;
+		for (j = i + 1; j < count; j++) {
+			const char *second = destinations[j].name;
+
+			if (second == NULL || second[0] == '\0')
+				continue;
+			/* Two captures that both ask for standard output
+			 * belong to the one-capture-on-standard-output rule,
+			 * which refuses the second however the two are
+			 * spelled. One of them beside a file name is this
+			 * check's, because the shell may have pointed the
+			 * stream at that very file. */
+			if (opt_writes_to_stdout(first) &&
+			    opt_writes_to_stdout(second))
+				continue;
+			if (!same_destination(first, second))
+				continue;
+			if (!writers_would_overwrite(first))
+				continue;
+			/* Both options are named, so the user can see which two
+			 * clashed, and so is what each was given where the two
+			 * differ: one destination reached through another is
+			 * not obvious from either on its own. */
+			if (strcmp(first, second) == 0)
+				fprintf(stderr, "error: %s and %s cannot both write"
+				        " to %s\n", destinations[i].option,
+				        destinations[j].option,
+				        destination_text(first));
+			else
+				fprintf(stderr, "error: %s and %s cannot both write"
+				        " to one file (%s and %s)\n",
+				        destinations[i].option,
+				        destinations[j].option,
+				        destination_text(first),
+				        destination_text(second));
+			return -1;
+		}
+	}
 	return 0;
 }
 

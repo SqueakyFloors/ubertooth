@@ -151,6 +151,49 @@ int opt_writes_to_stdout(const char *filename);
 int opt_check_capture_destination(const char *filename, const char *what);
 
 /*
+ * One capture destination, as the command line gave it, for the check below.
+ */
+typedef struct {
+	const char *option; /* how the user writes it, for example "-q" */
+	const char *name;   /* its value, NULL where it was not given */
+} opt_capture_dest;
+
+/*
+ * One file per capture. Every capture writer opens its own destination for
+ * writing, which truncates whatever another has put there, so a run given one
+ * name twice keeps one format and loses the rest without a word.
+ *
+ * Pass every capture destination of the run. Returns 0, or prints one
+ * "error: " line naming the two options that clashed and returns -1. Call it
+ * once the capture options are parsed and before any destination is opened,
+ * so a refused run creates and truncates nothing. No destination is opened in
+ * order to identify it either.
+ *
+ * Two destinations are one file whether or not they are spelled alike: two
+ * spellings of one path, a name that does not exist yet beside another route
+ * to it, a symbolic link, a hard link, and a value meaning standard output
+ * beside the file the calling shell has pointed that stream at. opt_parse.c
+ * says how each of those is answered, and which destinations a writer would
+ * not overwrite and so are not refused ("/dev/null" twice, a directory).
+ *
+ * Two destinations that both mean standard output are not this check's: one
+ * stream cannot carry two captures however they are spelled, and each tool
+ * has its own rule for that pair. Keep the two in step -- a capture option
+ * able to hold such a value that the tool's own rule does not reach would
+ * fall between the two gates.
+ *
+ * Some pairs that are one file cannot be told apart from the names alone and
+ * are not refused; ubertooth(7), OPTION VALUES lists them for the user. They
+ * all wait on the destination being identified after it is open and before it
+ * is truncated, which reaches into how every writer opens its file. The one a
+ * caller will not find there: on the BSDs a destination reached through a
+ * descriptor the calling shell opened ("/dev/fd/3") is a device of its own,
+ * where Linux makes it a symbolic link that is followed and caught.
+ */
+int opt_check_destinations_differ(const opt_capture_dest *destinations,
+                                 size_t count);
+
+/*
  * Where a capture option's value says to write, standard output being any
  * value opt_writes_to_stdout() recognizes (ubertooth(7), OPTION VALUES).
  *

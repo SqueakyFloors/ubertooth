@@ -90,8 +90,11 @@ COMPATIBILITY.md for the comparison.
    each attached board; see ubertooth(7), COMMON OPTIONS
  - `-r <filename>` :
    capture packets to a PCAPNG file. A PcapNG writer seeks back over what it
-   has written, which standard output cannot do, so `-r -` is refused:
-   `error: PCAPNG capture to stdout is not supported; use -q -`
+   has written, which standard output cannot do, so a value that names that
+   stream is refused, `-r -` and `-r /dev/stdout` alike:
+   `error: PCAPNG capture to stdout is not supported; use -q -`. A symbolic
+   link that happens to point there is a file name like any other and is
+   refused by the writer instead, as a file that already exists
  - `-q <filename>` :
    capture packets to a PCAP file. `-q -` writes the capture to standard
    output; see CAPTURING TO STANDARD OUTPUT
@@ -245,7 +248,24 @@ path that names this process's descriptor 1, such as `/dev/stdout` or
 `/dev/fd/1` (ubertooth(7), OPTION VALUES). Any other value is a file name,
 including one that starts with `-`: `-q -x` writes the file `-x`. Standard
 output carries one stream, so `-q` and `-d` cannot both have it in one
-command: `error: -q and -d cannot both write to standard output`.
+command: `error: -q and -d cannot both write to standard output`. `-r` is not
+part of that pair, since it never has the stream: every value naming standard
+output is refused when `-r` is read, not only a lone `-`.
+
+A file name cannot be shared either. Each of `-r`, `-q` and `-d` opens its own
+destination for writing, which truncates whatever another has put there, so no
+two of them may name one file: `error: -q and -d cannot both write to
+capture.pcap`, exit 1, with the file left as it was. The file is identified
+rather than the name, so two spellings of one path, a symbolic link, a hard
+link, `-q -` beside a `-d` naming the file the shell has pointed standard
+output at, and a link pointing at that stream are all caught. `-` is the
+stream and `./-` is an ordinary file of that name, so `-q - -d ./-` is two
+destinations unless the shell really has pointed standard output at that file.
+
+Writing both captures to `/dev/null` is not refused, since nothing is kept
+there and nothing is lost. Some pairs that are one file cannot be told apart
+from the names alone and are not refused either; see ubertooth(7), OPTION
+VALUES.
 
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the
