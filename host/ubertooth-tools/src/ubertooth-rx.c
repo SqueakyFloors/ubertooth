@@ -706,29 +706,38 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * only this tool and ubertooth-btle(1) write.
  *
  * The file is identified rather than the name: the device and inode numbers of
- * the open input against those of the name about to be written, so "./x.bin"
- * beside "x.bin", a symbolic link and a hard link are all caught. A name that
- * does not exist yet, which is the ordinary case, cannot be stat()ed and so
- * cannot be the input, and a lone "-" is standard output rather than a file of
- * that name.
+ * the open input against those of the destination about to be written, so
+ * "./x.bin" beside "x.bin", a symbolic link and a hard link are all caught. A
+ * lone "-" is this process's standard output, so that is what gets compared,
+ * which catches the one case a name cannot: a shell that has already pointed
+ * standard output at the dump, as in `-i x.bin -d - >> x.bin`. Left alone,
+ * that run reads the records it is appending and never ends.
+ *
+ * Anything that cannot be stat()ed is taken to be a different file. That is
+ * the ordinary case for a name that does not exist yet, and for the rest --
+ * a directory on the path that cannot be searched, a symbolic link loop -- the
+ * writer is about to report the real reason itself.
  *
  * Called with the input open and before any writer opens, so a refused run has
  * written nothing. Returns -1 once the refusal is printed. */
 static int output_is_the_replay(const char* output_name, char option)
 {
 	struct stat input_file, output_file;
+	int to_stdout = opt_writes_to_stdout(output_name);
+	int found;
 
-	if (infile == NULL || output_name == NULL ||
-	    opt_writes_to_stdout(output_name))
+	if (infile == NULL || output_name == NULL)
 		return 0;
-	if (fstat(fileno(infile), &input_file) != 0 ||
-	    stat(output_name, &output_file) != 0)
+	found = to_stdout ? fstat(fileno(stdout), &output_file)
+	                  : stat(output_name, &output_file);
+	if (fstat(fileno(infile), &input_file) != 0 || found != 0)
 		return 0;
 	if (input_file.st_dev != output_file.st_dev ||
 	    input_file.st_ino != output_file.st_ino)
 		return 0;
 	fprintf(stderr, "error: -%c would write over the dump -i is replaying"
-	        " (%s)\n", option, output_name);
+	        " (%s)\n", option,
+	        to_stdout ? "standard output" : output_name);
 	return -1;
 }
 

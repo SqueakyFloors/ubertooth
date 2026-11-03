@@ -1092,11 +1092,15 @@
 - Fixed: `ubertooth-rx -i capture.bin -d capture.bin` emptied the capture it
   was replaying. An output file is opened for writing, which truncates it, so
   one name typed twice destroyed the file before a record of it was read, and
-  the command said nothing and exited 0. The same name given to `-q` or `-r`
-  lost it too. A replay now refuses an output file that is the dump it is
-  reading, before any capture file is opened: `error: -d would write over the
-  dump -i is replaying (capture.bin)`, exit 1, and the capture is left as it
-  was. `ubertooth-btle` refuses the same pairing for its own replay.
+  the command said nothing and exited 0. `-q` on the input name removed it and
+  then reported a partial record of what it had just emptied. A replay now
+  refuses an output that is the dump it is reading, before any capture file is
+  opened: `error: -d would write over the dump -i is replaying (capture.bin)`,
+  exit 1, and the capture is left as it was. That covers the other ways of
+  naming one file -- `./capture.bin`, a symbolic link, a hard link -- and a
+  shell that has pointed standard output at it, `-d - >> capture.bin`, which
+  used to read the records it was appending and never end.
+  `ubertooth-btle` refuses the same pairing for its own replay.
   [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130)
 
 - Fixed: a board carrying a bootloader built from this tree could not be

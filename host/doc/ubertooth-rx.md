@@ -551,15 +551,15 @@ reads a saved capture rather than tuning a board`, exit 1. They used to be
 accepted and dropped without a word, and the file was read on no channel and
 with no timeout.
 
-A capture file (`-r`, `-q`, or `-d`) cannot be the file the replay is reading.
-An output file is opened for writing, which empties it, so one name typed
-twice destroyed the capture before a record of it was read. The file is
-identified before any capture file is opened, by its device and inode numbers
-rather than by its name, so `./capture.bin`, a symbolic link and a hard link
-to it are caught as well: `error: -d would write over the dump -i is replaying
-(capture.bin)`, exit 1, and the capture is left as it was.
-ubertooth-btle(1) refuses the same pairing for its own replay, in the same
-words.
+None of the files this run writes (`-r`, `-q`, `-d`) may be the capture the
+replay is reading: each is opened for writing, which truncates it, so the
+capture would be emptied before a record of it was read. `error: -d would
+write over the dump -i is replaying (capture.bin)`, exit 1, with the file left
+as it was. It is the file that is compared and not the name, so
+`./capture.bin`, a symbolic link to it and a hard link to it are all refused,
+and so is a `-d -` whose standard output the shell has already pointed at the
+capture. ubertooth-btle(1) refuses the same pairing for its own replay, in the
+same words.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

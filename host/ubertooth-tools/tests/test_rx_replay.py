@@ -106,11 +106,14 @@ ZERO_EXPECTED_NS = [
 ]
 
 
-def run(*arguments, directory):
+def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
+    """One ubertooth-rx run. `stdout` takes an open file for the cases that
+    need this process's standard output pointed somewhere in particular."""
     return subprocess.run(
         [BINARY, *arguments],
-        capture_output=True,
-        text=True,
+        stdout=stdout,
+        stderr=subprocess.PIPE,
+        text=text,
         timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
@@ -304,9 +307,26 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert (work / "other.bin").read_bytes() == b"".join(PACKET_RECORDS), result
 
+    # "-" is this process's standard output, so that is the destination
+    # compared: a shell that has already pointed it at the dump is the one case
+    # a name cannot catch, and the run would otherwise read the records it was
+    # appending and never end.
+    with open(work / "same.bin", "ab") as appended:
+        result = run("-i", "same.bin", "-d", "-", directory=work,
+                     stdout=appended)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (standard output)\n"), result
+    assert (work / "same.bin").read_bytes() == FIXTURE, result
+
+    # Standard output somewhere else is an ordinary dump to it, not a refusal.
+    result = run("-i", "same.bin", "-d", "-", directory=work, text=False)
+    assert result.returncode == 0, result
+    assert result.stdout == b"".join(PACKET_RECORDS), len(result.stdout)
+
     # A capture on "-" is standard output rather than a file of that name, so
-    # it is not the replay's input and is not refused as it. This run fails on
-    # the input instead, which is a file called "-" that is not there.
+    # it is not refused for naming the input. This run fails on the input
+    # instead, which is a file called "-" that is not there.
     result = run("-i", "-", "-d", "-", directory=work)
     assert result.returncode == 1, result
     assert result.stderr == "error: -: No such file or directory\n", result
