@@ -75,9 +75,8 @@ int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb,
 }
 
 /* Schedule a set of items starting from 'frame_offset' TDMA frames in the
- * future. Returns how many of the set's items were placed: the items go in one
- * frame after another, so the first frame that is already full stops the set
- * there and nothing after it is placed. */
+ * future. Returns how many items were placed: the whole set, or fewer when a
+ * frame it needed was already full. Zero means nothing of the set will run. */
 int tdma_schedule_set(uint8_t frame_offset, const struct tdma_sched_item *item_set, uint16_t p3)
 {
 	struct tdma_scheduler *sched = &tdma_sched;

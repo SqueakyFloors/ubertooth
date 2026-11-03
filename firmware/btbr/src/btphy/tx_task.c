@@ -254,9 +254,13 @@ const struct tdma_sched_item tx_sched_set[] = {
 
 /* How many slot tasks a transmit puts on the scheduler: the two above, a slot
  * apart. The scheduler says how many of them it placed, and a transmit that
- * got fewer than all of them is one the caller has to be told about. Keep this
- * in step with the set. */
+ * got fewer than all of them is one the caller has to be told about. Each item
+ * of the set is followed by an end-of-frame marker and the set by an
+ * end-of-set one, which is what the count below checks, so an item added to
+ * the set without changing this stops the build. */
 #define TX_SCHED_ITEMS	2
+_Static_assert(ARRAY_SIZE(tx_sched_set) == 2 * TX_SCHED_ITEMS + 1,
+	"TX_SCHED_ITEMS does not match tx_sched_set");
 
 void tx_task_reset(void)
 {
@@ -296,7 +300,7 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 	 * scheduler. */
 	placed = tdma_schedule_set(delay, tx_sched_set, 0);
 
-	if (placed == 0)
+	if (placed <= 0)
 	{
 		/* Not one task of this transmit was placed, so nothing of it
 		 * will ever run. The caller is waiting on the completion that
@@ -305,6 +309,9 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 		 * nothing left to report it but this: unreported, the link
 		 * stops forever and the next packet the caller hands over
 		 * stops the firmware with "already got pkt".
+		 *
+		 * A count below zero cannot happen, and is treated as none
+		 * placed because that is the outcome the link cannot survive.
 		 *
 		 * The radio is untouched. tx_prepare() is what tunes it, and
 		 * it was never scheduled. */

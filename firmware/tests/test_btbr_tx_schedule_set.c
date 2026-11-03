@@ -7,18 +7,10 @@
  * A transmit goes on the scheduler as two tasks a slot apart: tx_prepare()
  * tunes the radio and encodes the packet, and tx_execute() turns the
  * transmitter on. The scheduler takes four tasks per slot and refuses the
- * fifth, so either of those two slots can be full, and the two cost different
- * things:
- *
- *  - Neither task placed. Nothing of the transmit will ever run, so the
- *    completion the caller waits on has no one left to report it. The caller's
- *    callback is what schedules the link's next receive or transmit, so an
- *    unreported completion is a link that stops forever, and the next packet
- *    the caller hands over stops the firmware with "already got pkt".
- *  - Only tx_prepare() placed. It runs, and schedules tx_finalize(), which
- *    reports the completion and releases the packet, so the link carries on.
- *    The packet is lost, and that is said on the console like every other
- *    dropped transmit.
+ * fifth, so either of those two slots can be full. Neither task placed is a
+ * link that stops forever unless the transmit task reports the completion
+ * itself; only tx_prepare() placed is a packet dropped in silence unless it is
+ * said on the console. tx_task_schedule_fmt() has the reasoning.
  *
  * tx_task.c is included into this translation unit, which is how its slot
  * tasks can be reached at all: they are static. The scheduler underneath is
@@ -427,17 +419,6 @@ MU_TEST(test_a_set_whose_second_frame_is_full_reports_the_first_item)
 	mu_assert_int_eq(TDMASCHED_NUM_CB + 1, (int)fillers_run);
 }
 
-/* The scheduler says a frame was full, as it always has. */
-MU_TEST(test_a_full_frame_is_reported_by_the_scheduler)
-{
-	a_board(BT_MODE_CENTRAL);
-	fill_a_slot(0, TDMASCHED_NUM_CB);
-
-	tdma_schedule_set(0, a_two_frame_set, 0);
-
-	mu_assert(strstr(console, "overflow") != NULL, console);
-}
-
 /* ---- a transmit the scheduler refuses outright ---- */
 
 /*
@@ -562,6 +543,44 @@ MU_TEST(test_a_link_goes_on_after_a_refused_transmit)
 	mu_assert_int_eq(1, (int)fake_stx_strobes);
 }
 
+/*
+ * The refusal is reported from the caller's own call rather than from a slot,
+ * so a caller that schedules its next transmit from the callback is called
+ * back before the first call has returned, and a caller that asks for the same
+ * slot again is refused again straight away: the slot clock has not moved, so
+ * that slot is still full. Each attempt reports its own refusal exactly once
+ * and the run ends when the caller stops asking.
+ */
+static unsigned attempts_wanted;
+
+static void try_the_same_slot_again(void *arg)
+{
+	(void)arg;
+	completions++;
+	if (--attempts_wanted == 0)
+		return;
+	tx_task_schedule(0, try_the_same_slot_again, NULL,
+	                 &a_header, some_data);
+}
+
+MU_TEST(test_a_caller_that_asks_for_the_same_full_slot_again)
+{
+	a_board(BT_MODE_CENTRAL);
+	a_full_slot_for_the_whole_transmit();
+	attempts_wanted = 3;
+
+	tx_task_schedule(0, try_the_same_slot_again, NULL,
+	                 &a_header, some_data);
+
+	/* Three attempts, each refused and each reported, and no slot has run
+	 * yet. */
+	mu_assert_int_eq(3, (int)completions);
+	mu_assert_int_eq(2 * 3, (int)console_lines);
+	mu_assert_int_eq(0, (int)fake_stx_strobes);
+	/* And nothing is left held, so the link is free to try again later. */
+	mu_assert(tx_task.user_hdr == NULL, "the header is still held");
+}
+
 /* ---- a transmit whose start of transmission cannot be scheduled ---- */
 
 /*
@@ -667,12 +686,12 @@ int main(void)
 	MU_RUN(test_a_set_that_fits_reports_every_item);
 	MU_RUN(test_a_set_whose_first_frame_is_full_reports_nothing_placed);
 	MU_RUN(test_a_set_whose_second_frame_is_full_reports_the_first_item);
-	MU_RUN(test_a_full_frame_is_reported_by_the_scheduler);
 	MU_RUN(test_a_transmit_that_was_refused_outright_reports_once);
 	MU_RUN(test_a_refused_transmit_says_so_on_the_console);
 	MU_RUN(test_a_refused_transmit_does_not_touch_the_radio);
 	MU_RUN(test_a_refused_transmit_gives_the_packet_back);
 	MU_RUN(test_a_link_goes_on_after_a_refused_transmit);
+	MU_RUN(test_a_caller_that_asks_for_the_same_full_slot_again);
 	MU_RUN(test_a_transmit_with_no_start_reports_once);
 	MU_RUN(test_a_transmit_with_no_start_says_so_on_the_console);
 	MU_RUN(test_a_transmit_with_no_start_gives_the_packet_back);
