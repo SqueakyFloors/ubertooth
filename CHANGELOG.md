@@ -1100,7 +1100,8 @@
   naming one file -- `./capture.bin`, a symbolic link, a hard link -- and a
   shell that has pointed standard output at it, `-d - >> capture.bin`, which
   used to read the records it was appending and never end.
-  `ubertooth-btle` refuses the same pairing for its own replay.
+  `ubertooth-btle` refuses the same pairing for its own replay, naming its own
+  option.
   [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130)
 
 - Fixed: a board carrying a bootloader built from this tree could not be

@@ -106,9 +106,11 @@ ZERO_EXPECTED_NS = [
 ]
 
 
-def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
+def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
+        close_stdout=False):
     """One ubertooth-rx run. `stdout` takes an open file for the cases that
-    need this process's standard output pointed somewhere in particular."""
+    need this process's standard output pointed somewhere in particular, and
+    `close_stdout` runs it with descriptor 1 closed, as `1>&-` does."""
     return subprocess.run(
         [BINARY, *arguments],
         stdout=stdout,
@@ -117,6 +119,7 @@ def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
         timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
+        preexec_fn=(lambda: os.close(1)) if close_stdout else None,
         # A replay opens no device; the switch keeps it that way if one of
         # these runs ever reaches device selection. LC_ALL, because a case
         # below compares a strerror() string and glibc translates those.
@@ -324,6 +327,23 @@ with tempfile.TemporaryDirectory() as workdir:
             f"error: -d would write over the dump -i is replaying"
             f" ({named})\n"), (written, result)
         assert (work / "same.bin").read_bytes() == FIXTURE, (written, result)
+
+    # Standard output closed before the run starts. The input's own open then
+    # takes descriptor 1, so standard output cannot be identified by it: a
+    # named destination must still be refused, and "-" must be left to the
+    # writer, which says it cannot write there.
+    result = run("-i", "same.bin", "-d", "same.bin", directory=work,
+                 stdout=None, close_stdout=True)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (same.bin)\n"), result
+    assert (work / "same.bin").read_bytes() == FIXTURE, result
+
+    result = run("-i", "same.bin", "-d", "-", directory=work,
+                 stdout=None, close_stdout=True)
+    assert result.returncode == 1, result
+    assert "cannot write binary dump data to stdout" in result.stderr, result
+    assert (work / "same.bin").read_bytes() == FIXTURE, result
 
     # Standard output somewhere else is an ordinary dump to it, not a refusal.
     result = run("-i", "same.bin", "-d", "-", directory=work, text=False)

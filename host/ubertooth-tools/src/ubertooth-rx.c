@@ -721,9 +721,20 @@ static int destination_file(const char* output_name, struct stat* where)
 {
 	int fd, failed;
 
-	if (opt_writes_to_stdout(output_name))
+	if (opt_writes_to_stdout(output_name)) {
+		/* The replay's input holding standard output's descriptor means
+		 * standard output was closed before this process started and
+		 * the input's fopen() took the number. There is then no
+		 * standard output to identify, and the writer is about to
+		 * report that it cannot write there. Only this destination is
+		 * affected: a named one is a file of its own either way. */
+		if (fileno(infile) == fileno(stdout))
+			return -1;
 		return fstat(fileno(stdout), where) == 0 ? 0 : -1;
-	fd = open(output_name, O_WRONLY | O_NONBLOCK);
+	}
+	/* O_NOCTTY as well: identifying a terminal or a serial port must not
+	 * make it this process's controlling terminal. */
+	fd = open(output_name, O_WRONLY | O_NONBLOCK | O_NOCTTY);
 	if (fd < 0)
 		return -1;
 	failed = fstat(fd, where) != 0;
@@ -756,11 +767,6 @@ static int output_is_the_replay(const char* output_name, char option)
 	if (infile == NULL || output_name == NULL)
 		return 0;
 	if (fstat(fileno(infile), &input_file) != 0)
-		return 0;
-	/* The input holding standard output's descriptor means standard output
-	 * was closed before this process started and fopen() took the number,
-	 * so there is nothing there to write over. */
-	if (fileno(infile) == fileno(stdout))
 		return 0;
 	if (destination_file(output_name, &output_file) != 0)
 		return 0;
