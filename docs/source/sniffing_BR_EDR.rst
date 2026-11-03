@@ -160,8 +160,7 @@ device; there is none on macOS, so the tool is not built there.
 
 		hciconfig hci0 up
 
-#. **Survey** for the piconet as above, so you have its Lower Address Part
-   (LAP) and Upper Address Part (UAP):
+#. **Survey** for the piconet as above, so you have its LAP and UAP:
 
 	.. code-block:: sh
 
@@ -177,15 +176,14 @@ device; there is none on macOS, so the tool is not built there.
 
    The two are the same follow. ``-t`` pages the address as given; ``-l`` and
    ``-u`` are four of the six bytes, so the tool pages ``00:00`` in place of
-   the Non-significant Address Part (NAP), as described above. Either way the
-   board is given the same LAP and UAP, which is all the ordinary traffic of an
-   established piconet carries.
+   the NAP, as described above. Either way the board is given the same LAP and
+   UAP, which is all the ordinary traffic of an established piconet carries.
 
    Neither form stops on its own. Interrupt the run with Ctrl-C when you have
    the capture you wanted, or give it a length with ``timeout``.
 
-#. **Add the Adaptive Frequency Hopping (AFH) map** with ``-a`` if the piconet
-   uses AFH and the follow is patchy. It reads the map over a connection it
+#. **Add the AFH map** with ``-a`` if the piconet uses AFH and the follow is
+   patchy. It reads the map over a connection it
    makes to the target, so it needs ``-t``; the AFH section of
    `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__
    says what that map is, what it is not, and why the option is experimental.
@@ -194,8 +192,8 @@ device; there is none on macOS, so the tool is not built there.
 
 		ubertooth-follow -t 22:44:66:88:aa:bb -a -q capture.pcap
 
-A follow captures the piconet's basic rate packets. Enhanced Data Rate (EDR)
-payloads are sent in a modulation the radio cannot demodulate, so such a packet
+A follow captures the piconet's basic rate packets. EDR payloads are sent in a
+modulation the radio cannot demodulate, so such a packet
 arrives with its header and without its payload, and the contents of an
 encrypted link stay unreadable whatever the capture holds.
 `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__

@@ -244,14 +244,20 @@ to capture.
    the board as the clock to hop on, and starts capturing. Unlike
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
-   packets from the start. A run that prints none has one of five causes: the
-   piconet is not transmitting, the board cannot hear both devices, the `-u`
-   given is wrong, the clock the board was given is off by enough to put it on
-   the wrong channel, which is what `-w` adjusts for, or the target is not the
-   Central of the piconet. The last of those finds nothing at all rather than
-   part of the traffic: every packet in a piconet carries the Central's access
-   code and hops on the Central's clock, so a follow keyed on a Peripheral's
-   address is listening for a piconet that is not there.
+   packets from the start. A run that prints none has one of four causes: the
+   piconet is not transmitting, the board cannot hear the piconet, the clock
+   the board was given is off by enough to put it on the wrong channel, which
+   is what `-w` adjusts for, or the target is not the Central of the piconet.
+   The last of those finds nothing at all rather than part of the traffic:
+   every packet in a piconet carries the Central's access code and hops on the
+   Central's clock, so a follow keyed on a Peripheral's address is listening
+   for a piconet that is not there.
+
+   A wrong `-u` is not among them. The per-packet report is printed on the
+   access code, which comes from the LAP alone, so a follow with the wrong UAP
+   prints packets and decodes nothing of them; DESCRIPTION above says what that
+   looks like. A wrong `-u` can stop the page instead, and then the run exits 1
+   with the reason rather than printing nothing.
 
    The run ends when you interrupt it (Ctrl-C), with exit status 0 and the
    capture written, so give it a length with `timeout` when you script one.
