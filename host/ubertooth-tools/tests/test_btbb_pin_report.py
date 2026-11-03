@@ -29,6 +29,17 @@ import tempfile
 REPORT_GUARD = "LIBBTBB_PIN_REPORTED"
 PROBE_GUARD = "LIBBTBB_FUNCTIONS_CHECKED"
 
+MODULE = "FindBTBB.cmake"
+
+# The pin is a commit while libbtbb fixes are landing, and the release
+# procedure tags both repositories and pins the tag. Both kinds are covered,
+# whichever one the tree carries today: the other is given to a copy of the
+# module. Neither of these has to exist, because the module compares text and
+# resolves nothing; the commit is plainly not one of libbtbb's, and the tag is
+# in the form the release procedure uses.
+SAMPLE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+SAMPLE_TAG = "2021-01-R1"
+
 # The probe's result variable. It is in the output of any configure that ran
 # the probe, so a case that no longer skips it is told apart from one that did.
 PROBE = "LIBBTBB_HAS_REQUIRED_FUNCTIONS"
@@ -72,6 +83,43 @@ def module_guards(module):
         if guard not in text:
             fail("%s does not mention %s, so this test is checking a module "
                  "it was not written against" % (module, guard))
+
+
+def modules_pinned_at(work, modules, ref, name):
+    """A copy of the module directory whose pin is ref.
+
+    The module sets the pin itself, so a report against a pin the tree does
+    not carry today has to be read from a copy that carries it.
+    """
+    copy = os.path.join(work, "modules-%s" % name)
+    os.mkdir(copy)
+    with open(os.path.join(modules, MODULE), encoding="utf-8") as handle:
+        text = handle.read()
+    text, replaced = re.subn(r"(?m)^set\(LIBBTBB_PINNED_REF .*\)$",
+                             'set(LIBBTBB_PINNED_REF "%s")' % ref, text)
+    if replaced != 1:
+        fail("%s sets LIBBTBB_PINNED_REF %d times, not once, so this test "
+             "cannot give the module another pin"
+             % (os.path.join(modules, MODULE), replaced))
+    with open(os.path.join(copy, MODULE), "w", encoding="utf-8") as handle:
+        handle.write(text)
+    return copy
+
+
+def project(work, name, modules, calls=1):
+    """A source directory that finds libbtbb through the modules given.
+
+    calls is how many find_package(BTBB) calls it makes, which is what a tree
+    with several subdirectories does.
+    """
+    source = os.path.join(work, "project-%s" % name)
+    os.mkdir(source)
+    with open(os.path.join(source, "CMakeLists.txt"), "w",
+              encoding="utf-8") as handle:
+        handle.write(PROJECT % {"modules": modules,
+                                "probe_guard": PROBE_GUARD})
+        handle.write("find_package(BTBB REQUIRED)\n" * (calls - 1))
+    return source
 
 
 def pinned_ref(repo_root):
@@ -118,21 +166,32 @@ def main():
     # and is configured from a directory of its own.
     repo_root = os.path.abspath(repo_root)
     modules = os.path.join(repo_root, "host", "cmake", "modules")
-    module_guards(os.path.join(modules, "FindBTBB.cmake"))
+    module_guards(os.path.join(modules, MODULE))
 
     ref = pinned_ref(repo_root)
-    # What libbtbb records: git's abbreviation of the commit, not the full
-    # hash the pin is written as. The report has to see through that.
-    short = ref[:7]
-    other = "0176769" if not ref.startswith("0176769") else "52b2afc"
+    pin_is_commit = re.fullmatch("[0-9a-fA-F]{40}", ref) is not None
 
     with tempfile.TemporaryDirectory() as work:
-        source = os.path.join(work, "project")
-        os.mkdir(source)
-        with open(os.path.join(source, "CMakeLists.txt"), "w",
-                  encoding="utf-8") as handle:
-            handle.write(PROJECT % {"modules": modules,
-                                    "probe_guard": PROBE_GUARD})
+        # The cases below need a pin of each kind. The tree's own pin is used
+        # for its kind, so the commit the report names is checked against the
+        # pin itself, and the other kind comes from a copy of the module.
+        if pin_is_commit:
+            commit_modules, commit_pin = modules, ref
+            tag_pin = SAMPLE_TAG
+            tag_modules = modules_pinned_at(work, modules, tag_pin, "tag")
+        else:
+            commit_pin = SAMPLE_COMMIT
+            commit_modules = modules_pinned_at(work, modules, commit_pin,
+                                               "commit")
+            tag_modules, tag_pin = modules, ref
+
+        # What libbtbb records: git's abbreviation of the commit, not the full
+        # hash the pin is written as. The report has to see through that.
+        short = commit_pin[:7]
+        # A commit the pin cannot be, for the cases that need a different one.
+        other = "0176769" if not commit_pin.startswith("0176769") else "52b2afc"
+
+        source = project(work, "commit-pin", commit_modules)
 
         # The header has to be where the module left it or the module searches
         # for libbtbb again and these cases lose their library. Nothing is
@@ -187,9 +246,9 @@ def main():
             # The pin, in every case, including the ones that cannot read a
             # commit: that is what makes the mismatch visible in the log a
             # measurement is taken from.
-            if ref not in output:
+            if commit_pin not in output:
                 fail("the %s case does not name the pinned commit %s:\n%s"
-                     % (name, ref, output))
+                     % (name, commit_pin, output))
             warned = "CMake Warning" in output
             if must_warn and not warned:
                 fail("the %s case does not warn, so a mismatch is only a "
@@ -201,7 +260,7 @@ def main():
                 if text not in output:
                     fail("the %s case does not say %r:\n%s"
                          % (name, text, output))
-            if must_warn and "git checkout %s" % ref not in output:
+            if must_warn and "git checkout %s" % commit_pin not in output:
                 fail("the %s case does not say how to install the pinned "
                      "libbtbb:\n%s" % (name, output))
             # Neither answer may be given as the other: a commit that cannot
@@ -240,13 +299,7 @@ def main():
         # Two find_package(BTBB) calls, which is what a tree with several
         # subdirectories does, must report once: the line is read by a person,
         # and a report per call would be noise they learn to skip.
-        twice = os.path.join(work, "twice")
-        os.mkdir(twice)
-        with open(os.path.join(twice, "CMakeLists.txt"), "w",
-                  encoding="utf-8") as handle:
-            handle.write(PROJECT % {"modules": modules,
-                                    "probe_guard": PROBE_GUARD})
-            handle.write("find_package(BTBB REQUIRED)\n")
+        twice = project(work, "twice", commit_modules, calls=2)
         path = library(work, "libbtbb-twice.bin", "git-%s" % short)
         status, output = configure(cmake, twice,
                                    os.path.join(work, "build-twice"),
@@ -266,9 +319,44 @@ def main():
                                    include_dir, "btbb")
         if status != 0:
             fail("a bare library name was refused:\n%s" % output)
-        if "no library file at that path" not in output:
+        if "no library file behind that name" not in output:
             fail("a library name with no file behind it is not reported as "
                  "such:\n%s" % output)
+
+        # A pin that is not a commit. The release procedure tags libbtbb and
+        # this tree with the release version and the pin then names the tag,
+        # which no commit in a library can be compared with: a text
+        # comparison against a tag matches nothing, so comparing anyway would
+        # warn about every correct build. The report must name both ends and
+        # claim nothing.
+        tag_source = project(work, "tag-pin", tag_modules)
+        tag_cases = (
+            # name, release strings in the library, wording it has to carry
+            ("tag-pin", ["git-%s" % other], ["built from commit %s" % other]),
+            ("tag-pin-no-commit", [], ["commit unknown"]),
+        )
+        for name, releases, wanted in tag_cases:
+            path = library(work, "libbtbb-%s.bin" % name, *releases)
+            status, output = configure(cmake, tag_source,
+                                       os.path.join(work, "build-%s" % name),
+                                       include_dir, path)
+            if status != 0:
+                fail("the %s libbtbb was refused:\n%s" % (name, output))
+            if tag_pin not in output:
+                fail("the %s case does not name the pinned %s, so the log "
+                     "does not say which libbtbb the tree asks for:\n%s"
+                     % (name, tag_pin, output))
+            if "CMake Warning" in output:
+                fail("the %s case warns, and a tag names no commit for the "
+                     "library's to differ from, so every correct build would "
+                     "be warned about:\n%s" % (name, output))
+            if "is the commit this tree is built against" in output:
+                fail("the %s case says the library is the pinned one, which "
+                     "a tag cannot tell it:\n%s" % (name, output))
+            for text in wanted:
+                if text not in output:
+                    fail("the %s case does not say %r:\n%s"
+                         % (name, text, output))
 
     print("PASS")
 

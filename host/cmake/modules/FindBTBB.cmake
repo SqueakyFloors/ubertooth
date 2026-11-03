@@ -160,9 +160,12 @@ function(btbb_library_commit out reason)
   # Seven hex digits at least, written out because CMake's regular
   # expressions have no repetition count: a shorter match would be compared
   # against the pin on too few characters to mean anything. Not anchored, and
-  # the hex digits are matched greedily, so the pattern also matches a commit
-  # with text or more hex run up against it; that costs a candidate that is
-  # then one of several, never a wrong commit reported as the only one.
+  # the hex digits are matched greedily, because libbtbb's string sits in the
+  # library next to whatever the compiler put beside it. Text run up against
+  # the string leaves a second candidate, and more hex digits run up against
+  # it read as a longer abbreviation that then does not match the pin, so such
+  # a library warns rather than passing quietly. libbtbb writes the string as
+  # its own NUL-terminated literal, so nothing is run up against it.
   set(hex "[0-9a-fA-F]")
   set(pattern "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
 
@@ -229,10 +232,9 @@ function(btbb_report_pin)
   # of CMake's false constants and would answer for a commit of "0".
   if(commit STREQUAL "")
     if(reason STREQUAL "ambiguous")
-      set(why "more than one commit is recorded in it, so which one is "
-              "libbtbb's own cannot be told")
+      set(why "more than one commit is recorded in it")
     elseif(reason STREQUAL "no-file")
-      set(why "there is no library file at that path to read it from")
+      set(why "there is no library file behind that name")
     else()
       # No cause asserted: a libbtbb built from a source archive records a
       # release name instead of a commit, and one built with git's
@@ -245,10 +247,12 @@ function(btbb_report_pin)
       return()
     endif()
     btbb_rebuild_instructions(fix)
+    # Its own sentence rather than the parenthetical above: that one is read
+    # as part of a status line, and this one has to stand alone.
     message(WARNING
-      "the commit the libbtbb found at ${library} was built from cannot be "
-      "told from the library, because " ${why} ", so this build cannot say "
-      "whether it is the libbtbb this tree is built against "
+      "the libbtbb found at ${library} records more than one commit, and "
+      "nothing here can tell which one libbtbb was built from, so this build "
+      "cannot say whether it is the libbtbb this tree is built against "
       "(${LIBBTBB_PINNED_REF}).\n" "${fix}")
     return()
   endif()
@@ -260,6 +264,29 @@ function(btbb_report_pin)
   if(commit MATCHES "\\*$")
     set(modified TRUE)
     string(REGEX REPLACE "\\*$" "" commit "${commit}")
+  endif()
+
+  if(modified)
+    set(built "built from commit ${commit} with uncommitted changes")
+  else()
+    set(built "built from commit ${commit}")
+  endif()
+
+  # The pin is a commit while libbtbb fixes are landing, and a release points
+  # it at a matching tag of the libbtbb fork instead. A tag names no commit
+  # here, and resolving it would need libbtbb's repository, which a build of
+  # these tools does not have. So the line says what each end is and compares
+  # nothing: comparing a commit with a tag as text would warn about every
+  # correct build. The libbtbb pin workflow draws the same line, and reads a
+  # pin of forty hex digits as a commit whatever case it is written in.
+  #
+  # The length is asked separately because CMake's regular expressions have no
+  # repetition count.
+  string(LENGTH "${LIBBTBB_PINNED_REF}" pin_length)
+  if(NOT pin_length EQUAL 40 OR NOT LIBBTBB_PINNED_REF MATCHES "^[0-9a-fA-F]+$")
+    message(STATUS "libbtbb: ${library}, ${built}; this tree is built against "
+      "${LIBBTBB_PINNED_REF}, which names no commit to compare it with")
+    return()
   endif()
 
   # libbtbb records git's abbreviation and the pin is written in full, which
@@ -280,11 +307,6 @@ function(btbb_report_pin)
     return()
   endif()
 
-  if(modified)
-    set(built "built from commit ${commit} with uncommitted changes")
-  else()
-    set(built "built from commit ${commit}")
-  endif()
   message(STATUS "libbtbb: ${library}, ${built}; this tree is built against "
     "${LIBBTBB_PINNED_REF}")
 
