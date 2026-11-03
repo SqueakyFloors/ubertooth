@@ -58,12 +58,19 @@ one `btbr` was flashed onto.
  - `-U <index|serial>` :
    which Ubertooth to use. See SELECTING A DEVICE.
  - `-f <0-65535>` :
-   frequency offset, written to the radio's `MOD_OFFSET` register. Sent to the
-   board before the prompt opens, and only when given; a run without it leaves
-   whatever the firmware set.
+   frequency offset, written to the radio's `MOD_OFFSET` field (the top of its
+   `MDMCTRL` register). Sent to the board before the prompt opens, and only
+   when given; a run without it leaves the firmware's own value, which is 0.
+   That field is six bits wide, and the board keeps the low six bits of what
+   it is given: a value above 63 is taken rather than refused, and takes
+   effect as those six bits, so `-f 64` sets the same offset as `-f 0`.
  - `-b <0-65535>` :
    how many bit errors a received access code may have and still count as a
-   match. A higher value finds more packets and more noise.
+   match. A higher value finds more packets and more noise. A run without it
+   leaves the firmware's own value, which allows one error. The radio's field
+   is two bits wide, and the board keeps the low two bits of what it is given:
+   a value above 3 is taken rather than refused, and takes effect as those two
+   bits, so `-b 4` allows no errors at all.
  - `-V` :
    print the version and end the command: the host tools, then the firmware
    version and build of the board `-U` names, or of each attached board. The
@@ -144,7 +151,8 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
    way answers a small L2CAP echo request, so `l2ping` from another Ubertooth
    sees a reply (see LIMITATIONS for how small)
  - `discoverable` :
-   `inquiry_scan` and `page_scan` together
+   `inquiry_scan` and `page_scan` in turn, two seconds each, for as long as
+   the command runs; a connection that comes up holds its turn until it ends
  - `page <BD_ADDR>` :
    connect to a device as the central, and keep the connection up
  - `l2ping <BD_ADDR>` :
@@ -199,9 +207,9 @@ Set both boards to the lowest level before paging one from the other:
     ubertooth-util -U <serial> -a 0
 
 `btbr` keeps whatever level the register holds, so this lasts until the board
-is flashed again. The lowest level is about 20 dB down: plenty across a bench
-and not enough for a device across a room, so put it back to 7 before paging
-anything else. Moving the two boards apart, or putting an attenuator on one
+is flashed again. The lowest level is about 25 dB down from the highest
+(ubertooth-util(1), `-a`): plenty across a bench and not enough for a device
+across a room, so put it back to 7 before paging anything else. Moving the two boards apart, or putting an attenuator on one
 antenna, does the same job.
 
 ## MONITOR MODE
@@ -264,7 +272,7 @@ allowed depends on how many slots one packet of the format fills: 400 of a
 one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or `ev4`,
 and 80 of a five-slot `dh5`. The board's own data and link-manager traffic
 waits for the whole run, which is why the bound is there; at 625 us a slot the
-longest run is about 300 ms. To put one format on the air for longer, send
+longest run occupies about 250 ms of them. To put one format on the air for longer, send
 `tx` again: one run at a time waits for a slot, and a `tx` sent while one is
 already waiting is refused, so the waiting cannot pile up.
 
@@ -312,8 +320,10 @@ packet is on the air either way, which is the point.
   followed, because the LMP packet carrying it is encrypted too.
 - An L2CAP echo request is answered when the whole request arrived in one
   packet and the reply fits one too, which leaves room for 9 bytes of echo
-  data. `l2ping` here sends 4 and gets a reply. A larger request is not
-  reassembled from the fragments it arrives in and is not answered, so a
+  data. `l2ping` here sends 4 and gets a reply. A request carrying more than
+  9 bytes goes unanswered, with a `warning:` line saying so, once for the
+  life of the connection; one too big to arrive in a single packet is not
+  reassembled from the fragments it comes in and is not answered at all, so a
   standard host's `l2ping`, which sends 44 bytes of data by default, gets no
   reply unless it is asked for a smaller payload. The packets it sends are
   still reported, as every received packet is.
@@ -340,10 +350,11 @@ packet is on the air either way, which is the point.
   says the opcode is in the PDU's second byte, and a PDU of one byte has
   none.
 - A PDU that does carry its opcode but ends before its parameters is answered
-  instead: the name request, the extended features request, and the AFH set
-  are refused with invalid LMP parameters, and a short slot offset is ignored,
-  since that PDU expects no answer. `monitor` has no peer to answer, so it
-  reports such a PDU and leaves the AFH map as it was.
+  instead: the name request, the extended features request, the AFH set, the
+  role switch request, and the maximum slot request are refused with invalid
+  LMP parameters, and a short slot offset is ignored, since that PDU expects
+  no answer. `monitor` has no peer to answer, so it reports such a PDU and
+  leaves the AFH map as it was.
 - A message from the board the tool cannot read is dropped and the session
   goes on with the next one: a packet that ends before what it says it holds,
   one of a type the tool does not decode, or a message whose own header is
@@ -353,6 +364,12 @@ packet is on the air either way, which is the point.
   at all is a different thing and still ends the thread reading the board;
   see EXIT STATUS.
 - As the central, it polls the peripheral hard enough to drain its battery.
+- A scan listens for about 250 us of each 312.5 us half of a slot, and a
+  packet can start anywhere in that half. One whose access code starts in the
+  part the scan is not listening to is not heard, so `inquiry_scan`,
+  `page_scan`, `discoverable`, and `monitor`, which all wait this way, miss
+  some of the repeats a nearby device sends and may need more than one of its
+  sweeps.
 - `monitor` is a race against the real peripheral and often takes several
   attempts. Packets are lost: get closer, use a better antenna.
 
@@ -363,8 +380,15 @@ carrying the time it was printed:
 
     19:18:58 RX FHS: FHS: bdaddr=112233445566 parity=6c38a7bd cls=5a020c ltaddr=0 clk=365c
 
-That time is the only timing a session has. An inquiry response is the
-response itself and the EIR fields under it, each as a timed line of its own:
+That time is the host's own clock, read as the line was printed, and for every
+command but `monitor` it is the only timing a session has. `monitor` follows a
+piconet from the outside, so each of its lines carries that piconet's clock as
+well, and which side of the connection sent the packet:
+
+    19:21:07 RX LMP (   Central: 36dc98): BBHdr(lt_addr=1, type=DM1, flags=AS) | (tid 0) LMP_SETUP_COMPLETE                       | 62
+
+An inquiry response is the response itself and the EIR fields under it, each
+as a timed line of its own:
 
     19:19:03 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55 62 65 72 74 6f 6f 74 68
     19:19:03 COMPLETE_LOCAL_NAME: 'Ubertooth'
@@ -410,8 +434,16 @@ Standard output carries the packets a command decodes and the usage text `-h`
 prints; see OUTPUT. Everything else, the intro line, what `?` prints and the
 prompt of a session nobody is editing at a terminal included, goes to standard
 error. A command line the tool will not take, a board it cannot select, open
-or set up, and anything that goes wrong during a session, are reported as the
-one-line `error: `, `warning: ` and `note: ` lines the other tools use.
+or set up, and anything that goes wrong on the host's side of a session, are
+reported as the one-line `error: `, `warning: ` and `note: ` lines the other
+tools use.
+
+The board has a console of its own, and what it writes arrives on standard
+error among the progress, in its own words rather than those: the value a
+setting was changed to, a page or a scan that has run out its time, and the
+refusal of a request the firmware will not carry out, such as a second `tx`
+while one is still waiting for a slot. Those lines carry neither the time nor
+a level, and a session at a terminal shows them in green.
 
 A line the session's character encoding cannot carry is dropped rather than
 ending the command. A device name arrives as whatever bytes the air sent, so a

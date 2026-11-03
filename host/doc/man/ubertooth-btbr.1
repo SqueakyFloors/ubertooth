@@ -43,10 +43,10 @@ Starting \fBubertooth\-btbr\fR on a board running \fBbluetooth_rxtx\fR fails wit
 which Ubertooth to use\. See SELECTING A DEVICE\.
 .TP
 \fB\-f <0\-65535>\fR
-frequency offset, written to the radio's \fBMOD_OFFSET\fR register\. Sent to the board before the prompt opens, and only when given; a run without it leaves whatever the firmware set\.
+frequency offset, written to the radio's \fBMOD_OFFSET\fR field (the top of its \fBMDMCTRL\fR register)\. Sent to the board before the prompt opens, and only when given; a run without it leaves the firmware's own value, which is 0\. That field is six bits wide, and the board keeps the low six bits of what it is given: a value above 63 is taken rather than refused, and takes effect as those six bits, so \fB\-f 64\fR sets the same offset as \fB\-f 0\fR\.
 .TP
 \fB\-b <0\-65535>\fR
-how many bit errors a received access code may have and still count as a match\. A higher value finds more packets and more noise\.
+how many bit errors a received access code may have and still count as a match\. A higher value finds more packets and more noise\. A run without it leaves the firmware's own value, which allows one error\. The radio's field is two bits wide, and the board keeps the low two bits of what it is given: a value above 3 is taken rather than refused, and takes effect as those two bits, so \fB\-b 4\fR allows no errors at all\.
 .TP
 \fB\-V\fR
 print the version and end the command: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. This tool answers it by running ubertooth\-util(1) \fB\-V\fR, so that tool has to be on the \fBPATH\fR, and is reported as \fBerror: could not run ubertooth\-util: No such file or directory\fR when it is not\. No \fBbtbr\fR firmware is needed for it: the version is read from whatever image the board is carrying\. It needs no Python \fBlibusb1\fR package either: the command line is read before the module that package ships is imported, so \fB\-V\fR answers on a host where it is not installed\. See DIAGNOSTICS\.
@@ -87,7 +87,7 @@ answer inquiries, so nearby devices discover this board
 accept a connection from a device that pages this board; a standard Classic controller usually gets through in a few seconds, and another Ubertooth on the same bench needs its transmit level turned down first, as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this way answers a small L2CAP echo request, so \fBl2ping\fR from another Ubertooth sees a reply (see LIMITATIONS for how small)
 .TP
 \fBdiscoverable\fR
-\fBinquiry_scan\fR and \fBpage_scan\fR together
+\fBinquiry_scan\fR and \fBpage_scan\fR in turn, two seconds each, for as long as the command runs; a connection that comes up holds its turn until it ends
 .TP
 \fBpage <BD_ADDR>\fR
 connect to a device as the central, and keep the connection up
@@ -130,7 +130,7 @@ ubertooth\-util \-U <serial> \-a 0
 .fi
 .IP "" 0
 .P
-\fBbtbr\fR keeps whatever level the register holds, so this lasts until the board is flashed again\. The lowest level is about 20 dB down: plenty across a bench and not enough for a device across a room, so put it back to 7 before paging anything else\. Moving the two boards apart, or putting an attenuator on one antenna, does the same job\.
+\fBbtbr\fR keeps whatever level the register holds, so this lasts until the board is flashed again\. The lowest level is about 25 dB down from the highest (ubertooth\-util(1), \fB\-a\fR): plenty across a bench and not enough for a device across a room, so put it back to 7 before paging anything else\. Moving the two boards apart, or putting an attenuator on one antenna, does the same job\.
 .SH "MONITOR MODE"
 \fBmonitor\fR targets the paging phase of a connection, where the central sends the peripheral a Frequency Hop Synchronization (FHS) packet carrying its full address and clock\. If the Ubertooth receives that FHS before the real peripheral does, it joins the new piconet ahead of both devices and reports the packets they exchange, including the unencrypted LMP traffic that opens every connection\. An LMP packet that sets the Adaptive Frequency Hopping (AFH) map is followed, so the capture keeps up when the piconet narrows its channels\.
 .P
@@ -174,7 +174,7 @@ the synchronous voice packets, each one fixed length with no CRC, under rate 1/3
 \fBev3\fR 1\-30, \fBev4\fR 1\-120, \fBev5\fR 1\-180
 the enhanced synchronous packets, which carry a CRC and a length that is agreed when the link is set up rather than written in the packet
 .P
-\fB<length>\fR defaults to the format's maximum, \fB<count>\fR to 1\. \fB<count>\fR is how many times to transmit the packet, one transmit slot after another, which is the way to make one easy for a receiver to catch; the packet is not retransmitted on the peer's say\-so, so a peer that ignores it costs nothing\. What is bounded is the air slots the run occupies, 400 of them, so the count allowed depends on how many slots one packet of the format fills: 400 of a one\-slot format such as \fBdm1\fR or \fBev3\fR, 133 of a three\-slot \fBdh3\fR or \fBev4\fR, and 80 of a five\-slot \fBdh5\fR\. The board's own data and link\-manager traffic waits for the whole run, which is why the bound is there; at 625 us a slot the longest run is about 300 ms\. To put one format on the air for longer, send \fBtx\fR again: one run at a time waits for a slot, and a \fBtx\fR sent while one is already waiting is refused, so the waiting cannot pile up\.
+\fB<length>\fR defaults to the format's maximum, \fB<count>\fR to 1\. \fB<count>\fR is how many times to transmit the packet, one transmit slot after another, which is the way to make one easy for a receiver to catch; the packet is not retransmitted on the peer's say\-so, so a peer that ignores it costs nothing\. What is bounded is the air slots the run occupies, 400 of them, so the count allowed depends on how many slots one packet of the format fills: 400 of a one\-slot format such as \fBdm1\fR or \fBev3\fR, 133 of a three\-slot \fBdh3\fR or \fBev4\fR, and 80 of a five\-slot \fBdh5\fR\. The board's own data and link\-manager traffic waits for the whole run, which is why the bound is there; at 625 us a slot the longest run occupies about 250 ms of them\. To put one format on the air for longer, send \fBtx\fR again: one run at a time waits for a slot, and a \fBtx\fR sent while one is already waiting is refused, so the waiting cannot pile up\.
 .P
 \fB<hex>\fR is the data bytes, as an even number of hex digits of exactly \fB<length>\fR bytes\. Without it the data is a counted pattern, \fB00 01 02 \|\.\|\.\|\. ff\fR and over again\. A \fBdv\fR also has a voice field, which \fB<hex>\fR does not reach; its fill is counted too but starts at \fBa0\fR, so it reads \fBa0 a1 a2 \|\.\|\.\|\. a9\fR\. The two patterns differ on purpose: a decoder can see where the voice field ends from the bytes alone, without knowing how long either field is\. Either way the line \fBtx\fR prints on standard output is the packet the board was asked for, which is what a receiver's decode has to be compared with: \fBdata=\fR is the data bytes, and \fBpayload=\fR the whole payload, which adds the voice field where the format has one and the payload header where it has one\. The board adds the CRC, which is in neither:
 .IP "" 4
@@ -195,7 +195,7 @@ The CC2400 radio demodulates Basic Rate only, so Enhanced Data Rate packets cann
 .IP "\(bu" 4
 Encryption is not implemented\. Packets sent after a connection turns encryption on are reported as raw data, and the AFH map stops being followed, because the LMP packet carrying it is encrypted too\.
 .IP "\(bu" 4
-An L2CAP echo request is answered when the whole request arrived in one packet and the reply fits one too, which leaves room for 9 bytes of echo data\. \fBl2ping\fR here sends 4 and gets a reply\. A larger request is not reassembled from the fragments it arrives in and is not answered, so a standard host's \fBl2ping\fR, which sends 44 bytes of data by default, gets no reply unless it is asked for a smaller payload\. The packets it sends are still reported, as every received packet is\.
+An L2CAP echo request is answered when the whole request arrived in one packet and the reply fits one too, which leaves room for 9 bytes of echo data\. \fBl2ping\fR here sends 4 and gets a reply\. A request carrying more than 9 bytes goes unanswered, with a \fBwarning:\fR line saying so, once for the life of the connection; one too big to arrive in a single packet is not reassembled from the fragments it comes in and is not answered at all, so a standard host's \fBl2ping\fR, which sends 44 bytes of data by default, gets no reply unless it is asked for a smaller payload\. The packets it sends are still reported, as every received packet is\.
 .IP "\(bu" 4
 The link layer carries Asynchronous Connection\-Less (ACL) traffic only, and does not do role switching or the LMP procedures around it\. A peer asking to send multi\-slot packets is refused as well, and the feature mask this end sends does not offer them, so a connection stays on single\-slot ones: the firmware decodes the multi\-slot kinds, but no capture has exercised that over the air\. A request for any other procedure there is no handler for is refused too, rather than left unanswered, so the peer can get on with the link instead of waiting out a 30\-second LMP response timeout; a PDU that expects no answer is ignored\. Either way the opcode is named in a \fBwarning:\fR line, once per opcode for the life of the connection\.
 .IP "\(bu" 4
@@ -203,11 +203,13 @@ A peer may refuse any of the five things a connection opens by asking it for: it
 .IP "\(bu" 4
 A PDU too short to carry an opcode is reported in a \fBwarning:\fR line and the connection goes on\. There is nothing to answer in one: an escape opcode says the opcode is in the PDU's second byte, and a PDU of one byte has none\.
 .IP "\(bu" 4
-A PDU that does carry its opcode but ends before its parameters is answered instead: the name request, the extended features request, and the AFH set are refused with invalid LMP parameters, and a short slot offset is ignored, since that PDU expects no answer\. \fBmonitor\fR has no peer to answer, so it reports such a PDU and leaves the AFH map as it was\.
+A PDU that does carry its opcode but ends before its parameters is answered instead: the name request, the extended features request, the AFH set, the role switch request, and the maximum slot request are refused with invalid LMP parameters, and a short slot offset is ignored, since that PDU expects no answer\. \fBmonitor\fR has no peer to answer, so it reports such a PDU and leaves the AFH map as it was\.
 .IP "\(bu" 4
 A message from the board the tool cannot read is dropped and the session goes on with the next one: a packet that ends before what it says it holds, one of a type the tool does not decode, or a message whose own header is wrong\. It is reported in a \fBwarning:\fR line naming what arrived, said once per reason for the life of the session, since a board sending one such message usually sends many\. A message whose framing the tool cannot follow at all is a different thing and still ends the thread reading the board; see EXIT STATUS\.
 .IP "\(bu" 4
 As the central, it polls the peripheral hard enough to drain its battery\.
+.IP "\(bu" 4
+A scan listens for about 250 us of each 312\.5 us half of a slot, and a packet can start anywhere in that half\. One whose access code starts in the part the scan is not listening to is not heard, so \fBinquiry_scan\fR, \fBpage_scan\fR, \fBdiscoverable\fR, and \fBmonitor\fR, which all wait this way, miss some of the repeats a nearby device sends and may need more than one of its sweeps\.
 .IP "\(bu" 4
 \fBmonitor\fR is a race against the real peripheral and often takes several attempts\. Packets are lost: get closer, use a better antenna\.
 .IP "" 0
@@ -219,7 +221,14 @@ The packets a command decodes go to standard output, one to a line, each carryin
 .fi
 .IP "" 0
 .P
-That time is the only timing a session has\. An inquiry response is the response itself and the EIR fields under it, each as a timed line of its own:
+That time is the host's own clock, read as the line was printed, and for every command but \fBmonitor\fR it is the only timing a session has\. \fBmonitor\fR follows a piconet from the outside, so each of its lines carries that piconet's clock as well, and which side of the connection sent the packet:
+.IP "" 4
+.nf
+19:21:07 RX LMP (   Central: 36dc98): BBHdr(lt_addr=1, type=DM1, flags=AS) | (tid 0) LMP_SETUP_COMPLETE                       | 62
+.fi
+.IP "" 0
+.P
+An inquiry response is the response itself and the EIR fields under it, each as a timed line of its own:
 .IP "" 4
 .nf
 19:19:03 ACL(llid=L2CAP_START, flow=1, len=11): 0a 09 55 62 65 72 74 6f 6f 74 68
@@ -250,7 +259,9 @@ Every line of a capture can therefore be read by the time in front of it, whatev
 .P
 A session at a terminal leaves the prompt to the terminal's line editor, which draws it on the terminal as it always has and keeps the cursor right while a line is edited\. Nothing is reading standard output there, so nothing is in the way\.
 .SH "DIAGNOSTICS"
-Standard output carries the packets a command decodes and the usage text \fB\-h\fR prints; see OUTPUT\. Everything else, the intro line, what \fB?\fR prints and the prompt of a session nobody is editing at a terminal included, goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong during a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
+Standard output carries the packets a command decodes and the usage text \fB\-h\fR prints; see OUTPUT\. Everything else, the intro line, what \fB?\fR prints and the prompt of a session nobody is editing at a terminal included, goes to standard error\. A command line the tool will not take, a board it cannot select, open or set up, and anything that goes wrong on the host's side of a session, are reported as the one\-line \fBerror:\fR, \fBwarning:\fR and \fBnote:\fR lines the other tools use\.
+.P
+The board has a console of its own, and what it writes arrives on standard error among the progress, in its own words rather than those: the value a setting was changed to, a page or a scan that has run out its time, and the refusal of a request the firmware will not carry out, such as a second \fBtx\fR while one is still waiting for a slot\. Those lines carry neither the time nor a level, and a session at a terminal shows them in green\.
 .P
 A line the session's character encoding cannot carry is dropped rather than ending the command\. A device name arrives as whatever bytes the air sent, so a session that is not running under UTF\-8 meets one it cannot write, and the replacement character a name cut mid\-character decodes to does the same\. The line goes, the rest of the message around it is printed, and the loss is said once per stream:
 .IP "" 4
