@@ -245,7 +245,10 @@ path that names this process's descriptor 1, such as `/dev/stdout` or
 `/dev/fd/1` (ubertooth(7), OPTION VALUES). Any other value is a file name,
 including one that starts with `-`: `-q -x` writes the file `-x`. Standard
 output carries one stream, so `-q` and `-d` cannot both have it in one
-command: `error: -q and -d cannot both write to standard output`.
+command: `error: -q and -d cannot both write to standard output`. `-r` is not
+part of that pair, since it never has the stream: a lone `-` is refused above,
+and a path naming the stream is refused by the PcapNG writer, which will not
+open a destination that exists already.
 
 A file name cannot be shared either. Each of `-r`, `-q` and `-d` opens its own
 destination for writing, which truncates whatever another has put there, so no
@@ -253,7 +256,10 @@ two of them may name one file: `error: -q and -d cannot both write to
 capture.pcap`, exit 1, with the file left as it was. The file is identified
 rather than the name, so two spellings of one path, a symbolic link, a hard
 link, and `-q -` beside a `-d` naming the file the shell has pointed standard
-output at are all caught.
+output at are all caught. A value meaning the stream is compared by that
+descriptor alone and never as a path, so `-q -` beside `-d ./-` is two
+destinations — the stream and the file named `-` — unless the shell really has
+pointed standard output at that file.
 
 Writing both captures to `/dev/null` is not refused, since nothing is kept
 there and nothing is lost. Nor is a chain of symbolic links whose middle

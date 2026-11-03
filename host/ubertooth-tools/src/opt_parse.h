@@ -180,11 +180,14 @@ typedef struct {
  *  - both already exist with the same device and inode number, which catches
  *    a hard link.
  *
- * A value that means standard output is identified from descriptor 1, because
- * the calling shell may have pointed the stream at a file another option also
- * names. Two destinations that both mean standard output are left to the
- * one-capture-on-standard-output rule, which each tool states in its own
- * words.
+ * A value that means standard output names a stream and not a path, so it is
+ * identified from descriptor 1 alone: the calling shell may have pointed the
+ * stream at a file another option also names, while "./-" beside "-" is an
+ * ordinary file beside the stream. Two destinations that both mean standard
+ * output are not this check's at all, because one stream cannot carry two
+ * captures whatever they are spelled; each tool refuses the pair its own
+ * one-capture-on-standard-output rule covers, and a writer that cannot open
+ * the stream reports the rest.
  *
  * Only a destination a writer would overwrite is refused. The null device
  * keeps nothing, so "-q /dev/null -d /dev/null" discards both captures as

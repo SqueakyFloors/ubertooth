@@ -436,7 +436,9 @@ static int same_directory_entry(const char *first, const char *second)
 /* Which file a writer given this destination would write to: 0 once <where>
  * holds its device and inode numbers, -1 when they cannot be had -- a name
  * that does not exist yet, which is the ordinary case for a capture, or a
- * path that cannot be looked up, which the writer is about to report itself.
+ * path that cannot be looked up at all. The caller below treats both the same
+ * way, as a destination a writer would create, which is why a matched pair of
+ * them is refused here rather than left to the writer's own open.
  *
  * A value that means standard output has no name to look up, so the
  * descriptor is what to ask: the calling shell may have pointed the stream at
@@ -456,6 +458,18 @@ static int same_destination(const char *first, const char *second)
 {
 	char first_target[PATH_MAX], second_target[PATH_MAX];
 	struct stat first_file, second_file;
+
+	/* A value meaning standard output names a stream, not a path, so
+	 * neither comparison below applies to it: "-" is the stream while
+	 * "./-" is an ordinary file of that name, and the two texts reduce to
+	 * each other. Only the descriptor says which file the stream is on,
+	 * and the same goes for a symbolic link pointing at a file called
+	 * "-", whose target must not be read as the stream either. */
+	if (opt_writes_to_stdout(first) || opt_writes_to_stdout(second))
+		return destination_file(first, &first_file) == 0 &&
+		       destination_file(second, &second_file) == 0 &&
+		       first_file.st_dev == second_file.st_dev &&
+		       first_file.st_ino == second_file.st_ino;
 
 	if (link_target(first, first_target, sizeof(first_target)))
 		first = first_target;
@@ -547,7 +561,8 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 			if (strcmp(first, second) == 0)
 				fprintf(stderr, "error: %s and %s cannot both write"
 				        " to %s\n", destinations[i].option,
-				        destinations[j].option, first);
+				        destinations[j].option,
+				        destination_text(first));
 			else
 				fprintf(stderr, "error: %s and %s cannot both write"
 				        " to one file (%s and %s)\n",

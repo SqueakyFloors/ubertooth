@@ -362,6 +362,54 @@ static void test_standard_output_is_left_alone(void)
 	              "error: -q and -d cannot both write to ./-\n");
 }
 
+/* The stream beside the file named "-". Their texts reduce to each other, so a
+ * path comparison calls them one destination, and they are two: one capture
+ * goes to the stream and the other creates a file. Which file the stream is on
+ * can only come from the descriptor, so that is the only thing asked. */
+static void test_the_stream_beside_the_file_called_dash(void)
+{
+	int saved, target;
+
+	check_accepted("-", "./-");
+	check_accepted("./-", "-");
+	check_accepted("-", ".///-");
+	/* A symbolic link pointing at that file is the file too, not the
+	 * stream, however its target reads. */
+	CHECK(close(creat("-", 0600)) == 0);
+	unlink("points-at-dash");
+	CHECK(symlink("-", "points-at-dash") == 0);
+	check_accepted("points-at-dash", "-");
+	check_accepted("-", "points-at-dash");
+
+	/* Pointed at that very file, though, the stream is that file, and the
+	 * descriptor says so where no comparison of the text could. */
+	saved = dup(STDOUT_FILENO);
+	target = open("-", O_WRONLY, 0600);
+	if (saved < 0 || target < 0) {
+		printf("skipping the stream-on-that-file case: %s\n",
+		       strerror(errno));
+		if (saved >= 0)
+			close(saved);
+		if (target >= 0)
+			close(target);
+		return;
+	}
+	fflush(stdout);
+	dup2(target, STDOUT_FILENO);
+	close(target);
+
+	check_refused("-", "./-",
+	              "error: -q and -d cannot both write to one file"
+	              " (standard output and ./-)\n");
+	check_refused("points-at-dash", "-",
+	              "error: -q and -d cannot both write to one file"
+	              " (points-at-dash and standard output)\n");
+
+	fflush(stdout);
+	dup2(saved, STDOUT_FILENO);
+	close(saved);
+}
+
 /* The boundary a destination reached through a descriptor the calling shell
  * opened sits on. The name alone does not say which file that is, and looking
  * it up gets different answers on different systems: a Linux descriptor path
@@ -412,8 +460,8 @@ static void clean_up(void)
 {
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
-		"dangling.bin", "sink.bin", "redirected.bin",
-		"sub/pointer.bin", "sub/updown.bin",
+		"dangling.bin", "sink.bin", "redirected.bin", "-",
+		"points-at-dash", "sub/pointer.bin", "sub/updown.bin",
 	};
 	char sub[sizeof(work) + 8];
 	size_t i;
@@ -448,6 +496,7 @@ int main(void)
 	test_what_a_writer_would_not_overwrite();
 	test_an_empty_value();
 	test_standard_output_is_left_alone();
+	test_the_stream_beside_the_file_called_dash();
 	test_standard_output_pointed_at_a_file();
 	test_descriptor_paths();
 
