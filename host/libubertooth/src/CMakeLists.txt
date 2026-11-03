@@ -150,6 +150,16 @@ foreach(lib IN LISTS LIBUSB_LIBRARIES)
 	endif()
 endforeach()
 
+# The name libusb is linked under, which FindUSB1.cmake chooses by system.
+# Written into the config file rather than chosen there, so that the search
+# asks for the same library this build linked. FindUSB1.cmake sets the name
+# only on the configure that searches, not on one that reads the answer back
+# from the cache, so it is worked out here from the same rule.
+set(UBERTOOTH_CONFIG_LIBUSB_NAME usb-1.0)
+if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+	set(UBERTOOTH_CONFIG_LIBUSB_NAME usb)
+endif()
+
 # The directories libubertooth.pc names have to be the ones the install writes
 # to: a consumer whose pkg-config -L names a directory holding no library
 # links by luck or not at all.

@@ -18,9 +18,12 @@ checked here:
   * the library and headers it names are the ones the install really wrote.
     The same build is installed into a second prefix and the target follows
     it, because the file reads its prefix back from where it is itself;
-  * lib64, the library directory a 64-bit Fedora, RHEL or SUSE uses, is
-    found the same way, so the directory the config file is installed to is
-    one CMake searches on such a system.
+  * a build that installs to lib64, the library directory a 64-bit Fedora,
+    RHEL or SUSE uses, writes a config file that describes that install too.
+    The consumer is pointed straight at it with ubertooth_DIR there, because
+    whether CMake searches <prefix>/lib64 at all is a property of the system
+    running the test -- it does on a system that keeps libraries in lib64 and
+    not on Debian or Ubuntu -- and that is not what this change decides.
 
 Nothing is installed outside the temporary prefixes this test makes, no device
 is opened, and the program it builds is never run.
@@ -122,13 +125,16 @@ def forwarded_cache_arguments():
     return arguments
 
 
-def consume(name, work, prefix, forwarded, build=True):
+def consume(name, work, prefix, forwarded, build=True, package_dir=None):
     """Configure the consumer against that prefix; return what it found.
 
     CMAKE_PREFIX_PATH is the whole of what the consumer is told, so finding
     the package is part of what is being checked. The compiler is forwarded
     along with it, because the program is linked against a library this build
     compiled.
+
+    package_dir sets ubertooth_DIR instead, for an install in a directory
+    this system does not search.
     """
     source = os.path.join(work, name + "-src")
     os.makedirs(source)
@@ -146,6 +152,8 @@ def consume(name, work, prefix, forwarded, build=True):
                               if argument.startswith("-DCMAKE_PREFIX_PATH")]
     arguments = [argument for argument in forwarded
                  if not argument.startswith("-DCMAKE_PREFIX_PATH")]
+    if package_dir:
+        arguments.append("-Dubertooth_DIR=" + package_dir)
     configured = run([CMAKE, "-S", source, "-B", binary,
                       "-DCMAKE_PREFIX_PATH=" + ";".join(prefix_path),
                       "-DREPORT=" + report] + arguments)
@@ -161,9 +169,11 @@ def consume(name, work, prefix, forwarded, build=True):
     return location, includes.split(";")
 
 
-def check_install(name, work, prefix, libdir, forwarded, build=True):
+def check_install(name, work, prefix, libdir, forwarded, build=True,
+                  package_dir=None):
     """The target names the library and headers of that install."""
-    location, includes = consume(name, work, prefix, forwarded, build)
+    location, includes = consume(name, work, prefix, forwarded, build,
+                                 package_dir)
     installed_libdir = os.path.realpath(os.path.join(prefix, libdir))
     assert os.path.realpath(os.path.dirname(location)) == installed_libdir, \
         (name, location, installed_libdir)
@@ -199,7 +209,10 @@ try:
 
     # lib64, which a 64-bit Fedora, RHEL or SUSE keeps its libraries in. The
     # library alone is built, so this is seconds rather than a build of the
-    # tree.
+    # tree. The consumer is pointed straight at the config file: a system that
+    # does not keep libraries in lib64 does not search <prefix>/lib64 for a
+    # package either, and what is being checked here is the file the install
+    # wrote, not which directories this machine's CMake looks in.
     lib64_build = os.path.join(work, "lib64-library")
     configured = run([CMAKE, "-S", SOURCE_DIR, "-B", lib64_build,
                       "-DENABLE_PYTHON=OFF", "-DBUILD_TESTING=OFF",
@@ -210,7 +223,9 @@ try:
     assert built.returncode == 0, built
     lib64_prefix = os.path.join(work, "lib64-prefix")
     install_into(lib64_prefix, lib64_build)
-    check_install("lib64", work, lib64_prefix, "lib64", forwarded)
+    check_install("lib64", work, lib64_prefix, "lib64", forwarded,
+                  package_dir=os.path.join(lib64_prefix, "lib64", "cmake",
+                                           "ubertooth"))
 finally:
     shutil.rmtree(work, ignore_errors=True)
 

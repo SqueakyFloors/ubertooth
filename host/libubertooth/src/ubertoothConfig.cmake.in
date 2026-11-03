@@ -51,13 +51,17 @@ endforeach()
 #
 # The libusb search asks for the header at the spelling the Ubertooth headers
 # use, so the directory it reports is the one that include resolves against.
+# The names are the ones FindBTBB.cmake and FindUSB1.cmake in this tree look
+# for, so a search here answers with the library the build would have found:
+# btbb-static for a libbtbb installed static only, and the libusb name the
+# system uses, which is usb on FreeBSD and usb-1.0 elsewhere.
 find_path(ubertooth_btbb_INCLUDE_DIR NAMES btbb.h
 	HINTS "@UBERTOOTH_CONFIG_BTBB_INCLUDEDIR@")
-find_library(ubertooth_btbb_LIBRARY NAMES btbb
+find_library(ubertooth_btbb_LIBRARY NAMES btbb btbb-static
 	HINTS "@UBERTOOTH_CONFIG_BTBB_LIBDIR@")
 find_path(ubertooth_libusb_INCLUDE_DIR NAMES libusb-1.0/libusb.h
 	HINTS "@UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR@")
-find_library(ubertooth_libusb_LIBRARY NAMES usb-1.0
+find_library(ubertooth_libusb_LIBRARY NAMES @UBERTOOTH_CONFIG_LIBUSB_NAME@
 	HINTS "@UBERTOOTH_CONFIG_LIBUSB_LIBDIR@")
 mark_as_advanced(ubertooth_btbb_INCLUDE_DIR ubertooth_btbb_LIBRARY
 	ubertooth_libusb_INCLUDE_DIR ubertooth_libusb_LIBRARY)
