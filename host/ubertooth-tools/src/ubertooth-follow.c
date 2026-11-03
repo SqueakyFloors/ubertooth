@@ -425,16 +425,18 @@ int main(int argc, char *argv[])
 	 * so a run given one name twice would keep one format and lose the
 	 * rest. Asked here, with the rest of the command line, so a refused run
 	 * creates and truncates nothing. */
-	const opt_capture_dest destinations[] = {
-		{ "-r", pcapng_name },
-		{ "-q", pcap_name },
-		{ "-d", dump_name },
-	};
+	{
+		const opt_capture_dest destinations[] = {
+			{ "-r", pcapng_name },
+			{ "-q", pcap_name },
+			{ "-d", dump_name },
+		};
 
-	if (opt_check_destinations_differ(destinations,
-	                                  sizeof(destinations) /
-	                                  sizeof(destinations[0])) < 0)
-		return 1;
+		if (opt_check_destinations_differ(destinations,
+		                                  sizeof(destinations) /
+		                                  sizeof(destinations[0])) < 0)
+			return 1;
+	}
 
 	/* Whether a capture will own this process's standard output, which the
 	 * command line already says. Known before the stream is actually taken

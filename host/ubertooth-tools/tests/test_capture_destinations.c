@@ -9,6 +9,7 @@
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -136,20 +137,44 @@ static void test_one_name_written_twice(void)
 	              " (/tmp/cap.bin and /tmp/./cap.bin)\n");
 }
 
-/* Two names, so two files. A relative name and an absolute one are not
- * reconciled, and neither is "..", because the element above a symbolic link
- * is not the directory the text suggests. */
+/* Two names, so two files. */
 static void test_two_names_are_two_files(void)
 {
 	check_accepted("cap.bin", "dump.bin");
 	check_accepted("cap.bin", "cap.bin.1");
 	check_accepted("cap.bin", "/tmp/cap.bin");
-	check_accepted("sub/../cap.bin", "cap.bin");
+	check_accepted("sub/cap.bin", "cap.bin");
 	/* A name that ends inside another asks for something within a file,
 	 * which is not a destination at all: left to differ rather than
 	 * claimed as the same file. */
 	check_accepted("cap.bin", "cap.bin/.");
 	check_accepted("cap.bin", "cap.bin/");
+}
+
+/* The directory holding the name is looked up, so the ".." elements and the
+ * symbolic links above it are reduced by the system rather than guessed at,
+ * and a relative name and its absolute path are one destination. */
+static void test_one_entry_of_one_directory(void)
+{
+	char absolute[PATH_MAX];
+
+	check_refused("sub/../cap.bin", "cap.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (sub/../cap.bin and cap.bin)\n");
+
+	snprintf(absolute, sizeof(absolute), "%s/cap.bin", work);
+	{
+		char expected[PATH_MAX + 128];
+
+		snprintf(expected, sizeof(expected),
+		         "error: -q and -d cannot both write to one file"
+		         " (cap.bin and %s)\n", absolute);
+		check_refused("cap.bin", absolute, expected);
+	}
+
+	/* A directory that does not exist cannot be looked up, so two
+	 * spellings of a name inside one are not compared. */
+	check_accepted("gone/../cap.bin", "cap.bin");
 }
 
 /* An option that was not given is not a destination, and one destination
@@ -226,21 +251,83 @@ static void test_a_link_to_a_file_not_there_yet(void)
 	              "error: -q and -d cannot both write to one file"
 	              " (sub/inside.bin and sub/pointer.bin)\n");
 	check_accepted("inside.bin", "sub/pointer.bin");
+
+	/* A target that climbs back out of the link's directory. The text of
+	 * the resolved name carries "..", which only the directory lookup
+	 * reduces. */
+	if (symlink("../upward.bin", "sub/updown.bin") != 0) {
+		printf("skipping the link out of a directory: %s\n",
+		       strerror(errno));
+		return;
+	}
+	check_refused("upward.bin", "sub/updown.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (upward.bin and sub/updown.bin)\n");
+	check_accepted("sub/upward.bin", "sub/updown.bin");
 }
 
-/* Only a destination a writer would overwrite is refused. A character device
+/* Only a destination a writer would overwrite is refused. The null device
  * keeps nothing, so two captures discarding themselves there is a command
- * line that does what it says. */
-static void test_a_character_device_is_not_overwritten(void)
+ * line that does what it says; a terminal is not that, because two streams
+ * interleaved on one are neither capture. */
+static void test_what_a_writer_would_not_overwrite(void)
 {
+	struct stat info;
+
 	check_accepted("/dev/null", "/dev/null");
 	check_accepted("/dev/null", "/dev/./null");
-	/* A symbolic link to one is the same destination and just as harmless. */
-	if (symlink("/dev/null", "sink.bin") == 0)
+	/* A symbolic link to it is the same destination, in either order. */
+	if (symlink("/dev/null", "sink.bin") == 0) {
 		check_accepted("/dev/null", "sink.bin");
-	else
-		printf("skipping the link to a character device: %s\n",
+		check_accepted("sink.bin", "/dev/null");
+	} else {
+		printf("skipping the link to the null device: %s\n",
 		       strerror(errno));
+	}
+
+	/* A terminal keeps what is written to it, as far as a reader is
+	 * concerned, so one named twice is refused like a file. */
+	if (stat("/dev/tty", &info) == 0)
+		check_refused("/dev/tty", "/dev/tty",
+		              "error: -q and -d cannot both write to"
+		              " /dev/tty\n");
+	else
+		printf("skipping the terminal case: %s\n", strerror(errno));
+
+	/* A directory is no destination at all; the writer's own open says so
+	 * better than a line about a file would. */
+	check_accepted("sub", "sub");
+	check_accepted("./sub", "sub");
+}
+
+/* A capture on standard output is a destination like any other once the shell
+ * has pointed the stream at a file: the descriptor says which file that is. */
+static void test_standard_output_pointed_at_a_file(void)
+{
+	int saved = dup(STDOUT_FILENO);
+	int target = open("redirected.bin", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
+	if (saved < 0 || target < 0) {
+		printf("skipping the redirected standard output case: %s\n",
+		       strerror(errno));
+		if (saved >= 0)
+			close(saved);
+		if (target >= 0)
+			close(target);
+		return;
+	}
+	fflush(stdout);
+	dup2(target, STDOUT_FILENO);
+	close(target);
+
+	check_refused("-", "redirected.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (standard output and redirected.bin)\n");
+	check_accepted("-", "elsewhere.bin");
+
+	fflush(stdout);
+	dup2(saved, STDOUT_FILENO);
+	close(saved);
 }
 
 /* An empty value names no destination; the writer's own open reports it, and
@@ -252,10 +339,11 @@ static void test_an_empty_value(void)
 	check_accepted("cap.bin", "");
 }
 
-/* Two captures asking for standard output are the
+/* Two captures that both ask for standard output are the
  * one-capture-on-standard-output rule's, whatever they are called, so this
- * check leaves every spelling of that stream alone rather than refusing the
- * pair in words of its own. */
+ * check leaves such a pair alone rather than refusing it in words of its own.
+ * One of them beside a file name that is not that stream is two destinations
+ * as usual. */
 static void test_standard_output_is_left_alone(void)
 {
 	static const char *const stream[] = {
@@ -277,7 +365,7 @@ static void test_standard_output_is_left_alone(void)
 /* The boundary a destination reached through a descriptor the calling shell
  * opened sits on. The name alone does not say which file that is, and looking
  * it up gets different answers on different systems: a Linux descriptor path
- * is a symbolic link that stat() follows, while the BSDs serve it from a
+ * is a symbolic link that is followed, while the BSDs serve it from a
  * filesystem of its own that reports the real file's inode number under a
  * device number of its own, so the comparison misses by the device half.
  *
@@ -303,10 +391,10 @@ static void test_descriptor_paths(void)
 	}
 	snprintf(path, sizeof(path), "/dev/fd/%d", held);
 #ifdef __linux__
-	/* Here the path is a symbolic link to the file, so the comparison does
-	 * see it and the pair is refused. */
+	/* Here the path is a symbolic link to the file, so it is followed and
+	 * the pair is refused. */
 	{
-		char expected[256];
+		char expected[PATH_MAX + 128];
 
 		snprintf(expected, sizeof(expected),
 		         "error: -q and -d cannot both write to one file"
@@ -324,7 +412,8 @@ static void clean_up(void)
 {
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
-		"dangling.bin", "sink.bin", "sub/pointer.bin",
+		"dangling.bin", "sink.bin", "redirected.bin",
+		"sub/pointer.bin", "sub/updown.bin",
 	};
 	char sub[sizeof(work) + 8];
 	size_t i;
@@ -352,12 +441,14 @@ int main(void)
 
 	test_one_name_written_twice();
 	test_two_names_are_two_files();
+	test_one_entry_of_one_directory();
 	test_nothing_to_compare();
 	test_links_to_one_file();
 	test_a_link_to_a_file_not_there_yet();
-	test_a_character_device_is_not_overwritten();
+	test_what_a_writer_would_not_overwrite();
 	test_an_empty_value();
 	test_standard_output_is_left_alone();
+	test_standard_output_pointed_at_a_file();
 	test_descriptor_paths();
 
 	/* Left behind only when a check failed, so the files can be looked at;

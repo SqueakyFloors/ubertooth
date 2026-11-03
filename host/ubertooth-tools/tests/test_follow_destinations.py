@@ -105,6 +105,26 @@ with tempfile.TemporaryDirectory() as work:
         check("cannot both write to" not in errors,
               "%s is not refused as a collision" % written, errors)
 
+    # A capture on standard output is a destination like any other once the
+    # shell has pointed the stream at a file another option also names.
+    redirected = work / "redirected.bin"
+    redirected.write_bytes(KNOWN)
+    with redirected.open("ab") as stream:
+        result = subprocess.run(
+            [FOLLOW] + TARGET + ["-q", "-", "-d", "redirected.bin"],
+            cwd=work, env=ENVIRONMENT, stdin=subprocess.DEVNULL,
+            stdout=stream, stderr=subprocess.PIPE,
+            timeout=RUN_TIMEOUT_S, check=False)
+    errors = result.stderr.decode()
+    check(result.returncode == 1, "-q - -d <the redirect's file> exits 1",
+          str(result.returncode))
+    check(errors == "error: -q and -d cannot both write to one file"
+          " (standard output and redirected.bin)\n",
+          "a capture on a redirected standard output is compared too", errors)
+    check(redirected.read_bytes() == KNOWN,
+          "the redirect's file is left as it was",
+          repr(redirected.read_bytes()[:60]))
+
     # Two captures asking for standard output are the
     # one-capture-on-standard-output rule's, however the two are spelled, so
     # that refusal is what a user still gets.

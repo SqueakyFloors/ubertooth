@@ -386,6 +386,71 @@ static int link_target(const char *name, char *out, size_t size)
 	                        (int)(slash - name + 1), name, target) < size;
 }
 
+/* The last element of a path, which is the name a writer would create. */
+static const char *final_name(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash != NULL ? slash + 1 : path;
+}
+
+/* The directory a path's last element sits in, as a path to look up. */
+static int directory_of(const char *path, char *out, size_t size)
+{
+	const char *slash = strrchr(path, '/');
+
+	if (slash == NULL)
+		return (size_t)snprintf(out, size, ".") < size;
+	if (slash == path)
+		return (size_t)snprintf(out, size, "/") < size;
+	return (size_t)snprintf(out, size, "%.*s", (int)(slash - path), path) <
+	       size;
+}
+
+/* Whether two destinations are one entry of one directory: the same last
+ * element, in two paths that look up to one directory.
+ *
+ * This is what answers for a destination that does not exist yet, where there
+ * is no file to compare. The lookup reduces the ".." elements and the
+ * symbolic links above the name, which the text comparison deliberately
+ * leaves alone, so "cap.bin" and "sub/../cap.bin" are one file, and so are a
+ * name in the working directory and its absolute path. */
+static int same_directory_entry(const char *first, const char *second)
+{
+	char first_dir[PATH_MAX], second_dir[PATH_MAX];
+	struct stat first_info, second_info;
+
+	if (ends_inside_a_name(first) || ends_inside_a_name(second))
+		return 0;
+	if (strcmp(final_name(first), final_name(second)) != 0)
+		return 0;
+	if (!directory_of(first, first_dir, sizeof(first_dir)) ||
+	    !directory_of(second, second_dir, sizeof(second_dir)))
+		return 0;
+	return stat(first_dir, &first_info) == 0 &&
+	       stat(second_dir, &second_info) == 0 &&
+	       first_info.st_dev == second_info.st_dev &&
+	       first_info.st_ino == second_info.st_ino;
+}
+
+/* Which file a writer given this destination would write to: 0 once <where>
+ * holds its device and inode numbers, -1 when they cannot be had -- a name
+ * that does not exist yet, which is the ordinary case for a capture, or a
+ * path that cannot be looked up, which the writer is about to report itself.
+ *
+ * A value that means standard output has no name to look up, so the
+ * descriptor is what to ask: the calling shell may have pointed the stream at
+ * a file another capture option also names. Looking a name up costs it
+ * nothing; opening one to learn more would, because an open blocks until a
+ * reader arrives on a named pipe and lowers a serial device's modem lines
+ * when it is closed, so no destination is opened here. */
+static int destination_file(const char *name, struct stat *where)
+{
+	if (opt_writes_to_stdout(name))
+		return fstat(STDOUT_FILENO, where) == 0 ? 0 : -1;
+	return stat(name, where) == 0 ? 0 : -1;
+}
+
 /* Whether two capture destinations are one file. */
 static int same_destination(const char *first, const char *second)
 {
@@ -397,33 +462,50 @@ static int same_destination(const char *first, const char *second)
 	if (link_target(second, second_target, sizeof(second_target)))
 		second = second_target;
 
-	if (same_path_text(first, second))
+	if (same_path_text(first, second) ||
+	    same_directory_entry(first, second))
 		return 1;
-	/* Both names already exist, so the files behind them can be compared,
-	 * which catches a hard link and two spellings of one path that the text
-	 * comparison does not reduce. Looking a name up costs it nothing;
-	 * opening one to learn more would, because an open blocks until a
-	 * reader arrives on a named pipe and lowers a serial device's modem
-	 * lines when it is closed, so no destination is opened here. */
-	if (stat(first, &first_file) != 0 || stat(second, &second_file) != 0)
+	/* Both destinations exist, so the files behind them can be compared,
+	 * which catches a hard link and a directory that the lookup above
+	 * could not reach. */
+	if (destination_file(first, &first_file) != 0 ||
+	    destination_file(second, &second_file) != 0)
 		return 0;
 	return first_file.st_dev == second_file.st_dev &&
 	       first_file.st_ino == second_file.st_ino;
 }
 
 /* Whether one writer at this destination would overwrite what another put
- * there, which is what the refusal is for. A regular file keeps whichever
- * writer truncated it last, and a name that does not exist yet becomes one. A
- * character device keeps nothing and loses nothing, so two captures may share
- * it: "-q /dev/null -d /dev/null" discards both, which is what the user
- * asked for. */
+ * there, which is what the refusal is for.
+ *
+ * A regular file keeps whichever writer truncated it last, and a name that
+ * does not exist yet becomes one. The null device is the one destination that
+ * keeps nothing and loses nothing, so two captures may share it:
+ * "-q /dev/null -d /dev/null" discards both, which is what that command line
+ * asks for. Every other character device is refused like a file, because two
+ * capture streams interleaved on a terminal or a serial line are neither
+ * capture. A directory is no destination at all, and the writer's own open
+ * says so better than a line about a file would.
+ *
+ * Asked of one of a matched pair, since a match means the two are one object
+ * and this is a question about that object. */
 static int writers_would_overwrite(const char *name)
 {
-	struct stat info;
+	struct stat info, null;
 
-	if (stat(name, &info) != 0)
+	if (destination_file(name, &info) != 0)
 		return 1;
-	return !S_ISCHR(info.st_mode);
+	if (S_ISDIR(info.st_mode))
+		return 0;
+	return !(S_ISCHR(info.st_mode) && stat("/dev/null", &null) == 0 &&
+	         info.st_rdev == null.st_rdev);
+}
+
+/* What to call a destination in the refusal: the name the user wrote, or
+ * "standard output" for a value that means the stream rather than a file. */
+static const char *destination_text(const char *name)
+{
+	return opt_writes_to_stdout(name) ? "standard output" : name;
 }
 
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
@@ -436,17 +518,22 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 	for (i = 0; i < count; i++) {
 		const char *first = destinations[i].name;
 
-		/* A destination that names standard output belongs to the
-		 * one-capture-on-standard-output rule, which already refuses a
-		 * second one however the two are spelled. An empty name is no
-		 * destination at all, and the writer's own open reports it. */
-		if (first == NULL || first[0] == '\0' ||
-		    opt_writes_to_stdout(first))
+		/* An empty name is no destination at all, and the writer's own
+		 * open reports it. */
+		if (first == NULL || first[0] == '\0')
 			continue;
 		for (j = i + 1; j < count; j++) {
 			const char *second = destinations[j].name;
 
-			if (second == NULL || second[0] == '\0' ||
+			if (second == NULL || second[0] == '\0')
+				continue;
+			/* Two captures that both ask for standard output
+			 * belong to the one-capture-on-standard-output rule,
+			 * which refuses the second however the two are
+			 * spelled. One of them beside a file name is this
+			 * check's, because the shell may have pointed the
+			 * stream at that very file. */
+			if (opt_writes_to_stdout(first) &&
 			    opt_writes_to_stdout(second))
 				continue;
 			if (!same_destination(first, second))
@@ -454,9 +541,9 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 			if (!writers_would_overwrite(first))
 				continue;
 			/* Both options are named, so the user can see which two
-			 * clashed, and so is the name each was given where the
-			 * two differ: one path reached through another is not
-			 * obvious from either on its own. */
+			 * clashed, and so is what each was given where the two
+			 * differ: one destination reached through another is
+			 * not obvious from either on its own. */
 			if (strcmp(first, second) == 0)
 				fprintf(stderr, "error: %s and %s cannot both write"
 				        " to %s\n", destinations[i].option,
@@ -465,7 +552,9 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 				fprintf(stderr, "error: %s and %s cannot both write"
 				        " to one file (%s and %s)\n",
 				        destinations[i].option,
-				        destinations[j].option, first, second);
+				        destinations[j].option,
+				        destination_text(first),
+				        destination_text(second));
 			return -1;
 		}
 	}
