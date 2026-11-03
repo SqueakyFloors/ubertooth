@@ -18,9 +18,19 @@ one side only would leave the host accepting a `tx` the device then refuses on
 its console, where the user cannot see it. This reads both descriptions out of
 the source and checks they say the same thing about every format: its number,
 how many air slots one packet fills, how many data bytes it carries, and the
-payload header and voice field the host fills in. BTCTL_TX_PKT_MAX_SLOTS is
-checked too, since the count each side allows is that figure divided by the
-format's slots.
+payload header and voice field the host fills in. Every field of TX_FORMATS is
+compared, so a field added to it has to be given a meaning here rather than
+going unchecked.
+
+The count a `tx` may ask for is BTCTL_TX_PKT_MAX_SLOTS divided by the format's
+slots, so that figure is compared as well, and the one expression each side
+divides with is pinned: the two tables agreeing is no use if one side stops
+dividing the same way.
+
+The device's table holds two things this does not compare, because the host
+never sends either and has no copy to drift from: the air TYPE code a format
+goes out with, which EV3 and HV3 deliberately share, and the error correction
+over the data field.
 
 The two sides state the data length differently, which is why this is not a
 field-for-field comparison. The device's table holds the longest payload the
@@ -56,8 +66,12 @@ def fail(message):
 
 
 def read(path):
-    with open(path, encoding="utf-8") as f:
-        return f.read()
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError as e:
+        fail("cannot read %s, so the table in it is not checked: %s"
+             % (path, e.strerror))
 
 
 # ---------------------------------------------------------------- reading C
@@ -247,7 +261,7 @@ def device_formats(root):
         return dict(zip(fields, (int(v) if v.isdigit() else v
                                  for v in values)))
 
-    formats = {}
+    formats, holes = {}, set()
     tx = designated(
         definition(codec_c, r"\bbbcodec_tx_formats\s*\[[^\]]*\]\s*=\s*",
                    "bbcodec_tx_formats"),
@@ -257,6 +271,11 @@ def device_formats(root):
         if len(parts) != 2:
             fail("bbcodec_tx_formats[%s] is not an air TYPE and a layout: %s"
                  % (name, entry))
+        if parts[1] == "NULL":
+            # bbcodec_tx_format() refuses a format number this table leaves
+            # empty, which is a format the device cannot be asked for at all.
+            holes.add(name)
+            continue
         air = layout(parts[1])
         for field in ("nslots", "payload_bytes", "payload_header_bytes",
                       "has_crc", "voice_bytes"):
@@ -271,7 +290,7 @@ def device_formats(root):
             "hlen": air["payload_header_bytes"],
             "voice": air["voice_bytes"],
         }
-    return formats
+    return formats, holes
 
 
 # --------------------------------------------------- the host's description
@@ -306,18 +325,22 @@ def host_formats(path):
                 or getattr(value.func, "id", None) != "TxFormat" \
                 or len(value.args) != len(fields) \
                 or not all(isinstance(a, ast.Constant) and
-                           isinstance(a.value, int) for a in value.args):
+                           isinstance(a.value, int) and
+                           not isinstance(a.value, bool)
+                           for a in value.args):
             fail("TX_FORMATS[%r] is not a TxFormat of %d numbers"
                  % (key.value, len(fields)))
         formats[key.value] = dict(zip(fields,
                                       (a.value for a in value.args)))
-    return formats
+    return fields, formats
 
 
 # ------------------------------------------------------------- the checking
 
 # What each field of TX_FORMATS means on the device's side, and how to say so
-# when the two disagree.
+# when the two disagree. Every field of TxFormat is named here, which is
+# checked below: a field added to it has to be given its device-side meaning
+# rather than joining the table uncompared.
 COMPARED = (
     ("code", "code", "the format number the host sends"),
     ("slots", "slots", "the air slots one packet fills, which bounds the "
@@ -327,6 +350,26 @@ COMPARED = (
     ("hlen", "hlen", "the payload header the host writes"),
     ("voice", "voice", "the voice bytes the host fills"),
 )
+
+# The one expression each side divides BTCTL_TX_PKT_MAX_SLOTS by the format's
+# slots with, which is what turns the two tables into the count a `tx` may
+# ask for. Pinned as text: comparing the tables is no use if one side stops
+# dividing the way the other does.
+DIVISIONS = (
+    ("firmware/btbr/src/btctl/btctl.c",
+     "max_slots = BTCTL_TX_PKT_MAX_SLOTS / t->nslots;"),
+    ("host/python/ubtbr/ubertooth-btbr.in",
+     "most = BTCTL_TX_PKT_MAX_SLOTS // fmt.slots"),
+)
+
+
+def check_divisions(root):
+    for path, expression in DIVISIONS:
+        if expression not in read(os.path.join(root, path)):
+            fail("%s no longer works the count out as %r, so the two sides "
+                 "may allow different counts from tables that agree. Check "
+                 "the other side divides the same way, then put the new "
+                 "expression in DIVISIONS." % (path, expression))
 
 
 def main():
@@ -340,14 +383,30 @@ def main():
     if numbers.pop("BTCTL_FMT_COUNT", None) is None:
         fail("btctl_tx_format_e has no BTCTL_FMT_COUNT")
 
-    device = device_formats(root)
+    device, holes = device_formats(root)
     btctl_py = os.path.join(root, "host/python/ubtbr/ubtbr/btctl.py")
-    host = host_formats(btctl_py)
+    fields, host = host_formats(btctl_py)
+
+    uncompared = sorted(set(fields) - set(f for f, _, _ in COMPARED))
+    unknown = sorted(set(f for f, _, _ in COMPARED) - set(fields))
+    if uncompared or unknown:
+        fail("TxFormat's fields are %s and this test compares %s. A field of "
+             "TX_FORMATS that is not in COMPARED is not checked against the "
+             "firmware at all, so each one belongs there with what it means "
+             "on the device's side."
+             % (" ".join(fields), " ".join(f for f, _, _ in COMPARED)))
+
+    # A format number the device's table leaves empty is one it refuses, so
+    # the host has nothing to offer for it and must not name it.
+    offered = sorted(holes & set("BTCTL_FMT_" + n.upper() for n in host))
+    if offered:
+        fail("TX_FORMATS offers %s, which bbcodec_tx_formats leaves empty, so "
+             "the device refuses it" % ", ".join(offered))
 
     # The three lists of formats: the numbers they are sent as, the device's
     # table of layouts, and the host's. Each has to name exactly the same
     # formats, so a format added to one of them cannot be left out of another.
-    named = {"btctl_tx_format_e": set(numbers),
+    named = {"btctl_tx_format_e": set(numbers) - holes,
              "bbcodec_tx_formats in codec.c": set(device),
              "TX_FORMATS in btctl.py":
                  set("BTCTL_FMT_" + n.upper() for n in host)}
@@ -383,9 +442,11 @@ def main():
     if mirrored.value != slots:
         fail("BTCTL_TX_PKT_MAX_SLOTS is %d in btctl.py and %d in "
              "ubertooth_interface.h" % (mirrored.value, slots))
+    check_divisions(root)
 
     print("PASS: %d formats, %d fields each, agree between TX_FORMATS and "
-          "the firmware" % (len(host), len(COMPARED)))
+          "the firmware, and both sides allow the same count"
+          % (len(host), len(COMPARED)))
 
 
 if __name__ == "__main__":

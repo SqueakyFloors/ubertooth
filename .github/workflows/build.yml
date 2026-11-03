@@ -129,13 +129,13 @@ jobs:
           fi
           host=false; firmware=false
           if echo "$files" | grep -qv '^firmware/'; then host=true; fi
-          # The basic-rate codec tables are the other half of a host test:
-          # it checks the firmware's description of each transmit format
-          # against ubtbr's own copy, so a change to them has to run the host
-          # jobs even though nothing outside firmware/ moved. The reverse
-          # exception, for the shared USB interface header, is on the line
-          # below.
-          if echo "$files" | grep -qE '^firmware/btbr/(src/codec/codec\.c|include/ubtbr/codec\.h)$'; then host=true; fi
+          # btbr's basic-rate format tables are the other half of a host
+          # test: it checks the firmware's description of each transmit
+          # format, and the bound it puts on a run, against ubtbr's own copy.
+          # So a change to those directories has to run the host jobs even
+          # though nothing outside firmware/ moved. The reverse exception,
+          # for the shared USB interface header, is on the line below.
+          if echo "$files" | grep -qE '^firmware/btbr/(src/codec/|src/btctl/|include/ubtbr/)'; then host=true; fi
           if echo "$files" | grep -qE '^firmware/|^\.github/|^host/libubertooth/src/ubertooth_interface\.h$'; then firmware=true; fi
           decide "$host" "$firmware" true
 
