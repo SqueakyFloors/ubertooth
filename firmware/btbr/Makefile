@@ -8,14 +8,10 @@ LINKER_OPTS=--specs=nano.specs
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c is here for USB_IRQHandler alone. No source in this image calls
-# anything in that file, and the serial console it also holds is unused, so it
-# reads like a source this image does not need. It is not: LPC17xx_Interrupts.c
-# puts USB_IRQHandler in the interrupt vector table and declares the name weak
-# and aliased to the default handler, so the link succeeds either way. Drop the
-# file and the USB interrupt reaches that default handler, which never returns:
-# the board stops answering the host and the watchdog resets it every few
-# seconds.
+# usb_serial.c is here for USB_IRQHandler alone. Nothing in this image names
+# anything in the file, so do not drop it on that reading: the comment above
+# USB_IRQHandler in firmware/common/usb_serial.c says what happens to a board
+# whose image leaves it out.
 SRC = $(shell find src -name '*.c') \
 	$(LIBS_PATH)/usb_serial.c \
 	$(LIBS_PATH)/LPC17xx_Startup.c \

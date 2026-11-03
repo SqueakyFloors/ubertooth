@@ -362,6 +362,21 @@ int VCOM_getchar(void)
 	return fifo_get(&rxfifo, &c) ? c : EOF;
 }
 
+/*
+ * This handler is why bluetooth_rxtx, btbr, and assembly_test compile this
+ * file. None of them calls anything in it, and none of them uses the serial
+ * console above, so to a reader of their source lists the file looks like one
+ * they could drop.
+ *
+ * They cannot. LPC17xx_Interrupts.c puts USB_IRQHandler in the interrupt
+ * vector table and declares the name weak and aliased to the default handler,
+ * so the link succeeds either way: with this file the vector reaches the code
+ * below, and without it the vector reaches a default handler that marks a
+ * wedge and never returns. An image that enables the USB interrupt and leaves
+ * the file out therefore stops answering the host at the first interrupt and
+ * is reset by the watchdog a few seconds later, over and over, with no link
+ * error to say why.
+ */
 void USB_IRQHandler()
 {
 	/* The USB interrupt is how the six modes that do not poll USB service it,

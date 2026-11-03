@@ -1603,21 +1603,38 @@ MU_TEST(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not)
 	}
 }
 
+/* Does this makefile line open the SRC assignment? The name has to end at the
+ * assignment, so SRCDIR and SRCS are not the source list. */
+static int opens_src_assignment(const char *line)
+{
+	const char *p = line;
+
+	if (strncmp(p, "SRC", 3) != 0)
+		return 0;
+	p += 3;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	/* make's assignment operators: =, :=, ::=, ?=, +=, != */
+	while (*p == ':' || *p == '?' || *p == '+' || *p == '!')
+		p++;
+	return *p == '=';
+}
+
 /*
- * Is `needle` one of the sources an image's makefile compiles? -1 when the
- * makefile cannot be read.
+ * Is `needle` written in the SRC assignment of an image's makefile? -1 when
+ * the makefile cannot be read.
  *
- * Only the SRC assignment is read, and only what make itself would see: a
- * trailing `#` and everything after it is a comment, as is a whole line, so
- * the name written in the note above the list does not count. Looking at that
- * one assignment is what keeps a name mentioned anywhere else in the makefile,
- * or in a conditional branch that is not taken, from passing for a source that
- * is compiled.
+ * What it reads is the assignment and its backslash continuations, with a `#`
+ * and everything after it dropped the way make drops it, so the name in the
+ * note above the list does not count and neither does a name somewhere else in
+ * the file.
  *
- * It reads the makefile rather than the built image, so what it pins is the
- * source list. An image can still reach the default handler by another route,
- * a second definition of the name or a link flag that drops the object, and
- * only nm on the built image would catch that.
+ * What it does not do is run make, so it cannot see which branch of a
+ * conditional is taken or follow a name through another variable. A line added
+ * inside a conditional that is never taken would pass, and a list written as
+ * `SRC = $(IMAGE_SOURCES)` would fail while the file really is compiled. Both
+ * would need make, or nm on the built image, to tell apart. What this pins is
+ * the thing that actually goes wrong: the line being deleted or commented out.
  */
 static int makefile_compiles(const char *path, const char *needle)
 {
@@ -1641,8 +1658,7 @@ static int makefile_compiles(const char *path, const char *needle)
 		                      end[-1] == ' ' || end[-1] == '\t'))
 			end--;
 		continued = (end > line && end[-1] == '\\');
-		if (strncmp(line, "SRC", 3) == 0 &&
-		    strchr(line, '=') != NULL)
+		if (opens_src_assignment(line))
 			in_src = 1;
 		else if (!in_src)
 			continue;
@@ -1655,28 +1671,17 @@ static int makefile_compiles(const char *path, const char *needle)
 }
 
 /*
- * The feed from the USB interrupt only exists if the file holding it is
- * compiled in. USB_IRQHandler lives in firmware/common's usb_serial.c, which
- * also holds the serial console; the shipped images use the handler and not
- * the console, so nothing in either image names anything in that file and it
- * reads like a source neither needs.
+ * The watchdog's second feed point is inside USB_IRQHandler, so it only exists
+ * if the file holding that handler is compiled in. The comment above
+ * USB_IRQHandler in firmware/common/usb_serial.c says why an image can leave
+ * the file out with no link error, and what that costs the board. The checks
+ * above would all stay green, because the sources they read are unchanged.
  *
- * It is not optional. firmware/common/LPC17xx_Interrupts.c puts
- * USB_IRQHandler in the interrupt vector table and declares the name weak and
- * aliased to the default handler, so the vector resolves whether or not an
- * image supplies the real one: with usb_serial.c in the link it reaches the
- * handler that services USB and feeds the watchdog, and without it the vector
- * reaches the default handler, which marks a wedge and never returns. An image
- * that enables the USB interrupt and leaves the file out would therefore stop
- * answering the host at the first interrupt and be reset by the watchdog a few
- * seconds later, over and over, with no link error to say why -- and the
- * checks above would stay green, because the source they read is unchanged.
- *
- * assembly_test is left out on purpose. It serves USB from its own loop with
- * the USB interrupt disabled, so the handler cannot run there and leaving the
- * file out would wedge nothing; it keeps the file so that uncommenting the one
- * line that enables the interrupt does not, which is a note in its makefile
- * rather than a requirement of the image as it stands.
+ * assembly_test is left out of the list on purpose. It serves USB from its own
+ * loop with the USB interrupt disabled, so the handler cannot run there and
+ * leaving the file out would wedge nothing; it keeps the file so that
+ * uncommenting the one line that enables the interrupt does not, which is a
+ * note in its makefile rather than a requirement of the image as it stands.
  */
 MU_TEST(test_the_shipped_images_compile_the_usb_interrupt_handler)
 {
