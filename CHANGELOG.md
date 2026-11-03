@@ -1075,6 +1075,16 @@
 
 ### Reliability fixes
 
+- Fixed: a `btbr` connection or page could stop forever. When the slot that
+  would have ended a transmission was already full, the board said only
+  `tdma_schedule bucket overflow`, left the radio transmitting, kept the
+  packet it had been given, and told the link nothing, so the link scheduled
+  neither its next receive nor its next transmit and the next packet it tried
+  to send stopped the firmware. It now says the packet was not sent, stops the
+  radio, gives the packet back, and reports the failed transmit, so the link
+  carries on.
+  [#1139](https://github.com/SqueakyFloors/ubertooth/issues/1139)
+
 - Fixed: when the `btbr` image's radio had not tuned in time for a transmit
   slot, the board said only `TX: RF not FS_ON`, and then spent the next slot
   waiting for an end of transmission that could not come, counting a radio
