@@ -229,6 +229,27 @@ with tempfile.TemporaryDirectory() as workdir:
               "-q %s -z prints the address it found on standard error" % name,
               errors)
 
+    # A raw dump on standard output, with a survey asked for: the addresses
+    # are what the user asked the run for, so they arrive on standard error
+    # for every spelling rather than going to the null device the capture left
+    # behind.
+    for name in STDOUT_NAMES:
+        target = work / ("dumpsurvey-%d.bin" % STDOUT_NAMES.index(name))
+        status, errors = run_to_file(["-i", "full.bin", "-d", name, "-z"],
+                                     work, target)
+        captured = target.read_bytes()
+        check(status == 0, "-d %s -z exits 0" % name, errors)
+        check(captured == EXPECTED_DUMP,
+              "-d %s -z writes the dump and nothing else to descriptor 1"
+              % name, "%d bytes, expected %d" % (len(captured),
+                                                 len(EXPECTED_DUMP)))
+        check("Survey Results" in errors,
+              "-d %s -z prints the survey heading on standard error" % name,
+              errors)
+        check("5A:3C:96" in errors.split("Survey Results")[-1],
+              "-d %s -z prints the address it found on standard error" % name,
+              errors)
+
     # /dev/fd/<n> for any other <n> is an ordinary file name. The capture goes
     # to whatever that descriptor is, and standard output is left alone, so
     # the report is still printed there.
@@ -278,36 +299,43 @@ with tempfile.TemporaryDirectory() as workdir:
         check(target.read_bytes() == b"",
               "-d %s writes nothing to standard output" % name)
 
-    # ubertooth-follow shares the helper for its own rule that only one
-    # capture can have standard output, so a pair written two ways is still
-    # refused, before any device is opened.
-    # Two captures cannot share the stream. ubertooth-rx names the pair it
-    # recognizes; a pair written two ways gets the shared helpers' refusal
-    # instead, so neither capture is quietly sent to the null device.
+    # Two captures cannot share the stream, and the pair is the same pair
+    # however each of the two was spelled: it is refused while the command
+    # line is read, so neither capture is created and nothing reaches
+    # descriptor 1.
     for first, second in (("-", "-"), ("/dev/stdout", "-"),
-                          ("-", "/dev/fd/1")):
+                          ("-", "/dev/fd/1"),
+                          ("/dev/fd/1", "/dev/./stdout")):
         target = work / "pair.out"
         status, errors = run_to_file(
             ["-i", "full.bin", "-q", first, "-d", second], work, target)
         check(status == 1, "-q %s -d %s exits 1" % (first, second), str(status))
-        check("cannot both write to standard output" in errors
-              or "only one capture can be written to standard output" in errors,
-              "-q %s -d %s is refused" % (first, second), errors)
-        # The pair this tool names is refused while it is reading its command
-        # line, so nothing is written at all. A pair it does not recognize
-        # reaches the helper as the second capture is opened, by which time
-        # the first has written its header; what matters there is that
-        # neither capture is quietly sent to the null device, and that no
-        # report text joins what did arrive.
+        check(errors == "error: -q and -d cannot both write to standard"
+                        " output\n",
+              "-q %s -d %s is refused with the pair named" % (first, second),
+              errors)
         written = target.read_bytes()
-        if first == second:
-            check(written == b"",
-                  "-q %s -d %s writes nothing to descriptor 1"
-                  % (first, second), repr(written[:40]))
-        check(b"systime=" not in written,
-              "-q %s -d %s keeps the report off descriptor 1"
-              % (first, second))
+        check(written == b"",
+              "-q %s -d %s writes nothing to descriptor 1" % (first, second),
+              repr(written[:40]))
 
+    # A PcapNG writer seeks back over what it has written, which the stream
+    # does not allow, so -r refuses it by whichever name it was given rather
+    # than leaving the writer to report the stream's own device node as a file
+    # that is already there.
+    for name in STDOUT_NAMES:
+        target = work / "pcapng.out"
+        status, errors = run_to_file(["-i", "full.bin", "-r", name], work,
+                                     target)
+        check(status == 1, "-r %s exits 1" % name, str(status))
+        check(errors == "error: PCAPNG capture to stdout is not supported;"
+                        " use -q -\n",
+              "-r %s says what to use instead" % name, errors)
+        check(target.read_bytes() == b"",
+              "-r %s writes nothing to descriptor 1" % name)
+
+    # ubertooth-follow asks the same helper about its own pair, so a pair
+    # written two ways is refused there too, before any device is opened.
     if FOLLOW is None:
         print("skipping the ubertooth-follow case, the tool is not built here")
     else:
