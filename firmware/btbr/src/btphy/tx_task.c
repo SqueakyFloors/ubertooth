@@ -147,25 +147,25 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 	}
 	if (rc < 0)
 	{
-		/* The slot that would have ended this transmission already
-		 * holds all four tasks a slot can take, so this packet has no
-		 * end. tx_finalize() is what stops the radio, releases the
-		 * packet and reports the completion the caller is waiting on,
-		 * and it is not going to run: without a report the caller
-		 * schedules neither its next receive nor its next transmit, so
-		 * the link stops forever. This is the one place where the
-		 * completion cannot be left to tx_finalize(), so it is
-		 * reported from here instead.
+		/* This packet has no end: the slot that would have ended its
+		 * transmission already holds the four tasks a slot can take,
+		 * which is what a page does to the slot it ends in -- it puts
+		 * tx_execute(), tx_finalize() and the next tx_prepare() there.
+		 * tx_finalize() is what stops the radio, releases the packet
+		 * and reports the completion the caller is waiting on, so this
+		 * is the one context where the completion cannot be left to
+		 * it: unreported, the caller schedules neither its next
+		 * receive nor its next transmit and the link stops forever.
 		 *
-		 * A page is where the slot runs out of room: it puts
-		 * tx_execute(), tx_finalize() and the next tx_prepare() in one
-		 * slot, three of the four places.
-		 */
+		 * An inquiry or a page response has advanced its hop phase
+		 * above, and there is no way to put a phase back. The packet
+		 * is lost either way and the retransmission the protocol does
+		 * covers it, so the phase is left where it is. */
 		cprintf("TX: cannot schedule end of transmission, packet not sent\n");
 
-		/* Stop the radio, which is tuned with its synthesizer strobed
-		 * on by now. tx_execute() is left on the scheduler and will do
-		 * nothing, because `prepared` stays clear. */
+		/* The radio is tuned with its synthesizer strobed on by now.
+		 * tx_execute() stays on the scheduler and turns nothing on,
+		 * because `prepared` is never set. */
 		btphy_rf_idle();
 
 		/* Release the packet before reporting it, the order

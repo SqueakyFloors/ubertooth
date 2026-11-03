@@ -103,7 +103,6 @@ hop_state_t hop_state;
 static int fake_fs_locked;
 static unsigned fake_stx_strobes;
 static unsigned fake_srfoff_strobes;
-static unsigned fake_sfson_strobes;
 
 u8 cc2400_status(void)
 {
@@ -118,9 +117,6 @@ u8 cc2400_strobe(u8 reg)
 		break;
 	case SRFOFF:
 		fake_srfoff_strobes++;
-		break;
-	case SFSON:
-		fake_sfson_strobes++;
 		break;
 	default:
 		break;
@@ -328,7 +324,6 @@ static void a_board(int mode)
 	fake_clock = 0;
 	fake_stx_strobes = 0;
 	fake_srfoff_strobes = 0;
-	fake_sfson_strobes = 0;
 	fake_int_enables = 0;
 	fake_fsm_timeouts = 0;
 	fake_live_site = WATCHDOG_SITE_NONE;
