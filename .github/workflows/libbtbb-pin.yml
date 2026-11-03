@@ -76,6 +76,31 @@ jobs:
         : "${LIBBTBB_REF:?is not set in $build}"
         echo "pinned in $build: $LIBBTBB_REPO at $LIBBTBB_REF"
 
+        # The pin is a commit while libbtbb fixes are landing, and the
+        # release plan points it at a matching tag of the libbtbb fork
+        # instead. Only a commit can be compared with the commits these files
+        # write out, so the two rules further down are for a commit pin; a tag
+        # is required to be in each file and nothing more, as everything was
+        # before those rules.
+        #
+        # Case is folded away here and in every comparison below, because a
+        # commit means the same commit whatever case it is written in. The one
+        # the files carry is lower case, and a pin written in capitals should
+        # be read as the commit it is rather than taken for a tag.
+        pin_lower=$(printf '%s' "$LIBBTBB_REF" | tr 'A-F' 'a-f')
+        if printf '%s' "$pin_lower" | grep -qE '^[0-9a-f]{40}$'; then
+          pin_is_commit=yes
+        else
+          pin_is_commit=no
+          echo "note: the pin is not a commit, so each file is required to"
+          echo "      name it and the commits in it are left alone"
+        fi
+
+        # The repository name as a pattern, with anything a regular
+        # expression would read taken literally. An owner or a repository may
+        # carry a dot, which would otherwise match any character.
+        repo_pattern=$(printf '%s' "$LIBBTBB_REPO" | sed 's|[^A-Za-z0-9_/-]|\\&|g')
+
         # The pin is written out again in every file that builds libbtbb,
         # states which one this fork uses, or tells a user which one to go and
         # get. Fail here, naming the file, rather than let one of them drift to
@@ -83,11 +108,14 @@ jobs:
         # the host configure step refuses a libbtbb that is too old for the
         # tree, the commit it tells the reader to rebuild at comes from there;
         # and the Man pages workflow, which cannot read build.yml's env and so
-        # keeps its own copy of the pin.
+        # keeps its own copy of the pin. build.yml itself is in the list for
+        # the commit rules below: the pin is read out of it, so a superseded
+        # commit left behind there is the most misleading place of all. Its
+        # first two checks are true of it by construction.
         for f in install.sh COMPATIBILITY.md \
                  docs/source/build_guide.rst docs/source/building_from_git.rst \
                  host/cmake/modules/FindBTBB.cmake \
-                 .github/workflows/manpages.yml; do
+                 .github/workflows/manpages.yml "$build"; do
           grep -q "$LIBBTBB_REF" "$f" || {
             echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
             status=1
@@ -96,6 +124,74 @@ jobs:
             echo "error: $f does not name the pinned libbtbb repository $LIBBTBB_REPO" >&2
             status=1
           }
+
+          [ "$pin_is_commit" = yes ] || continue
+
+          # Naming the pin is not enough on its own: a file can name it in
+          # one place and a superseded commit in another, which is how
+          # COMPATIBILITY.md came to pass with two commits in its libbtbb row,
+          # the new one in the link URL and the old one as the link text. So
+          # every commit written out in full, anywhere in the file, has to be
+          # the pin.
+          #
+          # Anywhere, rather than on whichever line looks like the one that
+          # pins, because the forms that pin differ: a "ref:" handed to
+          # actions/checkout, a variable set, a git checkout a reader types, a
+          # link. Forty hex digits needs no such guess. Nothing else in these
+          # files is written that way, and each holds exactly one such run
+          # today, so a second is a commit left behind -- in a comment or in
+          # prose as much as on a line that builds.
+          #
+          # A commit is a whole run of exactly forty hex digits: each
+          # unbroken run is taken out whole and kept only if it is forty
+          # long. A longer run is not a commit, so a release tarball's
+          # sha256 is left alone rather than read as its own first forty
+          # digits. Nor is a commit mistyped with an extra digit, which is
+          # the cost of the rule; the file is still required to name the pin.
+          while IFS=: read -r line commit; do
+            [ -n "$commit" ] || continue
+            lower=$(printf '%s' "$commit" | tr 'A-F' 'a-f')
+            if [ "$lower" != "$pin_lower" ]; then
+              echo "error: $f:$line names libbtbb commit $commit, and the pin is" >&2
+              echo "       $LIBBTBB_REF" >&2
+              status=1
+            fi
+          done <<< "$(grep -noiE '[0-9a-f]+' "$f" | grep -iE ':[0-9a-f]{40}$')"
+
+          # And an abbreviated commit beside a link to the pin has to
+          # abbreviate the pin. That is the one short form these files use,
+          # and the one that drifted: the COMPATIBILITY.md row names the
+          # commit in backticks as the text of the link to it.
+          #
+          # Only lines linking a commit of the pinned repository are read for
+          # these, because seven hex digits on their own are not much to go
+          # on: the build guide links a comment on a libbtbb issue whose
+          # anchor ends in nine digits, and a word of hex letters would read
+          # as a commit too. One of the digits has to be a numeral for the
+          # same reason, which leaves an abbreviation of all letters, about
+          # one in a thousand, unchecked.
+          while IFS= read -r hit; do
+            [ -n "$hit" ] || continue
+            line=${hit%%:*}
+            text=${hit#*:}
+            # The full-length runs are the rule above's; blanked out so that
+            # what is read here is the short forms only, and a whole run of
+            # forty or more, so a longer one leaves no tail to be read as an
+            # abbreviation.
+            for commit in $(printf '%s\n' "$text" |
+                            sed 's/[0-9a-fA-F]\{40,\}/ /g' |
+                            grep -oiE '[0-9a-f]{7,39}' | grep -E '[0-9]'); do
+              lower=$(printf '%s' "$commit" | tr 'A-F' 'a-f')
+              case $pin_lower in
+              "$lower"*) ;;
+              *)
+                echo "error: $f:$line abbreviates libbtbb commit $commit beside a link" >&2
+                echo "       to the pinned $LIBBTBB_REF" >&2
+                status=1
+                ;;
+              esac
+            done
+          done <<< "$(grep -niE "github\.com/$repo_pattern/commit/" "$f")"
         done
 
         # Agreeing on a commit is not enough: it has to be a commit a clone
