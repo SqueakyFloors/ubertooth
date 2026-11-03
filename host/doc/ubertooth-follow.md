@@ -2,8 +2,14 @@
 
 ## SYNOPSIS
 
-    ubertooth-follow [-t BD_ADDR] [-l LAP] [-u UAP] [-U <index|serial>]
-    [-r file] [-q file] [-d file] [-e errors] [-a] [-b hciN] [-w delay]
+    ubertooth-follow [-t <BD ADDR> | -l <lap> -u <uap>] [-b <hciN>] [-e <0-5>]
+    [-w <timeslots>] [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
+    [-U <index|serial>]
+    ubertooth-follow -t <BD ADDR> -a [-b <hciN>] [-e <0-5>] [-w <timeslots>]
+    [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
+    [-U <index|serial>]
+    ubertooth-follow [-U <index|serial>] -V
+    ubertooth-follow -h
 
 ## DESCRIPTION
 
@@ -102,7 +108,9 @@ COMPATIBILITY.md for the comparison.
  - `-w <timeslots>` :
    USB delay in 625us timeslots (default: 5).
  - `-h` :
-   show help.
+   print the usage text on standard output and exit 0. It takes effect once
+   the whole command line has parsed, so a bad option value, a stray word or
+   an option given twice is still reported.
 
 A record of a `-q` or `-r` capture carries the packet's own power and the
 board's estimate of the background on its channel, and the screen shows the two
@@ -432,7 +440,13 @@ ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
 long it lasts, and CARRY-OVER BETWEEN RUNS what else a board keeps from one
 command to the next
 
-ubertooth-rx(1), ubertooth-afh(1)
+ubertooth-rx(1): recovers the addresses and the clock from the air, with no
+adapter; THE CLOCK SEARCH describes what that costs
+
+ubertooth-scan(1): the other BlueZ tool, which finds the piconets an adapter
+cannot see
+
+ubertooth-afh(1)
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
 option values are written

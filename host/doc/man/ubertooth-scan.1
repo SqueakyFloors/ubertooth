@@ -4,7 +4,12 @@
 .SH "NAME"
 \fBubertooth\-scan\fR \- active (BlueZ) device scan and inquiry supported by Ubertooth
 .SH "SYNOPSIS"
-ubertooth\-scan [\-s] [\-x]
+.nf
+ubertooth\-scan [\-s] [\-x] [\-t <seconds>] [\-e <0\-5>] [\-b <hciN>]
+[\-U <index|serial>]
+ubertooth\-scan [\-U <index|serial>] \-V
+ubertooth\-scan \-h
+.fi
 .SH "DESCRIPTION"
 This tool uses a normal Bluetooth dongle to perform Inquiry Scans and Extended Inquiry scans of Bluetooth devices\. It uses Ubertooth to discover undiscoverable devices and can use BlueZ to scan for discoverable devices\.
 .P
@@ -12,14 +17,14 @@ The Ubertooth capture is gated by the board's squelch, which this tool does not 
 .P
 Requires BlueZ (Linux only)\. An inquiry and the remote names could be done with macOS's public Bluetooth APIs, but the extra device detail of \fB\-x\fR could not, so this tool is not built on macOS and no macOS version is planned; \fBubertooth\-rx \-z\fR finds the piconets there without an adapter\. See COMPATIBILITY\.md for the comparison\.
 .SH "EXAMPLES"
-Use Ubertooth to discover devices and perform Inquiry Scan with BlueZ:
+Find the piconets around you with the Ubertooth and read each one's name through the adapter\. No BlueZ inquiry runs, so a discoverable device that is not talking does not appear:
 .IP "" 4
 .nf
 ubertooth\-scan
 .fi
 .IP "" 0
 .P
-Use BlueZ and Ubertooth to discover devices and perform Inquiry Scan and Extended Inquiry Scan:
+Add the BlueZ inquiry (\fB\-s\fR), so discoverable devices are listed too, and the extended report of every device found (\fB\-x\fR):
 .IP "" 4
 .nf
 ubertooth\-scan \-s \-x
@@ -34,7 +39,7 @@ hci Scan \- use BlueZ to scan for discoverable devices
 eXtended scan \- retrieve additional information about target devices
 .TP
 \fB\-t <seconds>\fR
-scan Time \- length of time to sniff packets\. [Default: 20s]
+scan Time \- how long the Ubertooth half listens for piconets (default: 20)\. \fB\-t 0\fR gives it no deadline, so it runs until it is interrupted\. It bounds that capture alone, not the reads the adapter makes of each device afterwards\.
 .TP
 \fB\-e <0\-5>\fR
 Maximum Access Code Errors (default: 2)
@@ -61,14 +66,16 @@ An option value must be a whole value in its range, or it is refused the same wa
 .SH "OUTPUT"
 Standard output carries what the scan found\. Nothing the tool itself prints there is anything else, so a run collected in a file or read by a script no longer picks up its headings, its progress or its failures \(em see the end of this section for the two lines libbtbb still adds\.
 .P
-Each device the BlueZ inquiry of \fB\-s\fR found is its address and its name, one to a line\. While the Ubertooth half runs, each packet it decodes is a line of its own, as \fBubertooth\-rx\fR reports one\. Then each piconet that half found is its address, with the NAP unknown, and the channel map the scan built for it:
+Each device the BlueZ inquiry of \fB\-s\fR found is its address and its name, one to a line\. While the Ubertooth half runs, each packet it decodes is a line of its own, as \fBubertooth\-rx\fR reports one\. Then each piconet that half found gets its address, with \fB??\fR where the non\-significant address part (NAP) would be \(em ordinary piconet traffic does not carry it \(em followed by the channel map the scan built for that piconet:
 .IP "" 4
 .nf
 systime=1762000000 ch=39 LAP=9e8b33 err=0 clk100ns=1234567 clk1=12 s=\-55 n=\-90 snr=35
-??:??:??:9E:8B:33
+??:??:66:88:AA:BB	Speaker
 AFH map: 0x0123456789abcdef1234
 .fi
 .IP "" 0
+.P
+A piconet whose UAP the capture worked out carries that byte in its address and its name beside it, read through the adapter as a \fB\-s\fR result's name is\. A piconet whose UAP was not worked out reads \fB??:??:??:<LAP>\fR and gets no name and no \fB\-x\fR report: there is no address to page with four of the six bytes missing\. Its channel map is still printed\.
 .P
 \fBs=\fR is the packet's own power and \fBn=\fR the board's estimate of the background on that channel, both in dBm, with \fBsnr=\fR the difference\. A channel the board never heard both loud and quiet in one receive window leaves it with no estimate, and the line reads \fBn=none snr=none\fR; ubertooth\-rx(1) describes both figures and what the estimate rests on\.
 .P
@@ -133,6 +140,8 @@ A scan the board would not stop exits 1 as well: the request that takes the boar
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts
 .P
 ubertooth\-rx(1): Discover devices passively with Ubertooth
+.P
+ubertooth\-follow(1): the other BlueZ tool, which follows one piconet with the adapter's help once you have its address
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"

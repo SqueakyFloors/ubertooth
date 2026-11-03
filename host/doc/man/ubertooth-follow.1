@@ -5,8 +5,14 @@
 \fBubertooth\-follow\fR \- active (BlueZ) CLK discovery and follow for a target address
 .SH "SYNOPSIS"
 .nf
-ubertooth\-follow [\-t BD_ADDR] [\-l LAP] [\-u UAP] [\-U <index|serial>]
-[\-r file] [\-q file] [\-d file] [\-e errors] [\-a] [\-b hciN] [\-w delay]
+ubertooth\-follow [\-t <BD ADDR> | \-l <lap> \-u <uap>] [\-b <hciN>] [\-e <0\-5>]
+[\-w <timeslots>] [\-r <file\.pcapng>] [\-q <file\.pcap>|\-] [\-d <file\.bin>|\-]
+[\-U <index|serial>]
+ubertooth\-follow \-t <BD ADDR> \-a [\-b <hciN>] [\-e <0\-5>] [\-w <timeslots>]
+[\-r <file\.pcapng>] [\-q <file\.pcap>|\-] [\-d <file\.bin>|\-]
+[\-U <index|serial>]
+ubertooth\-follow [\-U <index|serial>] \-V
+ubertooth\-follow \-h
 .fi
 .SH "DESCRIPTION"
 Follows a classic Bluetooth (BR/EDR) piconet for a given target address\. It uses a local BlueZ Bluetooth device to assist with clock discovery and an Ubertooth to follow the piconet's frequency hopping\.
@@ -73,7 +79,7 @@ local Bluetooth device to use (default: hci0)\.
 USB delay in 625us timeslots (default: 5)\.
 .TP
 \fB\-h\fR
-show help\.
+print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .P
 A record of a \fB\-q\fR or \fB\-r\fR capture carries the packet's own power and the board's estimate of the background on its channel, and the screen shows the two as \fBs=\fR and \fBn=\fR with \fBsnr=\fR the difference\. Where the board has admitted no quiet reading since it last started counting there is no estimate: the capture's noise\-power\-valid flag stays clear, Wireshark shows the field as \fBInvalid Noise Power\fR, and the screen prints \fBn=none snr=none\fR\. ubertooth\-rx(1) describes both figures and what the estimate rests on\.
 .P
@@ -205,7 +211,11 @@ An adapter \fB\-b\fR names that does not exist, or that cannot be opened, exits 
 .SH "SEE ALSO"
 ubertooth\-util(1): sets the receive squelch (\fB\-z\fR); SQUELCH describes how long it lasts, and CARRY\-OVER BETWEEN RUNS what else a board keeps from one command to the next
 .P
-ubertooth\-rx(1), ubertooth\-afh(1)
+ubertooth\-rx(1): recovers the addresses and the clock from the air, with no adapter; THE CLOCK SEARCH describes what that costs
+.P
+ubertooth\-scan(1): the other BlueZ tool, which finds the piconets an adapter cannot see
+.P
+ubertooth\-afh(1)
 .P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "COPYRIGHT"

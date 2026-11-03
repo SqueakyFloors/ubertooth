@@ -2,7 +2,12 @@
 
 ## SYNOPSIS
 
-    ubertooth-ego -f
+    ubertooth-ego -f [-l <1-48>] [-a <access code>] [-U <index|serial>]
+    ubertooth-ego -r [-c <2402-2480>] [-l <1-48>] [-a <access code>]
+    [-U <index|serial>]
+    ubertooth-ego {-i | -j} [-a <access code>] [-U <index|serial>]
+    ubertooth-ego [-U <index|serial>] -V
+    ubertooth-ego -h
 
 ## DESCRIPTION
 
@@ -120,7 +125,9 @@ difference.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
-`error: channel must be 2402-2480 MHz (got 2481)`.
+`error: channel must be 2402-2480 MHz (got 2481)`,
+`error: capture length must be 1-48 (got 0)` and
+`error: access code must be 2, 4, 6 or 8 hex digits (got 112)`.
 
 A major mode is the work, so a command line without `-f`, `-r` or `-i` is
 refused before any device is opened: `error: nothing to do: choose a major
@@ -145,9 +152,14 @@ set a firmware value the mode never reads.
 
 ## DIAGNOSTICS
 
-Standard output carries only the captured packets. Errors, warnings and
-progress go to standard error, each error as one line starting `error: `, for
-example `error: E-GO not supported by this firmware`.
+Standard output carries only the captured packets. Each one is a line of three
+fields, then the bytes kept from that packet in hex, `-l` of them. The fields
+are `time=`, the capture clock in 100 ns ticks; `delta_t=`, the gap described
+below; and `freq=`, the channel in MHz.
+
+Errors, warnings and progress go to standard error, each error as one line
+starting `error: `, for example
+`error: E-GO not supported by this firmware`.
 
 A capture that is losing packets says so. This tool reads its packets one at a
 time, and a reply that held part of a record cannot be read as one, so it is
@@ -240,6 +252,10 @@ A run stopped by Ctrl-C before it had opened a board exits 0 as well: see
 ubertooth(7), SELECTING A DEVICE.
 
 ## SEE ALSO
+
+ubertooth-util(1): sets the transmit power level (`-a`) interference uses;
+CARRY-OVER BETWEEN RUNS describes what a board keeps from one command to the
+next
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
 option values are written

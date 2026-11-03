@@ -2,7 +2,10 @@
 
 ## SYNOPSIS
 
-ubertooth-scan [-s] [-x]
+    ubertooth-scan [-s] [-x] [-t <seconds>] [-e <0-5>] [-b <hciN>]
+    [-U <index|serial>]
+    ubertooth-scan [-U <index|serial>] -V
+    ubertooth-scan -h
 
 ## DESCRIPTION
 
@@ -26,12 +29,14 @@ COMPATIBILITY.md for the comparison.
 
 ## EXAMPLES
 
-Use Ubertooth to discover devices and perform Inquiry Scan with BlueZ:
+Find the piconets around you with the Ubertooth and read each one's name
+through the adapter. No BlueZ inquiry runs, so a discoverable device that is
+not talking does not appear:
 
     ubertooth-scan
 
-Use BlueZ and Ubertooth to discover devices and perform Inquiry Scan and
-Extended Inquiry Scan:
+Add the BlueZ inquiry (`-s`), so discoverable devices are listed too, and the
+extended report of every device found (`-x`):
 
     ubertooth-scan -s -x
 
@@ -42,7 +47,10 @@ Extended Inquiry Scan:
  - `-x` :
    eXtended scan - retrieve additional information about target devices
  - `-t <seconds>` :
-   scan Time - length of time to sniff packets. [Default: 20s]
+   scan Time - how long the Ubertooth half listens for piconets (default:
+   20). `-t 0` gives it no deadline, so it runs until it is interrupted. It
+   bounds that capture alone, not the reads the adapter makes of each device
+   afterwards.
  - `-e <0-5>` :
     Maximum Access Code Errors (default: 2)
  - `-b hciN` :
@@ -87,12 +95,20 @@ this section for the two lines libbtbb still adds.
 
 Each device the BlueZ inquiry of `-s` found is its address and its name, one to
 a line. While the Ubertooth half runs, each packet it decodes is a line of its
-own, as `ubertooth-rx` reports one. Then each piconet that half found is its
-address, with the NAP unknown, and the channel map the scan built for it:
+own, as `ubertooth-rx` reports one. Then each piconet that half found gets its
+address, with `??` where the non-significant address part (NAP) would be —
+ordinary piconet traffic does not carry it — followed by the channel map the
+scan built for that piconet:
 
     systime=1762000000 ch=39 LAP=9e8b33 err=0 clk100ns=1234567 clk1=12 s=-55 n=-90 snr=35
-    ??:??:??:9E:8B:33
+    ??:??:66:88:AA:BB	Speaker
     AFH map: 0x0123456789abcdef1234
+
+A piconet whose UAP the capture worked out carries that byte in its address and
+its name beside it, read through the adapter as a `-s` result's name is. A
+piconet whose UAP was not worked out reads `??:??:??:<LAP>` and gets no name
+and no `-x` report: there is no address to page with four of the six bytes
+missing. Its channel map is still printed.
 
 `s=` is the packet's own power and `n=` the board's estimate of the background
 on that channel, both in dBm, with `snr=` the difference. A channel the board
@@ -318,6 +334,9 @@ ubertooth-util(1): sets the receive squelch (`-z`); SQUELCH describes how
 long it lasts
 
 ubertooth-rx(1): Discover devices passively with Ubertooth
+
+ubertooth-follow(1): the other BlueZ tool, which follows one piconet with the
+adapter's help once you have its address
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
 option values are written
