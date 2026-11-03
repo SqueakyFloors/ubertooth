@@ -1345,11 +1345,8 @@
   sending the piconet's as it stood. The two came to the same thing on an idle
   board, where the firmware holds the clock at zero; following a board an
   earlier run had left streaming, where it is running, used to hop as far past
-  the piconet's clock as the follow's own setup had taken — measured against
-  the new offset on a board, 72 of the 312.5us ticks for a 20ms setup and 708
-  for 200ms, against two ticks to a slot. The difference now does not depend on
-  the setup at all, and a follow no longer resets the clock a later run on the
-  same board reads.
+  the piconet's clock as the follow's own setup had taken, and now does not
+  depend on the setup at all.
   [#507](https://github.com/SqueakyFloors/ubertooth/issues/507)
 
 - The three capture-loss warnings name the board that recorded the capture, so
