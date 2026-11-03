@@ -439,13 +439,20 @@ set_tests_properties(rx-replay PROPERTIES TIMEOUT 90)
 # replay of a fixture the test builds, so no board is involved, plus the
 # terminal refusal of two more tools that share the same helpers. About thirty
 # short runs.
+set(STDOUT_NAME_TOOLS
+	$<TARGET_FILE:ubertooth-rx>
+	$<TARGET_FILE:ubertooth-specan>
+	$<TARGET_FILE:ubertooth-dump>)
+# ubertooth-follow needs BlueZ, so it is not built on macOS; its case is left
+# out there rather than failing to configure.
+if(TARGET ubertooth-follow)
+	list(APPEND STDOUT_NAME_TOOLS $<TARGET_FILE:ubertooth-follow>)
+endif()
 add_test(
 	NAME stdout-capture-names
 	COMMAND ${Python3_EXECUTABLE}
 		${CMAKE_CURRENT_SOURCE_DIR}/test_stdout_capture_names.py
-		$<TARGET_FILE:ubertooth-rx>
-		$<TARGET_FILE:ubertooth-specan>
-		$<TARGET_FILE:ubertooth-dump>)
+		${STDOUT_NAME_TOOLS})
 # About 1 s idle and 3 s on a machine busy with parallel builds. Ninety leaves
 # the test's own thirty-second per-run deadline room to fire first and name
 # the run that timed out.

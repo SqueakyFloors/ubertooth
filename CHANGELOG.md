@@ -1125,10 +1125,10 @@
   [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141)
 
 - Fixed: a capture sent to `/dev/stdout` had the tool's own report lines mixed
-  into it, because only the lone `-` counted as standard output. `/dev/stdout`,
-  `/dev/fd/1` and `/proc/self/fd/1` now mean that stream too, so the capture
-  arrives on its own as it already did for `-`, and one of those names at a
-  terminal is refused rather than filling the screen with binary.
+  into it, because only the lone `-` counted as standard output. `/dev/stdout`
+  and `/dev/fd/1` now mean that stream too, so the capture arrives on its own
+  as it already did for `-`, and one of those names at a terminal is refused
+  rather than filling the screen with binary.
   [#1147](https://github.com/SqueakyFloors/ubertooth/issues/1147)
 
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes

@@ -233,22 +233,23 @@ int opt_check_stdout_not_tty(const char *what)
 	return 0;
 }
 
-/* The paths that name this process's own descriptor 1, besides the documented
- * "-". Each is a fixed name on a descriptor filesystem: /dev/stdout and
- * /dev/fd/1 on macOS and Linux, /proc/self/fd/1 where /dev/fd is not mounted,
- * which is the same fallback opt_capture_path() opens the saved stream
- * through.
+/* The absolute paths that name this process's own descriptor 1, besides the
+ * documented "-". Both are fixed names on the descriptor filesystem that
+ * macOS and Linux mount on /dev/fd.
  *
  * /dev/fd/<n> for any other <n> is deliberately not here: it reaches whatever
  * the caller's shell opened on that descriptor, which the name alone does not
- * say. */
+ * say. Nor is /proc/self/fd/1, which names descriptor 1 on Linux and nothing
+ * at all elsewhere: taking it for standard output on a platform that has no
+ * /proc would turn a destination that cannot be created into a silent
+ * redirect. */
 static const char *const stdout_paths[] = {
-	"/dev/stdout", "/dev/fd/1", "/proc/self/fd/1",
+	"/dev/stdout", "/dev/fd/1",
 };
 
 /* The next component of *at, with its length in *len, or NULL at the end of
  * the path; *at is left after it. A run of separators and a "." element are
- * both nothing, so both are skipped. */
+ * both nothing between two names, so both are skipped. */
 static const char *next_component(const char **at, size_t *len)
 {
 	const char *s = *at;
@@ -272,9 +273,9 @@ static const char *next_component(const char **at, size_t *len)
 	}
 }
 
-/* Whether a path the user wrote names the same file as one of the names
- * above, allowing the redundant separators and "." elements a path may carry
- * ("/dev/./stdout").
+/* Whether an absolute path the user wrote names the same file as one of the
+ * names above, allowing the redundant separators and "." elements a path may
+ * carry between two names ("/dev/./stdout", "//dev//fd//1").
  *
  * Only the text is compared. The destination is never opened to find out what
  * it is: opening a path can block until a reader arrives on a named pipe,
@@ -287,14 +288,21 @@ static const char *next_component(const char **at, size_t *len)
 static int names_same_file(const char *path, const char *name)
 {
 	size_t path_len = 0, name_len = 0;
+	size_t length = strlen(path);
 	const char *a, *b;
 
-	/* A trailing separator asks for a directory, and none of these is one. */
-	if (path[0] == '\0' || path[strlen(path) - 1] == '/')
+	/* A path that ends in a separator or a "." element asks for something
+	 * inside the name before it, and neither of these is a directory, so
+	 * "/dev/stdout/" and "/dev/stdout/." are not it. The platform decides
+	 * what opening such a name does; this only declines to call it
+	 * standard output. */
+	if (length == 0 || path[length - 1] == '/')
 		return 0;
-	/* Both absolute or both relative: "dev/stdout" in the working
+	if (length >= 2 && path[length - 1] == '.' && path[length - 2] == '/')
+		return 0;
+	/* Every name above is absolute, so "dev/stdout" in the working
 	 * directory is an ordinary file of that name. */
-	if ((path[0] == '/') != (name[0] == '/'))
+	if (path[0] != '/')
 		return 0;
 
 	for (;;) {

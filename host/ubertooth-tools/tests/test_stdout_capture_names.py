@@ -2,14 +2,16 @@
 """Verify the capture destinations that name this process's standard output.
 
 A capture destination of ``-`` hands descriptor 1 to the capture and keeps
-everything else off that stream. ``/dev/stdout``, ``/dev/fd/1`` and
-``/proc/self/fd/1`` reach the same descriptor, with or without a redundant
-``.`` element, so each has to behave the same way: the capture arrives on
-descriptor 1 on its own, and a terminal there is refused.
+everything else off that stream. ``/dev/stdout`` and ``/dev/fd/1`` reach the
+same descriptor, with or without a redundant separator or ``.`` element, so
+each has to behave the same way: the capture arrives on descriptor 1 on its
+own, and a terminal there is refused.
 
-``/dev/fd/<n>`` for any other ``<n>`` reaches whatever the caller's shell
-opened on that descriptor, which the name alone does not say, so it stays an
-ordinary file name. That boundary is pinned here as well.
+The names next to those stay ordinary file names, and that boundary is pinned
+here too: ``/dev/fd/<n>`` for any other ``<n>`` reaches whatever the caller's
+shell opened on that descriptor, a relative ``dev/stdout`` is a file in the
+working directory, and a name ending in ``/.`` asks for something inside a
+file that is not a directory.
 
 Everything runs as a replay (``ubertooth-rx -i``) or as a refused command
 line, so no board is involved. The replay fixture is built from scratch: the
@@ -27,6 +29,8 @@ import time
 from pathlib import Path
 
 RX, SPECAN, DUMP = sys.argv[1:4]
+# ubertooth-follow is built only where BlueZ is, so its case is optional.
+FOLLOW = sys.argv[4] if len(sys.argv) > 4 else None
 
 SYMBOLS = 400                   # the 50 data bytes, most significant bit first
 PREAMBLE_AT = 16                # where the access code starts in those symbols
@@ -87,9 +91,7 @@ EXPECTED_DUMP = b"".join(RECORDS)
 # reaches device selection. LC_ALL, because a refusal may quote strerror().
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C")
 
-# Every spelling that names this process's descriptor 1. /proc/self/fd/1 is
-# here on every platform because the name is only ever compared, never opened,
-# so a tree without /proc answers the same way.
+# Every spelling that names this process's descriptor 1.
 STDOUT_NAMES = [
     "-",
     "/dev/stdout",
@@ -97,7 +99,15 @@ STDOUT_NAMES = [
     "/dev/fd/1",
     "/dev/fd/./1",
     "//dev//fd//1",
-    "/proc/self/fd/1",
+]
+
+# A name ending in "/." asks for something inside the name before it, and
+# neither of these is a directory, so it cannot be created on any platform and
+# must not be read as standard output. The run is refused with the name
+# quoted, which is what a file destination the writer could not open does.
+NOT_STDOUT_NAMES = [
+    "/dev/stdout/.",
+    "/dev/fd/1/.",
 ]
 
 failures = []
@@ -141,7 +151,9 @@ def run_to_tty(binary, arguments, directory):
         os.set_blocking(reader, False)
         try:
             written = os.read(reader, 4096)
-        except BlockingIOError:
+        except OSError:
+            # Nothing to read: BlockingIOError where the terminal is still
+            # open at the other end, EIO on Linux once it is not.
             written = b""
     finally:
         if writer >= 0:
@@ -202,9 +214,9 @@ with tempfile.TemporaryDirectory() as workdir:
               "-q %s -z prints the address it found on standard error" % name,
               errors)
 
-    # The #1146 boundary: /dev/fd/<n> for any other <n> is an ordinary file
-    # name. The capture goes to whatever that descriptor is, and standard
-    # output is left alone, so the report is still printed there.
+    # /dev/fd/<n> for any other <n> is an ordinary file name. The capture goes
+    # to whatever that descriptor is, and standard output is left alone, so
+    # the report is still printed there.
     with open(work / "byfd.bin", "wb") as inherited:
         number = inherited.fileno()
         check(number > 2, "the inherited descriptor is not one of the three",
@@ -229,6 +241,47 @@ with tempfile.TemporaryDirectory() as workdir:
           "-d ./- writes the file named -")
     check(b"systime=" in (work / "dash.out").read_bytes(),
           "-d ./- leaves the report on standard output")
+
+    # A relative "dev/stdout" is a file in the working directory.
+    (work / "dev").mkdir()
+    status, errors = run_to_file(["-i", "full.bin", "-d", "dev/stdout"],
+                                 work, work / "relative.out")
+    check(status == 0, "-d dev/stdout exits 0", errors)
+    check((work / "dev" / "stdout").read_bytes() == EXPECTED_DUMP,
+          "-d dev/stdout writes the file in the working directory")
+    check(b"systime=" in (work / "relative.out").read_bytes(),
+          "-d dev/stdout leaves the report on standard output")
+
+    # A name one "/." away from standard output is not standard output.
+    for name in NOT_STDOUT_NAMES:
+        target = work / ("not-%d.out" % NOT_STDOUT_NAMES.index(name))
+        status, errors = run_to_file(["-i", "full.bin", "-d", name],
+                                     work, target)
+        check(status == 1, "-d %s exits 1" % name, str(status))
+        check(errors.startswith("error: %s: " % name),
+              "-d %s is refused with the name quoted" % name, errors)
+        check(target.read_bytes() == b"",
+              "-d %s writes nothing to standard output" % name)
+
+    # ubertooth-follow shares the helper for its own rule that only one
+    # capture can have standard output, so a pair written two ways is still
+    # refused, before any device is opened.
+    if FOLLOW is None:
+        print("skipping the ubertooth-follow case, the tool is not built here")
+    else:
+        result = subprocess.run(
+            [FOLLOW, "-l", "5a3c96", "-u", "0f", "-q", "/dev/stdout",
+             "-d", "-"],
+            cwd=work, env=ENVIRONMENT, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=RUN_TIMEOUT_S, check=False)
+        check(result.returncode == 1, "follow refuses -q /dev/stdout -d -",
+              str(result.returncode))
+        check(b"error: -q and -d cannot both write to standard output"
+              in result.stderr,
+              "follow names the pair that clashed", result.stderr.decode())
+        check(result.stdout == b"",
+              "follow writes nothing to standard output when it refuses")
 
     # A terminal is refused for every spelling, before anything is written to
     # it, and the refusal names what would have gone there.
