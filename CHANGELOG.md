@@ -1020,6 +1020,24 @@
   confirmed.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 
+- Fixed: a Classic capture record said the logical transport was unknown,
+  whatever the decoder had read the payload as, so a voice record and an
+  extended-voice one were indistinguishable: an HV3 and an EV3 share a type
+  code and a payload length, and this field is the only thing in a record that
+  tells them apart, and so says whether the payload ends in a CRC. It is also
+  what the capture format reads a record's count of corrected payload bits
+  against. The tools are now built against a libbtbb
+  ([`09b9512`](https://github.com/SqueakyFloors/libbtbb/commit/09b951221c208cfdba82995c1b3098727992bd45))
+  whose records name the transport the payload decoded on: SCO for the voice
+  types, eSCO for the extended voice types, and ACL for the data types. A
+  record with no payload names none, as before, and the payloads and counts
+  themselves are unchanged. The same library also stops a failed allocation
+  in one of its hash tables from ending the tool that called it: a survey now
+  drops the one packet and says so, and `btbb_init()` reports the failure, so
+  a capture started with several allowed access-code errors on a small
+  machine ends with a message of its own rather than disappearing.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
 - Fixed: a device that answered `ubertooth-scan`'s page and then said nothing
   held the scan forever, with the results so far printed and nothing after
   them. The name read behind each result now has the same 25-second deadline

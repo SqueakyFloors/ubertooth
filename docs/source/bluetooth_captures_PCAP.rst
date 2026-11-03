@@ -104,17 +104,30 @@ expected one.
 transport (0 unknown, 1 SCO, 2 eSCO, 3 ACL, 4 CSB) and the low nibble the
 modulation (0 for BR with GFSK, 1 for EDR with pi/2-DQPSK, 2 for EDR with
 8DPSK). The format also defines the whole byte as 0xff for an ID packet, which
-has neither a header nor a payload. The Ubertooth demodulates BR only and does
-not work out the transport, so every record these tools write holds 0x00 here,
-and a reader should not take it as evidence that the packet was ACL.
+has neither a header nor a payload.
+
+The Ubertooth demodulates BR, so the modulation nibble is always 0. The
+transport nibble is the one the decoder read the payload as, taken from the
+packet type (Vol 2, Part B, Section 6.5, Table 6.2): 1 for the voice types,
+2 for the extended voice types, and 3 for the data types. It is 0 where the
+record carries no payload, which includes a NULL and a POLL. Two cases the
+packet cannot tell apart are recorded as 3: a connectionless broadcast, which
+uses the same type codes, and a DM1 or an FHS sent on a voice link.
+
+This nibble is what separates an HV3 record from an EV3 one. The two share
+type code 0111 and a payload of the same length, and no other field in the
+record says which it holds, or whether that payload ends in a CRC.
 
 **corrected_header_bits** is how many of the header's 18 bits the
 forward error correction corrected.
 
 **corrected_payload_bits** is the decoder's count for the payload in this
-record, and is zero when the record carries no payload. The format has no
-validity flag for either corrected-bits field, so a reader takes both at face
-value; the payload's count is only recorded alongside a payload.
+record, and is zero when the record carries no payload. The format gives the
+field two ranges, 0 to 80 for a payload carried under rate 1/3 forward error
+correction and -360 to +180 for one under rate 2/3, and reads a count
+according to the payload transport rate above. The format has no validity flag
+for either corrected-bits field, so a reader takes both at face value; the
+payload's count is only recorded alongside a payload.
 
 **lap** is the 24-bit LAP recovered from the sync word (Vol 2, Part B, Section
 6.3.3), with the top byte zero.
