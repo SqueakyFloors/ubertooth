@@ -339,6 +339,12 @@ if(libubertooth_SOURCE_DIR)
 			# others and the config file follows them.
 			"${UBERTOOTH_INSTALL_LIBDIR}"
 			"${CMAKE_INSTALL_INCLUDEDIR}"
+			# The version the consumer project asks for, so that a
+			# version bump does not fail this test for a reason that
+			# has nothing to do with the config file. This build's
+			# major version with a minor of 0: the version file
+			# promises SameMajorVersion, so it is satisfied.
+			"${MAJOR_VERSION}.0"
 			# The library's own source tree, for the builds the test
 			# configures in the other layouts. The project's own
 			# directory rather than CMAKE_SOURCE_DIR, which would be

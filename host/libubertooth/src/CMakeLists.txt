@@ -136,12 +136,46 @@ endforeach()
 # search. The library is a path from find_library(), so the directory it is in
 # is the one to look in; one set by hand to a bare link name leaves the hint
 # empty, and the search then looks where it would have anyway.
+#
+# A directory that is not an installed libbtbb is no use as a hint and is
+# dropped: FindBTBB.cmake also looks in a libbtbb source tree beside this one,
+# and in this tree's own build directory, so a build that found libbtbb there
+# would otherwise write that path into the config file and send every consumer
+# of the install to a directory only this machine has -- and HINTS are
+# searched before the default directories, so it would win over the installed
+# libbtbb that libubertooth.pc's Requires sends a consumer to.
+get_filename_component(libbtbb_source_tree
+	"${CMAKE_SOURCE_DIR}/../libbtbb" REALPATH)
 set(UBERTOOTH_CONFIG_BTBB_INCLUDEDIR "${LIBBTBB_INCLUDE_DIR}")
 set(UBERTOOTH_CONFIG_BTBB_LIBDIR "")
 foreach(lib IN LISTS LIBBTBB_LIBRARIES)
 	if(IS_ABSOLUTE "${lib}" AND NOT UBERTOOTH_CONFIG_BTBB_LIBDIR)
 		get_filename_component(UBERTOOTH_CONFIG_BTBB_LIBDIR "${lib}" DIRECTORY)
 	endif()
+endforeach()
+foreach(hint UBERTOOTH_CONFIG_BTBB_INCLUDEDIR UBERTOOTH_CONFIG_BTBB_LIBDIR)
+	if(NOT ${hint})
+		continue()
+	endif()
+	get_filename_component(hint_path "${${hint}}" REALPATH)
+	foreach(tree "${libbtbb_source_tree}" "${CMAKE_SOURCE_DIR}"
+			"${CMAKE_BINARY_DIR}")
+		get_filename_component(tree_path "${tree}" REALPATH)
+		# Whether the hint is that directory or sits under it, decided by the
+		# way from one to the other rather than by matching the path as text:
+		# a directory name can hold a regular expression's own characters.
+		# Empty for the same directory, starting with ".." for one outside it,
+		# and absolute where there is no way between them at all.
+		file(RELATIVE_PATH way_in "${tree_path}" "${hint_path}")
+		if(NOT way_in MATCHES "^\\.\\." AND NOT IS_ABSOLUTE "${way_in}")
+			message(STATUS "ubertoothConfig.cmake will not hint at "
+				"${${hint}} as a libbtbb directory, because it is inside "
+				"${tree_path} rather than an install: a consumer of this "
+				"install would be sent to a directory only this machine has")
+			set(${hint} "")
+			break()
+		endif()
+	endforeach()
 endforeach()
 set(UBERTOOTH_CONFIG_LIBUSB_LIBDIR "")
 foreach(lib IN LISTS LIBUSB_LIBRARIES)

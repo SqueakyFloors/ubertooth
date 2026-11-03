@@ -103,7 +103,6 @@ if(_ubertooth_missing)
 	set(${CMAKE_FIND_PACKAGE_NAME}_NOT_FOUND_MESSAGE
 		"this install does not have ${_ubertooth_missing}")
 	set(${CMAKE_FIND_PACKAGE_NAME}_FOUND FALSE)
-	return()
 endif()
 
 # The libraries a program linking the static library needs on top of those
@@ -119,7 +118,12 @@ endif()
 # strings libubertooth.pc gives, which is the point.
 set(_ubertooth_private_libs "@UBERTOOTH_CONFIG_PRIVATE_LIBS@")
 
-if(NOT TARGET ubertooth::ubertooth)
+# The target, unless something above was missing or another find_package() of
+# this package in the same project has already defined it. Not an early
+# return() in the missing case, so that the one cleanup below runs either way:
+# a consumer told this package is not here should not be left with this file's
+# working in its scope as well.
+if(NOT _ubertooth_missing AND NOT TARGET ubertooth::ubertooth)
 	# UNKNOWN, so that one target serves the shared library and the static
 	# one: an UNKNOWN imported library is linked by the path it names,
 	# whichever it is.
@@ -144,9 +148,9 @@ if(NOT TARGET ubertooth::ubertooth)
 	unset(_ubertooth_link)
 endif()
 
-# Nothing of this file's working is left in the caller's scope; the four cache
-# entries for libbtbb and libusb stay, as find_path() and find_library()
-# entries do.
+# Nothing of this file's working is left in the caller's scope, whether the
+# install was described or declined; the four cache entries for libbtbb and
+# libusb stay, as find_path() and find_library() entries do.
 unset(_ubertooth_includedir)
 unset(_ubertooth_libdir)
 unset(_ubertooth_library)
