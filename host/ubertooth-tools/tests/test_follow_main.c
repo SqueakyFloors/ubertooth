@@ -291,17 +291,16 @@ int hci_read_clock_offset(int dd, uint16_t handle, uint16_t* clkoffset, int to)
 	return 0;
 }
 
-/* The local adapter's own address, which a run with no target follows. The
- * bytes are least significant first, so this is 66:55:44:33:22:11: LAP 332211
- * under UAP 44, the same UAP the target macros below name. */
+/* The local adapter's own address, which a run with no target follows. BlueZ
+ * holds an address least significant byte first, so this is 66:55:44:33:22:11:
+ * LAP 332211 under UAP 44, the same UAP the target macros below name. */
 int hci_read_bd_addr(int dd, bdaddr_t* bdaddr, int to)
 {
-	int i;
+	static const uint8_t own[6] = { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 };
 
 	(void)dd;
 	(void)to;
-	for (i = 0; i < 6; i++)
-		bdaddr->b[i] = (uint8_t)(0x11 * (i + 1));
+	memcpy(bdaddr->b, own, sizeof(own));
 	return 0;
 }
 

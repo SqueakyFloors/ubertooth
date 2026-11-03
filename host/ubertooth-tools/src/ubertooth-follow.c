@@ -542,7 +542,7 @@ int main(int argc, char *argv[])
 	 * adapter's own address -- is a UAP it was told, not one worked out
 	 * from the air, so a header that fails to decode is no evidence
 	 * against it. */
-	ut->follow_uap = (uint8_t)uap;
+	ut->follow_uap = uap;
 	ut->follow_uap_stated = 1;
 
 	if (!remote_target) {
