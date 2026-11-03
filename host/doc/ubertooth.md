@@ -85,8 +85,9 @@ ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
 With no Ubertooth attached the host lines are followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
-board sitting in the DFU bootloader is named in `note:` lines on standard
-error there, because no tool but ubertooth-dfu(1) can open one and that is the
+board sitting in the DFU bootloader is named in a `note:` on standard error
+there, with a second line saying what reaches it where it is the only one
+waiting, because no tool but ubertooth-dfu(1) can open one and that is the
 usual reason a board is not in the answer. A
 board that is attached but cannot be read -- in use by another program, or not
 answering -- has the reason on its own line (`Firmware version: unavailable,

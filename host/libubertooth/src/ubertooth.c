@@ -795,7 +795,8 @@ void ubertooth_note_dfu_bootloader(void)
 	if (boards == 0)
 		return;
 	/* The bootloader reports no serial number, so the note cannot say which
-	 * board it is; the count is all there is to give.
+	 * board it is: how many are waiting is all it can tell the user about
+	 * them.
 	 *
 	 * "No tool but ubertooth-dfu", because that one does open the
 	 * bootloader -- and the line below sends the reader there. */

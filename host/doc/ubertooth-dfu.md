@@ -297,7 +297,8 @@ Major modes:
    dump is written through a temporary file and rewound if the read has to be
    retried, and a pipe allows neither
  - `-r` :
-   Reset device after performing operation
+   Reset device after performing operation, or on its own to ask a board
+   waiting in the bootloader to start the application it already has
  - `--update-bootloader` :
    Install the bootloader carried by the `bl_update` image given with `-d`
    (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and it resets the board,
@@ -553,11 +554,10 @@ board refused, and it comes without the firmware API version note described
 in ubertooth(7): the bootloader this tool talks to runs no application
 firmware to have a version. Lines beginning `warning: ` are the ones
 about a part this host cannot identify and about an image built for another
-API version; lines beginning `note: ` follow a failure the tool can say
-something more about: today a board that came back in the bootloader, a board
-waiting in the bootloader that a selection could not name, and a board that
-never came back from a bootloader update, which may be in the part's serial
-programmer.
+API version; lines beginning `note: ` go with a failure something can say more
+about: today a board that came back in the bootloader, a board waiting in the
+bootloader that a selection could not name, and a board that never came back
+from a bootloader update, which may be in the part's serial programmer.
 libubertooth's own lines read the same way, including the ones it ends up
 printing for a libusb failure nothing could name (`error: Input/Output Error
 (libusb -1)`) and for a selection that found nothing (`error: no Ubertooth
