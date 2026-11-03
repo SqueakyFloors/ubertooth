@@ -84,7 +84,7 @@ def frequency_label(mhz, ble_channels):
 
 
 def axis_caption(ble_channels):
-    """What the frequency axis is labeled in, to be named on the axis itself.
+    """What the frequency axis is labeled in, for the caption on the axis.
 
     The tick labels are bare numbers in both modes, so without this the only
     clue to which mode the axis is in is how large those numbers are, and a

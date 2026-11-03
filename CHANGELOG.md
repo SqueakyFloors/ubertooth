@@ -745,14 +745,11 @@
   graph lines up with the number under it, the three advertising channels are
   always named when they are in the plot, and a marker names the channel
   nearest the point it sits on. The difference between two markers is in
-  megahertz in both modes, and says so.
+  megahertz in both modes, and says so. The right end of the axis reads `MHz`
+  or `BLE ch`, since the tick labels themselves are bare numbers either way.
   Credit: Emmanuel Blot ([@eblot](https://github.com/eblot)) for the channel
   labels and the mapping behind them.
-  [#76](https://github.com/SqueakyFloors/ubertooth/issues/76)
-
-- `ubertooth-specan-ui` names the frequency axis, `MHz` or `BLE ch`, at its
-  right end. The tick labels are bare numbers in both modes, so a window whose
-  markers are hidden gave no other sign of which mode it was in.
+  [#76](https://github.com/SqueakyFloors/ubertooth/issues/76),
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 ### Build and compatibility

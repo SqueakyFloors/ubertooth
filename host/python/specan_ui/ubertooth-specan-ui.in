@@ -666,11 +666,14 @@ class RenderArea(QtWidgets.QWidget):
                 # Say which the axis is labeled in: the tick labels are bare
                 # numbers in both modes. It sits at the right end, a line
                 # below the ticks, so the highest tick label cannot reach it
-                # however wide or narrow the plot is.
+                # however wide or narrow the plot is. A marker label drawn
+                # over it hides nothing a user needs, since a marker names
+                # its own unit; the caption is for a window with the markers
+                # hidden.
                 caption = axis_caption(self._ble_channels)
                 metrics = painter.fontMetrics()
                 painter.drawText(
-                    QPointF(self.width() - metrics.horizontalAdvance(caption) - 4,
+                    QPointF(max(0.0, self.width() - metrics.horizontalAdvance(caption) - 4),
                             self._dbm_to_y(self._high_dbm) + 10 + metrics.height()),
                     caption)
 
