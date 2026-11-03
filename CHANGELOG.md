@@ -888,6 +888,20 @@
   a capture record is unchanged down to the option codes. The library's other
   two commits are its own documentation.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+- The pin moves on again, to libbtbb
+  ([`5c4e535`](https://github.com/SqueakyFloors/libbtbb/commit/5c4e535968b58db2f28e2f3bce0f02ca1c02b03e)),
+  which brings two more fixes to the Classic clock search. Fixed: a piconet
+  whose address part (UAP) was given as `0x00`, as `ubertooth-rx -u 00` gives
+  it, went on searching for an address part it had already been handed, so
+  CLK1-27 never arrived; it now starts the clock search
+  ([libbtbb issue 134](https://github.com/SqueakyFloors/libbtbb/issues/134)).
+  Fixed: a clock search on a piconet that had observed no packets chose tens
+  of thousands of candidates and worked through them; it now chooses none
+  ([libbtbb issue 131](https://github.com/SqueakyFloors/libbtbb/issues/131)).
+  The tools call no new library function, so a libbtbb without what they use
+  is still refused at configure time, by name. `install.sh` and the build
+  guides check out the new commit.
+  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 - The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
   Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
   byte-order helpers: the build asks glibc for the interfaces it uses, instead
