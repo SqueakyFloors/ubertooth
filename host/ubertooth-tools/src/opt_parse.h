@@ -186,8 +186,10 @@ typedef struct {
  * it is open and before it is truncated, which reaches into how every writer
  * opens its file, which is a separate piece of work:
  *
- *  - a symbolic link this check cannot resolve: a chain whose middle element
- *    is missing, or a target too long to hold;
+ *  - a symbolic link whose target is not there yet and is further away than
+ *    the walk reaches: past 16 links, or behind a target too long to hold.
+ *    Once the target exists it is caught either way, by its device and inode
+ *    number;
  *  - two names whose directory does not exist yet either;
  *  - two names a case-folding or name-normalizing filesystem would make one
  *    file ("newcap.bin" beside "NEWCAP.BIN" on APFS, vfat or NTFS), while

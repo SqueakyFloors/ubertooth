@@ -378,29 +378,53 @@ int opt_check_capture_destination(const char *filename, const char *what)
  * "cap.bin" that does not exist yet is one file, and both writers would
  * create it.
  *
- * One link, not a chain. A chain whose middle element is missing is the same
- * question as a destination reached through a descriptor the calling shell
- * opened, and both wait on each destination being identified after it is open
- * and before it is truncated. */
+ * A chain is followed to its end, because the writer's own open does: a chain
+ * ending at a file that is not there yet loses a capture exactly as a single
+ * link would. The walk is bounded, which is what stops a link that points at
+ * itself, and it stops early on a target that will not fit -- the path so far
+ * is still a truer answer than the name the user gave, and stat() follows the
+ * rest of the chain anyway wherever the end of it exists. */
+#define CAPTURE_LINK_HOPS 16
+
 static int link_target(const char *name, char *out, size_t size)
 {
-	char target[PATH_MAX];
+	char current[PATH_MAX], target[PATH_MAX], resolved[PATH_MAX];
 	struct stat info;
 	ssize_t length;
 	const char *slash;
+	int hops;
 
-	if (lstat(name, &info) != 0 || !S_ISLNK(info.st_mode))
+	if ((size_t)snprintf(current, sizeof(current), "%s", name) >=
+	    sizeof(current))
 		return 0;
-	length = readlink(name, target, sizeof(target) - 1);
-	if (length <= 0)
-		return 0;
-	target[length] = '\0';
 
-	slash = strrchr(name, '/');
-	if (target[0] == '/' || slash == NULL)
-		return (size_t)snprintf(out, size, "%s", target) < size;
-	return (size_t)snprintf(out, size, "%.*s%s",
-	                        (int)(slash - name + 1), name, target) < size;
+	for (hops = 0; hops < CAPTURE_LINK_HOPS; hops++) {
+		if (lstat(current, &info) != 0 || !S_ISLNK(info.st_mode))
+			break;
+		length = readlink(current, target, sizeof(target) - 1);
+		if (length <= 0)
+			break;
+		target[length] = '\0';
+
+		/* A relative target is read against the directory of the link
+		 * holding it, which is not the working directory and not the
+		 * directory of the name the user wrote once a chain has moved. */
+		slash = strrchr(current, '/');
+		if (target[0] == '/' || slash == NULL) {
+			if ((size_t)snprintf(resolved, sizeof(resolved), "%s",
+			                     target) >= sizeof(resolved))
+				break;
+		} else if ((size_t)snprintf(resolved, sizeof(resolved), "%.*s%s",
+		                            (int)(slash - current + 1), current,
+		                            target) >= sizeof(resolved)) {
+			break;
+		}
+		memcpy(current, resolved, sizeof(current));
+	}
+
+	if (hops == 0)
+		return 0;
+	return (size_t)snprintf(out, size, "%s", current) < size;
 }
 
 /* The last element of a path, which is the name a writer would create. */
@@ -525,9 +549,16 @@ static int same_destination(const char *first, const char *second)
 	 * pointing at "/dev/stdout" does reach the stream and has to be
 	 * recognized as it: on the BSDs that name is a device of its own, so
 	 * looking it up as a path answers with the wrong device number and the
-	 * pair would be missed. */
-	first_linked = link_target(first, first_target, sizeof(first_target));
-	second_linked = link_target(second, second_target, sizeof(second_target));
+	 * pair would be missed.
+	 *
+	 * A value that already means the stream is not resolved, because it is
+	 * not a path to resolve. Handing "-" to a path operation would read
+	 * whatever link happens to be called "-" in the working directory and
+	 * put its target where the stream should be. */
+	first_linked = !opt_writes_to_stdout(first) &&
+	               link_target(first, first_target, sizeof(first_target));
+	second_linked = !opt_writes_to_stdout(second) &&
+	                link_target(second, second_target, sizeof(second_target));
 	first_path = first_linked ? first_target : first;
 	second_path = second_linked ? second_target : second;
 
@@ -535,6 +566,9 @@ static int same_destination(const char *first, const char *second)
 	 * path: "-" is the stream while "./-" is an ordinary file of that
 	 * name, and the two texts reduce to each other. The descriptor is the
 	 * only thing that says which file the stream is on. */
+	/* A destination with no file yet cannot be the file the stream is on,
+	 * which is why a failed lookup here answers "not the same" rather than
+	 * being passed on. */
 	if (names_the_stream(first, first_path, first_linked) ||
 	    names_the_stream(second, second_path, second_linked))
 		return written_file(first, first_path, first_linked,

@@ -159,11 +159,12 @@ file name too, including one that starts with `-`, so a forgotten file name
 writes a file rather than guessing. A destination whose writer seeks back over
 what it has written cannot be `-` at all, which a pipe does not allow: the
 PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse that value and say what
-to use instead. `ubertooth-follow(1)` refuses every spelling of the stream
-there, `/dev/stdout` included, when it reads `-r`; ubertooth-rx(1) and
-ubertooth-btle(1) still refuse only a lone `-` and leave the other spellings
-to the writer, which reports them as a name that already exists once the
-device is open. Standard output carries one stream, so two capture options cannot
+to use instead. `ubertooth-follow(1)` refuses every value that names the
+stream there, `/dev/stdout` included, when it reads `-r`; ubertooth-rx(1) and
+ubertooth-btle(1) still refuse only a lone `-`. The spellings they leave, and
+a symbolic link pointing at the stream in any of the three, are file names to
+the writer, which reports them as a name that already exists once the device
+is open. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
 report there. A file cannot be shared between two capture options either:
 each writer opens its own destination for writing, which truncates whatever
@@ -171,11 +172,12 @@ another has put there, so a run whose destinations are one file is refused
 before any of them is opened, naming both options. The file is identified
 rather than the name, so a second spelling of one path, a link, and a `-`
 beside a file name the shell has pointed standard output at are all caught,
-while `/dev/null` twice is not, since nothing is kept there. Two names a
-case-folding filesystem would make one file are not caught either, unless one
-of them is already there.
-ubertooth-follow(1) makes that check; ubertooth-rx(1) and ubertooth-btle(1) do
-not yet.
+while `/dev/null` twice is not, since nothing is kept there. Some pairs that
+are one file cannot be told apart from the names alone and are not refused:
+a symbolic link whose target is not there yet, two names whose directory does
+not exist yet, and two names a case-folding filesystem would make one file
+while neither is there yet. ubertooth-follow(1) makes this check;
+ubertooth-rx(1) and ubertooth-btle(1) do not yet.
 
 Options can be written together behind one dash (`-f -n` is `-fn`), so a stray
 dash inside such a word is a letter the tools do not have. The refusal names

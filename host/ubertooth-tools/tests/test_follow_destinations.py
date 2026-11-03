@@ -140,9 +140,9 @@ with tempfile.TemporaryDirectory() as work:
               repr(output[:60]))
 
     # A PcapNG capture cannot have standard output at all, so -r refuses every
-    # spelling of it on the command line. Were one spelling to slip through,
-    # the pair above would reach neither gate: this check leaves it alone as
-    # the other rule's, and that rule covers -q and -d.
+    # value that names it on the command line. Were one of them to slip
+    # through, the pair above would reach neither gate: this check leaves it
+    # alone as the other rule's, and that rule covers -q and -d.
     for named in ("-", "/dev/stdout", "/dev/fd/1", "//dev//fd//1"):
         status, output, errors = run(["-r", named, "-q", "-"], work)
         check(status == 1, "-r %s exits 1" % named, str(status))
@@ -151,6 +151,17 @@ with tempfile.TemporaryDirectory() as work:
               "-r %s is refused on the command line" % named, errors)
         check(output == b"", "-r %s writes nothing to standard output" % named,
               repr(output[:60]))
+
+    # A link pointing at that stream is a file name, not a value naming it,
+    # and this option reads values: it is the writer that turns it down, as a
+    # file that already exists. Pinned so the boundary cannot move unnoticed.
+    link = work / "link-to-stream"
+    if link.is_symlink():
+        link.unlink()
+    link.symlink_to("/dev/stdout")
+    status, output, errors = run(["-r", str(link), "-q", "cap.pcap"], work)
+    check("PCAPNG capture to stdout" not in errors,
+          "-r <a link to the stream> is a file name to this option", errors)
 
 for line in failures:
     print(line)

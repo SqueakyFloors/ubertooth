@@ -90,9 +90,11 @@ COMPATIBILITY.md for the comparison.
    each attached board; see ubertooth(7), COMMON OPTIONS
  - `-r <filename>` :
    capture packets to a PCAPNG file. A PcapNG writer seeks back over what it
-   has written, which standard output cannot do, so a value naming that stream
-   is refused, `-r -` and `-r /dev/stdout` alike:
-   `error: PCAPNG capture to stdout is not supported; use -q -`
+   has written, which standard output cannot do, so a value that names that
+   stream is refused, `-r -` and `-r /dev/stdout` alike:
+   `error: PCAPNG capture to stdout is not supported; use -q -`. A symbolic
+   link that happens to point there is a file name like any other and is
+   refused by the writer instead, as a file that already exists
  - `-q <filename>` :
    capture packets to a PCAP file. `-q -` writes the capture to standard
    output; see CAPTURING TO STANDARD OUTPUT
@@ -256,20 +258,14 @@ two of them may name one file: `error: -q and -d cannot both write to
 capture.pcap`, exit 1, with the file left as it was. The file is identified
 rather than the name, so two spellings of one path, a symbolic link, a hard
 link, `-q -` beside a `-d` naming the file the shell has pointed standard
-output at, and a link pointing at that stream are all caught. A value meaning
-the stream is compared by that descriptor alone and never as a path, so `-q -`
-beside `-d ./-` is two destinations — the stream and the file named `-` —
-unless the shell really has pointed standard output at that file.
+output at, and a link pointing at that stream are all caught. `-` is the
+stream and `./-` is an ordinary file of that name, so `-q - -d ./-` is two
+destinations unless the shell really has pointed standard output at that file.
 
 Writing both captures to `/dev/null` is not refused, since nothing is kept
 there and nothing is lost. Some pairs that are one file cannot be told apart
-from the names alone and are not refused either: a symbolic link that cannot
-be resolved, two names whose directory does not exist yet, two names a
-case-folding filesystem would make one file while neither is there yet, and,
-on the BSDs, `/dev/fd/3` and the names like it, which Linux makes symbolic
-links and the BSDs serve from a filesystem of their own. Each of these needs
-the destination identified after it is open and before it is truncated; see
-ubertooth(7) and the capture-destination notes there.
+from the names alone and are not refused either; see ubertooth(7), OPTION
+VALUES.
 
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the

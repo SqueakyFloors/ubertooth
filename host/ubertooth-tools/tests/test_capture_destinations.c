@@ -300,6 +300,40 @@ static void test_what_a_writer_would_not_overwrite(void)
 	check_accepted("./sub", "sub");
 }
 
+/* A chain of symbolic links is followed to its end, because the writer's open
+ * does. A chain ending at a file that is not there yet loses a capture exactly
+ * as a single link would, so reading only the first link is not enough. */
+static void test_a_chain_of_links(void)
+{
+	unlink("chain-1");
+	unlink("chain-2");
+	unlink("chain-ghost.bin");
+	if (symlink("chain-ghost.bin", "chain-2") != 0 ||
+	    symlink("chain-2", "chain-1") != 0) {
+		printf("skipping the chain case: %s\n", strerror(errno));
+		return;
+	}
+	/* Two links deep, ending at a name that does not exist: both writers
+	 * would create and truncate that one file. */
+	check_refused("chain-ghost.bin", "chain-1",
+	              "error: -q and -d cannot both write to one file"
+	              " (chain-ghost.bin and chain-1)\n");
+	check_refused("chain-1", "chain-ghost.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (chain-1 and chain-ghost.bin)\n");
+	/* The middle of the chain names the same end, so the two routes to it
+	 * are one destination. */
+	check_refused("chain-1", "chain-2",
+	              "error: -q and -d cannot both write to one file"
+	              " (chain-1 and chain-2)\n");
+	check_accepted("chain-1", "other.bin");
+
+	/* A link pointing at itself must not spin: the walk is bounded. */
+	unlink("loop");
+	if (symlink("loop", "loop") == 0)
+		check_accepted("loop", "other.bin");
+}
+
 /* A capture on standard output is a destination like any other once the shell
  * has pointed the stream at a file: the descriptor says which file that is. */
 static void test_standard_output_pointed_at_a_file(void)
@@ -357,6 +391,45 @@ static void test_standard_output_pointed_at_a_file(void)
 		printf("skipping the link-to-the-stream case: %s\n",
 		       strerror(errno));
 	}
+
+	/* A symbolic link that happens to be NAMED "-". The stream is not a
+	 * path, so it is not resolved through one: were "-" handed to a path
+	 * operation, this link's target would take the stream's place, and
+	 * then a pair of the stream and an ordinary file would read as one
+	 * file while two captures of one file would read as two.
+	 *
+	 * The link is made last, since it changes what the name "-" resolves
+	 * to for anything that does follow it. */
+	unlink("-");
+	close(creat("elsewhere.bin", 0600));
+	if (symlink("elsewhere.bin", "-") == 0) {
+		/* The stream beside the file that link points at. The stream
+		 * is on redirected.bin, so these are two destinations -- but
+		 * reading "-" as a path makes both of them elsewhere.bin. */
+		check_accepted("-", "elsewhere.bin");
+		check_accepted("elsewhere.bin", "-");
+		/* The file named "-", written "./-", IS that link, so it and
+		 * its target are one file. */
+		check_refused("./-", "elsewhere.bin",
+		              "error: -q and -d cannot both write to one file"
+		              " (./- and elsewhere.bin)\n");
+	} else {
+		printf("skipping the link-named-dash case: %s\n",
+		       strerror(errno));
+	}
+	unlink("-");
+	/* The same link, dangling. This is the one that lost data: the stream
+	 * took the missing target's place, so it matched nothing and a pair of
+	 * the stream and the file it was pointed at went unrefused. */
+	if (symlink("ghost.bin", "-") == 0) {
+		check_refused("-", "redirected.bin",
+		              "error: -q and -d cannot both write to one file"
+		              " (standard output and redirected.bin)\n");
+	} else {
+		printf("skipping the dangling-link-named-dash case: %s\n",
+		       strerror(errno));
+	}
+	unlink("-");
 
 	fflush(stdout);
 	dup2(saved, STDOUT_FILENO);
@@ -494,7 +567,8 @@ static void clean_up(void)
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
 		"dangling.bin", "sink.bin", "redirected.bin", "-",
-		"points-at-dash", "points-at-stream",
+		"points-at-dash", "points-at-stream", "elsewhere.bin",
+		"chain-1", "chain-2", "chain-ghost.bin", "loop",
 		"sub/pointer.bin", "sub/updown.bin",
 	};
 	char sub[sizeof(work) + 8];
@@ -529,6 +603,7 @@ int main(void)
 	test_a_link_to_a_file_not_there_yet();
 	test_what_a_writer_would_not_overwrite();
 	test_an_empty_value();
+	test_a_chain_of_links();
 	test_standard_output_is_left_alone();
 	test_the_stream_beside_the_file_called_dash();
 	test_standard_output_pointed_at_a_file();
