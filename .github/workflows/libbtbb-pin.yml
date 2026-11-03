@@ -82,7 +82,13 @@ jobs:
         # write out, so the two rules further down are for a commit pin; a tag
         # is required to be in each file and nothing more, as everything was
         # before those rules.
-        if printf '%s' "$LIBBTBB_REF" | grep -qE '^[0-9a-f]{40}$'; then
+        #
+        # Case is folded away here and in every comparison below, because a
+        # commit means the same commit whatever case it is written in. The one
+        # the files carry is lower case, and a pin written in capitals should
+        # be read as the commit it is rather than taken for a tag.
+        pin_lower=$(printf '%s' "$LIBBTBB_REF" | tr 'A-F' 'a-f')
+        if printf '%s' "$pin_lower" | grep -qE '^[0-9a-f]{40}$'; then
           pin_is_commit=yes
         else
           pin_is_commit=no
@@ -137,10 +143,8 @@ jobs:
           # prose as much as on a line that builds.
           while IFS=: read -r line commit; do
             [ -n "$commit" ] || continue
-            # Compared with case folded away, so a commit spelled in capitals
-            # is read as the commit it is rather than waved through.
             lower=$(printf '%s' "$commit" | tr 'A-F' 'a-f')
-            if [ "$lower" != "$LIBBTBB_REF" ]; then
+            if [ "$lower" != "$pin_lower" ]; then
               echo "error: $f:$line names libbtbb commit $commit, and the pin is" >&2
               echo "       $LIBBTBB_REF" >&2
               status=1
@@ -169,7 +173,7 @@ jobs:
                             sed 's/[0-9a-fA-F]\{40\}/ /g' |
                             grep -oiE '[0-9a-f]{7,39}' | grep -E '[0-9]'); do
               lower=$(printf '%s' "$commit" | tr 'A-F' 'a-f')
-              case $LIBBTBB_REF in
+              case $pin_lower in
               "$lower"*) ;;
               *)
                 echo "error: $f:$line abbreviates libbtbb commit $commit beside a link" >&2
