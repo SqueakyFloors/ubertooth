@@ -381,9 +381,11 @@ int opt_check_capture_destination(const char *filename, const char *what)
  * A chain is followed to its end, because the writer's own open does: a chain
  * ending at a file that is not there yet loses a capture exactly as a single
  * link would. The walk is bounded, which is what stops a link that points at
- * itself, and it stops early on a target that will not fit -- the path so far
- * is still a truer answer than the name the user gave, and stat() follows the
- * rest of the chain anyway wherever the end of it exists. */
+ * itself. Reaching that bound, or a target that will not fit, answers 0 like
+ * any other name this cannot resolve, rather than handing back a path that is
+ * itself still a link: an answer that is not the end of the chain would be
+ * read as one. stat() follows the whole chain anyway wherever its end
+ * exists, so only a chain that long AND dangling goes unseen. */
 #define CAPTURE_LINK_HOPS 16
 
 static int link_target(const char *name, char *out, size_t size)
@@ -398,12 +400,23 @@ static int link_target(const char *name, char *out, size_t size)
 	    sizeof(current))
 		return 0;
 
-	for (hops = 0; hops < CAPTURE_LINK_HOPS; hops++) {
+	for (hops = 0; ; hops++) {
+		/* Not a link, so this is the end of the chain and the answer. */
 		if (lstat(current, &info) != 0 || !S_ISLNK(info.st_mode))
 			break;
+		/* Still a link, with no way to follow it any further: the walk
+		 * is used up, the link cannot be read, or its target will not
+		 * fit. The end of the chain is not known, and answering with
+		 * this path would present a link as the destination it points
+		 * at, so answer with nothing. The caller then compares the name
+		 * the user gave, and stat() follows the whole chain wherever
+		 * its end exists, so only a chain this long AND dangling goes
+		 * unseen. */
+		if (hops == CAPTURE_LINK_HOPS)
+			return 0;
 		length = readlink(current, target, sizeof(target) - 1);
 		if (length <= 0)
-			break;
+			return 0;
 		target[length] = '\0';
 
 		/* A relative target is read against the directory of the link
@@ -413,11 +426,11 @@ static int link_target(const char *name, char *out, size_t size)
 		if (target[0] == '/' || slash == NULL) {
 			if ((size_t)snprintf(resolved, sizeof(resolved), "%s",
 			                     target) >= sizeof(resolved))
-				break;
+				return 0;
 		} else if ((size_t)snprintf(resolved, sizeof(resolved), "%.*s%s",
 		                            (int)(slash - current + 1), current,
 		                            target) >= sizeof(resolved)) {
-			break;
+			return 0;
 		}
 		memcpy(current, resolved, sizeof(current));
 	}

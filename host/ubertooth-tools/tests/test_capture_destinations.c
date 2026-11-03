@@ -300,6 +300,31 @@ static void test_what_a_writer_would_not_overwrite(void)
 	check_accepted("./sub", "sub");
 }
 
+/* Build <links> symbolic links named "<prefix>-1" .. "<prefix>-<links>", each
+ * pointing at the next, with the last pointing at "chain-end.bin", which is
+ * left absent so the chain dangles. So "<prefix>-1" is <links> hops from the
+ * name a writer would create. */
+static void chain_of_links(int links, const char *prefix)
+{
+	char here[64], next[64];
+	int i;
+
+	unlink("chain-end.bin");
+	for (i = links; i >= 1; i--) {
+		snprintf(here, sizeof(here), "%s-%d", prefix, i);
+		if (i == links)
+			snprintf(next, sizeof(next), "chain-end.bin");
+		else
+			snprintf(next, sizeof(next), "%s-%d", prefix, i + 1);
+		unlink(here);
+		if (symlink(next, here) != 0) {
+			printf("skipping part of the chain bound case: %s\n",
+			       strerror(errno));
+			return;
+		}
+	}
+}
+
 /* A chain of symbolic links is followed to its end, because the writer's open
  * does. A chain ending at a file that is not there yet loses a capture exactly
  * as a single link would, so reading only the first link is not enough. */
@@ -332,6 +357,28 @@ static void test_a_chain_of_links(void)
 	unlink("loop");
 	if (symlink("loop", "loop") == 0)
 		check_accepted("loop", "other.bin");
+
+	/* A chain that leaves the directory it started in. Each target is read
+	 * against the directory of the link holding it, not the one the user
+	 * named, so "sub/out" pointing at "../deep.bin" is this directory's. */
+	unlink("sub/out");
+	unlink("into-sub");
+	unlink("deep.bin");
+	if (symlink("../deep.bin", "sub/out") == 0 &&
+	    symlink("sub/out", "into-sub") == 0)
+		check_refused("deep.bin", "into-sub",
+		              "error: -q and -d cannot both write to one file"
+		              " (deep.bin and into-sub)\n");
+
+	/* The declared bound. A dangling chain within reach is caught; one
+	 * link longer is past what the walk resolves, and is the documented
+	 * limit rather than a wrong answer: the name is compared as given. */
+	chain_of_links(16, "hop16");
+	check_refused("chain-end.bin", "hop16-1",
+	              "error: -q and -d cannot both write to one file"
+	              " (chain-end.bin and hop16-1)\n");
+	chain_of_links(17, "hop17");
+	check_accepted("chain-end.bin", "hop17-1");
 }
 
 /* A capture on standard output is a destination like any other once the shell
@@ -569,13 +616,24 @@ static void clean_up(void)
 		"dangling.bin", "sink.bin", "redirected.bin", "-",
 		"points-at-dash", "points-at-stream", "elsewhere.bin",
 		"chain-1", "chain-2", "chain-ghost.bin", "loop",
-		"sub/pointer.bin", "sub/updown.bin",
+		"chain-end.bin", "deep.bin", "into-sub",
+		"sub/pointer.bin", "sub/updown.bin", "sub/out",
 	};
 	char sub[sizeof(work) + 8];
 	size_t i;
 
+	char link[64];
+	int n;
+
 	for (i = 0; i < sizeof(made) / sizeof(made[0]); i++)
 		unlink(made[i]);
+	/* The two chains built for the hop bound. */
+	for (n = 1; n <= 17; n++) {
+		snprintf(link, sizeof(link), "hop16-%d", n);
+		unlink(link);
+		snprintf(link, sizeof(link), "hop17-%d", n);
+		unlink(link);
+	}
 	if (chdir("/") != 0)
 		return;
 	snprintf(sub, sizeof(sub), "%s/sub", work);
