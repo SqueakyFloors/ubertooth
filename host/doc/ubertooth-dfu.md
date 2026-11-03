@@ -30,9 +30,10 @@ serial number for `-U` to name, and is not among the boards an index counts
 either, so a command with a selector looks for it among the boards running
 their firmware, does not find it, and says so. When exactly one board is
 waiting in DFU, that failure carries a note naming what reaches it:
-`-d <image> -r` with no `-U` writes an image and starts it, and `-r` on its
-own is worth trying for a board that still has an application the bootloader
-will start. See ubertooth(7), WHEN A BOARD CANNOT BE USED.
+`-d <image> -r` with no `-U` writes an image and asks the board to start it,
+and `-r` on its own asks without writing, which is enough for a board that
+still has an application the bootloader will start. See ubertooth(7), WHEN A
+BOARD CANNOT BE USED.
 
 Every wait for the bootloader is bounded. Before each operation the tool asks
 the bootloader for its DFU state and drives it to the idle state, aborting a
@@ -553,7 +554,10 @@ in ubertooth(7): the bootloader this tool talks to runs no application
 firmware to have a version. Lines beginning `warning: ` are the ones
 about a part this host cannot identify and about an image built for another
 API version; lines beginning `note: ` follow a failure the tool can say
-something more about, which today is a board that came back in the bootloader.
+something more about: today a board that came back in the bootloader, a board
+waiting in the bootloader that a selection could not name, and a board that
+never came back from a bootloader update, which may be in the part's serial
+programmer.
 libubertooth's own lines read the same way, including the ones it ends up
 printing for a libusb failure nothing could name (`error: Input/Output Error
 (libusb -1)`) and for a selection that found nothing (`error: no Ubertooth

@@ -808,13 +808,12 @@ void ubertooth_note_dfu_bootloader(void)
 		 * try, and ubertooth-dfu with no selector adopts the sole board in
 		 * DFU mode.
 		 *
-		 * The write comes first because it always applies. The reset is
-		 * offered as something to try, not promised: the bootloader starts
-		 * an application only when the region passes its check, so a board
-		 * an interrupted download left half-written comes back to the
-		 * bootloader, and so does one whose entry pin still reads grounded,
-		 * which every reset asks into DFU again. A write needs -r too, or
-		 * the board stays in the bootloader.
+		 * Both forms are named as what they ask for, not as what the board
+		 * will do, because neither can be promised: the bootloader starts an
+		 * application only when the region passes its check, and a board
+		 * whose entry pin reads grounded is asked into DFU again by every
+		 * reset, whether an image was just written or not. A write needs -r
+		 * too, or the board stays in the bootloader.
 		 *
 		 * Naming what reaches the board, rather than what the caller asked
 		 * for, keeps the line true on every path that gets here, including
@@ -825,8 +824,8 @@ void ubertooth_note_dfu_bootloader(void)
 		 * DFU interface, so a second ubertooth-dfu is refused the claim and
 		 * reports it rather than touching the flash. */
 		fprintf(stderr, "note: ubertooth-dfu with no -U is what reaches that "
-		        "board: -d <image> -r writes an image and starts it, or -r "
-		        "alone to try the application already there\n");
+		        "board: -d <image> -r writes an image and asks the board to "
+		        "start it, and -r alone asks without writing\n");
 	} else {
 		fprintf(stderr, "note: %d boards are in the DFU bootloader, so no "
 		        "tool but ubertooth-dfu can open them: they are being "

@@ -320,17 +320,17 @@ no serial number, and an index counts only the boards running their firmware
 
     error: no Ubertooth found with serial matching 'aa1'
     note: a board is in the DFU bootloader, so no tool but ubertooth-dfu can open it: it is being flashed, or a flash left it there
-    note: ubertooth-dfu with no -U is what reaches that board: -d <image> -r writes an image and starts it, or -r alone to try the application already there
+    note: ubertooth-dfu with no -U is what reaches that board: -d <image> -r writes an image and asks the board to start it, and -r alone asks without writing
 
-The write is named first because it always applies. `-r` on its own is the
-shorter way out for a board that was asked into DFU by a command and still
-holds its application: it starts that application again. Two states do not
-answer `-r`, which is why it is offered as something to try: one an
-interrupted download left half-written, which the bootloader refuses to start,
-and one whose bootloader entry pin still reads grounded, which every reset
-asks back into DFU until the bridge is removed. A write needs `-r` as well, or
-the board stays in the bootloader. ubertooth-dfu(1) says what each of those
-looks like.
+`-r` on its own is the shorter way out, and enough for a board that was asked
+into DFU by a command and still holds its application. Both forms say what
+they ask for rather than what the board will do, because neither can be
+promised: the bootloader starts an application only when the region passes its
+check, so a board left half-written by an interrupted download stays there
+until a whole image is written, and a board whose bootloader entry pin reads
+grounded is asked into DFU again by every reset, with or without a fresh
+image, until the bridge is removed. A write needs `-r` as well, or the board
+stays in the bootloader.
 
 Several boards in the bootloader are counted instead, with no such advice:
 ubertooth-dfu(1) with no `-U` refuses to choose between them, and this note

@@ -1200,8 +1200,8 @@ MU_TEST(a_waiting_board_is_told_what_reaches_it)
 	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
 	    "it there\n"
 	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
-	    "<image> -r writes an image and starts it, or -r alone to try "
-	    "the application already there\n")
+	    "<image> -r writes an image and asks the board to start it, and "
+	    "-r alone asks without writing\n")
 	    == 0, msg);
 	mu_assert_int_eq(0, (int)strlen(out));
 
@@ -1786,8 +1786,8 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
 	    "it there\n"
 	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
-	    "<image> -r writes an image and starts it, or -r alone to try "
-	    "the application already there\n")
+	    "<image> -r writes an image and asks the board to start it, and "
+	    "-r alone asks without writing\n")
 	    == 0, msg);
 
 	/* And by index, where the selection's own message comes from the
@@ -1801,8 +1801,8 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
 	    "it there\n"
 	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
-	    "<image> -r writes an image and starts it, or -r alone to try "
-	    "the application already there\n")
+	    "<image> -r writes an image and asks the board to start it, and "
+	    "-r alone asks without writing\n")
 	    == 0, msg);
 
 	/* Several say how many. */
