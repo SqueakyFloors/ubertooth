@@ -136,6 +136,25 @@ That is the commit CI tests against and `install.sh <https://github.com/SqueakyF
 
 The Ubertooth tools' own configure step checks the libbtbb it finds for the functions they call, and refuses one that is missing any of them, naming them and the commit above. So if you built the tools once and come back to them later, you may need to rebuild libbtbb at the commit the tree now asks for before the tools will configure.
 
+It also prints one line saying which libbtbb it found, the commit that library
+was built from, and the commit these tools are built against, so the three are
+visible in the log of any build:
+
+	.. code-block:: text
+
+		-- libbtbb: /usr/local/lib/libbtbb.so, built from commit <commit>, which is the commit this tree is built against (<commit>)
+
+A libbtbb built from a git clone records the commit it came from, and the
+configure step reads it back out of the library. Where that commit is not the
+pinned one, the line says both and a warning follows it. The build is not
+stopped on that account, so a library that passed the check just described
+still builds the tools; but the tools then behave the way that library does,
+so a capture or a clock measured against them is a result for that libbtbb
+rather than for the pinned one. A
+libbtbb installed from a distribution package, or built from a source archive
+rather than a clone, records no commit; the line says so and names the pin, and
+nothing warns, because nothing there says that library is the wrong one.
+
 
 
 Ubertooth Tools
