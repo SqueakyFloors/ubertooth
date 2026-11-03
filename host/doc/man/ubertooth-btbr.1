@@ -176,11 +176,11 @@ the enhanced synchronous packets, which carry a CRC and a length that is agreed 
 .P
 \fB<length>\fR defaults to the format's maximum, \fB<count>\fR to 1\. \fB<count>\fR is how many times to transmit the packet, one transmit slot after another, which is the way to make one easy for a receiver to catch; the packet is not retransmitted on the peer's say\-so, so a peer that ignores it costs nothing\. What is bounded is the air slots the run occupies, 400 of them, so the count allowed depends on how many slots one packet of the format fills: 400 of a one\-slot format such as \fBdm1\fR or \fBev3\fR, 133 of a three\-slot \fBdh3\fR or \fBev4\fR, and 80 of a five\-slot \fBdh5\fR\. The board's own data and link\-manager traffic waits for the whole run, which is why the bound is there; at 625 us a slot the longest run is about 300 ms\. To put one format on the air for longer, send \fBtx\fR again: one run at a time waits for a slot, and a \fBtx\fR sent while one is already waiting is refused, so the waiting cannot pile up\.
 .P
-\fB<hex>\fR is the data bytes, as an even number of hex digits of exactly \fB<length>\fR bytes\. Without it the data is a counted pattern, \fB00 01 02 \|\.\|\.\|\. ff\fR and over again\. Either way the line \fBtx\fR prints on standard output is the packet the board was asked for, which is what a receiver's decode has to be compared with: \fBdata=\fR is the data bytes, and \fBpayload=\fR the whole payload, which adds the voice field where the format has one and the payload header where it has one\. The board adds the CRC, which is in neither:
+\fB<hex>\fR is the data bytes, as an even number of hex digits of exactly \fB<length>\fR bytes\. Without it the data is a counted pattern, \fB00 01 02 \|\.\|\.\|\. ff\fR and over again\. A \fBdv\fR also has a voice field, which \fB<hex>\fR does not reach; its fill is counted too but starts at \fBa0\fR, so it reads \fBa0 a1 a2 \|\.\|\.\|\. a9\fR\. The two patterns differ on purpose: a decoder can see where the voice field ends from the bytes alone, without knowing how long either field is\. Either way the line \fBtx\fR prints on standard output is the packet the board was asked for, which is what a receiver's decode has to be compared with: \fBdata=\fR is the data bytes, and \fBpayload=\fR the whole payload, which adds the voice field where the format has one and the payload header where it has one\. The board adds the CRC, which is in neither:
 .IP "" 4
 .nf
 19:18:58 TX pkt: ev3 len=3 count=20 data=000102 payload=000102
-19:18:58 TX pkt: dv len=3 count=20 data=000102 payload=000102030405060708091e000102
+19:18:58 TX pkt: dv len=3 count=20 data=000102 payload=a0a1a2a3a4a5a6a7a8a91e000102
 .fi
 .IP "" 0
 .P
