@@ -75,9 +75,10 @@ jobs:
   # What a pull request touches, so the host, firmware and scripts jobs run
   # only when their side changed. Every other event (main, schedule, release,
   # manual) runs all three. Conservative on purpose: the host jobs are skipped
-  # only when every changed file is under firmware/, and the firmware jobs
-  # only when no file under firmware/, no workflow and not the shared USB
-  # interface header changed. A skipped job counts as passed for a merge.
+  # only when every changed file is under firmware/ and none of them is a
+  # table a host test reads, and the firmware jobs only when no file under
+  # firmware/, no workflow and not the shared USB interface header changed.
+  # A skipped job counts as passed for a merge.
   #
   # All three are skipped for a documentation-only branch, where there is
   # nothing to build and no script to lint. Each skipped name is still
@@ -128,6 +129,13 @@ jobs:
           fi
           host=false; firmware=false
           if echo "$files" | grep -qv '^firmware/'; then host=true; fi
+          # The basic-rate codec tables are the other half of a host test:
+          # it checks the firmware's description of each transmit format
+          # against ubtbr's own copy, so a change to them has to run the host
+          # jobs even though nothing outside firmware/ moved. The reverse
+          # exception, for the shared USB interface header, is on the line
+          # below.
+          if echo "$files" | grep -qE '^firmware/btbr/(src/codec/codec\.c|include/ubtbr/codec\.h)$'; then host=true; fi
           if echo "$files" | grep -qE '^firmware/|^\.github/|^host/libubertooth/src/ubertooth_interface\.h$'; then firmware=true; fi
           decide "$host" "$firmware" true
 
