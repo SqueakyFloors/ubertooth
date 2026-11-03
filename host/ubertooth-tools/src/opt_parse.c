@@ -233,9 +233,94 @@ int opt_check_stdout_not_tty(const char *what)
 	return 0;
 }
 
+/* The paths that name this process's own descriptor 1, besides the documented
+ * "-". Each is a fixed name on a descriptor filesystem: /dev/stdout and
+ * /dev/fd/1 on macOS and Linux, /proc/self/fd/1 where /dev/fd is not mounted,
+ * which is the same fallback opt_capture_path() opens the saved stream
+ * through.
+ *
+ * /dev/fd/<n> for any other <n> is deliberately not here: it reaches whatever
+ * the caller's shell opened on that descriptor, which the name alone does not
+ * say. */
+static const char *const stdout_paths[] = {
+	"/dev/stdout", "/dev/fd/1", "/proc/self/fd/1",
+};
+
+/* The next component of *at, with its length in *len, or NULL at the end of
+ * the path; *at is left after it. A run of separators and a "." element are
+ * both nothing, so both are skipped. */
+static const char *next_component(const char **at, size_t *len)
+{
+	const char *s = *at;
+	const char *start;
+
+	for (;;) {
+		while (*s == '/')
+			s++;
+		if (*s == '\0') {
+			*at = s;
+			return NULL;
+		}
+		start = s;
+		while (*s != '/' && *s != '\0')
+			s++;
+		if (s - start != 1 || start[0] != '.') {
+			*at = s;
+			*len = (size_t)(s - start);
+			return start;
+		}
+	}
+}
+
+/* Whether a path the user wrote names the same file as one of the names
+ * above, allowing the redundant separators and "." elements a path may carry
+ * ("/dev/./stdout").
+ *
+ * Only the text is compared. The destination is never opened to find out what
+ * it is: opening a path can block until a reader arrives on a named pipe,
+ * change the modem lines of a serial device, and leaves a descriptor behind
+ * on a command line that is about to be refused. Symbolic links are not
+ * followed either, because that answers a different question -- where
+ * /dev/stdout points at this moment -- rather than which descriptor the user
+ * named. ".." is left alone for the same reason: the element above a symbolic
+ * link is not the directory the text suggests. */
+static int names_same_file(const char *path, const char *name)
+{
+	size_t path_len = 0, name_len = 0;
+	const char *a, *b;
+
+	/* A trailing separator asks for a directory, and none of these is one. */
+	if (path[0] == '\0' || path[strlen(path) - 1] == '/')
+		return 0;
+	/* Both absolute or both relative: "dev/stdout" in the working
+	 * directory is an ordinary file of that name. */
+	if ((path[0] == '/') != (name[0] == '/'))
+		return 0;
+
+	for (;;) {
+		a = next_component(&path, &path_len);
+		b = next_component(&name, &name_len);
+		if (a == NULL || b == NULL)
+			return a == NULL && b == NULL;
+		if (path_len != name_len || memcmp(a, b, path_len) != 0)
+			return 0;
+	}
+}
+
 int opt_writes_to_stdout(const char *filename)
 {
-	return filename != NULL && strcmp(filename, "-") == 0;
+	size_t i;
+
+	if (filename == NULL)
+		return 0;
+	/* The lone "-" exactly: "./-" is how a file of that name is written,
+	 * so it stays an ordinary file. */
+	if (strcmp(filename, "-") == 0)
+		return 1;
+	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
+		if (names_same_file(filename, stdout_paths[i]))
+			return 1;
+	return 0;
 }
 
 int opt_check_capture_destination(const char *filename, const char *what)
@@ -299,7 +384,7 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	*saved_fd = -1;
 	if (filename == NULL)
 		return NULL;
-	if (strcmp(filename, "-") != 0)
+	if (!opt_writes_to_stdout(filename))
 		return copy_name(filename);
 
 	*saved_fd = take_stdout(what);
@@ -366,7 +451,7 @@ FILE *opt_open_dump_file(const char *filename, const char *what)
 
 	if (filename == NULL)
 		return NULL;
-	if (strcmp(filename, "-") != 0) {
+	if (!opt_writes_to_stdout(filename)) {
 		stream = fopen(filename, "w");
 		if (stream == NULL)
 			fprintf(stderr, "error: %s: %s\n", filename, strerror(errno));

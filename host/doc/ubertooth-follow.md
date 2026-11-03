@@ -240,11 +240,12 @@ with its one line:
    `-a` beside half a pair still reports `-a` needing `-t`, since completing
    the pair would not let `-a` run.
 
-`-` means standard output only as the whole value of `-q` or `-d`
-(ubertooth(7), OPTION VALUES). Any other value is a file name, including one
-that starts with `-`: `-q -x` writes the file `-x`. Standard output carries
-one stream, so `-q -` and `-d -` in one command are refused:
-`error: -q and -d cannot both write to standard output`.
+`-` means standard output as the whole value of `-q` or `-d`, and so does a
+path that names this process's descriptor 1, such as `/dev/stdout` or
+`/dev/fd/1` (ubertooth(7), OPTION VALUES). Any other value is a file name,
+including one that starts with `-`: `-q -x` writes the file `-x`. Standard
+output carries one stream, so `-q` and `-d` cannot both have it in one
+command: `error: -q and -d cannot both write to standard output`.
 
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the

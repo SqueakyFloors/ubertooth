@@ -1124,6 +1124,13 @@
   exit 1, with the dump left as it was. `-q -` and `-c -` are covered too.
   [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141)
 
+- Fixed: a capture sent to `/dev/stdout` had the tool's own report lines mixed
+  into it, because only the lone `-` counted as standard output. `/dev/stdout`,
+  `/dev/fd/1` and `/proc/self/fd/1` now mean that stream too, so the capture
+  arrives on its own as it already did for `-`, and one of those names at a
+  terminal is refused rather than filling the screen with binary.
+  [#1147](https://github.com/SqueakyFloors/ubertooth/issues/1147)
+
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
   saying why named two of the three reasons the bootloader runs. All three are
   now named, and a run that wrote no image is told to write a whole one, which

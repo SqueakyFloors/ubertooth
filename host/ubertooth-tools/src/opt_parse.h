@@ -121,43 +121,53 @@ int opt_bd_addr_lap_uap(const uint8_t *address, uint32_t *lap, uint8_t *uap);
 int opt_check_stdout_not_tty(const char *what);
 
 /*
- * Whether a file option's value says to write to standard output, which is
- * the lone "-" and nothing else (ubertooth(7), OPTION VALUES). The one place
- * that rule is written down, so a tool that has to know before it opens the
- * destination does not spell it out again. NULL, a tool given no such option,
- * is not standard output.
+ * Whether a file option's value says to write to this process's standard
+ * output (ubertooth(7), OPTION VALUES). The one place that rule is written
+ * down, so a tool that has to know before it opens the destination does not
+ * spell it out again. NULL, a tool given no such option, is not standard
+ * output.
+ *
+ * The documented value is the lone "-". The fixed names of descriptor 1 on a
+ * descriptor filesystem count too -- /dev/stdout, /dev/fd/1 and
+ * /proc/self/fd/1, with any redundant separators or "." elements -- because a
+ * user who writes one of those means the same stream, and a capture that
+ * shared it with the tool's own report would have report lines in the middle
+ * of the capture data. /dev/fd/<n> for any other <n> is an ordinary file name
+ * here: it reaches whatever the caller's shell opened on that descriptor,
+ * which the name alone does not say.
  */
 int opt_writes_to_stdout(const char *filename);
 
 /*
  * The same refusal for a destination that may or may not be standard output:
- * 0 for any file name, and the check above for a lone "-". A tool whose
- * capture file is created later -- once the board is known to be usable --
- * calls this while it is still reading its command line, so a terminal is
- * refused before any board is opened. NULL is a tool that was given no such
- * option, and passes.
+ * 0 for any file name, and the check above for a value that names standard
+ * output. A tool whose capture file is created later -- once the board is
+ * known to be usable -- calls this while it is still reading its command
+ * line, so a terminal is refused before any board is opened. NULL is a tool
+ * that was given no such option, and passes.
  */
 int opt_check_capture_destination(const char *filename, const char *what);
 
 /*
- * Where a capture option's value says to write, with a lone "-" meaning
- * standard output (ubertooth(7), OPTION VALUES).
+ * Where a capture option's value says to write, standard output being any
+ * value opt_writes_to_stdout() recognizes (ubertooth(7), OPTION VALUES).
  *
  * opt_capture_path() is for a writer that opens a file name, as libbtbb's
- * PCAP writers do: it returns the name to open, which the caller frees. Any
- * value but "-" comes back as itself, including one that starts with "-", so
- * "-q -x" writes the file "-x". A lone "-" gives back a path on this
- * process's original standard output and sets *saved_fd to the descriptor
- * behind it, which the caller closes once the writer has opened the path.
+ * PCAP writers do: it returns the name to open, which the caller frees. A
+ * file name comes back as itself, including one that starts with "-", so
+ * "-q -x" writes the file "-x". A value that names standard output gives back
+ * a path on this process's original standard output and sets *saved_fd to the
+ * descriptor behind it, which the caller closes once the writer has opened
+ * the path.
  *
  * opt_open_dump_file() is for a tool that writes the stream itself: it
- * returns the open file, or standard output for a lone "-".
+ * returns the open file, or standard output where the value names it.
  *
  * Either way, taking standard output sends the tool's own standard output to
  * /dev/null for the rest of the run, so nothing it prints can land in the
  * middle of the capture; a tool whose lines the user still needs there has to
- * print them to standard error instead. Both return NULL once the reason has
- * been printed, which for "-" includes standard output being a terminal.
+ * print them to standard error instead. Both return NULL once the reason
+ * has been printed, which for standard output includes its being a terminal.
  * <what> names the data in that refusal, for example "capture data".
  */
 char *opt_capture_path(const char *filename, const char *what, int *saved_fd);

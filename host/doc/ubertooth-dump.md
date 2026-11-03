@@ -50,7 +50,8 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
    already in the radio rather than programming one. Cannot be given with
    `-c` or `-l`
  - `-d <filename.bin>` :
-   Dump to file instead of stdout. A lone `-` is standard output, where the
+   Dump to file instead of stdout. A lone `-`, or a path that names this
+   process's descriptor 1 such as `/dev/stdout`, is standard output, where the
    stream goes anyway without `-d`
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
