@@ -314,20 +314,23 @@ A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no
 tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
-succeeds. No `-U` string can name such a board, because the bootloader reports
-no serial number, so the second line says what reaches it instead.
+succeeds. Neither form of `-U` can name such a board -- the bootloader reports
+no serial number, and an index counts only the boards running their firmware
+-- so the second line says what reaches it instead.
 
     error: no Ubertooth found with serial matching 'aa1'
     note: a board is in the DFU bootloader, so no tool but ubertooth-dfu can open it: it is being flashed, or a flash left it there
-    note: ubertooth-dfu with no -U is what reaches that board: -d <image> -r writes an image and starts it, or -r alone if the board still has an application to start
+    note: ubertooth-dfu with no -U is what reaches that board: -d <image> -r writes an image and starts it, or -r alone to try the application already there
 
 The write is named first because it always applies. `-r` on its own is the
-shorter way out when the board still has an application the bootloader will
-start: one that entered DFU by request, or with its bootloader entry pin
-grounded, starts again on `-r`, while one an interrupted download left
-half-written comes straight back to the bootloader and needs an image. A write
-needs `-r` as well, or the board stays in the bootloader. See
-ubertooth-dfu(1).
+shorter way out for a board that was asked into DFU by a command and still
+holds its application: it starts that application again. Two states do not
+answer `-r`, which is why it is offered as something to try: one an
+interrupted download left half-written, which the bootloader refuses to start,
+and one whose bootloader entry pin still reads grounded, which every reset
+asks back into DFU until the bridge is removed. A write needs `-r` as well, or
+the board stays in the bootloader. ubertooth-dfu(1) says what each of those
+looks like.
 
 Several boards in the bootloader are counted instead, with no such advice:
 ubertooth-dfu(1) with no `-U` refuses to choose between them, and this note
