@@ -1648,13 +1648,10 @@ static void br_stop_following(ubertooth_t* ut)
  * may not provide and can settle on a wrong value, and until it does, the
  * clock search cannot start.
  *
- * Called per packet, not only on those two paths, for two smaller reasons.
- * Discovery starting over keeps the UAP but clears the flag, and one of its
- * restarts -- the remembered hop pattern filling up -- returns before the
- * line that would set the flag again, so the record written for that packet
- * would carry no reference UAP for a reader to check its header against. And
- * the flag reaches further than the drop paths do, so this does not have to
- * track every place the library clears it.
+ * Called per packet, not only on those two paths, for a smaller reason: the
+ * flag reaches further than the drop paths do, so this does not have to track
+ * every place the library clears it. Discovery starting over is one such
+ * place, and the library puts a stated UAP back there itself.
  *
  * It cannot fight the library. While the UAP is held, libbtbb rules out every
  * clock candidate whose UAP differs from it, so it never installs a different

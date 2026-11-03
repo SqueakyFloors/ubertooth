@@ -59,7 +59,7 @@ env:
   # lines below as the pin, names the other files that write it out, and fails
   # until they all agree.
   LIBBTBB_REPO: SqueakyFloors/libbtbb
-  LIBBTBB_REF: 5c4e535968b58db2f28e2f3bce0f02ca1c02b03e
+  LIBBTBB_REF: 7e1cdf0336857a714da1af8c7496fe32453ac6d0
   # The ARM toolchain, named once so the step that fetches it, the step that
   # resolves it for the cache key, and the Ubuntu 20.04 container below cannot
   # drift apart. gcc-arm-none-eabi recommends a large set of packages none of
