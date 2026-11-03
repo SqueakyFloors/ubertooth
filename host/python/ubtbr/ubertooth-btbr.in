@@ -699,13 +699,17 @@ class BTCtlPrompt(Cmd):
 	# Where the counted fill of the voice field starts. A DV packet carries a
 	# voice field and a data field, so filling both from 0x00 would leave a
 	# decoder no way to see where the voice field ends. Starting the voice
-	# field at 0xa0 makes the boundary visible in the captured bytes: a DV's
-	# data field is at most 9 bytes, so 0x00..0x08 and 0xa0..0xa9 never
-	# overlap and neither pattern wraps.
+	# field at 0xa0 makes the boundary visible in the captured bytes: a DV
+	# carries 10 voice bytes and at most 9 data bytes (TX_FORMATS, from
+	# Bluetooth Core, Vol 2 Part B, Table 6.5), so 0x00..0x08 and 0xa0..0xa9
+	# never overlap and neither pattern wraps.
 	TX_VOICE_PATTERN_BASE = 0xa0
 
 	def _tx_pattern(self, count, base=0x00):
-		"""Bytes to fill a payload with, so a receiver can check them."""
+		"""Bytes to fill a payload with, so a receiver can check them.
+
+		count of them, counting up from base.
+		"""
 		return bytes((base + i) & 0xff for i in range(count))
 
 	def _parse_tx(self, inp):
