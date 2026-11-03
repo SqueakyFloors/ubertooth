@@ -45,7 +45,6 @@ static int monitor2_rx_cb(msg_t *msg, void *arg, int time_offset)
 {
 	btctl_hdr_t *h = (btctl_hdr_t*)msg->data;
 	btctl_rx_pkt_t *pkt;
-	int rc;
 
 	if (monitor2_state_canceled())
 	{

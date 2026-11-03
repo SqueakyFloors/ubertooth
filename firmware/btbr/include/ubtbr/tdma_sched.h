@@ -47,9 +47,6 @@ int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb,
 /* Schedule a set of items starting from 'frame_offset' TDMA frames in the future */
 int tdma_schedule_set(uint8_t frame_offset, const struct tdma_sched_item *item_set, uint16_t p3);
 
-/* Scan current frame scheduled items for flags */
-uint16_t tdma_sched_flag_scan(void);
-
 /* Execute pre-scheduled events for current frame */
 int tdma_sched_execute(void);
 
@@ -58,9 +55,6 @@ void tdma_sched_advance(void);
 
 /* reset the scheduler; erase all scheduled items */
 void tdma_sched_reset(void);
-
-/* debug function: print number of entries of all TDMA buckets */
-void tdma_sched_dump(void);
 
 
 extern int tdma_end_set(uint8_t p1, uint8_t p2, uint16_t p3);

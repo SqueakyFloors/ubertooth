@@ -122,7 +122,7 @@ void btphy_rf_cfg_sync(uint32_t sync)
 
 void btphy_rf_init(void)
 {
-	uint32_t mdmtst0, iocfg;
+	uint32_t mdmtst0;
 
 	/* Initialize dma here */
 	dma_poweron();

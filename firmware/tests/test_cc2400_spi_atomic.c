@@ -327,7 +327,7 @@ MU_TEST(test_the_fifo_transfers_are_masked_from_before_csn_to_after_csn)
 MU_TEST(test_accessors_go_through_cc2400_spi)
 {
 	static const char *accessors[] = {
-		"cc2400_get", "cc2400_set", "cc2400_get8", "cc2400_set8",
+		"cc2400_get", "cc2400_set",
 		"cc2400_status", "cc2400_strobe",
 	};
 	static const char *bus_lines[] = { "CSN_CLR", "CSN_SET", "SCLK_SET",

@@ -180,8 +180,6 @@ void btphy_cancel_clkn_delay(void)
 
 void clkn_start(void)
 {
-	unsigned prescale;
-
 	/* Disable tdma interrupt */
 	ICER0 = ICER0_ICE_TIMER0;
 	ICER0 = ICER0_ICE_TIMER1;

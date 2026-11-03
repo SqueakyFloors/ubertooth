@@ -97,17 +97,6 @@ void dma_poweron(void) {
 	while (!(DMACConfig & DMACConfig_E));
 }
 
-void dma_poweroff(void) {
-	// Disable the DMA controller by writing 0 to the DMA Enable bit in the DMACConfig
-	// register.
-	DMACConfig &= ~DMACConfig_E;
-	while (DMACConfig & DMACConfig_E);
-
-	ICER0 = ICER0_ICE_DMA;
-
-	PCONP &= ~PCONP_PCGPDMA;
-}
-
 void dma_clear_interrupts(unsigned channel) {
 	DMACIntTCClear = 1 << channel;
 	DMACIntErrClr  = 1 << channel;

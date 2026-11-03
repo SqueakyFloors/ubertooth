@@ -121,26 +121,6 @@ void tdma_sched_advance(void)
 	sched->cur_bucket = next_bucket;
 }
 
-/* Scan current frame scheduled items for flags */
-uint16_t tdma_sched_flag_scan(void)
-{
-	struct tdma_scheduler *sched = &tdma_sched;
-	struct tdma_sched_bucket *bucket;
-	int i;
-	uint16_t flags = 0;
-
-	/* determine current bucket */
-	bucket = &sched->bucket[sched->cur_bucket];
-
-	/* iterate over items in this bucket and call callback function */
-	for (i=0; i<bucket->num_items; i++) {
-		struct tdma_sched_item *item = &bucket->item[i];
-		flags |= item->flags;
-	}
-
-	return flags;
-}
-
 /* Sort a bucket entries by priority */
 static void _tdma_sched_bucket_sort(struct tdma_sched_bucket *bucket, int *seq)
 {
@@ -230,17 +210,4 @@ void tdma_sched_reset(void)
 
 	/* Don't reset cur_bucket, as it would upset the bucket iteration code
 	 * in tdma_sched_execute() */
-}
-
-void tdma_sched_dump(void)
-{
-	unsigned int i;
-
-	cprintf("\n(%2u)", tdma_sched.cur_bucket);
-	for (i = 0; i < ARRAY_SIZE(tdma_sched.bucket); i++) {
-		int bucket_nr = wrap_bucket(i);
-		struct tdma_sched_bucket *bucket = &tdma_sched.bucket[bucket_nr];
-		cprintf("%u:", bucket->num_items);
-	}
-	cputc('\n');
 }

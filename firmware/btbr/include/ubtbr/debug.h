@@ -12,7 +12,6 @@ void active_msleep(unsigned msec);
 void flash_leds(int count, int delay);
 void cprintf(char *fmt, ...);
 void early_printf(char *fmt, ...);
-void print_hex(uint8_t *pkt, unsigned size);
 
 static inline unsigned get_lr(void)
 {

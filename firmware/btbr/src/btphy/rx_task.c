@@ -153,9 +153,6 @@ static unsigned rx_wait_bytes(unsigned want)
 /* Stop RX and call user callback */
 static void rx_finalize(void)
 {
-	int rc;
-	uint32_t i, size;
-	uint16_t rx_size;
 	msg_t *msg = rx_task.rx_msg;
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
 
@@ -171,7 +168,7 @@ static void rx_finalize(void)
 	if (BBPKT_HAS_HDR(pkt))
 	{
 		/* Reverse payload to host order */
-		size=rx_buf_update();
+		rx_buf_update();
 
 		/* Finalize pkt's payload decoding */
 		pkt->flags |= bbcodec_decode_finalize(&rx_task.codec, pkt->bt_data, &pkt->data_size);
@@ -302,7 +299,6 @@ static int rx_data_hdr_callback(void)
 // 0
 static int rx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 {
-	unsigned i, delay;
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
 
 	if ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_RX)
@@ -354,7 +350,7 @@ static int rx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 /* 1+n : Rx multislot: decode available data */
 static int rx_decode(uint8_t p1, uint8_t p2, uint16_t p3)
 {
-	unsigned i, size, bytes_left;
+	unsigned size, bytes_left;
 	int rc, last;
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
 
@@ -419,8 +415,6 @@ void rx_task_reset(void)
 
 void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void*cbarg, unsigned flags)
 {
-	btctl_rx_pkt_t *pkt;
-
 	/* Sanity check */
 	if (rx_task.rx_msg)
 		DIE("rx_schedule: rx_msg!=0");
