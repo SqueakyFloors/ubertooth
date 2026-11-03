@@ -83,6 +83,16 @@ def frequency_label(mhz, ble_channels):
     return '%.0f MHz' % mhz
 
 
+def axis_caption(ble_channels):
+    """What the frequency axis is labeled in, to be named on the axis itself.
+
+    The tick labels are bare numbers in both modes, so without this the only
+    clue to which mode the axis is in is how large those numbers are, and a
+    user who has hidden the markers has nothing else on screen to go by.
+    """
+    return 'BLE ch' if ble_channels else 'MHz'
+
+
 def difference_label(mhz, ble_channels):
     """The label for the gap between two points, in MHz in either mode.
 

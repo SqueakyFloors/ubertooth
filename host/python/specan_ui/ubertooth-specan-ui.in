@@ -405,7 +405,7 @@ try:
     from qtpy.QtCore import Qt, QPointF, QLineF
 
     from specan import Ubertooth
-    from specan.channels import axis_ticks, difference_label, frequency_label
+    from specan.channels import axis_caption, axis_ticks, difference_label, frequency_label
 except ImportError as missing:
     # One "error: " line, the way ubertooth-btbr reports the same thing,
     # rather than ending the tool in a traceback. Nothing below is defined,
@@ -662,6 +662,17 @@ class RenderArea(QtWidgets.QWidget):
                     painter.drawText(point, '%+.0f' % dbm)
                 for text, point in frequency_labels:
                     painter.drawText(point, text)
+
+                # Say which the axis is labeled in: the tick labels are bare
+                # numbers in both modes. It sits at the right end, a line
+                # below the ticks, so the highest tick label cannot reach it
+                # however wide or narrow the plot is.
+                caption = axis_caption(self._ble_channels)
+                metrics = painter.fontMetrics()
+                painter.drawText(
+                    QPointF(self.width() - metrics.horizontalAdvance(caption) - 4,
+                            self._dbm_to_y(self._high_dbm) + 10 + metrics.height()),
+                    caption)
 
             finally:
                 painter.end()

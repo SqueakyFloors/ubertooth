@@ -78,7 +78,8 @@ and no Qt binding. Only opening the window needs those.
 
 The axis and the markers show MHz. Pressing `n` shows BLE channel numbers
 instead -- the advertising channels 37, 38, and 39, and the data channels 0 to
-36 -- and pressing it again goes back to MHz. In channel mode the axis is
+36 -- and pressing it again goes back to MHz. The right end of the axis says
+which of the two it is in, `MHz` or `BLE ch`. In channel mode the axis is
 marked on the channels themselves, so a line on the graph lines up with the
 number under it, and the three advertising channels are always named when they
 are in the plot. A marker names the channel

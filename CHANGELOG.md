@@ -750,6 +750,11 @@
   labels and the mapping behind them.
   [#76](https://github.com/SqueakyFloors/ubertooth/issues/76)
 
+- `ubertooth-specan-ui` names the frequency axis, `MHz` or `BLE ch`, at its
+  right end. The tick labels are bare numbers in both modes, so a window whose
+  markers are hidden gave no other sign of which mode it was in.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
 ### Build and compatibility
 
 - libubertooth's `register_cleanup_handler()` is deprecated in favor of
