@@ -290,7 +290,7 @@
          "source": "ubertooth-btle.md OPTIONS, -v: verbose describes the packets a capture decodes, so anything but a capture mode beside it gets this line -- including nothing else at all, which is what a command line that used -v to read the CRC verify setting gets now"},
         {"a": "-R", "b": "role:major_mode", "verdict": "refused",
          "error_contains": "MISSING.bin: No such file or directory",
-         "source": "ubertooth-btle.md REPLAYING A SAVED CAPTURE: the command line is complete, so the run goes on to read the dump, and a file that is not there ends it before any board is opened"},
+         "source": "ubertooth-btle.md REPLAYING A SAVED CAPTURE: the command line is complete, so the run goes on to read the dump, and a file that is not there ends it before any board is opened. Every -R case here ends at that open, the matrix having no dump to hand it; a replay that reads records is test_btle_replay.py's"},
         {"a": "-R", "b": "any", "verdict": "refused",
          "error_contains": "-R needs -f, -n or -p",
          "source": "ubertooth-btle.md REPLAYING A SAVED CAPTURE: a replay is read with the clock of the mode that recorded it, so anything but a major mode beside -R gets this line -- including nothing else at all"}

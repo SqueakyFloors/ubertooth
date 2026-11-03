@@ -366,23 +366,16 @@ Logging:
  - `-q <output.pcap|->` :
    Log to PCAP with `DLT_BLUETOOTH_LE_LL_WITH_PHDR`. Use `-` to stream binary
    PCAP to stdout.
- - `-c <output.pcap|->` :
-   Log to PCAP with PPI (for compatibility with crackle(1)). Use `-` to stream
-   binary PCAP to stdout, for example:
-
-       ubertooth-btle -f -c - | wireshark -k -i -
-
  - `-d <output.bin|->` :
    Dump the records as the board sent them, which `-R` replays; see
    REPLAYING A SAVED CAPTURE. It is the only one of these files that keeps the
    parameters promiscuous mode recovers, since those records carry no packet
    for a PCAP writer to take. Use `-` to stream the records to stdout.
+ - `-c <output.pcap|->` :
+   Log to PCAP with PPI (for compatibility with crackle(1)). Use `-` to stream
+   binary PCAP to stdout, for example:
 
-Standard output carries one stream, so only one capture can have it: `-d -`
-together with `-q -` or `-c -` is refused, naming the PCAP option written --
-`error: -q and -d cannot both write to standard output` -- as it is in
-ubertooth-rx(1). The one that asked second would otherwise write to
-`/dev/null` without a word.
+       ubertooth-btle -f -c - | wireshark -k -i -
 
    When stdout capture is selected, regular packet/status text is suppressed so
    it cannot corrupt the binary stream; errors remain on stderr. Such a run
@@ -396,6 +389,12 @@ ubertooth-rx(1). The one that asked second would otherwise write to
    refuses to write binary capture data directly to an interactive terminal:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
    exit status 1 and before any device is opened.
+
+Standard output carries one stream, so only one capture can have it: `-d -`
+together with `-q -` or `-c -` is refused, naming the PCAP option written --
+`error: -q and -d cannot both write to standard output` -- as it is in
+ubertooth-rx(1). The one that asked second would otherwise write to
+`/dev/null` without a word.
 
 The times in a logged capture follow the board's capture clock, which starts
 over every 429.50 s in the `-f` and `-n` modes and every 327.68 s in
@@ -572,6 +571,12 @@ replay has not opened, and is refused by name: `error: -U cannot be combined
 with -R; a replay reads a saved dump rather than driving a board`, exit 1.
 That covers `-U`, `-A`, `-k`, `-t` and the interference options; `-a` and `-s`
 are already refused beside any major mode.
+
+None of those capture files may name the dump being replayed: each is opened
+for writing, which truncates it, so one name written twice would empty the
+dump before a record of it was read. `error: -d and -R name the same file,
+promisc.bin; a replay cannot write over the dump it is reading`, exit 1, with
+the file left as it was.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

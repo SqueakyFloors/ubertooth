@@ -100,6 +100,23 @@ def packet_lines(output):
     return [line for line in output.splitlines() if line.startswith("systime=")]
 
 
+def pcapng_times(path):
+    """Nanoseconds of each enhanced packet block in a pcapng."""
+    data = path.read_bytes()
+    order = "<" if data[8:12] == bytes.fromhex("4d3c2b1a") else ">"
+    out = []
+    offset = 0
+    while offset + 12 <= len(data):
+        block_type, length = struct.unpack_from(order + "2I", data, offset)
+        if length < 12 or offset + length > len(data):
+            break
+        if block_type == 6:
+            high, low = struct.unpack_from(order + "2I", data, offset + 12)
+            out.append((high << 32) | low)
+        offset += length
+    return out
+
+
 def pcap_records(path):
     """(seconds, nanoseconds) of each record in a libbtbb nanosecond pcap."""
     data = path.read_bytes()
@@ -142,6 +159,39 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-p", "-R", "full.bin", "-d", "again.bin", directory=work)
     assert result.returncode == 0, result
     assert (work / "again.bin").read_bytes() == FIXTURE, result
+
+    # The decoding options work on a replay as they do on live data. -x 0
+    # allows no access address error at all, which the advertisement's own
+    # address passes, and -v asks the decoder to describe what it could not
+    # read rather than only counting it. Neither needs a board.
+    result = run("-p", "-R", "full.bin", "-x", "0", directory=work)
+    assert result.returncode == 0, result
+    assert len(packet_lines(result.stdout)) == 1, result
+    result = run("-p", "-R", "full.bin", "-v", directory=work)
+    assert result.returncode == 0, result
+    assert len(packet_lines(result.stdout)) == 1, result
+
+    # A PcapNG capture written during a replay carries the recorded time too,
+    # in nanoseconds, as the PCAP one does.
+    result = run("-p", "-R", "full.bin", "-r", "cap.pcapng", directory=work)
+    assert result.returncode == 0, result
+    assert pcapng_times(work / "cap.pcapng") == [
+        PACKET_TIME * 1_000_000_000], result
+
+    # No output file may name the dump being replayed: each is opened for
+    # writing, which truncates it, so the dump would be emptied before a
+    # record of it was read.
+    (work / "same.bin").write_bytes(FIXTURE)
+    for option, letter in (("-d", "d"), ("-q", "q"), ("-c", "c"),
+                           ("-r", "r")):
+        result = run("-p", "-R", "same.bin", option, "same.bin",
+                     directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (
+            f"error: -{letter} and -R name the same file, same.bin; a replay"
+            " cannot write over the dump it is reading\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, "truncated")
 
     # The same read as the follow mode's dump instead. The two modes stamp
     # their packets with different clocks, which is why the mode has to be

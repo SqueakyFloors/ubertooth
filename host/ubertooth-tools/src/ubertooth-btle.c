@@ -152,8 +152,8 @@ static void usage(FILE *out)
 	fprintf(out, "    Misc:\n");
 	fprintf(out, "\t-r <filename> capture packets to PCAPNG file\n");
 	fprintf(out, "\t-q <filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
-	fprintf(out, "\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
 	fprintf(out, "\t-d <filename> dump records to binary file, for -R to replay\n");
+	fprintf(out, "\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
 	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d);"
 	       " not with -p\n",
 	       ADV_INDEX_MIN, ADV_INDEX_MAX, ADV_INDEX_MIN);
@@ -196,6 +196,27 @@ static int release_handle(ubertooth_t* ut, int status)
 		infile = NULL;
 	}
 	return status;
+}
+
+/* Refuses an output file that names the dump a replay is reading. Every writer
+ * here opens its file for writing, which truncates it, so a run given one name
+ * for both would empty the dump before reading a record of it -- and a dump is
+ * the only copy of what promiscuous mode worked out about a connection.
+ *
+ * The names are compared as the user wrote them. That catches the mistake
+ * worth catching, which is one name typed twice; two different paths to one
+ * file would need both stat()ed before either is opened, and the second does
+ * not exist yet on an ordinary run. Returns -1 once the refusal is printed. */
+static int refuse_writing_over_the_replay(const char* infile_name,
+                                          const char* output_name, char option)
+{
+	if (infile_name == NULL || output_name == NULL ||
+	    strcmp(infile_name, output_name) != 0)
+		return 0;
+	fprintf(stderr, "error: -%c and -R name the same file, %s; a replay"
+	        " cannot write over the dump it is reading\n", option,
+	        output_name);
+	return -1;
 }
 
 /* How much of the decode could not be read, in one line after the packets it
@@ -561,6 +582,20 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Promiscuous mode sets no channel: it listens on the one the board is
+	 * already holding. So -A was taken and then never sent, and the command
+	 * looked like it had chosen a channel. Use ubertooth-util -c to choose
+	 * one, which is what the board keeps.
+	 *
+	 * Before the replay's refusals below, so that `-p -R f.bin -A 38` says
+	 * -A does not go with -p at all rather than only that a replay has no
+	 * board to tune. */
+	if (do_adv_index_given && do_promisc) {
+		fprintf(stderr, "error: -A does not go with -p: promiscuous mode"
+		        " listens on the channel the board is holding\n");
+		return 1;
+	}
+
 	/* A replay reads a saved dump and opens no board, so every option that
 	 * sends the board a request, names one, or tunes one asks for something
 	 * it cannot do. Refused here, naming the option, rather than accepted
@@ -590,6 +625,13 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	/* And no output file may name the dump being replayed. */
+	if (refuse_writing_over_the_replay(infile_name, dump_name, 'd') < 0 ||
+	    refuse_writing_over_the_replay(infile_name, pcap_name,
+	                                   pcap_ppi ? 'c' : 'q') < 0 ||
+	    refuse_writing_over_the_replay(infile_name, pcapng_name, 'r') < 0)
+		return 1;
+
 	/* A command line with no work in it: refused here, before a device is
 	 * opened and before any capture file is created. It used to open the
 	 * selected board, check its API version, send nothing, print the usage
@@ -602,16 +644,6 @@ int main(int argc, char *argv[])
 		        " (-f, -n or -p), or -a, -k, -s or -t\n");
 		if (opt_no_arguments(argc))
 			usage(stderr);
-		return 1;
-	}
-
-	/* Promiscuous mode sets no channel: it listens on the one the board is
-	 * already holding. So -A was taken and then never sent, and the command
-	 * looked like it had chosen a channel. Use ubertooth-util -c to choose
-	 * one, which is what the board keeps. */
-	if (do_adv_index_given && do_promisc) {
-		fprintf(stderr, "error: -A does not go with -p: promiscuous mode"
-		        " listens on the channel the board is holding\n");
 		return 1;
 	}
 
