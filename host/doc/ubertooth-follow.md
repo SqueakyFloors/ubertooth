@@ -252,11 +252,15 @@ destination for writing, which truncates whatever another has put there, so no
 two of them may name one file: `error: -q and -d cannot both write to
 capture.pcap`, exit 1, with the file left as it was. Two names are one file
 when they are the same path, allowing the redundant `/` and `.` a path may
-carry (`./capture.pcap` beside `capture.pcap`), or when both already exist and
-one is a link to the other. Two different spellings of a file that does not
-exist yet are not caught, and neither is a destination reached through a
-descriptor the calling shell opened, because the name alone does not say which
-file that is.
+carry (`./capture.pcap` beside `capture.pcap`), when one is a symbolic link to
+the other, or when both already exist as hard links to one file.
+
+A character device is not refused, because nothing is lost there:
+`-q /dev/null -d /dev/null` discards both captures, which is what it asks for.
+What is not caught is two different spellings of a file that does not exist
+yet, a chain of symbolic links whose middle is missing, and a destination
+reached through a descriptor the calling shell opened (`/dev/fd/3`), since the
+name alone does not say which file that is.
 
 What the tool is following — the target address, or the LAP and UAP it read
 from the local device — is reported on standard error, with the rest of the

@@ -277,18 +277,6 @@ static const char *next_component(const char **at, size_t *len)
 	}
 }
 
-/* Whether an absolute path the user wrote names the same file as one of the
- * names above, allowing the redundant separators and "." elements a path may
- * carry between two names ("/dev/./stdout", "//dev//fd//1").
- *
- * Only the text is compared. The destination is never opened to find out what
- * it is: opening a path can block until a reader arrives on a named pipe,
- * change the modem lines of a serial device, and leaves a descriptor behind
- * on a command line that is about to be refused. Symbolic links are not
- * followed either, because that answers a different question -- where
- * /dev/stdout points at this moment -- rather than which descriptor the user
- * named. ".." is left alone for the same reason: the element above a symbolic
- * link is not the directory the text suggests. */
 /* Whether a path ends inside the name before it: a trailing separator or "."
  * element asks for something within that name, and nothing a capture option
  * names is a directory. The platform decides what opening such a name does;
@@ -302,61 +290,18 @@ static int ends_inside_a_name(const char *path)
 	return length >= 2 && path[length - 1] == '.' && path[length - 2] == '/';
 }
 
-static int names_same_file(const char *path, const char *name)
-{
-	size_t path_len = 0, name_len = 0;
-	const char *a, *b;
-
-	if (ends_inside_a_name(path))
-		return 0;
-	/* Every name above is absolute, so "dev/stdout" in the working
-	 * directory is an ordinary file of that name. */
-	if (path[0] != '/')
-		return 0;
-
-	for (;;) {
-		a = next_component(&path, &path_len);
-		b = next_component(&name, &name_len);
-		if (a == NULL || b == NULL)
-			return a == NULL && b == NULL;
-		if (path_len != name_len || memcmp(a, b, path_len) != 0)
-			return 0;
-	}
-}
-
-int opt_writes_to_stdout(const char *filename)
-{
-	size_t i;
-
-	if (filename == NULL)
-		return 0;
-	/* The lone "-" exactly: "./-" is how a file of that name is written,
-	 * so it stays an ordinary file. */
-	if (strcmp(filename, "-") == 0)
-		return 1;
-	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
-		if (names_same_file(filename, stdout_paths[i]))
-			return 1;
-	return 0;
-}
-
-int opt_check_capture_destination(const char *filename, const char *what)
-{
-	if (opt_writes_to_stdout(filename))
-		return opt_check_stdout_not_tty(what);
-	return 0;
-}
-
-/* Whether two paths the user wrote name one directory entry by their text
- * alone, allowing the redundant separators and "." elements a path may carry
- * ("./cap.bin" beside "cap.bin"). The text is all there is to go on for a
- * destination that does not exist yet, which is the ordinary case for a
- * capture file.
+/* Whether two paths name one file by their text alone, allowing the redundant
+ * separators and "." elements a path may carry between two names
+ * ("/dev/./stdout", "//dev//fd//1", "./cap.bin" beside "cap.bin"). Two paths
+ * that do not agree on being absolute are two names, so a relative
+ * "dev/stdout" is an ordinary file of that name.
  *
- * A relative path is not resolved against the working directory and ".." is
- * not reduced, because the element above a symbolic link is not the directory
- * the text suggests. Paths that disagree about either are left to the device
- * and inode comparison below. */
+ * Only the text is compared. A path is never opened to find out what it is:
+ * opening one can block until a reader arrives on a named pipe, change the
+ * modem lines of a serial device, and leaves a descriptor behind on a command
+ * line that is about to be refused. ".." is not reduced and a relative path is
+ * not resolved against the working directory, because the element above a
+ * symbolic link is not the directory the text suggests. */
 static int same_path_text(const char *first, const char *second)
 {
 	size_t first_len = 0, second_len = 0;
@@ -377,24 +322,108 @@ static int same_path_text(const char *first, const char *second)
 	}
 }
 
+int opt_writes_to_stdout(const char *filename)
+{
+	size_t i;
+
+	if (filename == NULL)
+		return 0;
+	/* The lone "-" exactly: "./-" is how a file of that name is written,
+	 * so it stays an ordinary file. */
+	if (strcmp(filename, "-") == 0)
+		return 1;
+	/* The names above are compared as text, not followed: that answers a
+	 * different question -- where /dev/stdout points at this moment --
+	 * rather than which descriptor the user named. */
+	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
+		if (same_path_text(filename, stdout_paths[i]))
+			return 1;
+	return 0;
+}
+
+int opt_check_capture_destination(const char *filename, const char *what)
+{
+	if (opt_writes_to_stdout(filename))
+		return opt_check_stdout_not_tty(what);
+	return 0;
+}
+
+/* Where a writer given <name> would actually write, when <name> is a symbolic
+ * link: a writer writes through a link, so the link's target is the
+ * destination. Returns 1 and fills <out> with that target, resolved against
+ * the link's own directory where it is relative, or 0 when <name> is not a
+ * symbolic link, cannot be read, or the answer would not fit.
+ *
+ * stat() below answers this for a link whose target exists, by reporting the
+ * target's own device and inode numbers. A link to a file that is not there
+ * yet has to be read instead, and it matters: a writer creates what such a
+ * link points at, so "-q cap.bin -d link" with "link" pointing at a
+ * "cap.bin" that does not exist yet is one file, and both writers would
+ * create it.
+ *
+ * One link, not a chain. A chain whose middle element is missing is the same
+ * question as a destination reached through a descriptor the calling shell
+ * opened, and both wait on each destination being identified after it is open
+ * and before it is truncated. */
+static int link_target(const char *name, char *out, size_t size)
+{
+	char target[PATH_MAX];
+	struct stat info;
+	ssize_t length;
+	const char *slash;
+
+	if (lstat(name, &info) != 0 || !S_ISLNK(info.st_mode))
+		return 0;
+	length = readlink(name, target, sizeof(target) - 1);
+	if (length <= 0)
+		return 0;
+	target[length] = '\0';
+
+	slash = strrchr(name, '/');
+	if (target[0] == '/' || slash == NULL)
+		return (size_t)snprintf(out, size, "%s", target) < size;
+	return (size_t)snprintf(out, size, "%.*s%s",
+	                        (int)(slash - name + 1), name, target) < size;
+}
+
 /* Whether two capture destinations are one file. */
 static int same_destination(const char *first, const char *second)
 {
+	char first_target[PATH_MAX], second_target[PATH_MAX];
 	struct stat first_file, second_file;
+
+	if (link_target(first, first_target, sizeof(first_target)))
+		first = first_target;
+	if (link_target(second, second_target, sizeof(second_target)))
+		second = second_target;
 
 	if (same_path_text(first, second))
 		return 1;
 	/* Both names already exist, so the files behind them can be compared,
-	 * which catches a symbolic link, a hard link, and two spellings of one
-	 * path that the text comparison does not reduce. Looking a name up
-	 * costs it nothing; opening one to learn more would, because an open
-	 * blocks until a reader arrives on a named pipe and lowers a serial
-	 * device's modem lines when it is closed, so no destination is opened
-	 * here. */
+	 * which catches a hard link and two spellings of one path that the text
+	 * comparison does not reduce. Looking a name up costs it nothing;
+	 * opening one to learn more would, because an open blocks until a
+	 * reader arrives on a named pipe and lowers a serial device's modem
+	 * lines when it is closed, so no destination is opened here. */
 	if (stat(first, &first_file) != 0 || stat(second, &second_file) != 0)
 		return 0;
 	return first_file.st_dev == second_file.st_dev &&
 	       first_file.st_ino == second_file.st_ino;
+}
+
+/* Whether one writer at this destination would overwrite what another put
+ * there, which is what the refusal is for. A regular file keeps whichever
+ * writer truncated it last, and a name that does not exist yet becomes one. A
+ * character device keeps nothing and loses nothing, so two captures may share
+ * it: "-q /dev/null -d /dev/null" discards both, which is what the user
+ * asked for. */
+static int writers_would_overwrite(const char *name)
+{
+	struct stat info;
+
+	if (stat(name, &info) != 0)
+		return 1;
+	return !S_ISCHR(info.st_mode);
 }
 
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
@@ -409,15 +438,20 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 
 		/* A destination that names standard output belongs to the
 		 * one-capture-on-standard-output rule, which already refuses a
-		 * second one however the two are spelled. */
-		if (first == NULL || opt_writes_to_stdout(first))
+		 * second one however the two are spelled. An empty name is no
+		 * destination at all, and the writer's own open reports it. */
+		if (first == NULL || first[0] == '\0' ||
+		    opt_writes_to_stdout(first))
 			continue;
 		for (j = i + 1; j < count; j++) {
 			const char *second = destinations[j].name;
 
-			if (second == NULL || opt_writes_to_stdout(second))
+			if (second == NULL || second[0] == '\0' ||
+			    opt_writes_to_stdout(second))
 				continue;
 			if (!same_destination(first, second))
+				continue;
+			if (!writers_would_overwrite(first))
 				continue;
 			/* Both options are named, so the user can see which two
 			 * clashed, and so is the name each was given where the

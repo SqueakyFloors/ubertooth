@@ -171,14 +171,22 @@ typedef struct {
  * Two names are one file when the text says so, allowing the redundant
  * separators and "." elements a path may carry ("./cap.bin" beside
  * "cap.bin"), or when both already exist and have the same device and inode
- * number, which catches a symbolic link and a hard link. Two different
- * spellings of a file that does not exist yet are not caught: telling those
- * apart needs each destination identified after it is open and before it is
- * truncated, which reaches into how every writer opens its file.
+ * number, which catches a hard link. A symbolic link is followed one step
+ * first, because a writer writes through one and a link to a file that is not
+ * there yet creates it.
  *
- * A destination opt_writes_to_stdout() recognizes is left out: two captures
- * asking for that stream are the one-capture-on-standard-output rule's, which
- * each tool states in its own words.
+ * Only a destination a writer would overwrite is refused: a regular file, or
+ * a name that does not exist yet and so becomes one. A character device keeps
+ * nothing and loses nothing, so "-q /dev/null -d /dev/null" discards both
+ * captures as asked and is left alone. So is a destination that names
+ * standard output, which belongs to the one-capture-on-standard-output rule;
+ * each tool states that one in its own words.
+ *
+ * Two different spellings of a file that does not exist yet are not caught,
+ * and nor is a chain of symbolic links whose middle element is missing, or a
+ * destination reached through a descriptor the calling shell opened. All
+ * three need each destination identified after it is open and before it is
+ * truncated, which reaches into how every writer opens its file.
  */
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
                                  size_t count);

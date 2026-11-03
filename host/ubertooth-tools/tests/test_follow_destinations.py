@@ -91,12 +91,15 @@ with tempfile.TemporaryDirectory() as work:
 
     # What must keep working. These command lines are accepted, so they go on
     # to look for a board and fail there; what matters is that the refusal
-    # above is not what they get.
+    # above is not what they get. The null device is in the list because
+    # nothing is lost by writing both captures there: that is what the command
+    # line asks for.
     for arguments in (["-q", "cap.pcap", "-d", "dump.bin"],
                       ["-r", "cap.pcapng", "-q", "cap.pcap",
                        "-d", "dump.bin"],
                       ["-d", "dump.bin"],
-                      ["-q", "cap.pcap"]):
+                      ["-q", "cap.pcap"],
+                      ["-q", "/dev/null", "-d", "/dev/null"]):
         written = " ".join(arguments)
         status, output, errors = run(arguments, work)
         check("cannot both write to" not in errors,

@@ -171,8 +171,8 @@ static void test_nothing_to_compare(void)
 	CHECK(status == 0 && line[0] == '\0');
 }
 
-/* Two names that exist are compared as files, so a symbolic link and a hard
- * link to one capture are caught however they are spelled. */
+/* A writer writes through a symbolic link, so a link and what it points at
+ * are one destination. A hard link is one file on both names. */
 static void test_links_to_one_file(void)
 {
 	make_file("real.bin", "the capture\n");
@@ -194,6 +194,62 @@ static void test_links_to_one_file(void)
 	/* A second real file is still a second file. */
 	make_file("other.bin", "another capture\n");
 	check_accepted("real.bin", "other.bin");
+}
+
+/* A link to a capture that does not exist yet is the case neither name alone
+ * nor a file comparison can see: the writer creates what the link points at,
+ * so both writers would create one file. */
+static void test_a_link_to_a_file_not_there_yet(void)
+{
+	if (symlink("ahead.bin", "dangling.bin") != 0) {
+		printf("skipping the dangling link cases: %s\n",
+		       strerror(errno));
+		return;
+	}
+	check_refused("ahead.bin", "dangling.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (ahead.bin and dangling.bin)\n");
+	check_refused("./ahead.bin", "dangling.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (./ahead.bin and dangling.bin)\n");
+	/* It still points at one name only. */
+	check_accepted("elsewhere.bin", "dangling.bin");
+
+	/* A relative target is resolved against the link's own directory, not
+	 * the working directory. */
+	if (symlink("inside.bin", "sub/pointer.bin") != 0) {
+		printf("skipping the link in a directory: %s\n",
+		       strerror(errno));
+		return;
+	}
+	check_refused("sub/inside.bin", "sub/pointer.bin",
+	              "error: -q and -d cannot both write to one file"
+	              " (sub/inside.bin and sub/pointer.bin)\n");
+	check_accepted("inside.bin", "sub/pointer.bin");
+}
+
+/* Only a destination a writer would overwrite is refused. A character device
+ * keeps nothing, so two captures discarding themselves there is a command
+ * line that does what it says. */
+static void test_a_character_device_is_not_overwritten(void)
+{
+	check_accepted("/dev/null", "/dev/null");
+	check_accepted("/dev/null", "/dev/./null");
+	/* A symbolic link to one is the same destination and just as harmless. */
+	if (symlink("/dev/null", "sink.bin") == 0)
+		check_accepted("/dev/null", "sink.bin");
+	else
+		printf("skipping the link to a character device: %s\n",
+		       strerror(errno));
+}
+
+/* An empty value names no destination; the writer's own open reports it, and
+ * a pair of them is not this check's to call one file. */
+static void test_an_empty_value(void)
+{
+	check_accepted("", "");
+	check_accepted("", "cap.bin");
+	check_accepted("cap.bin", "");
 }
 
 /* Two captures asking for standard output are the
@@ -268,6 +324,7 @@ static void clean_up(void)
 {
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
+		"dangling.bin", "sink.bin", "sub/pointer.bin",
 	};
 	char sub[sizeof(work) + 8];
 	size_t i;
@@ -297,6 +354,9 @@ int main(void)
 	test_two_names_are_two_files();
 	test_nothing_to_compare();
 	test_links_to_one_file();
+	test_a_link_to_a_file_not_there_yet();
+	test_a_character_device_is_not_overwritten();
+	test_an_empty_value();
 	test_standard_output_is_left_alone();
 	test_descriptor_paths();
 

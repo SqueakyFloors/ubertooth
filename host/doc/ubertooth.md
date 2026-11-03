@@ -165,7 +165,8 @@ both have it, and the tool whose capture has it prints none of its own packet
 report there. A file name cannot be shared between two capture options either:
 each writer opens its own destination for writing, which truncates whatever
 another has put there, so a run that names one file twice is refused before
-any of them is opened, naming both options.
+any of them is opened, naming both options. ubertooth-follow(1) makes that
+check; ubertooth-rx(1) and ubertooth-btle(1) do not yet.
 
 Options can be written together behind one dash (`-f -n` is `-fn`), so a stray
 dash inside such a word is a letter the tools do not have. The refusal names
