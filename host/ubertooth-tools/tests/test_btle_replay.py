@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Verify ubertooth-btle -d writes a dump and -R replays it.
+
+A dump holds the records the board sent, in the format ``ubertooth-rx -d``
+writes: a big-endian 32-bit host time, then one 64-byte usb_pkt_rx. The
+fixture here is built from scratch, so no board and no saved capture is
+needed. It holds the five parameter records promiscuous mode sends while it
+works out which connection it has found, and one advertising packet, which is
+the pair a replay has to put back: the parameters say which connection the
+packets belong to and nothing else in the file does.
+"""
+
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+BINARY = sys.argv[1]
+
+RECORD_LEN = 68                 # host time + usb_pkt_rx
+DATA_LEN = 50                   # usb_pkt_rx.data
+LE_PACKET = 1
+LE_PROMISC = 5
+# The record's channel byte, counted from 2402 MHz: 0 is advertising channel
+# 37, which is what makes the decoder read the packet below as an
+# advertisement rather than as connection data.
+ADVERTISING_CHANNEL = 0
+DATA_CHANNEL = 10
+ADVERTISING_AA = 0x8E89BED6
+AGE_S = 3600                    # the records were written this long ago
+CLK100NS_STEP = 1_000_000       # 0.1 s of device clock between records
+# How long one ubertooth-btle run is given. The whole test takes well under a
+# second on an idle machine, over a handful of replays, so half a minute is
+# many times what any of them needs. It is kept that wide on purpose: on a
+# machine busy with parallel builds the cost that grows is starting a process,
+# not the replay, and the CTest timeout on this test is larger again, so this
+# deadline is the one that fires and says the run timed out.
+RUN_TIMEOUT_S = 30
+
+# The five parameters promiscuous mode recovers, as the state byte it sends
+# each one with, the value, and the line the tool prints for it.
+PROMISC_PARAMETERS = (
+    (0, struct.pack("<I", ADVERTISING_AA), "Access Address: 8e89bed6"),
+    (1, struct.pack("<I", 0x555555), "CRC Init: 555555"),
+    (2, struct.pack("<H", 24), "Hop interval: 30 ms"),
+    (3, struct.pack("<B", 7), "Hop increment: 7"),
+    (4, struct.pack("<H", 1234), "Algorithm 2 event counter: 1234"),
+)
+
+
+def record(host_time, clk100ns, pkt_type, data, channel=DATA_CHANNEL):
+    """One dump record: the host time it arrived, then the usb_pkt_rx."""
+    assert len(data) <= DATA_LEN, len(data)
+    header = struct.pack("<BBBBIbbbB2x", pkt_type, 0, channel, 0, clk100ns,
+                         -40, -90, -70, 1)
+    body = data + bytes(DATA_LEN - len(data))
+    return struct.pack(">I", host_time) + header + body
+
+
+def advertisement():
+    """An ADV_IND, as the board hands one over: the access address, the PDU
+    header, the advertiser's address, its flags, and three CRC bytes."""
+    payload = bytes.fromhex("665544332211") + bytes.fromhex("020106")
+    pdu = bytes([0x00, len(payload)]) + payload
+    return struct.pack("<I", ADVERTISING_AA) + pdu + bytes(3)
+
+
+BASE_TIME = int(time.time()) - AGE_S
+RECORDS = [
+    record(BASE_TIME + index, CLK100NS_STEP * (index + 1), LE_PROMISC,
+           bytes([state]) + value)
+    for index, (state, value, _) in enumerate(PROMISC_PARAMETERS)
+]
+PACKET_TIME = BASE_TIME + len(RECORDS)
+RECORDS.append(record(PACKET_TIME, CLK100NS_STEP * (len(RECORDS) + 1),
+                      LE_PACKET, advertisement(), ADVERTISING_CHANNEL))
+FIXTURE = b"".join(RECORDS)
+PARAMETER_LINES = ["LE Promisc - " + line for _, _, line in PROMISC_PARAMETERS]
+
+
+def run(*arguments, directory, text=True):
+    return subprocess.run(
+        [BINARY, *arguments],
+        capture_output=True,
+        text=text,
+        timeout=RUN_TIMEOUT_S,
+        check=False,
+        cwd=directory,
+        # A replay opens no device; the switch keeps it that way if one of
+        # these runs ever reaches device selection. LC_ALL, because a case
+        # below compares a strerror() string and glibc translates those.
+        env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C"),
+    )
+
+
+def packet_lines(output):
+    return [line for line in output.splitlines() if line.startswith("systime=")]
+
+
+def pcap_records(path):
+    """(seconds, nanoseconds) of each record in a libbtbb nanosecond pcap."""
+    data = path.read_bytes()
+    assert len(data) > 24, f"pcap is only {len(data)} bytes"
+    order = "<" if data[:4] == bytes.fromhex("4d3cb2a1") else ">"
+    out = []
+    offset = 24
+    while offset + 16 <= len(data):
+        seconds, nanoseconds, length, _ = struct.unpack_from(order + "4I", data,
+                                                             offset)
+        out.append((seconds, nanoseconds))
+        offset += 16 + length
+    return out
+
+
+with tempfile.TemporaryDirectory() as workdir:
+    work = Path(workdir)
+    (work / "full.bin").write_bytes(FIXTURE)
+
+    # The whole fixture, replayed as the promiscuous capture that recorded it:
+    # every parameter record is printed again, the packet carries the host
+    # time of its own record rather than the time of the replay, and the
+    # replay ends cleanly.
+    result = run("-p", "-R", "full.bin", directory=work)
+    assert result.returncode == 0, result
+    for line in PARAMETER_LINES:
+        assert line in result.stdout, (line, result)
+    assert len(packet_lines(result.stdout)) == 1, result
+    assert f"systime={PACKET_TIME} " in result.stdout, result
+    assert f"addr={ADVERTISING_AA:08x}" in result.stdout, result
+    # Read as an advertisement, which is what channel 37 and that access
+    # address make it, with the advertiser's own address in it.
+    assert "ADV_IND" in result.stdout, result
+    assert "11:22:33:44:55:66" in result.stdout, result
+    assert result.stderr == "", result
+
+    # -d during a replay rewrites the records it read, byte for byte: that is
+    # what makes a dump of a promiscuous capture worth keeping, since the
+    # parameter records are the only note of which connection it found.
+    result = run("-p", "-R", "full.bin", "-d", "again.bin", directory=work)
+    assert result.returncode == 0, result
+    assert (work / "again.bin").read_bytes() == FIXTURE, result
+
+    # The same read as the follow mode's dump instead. The two modes stamp
+    # their packets with different clocks, which is why the mode has to be
+    # named, but the host time a record carries is the same either way.
+    result = run("-f", "-R", "full.bin", directory=work)
+    assert result.returncode == 0, result
+    assert f"systime={PACKET_TIME} " in result.stdout, result
+
+    # A capture written during a replay is stamped from the recorded times,
+    # not from the wall clock: its first packet lands on the host time of that
+    # packet's own record. The parameter records carry no packet, so the
+    # capture holds the one advertisement.
+    result = run("-p", "-R", "full.bin", "-q", "cap.pcap", directory=work)
+    assert result.returncode == 0, result
+    assert pcap_records(work / "cap.pcap") == [(PACKET_TIME, 0)], result
+
+    # "-d -" hands the dump this process's standard output, so the records go
+    # there whole and the lines the tool prints move to standard error.
+    result = run("-p", "-R", "full.bin", "-d", "-", directory=work, text=False)
+    assert result.returncode == 0, result
+    assert result.stdout == FIXTURE, len(result.stdout)
+    for line in PARAMETER_LINES:
+        assert line.encode() in result.stderr, (line, result.stderr[:400])
+
+    # Standard output carries one stream, so a dump and a PCAP capture cannot
+    # both have it: the one that asked second would write to /dev/null without
+    # a word. The message names the option the user wrote.
+    for option, letter in (("-q", "q"), ("-c", "c")):
+        result = run("-p", "-R", "full.bin", option, "-", "-d", "-",
+                     directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (f"error: -{letter} and -d cannot both write"
+                                 " to standard output\n"), result
+
+    # A last record cut short: the whole records before it are replayed, the
+    # leftover bytes are named, and the command ends with an error.
+    (work / "cut.bin").write_bytes(FIXTURE[:-10])
+    result = run("-p", "-R", "cut.bin", directory=work)
+    assert result.returncode == 1, result
+    assert packet_lines(result.stdout) == [], result
+    assert PARAMETER_LINES[-1] in result.stdout, result
+    assert (f"error: cut.bin ends in a partial record: {RECORD_LEN - 10} of "
+            f"{RECORD_LEN} bytes, ignored" in result.stderr), result
+
+    # An empty file is a clean end of file, not an error.
+    (work / "empty.bin").write_bytes(b"")
+    result = run("-p", "-R", "empty.bin", directory=work)
+    assert result.returncode == 0, result
+    assert result.stdout == "" and result.stderr == "", result
+
+    # A file that cannot be read: reported, and exit 1 rather than looking
+    # like a capture that caught nothing. fopen() succeeds on a directory, the
+    # first read then fails; where it does not, the open error is reported.
+    (work / "adir").mkdir()
+    result = run("-p", "-R", "adir", directory=work)
+    assert result.returncode == 1, result
+    assert ("error: reading adir failed:" in result.stderr
+            or "error: adir: " in result.stderr), result
+    assert packet_lines(result.stdout) == [], result
+
+    # A missing file is reported on standard error, with standard output left
+    # empty for whatever is reading the replay.
+    result = run("-p", "-R", "missing.bin", directory=work)
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr.startswith("error: missing.bin: "), result
+
+    # A replay is read with the clock of the mode that recorded the dump, and
+    # a dump does not record which mode that was, so a replay without one is
+    # refused rather than read with a guess.
+    result = run("-R", "full.bin", directory=work)
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr == (
+        "error: -R needs -f, -n or -p: a dump does not record which mode"
+        " wrote it, and the modes stamp their packets with different"
+        " clocks\n"), result

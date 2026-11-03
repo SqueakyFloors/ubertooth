@@ -392,6 +392,23 @@ add_test(
 # the test. Ninety leaves that deadline room to fire first and say so.
 set_tests_properties(rx-replay PROPERTIES TIMEOUT 90)
 
+# The dump and replay path of ubertooth-btle (-d, -R), on a fixture the test
+# builds itself: the five parameter records promiscuous mode sends and one
+# advertising packet. It checks that the records come back byte for byte, that
+# the parameter lines are printed again, and what a replay of an unreadable or
+# truncated dump exits with. No device is involved; the handful of runs take
+# well under a second.
+add_test(
+	NAME btle-replay
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_btle_replay.py
+		$<TARGET_FILE:ubertooth-btle>)
+# About 0.5 s on an idle machine, over ten short runs, where the cost that
+# grows on a loaded machine is starting a process. Ninety seconds leaves the
+# test's own thirty-second per-run deadline room to fire first and say which
+# run hung.
+set_tests_properties(btle-replay PROPERTIES TIMEOUT 90)
+
 # What the capture records of a replay say about the piconet they came from:
 # the reference UAP, the packet's own header, and which LAP is recorded where.
 # The fixture is built by the test itself -- an ID packet, a DH1 whose CRC

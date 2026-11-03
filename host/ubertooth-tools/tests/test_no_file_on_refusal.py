@@ -44,7 +44,8 @@ KEEP = "do not touch this\n"
 FILE_OPTIONS = {
     "ubertooth-btle": (("-r", "out.pcapng", None),
                        ("-q", "out.pcap", None),
-                       ("-c", "out.pcap", None)),
+                       ("-c", "out.pcap", None),
+                       ("-d", "out.bin", None)),
     "ubertooth-dfu": (("-s", "firmware.bin", "firmware.dfu"),
                       ("-u", "out.bin", None)),
     "ubertooth-dump": (("-d", "out.bin", None),),

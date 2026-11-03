@@ -102,6 +102,22 @@ static struct {
 	int stop_refused;
 	int api_checks;
 	int api_rc;  /* what ubertooth_check_api() returns */
+	/* The replay: how many times the tool asked for one, the clock period
+	 * it read the records with, how many records the fake hands to the
+	 * callback, and what it reports back (0 for a clean end of file, as
+	 * stream_rx_file() does). */
+	int replays;
+	uint64_t replay_period;
+	int replay_records;
+	int replay_rc;
+	/* The result and the file name the tool passed to the library's report
+	 * of how a replay ended. */
+	int replay_reports;
+	int last_replay_result;
+	/* A copy, not the pointer: the run harness frees its argv once the run
+	 * returns, so the name the tool passed is gone by the time a case
+	 * reads it. */
+	char last_replay_file[128];
 } fake;
 
 static ubertooth_t fake_ut;
@@ -162,12 +178,17 @@ static void reset_fake(void)
 	memset(&fake_fifo, 0, sizeof(fake_fifo));
 	fake_ut.devh = (struct libusb_device_handle *)&fake_devh;
 	fake_ut.fifo = &fake_fifo;
+	/* What the real ubertooth_init() leaves on a fresh handle: the Bluetooth
+	 * clock's period, which a low-energy follow replaces with timer1's. */
+	fake_ut.clk100ns_period = CLK100NS_PERIOD;
 	fake.get_crc_rc = -2; /* -2: report what the board holds */
 	fake.last_jam_mode = -1; /* -1: cmd_set_jam_mode was not called */
 	fake.access_address = 0x8e89bed6;
 	/* main() leaves these where a previous run put them. */
 	stop_requested = 0;
 	cancel_follow = 0;
+	dumpfile = NULL;
+	infile = NULL;
 	signal(SIGINT, SIG_DFL);
 }
 
@@ -451,6 +472,41 @@ void ubertooth_report_capture_losses(ubertooth_t *ut)
 {
 	(void)ut;
 	fake.gap_reports++;
+}
+
+/* The two file handles libubertooth owns: the dump a run writes and the dump a
+ * replay reads. The tool opens and closes them, so these only have to exist
+ * and start empty, which reset_fake() sees to. */
+FILE *dumpfile = NULL;
+FILE *infile = NULL;
+
+/* The replay, in miniature. It records the clock period the tool set before
+ * handing the file over -- which is how the records' timestamps are read --
+ * runs the callback over as many records as the case asked for, and reports
+ * back the scripted result. Real records through the real decoder are
+ * test_btle_replay.py's business. */
+int stream_rx_file(ubertooth_t *ut, FILE *fp, rx_callback cb, void *cb_args)
+{
+	int i;
+
+	(void)fp;
+	fake.replays++;
+	fake.replay_period = ut->clk100ns_period;
+	for (i = 0; i < fake.replay_records; i++)
+		(*cb)(ut, cb_args);
+	return fake.replay_rc;
+}
+
+/* How the library reports a replay that stopped short: 1 for anything but a
+ * clean end of file, which is the tool's exit status. The message itself is
+ * libubertooth's, and ubertooth-rx's replay test covers it. */
+int rx_file_report(int result, const char *filename)
+{
+	fake.replay_reports++;
+	fake.last_replay_result = result;
+	snprintf(fake.last_replay_file, sizeof(fake.last_replay_file), "%s",
+	         filename != NULL ? filename : "");
+	return result != 0 ? 1 : 0;
 }
 
 /* The -V answer, which libubertooth gives in every tool: faked here, so this
@@ -1715,6 +1771,176 @@ MU_TEST(the_gaps_in_a_capture_are_reported_when_it_ends)
 	mu_assert_int_eq(0, fake.gap_reports);
 }
 
+/* The file a replay case reads. Its contents do not matter: the fake replay
+ * above never looks at them. */
+static const char REPLAY_FILE[] = "/tmp/btle-main-replay.bin";
+
+static void write_a_replay_file(void)
+{
+	FILE *file = fopen(REPLAY_FILE, "w");
+
+	if (file != NULL) {
+		fputs("not read", file);
+		fclose(file);
+	}
+}
+
+/*
+ * -R replays a saved dump: no board is opened, no request is sent, and the
+ * records are read with the clock of the mode the command line named. A dump
+ * does not record which mode wrote it, and the two stamp their packets with
+ * different clocks, so a replay without a mode is refused rather than read
+ * with a guess.
+ */
+MU_TEST(a_replay_reads_the_file_with_the_mode_s_own_clock)
+{
+	struct run_result r;
+
+	write_a_replay_file();
+
+	/* A follow's records come from the low-energy engine, which stamps
+	 * from timer1. */
+	reset_fake();
+	fake.replay_records = 1;
+	r = RUN("-f", "-R", REPLAY_FILE);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.replays);
+	mu_assert(fake.replay_period == CLK100NS_TIMER1_PERIOD,
+	          "the replay did not read the records with timer1's period");
+	/* No board, so nothing was opened and no mode was started. */
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert_int_eq(0, fake.api_checks);
+	mu_assert_int_eq(0, fake.sniffing_calls);
+	/* The handle still goes back, and the capture's gaps are still
+	 * reported: a saved capture carries the losses it was recorded with. */
+	mu_assert_int_eq(1, fake.closes);
+	mu_assert_int_eq(1, fake.gap_reports);
+
+	/* So do a no-follow's. */
+	reset_fake();
+	r = RUN("-n", "-R", REPLAY_FILE);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.replay_period == CLK100NS_TIMER1_PERIOD,
+	          "the replay did not read the records with timer1's period");
+
+	/* Promiscuous mode stamps from the Bluetooth clock instead, which is
+	 * the period a fresh handle already carries. */
+	reset_fake();
+	r = RUN("-p", "-R", REPLAY_FILE);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.replay_period == CLK100NS_PERIOD,
+	          "the replay did not read the records with the Bluetooth "
+	          "clock's period");
+
+	/* The callback reports on the tool's own stream, so the lines a
+	 * promiscuous dump's parameter records make are printed. */
+	reset_fake();
+	fake.replay_records = 1;
+	r = RUN("-p", "-R", REPLAY_FILE);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(fake.callback_report_stream == stdout,
+	          "the replay's callback did not report on standard output");
+
+	/* A file that is not there is named, with nothing on standard output
+	 * for whatever is reading the replay. */
+	reset_fake();
+	r = RUN("-f", "-R", "/tmp/btle-main-no-such-dump.bin");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(0, fake.replays);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "error: /tmp/btle-main-no-such-dump.bin: ")
+	          == r.err, r.err);
+
+	/* A replay that stopped short of a whole record ends the command with
+	 * an error, after whatever it decoded, and the file it names is the
+	 * one the user gave. */
+	reset_fake();
+	fake.replay_rc = 20;
+	r = RUN("-f", "-R", REPLAY_FILE);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert_int_eq(1, fake.replay_reports);
+	mu_assert_int_eq(20, fake.last_replay_result);
+	mu_assert(strcmp(fake.last_replay_file, REPLAY_FILE) == 0,
+	          fake.last_replay_file);
+
+	/* The packets a replay could not decode are summed up as a capture's
+	 * are, in one line when the run ends, on the stream the run reports
+	 * on. */
+	reset_fake();
+	fake.replay_records = 2;
+	fake.malformed_packets = 1;
+	r = RUN("-p", "-R", REPLAY_FILE);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, "note: 2 packets held data that could not be"
+	          " decoded; -v describes each one\n") == 0, r.out);
+
+	remove(REPLAY_FILE);
+}
+
+/*
+ * A replay has no board, so the options that drive one are refused, each by
+ * name, before the file is read. Without a major mode the refusal is about
+ * the mode, because that is what says which clock stamped the records.
+ */
+MU_TEST(a_replay_refuses_the_options_that_need_a_board)
+{
+	static const char needs_a_mode[] = "error: -R needs -f, -n or -p: a "
+		"dump does not record which mode wrote it, and the modes stamp "
+		"their packets with different clocks\n";
+	/* Each option that drives a board, with a value where it needs one,
+	 * and the letter the refusal names. */
+	static const struct {
+		const char *option;
+		const char *value;
+		char letter;
+	} board_options[] = {
+		{ "-k", NULL, 'k' },
+		{ "-t", "22:44:66:88:aa:cc", 't' },
+		{ "-A", "38", 'A' },
+		{ "-U", "0", 'U' },
+		{ "-i", NULL, 'i' },
+		{ "-J", NULL, 'J' },
+	};
+	struct run_result r;
+	size_t i;
+	char expected[160];
+
+	write_a_replay_file();
+
+	/* No mode: the refusal names the three modes and why one is needed. */
+	reset_fake();
+	r = RUN("-R", REPLAY_FILE);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, needs_a_mode) == 0, r.err);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.replays);
+
+	for (i = 0; i < sizeof(board_options) / sizeof(board_options[0]); i++) {
+		reset_fake();
+		snprintf(expected, sizeof(expected),
+		         "error: -%c cannot be combined with -R; a replay reads"
+		         " a saved dump rather than driving a board\n",
+		         board_options[i].letter);
+		/* -f, so the mode check above is satisfied and this option is
+		 * what the command line is refused for. */
+		if (board_options[i].value != NULL)
+			r = RUN("-f", "-R", REPLAY_FILE,
+			        board_options[i].option,
+			        board_options[i].value);
+		else
+			r = RUN("-f", "-R", REPLAY_FILE,
+			        board_options[i].option);
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strcmp(r.err, expected) == 0, r.err);
+		mu_assert(r.out[0] == '\0', r.out);
+		/* Refused before the file was read and before any request. */
+		mu_assert_int_eq(0, fake.replays);
+		mu_assert_int_eq(0, fake.connects);
+	}
+
+	remove(REPLAY_FILE);
+}
+
 int main(void)
 {
 	MU_RUN(a_set_and_a_read_of_crc_verify_both_run_set_first);
@@ -1751,5 +1977,7 @@ int main(void)
 	MU_RUN(the_jam_aliases_select_the_same_mode_as_interfere);
 	MU_RUN(interference_warns_once_when_the_run_proceeds);
 	MU_RUN(the_gaps_in_a_capture_are_reported_when_it_ends);
+	MU_RUN(a_replay_reads_the_file_with_the_mode_s_own_clock);
+	MU_RUN(a_replay_refuses_the_options_that_need_a_board);
 	return mu_report();
 }
