@@ -83,7 +83,8 @@ static void bus_with_ubertooths(int n)
 
 /* Put count boards in the DFU bootloader on the faked bus, after whatever
  * bus_with_ubertooths() left there. The bootloader is a USB device of its own:
- * no tool can open it, and it is what a board being flashed looks like. */
+ * no tool but ubertooth-dfu can open it, and it is what a board being
+ * flashed looks like. */
 static void bus_with_bootloaders(int count)
 {
 	int i;
@@ -1195,10 +1196,12 @@ MU_TEST(one_waiting_board_is_told_how_to_be_written)
 	bus_with_bootloaders(1);
 	note_capturing(msg, sizeof(msg), out, sizeof(out));
 	mu_assert(strcmp(msg,
-	    "note: a board is in the DFU bootloader, so it is not an Ubertooth "
-	    "any tool can open: it is being flashed, or a flash left it there\n"
-	    "note: the bootloader reports no serial number, so -U cannot name "
-	    "that board; write it with ubertooth-dfu -d <image> and no -U\n")
+	    "note: a board is in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
+	    "it there\n"
+	    "note: the bootloader reports no serial number, so ubertooth-dfu "
+	    "with no -U is what reaches that board: -r sends it back to its "
+	    "application, and -d <image> -r writes an image first\n")
 	    == 0, msg);
 	mu_assert_int_eq(0, (int)strlen(out));
 
@@ -1213,8 +1216,8 @@ MU_TEST(one_waiting_board_is_told_how_to_be_written)
 	bus_with_bootloaders(2);
 	note_capturing(msg, sizeof(msg), out, sizeof(out));
 	mu_assert(strcmp(msg,
-	    "note: 2 boards are in the DFU bootloader, so they are not "
-	    "Ubertooths any tool can open: they are being flashed, or a flash "
+	    "note: 2 boards are in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open them: they are being flashed, or a flash "
 	    "left them there\n") == 0, msg);
 	mu_assert_int_eq(0, (int)strlen(out));
 }
@@ -1779,10 +1782,12 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	          "a serial no board has");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth found with serial matching 'deadbeef'\n"
-	    "note: a board is in the DFU bootloader, so it is not an Ubertooth "
-	    "any tool can open: it is being flashed, or a flash left it there\n"
-	    "note: the bootloader reports no serial number, so -U cannot name "
-	    "that board; write it with ubertooth-dfu -d <image> and no -U\n")
+	    "note: a board is in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
+	    "it there\n"
+	    "note: the bootloader reports no serial number, so ubertooth-dfu "
+	    "with no -U is what reaches that board: -r sends it back to its "
+	    "application, and -d <image> -r writes an image first\n")
 	    == 0, msg);
 
 	/* And by index, where the selection's own message comes from the
@@ -1792,10 +1797,12 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "-U0 of none");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth devices found\n"
-	    "note: a board is in the DFU bootloader, so it is not an Ubertooth "
-	    "any tool can open: it is being flashed, or a flash left it there\n"
-	    "note: the bootloader reports no serial number, so -U cannot name "
-	    "that board; write it with ubertooth-dfu -d <image> and no -U\n")
+	    "note: a board is in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
+	    "it there\n"
+	    "note: the bootloader reports no serial number, so ubertooth-dfu "
+	    "with no -U is what reaches that board: -r sends it back to its "
+	    "application, and -d <image> -r writes an image first\n")
 	    == 0, msg);
 
 	/* Several say how many. */

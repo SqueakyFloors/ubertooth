@@ -797,30 +797,40 @@ void ubertooth_note_dfu_bootloader(void)
 	/* The bootloader reports no serial number, so the note cannot say which
 	 * board it is; the count is all there is to give.
 	 *
-	 * "Not an Ubertooth any tool can open" rather than "no tool can open
-	 * it", because ubertooth-dfu does open the bootloader -- and the line
-	 * below sends the reader there. */
+	 * "No tool but ubertooth-dfu", because that one does open the
+	 * bootloader -- and the line below sends the reader there. */
 	if (boards == 1) {
-		fprintf(stderr, "note: a board is in the DFU bootloader, so it is "
-		        "not an Ubertooth any tool can open: it is being flashed, "
-		        "or a flash left it there\n");
+		fprintf(stderr, "note: a board is in the DFU bootloader, so no tool "
+		        "but ubertooth-dfu can open it: it is being flashed, or a "
+		        "flash left it there\n");
 		/* The way out, in the same breath as the diagnosis: a user holding
 		 * the serial of a board that stopped answering has nothing else to
-		 * try, and -U cannot name a device with no serial. ubertooth-dfu
-		 * with no selector adopts the sole board in DFU mode, which is how
-		 * such a board has always been written. */
+		 * try, and ubertooth-dfu with no selector adopts the sole board in
+		 * DFU mode.
+		 *
+		 * Both remedies, because the board may need no image at all: one
+		 * that entered DFU by request or by its entry pin still holds its
+		 * application, and -r alone sends it back to it. Writing one needs
+		 * -r too, or the board stays in the bootloader.
+		 *
+		 * Naming what reaches the board, rather than what the caller asked
+		 * for, keeps the line true on every path that gets here: a
+		 * download, a read-back, a reset, and the paths with no selector at
+		 * all. It is safe to suggest while another process is flashing that
+		 * board -- the case this note exists for -- because that process
+		 * holds the DFU interface, so a second ubertooth-dfu is refused the
+		 * claim and reports it rather than touching the flash. */
 		fprintf(stderr, "note: the bootloader reports no serial number, so "
-		        "-U cannot name that board; write it with ubertooth-dfu -d "
-		        "<image> and no -U\n");
+		        "ubertooth-dfu with no -U is what reaches that board: -r "
+		        "sends it back to its application, and -d <image> -r writes "
+		        "an image first\n");
 	} else {
-		fprintf(stderr, "note: %d boards are in the DFU bootloader, so they "
-		        "are not Ubertooths any tool can open: they are being "
+		fprintf(stderr, "note: %d boards are in the DFU bootloader, so no "
+		        "tool but ubertooth-dfu can open them: they are being "
 		        "flashed, or a flash left them there\n", boards);
-		/* No way out is offered for several. ubertooth-dfu with no selector
-		 * refuses to choose between them, and this note cannot tell which
-		 * of them another process is flashing right now -- which is the
-		 * case it exists for -- so telling the user to unplug one could
-		 * interrupt a flash in progress. */
+		/* No way out is offered for several: ubertooth-dfu with no selector
+		 * refuses to choose between them, and this note cannot say which of
+		 * them the user meant. */
 	}
 }
 

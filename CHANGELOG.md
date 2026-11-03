@@ -4,13 +4,9 @@
 
 ### New features
 
-- The note about a board in the DFU bootloader now says how to write it:
-  `note: the bootloader reports no serial number, so -U cannot name that
-  board; write it with ubertooth-dfu -d <image> and no -U`. A board a flash
-  left there has no serial, so naming one said only that no board matched —
-  the position a user is in whenever a board stops answering and they reach
-  for its serial. Several boards in the bootloader are still counted without
-  advice, because a command with no `-U` refuses to choose between them.
+- The note about a board in the DFU bootloader now names what reaches it,
+  `ubertooth-dfu` with no `-U`: `-r` sends the board back to its application,
+  and `-d <image> -r` writes one first. Its first line exempts that tool too.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
 - A capture whose receiver is being driven harder than the radio can measure
   says so instead of looking like a capture of an empty channel: `warning: the

@@ -314,17 +314,21 @@ A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no
 tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
-succeeds. The bootloader reports no serial number, so `-U` cannot name such a
-board; the second line says what writes it, which is the one thing that gets
-the board out of there.
+succeeds. The bootloader reports no serial number, so no `-U` string can name
+such a board; the second line says what reaches it instead.
 
     error: no Ubertooth found with serial matching 'aa1'
-    note: a board is in the DFU bootloader, so it is not an Ubertooth any tool can open: it is being flashed, or a flash left it there
-    note: the bootloader reports no serial number, so -U cannot name that board; write it with ubertooth-dfu -d <image> and no -U
+    note: a board is in the DFU bootloader, so no tool but ubertooth-dfu can open it: it is being flashed, or a flash left it there
+    note: the bootloader reports no serial number, so ubertooth-dfu with no -U is what reaches that board: -r sends it back to its application, and -d <image> -r writes an image first
+
+Both remedies are named because the board may need no image at all: one that
+entered DFU by request, or with its bootloader entry pin grounded, still holds
+its application, and `-r` sends it back to it. Writing one needs `-r` as well,
+or the board stays in the bootloader. See ubertooth-dfu(1).
 
 Several boards in the bootloader are counted instead, with no such advice:
 ubertooth-dfu(1) with no `-U` refuses to choose between them, and this note
-cannot tell which of them another process may be flashing at that moment.
+cannot say which of them was meant.
 
 A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see
