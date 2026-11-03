@@ -25,47 +25,13 @@
 #include <ubtbr/ubertooth_dma.h>
 #include <ubtbr/debug.h>
 
-/* DMA linked list items */
-typedef struct {
-	uint32_t src;
-	uint32_t dest;
-	uint32_t next_lli;
-	uint32_t control;
-} dma_lli;
-
-dma_lli dma_rx_lli;
-
 volatile uint8_t *dma_user_rx_buf = (void*)0;
-volatile uint8_t *dma_user_tx_buf = (void*)0;
-dma_tx_cb_t dma_user_tx_cb = (void*)0;
-void *dma_user_tx_cb_arg = (void*)0;
 
 void DMA_IRQHandler(void)
 {
 	cprintf ("DMAI %x\n", DMACIntStat);
 	DMACIntTCClear = 0xFF;
 	DMACIntErrClr = 0xFF;
-#if 0
-	if (DMACIntStat & (1 << 1)) {
-		if (DMACIntTCStat & (1 << 1)) {
-			DMACIntTCClear = (1 << 1);
-			cprintf ("Int TC\n");
-			if (dma_user_tx_cb)
-			{
-				/* Execute the callback handler and uninstall */
-				dma_user_tx_cb(dma_user_tx_cb_arg);
-				dma_user_tx_cb = (void*)0;
-			}
-			else
-			{
-				cprintf("Unk DMA IRQ\n");
-			}
-		}
-		if (DMACIntErrStat & (1 << 1)) {
-			DMACIntErrClr = (1 << 1);
-		}
-	}
-#endif
 }
 
 void dma_poweron(void) {
@@ -174,59 +140,3 @@ unsigned long dma_get_rx_offset(void)
 	return (unsigned long)DMACC0DestAddr - (unsigned long)dma_user_rx_buf;
 }
 
-#ifdef USE_TX_DMA
-void dio_ssp_start_tx(void)
-{
-	DIO_SSEL_SET;
-
-	/* Configure RX DMA on CC2400 SPI (SSP1 for Ubertooth One) */
-	DIO_SSP_DMACR = SSPDMACR_TXDMAE ;
-	/* Configuration of DMA : SSPCR1_MS, SSPCR1_SOD
-	 */
-	//DIO_SSP_CR1 = SSPCR1_MS;
-	//DIO_SSP_CR1 = 0;// SSPCR1_MS clear
-	DIO_SSP_CR1 = SSPCR1_MS | SSPCR1_SOD;
-
-	/* Enable CC2400 SPI peripheral */
-	DIO_SSP_CR1 |= SSPCR1_SSE;
-
-	// enable channel 1
-	DMACC1Config |= 1;
-
-	/* activate chip select pin */
-	DIO_SSEL_CLR;
-}
-
-void dma_init_tx_single(volatile void *buf, unsigned buf_size, dma_tx_cb_t cb, void *cb_arg)
-{
-	dma_user_tx_buf = buf;
-	dma_user_tx_cb = cb;
-	dma_user_tx_cb_arg = cb_arg;
-
-	/* configure DMA channel 1: Tx single slot */
-	DMACC1SrcAddr	= (uint32_t)buf;
-	DMACC1DestAddr	= (uint32_t)&(DIO_SSP_DR);
-	DMACC1LLI	= 0;
-	DMACC1Control	= buf_size |
-			(1 << 12) |        /* source burst size = 1 */
-			(0 << 15) |        /* destination burst size = 1 */
-			(0 << 18) |        /* source width 8 bits */
-			(0 << 21) |        /* destination width 8 bits */
-			DMACCxControl_SI | /* Source increment */
-			DMACCxControl_I;   /* terminal count interrupt enable */
-
-	DMACC1Config	= DIO_SSP_DST		/* SSP TX (3for Ubertooth One) */
-			| DMACCxConfig_ITC 	/* Enable Terminal Count interrupts */
-			| DMACCxConfig_IE 	/* Enable Error interrupts */
-			| (0x1 << 11);	/* memory to peripheral */
-}
-unsigned long dma_get_tx_offset(void)
-{
-	return (unsigned long)DMACC1SrcAddr - (unsigned long)dma_user_tx_buf;
-}
-#endif
-
-int dma_get_error(void)
-{
-	return 0;
-}
