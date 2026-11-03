@@ -90,10 +90,13 @@ FIXTURE = b"".join(RECORDS)
 PARAMETER_LINES = ["LE Promisc - " + line for _, _, line in PROMISC_PARAMETERS]
 
 
-def run(*arguments, directory, text=True):
+def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
+    """One ubertooth-btle run. `stdout` takes an open file for the cases that
+    need this process's standard output pointed somewhere in particular."""
     return subprocess.run(
         [BINARY, *arguments],
-        capture_output=True,
+        stdout=stdout,
+        stderr=subprocess.PIPE,
         text=text,
         timeout=RUN_TIMEOUT_S,
         check=False,
@@ -244,6 +247,25 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-p", "-R", "same.bin", "-d", "other.bin", directory=work)
     assert result.returncode == 0, result
     assert (work / "other.bin").read_bytes() == FIXTURE, result
+
+    # "-" is this process's standard output, so that is the destination
+    # compared: a shell that has already pointed it at the dump is the one case
+    # a name cannot catch, and the run would otherwise read the records it was
+    # appending and never end.
+    with open(work / "same.bin", "ab") as appended:
+        result = run("-p", "-R", "same.bin", "-d", "-", directory=work,
+                     stdout=appended)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -R is"
+                             " replaying (standard output)\n"), result
+    assert (work / "same.bin").read_bytes() == FIXTURE, result
+
+    # Standard output pointed anywhere else is an ordinary dump to it.
+    with open(work / "piped.bin", "wb") as elsewhere:
+        result = run("-p", "-R", "same.bin", "-d", "-", directory=work,
+                     stdout=elsewhere)
+    assert result.returncode == 0, result
+    assert (work / "piped.bin").read_bytes() == FIXTURE, result
 
     # The same read as the follow mode's dump instead. The two modes stamp
     # their packets with different clocks, which is why the mode has to be

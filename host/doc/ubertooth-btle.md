@@ -578,7 +578,9 @@ writing, which truncates it, so the dump would be emptied before a record of
 it was read. `error: -d would write over the dump -R is replaying
 (promisc.bin)`, exit 1, with the file left as it was. It is the file that is
 compared and not the name, so `./promisc.bin`, a symbolic link to it and a
-hard link to it are all refused.
+hard link to it are all refused, and so is a `-d -` whose standard output the
+shell has already pointed at the dump. ubertooth-rx(1) refuses the same
+pairing for its own replay, in the same words.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a
