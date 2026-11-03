@@ -30,9 +30,15 @@ headers are in, and libbtbb and libusb, whose headers those headers include.
 Nothing else has to be found or named.
 
 An install outside the directories CMake searches is pointed at with
-`-DCMAKE_PREFIX_PATH=<prefix>`, and the version can be asked for:
+`-DCMAKE_PREFIX_PATH=<prefix>`, or with `-Dubertooth_DIR=<dir>` naming the
+directory the config file itself is in. The version can be asked for:
 `find_package(ubertooth 1.0 REQUIRED)` is satisfied by any 1.x, because that
 is what the library's `SOVERSION` promises.
+
+There is one target. An install holding both the shared and the static library
+is described by the shared one, as `pkg-config --libs libubertooth` describes
+it; a program that wants `libubertooth.a` from such an install names the file
+itself.
 
 The config file reads its prefix back from where it is installed, so an
 install staged or copied somewhere else describes the directories it really

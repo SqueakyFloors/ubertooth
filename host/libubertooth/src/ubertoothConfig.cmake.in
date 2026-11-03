@@ -12,19 +12,22 @@
 # from where this file itself is. So a prefix given at install time
 # (cmake --install --prefix), or an install staged or copied somewhere else,
 # is still described correctly -- the same reason libubertooth.pc reads its
-# prefix back from pcfiledir. The two directories under it are written
-# relative to it for the same reason; a directory given to the build as an
-# absolute path is written as it stands, because the install writes to exactly
-# that wherever the prefix is.
+# prefix back from pcfiledir. A directory under the prefix is written relative
+# to it for the same reason; one given to the build as an absolute path is
+# written as it stands, because the install writes to exactly that wherever
+# the prefix is, and such an install cannot be staged somewhere else and
+# still be found. The build says which it chose.
 @PACKAGE_INIT@
 
-set(_ubertooth_includedir "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
-set(_ubertooth_libdir "@PACKAGE_UBERTOOTH_INSTALL_LIBDIR@")
+set(_ubertooth_includedir "@CONFIG_INCLUDEDIR@")
+set(_ubertooth_libdir "@CONFIG_LIBDIR@")
 
 # The library the install wrote, looked for under the file names this system
-# gives a library. CMAKE_FIND_LIBRARY_SUFFIXES puts the shared one first, so
-# an install holding both is described by the shared library, as find_library
-# would choose it.
+# gives a library. CMAKE_FIND_LIBRARY_SUFFIXES puts the shared one first by
+# default, so an install holding both is described by the shared library, as
+# find_library would choose it; a consumer that has reordered that list, or
+# that wants the static library from an install holding both, names the file
+# itself rather than asking for this package.
 #
 # Not find_library itself, which remembers its answer in the cache: the same
 # build installed into a second prefix would then be described by the first
@@ -51,6 +54,12 @@ endforeach()
 #
 # The libusb search asks for the header at the spelling the Ubertooth headers
 # use, so the directory it reports is the one that include resolves against.
+#
+# These four do remember their answers in the consumer's cache, unlike the
+# search for libubertooth above. That is on purpose: they are about the
+# machine the consumer builds on rather than about this install, so they do
+# not go stale when the install moves, and each has the usual
+# find_path/find_library escape of being set by hand.
 # The names are the ones FindBTBB.cmake and FindUSB1.cmake in this tree look
 # for, so a search here answers with the library the build would have found:
 # btbb-static for a libbtbb installed static only, and the libusb name the
@@ -85,9 +94,15 @@ if(NOT ubertooth_libusb_INCLUDE_DIR OR NOT ubertooth_libusb_LIBRARY)
 endif()
 if(_ubertooth_missing)
 	string(REPLACE ";" ", " _ubertooth_missing "${_ubertooth_missing}")
-	set(ubertooth_NOT_FOUND_MESSAGE
+	# CMAKE_FIND_PACKAGE_NAME, not "ubertooth": find_package() reads back the
+	# variables named after the name it was called with, and on a filesystem
+	# that ignores case -- macOS and Windows -- it loads this file for
+	# find_package(UBERTOOTH) as well, which is a spelling a reader of
+	# FindUBERTOOTH.cmake in this tree might try. Hard-coding the name would
+	# leave such a call reporting a package found with no target in it.
+	set(${CMAKE_FIND_PACKAGE_NAME}_NOT_FOUND_MESSAGE
 		"this install does not have ${_ubertooth_missing}")
-	set(ubertooth_FOUND FALSE)
+	set(${CMAKE_FIND_PACKAGE_NAME}_FOUND FALSE)
 	return()
 endif()
 
@@ -97,6 +112,11 @@ endif()
 # a library path from. Named for the shared library as well, where the library
 # carries them itself, because an extra -lpthread on a link line costs a
 # consumer nothing and telling the two installs apart here would.
+#
+# As the linker flags the build worked out, rather than Threads::Threads,
+# which would make every consumer of this package call
+# find_package(Threads) before it could read the target. They are the same
+# strings libubertooth.pc gives, which is the point.
 set(_ubertooth_private_libs "@UBERTOOTH_CONFIG_PRIVATE_LIBS@")
 
 if(NOT TARGET ubertooth::ubertooth)
@@ -104,6 +124,13 @@ if(NOT TARGET ubertooth::ubertooth)
 	# one: an UNKNOWN imported library is linked by the path it names,
 	# whichever it is.
 	add_library(ubertooth::ubertooth UNKNOWN IMPORTED)
+	# libbtbb and libusb are link items of the target, not only include
+	# directories, because libubertooth.pc names them in Requires rather than
+	# Requires.private: a program that includes <ubertooth.h> sees libbtbb's
+	# types and calls its functions, which is why the header is public in the
+	# first place. A program linking the shared library that calls neither
+	# gets two libraries it does not need on its link line, which costs it
+	# nothing.
 	set(_ubertooth_link "${ubertooth_btbb_LIBRARY}"
 		"${ubertooth_libusb_LIBRARY}")
 	if(_ubertooth_private_libs)
@@ -117,4 +144,16 @@ if(NOT TARGET ubertooth::ubertooth)
 	unset(_ubertooth_link)
 endif()
 
-check_required_components(ubertooth)
+# Nothing of this file's working is left in the caller's scope; the four cache
+# entries for libbtbb and libusb stay, as find_path() and find_library()
+# entries do.
+unset(_ubertooth_includedir)
+unset(_ubertooth_libdir)
+unset(_ubertooth_library)
+unset(_ubertooth_libprefix)
+unset(_ubertooth_libsuffix)
+unset(_ubertooth_candidate)
+unset(_ubertooth_missing)
+unset(_ubertooth_private_libs)
+
+check_required_components(${CMAKE_FIND_PACKAGE_NAME})

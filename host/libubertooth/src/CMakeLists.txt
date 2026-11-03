@@ -185,9 +185,9 @@ if(IS_ABSOLUTE "${UBERTOOTH_INSTALL_LIBDIR}")
 	# would move: absolute ones are named as they stand and do not move
 	# either.
 	if(NOT IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
-		message(STATUS "libubertooth.pc will name "
+		message(STATUS "libubertooth.pc and ubertoothConfig.cmake will name "
 			"${CMAKE_INSTALL_FULL_INCLUDEDIR} as the header directory, "
-			"because an absolute library directory leaves the file with no "
+			"because an absolute library directory leaves them with no "
 			"relation to the prefix: an install staged elsewhere with "
 			"--prefix needs its own configure")
 	endif()
@@ -224,21 +224,47 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
 # hand. The file itself says what each part of it is for.
 include(CMakePackageConfigHelpers)
 
+# Not install(EXPORT), which would write the target definition for us. An
+# export set records the library's link interface as this build resolved it,
+# so it would name the libbtbb and the libusb of the machine the install was
+# built on. libubertooth.pc names them in its Requires and leaves them to be
+# resolved where the consumer is, and this file is meant to say the same
+# thing, so the target is written out here and the dependencies are searched
+# for in it.
+#
 # Beside the library, in the directory CMake searches for a package of this
 # name: <prefix>/<libdir>/cmake/<name>. configure_package_config_file works
 # out the way back from here to the prefix, so the file describes the install
 # it is in rather than the prefix this build was configured with.
 set(UBERTOOTH_INSTALL_CMAKEDIR "${UBERTOOTH_INSTALL_LIBDIR}/cmake/ubertooth")
 
-# PATH_VARS: each of these becomes PACKAGE_<name> in the file, relative to the
-# prefix it is read from. One given to the build as an absolute path is
-# written as it stands, which is right, because the install writes to exactly
-# that wherever the prefix is.
+# The same two directories libubertooth.pc names, worked out the same way and
+# for the same reason: a consumer sent to a directory holding no library links
+# by luck or not at all. One under the prefix is named relative to the file's
+# own location, PACKAGE_PREFIX_DIR, which the block the file gets from
+# configure_package_config_file() works out; an absolute one is named as it
+# stands, because the install writes to exactly that wherever the prefix is.
+#
+# Not PATH_VARS, which looks the prefix up in the value as text: an absolute
+# directory that happens to sit under the prefix this build was configured
+# with would come out relative to PACKAGE_PREFIX_DIR, and an install made
+# with another prefix would then be described as having its headers under
+# that other prefix while the install had written them to the absolute path.
+if(IS_ABSOLUTE "${UBERTOOTH_INSTALL_LIBDIR}")
+	set(CONFIG_LIBDIR "${UBERTOOTH_FULL_LIBDIR}")
+else()
+	set(CONFIG_LIBDIR "\${PACKAGE_PREFIX_DIR}/${UBERTOOTH_INSTALL_LIBDIR}")
+endif()
+if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+	set(CONFIG_INCLUDEDIR "${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+else()
+	set(CONFIG_INCLUDEDIR "\${PACKAGE_PREFIX_DIR}/${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
+
 configure_package_config_file(
 	${CMAKE_CURRENT_SOURCE_DIR}/ubertoothConfig.cmake.in
 	${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfig.cmake
-	INSTALL_DESTINATION "${UBERTOOTH_INSTALL_CMAKEDIR}"
-	PATH_VARS CMAKE_INSTALL_INCLUDEDIR UBERTOOTH_INSTALL_LIBDIR)
+	INSTALL_DESTINATION "${UBERTOOTH_INSTALL_CMAKEDIR}")
 
 # SameMajorVersion, which is what the library's SOVERSION promises: a consumer
 # asking for 1.0 is served by this 1.1, and one asking for 2.0 is not.

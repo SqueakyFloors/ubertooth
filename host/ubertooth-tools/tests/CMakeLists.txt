@@ -332,20 +332,24 @@ if(libubertooth_SOURCE_DIR)
 			${CMAKE_CURRENT_SOURCE_DIR}/test_cmake_package_install.py
 			${CMAKE_COMMAND}
 			${CMAKE_BINARY_DIR}
-			# The directory this build installs the library to, which
-			# GNUInstallDirs picks for the system: where the test looks
-			# for what the install wrote.
+			# The directories this build installs the library and the
+			# headers to, which GNUInstallDirs picks for the system:
+			# where the test looks for what the install wrote. Passed
+			# rather than assumed, because a build command can ask for
+			# others and the config file follows them.
 			"${UBERTOOTH_INSTALL_LIBDIR}"
-			# The library's own source tree, for the lib64 build the
-			# test configures. The project's own directory rather than
-			# CMAKE_SOURCE_DIR, which would be the root of a
-			# superproject that had added this tree.
+			"${CMAKE_INSTALL_INCLUDEDIR}"
+			# The library's own source tree, for the builds the test
+			# configures in the other layouts. The project's own
+			# directory rather than CMAKE_SOURCE_DIR, which would be
+			# the root of a superproject that had added this tree.
 			${ubertooth_all_SOURCE_DIR})
-	# Three configures of a consumer project, each of which detects the
-	# compiler from nothing, and one configure and build of the library in
-	# the lib64 layout: a minute or two on an idle machine, and several
-	# times that on one busy with parallel builds.
-	set_tests_properties(cmake-package-install PROPERTIES TIMEOUT 600)
+	# One consumer project configured and built, then a configure of the
+	# library alone and an install for each of the five other layouts,
+	# each read back by a consumer configure in one reused build
+	# directory: a minute or two on an idle machine, and several times
+	# that on one busy with parallel builds.
+	set_tests_properties(cmake-package-install PROPERTIES TIMEOUT 900)
 endif()
 
 # What ubertooth-rx says when its receiver is pinned at the top of the
