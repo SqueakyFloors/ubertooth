@@ -1704,6 +1704,17 @@ MU_TEST(a_replay_warns_but_sends_no_request_when_the_clock_is_lost)
 	"warning: nothing of this piconet has been heard on the clock being " \
 	"followed; searching for its clock again, and putting UAP 0d back\n"
 
+/* How far in the past the cases below put the moment a packet of the followed
+ * piconet was last heard, in milliseconds. The reading they check is that
+ * moment measured against the monotonic clock, so a case that wants a grown
+ * wait says the packet arrived seconds ago rather than sleeping for a few
+ * milliseconds and waiting for the reading to grow on its own. Everything
+ * these cases then assert is seconds clear of any delay the machine can put
+ * between the callback that sets the moment and the reading taken afterwards:
+ * a wait that restarted reads near zero, one that did not reads the seconds
+ * below, and no amount of descheduling turns one into the other. */
+#define HEARD_LONG_AGO_MS 5000
+
 /* A clock that is not the piconet's fails no header, so the library has
  * nothing to act on and the silence is the tool's to judge. What the tool
  * reads is the moment a packet of the piconet last arrived. The cases that
@@ -1731,26 +1742,33 @@ MU_TEST(how_long_a_follow_has_heard_nothing_is_there_for_the_tool)
 
 	/* A record with no access code in it is not this piconet, so the wait
 	 * goes on growing however many arrive: that is the silence the tool is
-	 * waiting out. */
+	 * waiting out. The piconet was last heard HEARD_LONG_AGO_MS ago, and
+	 * the record leaves that alone, so the whole silence is still there to
+	 * read afterwards. */
 	reset_state();
-	usleep(5000);
+	last_ut.br_heard_ms = monotonic_ms() - HEARD_LONG_AGO_MS;
 	find_ac_offset = -1;
 	fill_packet(&next_packets[0],
 	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 200), 0, 10);
 	next_count = 1;
 	run_callback(cb_rx, pn);
 	after_quiet = ubertooth_follow_quiet_ms(&last_ut);
-	mu_assert(after_quiet >= at_clock + 5, "the wait grew");
+	mu_assert(after_quiet >= HEARD_LONG_AGO_MS, "the wait grew");
 
-	/* A packet of the piconet starts it again. */
+	/* A packet of the piconet starts it again: from the same seconds of
+	 * silence, the reading goes back to near enough no time at all. Half
+	 * the silence is the bound, which leaves it well clear of both -- a
+	 * wait that did not restart reads the full HEARD_LONG_AGO_MS, and a
+	 * wait that did would have to be delayed by seconds to reach it. */
 	reset_state();
-	usleep(5000);
+	last_ut.br_heard_ms = monotonic_ms() - HEARD_LONG_AGO_MS;
 	fill_packet(&next_packets[0],
 	            clk100ns_for_clk_offset(CLK_TUNE_TIME, 300), 0, 10);
 	next_count = 1;
 	run_callback(cb_rx, pn);
 	after_packet = ubertooth_follow_quiet_ms(&last_ut);
-	mu_assert(after_packet < after_quiet, "the wait started again");
+	mu_assert(after_packet >= 0 && after_packet < HEARD_LONG_AGO_MS / 2,
+	          "the wait started again");
 
 	/* And there is nothing to read once that clock has been given up. */
 	mu_assert_int_eq(1, run_drop_clock(pn));
@@ -1778,7 +1796,7 @@ MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
 
 	memset(&seen, 0, sizeof(seen));
 	drop_clock_result = 0;
-	usleep(5000);
+	last_ut.br_heard_ms = monotonic_ms() - HEARD_LONG_AGO_MS;
 	mu_assert_int_eq(0, run_drop_clock(pn));
 
 	mu_assert_int_eq(1, seen.clocks_dropped);
@@ -1786,8 +1804,11 @@ MU_TEST(a_clock_the_library_will_not_give_up_leaves_the_capture_alone)
 	mu_assert_int_eq(0, seen.channels_set);
 	mu_assert_int_eq(0, (int)strlen(last_stderr));
 	/* The follow is still there to be watched, and the wait starts again,
-	 * so a tool asks once per wait rather than once per record. */
-	mu_assert(ubertooth_follow_quiet_ms(&last_ut) < 5, "the wait started again");
+	 * so a tool asks once per wait rather than once per record. The
+	 * seconds of silence set above are gone from the reading, with the
+	 * same bound and the same room either side as the case before. */
+	mu_assert(ubertooth_follow_quiet_ms(&last_ut) < HEARD_LONG_AGO_MS / 2,
+	          "the wait started again");
 
 	/* Put the capture back where the next case expects it: off the
 	 * clock. */
