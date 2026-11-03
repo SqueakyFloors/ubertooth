@@ -556,7 +556,8 @@ replay is reading: each is opened for writing, which truncates it, so the
 capture would be emptied before a record of it was read. `error: -d would
 write over the dump -i is replaying (capture.bin)`, exit 1, with the file left
 as it was. ubertooth-btle(1) refuses a named destination the same way for its
-own replay, in the same words, naming its own option.
+own replay, in the same words, naming its own option; it has no equivalent of
+the `-` case below yet.
 
 It is the file that is compared and not the name, so `./capture.bin`, a
 symbolic link to it and a hard link to it are all refused, as is a `-d -`
@@ -564,13 +565,17 @@ whose standard output the shell has pointed at the capture. A destination that
 is the same thing as the input is refused whatever kind of file it is, even
 where nothing could be lost, as `-i /dev/null -d /dev/null` is.
 
-Two cases are not covered. A destination that reaches the capture through a
-descriptor the shell opened, `-d /dev/fd/3` beside `3>>capture.bin`, is not
-recognized, because those paths are served by a filesystem that answers for a
-file of its own; on systems other than Linux that includes `/dev/stdout` and
-`/dev/fd/1`. And a redirection of the whole run,
-`ubertooth-rx -i capture.bin > capture.bin`, is beyond any command's reach:
-the shell empties the file before ubertooth-rx(1) starts.
+A refusal naming `-` reads `(standard output)` where the destination would
+otherwise be quoted, because that is what `-` means.
+
+What is not covered is a destination ubertooth-rx(1) cannot see the far end
+of. On systems other than Linux, that includes the paths which name an open
+descriptor: `-d /dev/stdout` and `-d /dev/fd/3` beside `3>>capture.bin` are
+served there by a filesystem of their own, which the comparison does not see
+through, where on Linux they are symbolic links that it follows. It also
+includes a pipe, `-d - | cat >> capture.bin`, which nothing can follow, and a
+redirection of the whole run, `ubertooth-rx -i capture.bin > capture.bin`,
+which the shell has carried out before ubertooth-rx(1) starts.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

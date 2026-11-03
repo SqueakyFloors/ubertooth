@@ -364,10 +364,12 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-i", "fed", "-d", "fed", directory=work)
     feeder.wait(timeout=RUN_TIMEOUT_S)
     assert result.returncode == 1, result
+    assert result.stdout == "", result
     assert result.stderr == ("error: -d would write over the dump -i is"
                              " replaying (fed)\n"), result
     result = run("-i", "/dev/null", "-d", "/dev/null", directory=work)
     assert result.returncode == 1, result
+    assert result.stdout == "", result
     assert result.stderr == ("error: -d would write over the dump -i is"
                              " replaying (/dev/null)\n"), result
 

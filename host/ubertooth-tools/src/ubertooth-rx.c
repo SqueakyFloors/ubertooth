@@ -706,15 +706,21 @@ static void replay_decode(ubertooth_t* ut, void* args)
  *
  * A lone "-" is this tool's own notation for standard output, so the
  * descriptor is what to look at; there is no name to look up. Every other
- * destination is looked up as written, which is to say that a destination
- * reaching a file through a descriptor the shell opened -- "/dev/fd/3" beside
- * "3>>", and on the BSDs "/dev/stdout" as well -- is not identified: those
- * paths are served by a filesystem of their own, which answers for a file of
- * its own with the real file's inode number. Identifying one without opening
- * it is an unsolved problem, and opening a destination is not free: it ends a
- * named pipe's stream for its reader and lowers a terminal's modem lines on
- * the close. ubertooth-rx(1) states the limit, so a reader is not left
- * thinking it is covered. */
+ * destination is looked up as written, and how far that gets depends on the
+ * system. On Linux the paths that name an open descriptor -- "/dev/stdout",
+ * "/dev/fd/3" beside "3>>" -- are symbolic links to the file itself, so
+ * stat() follows them and the comparison holds. On the BSDs they are served
+ * by a filesystem of their own, which reports the real file's inode number
+ * under a device number of its own, so the comparison misses by the device
+ * half and such a destination is not identified there.
+ *
+ * Closing that would mean identifying the file after the writer has opened it
+ * and before it is truncated, which reaches into how each capture writer opens
+ * its file, two of them in libbtbb. It is not solved here. What must not be
+ * done is to open the destination from here to look at it: that ends a named
+ * pipe's stream for its reader, and the close lowers a terminal's modem
+ * lines. ubertooth-rx(1) states the limit, so a reader is not left thinking it
+ * is covered. */
 static int destination_file(const char* output_name, struct stat* where)
 {
 	if (opt_writes_to_stdout(output_name)) {

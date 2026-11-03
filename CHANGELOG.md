@@ -1099,9 +1099,11 @@
   exit 1, and the capture is left as it was. That covers the other ways of
   naming one file -- `./capture.bin`, a symbolic link, a hard link -- and a
   shell that has pointed standard output at it, `-d - >> capture.bin`, which
-  used to read the records it was appending and never end.
+  used to read the records it was appending and never end. It does not cover a
+  destination the tool cannot see the far end of -- a pipe, or, other than on
+  Linux, a path naming an open descriptor -- and ubertooth-rx(1) says so.
   `ubertooth-btle` refuses a named destination the same way for its own replay,
-  naming its own option.
+  naming its own option; it has no equivalent of the `-` case yet.
   [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130)
 
 - Fixed: a board carrying a bootloader built from this tree could not be
