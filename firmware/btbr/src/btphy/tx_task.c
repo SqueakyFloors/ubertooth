@@ -47,6 +47,12 @@ static struct {
 	 * the radio was not ready for has no end of transmission to wait for,
 	 * so tx_finalize() has to be able to tell the two apart. */
 	int on_air;
+	/* Whether tx_prepare() finished preparing a packet for tx_execute() to
+	 * send. The two go on the scheduler together, so a transmit
+	 * tx_prepare() gives up on leaves a tx_execute() in the next slot that
+	 * cannot be taken back off; tx_execute() turns nothing on while this
+	 * is clear. */
+	int prepared;
 	uint8_t air_data[BYTE_ALIGN(4+54+MAX_ACL_SIZE*12)]; // to contain trailer+header+payload
 	uint8_t *p;
 } tx_task;
@@ -79,6 +85,7 @@ static void tx_fifo_cb(void *arg)
 static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	unsigned len;
+	int rc;
 	uint8_t chan, nslots = 1;
 	uint32_t tx_clkn = btphy_cur_clkn()+1;
 
@@ -134,17 +141,59 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 	if(btphy.mode == BT_MODE_PAGING ){
 		/* Page messages should start and end in the same TDAM slot(clk) as we need to finalize() current one
 		   And prepare() the next one for sending at clk+1 the 2nd page */
-		tdma_schedule(1*nslots, tx_finalize, 0, 0, 0, -2); 
+		rc = tdma_schedule(1*nslots, tx_finalize, 0, 0, 0, -2);
 	}else{
 		/* End of transmission in most packets CAN be in the following TDAM window post-tx. */
-		tdma_schedule(2*nslots, tx_finalize, 0, 0, 0, -3);
+		rc = tdma_schedule(2*nslots, tx_finalize, 0, 0, 0, -3);
 	}
+	if (rc < 0)
+	{
+		/* This packet has no end: the slot that would have ended its
+		 * transmission already holds the four tasks a slot can take,
+		 * which is what a page does to the slot it ends in -- it puts
+		 * tx_execute(), tx_finalize() and the next tx_prepare() there.
+		 * tx_finalize() is what stops the radio, releases the packet
+		 * and reports the completion the caller is waiting on, so this
+		 * is the one context where the completion cannot be left to
+		 * it: unreported, the caller schedules neither its next
+		 * receive nor its next transmit and the link stops forever.
+		 *
+		 * An inquiry or a page response has advanced its hop phase
+		 * above, and there is no way to put a phase back. The packet
+		 * is lost either way and the retransmission the protocol does
+		 * covers it, so the phase is left where it is. */
+		cprintf("TX: cannot schedule end of transmission, packet not sent\n");
+
+		/* The radio is tuned with its synthesizer strobed on by now.
+		 * tx_execute() stays on the scheduler and turns nothing on,
+		 * because `prepared` is never set. */
+		btphy_rf_idle();
+
+		/* Release the packet before reporting it, the order
+		 * tx_finalize() uses: the caller may hand the next packet over
+		 * from its callback. */
+		tx_task_reset();
+		if (tx_task.cb)
+			tx_task.cb(tx_task.cb_arg);
+
+		return 0;
+	}
+
+	tx_task.prepared = 1;
 
 	return 0; 
 }
 
 static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 {
+	if (!tx_task.prepared)
+	{
+		/* tx_prepare() gave this transmit up, and has already said so
+		 * and reported the completion. There is nothing to send. */
+		return 0;
+	}
+	tx_task.prepared = 0;
+
 	if (!FS_TUNED())
 	{
 		/* The synthesizer has not locked in the slot since tx_prepare()
@@ -153,12 +202,7 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 		 * already put on the scheduler: that is what reports the
 		 * completion the caller is waiting on, so the connection goes
 		 * on to its next slot. Reporting it here as well would report
-		 * it twice.
-		 *
-		 * tx_prepare() does not check whether that scheduling
-		 * succeeded, so a scheduler bucket that was already full would
-		 * leave the completion unreported. That is a separate bug, and
-		 * the same one for a slot that does transmit. */
+		 * it twice. */
 		cprintf("TX: synthesizer not locked, packet not sent\n");
 		tx_task.on_air = 0;
 		btphy_rf_idle();
@@ -212,6 +256,7 @@ void tx_task_reset(void)
 {
 	btphy_rf_disable_int();
 	tx_task.on_air = 0;
+	tx_task.prepared = 0;
 	tx_task.user_hdr = NULL;
 	tx_task.user_data = NULL;
 	tx_task.user_fmt = NULL;
