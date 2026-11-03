@@ -226,9 +226,9 @@ static void test_standard_output_is_left_alone(void)
  * device number of its own, so the comparison misses by the device half.
  *
  * Closing that means identifying each destination after it is open and before
- * it is truncated, which is its own piece of work; see
- * https://github.com/SqueakyFloors/ubertooth/issues/1146. These cases pin
- * where the comparison stands today, so widening it cannot pass unnoticed. */
+ * it is truncated, which reaches into how every capture writer opens its file
+ * and is its own piece of work. These cases pin where the comparison stands
+ * today, so widening it cannot pass unnoticed. */
 static void test_descriptor_paths(void)
 {
 	char path[64];
