@@ -285,6 +285,24 @@ with tempfile.TemporaryDirectory() as workdir:
     assert (f"error: cut.bin ends in a partial record: {RECORD_LEN - 10} of "
             f"{RECORD_LEN} bytes, ignored" in result.stderr), result
 
+    # A replay that could not read one whole record leaves no capture behind,
+    # as a refused run does: a PcapNG holding only its 64 KB header looks like
+    # a capture that caught something. The input stays where it is.
+    (work / "stub.bin").write_bytes(FIXTURE[:20])
+    result = run("-p", "-R", "stub.bin", "-q", "left.pcap", "-r",
+                 "left.pcapng", "-d", "left.bin", directory=work)
+    assert result.returncode == 1, result
+    for name in ("left.pcap", "left.pcapng", "left.bin"):
+        assert not (work / name).exists(), (name, sorted(os.listdir(work)))
+    assert (work / "stub.bin").read_bytes() == FIXTURE[:20], result
+
+    # From the first whole record on the files stay, however little of the
+    # input came after it: the replay ran, and what it decoded is the result.
+    (work / "cut2.bin").write_bytes(FIXTURE[:RECORD_LEN + 20])
+    result = run("-p", "-R", "cut2.bin", "-d", "kept.bin", directory=work)
+    assert result.returncode == 1, result
+    assert (work / "kept.bin").read_bytes() == RECORDS[0], result
+
     # An empty file is a clean end of file, not an error.
     (work / "empty.bin").write_bytes(b"")
     result = run("-p", "-R", "empty.bin", directory=work)

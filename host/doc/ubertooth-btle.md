@@ -368,9 +368,10 @@ Logging:
    PCAP to stdout.
  - `-d <output.bin|->` :
    Dump the records as the board sent them, which `-R` replays; see
-   REPLAYING A SAVED CAPTURE. It is the only one of these files that keeps the
-   parameters promiscuous mode recovers, since those records carry no packet
-   for a PCAP writer to take. Use `-` to stream the records to stdout.
+   REPLAYING A SAVED CAPTURE, which also says which records a dump leaves out.
+   It is the only one of these files that keeps the parameters promiscuous
+   mode recovers, since those records carry no packet for a PCAP writer to
+   take. Use `-` to stream the records to stdout.
  - `-c <output.pcap|->` :
    Log to PCAP with PPI (for compatibility with crackle(1)). Use `-` to stream
    binary PCAP to stdout, for example:
@@ -585,11 +586,12 @@ capture written with `-q`, `-c` or `-r` starts from the host time of the first
 packet it decodes and follows the board's clock from there, and `-d` writes
 the records back out with their original times.
 
-A `-d` dump of a replay holds the records this tool would have dumped live,
-which for a dump it wrote itself is every record, byte for byte. Two kinds it
-leaves out, neither of which a dump from current firmware carries: a
-keep-alive, which says a quiet capture is still running and holds no packet,
-and a record whose channel is outside the Bluetooth band.
+A dump holds every record that carries something to decode, which for a dump
+of a dump this tool wrote is all of them, byte for byte. Two kinds are left
+out, live and on a replay alike: a keep-alive, which only says a quiet capture
+is still running and holds no packet, and a record whose channel is outside
+the Bluetooth band. So a dump is a record of what was captured rather than of
+every byte the board sent.
 
 A replay that reaches the end of the file exits 0, including for an empty
 file. These two are reported on standard error and exit 1, after whatever was
@@ -602,6 +604,11 @@ decoded:
 
 A file that cannot be opened at all is reported the same way, before anything
 is decoded: `error: <file>: No such file or directory`, exit 1.
+
+A replay that could not read one whole record takes its own capture files away
+again, so a failed run leaves no empty capture to be told apart from one that
+caught nothing. From the first whole record on they are kept, however little
+of the input came after it.
 
 ## ARGUMENTS
 

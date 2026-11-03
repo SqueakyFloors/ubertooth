@@ -200,6 +200,19 @@ static int release_handle(ubertooth_t* ut, int status)
 	return status;
 }
 
+/* Set once a replay has read a whole record from its input. That is the line
+ * its capture files are kept from, the same line a live capture draws at its
+ * first packet: the replay ran, and what the decoder made of the record is the
+ * result. Before the first record the files hold their headers and nothing
+ * else. */
+static int replay_read_a_record;
+
+static void replay_decode(ubertooth_t* ut, void* args)
+{
+	replay_read_a_record = 1;
+	cb_btle(ut, args);
+}
+
 /* Refuses an output file that is the dump a replay is reading. Every writer
  * here opens its file for writing, which truncates it, so a run given one file
  * for both would empty the dump before reading a record of it -- and a dump is
@@ -737,8 +750,9 @@ int main(int argc, char *argv[])
 	 * straight to stdout.
 	 *
 	 * No writer may be the dump a replay is reading: see
-	 * output_is_the_replay(). Checked here, beside each open, because that
-	 * is where the file to be truncated is known. */
+	 * output_is_the_replay(). Checked here rather than while the command
+	 * line is read, because it takes the open input to identify, and still
+	 * before the first writer opens, so a refused run truncates nothing. */
 	if (output_is_the_replay(pcapng_name, 'r') < 0 ||
 	    output_is_the_replay(pcap_name, pcap_ppi ? 'c' : 'q') < 0 ||
 	    output_is_the_replay(dump_name, 'd') < 0)
@@ -819,8 +833,30 @@ int main(int argc, char *argv[])
 
 		/* A read error or a last record cut short is reported and ends
 		 * the command with an error, after whatever was decoded. */
-		r = stream_rx_file(ut, infile, cb_btle, &cb_opts);
+		r = stream_rx_file(ut, infile, replay_decode, &cb_opts);
 		status = rx_file_report(r, infile_name);
+
+		/* An input no whole record could be read from leaves the
+		 * capture files holding their headers and nothing else, so they
+		 * go the way a refused run's files do: a 64 KB PcapNG holding
+		 * only its header looks like a capture that caught something.
+		 * From the first record on they stay, however little of the
+		 * input came after it. An input read to its end is no failure,
+		 * an empty one included.
+		 *
+		 * Before the writers are closed, because the files go by name
+		 * while those writers still hold them, and whatever a writer
+		 * had buffered then goes nowhere. Which names are left alone --
+		 * a lone "-", a device, a symbolic link -- is
+		 * opt_discard_capture_file()'s decision. */
+		if (status != 0 && !replay_read_a_record) {
+			if (ut->h_pcapng_le != NULL)
+				opt_discard_capture_file(pcapng_name);
+			if (ut->h_pcap_le != NULL)
+				opt_discard_capture_file(pcap_name);
+			if (dumpfile != NULL)
+				opt_discard_capture_file(dump_name);
+		}
 
 		/* A recorded capture carries the losses it was recorded with,
 		 * in the status of its own records, and the replay is where a

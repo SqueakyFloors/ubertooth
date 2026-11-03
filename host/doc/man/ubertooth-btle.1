@@ -201,7 +201,7 @@ Log to PcapNG (preferred)\. PcapNG output cannot be streamed to stdout because t
 Log to PCAP with \fBDLT_BLUETOOTH_LE_LL_WITH_PHDR\fR\. Use \fB\-\fR to stream binary PCAP to stdout\.
 .TP
 \fB\-d <output\.bin|\->\fR
-Dump the records as the board sent them, which \fB\-R\fR replays; see REPLAYING A SAVED CAPTURE\. It is the only one of these files that keeps the parameters promiscuous mode recovers, since those records carry no packet for a PCAP writer to take\. Use \fB\-\fR to stream the records to stdout\.
+Dump the records as the board sent them, which \fB\-R\fR replays; see REPLAYING A SAVED CAPTURE, which also says which records a dump leaves out\. It is the only one of these files that keeps the parameters promiscuous mode recovers, since those records carry no packet for a PCAP writer to take\. Use \fB\-\fR to stream the records to stdout\.
 .TP
 \fB\-c <output\.pcap|\->\fR
 Log to PCAP with PPI (for compatibility with crackle(1))\. Use \fB\-\fR to stream binary PCAP to stdout, for example:
@@ -289,7 +289,7 @@ None of those capture files may be the dump being replayed: each is opened for w
 .P
 The times reported are the recorded ones, not the time of the replay\. The \fBsystime\fR of each packet line is the host time stored with that record, a capture written with \fB\-q\fR, \fB\-c\fR or \fB\-r\fR starts from the host time of the first packet it decodes and follows the board's clock from there, and \fB\-d\fR writes the records back out with their original times\.
 .P
-A \fB\-d\fR dump of a replay holds the records this tool would have dumped live, which for a dump it wrote itself is every record, byte for byte\. Two kinds it leaves out, neither of which a dump from current firmware carries: a keep\-alive, which says a quiet capture is still running and holds no packet, and a record whose channel is outside the Bluetooth band\.
+A dump holds every record that carries something to decode, which for a dump of a dump this tool wrote is all of them, byte for byte\. Two kinds are left out, live and on a replay alike: a keep\-alive, which only says a quiet capture is still running and holds no packet, and a record whose channel is outside the Bluetooth band\. So a dump is a record of what was captured rather than of every byte the board sent\.
 .P
 A replay that reaches the end of the file exits 0, including for an empty file\. These two are reported on standard error and exit 1, after whatever was decoded:
 .TP
@@ -300,6 +300,8 @@ a last record cut short
 \fBerror: <file> ends in a partial record: 58 of 68 bytes, ignored\fR
 .P
 A file that cannot be opened at all is reported the same way, before anything is decoded: \fBerror: <file>: No such file or directory\fR, exit 1\.
+.P
+A replay that could not read one whole record takes its own capture files away again, so a failed run leaves no empty capture to be told apart from one that caught nothing\. From the first whole record on they are kept, however little of the input came after it\.
 .SH "ARGUMENTS"
 \fBubertooth\-btle\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P

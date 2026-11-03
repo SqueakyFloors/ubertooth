@@ -1938,6 +1938,17 @@ MU_TEST(a_replay_refuses_the_options_that_need_a_board)
 		mu_assert_int_eq(0, fake.connects);
 	}
 
+	/* -A never works with -p, replay or not, so that is what the refusal
+	 * says: the replay's own refusals run after it, or a user would fix
+	 * the board option and meet the mode clash on the next run. */
+	reset_fake();
+	r = RUN("-p", "-R", REPLAY_FILE, "-A", "38");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strcmp(r.err, "error: -A does not go with -p: promiscuous"
+	          " mode listens on the channel the board is holding\n") == 0,
+	          r.err);
+	mu_assert_int_eq(0, fake.replays);
+
 	remove(REPLAY_FILE);
 }
 
