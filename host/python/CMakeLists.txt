@@ -126,12 +126,12 @@ set_tests_properties(ubtbr PROPERTIES TIMEOUT 300)
 # without the firmware tree beside it, so the entry appears only when that
 # tree is there, as the matrix test below does for the tools' spec.
 #
-# The condition is the firmware tree itself and not one of the files read, so
-# that a file renamed or moved fails the test rather than taking it off the
-# list.
+# The condition is the firmware tree itself and not one of the files read or
+# a directory under it, so that anything renamed or moved inside it fails the
+# test rather than taking it off the list.
 get_filename_component(UBERTOOTH_SOURCE_ROOT
 	"${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
-if(EXISTS "${UBERTOOTH_SOURCE_ROOT}/firmware/btbr")
+if(EXISTS "${UBERTOOTH_SOURCE_ROOT}/firmware")
 	add_test(NAME ubtbr-tx-format-tables
 		COMMAND ${Python3_EXECUTABLE}
 			${CMAKE_CURRENT_SOURCE_DIR}/ubtbr/tests/test_tx_format_tables.py
