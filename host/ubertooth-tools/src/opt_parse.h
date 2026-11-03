@@ -151,6 +151,39 @@ int opt_writes_to_stdout(const char *filename);
 int opt_check_capture_destination(const char *filename, const char *what);
 
 /*
+ * One capture destination, as the command line gave it, for the check below.
+ */
+typedef struct {
+	const char *option; /* how the user writes it, for example "-q" */
+	const char *name;   /* its value, NULL where it was not given */
+} opt_capture_dest;
+
+/*
+ * One file per capture. Every capture writer opens its own destination for
+ * writing, which truncates whatever another has put there, so a run given one
+ * name twice keeps one format and loses the rest without a word.
+ *
+ * Pass every capture destination of the run. Returns 0, or prints one
+ * "error: " line naming the two options that clashed and returns -1. Call it
+ * once the capture options are parsed and before any destination is opened,
+ * so a refused run creates and truncates nothing.
+ *
+ * Two names are one file when the text says so, allowing the redundant
+ * separators and "." elements a path may carry ("./cap.bin" beside
+ * "cap.bin"), or when both already exist and have the same device and inode
+ * number, which catches a symbolic link and a hard link. Two different
+ * spellings of a file that does not exist yet are not caught: telling those
+ * apart needs each destination identified after it is open and before it is
+ * truncated, which reaches into how every writer opens its file.
+ *
+ * A destination opt_writes_to_stdout() recognizes is left out: two captures
+ * asking for that stream are the one-capture-on-standard-output rule's, which
+ * each tool states in its own words.
+ */
+int opt_check_destinations_differ(const opt_capture_dest *destinations,
+                                 size_t count);
+
+/*
  * Where a capture option's value says to write, standard output being any
  * value opt_writes_to_stdout() recognizes (ubertooth(7), OPTION VALUES).
  *

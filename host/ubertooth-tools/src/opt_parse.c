@@ -289,20 +289,25 @@ static const char *next_component(const char **at, size_t *len)
  * /dev/stdout points at this moment -- rather than which descriptor the user
  * named. ".." is left alone for the same reason: the element above a symbolic
  * link is not the directory the text suggests. */
+/* Whether a path ends inside the name before it: a trailing separator or "."
+ * element asks for something within that name, and nothing a capture option
+ * names is a directory. The platform decides what opening such a name does;
+ * the comparisons below only decline to call it the same file as anything. */
+static int ends_inside_a_name(const char *path)
+{
+	size_t length = strlen(path);
+
+	if (length == 0 || path[length - 1] == '/')
+		return 1;
+	return length >= 2 && path[length - 1] == '.' && path[length - 2] == '/';
+}
+
 static int names_same_file(const char *path, const char *name)
 {
 	size_t path_len = 0, name_len = 0;
-	size_t length = strlen(path);
 	const char *a, *b;
 
-	/* A path that ends in a separator or a "." element asks for something
-	 * inside the name before it, and neither of these is a directory, so
-	 * "/dev/stdout/" and "/dev/stdout/." are not it. The platform decides
-	 * what opening such a name does; this only declines to call it
-	 * standard output. */
-	if (length == 0 || path[length - 1] == '/')
-		return 0;
-	if (length >= 2 && path[length - 1] == '.' && path[length - 2] == '/')
+	if (ends_inside_a_name(path))
 		return 0;
 	/* Every name above is absolute, so "dev/stdout" in the working
 	 * directory is an ordinary file of that name. */
@@ -339,6 +344,97 @@ int opt_check_capture_destination(const char *filename, const char *what)
 {
 	if (opt_writes_to_stdout(filename))
 		return opt_check_stdout_not_tty(what);
+	return 0;
+}
+
+/* Whether two paths the user wrote name one directory entry by their text
+ * alone, allowing the redundant separators and "." elements a path may carry
+ * ("./cap.bin" beside "cap.bin"). The text is all there is to go on for a
+ * destination that does not exist yet, which is the ordinary case for a
+ * capture file.
+ *
+ * A relative path is not resolved against the working directory and ".." is
+ * not reduced, because the element above a symbolic link is not the directory
+ * the text suggests. Paths that disagree about either are left to the device
+ * and inode comparison below. */
+static int same_path_text(const char *first, const char *second)
+{
+	size_t first_len = 0, second_len = 0;
+	const char *a, *b;
+
+	if ((first[0] == '/') != (second[0] == '/'))
+		return 0;
+	if (ends_inside_a_name(first) || ends_inside_a_name(second))
+		return strcmp(first, second) == 0;
+
+	for (;;) {
+		a = next_component(&first, &first_len);
+		b = next_component(&second, &second_len);
+		if (a == NULL || b == NULL)
+			return a == NULL && b == NULL;
+		if (first_len != second_len || memcmp(a, b, first_len) != 0)
+			return 0;
+	}
+}
+
+/* Whether two capture destinations are one file. */
+static int same_destination(const char *first, const char *second)
+{
+	struct stat first_file, second_file;
+
+	if (same_path_text(first, second))
+		return 1;
+	/* Both names already exist, so the files behind them can be compared,
+	 * which catches a symbolic link, a hard link, and two spellings of one
+	 * path that the text comparison does not reduce. Looking a name up
+	 * costs it nothing; opening one to learn more would, because an open
+	 * blocks until a reader arrives on a named pipe and lowers a serial
+	 * device's modem lines when it is closed, so no destination is opened
+	 * here. */
+	if (stat(first, &first_file) != 0 || stat(second, &second_file) != 0)
+		return 0;
+	return first_file.st_dev == second_file.st_dev &&
+	       first_file.st_ino == second_file.st_ino;
+}
+
+int opt_check_destinations_differ(const opt_capture_dest *destinations,
+                                 size_t count)
+{
+	size_t i, j;
+
+	if (destinations == NULL)
+		return 0;
+	for (i = 0; i < count; i++) {
+		const char *first = destinations[i].name;
+
+		/* A destination that names standard output belongs to the
+		 * one-capture-on-standard-output rule, which already refuses a
+		 * second one however the two are spelled. */
+		if (first == NULL || opt_writes_to_stdout(first))
+			continue;
+		for (j = i + 1; j < count; j++) {
+			const char *second = destinations[j].name;
+
+			if (second == NULL || opt_writes_to_stdout(second))
+				continue;
+			if (!same_destination(first, second))
+				continue;
+			/* Both options are named, so the user can see which two
+			 * clashed, and so is the name each was given where the
+			 * two differ: one path reached through another is not
+			 * obvious from either on its own. */
+			if (strcmp(first, second) == 0)
+				fprintf(stderr, "error: %s and %s cannot both write"
+				        " to %s\n", destinations[i].option,
+				        destinations[j].option, first);
+			else
+				fprintf(stderr, "error: %s and %s cannot both write"
+				        " to one file (%s and %s)\n",
+				        destinations[i].option,
+				        destinations[j].option, first, second);
+			return -1;
+		}
+	}
 	return 0;
 }
 

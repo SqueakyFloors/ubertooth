@@ -162,7 +162,10 @@ PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse that value and say what
 to use instead; `-r /dev/stdout` is refused as well, as a name that already
 exists. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
-report there.
+report there. A file name cannot be shared between two capture options either:
+each writer opens its own destination for writing, which truncates whatever
+another has put there, so a run that names one file twice is refused before
+any of them is opened, naming both options.
 
 Options can be written together behind one dash (`-f -n` is `-fn`), so a stray
 dash inside such a word is a letter the tools do not have. The refusal names
