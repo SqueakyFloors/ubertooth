@@ -140,27 +140,25 @@ u16 cc2400_get(u8 reg)
 	return 0;
 }
 
-/* The watchdog breadcrumb and the give-up count the state machine wait writes.
- * The count is the one ubertooth-util -w reports as a radio that never
- * answered. */
-static uint8_t fake_live_site;
+/* The give-up count the state machine wait writes: the one ubertooth-util -w
+ * reports as a radio that never answered. */
 static unsigned fake_fsm_timeouts;
-/* How many waits were entered at all. The site itself is restored when a wait
- * returns, so after the fact it says nothing. */
+/* How many waits were entered at all. The watchdog's record of which wait is
+ * running is restored when a wait returns, so after the fact it says nothing;
+ * this says whether the firmware ever told the watchdog it was about to
+ * wait. */
 static unsigned fake_waits_marked;
 
 uint8_t watchdog_mark_wait(uint8_t site)
 {
-	uint8_t previous = fake_live_site;
-
+	(void)site;
 	fake_waits_marked++;
-	fake_live_site = site;
-	return previous;
+	return WATCHDOG_SITE_NONE;
 }
 
 void watchdog_leave_wait(uint8_t site)
 {
-	fake_live_site = site;
+	(void)site;
 }
 
 void cc2400_wait_count_timeout(enum cc2400_wait_shape shape)
@@ -188,9 +186,6 @@ void btphy_rf_enable_int(btbr_int_cb_t cb, void *cb_arg, int tx)
 }
 
 void btphy_rf_disable_int(void) { }
-
-void *mem_pool_alloc(unsigned size) { (void)size; return NULL; }
-void mem_pool_free(void *p) { (void)p; }
 
 uint8_t btphy_whiten_seed(uint32_t clk) { (void)clk; return 0; }
 
@@ -326,7 +321,6 @@ static void a_board(int mode)
 	fake_srfoff_strobes = 0;
 	fake_int_enables = 0;
 	fake_fsm_timeouts = 0;
-	fake_live_site = WATCHDOG_SITE_NONE;
 	fake_waits_marked = 0;
 	fillers_run = 0;
 	console_len = 0;

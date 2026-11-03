@@ -1080,9 +1080,11 @@
   `tdma_schedule bucket overflow` and carried on: the radio was left
   transmitting, the packet the link had handed over stayed held, and nothing
   told the link the slot was over, so it scheduled neither its next receive nor
-  its next transmit. A connection's next packet then stopped the firmware. It
-  now says the packet was not sent, stops the radio, gives the packet back, and
-  reports the failed transmit, so the link carries on.
+  its next transmit and went silent. On the page response it stopped the
+  firmware instead, because there the next packet is scheduled from a receive
+  that still arrives. It now says the packet was not sent, stops the radio,
+  gives the packet back, and reports the failed transmit, so the link carries
+  on.
   [#1139](https://github.com/SqueakyFloors/ubertooth/issues/1139)
 
 - Fixed: when the `btbr` image's radio had not tuned in time for a transmit

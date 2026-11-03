@@ -50,7 +50,8 @@ static struct {
 	/* Whether tx_prepare() finished preparing a packet for tx_execute() to
 	 * send. The two go on the scheduler together, so a transmit
 	 * tx_prepare() gives up on leaves a tx_execute() in the next slot that
-	 * cannot be taken back off; it does nothing when this is clear. */
+	 * cannot be taken back off; tx_execute() turns nothing on while this
+	 * is clear. */
 	int prepared;
 	uint8_t air_data[BYTE_ALIGN(4+54+MAX_ACL_SIZE*12)]; // to contain trailer+header+payload
 	uint8_t *p;
