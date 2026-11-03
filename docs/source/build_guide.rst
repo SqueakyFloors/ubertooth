@@ -140,7 +140,7 @@ It also prints one line saying which libbtbb it found, the commit that library w
 
 	.. code-block:: text
 
-		-- libbtbb: /usr/local/lib/libbtbb.so, built from commit 09b9512, which is the commit this tree is built against (09b951221c208cfdba82995c1b3098727992bd45)
+		-- libbtbb: /usr/local/lib/libbtbb.so, built from commit 5c4e535, which is the commit this tree is built against (5c4e535968b58db2f28e2f3bce0f02ca1c02b03e)
 
 A libbtbb built from a git clone records the commit it came from, and the configure step reads that back out of the library. Where the two commits differ the line says both and a warning follows it, because the tools behave the way the libbtbb they link behaves: a capture or a clock measured against them is then a result for that libbtbb rather than for the pinned one. The build is not stopped on that account. A libbtbb installed from a distribution package, or built from a source archive rather than a clone, records no commit; the line says so and names the pin.
 
