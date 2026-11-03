@@ -537,6 +537,13 @@ int main(int argc, char *argv[])
 
 	btbb_init_piconet(pn, lap);
 	btbb_piconet_set_uap(pn, uap);
+	/* Kept for the callback, which puts it back whenever the library stops
+	 * holding it. Every way this tool gets a UAP -- -t, -u, or the local
+	 * adapter's own address -- is a UAP it was told, not one worked out
+	 * from the air, so a header that fails to decode is no evidence
+	 * against it. */
+	ut->follow_uap = uap;
+	ut->follow_uap_stated = 1;
 
 	if (!remote_target) {
 		fprintf(stderr, "LAP=%06x UAP=%02x\n", lap, uap);

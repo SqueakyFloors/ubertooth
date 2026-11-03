@@ -1144,6 +1144,15 @@
   itself still gives it up, and its line reads `searching for its clock and UAP
   again`.
 
+- Fixed: `ubertooth-follow` threw away the UAP it was given with every clock it
+  stopped following, and worked the UAP out from the air again, which takes
+  packets and can settle on a wrong value. However the target was named -- by
+  `-t`, by `-l` with `-u`, or by the local Bluetooth device when no target is
+  given -- the UAP is now put back, and the line says which one the tool is
+  holding you to: `warning: the clock being followed was not this piconet's;
+  searching for its clock again, and putting UAP 0d back`.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
   one second after a connection that came to nothing, with most of the time
   the user asked for unused. A pager cannot tell the ID packet that
