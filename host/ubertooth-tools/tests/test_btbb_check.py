@@ -205,6 +205,12 @@ def main():
         if old_include not in output:
             fail("the refusal does not say which libbtbb was found:\n%s"
                  % output)
+        # The module's own report of which libbtbb this is comes before the
+        # check, so a configure that ends here still has it in the log. A
+        # reader of a failed configure needs the library it was about.
+        if "libbtbb: " not in output:
+            fail("a configure that fails this check does not report which "
+                 "libbtbb was found:\n%s" % output)
         ref = pinned_ref(repo_root)
         if ref is None:
             print("no .github/workflows/build.yml here; not checking that the "

@@ -33,6 +33,11 @@ PROBE_GUARD = "LIBBTBB_FUNCTIONS_CHECKED"
 # the probe, so a case that no longer skips it is told apart from one that did.
 PROBE = "LIBBTBB_HAS_REQUIRED_FUNCTIONS"
 
+# How many printable bytes to put in front of the release string for the
+# long-run cases: each one is a few bytes short of a power-of-two boundary, so
+# the string lies across it.
+LONG_RUN_OFFSETS = (4090, 8186, 16378)
+
 PROJECT = """\
 cmake_minimum_required(VERSION 3.5...3.27)
 project(btbb_pin_report_test NONE)
@@ -84,18 +89,23 @@ def pinned_ref(repo_root):
     return found.group(1)
 
 
-def library(work, name, *releases):
+def library(work, name, *releases, padding=0):
     """A file holding the release strings a libbtbb would hold, and nothing else.
 
     Each string is surrounded the way it is in a real library: the bytes
     around it are whatever the compiler put there, so the run of printable
     text the string sits in carries other characters too, and a NUL ends it.
+
+    padding puts that many printable bytes in front of each string, so the
+    string sits deep inside one long run rather than next to a NUL. See
+    LONG_RUN_OFFSETS.
     """
     path = os.path.join(work, name)
     with open(path, "wb") as handle:
         handle.write(b"btbb_get_release\0")
         for release in releases:
-            handle.write(b"\t" + release.encode("ascii") + b"\0")
+            handle.write(b"A" * padding + b"\t"
+                         + release.encode("ascii") + b"\0")
         handle.write(b"1.3\0")
     return path
 
@@ -134,13 +144,17 @@ def main():
         cases = (
             # name, release strings in the library, must warn, wording the
             # report has to carry
-            ("pinned", ["git-%s" % short], False, [short]),
+            ("pinned", ["git-%s" % short], False, ["built from commit %s" % short]),
             # The commit as git may abbreviate it in capitals, which must read
             # as the same commit and not as another one.
-            ("pinned-upper", ["git-%s" % short.upper()], False, [short]),
-            ("other-commit", ["git-%s" % other], True, [short, other]),
+            # The commit is echoed as the library records it; only the
+            # comparison against the pin folds case.
+            ("pinned-upper", ["git-%s" % short.upper()], False,
+             ["built from commit %s" % short.upper()]),
+            ("other-commit", ["git-%s" % other], True,
+             ["built from commit %s" % other]),
             ("modified", ["git-%s*" % short], True,
-             [short, "uncommitted changes"]),
+             ["built from commit %s with uncommitted changes" % short]),
             # Nothing a commit can be read from. No warning: a libbtbb from a
             # distribution package looks like this and may be fine.
             ("no-commit", [], False, ["commit unknown"]),
@@ -190,11 +204,58 @@ def main():
             if must_warn and "git checkout %s" % ref not in output:
                 fail("the %s case does not say how to install the pinned "
                      "libbtbb:\n%s" % (name, output))
-            # A commit that cannot be read must not be reported as one that
-            # can, whatever was in the library.
+            # Neither answer may be given as the other: a commit that cannot
+            # be read must not be reported as one that can, and a commit the
+            # library does record must not come out as unknown. The pin is a
+            # superstring of its own abbreviation, so a line saying "commit
+            # unknown" still carries it and an assertion on the abbreviation
+            # alone would pass here.
             if "commit unknown" in wanted and "built from commit" in output:
                 fail("the %s case names a commit it cannot have read:\n%s"
                      % (name, output))
+            if "commit unknown" not in wanted and "commit unknown" in output:
+                fail("the %s case cannot read the commit its library "
+                     "records:\n%s" % (name, output))
+
+        # The pinned library again, with its string deep inside one long run
+        # of printable bytes. A reader that bounds how long a run it will
+        # look at loses the string that straddles its boundary and reports no
+        # commit, which is the silence this whole report is here to remove.
+        # Each offset puts the string across one of the boundaries such a
+        # bound would fall on.
+        for offset in LONG_RUN_OFFSETS:
+            name = "long-run-%d" % offset
+            path = library(work, "libbtbb-%s.bin" % name, "git-%s" % short,
+                           padding=offset)
+            status, output = configure(cmake, source,
+                                       os.path.join(work, "build-%s" % name),
+                                       include_dir, path)
+            if status != 0:
+                fail("the %s libbtbb was refused:\n%s" % (name, output))
+            if "built from commit %s" % short not in output:
+                fail("a commit %d printable bytes into one run is not read, "
+                     "so a library whose string sits in a long run of data "
+                     "reports no commit:\n%s" % (offset, output))
+
+        # Two find_package(BTBB) calls, which is what a tree with several
+        # subdirectories does, must report once: the line is read by a person,
+        # and a report per call would be noise they learn to skip.
+        twice = os.path.join(work, "twice")
+        os.mkdir(twice)
+        with open(os.path.join(twice, "CMakeLists.txt"), "w",
+                  encoding="utf-8") as handle:
+            handle.write(PROJECT % {"modules": modules,
+                                    "probe_guard": PROBE_GUARD})
+            handle.write("find_package(BTBB REQUIRED)\n")
+        path = library(work, "libbtbb-twice.bin", "git-%s" % short)
+        status, output = configure(cmake, twice,
+                                   os.path.join(work, "build-twice"),
+                                   include_dir, path)
+        if status != 0:
+            fail("two find_package(BTBB) calls were refused:\n%s" % output)
+        if output.count("libbtbb: %s" % path) != 1:
+            fail("two find_package(BTBB) calls report %d times, not once:\n%s"
+                 % (output.count("libbtbb: %s" % path), output))
 
         # A LIBBTBB_LIBRARIES the user set to a bare link name: there is no
         # file to read, which is a different answer from a library that

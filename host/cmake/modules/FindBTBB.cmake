@@ -159,14 +159,23 @@ function(btbb_library_commit out reason)
 
   # Seven hex digits at least, written out because CMake's regular
   # expressions have no repetition count: a shorter match would be compared
-  # against the pin on too few characters to mean anything.
+  # against the pin on too few characters to mean anything. Not anchored, and
+  # the hex digits are matched greedily, so the pattern also matches a commit
+  # with text or more hex run up against it; that costs a candidate that is
+  # then one of several, never a wrong commit reported as the only one.
   set(hex "[0-9a-fA-F]")
   set(pattern "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
 
   # Each run of printable bytes holding the pattern, then the pattern out of
   # each run. Two steps because the pattern cannot be anchored: libbtbb's
   # string sits in the library next to whatever the compiler put beside it.
-  file(STRINGS "${library}" runs REGEX "${pattern}" LENGTH_MAXIMUM 4096)
+  #
+  # No LENGTH_MAXIMUM, which would lose the commit rather than save work: a
+  # run longer than the limit is dropped, so a library with one long stretch
+  # of printable bytes around libbtbb's string would report no commit at all,
+  # which is the silence this whole report exists to remove. Reading a 34 MB
+  # library costs under a second, and libbtbb installs at about 250 KB.
+  file(STRINGS "${library}" runs REGEX "${pattern}")
   set(candidates "")
   foreach(run IN LISTS runs)
     string(REGEX MATCHALL "${pattern}" matches "${run}")

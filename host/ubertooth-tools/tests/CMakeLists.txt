@@ -1425,9 +1425,10 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_btbb_pin_report.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-# Eight configures of a project with no languages in it, which needs no
-# compiler: 4 s here. The limit has room for a cold CI runner.
-set_tests_properties(btbb-pin-report PROPERTIES TIMEOUT 60)
+# Twelve configures of a project with no languages in it, which needs no
+# compiler: 5 s here on an idle machine and 16 s alongside the rest of the
+# suite. The limit has room for a cold CI runner on top of that.
+set_tests_properties(btbb-pin-report PROPERTIES TIMEOUT 120)
 
 # FindUSB1.cmake must report every directory a source needs for libusb's
 # header, so a target asks libusb for it rather than depending on where
