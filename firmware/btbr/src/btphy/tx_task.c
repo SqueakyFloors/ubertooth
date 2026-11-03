@@ -147,13 +147,18 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	if (!FS_TUNED())
 	{
-		/* The synthesizer has not locked in the slot since
-		 * tx_prepare() strobed it on, so this packet cannot go out.
-		 * Stop the radio
-		 * and leave the slot to tx_finalize(), which tx_prepare()
-		 * already scheduled: that is what reports the completion the
-		 * caller is waiting on, so the connection goes on to its next
-		 * slot. Reporting it here as well would report it twice. */
+		/* The synthesizer has not locked in the slot since tx_prepare()
+		 * strobed it on, so this packet cannot go out. Stop the radio
+		 * and leave the slot to tx_finalize(), which tx_prepare() has
+		 * already put on the scheduler: that is what reports the
+		 * completion the caller is waiting on, so the connection goes
+		 * on to its next slot. Reporting it here as well would report
+		 * it twice.
+		 *
+		 * tx_prepare() does not check whether that scheduling
+		 * succeeded, so a scheduler bucket that was already full would
+		 * leave the completion unreported. That is a separate bug, and
+		 * the same one for a slot that does transmit. */
 		cprintf("TX: synthesizer not locked, packet not sent\n");
 		tx_task.on_air = 0;
 		btphy_rf_idle();
@@ -212,6 +217,12 @@ void tx_task_reset(void)
 	tx_task.user_fmt = NULL;
 	tx_task.user_data_bytes = 0;
 	tx_task.p = NULL;
+	/* Only tx_fifo_cb() counts this down, and a packet that never went on
+	 * the air never ran it. Left standing, it tells the next transmit that
+	 * there are bytes to push from a buffer pointer that has just been
+	 * cleared, and the transmits that carry no header of their own -- the
+	 * paging and inquiry ID packets -- do not set it again. */
+	tx_task.data_size = 0;
 }
 
 void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,

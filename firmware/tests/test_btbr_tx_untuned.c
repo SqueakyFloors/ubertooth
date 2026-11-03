@@ -464,6 +464,37 @@ MU_TEST(test_an_untuned_transmit_does_not_wait_for_the_radio)
 	mu_assert_int_eq(WATCHDOG_SITE_NONE, fake_live_site);
 }
 
+/*
+ * The count of bytes still to push into the radio is given back too. Only the
+ * radio's own interrupt counts it down, and an untuned slot never arms that
+ * interrupt, so the count would be left standing beside a buffer pointer that
+ * has been cleared. The next transmit that carries no header of its own -- a
+ * paging or inquiry ID packet, which is exactly what a failed page sends next
+ * -- does not set the count again, so it would push from that cleared pointer
+ * and stop the firmware.
+ */
+MU_TEST(test_an_untuned_transmit_leaves_no_bytes_for_the_next_packet)
+{
+	int i;
+
+	a_board_whose_synthesizer_locks(0);
+
+	one_transmit();
+
+	mu_assert_int_eq(0, (int)tx_task.data_size);
+
+	/* So a headerless packet sent next -- this one on a radio that does
+	 * tune, so that it reaches the point where the count is read -- asks
+	 * the radio for no bytes. */
+	fake_fs_locked = 1;
+	tx_task_schedule(0, count_completion, &a_header, NULL, NULL);
+	for (i = 0; i < 4; i++)
+		a_slot();
+
+	mu_assert_int_eq(0, (int)fake_int_enables);
+	mu_assert_int_eq(2, (int)completions);
+}
+
 /* The wait is still there for a transmit that did go out: that one has an end
  * on the air to wait for. */
 MU_TEST(test_a_transmit_that_goes_out_is_still_waited_for)
@@ -489,6 +520,7 @@ int main(void)
 	MU_RUN(test_an_untuned_transmit_gives_the_packet_back);
 	MU_RUN(test_a_link_goes_on_to_its_next_slot_after_an_untuned_transmit);
 	MU_RUN(test_an_untuned_transmit_does_not_wait_for_the_radio);
+	MU_RUN(test_an_untuned_transmit_leaves_no_bytes_for_the_next_packet);
 	MU_RUN(test_a_transmit_that_goes_out_is_still_waited_for);
 	return mu_report();
 }
