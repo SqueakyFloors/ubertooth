@@ -122,9 +122,9 @@ set_tests_properties(ubtbr PROPERTIES TIMEOUT 300)
 # The two descriptions of each basic-rate transmit format saying the same
 # thing: TX_FORMATS in ubtbr/btctl.py, which bounds a tx command here, and the
 # firmware's own tables, which bound it on the device. Source is all it reads,
-# so it takes a fraction of a second and needs no board. The firmware tree is
-# not there when host/ is configured on its own, so the entry appears only
-# when it is, as the matrix test above does for the tools' spec.
+# so it takes a fraction of a second and needs no board. host/ can be used
+# without the firmware tree beside it, so the entry appears only when that
+# tree is there, as the matrix test below does for the tools' spec.
 #
 # The condition is the firmware tree itself and not one of the files read, so
 # that a file renamed or moved fails the test rather than taking it off the
