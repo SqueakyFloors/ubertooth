@@ -40,7 +40,9 @@ struct tdma_scheduler {
 int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb,
                   uint8_t p1, uint8_t p2, uint16_t p3, int16_t prio);
 
-/* Schedule a set of items starting from 'frame_offset' TDMA frames in the future */
+/* Schedule a set of items starting from 'frame_offset' TDMA frames in the
+ * future. Returns how many items were placed: the whole set, or fewer when a
+ * frame it needed was already full. Zero means nothing of the set will run. */
 int tdma_schedule_set(uint8_t frame_offset, const struct tdma_sched_item *item_set, uint16_t p3);
 
 /* Execute pre-scheduled events for current frame */

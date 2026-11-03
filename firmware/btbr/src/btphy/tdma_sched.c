@@ -74,14 +74,16 @@ int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb,
 	return 0;
 }
 
-/* Schedule a set of items starting from 'frame_offset' TDMA frames in the future */
+/* Schedule a set of items starting from 'frame_offset' TDMA frames in the
+ * future. Returns how many items were placed: the whole set, or fewer when a
+ * frame it needed was already full. Zero means nothing of the set will run. */
 int tdma_schedule_set(uint8_t frame_offset, const struct tdma_sched_item *item_set, uint16_t p3)
 {
 	struct tdma_scheduler *sched = &tdma_sched;
 	uint8_t bucket_nr = wrap_bucket(frame_offset);
-	int i, j;
+	int i, placed = 0;
 
-	for (i = 0, j = 0; 1; i++) {
+	for (i = 0; 1; i++) {
 		const struct tdma_sched_item *sched_item = &item_set[i];
 		struct tdma_sched_bucket *bucket = &sched->bucket[bucket_nr];
 
@@ -93,21 +95,21 @@ int tdma_schedule_set(uint8_t frame_offset, const struct tdma_sched_item *item_s
 		if (sched_item->cb == NULL) {
 			/* advance to next bucket (== TDMA frame) */
 			bucket_nr = wrap_bucket(++frame_offset);
-			j++;
 			continue;
 		}
 		/* check for bucket overflow */
 		if (bucket->num_items >= ARRAY_SIZE(bucket->item)) {
 			cprintf("tdma_schedule bucket overflow\n");
-			return -1;
+			return placed;
 		}
 		/* copy the item from the set into the current bucket item position */
 		memcpy(&bucket->item[bucket->num_items], sched_item, sizeof(*sched_item));
 		bucket->item[bucket->num_items].p3 = p3;
 		bucket->num_items++;
+		placed++;
 	}
 
-	return j;
+	return placed;
 }
 
 /* Advance TDMA scheduler to the next bucket */
