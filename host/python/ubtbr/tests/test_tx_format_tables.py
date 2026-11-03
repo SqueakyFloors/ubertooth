@@ -223,9 +223,10 @@ def define_number(text, name, where):
 # taken out: a change to the rule fails here and says to bring it across.
 LIMITS_RULE = (
     "*max_data = t->payload_bytes; "
-    "if (t->payload_header_bytes != 0) { *min_data = 0; } "
-    "else if (t->has_crc) { *min_data = 1; } "
-    "else { *min_data = *max_data; }"
+    "switch (t->length_kind) { "
+    "case BB_LEN_HEADER: *min_data = 0; break; "
+    "case BB_LEN_NEGOTIATED: *min_data = 1; break; "
+    "case BB_LEN_FIXED: default: *min_data = *max_data; break; }"
 )
 
 
@@ -270,14 +271,24 @@ def tx_layout_reference(name, entry):
     return parts[1]
 
 
-def device_limits(layout):
-    """The data bytes a format accepts, as the device decides it."""
+def device_limits(layout, name):
+    """The data bytes a format accepts, as the device decides it.
+
+    The format states where its data length comes from, and that is what
+    decides the range: the length is in the payload header, or agreed when the
+    link was set up, or the one the type always has.
+    """
     biggest = layout["payload_bytes"]
-    if layout["payload_header_bytes"] != 0:
+    kind = layout["length_kind"]
+    if kind == "BB_LEN_HEADER":
         return 0, biggest
-    if layout["has_crc"]:
+    if kind == "BB_LEN_NEGOTIATED":
         return 1, biggest
-    return biggest, biggest
+    if kind == "BB_LEN_FIXED":
+        return biggest, biggest
+    fail("bbcodec_tx_formats[%s] gives its length_kind as %r, which is not "
+         "one of bbcodec_length_t's members, so what the device allows "
+         "cannot be worked out" % (name, kind))
 
 
 def device_formats(root):
@@ -341,7 +352,7 @@ def device_formats(root):
             if not isinstance(air.get(field), int):
                 fail("bbcodec_tx_formats[%s] gives %s as %r, not a number"
                      % (name, field, air.get(field)))
-        least, most = device_limits(air)
+        least, most = device_limits(air, name)
         formats[name] = {
             "slots": air["nslots"],
             "min": least,

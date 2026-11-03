@@ -29,16 +29,16 @@
 #include <ubtbr/btphy.h>
 
 const bbcodec_types_t bbcodec_acl_types[16] = {
-/* 				ns   	hlen 	plen 	fec		crc	voice	*/
-	[BB_TYPE_NULL]	= {	1,	0,	0,	BB_FEC_NONE,	0,	0},
-	[BB_TYPE_POLL]	= {	1,	0,	0,	BB_FEC_NONE,	0,	0},
-	[BB_TYPE_FHS]	= {	1,	0,	18,	BB_FEC_23,	1,	0},
-	[BB_TYPE_DM1]	= {	1,	1,	17,	BB_FEC_23,	1,	0},
-	[BB_TYPE_DH1]	= {	1,	1,	27,	BB_FEC_NONE,	1,	0},
-	[BB_TYPE_DM3]	= {	3,	2,	121,	BB_FEC_23,	1,	0},
-	[BB_TYPE_DH3]	= {	3,	2,	183,	BB_FEC_NONE,	1,	0},
-	[BB_TYPE_DM5]	= {	5,	2,	224,	BB_FEC_23,	1,	0},
-	[BB_TYPE_DH5]	= {	5,	2,	339,	BB_FEC_NONE,	1,	0}
+/* 			    ns hlen plen fec          crc voice length */
+	[BB_TYPE_NULL]	= { 1, 0,   0,   BB_FEC_NONE, 0,  0,    BB_LEN_FIXED },
+	[BB_TYPE_POLL]	= { 1, 0,   0,   BB_FEC_NONE, 0,  0,    BB_LEN_FIXED },
+	[BB_TYPE_FHS]	= { 1, 0,   18,  BB_FEC_23,   1,  0,    BB_LEN_FIXED },
+	[BB_TYPE_DM1]	= { 1, 1,   17,  BB_FEC_23,   1,  0,    BB_LEN_HEADER },
+	[BB_TYPE_DH1]	= { 1, 1,   27,  BB_FEC_NONE, 1,  0,    BB_LEN_HEADER },
+	[BB_TYPE_DM3]	= { 3, 2,   121, BB_FEC_23,   1,  0,    BB_LEN_HEADER },
+	[BB_TYPE_DH3]	= { 3, 2,   183, BB_FEC_NONE, 1,  0,    BB_LEN_HEADER },
+	[BB_TYPE_DM5]	= { 5, 2,   224, BB_FEC_23,   1,  0,    BB_LEN_HEADER },
+	[BB_TYPE_DH5]	= { 5, 2,   339, BB_FEC_NONE, 1,  0,    BB_LEN_HEADER }
 };
 
 /* The formats a synchronous or an unprotected logical transport uses, which
@@ -50,28 +50,28 @@ const bbcodec_types_t bbcodec_acl_types[16] = {
  * enhanced one -- and this firmware has no synchronous link to tell it which,
  * so nothing decodes one. On transmit the caller has already said.
  */
-/* 					ns  hlen plen	fec		crc voice */
+/* 			ns hlen plen fec          crc voice length */
 /* AUX1 is a DH1 with no CRC, so a bit error in it is not detected */
 static const bbcodec_types_t bbcodec_type_aux1 =
-	{	1,  1,	29,	BB_FEC_NONE,	0,  0 };
+	{		1, 1,   29,  BB_FEC_NONE, 0,  0,    BB_LEN_HEADER };
 /* 10 voice bytes, then a data field of up to 9 bytes built like a DM1's */
 static const bbcodec_types_t bbcodec_type_dv =
-	{	1,  1,	9,	BB_FEC_23,	1,  10 };
+	{		1, 1,   9,   BB_FEC_23,   1,  10,   BB_LEN_HEADER };
 static const bbcodec_types_t bbcodec_type_hv1 =
-	{	1,  0,	10,	BB_FEC_13,	0,  0 };
+	{		1, 0,   10,  BB_FEC_13,   0,  0,    BB_LEN_FIXED };
 static const bbcodec_types_t bbcodec_type_hv2 =
-	{	1,  0,	20,	BB_FEC_23,	0,  0 };
+	{		1, 0,   20,  BB_FEC_23,   0,  0,    BB_LEN_FIXED };
 static const bbcodec_types_t bbcodec_type_hv3 =
-	{	1,  0,	30,	BB_FEC_NONE,	0,  0 };
-/* EV3 shares HV3's TYPE code and EV4 and EV5 have codes of their own. Each
- * carries a CRC and a length agreed when the link was set up, so the caller's
- * length stands rather than the maximum here. */
+	{		1, 0,   30,  BB_FEC_NONE, 0,  0,    BB_LEN_FIXED };
+/* EV3 shares HV3's TYPE code; EV4 and EV5 have codes of their own. The
+ * payload length below is the most each carries, not the length a packet goes
+ * out with, which the link agreed. */
 static const bbcodec_types_t bbcodec_type_ev3 =
-	{	1,  0,	30,	BB_FEC_NONE,	1,  0 };
+	{		1, 0,   30,  BB_FEC_NONE, 1,  0,    BB_LEN_NEGOTIATED };
 static const bbcodec_types_t bbcodec_type_ev4 =
-	{	3,  0,	120,	BB_FEC_23,	1,  0 };
+	{		3, 0,   120, BB_FEC_23,   1,  0,    BB_LEN_NEGOTIATED };
 static const bbcodec_types_t bbcodec_type_ev5 =
-	{	3,  0,	180,	BB_FEC_NONE,	1,  0 };
+	{		3, 0,   180, BB_FEC_NONE, 1,  0,    BB_LEN_NEGOTIATED };
 
 /* The formats the host can ask to transmit, in the order of
  * btctl_tx_format_t, each with the TYPE code it goes out with. The
@@ -114,22 +114,24 @@ void bbcodec_tx_format_limits(const bbcodec_types_t *t,
 		unsigned *min_data, unsigned *max_data)
 {
 	*max_data = t->payload_bytes;
-	if (t->payload_header_bytes != 0)
+	switch (t->length_kind)
 	{
+	case BB_LEN_HEADER:
 		/* The length rides in the payload header, so an empty data
 		 * field is a packet like any other. */
 		*min_data = 0;
-	}
-	else if (t->has_crc)
-	{
-		/* An eSCO payload: any length the type carries, down to the
-		 * one information byte the CRC needs something to cover. */
+		break;
+	case BB_LEN_NEGOTIATED:
+		/* Any length the type carries, down to the one information
+		 * byte the CRC needs something to cover. */
 		*min_data = 1;
-	}
-	else
-	{
-		/* A voice payload is the one length its type always has. */
+		break;
+	case BB_LEN_FIXED:
+	default:
+		/* The one length the type always has. A kind this firmware
+		 * does not know lands here, which allows the least. */
 		*min_data = *max_data;
+		break;
 	}
 }
 
@@ -160,19 +162,31 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 	}
 	else
 	{
-		switch(hdr_len)
+		switch(t->length_kind)
 		{
-		case 1:
-			codec->payload_length = data[0]>>3;
+		case BB_LEN_HEADER:
+			/* The payload header's low bits hold the length: five
+			 * in a one-byte header, ten in a two-byte one. A
+			 * format that says its length is in a header of any
+			 * other size has none to read, and no table here
+			 * holds one, so it falls back to the type's length
+			 * rather than reading the data field as a header. */
+			if (hdr_len == 1)
+				codec->payload_length = data[0]>>3;
+			else if (hdr_len == 2)
+				codec->payload_length =
+					0x3ff & ((data[0]|(data[1]<<8))>>3);
+			else
+				codec->payload_length = t->payload_bytes;
 			break;
-		case 2:
-			codec->payload_length = 0x3ff & ((data[0]|(data[1]<<8))>>3);
+		case BB_LEN_NEGOTIATED:
+			/* Nothing in the packet carries it: the length the
+			 * caller asked for is the length. */
+			codec->payload_length = codec->negotiated_length;
 			break;
-		default: // 0
-			/* A length nothing in the packet carries: the one the
-			 * caller asked for, or the one the type always has. */
-			codec->payload_length = codec->fixed_length ?
-				codec->fixed_length : t->payload_bytes;
+		case BB_LEN_FIXED:
+		default:
+			codec->payload_length = t->payload_bytes;
 			break;
 		}
 		if (codec->payload_length > t->payload_bytes)

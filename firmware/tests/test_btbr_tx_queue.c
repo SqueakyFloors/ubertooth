@@ -133,7 +133,8 @@ void btctl_mem_free(void *p)
  */
 static bbcodec_types_t chosen_format = {
 	1 /* nslots */, 0 /* payload_header_bytes */, 30 /* payload_bytes */,
-	BB_FEC_NONE /* fec */, 1 /* has_crc */, 0 /* voice_bytes */
+	BB_FEC_NONE /* fec */, 1 /* has_crc */, 0 /* voice_bytes */,
+	BB_LEN_NEGOTIATED /* length_kind */
 };
 static int format_is_known = 1;
 
@@ -334,8 +335,9 @@ MU_TEST(a_multi_slot_format_is_told_its_own_data_length)
 
 	ll_prepare_tx(&ll, &tx);
 
-	/* A format with no payload header carries no length of its own, so the
-	 * link layer has to pass the one the host supplied. */
+	/* A format whose length was agreed when the link was set up carries
+	 * no length of its own, so the link layer has to pass the one the
+	 * host supplied. */
 	mu_assert(tx.data_bytes == PKT_DATA_BYTES,
 		"tx.data_bytes == PKT_DATA_BYTES");
 }

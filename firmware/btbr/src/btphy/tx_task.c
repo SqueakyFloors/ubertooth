@@ -39,7 +39,8 @@ static struct {
 	bbcodec_t codec;
 	uint8_t *user_data;
 	/* The format the caller chose, or NULL to take it from the header's
-	 * TYPE code, with the data length that format needs told separately. */
+	 * TYPE code, with the data length a BB_LEN_NEGOTIATED format needs
+	 * told separately. */
 	const bbcodec_types_t *user_fmt;
 	unsigned user_data_bytes;
 	unsigned data_size;

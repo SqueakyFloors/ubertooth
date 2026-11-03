@@ -222,10 +222,10 @@ static int ll_prepare_pkt_tx(link_layer_t *ll, ll_tx_t *tx)
 	ll->pkt_hdr.type = air_type;
 	tx->hdr = &ll->pkt_hdr;
 	tx->data = req->data;
-	/* A format with a payload header carries its own length, so only the
-	 * rest have to be told one: the voice field aside, every byte the
-	 * host supplied is data. */
-	if (tx->fmt->payload_header_bytes == 0)
+	/* Only a format whose length was agreed when the link was set up has
+	 * to be told one; the others know their own. The voice field aside,
+	 * every byte the host supplied is data. */
+	if (tx->fmt->length_kind == BB_LEN_NEGOTIATED)
 		tx->data_bytes = req->data_size - tx->fmt->voice_bytes;
 	ll->pkt_slots_left--;
 

@@ -15,6 +15,25 @@ typedef enum bbcodec_fec_e {
 	BB_FEC_23	= 2,
 } bbcodec_fec_t;
 
+/* Where the length of a payload's data field comes from. Every format says
+ * which of these it is, so nothing has to guess it from the format's other
+ * fields: an FHS and an EV3 both carry a CRC and no payload header, and they
+ * are not the same kind. */
+typedef enum bbcodec_length_e {
+	/* The format has one length and always carries it: NULL, POLL, FHS
+	 * and the HV voice packets. It is the zero value so that a format
+	 * description left zeroed, which a test's stand-in for one may be,
+	 * means the length the type states rather than a payload header this
+	 * firmware would then try to read. */
+	BB_LEN_FIXED	= 0,
+	/* The payload header carries it: the DM and DH packets, AUX1, and the
+	 * data field of a DV (Bluetooth Core, Vol 2 Part B 6.5.4). */
+	BB_LEN_HEADER	= 1,
+	/* Agreed when the link is set up, so only the caller knows it: the EV
+	 * packets of an eSCO link (Vol 2 Part B 6.5.3). */
+	BB_LEN_NEGOTIATED = 2,
+} bbcodec_length_t;
+
 /* FIXME: pkt_type interpretation depends on channel's type.
 */
 typedef struct bbcodec_types_s {
@@ -28,6 +47,7 @@ typedef struct bbcodec_types_s {
 	 * a DV packet, whose data field follows them (Vol 2 Part B 6.5.4.4).
 	 * Zero for every other format. */
 	uint8_t voice_bytes;
+	uint8_t length_kind;	// bbcodec_length_t: where the length comes from
 } bbcodec_types_t;
 
 /* The longest voice field any format has, which is the DV packet's ten bytes
@@ -51,13 +71,12 @@ typedef struct bbcodec_s {
 	unsigned air_bytes;	// total bytes required for rx/tx, incl. (58bits header)+encoded(payload)
 	unsigned coded_total;	// total payload bytes including payload_header, payload_daya, crc
 
-	/* How many data bytes to transmit for a format that carries no length
-	 * of its own, where the length is not the one the type always has: an
-	 * eSCO payload's length is agreed when the link is set up, so the
-	 * caller is the only one that knows it (Vol 2 Part B 6.5.3). Zero
-	 * leaves the type's own length in force, which is what receive and
-	 * every other transmit path want. */
-	unsigned fixed_length;
+	/* How many data bytes to transmit for a BB_LEN_NEGOTIATED format,
+	 * whose length is agreed when the link is set up, so the caller is
+	 * the only one that knows it (Vol 2 Part B 6.5.3). Read for no other
+	 * kind of format, so zero here means a payload of no data bytes
+	 * rather than some other length. */
+	unsigned negotiated_length;
 	/* Where the data field starts in the caller's buffer, past the voice
 	 * bytes above. The length, the CRC and the error correction are all
 	 * about the data field, so they all count from here. Transmit only:
@@ -88,7 +107,7 @@ static inline void bbcodec_init(bbcodec_t *codec,
 	codec->air_bytes = 0;
 	codec->coded_total = 0;
 	codec->coded_pos = 0;
-	codec->fixed_length = 0;
+	codec->negotiated_length = 0;
 	codec->data_offset = 0;
 }
 /* Decode 10 host bytes at the time */
@@ -120,15 +139,15 @@ _Static_assert(CODEC_RX_CHUNK_SIZE % 5 == 0,
 	"a receive chunk must be a whole number of 10-bit groups");
 
 /* Transmit the next packet in the given format rather than in the one its
- * TYPE code means on an asynchronous link, with data_bytes bytes of data
- * where the format carries no length of its own (zero where it does). Set
- * between bbcodec_init() and bbcodec_encode_header(). */
+ * TYPE code means on an asynchronous link, with data_bytes bytes of data if
+ * the format is BB_LEN_NEGOTIATED (ignored for any other kind, which knows
+ * its own length). Set between bbcodec_init() and bbcodec_encode_header(). */
 static inline void bbcodec_set_tx_format(bbcodec_t *codec,
 		const bbcodec_types_t *t, unsigned data_bytes)
 {
 	codec->t = t;
 	codec->data_offset = t->voice_bytes;
-	codec->fixed_length = data_bytes;
+	codec->negotiated_length = data_bytes;
 }
 
 /* How many air bits nbytes host bytes occupy under the given correction. */
@@ -153,8 +172,9 @@ static inline unsigned bbcodec_fec_air_bits(unsigned fec, unsigned nbytes)
  * firmware does not know. */
 const bbcodec_types_t *bbcodec_tx_format(unsigned format, uint8_t *air_type);
 
-/* The most data bytes the given format carries after its payload header, and
- * the fewest. A format whose length is fixed reports the same for both. */
+/* The most data bytes the given format carries in its data field, and the
+ * fewest, which follow from the format's length kind. A BB_LEN_FIXED format
+ * reports the same for both. */
 void bbcodec_tx_format_limits(const bbcodec_types_t *t,
 		unsigned *min_data, unsigned *max_data);
 
