@@ -222,18 +222,22 @@ with tempfile.TemporaryDirectory() as workdir:
     (work / "same.bin").write_bytes(FIXTURE)
     (work / "link.bin").symlink_to("same.bin")
     os.link(work / "same.bin", work / "hard.bin")
-    for option, letter in (("-d", "d"), ("-q", "q"), ("-c", "c"),
-                           ("-r", "r")):
-        for written in ("same.bin", "./same.bin", "link.bin", "hard.bin"):
-            result = run("-p", "-R", "same.bin", option, written,
-                         directory=work)
-            assert result.returncode == 1, result
-            assert result.stdout == "", result
-            assert result.stderr == (
-                f"error: -{letter} would write over the dump -R is replaying"
-                f" ({written})\n"), result
-            assert (work / "same.bin").read_bytes() == FIXTURE, \
-                (option, written, "truncated")
+    # Every way of naming the one file against -d, which pins that it is the
+    # file being compared, and one naming against each of the other three,
+    # which pins that every writer is checked.
+    cases = [("-d", "d", written) for written in
+             ("same.bin", "./same.bin", "link.bin", "hard.bin")]
+    cases += [("-q", "q", "same.bin"), ("-c", "c", "same.bin"),
+              ("-r", "r", "same.bin")]
+    for option, letter, written in cases:
+        result = run("-p", "-R", "same.bin", option, written, directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (
+            f"error: -{letter} would write over the dump -R is replaying"
+            f" ({written})\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, \
+            (option, written, "truncated")
 
     # A file that is not the input is written as usual, which is what keeps
     # the check above from refusing an ordinary run.
@@ -263,6 +267,23 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.stdout == FIXTURE, len(result.stdout)
     for line in PARAMETER_LINES:
         assert line.encode() in result.stderr, (line, result.stderr[:400])
+
+    # A run whose dump took standard output counts nothing: the decode stops
+    # before the field that would be counted, so there is no note at all and
+    # none that could point at -v, which such a run is refused.
+    result = run("-p", "-R", "malformed.bin", "-d", "-", directory=work,
+                 text=False)
+    assert result.returncode == 0, result
+    assert result.stderr == b"", result.stderr[-200:]
+
+    # Records this tool does not recognize are read to the end and decoded as
+    # nothing: a run that prints nothing may be the wrong file rather than a
+    # quiet capture.
+    (work / "other.dump").write_bytes(
+        record(BASE_TIME, CLK100NS_STEP, 0, b"", DATA_CHANNEL))
+    result = run("-p", "-R", "other.dump", directory=work)
+    assert result.returncode == 0, result
+    assert result.stdout == "" and result.stderr == "", result
 
     # Standard output carries one stream, so a dump and a PCAP capture cannot
     # both have it: the one that asked second would write to /dev/null without

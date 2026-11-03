@@ -249,7 +249,11 @@ static int output_is_the_replay(const char* output_name, char option)
  * It goes on the stream the run reports on, which is where the packet lines it
  * is about went: a caller that threw those away -- btle-extcap.py, which sends
  * them to /dev/null -- threw this away with them, instead of leaving Wireshark
- * to report a good capture as an error. */
+ * to report a good capture as an error.
+ *
+ * A run whose capture took standard output never reaches this: the decode
+ * stops before the field that would be counted, so nothing is counted. That
+ * is also why the line may point at -v, which such a run is refused. */
 static void report_malformed_packets(const btle_options* opts, int verbose)
 {
 	if (opts->malformed_packets == 0)

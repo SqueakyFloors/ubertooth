@@ -281,7 +281,7 @@ ubertooth\-btle \-p \-R promisc\.bin \-r log\.pcapng # later, no device needed
 .P
 A dump is the only file that keeps what promiscuous mode works out about the connection it found\. Those four parameters \-\- the access address, the CRC init value, the hop interval, and the hop increment or algorithm\-2 event counter \-\- arrive in records of their own, which carry no packet, so a PCAP or PcapNG capture has nowhere to put them\. A replay prints them again, in the order they were recovered, exactly as the live run did\.
 .P
-A replay needs the major mode the dump was recorded with (\fB\-f\fR, \fB\-n\fR or \fB\-p\fR), or it is refused: \fBerror: \-R needs \-f, \-n or \-p: a dump does not record which mode wrote it, and the modes stamp their packets with different clocks\fR\. The mode is what says which of the board's two capture clocks the records carry: the low\-energy engine behind \fB\-f\fR and \fB\-n\fR stamps packets from a counter that starts over every 429\.50 s, promiscuous mode from one that starts over every 327\.68 s\. A replay read with the wrong one keeps its times until the first of those periods is up and comes out a period wrong after it, and nothing in the file would say so\.
+A replay needs the major mode the dump was recorded with (\fB\-f\fR, \fB\-n\fR or \fB\-p\fR), or it is refused: \fBerror: \-R needs \-f, \-n or \-p: a dump does not record which mode wrote it, and the modes stamp their packets with different clocks\fR\. The mode is what says which of the board's two capture clocks the records carry: the low\-energy engine behind \fB\-f\fR and \fB\-n\fR stamps packets from a counter that starts over every 429\.50 s, promiscuous mode from one that starts over every 327\.68 s\. A replay read with the wrong one comes out a period wrong once a capture has run longer than the first of them, and nothing in the file would say so\.
 .P
 The decoding options (\fB\-v\fR, \fB\-x\fR) and the capture files (\fB\-r\fR, \fB\-q\fR, \fB\-c\fR, \fB\-d\fR) work as they do on live data\. Every other option asks for a board the replay has not opened, and is refused by name: \fBerror: \-U cannot be combined with \-R; a replay reads a saved dump rather than driving a board\fR, exit 1\. That covers \fB\-U\fR, \fB\-A\fR, \fB\-k\fR, \fB\-t\fR and the interference options; \fB\-a\fR and \fB\-s\fR are already refused beside any major mode\.
 .P
@@ -289,7 +289,7 @@ None of those capture files may be the dump being replayed: each is opened for w
 .P
 The times reported are the recorded ones, not the time of the replay\. The \fBsystime\fR of each packet line is the host time stored with that record, a capture written with \fB\-q\fR, \fB\-c\fR or \fB\-r\fR starts from the host time of the first packet it decodes and follows the board's clock from there, and \fB\-d\fR writes the records back out with their original times\.
 .P
-A dump holds every record that carries something to decode, which for a dump of a dump this tool wrote is all of them, byte for byte\. Two kinds are left out, live and on a replay alike: a keep\-alive, which only says a quiet capture is still running and holds no packet, and a record whose channel is outside the Bluetooth band\. So a dump is a record of what was captured rather than of every byte the board sent\.
+A dump holds every record that carries a packet or a parameter, which for a dump of a dump this tool wrote is all of them, byte for byte\. Two kinds are left out, live and on a replay alike: a keep\-alive, which only says a quiet capture is still running and holds neither, and a record whose channel is outside the Bluetooth band\. So a dump is a record of what was captured rather than of every byte the board sent\.
 .P
 A replay that reaches the end of the file exits 0, including for an empty file\. These two are reported on standard error and exit 1, after whatever was decoded:
 .TP
@@ -300,6 +300,8 @@ a last record cut short
 \fBerror: <file> ends in a partial record: 58 of 68 bytes, ignored\fR
 .P
 A file that cannot be opened at all is reported the same way, before anything is decoded: \fBerror: <file>: No such file or directory\fR, exit 1\.
+.P
+A dump of a Classic capture, or any other file of 68\-byte records this tool does not recognize, is read to its end and decoded as nothing: no packets, no message, exit 0\. Nothing in a record says which tool wrote it, so a run that prints nothing may be the wrong file rather than a quiet capture; ubertooth\-rx(1) replays a Classic dump\.
 .P
 A replay that could not read one whole record takes its own capture files away again, so a failed run leaves no empty capture to be told apart from one that caught nothing\. From the first whole record on they are kept, however little of the input came after it\.
 .SH "ARGUMENTS"
