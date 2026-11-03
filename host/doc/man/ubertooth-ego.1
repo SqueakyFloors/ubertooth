@@ -5,7 +5,12 @@
 \fBubertooth\-ego\fR \- Yuneec E\-Go sniffing
 .SH "SYNOPSIS"
 .nf
-ubertooth\-ego \-f
+ubertooth\-ego \-f [\-l <1\-48>] [\-a <access code>] [\-U <index|serial>]
+ubertooth\-ego \-r [\-c <2402\-2480>] [\-l <1\-48>] [\-a <access code>]
+[\-U <index|serial>]
+ubertooth\-ego {\-i | \-j} [\-a <access code>] [\-U <index|serial>]
+ubertooth\-ego [\-U <index|serial>] \-V
+ubertooth\-ego \-h
 .fi
 .SH "DESCRIPTION"
 The Yuneec E\-Go is an electric skateboard controlled by a wireless handheld remote\. This handheld remote uses a custom protocol implemented in 2\.4 GHz RF\. ubertooth\-ego(1) can sniff this protocol and interfere with its operation\.
@@ -85,7 +90,7 @@ Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with
 .P
 \fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\.
 .P
-An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 2402\-2480 MHz (got 2481)\fR\.
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 2402\-2480 MHz (got 2481)\fR, \fBerror: capture length must be 1\-48 (got 0)\fR and \fBerror: access code must be 2, 4, 6 or 8 hex digits (got 112)\fR\.
 .P
 A major mode is the work, so a command line without \fB\-f\fR, \fB\-r\fR or \fB\-i\fR is refused before any device is opened: \fBerror: nothing to do: choose a major mode (\-f, \-r or \-i)\fR\. It used to open the selected board, check its firmware, do nothing and exit 0\.
 .P
@@ -95,7 +100,9 @@ Each major mode runs until it is interrupted, so only one of them can run: two i
 .P
 \fB\-l\fR with interference is refused the same way: \fBerror: \-l cannot be combined with \-i; only the receiving modes (\-f, \-r) read a capture length\fR\. It used to set a firmware value the mode never reads\.
 .SH "DIAGNOSTICS"
-Standard output carries only the captured packets\. Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: E\-GO not supported by this firmware\fR\.
+Standard output carries only the captured packets\. Each one is a line of three fields, then the bytes kept from that packet in hex, \fB\-l\fR of them\. The fields are \fBtime=\fR, the capture clock in 100 ns ticks; \fBdelta_t=\fR, the gap described below; and \fBfreq=\fR, the channel in MHz\.
+.P
+Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: E\-GO not supported by this firmware\fR\.
 .P
 A capture that is losing packets says so\. This tool reads its packets one at a time, and a reply that held part of a record cannot be read as one, so it is dropped and reported once per run: \fBwarning: a poll reply arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. The capture runs on and ends as it otherwise would, so the warning is the only sign\.
 .P
@@ -123,6 +130,8 @@ A poll the board does not answer is tried again, up to three attempts of one sec
 .P
 A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubertooth(7), SELECTING A DEVICE\.
 .SH "SEE ALSO"
+ubertooth\-util(1): sets the transmit power level (\fB\-a\fR) interference uses; CARRY\-OVER BETWEEN RUNS describes what a board keeps from one command to the next
+.P
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how option values are written
 .SH "AUTHOR"
 This manual page was written by Mike Ryan\.

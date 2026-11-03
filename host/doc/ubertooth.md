@@ -3,8 +3,8 @@
 ## OVERVIEW
 
 Ubertooth is a platform for Bluetooth experimentation. It is able to
-sniff Bluetooth Smart (BLE), discover undiscoverable classic Bluetooth
-devices, and perform rudimentary sniffing of classic Bluetooth devices.
+sniff BLE, discover undiscoverable classic Bluetooth devices, and perform
+rudimentary sniffing of classic Bluetooth devices.
 
 Ubertooth is **not** a Bluetooth dongle and it will not show up as one
 when running `hciconfig`.
@@ -42,6 +42,14 @@ Less useful commands:
  - ubertooth-debug(1) : Reading registers on the CC2400, and writing them
    (experimental)
  - ubertooth-specan(1) : Raw RSSI values used by graphical specan
+ - ubertooth-specan-ui(1) : The spectrum analyzer window that plots them
+
+Run by another program rather than by hand:
+
+ - btle-extcap.py(1) : Wireshark's own capture interface, which puts an
+   Ubertooth in Wireshark's capture list and captures BLE into the window
+   with no file in between. Wireshark starts it; its page says where to
+   install it
 
 ## COMMON OPTIONS
 
@@ -668,9 +676,13 @@ channel notes raised while following a piconet are `note: ` lines on standard
 error. What the library still writes to standard output is the calling tool's
 result — the decoded packet reports, the AFH map of `ubertooth-afh`, the
 version line — which is the right stream for them, whichever layer prints
-them. libbtbb writes there too, while it recovers a piconet's address and
-about a packet it could not use. The channel map the two BlueZ tools report is
-the exception: those tools print it themselves, so no library writes it. Its device-selection
+them. libbtbb writes there for that reason and nothing else, which today is
+the decoded packet's type and payload and that same map. What it says while it
+works out a piconet's address and clock — the candidate counts, `got CLK1-27`,
+the clock offset, the UAP it settled on — is on standard error, so a capture
+collected on standard output holds the capture alone. The channel map the two
+BlueZ tools report is the exception to all of this: those tools print it
+themselves, so no library writes it. libubertooth's device-selection
 messages are `error: ` lines on standard error, each with whatever detail it
 needs under it: the boards listed after a refusal for several attached, and
 the counts and reason after a serial that matched nothing.
@@ -700,9 +712,13 @@ because of it says so:
 Ubertooth is an open source project maintained primarily by volunteers.
 Please keep that in mind when seeking support.
 
-If you are having issues with a tool or believe you have found a bug,
-please file an issue on the project GitHub:
-<https://github.com/greatscottgadgets/ubertooth>
+If you are having issues with one of these tools or believe you have found a
+bug, please file an issue on this fork:
+<https://github.com/SqueakyFloors/ubertooth>
+
+Upstream Project Ubertooth, which this fork builds on, is at
+<https://github.com/greatscottgadgets/ubertooth>, and that is where to report
+something these tools share with it.
 
 For interactive support, join the `#ubertooth` channel on Discord:
 <https://discord.gg/rsfMw3rsU8>

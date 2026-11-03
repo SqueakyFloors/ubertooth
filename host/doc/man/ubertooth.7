@@ -4,7 +4,7 @@
 .SH "NAME"
 \fBubertooth\fR \- Project Ubertooth
 .SH "OVERVIEW"
-Ubertooth is a platform for Bluetooth experimentation\. It is able to sniff Bluetooth Smart (BLE), discover undiscoverable classic Bluetooth devices, and perform rudimentary sniffing of classic Bluetooth devices\.
+Ubertooth is a platform for Bluetooth experimentation\. It is able to sniff BLE, discover undiscoverable classic Bluetooth devices, and perform rudimentary sniffing of classic Bluetooth devices\.
 .P
 Ubertooth is \fBnot\fR a Bluetooth dongle and it will not show up as one when running \fBhciconfig\fR\.
 .SH "COMMAND LINE TOOLS"
@@ -45,6 +45,13 @@ Less useful commands:
 ubertooth\-debug(1) : Reading registers on the CC2400, and writing them (experimental)
 .IP "\(bu" 4
 ubertooth\-specan(1) : Raw RSSI values used by graphical specan
+.IP "\(bu" 4
+ubertooth\-specan\-ui(1) : The spectrum analyzer window that plots them
+.IP "" 0
+.P
+Run by another program rather than by hand:
+.IP "\(bu" 4
+btle\-extcap\.py(1) : Wireshark's own capture interface, which puts an Ubertooth in Wireshark's capture list and captures BLE into the window with no file in between\. Wireshark starts it; its page says where to install it
 .IP "" 0
 .SH "COMMON OPTIONS"
 \fB\-h\fR and \fB\-V\fR mean the same thing in every tool, including the three written in Python \-\- ubertooth\-btbr(1), \fBbtle\-extcap\.py\fR and ubertooth\-specan\-ui(1) \-\- which take their command lines from getopt in Python, from Wireshark's extcap protocol and from \fBargparse\fR\. Those three answer \fB\-V\fR by running ubertooth\-util(1) \fB\-V\fR and passing its answer on, so the lines below are the same words whichever tool was asked; \fBubertooth\-util\fR has to be on their \fBPATH\fR, as it is when the tools are installed together, and one that is not there is reported as \fBerror: could not run ubertooth\-util: No such file or directory\fR\. \fBbtle\-extcap\.py\fR has no \fB\-U\fR, so its \fB\-V\fR reports every attached board\. ubertooth\-specan\-ui(1) answers \fB\-V\fR and \fB\-h\fR without the \fBnumpy\fR and Qt binding its window needs, and ubertooth\-btbr(1) answers them without the Python \fBlibusb1\fR package a session of its own needs\. \fB\-v\fR is not in every tool; the last paragraph here says what it means where it is\.
@@ -314,7 +321,7 @@ The generic receive (\fBubertooth\-dump \-g\fR) reports it or not according to w
 .P
 ubertooth\-ego(1) never reports it: its records state no signal figure either, and its receive leaves the high\-gain mode off in any case\. ubertooth\-specan(1) is left out for a different reason: its sweep also reads the radio with the high\-gain mode off and reports the raw readings themselves, so its figures are not on the scale this warning is about\. The \fBbtbr\fR image's own tools report nothing here at all, because that firmware sends none of these records\.
 .P
-libubertooth follows the split already: it returns what it reads to the tool that called it and reports its own problems on standard error, so a library message does not land in the middle of a capture\. The clock trim and AFH channel notes raised while following a piconet are \fBnote:\fR lines on standard error\. What the library still writes to standard output is the calling tool's result \(em the decoded packet reports, the AFH map of \fBubertooth\-afh\fR, the version line \(em which is the right stream for them, whichever layer prints them\. libbtbb writes there too, while it recovers a piconet's address and about a packet it could not use\. The channel map the two BlueZ tools report is the exception: those tools print it themselves, so no library writes it\. Its device\-selection messages are \fBerror:\fR lines on standard error, each with whatever detail it needs under it: the boards listed after a refusal for several attached, and the counts and reason after a serial that matched nothing\.
+libubertooth follows the split already: it returns what it reads to the tool that called it and reports its own problems on standard error, so a library message does not land in the middle of a capture\. The clock trim and AFH channel notes raised while following a piconet are \fBnote:\fR lines on standard error\. What the library still writes to standard output is the calling tool's result \(em the decoded packet reports, the AFH map of \fBubertooth\-afh\fR, the version line \(em which is the right stream for them, whichever layer prints them\. libbtbb writes there for that reason and nothing else, which today is the decoded packet's type and payload and that same map\. What it says while it works out a piconet's address and clock \(em the candidate counts, \fBgot CLK1\-27\fR, the clock offset, the UAP it settled on \(em is on standard error, so a capture collected on standard output holds the capture alone\. The channel map the two BlueZ tools report is the exception to all of this: those tools print it themselves, so no library writes it\. libubertooth's device\-selection messages are \fBerror:\fR lines on standard error, each with whatever detail it needs under it: the boards listed after a refusal for several attached, and the counts and reason after a serial that matched nothing\.
 .SH "ENVIRONMENT"
 \fBUBERTOOTH_ALLOW_API_MISMATCH\fR decides what a tool does about firmware of another API version, whatever the build it came from\. \fB1\fR warns and runs the command, which is how a release build is made to talk to firmware from another commit for debugging; \fB0\fR refuses it, which is how a development build is made strict, for a test harness that wants a refusal rather than a warning\. Only those two exact values decide: unset, empty or anything else leaves the build's own answer, so a typo cannot turn the guard off\. See FIRMWARE OF ANOTHER API VERSION above\.
 .P
@@ -322,7 +329,9 @@ libubertooth follows the split already: it returns what it reads to the tool tha
 .SH "SUPPORT"
 Ubertooth is an open source project maintained primarily by volunteers\. Please keep that in mind when seeking support\.
 .P
-If you are having issues with a tool or believe you have found a bug, please file an issue on the project GitHub: \fIhttps://github\.com/greatscottgadgets/ubertooth\fR
+If you are having issues with one of these tools or believe you have found a bug, please file an issue on this fork: \fIhttps://github\.com/SqueakyFloors/ubertooth\fR
+.P
+Upstream Project Ubertooth, which this fork builds on, is at \fIhttps://github\.com/greatscottgadgets/ubertooth\fR, and that is where to report something these tools share with it\.
 .P
 For interactive support, join the \fB#ubertooth\fR channel on Discord: \fIhttps://discord\.gg/rsfMw3rsU8\fR
 .SH "COPYRIGHT"
