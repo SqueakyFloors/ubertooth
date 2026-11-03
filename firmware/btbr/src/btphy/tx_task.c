@@ -43,6 +43,10 @@ static struct {
 	const bbcodec_types_t *user_fmt;
 	unsigned user_data_bytes;
 	unsigned data_size;
+	/* Whether the transmitter was ever turned on for this packet. A packet
+	 * the radio was not ready for has no end of transmission to wait for,
+	 * so tx_finalize() has to be able to tell the two apart. */
+	int on_air;
 	uint8_t air_data[BYTE_ALIGN(4+54+MAX_ACL_SIZE*12)]; // to contain trailer+header+payload
 	uint8_t *p;
 } tx_task;
@@ -143,16 +147,26 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	if (!FS_TUNED())
 	{
-		/* TODO: Let it run for a few more usec ? */
-		cprintf("TX: RF not FS_ON\n");
-		// Just do nothing 
-		tx_task_reset();
-		// TODO: error callback
+		/* The synthesizer has not locked in the slot since tx_prepare()
+		 * strobed it on, so this packet cannot go out. Stop the radio
+		 * and leave the slot to tx_finalize(), which tx_prepare() has
+		 * already put on the scheduler: that is what reports the
+		 * completion the caller is waiting on, so the connection goes
+		 * on to its next slot. Reporting it here as well would report
+		 * it twice.
+		 *
+		 * tx_prepare() does not check whether that scheduling
+		 * succeeded, so a scheduler bucket that was already full would
+		 * leave the completion unreported. That is a separate bug, and
+		 * the same one for a slot that does transmit. */
+		cprintf("TX: synthesizer not locked, packet not sent\n");
+		tx_task.on_air = 0;
 		btphy_rf_idle();
 		return 0;
 	}
 	/* Start TX phy */
 	btphy_rf_tx();
+	tx_task.on_air = 1;
 	if (tx_task.data_size)
 		btphy_rf_enable_int(tx_fifo_cb, NULL, 1);
 	
@@ -169,8 +183,14 @@ static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	/* Wait for the end of the transmission, until 150usec into the slot.
 	 * The radio is stopped either way: a transmit still going at the
-	 * deadline is one the radio never reported the end of. */
-	btphy_rf_wait_fsm(STATE_STROBE_FS_ON, TX_MAX_WAIT);
+	 * deadline is one the radio never reported the end of.
+	 *
+	 * A packet the transmitter was never turned on for has no end to wait
+	 * for, and the state this waits for cannot come: the wait would spend
+	 * the slot polling the radio from the timer interrupt and would count
+	 * a radio that never answered, which ubertooth-util -w reports. */
+	if (tx_task.on_air)
+		btphy_rf_wait_fsm(STATE_STROBE_FS_ON, TX_MAX_WAIT);
 	
 	/* Stop phy TX */ 
 	btphy_rf_idle();
@@ -191,11 +211,18 @@ const struct tdma_sched_item tx_sched_set[] = {
 void tx_task_reset(void)
 {
 	btphy_rf_disable_int();
+	tx_task.on_air = 0;
 	tx_task.user_hdr = NULL;
 	tx_task.user_data = NULL;
 	tx_task.user_fmt = NULL;
 	tx_task.user_data_bytes = 0;
 	tx_task.p = NULL;
+	/* Only tx_fifo_cb() counts this down, and a packet that never went on
+	 * the air never ran it. Left standing, it tells the next transmit that
+	 * there are bytes to push from a buffer pointer that has just been
+	 * cleared, and the transmits that carry no header of their own -- the
+	 * paging and inquiry ID packets -- do not set it again. */
+	tx_task.data_size = 0;
 }
 
 void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,

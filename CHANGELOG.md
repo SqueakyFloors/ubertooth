@@ -1075,6 +1075,15 @@
 
 ### Reliability fixes
 
+- Fixed: when the `btbr` image's radio had not tuned in time for a transmit
+  slot, the board said only `TX: RF not FS_ON`, and then spent the next slot
+  waiting for an end of transmission that could not come, counting a radio
+  that never answered in `ubertooth-util -w`. It also left the dropped
+  packet's count of unsent bytes standing, so a page that missed a slot could
+  stop the firmware when it sent its next ID packet. It now says the packet
+  was not sent, waits for nothing, and gives the byte count back.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
   saying why named two of the three reasons the bootloader runs. All three are
   now named, and a run that wrote no image is told to write a whole one, which
