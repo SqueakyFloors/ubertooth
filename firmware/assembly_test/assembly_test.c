@@ -506,6 +506,12 @@ int ubertooth_usb_init()
 	//USBHwRegisterEPIntHandler(BULK_OUT_EP, usb_bulk_out_handler);
 
 	// enable USB interrupts
+	// Not as simple as uncommenting this. The loops in this image drive the
+	// USB controller themselves, through registers there is only one of, so
+	// an interrupt handler driving it as well would take the handshakes they
+	// are waiting for; common/usb_irq.h, which this image does not use, is
+	// how the other images keep the two apart. The handler itself is
+	// present: common/usb_serial.c is in this image's source list.
 	//ISER0 |= ISER0_ISE_USB;
 	
 	// connect to bus

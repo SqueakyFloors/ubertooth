@@ -350,6 +350,17 @@ int VCOM_putchar(int c)
 }
 
 
+/*
+ * The two calls below are why serial_fifo.c exists, and bluetooth_rxtx, btbr,
+ * and assembly_test all leave it out of their source lists even though they
+ * compile this file. They never call VCOM_getchar() or VCOM_putchar(), so
+ * --gc-sections drops both along with everything only they reach, which is
+ * every function serial_fifo.c defines. (Not every unreferenced function goes:
+ * fw_info.c's block is marked to be kept through it.) Adding a VCOM call to
+ * one of those images means putting serial_fifo.c back in its list, and the
+ * linker says so if it is forgotten: undefined reference to `fifo_put'.
+ */
+
 /**
 	Reads one character from VCOM port
 	
@@ -379,14 +390,6 @@ int VCOM_getchar(void)
  * with no link error to say why.
  *
  * assembly_test compiles this file as well, and its makefile says why.
- *
- * The serial console is a different matter: an image that does not use it
- * keeps nothing of it, because --gc-sections drops the functions it never
- * reaches, unless they are marked to be kept as fw_info.c's block is. That is
- * why bluetooth_rxtx, btbr, and assembly_test all leave serial_fifo.c out of
- * their source lists while the console code in this file still calls
- * fifo_get() and fifo_put(). Adding a VCOM call to one of those images means
- * putting serial_fifo.c back in its list.
  */
 void USB_IRQHandler()
 {
