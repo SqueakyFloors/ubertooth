@@ -350,6 +350,17 @@ int VCOM_putchar(int c)
 }
 
 
+/*
+ * The two calls below are why serial_fifo.c exists, and bluetooth_rxtx, btbr,
+ * and assembly_test all leave it out of their source lists even though they
+ * compile this file. They never call VCOM_getchar() or VCOM_putchar(), so
+ * --gc-sections drops both along with everything only they reach, which is
+ * every function serial_fifo.c defines. (Not every unreferenced function goes:
+ * fw_info.c's block is marked to be kept through it.) Adding a VCOM call to
+ * one of those images means putting serial_fifo.c back in its list, and the
+ * linker says so if it is forgotten: undefined reference to `fifo_put'.
+ */
+
 /**
 	Reads one character from VCOM port
 	
@@ -362,6 +373,24 @@ int VCOM_getchar(void)
 	return fifo_get(&rxfifo, &c) ? c : EOF;
 }
 
+/*
+ * This handler is why bluetooth_rxtx and btbr compile this file. Neither calls
+ * anything in it, and neither uses the serial console above -- usb_test is the
+ * only image that does -- so to a reader of their source lists the file looks
+ * like one they could drop.
+ *
+ * They cannot. LPC17xx_Interrupts.c puts USB_IRQHandler in the interrupt
+ * vector table and declares the name weak and aliased to the default handler,
+ * so the link succeeds either way: with this file the vector reaches the code
+ * below, and without it the default handler, which records a watchdog
+ * breadcrumb for an interrupt nothing was written for and then spins forever
+ * (see the comment above it). Both images enable the USB interrupt, so either
+ * one left without this file would stop answering the host at its first USB
+ * interrupt and be reset by the watchdog a few seconds later, over and over,
+ * with no link error to say why.
+ *
+ * assembly_test compiles this file as well, and its makefile says why.
+ */
 void USB_IRQHandler()
 {
 	/* The USB interrupt is how the six modes that do not poll USB service it,

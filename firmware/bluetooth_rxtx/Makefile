@@ -14,6 +14,9 @@ IMAGE_NAME = bluetooth_rx
 endif
 
 # List C source files here. (C dependencies are automatically generated.)
+#
+# usb_serial.c provides USB_IRQHandler, which the interrupt vector table in
+# LPC17xx_Interrupts.c reaches; see the comment above the handler.
 SRC = $(TARGET).c \
 	bluetooth.c \
 	bluetooth_le.c \
@@ -34,7 +37,6 @@ SRC = $(TARGET).c \
 	identify.c \
 	identify_blink.c \
 	$(LIBS_PATH)/usb_serial.c \
-	$(LIBS_PATH)/serial_fifo.c \
 	$(LIBS_PATH)/LPC17xx_Startup.c \
 	$(LIBS_PATH)/LPC17xx_Interrupts.c \
 	$(LIBS_PATH)/ubertooth.c \
