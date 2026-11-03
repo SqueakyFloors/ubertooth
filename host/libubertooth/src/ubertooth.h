@@ -349,20 +349,16 @@ typedef struct {
 	 * Set by the tool beside its own capture request, as capture_channel
 	 * and capture_modulation are. NULL where no capture set one, which
 	 * reads as standard output; every tool here leaves it so. Read it
-	 * through ubertooth_result_stream(), which is where that default
-	 * lives. Last in the handle, as rx_xfer_state says, so that no
+	 * through ubertooth_result_stream(). Last in the handle so that no
 	 * offset above it moved.
 	 *
 	 * Diagnostics are not results and do not come through here: a warning,
 	 * a note or an error from the library is on standard error whatever a
-	 * tool sets.
-	 *
-	 * The decoded detail under a Classic or low-energy packet is printed by
-	 * libbtbb, from btbb_process_packet() and lell_print(), which take no
-	 * stream and write to standard output. A tool that points this
+	 * tool sets. Neither is the decoded detail under a Classic or
+	 * low-energy packet, which libbtbb prints to standard output from
+	 * btbb_process_packet() and lell_print(): a tool that points this
 	 * somewhere else gets its own lines there and that detail on standard
-	 * output, and the two have to be read together. Nothing is split
-	 * today, because every tool leaves this at standard output. */
+	 * output, and has to read the two together. */
 	FILE* result_stream;
 } ubertooth_t;
 

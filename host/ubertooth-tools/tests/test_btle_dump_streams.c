@@ -434,6 +434,30 @@ MU_TEST(the_promiscuous_report_follows_the_tools_report_stream)
 		ut->result_stream = NULL;
 	}
 
+	/* A caller with no options at all: the handle's stream is the only
+	 * thing that decides, so the lines follow the results there. */
+	{
+		FILE* results = tmpfile();
+		char line[256] = "";
+
+		mu_assert_fatal(results != NULL, "a stream for the results");
+		ut->result_stream = results;
+
+		fifo_push(ut->fifo, &rx, 0);
+		capture_output();
+		cb_btle(ut, NULL);
+		release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+		rewind(results);
+		mu_assert_fatal(fgets(line, sizeof(line), results) != NULL,
+		                "a report on the tool's stream");
+		mu_assert(strstr(line, "----") != NULL, line);
+		mu_assert_int_eq(0, (int)strlen(out));
+
+		fclose(results);
+		ut->result_stream = NULL;
+	}
+
 	ubertooth_free(ut);
 }
 

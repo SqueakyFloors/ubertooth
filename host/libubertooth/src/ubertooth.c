@@ -1866,6 +1866,8 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		return r;
 
 	if (timeout) {
+		FILE* out = ubertooth_result_stream(ut);
+
 		ubertooth_set_timeout(ut, timeout);
 
 		/* cmd_afh() both starts the stream and is the mode it streams in:
@@ -1908,8 +1910,7 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * decides the exit status. */
 		if (r < 0) {
 			if (!afh_map_empty(pn))
-				ubertooth_print_afh_map(
-					ubertooth_result_stream(ut), pn);
+				ubertooth_print_afh_map(out, pn);
 			return r;
 		}
 
@@ -1919,7 +1920,7 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		if (afh_map_empty(pn))
 			return UBERTOOTH_AFH_NO_PACKETS;
 
-		ubertooth_print_afh_map(ubertooth_result_stream(ut), pn);
+		ubertooth_print_afh_map(out, pn);
 
 		/* The user interrupted the detection phase: the run ends here,
 		 * with the map it managed to detect. Starting to monitor would

@@ -904,13 +904,17 @@ FILE* ubertooth_result_stream(ubertooth_t* ut)
 void ubertooth_print_afh_map(FILE* out, btbb_piconet* pn)
 {
 	const uint8_t* map = btbb_piconet_get_afh_map(pn);
+	int i;
 
 	/* As hcitool prints it, and as afh_map_line() builds the same line for
-	 * the two tools that read a map over a Bluetooth connection: the ten
-	 * bytes in order, bit b of byte i being channel 8i + b. */
-	fprintf(out, "AFH map: 0x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
-	        map[0], map[1], map[2], map[3], map[4],
-	        map[5], map[6], map[7], map[8], map[9]);
+	 * the two tools that read a map over a Bluetooth connection: the bytes
+	 * in order, bit b of byte i being channel 8i + b. A byte at a time, as
+	 * that function does it, so the length comes from the map and not from
+	 * the number of arguments in a format string. */
+	fputs("AFH map: 0x", out);
+	for (i = 0; i < AFH_MAP_BYTES; i++)
+		fprintf(out, "%02x", map[i]);
+	fputc('\n', out);
 }
 
 void ubertooth_report_capture_losses(ubertooth_t* ut)
@@ -1422,11 +1426,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	}
 
 	uint64_t ts_diff_ns = ns_since_the_last_packet( ut, nowns );
-	FILE* dump = ubertooth_result_stream(ut);
+	FILE* out = ubertooth_result_stream(ut);
 	/* `sig`, so this line and the capture record above report one level for
 	 * one packet. What a reader wants beside a packet is how loud that
 	 * packet was. */
-	fprintf(dump, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
+	fprintf(out, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
 	        systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
 	        ts_diff_ns / 1000000.0, sig);
 
@@ -1439,8 +1443,8 @@ void cb_btle(ubertooth_t* ut, void* args)
 		len = le_data_len;
 
 	for (i = 4; i < (int)len; ++i)
-		fprintf(dump, "%02x ", le_data[i]);
-	fputc('\n', dump);
+		fprintf(out, "%02x ", le_data[i]);
+	fputc('\n', out);
 
 	/* lell_print() counts the fields it cannot read rather than writing a
 	 * line about each one, so the dump stays readable on a busy bench,
@@ -1454,11 +1458,11 @@ void cb_btle(ubertooth_t* ut, void* args)
 	if (opts != NULL &&
 	    lell_malformed_count(LELL_MALFORMED_ANY, 0) != malformed_before)
 		opts->malformed_packets++;
-	fputc('\n', dump);
+	fputc('\n', out);
 
 	lell_packet_unref(pkt);
 
-	fflush(dump);
+	fflush(out);
 }
 /*
  * Sniff E-GO packets
@@ -1483,17 +1487,17 @@ void cb_ego(ubertooth_t* ut, void* args)
 	uint64_t nowns = now_ns_from_clk100ns(ut, rx, arrival_ns);
 	uint64_t ts_diff_ns = ns_since_the_last_packet(ut, nowns);
 
-	FILE* dump = ubertooth_result_stream(ut);
+	FILE* out = ubertooth_result_stream(ut);
 
-	fprintf(dump, "time=%u delta_t=%.06f ms freq=%d \n",
+	fprintf(out, "time=%u delta_t=%.06f ms freq=%d \n",
 	        le32toh(rx->clk100ns), ts_diff_ns / 1000000.0,
 	        rx->channel + BT_FREQ_MIN);
 
 	for (i = 0; i < len; ++i)
-		fprintf(dump, "%02x ", rx->data[i]);
-	fputs("\n\n", dump);
+		fprintf(out, "%02x ", rx->data[i]);
+	fputs("\n\n", out);
 
-	fflush(dump);
+	fflush(out);
 }
 
 #define CLOCK_TRIM_THRESHOLD 2
