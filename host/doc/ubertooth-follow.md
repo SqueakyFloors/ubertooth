@@ -244,28 +244,30 @@ to capture.
    the board as the clock to hop on, and starts capturing. Unlike
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
-   packets from the start. A run that prints none has one of four causes: the
-   piconet is not transmitting, the board cannot hear the piconet, the clock
-   the board was given is off by enough to put it on the wrong channel, which
-   is what `-w` adjusts for, or the target is not the Central of the piconet.
-   The last of those finds nothing at all rather than part of the traffic:
-   every packet in a piconet carries the Central's access code and hops on the
-   Central's clock, so a follow keyed on a Peripheral's address is listening
-   for a piconet that is not there.
+   packets from the start. A run that prints none has one of five causes: the
+   piconet is not transmitting, the board cannot hear the piconet, the `-u`
+   given is wrong, the clock the board was given is off by enough to put it on
+   the wrong channel, which is what `-w` adjusts for, or the target is not the
+   Central of the piconet. The last of those finds nothing at all rather than
+   part of the traffic: every packet in a piconet carries the Central's access
+   code and hops on the Central's clock, so a follow keyed on a Peripheral's
+   address is listening for a piconet that is not there.
 
-   A wrong `-u` is not among them. The per-packet report is printed on the
-   access code, which comes from the LAP alone, so a follow with the wrong UAP
-   prints packets and decodes nothing of them; DESCRIPTION above says what that
-   looks like. A wrong `-u` can stop the page instead, and then the run exits 1
-   with the reason rather than printing nothing.
+   A wrong `-u` silences a run by putting the board on the wrong channels. The
+   hop sequence is built from the LAP and the low four bits of the UAP, so a
+   `-u` wrong in any of those four bits hops differently from the piconet and
+   meets it only now and then. A `-u` wrong only in its top four bits leaves
+   the hop sequence alone: such a run prints packets and decodes none of them,
+   which is the case DESCRIPTION above describes. A wrong `-u` can also stop
+   the page, and then the run exits 1 with the reason.
 
    The run ends when you interrupt it (Ctrl-C), with exit status 0 and the
    capture written, so give it a length with `timeout` when you script one.
    `timeout` reports 124 for a run it ended; `timeout --preserve-status` gives
    the tool's own status instead.
 
-5. Add `-a` once the capture works without it, if the piconet uses adaptive
-   frequency hopping and the follow is patchy (see AFH above). It needs `-t`:
+5. Add `-a` once the capture works without it, if the piconet uses AFH and the
+   follow is patchy (see AFH above). It needs `-t`:
 
        ubertooth-follow -t 11:22:33:44:55:66 -a -q capture.pcap
 
@@ -376,9 +378,9 @@ for a pipe into another program. Either way the capture owns standard output
 for the whole run, so the per-packet report is not printed; the packets
 themselves are in the capture.
 
-What the tool is following, the clock it was given for the piconet, the notes
-and the failures are on standard error and still arrive, and so is the `AFH map:`
-line of `-a`, which is the answer to that option.
+What the tool is following, the notes and the failures are on standard error
+and still arrive, and so is the `AFH map:` line of `-a`, which is the answer to
+that option.
 
 Redirect standard output to a new file or a pipe, not to one being appended
 to: on Linux the capture is opened again through `/proc/self/fd`, which

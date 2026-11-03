@@ -153,13 +153,13 @@ ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
 .IP "" 0
 
 .IP "4." 4
-Watch what the run prints\. The tool pages the target through the local Bluetooth device, reads the clock of the connection it gets, hands that to the board as the clock to hop on, and starts capturing\. Unlike ubertooth\-rx(1), it does not search the air for a clock: it is given one, so there is no acquisition to wait for and a follow that is working prints packets from the start\. A run that prints none has one of four causes: the piconet is not transmitting, the board cannot hear the piconet, the clock the board was given is off by enough to put it on the wrong channel, which is what \fB\-w\fR adjusts for, or the target is not the Central of the piconet\. The last of those finds nothing at all rather than part of the traffic: every packet in a piconet carries the Central's access code and hops on the Central's clock, so a follow keyed on a Peripheral's address is listening for a piconet that is not there\.
+Watch what the run prints\. The tool pages the target through the local Bluetooth device, reads the clock of the connection it gets, hands that to the board as the clock to hop on, and starts capturing\. Unlike ubertooth\-rx(1), it does not search the air for a clock: it is given one, so there is no acquisition to wait for and a follow that is working prints packets from the start\. A run that prints none has one of five causes: the piconet is not transmitting, the board cannot hear the piconet, the \fB\-u\fR given is wrong, the clock the board was given is off by enough to put it on the wrong channel, which is what \fB\-w\fR adjusts for, or the target is not the Central of the piconet\. The last of those finds nothing at all rather than part of the traffic: every packet in a piconet carries the Central's access code and hops on the Central's clock, so a follow keyed on a Peripheral's address is listening for a piconet that is not there\.
 .IP
-A wrong \fB\-u\fR is not among them\. The per\-packet report is printed on the access code, which comes from the LAP alone, so a follow with the wrong UAP prints packets and decodes nothing of them; DESCRIPTION above says what that looks like\. A wrong \fB\-u\fR can stop the page instead, and then the run exits 1 with the reason rather than printing nothing\.
+A wrong \fB\-u\fR silences a run by putting the board on the wrong channels\. The hop sequence is built from the LAP and the low four bits of the UAP, so a \fB\-u\fR wrong in any of those four bits hops differently from the piconet and meets it only now and then\. A \fB\-u\fR wrong only in its top four bits leaves the hop sequence alone: such a run prints packets and decodes none of them, which is the case DESCRIPTION above describes\. A wrong \fB\-u\fR can also stop the page, and then the run exits 1 with the reason\.
 .IP
 The run ends when you interrupt it (Ctrl\-C), with exit status 0 and the capture written, so give it a length with \fBtimeout\fR when you script one\. \fBtimeout\fR reports 124 for a run it ended; \fBtimeout \-\-preserve\-status\fR gives the tool's own status instead\.
 .IP "5." 4
-Add \fB\-a\fR once the capture works without it, if the piconet uses adaptive frequency hopping and the follow is patchy (see AFH above)\. It needs \fB\-t\fR:
+Add \fB\-a\fR once the capture works without it, if the piconet uses AFH and the follow is patchy (see AFH above)\. It needs \fB\-t\fR:
 .IP "" 4
 .nf
 ubertooth\-follow \-t 11:22:33:44:55:66 \-a \-q capture\.pcap
@@ -210,7 +210,7 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 .SH "CAPTURING TO STANDARD OUTPUT"
 \fB\-q \-\fR writes the PCAP capture to standard output and \fB\-d \-\fR the raw symbols, for a pipe into another program\. Either way the capture owns standard output for the whole run, so the per\-packet report is not printed; the packets themselves are in the capture\.
 .P
-What the tool is following, the clock it was given for the piconet, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
+What the tool is following, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
 .P
 Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-follow \-q \- >> capture\.pcap\fR loses what the file held\.
 .P
