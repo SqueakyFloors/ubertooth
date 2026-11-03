@@ -5,9 +5,14 @@ TARGET = assembly_test
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c provides USB_IRQHandler. This image cannot reach that handler as
-# it stands, and keeps the file so the vector's entry is a real handler rather
-# than the default one; see the comment above the handler.
+# usb_serial.c provides USB_IRQHandler, which the interrupt vector table in
+# LPC17xx_Interrupts.c reaches; see the comment above the handler. This image
+# cannot reach it: USB is driven from its own loop, and enabling the interrupt
+# would take more than uncommenting the one line below that does it, because a
+# second context driving the controller is what usb_irq.h exists to prevent.
+# Do not drop the file on that reading all the same. It costs 96 bytes of text
+# here and removing it changes this image, which has to be run on a board to
+# say so; nobody has needed those bytes.
 SRC = $(TARGET).c \
 	$(LIBS_PATH)/cc2400_wait.c \
 	$(LIBS_PATH)/usb_serial.c \

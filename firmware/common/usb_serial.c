@@ -378,18 +378,13 @@ int VCOM_getchar(void)
  * interrupt and be reset by the watchdog a few seconds later, over and over,
  * with no link error to say why.
  *
- * assembly_test compiles the file too, and nothing there can reach this
- * handler: it drives the controller from its own loop and has the one line
- * that would enable the USB interrupt commented out. Enabling it would take
- * more than uncommenting that line, because the loop's own USBHwISR() calls
- * would then have a second context driving the controller beside them, which
- * is what usb_irq.h exists to keep from happening. The file stays there so the
- * vector's entry is a real handler rather than the default one.
+ * assembly_test compiles this file as well, and its makefile says why.
  *
  * The serial console is a different matter: an image that does not use it
- * keeps nothing of it, because --gc-sections drops every function the image
- * never reaches. That is why bluetooth_rxtx and btbr can leave serial_fifo.c
- * out of their source lists while the console code above still calls
+ * keeps nothing of it, because --gc-sections drops the functions it never
+ * reaches, unless they are marked to be kept as fw_info.c's block is. That is
+ * why bluetooth_rxtx, btbr, and assembly_test all leave serial_fifo.c out of
+ * their source lists while the console code in this file still calls
  * fifo_get() and fifo_put(). Adding a VCOM call to one of those images means
  * putting serial_fifo.c back in its list.
  */
