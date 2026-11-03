@@ -24,7 +24,6 @@
 #include "opt_parse.h"
 #include "request_report.h"
 #include <errno.h>
-#include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -700,28 +699,38 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * second or less. */
 #define FOLLOW_QUIET_MS 60000
 
-/* Which file would a writer opening <output_name> write to? 0 once <where>
- * holds its device and inode numbers, -1 when they cannot be had.
+/* Does this destination write to this process's standard output? A lone "-"
+ * says so, and so do the device names for descriptor 1 that a script may
+ * write instead of "-".
  *
- * The name is opened rather than stat()ed, because opening is what resolves
- * every spelling of a destination to the file itself. "/dev/stdout" and
- * "/dev/fd/1" are device nodes, and stat() answers for the node rather than
- * for what the descriptor behind it points at, differently on each system;
- * opening them lands on the real file everywhere. O_WRONLY on its own neither
- * creates nor truncates, so asking costs the file nothing, and O_NONBLOCK
- * keeps a named pipe with no reader from blocking here. A lone "-" is this
- * process's own standard output and has no name to open.
- *
- * A destination that cannot be opened is not identified: a name that does not
- * exist yet, which is the ordinary case, and also one this user may not write
- * or that is a directory. Those are the writer's own failures to report, and
- * none of them can be the input, because a run that cannot open the
- * destination truncates nothing. */
+ * They are listed rather than resolved, because resolving one means opening
+ * it, and opening a destination the user named has consequences a tool must
+ * not cause before it has decided to write there at all: opening a named pipe
+ * and closing it again ends the stream for its reader, and the last close of
+ * a terminal lowers its modem lines. stat() alone cannot resolve them, since
+ * these are device nodes and stat() answers for the node rather than for
+ * whatever descriptor 1 points at. A spelling not on this list falls through
+ * to the name, so the worst a new one costs is the refusal this list is for. */
+static int names_stdout(const char* name)
+{
+	static const char* const spellings[] = {
+		"-", "/dev/stdout", "/dev/fd/1", "/proc/self/fd/1",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(spellings) / sizeof(spellings[0]); i++)
+		if (strcmp(name, spellings[i]) == 0)
+			return 1;
+	return 0;
+}
+
+/* Which file would a writer given <output_name> write to? 0 once <where>
+ * holds its device and inode numbers, -1 when they cannot be had -- a name
+ * that does not exist yet, which is the ordinary case, or a path that cannot
+ * be looked up, which the writer is about to report itself. */
 static int destination_file(const char* output_name, struct stat* where)
 {
-	int fd, failed;
-
-	if (opt_writes_to_stdout(output_name)) {
+	if (names_stdout(output_name)) {
 		/* The replay's input holding standard output's descriptor means
 		 * standard output was closed before this process started and
 		 * the input's fopen() took the number. There is then no
@@ -732,14 +741,7 @@ static int destination_file(const char* output_name, struct stat* where)
 			return -1;
 		return fstat(fileno(stdout), where) == 0 ? 0 : -1;
 	}
-	/* O_NOCTTY as well: identifying a terminal or a serial port must not
-	 * make it this process's controlling terminal. */
-	fd = open(output_name, O_WRONLY | O_NONBLOCK | O_NOCTTY);
-	if (fd < 0)
-		return -1;
-	failed = fstat(fd, where) != 0;
-	close(fd);
-	return failed ? -1 : 0;
+	return stat(output_name, where) == 0 ? 0 : -1;
 }
 
 /* Refuses an output file that is the dump a replay is reading. Every writer
@@ -753,10 +755,12 @@ static int destination_file(const char* output_name, struct stat* where)
  * destination_file()), so "./x.bin" beside "x.bin", a symbolic link, a hard
  * link, and a shell that has already pointed standard output at the dump
  * -- `-i x.bin -d - >> x.bin`, which reads the records it is appending and
- * never ends -- are all caught. Anything the two share counts, a character
- * device included, so `-i /dev/null -d /dev/null` is refused as well; nothing
- * is lost there, and the alternative of comparing only regular files would let
- * a named pipe through.
+ * never ends -- are all caught.
+ *
+ * Only a replay reading a regular file is protected, because only a regular
+ * file is emptied by a writer opening it. A replay reading /dev/null or a
+ * pipe has nothing to lose, so a destination that is the same thing is left
+ * alone rather than refused.
  *
  * Called with the input open and before any writer opens, so a refused run has
  * written nothing. Returns -1 once the refusal is printed. */
@@ -766,7 +770,8 @@ static int output_is_the_replay(const char* output_name, char option)
 
 	if (infile == NULL || output_name == NULL)
 		return 0;
-	if (fstat(fileno(infile), &input_file) != 0)
+	if (fstat(fileno(infile), &input_file) != 0 ||
+	    !S_ISREG(input_file.st_mode))
 		return 0;
 	if (destination_file(output_name, &output_file) != 0)
 		return 0;
@@ -775,8 +780,7 @@ static int output_is_the_replay(const char* output_name, char option)
 		return 0;
 	fprintf(stderr, "error: -%c would write over the dump -i is replaying"
 	        " (%s)\n", option,
-	        opt_writes_to_stdout(output_name) ? "standard output"
-	                                          : output_name);
+	        names_stdout(output_name) ? "standard output" : output_name);
 	return -1;
 }
 

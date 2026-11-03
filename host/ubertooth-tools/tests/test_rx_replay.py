@@ -312,21 +312,22 @@ with tempfile.TemporaryDirectory() as workdir:
 
     # A destination that reaches the dump through this process's standard
     # output is the one case a name cannot catch: the run would read the
-    # records it was appending and never end. All three spellings of it are
-    # caught, because the destination is opened to find out what it is rather
-    # than stat()ed -- /dev/stdout and /dev/fd/1 are device nodes, and stat()
-    # answers for the node.
-    for written, named in (("-", "standard output"),
-                           ("/dev/stdout", "/dev/stdout"),
-                           ("/dev/fd/1", "/dev/fd/1")):
-        with open(work / "same.bin", "ab") as appended:
-            result = run("-i", "same.bin", "-d", written, directory=work,
-                         stdout=appended)
-        assert result.returncode == 1, (written, result)
-        assert result.stderr == (
-            f"error: -d would write over the dump -i is replaying"
-            f" ({named})\n"), (written, result)
-        assert (work / "same.bin").read_bytes() == FIXTURE, (written, result)
+    # records it was appending and never end. Each spelling of standard output
+    # is compared against descriptor 1 rather than looked up as a name,
+    # because /dev/stdout and /dev/fd/1 are device nodes and stat() answers
+    # for the node.
+    for option in ("-d", "-q"):
+        for written in ("-", "/dev/stdout", "/dev/fd/1"):
+            named = "standard output"
+            with open(work / "same.bin", "ab") as appended:
+                result = run("-i", "same.bin", option, written,
+                             directory=work, stdout=appended)
+            assert result.returncode == 1, (option, written, result)
+            assert result.stderr == (
+                f"error: {option} would write over the dump -i is replaying"
+                f" ({named})\n"), (option, written, result)
+            assert (work / "same.bin").read_bytes() == FIXTURE, \
+                (option, written, result)
 
     # Standard output closed before the run starts. The input's own open then
     # takes descriptor 1, so standard output cannot be identified by it: a
@@ -344,6 +345,26 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 1, result
     assert "cannot write binary dump data to stdout" in result.stderr, result
     assert (work / "same.bin").read_bytes() == FIXTURE, result
+
+    # Identifying a destination must not touch it. A named pipe with a reader
+    # is where that shows: a tool that opened the pipe to look at it and closed
+    # it again would end the stream for the reader, and the write that followed
+    # would then block forever. So the dump arrives and the run ends.
+    os.mkfifo(work / "pipe")
+    collected = work / "collected.bin"
+    with open(collected, "wb") as sink:
+        reader = subprocess.Popen(["cat", "pipe"], cwd=work, stdout=sink)
+        result = run("-i", "same.bin", "-d", "pipe", directory=work)
+        reader.wait(timeout=RUN_TIMEOUT_S)
+    assert result.returncode == 0, result
+    assert reader.returncode == 0, reader.returncode
+    assert collected.read_bytes() == b"".join(PACKET_RECORDS), result
+
+    # A replay reading something a writer cannot empty has nothing to lose, so
+    # the same name on both sides is not refused there.
+    result = run("-i", "/dev/null", "-d", "/dev/null", directory=work)
+    assert result.returncode == 0, result
+    assert result.stderr == "", result
 
     # Standard output somewhere else is an ordinary dump to it, not a refusal.
     result = run("-i", "same.bin", "-d", "-", directory=work, text=False)
