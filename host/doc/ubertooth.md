@@ -161,10 +161,11 @@ what it has written cannot be `-` at all, which a pipe does not allow: the
 PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse that value and say what
 to use instead. `ubertooth-follow(1)` refuses every value that names the
 stream there, `/dev/stdout` included, when it reads `-r`; ubertooth-rx(1) and
-ubertooth-btle(1) still refuse only a lone `-`. The spellings they leave, and
-a symbolic link pointing at the stream in any of the three, are file names to
-the writer, which reports them as a name that already exists once the device
-is open. Standard output carries one stream, so two capture options cannot
+ubertooth-btle(1) still refuse only a lone `-`. Those options read values, so
+a symbolic link pointing at the stream is a file name to them, and the writer
+reports it as a name that already exists once the device is open. The check
+below does follow such a link, so one named beside another destination on that
+stream is still caught. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
 report there. A file cannot be shared between two capture options either:
 each writer opens its own destination for writing, which truncates whatever
@@ -174,9 +175,10 @@ rather than the name, so a second spelling of one path, a link, and a `-`
 beside a file name the shell has pointed standard output at are all caught,
 while `/dev/null` twice is not, since nothing is kept there. Some pairs that
 are one file cannot be told apart from the names alone and are not refused:
-a symbolic link whose target is not there yet, two names whose directory does
-not exist yet, and two names a case-folding filesystem would make one file
-while neither is there yet. ubertooth-follow(1) makes this check;
+a symbolic link whose target is not there yet and more than sixteen links
+away, two names whose directory does not exist yet, and two names a
+case-folding filesystem would make one file while neither is there yet. Each
+is caught once the file exists. ubertooth-follow(1) makes this check;
 ubertooth-rx(1) and ubertooth-btle(1) do not yet.
 
 Options can be written together behind one dash (`-f -n` is `-fn`), so a stray

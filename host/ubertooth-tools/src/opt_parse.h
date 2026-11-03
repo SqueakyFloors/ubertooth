@@ -182,23 +182,13 @@ typedef struct {
  * able to hold such a value that the tool's own rule does not reach would
  * fall between the two gates.
  *
- * Not caught, all of them for want of the destination being identified after
- * it is open and before it is truncated, which reaches into how every writer
- * opens its file, which is a separate piece of work:
- *
- *  - a symbolic link whose target is not there yet and is further away than
- *    the walk reaches: past 16 links, or behind a target too long to hold.
- *    Once the target exists it is caught either way, by its device and inode
- *    number;
- *  - two names whose directory does not exist yet either;
- *  - two names a case-folding or name-normalizing filesystem would make one
- *    file ("newcap.bin" beside "NEWCAP.BIN" on APFS, vfat or NTFS), while
- *    neither is there yet. Once one of them exists it is caught, by its
- *    device and inode number. Whether a name is folded is the filesystem's
- *    rule and is not knowable from the name, so this check does not guess;
- *  - on the BSDs, a destination reached through a descriptor the calling
- *    shell opened ("/dev/fd/3"), which is a symbolic link on Linux and a
- *    device of its own there.
+ * Some pairs that are one file cannot be told apart from the names alone and
+ * are not refused; ubertooth(7), OPTION VALUES lists them for the user. They
+ * all wait on the destination being identified after it is open and before it
+ * is truncated, which reaches into how every writer opens its file. The one a
+ * caller will not find there: on the BSDs a destination reached through a
+ * descriptor the calling shell opened ("/dev/fd/3") is a device of its own,
+ * where Linux makes it a symbolic link that is followed and caught.
  */
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
                                  size_t count);

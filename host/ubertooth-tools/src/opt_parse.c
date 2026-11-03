@@ -415,7 +415,10 @@ static int link_target(const char *name, char *out, size_t size)
 		if (hops == CAPTURE_LINK_HOPS)
 			return 0;
 		length = readlink(current, target, sizeof(target) - 1);
-		if (length <= 0)
+		/* A target filling the buffer may have been cut short, and a
+		 * cut-short path is a different place; it counts as one that
+		 * will not fit. */
+		if (length <= 0 || length == (ssize_t)(sizeof(target) - 1))
 			return 0;
 		target[length] = '\0';
 
@@ -432,7 +435,7 @@ static int link_target(const char *name, char *out, size_t size)
 		                            target) >= sizeof(resolved)) {
 			return 0;
 		}
-		memcpy(current, resolved, sizeof(current));
+		snprintf(current, sizeof(current), "%s", resolved);
 	}
 
 	if (hops == 0)
@@ -578,10 +581,9 @@ static int same_destination(const char *first, const char *second)
 	/* Either destination being the stream leaves nothing to compare as a
 	 * path: "-" is the stream while "./-" is an ordinary file of that
 	 * name, and the two texts reduce to each other. The descriptor is the
-	 * only thing that says which file the stream is on. */
-	/* A destination with no file yet cannot be the file the stream is on,
-	 * which is why a failed lookup here answers "not the same" rather than
-	 * being passed on. */
+	 * only thing that says which file the stream is on, so a destination
+	 * with no file yet cannot be that file, and a failed lookup here
+	 * answers "not the same" rather than being passed on. */
 	if (names_the_stream(first, first_path, first_linked) ||
 	    names_the_stream(second, second_path, second_linked))
 		return written_file(first, first_path, first_linked,
