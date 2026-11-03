@@ -1603,6 +1603,95 @@ MU_TEST(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not)
 	}
 }
 
+/* Is this make line a comment? The '#' may be indented. */
+static int make_line_is_comment(const char *line)
+{
+	while (*line == ' ' || *line == '\t')
+		line++;
+	return *line == '#';
+}
+
+/* Does `path`, read as a makefile, name `needle` on a line of make? */
+static int makefile_names(const char *path, const char *needle)
+{
+	char line[512];
+	int found = 0;
+	FILE *f = fopen(path, "r");
+
+	if (f == NULL)
+		return -1;
+	while (fgets(line, sizeof(line), f) != NULL) {
+		if (make_line_is_comment(line))
+			continue;
+		if (strstr(line, needle) != NULL)
+			found = 1;
+	}
+	fclose(f);
+	return found;
+}
+
+/*
+ * The feed from the USB interrupt only exists if the file holding it is
+ * compiled in. USB_IRQHandler lives in firmware/common's usb_serial.c, which
+ * also holds the serial console; the shipped images use the handler and not
+ * the console, so nothing in either image names anything in that file and it
+ * reads like a source neither needs.
+ *
+ * It is not optional. The interrupt vector table declares USB_IRQHandler weak
+ * and aliased to the default handler, so the entry resolves either way: with
+ * usb_serial.c in the link the vector reaches the handler that services USB
+ * and feeds the watchdog, and without it the vector reaches a handler that
+ * marks a wedge and spins forever. An image that enables the USB interrupt and
+ * leaves the file out would answer the host nothing from the first interrupt
+ * on, and the checks above would stay green because the source they read is
+ * unchanged.
+ */
+MU_TEST(test_the_shipped_images_compile_the_usb_interrupt_handler)
+{
+	static const char *const makefiles[] = {
+		FW_RXTX_DIR "/Makefile",
+		FW_BTBR_DIR "/Makefile",
+	};
+	const char *vectors = FW_COMMON_DIR "/LPC17xx_Interrupts.c";
+	char line[512], msg[512];
+	int in_block = 0, weak_alias = 0;
+	size_t i;
+	FILE *f;
+
+	mu_assert_int_eq(1, source_has(FW_COMMON_DIR "/usb_serial.c",
+	                               "void USB_IRQHandler", NULL));
+
+	/* The weak alias is what makes the omission silent rather than a link
+	 * error, so the test says out loud that it is still there. */
+	f = fopen(vectors, "r");
+	snprintf(msg, sizeof(msg), "cannot read %s", vectors);
+	mu_assert_fatal(f != NULL, msg);
+	while (fgets(line, sizeof(line), f) != NULL) {
+		strip_comments(line, &in_block);
+		if (strstr(line, "USB_IRQHandler") != NULL &&
+		    strstr(line, "Default_Handler") != NULL)
+			weak_alias = 1;
+	}
+	fclose(f);
+	snprintf(msg, sizeof(msg),
+	         "%s no longer aliases USB_IRQHandler to the default handler, so "
+	         "this test no longer describes what leaving usb_serial.c out "
+	         "does", vectors);
+	mu_assert(weak_alias, msg);
+
+	for (i = 0; i < sizeof(makefiles) / sizeof(makefiles[0]); i++) {
+		int found = makefile_names(makefiles[i], "usb_serial.c");
+
+		snprintf(msg, sizeof(msg), "cannot read %s", makefiles[i]);
+		mu_assert_fatal(found >= 0, msg);
+		snprintf(msg, sizeof(msg),
+		         "%s no longer compiles usb_serial.c, so this image's USB "
+		         "interrupt reaches the default handler and the board stops "
+		         "answering the host", makefiles[i]);
+		mu_assert(found == 1, msg);
+	}
+}
+
 MU_TEST(test_a_claimed_reset_is_claimed_where_it_happens)
 {
 	static const char *const sources[] = {
@@ -2223,6 +2312,7 @@ int main(void)
 	MU_RUN(test_startup_programs_the_guard_and_paints_above_it);
 	MU_RUN(test_reset_handler_arms_the_guard_before_it_copies_anything);
 	MU_RUN(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not);
+	MU_RUN(test_the_shipped_images_compile_the_usb_interrupt_handler);
 	MU_RUN(test_a_claimed_reset_is_claimed_where_it_happens);
 	MU_RUN(test_every_path_that_never_returns_marks_where_it_was);
 	MU_RUN(test_every_fault_handler_records_the_fault);
