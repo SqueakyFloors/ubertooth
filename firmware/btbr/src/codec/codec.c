@@ -166,12 +166,18 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 		{
 		case BB_LEN_HEADER:
 			/* The payload header's low bits hold the length: five
-			 * in a one-byte header, ten in a two-byte one. */
-			if (hdr_len == 2)
+			 * in a one-byte header, ten in a two-byte one. A
+			 * format that says its length is in a header of any
+			 * other size has none to read, and no table here
+			 * holds one, so it falls back to the type's length
+			 * rather than reading the data field as a header. */
+			if (hdr_len == 1)
+				codec->payload_length = data[0]>>3;
+			else if (hdr_len == 2)
 				codec->payload_length =
 					0x3ff & ((data[0]|(data[1]<<8))>>3);
 			else
-				codec->payload_length = data[0]>>3;
+				codec->payload_length = t->payload_bytes;
 			break;
 		case BB_LEN_NEGOTIATED:
 			/* Nothing in the packet carries it: the length the
