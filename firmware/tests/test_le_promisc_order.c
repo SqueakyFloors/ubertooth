@@ -29,6 +29,11 @@
  * the volatile store of the hop mode, which would undo the order this test
  * pins in the source. The emitted code was checked by hand as well; the
  * qualifier is what makes the order binding rather than observed.
+ *
+ * The same goes for the connection's own fields, which are plain stores that
+ * no qualifier orders against the link state, so each handoff holds them
+ * above it with a barrier. The scan reads that too: the order in the source
+ * is only worth pinning while it is also the order the board runs.
  */
 #include <stdio.h>
 #include <string.h>
@@ -47,6 +52,7 @@ struct handoff {
 	int hop_mode;      /* hop_mode = HOP_BTLE */
 	int do_hop;        /* do_hop = 0 */
 	int link_state;    /* le.link_state = LINK_CONNECTED */
+	int barrier;       /* le_handoff_barrier() */
 	int last_field;    /* the last le.<field> the handoff sets */
 	int fields;        /* how many le.<field> assignments it makes */
 };
@@ -102,6 +108,8 @@ static void note_handoff_line(struct handoff *h, const char *line, int lineno)
 	if (is_assignment_of(line, "le.link_state", "LINK_CONNECTED") &&
 	    h->link_state == 0)
 		h->link_state = lineno;
+	if (strstr(line, "le_handoff_barrier(") != NULL && h->barrier == 0)
+		h->barrier = lineno;
 	if (is_needed_field(line, &which)) {
 		h->last_field = lineno;
 		h->fields++;
@@ -138,7 +146,10 @@ static int scan_promisc(const char *source, struct promisc_scan *s)
 		           strchr(line, '{') != NULL && line[0] != '\t') {
 			in_alg2 = 1;
 		} else if (strstr(line, "TIMER0_IRQHandler(") != NULL &&
-		           line[0] != '\t') {
+		           line[0] != '\t' && strchr(line, ';') == NULL) {
+			/* The handler's definition opens its brace on the next line,
+			 * so there is no '{' to look for here. A declaration of it
+			 * ends in ';' and is not the body. */
 			in_timer = 1;
 		}
 
@@ -199,12 +210,11 @@ static int scan_header(const char *source, struct promisc_scan *s)
 	while (fgets(line, sizeof(line), f) != NULL) {
 		lineno++;
 		strip_comments(line, &in_block);
+		/* contains_identifier() matches a whole identifier, so the end of
+		 * the type's own definition -- "} link_state_t;" -- is not a line
+		 * this takes an interest in. */
 		if (!contains_identifier(line, "link_state") ||
 		    strchr(line, ';') == NULL)
-			continue;
-		/* The declaration, not the type it is declared with. */
-		if (contains_identifier(line, "link_state_t") &&
-		    !contains_identifier(line, "link_state"))
 			continue;
 		if (s->declaration == 0 && strstr(line, "link_state;") != NULL) {
 			s->declaration = lineno;
@@ -238,21 +248,23 @@ MU_TEST(test_both_handoffs_were_found)
 	char msg[512];
 
 	snprintf(msg, sizeof(msg),
-	         "%s: the algorithm-1 handoff's three marks were not all found "
-	         "(hop_mode %d, do_hop %d, link_state %d); if the recovery was "
-	         "rewritten, this test has to be rewritten with it",
+	         "%s: the algorithm-1 handoff's four marks were not all found "
+	         "(hop_mode %d, do_hop %d, barrier %d, link_state %d); if the "
+	         "recovery was rewritten, this test has to be rewritten with it",
 	         path, s.algorithm_1.hop_mode, s.algorithm_1.do_hop,
-	         s.algorithm_1.link_state);
+	         s.algorithm_1.barrier, s.algorithm_1.link_state);
 	mu_assert_fatal(s.algorithm_1.hop_mode > 0 && s.algorithm_1.do_hop > 0 &&
+	                s.algorithm_1.barrier > 0 &&
 	                s.algorithm_1.link_state > 0, msg);
 
 	snprintf(msg, sizeof(msg),
-	         "%s: the algorithm-2 handoff's three marks were not all found "
-	         "(hop_mode %d, do_hop %d, link_state %d); if the search was "
-	         "rewritten, this test has to be rewritten with it",
+	         "%s: the algorithm-2 handoff's four marks were not all found "
+	         "(hop_mode %d, do_hop %d, barrier %d, link_state %d); if the "
+	         "search was rewritten, this test has to be rewritten with it",
 	         path, s.algorithm_2.hop_mode, s.algorithm_2.do_hop,
-	         s.algorithm_2.link_state);
+	         s.algorithm_2.barrier, s.algorithm_2.link_state);
 	mu_assert_fatal(s.algorithm_2.hop_mode > 0 && s.algorithm_2.do_hop > 0 &&
+	                s.algorithm_2.barrier > 0 &&
 	                s.algorithm_2.link_state > 0, msg);
 }
 
@@ -335,6 +347,60 @@ MU_TEST(test_the_link_state_is_set_last)
 	         s.algorithm_2.link_state);
 	mu_assert(s.algorithm_2.fields > 0 &&
 	          s.algorithm_2.last_field < s.algorithm_2.link_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the algorithm-1 handoff drops the hop request at line "
+	         "%d, after saying connected at line %d. A request left by the "
+	         "mode in force until now then outlives the handoff, and the "
+	         "capture loop takes it as the follow's first hop",
+	         path, s.algorithm_1.do_hop, s.algorithm_1.do_hop,
+	         s.algorithm_1.link_state);
+	mu_assert(s.algorithm_1.do_hop < s.algorithm_1.link_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the algorithm-2 handoff drops the hop request at line "
+	         "%d, after saying connected at line %d. A request left by the "
+	         "mode in force until now then outlives the handoff, and the "
+	         "capture loop takes it as the follow's first hop",
+	         path, s.algorithm_2.do_hop, s.algorithm_2.do_hop,
+	         s.algorithm_2.link_state);
+	mu_assert(s.algorithm_2.do_hop < s.algorithm_2.link_state, msg);
+}
+
+/*
+ * The barrier sits between the connection's fields and the link state, in
+ * both handoffs.
+ *
+ * The order above is the order of the source. Three of these stores are
+ * volatile and keep their order on their own, but the connection's other
+ * fields are plain, and two of those are read by the timer interrupt. Without
+ * the barrier the compiler may move a plain store below the store of the link
+ * state, which hands the interrupt a connection with a stale epoch or
+ * interval while the source still reads in the safe order.
+ */
+MU_TEST(test_the_barrier_sits_before_the_link_state)
+{
+	char msg[512];
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the algorithm-1 handoff's barrier is at line %d, not "
+	         "between its last field at line %d and the link state at line "
+	         "%d. The fields it holds above the link state are plain stores "
+	         "the compiler may otherwise move below it",
+	         path, s.algorithm_1.barrier, s.algorithm_1.barrier,
+	         s.algorithm_1.last_field, s.algorithm_1.link_state);
+	mu_assert(s.algorithm_1.last_field < s.algorithm_1.barrier &&
+	          s.algorithm_1.barrier < s.algorithm_1.link_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the algorithm-2 handoff's barrier is at line %d, not "
+	         "between its last field at line %d and the link state at line "
+	         "%d. The fields it holds above the link state are plain stores "
+	         "the compiler may otherwise move below it",
+	         path, s.algorithm_2.barrier, s.algorithm_2.barrier,
+	         s.algorithm_2.last_field, s.algorithm_2.link_state);
+	mu_assert(s.algorithm_2.last_field < s.algorithm_2.barrier &&
+	          s.algorithm_2.barrier < s.algorithm_2.link_state, msg);
 }
 
 /*
@@ -424,6 +490,7 @@ int main(void)
 	MU_RUN(test_both_handoffs_were_found);
 	MU_RUN(test_the_hop_mode_is_set_before_the_request_is_dropped);
 	MU_RUN(test_the_link_state_is_set_last);
+	MU_RUN(test_the_barrier_sits_before_the_link_state);
 	MU_RUN(test_the_interrupts_low_energy_hop_waits_for_the_link_state);
 	MU_RUN(test_the_sweep_branch_asks_for_a_hop_on_a_clock_tick_alone);
 	MU_RUN(test_the_link_state_is_a_volatile_field);

@@ -3685,17 +3685,43 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
  *   do_hop = 0            then: drop a hop the mode in force until now asked
  *                         for, with nothing able to ask for another
  *   the connection's fields
+ *   le_handoff_barrier()  then: hold those stores above the one below
  *   le.link_state = LINK_CONNECTED  last: this is what starts the hopping,
  *                         and by now there is a connection to hop
  *
  * Setting the state before the mode leaves a window the other way round: the
- * interrupt still sees the mode in force until now -- no hopping, or the band
- * sweep a host channel request leaves behind -- and its branch for that asks
- * for a hop on a plain clock tick, with no connection to time it. The follow
- * then takes that hop as its first one, which spends an event counter and
- * retunes immediately, so the capture starts an event away from the
+ * interrupt still sees the mode in force until now and its branch for that
+ * asks for a hop on a plain clock tick, with no connection to time it. The
+ * follow then takes that hop as its first one, which spends an event counter
+ * and retunes immediately, so the capture starts an event away from the
  * connection and hears nothing until the search is run again.
+ *
+ * Which modes that reaches differs between the two paths, and only one of
+ * them is reachable on the plain path. The algorithm-2 search runs with no
+ * hopping in force, whose branch asks for that hop. The algorithm-1 recovery
+ * runs with direct hopping in force, which the interrupt has no branch for at
+ * all, so a hop can be asked for there only if a host channel request has
+ * meanwhile left the band sweep or no hopping in force. Both paths are
+ * written in this order regardless, because which mode is in force at a
+ * handoff is not something the handoff should have to know.
  */
+
+/*
+ * Holds the stores above a call to this one above the stores below it.
+ *
+ * hop_mode, do_hop and le.link_state are volatile, so those three stores keep
+ * their order on their own. The connection's other fields are plain, and two
+ * of them -- conn_epoch and conn_interval -- are read by TIMER0_IRQHandler(),
+ * which the compiler cannot see, so without this it may move those stores
+ * below the store of the link state and hand the interrupt a connection with
+ * a stale epoch or interval. A compiler barrier is the whole of what this
+ * needs: a core sees its own stores in program order, so an interrupt taken
+ * on it cannot see them in another one.
+ */
+static inline void le_handoff_barrier(void)
+{
+	__asm__ volatile ("" ::: "memory");
+}
 
 /* Works the hop increment out from how long the connection takes to get from
  * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
@@ -3740,8 +3766,9 @@ void promisc_recover_hop_increment(u8 *packet) {
 		if (channels_hopped >= 1 && channels_hopped < LE_HOP_CHANNELS &&
 				hop_interval_lut[channels_hopped] >= LE_MIN_HOP_INCREMENT &&
 				hop_interval_lut[channels_hopped] <= LE_MAX_HOP_INCREMENT) {
-			/* The hop mode first and the link state last; see "Handing a
-			 * recovered connection to the follow" above. */
+			/* Move on to regular connection following: the hop mode first
+			 * and the link state last; see "Handing a recovered connection
+			 * to the follow" above. */
 			hop_mode = HOP_BTLE;
 			do_hop = 0;
 			/* The table turns a number of connection events into the hop
@@ -3754,9 +3781,9 @@ void promisc_recover_hop_increment(u8 *packet) {
 			le.interval_timer = le.conn_interval / 2;
 			le.conn_count = 0;
 			le.conn_epoch = 0;
-			// Move on to regular connection following.
 			le.channel_idx = (1 + le.channel_increment) % LE_HOP_CHANNELS;
 			le.crc_verify = 0;
+			le_handoff_barrier();
 			le.link_state = LINK_CONNECTED;
 			packet_cb = connection_follow_cb;
 			le_promisc_state(3, &le.channel_increment, 1);
@@ -3994,6 +4021,7 @@ static int promisc_try_csa2(u32 sighting) {
 	hop_mode = HOP_BTLE;
 	do_hop = 0;
 	le.crc_verify = 0;
+	le_handoff_barrier();
 	le.link_state = LINK_CONNECTED;
 	packet_cb = connection_follow_cb;
 
