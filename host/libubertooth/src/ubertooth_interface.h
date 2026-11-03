@@ -974,10 +974,10 @@ enum watchdog_site {
 	WATCHDOG_SITE_USB_REALIZE = 23,
 	/*
 	 * The promiscuous capture's search for a connection hopping with
-	 * channel selection algorithm 2. It hashes all 65536 event counters
-	 * and scores tens of thousands of candidates, which takes 60 to 200 ms
-	 * -- by far the longest stretch that capture spends between two
-	 * packets, and still well inside the watchdog's three seconds.
+	 * channel selection algorithm 2. It takes a couple of hundred
+	 * milliseconds, which is the longest the capture holds the processor
+	 * without going round its own loop, and still well inside the
+	 * watchdog's three seconds.
 	 *
 	 * It runs in the capture's packet callback rather than in one of the
 	 * mode's waits, so before this site both a -w read taken during the

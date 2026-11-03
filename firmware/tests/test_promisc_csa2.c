@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "minunit.h"
+#include "source_scan.h"
 #include "bluetooth_le.h"
 
 #ifndef FW_RXTX_DIR
@@ -1708,56 +1709,40 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 }
 
 /*
- * The search names itself in the watchdog's breadcrumb.
- *
- * It is the longest stretch the capture spends between two packets, so a -w
- * read or a watchdog reset that lands in it must say so rather than read as
- * "not in a wait". The mark has to be given back, and given back on every way
- * out of the search: left set, it would name the search for the rest of the
- * capture.
+ * The search names itself in the watchdog's breadcrumb: WATCHDOG_SITE_LE_CSA2,
+ * whose own comment says why. The mark has to be given back on every way out
+ * of the search, or it would name the search for the rest of the capture.
  */
 MU_TEST(the_search_marks_its_own_watchdog_site)
 {
 	char path[512];
-	char line[512];
+	char line[SCAN_LINE_MAX];
 	FILE *f;
-	int in_block = 0, marked = 0;
+	int in_block = 0, marked = 0, done = 0;
 	int searched = 0, given_back = 0, left_without_giving_it_back = 0;
 
 	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
 	f = fopen(path, "r");
 	mu_assert_fatal(f != NULL, "cannot read bluetooth_rxtx.c");
 
-	while (fgets(line, sizeof(line), f) != NULL) {
-		char *comment;
-
-		/* As above: a comment naming the site is not the mark. */
-		if (in_block) {
-			if (strstr(line, "*/") == NULL)
-				continue;
-			in_block = 0;
-			continue;
-		}
-		comment = strstr(line, "/*");
-		if (comment != NULL) {
-			if (strstr(comment, "*/") == NULL)
-				in_block = 1;
-			*comment = '\0';
-		}
+	while (!done && fgets(line, sizeof(line), f) != NULL) {
+		/* A comment naming the site is not the mark. */
+		strip_comments(line, &in_block);
 
 		if (!marked) {
 			marked = strstr(line,
 			    "watchdog_mark(WATCHDOG_SITE_LE_CSA2)") != NULL;
 			continue;
 		}
-		if (given_back)
-			continue;
 		if (strstr(line, "le_csa2_recover(") != NULL)
 			searched = 1;
 		if (strstr(line, "watchdog_mark(site)") != NULL)
 			given_back = 1;
 		else if (strstr(line, "return") != NULL)
 			left_without_giving_it_back = 1;
+		/* Stop at the end of promisc_try_csa2(), so a restore in some
+		 * later function cannot stand in for this one. */
+		done = given_back || line[0] == '}';
 	}
 	fclose(f);
 
