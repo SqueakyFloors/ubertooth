@@ -2,19 +2,32 @@
 
 Hardware required: Ubertooth One, Linux machine (Ubuntu 22.04+ preferred), a BLE device
 (phone, fitness tracker, etc.) and a classic Bluetooth device for BR/EDR tests.
-A second Ubertooth One for the range test (2i).
+A second Ubertooth One for the range test (2i) and for the board-selection
+checks (2a-1, 5b).
 
 ---
 
 ## 1. Build Verification
 
+The clean build itself is CI's work: the `host` job builds the tools and runs
+the unit tests on Ubuntu 22.04, Ubuntu 24.04, and macOS 26 on every change,
+and the scheduled and release runs add macOS 14, macOS 15, and
+`ubuntu-latest`; container jobs cover Ubuntu 20.04 and Fedora. What the steps
+below add is the install side, which no job exercises: the staged and
+installed Python launchers, and a source tree and a system Python that must
+not be written to.
+
 ### 1a. Clean build on Ubuntu 22.04
 - [ ] Clone repo fresh on Ubuntu 22.04
-- [ ] Install dependencies: `sudo apt install cmake gcc libusb-1.0-0-dev python3 python3-numpy python3-qtpy python3-pyqt5 python3-usb1`
-- [ ] Build libbtbb from the pinned fork commit (see [the build guide](docs/source/build_guide.rst))
+- [ ] Install dependencies: the Debian and Ubuntu `apt` line in
+      [the build guide](docs/source/build_guide.rst), which is the list kept
+      up to date
+- [ ] Build libbtbb from the pinned fork commit (see the same guide)
 - [ ] Run `cmake .. && make` in `host/build/`
-- [ ] Confirm: no errors, no warnings about CMake version
-- [ ] Confirm: `ubertooth-util` binary exists in build output
+- [ ] Confirm: no errors, no warnings about CMake version (the tree asks for
+      the range 3.5 to 3.27)
+- [ ] Confirm: `ubertooth-util` binary exists in build output, under
+      `ubertooth-tools/src/`
 - [ ] Install to a temporary `CMAKE_INSTALL_PREFIX`; with `PYTHONPATH` unset,
       confirm the installed `ubertooth-specan-ui --help` and
       `ubertooth-btbr -h` reach their normal usage output (no import error)
@@ -480,7 +493,7 @@ nRF52840 DKs) plus one Ubertooth.*
       or more after the CRC init value. A figure that disagrees with the
       peer's is a failure.
 
-### 3d. Promiscuous mode finds its own access address
+### 3e. Promiscuous mode finds its own access address
 
 *Needs a BLE connection that stays up, and a board reset (`ubertooth-util -r`)
 before the first step so nothing is carried over.*
@@ -504,12 +517,19 @@ before the first step so nothing is carried over.*
 
 ---
 
-## 4. Spectrum Analyzer (tests specan_ui Python fixes)
+## 4. Spectrum analyzer, LED specan, and board state between modes
+
+4b is the one step in this section that exercises the specan_ui Python fixes.
+The rest are the command-line sweep, the LED threshold, and what state a board
+is left in when a mode stops.
 
 ### 4a. CLI spectrum analyzer
-- [ ] Run `ubertooth-specan`
-- [ ] Confirm: starts without Python errors
-- [ ] Confirm: outputs spectrum data
+- [ ] Run `ubertooth-specan > sweep.bin`, or `ubertooth-specan -g` to read it
+      at a terminal: without `-g` or `-G` the samples are raw 3-byte records,
+      and a terminal on standard output is refused with
+      `error: stdout is a tty, refusing to write binary samples to it`
+- [ ] Confirm: it starts and reports no error
+- [ ] Confirm: the file grows, or the `-g` lines arrive
 
 ### 4a-1. A sweep that cannot be written
 *Linux only: `/dev/full` stands in for a full disk*
@@ -528,6 +548,9 @@ before the first step so nothing is carried over.*
 - [ ] Run `ubertooth-specan-ui`
 - [ ] Confirm: GUI launches without `ModuleNotFoundError: No module named 'specan'`
 - [ ] Confirm: spectrum data displayed
+- [ ] The rest of what only a person at a desktop can judge — the window, the
+      waterfall, the controls — is section 10's
+      [manual test](https://github.com/SqueakyFloors/ubertooth/issues/952)
 
 ### 4c. LED spectrum analyzer threshold
 - [ ] Run `ubertooth-util -q 120`, then `ubertooth-util -d` a few times
@@ -571,17 +594,22 @@ before the first step so nothing is carried over.*
 - [ ] Run `ubertooth-btle -n -A37` for about 3 s and stop it with Ctrl+C
 - [ ] Run `ubertooth-util -S`
 - [ ] Run `ubertooth-dump -d dump.bin` for about 2 s and stop it with Ctrl+C
-- [ ] Read byte 4 (`pkt_type`) of each 68-byte record in `dump.bin`
+- [ ] Read byte 4 (`pkt_type`) of each record in `dump.bin`. A record is 68
+      bytes: a four-byte big-endian host timestamp, then the 64 bytes the
+      board sent
 - [ ] Confirm: every record is 0 (`BR_PACKET`) — no 1 (`LE_PACKET`) left by
-      the BLE capture and no 3 (`KEEP_ALIVE`) at the head
+      the BLE capture, and no 3 (`KEEP_ALIVE`), which the dump drops before
+      writing anything so that no record in the file has packet fields
+      nothing ever set
 - [ ] Repeat about ten times: it used to show two `LE_PACKET` records at the
       head roughly one run in three
 
 ### 4h. Modes still start after repeated starts and stops
 - [ ] Five times in a row: run `ubertooth-btle -n` for about 3 s, Ctrl+C, then
       `ubertooth-util -S`
-- [ ] Five times in a row: run `ubertooth-specan -d -` for about 3 s, Ctrl+C,
-      then `ubertooth-util -S`
+- [ ] Five times in a row: run `ubertooth-specan -d - > sweep.bin` for about
+      3 s, Ctrl+C, then `ubertooth-util -S`. The redirect is needed: raw
+      samples to a terminal are refused, as 4a says
 - [ ] Confirm: every run produces data, and `ubertooth-util -v` still answers
       after the last one
 - [ ] Why: the firmware's waits on the radio give up after a bound rather than
@@ -607,16 +635,18 @@ before the first step so nothing is carried over.*
 
 ### 5b. Paging
 *Requires: the board carrying the `btbr` image*
-- [ ] Run `ubertooth-btbr -U <serial>` targeting a known classic BT device
-      BD_ADDR
+- [ ] Run `ubertooth-btbr -U <serial>`, then `page <BD_ADDR>` at its prompt
+      against a known classic BT device. The command line takes no address;
+      the target is a prompt command (see
+      [`ubertooth-btbr(1)`](host/doc/ubertooth-btbr.md))
 - [ ] Confirm: with two boards attached and no `-U`, the tool lists both and
       opens neither (`error: multiple Ubertooth devices found; select one
       with -U <index|serial>`)
-- [ ] Confirm: the `bt>` prompt appears within a couple of seconds
+- [ ] Confirm: the `bt> ` prompt appears within a couple of seconds
 - [ ] Confirm: packets captured after paging completes
 - [ ] Confirm: on a board carrying `bluetooth_rxtx` instead, the tool exits 1
-      within a few seconds with `error: could not set up Ubertooth <serial>`
-      naming the board it was given, and a
+      within a few seconds with `error: could not set up Ubertooth <serial>: `
+      and a reason, naming the board it was given, and a
       `note: ` naming that firmware and the image to flash, rather than waiting
       on the board
 - [ ] Confirm: Ctrl-C before the `bt>` prompt appears ends the tool with exit
@@ -676,9 +706,15 @@ in a row show whether the board is hopping and over which channels.*
 
 *Requires: Python scapy installed (`pip3 install scapy`)*
 
-- [ ] Run the pcapdump script from `host/python/extcap/` against a capture file
-- [ ] Confirm: no `PcapWriter` deprecation warnings
-- [ ] Confirm: output is valid
+This change is in a documented recipe rather than in a script the package
+ships: see "Capturing BLE in Scapy" in
+[Capturing BLE with Wireshark](docs/source/capturing_BLE_Wireshark.rst).
+
+- [ ] Capture to a PCAP file with `ubertooth-btle -n -c /tmp/bluesCap`
+- [ ] Read it back with the recipe's `PcapReader`, as the page gives it
+- [ ] Confirm: the packets are read, and Scapy prints no deprecation warning
+- [ ] Confirm: reading the same handle again after a pause returns the packets
+      that arrived in between, which is what `PcapReader` is there for
 
 ---
 
@@ -713,26 +749,31 @@ mid-stream; about one run in ten does it, so this may take several tries.
 
 ---
 
-## 9. Deferred / Untested PRs
+## 9. Features once deferred, now in main
 
-These branches exist in the repo but are NOT in main yet:
+Both are in `main`, and no branch is waiting to be tried.
 
-### Serial number support, [upstream #488](https://github.com/greatscottgadgets/ubertooth/pull/488) (`feature/serial-number-support`)
-- Allows selecting a specific Ubertooth by serial number with `-U <serial>`
-- Test: plug in two Ubertooth devices, confirm each can be addressed independently
-- Risk: large change (68 files), not yet reviewed
+### Selecting a board by index or serial
+Every tool's `-U` takes a USB enumeration index or a serial number, which is
+how the rest of this plan addresses a board. 2a-1 covers the choice and each
+refusal, and the host test suite pins those messages, so nothing extra is
+needed here.
 
-### Capture to stdout, [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362) (`feature/capture-to-stdout`)
-- Adds `-c -` to pipe PCAP to stdout (for piping into Wireshark live)
-- Test: `ubertooth-btle -f -c - | wireshark -k -i -`
-- Risk: large change (207 files) reaching beyond this feature — needs trimming before merge
+### Capture to standard output, [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)
+`ubertooth-btle -q -` and `-c -` write PCAP to standard output, so
+`ubertooth-btle -f -c - | wireshark -k -i -` works; everything else the tool
+says goes to standard error. PCAPNG has no such form: `-r -` is refused with a
+line naming the two options that do. The `host` CI job checks on every change
+that standard output stays byte-for-byte empty on that path when no board is
+found, so what is left to try on hardware is that a live capture reaches
+Wireshark.
 
 ---
 
 ## 10. Manual tests
 
 Checks that only a person can do: they need a graphical application, a
-judgement about what appeared on screen, or hands on the hardware, so neither
+judgment about what appeared on screen, or hands on the hardware, so neither
 the host test suite nor the test harness can run them. Each one is tracked as
 an issue labeled
 [`manual test`](https://github.com/SqueakyFloors/ubertooth/issues?q=label%3A%22manual+test%22),
@@ -749,6 +790,17 @@ fails.
   the harness checks it with `tshark`, but nothing exercises the GUI.
   See [Using Ubertooth with Wireshark](docs/source/using_ubertooth_with_wireshark.rst)
   for the install and capture steps.
+- [The `ubertooth-specan-ui` window on a real desktop](https://github.com/SqueakyFloors/ubertooth/issues/952)
+  — the live plot, the keys and the on-screen key help, `--wifi 14` at
+  2484 MHz, and exit status 0 on quitting from the window. The unit tests and
+  4b above cover the launcher and the module import; a plot that draws wrongly
+  or a window that never appears would pass both.
+
+The same label also carries jobs for a person that are not checks of the
+tools: photographing the board for the hardware docs
+([#915](https://github.com/SqueakyFloors/ubertooth/issues/915)) and exporting
+the Ubertooth One schematic to PDF from the KiCad application
+([#1092](https://github.com/SqueakyFloors/ubertooth/issues/1092)).
 
 ---
 
@@ -758,7 +810,7 @@ fails.
   do not open one, so the suite can run while boards are in use. Those tests
   set `UBERTOOTH_TEST_NO_DEVICES=1`, which makes device selection behave as if
   nothing were attached; nothing else sets it, so normal use is unaffected.
-  Everything below still needs real hardware.
+  Every check in this plan needs a real board unless it says otherwise.
 - Tests 3b, 5b, 6 directly exercise the cherry-picked fixes — these are the most important to run
 - Memory leak tests (8a) require extended time but are important for production use
 - Document any unexpected behavior as a new issue in the repo
