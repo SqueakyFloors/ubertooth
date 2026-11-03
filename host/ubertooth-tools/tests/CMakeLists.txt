@@ -345,6 +345,11 @@ if(libubertooth_SOURCE_DIR)
 			# major version with a minor of 0: the version file
 			# promises SameMajorVersion, so it is satisfied.
 			"${MAJOR_VERSION}.0"
+			# Whether this build's libbtbb is somewhere an install
+			# cannot send a consumer to, which makes every install it
+			# could make unusable and the test skip: a libbtbb built
+			# beside this tree and never installed, for one.
+			"${UBERTOOTH_CONFIG_BTBB_HINT_DROPPED}"
 			# The library's own source tree, for the builds the test
 			# configures in the other layouts. The project's own
 			# directory rather than CMAKE_SOURCE_DIR, which would be

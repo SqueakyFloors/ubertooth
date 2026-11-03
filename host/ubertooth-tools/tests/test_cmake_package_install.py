@@ -2,7 +2,8 @@
 """A CMake project outside this tree finds and links the installed library.
 
 Run as: test_cmake_package_install.py <cmake> <build dir> <install libdir>
-            <install includedir> <version to ask for> <source dir>
+            <install includedir> <version to ask for> <libbtbb hint dropped>
+            <source dir>
 
 The install writes ubertoothConfig.cmake, so a project of its own says
 `find_package(ubertooth REQUIRED)` and links `ubertooth::ubertooth` rather
@@ -37,7 +38,8 @@ import sys
 import tempfile
 
 
-CMAKE, BUILD_DIR, LIBDIR, INCLUDEDIR, VERSION, SOURCE_DIR = sys.argv[1:7]
+CMAKE, BUILD_DIR, LIBDIR, INCLUDEDIR, VERSION, HINT_DROPPED, SOURCE_DIR = \
+    sys.argv[1:8]
 # LIBDIR and INCLUDEDIR are the directories under the prefix this build
 # installs the library and the headers to, passed in rather than assumed:
 # GNUInstallDirs picks them for the system, and a build command can ask for
@@ -50,29 +52,36 @@ CMAKE, BUILD_DIR, LIBDIR, INCLUDEDIR, VERSION, SOURCE_DIR = sys.argv[1:7]
 # the ones before and every entry a layout cares about is passed by that
 # layout. Only the first of them pays for a configure from nothing.
 #
-# LIB_SUFFIX, the older way of asking for the library's directory, is left to
-# test_pkgconfig_install.py: it installs to the same lib64 as the layout above
-# and the directory is chosen by the same lines of the top-level
-# CMakeLists.txt, so taking it here as well would cost a configure and an
-# install to prove nothing new about this file.
+# LIB_SUFFIX, the older way of asking for the library's directory, is not
+# taken here. It installs to the same lib64 as the layout above, and the
+# top-level CMakeLists.txt works the directory out once, into
+# UBERTOOTH_INSTALL_LIBDIR, which both this file and libubertooth.pc are
+# written from -- so what is left untested is that one variable reaching this
+# file, and test_pkgconfig_install.py covers the variable itself.
 LAYOUTS = (
-    ("lib64", ["-ULIB_SUFFIX", "-DBUILD_SHARED_LIB=ON",
-               "-DBUILD_STATIC_LIB=OFF",
+    ("lib64", ["-DBUILD_SHARED_LIB=ON", "-DBUILD_STATIC_LIB=OFF",
                "-DCMAKE_INSTALL_LIBDIR=lib64",
                "-DCMAKE_INSTALL_INCLUDEDIR=include"],
      "lib64", "include", "ubertooth"),
-    ("multiarch", ["-DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu",
+    ("multiarch", ["-DBUILD_SHARED_LIB=ON", "-DBUILD_STATIC_LIB=OFF",
+                   "-DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu",
                    "-DCMAKE_INSTALL_INCLUDEDIR=include/ubertooth"],
      "lib/x86_64-linux-gnu", "include/ubertooth", "ubertooth"),
     # An install with only the static library, where the imported location is
     # libubertooth.a and the libraries libubertooth.pc lists in Libs.private
-    # are the ones a consumer needs. README.cmake.md says one target serves
-    # both installs, so one of them is taken here.
+    # are the ones a consumer needs to link it. README.cmake.md says one
+    # target serves both installs, so one of them is taken here, and the
+    # consumer program is linked for this layout rather than only configured,
+    # because the archive is the case where those libraries decide whether it
+    # links at all.
     ("static-only", ["-DBUILD_SHARED_LIB=OFF", "-DBUILD_STATIC_LIB=ON",
                      "-DCMAKE_INSTALL_LIBDIR=lib",
                      "-DCMAKE_INSTALL_INCLUDEDIR=include"],
      "lib", "include", "ubertooth-static"),
 )
+
+# The layouts whose consumer program is linked and not only configured.
+LAYOUTS_LINKED = ("static-only",)
 
 # What the install puts in each of these is what a CMake project building
 # against the library needs, plus the pkg-config file the two are compared
@@ -148,8 +157,9 @@ def install_into(prefix, build_dir):
                       "-DCMAKE_INSTALL_PREFIX=" + prefix,
                       "-DCMAKE_INSTALL_COMPONENT=" + component,
                       "-P", os.path.join(build_dir, "cmake_install.cmake")])
-        # A component this build has nothing in (staticlibs, where only the
-        # shared library is built) installs no files and succeeds.
+        # A component this build has nothing in installs no files and
+        # succeeds: staticlibs where only the shared library is built, and
+        # sharedlibs in the static-only layout below.
         assert result.returncode == 0, (component, result)
 
 
@@ -263,9 +273,10 @@ def check_install(name, work, prefix, libdir, includedir, forwarded,
     assert os.path.realpath(os.path.dirname(location)) == installed_libdir, \
         (name, location, installed_libdir)
     assert os.path.isfile(location), (name, location)
-    # The install's own header directory first, then libbtbb's and libusb's:
-    # exactly, not somewhere among them, so a config file that named the right
-    # directory alongside a wrong one does not pass.
+    # The install's own header directory is the first of the target's, ahead
+    # of libbtbb's and libusb's. Pinned by position rather than looked for
+    # among them, so a config file that put another directory where this one
+    # belongs does not pass by also naming this one.
     resolved = [os.path.realpath(directory) for directory in includes]
     assert resolved[0] == installed_includedir, (name, includedir, includes)
 
@@ -292,6 +303,19 @@ def build_library(build_dir, cache_entries, forwarded, target="ubertooth"):
     built = run([CMAKE, "--build", build_dir, "--target", target])
     assert built.returncode == 0, (cache_entries, built)
 
+
+# ubertoothConfig.cmake gives its own libbtbb search the directory this build
+# found libbtbb in as a hint, unless that directory is one no install can be
+# described by -- a libbtbb source tree beside this one, this tree, or this
+# build directory, which host/libubertooth/src/CMakeLists.txt reports. An
+# install made by such a build genuinely cannot be used unless libbtbb is also
+# where the default search looks, and that is about this machine rather than
+# about the config file, so it is reported and skipped.
+if HINT_DROPPED == "1":
+    print("skipped: this build found libbtbb in a directory an install "
+          "cannot send a consumer to, so no install it makes can be used "
+          "unless libbtbb is installed as well")
+    sys.exit(0)
 
 work = tempfile.mkdtemp(prefix="libubertooth-cmake-package.")
 try:
@@ -333,7 +357,7 @@ try:
         prefix = os.path.join(work, name + "-prefix")
         install_into(prefix, build_dir)
         check_install(name, work, prefix, libdir, includedir, forwarded,
-                      build=False, binary=reused,
+                      build=name in LAYOUTS_LINKED, binary=reused,
                       package_dir=os.path.join(prefix, libdir, "cmake",
                                                "ubertooth"))
 
@@ -348,8 +372,7 @@ try:
     absolute_libdir = os.path.join(work, "absolute-libdir")
     absolute_prefix = os.path.join(work, "absolute-prefix")
     build_library(build_dir,
-                  ["-ULIB_SUFFIX", "-DBUILD_SHARED_LIB=ON",
-                   "-DBUILD_STATIC_LIB=OFF",
+                  ["-DBUILD_SHARED_LIB=ON", "-DBUILD_STATIC_LIB=OFF",
                    "-DCMAKE_INSTALL_PREFIX=" + absolute_prefix,
                    "-DCMAKE_INSTALL_LIBDIR=" + absolute_libdir,
                    "-DCMAKE_INSTALL_INCLUDEDIR=include"], forwarded)
@@ -373,7 +396,8 @@ try:
     absolute_includedir = os.path.join(configured_prefix, "include")
     moved_prefix = os.path.join(work, "absolute-includedir-moved")
     build_library(build_dir,
-                  ["-DCMAKE_INSTALL_PREFIX=" + configured_prefix,
+                  ["-DBUILD_SHARED_LIB=ON", "-DBUILD_STATIC_LIB=OFF",
+                   "-DCMAKE_INSTALL_PREFIX=" + configured_prefix,
                    "-DCMAKE_INSTALL_LIBDIR=lib",
                    "-DCMAKE_INSTALL_INCLUDEDIR=" + absolute_includedir],
                   forwarded)

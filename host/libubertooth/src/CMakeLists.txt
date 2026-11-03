@@ -137,13 +137,18 @@ endforeach()
 # is the one to look in; one set by hand to a bare link name leaves the hint
 # empty, and the search then looks where it would have anyway.
 #
-# A directory that is not an installed libbtbb is no use as a hint and is
-# dropped: FindBTBB.cmake also looks in a libbtbb source tree beside this one,
-# and in this tree's own build directory, so a build that found libbtbb there
-# would otherwise write that path into the config file and send every consumer
-# of the install to a directory only this machine has -- and HINTS are
-# searched before the default directories, so it would win over the installed
-# libbtbb that libubertooth.pc's Requires sends a consumer to.
+# A hint inside a libbtbb source tree beside this one, inside this tree, or
+# inside this build directory is dropped. FindBTBB.cmake looks in such a
+# source tree, and a libbtbb named through $ENV{LIBBTBB_DIR} or pkg-config can
+# be anywhere, so a build that found libbtbb in one of those three would
+# otherwise write that path into the config file and send every consumer of
+# the install to a directory only this machine has -- ahead of the installed
+# libbtbb, because HINTS are searched before the default directories, which is
+# where libubertooth.pc's Requires sends a consumer. Those three, rather than
+# every libbtbb that is not installed, which nothing here can tell: a libbtbb
+# staged under the build directory loses a hint it could have kept, and the
+# search then looks where it would have anyway.
+set(UBERTOOTH_CONFIG_BTBB_HINT_DROPPED 0)
 get_filename_component(libbtbb_source_tree
 	"${CMAKE_SOURCE_DIR}/../libbtbb" REALPATH)
 set(UBERTOOTH_CONFIG_BTBB_INCLUDEDIR "${LIBBTBB_INCLUDE_DIR}")
@@ -167,16 +172,30 @@ foreach(hint UBERTOOTH_CONFIG_BTBB_INCLUDEDIR UBERTOOTH_CONFIG_BTBB_LIBDIR)
 		# Empty for the same directory, starting with ".." for one outside it,
 		# and absolute where there is no way between them at all.
 		file(RELATIVE_PATH way_in "${tree_path}" "${hint_path}")
-		if(NOT way_in MATCHES "^\\.\\." AND NOT IS_ABSOLUTE "${way_in}")
+		# "..", a whole directory name, rather than a name that begins with
+		# it: a sibling called "..libbtbb" is outside the tree and its hint
+		# would be kept.
+		if(NOT way_in MATCHES "^\\.\\.(/|$)" AND NOT IS_ABSOLUTE "${way_in}")
 			message(STATUS "ubertoothConfig.cmake will not hint at "
-				"${${hint}} as a libbtbb directory, because it is inside "
-				"${tree_path} rather than an install: a consumer of this "
-				"install would be sent to a directory only this machine has")
+				"${hint_path} as a libbtbb directory, because it is inside "
+				"${tree_path}: a consumer of this install would be sent to "
+				"a directory only this machine has")
 			set(${hint} "")
+			set(UBERTOOTH_CONFIG_BTBB_HINT_DROPPED 1)
 			break()
 		endif()
 	endforeach()
 endforeach()
+unset(libbtbb_source_tree)
+unset(hint_path)
+unset(tree_path)
+unset(way_in)
+
+# Read back by the test, which cannot use an install whose libbtbb was only
+# ever in one of those directories.
+set(UBERTOOTH_CONFIG_BTBB_HINT_DROPPED
+	"${UBERTOOTH_CONFIG_BTBB_HINT_DROPPED}" CACHE INTERNAL
+	"Whether the libbtbb this build found is in a directory an install cannot be described by")
 set(UBERTOOTH_CONFIG_LIBUSB_LIBDIR "")
 foreach(lib IN LISTS LIBUSB_LIBRARIES)
 	if(IS_ABSOLUTE "${lib}" AND NOT UBERTOOTH_CONFIG_LIBUSB_LIBDIR)
