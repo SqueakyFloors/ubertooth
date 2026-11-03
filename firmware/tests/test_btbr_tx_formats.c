@@ -148,7 +148,7 @@ static void encode(packet_t *p, unsigned format, unsigned data_bytes)
 
 	bbcodec_init(&p->codec, TEST_WHITEN, TEST_UAP, 1, 0);
 	bbcodec_set_tx_format(&p->codec, p->t,
-		p->t->payload_header_bytes ? 0 : data_bytes);
+		p->t->length_kind == BB_LEN_NEGOTIATED ? data_bytes : 0);
 	bbcodec_encode_header(&p->codec, p->air, &p->hdr, TEST_TRAILER,
 		p->data);
 	while (p->codec.coded_pos < p->codec.coded_total)
@@ -195,7 +195,8 @@ static void decode_and_compare(packet_t *p, const char *name)
 	 * data field past the voice bytes: those come off the air below, so
 	 * the chunk decoder starts at the data field itself. */
 	rx.t = p->t;
-	rx.fixed_length = p->t->payload_header_bytes ? 0 : p->data_bytes;
+	rx.negotiated_length =
+		p->t->length_kind == BB_LEN_NEGOTIATED ? p->data_bytes : 0;
 
 	if (p->t->voice_bytes)
 	{
@@ -416,11 +417,75 @@ MU_TEST(test_format_limits)
 
 }
 
+/* Every format says where its data length comes from, and that agrees with
+ * the rest of its description. The encoder and the limits above both go by
+ * the stated kind, so a format that named one it is not built for would go on
+ * the air at the wrong length: a packet said to carry its length in a payload
+ * header has one to carry it in, and the other two kinds have none.
+ */
+MU_TEST(test_every_format_states_its_length_kind)
+{
+	unsigned i;
+	char message[128];
+
+	for (i = 0; i < sizeof(formats)/sizeof(formats[0]); i++)
+	{
+		uint8_t air_type;
+		const bbcodec_types_t *t =
+			bbcodec_tx_format(formats[i].format, &air_type);
+
+		snprintf(message, sizeof(message),
+			"%s states a length kind this firmware knows",
+			formats[i].name);
+		mu_assert(t->length_kind == BB_LEN_FIXED
+			|| t->length_kind == BB_LEN_HEADER
+			|| t->length_kind == BB_LEN_NEGOTIATED, message);
+		snprintf(message, sizeof(message),
+			"%s has a payload header only if its length is in one",
+			formats[i].name);
+		mu_assert((t->length_kind == BB_LEN_HEADER)
+			== (t->payload_header_bytes != 0), message);
+	}
+
+}
+
+/* A format whose length was agreed when the link was set up is built to the
+ * length the caller gave, down to no data bytes at all. That length is read
+ * for this kind of format and for no other, so zero asks for an empty data
+ * field rather than for the longest the type carries. The host cannot ask for
+ * one today, because the limits above start at one byte.
+ */
+MU_TEST(test_a_negotiated_length_of_zero_is_an_empty_payload)
+{
+	static packet_t p;
+	uint8_t air_type;
+
+	memset(p.air, 0, sizeof(p.air));
+	memset(p.data, 0, sizeof(p.data));
+	p.t = bbcodec_tx_format(BTCTL_FMT_EV3, &air_type);
+	p.hdr.lt_addr = TEST_LT_ADDR;
+	p.hdr.type = air_type;
+	p.hdr.flags = 0;
+	p.hdr.hec = 0;
+
+	bbcodec_init(&p.codec, TEST_WHITEN, TEST_UAP, 1, 0);
+	bbcodec_set_tx_format(&p.codec, p.t, 0);
+	bbcodec_encode_header(&p.codec, p.air, &p.hdr, TEST_TRAILER, p.data);
+
+	mu_assert(p.codec.payload_length == 0,
+		"an EV3 asked for no data bytes carries none");
+	mu_assert(p.codec.coded_total == 2,
+		"and the payload is its CRC alone");
+
+}
+
 int main(void)
 {
 	printf("btbr transmit packet format tests\n");
 	MU_RUN(test_every_format_is_known);
+	MU_RUN(test_every_format_states_its_length_kind);
 	MU_RUN(test_format_limits);
+	MU_RUN(test_a_negotiated_length_of_zero_is_an_empty_payload);
 	MU_RUN(test_hv3_and_ev3_share_a_type_code);
 	MU_RUN(test_air_size_and_round_trip);
 	return mu_report();

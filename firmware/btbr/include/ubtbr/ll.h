@@ -38,8 +38,9 @@ typedef struct {
 	bbhdr_t *hdr;
 	uint8_t *data;
 	/* The air format, where it was chosen rather than implied by the
-	 * header's TYPE code, with the number of data bytes that format needs
-	 * told separately; NULL and 0 otherwise. See bbcodec_set_tx_format(). */
+	 * header's TYPE code, with the number of data bytes a
+	 * BB_LEN_NEGOTIATED format needs told separately; NULL and 0
+	 * otherwise. See bbcodec_set_tx_format(). */
 	const bbcodec_types_t *fmt;
 	unsigned data_bytes;
 } ll_tx_t;
