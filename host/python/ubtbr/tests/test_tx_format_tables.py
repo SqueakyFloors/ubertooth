@@ -34,11 +34,16 @@ reads them: a side that stopped checking a length or a count against its own
 table, or that compared it the wrong way round, would pass here. Those checks
 are each other's tests, in test_ubtbr.py and in firmware/tests.
 
-This is a host test that reads firmware source, so the directories it reads
-are named in the `changes` job of .github/workflows/build.yml, which is what
-runs the host jobs for a change to them. Reading a firmware file outside
-those directories means adding it there in the same change, or a firmware-only
-branch would skip this test.
+What the man page is read for: the list of formats it introduces, each item
+and its own prose, the sentence that gives the counts, and the worked `tx`
+commands. A figure it states anywhere else is on whoever writes it.
+
+This is a host test that reads firmware source and one man page, so the
+firmware directories it reads and that page are both named in the `changes`
+job of .github/workflows/build.yml, which is what runs the host jobs for a
+change to them. Reading another file outside what is named there means adding
+it in the same change, or a branch that touched only that file would skip
+this test.
 
 The device's table holds two things this does not compare, because the host
 never sends either and has no copy to drift from: the air TYPE code a format
@@ -113,7 +118,7 @@ def strip_comments(text, where="a scanned source file"):
     return "".join(out)
 
 
-def braced(text, start, what="a scanned source file"):
+def braced(text, start, what):
     """The text inside the first { ... } at or after start."""
     try:
         open_at = text.index("{", start)
@@ -352,7 +357,9 @@ def device_formats(root):
     ceiling = define_number(codec_h, "BB_VOICE_BYTES_MAX", "codec.h")
     if ceiling != longest:
         fail("BB_VOICE_BYTES_MAX is %d and the longest voice field any "
-             "format carries is %d" % (ceiling, longest))
+             "format carries is %d. Its comment in codec.h calls it the "
+             "longest field rather than room for it, so the fix is whichever "
+             "of the two is now wrong." % (ceiling, longest))
     return formats, holes
 
 
@@ -441,37 +448,72 @@ MAN_PAGE = "host/doc/ubertooth-btbr.md"
 MAN_PAGE_LIST_OPENS = "The formats, with the data bytes each carries"
 
 
-def man_page_lengths(text):
-    """The data bytes the page's list of formats states, by format name."""
-    lengths, reached, started = {}, False, False
+def man_page_list(text):
+    """The lines of the page's list of formats: its items and their prose.
+
+    The list starts at the sentence that introduces it and ends at the first
+    line that is not part of an item, so a later list on the page cannot add
+    a format to it.
+    """
+    lines, reached, started = [], False, False
     for line in text.split("\n"):
         if not reached:
             reached = MAN_PAGE_LIST_OPENS in line
             continue
         item = re.match(r" - (.*) :$", line)
-        if not item:
-            # Once the list has started it ends at the first line that is
-            # neither one of its items nor part of one: a blank line or an
-            # indented continuation. Before it starts, the rest of the
-            # sentence that introduces it is passed over.
-            if started and line.strip() and not line.startswith("   "):
-                break
+        if item:
+            started = True
+            lines.append(item.group(1))
             continue
-        started = True
-        for name, least, most in re.findall(
-                r"`([a-z0-9]+)`\s+(\d+)(?:-(\d+))?\b", item.group(1)):
-            if name in lengths:
-                fail("%s states what %s carries twice, so one of the two is "
-                     "stale and whichever comes last is what a reader of "
-                     "this test would compare" % (MAN_PAGE, name))
-            lengths[name] = (int(least), int(most) if most else int(least))
+        if started:
+            if not line.startswith("   "):
+                break
+            lines.append(line.strip())
     if not reached:
         fail("%s no longer opens its list of formats with %r, so the lengths "
              "it states are not checked" % (MAN_PAGE, MAN_PAGE_LIST_OPENS))
     if not started:
         fail("%s opens a list of formats and states no lengths in it, so "
              "what it promises the user is not checked" % MAN_PAGE)
+    return lines
+
+
+def man_page_lengths(lines):
+    """The data bytes the page's list states, by format name.
+
+    Read from the whole of each item, its own prose included, so a figure put
+    in the explanation is compared rather than passed over.
+    """
+    lengths = {}
+    for line in lines:
+        for name, least, most in re.findall(
+                r"`([a-z0-9]+)`\s+(\d+)(?:-(\d+))?\b", line):
+            if name in lengths:
+                fail("%s states what %s carries twice, so one of the two is "
+                     "stale and whichever comes last is what a reader of "
+                     "this test would compare" % (MAN_PAGE, name))
+            lengths[name] = (int(least), int(most) if most else int(least))
     return lengths
+
+
+def man_page_voices(lines):
+    """The voice bytes the page's list states, by format name.
+
+    The figure is in an item's own prose, so it belongs to the formats that
+    item names: "`dv` 0-9" and then "10 bytes of voice".
+    """
+    voices, named = {}, []
+    for line in lines:
+        item_names = re.findall(r"`([a-z0-9]+)`\s+\d+", line)
+        if item_names:
+            named = item_names
+        for stated in re.findall(r"(\d+) bytes of voice", line):
+            for name in named:
+                if name in voices:
+                    fail("%s states %s's voice field twice, so one of the "
+                         "two is stale" % (MAN_PAGE, name))
+                voices[name] = int(stated)
+    return voices
 
 
 def man_page_counts(text):
@@ -497,9 +539,12 @@ def man_page_counts(text):
         if SLOT_WORDS[word] in counts:
             fail("%s states the count for a %d-slot format twice, so one of "
                  "the two is stale" % (MAN_PAGE, SLOT_WORDS[word]))
-        counts[SLOT_WORDS[word]] = (
-            int(phrase.group(1)),
-            re.findall(r"`([a-z0-9]+)`", text[phrase.end():stop]))
+        named = re.findall(r"`([a-z0-9]+)`", text[phrase.end():stop])
+        if not named:
+            fail("%s allows %s transmissions of a %s-slot format and names "
+                 "no format that is one, so nothing says which formats the "
+                 "count is for" % (MAN_PAGE, phrase.group(1), word))
+        counts[SLOT_WORDS[word]] = (int(phrase.group(1)), named)
     if not counts:
         fail("%s no longer states the counts it allows as \"400 of a "
              "one-slot\", so what it promises the user is not checked"
@@ -507,10 +552,44 @@ def man_page_counts(text):
     return counts
 
 
+def check_man_page_examples(text, host, slots):
+    """The page's worked `tx` commands against what the tool would accept.
+
+    A command the page shows and the tool refuses is the same divergence read
+    from the other end, and these lines state a length and a count of their
+    own: `tx dh5 339 5` is the longest DH5 repeated five times.
+    """
+    shown = 0
+    for line in text.split("\n"):
+        command = re.match(r"\s+bt> tx\s+(\S+)(?:\s+(\d+))?(?:\s+(\d+))?",
+                           line)
+        if not command:
+            continue
+        shown += 1
+        name, length, count = command.groups()
+        if name not in host:
+            fail("%s shows `tx %s` and TX_FORMATS has no such format"
+                 % (MAN_PAGE, name))
+        fmt = host[name]
+        if length is not None and not (fmt["min"] <= int(length)
+                                       <= fmt["max"]):
+            fail("%s shows `tx %s %s` and %s carries %d to %d data bytes"
+                 % (MAN_PAGE, name, length, name, fmt["min"], fmt["max"]))
+        allowed = slots // fmt["slots"]
+        if count is not None and not (1 <= int(count) <= allowed):
+            fail("%s shows `tx %s %s %s` and 1 to %d transmissions are "
+                 "allowed for %s" % (MAN_PAGE, name, length, count, allowed,
+                                     name))
+    if not shown:
+        fail("%s shows no `bt> tx` command, so the commands it offers the "
+             "user are not checked" % MAN_PAGE)
+
+
 def check_man_page(root, host, slots):
     """The man page's figures against the table the host bounds a tx with."""
     text = read(os.path.join(root, MAN_PAGE))
-    lengths = man_page_lengths(text)
+    lines = man_page_list(text)
+    lengths = man_page_lengths(lines)
     counts = man_page_counts(text)
 
     for name in sorted(set(lengths) | set(host)):
@@ -545,22 +624,28 @@ def check_man_page(root, host, slots):
             fail("%s states no count for a %d-slot format, which %s is"
                  % (MAN_PAGE, host[name]["slots"], name))
 
-    # The one voice field any format has is a figure of its own in the prose.
-    voices = sorted(set(f["voice"] for f in host.values() if f["voice"]))
-    stated = sorted(set(int(n) for n in
-                        re.findall(r"(\d+) bytes of voice", text)))
-    if stated != voices:
-        fail("%s says %s of voice and TX_FORMATS carries %s"
-             % (MAN_PAGE,
-                " and ".join("%d bytes" % n for n in stated) or "nothing",
-                " and ".join("%d bytes" % n for n in voices) or "none"))
+    # A voice field is a figure of its own in the item's prose.
+    stated = man_page_voices(lines)
+    for name in sorted(host):
+        carries = host[name]["voice"]
+        if carries and name not in stated:
+            fail("%s does not say %s carries %d bytes of voice, which it does"
+                 % (MAN_PAGE, name, carries))
+        if name in stated and stated[name] != carries:
+            fail("%s says %s carries %d bytes of voice and TX_FORMATS has %d"
+                 % (MAN_PAGE, name, stated[name], carries))
+    for name in sorted(set(stated) - set(host)):
+        fail("%s states a voice field for %s and TX_FORMATS has no such "
+             "format" % (MAN_PAGE, name))
+
+    check_man_page_examples(text, host, slots)
 
 
 def check_divisions(root):
     for path, expression in DIVISIONS:
         text = read(os.path.join(root, path))
         if path.endswith(".c"):
-            text = strip_comments(text)
+            text = strip_comments(text, path)
             lines = [line.strip() for line in text.split("\n")]
         else:
             # Python: a comment after the expression is still that line.

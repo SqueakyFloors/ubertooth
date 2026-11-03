@@ -78,6 +78,12 @@ and `Man pages` runs whenever `host/doc/` changes, which is where the man page
 sources live.
 `install.sh` asks for its own two paths and is not reached.
 
+One man page is an exception. `host/doc/ubertooth-btbr.md` states the
+transmit formats' data lengths and the counts the slot bound allows, and a
+host test compares those with the tool's own table and the firmware's, so a
+branch that changes only that page still runs the `host` jobs. `firmware` and
+`scripts` are skipped for it as for any other documentation branch.
+
 `libbtbb pin` has no path filter at all, because the commit it checks is
 written down in `COMPATIBILITY.md` and the build guides as well as in the
 build files.
