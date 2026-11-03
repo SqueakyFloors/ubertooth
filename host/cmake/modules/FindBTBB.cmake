@@ -74,7 +74,6 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_piconet_set_flag
   btbb_piconet_set_uap
   btbb_piconet_unref
-  btbb_print_afh_map
   btbb_process_packet
   btbb_survey_piconet
   lell_allocate_and_decode_n
