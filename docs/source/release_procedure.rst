@@ -42,6 +42,14 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     	* ``libbtbb/cmake/set_release.cmake`` (``LATEST_RELEASE``), which
     	  ``lib/src/CMakeLists.txt`` includes
 
+    * Point the libbtbb pin at libbtbb's release tag, once that tag exists:
+      ``LIBBTBB_REF`` in ``.github/workflows/build.yml``, which is where the
+      pin is decided. The ``libbtbb pin`` check names every other file that
+      has to carry the same value. Until then the pin is a commit, and the
+      configure step compares the library it finds against it; a tag names no
+      commit to compare, so from the release on that line reports both ends
+      and claims nothing.
+
     * Update the version pointer in README.md's Releases section, "The current
       pre-release is …", to name the new tag. Leave the upstream pointer above
       it alone: it names Great Scott Gadgets' most recent release, not ours.

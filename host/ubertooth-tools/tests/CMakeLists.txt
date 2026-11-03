@@ -1412,6 +1412,24 @@ add_test(
 # compiler detection alone takes seconds.
 set_tests_properties(btbb-check PROPERTIES TIMEOUT 60)
 
+# FindBTBB.cmake must also report which libbtbb it found and which commit the
+# tree is built against, and warn when they differ without failing the
+# configure. Runs the real module from a one-line project against files
+# holding the release string a libbtbb would hold.
+#
+# Given no libbtbb of its own: every case brings its own library, and the
+# project has no languages in it, so nothing is compiled.
+add_test(
+	NAME btbb-pin-report
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_btbb_pin_report.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+# A configure per case of a project with no languages in it, which needs no
+# compiler: about 5 s on an idle machine, and up to 30 s on a loaded one. The
+# limit has room for a cold CI runner on top of that.
+set_tests_properties(btbb-pin-report PROPERTIES TIMEOUT 120)
+
 # FindUSB1.cmake must report every directory a source needs for libusb's
 # header, so a target asks libusb for it rather than depending on where
 # another library happens to be installed. Runs the real module from a

@@ -780,6 +780,15 @@
 
 ### Build and compatibility
 
+- The configure step says which libbtbb it found, the commit that library was
+  built from, and the commit these tools are built against, and warns when the
+  two commits differ. A libbtbb older than the pin used to be accepted
+  without a word as long as it had every function the tools call, so the tools
+  ran with that library's behavior, and a capture measured against it looked
+  like a change in the tools themselves. It is a warning and not a refusal: a
+  libbtbb from a distribution package records no commit, and the line says
+  that rather than guessing.
+  [#1118](https://github.com/SqueakyFloors/ubertooth/issues/1118)
 - libubertooth's `register_cleanup_handler()` is deprecated in favor of
   `ubertooth_catch_stop_signals()`, which installs the same stop handlers
   without needing a device handle. It is still exported, so a program of your
