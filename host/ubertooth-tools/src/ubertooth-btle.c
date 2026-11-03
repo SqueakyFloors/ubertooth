@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 /* The BLE advertising channel indexes (Bluetooth Core spec: 37, 38, 39). */
 #define ADV_INDEX_MIN 37
@@ -50,10 +51,11 @@ static void cancel_follow_handler(int sig __attribute__((unused))) {
 
 /* Where the lines that answer an option go: the access address, the CRC verify
  * setting and the target. They are what the user asked for, so standard
- * output, unless a capture has taken it ("-q -", "-c -"), which redirects this
- * process's stdout to /dev/null for the whole run; writing them there would do
- * the work on the board and throw the answer away, so they go to standard
- * error instead. main() sets this; nothing here prints before that. */
+ * output, unless a capture has taken it ("-q -", "-c -", "-d -"), which
+ * redirects this process's stdout to /dev/null for the whole run; writing them
+ * there would do the work on the board and throw the answer away, so they go
+ * to standard error instead. main() sets this; nothing here prints before
+ * that. */
 static FILE *report_stream = NULL;
 
 /* The library has already said why a request was refused; this names the
@@ -198,24 +200,33 @@ static int release_handle(ubertooth_t* ut, int status)
 	return status;
 }
 
-/* Refuses an output file that names the dump a replay is reading. Every writer
- * here opens its file for writing, which truncates it, so a run given one name
+/* Refuses an output file that is the dump a replay is reading. Every writer
+ * here opens its file for writing, which truncates it, so a run given one file
  * for both would empty the dump before reading a record of it -- and a dump is
  * the only copy of what promiscuous mode worked out about a connection.
  *
- * The names are compared as the user wrote them. That catches the mistake
- * worth catching, which is one name typed twice; two different paths to one
- * file would need both stat()ed before either is opened, and the second does
- * not exist yet on an ordinary run. Returns -1 once the refusal is printed. */
-static int refuse_writing_over_the_replay(const char* infile_name,
-                                          const char* output_name, char option)
+ * The file is identified rather than the name: the device and inode numbers of
+ * the open input against those of the name about to be written, so "./x.bin"
+ * beside "x.bin", a symbolic link and a hard link are all caught. A name that
+ * does not exist yet, which is the ordinary case, and a lone "-" cannot be
+ * stat()ed and so cannot be the input.
+ *
+ * Called with the input open and before any writer opens, so a refused run
+ * has written nothing. Returns -1 once the refusal is printed. */
+static int output_is_the_replay(const char* output_name, char option)
 {
-	if (infile_name == NULL || output_name == NULL ||
-	    strcmp(infile_name, output_name) != 0)
+	struct stat input_file, output_file;
+
+	if (infile == NULL || output_name == NULL)
 		return 0;
-	fprintf(stderr, "error: -%c and -R name the same file, %s; a replay"
-	        " cannot write over the dump it is reading\n", option,
-	        output_name);
+	if (fstat(fileno(infile), &input_file) != 0 ||
+	    stat(output_name, &output_file) != 0)
+		return 0;
+	if (input_file.st_dev != output_file.st_dev ||
+	    input_file.st_ino != output_file.st_ino)
+		return 0;
+	fprintf(stderr, "error: -%c would write over the dump -R is replaying"
+	        " (%s)\n", option, output_name);
 	return -1;
 }
 
@@ -625,13 +636,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* And no output file may name the dump being replayed. */
-	if (refuse_writing_over_the_replay(infile_name, dump_name, 'd') < 0 ||
-	    refuse_writing_over_the_replay(infile_name, pcap_name,
-	                                   pcap_ppi ? 'c' : 'q') < 0 ||
-	    refuse_writing_over_the_replay(infile_name, pcapng_name, 'r') < 0)
-		return 1;
-
 	/* A command line with no work in it: refused here, before a device is
 	 * opened and before any capture file is created. It used to open the
 	 * selected board, check its API version, send nothing, print the usage
@@ -730,7 +734,15 @@ int main(int argc, char *argv[])
 	 * A bare "-" redirects this process's stdout, which is why nothing may
 	 * be printed to stdout after this point except the capture itself, and
 	 * why the lines that answer an option go to report_stream rather than
-	 * straight to stdout. */
+	 * straight to stdout.
+	 *
+	 * No writer may be the dump a replay is reading: see
+	 * output_is_the_replay(). Checked here, beside each open, because that
+	 * is where the file to be truncated is known. */
+	if (output_is_the_replay(pcapng_name, 'r') < 0 ||
+	    output_is_the_replay(pcap_name, pcap_ppi ? 'c' : 'q') < 0 ||
+	    output_is_the_replay(dump_name, 'd') < 0)
+		return release_handle(ut, 1);
 	if (pcapng_name != NULL) {
 		if (lell_pcapng_create_file(pcapng_name, "Ubertooth",
 		                            &ut->h_pcapng_le)) {

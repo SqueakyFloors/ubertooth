@@ -60,12 +60,21 @@ def record(host_time, clk100ns, pkt_type, data, channel=DATA_CHANNEL):
     return struct.pack(">I", host_time) + header + body
 
 
-def advertisement():
+def advertisement(access_address=ADVERTISING_AA):
     """An ADV_IND, as the board hands one over: the access address, the PDU
     header, the advertiser's address, its flags, and three CRC bytes."""
     payload = bytes.fromhex("665544332211") + bytes.fromhex("020106")
     pdu = bytes([0x00, len(payload)]) + payload
-    return struct.pack("<I", ADVERTISING_AA) + pdu + bytes(3)
+    return struct.pack("<I", access_address) + pdu + bytes(3)
+
+
+def unreadable_field():
+    """An ADV_IND whose first advertising field claims more bytes than the
+    packet carries, which libbtbb decodes as an advertisement and whose
+    advertising data it then refuses."""
+    payload = bytes.fromhex("111111111111") + bytes([15, 0x09]) + b"a" * 9
+    pdu = bytes([0x00, len(payload)]) + payload
+    return struct.pack("<I", ADVERTISING_AA) + pdu
 
 
 BASE_TIME = int(time.time()) - AGE_S
@@ -160,16 +169,44 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert (work / "again.bin").read_bytes() == FIXTURE, result
 
-    # The decoding options work on a replay as they do on live data. -x 0
-    # allows no access address error at all, which the advertisement's own
-    # address passes, and -v asks the decoder to describe what it could not
-    # read rather than only counting it. Neither needs a board.
-    result = run("-p", "-R", "full.bin", "-x", "0", directory=work)
+    # The decoding options work on a replay as they do on live data, and each
+    # case needs a record the option changes the outcome for.
+    #
+    # -x is the access address filter. The advertisement below carries an
+    # address two bits from the advertising one, so the default of 32 allowed
+    # offenses decodes it and -x 0 drops it.
+    (work / "offenses.bin").write_bytes(
+        record(BASE_TIME, CLK100NS_STEP, LE_PACKET,
+               advertisement(access_address=ADVERTISING_AA ^ 0x00000003),
+               ADVERTISING_CHANNEL))
+    result = run("-p", "-R", "offenses.bin", directory=work)
     assert result.returncode == 0, result
     assert len(packet_lines(result.stdout)) == 1, result
-    result = run("-p", "-R", "full.bin", "-v", directory=work)
+    result = run("-p", "-R", "offenses.bin", "-x", "0", directory=work)
     assert result.returncode == 0, result
-    assert len(packet_lines(result.stdout)) == 1, result
+    assert packet_lines(result.stdout) == [], result
+
+    # -v asks the decoder to describe what it could not read rather than only
+    # counting it. The advertisement below claims 15 bytes of local name and
+    # carries 9, which is what noise decoded as an advertisement mostly looks
+    # like, so the decoder refuses that field.
+    (work / "malformed.bin").write_bytes(
+        record(BASE_TIME, CLK100NS_STEP, LE_PACKET, unreadable_field(),
+               ADVERTISING_CHANNEL))
+    quiet = run("-p", "-R", "malformed.bin", directory=work)
+    assert quiet.returncode == 0, quiet
+    # Without -v the run only counts it, in one line when it ends, on the
+    # stream it prints the packets on.
+    assert quiet.stdout.endswith("note: 1 packet held data that could not be"
+                                 " decoded; -v describes each one\n"), quiet
+    assert quiet.stderr == "", quiet
+    loud = run("-p", "-R", "malformed.bin", "-v", directory=work)
+    assert loud.returncode == 0, loud
+    # With it, the decoder describes the field on standard error, and the note
+    # no longer has to point at -v.
+    assert loud.stdout.endswith("note: 1 packet held data that could not be"
+                                " decoded\n"), loud
+    assert loud.stderr != "", loud
 
     # A PcapNG capture written during a replay carries the recorded time too,
     # in nanoseconds, as the PCAP one does.
@@ -178,20 +215,31 @@ with tempfile.TemporaryDirectory() as workdir:
     assert pcapng_times(work / "cap.pcapng") == [
         PACKET_TIME * 1_000_000_000], result
 
-    # No output file may name the dump being replayed: each is opened for
+    # No output file may be the dump being replayed: each is opened for
     # writing, which truncates it, so the dump would be emptied before a
-    # record of it was read.
+    # record of it was read. It is the file that is compared and not the name,
+    # so the other ways of naming one file are refused too.
     (work / "same.bin").write_bytes(FIXTURE)
+    (work / "link.bin").symlink_to("same.bin")
+    os.link(work / "same.bin", work / "hard.bin")
     for option, letter in (("-d", "d"), ("-q", "q"), ("-c", "c"),
                            ("-r", "r")):
-        result = run("-p", "-R", "same.bin", option, "same.bin",
-                     directory=work)
-        assert result.returncode == 1, result
-        assert result.stdout == "", result
-        assert result.stderr == (
-            f"error: -{letter} and -R name the same file, same.bin; a replay"
-            " cannot write over the dump it is reading\n"), result
-        assert (work / "same.bin").read_bytes() == FIXTURE, (option, "truncated")
+        for written in ("same.bin", "./same.bin", "link.bin", "hard.bin"):
+            result = run("-p", "-R", "same.bin", option, written,
+                         directory=work)
+            assert result.returncode == 1, result
+            assert result.stdout == "", result
+            assert result.stderr == (
+                f"error: -{letter} would write over the dump -R is replaying"
+                f" ({written})\n"), result
+            assert (work / "same.bin").read_bytes() == FIXTURE, \
+                (option, written, "truncated")
+
+    # A file that is not the input is written as usual, which is what keeps
+    # the check above from refusing an ordinary run.
+    result = run("-p", "-R", "same.bin", "-d", "other.bin", directory=work)
+    assert result.returncode == 0, result
+    assert (work / "other.bin").read_bytes() == FIXTURE, result
 
     # The same read as the follow mode's dump instead. The two modes stamp
     # their packets with different clocks, which is why the mode has to be

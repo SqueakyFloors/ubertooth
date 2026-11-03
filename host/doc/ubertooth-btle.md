@@ -572,24 +572,24 @@ with -R; a replay reads a saved dump rather than driving a board`, exit 1.
 That covers `-U`, `-A`, `-k`, `-t` and the interference options; `-a` and `-s`
 are already refused beside any major mode.
 
-None of those capture files may name the dump being replayed: each is opened
-for writing, which truncates it, so one name written twice would empty the
-dump before a record of it was read. `error: -d and -R name the same file,
-promisc.bin; a replay cannot write over the dump it is reading`, exit 1, with
-the file left as it was.
+None of those capture files may be the dump being replayed: each is opened for
+writing, which truncates it, so the dump would be emptied before a record of
+it was read. `error: -d would write over the dump -R is replaying
+(promisc.bin)`, exit 1, with the file left as it was. It is the file that is
+compared and not the name, so `./promisc.bin`, a symbolic link to it and a
+hard link to it are all refused.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a
 capture written with `-q`, `-c` or `-r` starts from the host time of the first
 packet it decodes and follows the board's clock from there, and `-d` writes
-the records back out with their original times, byte for byte.
+the records back out with their original times.
 
-Where the records carry no count of how often the clock started over, which is
-every record of a `-f` or `-n` dump, a live capture takes the periods in a
-quiet gap from the host's own clock. A replay cannot: the host time a record
-carries is only a whole second, and a saved file's records can be out of order
-or edited. So a replay reads one period from a clock reading that came back
-lower than it did and none from one that came back higher.
+A `-d` dump of a replay holds the records this tool would have dumped live,
+which for a dump it wrote itself is every record, byte for byte. Two kinds it
+leaves out, neither of which a dump from current firmware carries: a
+keep-alive, which says a quiet capture is still running and holds no packet,
+and a record whose channel is outside the Bluetooth band.
 
 A replay that reaches the end of the file exits 0, including for an empty
 file. These two are reported on standard error and exit 1, after whatever was
