@@ -179,6 +179,13 @@ whatever is on it. A transmitter louder than the packet, on the same channel at
 the same moment, is what the signal figure describes, and the packet is then
 part of the background.
 
+Both figures are the board's own, carried in the record the packet arrived in:
+the background is worked out across windows on the board, before the record is
+sent, and this end reads whichever record it is holding. So a replay of a `-d`
+dump with `-i` reports what the live capture reported. A dump holds fewer
+records than the board sent, and the levels come out the same either way,
+including on the first packets of a channel.
+
 Miscellaneous:
 
  - `-V` :
@@ -745,9 +752,11 @@ count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
 
-A capture read back from a file with `-i` reports the same way: all three
-losses are recorded in the packets, so replaying one warns as it reads them
-and gives the same totals at the end.
+A capture read back from a file with `-i` reports the same way: the board's
+word for each of the three is in the record it flagged, so replaying a file
+warns as it reads them and totals what the file holds. A `-d` dump keeps only
+the records a packet came out of, so a loss the board flagged on any other
+receive window is not in the dump for a replay to report.
 
 ## A RECEIVER THAT CANNOT HEAR
 
@@ -783,6 +792,11 @@ board or a release older than that field holds the channel's running average
 there instead, and such a record is skipped rather than judged, so an older
 capture replays without this warning however loud it was. ubertooth(7)
 describes what each tool can and cannot report this way.
+
+A `-d` dump carries it least well of all: it keeps only the records a packet
+came out of, which on a receiver this deaf is next to none, so a replay of one
+rarely reaches a whole block to judge. Read the warning off the screen while
+the capture runs rather than out of a replay of its dump.
 
 ## EXIT STATUS
 

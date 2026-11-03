@@ -121,6 +121,8 @@ Where the board has admitted no reading since it last started counting \-\- a ch
 .P
 The board has one reading of the channel to work from, so both figures are of whatever is on it\. A transmitter louder than the packet, on the same channel at the same moment, is what the signal figure describes, and the packet is then part of the background\.
 .P
+Both figures are the board's own, carried in the record the packet arrived in: the background is worked out across windows on the board, before the record is sent, and this end reads whichever record it is holding\. So a replay of a \fB\-d\fR dump with \fB\-i\fR reports what the live capture reported\. A dump holds fewer records than the board sent, and the levels come out the same either way, including on the first packets of a channel\.
+.P
 Miscellaneous:
 .TP
 \fB\-V\fR
@@ -340,7 +342,7 @@ A capture transfer error is reported the same way\. The chip's transfer controll
 .P
 Symbols the board wrote over are reported the same way\. The board receives into one block of symbols while its capture loop reads the one before it, and when a block finishes arriving before the loop has read that one, the new symbols go over the old ones\. The block is gone before anything looked in it for a packet, so this loss has no packet to point at and nothing in the output marks where it happened\. The first one warns \fBwarning: the recording board fell behind while capturing and wrote new symbols over a block it had not read yet; whatever was in the air then is missing from this capture\fR, and when the capture ends it says how many such places there were: \fBwarning: the capture has 3 places where the board wrote new symbols over a block it had not read\fR\. The count is of those places, not of the blocks lost at them: the board has one flag for this and no field to send a number in, so one place can stand for several blocks\.
 .P
-A capture read back from a file with \fB\-i\fR reports the same way: all three losses are recorded in the packets, so replaying one warns as it reads them and gives the same totals at the end\.
+A capture read back from a file with \fB\-i\fR reports the same way: the board's word for each of the three is in the record it flagged, so replaying a file warns as it reads them and totals what the file holds\. A \fB\-d\fR dump keeps only the records a packet came out of, so a loss the board flagged on any other receive window is not in the dump for a replay to report\.
 .SH "A RECEIVER THAT CANNOT HEAR"
 A capture whose receiver is being driven harder than it can measure says so, once: \fBwarning: the signal is at the top of the receiver's range, so the board cannot measure it and may not demodulate it; the boards may be too close together, or the transmit power too high\fR\. When the capture ends it says how many such stretches there were: \fBwarning: the capture has 3 stretches where the signal was at the top of the receiver's range\fR, one per block of records judged to be there\. The running warning is said once, so the total is what tells one bad stretch from a capture that was deaf throughout\.
 .P
@@ -349,6 +351,8 @@ This is the case where a capture decodes nothing and the board is not at fault\.
 A receiver held at the top of the scale is what gets reported, not one loud packet: a short packet from a board a few centimeters away still decodes, so the decision is taken over a block of records\.
 .P
 The warning goes on the records the board sends, which this tool gets for every block of air whether or not a packet was in it, so it arrives even while nothing is decoding\. A replay with \fB\-i\fR reports it from the records in the file, so long as they state a signal figure of their own: a dump written by a board or a release older than that field holds the channel's running average there instead, and such a record is skipped rather than judged, so an older capture replays without this warning however loud it was\. ubertooth(7) describes what each tool can and cannot report this way\.
+.P
+A \fB\-d\fR dump carries it least well of all: it keeps only the records a packet came out of, which on a receiver this deaf is next to none, so a replay of one rarely reaches a whole block to judge\. Read the warning off the screen while the capture runs rather than out of a replay of its dump\.
 .SH "EXIT STATUS"
 A capture that ran to its \fB\-t\fR timeout, or that was interrupted (Ctrl\-C), exits 0 with whatever it captured, and so does \fB\-h\fR\.
 .P

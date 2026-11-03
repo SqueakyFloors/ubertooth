@@ -86,6 +86,12 @@ static int drop_clock_result;
  * or a negative number for nothing found. */
 static int find_ac_offset;
 
+/* Records of the stream the faked search is to find nothing in, by their place
+ * in next_packets, and so one entry per record that array holds. A case that
+ * leaves these zero gets find_ac_offset for every record, which is what all
+ * but the mixed-stream case want. */
+static int find_ac_misses[sizeof(next_packets) / sizeof(next_packets[0])];
+
 /* What the faked plain symbol capture and the faked channel request report:
  * a negative value is how the real ones say the board refused the request. */
 static int rx_syms_result;
@@ -236,6 +242,12 @@ int btbb_find_ac_n(char* stream, size_t stream_len, int search_length,
 	(void)stream; (void)lap; (void)max_errors;
 	seen.find_ac_search_length = search_length;
 	seen.find_ac_stream_len = stream_len;
+	/* fifo_pop() has already handed this record over, so next_index names
+	 * the one after it. */
+	if (next_index > 0 &&
+	    next_index <= sizeof(find_ac_misses) / sizeof(find_ac_misses[0]) &&
+	    find_ac_misses[next_index - 1])
+		return -1;
 	if (find_ac_offset < 0)
 		return find_ac_offset;
 	/* The real search tries start positions 0 to search_length - 1 and
@@ -464,6 +476,7 @@ static void reset_state(void)
 	next_count = 0;
 	next_index = 0;
 	find_ac_offset = 0;
+	memset(find_ac_misses, 0, sizeof(find_ac_misses));
 	process_packet_result = 0;
 	survey_piconet = NULL;
 	drop_clock_result = 1;
@@ -721,6 +734,114 @@ MU_TEST(the_noise_and_snr_columns_are_absent_where_there_is_no_estimate)
 	format_noise_and_snr(-50, INT8_MAX, n, snr);
 	mu_assert(strcmp(n, "none") == 0, "a missing background is absent");
 	mu_assert(strcmp(snr, "none") == 0, "and so is the ratio from it");
+}
+
+/* The three signal columns of every line the last run printed, one line each:
+ * the tail of each line from `s=` on. The fields before it are left out
+ * because they are not what this is comparing, and because a replay stamps a
+ * packet with the host time the record was recorded with.
+ *
+ * Output that does not fit says so rather than stopping quietly, so that two
+ * runs cut off the same way cannot compare equal. */
+static void signal_columns(char* into, size_t size)
+{
+	const char* at = last_stdout;
+
+	into[0] = '\0';
+	while ((at = strstr(at, " s=")) != NULL) {
+		const char* end;
+		size_t len;
+
+		at++;
+		end = strchr(at, '\n');
+		len = (end != NULL) ? (size_t)(end - at) : strlen(at);
+		if (strlen(into) + len + 2 > size) {
+			snprintf(into, size, "truncated\n");
+			return;
+		}
+		strncat(into, at, len);
+		strcat(into, "\n");
+		at += len;
+	}
+}
+
+MU_TEST(a_replay_reports_the_levels_the_live_capture_reported)
+{
+	/* Two channels, each given a loud receive window holding no packet and
+	 * then a quiet one holding a packet, twice over, the second packet of
+	 * each channel at a different level from the first. A `-d` dump keeps
+	 * only the windows a packet was found in, so a replay of one is the
+	 * quiet records alone, with the loud windows between them gone. Both
+	 * runs have to report the same levels, on the first packet of each
+	 * channel, where a replay has least to go on, and on the second, where
+	 * a figure that leaned on earlier records would have something to lean
+	 * on.
+	 *
+	 * Raw -40 is -91 dBm, raw -30 is -82 dBm, and raw -10 is -64 dBm, so a
+	 * level taken from the loud window next door rather than from the
+	 * packet's own record would show up as 18 dB or more.
+	 *
+	 * The replay runs first, and both runs are measured against the figures
+	 * the records call for, because a level worked out across records would
+	 * be kept in a static the fakes here cannot reach: with the live run
+	 * first, such a static would carry its readings into the replay and the
+	 * two would agree on a wrong answer. */
+	static const char* expected = "s=-91 n=-108 snr=17\n"
+	                              "s=-91 n=-108 snr=17\n"
+	                              "s=-82 n=-108 snr=26\n"
+	                              "s=-82 n=-108 snr=26\n";
+	usb_pkt_rx stream[8];
+	char live[1024], replayed[1024];
+	long dump_bytes;
+	unsigned i, dumped = 0;
+
+	for (i = 0; i < 8; i++) {
+		int quiet = (i % 2) == 1;
+		int8_t level = (i < 4) ? -40 : -30;
+
+		fill_packet(&stream[i], 40000 + 1000 * i, 0,
+		            (i % 4) < 2 ? 10 : 20);
+		stream[i].rssi_max = quiet ? level : -10;
+		stream[i].rssi_avg = quiet ? level : -10;
+		stream[i].rssi_noise = (uint8_t)(int8_t)(quiet ? -46 : -20);
+		stream[i].status |= NOISE_ESTIMATE;
+	}
+
+	/* The dump, replayed: the windows a packet was found in. Reading a file
+	 * rather than a board is what `infile` says, and no record of one is
+	 * missing from here, so every one holds a packet. */
+	reset_state();
+	for (i = 0; i < 8; i++)
+		if ((i % 2) == 1)
+			next_packets[dumped++] = stream[i];
+	next_count = dumped;
+	infile = stdin;
+	run_callback(cb_rx, NULL);
+	signal_columns(replayed, sizeof(replayed));
+
+	/* And the live capture of the same air: every window the board sent,
+	 * writing the dump the replay above stands for, so that what this
+	 * callback puts in a dump is pinned here too rather than only faked. */
+	reset_state();
+	memcpy(next_packets, stream, sizeof(stream));
+	for (i = 0; i < 8; i++)
+		find_ac_misses[i] = (i % 2) == 0;
+	next_count = 8;
+	dumpfile = tmpfile();
+	run_callback(cb_rx, NULL);
+	signal_columns(live, sizeof(live));
+	dump_bytes = (dumpfile != NULL) ? ftell(dumpfile) : -1;
+	if (dumpfile != NULL)
+		fclose(dumpfile);
+	dumpfile = NULL;
+
+	mu_assert(strcmp(replayed, expected) == 0,
+	          "every packet reports the figures of its own record");
+	mu_assert(strcmp(live, replayed) == 0,
+	          "a replay reports what the live capture reported");
+	/* The host time of each record, then the record. */
+	mu_assert_int_eq((int)(4 * (sizeof(uint32_t) + sizeof(usb_pkt_rx))),
+	                 (int)dump_bytes);
 }
 
 /* ---- which channels AFH detection marks used ---------------------------- */
@@ -2078,6 +2199,7 @@ int main(void)
 	MU_RUN(a_packets_signal_is_its_own_and_comes_from_the_record);
 	MU_RUN(a_noise_figure_is_reported_only_where_the_record_carries_one);
 	MU_RUN(the_noise_and_snr_columns_are_absent_where_there_is_no_estimate);
+	MU_RUN(a_replay_reports_the_levels_the_live_capture_reported);
 	MU_RUN(a_lone_unused_channel_between_used_ones_is_marked_used);
 	MU_RUN(the_channels_at_the_edges_of_the_band_need_a_packet_of_their_own);
 	MU_RUN(a_delay_goes_out_as_itself_and_an_advance_as_one_slot_less);
