@@ -47,10 +47,10 @@ typedef struct _le_state_t {
     int crc_verify;             // true to reject packets with bad CRC
 
     /* Current link layer state. Volatile because the timer interrupt reads
-     * it to decide whether a connection is there to hop, and because that
-     * makes the store of it an ordered one: a handoff sets the hop mode
-     * first and this last, and the compiler is free to move a plain store
-     * across the volatile store of the mode. */
+     * it to decide whether a connection is there to hop, so a reader in a
+     * loop or a chain of comparisons has to read it afresh rather than keep
+     * a copy. What holds the handoffs' stores of it after everything the
+     * follow hops by is the barrier they call first, not this qualifier. */
     link_state_t volatile link_state;
 
     u8 channel_idx;             // current channel index

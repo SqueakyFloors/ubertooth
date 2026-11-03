@@ -3683,11 +3683,19 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
  *   hop_mode = HOP_BTLE   first: from here the interrupt is on a branch that
  *                         waits for the link state, so it asks for nothing
  *   do_hop = 0            then: drop a hop the mode in force until now asked
- *                         for, with nothing able to ask for another
- *   the connection's fields
- *   le_handoff_barrier()  then: hold those stores above the one below
+ *                         for, which the interrupt can no longer ask again
+ *   the connection's fields, which either path may also set earlier: before
+ *                         the link state is what matters, and earlier is safe
+ *   le_handoff_barrier()  then: hold all of those above the store below
  *   le.link_state = LINK_CONNECTED  last: this is what starts the hopping,
  *                         and by now there is a connection to hop
+ *
+ * A host request is the one thing that still reaches this window, because the
+ * vendor requests are served from the USB interrupt: a channel request landing
+ * between the mode and the state leaves its own mode in force on a connected
+ * link, so the follow does not hop until the next one. That is the board
+ * obeying the host's last word, and no shipped tool changes channel during a
+ * promiscuous follow; the order above does not try to win against it.
  *
  * Setting the state before the mode leaves a window the other way round: the
  * interrupt still sees the mode in force until now and its branch for that
@@ -3696,18 +3704,18 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
  * and retunes immediately, so the capture starts an event away from the
  * connection and hears nothing until the search is run again.
  *
- * Which modes that reaches differs between the two paths, and only one of
- * them is reachable on the plain path. The algorithm-2 search runs with no
- * hopping in force, whose branch asks for that hop. The algorithm-1 recovery
- * runs with direct hopping in force, which the interrupt has no branch for at
- * all, so a hop can be asked for there only if a host channel request has
- * meanwhile left the band sweep or no hopping in force. Both paths are
- * written in this order regardless, because which mode is in force at a
- * handoff is not something the handoff should have to know.
+ * Which mode that window finds in force differs between the two paths, and
+ * only one of them finds a hopping mode there without a host request. The
+ * algorithm-2 search runs with no hopping in force, whose branch asks for
+ * that hop. The algorithm-1 recovery runs with direct hopping in force, which
+ * the interrupt has no branch for at all, so a hop can be asked for there
+ * only once a host channel request has left the band sweep or no hopping in
+ * force. Both paths are written in this order regardless, because which mode
+ * is in force at a handoff is not something the handoff should have to know.
  */
 
 /*
- * Holds the stores above a call to this one above the stores below it.
+ * Keeps every store before this call ahead of every store after it.
  *
  * hop_mode, do_hop and le.link_state are volatile, so those three stores keep
  * their order on their own. The connection's other fields are plain, and two

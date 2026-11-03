@@ -24,16 +24,14 @@
  * interrupt's two branches, and it fails if any of them moves out of order
  * or goes missing.
  *
- * It also reads bluetooth_le.h for the volatile on link_state. Without it the
- * store of the link state is a plain store that the compiler may move across
- * the volatile store of the hop mode, which would undo the order this test
- * pins in the source. The emitted code was checked by hand as well; the
- * qualifier is what makes the order binding rather than observed.
- *
- * The same goes for the connection's own fields, which are plain stores that
- * no qualifier orders against the link state, so each handoff holds them
- * above it with a barrier. The scan reads that too: the order in the source
- * is only worth pinning while it is also the order the board runs.
+ * The order in the source is only worth pinning while it is also the order
+ * the board runs, so the scan reads the two things that make it so. Each
+ * handoff calls a barrier before the link state, which is what holds the
+ * connection's fields -- plain stores no qualifier orders -- above it; the
+ * scan reads the call, and the barrier's own definition, since a barrier with
+ * nothing in it would pass the first and hold nothing. And bluetooth_le.h
+ * declares link_state volatile, which is what makes the interrupt read it
+ * afresh each time rather than keep a copy.
  */
 #include <stdio.h>
 #include <string.h>
@@ -71,6 +69,10 @@ struct promisc_scan {
 	 * the mode has to be moved off it first. */
 	int sweep_clock_test;
 	int sweep_hop;
+	/* The barrier's own definition: the line it is defined on, and the
+	 * line of the asm that makes it one. */
+	int barrier_body;
+	int barrier_clobber;
 	/* In bluetooth_le.h: the declaration of link_state, and whether it is
 	 * volatile. */
 	int declaration;
@@ -118,9 +120,10 @@ static void note_handoff_line(struct handoff *h, const char *line, int lineno)
 
 static int scan_promisc(const char *source, struct promisc_scan *s)
 {
-	char line[SCAN_LINE_MAX];
+	char line[SCAN_LINE_MAX], with_literals[SCAN_LINE_MAX];
 	int lineno = 0, in_block = 0;
 	int in_alg1 = 0, in_alg2 = 0, in_timer = 0, in_btle = 0, in_sweep = 0;
+	int in_barrier = 0;
 	FILE *f = fopen(source, "r");
 
 	if (f == NULL)
@@ -131,6 +134,9 @@ static int scan_promisc(const char *source, struct promisc_scan *s)
 	while (fgets(line, sizeof(line), f) != NULL) {
 		lineno++;
 		strip_comments(line, &in_block);
+		/* The barrier's clobber list is a string, and the scan below
+		 * reads the code with its strings emptied. */
+		snprintf(with_literals, sizeof(with_literals), "%s", line);
 		strip_string_literals(line);
 
 		/* A function definition starts in the first column and its
@@ -138,7 +144,7 @@ static int scan_promisc(const char *source, struct promisc_scan *s)
 		 * scan in this directory finds the end of one. */
 		if (line[0] == '}') {
 			in_alg1 = in_alg2 = in_timer = 0;
-			in_btle = in_sweep = 0;
+			in_btle = in_sweep = in_barrier = 0;
 		} else if (strstr(line, "promisc_recover_hop_increment(") != NULL &&
 		           strchr(line, '{') != NULL && line[0] != '\t') {
 			in_alg1 = 1;
@@ -151,7 +157,18 @@ static int scan_promisc(const char *source, struct promisc_scan *s)
 			 * so there is no '{' to look for here. A declaration of it
 			 * ends in ';' and is not the body. */
 			in_timer = 1;
+		} else if (strstr(line, "le_handoff_barrier(") != NULL &&
+		           line[0] != '\t' && strchr(line, ';') == NULL) {
+			in_barrier = 1;
+			if (s->barrier_body == 0)
+				s->barrier_body = lineno;
 		}
+
+		if (in_barrier && s->barrier_clobber == 0 &&
+		    strstr(with_literals, "__asm__") != NULL &&
+		    strstr(with_literals, "volatile") != NULL &&
+		    strstr(with_literals, "\"memory\"") != NULL)
+			s->barrier_clobber = lineno;
 
 		if (in_alg1)
 			note_handoff_line(&s->algorithm_1, line, lineno);
@@ -401,6 +418,16 @@ MU_TEST(test_the_barrier_sits_before_the_link_state)
 	         s.algorithm_2.last_field, s.algorithm_2.link_state);
 	mu_assert(s.algorithm_2.last_field < s.algorithm_2.barrier &&
 	          s.algorithm_2.barrier < s.algorithm_2.link_state, msg);
+
+	snprintf(msg, sizeof(msg),
+	         "%s:%d: the barrier defined at line %d does not hold anything: "
+	         "its body is not an asm that clobbers memory. Both handoffs "
+	         "call it between the connection's fields and the link state, "
+	         "and a call to a barrier that holds nothing leaves the compiler "
+	         "free to move those fields below the link state",
+	         path, s.barrier_body, s.barrier_body);
+	mu_assert(s.barrier_body > 0 && s.barrier_clobber > 0 &&
+	          s.barrier_body < s.barrier_clobber, msg);
 }
 
 /*
@@ -455,14 +482,14 @@ MU_TEST(test_the_sweep_branch_asks_for_a_hop_on_a_clock_tick_alone)
 }
 
 /*
- * link_state is volatile, which is what makes the handoff's store order
- * binding.
+ * link_state is volatile, which is what makes the interrupt's reads of it
+ * reads rather than a kept copy.
  *
- * hop_mode and do_hop are volatile, so the compiler keeps those two stores in
- * order. A plain store of link_state is not ordered against them: the
- * compiler may move it earlier, and in this file it does move plain stores
- * across volatile ones. Then the source would read in the safe order and the
- * emitted code would not.
+ * The interrupt tests it on every clock tick to decide whether there is a
+ * connection to hop, and the capture loop and the follow callback test it in
+ * chains of comparisons. Without the qualifier a reader may keep one copy
+ * across all of that, and the value it has to see is written by code the
+ * compiler cannot see running.
  */
 MU_TEST(test_the_link_state_is_a_volatile_field)
 {
