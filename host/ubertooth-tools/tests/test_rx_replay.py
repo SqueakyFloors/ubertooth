@@ -271,3 +271,42 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 1, result
     assert result.stdout == "", result
     assert result.stderr.startswith("error: missing.bin: "), result
+
+    # No output file may be the dump being replayed: each is opened for
+    # writing, which truncates it, so the dump would be emptied before a
+    # record of it was read. -d used to leave it 0 bytes long and exit 0 with
+    # nothing said, and -q used to report a partial record of the file it had
+    # just emptied. It is the file that is compared and not the name, so the
+    # other ways of naming one file are refused too, in the same words
+    # ubertooth-btle uses for its own replay.
+    (work / "same.bin").write_bytes(FIXTURE)
+    (work / "link.bin").symlink_to("same.bin")
+    os.link(work / "same.bin", work / "hard.bin")
+    # Every way of naming the one file against -d, which pins that it is the
+    # file being compared, and one naming against each of the other two, which
+    # pins that every writer is checked.
+    cases = [("-d", written) for written in
+             ("same.bin", "./same.bin", "link.bin", "hard.bin")]
+    cases += [("-q", "same.bin"), ("-r", "same.bin")]
+    for option, written in cases:
+        result = run("-i", "same.bin", option, written, directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (
+            f"error: {option} would write over the dump -i is replaying"
+            f" ({written})\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, \
+            (option, written, "truncated")
+
+    # A file that is not the input is written as usual, which is what keeps
+    # the check above from refusing an ordinary run.
+    result = run("-i", "same.bin", "-d", "other.bin", directory=work)
+    assert result.returncode == 0, result
+    assert (work / "other.bin").read_bytes() == b"".join(PACKET_RECORDS), result
+
+    # A capture on "-" is standard output rather than a file of that name, so
+    # it is not the replay's input and is not refused as it. This run fails on
+    # the input instead, which is a file called "-" that is not there.
+    result = run("-i", "-", "-d", "-", directory=work)
+    assert result.returncode == 1, result
+    assert result.stderr == "error: -: No such file or directory\n", result

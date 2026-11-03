@@ -1089,6 +1089,15 @@
   now named, and a run that wrote no image is told to write a whole one, which
   is what a board left half-written by an interrupted download needs.
   [#1133](https://github.com/SqueakyFloors/ubertooth/issues/1133)
+- Fixed: `ubertooth-rx -i capture.bin -d capture.bin` emptied the capture it
+  was replaying. An output file is opened for writing, which truncates it, so
+  one name typed twice destroyed the file before a record of it was read, and
+  the command said nothing and exited 0. The same name given to `-q` or `-r`
+  lost it too. A replay now refuses an output file that is the dump it is
+  reading, before any capture file is opened: `error: -d would write over the
+  dump -i is replaying (capture.bin)`, exit 1, and the capture is left as it
+  was. `ubertooth-btle` refuses the same pairing for its own replay.
+  [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130)
 
 - Fixed: a board carrying a bootloader built from this tree could not be
   flashed over USB at all. `ubertooth-dfu` failed on the first firmware block

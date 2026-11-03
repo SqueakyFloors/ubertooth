@@ -28,6 +28,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* How many boards one capture may read at once. Each one costs a 72 MB ring
@@ -698,6 +699,39 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * second or less. */
 #define FOLLOW_QUIET_MS 60000
 
+/* Refuses an output file that is the dump a replay is reading. Every writer
+ * here opens its file for writing, which truncates it, so a run given one file
+ * for both would empty the dump before reading a record of it -- and a dump of
+ * a Classic capture holds the only copy of what the board sent, in a format
+ * only this tool and ubertooth-btle(1) write.
+ *
+ * The file is identified rather than the name: the device and inode numbers of
+ * the open input against those of the name about to be written, so "./x.bin"
+ * beside "x.bin", a symbolic link and a hard link are all caught. A name that
+ * does not exist yet, which is the ordinary case, cannot be stat()ed and so
+ * cannot be the input, and a lone "-" is standard output rather than a file of
+ * that name.
+ *
+ * Called with the input open and before any writer opens, so a refused run has
+ * written nothing. Returns -1 once the refusal is printed. */
+static int output_is_the_replay(const char* output_name, char option)
+{
+	struct stat input_file, output_file;
+
+	if (infile == NULL || output_name == NULL ||
+	    opt_writes_to_stdout(output_name))
+		return 0;
+	if (fstat(fileno(infile), &input_file) != 0 ||
+	    stat(output_name, &output_file) != 0)
+		return 0;
+	if (input_file.st_dev != output_file.st_dev ||
+	    input_file.st_ino != output_file.st_ino)
+		return 0;
+	fprintf(stderr, "error: -%c would write over the dump -i is replaying"
+	        " (%s)\n", option, output_name);
+	return -1;
+}
+
 int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
@@ -1047,6 +1081,19 @@ int main(int argc, char* argv[])
 			 * shape as the other file-open failures. */
 			fprintf(stderr, "error: %s: %s\n",
 			        infile_name, strerror(errno));
+			rx_give_back_boards(boards, n_boards, 0);
+			return 1;
+		}
+
+		/* No writer may be the dump this replay is reading: see
+		 * output_is_the_replay(). Asked here, with the input open and
+		 * long before the first writer, so a refused run truncates
+		 * nothing, opens no board and creates no file. */
+		if (output_is_the_replay(pcapng_name, 'r') < 0 ||
+		    output_is_the_replay(pcap_name, 'q') < 0 ||
+		    output_is_the_replay(dump_name, 'd') < 0) {
+			fclose(infile);
+			infile = NULL;
 			rx_give_back_boards(boards, n_boards, 0);
 			return 1;
 		}
