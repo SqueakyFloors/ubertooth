@@ -89,7 +89,7 @@ def read(path):
 
 # ---------------------------------------------------------------- reading C
 
-def strip_comments(text):
+def strip_comments(text, where="a scanned source file"):
     """The text with /* ... */ and // ... comments replaced by spaces.
 
     Line structure is kept, so a pinned function body still reads as one.
@@ -100,7 +100,7 @@ def strip_comments(text):
         if text.startswith("/*", i):
             end = text.find("*/", i + 2)
             if end < 0:
-                fail("unterminated block comment in a scanned source file")
+                fail("unterminated block comment in %s" % where)
             out.append(" " if "\n" not in text[i:end] else
                        text[i:end].count("\n") * "\n")
             i = end + 2
@@ -113,12 +113,12 @@ def strip_comments(text):
     return "".join(out)
 
 
-def braced(text, start):
+def braced(text, start, what="a scanned source file"):
     """The text inside the first { ... } at or after start."""
     try:
         open_at = text.index("{", start)
     except ValueError:
-        fail("no initializer or body found where one was expected")
+        fail("no initializer or body found for %s" % what)
     depth = 0
     for i in range(open_at, len(text)):
         if text[i] == "{":
@@ -133,13 +133,12 @@ def braced(text, start):
                     # build picks one. Reading C as text cannot tell which, so
                     # a scan that went on would be checking a branch that may
                     # not be the one compiled.
-                    fail("a scanned table or body carries a preprocessor "
-                         "directive, so what the build uses is not what this "
-                         "test would read: %s"
-                         % [l.strip() for l in region.split("\n")
-                            if "#" in l][0])
+                    fail("%s carries a preprocessor directive, so what the "
+                         "build uses is not what this test would read: %s"
+                         % (what, [l.strip() for l in region.split("\n")
+                                   if "#" in l][0]))
                 return region
-    fail("unbalanced braces in a scanned source file")
+    fail("unbalanced braces in %s" % what)
 
 
 def split_top(text):
@@ -164,7 +163,7 @@ def definition(text, pattern, what):
     found = list(re.finditer(pattern, text))
     if len(found) != 1:
         fail("found %d definitions of %s, expected one" % (len(found), what))
-    return braced(text, found[0].end())
+    return braced(text, found[0].end(), what)
 
 
 def designated(body, what):
@@ -247,7 +246,7 @@ def tx_layout_reference(name, entry):
     format number left empty.
     """
     parts, named = [], {}
-    for part in split_top(braced(entry, 0)):
+    for part in split_top(braced(entry, 0, "bbcodec_tx_formats[%s]" % name)):
         m = re.match(r"\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", part, re.S)
         if m:
             named[m.group(1)] = m.group(2).strip()
@@ -279,9 +278,11 @@ def device_limits(layout):
 def device_formats(root):
     """Each format the device can be asked for, by name, from the firmware."""
     codec_c = strip_comments(
-        read(os.path.join(root, "firmware/btbr/src/codec/codec.c")))
+        read(os.path.join(root, "firmware/btbr/src/codec/codec.c")),
+        "codec.c")
     codec_h = strip_comments(
-        read(os.path.join(root, "firmware/btbr/include/ubtbr/codec.h")))
+        read(os.path.join(root, "firmware/btbr/include/ubtbr/codec.h")),
+        "codec.h")
     check_limits_rule(codec_c)
 
     fields = struct_fields(codec_h, "bbcodec_types_s")
@@ -307,8 +308,9 @@ def device_formats(root):
             body = definition(
                 codec_c,
                 r"\bbbcodec_types_t\s+%s\s*=\s*" % m.group(1), m.group(1))
-        values = split_top(braced(body, 0) if body.lstrip().startswith("{")
-                           else body)
+        values = split_top(
+            braced(body, 0, "the air layout %s" % reference)
+            if body.lstrip().startswith("{") else body)
         if len(values) != len(fields):
             fail("an air layout gives %d of bbcodec_types_t's %d fields, so "
                  "this test cannot tell which is which: %s"
@@ -342,6 +344,15 @@ def device_formats(root):
             "hlen": air["payload_header_bytes"],
             "voice": air["voice_bytes"],
         }
+
+    # The buffer the transmit side whitens a voice field in is sized from
+    # this, so it is the longest voice field any format has and not merely
+    # room enough for it.
+    longest = max([f["voice"] for f in formats.values()] or [0])
+    ceiling = define_number(codec_h, "BB_VOICE_BYTES_MAX", "codec.h")
+    if ceiling != longest:
+        fail("BB_VOICE_BYTES_MAX is %d and the longest voice field any "
+             "format carries is %d" % (ceiling, longest))
     return formats, holes
 
 
@@ -422,67 +433,127 @@ DIVISIONS = (
 SLOT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
 
 
-def man_page_formats(root, where="host/doc/ubertooth-btbr.md"):
-    """The lengths and counts the man page states, read out of its prose.
+MAN_PAGE = "host/doc/ubertooth-btbr.md"
 
-    The lengths are the list items that name formats, each ` - ` to ` :`, and
-    the counts are the "400 of a one-slot" phrases. Returns the data bytes by
-    format name, and the counts by the slots they are for.
+# The sentence the list of formats and their lengths follows. The list is read
+# from here rather than from the whole page, so an unrelated list elsewhere on
+# it is not taken for a format.
+MAN_PAGE_LIST_OPENS = "The formats, with the data bytes each carries"
 
-    Read as text, so a rewrite of either passage fails here rather than
-    passing on prose this no longer finds. That is the right direction: the
-    failure says which passage it could not read.
-    """
-    text = read(os.path.join(root, where))
-    lengths, counts = {}, {}
+
+def man_page_lengths(text):
+    """The data bytes the page's list of formats states, by format name."""
+    lengths, reached, started = {}, False, False
     for line in text.split("\n"):
+        if not reached:
+            reached = MAN_PAGE_LIST_OPENS in line
+            continue
         item = re.match(r" - (.*) :$", line)
         if not item:
+            # Once the list has started it ends at the first line that is
+            # neither one of its items nor part of one: a blank line or an
+            # indented continuation. Before it starts, the rest of the
+            # sentence that introduces it is passed over.
+            if started and line.strip() and not line.startswith("   "):
+                break
             continue
+        started = True
         for name, least, most in re.findall(
                 r"`([a-z0-9]+)`\s+(\d+)(?:-(\d+))?\b", item.group(1)):
-            lengths[name] = (int(least),
-                             int(most) if most else int(least))
-    # The counts are prose, so a line break can fall anywhere in the phrase.
-    for count, word in re.findall(r"(\d+) of a ([a-z]+)-slot",
-                                  " ".join(text.split())):
+            if name in lengths:
+                fail("%s states what %s carries twice, so one of the two is "
+                     "stale and whichever comes last is what a reader of "
+                     "this test would compare" % (MAN_PAGE, name))
+            lengths[name] = (int(least), int(most) if most else int(least))
+    if not reached:
+        fail("%s no longer opens its list of formats with %r, so the lengths "
+             "it states are not checked" % (MAN_PAGE, MAN_PAGE_LIST_OPENS))
+    if not started:
+        fail("%s opens a list of formats and states no lengths in it, so "
+             "what it promises the user is not checked" % MAN_PAGE)
+    return lengths
+
+
+def man_page_counts(text):
+    """The counts the page allows, as {slots: (count, the formats named)}.
+
+    From the "400 of a one-slot format such as `dm1` or `ev3`" phrases, each
+    reaching to the next of them or to the end of its sentence.
+    """
+    # Prose, so a line break can fall anywhere in a phrase.
+    text = " ".join(text.split())
+    counts = {}
+    phrases = list(re.finditer(r"(\d+) of a ([a-z]+)-slot", text))
+    for i, phrase in enumerate(phrases):
+        stop = phrases[i + 1].start() if i + 1 < len(phrases) else len(text)
+        sentence_ends = text.find(".", phrase.end())
+        if 0 <= sentence_ends < stop:
+            stop = sentence_ends
+        word = phrase.group(2)
         if word not in SLOT_WORDS:
             fail("%s says %s of a %s-slot format, and this test does not "
-                 "know how many slots that is" % (where, count, word))
-        counts[SLOT_WORDS[word]] = int(count)
-    if not lengths or not counts:
-        fail("%s no longer states the formats' lengths as list items, or the "
-             "counts as \"400 of a one-slot\", so what it promises the user "
-             "is not checked" % where)
-    return lengths, counts
+                 "know how many slots that is"
+                 % (MAN_PAGE, phrase.group(1), word))
+        if SLOT_WORDS[word] in counts:
+            fail("%s states the count for a %d-slot format twice, so one of "
+                 "the two is stale" % (MAN_PAGE, SLOT_WORDS[word]))
+        counts[SLOT_WORDS[word]] = (
+            int(phrase.group(1)),
+            re.findall(r"`([a-z0-9]+)`", text[phrase.end():stop]))
+    if not counts:
+        fail("%s no longer states the counts it allows as \"400 of a "
+             "one-slot\", so what it promises the user is not checked"
+             % MAN_PAGE)
+    return counts
 
 
 def check_man_page(root, host, slots):
     """The man page's figures against the table the host bounds a tx with."""
-    lengths, counts = man_page_formats(root)
-    where = "host/doc/ubertooth-btbr.md"
+    text = read(os.path.join(root, MAN_PAGE))
+    lengths = man_page_lengths(text)
+    counts = man_page_counts(text)
+
     for name in sorted(set(lengths) | set(host)):
         if name not in lengths:
             fail("%s does not state what %s carries, so a format the tool "
-                 "takes is undocumented" % (where, name))
+                 "takes is undocumented" % (MAN_PAGE, name))
         if name not in host:
             fail("%s states what %s carries and TX_FORMATS has no such "
                  "format, so the page offers one the tool refuses"
-                 % (where, name))
+                 % (MAN_PAGE, name))
         stated, real = lengths[name], (host[name]["min"], host[name]["max"])
         if stated != real:
             fail("%s says %s carries %d to %d data bytes and TX_FORMATS has "
-                 "%d to %d" % ((where, name) + stated + real))
-    for packet_slots, count in sorted(counts.items()):
+                 "%d to %d" % ((MAN_PAGE, name) + stated + real))
+
+    for packet_slots, (count, named) in sorted(counts.items()):
         allowed = slots // packet_slots
         if count != allowed:
             fail("%s allows %d transmissions of a %d-slot format and the "
                  "bound of %d slots allows %d"
-                 % (where, count, packet_slots, slots, allowed))
+                 % (MAN_PAGE, count, packet_slots, slots, allowed))
+        for name in named:
+            if name not in host:
+                fail("%s gives %s as a %d-slot format and TX_FORMATS has no "
+                     "such format" % (MAN_PAGE, name, packet_slots))
+            if host[name]["slots"] != packet_slots:
+                fail("%s gives %s as a %d-slot format and TX_FORMATS has it "
+                     "filling %d" % (MAN_PAGE, name, packet_slots,
+                                     host[name]["slots"]))
     for name in sorted(host):
         if host[name]["slots"] not in counts:
             fail("%s states no count for a %d-slot format, which %s is"
-                 % (where, host[name]["slots"], name))
+                 % (MAN_PAGE, host[name]["slots"], name))
+
+    # The one voice field any format has is a figure of its own in the prose.
+    voices = sorted(set(f["voice"] for f in host.values() if f["voice"]))
+    stated = sorted(set(int(n) for n in
+                        re.findall(r"(\d+) bytes of voice", text)))
+    if stated != voices:
+        fail("%s says %s of voice and TX_FORMATS carries %s"
+             % (MAN_PAGE,
+                " and ".join("%d bytes" % n for n in stated) or "nothing",
+                " and ".join("%d bytes" % n for n in voices) or "none"))
 
 
 def check_divisions(root):
@@ -509,7 +580,9 @@ def main():
     root = sys.argv[1]
 
     header = strip_comments(
-        read(os.path.join(root, "host/libubertooth/src/ubertooth_interface.h")))
+        read(os.path.join(root,
+                          "host/libubertooth/src/ubertooth_interface.h")),
+        "ubertooth_interface.h")
     numbers = enum_members(header, "btctl_tx_format_e")
     if numbers.pop("BTCTL_FMT_COUNT", None) is None:
         fail("btctl_tx_format_e has no BTCTL_FMT_COUNT")

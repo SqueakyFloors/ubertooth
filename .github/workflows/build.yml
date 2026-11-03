@@ -128,6 +128,15 @@ jobs:
           # are deliberately not on this list -- a change there is a change
           # to the checks themselves and runs the lot.
           if ! echo "$files" | grep -qvE '\.md$|^docs/|^\.kiro/|^host/doc/man/'; then
+            # One man page is not only documentation. ubertooth-btbr.md
+            # states the transmit formats' data lengths and the counts the
+            # slot bound allows, and a host test checks those against the
+            # tool's own table, so a change to that page runs the host jobs
+            # even though there is still nothing to build or lint.
+            if echo "$files" | grep -qxF 'host/doc/ubertooth-btbr.md'; then
+              echo "documentation only, but the tx format figures changed"
+              decide true false false; exit 0
+            fi
             echo "documentation only: nothing to build or lint"
             decide false false false; exit 0
           fi
