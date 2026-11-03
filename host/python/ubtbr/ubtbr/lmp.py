@@ -622,6 +622,13 @@ class LMP:
 		Unsupported LMP Feature (0x1A). This tool can name nearly all of
 		LMP, so the second is what a real device's request gets.
 
+		A PDU that is fine in itself but may not arrive in this role or
+		state has its own reason code, LMP PDU Not Allowed (0x24). It is
+		deliberately not used here: picking it out would need a table of
+		which PDU each role and state may receive, and a peer does the
+		same thing with either code, so every unhandled PDU gets one of
+		the two codes above.
+
 		The refusal carries the transaction ID of what it answers: the two
 		are one transaction (2.4), and a peer cannot match an answer sent
 		under the other ID to what it asked.
