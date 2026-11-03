@@ -1150,7 +1150,7 @@
   `-t`, by `-l` with `-u`, or by the local Bluetooth device when no target is
   given -- the UAP is now put back, and the line says which one the tool is
   holding you to: `warning: the clock being followed was not this piconet's;
-  searching for its clock again, and putting UAP 44 back`.
+  searching for its clock again, and putting UAP 0d back`.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 
 - Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up

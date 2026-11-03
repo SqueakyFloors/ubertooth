@@ -45,7 +45,7 @@ the target was named, its UAP came from the command line or from the local
 Bluetooth device rather than from the air, so a header that fails to decode is
 no evidence against it: the UAP is put back and the warning names it.
 
-    warning: the clock being followed was not this piconet's; searching for its clock again, and putting UAP 44 back
+    warning: the clock being followed was not this piconet's; searching for its clock again, and putting UAP 0d back
 
 If that UAP is in fact wrong, nothing of the piconet will decode, and the line
 above says which one the tool is holding you to.
