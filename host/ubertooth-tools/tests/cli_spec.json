@@ -919,14 +919,16 @@
                "valid": ["0"]},
         "-f": {"value": "required", "role": "modifier",
                "doc": "MOD_OFFSET register",
-               "valid": ["0", "100", "65535"],
-               "invalid": [["bad", "error: -f must be 0-65535 (got bad)"],
-                           ["70000", "error: -f must be 0-65535 (got 70000)"]]},
+               "valid": ["0", "32", "63"],
+               "invalid": [["bad", "error: -f must be 0-63 (got bad)"],
+                           ["64", "error: -f must be 0-63 (got 64)"],
+                           ["70000", "error: -f must be 0-63 (got 70000)"]]},
         "-b": {"value": "required", "role": "modifier",
                "doc": "maximum bit errors in syncword detection",
-               "valid": ["0", "4", "65535"],
-               "invalid": [["bad", "error: -b must be 0-65535 (got bad)"],
-                           ["70000", "error: -b must be 0-65535 (got 70000)"]]}
+               "valid": ["0", "1", "3"],
+               "invalid": [["bad", "error: -b must be 0-3 (got bad)"],
+                           ["4", "error: -b must be 0-3 (got 4)"],
+                           ["70000", "error: -b must be 0-3 (got 70000)"]]}
       }
     },
 

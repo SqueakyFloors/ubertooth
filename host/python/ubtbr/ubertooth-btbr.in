@@ -30,13 +30,22 @@ from ubtbr.streams import (bin_an_unusable_standard_error, error, eprint,
 # dash came from, so there is one copy for the two of them.
 SHORT_OPTIONS = "f:b:U:hV"
 
+# The highest value each setting can be given. The firmware writes each one to
+# a field of the radio narrower than the 16 bits the request carries: six bits
+# for the frequency offset (MOD_OFFSET in MDMCTRL) and two for the access-code
+# error count (the sync-error-bits field of GRMDM). A wider value would reach
+# the board and take effect as its low bits instead, so -b 4 would allow no
+# errors at all, the opposite of what it asks for.
+HIGHEST = {'-f': 0x3f, '-b': 0x3}
+
 USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
 	"[-b <max_ac_errors>]\n"
 	"Options:\n"
 	"  -U <index|serial>: select Ubertooth by index or serial; "
 	"see ubertooth(7)\n"
-	"  -f freq_offset: Set MOD_OFFSET register\n"
-	"  -b max_ac_errors: Max bit errors in Syncword detection\n"
+	"  -f freq_offset: Set MOD_OFFSET register (range: 0-63)\n"
+	"  -b max_ac_errors: Max bit errors in Syncword detection "
+	"(range: 0-3)\n"
 	"  -V: print version information: the host tools, and the\n"
 	"      firmware version and build of each attached board\n"
 	"  -h: print this help\n")
@@ -172,8 +181,9 @@ def read_command_line():
 	# Read before the device is opened, so a command line that is wrong is
 	# refused without touching a board, and says what is wrong with it rather
 	# than reporting whatever the board did first.
-	# Both go into a request as 16 bits, so a value outside that is refused
-	# here rather than reaching the packing and raising from there.
+	# Each is refused unless it fits the radio field the firmware writes it
+	# to, so a value the board would narrow to another one never reaches it.
+	# See HIGHEST above.
 	settings = []
 	selectors = []
 	help_wanted = False
@@ -196,8 +206,8 @@ def read_command_line():
 			value = int(v)
 		except ValueError:
 			value = None
-		if value is None or value < 0 or value > 0xffff:
-			error("%s must be 0-65535 (got %s)"%(o, v))
+		if value is None or value < 0 or value > HIGHEST[o]:
+			error("%s must be 0-%d (got %s)"%(o, HIGHEST[o], v))
 			sys.exit(1)
 		settings.append((o, value))
 	if args:
