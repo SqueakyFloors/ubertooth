@@ -143,6 +143,23 @@ endfunction()
 # the library file, which needs no compiler to build a program and no loader
 # to run one, and so works for a static library and for a cross-compiled
 # build.
+# The pin is a commit while libbtbb fixes are landing, and a release points it
+# at a matching tag of the libbtbb fork instead. A tag names no commit here,
+# and resolving it would need libbtbb's repository, which a build of these
+# tools does not have, so with a tag pin nothing below can say whether the
+# library it found is the right one. The libbtbb pin workflow draws the same
+# line, and reads a pin of forty hex digits as a commit whatever case it is
+# written in. The length is asked separately for the reason given above.
+function(btbb_pin_is_commit out)
+  string(LENGTH "${LIBBTBB_PINNED_REF}" length)
+  if(length EQUAL 40 AND LIBBTBB_PINNED_REF MATCHES "^[0-9a-fA-F]+$")
+    set(${out} TRUE PARENT_SCOPE)
+  else()
+    set(${out} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+
 function(btbb_library_commit out reason)
   set(${out} "" PARENT_SCOPE)
 
@@ -177,7 +194,7 @@ function(btbb_library_commit out reason)
   # run longer than the limit is dropped, so a library with one long stretch
   # of printable bytes around libbtbb's string would report no commit at all,
   # which is the silence this whole report exists to remove. Reading a 34 MB
-  # library costs under a second, and libbtbb installs at about 250 KB.
+  # library costs about a second, and libbtbb installs at about 250 KB.
   file(STRINGS "${library}" runs REGEX "${pattern}")
   set(candidates "")
   foreach(run IN LISTS runs)
@@ -220,12 +237,12 @@ endfunction()
 # strings disagree: that is the one unknown where the library may well be the
 # wrong one, and a silent line is how this went unnoticed before.
 #
-# message(STATUS) for the line that is always printed, which belongs with the
-# rest of the configure report beside this module's other STATUS lines.
-# message(WARNING) for the rest, which CMake puts on standard error, so it is
-# visible among the hundreds of lines a configure and build produce.
+# The line that is always printed is a STATUS, with the rest of the configure
+# report; a WARNING, which CMake puts on standard error, is for the cases a
+# reader has to see among the hundreds of lines a build produces.
 function(btbb_report_pin)
   btbb_library_commit(commit reason)
+  btbb_pin_is_commit(pin_is_commit)
   list(GET LIBBTBB_LIBRARIES 0 library)
 
   # STREQUAL rather than if(NOT commit), which asks whether the value is one
@@ -241,9 +258,12 @@ function(btbb_report_pin)
       # abbreviation set unusually short records a commit this does not read.
       set(why "nothing in it reads as the commit it was built from")
     endif()
-    message(STATUS "libbtbb: ${library}, commit unknown (" ${why} "); this "
-      "tree is built against ${LIBBTBB_PINNED_REF}")
-    if(NOT reason STREQUAL "ambiguous")
+    message(STATUS "libbtbb: ${library}, commit unknown (${why}); this tree "
+      "is built against ${LIBBTBB_PINNED_REF}")
+    # Which one libbtbb's own is would decide nothing against a pin that is
+    # not a commit, so that pin warns about neither this nor a commit it can
+    # read, and the status line above is the whole report.
+    if(NOT reason STREQUAL "ambiguous" OR NOT pin_is_commit)
       return()
     endif()
     btbb_rebuild_instructions(fix)
@@ -272,39 +292,36 @@ function(btbb_report_pin)
     set(built "built from commit ${commit}")
   endif()
 
-  # The pin is a commit while libbtbb fixes are landing, and a release points
-  # it at a matching tag of the libbtbb fork instead. A tag names no commit
-  # here, and resolving it would need libbtbb's repository, which a build of
-  # these tools does not have. So the line says what each end is and compares
-  # nothing: comparing a commit with a tag as text would warn about every
-  # correct build. The libbtbb pin workflow draws the same line, and reads a
-  # pin of forty hex digits as a commit whatever case it is written in.
-  #
-  # The length is asked separately because CMake's regular expressions have no
-  # repetition count.
-  string(LENGTH "${LIBBTBB_PINNED_REF}" pin_length)
-  if(NOT pin_length EQUAL 40 OR NOT LIBBTBB_PINNED_REF MATCHES "^[0-9a-fA-F]+$")
-    message(STATUS "libbtbb: ${library}, ${built}; this tree is built against "
-      "${LIBBTBB_PINNED_REF}, which names no commit to compare it with")
-    return()
-  endif()
+  # A library built from an edited tree is not the pinned libbtbb whatever its
+  # commit is, and that is decided without the pin, so the warning below is
+  # reached either way round.
+  if(NOT modified)
+    # Where the pin is not a commit there is nothing to compare this one
+    # with, so both ends are named and nothing is claimed.
+    if(NOT pin_is_commit)
+      message(STATUS "libbtbb: ${library}, ${built}; this tree is built "
+        "against ${LIBBTBB_PINNED_REF}, which names no commit to compare it "
+        "with")
+      return()
+    endif()
 
-  # libbtbb records git's abbreviation and the pin is written in full, which
-  # the libbtbb pin workflow enforces by reading it out of build.yml, so the
-  # recorded commit has to be a prefix of the pin and not the other way about.
-  # A prefix search rather than a regular expression match, so a commit is
-  # only ever compared as text.
-  string(TOLOWER "${commit}" commit_lower)
-  string(TOLOWER "${LIBBTBB_PINNED_REF}" pin_lower)
-  string(FIND "${pin_lower}" "${commit_lower}" commit_at)
+    # libbtbb records git's abbreviation and the pin is written in full,
+    # which the libbtbb pin workflow enforces by reading it out of build.yml,
+    # so the recorded commit has to be a prefix of the pin and not the other
+    # way about. A prefix search rather than a regular expression match, so a
+    # commit is only ever compared as text.
+    string(TOLOWER "${commit}" commit_lower)
+    string(TOLOWER "${LIBBTBB_PINNED_REF}" pin_lower)
+    string(FIND "${pin_lower}" "${commit_lower}" commit_at)
 
-  # The pin in full even where they agree, as in every other case: the line is
-  # read out of the log a measurement was taken from, where "the pinned
-  # commit" alone would send the reader looking for which commit that was.
-  if(commit_at EQUAL 0 AND NOT modified)
-    message(STATUS "libbtbb: ${library}, built from commit ${commit}, which "
-      "is the commit this tree is built against (${LIBBTBB_PINNED_REF})")
-    return()
+    # The pin in full even where they agree, as in every other case: the line
+    # is read out of the log a measurement was taken from, where "the pinned
+    # commit" alone would send the reader looking for which commit that was.
+    if(commit_at EQUAL 0)
+      message(STATUS "libbtbb: ${library}, built from commit ${commit}, which "
+        "is the commit this tree is built against (${LIBBTBB_PINNED_REF})")
+      return()
+    endif()
   endif()
 
   message(STATUS "libbtbb: ${library}, ${built}; this tree is built against "

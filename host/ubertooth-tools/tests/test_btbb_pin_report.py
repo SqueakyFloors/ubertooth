@@ -18,6 +18,7 @@ Usage: test_btbb_pin_report.py <cmake> <repository root>
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -91,8 +92,10 @@ def modules_pinned_at(work, modules, ref, name):
     The module sets the pin itself, so a report against a pin the tree does
     not carry today has to be read from a copy that carries it.
     """
+    # The whole directory, so a module that comes to include a sibling finds
+    # it here rather than failing for a reason that is not what is tested.
     copy = os.path.join(work, "modules-%s" % name)
-    os.mkdir(copy)
+    shutil.copytree(modules, copy)
     with open(os.path.join(modules, MODULE), encoding="utf-8") as handle:
         text = handle.read()
     text, replaced = re.subn(r"(?m)^set\(LIBBTBB_PINNED_REF .*\)$",
@@ -331,11 +334,25 @@ def main():
         # claim nothing.
         tag_source = project(work, "tag-pin", tag_modules)
         tag_cases = (
-            # name, release strings in the library, wording it has to carry
-            ("tag-pin", ["git-%s" % other], ["built from commit %s" % other]),
-            ("tag-pin-no-commit", [], ["commit unknown"]),
+            # name, release strings in the library, must warn, wording it has
+            # to carry
+            ("tag-pin", ["git-%s" % other], False,
+             ["built from commit %s" % other,
+              "names no commit to compare it with"]),
+            ("tag-pin-no-commit", [], False, ["commit unknown"]),
+            # Two commit-looking strings warn against a commit pin, because
+            # one of them may be a stale library's and the other something
+            # else in the file. Against a tag neither would decide anything,
+            # so this one is as quiet as the case above.
+            ("tag-pin-two-commits", ["git-%s" % short, "git-%s" % other],
+             False, ["commit unknown", "more than one commit"]),
+            # A library built from an edited tree is not the pinned libbtbb
+            # whatever the pin is, which needs no comparison, so this one
+            # warns as it does against a commit pin.
+            ("tag-pin-modified", ["git-%s*" % other], True,
+             ["built from commit %s with uncommitted changes" % other]),
         )
-        for name, releases, wanted in tag_cases:
+        for name, releases, must_warn, wanted in tag_cases:
             path = library(work, "libbtbb-%s.bin" % name, *releases)
             status, output = configure(cmake, tag_source,
                                        os.path.join(work, "build-%s" % name),
@@ -346,10 +363,15 @@ def main():
                 fail("the %s case does not name the pinned %s, so the log "
                      "does not say which libbtbb the tree asks for:\n%s"
                      % (name, tag_pin, output))
-            if "CMake Warning" in output:
+            warned = "CMake Warning" in output
+            if warned and not must_warn:
                 fail("the %s case warns, and a tag names no commit for the "
                      "library's to differ from, so every correct build would "
                      "be warned about:\n%s" % (name, output))
+            if must_warn and not warned:
+                fail("the %s case does not warn, so a library that is not "
+                     "the pinned one is only a status line among "
+                     "hundreds:\n%s" % (name, output))
             if "is the commit this tree is built against" in output:
                 fail("the %s case says the library is the pinned one, which "
                      "a tag cannot tell it:\n%s" % (name, output))
