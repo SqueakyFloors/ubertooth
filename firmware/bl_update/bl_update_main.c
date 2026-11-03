@@ -63,7 +63,8 @@ extern const uint8_t bl_payload[UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH];
  * here.
  *
  * Four KiB of the part's 16 KiB of main SRAM, which this image can spare: it
- * has no capture buffers, no radio and no USB.
+ * has no capture buffers and no USB, and it brings the radio up only for the
+ * 16 MHz clock the part runs on.
  *
  * The ROM asks for a source on a word boundary and a destination on a
  * 256-byte one (NXP LPC176x/5x user manual UM10360: a source that is not word
@@ -240,12 +241,21 @@ int main(void)
 {
 	struct bl_update_report report;
 
-	/* The pins and the clock, and nothing else: no radio, and no USB. The
-	 * ROM times an erase and a program by the figure IAP_CCLK_KHZ gives it,
-	 * so the clock has to be set up before any of them and must be the one
-	 * that figure names. */
-	gpio_init();
-	clock_start();
+	/* The pins and the clock, and no USB. The ROM times an erase and a
+	 * program by the figure IAP_CCLK_KHZ gives it, so the clock has to be
+	 * set up before any of them and must be the one that figure names.
+	 *
+	 * The radio comes with the clock, whether this image wants it or not:
+	 * the 16 MHz the main oscillator runs on is the CC2400's, so
+	 * clock_start() brings the radio up and waits for XOSC16M_STABLE, and
+	 * that wait is deliberately unbounded. Without cc2400_init() first, the
+	 * pins that power and address the radio are never configured, the
+	 * oscillator never reports stable, and this image waits there forever:
+	 * no USB, because it has none, and the bootloader starts it again on
+	 * every power-up, so the board only comes back over the serial
+	 * programming interface. ubertooth_init() is these three calls, and it
+	 * is what every other image in this tree uses. */
+	ubertooth_init();
 
 	/*
 	 * Ask for the user flash at the bottom of the address map before any of
