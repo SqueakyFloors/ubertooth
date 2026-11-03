@@ -74,7 +74,6 @@ static void tx_fifo_cb(void *arg)
 
 static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 {
-	int i;
 	unsigned len;
 	uint8_t chan, nslots = 1;
 	uint32_t tx_clkn = btphy_cur_clkn()+1;

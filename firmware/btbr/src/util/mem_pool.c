@@ -61,7 +61,6 @@ void *mem_pool_alloc(unsigned size)
 {
 	uint32_t flags = irq_save_disable();
 	pool_el_t *el;
-	void *buf;
 
 	if (!pool.init)
 		DIE("pool ny initalized\n");

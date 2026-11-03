@@ -29,7 +29,6 @@ void dma_init_gen(volatile void *buf);
 typedef void (*dma_tx_cb_t)(void *arg);
 
 void dma_poweron(void);
-void dma_poweroff(void);
 void dio_ssp_stop(void);
 void dio_ssp_start_rx(void);
 void dma_init_rx_single(volatile void *buf, unsigned buf_size);

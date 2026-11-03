@@ -111,32 +111,6 @@ static inline uint32_t reverse32(uint32_t data)
         return (uint32_t)reverse16(data>>16)|((uint32_t)reverse16(data&0xffff)<<16);
 }
 
-#ifdef DEBUG_CODE
-/* Debug helpers */
-void print_hex(uint8_t *pkt, unsigned size);
-uint8_t *pack_chars(char *src, unsigned *size);
-void unfec13_precal(void);
-void hec_precal(void);
-void fec13_slow(uint8_t *out, uint8_t *in, uint8_t nbits);
-void whiten_precal_st(void);
-void whiten_precal_word(void);
-void fec13_precal(void);
-void fec23_precal(void);
-void crc_precal(void);
-
-/* Bitstream utilities */
-static inline uint8_t get_bit(const uint8_t *p, unsigned idx)
-{
-	return 1 & (p[idx>>3]>>(idx&7));
-}
-static inline void set_bit(uint8_t *p, unsigned idx, unsigned val)
-{
-	unsigned bi = idx&7;
-
-	p[idx>>3] &= ~(1<<bi);
-	p[idx>>3] |= ((1&val)<<bi);
-}
-#endif
 
 /* HEC / CRC */
 static inline uint8_t hec_compute(uint16_t data, uint8_t hec) 

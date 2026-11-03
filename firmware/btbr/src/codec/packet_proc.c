@@ -58,8 +58,6 @@ void bbpkt_fhs_prepare_payload(
  */
 void bbpkt_fhs_finalize_payload(uint8_t *fhs_data, uint32_t clk27_2)
 {
-	uint8_t tmp[20];
-	uint16_t crc;
 	fhs_data[14] = (fhs_data[14]&7) | (0xf8 & (clk27_2<<3));
 	fhs_data[15] = 0xff & (clk27_2>>5);
 	fhs_data[16] = 0xff & (clk27_2>>13);

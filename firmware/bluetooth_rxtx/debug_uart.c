@@ -73,7 +73,6 @@ static void debug_send_dma(size_t size) {
 
 void debug_printf(char *fmt, ...) {
 	va_list ap;
-	void *ret;
 
 	// TODO warn user?
 	if (debug_dma_active)

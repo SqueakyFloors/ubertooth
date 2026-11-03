@@ -35,7 +35,6 @@ static void a_putc(void *arg, char c)
 void cprintf(char *fmt, ...)
 {
 	va_list ap;
-	void *ret;
 
 	va_start(ap, fmt);
 	tfp_format(NULL, a_putc, fmt, ap);
@@ -48,7 +47,6 @@ void early_printf(char *fmt, ...)
 	char buf[64] = {0};
 	int len;
 	va_list ap;
-	void *ret;
 	
 	buf[0] = BTUSB_EARLY_PRINT;
 	va_start(ap, fmt);
@@ -57,13 +55,6 @@ void early_printf(char *fmt, ...)
 	usb_send_sync((void*)buf, 1+len);
 
 	irq_restore(flags);
-}
-
-void print_hex(uint8_t *pkt, unsigned size)
-{
-	unsigned i;
-	for (i=0;i<size;i++)
-		cprintf("%02x ", pkt[i]);
 }
 
 /* The system timer's reload value is 24 bits wide. */

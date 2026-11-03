@@ -514,7 +514,6 @@ int bbcodec_decode_chunk(bbcodec_t *codec, uint8_t *out, bbhdr_t *in_hdr, uint8_
 uint8_t bbcodec_decode_finalize(bbcodec_t *codec, uint8_t *out, uint16_t *out_size)
 {
 	uint16_t crc;
-	uint8_t *outp;
 	uint8_t rc = 0;
 	const bbcodec_types_t *t = codec->t;
 
