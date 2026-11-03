@@ -70,12 +70,6 @@ typedef struct {
 	U8  bDataBits;
 } TLineCoding;
 
-static BOOL HandleClassRequest(TSetupPacket *pSetup, int *piLen, U8 **ppbData);
-static void BulkOut(U8 bEP, U8 bEPStatus);
-static void SendNextBulkIn(U8 bEP, BOOL fFirstPacket);
-static void BulkIn(U8 bEP, U8 bEPStatus);
-static void USBFrameHandler(U16 wFrame);
-static void USBDevIntHandler(U8 bDevStatus);
 void VCOM_init(void);
 int VCOM_putchar(int c);
 int VCOM_getchar(void);
