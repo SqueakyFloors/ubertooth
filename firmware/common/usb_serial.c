@@ -363,22 +363,30 @@ int VCOM_getchar(void)
 }
 
 /*
- * This handler is why bluetooth_rxtx and btbr compile this file. Neither calls
- * anything in it, and neither uses the serial console above, so to a reader of
- * their source lists the file looks like one they could drop.
+ * This handler is why the images that enable the USB interrupt compile this
+ * file. None of them calls anything in it, and none of them uses the serial
+ * console above, so to a reader of their source lists the file looks like one
+ * they could drop.
  *
  * They cannot. LPC17xx_Interrupts.c puts USB_IRQHandler in the interrupt
  * vector table and declares the name weak and aliased to the default handler,
  * so the link succeeds either way: with this file the vector reaches the code
- * below, and without it it reaches a default handler that marks a wedge and
- * never returns. Both images enable the USB interrupt, so either one would
- * stop answering the host at its first interrupt and be reset by the watchdog
- * a few seconds later, over and over, with no link error to say why.
+ * below, and without it the default handler, which records a watchdog
+ * breadcrumb and then spins forever (see the comment above it). An image that
+ * left the file out would therefore stop answering the host at its first USB
+ * interrupt and be reset by the watchdog a few seconds later, over and over,
+ * with no link error to say why.
  *
  * assembly_test compiles the file too, although it serves USB from its own
  * loop and has the one line that would enable the interrupt commented out.
  * Nothing there can reach this handler as the image stands; the file is kept
  * so that uncommenting that line does not wedge the board.
+ *
+ * The console half is a different matter: the images that do not use it keep
+ * nothing of it, because --gc-sections discards every function they never
+ * reach, which is why serial_fifo.c is in none of their source lists even
+ * though the code below calls fifo_get() and fifo_put(). Adding a VCOM call
+ * to one of those images means putting serial_fifo.c back in its list.
  */
 void USB_IRQHandler()
 {

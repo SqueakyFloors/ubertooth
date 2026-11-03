@@ -5,8 +5,10 @@ TARGET = assembly_test
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c is here for USB_IRQHandler, which this image cannot reach as it
-# stands: see the comment above that handler in firmware/common/usb_serial.c.
+# usb_serial.c is here for USB_IRQHandler. This image cannot reach that handler
+# as it stands, and keeps the file so that enabling the USB interrupt does not
+# wedge the board: see the comment above the handler in
+# firmware/common/usb_serial.c.
 SRC = $(TARGET).c \
 	$(LIBS_PATH)/cc2400_wait.c \
 	$(LIBS_PATH)/usb_serial.c \
