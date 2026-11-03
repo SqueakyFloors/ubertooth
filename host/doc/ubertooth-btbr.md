@@ -270,14 +270,18 @@ already waiting is refused, so the waiting cannot pile up.
 
 `<hex>` is the data bytes, as an even number of hex digits of exactly
 `<length>` bytes. Without it the data is a counted pattern, `00 01 02 ... ff`
-and over again. Either way the line `tx` prints on standard output is the
-packet the board was asked for, which is what a receiver's decode has to be
-compared with: `data=` is the data bytes, and `payload=` the whole payload,
-which adds the voice field where the format has one and the payload header
-where it has one. The board adds the CRC, which is in neither:
+and over again. A `dv` also has a voice field, which `<hex>` does not reach;
+its fill is counted too but starts at `a0`, so it reads `a0 a1 a2 ... a9`.
+The two patterns differ on purpose: a decoder can see where the voice field
+ends from the bytes alone, without knowing how long either field is. Either
+way the line `tx` prints on standard output is the packet the board was asked
+for, which is what a receiver's decode has to be compared with: `data=` is
+the data bytes, and `payload=` the whole payload, which adds the voice field
+where the format has one and the payload header where it has one. The board
+adds the CRC, which is in neither:
 
     19:18:58 TX pkt: ev3 len=3 count=20 data=000102 payload=000102
-    19:18:58 TX pkt: dv len=3 count=20 data=000102 payload=000102030405060708091e000102
+    19:18:58 TX pkt: dv len=3 count=20 data=000102 payload=a0a1a2a3a4a5a6a7a8a91e000102
 
 The board does not report back on a packet it has sent, so the line says what
 was asked for and not that it reached the air. To see the packet itself, have
