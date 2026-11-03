@@ -136,16 +136,16 @@ static void fill_payload(packet_t *p, unsigned data_bytes)
 			(uint8_t)(0x5a ^ (i * 31 + 3));
 }
 
-/* Build one packet of the given format with that many data bytes, handing the
- * codec handed as the length agreed for the link. Only a BB_LEN_NEGOTIATED
- * format reads that, so every other format is given a length on purpose and
- * expected to ignore it. */
+/* Build one packet of the given format with that many data bytes. The codec
+ * is handed "handed" as the length the link agreed, which only a
+ * BB_LEN_NEGOTIATED format reads: a caller that passes one for any other
+ * format is checking that the format ignores it. */
 static void encode_handed(packet_t *p, unsigned format, unsigned data_bytes,
 		unsigned handed)
 {
 	memset(p->air, 0, sizeof(p->air));
 	p->t = bbcodec_tx_format(format, &p->air_type);
-	mu_assert(p->t != NULL, "every format has an air layout");
+	mu_assert_fatal(p->t != NULL, "every format has an air layout");
 	p->data_bytes = data_bytes;
 	fill_payload(p, data_bytes);
 
@@ -170,7 +170,7 @@ static void encode(packet_t *p, unsigned format, unsigned data_bytes)
 	uint8_t air_type;
 	const bbcodec_types_t *t = bbcodec_tx_format(format, &air_type);
 
-	mu_assert(t != NULL, "every format has an air layout");
+	mu_assert_fatal(t != NULL, "every format has an air layout");
 	encode_handed(p, format, data_bytes,
 		t->length_kind == BB_LEN_NEGOTIATED ? data_bytes : 0);
 }
@@ -442,6 +442,8 @@ static void check_length_kind(const bbcodec_types_t *t, const char *name)
 {
 	char message[128];
 
+	snprintf(message, sizeof(message), "%s has an air layout", name);
+	mu_assert_fatal(t != NULL, message);
 	snprintf(message, sizeof(message),
 		"%s states a length kind this firmware knows", name);
 	mu_assert(t->length_kind == BB_LEN_FIXED
@@ -511,17 +513,21 @@ MU_TEST(test_a_format_that_knows_its_length_ignores_the_callers)
 		unsigned format = formats_that_know[i];
 		unsigned min = 0, max = 0, wrong;
 		uint8_t air_type;
+		const bbcodec_types_t *t = bbcodec_tx_format(format,
+			&air_type);
 
-		bbcodec_tx_format_limits(bbcodec_tx_format(format, &air_type),
-			&min, &max);
+		snprintf(message, sizeof(message),
+			"format %u has an air layout", format);
+		mu_assert_fatal(t != NULL, message);
+		bbcodec_tx_format_limits(t, &min, &max);
 		snprintf(message, sizeof(message),
 			"format %u carries data bytes at all", format);
 		mu_assert_fatal(max >= 1 && min <= max, message);
 		/* A length the format does carry, but not the one this packet
-		 * has. A length it does not carry would be caught as too long
-		 * and turned into an empty payload, which is what the packet
-		 * at min has here, so the two would agree for the wrong
-		 * reason. */
+		 * has. A length it does not carry would be read as too long
+		 * and turned into an empty payload, which for the DM1 in the
+		 * list is the packet at min, so the two would agree for the
+		 * wrong reason. */
 		wrong = min < max ? min + 1 : min - 1;
 
 		/* The length the format itself settles on */

@@ -21,8 +21,10 @@ typedef enum bbcodec_fec_e {
  * are not the same kind. */
 typedef enum bbcodec_length_e {
 	/* The format has one length and always carries it: NULL, POLL, FHS
-	 * and the HV voice packets. This is the zero value, so a format
-	 * description that says nothing means the length the type states. */
+	 * and the HV voice packets. It is the zero value so that a format
+	 * description left zeroed, which a test's stand-in for one may be,
+	 * means the length the type states rather than a payload header this
+	 * firmware would then try to read. */
 	BB_LEN_FIXED	= 0,
 	/* The payload header carries it: the DM and DH packets, AUX1, and the
 	 * data field of a DV (Bluetooth Core, Vol 2 Part B 6.5.4). */
