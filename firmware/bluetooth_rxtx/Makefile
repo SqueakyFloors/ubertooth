@@ -15,10 +15,8 @@ endif
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c is here for USB_IRQHandler, which no source in this image calls
-# and which it must have all the same: the interrupt vector table in
-# LPC17xx_Interrupts.c is what reaches it. See the comment above the handler in
-# firmware/common/usb_serial.c.
+# usb_serial.c provides USB_IRQHandler, which the interrupt vector table in
+# LPC17xx_Interrupts.c reaches; see the comment above the handler.
 SRC = $(TARGET).c \
 	bluetooth.c \
 	bluetooth_le.c \
