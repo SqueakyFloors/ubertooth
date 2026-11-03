@@ -46,14 +46,30 @@ static int inquiry_scan_canceled(void)
 	return btctl_get_state() != BTCTL_STATE_INQUIRY_SCAN;
 }
 
-static void tx_eir_cb(void *arg)
+static void tx_eir_cb(int sent, void *arg)
 {
+	/* Whether the extended inquiry response went out or not, this board's
+	 * answer to the inquiry is over and the next thing to do is listen for
+	 * another one. The inquirer sweeps the band repeatedly, so it asks
+	 * again. */
 	inquiry_scan_schedule(1);
 }
 
-static void tx_fhs_cb(void *arg)
+static void tx_fhs_cb(int sent, void *arg)
 {
-	btctl_tx_pkt_t *eir_pkt = btctl_get_eir();
+	btctl_tx_pkt_t *eir_pkt;
+
+	if (!sent)
+	{
+		/* The extended inquiry response belongs to an inquiry response
+		 * this board did not send: it says "and here are my fields" to
+		 * an inquirer that has heard nothing from this board and is
+		 * not listening for a second packet. Go back to scanning. */
+		cprintf("inquiry response not sent, scanning again\n");
+		inquiry_scan_schedule(1);
+		return;
+	}
+	eir_pkt = btctl_get_eir();
 	if (eir_pkt)
 	{
 		tx_task_schedule(3&(TX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX()),

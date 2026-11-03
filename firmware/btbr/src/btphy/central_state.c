@@ -98,8 +98,13 @@ static void central_state_schedule_rx(unsigned skip_slots)
 	);
 }
 
-static void tx_done_cb(void* arg)
+static void tx_done_cb(int sent, void* arg)
 {
+	/* The receive slot is opened whether the packet went out or not: it is
+	 * the pair of the slot just spent, and the link stops forever without
+	 * it. What a slot that put nothing on the air costs the link is the
+	 * link layer's to decide, and ll_prepare_tx() says what it costs
+	 * today. */
 	central_state_schedule_rx(0);
 }
 

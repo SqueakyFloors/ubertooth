@@ -129,6 +129,10 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void *cbarg,
 	tx_count++;
 }
 
+/* The completion the transmit task reports when a transmit's slots are over.
+ * These tests are about what link supervision does, so the packet goes out. */
+#define TX_SENT	1
+
 /* The air layout of a format the host asked for. Nothing here enqueues such a
  * packet, so the link layer never asks; the real one lives in codec.c, which
  * these tests do not link. */
@@ -180,7 +184,7 @@ static void run_tx_done(void)
 	if (cb == NULL)
 		die("the connection armed no transmit\n");
 	armed_tx_cb = NULL;
-	cb(armed_tx_arg);
+	cb(TX_SENT, armed_tx_arg);
 }
 
 /* Hand the connection's receive window one packet, or nothing at all.

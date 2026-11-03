@@ -97,8 +97,13 @@ static int peripheral_rx_cb(msg_t *msg, void *arg, int time_offset)
 	return 0;
 }
 
-static void tx_done_cb(void* arg)
+static void tx_done_cb(int sent, void* arg)
 {
+	/* The receive slot is opened whether the packet went out or not: it is
+	 * the pair of the slot just spent, and the link stops forever without
+	 * it. What a slot that put nothing on the air costs the link is the
+	 * link layer's to decide, and ll_prepare_tx() says what it costs
+	 * today. */
 	peripheral_state_schedule_rx(0);
 }
 

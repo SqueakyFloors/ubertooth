@@ -250,14 +250,17 @@ static void a_slot(void)
 	tdma_sched_advance();
 }
 
-/* What the caller is told. */
+/* What the caller is told: how many completions came, the argument the last
+ * one carried, and whether it said the packet went out. */
 static unsigned completions;
 static void *last_completion_arg;
+static int last_completion_sent;
 
-static void count_completion(void *arg)
+static void count_completion(int sent, void *arg)
 {
 	completions++;
 	last_completion_arg = arg;
+	last_completion_sent = sent;
 }
 
 /* A packet to transmit. The transmit task holds the caller's header and data
@@ -332,6 +335,7 @@ static void a_board(int mode)
 	console[0] = '\0';
 	completions = 0;
 	last_completion_arg = NULL;
+	last_completion_sent = -1;
 }
 
 /* A whole transmit: schedule it, then run enough frames for prepare, execute
@@ -440,6 +444,10 @@ MU_TEST(test_a_transmit_that_was_refused_outright_reports_once)
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert(last_completion_arg == &a_header,
 	          "the completion did not carry the caller's argument");
+	/* And the completion says the packet was not sent, so a caller whose
+	 * next step is only right for a packet the other end could have heard
+	 * does not take it. */
+	mu_assert_int_eq(0, last_completion_sent);
 	/* The slot that was full still ran what was in it. */
 	mu_assert_int_eq(TDMASCHED_NUM_CB, (int)fillers_run);
 }
@@ -515,9 +523,9 @@ MU_TEST(test_a_refused_transmit_gives_the_packet_back)
  */
 static unsigned transmits_wanted;
 
-static void schedule_another_transmit(void *arg)
+static void schedule_another_transmit(int sent, void *arg)
 {
-	(void)arg;
+	(void)sent; (void)arg;
 	completions++;
 	if (--transmits_wanted == 0)
 		return;
@@ -553,9 +561,9 @@ MU_TEST(test_a_link_goes_on_after_a_refused_transmit)
  */
 static unsigned attempts_wanted;
 
-static void try_the_same_slot_again(void *arg)
+static void try_the_same_slot_again(int sent, void *arg)
 {
-	(void)arg;
+	(void)sent; (void)arg;
 	completions++;
 	if (--attempts_wanted == 0)
 		return;
@@ -599,6 +607,9 @@ MU_TEST(test_a_transmit_with_no_start_reports_once)
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert(last_completion_arg == &a_header,
 	          "the completion did not carry the caller's argument");
+	/* Reported as not sent: tx_prepare() ran, but the transmitter was
+	 * never turned on. */
+	mu_assert_int_eq(0, last_completion_sent);
 	mu_assert_int_eq(TDMASCHED_NUM_CB, (int)fillers_run);
 }
 

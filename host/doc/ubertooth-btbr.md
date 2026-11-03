@@ -180,6 +180,11 @@ scanning and says `Paging resumed` or `Page scan resumed`. That happens when
 some other board nearby answers a page and is taken for the device being
 paged, or when the paged device's acknowledgment does not reach the pager.
 
+A page the board could not answer on the air at all costs the attempt nothing:
+no connection is reported, the board says on its console that the answer was
+not sent, and the scan goes on to the pager's next attempt. `inquiry_scan`
+does the same with an inquiry response it could not send.
+
 A word that is none of these is refused, and the prompt stays up; see
 DIAGNOSTICS.
 

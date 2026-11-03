@@ -11,8 +11,9 @@
  *
  * tx_execute() returns early when it finds the synthesizer unlocked, because
  * the packet cannot go out on an untuned radio. These cases pin what happens
- * then: the completion is still reported, exactly once, and nothing the
- * transmit task was holding for the caller stays held.
+ * then: the completion is still reported, exactly once, it says the packet was
+ * not sent, and nothing the transmit task was holding for the caller stays
+ * held.
  *
  * tx_task.c is included into this translation unit, which is how its slot
  * tasks can be reached at all: they are static. The scheduler underneath is
@@ -274,14 +275,17 @@ static void a_slot(void)
 	tdma_sched_advance();
 }
 
-/* What the caller is told. */
+/* What the caller is told: how many completions arrived, the argument the last
+ * one carried, and whether it said the packet had gone out. */
 static unsigned completions;
 static void *last_completion_arg;
+static int last_completion_sent;
 
-static void count_completion(void *arg)
+static void count_completion(int sent, void *arg)
 {
 	completions++;
 	last_completion_arg = arg;
+	last_completion_sent = sent;
 }
 
 /* A packet to transmit. The transmit task holds the caller's header and data
@@ -321,6 +325,7 @@ static void a_board_whose_synthesizer_locks(int locks)
 	console[0] = '\0';
 	completions = 0;
 	last_completion_arg = NULL;
+	last_completion_sent = -1;
 }
 
 /* A whole transmit: schedule it, then run enough frames for prepare, execute
@@ -348,6 +353,9 @@ MU_TEST(test_a_transmit_that_goes_out_reports_completion_once)
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert(last_completion_arg == &a_header,
 	          "the completion did not carry the caller's argument");
+	/* And it says the packet went out, which is what a caller that answers
+	 * a page or an inquiry acts on. */
+	mu_assert_int_eq(1, last_completion_sent);
 }
 
 /* ---- a transmit that finds the synthesizer unlocked ---- */
@@ -369,6 +377,22 @@ MU_TEST(test_an_untuned_transmit_reports_completion_once)
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert(last_completion_arg == &a_header,
 	          "the completion did not carry the caller's argument");
+}
+
+/*
+ * What the completion says. The slot is over either way, so the caller is told
+ * either way; a caller whose next step is only right for a packet the other
+ * end could have heard needs to be able to tell the two apart, which is the
+ * difference between answering a page and announcing a connection nobody on
+ * the other side has.
+ */
+MU_TEST(test_an_untuned_transmit_reports_that_nothing_was_sent)
+{
+	a_board_whose_synthesizer_locks(0);
+
+	one_transmit();
+
+	mu_assert_int_eq(0, last_completion_sent);
 }
 
 /* The user sees why: a console line saying the packet was not sent. */
@@ -423,9 +447,14 @@ MU_TEST(test_an_untuned_transmit_gives_the_packet_back)
  */
 static unsigned slots_wanted;
 
-static void schedule_another_transmit(void *arg)
+/* How the three slots were reported, oldest first. */
+static int slot_sent[3];
+
+static void schedule_another_transmit(int sent, void *arg)
 {
 	(void)arg;
+	if (completions < sizeof(slot_sent) / sizeof(slot_sent[0]))
+		slot_sent[completions] = sent;
 	completions++;
 	if (--slots_wanted == 0)
 		return;
@@ -448,6 +477,10 @@ MU_TEST(test_a_link_goes_on_to_its_next_slot_after_an_untuned_transmit)
 	mu_assert_int_eq(3, (int)completions);
 	/* Two of the three went on the air; the middle one did not. */
 	mu_assert_int_eq(2, (int)fake_stx_strobes);
+	/* And that is what the three completions said. */
+	mu_assert_int_eq(1, slot_sent[0]);
+	mu_assert_int_eq(0, slot_sent[1]);
+	mu_assert_int_eq(1, slot_sent[2]);
 }
 
 /*
@@ -524,6 +557,7 @@ int main(void)
 	printf("BR/EDR transmit tests: an unlocked synthesizer\n");
 	MU_RUN(test_a_transmit_that_goes_out_reports_completion_once);
 	MU_RUN(test_an_untuned_transmit_reports_completion_once);
+	MU_RUN(test_an_untuned_transmit_reports_that_nothing_was_sent);
 	MU_RUN(test_an_untuned_transmit_says_so_on_the_console);
 	MU_RUN(test_an_untuned_transmit_stops_the_radio);
 	MU_RUN(test_an_untuned_transmit_gives_the_packet_back);

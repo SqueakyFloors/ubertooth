@@ -172,10 +172,10 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 
 		/* Release the packet before reporting it, the order
 		 * tx_finalize() uses: the caller may hand the next packet over
-		 * from its callback. */
+		 * from its callback. Nothing went on the air. */
 		tx_task_reset();
 		if (tx_task.cb)
-			tx_task.cb(tx_task.cb_arg);
+			tx_task.cb(0, tx_task.cb_arg);
 
 		return 0;
 	}
@@ -226,6 +226,12 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 #define	TX_MAX_WAIT 1500
 static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3)
 {
+	/* Whether the packet went on the air, which tx_task_reset() below
+	 * clears before the caller is told. A transmit the radio never
+	 * reported the end of still went out: all that was lost is when it
+	 * stopped. */
+	int sent = tx_task.on_air;
+
 	/* Wait for the end of the transmission, until 150usec into the slot.
 	 * The radio is stopped either way: a transmit still going at the
 	 * deadline is one the radio never reported the end of.
@@ -242,7 +248,7 @@ static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3)
 
 	tx_task_reset();
 	if(tx_task.cb)
-		tx_task.cb(tx_task.cb_arg);
+		tx_task.cb(sent, tx_task.cb_arg);
 
 	return 0;
 }
@@ -311,10 +317,10 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 
 		/* Release the packet before reporting it, the order
 		 * tx_finalize() uses: the caller may hand the next packet over
-		 * from its callback. */
+		 * from its callback. Nothing went on the air. */
 		tx_task_reset();
 		if (tx_task.cb)
-			tx_task.cb(tx_task.cb_arg);
+			tx_task.cb(0, tx_task.cb_arg);
 		return;
 	}
 

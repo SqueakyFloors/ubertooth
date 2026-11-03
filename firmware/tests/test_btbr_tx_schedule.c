@@ -248,14 +248,17 @@ static void a_slot(void)
 	tdma_sched_advance();
 }
 
-/* What the caller is told. */
+/* What the caller is told: how many completions arrived, the argument the last
+ * one carried, and whether it said the packet had gone out. */
 static unsigned completions;
 static void *last_completion_arg;
+static int last_completion_sent;
 
-static void count_completion(void *arg)
+static void count_completion(int sent, void *arg)
 {
 	completions++;
 	last_completion_arg = arg;
+	last_completion_sent = sent;
 }
 
 /* A packet to transmit. The transmit task holds the caller's header and data
@@ -328,6 +331,7 @@ static void a_board(int mode)
 	console[0] = '\0';
 	completions = 0;
 	last_completion_arg = NULL;
+	last_completion_sent = -1;
 }
 
 /* A whole transmit: schedule it, then run enough frames for prepare, execute
@@ -366,6 +370,9 @@ MU_TEST(test_a_transmit_whose_end_fits_goes_out_and_reports_once)
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert(last_completion_arg == &a_header,
 	          "the completion did not carry the caller's argument");
+	/* And it says the packet went out, which is what a caller that answers
+	 * a page or an inquiry acts on. */
+	mu_assert_int_eq(1, last_completion_sent);
 	mu_assert_int_eq(0, (int)console_lines);
 }
 
@@ -392,6 +399,10 @@ MU_TEST(test_a_transmit_whose_end_cannot_be_scheduled_reports_once)
 	          "the completion did not carry the caller's argument");
 	/* The slot that was full still ran what was in it. */
 	mu_assert_int_eq(TDMASCHED_NUM_CB, (int)fillers_run);
+	/* And the completion says the packet was not sent, so a caller whose
+	 * next step is only right for a packet the other end could have heard
+	 * does not take it. */
+	mu_assert_int_eq(0, last_completion_sent);
 }
 
 /*
@@ -506,9 +517,14 @@ MU_TEST(test_it_does_not_wait_for_the_radio)
  */
 static unsigned transmits_wanted;
 
-static void schedule_another_transmit(void *arg)
+/* How the two slots were reported, oldest first. */
+static int slot_sent[2];
+
+static void schedule_another_transmit(int sent, void *arg)
 {
 	(void)arg;
+	if (completions < sizeof(slot_sent) / sizeof(slot_sent[0]))
+		slot_sent[completions] = sent;
 	completions++;
 	if (--transmits_wanted == 0)
 		return;
@@ -532,6 +548,9 @@ MU_TEST(test_a_link_goes_on_to_its_next_slot)
 	mu_assert_int_eq(2, (int)completions);
 	/* The first had nowhere to end and did not go out; the second did. */
 	mu_assert_int_eq(1, (int)fake_stx_strobes);
+	/* And that is what the two completions said. */
+	mu_assert_int_eq(0, slot_sent[0]);
+	mu_assert_int_eq(1, slot_sent[1]);
 }
 
 /*
@@ -556,6 +575,7 @@ MU_TEST(test_a_page_whose_end_cannot_be_scheduled_reports_once)
 
 	mu_assert_int_eq(0, (int)fake_stx_strobes);
 	mu_assert_int_eq(1, (int)completions);
+	mu_assert_int_eq(0, last_completion_sent);
 	mu_assert(strstr(console, "not sent") != NULL, console);
 	mu_assert_int_eq(2, (int)console_lines);
 }

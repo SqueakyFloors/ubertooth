@@ -1075,6 +1075,16 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.
+  Where the board could not put its answer to the page on the air, it still
+  printed the pager's address and `Peripheral started` and told the host it
+  was connected, while the pager had heard nothing and was still paging. The
+  board now says the answer was not sent and goes on scanning, so it is
+  listening for the pager's next attempt. `inquiry_scan` had a smaller
+  version of it: it sent the extended inquiry response after an inquiry
+  response that never went out, and now goes back to scanning.
+  [#1156](https://github.com/SqueakyFloors/ubertooth/issues/1156)
+
 - Fixed: a `btbr` connection or page could stop forever. When the slot that
   would have ended a transmission was already full, the board said only
   `tdma_schedule bucket overflow` and carried on: the radio was left

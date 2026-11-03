@@ -137,8 +137,22 @@ static int page_scan_canceled(void)
 	return btctl_get_state() != BTCTL_STATE_PAGE_SCAN;
 }
 
-static void page_scan_tx_cb(void *arg)
+static void page_scan_tx_cb(int sent, void *arg)
 {
+	if (!sent)
+	{
+		/* The ID(3) that answers the page response never went on the
+		 * air, so the pager heard no answer: it is still paging, or it
+		 * has given up. A connection reported here would be one only
+		 * this end believes in, carrying no traffic until link
+		 * supervision ends it. Go back to scanning instead, which is
+		 * where every other answer that led nowhere goes, and leave
+		 * the host's view of the board as the page scan it asked
+		 * for. */
+		cprintf("page answer not sent, scanning again\n");
+		page_scan_schedule(0);
+		return;
+	}
 	/* Twelve digits, so the address can be copied into page or l2ping. */
 	cprintf("fhs: ba=%012llx clk27_2=%x lta=%d\n",
 		page_scan_state.fhs_info.bdaddr,
