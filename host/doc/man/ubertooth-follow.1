@@ -144,7 +144,7 @@ ubertooth\-rx \-z \-t 30
 .IP "" 0
 
 .IP "3." 4
-Point the follow at the piconet the target leads: \fB\-t\fR with its whole address if you know it, or \fB\-l\fR and \fB\-u\fR with the four bytes the survey reported\. Either way the tool says what it is following before it opens the board, so a run against the wrong piconet shows in the first line:
+Point the follow at the piconet the target leads: \fB\-t\fR with its whole address if you know it, or \fB\-l\fR and \fB\-u\fR with the four bytes the survey reported\. Either way the tool names the target on standard error before it opens the board, so a run against the wrong piconet shows before any packet does: \fB\-t\fR prints a \fBTarget\fR line with the address and the LAP and UAP taken from it, and \fB\-l\fR with \fB\-u\fR prints the address the page will use, carrying \fB00:00\fR in place of the two bytes they do not name\.
 .IP "" 4
 .nf
 ubertooth\-follow \-t 11:22:33:44:55:66 \-q capture\.pcap

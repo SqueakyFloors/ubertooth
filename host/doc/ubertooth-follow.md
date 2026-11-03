@@ -230,8 +230,11 @@ to capture.
 
 3. Point the follow at the piconet the target leads: `-t` with its whole
    address if you know it, or `-l` and `-u` with the four bytes the survey
-   reported. Either way the tool says what it is following before it opens the
-   board, so a run against the wrong piconet shows in the first line:
+   reported. Either way the tool names the target on standard error before it
+   opens the board, so a run against the wrong piconet shows before any packet
+   does: `-t` prints a `Target` line with the address and the LAP and UAP taken
+   from it, and `-l` with `-u` prints the address the page will use, carrying
+   `00:00` in place of the two bytes they do not name.
 
        ubertooth-follow -t 11:22:33:44:55:66 -q capture.pcap
        ubertooth-follow -l 445566 -u 33 -q capture.pcap
