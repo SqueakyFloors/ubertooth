@@ -248,19 +248,28 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert (work / "other.bin").read_bytes() == FIXTURE, result
 
-    # "-" is this process's standard output, so that is the destination
-    # compared: a shell that has already pointed it at the dump is the one case
-    # a name cannot catch, and the run would otherwise read the records it was
-    # appending and never end.
-    with open(work / "same.bin", "ab") as appended:
-        result = run("-p", "-R", "same.bin", "-d", "-", directory=work,
-                     stdout=appended)
-    assert result.returncode == 1, result
-    assert result.stderr == ("error: -d would write over the dump -R is"
-                             " replaying (standard output)\n"), result
-    assert (work / "same.bin").read_bytes() == FIXTURE, result
+    # A shell that has already pointed standard output at the dump is the one
+    # case a name cannot catch, and the run would otherwise read the records it
+    # was appending and never end. Every spelling of that destination is
+    # refused: "-" is this process's standard output, and "/dev/stdout" and
+    # "/dev/fd/1" are device nodes that stat() answers for instead of for the
+    # file behind them, which is why the destination is opened. -q goes with
+    # -d here, to pin that the check covers each writer and not only the dump.
+    for option, letter, written in (("-d", "d", "-"), ("-d", "d", "/dev/stdout"),
+                                    ("-d", "d", "/dev/fd/1"),
+                                    ("-q", "q", "-")):
+        with open(work / "same.bin", "ab") as appended:
+            result = run("-p", "-R", "same.bin", option, written,
+                         directory=work, stdout=appended)
+        assert result.returncode == 1, (written, result)
+        assert result.stderr == (
+            f"error: -{letter} would write over the dump -R is replaying"
+            f" ({'standard output' if written == '-' else written})\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, (written, result)
 
-    # Standard output pointed anywhere else is an ordinary dump to it.
+    # Standard output pointed at another file is an ordinary dump to it: a
+    # regular file is the destination that could have collided, which the
+    # run against a pipe further down does not pin.
     with open(work / "piped.bin", "wb") as elsewhere:
         result = run("-p", "-R", "same.bin", "-d", "-", directory=work,
                      stdout=elsewhere)

@@ -578,9 +578,11 @@ writing, which truncates it, so the dump would be emptied before a record of
 it was read. `error: -d would write over the dump -R is replaying
 (promisc.bin)`, exit 1, with the file left as it was. It is the file that is
 compared and not the name, so `./promisc.bin`, a symbolic link to it and a
-hard link to it are all refused, and so is a `-d -` whose standard output the
-shell has already pointed at the dump. ubertooth-rx(1) refuses the same
-pairing for its own replay, in the same words.
+hard link to it are all refused, and so is a destination that reaches it
+through this process's standard output, whether written `-d -`,
+`-d /dev/stdout` or `-d /dev/fd/1`. What that cannot cover is a redirection of
+the whole run, `ubertooth-btle -p -R promisc.bin > promisc.bin`: the shell has
+emptied the file before ubertooth-btle(1) starts, as it would for any command.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a
