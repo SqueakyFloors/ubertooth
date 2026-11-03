@@ -4,8 +4,6 @@
 #include "ubertooth_usb.h"
 #include <ubtbr/console.h>
 
-#define cputc console_putc
-
 /* Takes over the system timer and does not give it back; only safe where
  * nothing afterwards needs it, which today means the fault paths. */
 void active_msleep(unsigned msec);

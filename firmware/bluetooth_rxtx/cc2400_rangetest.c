@@ -96,11 +96,11 @@ rangetest_result rr;
  * Why these two modes reach the radio's FIFO through cc2400_fifo_write() and
  * cc2400_fifo_read(), like every other mode, and not a byte at a time.
  *
- * They used to write and read the FIFO with cc2400_set8(FIFOREG, b) and
- * cc2400_get8(FIFOREG) in a loop. Each of those is a separate SPI transfer:
- * CSN drops, the FIFO's address goes out, one byte of data follows, CSN rises
- * again. Neither direction works that way, and both failures were measured on
- * a pair of boards.
+ * They used to reach the FIFO one byte at a time, through a loop of
+ * single-register writes or reads of FIFOREG. Each of those is a separate SPI
+ * transfer: CSN drops, the FIFO's address goes out, one byte of data follows,
+ * CSN rises again. Neither direction works that way, and both failures were
+ * measured on a pair of boards.
  *
  * The write put nothing in the FIFO at all. The radio needs the address once
  * and then the data bytes while CSN stays low, and it needs CSN held low for
