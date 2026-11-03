@@ -324,6 +324,11 @@ static void test_standard_output_pointed_at_a_file(void)
 	              "error: -q and -d cannot both write to one file"
 	              " (standard output and redirected.bin)\n");
 	check_accepted("-", "elsewhere.bin");
+	/* A link pointing at the file named "-" is that file, not this stream,
+	 * however its target reads once it has been resolved. The stream is on
+	 * another file here, so the two are two destinations. */
+	check_accepted("points-at-dash", "redirected.bin");
+	check_accepted("redirected.bin", "points-at-dash");
 
 	fflush(stdout);
 	dup2(saved, STDOUT_FILENO);

@@ -322,23 +322,38 @@ static int same_path_text(const char *first, const char *second)
 	}
 }
 
-int opt_writes_to_stdout(const char *filename)
+/* Whether a path names this process's descriptor 1, such as "/dev/stdout" or
+ * "/dev/fd/1".
+ *
+ * The lone "-" is deliberately not one of these. "-" is a value the user
+ * writes on the command line, not a path anything resolves to, so a "-" that
+ * turned up as the text of something else -- the target readlink() read, for
+ * instance -- is the ordinary file of that name.
+ *
+ * The names above are compared as text, not followed: that answers a
+ * different question -- where /dev/stdout points at this moment -- rather than
+ * which descriptor the user named. */
+static int names_descriptor_one(const char *name)
 {
 	size_t i;
 
+	if (name == NULL)
+		return 0;
+	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
+		if (same_path_text(name, stdout_paths[i]))
+			return 1;
+	return 0;
+}
+
+int opt_writes_to_stdout(const char *filename)
+{
 	if (filename == NULL)
 		return 0;
 	/* The lone "-" exactly: "./-" is how a file of that name is written,
 	 * so it stays an ordinary file. */
 	if (strcmp(filename, "-") == 0)
 		return 1;
-	/* The names above are compared as text, not followed: that answers a
-	 * different question -- where /dev/stdout points at this moment --
-	 * rather than which descriptor the user named. */
-	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
-		if (same_path_text(filename, stdout_paths[i]))
-			return 1;
-	return 0;
+	return names_descriptor_one(filename);
 }
 
 int opt_check_capture_destination(const char *filename, const char *what)
@@ -446,11 +461,23 @@ static int same_directory_entry(const char *first, const char *second)
  * nothing; opening one to learn more would, because an open blocks until a
  * reader arrives on a named pipe and lowers a serial device's modem lines
  * when it is closed, so no destination is opened here. */
+static int path_file(const char *path, struct stat *where)
+{
+	if (path == NULL)
+		return -1;
+	if (names_descriptor_one(path))
+		return fstat(STDOUT_FILENO, where) == 0 ? 0 : -1;
+	return stat(path, where) == 0 ? 0 : -1;
+}
+
+/* The same question asked of an option VALUE rather than of a path. The two
+ * differ in the lone "-", which is the stream when the user wrote it and an
+ * ordinary name wherever else it appears. */
 static int destination_file(const char *name, struct stat *where)
 {
-	if (opt_writes_to_stdout(name))
+	if (name != NULL && strcmp(name, "-") == 0)
 		return fstat(STDOUT_FILENO, where) == 0 ? 0 : -1;
-	return stat(name, where) == 0 ? 0 : -1;
+	return path_file(name, where);
 }
 
 /* Whether two capture destinations are one file. */
@@ -481,9 +508,11 @@ static int same_destination(const char *first, const char *second)
 		return 1;
 	/* Both destinations exist, so the files behind them can be compared,
 	 * which catches a hard link and a directory that the lookup above
-	 * could not reach. */
-	if (destination_file(first, &first_file) != 0 ||
-	    destination_file(second, &second_file) != 0)
+	 * could not reach. Each is looked up as a path, not as a value: by
+	 * here neither option asked for the stream, and what a link resolved
+	 * to is text this code read rather than text the user wrote. */
+	if (path_file(first, &first_file) != 0 ||
+	    path_file(second, &second_file) != 0)
 		return 0;
 	return first_file.st_dev == second_file.st_dev &&
 	       first_file.st_ino == second_file.st_ino;

@@ -185,9 +185,11 @@ typedef struct {
  * stream at a file another option also names, while "./-" beside "-" is an
  * ordinary file beside the stream. Two destinations that both mean standard
  * output are not this check's at all, because one stream cannot carry two
- * captures whatever they are spelled; each tool refuses the pair its own
- * one-capture-on-standard-output rule covers, and a writer that cannot open
- * the stream reports the rest.
+ * captures whatever they are spelled. Each tool has its own
+ * one-capture-on-standard-output rule for the pair it supports there; a
+ * destination that cannot use the stream in the first place, such as the
+ * PcapNG capture that has to seek back over what it wrote, is refused by its
+ * own writer instead.
  *
  * Only a destination a writer would overwrite is refused. The null device
  * keeps nothing, so "-q /dev/null -d /dev/null" discards both captures as
