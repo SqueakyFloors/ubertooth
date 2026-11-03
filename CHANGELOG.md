@@ -140,6 +140,38 @@
   such bootloaders apart.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
+- The release improves the bootloader and the flashing path, and a board runs
+  this firmware on the bootloader it already carries: nothing here asks for a
+  new bootloader, and an image is written over USB the same way either way.
+  Installing a bootloader built from this tree needs a 3.3 V serial programmer
+  on the ISP connector or a JTAG probe, as docs/source/programming.rst
+  describes, so what follows is what a board gains only once it has been
+  programmed that way. Everything else in the release works whatever
+  bootloader a board carries; without one from this tree these are
+  unavailable:
+  - recovery over USB from an interrupted or incomplete firmware download. An
+    older bootloader jumps straight into whatever is at the start of the
+    application region, so a board that lost a download part way through
+    faults on every power-up until someone bridges the entry pin at the
+    bench; a board on this bootloader waits in DFU for the next
+    `ubertooth-dfu -d`.
+  - refusing to start an application whose first block was programmed only in
+    part, and one whose flash no longer adds up over the length the host
+    wrote: the vector checksum and the whole-image check. Both are read on the
+    board before it jumps.
+  - bounding a download, and a `-u` read-back, by the flash the part in front
+    of the bootloader actually has. A block with no flash behind it is refused
+    with `ERRADDRESS` rather than asking the part to program memory it has not
+    got, or faulting on the read and answering nothing until the board is
+    power-cycled; a part the built-in table cannot identify is bounded by the
+    sectors it reports having.
+  - the bootloader's own version and revision in `ubertooth-util -B`, where a
+    board as shipped reports only a hash of its bootloader.
+  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242),
+  [#354](https://github.com/SqueakyFloors/ubertooth/issues/354),
+  [#439](https://github.com/SqueakyFloors/ubertooth/issues/439),
+  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
+
 - `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
   stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
   known word over the unused stack at startup and counts how much of it has
