@@ -24,7 +24,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue test_btbr_tx_untuned test_btbr_tx_schedule test_btbr_tx_schedule_set
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_promisc_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue test_btbr_tx_untuned test_btbr_tx_schedule test_btbr_tx_schedule_set
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -170,6 +170,17 @@ $(BINDIR)/test_le_phy_order: test_le_phy_order.c minunit.h source_scan.h \
 		$(FW_RXTX)/le_phy.c | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-o $@ test_le_phy_order.c
+
+# The two promiscuous recovery paths hand a connection to the follow around
+# hop_mode and le.link_state, and the order of those writes is what keeps the
+# timer interrupt from asking for a hop that is not due. Both paths are
+# reached from a capture loop, so this test scans the source as text, and the
+# header for the volatile that makes the order binding.
+$(BINDIR)/test_le_promisc_order: test_le_promisc_order.c minunit.h \
+		source_scan.h $(FW_RXTX)/bluetooth_rxtx.c \
+		$(FW_RXTX)/bluetooth_le.h | $(BINDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
+		-o $@ test_le_promisc_order.c
 
 # Which capture loop hands a whole packet to the fragmenting enqueue, and how
 # each one gets the whole packet in the first place. Both loops are hardware

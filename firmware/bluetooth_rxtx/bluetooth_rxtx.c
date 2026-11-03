@@ -3666,6 +3666,71 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
 	enqueue(LE_PROMISC, (uint8_t*)buf);
 }
 
+/*
+ * Handing a recovered connection to the follow.
+ *
+ * Promiscuous recovery works a connection out while listening on one channel,
+ * then hands it to the hopping follow. Two of its paths do that -- the hop
+ * increment of a connection using channel selection algorithm 1, and the
+ * event counter of one using algorithm 2 -- and both set the same state:
+ * hop_mode, do_hop, the connection's own fields, and le.link_state.
+ *
+ * The order of the two ends of that matters, because TIMER0_IRQHandler() runs
+ * between any two of these statements. It asks for a hop on whichever branch
+ * hop_mode selects, and its low-energy branch asks for one only once
+ * link_state says connected. So:
+ *
+ *   hop_mode = HOP_BTLE   first: from here the interrupt is on a branch that
+ *                         waits for the link state, so it asks for nothing
+ *   do_hop = 0            then: drop a hop the mode in force until now asked
+ *                         for, which the interrupt can no longer ask again
+ *   the connection's fields, which either path may also set earlier: before
+ *                         the link state is what matters, and earlier is safe
+ *   le_handoff_barrier()  then: hold all of those above the store below
+ *   le.link_state = LINK_CONNECTED  last: this is what starts the hopping,
+ *                         and by now there is a connection to hop
+ *
+ * A host request is the one thing that still reaches this window, because the
+ * vendor requests are served from the USB interrupt: a channel request landing
+ * between the mode and the state leaves its own mode in force on a connected
+ * link, so the follow does not hop until the next one. That is the board
+ * obeying the host's last word, and no shipped tool changes channel during a
+ * promiscuous follow; the order above does not try to win against it.
+ *
+ * Setting the state before the mode leaves a window the other way round: the
+ * interrupt still sees the mode in force until now and its branch for that
+ * asks for a hop on a plain clock tick, with no connection to time it. The
+ * follow then takes that hop as its first one, which spends an event counter
+ * and retunes immediately, so the capture starts an event away from the
+ * connection and hears nothing until the search is run again.
+ *
+ * Which mode that window finds in force differs between the two paths, and
+ * only one of them finds a hopping mode there without a host request. The
+ * algorithm-2 search runs with no hopping in force, whose branch asks for
+ * that hop. The algorithm-1 recovery runs with direct hopping in force, which
+ * the interrupt has no branch for at all, so a hop can be asked for there
+ * only once a host channel request has left the band sweep or no hopping in
+ * force. Both paths are written in this order regardless, because which mode
+ * is in force at a handoff is not something the handoff should have to know.
+ */
+
+/*
+ * Keeps every store before this call ahead of every store after it.
+ *
+ * hop_mode, do_hop and le.link_state are volatile, so those three stores keep
+ * their order on their own. The connection's other fields are plain, and two
+ * of them -- conn_epoch and conn_interval -- are read by TIMER0_IRQHandler(),
+ * which the compiler cannot see, so without this it may move those stores
+ * below the store of the link state and hand the interrupt a connection with
+ * a stale epoch or interval. A compiler barrier is the whole of what this
+ * needs: a core sees its own stores in program order, so an interrupt taken
+ * on it cannot see them in another one.
+ */
+static inline void le_handoff_barrier(void)
+{
+	__asm__ volatile ("" ::: "memory");
+}
+
 /* Works the hop increment out from how long the connection takes to get from
  * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
  * 1 has an increment to find. This stage is also reached only after the
@@ -3709,6 +3774,11 @@ void promisc_recover_hop_increment(u8 *packet) {
 		if (channels_hopped >= 1 && channels_hopped < LE_HOP_CHANNELS &&
 				hop_interval_lut[channels_hopped] >= LE_MIN_HOP_INCREMENT &&
 				hop_interval_lut[channels_hopped] <= LE_MAX_HOP_INCREMENT) {
+			/* Move on to regular connection following: the hop mode first
+			 * and the link state last; see "Handing a recovered connection
+			 * to the follow" above. */
+			hop_mode = HOP_BTLE;
+			do_hop = 0;
 			/* The table turns a number of connection events into the hop
 			 * increment that covers them, and only a dozen of its entries
 			 * are an increment a connection may use: the rest come from a
@@ -3719,12 +3789,10 @@ void promisc_recover_hop_increment(u8 *packet) {
 			le.interval_timer = le.conn_interval / 2;
 			le.conn_count = 0;
 			le.conn_epoch = 0;
-			do_hop = 0;
-			// Move on to regular connection following.
 			le.channel_idx = (1 + le.channel_increment) % LE_HOP_CHANNELS;
-			le.link_state = LINK_CONNECTED;
 			le.crc_verify = 0;
-			hop_mode = HOP_BTLE;
+			le_handoff_barrier();
+			le.link_state = LINK_CONNECTED;
 			packet_cb = connection_follow_cb;
 			le_promisc_state(3, &le.channel_increment, 1);
 
@@ -3956,10 +4024,13 @@ static int promisc_try_csa2(u32 sighting) {
 	le.conn_count = handoff.conn_count;
 	le.conn_epoch = clkn;
 	le.interval_timer = handoff.interval_timer;
-	do_hop = 0;
-	le.link_state = LINK_CONNECTED;
-	le.crc_verify = 0;
+	/* The hop mode first and the link state last; see "Handing a recovered
+	 * connection to the follow" above. */
 	hop_mode = HOP_BTLE;
+	do_hop = 0;
+	le.crc_verify = 0;
+	le_handoff_barrier();
+	le.link_state = LINK_CONNECTED;
 	packet_cb = connection_follow_cb;
 
 	le_promisc_state(2, &le.conn_interval, 2);

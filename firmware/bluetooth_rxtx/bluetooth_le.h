@@ -46,7 +46,12 @@ typedef struct _le_state_t {
     u32 crc_init_reversed;      // bits-reversed version of the previous
     int crc_verify;             // true to reject packets with bad CRC
 
-    link_state_t link_state;         // current link layer state
+    /* Current link layer state. Volatile because the timer interrupt reads
+     * it to decide whether a connection is there to hop, so a reader in a
+     * loop or a chain of comparisons has to read it afresh rather than keep
+     * a copy. What holds the handoffs' stores of it after everything the
+     * follow hops by is the barrier they call first, not this qualifier. */
+    link_state_t volatile link_state;
 
     u8 channel_idx;             // current channel index
     u8 channel_increment;       // amount to hop
