@@ -862,7 +862,7 @@ MU_TEST(a_uap_the_tool_was_given_is_kept_for_the_callback)
 	/* No target: the faked adapter's own address, 66:55:44:33:22:11, so
 	 * LAP 332211 under UAP 44. */
 	reset_fake();
-	r = RUN();
+	r = run_follow((const char* const[]){ "ubertooth-follow", NULL });
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake_ut.follow_uap_stated);
 	mu_assert_int_eq(0x44, fake_ut.follow_uap);
