@@ -3540,7 +3540,7 @@ for option, bad, range_said in (("-f", "nine", "0-63"),
 print("ubtbr: a bad option value is refused before a board is opened")
 
 
-def setting_packet(code, value):
+def setting_request(code, value):
     """The USB packet the device gets for a request carrying one 16-bit value."""
     payload = struct.pack("<I", code) + struct.pack("<H", value)
     return (b"S\x00" + struct.pack("<H", len(payload)) + payload).hex()
@@ -3551,8 +3551,8 @@ def setting_packet(code, value):
 # short of it
 status, output, errors = ran(("-f", "63", "-b", "3"), "q\n")
 assert status == 0, (status, output, errors)
-assert setting_packet(btctl.BTCTL_SET_FREQ_OFF_REQ, 63) in writes(), writes()
-assert setting_packet(btctl.BTCTL_SET_MAX_AC_ERRORS_REQ, 3) in writes(), \
+assert setting_request(btctl.BTCTL_SET_FREQ_OFF_REQ, 63) in writes(), writes()
+assert setting_request(btctl.BTCTL_SET_MAX_AC_ERRORS_REQ, 3) in writes(), \
     writes()
 print("ubtbr: the top of each option's range is sent to the board as itself")
 

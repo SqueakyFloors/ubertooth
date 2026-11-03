@@ -61,7 +61,10 @@ one `btbr` was flashed onto.
    frequency offset, written to the radio's `MOD_OFFSET` field (the top of its
    `MDMCTRL` register). Sent to the board before the prompt opens, and only
    when given; a run without it leaves the firmware's own value, which is 0.
-   The range is the width of that field, six bits.
+   The range is the width of that field, six bits, and the field holds a
+   signed number of 15.625 kHz steps: 0 to 31 are the offsets from 0 up to
+   +484 kHz, and 32 to 63 are the negative ones, 32 meaning -500 kHz and 63
+   meaning -15.625 kHz.
  - `-b <0-3>` :
    how many bit errors a received access code may have and still count as a
    match. A higher value finds more packets and more noise. A run without it
@@ -474,8 +477,8 @@ does need it, and says so in one line rather than a traceback:
     note: a session needs the Python libusb1 package, which ships the usb1 module; install it with "pip install libusb1"
 
 An option value outside the range the radio's field has, or one that is not a
-number, is refused before the board is opened: `error: -f must be 0-63 (got
-64)` and `error: -b must be 0-3 (got 4)`, exit status 1. An address the prompt
+number, is refused before the board is opened: `error: -b must be 0-3 (got
+4)`, `error: -f must be 0-63 (got bad)`, exit status 1. An address the prompt
 will not take is one line,
 `error: BD_ADDR must be xx:xx:xx:xx:xx:xx (got <word>)`, and leaves the
 prompt up. Only the two spellings above are taken, so `bdaddr 11:22:33` is an
