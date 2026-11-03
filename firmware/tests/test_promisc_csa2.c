@@ -1707,6 +1707,76 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 	          "event of its own part way through");
 }
 
+/*
+ * The search names itself in the watchdog's breadcrumb.
+ *
+ * It is the longest stretch of thread-context work the capture does, so a -w
+ * read or a watchdog reset that lands in it must say "the algorithm-2 search"
+ * and not the capture's wait for the next packet. The mark has to be given
+ * back as well: left set, it would name the search for the rest of the
+ * capture.
+ */
+MU_TEST(the_search_marks_its_own_watchdog_site)
+{
+	char path[512];
+	char line[512];
+	FILE *f;
+	int in_function = 0, in_block = 0;
+	int marked = 0, given_back = 0, searched_while_marked = 0;
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	f = fopen(path, "r");
+	mu_assert_fatal(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (fgets(line, sizeof(line), f) != NULL) {
+		char *comment;
+
+		/* As above: a comment saying the site is marked is not the
+		 * mark. */
+		if (in_block) {
+			if (strstr(line, "*/") == NULL)
+				continue;
+			in_block = 0;
+			continue;
+		}
+		comment = strstr(line, "/*");
+		if (comment != NULL) {
+			if (strstr(comment, "*/") == NULL)
+				in_block = 1;
+			*comment = '\0';
+		}
+
+		if (strstr(line, "int promisc_try_csa2(") != NULL)
+			in_function = 1;
+		else if (line[0] == '}')
+			in_function = 0;
+
+		if (!in_function)
+			continue;
+
+		if (strstr(line, "watchdog_mark(WATCHDOG_SITE_LE_CSA2)") != NULL)
+			marked = 1;
+		if (marked && strstr(line, "le_csa2_recover(") != NULL &&
+		    !given_back)
+			searched_while_marked = 1;
+		if (marked && strstr(line, "watchdog_mark(site)") != NULL)
+			given_back = 1;
+	}
+	fclose(f);
+
+	mu_assert(marked,
+	          "promisc_try_csa2() does not mark WATCHDOG_SITE_LE_CSA2, so "
+	          "-w names the capture's wait for a packet while the search "
+	          "runs");
+	mu_assert(searched_while_marked,
+	          "promisc_try_csa2() marks the site somewhere other than "
+	          "around le_csa2_recover(), which is the work that takes the "
+	          "time");
+	mu_assert(given_back,
+	          "promisc_try_csa2() does not put the previous site back, so "
+	          "the search would be named for the rest of the capture");
+}
+
 /* ------------------------------------------------------------------------
  * The one number this header keeps a copy of
  * ------------------------------------------------------------------------ */
@@ -1773,6 +1843,7 @@ int main(void)
 	MU_RUN(an_event_too_close_is_skipped);
 	MU_RUN(the_handoff_refuses_an_impossible_interval);
 	MU_RUN(the_sighting_is_stamped_when_the_packet_arrived);
+	MU_RUN(the_search_marks_its_own_watchdog_site);
 	MU_RUN(the_interval_unit_matches_the_clock);
 	MU_RUN(how_often_it_works);
 	MU_RUN(a_declined_search_is_recovered_by_the_next);

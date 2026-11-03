@@ -972,6 +972,16 @@ enum watchdog_site {
 	 * stack asks for it at startup and from SET_CONFIGURATION, which the
 	 * host sends as it opens the device and after a bus reset. */
 	WATCHDOG_SITE_USB_REALIZE = 23,
+	/*
+	 * The promiscuous capture's search for a connection hopping with
+	 * channel selection algorithm 2. It runs in the capture's packet
+	 * callback, not in an interrupt, and takes a couple of hundred
+	 * milliseconds -- far longer than anything else that callback does.
+	 * USB is answered from its interrupt throughout, so the board keeps
+	 * feeding the watchdog; without a site of its own the search would
+	 * read back as the capture's wait for the next packet.
+	 */
+	WATCHDOG_SITE_LE_CSA2     = 24,
 	WATCHDOG_SITE_COUNT
 };
 

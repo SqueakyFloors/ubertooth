@@ -180,6 +180,7 @@ static const char *const watchdog_site_text[WATCHDOG_SITE_COUNT] = {
 	[WATCHDOG_SITE_USB_REQUEST] = "running a control request",
 	[WATCHDOG_SITE_USB_REPLY]   = "writing a control reply",
 	[WATCHDOG_SITE_USB_REALIZE] = "waiting for an endpoint to be realized",
+	[WATCHDOG_SITE_LE_CSA2]     = "searching for a BLE connection's hop sequence",
 };
 
 const char *util_watchdog_mode_name(unsigned mode)
