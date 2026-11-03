@@ -123,9 +123,13 @@ static struct {
 	 * the one mapped over them. */
 	int bl_region_reads_rom_head;
 	/* A region left holding neither bootloader whole, as a write that
-	 * stopped part way would: the image's bytes with one block of the old
-	 * region still in the middle of them, above the window. */
+	 * stopped part way would: the image's bytes with the first block above
+	 * the window written to neither region's. */
 	int bl_region_part_written;
+	/* Whether this board's run reads the bootloader region back at all,
+	 * which only --update-bootloader does. Every other case is held to
+	 * reading from the application region upwards. */
+	int reads_the_bootloader_region;
 
 	int upload_calls;
 	int upload_fail_block;  /* this block fails to read, or -1 */
@@ -372,8 +376,13 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		address = (uint32_t)value * BLOCK_SIZE;
 		/* The bootloader region, which the bootloader hands over like any
 		 * other flash: it refuses writes below the application region, not
-		 * reads. */
+		 * reads. Only the --update-bootloader read-back asks for it, and
+		 * the boards that run one say so, so every other case still holds
+		 * the tool to reading from the application region upwards -- which
+		 * is what the dump of -u must keep doing. */
 		if (address < DUMP_ADDRESS) {
+			mu_assert(fake.reads_the_bootloader_region,
+			          "UPLOAD asked for a block inside the bootloader");
 			if (fake.upload_fail_block >= 0 &&
 			    value == fake.upload_fail_block) {
 				if (fake.upload_fail_once)
@@ -3042,6 +3051,7 @@ static void board_that_installs_the_bootloader(void)
 	board_in_application(PART_ID_128K, 128 * 1024);
 	fake.detach_returns_to_dfu = 1;
 	fake.updater_installs = 1;
+	fake.reads_the_bootloader_region = 1;
 }
 
 /* The same board with its bootloader entry pin bridged: the bootloader stays
@@ -3051,6 +3061,7 @@ static void board_whose_entry_pin_is_bridged(void)
 {
 	board_in_application(PART_ID_128K, 128 * 1024);
 	fake.detach_returns_to_dfu = 1;
+	fake.reads_the_bootloader_region = 1;
 }
 
 /*
