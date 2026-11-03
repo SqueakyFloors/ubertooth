@@ -249,23 +249,19 @@ with tempfile.TemporaryDirectory() as workdir:
     assert (work / "other.bin").read_bytes() == FIXTURE, result
 
     # A shell that has already pointed standard output at the dump is the one
-    # case a name cannot catch, and the run would otherwise read the records it
-    # was appending and never end. Every spelling of that destination is
-    # refused: "-" is this process's standard output, and "/dev/stdout" and
-    # "/dev/fd/1" are device nodes that stat() answers for instead of for the
-    # file behind them, which is why the destination is opened. -q goes with
-    # -d here, to pin that the check covers each writer and not only the dump.
-    for option, letter, written in (("-d", "d", "-"), ("-d", "d", "/dev/stdout"),
-                                    ("-d", "d", "/dev/fd/1"),
-                                    ("-q", "q", "-")):
+    # destination a name cannot catch: "-" names no file, so the descriptor is
+    # what has to be compared. The run would otherwise read the records it was
+    # appending and never end. Each capture option that can take "-" is
+    # checked, not only the dump.
+    for option, letter in (("-d", "d"), ("-q", "q"), ("-c", "c")):
         with open(work / "same.bin", "ab") as appended:
-            result = run("-p", "-R", "same.bin", option, written,
-                         directory=work, stdout=appended)
-        assert result.returncode == 1, (written, result)
+            result = run("-p", "-R", "same.bin", option, "-", directory=work,
+                         stdout=appended)
+        assert result.returncode == 1, (option, result)
         assert result.stderr == (
             f"error: -{letter} would write over the dump -R is replaying"
-            f" ({'standard output' if written == '-' else written})\n"), result
-        assert (work / "same.bin").read_bytes() == FIXTURE, (written, result)
+            " (standard output)\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
 
     # Standard output pointed at another file is an ordinary dump to it: a
     # regular file is the destination that could have collided, which the
@@ -275,6 +271,19 @@ with tempfile.TemporaryDirectory() as workdir:
                      stdout=elsewhere)
     assert result.returncode == 0, result
     assert (work / "piped.bin").read_bytes() == FIXTURE, result
+
+    # A named pipe is an ordinary destination, so nothing here may disturb it:
+    # a check that opened the destination to identify it would hand the reader
+    # an end of file and leave the writer with nobody to write to.
+    fifo = work / "dump.fifo"
+    os.mkfifo(fifo)
+    reader = subprocess.Popen([sys.executable, "-c",
+                               "import sys; sys.stdout.buffer.write("
+                               "open(sys.argv[1], 'rb').read())",
+                               str(fifo)], stdout=subprocess.PIPE)
+    result = run("-p", "-R", "same.bin", "-d", str(fifo), directory=work)
+    assert result.returncode == 0, result
+    assert reader.communicate(timeout=RUN_TIMEOUT_S)[0] == FIXTURE, result
 
     # The same read as the follow mode's dump instead. The two modes stamp
     # their packets with different clocks, which is why the mode has to be
