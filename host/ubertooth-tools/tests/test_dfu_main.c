@@ -121,6 +121,10 @@ static struct {
 	 * the flash, which is what the part's boot ROM window does when it is
 	 * the one mapped over them. */
 	int bl_region_reads_rom_head;
+	/* A region left holding neither bootloader whole, as a write that
+	 * stopped part way would: the image's bytes with one block of the old
+	 * region still in the middle of them, above the window. */
+	int bl_region_part_written;
 	int upload_calls;
 	int upload_fail_block;  /* this block fails to read, or -1 */
 	int upload_fail_rc;
@@ -453,8 +457,18 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			for (i = 0; i < sizeof(fake.bl_region); i++)
 				fake.bl_region[i] =
 					ubertooth_bl_update_byte(payload, i, checksum);
+			/* The part's boot ROM over the window, which is what a
+			 * read-back of those bytes shows when the map is set that
+			 * way: the region above them is still the installed
+			 * bootloader. */
 			if (fake.bl_region_reads_rom_head)
-				memset(fake.bl_region, 0x5a, 512);
+				memset(fake.bl_region, 0x5a,
+				       UBERTOOTH_BL_MEMMAP_WINDOW);
+			/* A block above the window left as it was, so the region
+			 * holds neither bootloader whole. */
+			if (fake.bl_region_part_written)
+				memset(fake.bl_region + UBERTOOTH_BL_MEMMAP_WINDOW,
+				       0x77, BLOCK_SIZE);
 		}
 		/* A bootloader that acts on the request resets into the
 		 * application: the same device comes back on the same path under
@@ -3150,13 +3164,15 @@ MU_TEST(a_region_that_will_not_read_back_leaves_the_check_unmade)
 }
 
 /*
- * A region that holds neither bootloader. The part maps either the user flash
- * or its boot ROM over the lowest 512 bytes and the bootloader does not choose
- * which, so a read-back that differs there is not proof the update failed:
- * this is a warning and the run still ends 0, where a region that is exactly
- * what it was before is the refusal above.
+ * The part maps either the user flash or its boot ROM over the lowest 512
+ * bytes of the address map, and the bootloader neither sets that register nor
+ * takes interrupts through the vector table those bytes hold, so a read-back
+ * of them may show either. An update that worked is still recognized, because
+ * what identifies the installed bootloader is the region above that window:
+ * the run reports it installed and ends 0, with no warning about a check it
+ * could make.
  */
-MU_TEST(a_region_holding_neither_bootloader_warns_rather_than_refusing)
+MU_TEST(an_installed_bootloader_is_confirmed_through_the_boot_rom_window)
 {
 	struct run_result r;
 
@@ -3166,11 +3182,62 @@ MU_TEST(a_region_holding_neither_bootloader_warns_rather_than_refusing)
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+	mu_assert(strstr(r.err, "could not be checked") == NULL,
+	          "the window was treated as a check that could not be made");
+}
+
+/*
+ * A region that holds neither bootloader whole, as a write that stopped part
+ * way would leave it. That is not the refusal: only a region that is exactly
+ * what it was before the run is provably one that nothing was installed into.
+ * So this is a warning and the run still ends 0, saying nothing about an
+ * installed bootloader.
+ */
+MU_TEST(a_region_holding_neither_bootloader_warns_rather_than_refusing)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	fake.bl_region_part_written = 1;
+	write_updater_image(UPDATER_PAYLOAD);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
 	mu_assert(strstr(r.err, "warning: whether the bootloader was installed "
 	          "could not be checked") != NULL, r.err);
 	mu_assert(strstr(r.err, "neither the hash") != NULL, r.err);
 	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
 	          "the run claimed a bootloader the region does not hold");
+}
+
+/*
+ * One block of the read-back stalling does not cost the check. A single
+ * REQ_UPLOAD has been seen to fail a second after the board came back from
+ * the bootloader, which is exactly when this read runs, so it gets the same
+ * one bounded retry the firmware read-back has. Without it a stall would
+ * demote a run to "could not be checked", which is what this check exists to
+ * avoid.
+ */
+MU_TEST(a_read_back_block_that_stalls_once_is_read_again_and_still_checked)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	fake.upload_fail_block = 3;
+	fake.upload_fail_rc = LIBUSB_ERROR_PIPE;
+	fake.upload_fail_once = 1;
+	write_updater_image(UPDATER_PAYLOAD);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+	mu_assert(strstr(r.err, "could not be read back") == NULL,
+	          "a stall on one block was not retried");
+	/* The retry starts again at block zero, so the four blocks up to the one
+	 * that stalled are read twice. */
+	mu_assert_int_eq((int)(BOOTLOADER_SIZE / BLOCK_SIZE) + 4,
+	                 fake.upload_calls);
 }
 
 /*
@@ -3455,7 +3522,9 @@ int main(void)
 	MU_RUN(an_update_whose_updater_never_ran_fails_and_says_nothing_was_installed);
 	MU_RUN(a_board_that_cannot_report_its_bootloader_is_neither_refused_nor_claimed);
 	MU_RUN(a_region_that_will_not_read_back_leaves_the_check_unmade);
+	MU_RUN(an_installed_bootloader_is_confirmed_through_the_boot_rom_window);
 	MU_RUN(a_region_holding_neither_bootloader_warns_rather_than_refusing);
+	MU_RUN(a_read_back_block_that_stalls_once_is_read_again_and_still_checked);
 	MU_RUN(an_update_writes_the_whole_image_with_the_vector_table_last);
 	MU_RUN(an_update_whose_board_stays_away_fails_and_says_to_leave_it_powered);
 	MU_RUN(an_update_with_no_image_is_refused_before_any_board);

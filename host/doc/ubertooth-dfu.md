@@ -363,11 +363,17 @@ Firmware built before the request stalls it, and a board that was already in
 DFU when the command started had no application to ask; the run then says the
 check could not be made, claims nothing about the region, and sends you to
 `ubertooth-util -B`, which is also what it does when the region will not read
-back. The lowest 512 bytes of flash share the address map with the part's boot
-ROM and the bootloader does not choose which is mapped there, so a read-back
-can differ from the flash over them through no fault of the board: a region
-that holds neither bootloader is a `warning: ` and status 0, and only a region
-that is exactly what it was before the run is refused.
+back.
+
+The two comparisons are made differently, because the part covers the lowest
+512 bytes of the address map with either the user flash or its own boot ROM and
+the bootloader does not choose which. An installed bootloader is recognized by
+the region above those bytes, which is the flash either way, so an update that
+worked is reported as such whichever way the map is set. Nothing installed has
+to be the whole region hashing to exactly what the board reported before the
+run. A region that holds neither bootloader whole, as a write that stopped part
+way would leave it, is a `warning: ` and status 0: only a region that is
+provably unchanged is refused.
 
 Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table

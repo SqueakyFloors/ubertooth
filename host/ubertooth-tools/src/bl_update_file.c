@@ -76,6 +76,9 @@ int bl_update_file_check(FILE *file, const char *image_name,
 	for (i = 0; i < sizeof(region); i++)
 		region[i] = ubertooth_bl_update_byte(payload, i, checksum);
 	out->region_crc32 = ~dfu_image_crc32(region, sizeof(region));
+	out->region_crc32_above_window = ~dfu_image_crc32(
+		region + UBERTOOTH_BL_MEMMAP_WINDOW,
+		sizeof(region) - UBERTOOTH_BL_MEMMAP_WINDOW);
 	return out->result;
 }
 
