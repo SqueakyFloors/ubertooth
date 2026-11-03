@@ -63,9 +63,9 @@ static const bbcodec_types_t bbcodec_type_hv2 =
 	{		1, 0,   20,  BB_FEC_23,   0,  0,    BB_LEN_FIXED };
 static const bbcodec_types_t bbcodec_type_hv3 =
 	{		1, 0,   30,  BB_FEC_NONE, 0,  0,    BB_LEN_FIXED };
-/* EV3 shares HV3's TYPE code and EV4 and EV5 have codes of their own. Each
- * carries a CRC and a length agreed when the link was set up, so the caller's
- * length stands rather than the maximum here. */
+/* EV3 shares HV3's TYPE code; EV4 and EV5 have codes of their own. The
+ * payload length below is the most each carries, not the length a packet goes
+ * out with, which the link agreed. */
 static const bbcodec_types_t bbcodec_type_ev3 =
 	{		1, 0,   30,  BB_FEC_NONE, 1,  0,    BB_LEN_NEGOTIATED };
 static const bbcodec_types_t bbcodec_type_ev4 =
@@ -126,8 +126,10 @@ void bbcodec_tx_format_limits(const bbcodec_types_t *t,
 		 * byte the CRC needs something to cover. */
 		*min_data = 1;
 		break;
-	default: /* BB_LEN_FIXED */
-		/* The one length the type always has. */
+	case BB_LEN_FIXED:
+	default:
+		/* The one length the type always has. A kind this firmware
+		 * does not know lands here, which allows the least. */
 		*min_data = *max_data;
 		break;
 	}
@@ -176,7 +178,8 @@ static void bbcodec_calc_payload_length(bbcodec_t *codec, uint8_t *payload)
 			 * caller asked for is the length. */
 			codec->payload_length = codec->negotiated_length;
 			break;
-		default: /* BB_LEN_FIXED */
+		case BB_LEN_FIXED:
+		default:
 			codec->payload_length = t->payload_bytes;
 			break;
 		}

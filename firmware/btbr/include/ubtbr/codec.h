@@ -170,9 +170,9 @@ static inline unsigned bbcodec_fec_air_bits(unsigned fec, unsigned nbytes)
  * firmware does not know. */
 const bbcodec_types_t *bbcodec_tx_format(unsigned format, uint8_t *air_type);
 
-/* The most data bytes the given format carries after its payload header, and
- * the fewest, which follow from the format's length kind. A BB_LEN_FIXED
- * format reports the same for both. */
+/* The most data bytes the given format carries in its data field, and the
+ * fewest, which follow from the format's length kind. A BB_LEN_FIXED format
+ * reports the same for both. */
 void bbcodec_tx_format_limits(const bbcodec_types_t *t,
 		unsigned *min_data, unsigned *max_data);
 
