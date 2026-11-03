@@ -8,10 +8,9 @@ LINKER_OPTS=--specs=nano.specs
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c is here for USB_IRQHandler alone. Nothing in this image names
-# anything in the file, so do not drop it on that reading: the comment above
-# USB_IRQHandler in firmware/common/usb_serial.c says what happens to a board
-# whose image leaves it out.
+# usb_serial.c is here for USB_IRQHandler, which nothing in this image names
+# and which it must have: see the comment above that handler in
+# firmware/common/usb_serial.c.
 SRC = $(shell find src -name '*.c') \
 	$(LIBS_PATH)/usb_serial.c \
 	$(LIBS_PATH)/LPC17xx_Startup.c \

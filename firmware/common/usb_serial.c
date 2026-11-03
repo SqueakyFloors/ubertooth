@@ -363,19 +363,22 @@ int VCOM_getchar(void)
 }
 
 /*
- * This handler is why bluetooth_rxtx, btbr, and assembly_test compile this
- * file. None of them calls anything in it, and none of them uses the serial
- * console above, so to a reader of their source lists the file looks like one
- * they could drop.
+ * This handler is why bluetooth_rxtx and btbr compile this file. Neither calls
+ * anything in it, and neither uses the serial console above, so to a reader of
+ * their source lists the file looks like one they could drop.
  *
  * They cannot. LPC17xx_Interrupts.c puts USB_IRQHandler in the interrupt
  * vector table and declares the name weak and aliased to the default handler,
  * so the link succeeds either way: with this file the vector reaches the code
- * below, and without it the vector reaches a default handler that marks a
- * wedge and never returns. An image that enables the USB interrupt and leaves
- * the file out therefore stops answering the host at the first interrupt and
- * is reset by the watchdog a few seconds later, over and over, with no link
- * error to say why.
+ * below, and without it it reaches a default handler that marks a wedge and
+ * never returns. Both images enable the USB interrupt, so either one would
+ * stop answering the host at its first interrupt and be reset by the watchdog
+ * a few seconds later, over and over, with no link error to say why.
+ *
+ * assembly_test compiles the file too, although it serves USB from its own
+ * loop and has the one line that would enable the interrupt commented out.
+ * Nothing there can reach this handler as the image stands; the file is kept
+ * so that uncommenting that line does not wedge the board.
  */
 void USB_IRQHandler()
 {
