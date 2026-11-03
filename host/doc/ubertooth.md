@@ -86,8 +86,8 @@ With no Ubertooth attached the host lines are followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
 board sitting in the DFU bootloader is named in a `note:` on standard error
-there, because no tool can open one and that is the usual reason a board is
-not in the answer. A
+there, because no tool but ubertooth-dfu(1) can open one and that is the usual
+reason a board is not in the answer. A
 board that is attached but cannot be read -- in use by another program, or not
 answering -- has the reason on its own line (`Firmware version: unavailable,
 in use by another program`, or `Firmware version: read failed`) and the status
@@ -314,10 +314,17 @@ A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no
 tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
-succeeds.
+succeeds. The bootloader reports no serial number, so `-U` cannot name such a
+board; the second line says what writes it, which is the one thing that gets
+the board out of there.
 
     error: no Ubertooth found with serial matching 'aa1'
-    note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
+    note: a board is in the DFU bootloader, so it is not an Ubertooth any tool can open: it is being flashed, or a flash left it there
+    note: the bootloader reports no serial number, so -U cannot name that board; write it with ubertooth-dfu -d <image> and no -U
+
+Several boards in the bootloader are counted instead, with no such advice:
+ubertooth-dfu(1) with no `-U` refuses to choose between them, and this note
+cannot tell which of them another process may be flashing at that moment.
 
 A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see

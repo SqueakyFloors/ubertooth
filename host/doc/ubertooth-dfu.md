@@ -24,6 +24,14 @@ device is available again. Flushed monotonic stage timing identifies time spent
 in entry, programming, reset, and cleanup. It refuses to choose between
 multiple devices already in DFU mode.
 
+A board that is already waiting in the bootloader is written by a command with
+no `-U` at all, which takes the one board in DFU mode. The bootloader has no
+serial number for `-U` to name, so a command that names one looks for that
+serial among the boards running their firmware, does not find it, and says so.
+When exactly one board is waiting in DFU, that failure carries a note saying
+to write it with `-d <image>` and no `-U`. See ubertooth(7), SELECTING A
+DEVICE.
+
 Every wait for the bootloader is bounded. Before each operation the tool asks
 the bootloader for its DFU state and drives it to the idle state, aborting a
 half-finished transfer or clearing an error state as needed. A bootloader that

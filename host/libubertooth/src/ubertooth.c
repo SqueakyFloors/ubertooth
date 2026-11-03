@@ -747,7 +747,7 @@ static void report_unscanned(int unopened, int open_err, int unread)
 	}
 }
 
-/* One extra line after a selection that found no Ubertooth, when a board is
+/* The extra lines after a selection that found no Ubertooth, when a board is
  * sitting in the DFU bootloader. Such a board is being flashed, or a flash
  * left it there, which is not the same as a board that is not attached -- and
  * the two read alike: "no Ubertooth found" in an overnight regression log was
@@ -795,15 +795,33 @@ void ubertooth_note_dfu_bootloader(void)
 	if (boards == 0)
 		return;
 	/* The bootloader reports no serial number, so the note cannot say which
-	 * board it is; the count is all there is to give. */
-	if (boards == 1)
-		fprintf(stderr, "note: a board is in the DFU bootloader, so no tool "
-		        "can open it: it is being flashed, or a flash left it "
-		        "there\n");
-	else
-		fprintf(stderr, "note: %d boards are in the DFU bootloader, so no "
-		        "tool can open them: they are being flashed, or a flash "
-		        "left them there\n", boards);
+	 * board it is; the count is all there is to give.
+	 *
+	 * "Not an Ubertooth any tool can open" rather than "no tool can open
+	 * it", because ubertooth-dfu does open the bootloader -- and the line
+	 * below sends the reader there. */
+	if (boards == 1) {
+		fprintf(stderr, "note: a board is in the DFU bootloader, so it is "
+		        "not an Ubertooth any tool can open: it is being flashed, "
+		        "or a flash left it there\n");
+		/* The way out, in the same breath as the diagnosis: a user holding
+		 * the serial of a board that stopped answering has nothing else to
+		 * try, and -U cannot name a device with no serial. ubertooth-dfu
+		 * with no selector adopts the sole board in DFU mode, which is how
+		 * such a board has always been written. */
+		fprintf(stderr, "note: the bootloader reports no serial number, so "
+		        "-U cannot name that board; write it with ubertooth-dfu -d "
+		        "<image> and no -U\n");
+	} else {
+		fprintf(stderr, "note: %d boards are in the DFU bootloader, so they "
+		        "are not Ubertooths any tool can open: they are being "
+		        "flashed, or a flash left them there\n", boards);
+		/* No way out is offered for several. ubertooth-dfu with no selector
+		 * refuses to choose between them, and this note cannot tell which
+		 * of them another process is flashing right now -- which is the
+		 * case it exists for -- so telling the user to unplug one could
+		 * interrupt a flash in progress. */
+	}
 }
 
 /* Find an Ubertooth by serial-number string (hex, as printed by -s), matched
