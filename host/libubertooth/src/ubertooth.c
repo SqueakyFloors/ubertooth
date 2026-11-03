@@ -1908,7 +1908,8 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		 * decides the exit status. */
 		if (r < 0) {
 			if (!afh_map_empty(pn))
-				btbb_print_afh_map(pn);
+				ubertooth_print_afh_map(
+					ubertooth_result_stream(ut), pn);
 			return r;
 		}
 
@@ -1918,7 +1919,7 @@ int rx_afh(ubertooth_t* ut, btbb_piconet* pn, int timeout)
 		if (afh_map_empty(pn))
 			return UBERTOOTH_AFH_NO_PACKETS;
 
-		btbb_print_afh_map(pn);
+		ubertooth_print_afh_map(ubertooth_result_stream(ut), pn);
 
 		/* The user interrupted the detection phase: the run ends here,
 		 * with the map it managed to detect. Starting to monitor would
@@ -1985,22 +1986,23 @@ int rx_afh_r(ubertooth_t* ut, btbb_piconet* pn, int timeout __attribute__((unuse
 		return r;
 	}
 
+	FILE* out = ubertooth_result_stream(ut);
+
 	// receive and process each packet
 	while(!ubertooth_stopping(ut)) {
 		ubertooth_bulk_receive(ut, cb_afh_r, pn);
 		if(lasttime < time(NULL)) {
 			lasttime = time(NULL);
-			printf("%u ", (uint32_t)time(NULL));
-			// btbb_print_afh_map(pn);
+			fprintf(out, "%u ", (uint32_t)time(NULL));
 
 			uint8_t* afh_map = btbb_piconet_get_afh_map(pn);
 			for (i=0; i<AFH_MAP_BYTES; i++)
 				for (j=0; j<8; j++)
 					if (afh_map[i] & (1<<j))
-						printf("1");
+						fputc('1', out);
 					else
-						printf("0");
-			printf("\n");
+						fputc('0', out);
+			fputc('\n', out);
 		}
 	}
 
@@ -2044,15 +2046,14 @@ static void cb_dump_bitstream(ubertooth_t* ut, void* args __attribute__((unused)
 	for (i = 0; i < BANK_LEN; ++i)
 		bitstream[i] += 0x30;
 
+	/* The file the user named with -d, and the stream the tool said its
+	 * results go to when they named none. */
+	FILE* out = dumpfile != NULL ? dumpfile : ubertooth_result_stream(ut);
+
 	fprintf(stderr, "rx block timestamp %u * 100 nanoseconds\n",
 	        rx->clk100ns);
-	if (dumpfile == NULL) {
-		fwrite(bitstream, sizeof(uint8_t), BANK_LEN, stdout);
-		fwrite(&nl, sizeof(uint8_t), 1, stdout);
-	} else {
-		fwrite(bitstream, sizeof(uint8_t), BANK_LEN, dumpfile);
-		fwrite(&nl, sizeof(uint8_t), 1, dumpfile);
-	}
+	fwrite(bitstream, sizeof(uint8_t), BANK_LEN, out);
+	fwrite(&nl, sizeof(uint8_t), 1, out);
 }
 
 static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
@@ -2074,17 +2075,21 @@ static void cb_dump_full(ubertooth_t* ut, void* args __attribute__((unused)))
 	/* The host time this record arrived. */
 	systime = ubertooth_packet_systime(arrival_ns);
 	uint32_t time_be = htobe32(systime);
-	if (dumpfile == NULL) {
-		fwrite(&time_be, 1, sizeof(time_be), stdout);
-		fwrite((uint8_t*)rx, sizeof(uint8_t), PKT_LEN, stdout);
-	} else {
-		fwrite(&time_be, 1, sizeof(time_be), dumpfile);
-		fwrite((uint8_t*)rx, sizeof(uint8_t), PKT_LEN, dumpfile);
+	/* As in cb_dump_bitstream() above. */
+	FILE* out = dumpfile != NULL ? dumpfile : ubertooth_result_stream(ut);
+
+	fwrite(&time_be, 1, sizeof(time_be), out);
+	fwrite((uint8_t*)rx, sizeof(uint8_t), PKT_LEN, out);
+	/* A dump file is flushed per record, so a reader can follow it while
+	 * the capture runs. The tool's own stream is left to its buffering:
+	 * the tool is writing there too, and flushing it here would reorder a
+	 * run whose records and reports go to one place. */
+	if (dumpfile != NULL)
 		fflush(dumpfile);
-	}
 }
 
-/* dump received symbols to stdout, from whichever receive the caller asked for */
+/* dump received symbols where the caller asked for them, from whichever
+ * receive the caller asked for */
 static int rx_dump_from(ubertooth_t* ut, int bitstream,
                         int (*start)(struct libusb_device_handle*))
 {

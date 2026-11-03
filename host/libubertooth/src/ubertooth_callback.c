@@ -890,6 +890,29 @@ uint32_t ubertooth_symbol_overwrites(ubertooth_t* ut)
 	return ut != NULL ? ut->symbol_overwrites : 0;
 }
 
+FILE* ubertooth_result_stream(ubertooth_t* ut)
+{
+	/* A handle with no stream of its own, and a caller with no handle at
+	 * all, both read as standard output: that is where a plain run wants
+	 * its results, and it is what a tool built against an older library
+	 * got. This is the one place in the library that names that stream. */
+	if (ut == NULL || ut->result_stream == NULL)
+		return stdout;
+	return ut->result_stream;
+}
+
+void ubertooth_print_afh_map(FILE* out, btbb_piconet* pn)
+{
+	const uint8_t* map = btbb_piconet_get_afh_map(pn);
+
+	/* As hcitool prints it, and as afh_map_line() builds the same line for
+	 * the two tools that read a map over a Bluetooth connection: the ten
+	 * bytes in order, bit b of byte i being channel 8i + b. */
+	fprintf(out, "AFH map: 0x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\n",
+	        map[0], map[1], map[2], map[3], map[4],
+	        map[5], map[6], map[7], map[8], map[9]);
+}
+
 void ubertooth_report_capture_losses(ubertooth_t* ut)
 {
 	uint32_t gaps = ubertooth_queue_gaps(ut);
@@ -965,16 +988,17 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	 * was recorded with. */
 	systime = ubertooth_packet_systime( arrival_ns );
 
-	printf("systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%s snr=%s\n",
-	       systime,
-	       btbb_packet_get_channel(pkt),
-	       btbb_packet_get_lap(pkt),
-	       btbb_packet_get_ac_errors(pkt),
-	       rx->clk100ns,
-	       btbb_packet_get_clkn(pkt),
-	       signal_level,
-	       noise_text,
-	       snr_text);
+	fprintf(ubertooth_result_stream(ut),
+	        "systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%s snr=%s\n",
+	        systime,
+	        btbb_packet_get_channel(pkt),
+	        btbb_packet_get_lap(pkt),
+	        btbb_packet_get_ac_errors(pkt),
+	        rx->clk100ns,
+	        btbb_packet_get_clkn(pkt),
+	        signal_level,
+	        noise_text,
+	        snr_text);
 
 	btbb_process_packet(pkt, NULL);
 
@@ -1047,7 +1071,7 @@ void cb_afh_initial(ubertooth_t* ut, void* args)
 		afh_fill_single_gap(pn, channel-1, channel-2);
 
 		cmd_set_afh_map(ut->devh, btbb_piconet_get_afh_map(pn));
-		btbb_print_afh_map(pn);
+		ubertooth_print_afh_map(ubertooth_result_stream(ut), pn);
 	}
 	cmd_hop(ut->devh);
 
@@ -1087,11 +1111,11 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 	channel = rx->channel;
 	last_seen[channel]=counter;
 
+	FILE* out = ubertooth_result_stream(ut);
+
 	if(btbb_piconet_set_channel_seen(pn, channel)) {
 		fprintf(stderr, "note: + channel %2d is used now\n", channel);
-		btbb_print_afh_map(pn);
-	// } else {
-	// 	printf("channel %d is already used\n", channel);
+		ubertooth_print_afh_map(out, pn);
 	}
 
 	for(i=0; i<NUM_BREDR_CHANNELS; i++) {
@@ -1099,7 +1123,7 @@ void cb_afh_monitor(ubertooth_t* ut, void* args)
 			if(btbb_piconet_clear_channel_seen(pn, i)) {
 				fprintf(stderr, "note: - channel %2d is not used any more\n",
 				        i);
-				btbb_print_afh_map(pn);
+				ubertooth_print_afh_map(out, pn);
 			}
 		}
 	}
@@ -1240,15 +1264,17 @@ void cb_btle(ubertooth_t* ut, void* args)
 		 * is of. So they go to the stream the tool reports on, which is
 		 * standard error once a capture has taken standard output.
 		 *
-		 * A caller that sets no stream gets standard output, which is
-		 * where a plain run wants them -- unless that caller also said a
-		 * capture had taken standard output, in which case standard
-		 * output is /dev/null and these lines would reach nobody. */
-		FILE* out = stdout;
+		 * A caller that sets no stream gets the one its results go to --
+		 * standard output, where a plain run wants them -- unless that
+		 * caller also said a capture had taken standard output, in which
+		 * case standard output is /dev/null and these lines would reach
+		 * nobody. */
+		FILE* out = ubertooth_result_stream(ut);
 
-		if (opts != NULL)
-			out = opts->report_stream != NULL ? opts->report_stream
-			    : opts->capture_took_stdout  ? stderr : stdout;
+		if (opts != NULL && opts->report_stream != NULL)
+			out = opts->report_stream;
+		else if (opts != NULL && opts->capture_took_stdout)
+			out = stderr;
 
 		fprintf(out, "--------------------\n");
 		fprintf(out, "LE Promisc - ");
@@ -1394,12 +1420,13 @@ void cb_btle(ubertooth_t* ut, void* args)
 	}
 
 	uint64_t ts_diff_ns = ns_since_the_last_packet( ut, nowns );
+	FILE* dump = ubertooth_result_stream(ut);
 	/* `sig`, so this line and the capture record above report one level for
 	 * one packet. What a reader wants beside a packet is how loud that
 	 * packet was. */
-	printf("systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
-	       systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
-	       ts_diff_ns / 1000000.0, sig);
+	fprintf(dump, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
+	        systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
+	        ts_diff_ns / 1000000.0, sig);
 
 	/* The bytes of the packet itself: the PDU header, the payload the
 	 * decoder found and the CRC, after the four-byte access address. Never
@@ -1410,8 +1437,8 @@ void cb_btle(ubertooth_t* ut, void* args)
 		len = le_data_len;
 
 	for (i = 4; i < (int)len; ++i)
-		printf("%02x ", le_data[i]);
-	printf("\n");
+		fprintf(dump, "%02x ", le_data[i]);
+	fputc('\n', dump);
 
 	/* lell_print() counts the fields it cannot read rather than writing a
 	 * line about each one, so the dump stays readable on a busy bench,
@@ -1421,15 +1448,20 @@ void cb_btle(ubertooth_t* ut, void* args)
 	 * the run ends; libbtbb's count is per field, so the comparison here
 	 * is what makes the summary per packet. */
 	uint64_t malformed_before = lell_malformed_count(LELL_MALFORMED_ANY, 0);
+	/* The decoded fields come from libbtbb, which takes no stream and
+	 * writes them to standard output: the lines above are ordered with
+	 * them, so this capture's own stream is flushed first. See
+	 * result_stream in ubertooth.h. */
+	fflush(dump);
 	lell_print(pkt);
 	if (opts != NULL &&
 	    lell_malformed_count(LELL_MALFORMED_ANY, 0) != malformed_before)
 		opts->malformed_packets++;
-	printf("\n");
+	fputc('\n', dump);
 
 	lell_packet_unref(pkt);
 
-	fflush(stdout);
+	fflush(dump);
 }
 /*
  * Sniff E-GO packets
@@ -1454,15 +1486,17 @@ void cb_ego(ubertooth_t* ut, void* args)
 	uint64_t nowns = now_ns_from_clk100ns(ut, rx, arrival_ns);
 	uint64_t ts_diff_ns = ns_since_the_last_packet(ut, nowns);
 
-	printf("time=%u delta_t=%.06f ms freq=%d \n",
-	       le32toh(rx->clk100ns), ts_diff_ns / 1000000.0,
-	       rx->channel + BT_FREQ_MIN);
+	FILE* dump = ubertooth_result_stream(ut);
+
+	fprintf(dump, "time=%u delta_t=%.06f ms freq=%d \n",
+	        le32toh(rx->clk100ns), ts_diff_ns / 1000000.0,
+	        rx->channel + BT_FREQ_MIN);
 
 	for (i = 0; i < len; ++i)
-		printf("%02x ", rx->data[i]);
-	printf("\n\n");
+		fprintf(dump, "%02x ", rx->data[i]);
+	fputs("\n\n", dump);
 
-	fflush(stdout);
+	fflush(dump);
 }
 
 #define CLOCK_TRIM_THRESHOLD 2
@@ -1807,16 +1841,17 @@ void cb_rx(ubertooth_t* ut, void* args)
 	btbb_packet_set_data(pkt, syms + offset, BANK_LEN - offset,
 	                     rx->channel, clkn);
 
-	printf("systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%s snr=%s\n",
-	       systime,
-	       btbb_packet_get_channel(pkt),
-	       btbb_packet_get_lap(pkt),
-	       btbb_packet_get_ac_errors(pkt),
-	       clkn,
-	       clk_offset,
-	       signal_level,
-	       noise_text,
-	       snr_text
+	fprintf(ubertooth_result_stream(ut),
+	        "systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%s snr=%s\n",
+	        systime,
+	        btbb_packet_get_channel(pkt),
+	        btbb_packet_get_lap(pkt),
+	        btbb_packet_get_ac_errors(pkt),
+	        clkn,
+	        clk_offset,
+	        signal_level,
+	        noise_text,
+	        snr_text
 	);
 
 	/* A packet of the piconet heard, stamped here rather than where the

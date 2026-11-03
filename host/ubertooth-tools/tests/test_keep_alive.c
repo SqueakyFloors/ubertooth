@@ -748,6 +748,93 @@ MU_TEST(a_bitstream_dump_leaves_out_a_keep_alive)
 	release_handle(ut);
 }
 
+/* ---- where a dump with no file of its own goes -------------------------- */
+
+/* Without -d the records are the tool's result, so they go to the stream the
+ * tool said its results go to. The library used to write them to standard
+ * output itself. */
+MU_TEST(a_dump_with_no_file_goes_to_the_stream_the_tool_named)
+{
+	ubertooth_t* ut;
+	usb_pkt_rx pkt;
+	usb_pkt_rx written;
+	uint32_t when;
+	char err[256] = "";
+	char out[256] = "";
+	long size, on_stdout;
+	FILE* results;
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+	results = tmpfile();
+	mu_assert_fatal(results != NULL, "a stream for the results");
+	dumpfile = NULL;
+	ut->result_stream = results;
+
+	pkt = packet_record(23);
+	fifo_push(ut->fifo, &pkt, 0);
+	ring.stop_when_empty = 1;
+
+	capture_output();
+	mu_assert_int_eq(0, rx_dump(ut, 0));
+	/* How many bytes reached standard output, read before it is put back:
+	 * the records are binary, so a count is the only honest measure. */
+	fflush(stdout);
+	on_stdout = lseek(fileno(stdout), 0, SEEK_CUR);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	fflush(results);
+	mu_assert_fatal(fseek(results, 0, SEEK_END) == 0, "seek the results");
+	size = ftell(results);
+
+	/* The one record, on the tool's stream and nowhere else. */
+	mu_assert_int_eq(RX_FILE_RECORD_LEN, (int)size);
+	rewind(results);
+	mu_assert_fatal(fread(&when, 1, sizeof(when), results) == sizeof(when),
+	                "the record's time");
+	mu_assert_fatal(fread(&written, 1, sizeof(written), results)
+	                == sizeof(written), "the record's packet");
+	mu_assert_int_eq(BR_PACKET, written.pkt_type);
+	mu_assert_int_eq(23, written.channel);
+	mu_assert_int_eq(0, (int)on_stdout);
+	mu_assert(strstr(err, "rx block timestamp") != NULL, err);
+
+	fclose(results);
+	release_handle(ut);
+}
+
+/* A tool that names no stream, which every tool here is, still writes those
+ * records to standard output: the same bytes in the same place as before. */
+MU_TEST(a_dump_with_no_stream_named_goes_to_standard_output)
+{
+	ubertooth_t* ut;
+	usb_pkt_rx pkt;
+	char err[256] = "";
+	char out[256] = "";
+	long on_stdout;
+
+	reset();
+	ut = new_handle();
+	mu_assert_fatal(ut != NULL, "a handle");
+	dumpfile = NULL;
+
+	pkt = packet_record(23);
+	fifo_push(ut->fifo, &pkt, 0);
+	ring.stop_when_empty = 1;
+
+	capture_output();
+	mu_assert_int_eq(0, rx_dump(ut, 0));
+	fflush(stdout);
+	on_stdout = lseek(fileno(stdout), 0, SEEK_CUR);
+	release_output(out, sizeof(out), err, sizeof(err));
+
+	mu_assert_int_eq(RX_FILE_RECORD_LEN, (int)on_stdout);
+	mu_assert(strstr(err, "rx block timestamp") != NULL, err);
+
+	release_handle(ut);
+}
+
 /* The same belt on the replay path, which is how a keep-alive still reaches a
  * consumer: a capture file recorded before the fix holds one. Replaying it
  * neither decodes it as a packet nor copies it into the capture being
@@ -822,6 +909,8 @@ int main(void)
 	MU_RUN(a_short_poll_reply_is_reported_once);
 	MU_RUN(a_dump_leaves_out_a_keep_alive_record);
 	MU_RUN(a_bitstream_dump_leaves_out_a_keep_alive);
+	MU_RUN(a_dump_with_no_file_goes_to_the_stream_the_tool_named);
+	MU_RUN(a_dump_with_no_stream_named_goes_to_standard_output);
 	MU_RUN(a_replayed_keep_alive_is_not_decoded_or_recorded);
 	return mu_report();
 }

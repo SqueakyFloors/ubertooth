@@ -139,6 +139,31 @@ typedef struct {
 	 * starting from idle resets nothing. */
 	uint8_t capture_modulation;
 
+	/* Where this capture's results go: the packet report the callbacks
+	 * write per packet, the AFH map ubertooth-afh detects, and the records
+	 * a dump writes when the user named no file for them. The tool owns
+	 * the stream, so nothing here has to name standard output, and a tool
+	 * whose results belong somewhere else says so once instead of being
+	 * printed over.
+	 *
+	 * Set by the tool beside the request itself, like the two fields
+	 * above. NULL where no capture set one, which reads as standard
+	 * output: that is where a plain run wants its results, and where a
+	 * tool built against an older library left them. Every tool here
+	 * leaves it so. Read it through ubertooth_result_stream().
+	 *
+	 * Diagnostics are not results and do not come through here: a warning,
+	 * a note or an error from the library is on standard error whatever a
+	 * tool sets.
+	 *
+	 * The decoded detail under a Classic or low-energy packet comes from
+	 * libbtbb (btbb_print_packet(), lell_print()), which takes no stream
+	 * and writes to standard output. So a tool that sets this to anything
+	 * else gets its own lines there and that detail on standard output;
+	 * the two would have to be read together. Nothing is split today,
+	 * because every tool here leaves this at standard output. */
+	FILE* result_stream;
+
 	le_usb_reassembly le_reassembly;
 
 	btbb_pcap_handle* h_pcap_bredr;
@@ -820,6 +845,23 @@ uint32_t ubertooth_symbol_overwrites(ubertooth_t* ut);
  */
 void ubertooth_report_capture_losses(ubertooth_t* ut);
 
+/* The stream this capture's results go to: what the tool put in
+ * result_stream, or standard output where it set none. Every line and every
+ * record the callbacks write goes here, so a tool reads this to find out
+ * where its own results are going -- and so that nothing inside the library
+ * decides. NULL is never returned.
+ */
+FILE* ubertooth_result_stream(ubertooth_t* ut);
+
+/* Writes a piconet's AFH channel map on the caller's stream, as one line:
+ * "AFH map: 0x" and the ten bytes of the map, the channel order the spec's
+ * Set_AFH_Host_Channel_Classification uses. Same text as libbtbb's
+ * btbb_print_afh_map(), which takes no stream and so writes to standard
+ * output whatever the tool chose; this is here so the map goes where the tool
+ * asked for its results.
+ */
+void ubertooth_print_afh_map(FILE* out, btbb_piconet* pn);
+
 /* Whether the STOP request that ends a capture was refused on this handle.
  * Such a board is left running the mode the capture started, and no other
  * tool can open it until it is reset or re-plugged, so the run did not do
@@ -867,10 +909,11 @@ int rx_file_report(int result, const char* filename);
  * failed, already reported, rather than because the capture was stopped. */
 #define UBERTOOTH_ERROR_STREAM_FAILED (-2001)
 
-/* Dumps received symbols until the capture is stopped. Returns 0 when it was
- * stopped normally, or a negative error, already reported, if the capture
- * could not be started -- including a collecting thread that could not be
- * created -- or its stream died part-way. */
+/* Dumps received symbols until the capture is stopped. The records go to the
+ * file in dumpfile, or to the handle's result stream when the tool opened
+ * none. Returns 0 when it was stopped normally, or a negative error, already
+ * reported, if the capture could not be started -- including a collecting
+ * thread that could not be created -- or its stream died part-way. */
 int rx_dump(ubertooth_t* ut, int full);
 
 /* The same dump from the board's generic receive, which demodulates with the
@@ -885,8 +928,9 @@ int rx_dump_generic(ubertooth_t* ut, int full);
 #define UBERTOOTH_AFH_NO_PACKETS (-2000)
 
 /* Detect the piconet's AFH map, then monitor it for changes until stopped.
- * With a nonzero timeout, the detection phase runs for that many seconds and
- * the map is printed before monitoring starts. pn must be a piconet whose map
+ * Every map goes to the handle's result stream. With a nonzero timeout, the
+ * detection phase runs for that many seconds and the map is printed before
+ * monitoring starts. pn must be a piconet whose map
  * is still empty, as btbb_piconet_new() leaves it: "no packet was received" is
  * read from the map after the detection phase.
  *
