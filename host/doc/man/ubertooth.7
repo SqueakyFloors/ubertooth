@@ -65,7 +65,7 @@ The first two lines are the host's and need no board: the versions these tools w
 .P
 The two firmware lines describe the board \fB\-U\fR names, or the only board attached\. With several boards attached and no \fB\-U\fR, both lines are printed for each of them with its index in the label, as the identity queries of ubertooth\-util(1) are: \fBFirmware version (0): \|\.\|\.\|\.\fR, \fBFirmware build (0): \|\.\|\.\|\.\fR\.
 .P
-With no Ubertooth attached the host lines are followed by \fBFirmware version: no Ubertooth attached\fR and the status is still 0: the host half of the answer needs no board, and nothing attached is an answer rather than a failure\. A board sitting in the DFU bootloader is named in a \fBnote:\fR on standard error there, because no tool but ubertooth\-dfu(1) can open one and that is the usual reason a board is not in the answer\. A board that is attached but cannot be read \-\- in use by another program, or not answering \-\- has the reason on its own line (\fBFirmware version: unavailable, in use by another program\fR, or \fBFirmware version: read failed\fR) and the status is 1\. So does a USB bus that cannot be listed at all, which is nothing known rather than nothing attached: \fBFirmware version: unavailable, the USB bus could not be listed\fR\.
+With no Ubertooth attached the host lines are followed by \fBFirmware version: no Ubertooth attached\fR and the status is still 0: the host half of the answer needs no board, and nothing attached is an answer rather than a failure\. A board sitting in the DFU bootloader is named in \fBnote:\fR lines on standard error there, because no tool but ubertooth\-dfu(1) can open one and that is the usual reason a board is not in the answer\. A board that is attached but cannot be read \-\- in use by another program, or not answering \-\- has the reason on its own line (\fBFirmware version: unavailable, in use by another program\fR, or \fBFirmware version: read failed\fR) and the status is 1\. So does a USB bus that cannot be listed at all, which is nothing known rather than nothing attached: \fBFirmware version: unavailable, the USB bus could not be listed\fR\.
 .P
 Part of an answer can go missing on its own, and the status is 1 then too: a board that answered its version but not its build string prints \fBFirmware build: read failed\fR under a good version line, or \fBFirmware build: not reported\fR if the read worked and the board had no build string to give, and one whose API version could not be read prints the version with no ` (API:\|\.\|\.\|\.)` after it\. So a script that cares about the whole answer should test the status, not only look for a reason in place of a version\.
 .P
@@ -156,16 +156,16 @@ note: a board that does not answer may be in use by another program, or busy in 
 .P
 The remedy is by index there because a board whose serial could not be read cannot be selected by serial\. \fB\-r\fR on a board that answers nothing resets its USB connection before it asks the board to reset itself, because the board would refuse that request as it refuses every other one; the connection reset is what recovers it, and the board is then reset like any other\. See ubertooth\-util(1)\.
 .P
-A board in the DFU bootloader is named too, because it is not a board that went away: while it is being flashed it enumerates as the bootloader, which no tool but ubertooth\-dfu(1) can open, so every selection finds nothing until the flash finishes\. An interrupted flash leaves it there until the next one succeeds\. The bootloader reports no serial number, so no \fB\-U\fR string can name such a board; the second line says what reaches it instead\.
+A board in the DFU bootloader is named too, because it is not a board that went away: while it is being flashed it enumerates as the bootloader, which no tool but ubertooth\-dfu(1) can open, so every selection finds nothing until the flash finishes\. An interrupted flash leaves it there until the next one succeeds\. No \fB\-U\fR string can name such a board, because the bootloader reports no serial number, so the second line says what reaches it instead\.
 .IP "" 4
 .nf
 error: no Ubertooth found with serial matching 'aa1'
 note: a board is in the DFU bootloader, so no tool but ubertooth\-dfu can open it: it is being flashed, or a flash left it there
-note: the bootloader reports no serial number, so ubertooth\-dfu with no \-U is what reaches that board: \-r sends it back to its application, and \-d <image> \-r writes an image first
+note: ubertooth\-dfu with no \-U is what reaches that board: \-d <image> \-r writes an image and starts it, or \-r alone if the board still has an application to start
 .fi
 .IP "" 0
 .P
-Both remedies are named because the board may need no image at all: one that entered DFU by request, or with its bootloader entry pin grounded, still holds its application, and \fB\-r\fR sends it back to it\. Writing one needs \fB\-r\fR as well, or the board stays in the bootloader\. See ubertooth\-dfu(1)\.
+The write is named first because it always applies\. \fB\-r\fR on its own is the shorter way out when the board still has an application the bootloader will start: one that entered DFU by request, or with its bootloader entry pin grounded, starts again on \fB\-r\fR, while one an interrupted download left half\-written comes straight back to the bootloader and needs an image\. A write needs \fB\-r\fR as well, or the board stays in the bootloader\. See ubertooth\-dfu(1)\.
 .P
 Several boards in the bootloader are counted instead, with no such advice: ubertooth\-dfu(1) with no \fB\-U\fR refuses to choose between them, and this note cannot say which of them was meant\.
 .P

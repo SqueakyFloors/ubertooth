@@ -85,9 +85,9 @@ ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
 With no Ubertooth attached the host lines are followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
-board sitting in the DFU bootloader is named in a `note:` on standard error
-there, because no tool but ubertooth-dfu(1) can open one and that is the usual
-reason a board is not in the answer. A
+board sitting in the DFU bootloader is named in `note:` lines on standard
+error there, because no tool but ubertooth-dfu(1) can open one and that is the
+usual reason a board is not in the answer. A
 board that is attached but cannot be read -- in use by another program, or not
 answering -- has the reason on its own line (`Firmware version: unavailable,
 in use by another program`, or `Firmware version: read failed`) and the status
@@ -314,17 +314,20 @@ A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no
 tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
-succeeds. The bootloader reports no serial number, so no `-U` string can name
-such a board; the second line says what reaches it instead.
+succeeds. No `-U` string can name such a board, because the bootloader reports
+no serial number, so the second line says what reaches it instead.
 
     error: no Ubertooth found with serial matching 'aa1'
     note: a board is in the DFU bootloader, so no tool but ubertooth-dfu can open it: it is being flashed, or a flash left it there
-    note: the bootloader reports no serial number, so ubertooth-dfu with no -U is what reaches that board: -r sends it back to its application, and -d <image> -r writes an image first
+    note: ubertooth-dfu with no -U is what reaches that board: -d <image> -r writes an image and starts it, or -r alone if the board still has an application to start
 
-Both remedies are named because the board may need no image at all: one that
-entered DFU by request, or with its bootloader entry pin grounded, still holds
-its application, and `-r` sends it back to it. Writing one needs `-r` as well,
-or the board stays in the bootloader. See ubertooth-dfu(1).
+The write is named first because it always applies. `-r` on its own is the
+shorter way out when the board still has an application the bootloader will
+start: one that entered DFU by request, or with its bootloader entry pin
+grounded, starts again on `-r`, while one an interrupted download left
+half-written comes straight back to the bootloader and needs an image. A write
+needs `-r` as well, or the board stays in the bootloader. See
+ubertooth-dfu(1).
 
 Several boards in the bootloader are counted instead, with no such advice:
 ubertooth-dfu(1) with no `-U` refuses to choose between them, and this note

@@ -808,22 +808,25 @@ void ubertooth_note_dfu_bootloader(void)
 		 * try, and ubertooth-dfu with no selector adopts the sole board in
 		 * DFU mode.
 		 *
-		 * Both remedies, because the board may need no image at all: one
-		 * that entered DFU by request or by its entry pin still holds its
-		 * application, and -r alone sends it back to it. Writing one needs
-		 * -r too, or the board stays in the bootloader.
+		 * The write comes first because it always applies, and the reset is
+		 * offered with its condition: the bootloader starts an application
+		 * only when the region passes its check, so a board an interrupted
+		 * download left half-written comes straight back to the bootloader
+		 * and needs an image, while one that entered DFU by request or by
+		 * its entry pin starts again on -r alone. A write needs -r too, or
+		 * the board stays in the bootloader.
 		 *
 		 * Naming what reaches the board, rather than what the caller asked
-		 * for, keeps the line true on every path that gets here: a
-		 * download, a read-back, a reset, and the paths with no selector at
-		 * all. It is safe to suggest while another process is flashing that
-		 * board -- the case this note exists for -- because that process
-		 * holds the DFU interface, so a second ubertooth-dfu is refused the
-		 * claim and reports it rather than touching the flash. */
-		fprintf(stderr, "note: the bootloader reports no serial number, so "
-		        "ubertooth-dfu with no -U is what reaches that board: -r "
-		        "sends it back to its application, and -d <image> -r writes "
-		        "an image first\n");
+		 * for, keeps the line true on every path that gets here, including
+		 * the ones with no selector at all.
+		 *
+		 * It is safe to suggest while another process is flashing that board
+		 * -- the case this note exists for -- because that process holds the
+		 * DFU interface, so a second ubertooth-dfu is refused the claim and
+		 * reports it rather than touching the flash. */
+		fprintf(stderr, "note: ubertooth-dfu with no -U is what reaches that "
+		        "board: -d <image> -r writes an image and starts it, or -r "
+		        "alone if the board still has an application to start\n");
 	} else {
 		fprintf(stderr, "note: %d boards are in the DFU bootloader, so no "
 		        "tool but ubertooth-dfu can open them: they are being "

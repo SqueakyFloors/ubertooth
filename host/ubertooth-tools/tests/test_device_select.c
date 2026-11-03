@@ -1188,7 +1188,7 @@ MU_TEST(the_bootloader_note_opens_a_session_of_its_own)
  * every library diagnostic is. The way out is offered for one waiting board
  * only: with none there is nothing in the bootloader, and with several
  * ubertooth-dfu refuses to choose between them. */
-MU_TEST(one_waiting_board_is_told_how_to_be_written)
+MU_TEST(a_waiting_board_is_told_what_reaches_it)
 {
 	char msg[512], out[64];
 
@@ -1199,9 +1199,9 @@ MU_TEST(one_waiting_board_is_told_how_to_be_written)
 	    "note: a board is in the DFU bootloader, so no tool but "
 	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
 	    "it there\n"
-	    "note: the bootloader reports no serial number, so ubertooth-dfu "
-	    "with no -U is what reaches that board: -r sends it back to its "
-	    "application, and -d <image> -r writes an image first\n")
+	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
+	    "<image> -r writes an image and starts it, or -r alone if the "
+	    "board still has an application to start\n")
 	    == 0, msg);
 	mu_assert_int_eq(0, (int)strlen(out));
 
@@ -1785,9 +1785,9 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	    "note: a board is in the DFU bootloader, so no tool but "
 	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
 	    "it there\n"
-	    "note: the bootloader reports no serial number, so ubertooth-dfu "
-	    "with no -U is what reaches that board: -r sends it back to its "
-	    "application, and -d <image> -r writes an image first\n")
+	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
+	    "<image> -r writes an image and starts it, or -r alone if the "
+	    "board still has an application to start\n")
 	    == 0, msg);
 
 	/* And by index, where the selection's own message comes from the
@@ -1800,9 +1800,9 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	    "note: a board is in the DFU bootloader, so no tool but "
 	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
 	    "it there\n"
-	    "note: the bootloader reports no serial number, so ubertooth-dfu "
-	    "with no -U is what reaches that board: -r sends it back to its "
-	    "application, and -d <image> -r writes an image first\n")
+	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
+	    "<image> -r writes an image and starts it, or -r alone if the "
+	    "board still has an application to start\n")
 	    == 0, msg);
 
 	/* Several say how many. */
@@ -1930,7 +1930,7 @@ int main(void)
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
 	MU_RUN(the_bootloader_note_opens_a_session_of_its_own);
-	MU_RUN(one_waiting_board_is_told_how_to_be_written);
+	MU_RUN(a_waiting_board_is_told_what_reaches_it);
 	MU_RUN(a_full_serial_opens_that_board);
 	MU_RUN(a_prefix_of_a_serial_opens_that_board);
 	MU_RUN(a_serial_matches_in_upper_case);

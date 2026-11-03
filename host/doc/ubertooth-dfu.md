@@ -26,12 +26,13 @@ multiple devices already in DFU mode.
 
 A board that is already waiting in the bootloader is written by a command with
 no `-U` at all, which takes the one board in DFU mode. The bootloader has no
-serial number for `-U` to name, so a command that names one looks for that
-serial among the boards running their firmware, does not find it, and says so.
-When exactly one board is waiting in DFU, that failure carries a note naming
-what reaches it: `-r` with no `-U` sends a board that still holds its
-application back to it, and `-d <image> -r` writes one first. See ubertooth(7),
-SELECTING A DEVICE.
+serial number for `-U` to name, and is not among the boards an index counts
+either, so a command with a selector looks for it among the boards running
+their firmware, does not find it, and says so. When exactly one board is
+waiting in DFU, that failure carries a note naming what reaches it:
+`-d <image> -r` with no `-U` writes an image and starts it, and `-r` on its
+own is enough for a board that still has an application the bootloader will
+start. See ubertooth(7), SELECTING A DEVICE.
 
 Every wait for the bootloader is bounded. Before each operation the tool asks
 the bootloader for its DFU state and drives it to the idle state, aborting a
