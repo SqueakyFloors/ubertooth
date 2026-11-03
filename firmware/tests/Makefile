@@ -449,7 +449,7 @@ $(BINDIR)/test_btbr_tx_queue: test_btbr_tx_queue.c minunit.h \
 # diagnostics stand-in.
 $(BINDIR)/test_btbr_tx_untuned: test_btbr_tx_untuned.c minunit.h \
 		stubs-btbr-rx/ubertooth.h stubs-btbr-rx/ubtbr/system.h \
-		stubs-btbr/ubtbr/debug.h stubs/ubertooth.h \
+		stubs-btbr/ubtbr/debug.h \
 		$(FW_BTBR)/src/btphy/tx_task.c \
 		$(FW_BTBR)/src/btphy/tdma_sched.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c \

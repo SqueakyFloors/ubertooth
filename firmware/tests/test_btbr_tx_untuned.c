@@ -16,8 +16,8 @@
  *
  * tx_task.c is included into this translation unit, which is how its slot
  * tasks can be reached at all: they are static. The scheduler underneath is
- * the firmware's own -- tdma_sched.c is linked, so the order the three tasks
- * run in is the board's order and not this file's idea of it. Everything else
+ * the firmware's own -- tdma_sched.c is included as well, so the order the
+ * three tasks run in is the board's order and not this file's. Everything else
  * is faked here: the radio, the slot clock, the hop sequence, and the codec.
  * Three of those fakes carry the cases: the radio's lock bit picks which path
  * tx_execute() takes, the radio's state machine says whether the end of a
@@ -61,11 +61,6 @@ uint32_t fake_clock_read(void)
 
 	fake_clock += 10;
 	return now;
-}
-
-static uint32_t fake_clock_peek(void)
-{
-	return fake_clock;
 }
 
 int fake_gio6(void)
@@ -156,11 +151,16 @@ u16 cc2400_get(u8 reg)
  * add to it. */
 static uint8_t fake_live_site;
 static unsigned fake_fsm_timeouts;
+/* How many waits were entered at all. The site itself is restored when a wait
+ * returns, so after the fact it says nothing; this says whether the firmware
+ * ever told the watchdog it was about to wait. */
+static unsigned fake_waits_marked;
 
 uint8_t watchdog_mark_wait(uint8_t site)
 {
 	uint8_t previous = fake_live_site;
 
+	fake_waits_marked++;
 	fake_live_site = site;
 	return previous;
 }
@@ -260,10 +260,17 @@ void bbcodec_encode_chunk(bbcodec_t *codec, uint8_t *air_data, bbhdr_t *in_hdr,
  * the next, as btphy_handler() does on each timer interrupt. The slot clock
  * starts each frame at zero, where the hardware restarts it.
  */
+static uint32_t furthest_into_a_slot;
+
 static void a_slot(void)
 {
 	fake_clock = 0;
 	tdma_sched_execute();
+	/* How far into the slot the tasks took the clock, kept across frames:
+	 * the clock itself restarts below, so after the fact it says nothing
+	 * about what a task spent. */
+	if (fake_clock > furthest_into_a_slot)
+		furthest_into_a_slot = fake_clock;
 	tdma_sched_advance();
 }
 
@@ -308,6 +315,8 @@ static void a_board_whose_synthesizer_locks(int locks)
 	fake_int_disables = 0;
 	fake_fsm_timeouts = 0;
 	fake_live_site = WATCHDOG_SITE_NONE;
+	fake_waits_marked = 0;
+	furthest_into_a_slot = 0;
 	console_len = 0;
 	console[0] = '\0';
 	completions = 0;
@@ -459,9 +468,9 @@ MU_TEST(test_an_untuned_transmit_does_not_wait_for_the_radio)
 	one_transmit();
 
 	mu_assert_int_eq(0, (int)fake_fsm_timeouts);
-	mu_assert(fake_clock_peek() < TX_MAX_WAIT,
+	mu_assert(furthest_into_a_slot < TX_MAX_WAIT,
 	          "the slot was spent waiting for a transmit that never started");
-	mu_assert_int_eq(WATCHDOG_SITE_NONE, fake_live_site);
+	mu_assert_int_eq(0, (int)fake_waits_marked);
 }
 
 /*
