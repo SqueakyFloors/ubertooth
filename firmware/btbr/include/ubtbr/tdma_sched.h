@@ -13,9 +13,6 @@
 #define TDMASCHED_NUM_FRAMES	16
 #define TDMASCHED_NUM_CB	4
 
-#define TDMA_IFLG_TPU		(1<<0)
-#define TDMA_IFLG_DSP		(1<<1)
-
 typedef int tdma_sched_cb(uint8_t p1, uint8_t p2, uint16_t p3);
 
 /* A single item in a TDMA scheduler bucket */
@@ -25,7 +22,6 @@ struct tdma_sched_item {
 	uint8_t p2;
 	uint16_t p3;
 	int16_t prio;
-	uint16_t flags;		/* TDMA_IFLG_xxx */
 };
 
 /* A bucket inside the TDMA scheduler */
@@ -56,11 +52,8 @@ void tdma_sched_advance(void);
 /* reset the scheduler; erase all scheduled items */
 void tdma_sched_reset(void);
 
-
 extern int tdma_end_set(uint8_t p1, uint8_t p2, uint16_t p3);
-#define SCHED_ITEM(x, p, y, z)		{ .cb = x, .p1 = y, .p2 = z, .prio = p, .flags = 0 }
-#define SCHED_ITEM_DT(x, p, y, z)	{ .cb = x, .p1 = y, .p2 = z, .prio = p, \
-					  .flags = TDMA_IFLG_TPU | TDMA_IFLG_DSP }
+#define SCHED_ITEM(x, p, y, z)		{ .cb = x, .p1 = y, .p2 = z, .prio = p }
 #define SCHED_END_FRAME()		{ .cb = NULL, .p1 = 0, .p2 = 0 }
 #define SCHED_END_SET()			{ .cb = &tdma_end_set, .p1 = 0, .p2 = 0 }
 

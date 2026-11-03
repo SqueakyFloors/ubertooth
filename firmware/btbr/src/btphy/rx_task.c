@@ -383,7 +383,6 @@ static int rx_decode(uint8_t p1, uint8_t p2, uint16_t p3)
 	/* Decode what we can */
 	while((rc=bbcodec_decode_chunk(&rx_task.codec, pkt->bt_data, &pkt->bb_hdr, rx_task.rx_dma_buf+4, size))==0)
 	{
-		//cputc('D');
 	}
 	if (rc == BBCODEC_DONE)
 	{

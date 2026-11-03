@@ -111,7 +111,6 @@ static inline uint32_t reverse32(uint32_t data)
         return (uint32_t)reverse16(data>>16)|((uint32_t)reverse16(data&0xffff)<<16);
 }
 
-
 /* HEC / CRC */
 static inline uint8_t hec_compute(uint16_t data, uint8_t hec) 
 {
