@@ -243,7 +243,9 @@ int btbb_find_ac_n(char* stream, size_t stream_len, int search_length,
 	seen.find_ac_stream_len = stream_len;
 	/* fifo_pop() has already handed this record over, so next_index names
 	 * the one after it. */
-	if (next_index > 0 && next_index <= 8 && find_ac_misses[next_index - 1])
+	if (next_index > 0 &&
+	    next_index <= sizeof(find_ac_misses) / sizeof(find_ac_misses[0]) &&
+	    find_ac_misses[next_index - 1])
 		return -1;
 	if (find_ac_offset < 0)
 		return find_ac_offset;
@@ -736,7 +738,11 @@ MU_TEST(the_noise_and_snr_columns_are_absent_where_there_is_no_estimate)
 /* The three signal columns of every line the last run printed, one line each:
  * the tail of each line from `s=` on. The fields before it are left out
  * because they are not what this is comparing, and because a replay stamps a
- * packet with the host time the record was recorded with. */
+ * packet with the host time the record was recorded with.
+ *
+ * Output that does not fit says so rather than stopping quietly: a truncation
+ * that hit two runs the same way would otherwise leave them comparing equal on
+ * the part that did fit. */
 static void signal_columns(char* into, size_t size)
 {
 	const char* at = last_stdout;
@@ -749,8 +755,10 @@ static void signal_columns(char* into, size_t size)
 		at++;
 		end = strchr(at, '\n');
 		len = (end != NULL) ? (size_t)(end - at) : strlen(at);
-		if (strlen(into) + len + 2 > size)
+		if (strlen(into) + len + 2 > size) {
+			snprintf(into, size, "truncated\n");
 			return;
+		}
 		strncat(into, at, len);
 		strcat(into, "\n");
 		at += len;
@@ -762,13 +770,23 @@ MU_TEST(a_replay_reports_the_levels_the_live_capture_reported)
 	/* Two channels, each given a loud receive window holding no packet and
 	 * then a quiet one holding a packet, twice over. A `-d` dump keeps only
 	 * the windows a packet was found in, so a replay of one is the quiet
-	 * records alone, with the loud windows between them gone. Both runs
-	 * have to report the same levels, including on the first packet of each
+	 * records alone, with the loud windows between them gone. Both runs have
+	 * to report the same levels, including on the first packet of each
 	 * channel, where a replay has least to go on.
 	 *
 	 * Raw -40 is -91 dBm and raw -10 is -64 dBm, so a level taken from the
 	 * loud window next door rather than from the packet's own record would
-	 * show up as 27 dB. */
+	 * show up as 27 dB.
+	 *
+	 * The replay runs first, and both runs are measured against the figures
+	 * the records call for, because a level worked out across records would
+	 * be kept in a static the fakes here cannot reach: with the live run
+	 * first, such a static would carry its readings into the replay and the
+	 * two would agree on a wrong answer. */
+	static const char* expected = "s=-91 n=-108 snr=17\n"
+	                              "s=-91 n=-108 snr=17\n"
+	                              "s=-91 n=-108 snr=17\n"
+	                              "s=-91 n=-108 snr=17\n";
 	usb_pkt_rx stream[8];
 	char live[1024], replayed[1024];
 	unsigned i, dumped = 0;
@@ -784,7 +802,19 @@ MU_TEST(a_replay_reports_the_levels_the_live_capture_reported)
 		stream[i].status |= NOISE_ESTIMATE;
 	}
 
-	/* The live capture: every window the board sent. */
+	/* The dump, replayed: the windows a packet was found in. Reading a file
+	 * rather than a board is what `infile` says, and no record of one is
+	 * missing from here, so every one holds a packet. */
+	reset_state();
+	for (i = 0; i < 8; i++)
+		if ((i % 2) == 1)
+			next_packets[dumped++] = stream[i];
+	next_count = dumped;
+	infile = stdin;
+	run_callback(cb_rx, NULL);
+	signal_columns(replayed, sizeof(replayed));
+
+	/* And the live capture of the same air: every window the board sent. */
 	reset_state();
 	memcpy(next_packets, stream, sizeof(stream));
 	for (i = 0; i < 8; i++)
@@ -793,24 +823,10 @@ MU_TEST(a_replay_reports_the_levels_the_live_capture_reported)
 	run_callback(cb_rx, NULL);
 	signal_columns(live, sizeof(live));
 
-	/* And the dump of it, replayed. */
-	reset_state();
-	for (i = 0; i < 8; i++)
-		if ((i % 2) == 1)
-			next_packets[dumped++] = stream[i];
-	next_count = dumped;
-	run_callback(cb_rx, NULL);
-	signal_columns(replayed, sizeof(replayed));
-
-	mu_assert_int_eq(4, (int)dumped);
+	mu_assert(strcmp(replayed, expected) == 0,
+	          "every packet reports the figures of its own record");
 	mu_assert(strcmp(live, replayed) == 0,
 	          "a replay reports what the live capture reported");
-	mu_assert(strcmp(live,
-	                 "s=-91 n=-108 snr=17\n"
-	                 "s=-91 n=-108 snr=17\n"
-	                 "s=-91 n=-108 snr=17\n"
-	                 "s=-91 n=-108 snr=17\n") == 0,
-	          "every packet reports the figures of its own record");
 }
 
 /* ---- which channels AFH detection marks used ---------------------------- */

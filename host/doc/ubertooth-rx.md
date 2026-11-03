@@ -179,13 +179,12 @@ whatever is on it. A transmitter louder than the packet, on the same channel at
 the same moment, is what the signal figure describes, and the packet is then
 part of the background.
 
-Both figures are readings the board took for that one packet and sent with it,
+Both figures are the board's own, carried in the record the packet arrived in,
 so a replay of a `-d` dump with `-i` reports what the live capture reported. A
 dump holds only the receive windows a packet was found in, which is fewer
 records than the board sent, and neither figure depends on the records around
 it, so the levels come out the same either way, including on the first packets
-of a channel. A capture can therefore be measured again from its dump, and two
-captures of the same air compared.
+of a channel.
 
 Miscellaneous:
 
@@ -753,9 +752,11 @@ count is of those places, not of the blocks lost at them: the board has one
 flag for this and no field to send a number in, so one place can stand for
 several blocks.
 
-A capture read back from a file with `-i` reports the same way: all three
-losses are recorded in the packets, so replaying one warns as it reads them
-and gives the same totals at the end.
+A capture read back from a file with `-i` reports the same way: the board's
+word for each of the three is in the record it flagged, so replaying a file
+warns as it reads them and totals what the file holds. A `-d` dump keeps only
+the receive windows a packet was found in, so a loss the board flagged on a
+window with no packet in it is not in the dump for a replay to report.
 
 ## A RECEIVER THAT CANNOT HEAR
 
