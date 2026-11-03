@@ -340,6 +340,48 @@ if(libubertooth_SOURCE_DIR AND PKG_CONFIG_FOUND)
 	set_tests_properties(pkgconfig-install PROPERTIES TIMEOUT 300)
 endif()
 
+# The same install reached the way a CMake project reaches it:
+# find_package(ubertooth) and the imported target, with nothing but
+# CMAKE_PREFIX_PATH to go on. It needs the library in this build, because its
+# install is what is being tested.
+if(libubertooth_SOURCE_DIR)
+	add_test(
+		NAME cmake-package-install
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/test_cmake_package_install.py
+			${CMAKE_COMMAND}
+			${CMAKE_BINARY_DIR}
+			# The directories this build installs the library and the
+			# headers to, which GNUInstallDirs picks for the system:
+			# where the test looks for what the install wrote. Passed
+			# rather than assumed, because a build command can ask for
+			# others and the config file follows them.
+			"${UBERTOOTH_INSTALL_LIBDIR}"
+			"${CMAKE_INSTALL_INCLUDEDIR}"
+			# The version the consumer project asks for, so that a
+			# version bump does not fail this test for a reason that
+			# has nothing to do with the config file. This build's
+			# major version with a minor of 0: the version file
+			# promises SameMajorVersion, so it is satisfied.
+			"${MAJOR_VERSION}.0"
+			# Whether this build's libbtbb is somewhere an install
+			# cannot send a consumer to, which makes every install it
+			# could make unusable and the test skip: a libbtbb built
+			# beside this tree and never installed, for one.
+			"${UBERTOOTH_CONFIG_BTBB_HINT_DROPPED}"
+			# The library's own source tree, for the builds the test
+			# configures in the other layouts. The project's own
+			# directory rather than CMAKE_SOURCE_DIR, which would be
+			# the root of a superproject that had added this tree.
+			${ubertooth_all_SOURCE_DIR})
+	# One consumer project configured and built, then a configure of the
+	# library alone and an install for each of the five other layouts,
+	# each read back by a consumer configure in one reused build
+	# directory: a minute or two on an idle machine, and several times
+	# that on one busy with parallel builds.
+	set_tests_properties(cmake-package-install PROPERTIES TIMEOUT 900)
+endif()
+
 # What ubertooth-rx says when its receiver is pinned at the top of the
 # radio's range, replayed through -i from recorded RSSI sequences the test
 # builds itself. The whole tool runs, so this covers the message reaching the

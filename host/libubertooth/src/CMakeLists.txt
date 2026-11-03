@@ -101,10 +101,17 @@ install(FILES ${c_headers}
 # path, so an install that is still here after a `brew upgrade libusb` names a
 # directory that has gone; configuring the build again writes the new one.
 set(LIBUBERTOOTH_PC_CFLAGS "")
+# The same directory is kept whole, with no exception for /usr/include, as the
+# hint ubertoothConfig.cmake gives its own search for that header.
+set(UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR "")
 foreach(dir IN LISTS LIBUSB_INCLUDE_DIRS)
-	if(EXISTS "${dir}/libusb-1.0/libusb.h" AND
-	   NOT "${dir}" STREQUAL "/usr/include")
-		string(APPEND LIBUBERTOOTH_PC_CFLAGS " -I${dir}")
+	if(EXISTS "${dir}/libusb-1.0/libusb.h")
+		if(NOT UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR)
+			set(UBERTOOTH_CONFIG_LIBUSB_INCLUDEDIR "${dir}")
+		endif()
+		if(NOT "${dir}" STREQUAL "/usr/include")
+			string(APPEND LIBUBERTOOTH_PC_CFLAGS " -I${dir}")
+		endif()
 	endif()
 endforeach()
 
@@ -114,12 +121,97 @@ endforeach()
 # carries the pthread calls), CMAKE_DL_LIBS is a library name (empty on macOS,
 # where libc carries dladdr()).
 set(LIBUBERTOOTH_PC_LIBS_PRIVATE "")
+# The same two, as a CMake list, for ubertoothConfig.cmake below.
+set(UBERTOOTH_CONFIG_PRIVATE_LIBS "")
 if(CMAKE_THREAD_LIBS_INIT)
 	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " ${CMAKE_THREAD_LIBS_INIT}")
+	list(APPEND UBERTOOTH_CONFIG_PRIVATE_LIBS "${CMAKE_THREAD_LIBS_INIT}")
 endif()
 foreach(lib IN LISTS CMAKE_DL_LIBS)
 	string(APPEND LIBUBERTOOTH_PC_LIBS_PRIVATE " -l${lib}")
+	list(APPEND UBERTOOTH_CONFIG_PRIVATE_LIBS "-l${lib}")
 endforeach()
+
+# Where this build found libbtbb, as hints for ubertoothConfig.cmake's own
+# search. The library is a path from find_library(), so the directory it is in
+# is the one to look in; one set by hand to a bare link name leaves the hint
+# empty, and the search then looks where it would have anyway.
+#
+# A hint inside a libbtbb source tree beside this one, inside this tree, or
+# inside this build directory is dropped. FindBTBB.cmake looks in such a
+# source tree, and a libbtbb named through $ENV{LIBBTBB_DIR} or pkg-config can
+# be anywhere, so a build that found libbtbb in one of those three would
+# otherwise write that path into the config file and send every consumer of
+# the install to a directory only this machine has -- ahead of the installed
+# libbtbb, because HINTS are searched before the default directories, which is
+# where libubertooth.pc's Requires sends a consumer. Those three, rather than
+# every libbtbb that is not installed, which nothing here can tell: a libbtbb
+# staged under the build directory loses a hint it could have kept, and the
+# search then looks where it would have anyway.
+set(UBERTOOTH_CONFIG_BTBB_HINT_DROPPED 0)
+get_filename_component(libbtbb_source_tree
+	"${CMAKE_SOURCE_DIR}/../libbtbb" REALPATH)
+set(UBERTOOTH_CONFIG_BTBB_INCLUDEDIR "${LIBBTBB_INCLUDE_DIR}")
+set(UBERTOOTH_CONFIG_BTBB_LIBDIR "")
+foreach(lib IN LISTS LIBBTBB_LIBRARIES)
+	if(IS_ABSOLUTE "${lib}" AND NOT UBERTOOTH_CONFIG_BTBB_LIBDIR)
+		get_filename_component(UBERTOOTH_CONFIG_BTBB_LIBDIR "${lib}" DIRECTORY)
+	endif()
+endforeach()
+foreach(hint UBERTOOTH_CONFIG_BTBB_INCLUDEDIR UBERTOOTH_CONFIG_BTBB_LIBDIR)
+	if(NOT ${hint})
+		continue()
+	endif()
+	get_filename_component(hint_path "${${hint}}" REALPATH)
+	foreach(tree "${libbtbb_source_tree}" "${CMAKE_SOURCE_DIR}"
+			"${CMAKE_BINARY_DIR}")
+		get_filename_component(tree_path "${tree}" REALPATH)
+		# Whether the hint is that directory or sits under it, decided by the
+		# way from one to the other rather than by matching the path as text:
+		# a directory name can hold a regular expression's own characters.
+		# Empty for the same directory, starting with ".." for one outside it,
+		# and absolute where there is no way between them at all.
+		file(RELATIVE_PATH way_in "${tree_path}" "${hint_path}")
+		# "..", a whole directory name, rather than a name that begins with
+		# it: a sibling called "..libbtbb" is outside the tree and its hint
+		# would be kept.
+		if(NOT way_in MATCHES "^\\.\\.(/|$)" AND NOT IS_ABSOLUTE "${way_in}")
+			message(STATUS "ubertoothConfig.cmake will not hint at "
+				"${hint_path} as a libbtbb directory, because it is inside "
+				"${tree_path}: a consumer of this install would be sent to "
+				"a directory only this machine has")
+			set(${hint} "")
+			set(UBERTOOTH_CONFIG_BTBB_HINT_DROPPED 1)
+			break()
+		endif()
+	endforeach()
+endforeach()
+unset(libbtbb_source_tree)
+unset(hint_path)
+unset(tree_path)
+unset(way_in)
+
+# Read back by the test, which cannot use an install whose libbtbb was only
+# ever in one of those directories.
+set(UBERTOOTH_CONFIG_BTBB_HINT_DROPPED
+	"${UBERTOOTH_CONFIG_BTBB_HINT_DROPPED}" CACHE INTERNAL
+	"Whether the libbtbb this build found is in a directory an install cannot be described by")
+set(UBERTOOTH_CONFIG_LIBUSB_LIBDIR "")
+foreach(lib IN LISTS LIBUSB_LIBRARIES)
+	if(IS_ABSOLUTE "${lib}" AND NOT UBERTOOTH_CONFIG_LIBUSB_LIBDIR)
+		get_filename_component(UBERTOOTH_CONFIG_LIBUSB_LIBDIR "${lib}" DIRECTORY)
+	endif()
+endforeach()
+
+# The name libusb is linked under, which FindUSB1.cmake chooses by system.
+# Written into the config file rather than chosen there, so that the search
+# asks for the same library this build linked. FindUSB1.cmake sets the name
+# only on the configure that searches, not on one that reads the answer back
+# from the cache, so it is worked out here from the same rule.
+set(UBERTOOTH_CONFIG_LIBUSB_NAME usb-1.0)
+if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+	set(UBERTOOTH_CONFIG_LIBUSB_NAME usb)
+endif()
 
 # The directories libubertooth.pc names have to be the ones the install writes
 # to: a consumer whose pkg-config -L names a directory holding no library
@@ -146,9 +238,9 @@ if(IS_ABSOLUTE "${UBERTOOTH_INSTALL_LIBDIR}")
 	# would move: absolute ones are named as they stand and do not move
 	# either.
 	if(NOT IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
-		message(STATUS "libubertooth.pc will name "
+		message(STATUS "libubertooth.pc and ubertoothConfig.cmake will name "
 			"${CMAKE_INSTALL_FULL_INCLUDEDIR} as the header directory, "
-			"because an absolute library directory leaves the file with no "
+			"because an absolute library directory leaves them with no "
 			"relation to the prefix: an install staged elsewhere with "
 			"--prefix needs its own configure")
 	endif()
@@ -175,3 +267,67 @@ configure_file(
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libubertooth.pc
 		DESTINATION ${UBERTOOTH_INSTALL_LIBDIR}/pkgconfig
 		COMPONENT pkgconfig)
+
+# ubertoothConfig.cmake, so that a CMake project outside this tree reaches the
+# installed library the way CMake projects reach a library: find_package() and
+# an imported target. libubertooth.pc, written above, answers the same
+# questions for pkg-config, and FindUBERTOOTH.cmake in this tree reads that
+# file -- but a CMake consumer tries find_package() first, and with no config
+# file to find it had to be given a Find module of its own or the paths by
+# hand. The file itself says what each part of it is for.
+include(CMakePackageConfigHelpers)
+
+# Not install(EXPORT), which would write the target definition for us. An
+# export set records the library's link interface as this build resolved it,
+# so it would name the libbtbb and the libusb of the machine the install was
+# built on. libubertooth.pc names them in its Requires and leaves them to be
+# resolved where the consumer is, and this file is meant to say the same
+# thing, so the target is written out here and the dependencies are searched
+# for in it.
+#
+# Beside the library, in the directory CMake searches for a package of this
+# name: <prefix>/<libdir>/cmake/<name>. configure_package_config_file works
+# out the way back from here to the prefix, so the file describes the install
+# it is in rather than the prefix this build was configured with.
+set(UBERTOOTH_INSTALL_CMAKEDIR "${UBERTOOTH_INSTALL_LIBDIR}/cmake/ubertooth")
+
+# The same two directories libubertooth.pc names, worked out the same way and
+# for the same reason: a consumer sent to a directory holding no library links
+# by luck or not at all. One under the prefix is named relative to the file's
+# own location, PACKAGE_PREFIX_DIR, which the block the file gets from
+# configure_package_config_file() works out; an absolute one is named as it
+# stands, because the install writes to exactly that wherever the prefix is.
+#
+# Not PATH_VARS, which looks the prefix up in the value as text: an absolute
+# directory that happens to sit under the prefix this build was configured
+# with would come out relative to PACKAGE_PREFIX_DIR, and an install made
+# with another prefix would then be described as having its headers under
+# that other prefix while the install had written them to the absolute path.
+if(IS_ABSOLUTE "${UBERTOOTH_INSTALL_LIBDIR}")
+	set(CONFIG_LIBDIR "${UBERTOOTH_FULL_LIBDIR}")
+else()
+	set(CONFIG_LIBDIR "\${PACKAGE_PREFIX_DIR}/${UBERTOOTH_INSTALL_LIBDIR}")
+endif()
+if(IS_ABSOLUTE "${CMAKE_INSTALL_INCLUDEDIR}")
+	set(CONFIG_INCLUDEDIR "${CMAKE_INSTALL_FULL_INCLUDEDIR}")
+else()
+	set(CONFIG_INCLUDEDIR "\${PACKAGE_PREFIX_DIR}/${CMAKE_INSTALL_INCLUDEDIR}")
+endif()
+
+configure_package_config_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/ubertoothConfig.cmake.in
+	${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfig.cmake
+	INSTALL_DESTINATION "${UBERTOOTH_INSTALL_CMAKEDIR}")
+
+# SameMajorVersion, which is what the library's SOVERSION promises: a consumer
+# asking for 1.0 is served by this 1.1, and one asking for 2.0 is not.
+write_basic_package_version_file(
+	${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfigVersion.cmake
+	VERSION ${VERSION}
+	COMPATIBILITY SameMajorVersion)
+
+install(FILES
+		${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfig.cmake
+		${CMAKE_CURRENT_BINARY_DIR}/ubertoothConfigVersion.cmake
+		DESTINATION ${UBERTOOTH_INSTALL_CMAKEDIR}
+		COMPONENT cmakeconfig)
