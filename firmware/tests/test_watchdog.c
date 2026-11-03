@@ -1603,28 +1603,52 @@ MU_TEST(test_the_shipped_images_take_the_guard_and_the_bootloader_does_not)
 	}
 }
 
-/* Is this make line a comment? The '#' may be indented. */
-static int make_line_is_comment(const char *line)
-{
-	while (*line == ' ' || *line == '\t')
-		line++;
-	return *line == '#';
-}
-
-/* Does `path`, read as a makefile, name `needle` on a line of make? */
-static int makefile_names(const char *path, const char *needle)
+/*
+ * Is `needle` one of the sources an image's makefile compiles? -1 when the
+ * makefile cannot be read.
+ *
+ * Only the SRC assignment is read, and only what make itself would see: a
+ * trailing `#` and everything after it is a comment, as is a whole line, so
+ * the name written in the note above the list does not count. Looking at that
+ * one assignment is what keeps a name mentioned anywhere else in the makefile,
+ * or in a conditional branch that is not taken, from passing for a source that
+ * is compiled.
+ *
+ * It reads the makefile rather than the built image, so what it pins is the
+ * source list. An image can still reach the default handler by another route,
+ * a second definition of the name or a link flag that drops the object, and
+ * only nm on the built image would catch that.
+ */
+static int makefile_compiles(const char *path, const char *needle)
 {
 	char line[512];
-	int found = 0;
+	int found = 0, in_src = 0, continued;
 	FILE *f = fopen(path, "r");
 
 	if (f == NULL)
 		return -1;
 	while (fgets(line, sizeof(line), f) != NULL) {
-		if (make_line_is_comment(line))
+		char *hash = strchr(line, '#');
+		char *end;
+
+		if (hash != NULL)
+			*hash = '\0';
+		/* A make assignment runs on while its line ends in a
+		 * backslash, so the list is this line plus every continuation
+		 * of it. */
+		end = line + strlen(line);
+		while (end > line && (end[-1] == '\n' || end[-1] == '\r' ||
+		                      end[-1] == ' ' || end[-1] == '\t'))
+			end--;
+		continued = (end > line && end[-1] == '\\');
+		if (strncmp(line, "SRC", 3) == 0 &&
+		    strchr(line, '=') != NULL)
+			in_src = 1;
+		else if (!in_src)
 			continue;
 		if (strstr(line, needle) != NULL)
 			found = 1;
+		in_src = continued;
 	}
 	fclose(f);
 	return found;
@@ -1637,14 +1661,22 @@ static int makefile_names(const char *path, const char *needle)
  * the console, so nothing in either image names anything in that file and it
  * reads like a source neither needs.
  *
- * It is not optional. The interrupt vector table declares USB_IRQHandler weak
- * and aliased to the default handler, so the entry resolves either way: with
- * usb_serial.c in the link the vector reaches the handler that services USB
- * and feeds the watchdog, and without it the vector reaches a handler that
- * marks a wedge and spins forever. An image that enables the USB interrupt and
- * leaves the file out would answer the host nothing from the first interrupt
- * on, and the checks above would stay green because the source they read is
- * unchanged.
+ * It is not optional. firmware/common/LPC17xx_Interrupts.c puts
+ * USB_IRQHandler in the interrupt vector table and declares the name weak and
+ * aliased to the default handler, so the vector resolves whether or not an
+ * image supplies the real one: with usb_serial.c in the link it reaches the
+ * handler that services USB and feeds the watchdog, and without it the vector
+ * reaches the default handler, which marks a wedge and never returns. An image
+ * that enables the USB interrupt and leaves the file out would therefore stop
+ * answering the host at the first interrupt and be reset by the watchdog a few
+ * seconds later, over and over, with no link error to say why -- and the
+ * checks above would stay green, because the source they read is unchanged.
+ *
+ * assembly_test is left out on purpose. It serves USB from its own loop with
+ * the USB interrupt disabled, so the handler cannot run there and leaving the
+ * file out would wedge nothing; it keeps the file so that uncommenting the one
+ * line that enables the interrupt does not, which is a note in its makefile
+ * rather than a requirement of the image as it stands.
  */
 MU_TEST(test_the_shipped_images_compile_the_usb_interrupt_handler)
 {
@@ -1662,32 +1694,36 @@ MU_TEST(test_the_shipped_images_compile_the_usb_interrupt_handler)
 	                               "void USB_IRQHandler", NULL));
 
 	/* The weak alias is what makes the omission silent rather than a link
-	 * error, so the test says out loud that it is still there. */
+	 * error, so the test says out loud that it is still there. Without the
+	 * weak attribute an image missing the file would not link at all, and
+	 * nothing below would be needed. */
 	f = fopen(vectors, "r");
 	snprintf(msg, sizeof(msg), "cannot read %s", vectors);
 	mu_assert_fatal(f != NULL, msg);
 	while (fgets(line, sizeof(line), f) != NULL) {
 		strip_comments(line, &in_block);
 		if (strstr(line, "USB_IRQHandler") != NULL &&
-		    strstr(line, "Default_Handler") != NULL)
+		    strstr(line, "Default_Handler") != NULL &&
+		    strstr(line, "weak") != NULL)
 			weak_alias = 1;
 	}
 	fclose(f);
 	snprintf(msg, sizeof(msg),
-	         "%s no longer aliases USB_IRQHandler to the default handler, so "
-	         "this test no longer describes what leaving usb_serial.c out "
-	         "does", vectors);
+	         "%s no longer declares USB_IRQHandler weak and aliased to the "
+	         "default handler, so this test no longer describes what leaving "
+	         "usb_serial.c out does", vectors);
 	mu_assert(weak_alias, msg);
 
 	for (i = 0; i < sizeof(makefiles) / sizeof(makefiles[0]); i++) {
-		int found = makefile_names(makefiles[i], "usb_serial.c");
+		int found = makefile_compiles(makefiles[i], "usb_serial.c");
 
 		snprintf(msg, sizeof(msg), "cannot read %s", makefiles[i]);
 		mu_assert_fatal(found >= 0, msg);
 		snprintf(msg, sizeof(msg),
 		         "%s no longer compiles usb_serial.c, so this image's USB "
-		         "interrupt reaches the default handler and the board stops "
-		         "answering the host", makefiles[i]);
+		         "interrupt reaches the default handler: the board stops "
+		         "answering the host and the watchdog resets it every few "
+		         "seconds", makefiles[i]);
 		mu_assert(found == 1, msg);
 	}
 }

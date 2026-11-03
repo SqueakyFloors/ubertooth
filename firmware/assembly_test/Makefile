@@ -5,11 +5,12 @@ TARGET = assembly_test
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c is in the list for USB_IRQHandler, which the interrupt vector
-# table points at. This image serves USB from its own loop and leaves that
-# interrupt disabled, so the handler runs only if the enable in
-# assembly_test.c is uncommented. The serial console in the same file is
-# unused here.
+# usb_serial.c is here for USB_IRQHandler alone; the serial console it also
+# holds is unused. Unlike the shipped images, this one serves USB from its own
+# loop with the USB interrupt disabled, so the handler cannot run as the image
+# stands. It is kept so that uncommenting the one line in assembly_test.c that
+# enables the interrupt does not send it to the default handler, which never
+# returns.
 SRC = $(TARGET).c \
 	$(LIBS_PATH)/cc2400_wait.c \
 	$(LIBS_PATH)/usb_serial.c \

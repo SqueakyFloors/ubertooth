@@ -15,10 +15,14 @@ endif
 
 # List C source files here. (C dependencies are automatically generated.)
 #
-# usb_serial.c is in the list for USB_IRQHandler, which the interrupt vector
-# table points at. Nothing here names it, and nothing here uses the serial
-# console in the same file, but dropping the file sends the USB interrupt to
-# the default handler, which spins forever.
+# usb_serial.c is here for USB_IRQHandler alone. No source in this image calls
+# anything in that file, and the serial console it also holds is unused, so it
+# reads like a source this image does not need. It is not: LPC17xx_Interrupts.c
+# puts USB_IRQHandler in the interrupt vector table and declares the name weak
+# and aliased to the default handler, so the link succeeds either way. Drop the
+# file and the USB interrupt reaches that default handler, which never returns:
+# the board stops answering the host and the watchdog resets it every few
+# seconds.
 SRC = $(TARGET).c \
 	bluetooth.c \
 	bluetooth_le.c \
