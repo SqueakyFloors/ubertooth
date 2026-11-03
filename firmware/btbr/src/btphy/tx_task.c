@@ -252,12 +252,9 @@ const struct tdma_sched_item tx_sched_set[] = {
 	SCHED_END_SET()
 };
 
-/* How many slot tasks a transmit puts on the scheduler: the two above, a slot
- * apart. The scheduler says how many of them it placed, and a transmit that
- * got fewer than all of them is one the caller has to be told about. Each item
- * of the set is followed by an end-of-frame marker and the set by an
- * end-of-set one, which is what the count below checks, so an item added to
- * the set without changing this stops the build. */
+/* How many slot tasks a transmit puts on the scheduler: the two above. Each
+ * item of the set is followed by an end-of-frame marker and the set by an
+ * end-of-set one, so an item added without changing this stops the build. */
 #define TX_SCHED_ITEMS	2
 _Static_assert(ARRAY_SIZE(tx_sched_set) == 2 * TX_SCHED_ITEMS + 1,
 	"TX_SCHED_ITEMS does not match tx_sched_set");
@@ -300,21 +297,15 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 	 * scheduler. */
 	placed = tdma_schedule_set(delay, tx_sched_set, 0);
 
+	/* Nothing of the transmit was placed, so no task of it will ever run.
+	 * tx_finalize() is what usually reports the completion the caller
+	 * waits on, and that callback is what schedules the link's next
+	 * receive or transmit, so there is nothing left to report it but this:
+	 * unreported, the link stops forever and the next packet the caller
+	 * hands over stops the firmware with "already got pkt". The radio is
+	 * never tuned or strobed, because tx_prepare() is what does that. */
 	if (placed <= 0)
 	{
-		/* Not one task of this transmit was placed, so nothing of it
-		 * will ever run. The caller is waiting on the completion that
-		 * tx_finalize() usually reports, and its callback is what
-		 * schedules the link's next receive or transmit, so there is
-		 * nothing left to report it but this: unreported, the link
-		 * stops forever and the next packet the caller hands over
-		 * stops the firmware with "already got pkt".
-		 *
-		 * A count below zero cannot happen, and is treated as none
-		 * placed because that is the outcome the link cannot survive.
-		 *
-		 * The radio is untouched. tx_prepare() is what tunes it, and
-		 * it was never scheduled. */
 		cprintf("TX: cannot schedule transmit, packet not sent\n");
 
 		/* Release the packet before reporting it, the order
@@ -326,16 +317,14 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 		return;
 	}
 
+	/* tx_prepare() was placed and tx_execute() was not, so the radio is
+	 * still tuned and the packet still encoded, and the transmitter is
+	 * never turned on. tx_prepare() schedules tx_finalize() as always,
+	 * which reports the completion and releases the packet, so the link
+	 * carries on; only the packet is lost, and the protocol's own
+	 * retransmission covers it. */
 	if (placed < TX_SCHED_ITEMS)
-	{
-		/* tx_prepare() was placed and tx_execute() was not, so the
-		 * radio is tuned and the packet encoded but the transmitter is
-		 * never turned on. tx_prepare() still schedules tx_finalize(),
-		 * which reports the completion and releases the packet, so the
-		 * link carries on; only the packet is lost, and the protocol's
-		 * own retransmission covers it. */
 		cprintf("TX: cannot schedule start of transmission, packet not sent\n");
-	}
 }
 
 void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void*cbarg, bbhdr_t *hdr, uint8_t *data)
