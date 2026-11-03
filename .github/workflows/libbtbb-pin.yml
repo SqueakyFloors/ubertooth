@@ -76,6 +76,14 @@ jobs:
         : "${LIBBTBB_REF:?is not set in $build}"
         echo "pinned in $build: $LIBBTBB_REPO at $LIBBTBB_REF"
 
+        # The lines that pin a commit, as these files write one: a URL under
+        # the pinned repository, a LIBBTBB_REF or LIBBTBB_PINNED_REF setting,
+        # and the "git checkout" a reader types. Only these are read for
+        # hashes below, because a hash elsewhere in the same file is about
+        # something else: the build guide links a comment on an upstream
+        # libbtbb issue, and that link's anchor ends in a nine-digit number.
+        pin_line="github\.com/$LIBBTBB_REPO|LIBBTBB_REF|LIBBTBB_PINNED_REF|git checkout"
+
         # The pin is written out again in every file that builds libbtbb,
         # states which one this fork uses, or tells a user which one to go and
         # get. Fail here, naming the file, rather than let one of them drift to
@@ -88,14 +96,49 @@ jobs:
                  docs/source/build_guide.rst docs/source/building_from_git.rst \
                  host/cmake/modules/FindBTBB.cmake \
                  .github/workflows/manpages.yml; do
-          grep -q "$LIBBTBB_REF" "$f" || {
-            echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF" >&2
-            status=1
-          }
           grep -q "$LIBBTBB_REPO" "$f" || {
             echo "error: $f does not name the pinned libbtbb repository $LIBBTBB_REPO" >&2
             status=1
           }
+
+          # Each file has to carry the pin on a line that pins it, and carry
+          # no other commit hash on such a line. Asking only whether the pin
+          # appears somewhere in the file is what let COMPATIBILITY.md pass
+          # with two commits in it: its libbtbb row named the new commit in
+          # the link URL and a superseded short hash as the link text, so the
+          # table a reader consults said one thing and the build another.
+          pinned_here=no
+          while IFS=: read -r line text; do
+            # 7 to 40 hex digits is how git writes a commit, abbreviated or
+            # in full. At least one of them has to be a digit: every
+            # abbreviation git prints has one, and it keeps a word such as
+            # "defaced" from reading as a hash. An abbreviation of all
+            # letters, about one in a thousand, goes unchecked for it.
+            for hash in $(printf '%s\n' "$text" |
+                          grep -oE '[0-9a-f]{7,40}' | grep -E '[0-9]' |
+                          sort -u); do
+              case $LIBBTBB_REF in
+              "$hash")
+                pinned_here=yes
+                ;;
+              "$hash"*)
+                # An abbreviation of the pin, which is what the
+                # COMPATIBILITY.md row's link text is meant to be.
+                ;;
+              *)
+                echo "error: $f:$line pins libbtbb commit $hash, and the pin is $LIBBTBB_REF" >&2
+                status=1
+                ;;
+              esac
+            done
+          done <<< "$(grep -nE "$pin_line" "$f")"
+
+          if [ "$pinned_here" = no ]; then
+            echo "error: $f does not name the pinned libbtbb commit $LIBBTBB_REF in full" >&2
+            echo "       on a line that pins it (a $LIBBTBB_REPO URL, a REF setting," >&2
+            echo "       or a git checkout)" >&2
+            status=1
+          fi
         done
 
         # Agreeing on a commit is not enough: it has to be a commit a clone
