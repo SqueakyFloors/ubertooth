@@ -23,9 +23,14 @@ compared, so a field added to it has to be given a meaning here rather than
 going unchecked.
 
 The count a `tx` may ask for is BTCTL_TX_PKT_MAX_SLOTS divided by the format's
-slots, so that figure is compared as well, and the one expression each side
-divides with is pinned: the two tables agreeing is no use if one side stops
-dividing the same way.
+slots, so that figure is compared as well, and the one line each side divides
+on is pinned: the two tables agreeing is no use if one side stops dividing the
+same way.
+
+What this does not check. It compares the two descriptions, not the code that
+reads them: a side that stopped checking a length or a count against its own
+table, or that compared it the wrong way round, would pass here. Those checks
+are each other's tests, in test_ubtbr.py and in firmware/tests.
 
 The device's table holds two things this does not compare, because the host
 never sends either and has no copy to drift from: the air TYPE code a format
@@ -113,7 +118,19 @@ def braced(text, start):
         elif text[i] == "}":
             depth -= 1
             if depth == 0:
-                return text[open_at + 1:i]
+                region = text[open_at + 1:i]
+                if "#" in region:
+                    # A preprocessor directive inside a table or a function
+                    # body means the source says two different things and the
+                    # build picks one. Reading C as text cannot tell which, so
+                    # a scan that went on would be checking a branch that may
+                    # not be the one compiled.
+                    fail("a scanned table or body carries a preprocessor "
+                         "directive, so what the build uses is not what this "
+                         "test would read: %s"
+                         % [l.strip() for l in region.split("\n")
+                            if "#" in l][0])
+                return region
     fail("unbalanced braces in a scanned source file")
 
 
@@ -201,7 +218,10 @@ LIMITS_RULE = (
 
 
 def check_limits_rule(codec_c):
-    body = definition(codec_c, r"\bbbcodec_tx_format_limits\s*\([^)]*\)\s*",
+    # The return type is part of the pattern so that a call to the function
+    # is not taken for a second definition of it.
+    body = definition(codec_c,
+                      r"\bvoid\s+bbcodec_tx_format_limits\s*\([^)]*\)\s*",
                       "bbcodec_tx_format_limits()")
     found = " ".join(body.split())
     if found != LIMITS_RULE:
@@ -351,10 +371,12 @@ COMPARED = (
     ("voice", "voice", "the voice bytes the host fills"),
 )
 
-# The one expression each side divides BTCTL_TX_PKT_MAX_SLOTS by the format's
-# slots with, which is what turns the two tables into the count a `tx` may
-# ask for. Pinned as text: comparing the tables is no use if one side stops
-# dividing the way the other does.
+# The one line each side divides BTCTL_TX_PKT_MAX_SLOTS by the format's slots
+# on, which is what turns the two tables into the count a `tx` may ask for.
+# Pinned as text: comparing the tables is no use if one side stops dividing
+# the way the other does. Matched as a whole line, so neither a longer
+# expression that starts the same way nor a copy left in a comment stands in
+# for the line the code runs.
 DIVISIONS = (
     ("firmware/btbr/src/btctl/btctl.c",
      "max_slots = BTCTL_TX_PKT_MAX_SLOTS / t->nslots;"),
@@ -365,11 +387,15 @@ DIVISIONS = (
 
 def check_divisions(root):
     for path, expression in DIVISIONS:
-        if expression not in read(os.path.join(root, path)):
-            fail("%s no longer works the count out as %r, so the two sides "
-                 "may allow different counts from tables that agree. Check "
-                 "the other side divides the same way, then put the new "
-                 "expression in DIVISIONS." % (path, expression))
+        text = read(os.path.join(root, path))
+        if path.endswith(".c"):
+            text = strip_comments(text)
+        if expression not in [line.strip() for line in text.split("\n")]:
+            fail("%s no longer works the count out on a line of its own as "
+                 "%r, so the two sides may allow different counts from "
+                 "tables that agree. Check the other side divides the same "
+                 "way, then put the new line in DIVISIONS."
+                 % (path, expression))
 
 
 def main():
@@ -416,7 +442,10 @@ def main():
             if missing:
                 fail("%s names %s, which %s does not. Every format belongs "
                      "in all three: the host and the device each bound a tx "
-                     "command from their own table."
+                     "command from their own table. A format number the "
+                     "device is meant to refuse belongs in codec.c as an "
+                     "entry with no air layout, written out as NULL, so that "
+                     "it is a decision rather than an omission."
                      % (this, ", ".join(missing), other))
 
     for name in sorted(host):
@@ -445,7 +474,7 @@ def main():
     check_divisions(root)
 
     print("PASS: %d formats, %d fields each, agree between TX_FORMATS and "
-          "the firmware, and both sides allow the same count"
+          "the firmware, with the same slot bound divided the same way"
           % (len(host), len(COMPARED)))
 
 

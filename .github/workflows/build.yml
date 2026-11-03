@@ -110,7 +110,11 @@ jobs:
             echo "not a pull request: running everything"
             decide true true true; exit 0
           fi
-          files=$(git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
+          # --no-renames so a moved file is listed at both its old path and
+          # its new one. A rename reported as the destination alone hides the
+          # directory the file left, and the jobs that care about that
+          # directory would be skipped on the one branch that moved it.
+          files=$(git diff --no-renames --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
           echo "$files"
           # An empty diff means the comparison did not find the branch's
           # changes rather than that there are none, so build everything
