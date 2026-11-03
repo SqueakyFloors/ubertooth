@@ -82,16 +82,16 @@ note: if the expansion\-header bridge is still fitted, remove it (pins 1 and 3 o
 .fi
 .IP "" 0
 .P
-The first note appears only when \fB\-d\fR had written the whole image\. The second names the bootloader's three entry conditions, which are all there are\. The last is what to do about the one of them that repeats on every reset: the expansion\-header bridge described under MANUALLY ENTERING BOOTLOADER\.
+The first note appears only when \fB\-d\fR had written the whole image\. The second names the bootloader's three entry conditions, which are all there are\. The third is what to do about the one of them that repeats on every reset: the expansion\-header bridge described under MANUALLY ENTERING BOOTLOADER\.
 .P
-A run that wrote nothing, \fB\-r\fR on its own, gets a further note in place of the first, before the one about the bridge:
+A run that wrote no image, \fB\-r\fR on its own or beside \fB\-u\fR, gets one more note after the one naming the causes, as the remedy for the third of them:
 .IP "" 4
 .nf
-note: an interrupted download leaves the board without one, so write a whole image: \-d <image> \-r
+note: an interrupted download leaves the board without a whole image, so write one: \-d <image> \-r
 .fi
 .IP "" 0
 .P
-That is the remedy for the third condition, which is the state an interrupted download leaves behind\. A board that has just taken a whole image is not in that state, so a run that wrote one is never told to write again\.
+A board that has just taken a whole image is not in that state, so a run that wrote one is never told to write again\.
 .P
 The confirming wait is spent once per detach and only after the device has gone, so a board that never left the bootloader is reported as promptly as before\. The 1\.5 s is measured against one board on one host, where it was back within 630 ms of being asked to reset\. A board that takes longer than the whole 1\.5 s, behind a hub or on a loaded host, is back on the bus after the confirming listing has already read it as gone, and is reported as detached, which is the answer this check gave before it existed\.
 .P

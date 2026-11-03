@@ -202,17 +202,16 @@ failure:
 
 The first note appears only when `-d` had written the whole image. The second
 names the bootloader's three entry conditions, which are all there are. The
-last is what to do about the one of them that repeats on every reset: the
+third is what to do about the one of them that repeats on every reset: the
 expansion-header bridge described under MANUALLY ENTERING BOOTLOADER.
 
-A run that wrote nothing, `-r` on its own, gets a further note in place of the
-first, before the one about the bridge:
+A run that wrote no image, `-r` on its own or beside `-u`, gets one more note
+after the one naming the causes, as the remedy for the third of them:
 
-    note: an interrupted download leaves the board without one, so write a whole image: -d <image> -r
+    note: an interrupted download leaves the board without a whole image, so write one: -d <image> -r
 
-That is the remedy for the third condition, which is the state an interrupted
-download leaves behind. A board that has just taken a whole image is not in
-that state, so a run that wrote one is never told to write again.
+A board that has just taken a whole image is not in that state, so a run that
+wrote one is never told to write again.
 
 The confirming wait is spent once per detach and only after the device has
 gone, so a board that never left the bootloader is reported as promptly as

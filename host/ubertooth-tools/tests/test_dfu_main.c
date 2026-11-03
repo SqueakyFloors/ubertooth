@@ -1232,11 +1232,9 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
 	                 "as the board resets, or when the board holds no whole "
 	                 "application image to start\n") != NULL,
 	          "the general causes were not named");
-	/* This run wrote nothing, so a half-written image from an earlier
-	 * download is still the likeliest reason, and writing a whole one is
-	 * what clears it. */
+	/* A run that wrote no image gets the remedy for the third condition. */
 	mu_assert(strstr(r.err, "note: an interrupted download leaves the board "
-	                 "without one, so write a whole image: -d <image> -r\n")
+	                 "without a whole image, so write one: -d <image> -r\n")
 	          != NULL, "writing a whole image was not suggested");
 	mu_assert(strstr(r.err, "note: if the expansion-header bridge is still "
 	                 "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
@@ -1255,7 +1253,7 @@ MU_TEST(a_board_that_comes_back_in_the_bootloader_fails_a_bare_reset)
 	          "a remedy was offered before the general causes");
 	mu_assert(strstr(r.err, "interrupted download") <
 	          strstr(r.err, "expansion-header bridge"),
-	          "the bridge was suggested before the general causes");
+	          "the bridge was suggested before the interrupted download");
 	mu_assert_int_eq(0, (int)strlen(r.out));
 	/* The board reset once and came back, so cleanup does not reset it
 	 * again: that would land in the same place and say so in codes rather

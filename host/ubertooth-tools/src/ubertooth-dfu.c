@@ -1045,13 +1045,16 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 			        "as the board resets, or when the board holds no whole "
 			        "application image to start\n");
 			/* Only where this run wrote nothing: a half-written image from
-			 * an earlier download is then still in place, and writing a
+			 * an earlier download may still be in place, and writing a
 			 * whole one is what clears it. A run that did write a whole
 			 * image is not in that state, and writing it again is the one
-			 * thing that board does not need. */
+			 * thing that board does not need. What is known here is that
+			 * the host sent every block, not that the bootloader will start
+			 * what it sent, so a complete write of an image the bootloader
+			 * rejects is left to the condition named above. */
 			if (!runtime->download_completed)
 				fprintf(stderr, "note: an interrupted download leaves the "
-				        "board without one, so write a whole image: "
+				        "board without a whole image, so write one: "
 				        "-d <image> -r\n");
 			fprintf(stderr, "note: if the expansion-header bridge is still "
 			        "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
