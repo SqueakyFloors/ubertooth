@@ -702,7 +702,8 @@ static void replay_decode(ubertooth_t* ut, void* args)
 /* Which file would a writer given <output_name> write to? 0 once <where>
  * holds its device and inode numbers, -1 when they cannot be had -- a name
  * that does not exist yet, which is the ordinary case, or a path that cannot
- * be looked up, which the writer is about to report itself.
+ * be looked up, which the writer is about to report itself. The replay's
+ * input must be open, because the "-" case is answered from its descriptor.
  *
  * A lone "-" is this tool's own notation for standard output, so the
  * descriptor is what to look at; there is no name to look up. Every other
@@ -739,8 +740,8 @@ static int destination_file(const char* output_name, struct stat* where)
 /* Refuses an output file that is the dump a replay is reading. Every writer
  * here opens its file for writing, which truncates it, so a run given one file
  * for both would empty the dump before reading a record of it -- and a dump of
- * a Classic capture holds the only copy of what the board sent, in a format
- * only this tool and ubertooth-btle(1) write.
+ * a Classic capture holds the only copy of what the board sent, which no
+ * capture file keeps.
  *
  * The file is identified rather than the name, by the device and inode numbers
  * of the open input against those of the destination (see

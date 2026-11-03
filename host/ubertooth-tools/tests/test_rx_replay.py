@@ -111,15 +111,19 @@ def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
     """One ubertooth-rx run. `stdout` takes an open file for the cases that
     need this process's standard output pointed somewhere in particular, and
     `close_stdout` runs it with descriptor 1 closed, as `1>&-` does."""
+    # Descriptor 1 is closed by a shell rather than in a fork handler, which
+    # Python documents as unsafe in a process that has threads.
+    command = [BINARY, *arguments]
+    if close_stdout:
+        command = ["sh", "-c", 'exec 1>&-; exec "$0" "$@"', *command]
     return subprocess.run(
-        [BINARY, *arguments],
+        command,
         stdout=stdout,
         stderr=subprocess.PIPE,
         text=text,
         timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
-        preexec_fn=(lambda: os.close(1)) if close_stdout else None,
         # A replay opens no device; the switch keeps it that way if one of
         # these runs ever reaches device selection. LC_ALL, because a case
         # below compares a strerror() string and glibc translates those.

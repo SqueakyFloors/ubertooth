@@ -562,20 +562,25 @@ the `-` case below yet.
 It is the file that is compared and not the name, so `./capture.bin`, a
 symbolic link to it and a hard link to it are all refused, as is a `-d -`
 whose standard output the shell has pointed at the capture. A destination that
-is the same thing as the input is refused whatever kind of file it is, even
-where nothing could be lost, as `-i /dev/null -d /dev/null` is.
+is the same thing as the input is refused whatever kind of file it is: one
+rule rather than a list of kinds, which is why `-i /dev/null -d /dev/null` is
+refused as well, although nothing there could be lost.
 
 A refusal naming `-` reads `(standard output)` where the destination would
 otherwise be quoted, because that is what `-` means.
 
-What is not covered is a destination ubertooth-rx(1) cannot see the far end
-of. On systems other than Linux, that includes the paths which name an open
-descriptor: `-d /dev/stdout` and `-d /dev/fd/3` beside `3>>capture.bin` are
-served there by a filesystem of their own, which the comparison does not see
-through, where on Linux they are symbolic links that it follows. It also
-includes a pipe, `-d - | cat >> capture.bin`, which nothing can follow, and a
-redirection of the whole run, `ubertooth-rx -i capture.bin > capture.bin`,
-which the shell has carried out before ubertooth-rx(1) starts.
+Some destinations are not covered. ubertooth-rx(1) cannot see the far end of a
+pipe, `-d - | cat >> capture.bin`, and on systems other than Linux it cannot
+see through the paths that name an open descriptor: `-d /dev/stdout` and
+`-d /dev/fd/3` beside `3>>capture.bin` are served there by a filesystem of
+their own, where on Linux they are symbolic links it follows.
+
+A redirection of the whole run is a different matter, because the capture is
+then not a destination ubertooth-rx(1) was given at all. With
+`ubertooth-rx -i capture.bin > capture.bin` the shell has emptied the file
+before ubertooth-rx(1) starts, which no command can prevent. With `>>` the
+decode is appended to the capture instead, which corrupts it as a record
+stream; that is not checked for.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

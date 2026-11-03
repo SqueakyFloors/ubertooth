@@ -1101,7 +1101,8 @@
   shell that has pointed standard output at it, `-d - >> capture.bin`, which
   used to read the records it was appending and never end. It does not cover a
   destination the tool cannot see the far end of -- a pipe, or, other than on
-  Linux, a path naming an open descriptor -- and ubertooth-rx(1) says so.
+  Linux, a path naming an open descriptor -- nor a redirection of the whole
+  run, `ubertooth-rx -i capture.bin >> capture.bin`; ubertooth-rx(1) says so.
   `ubertooth-btle` refuses a named destination the same way for its own replay,
   naming its own option; it has no equivalent of the `-` case yet.
   [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130)
