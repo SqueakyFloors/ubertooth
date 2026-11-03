@@ -247,7 +247,7 @@ Verified firmware revision: git\-ed30131d
 That is the revision the board reported once it was running the new firmware, so a script can read it on its own; the image name the verification also reads is checked rather than printed, because the \fBImage: \|\.\|\.\|\.\fR line already said which one was written\. From \fB\-\-update\-bootloader\fR it is what the board now holds and what to do next:
 .IP "" 4
 .nf
-Bootloader installed: the region now reports CRC32:0x7c52e323\.
+Bootloader installed: ubertooth\-util \-B will report CRC32:0x7c52e323\.
 The board is in DFU\. Write your firmware again (ubertooth\-dfu \-d bluetooth_rxtx\.dfu \-r)\.
 .fi
 .IP "" 0

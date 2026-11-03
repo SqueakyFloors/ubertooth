@@ -823,35 +823,64 @@ static void report_dfu_block_failure(const char* what, int block, int code)
 	report_dfu_failure(text, code);
 }
 
-int dfu_get_state(libusb_device_handle* devh) {
-	int rv;
+/*
+ * The three requests that drive the bootloader's state machine, each in two
+ * forms: the one below that says why it failed, and a quiet one that says
+ * nothing.
+ *
+ * The quiet form is for a caller whose run carries on after the board would
+ * not become idle, and there is one -- the bootloader region read-back that
+ * --update-bootloader makes after the update. An `error: ` line belongs to a
+ * command that fails, so a check that could not be made has to go through
+ * requests that do not print one, not just a wait that does not.
+ */
+static int dfu_get_state_quiet(libusb_device_handle* devh)
+{
 	uint8_t state;
-	rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATE, 0, 0, &state, 1, 1000);
-	if (rv < 0) {
+	int rv = libusb_control_transfer(devh, DFU_IN, REQ_GETSTATE, 0, 0,
+	                                 &state, 1, 1000);
+
+	return rv < 0 ? rv : state;
+}
+
+static int dfu_clear_status_quiet(libusb_device_handle* devh)
+{
+	int rv = libusb_control_transfer(devh, DFU_OUT, REQ_CLRSTATUS, 0, 0,
+	                                 NULL, 0, 1000);
+
+	return rv < 0 ? rv : 0;
+}
+
+static int dfu_abort_quiet(libusb_device_handle* devh)
+{
+	int rv = libusb_control_transfer(devh, DFU_OUT, REQ_ABORT, 0, 0,
+	                                 NULL, 0, 1000);
+
+	return rv < 0 ? rv : 0;
+}
+
+int dfu_get_state(libusb_device_handle* devh) {
+	int rv = dfu_get_state_quiet(devh);
+
+	if (rv < 0)
 		report_dfu_failure("read the DFU state", rv);
-		return rv;
-	}
-	return state;
+	return rv;
 }
 
 int dfu_clear_status(libusb_device_handle* devh) {
-	int rv;
-	rv = libusb_control_transfer(devh, DFU_OUT, REQ_CLRSTATUS, 0, 0, NULL, 0, 1000);
-	if (rv < 0) {
+	int rv = dfu_clear_status_quiet(devh);
+
+	if (rv < 0)
 		report_dfu_failure("clear the DFU status", rv);
-		return rv;
-	}
-	return 0;
+	return rv;
 }
 
 int dfu_abort(libusb_device_handle* devh) {
-	int rv;
-	rv = libusb_control_transfer(devh, DFU_OUT, REQ_ABORT, 0, 0, NULL, 0, 1000);
-	if (rv < 0) {
+	int rv = dfu_abort_quiet(devh);
+
+	if (rv < 0)
 		report_dfu_failure("abort the DFU operation", rv);
-		return rv;
-	}
-	return 0;
+	return rv;
 }
 
 /* The state machine of enter_dfu_mode() runs in dfu_reach_idle(); these are
@@ -879,11 +908,38 @@ static const struct dfu_idle_ops IDLE_OPS = {
 	.sleep_ms = transition_sleep_ms,
 };
 
-/* Wait, bounded, for the bootloader to be idle, reporting nothing. For a
- * caller that will say in its own words what a board that would not become
- * idle means, rather than ending the command: an `error: ` line belongs to a
- * run that fails, so the one caller whose run goes on cannot use the reporting
- * form below. Returns 0, or a negative enum dfu_idle_result. */
+/* The same machine over the quiet requests, for enter_dfu_mode_quiet(). */
+static int idle_get_state_quiet(void *context __attribute__((unused)),
+                                void *handle)
+{
+	return dfu_get_state_quiet(handle);
+}
+
+static int idle_abort_quiet(void *context __attribute__((unused)),
+                            void *handle)
+{
+	return dfu_abort_quiet(handle);
+}
+
+static int idle_clear_status_quiet(void *context __attribute__((unused)),
+                                   void *handle)
+{
+	return dfu_clear_status_quiet(handle);
+}
+
+static const struct dfu_idle_ops QUIET_IDLE_OPS = {
+	.get_state = idle_get_state_quiet,
+	.abort = idle_abort_quiet,
+	.clear_status = idle_clear_status_quiet,
+	.sleep_ms = transition_sleep_ms,
+};
+
+/* Wait, bounded, for the bootloader to be idle, reporting nothing -- neither
+ * the wait giving up nor any request it made along the way. For a caller that
+ * will say in its own words what a board that would not become idle means,
+ * rather than ending the command: an `error: ` line belongs to a run that
+ * fails, so the one caller whose run goes on cannot use the reporting form
+ * below. Returns 0, or a negative enum dfu_idle_result. */
 static int enter_dfu_mode_quiet(libusb_device_handle* devh)
 {
 	const struct dfu_idle_config config = {
@@ -892,7 +948,7 @@ static int enter_dfu_mode_quiet(libusb_device_handle* devh)
 	};
 	struct dfu_idle_report report;
 
-	return dfu_reach_idle(&IDLE_OPS, NULL, devh, &config, &report);
+	return dfu_reach_idle(&QUIET_IDLE_OPS, NULL, devh, &config, &report);
 }
 
 /* Wait, bounded, for the bootloader to be idle, so a board that answers
@@ -2041,10 +2097,20 @@ static int read_bootloader_region_once(libusb_device_handle *devh,
 		                             (uint16_t)block, 0,
 		                             region + (size_t)block * BLOCK_SIZE,
 		                             BLOCK_SIZE, 1000);
-		if (rv < 0)
-			return rv;
-		if (rv != BLOCK_SIZE)
-			return LIBUSB_ERROR_IO;
+		if (rv < 0 || rv != BLOCK_SIZE) {
+			/* Which block, and whether it failed or answered short, so a
+			 * board that reads back badly can be told from one that does
+			 * not read back at all. The note the caller prints carries the
+			 * libusb code; this carries the detail. */
+			char stage[80];
+
+			snprintf(stage, sizeof(stage), rv < 0 ?
+			         "bootloader region block %d was not read (usb_error=%d)" :
+			         "bootloader region block %d answered with %d bytes",
+			         block, rv);
+			log_dfu_stage(stage);
+			return rv < 0 ? rv : LIBUSB_ERROR_IO;
+		}
 	}
 	out->crc32 = ~dfu_image_crc32(region, BOOTLOADER_SIZE);
 	out->crc32_above_window = ~dfu_image_crc32(
@@ -2172,14 +2238,19 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 		return bootloader_check_unmade("the board did not report the "
 		                               "bootloader it had before the write",
 		                               0);
-	if (open_matching_dfu(runtime, identity, (void **)&devh) != 1)
+	rv = open_matching_dfu(runtime, identity, (void **)&devh);
+	if (rv != 1)
+		/* Nothing was opened on any answer but 1, so there is no handle to
+		 * close: find_ubertooth_dfu_device() returns 1 only once libusb has
+		 * the device open. */
 		return bootloader_check_unmade("the board in DFU could not be "
-		                               "opened", 0);
+		                               "opened", rv);
 	/* Reading the region means control transfers on interface 0. */
-	if (libusb_claim_interface(devh, 0) != 0) {
+	rv = libusb_claim_interface(devh, 0);
+	if (rv != 0) {
 		close_dfu_device(devh, 0);
 		return bootloader_check_unmade("the DFU interface could not be "
-		                               "claimed", 0);
+		                               "claimed", rv);
 	}
 	rv = read_bootloader_region(devh, &board);
 	close_dfu_device(devh, 1);
@@ -2795,7 +2866,10 @@ int main(int argc, char **argv) {
 		 * not read the region says neither more nor less than it used to,
 		 * and sends the reader to `ubertooth-util -B` for the answer. */
 		if (r == BL_INSTALL_CONFIRMED)
-			printf("Bootloader installed: the region now reports "
+			/* "will report", not "reports": on the path where the boot ROM
+			 * reads back over the window, this hash is what an application
+			 * will make of the region and not what the read-back saw. */
+			printf("Bootloader installed: ubertooth-util -B will report "
 			       "CRC32:0x%08x.\nThe board is in DFU. Write your firmware "
 			       "again (ubertooth-dfu -d bluetooth_rxtx.dfu -r).\n",
 			       (unsigned)update_image.region_crc32);

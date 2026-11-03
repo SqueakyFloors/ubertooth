@@ -106,6 +106,7 @@ static struct {
 	int part_id_calls;
 	int state;              /* the state GETSTATE reports */
 	int get_state_rc;       /* < 0: GETSTATE fails with this instead */
+	int get_state_rc_after_detach; /* ...from the reset onwards */
 	int get_state_calls;
 	/* The bootloader region the board holds, which the blocks below the
 	 * application region read back and which cmd_get_bootloader_info_quiet()
@@ -506,6 +507,10 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			 * happen at all. */
 			if (fake.open_rc_after_detach != 0)
 				fake.open_rc = fake.open_rc_after_detach;
+			/* ...and for a board that stops answering the state read once it
+			 * is back, so it never becomes idle for the read-back. */
+			if (fake.get_state_rc_after_detach != 0)
+				fake.get_state_rc = fake.get_state_rc_after_detach;
 
 		}
 		return fake.detach_rc;
@@ -3071,14 +3076,14 @@ MU_TEST(an_update_that_leaves_the_board_in_dfu_is_a_success)
 	/* The result, so standard output: the region was read back and holds the
 	 * bootloader the image carries. */
 	snprintf(line, sizeof(line),
-	         "Bootloader installed: the region now reports CRC32:0x%08x.",
-	         (unsigned)updater_image_crc32());
+	         "Bootloader installed: ubertooth-util -B will report "
+	         "CRC32:0x%08x.", (unsigned)updater_image_crc32());
 	mu_assert(strstr(r.out, line) != NULL, r.out);
 	/* The same line written out, because it is the one ubertooth-dfu(1)
 	 * shows: the hash follows from the bytes build_installable_region()
 	 * writes, so a change to the test region has to reach the page too. */
-	mu_assert(strcmp(line, "Bootloader installed: the region now reports "
-	                 "CRC32:0x7c52e323.") == 0, line);
+	mu_assert(strcmp(line, "Bootloader installed: ubertooth-util -B will "
+	                 "report CRC32:0x7c52e323.") == 0, line);
 	mu_assert(strstr(r.out, expected) != NULL,
 	          "the run did not report the hash the region now holds");
 	mu_assert(strstr(r.out, "The board is in DFU.") != NULL, r.out);
@@ -3280,12 +3285,35 @@ MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
 }
 
-/* The DFU interface not claiming leaves the check unmade: a note, nothing
- * claimed about the region, the handle closed and the run carrying on with
- * what it said before. The bootloader not becoming idle for the read-back is
- * the same outcome by the same path, and is why that wait is made with
- * enter_dfu_mode_quiet(): an `error: ` line belongs to a command that failed,
- * and this one ends 0. */
+/*
+ * A board that stops answering the state read once it is back never becomes
+ * idle for the read-back, so the check cannot be made. The run goes on to say
+ * what it said before and ends 0, so nothing on this path may print an
+ * `error: ` line -- not the wait giving up, and not the requests it made
+ * trying. That is what enter_dfu_mode_quiet() and the quiet requests under it
+ * are for: an `error: ` line belongs to a command that failed.
+ */
+MU_TEST(a_board_that_will_not_become_idle_leaves_the_check_unmade_quietly)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	/* Everything before the reset had to work for the update to have
+	 * happened at all, so the state read fails only from there on. */
+	fake.get_state_rc_after_detach = LIBUSB_ERROR_PIPE;
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert(strstr(r.err, "could not be checked") != NULL, r.err);
+	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
+	          "the run claimed an installed bootloader it could not read");
+	mu_assert(strstr(r.out, "ubertooth-util -B") != NULL, r.out);
+}
+
+/* The DFU interface not claiming leaves the check unmade the same way: a note
+ * carrying the libusb code, nothing claimed about the region, the handle
+ * closed and the run carrying on with what it said before. */
 MU_TEST(a_dfu_interface_that_will_not_claim_leaves_the_check_unmade)
 {
 	struct run_result r;
@@ -3619,6 +3647,7 @@ int main(void)
 	MU_RUN(a_read_back_block_that_stalls_once_is_read_again_and_still_checked);
 	MU_RUN(a_bootloader_differing_only_inside_the_window_is_still_refused);
 	MU_RUN(a_board_that_already_holds_the_image_bootloader_is_not_refused);
+	MU_RUN(a_board_that_will_not_become_idle_leaves_the_check_unmade_quietly);
 	MU_RUN(a_dfu_interface_that_will_not_claim_leaves_the_check_unmade);
 	MU_RUN(an_update_writes_the_whole_image_with_the_vector_table_last);
 	MU_RUN(an_update_whose_board_stays_away_fails_and_says_to_leave_it_powered);

@@ -570,7 +570,7 @@ is checked rather than printed, because the `Image: ...` line already said
 which one was written. From `--update-bootloader` it is what the board now
 holds and what to do next:
 
-    Bootloader installed: the region now reports CRC32:0x7c52e323.
+    Bootloader installed: ubertooth-util -B will report CRC32:0x7c52e323.
     The board is in DFU. Write your firmware again (ubertooth-dfu -d bluetooth_rxtx.dfu -r).
 
 A run that could not read the region back prints the second line alone, and
