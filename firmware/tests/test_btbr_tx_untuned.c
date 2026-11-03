@@ -19,8 +19,11 @@
  * the firmware's own -- tdma_sched.c is linked, so the order the three tasks
  * run in is the board's order and not this file's idea of it. Everything else
  * is faked here: the radio, the slot clock, the hop sequence, and the codec.
- * The only fake with behaviour is the radio's lock bit, which is what decides
- * which path tx_execute() takes.
+ * Three of those fakes carry the cases: the radio's lock bit picks which path
+ * tx_execute() takes, the radio's state machine says whether the end of a
+ * transmission ever arrives, and the slot clock advances on every read, so how
+ * far it moved over a slot is how a task that waited is told from one that did
+ * not.
  */
 #include <stdarg.h>
 #include <stdint.h>

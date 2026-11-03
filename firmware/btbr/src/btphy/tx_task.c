@@ -147,8 +147,9 @@ static int tx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	if (!FS_TUNED())
 	{
-		/* The synthesizer has not locked since tx_prepare() strobed it
-		 * on a slot ago, so this packet cannot go out. Stop the radio
+		/* The synthesizer has not locked in the slot since
+		 * tx_prepare() strobed it on, so this packet cannot go out.
+		 * Stop the radio
 		 * and leave the slot to tx_finalize(), which tx_prepare()
 		 * already scheduled: that is what reports the completion the
 		 * caller is waiting on, so the connection goes on to its next
