@@ -3012,6 +3012,10 @@ MU_TEST(an_update_whose_board_stays_away_fails_and_says_to_leave_it_powered)
 	mu_assert(strstr(r.err, "did not return to DFU") != NULL, r.err);
 	mu_assert(strstr(r.err, "leave it powered") != NULL,
 	          "the failure did not say to leave the board powered");
+	/* The serial programmer is the one state USB cannot reach, so the
+	 * failure names the adapter that recovers a board from it. */
+	mu_assert(strstr(r.err, "serial programmer") != NULL,
+	          "the failure did not name the part's serial programmer");
 	/* The image did reach the board, so the user is not told to write it
 	 * again. */
 	mu_assert(fake.dnload_calls > 0, "nothing was written to the board");

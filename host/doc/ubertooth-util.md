@@ -464,11 +464,9 @@ about 71 minutes first.
 The bootloader is the first 16 KiB of the board's flash. It is what
 ubertooth-dfu(1) talks to, so it cannot replace itself: it refuses writes to
 its own region. `ubertooth-dfu --update-bootloader` installs one from a
-separate image instead, but no part has been programmed that way yet, so in
-practice installing another one still needs a serial In-System Programming
-adapter or JTAG at the bench; see ubertooth-dfu(1), UPDATING THE BOOTLOADER.
-A board otherwise keeps the bootloader it came with through every firmware
-update, and nothing else reports which one that is.
+separate image over USB instead; see ubertooth-dfu(1), UPDATING THE
+BOOTLOADER. A board otherwise keeps the bootloader it came with through every
+firmware update, and nothing else reports which one that is.
 
 The line has two parts. The version and the build string come from a block the
 bootloader carries at a fixed place, which this tree's bootloader fills in with

@@ -310,69 +310,54 @@ Miscellaneous:
 
 ## UPDATING THE BOOTLOADER
 
-A bootloader refuses USB writes below 0x4000, so it cannot replace itself, and
-until now a new bootloader reached a board only over the serial programming
-interface or JTAG. `--update-bootloader` does it over USB, in one command:
+A bootloader refuses USB writes below 0x4000, so it cannot replace itself: in
+earlier releases a new bootloader reached a board only over the serial
+programming interface or JTAG. `--update-bootloader` installs one over USB, in
+one command:
 
     ubertooth-dfu --update-bootloader -d bl_update.dfu
     ubertooth-dfu -d bluetooth_rxtx.dfu -r
     ubertooth-util -B
 
-No bootloader has been installed this way on a real part yet: the refusals
-below have been run on a board, and the write itself only against a model of
-the part's flash. So have a serial adapter wired up and the programming entry
-pin reachable before you start, because they are what recovers a board from an
-interrupted write.
-
 `bl_update.dfu` is an ordinary firmware image, built by `make -C firmware
-bl_update`, that carries the 16 KiB of bootloader region to install. The
+bl_update`, that carries the 16 KiB of bootloader region to install. This
 command writes it like any image and resets the board; the image programs the
-bootloader region through the part's own In-Application Programming commands,
-reads it back, and resets into DFU. It has no USB of its own, so the board
-comes back in DFU rather than as an application, and this command waits for
-it there.
+region through the part's own In-Application Programming commands, reads it
+back, and resets into DFU, where this command waits for it. That leaves the
+application region holding the updater, which is why the second line above is
+part of the procedure. Before anything is written, this command prints the
+CRC32 the installed bootloader will report; `ubertooth-util -B` on the third
+line prints what the board actually has, so the two can be compared.
+
+Have a serial adapter wired up and the programming entry pin reachable before
+you start. The region is erased whole and the sector holding the vector table
+is programmed last, so an interruption leaves erased flash where that table
+belongs: the boot ROM refuses it and starts its own serial programmer, which
+the adapter reaches. The exception is a loss of power inside the single 4 KiB
+program that writes the vector table, which leaves a checksum the boot ROM
+accepts in front of code that was never finished; recovering a board from that
+needs the entry pin held as well as the adapter. Nothing here narrows that
+window.
+
+Both the host and the image check the bootloader over the same bytes before
+any of it is programmed: that it is the whole 16 KiB region, that it carries a
+version block so the installed bootloader can report itself, that its vector
+table is one a part would start, and that the word at 0x2fc asks for no code
+read protection. The host refuses with nothing written and no board touched.
+The protection word is why the checks are made twice: CRP1 and CRP2 shut the
+debug interface, CRP3 shuts serial programming as well, NO_ISP turns the
+programming entry pin into an ordinary input, none of them can be undone from
+outside the part, and a board that took one cannot report that it did.
+
+A board already running the bootloader the image carries is not programmed
+again: the image compares the region first and returns to DFU.
 
 The image is what does the writing, so it writes whenever a board runs it:
 `ubertooth-dfu -d bl_update.dfu -r`, with no `--update-bootloader`, programs
-the bootloader region as well, and none of the host's checks below run first.
-Install it with `--update-bootloader`, and keep `bl_update.dfu` out of the
-place you keep the images you flash by habit.
-
-That leaves the application region holding the updater, which is why the
-second line above is part of the procedure: write your firmware again, then
-`ubertooth-util -B` reports the bootloader the board now has. The hash it
-prints is the one `--update-bootloader` printed before it wrote anything, so
-the two can be compared.
-
-Both the host and the image check the bootloader before any of it is
-programmed, over the same bytes: that it is the whole 16 KiB region, that it
-carries a version block so the installed bootloader can report itself, that
-its vector table is one a part would start, and that the word at 0x2fc asks
-for no code read protection. The host's refusals happen with nothing written
-and no board touched. The protection word is the reason there are two sets of
-checks: CRP1 and CRP2 shut the debug interface, CRP3 shuts serial programming
-as well, and NO_ISP turns the programming entry pin into an ordinary input.
-None can be undone from outside the part, and a board that took one cannot
-report that it did.
-
-A board that is already running the bootloader the image carries is not
-programmed again: the image compares the region first and returns to DFU.
-
-The region is erased before any of it is programmed, and the sector holding
-the vector table is written last. So an interruption -- a lost power or a
-reset while the four sectors are being written -- leaves erased flash where
-the vector table belongs; the boot ROM finds no valid checksum there and
-starts its serial programmer, which is the one state such a board can be
-recovered from, and it needs a serial adapter wired to the board.
-
-One window is left: a loss of power inside the single program of the first
-sector. The vector table is at the start of that sector, so the checksum
-reaches flash first and the window is the whole 4 KiB program, not its tail.
-A board left in it holds a checksum the boot ROM accepts in front of code that
-was never finished, so it starts that code instead of its serial programmer:
-recovering it needs the programming entry pin held as well as the serial
-adapter. Nothing here narrows that window; it is the one state this procedure
-can leave that the write order does not cover.
+the bootloader region as well, with none of the checks above. Install it with
+`--update-bootloader`, and keep `bl_update.dfu` out of the place you keep the
+images you flash by habit; a release archive ships it in
+`ubertooth-one-firmware-bin/bootloader-update/` for that reason.
 
 ## READING FLASH BACK
 

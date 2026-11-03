@@ -89,23 +89,18 @@
   ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
   their lengths.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- A bootloader can be installed over USB. Until now a new bootloader reached a
-  board only over the serial programming interface or JTAG, because a
+- A bootloader can be installed over USB. In earlier releases a new bootloader
+  reached a board only over the serial programming interface or JTAG, because a
   bootloader refuses USB writes to its own region, so the bootloader fixes in
   this release reached only boards someone had reflashed that way.
   `make -C firmware bl_update` builds an image that carries a bootloader, and
-  `ubertooth-dfu --update-bootloader -d bl_update.dfu` writes it: the image
-  programs the bootloader region through the part's own programming commands,
-  reads it back, and leaves the board in DFU, so the next step is to write your
-  firmware again and check the result with `ubertooth-util -B`. The host and
-  the image both refuse a bootloader that is not the whole region, carries no
-  version block, has no vector table a part would start, or asks for code read
-  protection at 0x2fc, which cannot be undone. The region write has not been
-  exercised on a board yet: what has been checked is the host's refusals, on a
-  real board, and the write itself against a model of the part's flash. Losing
-  power while the region is written still leaves a board that needs a serial
-  adapter; ubertooth-dfu(1), UPDATING THE BOOTLOADER says what is and is not
-  safe.
+  `ubertooth-dfu --update-bootloader -d bl_update.dfu` installs it: the host
+  prints the hash the new bootloader will report, the image programs the region
+  and reads it back, and the board returns to DFU for your firmware, which
+  `ubertooth-util -B` then confirms. An interrupted write leaves the board
+  waiting in the part's own serial programmer, so keep a serial adapter to
+  hand; ubertooth-dfu(1), UPDATING THE BOOTLOADER has the procedure, the
+  refusals, and the one window that needs the programming entry pin too.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - The board's generic radio mode is reachable from the command line, as an

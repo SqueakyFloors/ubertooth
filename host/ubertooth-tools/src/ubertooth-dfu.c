@@ -1016,7 +1016,6 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 			 * The run that wrote any other image would be failing here. */
 			log_dfu_stage("the board reset and returned to DFU, as the "
 			              "bootloader updater does");
-			runtime->board_left_the_bus = went;
 			return 0;
 		} else if (presence == DFU_PRESENCE_RETURNED) {
 			fprintf(stderr, "error: detach failed: the board reset and came "
@@ -1944,6 +1943,14 @@ static int wait_for_dfu_after_update(struct dfu_runtime_context *runtime,
 	        "seconds; it may still be writing the bootloader, so leave it "
 	        "powered and look for it in DFU before doing anything else\n",
 	        (UPDATE_BL_POLLS * UPDATE_BL_POLL_INTERVAL_MS) / 1000u);
+	/* A board that stays off the bus may be in the part's own serial
+	 * programmer, which is the one state USB cannot reach: say so here,
+	 * because this is where a reader finds out they need the adapter the
+	 * man page told them to have ready. */
+	fprintf(stderr, "note: a board that stays off the bus may be waiting in "
+	        "the part's serial programmer, which needs a serial In-System "
+	        "Programming adapter to recover; see ubertooth-dfu(1), UPDATING "
+	        "THE BOOTLOADER\n");
 	return 1;
 }
 
