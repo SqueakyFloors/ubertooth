@@ -76,9 +76,12 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       ``ubertooth-dfu`` on ``PATH``.
 
     * For Ubertooth One these are bluetooth_rxtx (full and receive-only),
-      btbr, the bootloader and assembly_test, which is what
+      btbr, the bootloader, bl_update and assembly_test, which is what
       ``tools/ubertooth-release.sh`` builds and copies into
-      ``ubertooth-one-firmware-bin``. The receive-only image ships as
+      ``ubertooth-one-firmware-bin``. bl_update goes into a
+      ``bootloader-update`` subdirectory of its own, because flashing it as
+      ordinary firmware programs the bootloader region. The receive-only
+      image ships as
       ``bluetooth_rx_only.*`` and calls itself ``bluetooth_rx`` in its
       firmware info block, so a board running it can be told from one running
       the full image; the script takes that name from the image's own

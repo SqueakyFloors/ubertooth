@@ -103,7 +103,11 @@ LPCUSB_PATH = $(LIBS_PATH)/lpcusb/target
 #     Even though the DOS/Win* filesystem matches both .s and .S the same,
 #     it will preserve the spelling of the filenames, and gcc itself does
 #     care about how the name is spelled on its command-line.
-ASRC =
+#
+# `?=` so an image can name one before including this file, as it names its C
+# sources. Only firmware/bl_update does: the bootloader it carries is included
+# by the assembler.
+ASRC ?=
 
 # Object files directory
 #     To put object files in current directory, use a dot (.), do NOT make
@@ -245,7 +249,12 @@ CPPFLAGS += -Weffc++
 #  -gstabs:   have the assembler create line number information
 #  -listing-cont-lines: Sets the maximum number of continuation lines of hex
 #       dump that will be displayed for a given single line of source input.
-ASFLAGS = -g$(DEBUG) $(ADEFS) -I.  -alhms=$(call per_image,$(<:%.S=%.lst))
+#
+# These go to the assembler itself, not through the compiler, so the debugging
+# option is the assembler's own `--gdwarf-2`: the compiler's `-g$(DEBUG)`
+# expands to a `-g3` the assembler refuses outright. No image had an assembler
+# source until firmware/bl_update, so the line was never run.
+ASFLAGS = --gdwarf-2 $(ADEFS) -I.  -alhms=$(call per_image,$(<:%.S=%.lst))
 
 #---------------- Library Options ----------------
 

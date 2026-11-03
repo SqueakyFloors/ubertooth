@@ -546,7 +546,9 @@ void opt_report_bad_option(int opt, int argc, char *argv[], const char *options)
 		return;
 	}
 	/* A rejected '-' is a letter inside a word the user wrote, so the whole
-	 * word is quoted back. No tool takes long options. */
+	 * word is quoted back. No tool takes long options: ubertooth-dfu's
+	 * --update-bootloader is taken out of argv before getopt reads it, so a
+	 * word starting with "--" still arrives here as a rejected '-'. */
 	if (letter == '-') {
 		word = dash_word(argc, argv, options);
 		if (word == NULL)

@@ -84,7 +84,7 @@ write_version_headers() {
 	rxtx_name="${1:-bluetooth_rxtx}"
 	# Not the bootloader: it includes no version.h and carries no firmware
 	# info block.
-	for imgdir in bluetooth_rxtx btbr assembly_test; do
+	for imgdir in bluetooth_rxtx btbr bl_update assembly_test; do
 		d="${targetdir}/firmware/${imgdir}"
 		if ! test -d "${d}" ; then
 			echo "error: no ${d} to write version.h into" >&2
@@ -149,6 +149,24 @@ cp btbr/btbr.dfu "${targetdir}/ubertooth-one-firmware-bin/"
 make "${stamp[@]}" bootloader
 cp bootloader/bootloader.hex "${targetdir}/ubertooth-one-firmware-bin/"
 cp bootloader/bootloader.bin "${targetdir}/ubertooth-one-firmware-bin/"
+
+# The bootloader updater, which carries the bootloader built just above, so it
+# comes after it: building this image builds that one. Users flash it to
+# install the bootloader over USB. Its own directory is named rather than the
+# firmware/Makefile target, because that target builds only what CI needs
+# (bin sym) and a release needs the packaged .dfu as well.
+#
+# It ships in a subdirectory of its own, not beside bluetooth_rxtx.dfu:
+# writing it to a board programs the bootloader region whichever way it got
+# there, so an ordinary flash of it, with no --update-bootloader, writes the
+# region with none of the host's checks. Keeping it out of the directory
+# someone flashes from by habit is what ubertooth-dfu(1), UPDATING THE
+# BOOTLOADER tells the user to do, and the archive follows its own advice.
+mkdir -p "${targetdir}/ubertooth-one-firmware-bin/bootloader-update"
+make "${stamp[@]}" -C bl_update
+cp bl_update/bl_update.hex "${targetdir}/ubertooth-one-firmware-bin/bootloader-update/"
+cp bl_update/bl_update.bin "${targetdir}/ubertooth-one-firmware-bin/bootloader-update/"
+cp bl_update/bl_update.dfu "${targetdir}/ubertooth-one-firmware-bin/bootloader-update/"
 make "${stamp[@]}" assembly_test
 cp assembly_test/assembly_test.hex "${targetdir}/ubertooth-one-firmware-bin/"
 cp assembly_test/assembly_test.bin "${targetdir}/ubertooth-one-firmware-bin/"

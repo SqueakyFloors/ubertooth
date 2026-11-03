@@ -112,6 +112,27 @@ SECTIONS
 		KEEP(*(.bl_version))
 		_bl_version_end = .;
 
+		/*
+		 * The bootloader the updater image carries, at its own fixed
+		 * offset above the blocks before it, so ubertooth-dfu reads
+		 * the bootloader out of the image file without searching it.
+		 * UBERTOOTH_BL_UPDATE_PAYLOAD_OFFSET (0x200) and
+		 * UBERTOOTH_BL_UPDATE_PAYLOAD_LENGTH (16 KiB) are in
+		 * host/libubertooth/src/ubertooth_interface.h, which
+		 * firmware/tests/test_bl_update.c reads and puts against
+		 * these numbers.
+		 *
+		 * Only firmware/bl_update has such a section; every other
+		 * image leaves it empty and its code starts where it always
+		 * did, because the location counter only moves to the offset
+		 * when there is something to put there. The ASSERTs below
+		 * allow a zero-length section for that reason.
+		 */
+		. = DEFINED(bl_payload) ? MAX(., _interrupt_vector_table + 0x200) : .;
+		_bl_payload_start = .;
+		KEEP(*(.bl_payload))
+		_bl_payload_end = .;
+
 		*(.text .text.* .gnu.linkonce.t.*)
 		*(.rodata .rodata.* .gnu.linkonce.r.*)
 
@@ -305,3 +326,13 @@ ASSERT(_bl_version_end - _bl_version_start == 0 || _bl_version_end - _bl_version
  * part's debug and programming interfaces, which is not recoverable here. */
 ASSERT(_bl_version_end - _bl_version_start == 0 || _bl_version_end - _interrupt_vector_table <= 0x2fc,
 	"the bootloader version block reaches the code read protection word at 0x2fc")
+
+/* The bootloader the updater image carries. Both checks pass for an image
+ * that carries none, which is every image but firmware/bl_update. The host
+ * reads the payload from the offset alone, so an image whose payload moved,
+ * or whose payload is not the whole region, has to fail the link rather than
+ * have ubertooth-dfu read the wrong bytes as a bootloader. */
+ASSERT(_bl_payload_end - _bl_payload_start == 0 || _bl_payload_start - _interrupt_vector_table == 0x200,
+	"the bootloader payload is not at offset 0x200")
+ASSERT(_bl_payload_end - _bl_payload_start == 0 || _bl_payload_end - _bl_payload_start == 0x4000,
+	"the bootloader payload is not the whole 16 KiB bootloader region")

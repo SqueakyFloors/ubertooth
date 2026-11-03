@@ -56,7 +56,7 @@ The whole file is written, the 16\-byte DFU suffix included, and the last block 
 .P
 That check is the only one this tool can act on, because it never reads the board's answer after the stall\. A bootloader built from this tree refuses a block with no flash behind it, bounded the same way as the read\-back described under READING FLASH BACK below, so it stops at the top of the part's flash and says \fBERRADDRESS\fR for the blocks above it; older bootloaders have no upper bound and instead ask the microcontroller's programming interface to erase and program a sector the part does not have, which fails\. Either way everything sent before that point is already written, and all this tool sees of the refusal is the stall, which it reports as \fBerror: could not write block 164: the board's firmware does not support it (stalled, libusb \-9)\fR, a message that says nothing about flash sizes\. Blocks below that point are already written, so the board holds part of an image: the order described below means it holds no vector table either, so there is nothing for it to start\. It is the same cause as the read\-back bound: asking for flash the part has not got\.
 .P
-A \fB\-d\fR that stops part way through \-\- a cable pulled, a board that leaves the bus, a host that dies \-\- leaves a board with no application to start rather than a broken one\. The first 256 bytes of the application region hold the vector table the board starts from, and they are written twice: blank first, so there is nothing to start while the rest of the image goes in, and with the real vector table in the last step of the transfer\. A bootloader built from this tree finds the blank table, refuses to jump, and waits in DFU for another image, so a flash that failed is followed by another \fBubertooth\-dfu \-d\fR\. A checksum over that table goes in with it, in the word the part reserves for one at offset 0x1c, so a first block whose programming did not finish does not add up and is refused as well\. A board carrying an earlier bootloader jumps into the blank table instead and stops there, so it needs the same trip to the bench it always did; a bootloader is installed with ISP or JTAG rather than over USB, so this part of the fix reaches a board only when someone puts it there\.
+A \fB\-d\fR that stops part way through \-\- a cable pulled, a board that leaves the bus, a host that dies \-\- leaves a board with no application to start rather than a broken one\. The first 256 bytes of the application region hold the vector table the board starts from, and they are written twice: blank first, so there is nothing to start while the rest of the image goes in, and with the real vector table in the last step of the transfer\. A bootloader built from this tree finds the blank table, refuses to jump, and waits in DFU for another image, so a flash that failed is followed by another \fBubertooth\-dfu \-d\fR\. A checksum over that table goes in with it, in the word the part reserves for one at offset 0x1c, so a first block whose programming did not finish does not add up and is refused as well\. A board carrying an earlier bootloader jumps into the blank table instead and stops there, so it needs the same trip to the bench it always did; a bootloader reaches a board over ISP, over JTAG, or with \fB\-\-update\-bootloader\fR (see \fIUPDATING THE BOOTLOADER\fR), so this part of the fix reaches a board only when someone puts it there\.
 .P
 The last step writes a whole 4 KiB sector, because the bootloader erases a flash sector when the first block of it is written, so the vector table goes in before the fifteen blocks that share its sector\. An interruption in between would leave a board a vector table that reads perfectly in front of flash that is only partly written, and the checksum over the table says nothing about it\. So the same step records what the whole download wrote: how many bytes, and a checksum over them, in 32 bytes of the image reserved for it at offset 0xe0\. Those bytes are in the same 256 the vector table is in, so a board that finds a vector table finds the record with it, and a bootloader from this tree adds the image up before it starts any of it\. A sector that is only partly written does not add up \-\- erased flash reads 0xFFFFFFFF \-\- and the board waits in DFU for another image instead\.
 .P
@@ -121,6 +121,9 @@ Upload \- read the application flash region, as much of it as the part has, into
 .TP
 \fB\-r\fR
 Reset device after performing operation
+.TP
+\fB\-\-update\-bootloader\fR
+Install the bootloader carried by the \fBbl_update\fR image given with \fB\-d\fR (see \fIUPDATING THE BOOTLOADER\fR)\. It needs \fB\-d\fR, and it resets the board, so \fB\-r\fR alongside it changes nothing\. The board is left in DFU, not running an application
 .P
 Miscellaneous:
 .TP
@@ -135,6 +138,25 @@ print the version: the host tools, then the firmware version and build of each a
 .TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
+.SH "UPDATING THE BOOTLOADER"
+A bootloader refuses USB writes below 0x4000, so it cannot replace itself: in earlier releases a new bootloader reached a board only over the serial programming interface or JTAG\. \fB\-\-update\-bootloader\fR installs one over USB, in one command:
+.IP "" 4
+.nf
+ubertooth\-dfu \-\-update\-bootloader \-d bl_update\.dfu
+ubertooth\-dfu \-d bluetooth_rxtx\.dfu \-r
+ubertooth\-util \-B
+.fi
+.IP "" 0
+.P
+\fBbl_update\.dfu\fR is an ordinary firmware image, built by \fBmake \-C firmware bl_update\fR, that carries the 16 KiB of bootloader region to install\. This command writes it like any image and resets the board; the image programs the region through the part's own In\-Application Programming commands, reads it back, and resets into DFU, where this command waits for it\. That leaves the application region holding the updater, which is why the second line above is part of the procedure\. Before anything is written, this command prints the CRC32 the installed bootloader will report; \fBubertooth\-util \-B\fR on the third line prints what the board actually has, so the two can be compared\.
+.P
+Have a serial adapter wired up and the programming entry pin reachable before you start\. The region is erased whole and the sector holding the vector table is programmed last, so an interruption leaves erased flash where that table belongs: the boot ROM refuses it and starts its own serial programmer, which the adapter reaches\. The exception is a loss of power inside the single 4 KiB program that writes the vector table, which leaves a checksum the boot ROM accepts in front of code that was never finished; recovering a board from that needs the entry pin held as well as the adapter\. Nothing here narrows that window\.
+.P
+Both the host and the image check the bootloader over the same bytes before any of it is programmed: that it is the whole 16 KiB region, that it carries a version block so the installed bootloader can report itself, that its vector table is one a part would start, and that the word at 0x2fc asks for no code read protection\. The host refuses with nothing written and no board touched\. The protection word is why the checks are made twice: CRP1 and CRP2 shut the debug interface, CRP3 shuts serial programming as well, NO_ISP turns the programming entry pin into an ordinary input, none of them can be undone from outside the part, and a board that took one cannot report that it did\.
+.P
+A board already running the bootloader the image carries is not programmed again: the image compares the region first and returns to DFU\.
+.P
+The image is what does the writing, so it writes whenever a board runs it: \fBubertooth\-dfu \-d bl_update\.dfu \-r\fR, with no \fB\-\-update\-bootloader\fR, programs the bootloader region as well, with none of the checks above\. Install it with \fB\-\-update\-bootloader\fR, and keep \fBbl_update\.dfu\fR out of the place you keep the images you flash by habit; a release archive ships it in \fBubertooth\-one\-firmware\-bin/bootloader\-update/\fR for that reason\.
 .SH "READING FLASH BACK"
 \fB\-u <output\.bin>\fR is not the inverse of \fB\-d\fR: it writes a raw dump of the application flash region, from 0x4000 to the end of the part's flash, with no DFU suffix, so \fB\-d\fR refuses the result\. The dump holds the image that was written (its own suffix included, padded with 0xff to the next 256\-byte block), followed by whatever the rest of the region contains, normally 0xff\.
 .P

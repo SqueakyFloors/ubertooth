@@ -89,6 +89,19 @@
   ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
   their lengths.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
+- A bootloader can be installed over USB. In earlier releases a new bootloader
+  reached a board only over the serial programming interface or JTAG, because a
+  bootloader refuses USB writes to its own region, so the bootloader fixes in
+  this release reached only boards someone had reflashed that way.
+  `make -C firmware bl_update` builds an image that carries a bootloader, and
+  `ubertooth-dfu --update-bootloader -d bl_update.dfu` installs it: the host
+  prints the hash the new bootloader will report, the image programs the region
+  and reads it back, and the board returns to DFU for your firmware, which
+  `ubertooth-util -B` then confirms. An interrupted write leaves the board
+  waiting in the part's own serial programmer, so keep a serial adapter to
+  hand; ubertooth-dfu(1), UPDATING THE BOOTLOADER has the procedure, the
+  refusals, and the one window that needs the programming entry pin too.
+  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration
@@ -137,10 +150,9 @@
   [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 
 - `ubertooth-util -B` says which bootloader a board has, which nothing used to
-  report, and a bootloader cannot be replaced over USB. One built from this
-  tree reports its version and revision; every board as shipped reports no
-  version block, and a hash of the whole bootloader, which is what tells two
-  such bootloaders apart.
+  report. One built from this tree reports its version and revision; every
+  board as shipped reports no version block, and a hash of the whole
+  bootloader, which is what tells two such bootloaders apart.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
 
 - The release improves the bootloader and the flashing path, and a board runs

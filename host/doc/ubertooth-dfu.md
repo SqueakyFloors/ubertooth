@@ -115,8 +115,9 @@ one at offset 0x1c, so a first block whose programming did not finish does not
 add up and is refused as well. A
 board carrying an earlier bootloader jumps into the blank table instead and
 stops there, so it needs the same trip to the bench it always did; a
-bootloader is installed with ISP or JTAG rather than over USB, so this part of
-the fix reaches a board only when someone puts it there.
+bootloader reaches a board over ISP, over JTAG, or with `--update-bootloader`
+(see [UPDATING THE BOOTLOADER][]), so this part of the fix reaches a board
+only when someone puts it there.
 
 The last step writes a whole 4 KiB sector, because the bootloader erases a
 flash sector when the first block of it is written, so the vector table goes
@@ -286,6 +287,11 @@ Major modes:
    retried, and a pipe allows neither
  - `-r` :
    Reset device after performing operation
+ - `--update-bootloader` :
+   Install the bootloader carried by the `bl_update` image given with `-d`
+   (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and it resets the board,
+   so `-r` alongside it changes nothing. The board is left in DFU, not running
+   an application
 
 Miscellaneous:
 
@@ -301,6 +307,57 @@ Miscellaneous:
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
    an option given twice is still reported.
+
+## UPDATING THE BOOTLOADER
+
+A bootloader refuses USB writes below 0x4000, so it cannot replace itself: in
+earlier releases a new bootloader reached a board only over the serial
+programming interface or JTAG. `--update-bootloader` installs one over USB, in
+one command:
+
+    ubertooth-dfu --update-bootloader -d bl_update.dfu
+    ubertooth-dfu -d bluetooth_rxtx.dfu -r
+    ubertooth-util -B
+
+`bl_update.dfu` is an ordinary firmware image, built by `make -C firmware
+bl_update`, that carries the 16 KiB of bootloader region to install. This
+command writes it like any image and resets the board; the image programs the
+region through the part's own In-Application Programming commands, reads it
+back, and resets into DFU, where this command waits for it. That leaves the
+application region holding the updater, which is why the second line above is
+part of the procedure. Before anything is written, this command prints the
+CRC32 the installed bootloader will report; `ubertooth-util -B` on the third
+line prints what the board actually has, so the two can be compared.
+
+Have a serial adapter wired up and the programming entry pin reachable before
+you start. The region is erased whole and the sector holding the vector table
+is programmed last, so an interruption leaves erased flash where that table
+belongs: the boot ROM refuses it and starts its own serial programmer, which
+the adapter reaches. The exception is a loss of power inside the single 4 KiB
+program that writes the vector table, which leaves a checksum the boot ROM
+accepts in front of code that was never finished; recovering a board from that
+needs the entry pin held as well as the adapter. Nothing here narrows that
+window.
+
+Both the host and the image check the bootloader over the same bytes before
+any of it is programmed: that it is the whole 16 KiB region, that it carries a
+version block so the installed bootloader can report itself, that its vector
+table is one a part would start, and that the word at 0x2fc asks for no code
+read protection. The host refuses with nothing written and no board touched.
+The protection word is why the checks are made twice: CRP1 and CRP2 shut the
+debug interface, CRP3 shuts serial programming as well, NO_ISP turns the
+programming entry pin into an ordinary input, none of them can be undone from
+outside the part, and a board that took one cannot report that it did.
+
+A board already running the bootloader the image carries is not programmed
+again: the image compares the region first and returns to DFU.
+
+The image is what does the writing, so it writes whenever a board runs it:
+`ubertooth-dfu -d bl_update.dfu -r`, with no `--update-bootloader`, programs
+the bootloader region as well, with none of the checks above. Install it with
+`--update-bootloader`, and keep `bl_update.dfu` out of the place you keep the
+images you flash by habit; a release archive ships it in
+`ubertooth-one-firmware-bin/bootloader-update/` for that reason.
 
 ## READING FLASH BACK
 
