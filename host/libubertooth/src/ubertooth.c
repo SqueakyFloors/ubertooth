@@ -747,7 +747,7 @@ static void report_unscanned(int unopened, int open_err, int unread)
 	}
 }
 
-/* One extra line after a selection that found no Ubertooth, when a board is
+/* The extra lines after a selection that found no Ubertooth, when a board is
  * sitting in the DFU bootloader. Such a board is being flashed, or a flash
  * left it there, which is not the same as a board that is not attached -- and
  * the two read alike: "no Ubertooth found" in an overnight regression log was
@@ -795,15 +795,46 @@ void ubertooth_note_dfu_bootloader(void)
 	if (boards == 0)
 		return;
 	/* The bootloader reports no serial number, so the note cannot say which
-	 * board it is; the count is all there is to give. */
-	if (boards == 1)
+	 * board it is: how many are waiting is all it can tell the user about
+	 * them.
+	 *
+	 * "No tool but ubertooth-dfu", because that one does open the
+	 * bootloader -- and the line below sends the reader there. */
+	if (boards == 1) {
 		fprintf(stderr, "note: a board is in the DFU bootloader, so no tool "
-		        "can open it: it is being flashed, or a flash left it "
-		        "there\n");
-	else
+		        "but ubertooth-dfu can open it: it is being flashed, or a "
+		        "flash left it there\n");
+		/* The way out, in the same breath as the diagnosis: a user holding
+		 * the serial of a board that stopped answering has nothing else to
+		 * try, and ubertooth-dfu with no selector adopts the sole board in
+		 * DFU mode.
+		 *
+		 * Both forms are named as what they ask for, not as what the board
+		 * will do, because neither can be promised: the bootloader starts an
+		 * application only when the region passes its check, and a board
+		 * whose entry pin reads grounded is asked into DFU again by every
+		 * reset, whether an image was just written or not. A write needs -r
+		 * too, or the board stays in the bootloader.
+		 *
+		 * Naming what reaches the board, rather than what the caller asked
+		 * for, keeps the line true on every path that gets here, including
+		 * the ones with no selector at all.
+		 *
+		 * It is safe to suggest while another process is flashing that board
+		 * -- the case this note exists for -- because that process holds the
+		 * DFU interface, so a second ubertooth-dfu is refused the claim and
+		 * reports it rather than touching the flash. */
+		fprintf(stderr, "note: ubertooth-dfu with no -U is what reaches that "
+		        "board: -d <image> -r writes an image and asks the board to "
+		        "start it, and -r alone asks without writing\n");
+	} else {
 		fprintf(stderr, "note: %d boards are in the DFU bootloader, so no "
-		        "tool can open them: they are being flashed, or a flash "
-		        "left them there\n", boards);
+		        "tool but ubertooth-dfu can open them: they are being "
+		        "flashed, or a flash left them there\n", boards);
+		/* No way out is offered for several: ubertooth-dfu with no selector
+		 * refuses to choose between them, and this note cannot say which of
+		 * them the user meant. */
+	}
 }
 
 /* Find an Ubertooth by serial-number string (hex, as printed by -s), matched

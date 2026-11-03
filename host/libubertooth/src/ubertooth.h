@@ -551,13 +551,14 @@ void ubertooth_close(ubertooth_t* ut);
  * libusb returns depends on the system, so neither is reported on its own. The
  * code is kept in parentheses for bug reports. */
 void ubertooth_report_claim_failed(const char* board, int err);
-/* Reports any board sitting in the DFU bootloader, as a note on standard
- * error: a bootloader board answers no tool, and it is there because it is
- * being flashed or because a flash left it there. For the paths that found no
- * Ubertooth to work with -- a selection that came up empty, and -V with
- * nothing attached -- so that "no board" says what else was seen on the bus.
- * It says nothing when there is none, and nothing while the test switch hides
- * devices. */
+/* Reports any board sitting in the DFU bootloader, as notes on standard
+ * error: a bootloader board answers no tool but ubertooth-dfu, and it is
+ * there because it is being flashed or because a flash left it there. For the
+ * paths that found no Ubertooth to work with -- a selection that came up
+ * empty, and -V with nothing attached -- so that "no board" says what else
+ * was seen on the bus. One such board gets a second note naming what reaches
+ * it. It says nothing when there is none, and nothing while the test switch
+ * hides devices. */
 void ubertooth_note_dfu_bootloader(void);
 
 /*

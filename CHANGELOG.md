@@ -4,6 +4,11 @@
 
 ### New features
 
+- The note about a board in the DFU bootloader now names what reaches it,
+  `ubertooth-dfu` with no `-U`: `-d <image> -r` writes an image and asks the
+  board to start it, and `-r` alone asks without writing. The note no longer
+  says that no tool can open such a board, since that one can.
+  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
 - A capture whose receiver is being driven harder than the radio can measure
   says so instead of looking like a capture of an empty channel: `warning: the
   signal is at the top of the receiver's range, so the board cannot measure it

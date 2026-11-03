@@ -86,8 +86,9 @@ With no Ubertooth attached the host lines are followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
 board sitting in the DFU bootloader is named in a `note:` on standard error
-there, because no tool can open one and that is the usual reason a board is
-not in the answer. A
+there, with a second line saying what reaches it where it is the only one
+waiting, because no tool but ubertooth-dfu(1) can open one and that is the
+usual reason a board is not in the answer. A
 board that is attached but cannot be read -- in use by another program, or not
 answering -- has the reason on its own line (`Firmware version: unavailable,
 in use by another program`, or `Firmware version: read failed`) and the status
@@ -314,10 +315,27 @@ A board in the DFU bootloader is named too, because it is not a board that
 went away: while it is being flashed it enumerates as the bootloader, which no
 tool but ubertooth-dfu(1) can open, so every selection finds nothing until the
 flash finishes. An interrupted flash leaves it there until the next one
-succeeds.
+succeeds. Neither form of `-U` can name such a board -- the bootloader reports
+no serial number, and an index counts only the boards running their firmware
+-- so the second line says what reaches it instead.
 
     error: no Ubertooth found with serial matching 'aa1'
-    note: a board is in the DFU bootloader, so no tool can open it: it is being flashed, or a flash left it there
+    note: a board is in the DFU bootloader, so no tool but ubertooth-dfu can open it: it is being flashed, or a flash left it there
+    note: ubertooth-dfu with no -U is what reaches that board: -d <image> -r writes an image and asks the board to start it, and -r alone asks without writing
+
+`-r` on its own is the shorter way out, and enough for a board that was asked
+into DFU by a command and still holds its application. Both forms say what
+they ask for rather than what the board will do, because neither can be
+promised: the bootloader starts an application only when the region passes its
+check, so a board left half-written by an interrupted download stays there
+until a whole image is written, and a board whose bootloader entry pin reads
+grounded is asked into DFU again by every reset, with or without a fresh
+image, until the bridge is removed. A write needs `-r` as well, or the board
+stays in the bootloader.
+
+Several boards in the bootloader are counted instead, with no such advice:
+ubertooth-dfu(1) with no `-U` refuses to choose between them, and this note
+cannot say which of them was meant.
 
 A board that cannot be *opened* at all is a different problem, usually file
 permissions: on Linux, install the udev rules shipped with this package (see

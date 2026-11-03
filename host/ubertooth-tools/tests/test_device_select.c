@@ -83,7 +83,8 @@ static void bus_with_ubertooths(int n)
 
 /* Put count boards in the DFU bootloader on the faked bus, after whatever
  * bus_with_ubertooths() left there. The bootloader is a USB device of its own:
- * no tool can open it, and it is what a board being flashed looks like. */
+ * no tool but ubertooth-dfu can open it, and it is what a board being
+ * flashed looks like. */
 static void bus_with_bootloaders(int count)
 {
 	int i;
@@ -1120,6 +1121,43 @@ MU_TEST(the_test_switch_hides_every_device)
 	ubertooth_free(ut);
 }
 
+/* Run ubertooth_note_dfu_bootloader() with both streams captured: err gets
+ * what it wrote to standard error, out what it wrote to standard output. The
+ * second one matters as much as the first, because a library writing to
+ * standard output would land in the middle of a capture. */
+static void note_capturing(char *err, size_t errlen, char *out, size_t outlen)
+{
+	FILE *err_capture = tmpfile();
+	FILE *out_capture = tmpfile();
+	int saved_err = dup(fileno(stderr));
+	int saved_out = dup(fileno(stdout));
+	size_t n;
+
+	err[0] = '\0';
+	out[0] = '\0';
+	mu_assert_fatal(err_capture != NULL && out_capture != NULL &&
+	                saved_err >= 0 && saved_out >= 0, "capture both streams");
+	fflush(stderr);
+	fflush(stdout);
+	dup2(fileno(err_capture), fileno(stderr));
+	dup2(fileno(out_capture), fileno(stdout));
+	ubertooth_note_dfu_bootloader();
+	fflush(stderr);
+	fflush(stdout);
+	dup2(saved_err, fileno(stderr));
+	dup2(saved_out, fileno(stdout));
+	close(saved_err);
+	close(saved_out);
+	rewind(err_capture);
+	n = fread(err, 1, errlen - 1, err_capture);
+	err[n] = '\0';
+	fclose(err_capture);
+	rewind(out_capture);
+	n = fread(out, 1, outlen - 1, out_capture);
+	out[n] = '\0';
+	fclose(out_capture);
+}
+
 /*
  * The bootloader note runs where no board was found, and -V asks for it after
  * the count has given its libusb session back, so the note has to open one of
@@ -1128,33 +1166,60 @@ MU_TEST(the_test_switch_hides_every_device)
  */
 MU_TEST(the_bootloader_note_opens_a_session_of_its_own)
 {
-	char msg[256];
-	FILE *capture;
-	int saved;
-	size_t n;
+	char msg[512], out[64];
 
 	/* One board in the DFU bootloader, and no Ubertooth to work with. */
 	bus_with_ubertooths(0);
 	bus_with_bootloaders(1);
-	capture = tmpfile();
-	saved = dup(fileno(stderr));
-	msg[0] = '\0';
-	mu_assert_fatal(capture != NULL && saved >= 0, "capture stderr");
-	fflush(stderr);
-	dup2(fileno(capture), fileno(stderr));
-	ubertooth_note_dfu_bootloader();
-	fflush(stderr);
-	dup2(saved, fileno(stderr));
-	close(saved);
-	rewind(capture);
-	n = fread(msg, 1, sizeof(msg) - 1, capture);
-	msg[n] = '\0';
-	fclose(capture);
+	note_capturing(msg, sizeof(msg), out, sizeof(out));
 
 	mu_assert(strstr(msg, "in the DFU bootloader") != NULL, msg);
 	mu_assert_int_eq(1, fake.usb_inits);    /* it opened a session */
 	mu_assert_int_eq(0, fake.usb_sessions); /* ...and gave it back */
 	mu_assert(fake.list_calls > 0, "the bus was listed");
+}
+
+/* A board in the bootloader has no serial for -U to name, which is exactly
+ * the position a user is in when they reach for the serial of a board that
+ * stopped answering: the way out belongs in the note that names the problem,
+ * not in a second note somewhere else that would read as a contradiction.
+ *
+ * Both lines are on standard error and nothing is on standard output, as
+ * every library diagnostic is. The way out is offered for one waiting board
+ * only: with none there is nothing in the bootloader, and with several
+ * ubertooth-dfu refuses to choose between them. */
+MU_TEST(a_waiting_board_is_told_what_reaches_it)
+{
+	char msg[512], out[64];
+
+	bus_with_ubertooths(0);
+	bus_with_bootloaders(1);
+	note_capturing(msg, sizeof(msg), out, sizeof(out));
+	mu_assert(strcmp(msg,
+	    "note: a board is in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
+	    "it there\n"
+	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
+	    "<image> -r writes an image and asks the board to start it, and "
+	    "-r alone asks without writing\n")
+	    == 0, msg);
+	mu_assert_int_eq(0, (int)strlen(out));
+
+	/* Nothing in the bootloader: no note at all, on either stream. */
+	bus_with_ubertooths(2);
+	note_capturing(msg, sizeof(msg), out, sizeof(out));
+	mu_assert_int_eq(0, (int)strlen(msg));
+	mu_assert_int_eq(0, (int)strlen(out));
+
+	/* Several: the count, and no way out to offer. */
+	bus_with_ubertooths(0);
+	bus_with_bootloaders(2);
+	note_capturing(msg, sizeof(msg), out, sizeof(out));
+	mu_assert(strcmp(msg,
+	    "note: 2 boards are in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open them: they are being flashed, or a flash "
+	    "left them there\n") == 0, msg);
+	mu_assert_int_eq(0, (int)strlen(out));
 }
 
 /* ---- selecting by serial number ----------------------------------------- */
@@ -1717,8 +1782,13 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	          "a serial no board has");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth found with serial matching 'deadbeef'\n"
-	    "note: a board is in the DFU bootloader, so no tool can open it: "
-	    "it is being flashed, or a flash left it there\n") == 0, msg);
+	    "note: a board is in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
+	    "it there\n"
+	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
+	    "<image> -r writes an image and asks the board to start it, and "
+	    "-r alone asks without writing\n")
+	    == 0, msg);
 
 	/* And by index, where the selection's own message comes from the
 	 * connect: the note follows it. */
@@ -1727,8 +1797,13 @@ MU_TEST(a_board_in_the_bootloader_is_reported_as_such)
 	mu_assert(select_capturing("0", msg, sizeof(msg)) == NULL, "-U0 of none");
 	mu_assert(strcmp(msg,
 	    "error: no Ubertooth devices found\n"
-	    "note: a board is in the DFU bootloader, so no tool can open it: "
-	    "it is being flashed, or a flash left it there\n") == 0, msg);
+	    "note: a board is in the DFU bootloader, so no tool but "
+	    "ubertooth-dfu can open it: it is being flashed, or a flash left "
+	    "it there\n"
+	    "note: ubertooth-dfu with no -U is what reaches that board: -d "
+	    "<image> -r writes an image and asks the board to start it, and "
+	    "-r alone asks without writing\n")
+	    == 0, msg);
 
 	/* Several say how many. */
 	bus_with_ubertooths(0);
@@ -1855,6 +1930,7 @@ int main(void)
 	MU_RUN(a_device_without_a_descriptor_is_skipped);
 	MU_RUN(the_quiet_selection_refuses_the_same_indices);
 	MU_RUN(the_bootloader_note_opens_a_session_of_its_own);
+	MU_RUN(a_waiting_board_is_told_what_reaches_it);
 	MU_RUN(a_full_serial_opens_that_board);
 	MU_RUN(a_prefix_of_a_serial_opens_that_board);
 	MU_RUN(a_serial_matches_in_upper_case);
