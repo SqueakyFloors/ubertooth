@@ -972,6 +972,17 @@ enum watchdog_site {
 	 * stack asks for it at startup and from SET_CONFIGURATION, which the
 	 * host sends as it opens the device and after a bus reset. */
 	WATCHDOG_SITE_USB_REALIZE = 23,
+	/*
+	 * The promiscuous capture's search for a connection hopping with
+	 * channel selection algorithm 2. The capture feeds the watchdog from
+	 * its own loop, and this search is the longest it goes without doing
+	 * so: a couple of hundred milliseconds, still well inside the
+	 * three-second timeout.
+	 *
+	 * It runs in the capture's packet callback rather than in one of the
+	 * mode's waits, which is why it needs a site of its own.
+	 */
+	WATCHDOG_SITE_LE_CSA2     = 24,
 	WATCHDOG_SITE_COUNT
 };
 

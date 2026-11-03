@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "minunit.h"
+#include "source_scan.h"
 #include "bluetooth_le.h"
 
 #ifndef FW_RXTX_DIR
@@ -1707,6 +1708,68 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 	          "event of its own part way through");
 }
 
+/*
+ * The search names itself in the watchdog's breadcrumb: WATCHDOG_SITE_LE_CSA2,
+ * whose own comment says why. The mark has to be given back on every way out
+ * of the search, or it would name the search for the rest of the capture.
+ */
+MU_TEST(the_search_marks_its_own_watchdog_site)
+{
+	char path[512];
+	char line[SCAN_LINE_MAX];
+	FILE *f;
+	int in_block = 0, in_function = 0, done = 0;
+	int marked = 0, searched = 0, given_back = 0, left_early = 0;
+
+	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
+	f = fopen(path, "r");
+	mu_assert_fatal(f != NULL, "cannot read bluetooth_rxtx.c");
+
+	while (!done && fgets(line, sizeof(line), f) != NULL) {
+		/* A comment naming the site is not the mark. */
+		strip_comments(line, &in_block);
+
+		if (!in_function) {
+			/* The definition: column zero, and not a declaration. */
+			if (line[0] == ' ' || line[0] == '\t' ||
+			    line[0] == '#' || strchr(line, ';') != NULL)
+				continue;
+			in_function = calls_identifier(line,
+			                               "promisc_try_csa2");
+			continue;
+		}
+		if (!marked) {
+			marked = strstr(line,
+			    "watchdog_mark(WATCHDOG_SITE_LE_CSA2)") != NULL;
+			done = line[0] == '}';
+			continue;
+		}
+		if (strstr(line, "le_csa2_recover(") != NULL)
+			searched = 1;
+		if (strstr(line, "watchdog_mark(site)") != NULL)
+			given_back = 1;
+		else if (strstr(line, "return") != NULL)
+			left_early = 1;
+		/* Read as far as the restore, or to the end of the function
+		 * if there is none. */
+		done = given_back || line[0] == '}';
+	}
+	fclose(f);
+
+	mu_assert(marked,
+	          "promisc_try_csa2() does not mark WATCHDOG_SITE_LE_CSA2, so "
+	          "the search reads back as \"not in a wait\"");
+	mu_assert(searched,
+	          "the site is marked somewhere other than around "
+	          "le_csa2_recover(), which is the work that takes the time");
+	mu_assert(given_back,
+	          "the previous site is never put back, so the search would be "
+	          "named for the rest of the capture");
+	mu_assert(!left_early,
+	          "the search can be left by a return that does not put the "
+	          "previous site back");
+}
+
 /* ------------------------------------------------------------------------
  * The one number this header keeps a copy of
  * ------------------------------------------------------------------------ */
@@ -1773,6 +1836,7 @@ int main(void)
 	MU_RUN(an_event_too_close_is_skipped);
 	MU_RUN(the_handoff_refuses_an_impossible_interval);
 	MU_RUN(the_sighting_is_stamped_when_the_packet_arrived);
+	MU_RUN(the_search_marks_its_own_watchdog_site);
 	MU_RUN(the_interval_unit_matches_the_clock);
 	MU_RUN(how_often_it_works);
 	MU_RUN(a_declined_search_is_recovered_by_the_next);

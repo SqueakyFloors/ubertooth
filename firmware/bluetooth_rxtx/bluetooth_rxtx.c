@@ -3911,9 +3911,17 @@ static int promisc_try_csa2(u32 sighting) {
 	le_csa2_recovery_t rec;
 	le_csa2_handoff_t handoff;
 	u32 now, elapsed;
+	uint8_t site;
+	int found;
 
-	if (!le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
-			btle_channel_index(channel), le.access_address, &rec))
+	/* The longest this capture goes without feeding the watchdog from its
+	 * own loop: see WATCHDOG_SITE_LE_CSA2. */
+	site = watchdog_mark(WATCHDOG_SITE_LE_CSA2);
+	found = le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
+			btle_channel_index(channel), le.access_address, &rec);
+	watchdog_mark(site);
+
+	if (!found)
 		return 0;
 
 	now = CLK100NS;
