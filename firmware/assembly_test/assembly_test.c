@@ -262,16 +262,6 @@ static const u8 abDescriptors[] = {
 
 static u8 abVendorReqData[17];
 
-static void usb_bulk_in_handler(u8 bEP, u8 bEPStatus)
-{
-	if (!(bEPStatus & EP_STATUS_DATA))
-		dequeue();
-}
-
-static void usb_bulk_out_handler(u8 bEP, u8 bEPStatus)
-{
-}
-
 static BOOL usb_vendor_request_handler(TSetupPacket *pSetup, int *piLen, u8 **ppbData)
 {
 	u8 *pbData = *ppbData;
@@ -500,10 +490,6 @@ int ubertooth_usb_init()
 	// override standard request handler
 	USBRegisterRequestHandler(REQTYPE_TYPE_VENDOR, usb_vendor_request_handler,
 	                          abVendorReqData, sizeof(abVendorReqData));
-
-	// register endpoints
-	//USBHwRegisterEPIntHandler(BULK_IN_EP, usb_bulk_in_handler);
-	//USBHwRegisterEPIntHandler(BULK_OUT_EP, usb_bulk_out_handler);
 
 	// enable USB interrupts
 	// Not as simple as uncommenting this. The loops in this image drive the

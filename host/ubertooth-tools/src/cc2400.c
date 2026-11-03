@@ -846,18 +846,3 @@ cc2400_decode (FILE * fp, int r, unsigned short v, int verbose)
   else if (verbose > 0)
     (cc2400[i].f) (v);
 }
-
-#ifdef CC2400_DEBUG
-/*
- * Test driver to run through all posible registers and values
- */
-main ()
-{
-  int reg,value,verbosity=1;
-
-  // for (verbosity=0;verbosity<3;verbosity++)
-    for (reg=0;reg<=0xFF;reg++)
-      for (value=0;value<=0xFFFF;value++)
-        cc2400_decode (stdout, reg, value, verbosity);
-}
-#endif
