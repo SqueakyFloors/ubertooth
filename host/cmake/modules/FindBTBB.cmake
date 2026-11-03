@@ -149,7 +149,8 @@ endfunction()
 # tools does not have, so with a tag pin nothing below can say whether the
 # library it found is the right one. The libbtbb pin workflow draws the same
 # line, and reads a pin of forty hex digits as a commit whatever case it is
-# written in. The length is asked separately for the reason given above.
+# written in. The length is asked on its own because CMake's regular
+# expressions have no repetition count.
 function(btbb_pin_is_commit out)
   string(LENGTH "${LIBBTBB_PINNED_REF}" length)
   if(length EQUAL 40 AND LIBBTBB_PINNED_REF MATCHES "^[0-9a-fA-F]+$")
@@ -187,8 +188,7 @@ function(btbb_library_commit out reason)
   set(pattern "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
 
   # Each run of printable bytes holding the pattern, then the pattern out of
-  # each run. Two steps because the pattern cannot be anchored: libbtbb's
-  # string sits in the library next to whatever the compiler put beside it.
+  # each run. Two steps, because the pattern cannot be anchored.
   #
   # No LENGTH_MAXIMUM, which would lose the commit rather than save work: a
   # run longer than the limit is dropped, so a library with one long stretch
@@ -266,14 +266,15 @@ function(btbb_report_pin)
     if(NOT reason STREQUAL "ambiguous" OR NOT pin_is_commit)
       return()
     endif()
-    btbb_rebuild_instructions(fix)
     # Its own sentence rather than the parenthetical above: that one is read
-    # as part of a status line, and this one has to stand alone.
+    # as part of a status line, and this one has to stand alone. No rebuild
+    # commands with it, unlike the mismatch below: nothing here is known to
+    # be wrong, and the library may well be the pinned one.
     message(WARNING
       "the libbtbb found at ${library} records more than one commit, and "
       "nothing here can tell which one libbtbb was built from, so this build "
       "cannot say whether it is the libbtbb this tree is built against "
-      "(${LIBBTBB_PINNED_REF}).\n" "${fix}")
+      "(${LIBBTBB_PINNED_REF}).")
     return()
   endif()
 

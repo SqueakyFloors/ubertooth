@@ -263,9 +263,16 @@ def main():
                 if text not in output:
                     fail("the %s case does not say %r:\n%s"
                          % (name, text, output))
-            if must_warn and "git checkout %s" % commit_pin not in output:
+            # The commands only where the library is known not to be the
+            # pinned one. Where nothing is known to be wrong, telling the
+            # reader to reinstall is advice for a library that may be right.
+            commands = "git checkout %s" % commit_pin in output
+            if must_warn and "commit unknown" not in wanted and not commands:
                 fail("the %s case does not say how to install the pinned "
                      "libbtbb:\n%s" % (name, output))
+            if "commit unknown" in wanted and commands:
+                fail("the %s case tells the reader to reinstall a libbtbb "
+                     "that nothing here says is wrong:\n%s" % (name, output))
             # Neither answer may be given as the other: a commit that cannot
             # be read must not be reported as one that can, and a commit the
             # library does record must not come out as unknown. The pin is a

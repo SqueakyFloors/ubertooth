@@ -144,6 +144,8 @@ It also prints one line saying which libbtbb it found, the commit that library w
 
 A libbtbb built from a git clone records the commit it came from, and the configure step reads that back out of the library. Where the two commits differ the line says both and a warning follows it, because the tools behave the way the libbtbb they link behaves: a capture or a clock measured against them is then a result for that libbtbb rather than for the pinned one. The build is not stopped on that account. A libbtbb installed from a distribution package, or built from a source archive rather than a clone, records no commit; the line says so and names the pin.
 
+A release pins a tag of the libbtbb fork rather than a commit. A tag names no commit for the library's own to be compared with, so the line then names both ends and leaves it there, and no warning follows. The one thing it can still say is that a library was built from a tree with uncommitted changes, which is not the pinned libbtbb whatever the pin names; that warns either way.
+
 
 
 Ubertooth Tools
