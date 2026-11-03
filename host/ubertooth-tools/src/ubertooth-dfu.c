@@ -559,6 +559,12 @@ struct dfu_runtime_context {
 	int expect_return_to_dfu;
 	uint32_t part_id;        /* the part ID read from the application */
 	int part_id_read;        /* ...and whether it was read at all */
+	/* --update-bootloader: the hash the board gave for the bootloader it had
+	 * before the write, and whether it gave one. The region the run is about
+	 * to replace is only readable while an application is answering, so this
+	 * is the one chance to take it. */
+	uint32_t bl_crc32_before;
+	int bl_crc32_before_read;
 	unsigned app_attempts;
 	unsigned dfu_polls;
 	unsigned transfer_attempts;
@@ -686,6 +692,28 @@ static int open_application(void *context, const char *selector, void **handle,
 	} else {
 		runtime->part_id_read = 0;
 		log_dfu_stage("part ID could not be read");
+	}
+	/* --update-bootloader needs the hash of the bootloader the board has
+	 * now, so that the run can tell a region that changed from one that did
+	 * not. The bootloader answers no vendor request, so an application is
+	 * the only thing that can report it, and this is the last moment one is
+	 * running. A board that will not answer -- firmware older than the
+	 * request, or no application at all because the board was already in DFU
+	 * -- leaves the check unmade and is not refused for it: a run that
+	 * installs a bootloader is the one thing a user cannot undo over USB. */
+	if (runtime->expect_return_to_dfu && !runtime->bl_crc32_before_read) {
+		struct ubertooth_bootloader_info info;
+
+		if (cmd_get_bootloader_info_quiet(ut->devh, &info) == 0) {
+			runtime->bl_crc32_before = info.crc32;
+			runtime->bl_crc32_before_read = 1;
+			snprintf(stage, sizeof(stage),
+			         "bootloader hash before the write: 0x%08x",
+			         (unsigned)info.crc32);
+			log_dfu_stage(stage);
+		} else {
+			log_dfu_stage("the board did not report the bootloader it has");
+		}
 	}
 	/* An image too long for this part is refused here rather than between
 	 * the erase and the write: the transition stops before it asks the board
@@ -1926,10 +1954,9 @@ static int take_update_bootloader_word(int *argc, char *argv[])
  * finished -- whether it wrote the bootloader or refused to -- is to reset
  * into DFU. Returns 0 once the board is there, or 1 having said why not.
  *
- * The result of the update itself is not read here. The board is in DFU, which
- * answers no vendor request, so the way to see which bootloader it now has is
- * to write an application and ask that: `ubertooth-util -B` prints the hash,
- * and --update-bootloader has already printed the hash to expect.
+ * The result of the update itself is not read here: the board being in DFU is
+ * the end of the wait, and what it now holds is check_installed_bootloader()'s
+ * question.
  */
 static int wait_for_dfu_after_update(struct dfu_runtime_context *runtime,
                                      const struct dfu_usb_identity *identity)
@@ -1968,6 +1995,166 @@ static int wait_for_dfu_after_update(struct dfu_runtime_context *runtime,
 	return 1;
 }
 
+/*
+ * The hash of the bootloader region as the board holds it now, read back from
+ * the bootloader over DFU.
+ *
+ * The read-back is the only thing that can answer this once the update has
+ * run: the board is in DFU, which answers no vendor request, so there is no
+ * application to ask for a bootloader report. Reading flash needs no
+ * application, and the region is below the bootloader's own write bound rather
+ * than its read bound, so the bootloader hands these blocks over like any
+ * other (firmware/bootloader/dfu.cpp, request_upload). The sixty-four blocks
+ * are 16 KiB, which takes a moment.
+ *
+ * The hash is worked out the same way as the one the file check printed, so
+ * the two numbers compare directly and both compare with `ubertooth-util -B`.
+ *
+ * Returns 0 and the hash in *crc32, or a negative libusb error when a block
+ * would not read.
+ */
+static int read_bootloader_region_crc32(libusb_device_handle *devh,
+                                        uint32_t *crc32)
+{
+	static uint8_t region[BOOTLOADER_SIZE];
+	const int blocks = (int)(BOOTLOADER_SIZE / BLOCK_SIZE);
+	int block, rv;
+
+	rv = enter_dfu_mode(devh);
+	if (rv < 0)
+		return rv;
+	for (block = 0; block < blocks; block++) {
+		rv = libusb_control_transfer(devh, DFU_IN, REQ_UPLOAD,
+		                             (uint16_t)block, 0,
+		                             region + (size_t)block * BLOCK_SIZE,
+		                             BLOCK_SIZE, 1000);
+		if (rv < 0)
+			return rv;
+		if (rv != BLOCK_SIZE)
+			return LIBUSB_ERROR_IO;
+	}
+	*crc32 = ~dfu_image_crc32(region, sizeof(region));
+	return 0;
+}
+
+/*
+ * Say whether the bootloader was installed, and refuse to call a run that
+ * installed nothing a success.
+ *
+ * A board in DFU after the reset is what the update asked for, and it is also
+ * what a board whose bootloader entry pin is bridged looks like: the
+ * bootloader stays in DFU instead of starting the updater image, so nothing is
+ * written. The two are told apart by the region itself, read back here and
+ * compared with the hash the board gave before the write and the hash the
+ * image installs.
+ *
+ * Only one outcome is a failure: a region that still hashes to exactly what
+ * the board reported before the run, which is a region that did not change.
+ * Everything else that is not the expected hash is reported as a check that
+ * could not be made, and the run ends as it did before. That asymmetry is
+ * deliberate. The part maps either the user flash or its boot ROM over the
+ * lowest 512 bytes of the address map (NXP LPC176x/5x user manual UM10360,
+ * MEMMAP), and the bootloader does not choose which, so a read-back that
+ * covers them can differ from flash through no fault of the board. An
+ * application reading its own region sets the register first
+ * (firmware/common/bl_report.c), which is why the two numbers can disagree. A
+ * false refusal on the one write a user cannot undo over USB would be worse
+ * than the quiet success this replaces, so a refusal needs the region to be
+ * provably unchanged.
+ *
+ * Returns one of the three below, having said what it found.
+ */
+#define BL_INSTALL_CONFIRMED 0 /* the region now holds the image's bootloader */
+#define BL_INSTALL_UNCHANGED 1 /* it is what it was: nothing was installed */
+#define BL_INSTALL_UNKNOWN 2   /* the comparison could not be made */
+
+/* One wording for a check that could not be made, so every reason reads the
+ * same way: a note, because nothing has gone wrong with the command, and the
+ * run goes on to say what it said before. */
+static int bootloader_check_unmade(const char *why, int usb_error)
+{
+	fprintf(stderr, "note: whether the bootloader was installed could not be "
+	        "checked: %s", why);
+	if (usb_error != 0)
+		fprintf(stderr, " (usb_error=%d)", usb_error);
+	fputc('\n', stderr);
+	fflush(stderr);
+	return BL_INSTALL_UNKNOWN;
+}
+
+static int check_installed_bootloader(struct dfu_runtime_context *runtime,
+                                      const struct dfu_usb_identity *identity,
+                                      uint32_t image_crc32)
+{
+	libusb_device_handle *devh = NULL;
+	uint32_t crc32 = 0;
+	char stage[96];
+	int rv;
+
+	if (!runtime->bl_crc32_before_read)
+		/* No baseline, so an unexpected hash says nothing: an older
+		 * application stalls the request, and a board that was already in
+		 * DFU when the command started never had one running. */
+		return bootloader_check_unmade("the board did not report the "
+		                               "bootloader it had before the write",
+		                               0);
+	if (open_matching_dfu(runtime, identity, (void **)&devh) != 1)
+		return bootloader_check_unmade("the board in DFU could not be "
+		                               "opened", 0);
+	/* Reading the region means control transfers on interface 0. */
+	if (libusb_claim_interface(devh, 0) != 0) {
+		close_dfu_device(devh, 0);
+		return bootloader_check_unmade("the DFU interface could not be "
+		                               "claimed", 0);
+	}
+	rv = read_bootloader_region_crc32(devh, &crc32);
+	close_dfu_device(devh, 1);
+	if (rv < 0)
+		return bootloader_check_unmade("the bootloader region could not be "
+		                               "read back", rv);
+	snprintf(stage, sizeof(stage), "bootloader hash after the update: "
+	         "0x%08x (before: 0x%08x, image: 0x%08x)", (unsigned)crc32,
+	         (unsigned)runtime->bl_crc32_before, (unsigned)image_crc32);
+	log_dfu_stage(stage);
+	if (crc32 == image_crc32)
+		return BL_INSTALL_CONFIRMED;
+	if (crc32 == runtime->bl_crc32_before) {
+		fprintf(stderr, "error: no bootloader was installed: the region "
+		        "still holds the one the board reported before this run "
+		        "(CRC32:0x%08x), not the one %s carries (CRC32:0x%08x)\n",
+		        (unsigned)crc32, runtime->download_name,
+		        (unsigned)image_crc32);
+		/* The one condition that leaves the board in DFU with the updater
+		 * image unrun, and the only one of the three reasons the bootloader
+		 * runs that repeats on every reset without anything asking for it.
+		 */
+		fprintf(stderr, "note: the bootloader starts the updater image only "
+		        "when its bootloader entry pin reads ungrounded as the board "
+		        "comes up, so if the expansion-header bridge is still fitted, "
+		        "remove it (pins 1 and 3 of P4 on an Ubertooth One) and run "
+		        "this command again\n");
+		/* The board still needs firmware whether or not the update worked:
+		 * its application region holds the updater image, which has no USB.
+		 */
+		fprintf(stderr, "note: the board is in DFU and its application "
+		        "region holds the updater image, so write your firmware "
+		        "again (ubertooth-dfu -d bluetooth_rxtx.dfu -r)\n");
+		fflush(stderr);
+		return BL_INSTALL_UNCHANGED;
+	}
+	/* A warning rather than a note: the region holds neither bootloader, so
+	 * something is worth looking at, but the boot ROM window above means it
+	 * is not proof that the update failed. */
+	fprintf(stderr, "warning: whether the bootloader was installed could not "
+	        "be checked: the region reads back as CRC32:0x%08x, which is "
+	        "neither the hash the board reported before this run "
+	        "(CRC32:0x%08x) nor the one %s carries (CRC32:0x%08x)\n",
+	        (unsigned)crc32, (unsigned)runtime->bl_crc32_before,
+	        runtime->download_name, (unsigned)image_crc32);
+	fflush(stderr);
+	return BL_INSTALL_UNKNOWN;
+}
+
 /* How a claim failure names the board: by the -U string, which is all this
  * tool knows about it. NULL without one, which the reporter reads as "the
  * Ubertooth". The result lives in a static buffer, so it is printed straight
@@ -1995,6 +2182,10 @@ int main(int argc, char **argv) {
 	const char* upfile_name = NULL;
 	char* upfile_temp = NULL;
 	libusb_context* dfu_context = NULL;
+	/* --update-bootloader: the hash the file check worked out for the
+	 * bootloader the image carries, which is what the region is compared
+	 * against once the board has run the updater. */
+	uint32_t update_region_crc32 = 0;
 	libusb_device_handle* devh = NULL;
 	struct dfu_usb_identity selected_identity;
 	struct dfu_runtime_context runtime;
@@ -2177,6 +2368,7 @@ int main(int argc, char **argv) {
 				exit_status = 1;
 				goto end_without_device;
 			}
+			update_region_crc32 = update.region_crc32;
 			fprintf(stderr, "After the update, `ubertooth-util -B` will "
 			        "report CRC32:0x%08x\n",
 			        (unsigned)update.region_crc32);
@@ -2498,11 +2690,28 @@ int main(int argc, char **argv) {
 			goto cleanup;
 		}
 		log_dfu_stage("the board returned to DFU");
-		/* The result, so standard output: what the user has to do next, and
-		 * how to see which bootloader the board ended up with. */
-		printf("The board is in DFU. Write your firmware again "
-		       "(ubertooth-dfu -d bluetooth_rxtx.dfu -r), then check the "
-		       "bootloader with ubertooth-util -B.\n");
+		/* A board in DFU is also what an updater that never ran leaves
+		 * behind, so the region itself settles which of the two happened
+		 * before anything is called a success. */
+		r = check_installed_bootloader(&runtime, &selected_identity,
+		                               update_region_crc32);
+		if (r == BL_INSTALL_UNCHANGED) {
+			exit_status = 1;
+			goto cleanup;
+		}
+		/* The result, so standard output: what the board now holds, where
+		 * that was read, and what the user has to do next. A run that could
+		 * not read the region says neither more nor less than it used to,
+		 * and sends the reader to `ubertooth-util -B` for the answer. */
+		if (r == BL_INSTALL_CONFIRMED)
+			printf("Bootloader installed: the region now reports "
+			       "CRC32:0x%08x.\nThe board is in DFU. Write your firmware "
+			       "again (ubertooth-dfu -d bluetooth_rxtx.dfu -r).\n",
+			       (unsigned)update_region_crc32);
+		else
+			printf("The board is in DFU. Write your firmware again "
+			       "(ubertooth-dfu -d bluetooth_rxtx.dfu -r), then check the "
+			       "bootloader with ubertooth-util -B.\n");
 		fflush(stdout);
 	} else if ((functions & FUNC_DOWNLOAD) && (functions & FUNC_RESET)) {
 		const struct dfu_verify_config verify_config = {

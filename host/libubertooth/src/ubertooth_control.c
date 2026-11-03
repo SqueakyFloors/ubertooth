@@ -865,8 +865,9 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
 	return 0;
 }
 
-int cmd_get_bootloader_info(struct libusb_device_handle* devh,
-		struct ubertooth_bootloader_info *info)
+/* The bootloader report, in both forms; see cmd_get_bootloader_info_quiet(). */
+static int bootloader_info(struct libusb_device_handle* devh,
+		struct ubertooth_bootloader_info *info, int quiet)
 {
 	u8 result[UBERTOOTH_BL_REPORT_LENGTH];
 	int r;
@@ -877,12 +878,14 @@ int cmd_get_bootloader_info(struct libusb_device_handle* devh,
 	r = libusb_control_transfer(devh, CTRL_IN, UBERTOOTH_GET_BOOTLOADER_INFO,
 			0, 0, result, sizeof(result), 1000);
 	if (r < LIBUSB_SUCCESS) {
-		report_request_failed(r, UBERTOOTH_GET_BOOTLOADER_INFO);
+		if (!quiet)
+			report_request_failed(r, UBERTOOTH_GET_BOOTLOADER_INFO);
 		return r;
 	}
 	if (r != (int)sizeof(result))
-		return check_reply_length(r, (int)sizeof(result),
-		                         "bootloader information");
+		return quiet ? UBERTOOTH_ERROR_SHORT_REPLY
+		             : check_reply_length(r, (int)sizeof(result),
+		                                  "bootloader information");
 	/* Whether the region carries a version block is the board's answer, not
 	 * a failure of the read: the parse only reports a reply too short to
 	 * hold the hash, which the length check above has already caught, and
@@ -890,6 +893,18 @@ int cmd_get_bootloader_info(struct libusb_device_handle* devh,
 	 * report. */
 	ubertooth_bootloader_info_parse(result, (size_t)r, info);
 	return 0;
+}
+
+int cmd_get_bootloader_info(struct libusb_device_handle* devh,
+		struct ubertooth_bootloader_info *info)
+{
+	return bootloader_info(devh, info, 0);
+}
+
+int cmd_get_bootloader_info_quiet(struct libusb_device_handle* devh,
+		struct ubertooth_bootloader_info *info)
+{
+	return bootloader_info(devh, info, 1);
 }
 
 int cmd_range_test(struct libusb_device_handle* devh)

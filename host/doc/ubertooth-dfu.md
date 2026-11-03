@@ -346,8 +346,28 @@ region through the part's own In-Application Programming commands, reads it
 back, and resets into DFU, where this command waits for it. That leaves the
 application region holding the updater, which is why the second line above is
 part of the procedure. Before anything is written, this command prints the
-CRC32 the installed bootloader will report; `ubertooth-util -B` on the third
-line prints what the board actually has, so the two can be compared.
+CRC32 the installed bootloader will report, and reads the hash of the
+bootloader the board has at that moment; `ubertooth-util -B` on the third line
+prints what the board actually has, so the two can be compared.
+
+Once the board is back in DFU the command reads the region back and compares
+it with those two numbers, because a board in DFU is also what an updater that
+never ran leaves behind: a bootloader whose entry pin reads grounded stays in
+DFU instead of starting the image, so nothing is installed and the board looks
+no different on the bus. A region that now hashes to the image's number is
+reported as installed. A region that still hashes to what the board gave
+before the run is an `error: ` and status 1, because nothing was installed.
+
+A board that cannot say which bootloader it has is not refused on that ground.
+Firmware built before the request stalls it, and a board that was already in
+DFU when the command started had no application to ask; the run then says the
+check could not be made, claims nothing about the region, and sends you to
+`ubertooth-util -B`, which is also what it does when the region will not read
+back. The lowest 512 bytes of flash share the address map with the part's boot
+ROM and the bootloader does not choose which is mapped there, so a read-back
+can differ from the flash over them through no fault of the board: a region
+that holds neither bootloader is a `warning: ` and status 0, and only a region
+that is exactly what it was before the run is refused.
 
 Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table
@@ -503,15 +523,18 @@ the name, so it is still reported alongside `-h`.
 
 0 when the command did what was asked, including `-h`: the image written and,
 with `-r`, verified on the board that came back; the dump complete and in
-place; the signed `<file>.dfu` written; the board out of the bootloader.
+place; the signed `<file>.dfu` written; the board out of the bootloader; the
+bootloader installed, or a bootloader update whose result could not be read
+back from the board.
 
 1 for everything else, and there is no other status. That covers a command
 line the tool will not take or that has nothing to do, a file it cannot read
 or create, an image it refuses, a selected board that is missing or that
 something else is using, a bootloader that will not answer or will not become
 idle, a transfer that failed both its attempts, a reset that left the board in
-DFU or brought it straight back into the bootloader, and a verification after
-the reset that did not end in the image's own name and
+DFU or brought it straight back into the bootloader, a bootloader update that
+left the region holding the bootloader the board already had, and a
+verification after the reset that did not end in the image's own name and
 revision. That last one includes a board that did not come back on USB at all:
 the write had completed by then, but the command cannot say the board runs
 what was written, so it is not reported as a success. The line it prints says
@@ -523,16 +546,22 @@ COMMON OPTIONS.
 
 ## DIAGNOSTICS
 
-Standard output carries the usage text for `-h`, and otherwise one line, from
-`-d <image> -r` alone:
+Standard output carries the usage text for `-h`, and otherwise what the
+command read back off the board. From `-d <image> -r` that is one line:
 
     Verified firmware revision: git-ed30131d
 
-That is the revision the board reported once it was running the new firmware.
-It is the only thing this command reports back, so it is the result and a
-script can read it on its own; the image name the verification also reads is
-checked rather than printed, because the `Image: ...` line already said which
-one was written. Nothing else is ever written to standard
+That is the revision the board reported once it was running the new firmware,
+so a script can read it on its own; the image name the verification also reads
+is checked rather than printed, because the `Image: ...` line already said
+which one was written. From `--update-bootloader` it is what the board now
+holds and what to do next:
+
+    Bootloader installed: the region now reports CRC32:0x7c52e323.
+    The board is in DFU. Write your firmware again (ubertooth-dfu -d bluetooth_rxtx.dfu -r).
+
+A run that could not read the region back prints the second line alone, and
+names `ubertooth-util -B` in it. Nothing else is ever written to standard
 output: the dump of `-u` goes to the file it names, and the signed image of
 `-s` to `<file>.dfu`, and a run that only writes firmware or resets the board
 says nothing there at all.
@@ -555,17 +584,23 @@ command spent its time on.
 The errors this tool prints itself are one line each beginning `error: `, for
 example `error: detach failed: the board is still in DFU`,
 `error: upload failed: block 164 was not read`,
+`error: no bootloader was installed: the region still holds the one the board
+reported before this run (CRC32:0x...), not the one bl_update.dfu carries
+(CRC32:0x...)`,
 `error: firmware update failed after 2 attempt(s): ...` and
 `error: could not read the DFU state: the board's firmware does not support it
 (stalled, libusb -9)`. That last one is the shared wording for a request the
 board refused, and it comes without the firmware API version note described
 in ubertooth(7): the bootloader this tool talks to runs no application
 firmware to have a version. Lines beginning `warning: ` are the ones
-about a part this host cannot identify and about an image built for another
-API version; lines beginning `note: ` go with a failure something can say more
-about: today a board that came back in the bootloader, a board waiting in the
-bootloader that a selection could not name, and a board that never came back
-from a bootloader update, which may be in the part's serial programmer.
+about a part this host cannot identify, about an image built for another
+API version, and about a bootloader region that reads back as neither the
+bootloader the board had nor the one the image carries. Lines beginning
+`note: ` say more about something the command has just reported: today a board
+that came back in the bootloader, a board waiting in the bootloader that a
+selection could not name, a board that never came back from a bootloader
+update and may be in the part's serial programmer, a bootloader update that
+installed nothing, and one whose result could not be read back.
 libubertooth's own lines read the same way, including the ones it ends up
 printing for a libusb failure nothing could name (`error: Input/Output Error
 (libusb -1)`) and for a selection that found nothing (`error: no Ubertooth
