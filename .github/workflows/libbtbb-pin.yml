@@ -141,6 +141,13 @@ jobs:
           # files is written that way, and each holds exactly one such run
           # today, so a second is a commit left behind -- in a comment or in
           # prose as much as on a line that builds.
+          #
+          # Forty, and not a digit more or less: each unbroken run of hex
+          # digits is taken out whole and then kept only if it is exactly
+          # forty long. Asking grep for forty digits instead would match the
+          # first forty of a longer run, so a sha256 of a release tarball --
+          # sixty-four digits -- would be read as a commit that is not the
+          # pin, and the check would go red over a file that is right.
           while IFS=: read -r line commit; do
             [ -n "$commit" ] || continue
             lower=$(printf '%s' "$commit" | tr 'A-F' 'a-f')
@@ -149,7 +156,7 @@ jobs:
               echo "       $LIBBTBB_REF" >&2
               status=1
             fi
-          done <<< "$(grep -noiE '[0-9a-f]{40}' "$f")"
+          done <<< "$(grep -noiE '[0-9a-f]+' "$f" | grep -iE ':[0-9a-f]{40}$')"
 
           # And an abbreviated commit beside a link to the pin has to
           # abbreviate the pin. That is the one short form these files use,
@@ -168,9 +175,13 @@ jobs:
             line=${hit%%:*}
             text=${hit#*:}
             # The full-length runs are the rule above's; blanked out so that
-            # what is read here is the short forms only.
+            # what is read here is the short forms only. Forty digits or
+            # more, and the whole run, so that the tail of a longer one is
+            # not left behind to be read as an abbreviation: blanking only
+            # the first forty digits of a sha256 would leave twenty-four and
+            # turn a file that is right red.
             for commit in $(printf '%s\n' "$text" |
-                            sed 's/[0-9a-fA-F]\{40\}/ /g' |
+                            sed 's/[0-9a-fA-F]\{40,\}/ /g' |
                             grep -oiE '[0-9a-f]{7,39}' | grep -E '[0-9]'); do
               lower=$(printf '%s' "$commit" | tr 'A-F' 'a-f')
               case $pin_lower in
