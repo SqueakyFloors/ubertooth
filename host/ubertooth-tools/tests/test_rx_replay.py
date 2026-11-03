@@ -307,17 +307,23 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert (work / "other.bin").read_bytes() == b"".join(PACKET_RECORDS), result
 
-    # "-" is this process's standard output, so that is the destination
-    # compared: a shell that has already pointed it at the dump is the one case
-    # a name cannot catch, and the run would otherwise read the records it was
-    # appending and never end.
-    with open(work / "same.bin", "ab") as appended:
-        result = run("-i", "same.bin", "-d", "-", directory=work,
-                     stdout=appended)
-    assert result.returncode == 1, result
-    assert result.stderr == ("error: -d would write over the dump -i is"
-                             " replaying (standard output)\n"), result
-    assert (work / "same.bin").read_bytes() == FIXTURE, result
+    # A destination that reaches the dump through this process's standard
+    # output is the one case a name cannot catch: the run would read the
+    # records it was appending and never end. All three spellings of it are
+    # caught, because the destination is opened to find out what it is rather
+    # than stat()ed -- /dev/stdout and /dev/fd/1 are device nodes, and stat()
+    # answers for the node.
+    for written, named in (("-", "standard output"),
+                           ("/dev/stdout", "/dev/stdout"),
+                           ("/dev/fd/1", "/dev/fd/1")):
+        with open(work / "same.bin", "ab") as appended:
+            result = run("-i", "same.bin", "-d", written, directory=work,
+                         stdout=appended)
+        assert result.returncode == 1, (written, result)
+        assert result.stderr == (
+            f"error: -d would write over the dump -i is replaying"
+            f" ({named})\n"), (written, result)
+        assert (work / "same.bin").read_bytes() == FIXTURE, (written, result)
 
     # Standard output somewhere else is an ordinary dump to it, not a refusal.
     result = run("-i", "same.bin", "-d", "-", directory=work, text=False)

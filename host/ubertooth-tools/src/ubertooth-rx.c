@@ -24,6 +24,7 @@
 #include "opt_parse.h"
 #include "request_report.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -699,45 +700,77 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * second or less. */
 #define FOLLOW_QUIET_MS 60000
 
+/* Which file would a writer opening <output_name> write to? 0 once <where>
+ * holds its device and inode numbers, -1 when they cannot be had.
+ *
+ * The name is opened rather than stat()ed, because opening is what resolves
+ * every spelling of a destination to the file itself. "/dev/stdout" and
+ * "/dev/fd/1" are device nodes, and stat() answers for the node rather than
+ * for what the descriptor behind it points at, differently on each system;
+ * opening them lands on the real file everywhere. O_WRONLY on its own neither
+ * creates nor truncates, so asking costs the file nothing, and O_NONBLOCK
+ * keeps a named pipe with no reader from blocking here. A lone "-" is this
+ * process's own standard output and has no name to open.
+ *
+ * A destination that cannot be opened is not identified: a name that does not
+ * exist yet, which is the ordinary case, and also one this user may not write
+ * or that is a directory. Those are the writer's own failures to report, and
+ * none of them can be the input, because a run that cannot open the
+ * destination truncates nothing. */
+static int destination_file(const char* output_name, struct stat* where)
+{
+	int fd, failed;
+
+	if (opt_writes_to_stdout(output_name))
+		return fstat(fileno(stdout), where) == 0 ? 0 : -1;
+	fd = open(output_name, O_WRONLY | O_NONBLOCK);
+	if (fd < 0)
+		return -1;
+	failed = fstat(fd, where) != 0;
+	close(fd);
+	return failed ? -1 : 0;
+}
+
 /* Refuses an output file that is the dump a replay is reading. Every writer
  * here opens its file for writing, which truncates it, so a run given one file
  * for both would empty the dump before reading a record of it -- and a dump of
  * a Classic capture holds the only copy of what the board sent, in a format
  * only this tool and ubertooth-btle(1) write.
  *
- * The file is identified rather than the name: the device and inode numbers of
- * the open input against those of the destination about to be written, so
- * "./x.bin" beside "x.bin", a symbolic link and a hard link are all caught. A
- * lone "-" is this process's standard output, so that is what gets compared,
- * which catches the one case a name cannot: a shell that has already pointed
- * standard output at the dump, as in `-i x.bin -d - >> x.bin`. Left alone,
- * that run reads the records it is appending and never ends.
- *
- * Anything that cannot be stat()ed is taken to be a different file. That is
- * the ordinary case for a name that does not exist yet, and for the rest --
- * a directory on the path that cannot be searched, a symbolic link loop -- the
- * writer is about to report the real reason itself.
+ * The file is identified rather than the name, by the device and inode numbers
+ * of the open input against those of the destination (see
+ * destination_file()), so "./x.bin" beside "x.bin", a symbolic link, a hard
+ * link, and a shell that has already pointed standard output at the dump
+ * -- `-i x.bin -d - >> x.bin`, which reads the records it is appending and
+ * never ends -- are all caught. Anything the two share counts, a character
+ * device included, so `-i /dev/null -d /dev/null` is refused as well; nothing
+ * is lost there, and the alternative of comparing only regular files would let
+ * a named pipe through.
  *
  * Called with the input open and before any writer opens, so a refused run has
  * written nothing. Returns -1 once the refusal is printed. */
 static int output_is_the_replay(const char* output_name, char option)
 {
 	struct stat input_file, output_file;
-	int to_stdout = opt_writes_to_stdout(output_name);
-	int found;
 
 	if (infile == NULL || output_name == NULL)
 		return 0;
-	found = to_stdout ? fstat(fileno(stdout), &output_file)
-	                  : stat(output_name, &output_file);
-	if (fstat(fileno(infile), &input_file) != 0 || found != 0)
+	if (fstat(fileno(infile), &input_file) != 0)
+		return 0;
+	/* The input holding standard output's descriptor means standard output
+	 * was closed before this process started and fopen() took the number,
+	 * so there is nothing there to write over. */
+	if (fileno(infile) == fileno(stdout))
+		return 0;
+	if (destination_file(output_name, &output_file) != 0)
 		return 0;
 	if (input_file.st_dev != output_file.st_dev ||
 	    input_file.st_ino != output_file.st_ino)
 		return 0;
 	fprintf(stderr, "error: -%c would write over the dump -i is replaying"
 	        " (%s)\n", option,
-	        to_stdout ? "standard output" : output_name);
+	        opt_writes_to_stdout(output_name) ? "standard output"
+	                                          : output_name);
 	return -1;
 }
 
