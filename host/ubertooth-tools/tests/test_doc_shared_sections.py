@@ -125,6 +125,8 @@ SHARED_SECTIONS = (
      "what `-q -` and `-d -` do to the rest of the output"),
     ("GAPS IN A CAPTURE", CAPTURE_PAGES,
      "what a gap in a capture is and how the tool reports one"),
+    ("REPLAYING A SAVED CAPTURE", {"ubertooth-btle.md", "ubertooth-rx.md"},
+     "how a dump written with `-d` is decoded again without a board"),
     ("TRANSMIT POWER", TRANSMIT_PAGES,
      "the power level the tool transmits at"),
 )

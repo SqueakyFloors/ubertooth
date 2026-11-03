@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 /* The BLE advertising channel indexes (Bluetooth Core spec: 37, 38, 39). */
 #define ADV_INDEX_MIN 37
@@ -50,10 +51,11 @@ static void cancel_follow_handler(int sig __attribute__((unused))) {
 
 /* Where the lines that answer an option go: the access address, the CRC verify
  * setting and the target. They are what the user asked for, so standard
- * output, unless a capture has taken it ("-q -", "-c -"), which redirects this
- * process's stdout to /dev/null for the whole run; writing them there would do
- * the work on the board and throw the answer away, so they go to standard
- * error instead. main() sets this; nothing here prints before that. */
+ * output, unless a capture has taken it ("-q -", "-c -", "-d -"), which
+ * redirects this process's stdout to /dev/null for the whole run; writing them
+ * there would do the work on the board and throw the answer away, so they go
+ * to standard error instead. main() sets this; nothing here prints before
+ * that. */
 static FILE *report_stream = NULL;
 
 /* The library has already said why a request was refused; this names the
@@ -144,10 +146,15 @@ static void usage(FILE *out)
 	fprintf(out, "\n");
 	fprintf(out, "    Data source:\n");
 	fputs(OPT_USAGE_SELECT_DEVICE, out);
+	fprintf(out, "\t-R <filename> replay a dump saved with -d, with its recorded times\n");
+	fprintf(out, "\t       - if not specified use Ubertooth for live capture\n");
+	fprintf(out, "\t       - needs the major mode the dump was recorded with, and\n");
+	fprintf(out, "\t         goes with no option that drives a board\n");
 	fprintf(out, "\n");
 	fprintf(out, "    Misc:\n");
 	fprintf(out, "\t-r <filename> capture packets to PCAPNG file\n");
 	fprintf(out, "\t-q <filename> capture packets to PCAP file (DLT_BLUETOOTH_LE_LL_WITH_PHDR)\n");
+	fprintf(out, "\t-d <filename> dump records to binary file, for -R to replay\n");
 	fprintf(out, "\t-c <filename> capture packets to PCAP file (DLT_PPI + DLT_BLUETOOTH_LE_LL)\n");
 	fprintf(out, "\t-A <%d-%d> advertising channel index (default %d);"
 	       " not with -p\n",
@@ -172,12 +179,89 @@ static void usage(FILE *out)
  * does nothing. On the paths that reach here with the board still open -- the
  * queries, and a request that failed -- it is what releases the interface and
  * closes the capture file. It sends no STOP, so a board left advertising by
- * -s keeps advertising, as it did before. */
+ * -s keeps advertising, as it did before.
+ *
+ * The dump this run wrote and the dump it replayed are closed here too, on
+ * every path that reaches it, so neither is left open when the process ends.
+ * Each record is flushed as it is written, so nothing is waiting in the dump;
+ * the close is what releases the file. */
 static int release_handle(ubertooth_t* ut, int status)
 {
 	ubertooth_close(ut);
 	ubertooth_free(ut);
+	if (dumpfile != NULL) {
+		fclose(dumpfile);
+		dumpfile = NULL;
+	}
+	if (infile != NULL) {
+		fclose(infile);
+		infile = NULL;
+	}
 	return status;
+}
+
+/* Set once a replay has read a whole record from its input. That is the line
+ * its capture files are kept from, the same line a live capture draws at its
+ * first packet: the replay ran, and what the decoder made of the record is the
+ * result. Before the first record the files hold their headers and nothing
+ * else. */
+static int replay_read_a_record;
+
+static void replay_decode(ubertooth_t* ut, void* args)
+{
+	replay_read_a_record = 1;
+	cb_btle(ut, args);
+}
+
+/* Refuses an output file that is the dump a replay is reading. Every writer
+ * here opens its file for writing, which truncates it, so a run given one file
+ * for both would empty the dump before reading a record of it -- and a dump is
+ * the only copy of what promiscuous mode worked out about a connection.
+ *
+ * The file is identified rather than the name: the device and inode numbers of
+ * the open input against those of the name about to be written, so "./x.bin"
+ * beside "x.bin", a symbolic link and a hard link are all caught. A name that
+ * does not exist yet, which is the ordinary case, and a lone "-" cannot be
+ * stat()ed and so cannot be the input.
+ *
+ * Called with the input open and before any writer opens, so a refused run
+ * has written nothing. Returns -1 once the refusal is printed. */
+static int output_is_the_replay(const char* output_name, char option)
+{
+	struct stat input_file, output_file;
+
+	if (infile == NULL || output_name == NULL)
+		return 0;
+	if (fstat(fileno(infile), &input_file) != 0 ||
+	    stat(output_name, &output_file) != 0)
+		return 0;
+	if (input_file.st_dev != output_file.st_dev ||
+	    input_file.st_ino != output_file.st_ino)
+		return 0;
+	fprintf(stderr, "error: -%c would write over the dump -R is replaying"
+	        " (%s)\n", option, output_name);
+	return -1;
+}
+
+/* How much of the decode could not be read, in one line after the packets it
+ * summarizes. Says nothing when every packet decoded.
+ *
+ * It goes on the stream the run reports on, which is where the packet lines it
+ * is about went: a caller that threw those away -- btle-extcap.py, which sends
+ * them to /dev/null -- threw this away with them, instead of leaving Wireshark
+ * to report a good capture as an error.
+ *
+ * A run whose capture took standard output never reaches this: the decode
+ * stops before the field that would be counted, so nothing is counted. That
+ * is also why the line may point at -v, which such a run is refused. */
+static void report_malformed_packets(const btle_options* opts, int verbose)
+{
+	if (opts->malformed_packets == 0)
+		return;
+	fprintf(report_stream, "note: %u packet%s held data that could not be"
+	        " decoded%s\n", opts->malformed_packets,
+	        opts->malformed_packets == 1 ? "" : "s",
+	        verbose ? "" : "; -v describes each one");
 }
 
 int main(int argc, char *argv[])
@@ -217,6 +301,11 @@ int main(int argc, char *argv[])
 	const char* pcapng_name = NULL;
 	const char* pcap_name = NULL;
 	int pcap_ppi = 0; /* the -c format rather than the -q one */
+	/* The dump this run writes, named here and opened with the capture
+	 * files below, and the dump -R replays, which is read instead of a
+	 * board. */
+	const char* dump_name = NULL;
+	const char* infile_name = NULL;
 	/* Allocated once the whole command line has been accepted (below):
 	 * every refusal above returns without a board, and the handle carries a
 	 * 72 MB fifo. */
@@ -252,7 +341,7 @@ int main(int argc, char *argv[])
 	 * value distinguishable from an option getopt does not know. */
 	/* Named, so the loop below and opt_report_bad_option()
 	 * cannot be given different letters. */
-	const char options[] = ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiI";
+	const char options[] = ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiId:R:";
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* getopt only attaches an optional value (-a8e89bed6, -k1); take
@@ -314,6 +403,15 @@ int main(int argc, char *argv[])
 			} else {
 				fprintf(stderr, "warning: ignoring extra capture file: %s\n", optarg);
 			}
+			break;
+		case 'd':
+			dump_name = optarg;
+			break;
+		case 'R':
+			/* The dump to replay. Read rather than written, so it is
+			 * opened before the capture files below, and a board is
+			 * never opened at all. */
+			infile_name = optarg;
 			break;
 		case 'v':
 			/* -v is verbose, as it is in every other tool: it asks the
@@ -474,12 +572,85 @@ int main(int argc, char *argv[])
 	/* A capture on "-" takes standard output, and this run then prints no
 	 * packets at all (see the capture block below), so there is nothing for
 	 * -v to describe here either. Refused rather than accepted and ignored.
-	 * -r refuses "-" outright, so only -q and -c reach this. */
-	if (do_verbose && pcap_name != NULL && strcmp(pcap_name, "-") == 0) {
+	 * -r refuses "-" outright, so only -q, -c and -d reach this. */
+	if (do_verbose &&
+	    ((pcap_name != NULL && strcmp(pcap_name, "-") == 0) ||
+	     (dump_name != NULL && strcmp(dump_name, "-") == 0))) {
 		fprintf(stderr, "error: -v does not go with a capture on standard"
 		        " output: a run that hands the capture that stream prints"
 		        " no packets to describe\n");
 		return 1;
+	}
+
+	/* Standard output carries one stream, so only one capture can have it:
+	 * a PCAP file and a dump of the records interleaved there would be
+	 * neither, and the one that asked second would write to /dev/null
+	 * without a word. -q and -c share a writer, so the clash is between
+	 * whichever of those two was taken and -d. ubertooth-rx refuses the
+	 * same pair. */
+	if (pcap_name != NULL && dump_name != NULL &&
+	    strcmp(pcap_name, "-") == 0 && strcmp(dump_name, "-") == 0) {
+		fprintf(stderr, "error: -%c and -d cannot both write to standard"
+		        " output\n", pcap_ppi ? 'c' : 'q');
+		return 1;
+	}
+
+	/* A replay needs the mode its dump was recorded with, because the
+	 * record does not say which clock stamped it: the low-energy engine
+	 * behind -f and -n stamps packets from a free-running counter that
+	 * starts over every 429.5 s, and promiscuous mode from the one derived
+	 * from the Bluetooth clock, which starts over every 327.68 s (see
+	 * ubertooth_interface.h). The times a replay reconstructs come out
+	 * wrong past the first of those, and nothing in the file would say so,
+	 * which is why the mode is asked for rather than guessed. */
+	if (infile_name != NULL && !(do_follow || do_no_follow || do_promisc)) {
+		fprintf(stderr, "error: -R needs -f, -n or -p: a dump does not"
+		        " record which mode wrote it, and the modes stamp their"
+		        " packets with different clocks\n");
+		return 1;
+	}
+
+	/* Promiscuous mode sets no channel: it listens on the one the board is
+	 * already holding. So -A was taken and then never sent, and the command
+	 * looked like it had chosen a channel. Use ubertooth-util -c to choose
+	 * one, which is what the board keeps.
+	 *
+	 * Before the replay's refusals below, so that `-p -R f.bin -A 38` says
+	 * -A does not go with -p at all rather than only that a replay has no
+	 * board to tune. */
+	if (do_adv_index_given && do_promisc) {
+		fprintf(stderr, "error: -A does not go with -p: promiscuous mode"
+		        " listens on the channel the board is holding\n");
+		return 1;
+	}
+
+	/* A replay reads a saved dump and opens no board, so every option that
+	 * sends the board a request, names one, or tunes one asks for something
+	 * it cannot do. Refused here, naming the option, rather than accepted
+	 * and dropped without a word. The decode options (-x, -v) and the
+	 * capture files do work on a replay, as they do in ubertooth-rx.
+	 *
+	 * -a and -s are not here: a replay needs a major mode, and those two
+	 * are already refused beside any of the three. */
+	if (infile_name != NULL) {
+		int board_option = 0;
+
+		if (do_set_crc >= 0 || do_get_crc)
+			board_option = 'k';
+		else if (do_target)
+			board_option = 't';
+		else if (do_adv_index_given)
+			board_option = 'A';
+		else if (ubertooth_device != NULL)
+			board_option = 'U';
+		else if (jam_mode != JAM_NONE)
+			board_option = jam_option;
+		if (board_option != 0) {
+			fprintf(stderr, "error: -%c cannot be combined with -R;"
+			        " a replay reads a saved dump rather than"
+			        " driving a board\n", board_option);
+			return 1;
+		}
 	}
 
 	/* A command line with no work in it: refused here, before a device is
@@ -497,21 +668,12 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* Promiscuous mode sets no channel: it listens on the one the board is
-	 * already holding. So -A was taken and then never sent, and the command
-	 * looked like it had chosen a channel. Use ubertooth-util -c to choose
-	 * one, which is what the board keeps. */
-	if (do_adv_index_given && do_promisc) {
-		fprintf(stderr, "error: -A does not go with -p: promiscuous mode"
-		        " listens on the channel the board is holding\n");
-		return 1;
-	}
-
 	/* A capture bound for standard output must not go to a terminal. That
 	 * is a problem with the command line, so it is refused here, before a
 	 * board is opened; the stream itself is taken over further down, where
 	 * the file is created. */
-	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0)
+	if (opt_check_capture_destination(pcap_name, "binary capture data") < 0 ||
+	    opt_check_capture_destination(dump_name, "binary dump data") < 0)
 		return 1;
 
 	/* Interference is accepted but no capture mode acts on it yet, so an
@@ -530,26 +692,49 @@ int main(int argc, char *argv[])
 	if (ut == NULL)
 		return 1;
 
+	/* And the replay's input can be opened: a refused command line creates
+	 * and truncates nothing. It is read, not written, so it comes before
+	 * the board; the files this run writes are opened further down, once
+	 * the board is known to be usable. */
+	if (infile_name != NULL) {
+		infile = fopen(infile_name, "r");
+		if (infile == NULL) {
+			/* A file that is not there is a runtime failure, not a
+			 * bad command line, so it gets no usage text. */
+			fprintf(stderr, "error: %s: %s\n", infile_name,
+			        strerror(errno));
+			return release_handle(ut, 1);
+		}
+	}
+
 	/* Stop on Ctrl-C, and on the other signals that mean the run is over
 	 * (SIGTERM, SIGHUP, SIGQUIT, an alarm): the library's handlers, so the
 	 * capture loop below ends the way every other tool's does. Installed
 	 * before the board is opened, because a signal that arrives while one
-	 * is being found would otherwise be discarded. */
+	 * is being found would otherwise be discarded. A replay gets the
+	 * handlers as well, so an interrupted one ends where it was asked to
+	 * and exits 0 with what it had decoded, instead of reading on to the
+	 * end of the file. */
 	ubertooth_catch_stop_signals();
 
-	r = ubertooth_connect_select(ut, ubertooth_device);
-	if (r < 0) {
-		/* A selection the user stopped opened no board, which is not a
-		 * failure to find one. */
-		return release_handle(ut, ubertooth_open_stopped() ? 0 : 1);
-	}
+	/* A replay has no board to open: the records come out of the file. */
+	if (infile == NULL) {
+		r = ubertooth_connect_select(ut, ubertooth_device);
+		if (r < 0) {
+			/* A selection the user stopped opened no board, which is
+			 * not a failure to find one. */
+			return release_handle(ut,
+			                      ubertooth_open_stopped() ? 0 : 1);
+		}
 
-	r = ubertooth_check_api(ut);
-	if (r < 0) {
-		/* release_handle() closes the board, which covers both of the
-		 * check's failures: it released a refused version itself, and a
-		 * version it could not read at all leaves the board open. */
-		return release_handle(ut, 1);
+		r = ubertooth_check_api(ut);
+		if (r < 0) {
+			/* release_handle() closes the board, which covers both
+			 * of the check's failures: it released a refused version
+			 * itself, and a version it could not read at all leaves
+			 * the board open. */
+			return release_handle(ut, 1);
+		}
 	}
 
 	/* Stopped while the board was being opened: the run ends here, with the
@@ -558,15 +743,24 @@ int main(int argc, char *argv[])
 	if (ubertooth_stop_requested())
 		return release_handle(ut, 0);
 
-	/* The board is open and usable, so the capture files can be opened. Not
-	 * before: a run refused for its firmware used to leave an empty capture
-	 * behind, which a user then had to tell apart from a capture that caught
-	 * nothing.
+	/* The board is open and usable -- or the replay has its input -- so the
+	 * capture files can be opened. Not before: a run refused for its
+	 * firmware used to leave an empty capture behind, which a user then had
+	 * to tell apart from a capture that caught nothing.
 	 *
 	 * A bare "-" redirects this process's stdout, which is why nothing may
 	 * be printed to stdout after this point except the capture itself, and
 	 * why the lines that answer an option go to report_stream rather than
-	 * straight to stdout. */
+	 * straight to stdout.
+	 *
+	 * No writer may be the dump a replay is reading: see
+	 * output_is_the_replay(). Checked here rather than while the command
+	 * line is read, because it takes the open input to identify, and still
+	 * before the first writer opens, so a refused run truncates nothing. */
+	if (output_is_the_replay(pcapng_name, 'r') < 0 ||
+	    output_is_the_replay(pcap_name, pcap_ppi ? 'c' : 'q') < 0 ||
+	    output_is_the_replay(dump_name, 'd') < 0)
+		return release_handle(ut, 1);
 	if (pcapng_name != NULL) {
 		if (lell_pcapng_create_file(pcapng_name, "Ubertooth",
 		                            &ut->h_pcapng_le)) {
@@ -608,6 +802,73 @@ int main(int argc, char *argv[])
 			opt_report_create_failure(pcap_name, create_errno);
 			return release_handle(ut, 1);
 		}
+	}
+	if (dump_name != NULL) {
+		dumpfile = opt_open_dump_file(dump_name, "binary dump data");
+		if (dumpfile == NULL)
+			return release_handle(ut, 1);
+		if (strcmp(dump_name, "-") == 0) {
+			/* The dump has standard output, which is /dev/null for
+			 * this process from here on: the lines that answer an
+			 * option go to standard error instead, and the callback
+			 * leaves out the per-packet report that would go
+			 * nowhere. */
+			report_stream = stderr;
+			cb_opts.capture_took_stdout = 1;
+		}
+	}
+
+	/* A replay has no board, so the records come out of the file and the
+	 * callback decodes them exactly as it decodes a live capture's. */
+	if (infile != NULL) {
+		/* Which of the board's two clocks stamped these records, taken
+		 * from the mode named on the command line as a live capture
+		 * takes it: see the refusal above for why the mode has to be
+		 * named. */
+		if (do_follow || do_no_follow)
+			ut->clk100ns_period = CLK100NS_TIMER1_PERIOD;
+
+		/* The callback reports on the same stream the tool does, so the
+		 * lines a promiscuous dump's parameter records make stay
+		 * visible when a capture has taken standard output. */
+		cb_opts.report_stream = report_stream;
+		if (do_verbose)
+			lell_set_malformed_verbose(1);
+
+		/* A read error or a last record cut short is reported and ends
+		 * the command with an error, after whatever was decoded. */
+		r = stream_rx_file(ut, infile, replay_decode, &cb_opts);
+		status = rx_file_report(r, infile_name);
+
+		/* An input no whole record could be read from leaves the
+		 * capture files holding their headers and nothing else, so they
+		 * go the way a refused run's files do: a 64 KB PcapNG holding
+		 * only its header looks like a capture that caught something.
+		 * From the first record on they stay, however little of the
+		 * input came after it. An input read to its end is no failure,
+		 * an empty one included.
+		 *
+		 * Before the writers are closed, because the files go by name
+		 * while those writers still hold them, and whatever a writer
+		 * had buffered then goes nowhere. Which names are left alone --
+		 * a lone "-", a device, a symbolic link -- is
+		 * opt_discard_capture_file()'s decision. */
+		if (status != 0 && !replay_read_a_record) {
+			if (ut->h_pcapng_le != NULL)
+				opt_discard_capture_file(pcapng_name);
+			if (ut->h_pcap_le != NULL)
+				opt_discard_capture_file(pcap_name);
+			if (dumpfile != NULL)
+				opt_discard_capture_file(dump_name);
+		}
+
+		/* A recorded capture carries the losses it was recorded with,
+		 * in the status of its own records, and the replay is where a
+		 * reader of the file finds out about them. */
+		ubertooth_report_capture_losses(ut);
+		report_malformed_packets(&cb_opts, do_verbose);
+
+		return release_handle(ut, status);
 	}
 
 	// cancel following on USR1
@@ -771,19 +1032,7 @@ int main(int argc, char *argv[])
 		 * after the packets have scrolled past. */
 		ubertooth_report_capture_losses(ut);
 
-		/* How much of the decode could not be read, in one line after
-		 * the packets it summarizes. It goes on the dump's own stream,
-		 * because that is what it is about: a run that writes a capture
-		 * file and no dump decodes nothing and counts nothing, and a
-		 * caller that threw the dump away -- btle-extcap.py, which
-		 * sends it to /dev/null -- threw this away with it, instead of
-		 * leaving Wireshark to report a good capture as an error. */
-		if (cb_opts.malformed_packets > 0)
-			fprintf(report_stream, "note: %u packet%s held data that"
-			        " could not be decoded%s\n",
-			        cb_opts.malformed_packets,
-			        cb_opts.malformed_packets == 1 ? "" : "s",
-			        do_verbose ? "" : "; -v describes each one");
+		report_malformed_packets(&cb_opts, do_verbose);
 	}
 
 	if (do_get_aa) {

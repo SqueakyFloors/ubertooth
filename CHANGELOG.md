@@ -9,6 +9,15 @@
   board to start it, and `-r` alone asks without writing. The note no longer
   says that no tool can open such a board, since that one can.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
+- `ubertooth-btle` saves and replays a capture: `-d <file>` dumps the records
+  as the board sent them, in the format `ubertooth-rx -d` writes, and
+  `-R <file>` decodes a saved dump again with no board and no connection. It
+  is the only way to keep what promiscuous mode works out about the connection
+  it found, those parameters arriving in records that carry no packet for a
+  capture file to hold. A replay takes the major mode the dump was recorded
+  with; ubertooth-btle(1), REPLAYING A SAVED CAPTURE says why and what else a
+  replay can do.
+  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
 - A capture whose receiver is being driven harder than the radio can measure
   says so instead of looking like a capture of an empty channel: `warning: the
   signal is at the top of the receiver's range, so the board cannot measure it

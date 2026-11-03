@@ -4,7 +4,10 @@
 
     ubertooth-btle {-f | -n | -p} [-A 37|38|39] [-t <BD ADDR>] [-i | -I]
     [-k [01]] [-v] [-x <0-32>] [-r <output.pcapng>] [-q <output.pcap>|-]
-    [-c <output.pcap>|-] [-U <index|serial>]
+    [-c <output.pcap>|-] [-d <output.bin>|-] [-U <index|serial>]
+    ubertooth-btle {-f | -n | -p} -R <input.bin> [-v] [-x <0-32>]
+    [-r <output.pcapng>] [-q <output.pcap>|-] [-c <output.pcap>|-]
+    [-d <output.bin>|-]
     ubertooth-btle -s <BD ADDR> [-A 37|38|39] [-U <index|serial>]
     ubertooth-btle [-a [<address>]] [-k [01]] [-t <BD ADDR>]
     [-U <index|serial>]
@@ -363,6 +366,12 @@ Logging:
  - `-q <output.pcap|->` :
    Log to PCAP with `DLT_BLUETOOTH_LE_LL_WITH_PHDR`. Use `-` to stream binary
    PCAP to stdout.
+ - `-d <output.bin|->` :
+   Dump the records as the board sent them, which `-R` replays; see
+   REPLAYING A SAVED CAPTURE, which also says which records a dump leaves out.
+   It is the only one of these files that keeps the parameters promiscuous
+   mode recovers, since those records carry no packet for a PCAP writer to
+   take. Use `-` to stream the records to stdout.
  - `-c <output.pcap|->` :
    Log to PCAP with PPI (for compatibility with crackle(1)). Use `-` to stream
    binary PCAP to stdout, for example:
@@ -381,6 +390,12 @@ Logging:
    refuses to write binary capture data directly to an interactive terminal:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
    exit status 1 and before any device is opened.
+
+Standard output carries one stream, so only one capture can have it: `-d -`
+together with `-q -` or `-c -` is refused, naming the PCAP option written --
+`error: -q and -d cannot both write to standard output` -- as it is in
+ubertooth-rx(1). The one that asked second would otherwise write to
+`/dev/null` without a word.
 
 The times in a logged capture follow the board's capture clock, which starts
 over every 429.50 s in the `-f` and `-n` modes and every 327.68 s in
@@ -463,10 +478,10 @@ Miscellaneous:
    the run goes. Without it a run counts those packets and says how many there
    were in one line when it ends (DIAGNOSTICS). It needs `-f`, `-n` or `-p`,
    since there is no decode to describe otherwise, and it takes no value. A
-   capture on standard output (`-q -`, `-c -`) prints no packets at all, so
-   that too is refused: `error: -v does not go with a capture on standard
-   output: a run that hands the capture that stream prints no packets to
-   describe`.
+   capture on standard output (`-q -`, `-c -`, `-d -`) prints no packets at
+   all, so that too is refused: `error: -v does not go with a capture on
+   standard output: a run that hands the capture that stream prints no packets
+   to describe`.
 
    There is one level of it, so writing it twice says what writing it once
    said (ubertooth(7), OPTION VALUES).
@@ -485,6 +500,10 @@ Data source:
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
+ - `-R <input.bin>` :
+   Replay a dump saved with `-d` instead of opening a board. It needs the
+   major mode the dump was recorded with, and goes with no option that drives
+   a board; see REPLAYING A SAVED CAPTURE.
 
 ## KNOWN BROKEN FEATURES
 
@@ -517,6 +536,85 @@ not transmit and does not change the level. Interference (`-i`, `-I`, `-j`,
 moment (see KNOWN BROKEN FEATURES), so it transmits nothing.
 These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes
 the actual output after that.
+
+## REPLAYING A SAVED CAPTURE
+
+Record the raw records once with `-d <file.bin>`, then decode them as often as
+you like with `-R <file.bin>`, without the Ubertooth and without the
+connection. Use it to decode again with other options (a tighter `-x`, or `-v`
+to see what the decoder could not read), to write a PCAP from a dump you
+already have, to analyse on another machine, to attach a capture to a bug
+report, or as fixed input for tests:
+
+    ubertooth-btle -p -d promisc.bin               # live, saving the records
+    ubertooth-btle -p -R promisc.bin -r log.pcapng # later, no device needed
+
+A dump is the only file that keeps what promiscuous mode works out about the
+connection it found. Those four parameters -- the access address, the CRC init
+value, the hop interval, and the hop increment or algorithm-2 event counter --
+arrive in records of their own, which carry no packet, so a PCAP or PcapNG
+capture has nowhere to put them. A replay prints them again, in the order they
+were recovered, exactly as the live run did.
+
+A replay needs the major mode the dump was recorded with (`-f`, `-n` or `-p`),
+or it is refused: `error: -R needs -f, -n or -p: a dump does not record which
+mode wrote it, and the modes stamp their packets with different clocks`. The
+mode is what says which of the board's two capture clocks the records carry:
+the low-energy engine behind `-f` and `-n` stamps packets from a counter that
+starts over every 429.50 s, promiscuous mode from one that starts over every
+327.68 s. A replay read with the wrong one comes out a period wrong once a
+capture has run longer than the first of them, and nothing in the file would
+say so.
+
+The decoding options (`-v`, `-x`) and the capture files (`-r`, `-q`, `-c`,
+`-d`) work as they do on live data. Every other option asks for a board the
+replay has not opened, and is refused by name: `error: -U cannot be combined
+with -R; a replay reads a saved dump rather than driving a board`, exit 1.
+That covers `-U`, `-A`, `-k`, `-t` and the interference options; `-a` and `-s`
+are already refused beside any major mode.
+
+None of those capture files may be the dump being replayed: each is opened for
+writing, which truncates it, so the dump would be emptied before a record of
+it was read. `error: -d would write over the dump -R is replaying
+(promisc.bin)`, exit 1, with the file left as it was. It is the file that is
+compared and not the name, so `./promisc.bin`, a symbolic link to it and a
+hard link to it are all refused.
+
+The times reported are the recorded ones, not the time of the replay. The
+`systime` of each packet line is the host time stored with that record, a
+capture written with `-q`, `-c` or `-r` starts from the host time of the first
+packet it decodes and follows the board's clock from there, and `-d` writes
+the records back out with their original times.
+
+A dump holds every record that carries a packet or a parameter, which for a
+dump of a dump this tool wrote is all of them, byte for byte. Two kinds are
+left out, live and on a replay alike: a keep-alive, which only says a quiet
+capture is still running and holds neither, and a record whose channel is
+outside the Bluetooth band. So a dump is a record of what was captured rather
+than of every byte the board sent.
+
+A replay that reaches the end of the file exits 0, including for an empty
+file. These two are reported on standard error and exit 1, after whatever was
+decoded:
+
+ - a file that cannot be read, for example a directory:
+   `error: reading <file> failed: Is a directory`
+ - a last record cut short:
+   `error: <file> ends in a partial record: 58 of 68 bytes, ignored`
+
+A file that cannot be opened at all is reported the same way, before anything
+is decoded: `error: <file>: No such file or directory`, exit 1.
+
+A dump of a Classic capture, or any other file of 68-byte records this tool
+does not recognize, is read to its end and decoded as nothing: no packets, no
+message, exit 0. Nothing in a record says which tool wrote it, so a run that
+prints nothing may be the wrong file rather than a quiet capture; ubertooth-rx(1)
+replays a Classic dump.
+
+A replay that could not read one whole record takes its own capture files away
+again, so a failed run leaves no empty capture to be told apart from one that
+caught nothing. From the first whole record on they are kept, however little
+of the input came after it.
 
 ## ARGUMENTS
 
@@ -752,10 +850,13 @@ in the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was captured stays written out, and libubertooth names the
 refused request on standard error.
 
-A `-q`, `-c` or `-r` file is created once the board has been opened and its
-firmware accepted, not before, so a run refused for either reason leaves no
-empty capture behind. A file the tool then cannot create is reported with the
-name the user gave, and the board is given back.
+A `-q`, `-c`, `-r` or `-d` file is created once the board has been opened and
+its firmware accepted, not before, so a run refused for either reason leaves
+no empty capture behind. A file the tool then cannot create is reported with
+the name the user gave, and the board is given back.
+
+1 as well for a replay (`-R`) of a file that cannot be opened or cannot be
+read whole, after whatever was decoded; see REPLAYING A SAVED CAPTURE.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),

@@ -160,7 +160,7 @@
     "ubertooth-btle": {
       "man": "ubertooth-btle.md",
       "report_marker": "libubertooth",
-      "optstring": ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiI",
+      "optstring": ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiId:R:",
       "work_options": ["-f", "-n", "-p", "-a", "-k", "-s", "-t"],
       "nothing_to_do": "error: nothing to do: choose a major mode (-f, -n or -p), or -a, -k, -s or -t",
       "stdout_on_failure": ["-q -", "-c -"],
@@ -207,6 +207,11 @@
                "stdout_value": true},
         "-c": {"value": "required", "role": "capture", "valid": ["CAPTURE.pcap"],
                "stdout_value": true},
+        "-d": {"value": "required", "role": "capture", "valid": ["DUMP.bin"],
+               "stdout_value": true,
+               "doc": "the records as the board sent them, which -R replays"},
+        "-R": {"value": "required", "role": "replay", "valid": ["MISSING.bin"],
+               "doc": "replay a dump written with -d, with the major mode that recorded it; a file it cannot read ends the command before any board is opened. A replay that does run is covered by test_btle_replay.py, which builds real records"},
         "-U": {"value": "required", "role": "selector", "valid": ["0"]}
       },
       "combinations": [
@@ -242,7 +247,19 @@
          "verdict": "device",
          "source": "ubertooth-btle.md DIAGNOSTICS: -q and -c share one handle, so the second file is ignored with a warning"},
         {"args": ["-s", "22:44:66:88:aa:cc", "-t", "none"], "verdict": "device",
-         "source": "ubertooth-btle.md OPTIONS: -s and -t each name their own address, so clearing the target leaves the address the faux peripheral advertises from alone. They shared one address, and this line advertised from 00:00:00:00:00:00. Which address each request carries is checked against a fake board by test_btle_main.c"}
+         "source": "ubertooth-btle.md OPTIONS: -s and -t each name their own address, so clearing the target leaves the address the faux peripheral advertises from alone. They shared one address, and this line advertised from 00:00:00:00:00:00. Which address each request carries is checked against a fake board by test_btle_main.c"},
+        {"args": ["-f", "-q", "-", "-d", "-"], "verdict": "refused",
+         "error": "error: -q and -d cannot both write to standard output",
+         "source": "ubertooth-btle.md OPTIONS, -d: standard output carries one stream, so the capture that asked second would write to /dev/null without a word. ubertooth-rx refuses the same pair"},
+        {"args": ["-f", "-c", "-", "-d", "-"], "verdict": "refused",
+         "error": "error: -c and -d cannot both write to standard output",
+         "source": "ubertooth-btle.md OPTIONS, -d: the message names the option the user wrote, -q and -c sharing one writer"},
+        {"args": ["-n", "-v", "-d", "-"], "verdict": "refused",
+         "error": "error: -v does not go with a capture on standard output: a run that hands the capture that stream prints no packets to describe",
+         "source": "ubertooth-btle.md OPTIONS, -v: a dump on \"-\" takes standard output and such a run prints no packets at all, so there is nothing for -v to describe"},
+        {"args": ["-R", "MISSING.bin"], "verdict": "refused",
+         "error": "error: -R needs -f, -n or -p: a dump does not record which mode wrote it, and the modes stamp their packets with different clocks",
+         "source": "ubertooth-btle.md REPLAYING A SAVED CAPTURE: the record does not say which of the board's two clocks stamped it, so the mode that wrote the dump is stated rather than guessed"}
       ],
       "pair_rules": [
         {"a": "role:major_mode", "b": "role:major_mode", "verdict": "refused",
@@ -270,7 +287,13 @@
         {"a": "role:verbose", "b": "-p", "verdict": "device"},
         {"a": "role:verbose", "b": "any", "verdict": "refused",
          "error_contains": "needs -f, -n or -p: there is no decode for it to describe",
-         "source": "ubertooth-btle.md OPTIONS, -v: verbose describes the packets a capture decodes, so anything but a capture mode beside it gets this line -- including nothing else at all, which is what a command line that used -v to read the CRC verify setting gets now"}
+         "source": "ubertooth-btle.md OPTIONS, -v: verbose describes the packets a capture decodes, so anything but a capture mode beside it gets this line -- including nothing else at all, which is what a command line that used -v to read the CRC verify setting gets now"},
+        {"a": "-R", "b": "role:major_mode", "verdict": "refused",
+         "error_contains": "MISSING.bin: No such file or directory",
+         "source": "ubertooth-btle.md REPLAYING A SAVED CAPTURE: the command line is complete, so the run goes on to read the dump, and a file that is not there ends it before any board is opened. Every -R case here ends at that open, the matrix having no dump to hand it; a replay that reads records is test_btle_replay.py's"},
+        {"a": "-R", "b": "any", "verdict": "refused",
+         "error_contains": "-R needs -f, -n or -p",
+         "source": "ubertooth-btle.md REPLAYING A SAVED CAPTURE: a replay is read with the clock of the mode that recorded it, so anything but a major mode beside -R gets this line -- including nothing else at all"}
       ]
     },
 
