@@ -559,12 +559,18 @@ as it was. ubertooth-btle(1) refuses a named destination the same way for its
 own replay, in the same words, naming its own option.
 
 It is the file that is compared and not the name, so `./capture.bin`, a
-symbolic link to it and a hard link to it are all refused, and so is a
-destination that reaches it through this process's standard output, written
-`-d -`, `-d /dev/stdout` or `-d /dev/fd/1`. What that cannot cover is a
-redirection of the whole run, `ubertooth-rx -i capture.bin > capture.bin`: the
-shell empties the file before ubertooth-rx(1) starts, as it would for any
-command.
+symbolic link to it and a hard link to it are all refused, as is a `-d -`
+whose standard output the shell has pointed at the capture. A destination that
+is the same thing as the input is refused whatever kind of file it is, even
+where nothing could be lost, as `-i /dev/null -d /dev/null` is.
+
+Two cases are not covered. A destination that reaches the capture through a
+descriptor the shell opened, `-d /dev/fd/3` beside `3>>capture.bin`, is not
+recognized, because those paths are served by a filesystem that answers for a
+file of its own; on systems other than Linux that includes `/dev/stdout` and
+`/dev/fd/1`. And a redirection of the whole run,
+`ubertooth-rx -i capture.bin > capture.bin`, is beyond any command's reach:
+the shell empties the file before ubertooth-rx(1) starts.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

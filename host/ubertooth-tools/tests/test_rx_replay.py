@@ -310,24 +310,19 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert (work / "other.bin").read_bytes() == b"".join(PACKET_RECORDS), result
 
-    # A destination that reaches the dump through this process's standard
-    # output is the one case a name cannot catch: the run would read the
-    # records it was appending and never end. Each spelling of standard output
-    # is compared against descriptor 1 rather than looked up as a name,
-    # because /dev/stdout and /dev/fd/1 are device nodes and stat() answers
-    # for the node.
+    # A capture on "-" whose standard output the shell has pointed at the dump
+    # is the one case a name cannot catch: the run would read the records it
+    # was appending and never end. "-" is this tool's own notation for
+    # standard output, so descriptor 1 is what is compared for it.
     for option in ("-d", "-q"):
-        for written in ("-", "/dev/stdout", "/dev/fd/1"):
-            named = "standard output"
-            with open(work / "same.bin", "ab") as appended:
-                result = run("-i", "same.bin", option, written,
-                             directory=work, stdout=appended)
-            assert result.returncode == 1, (option, written, result)
-            assert result.stderr == (
-                f"error: {option} would write over the dump -i is replaying"
-                f" ({named})\n"), (option, written, result)
-            assert (work / "same.bin").read_bytes() == FIXTURE, \
-                (option, written, result)
+        with open(work / "same.bin", "ab") as appended:
+            result = run("-i", "same.bin", option, "-", directory=work,
+                         stdout=appended)
+        assert result.returncode == 1, (option, result)
+        assert result.stderr == (
+            f"error: {option} would write over the dump -i is replaying"
+            " (standard output)\n"), (option, result)
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
 
     # Standard output closed before the run starts. The input's own open then
     # takes descriptor 1, so standard output cannot be identified by it: a
@@ -360,11 +355,21 @@ with tempfile.TemporaryDirectory() as workdir:
     assert reader.returncode == 0, reader.returncode
     assert collected.read_bytes() == b"".join(PACKET_RECORDS), result
 
-    # A replay reading something a writer cannot empty has nothing to lose, so
-    # the same name on both sides is not refused there.
+    # Whatever kind of file the two sides share, they are one thing and the
+    # command line says two. A replay fed its own dump through a named pipe
+    # would never end, and one from and to /dev/null loses nothing but is
+    # still asking for both.
+    os.mkfifo(work / "fed")
+    feeder = subprocess.Popen(["sh", "-c", "cat same.bin > fed"], cwd=work)
+    result = run("-i", "fed", "-d", "fed", directory=work)
+    feeder.wait(timeout=RUN_TIMEOUT_S)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (fed)\n"), result
     result = run("-i", "/dev/null", "-d", "/dev/null", directory=work)
-    assert result.returncode == 0, result
-    assert result.stderr == "", result
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (/dev/null)\n"), result
 
     # Standard output somewhere else is an ordinary dump to it, not a refusal.
     result = run("-i", "same.bin", "-d", "-", directory=work, text=False)
