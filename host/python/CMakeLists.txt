@@ -119,6 +119,26 @@ add_test(NAME ubtbr
 		${UBTBR_WRAPPER})
 set_tests_properties(ubtbr PROPERTIES TIMEOUT 300)
 
+# The two descriptions of each basic-rate transmit format saying the same
+# thing: TX_FORMATS in ubtbr/btctl.py, which bounds a tx command here, and the
+# firmware's own tables, which bound it on the device. Source is all it reads,
+# so it takes a fraction of a second and needs no board. host/ can be used
+# without the firmware tree beside it, so the entry appears only when that
+# tree is there, as the matrix test below does for the tools' spec.
+#
+# The condition is the firmware tree itself and not one of the files read, so
+# that a file renamed or moved fails the test rather than taking it off the
+# list.
+get_filename_component(UBERTOOTH_SOURCE_ROOT
+	"${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+if(EXISTS "${UBERTOOTH_SOURCE_ROOT}/firmware/btbr")
+	add_test(NAME ubtbr-tx-format-tables
+		COMMAND ${Python3_EXECUTABLE}
+			${CMAKE_CURRENT_SOURCE_DIR}/ubtbr/tests/test_tx_format_tables.py
+			${UBERTOOTH_SOURCE_ROOT})
+	set_tests_properties(ubtbr-tx-format-tables PROPERTIES TIMEOUT 60)
+endif()
+
 # ubertooth-btbr's command line, against the same contract as every other
 # installed tool (host/ubertooth-tools/tests/cli_spec.json). It is registered
 # here because the wrapper CMake configured is what gets run, and the spec and
