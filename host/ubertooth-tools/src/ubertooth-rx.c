@@ -28,6 +28,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* How many boards one capture may read at once. Each one costs a 72 MB ring
@@ -698,6 +699,85 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * second or less. */
 #define FOLLOW_QUIET_MS 60000
 
+/* Which file would a writer given <output_name> write to? 0 once <where>
+ * holds its device and inode numbers, -1 when they cannot be had -- a name
+ * that does not exist yet, which is the ordinary case, or a path that cannot
+ * be looked up, which the writer is about to report itself. The replay's
+ * input must be open, because the "-" case is answered from its descriptor.
+ *
+ * A lone "-" is this tool's own notation for standard output, so the
+ * descriptor is what to look at; there is no name to look up. Every other
+ * destination is looked up as written, and how far that gets depends on the
+ * system. On Linux the paths that name an open descriptor -- "/dev/stdout",
+ * "/dev/fd/3" beside "3>>" -- are symbolic links to the file itself, so
+ * stat() follows them and the comparison holds. On the BSDs they are served
+ * by a filesystem of their own, which reports the real file's inode number
+ * under a device number of its own, so the comparison misses by the device
+ * half and such a destination is not identified there.
+ *
+ * Closing that would mean identifying the file after the writer has opened it
+ * and before it is truncated, which reaches into how each capture writer opens
+ * its file, two of them in libbtbb. It is not solved here. What must not be
+ * done is to open the destination from here to look at it: that ends a named
+ * pipe's stream for its reader, and the close lowers a terminal's modem
+ * lines. ubertooth-rx(1) states the limit, so a reader is not left thinking it
+ * is covered. */
+static int destination_file(const char* output_name, struct stat* where)
+{
+	if (opt_writes_to_stdout(output_name)) {
+		/* The replay's input holding descriptor 1 means standard output
+		 * was closed before this process started and the input's
+		 * fopen() took the number. There is then no standard output to
+		 * identify, and the writer is about to report that it cannot
+		 * write there. */
+		if (fileno(infile) == fileno(stdout))
+			return -1;
+		return fstat(fileno(stdout), where) == 0 ? 0 : -1;
+	}
+	return stat(output_name, where) == 0 ? 0 : -1;
+}
+
+/* Refuses an output file that is the dump a replay is reading. Every writer
+ * here opens its file for writing, which truncates it, so a run given one file
+ * for both would empty the dump before reading a record of it -- and a dump of
+ * a Classic capture holds the only copy of what the board sent, which no
+ * capture file keeps.
+ *
+ * The file is identified rather than the name, by the device and inode numbers
+ * of the open input against those of the destination (see
+ * destination_file()), so "./x.bin" beside "x.bin", a symbolic link, a hard
+ * link, and a shell that has already pointed standard output at the dump
+ * -- `-i x.bin -d - >> x.bin`, which reads the records it is appending and
+ * never ends -- are all caught.
+ *
+ * Anything the two share counts, whatever kind of file it is: a named pipe on
+ * both sides would feed the replay its own records forever, and a character
+ * device on both sides loses nothing but is still a command line that says two
+ * things and means one. Refusing those keeps one rule rather than a list of
+ * kinds, and is what ubertooth-btle(1) does as well.
+ *
+ * Called with the input open and before any writer opens, so a refused run has
+ * written nothing. Returns -1 once the refusal is printed. */
+static int output_is_the_replay(const char* output_name, char option)
+{
+	struct stat input_file, output_file;
+
+	if (infile == NULL || output_name == NULL)
+		return 0;
+	if (fstat(fileno(infile), &input_file) != 0)
+		return 0;
+	if (destination_file(output_name, &output_file) != 0)
+		return 0;
+	if (input_file.st_dev != output_file.st_dev ||
+	    input_file.st_ino != output_file.st_ino)
+		return 0;
+	fprintf(stderr, "error: -%c would write over the dump -i is replaying"
+	        " (%s)\n", option,
+	        opt_writes_to_stdout(output_name) ? "standard output"
+	                                          : output_name);
+	return -1;
+}
+
 int main(int argc, char* argv[])
 {
 	int opt, have_lap = 0, have_uap = 0;
@@ -1047,6 +1127,19 @@ int main(int argc, char* argv[])
 			 * shape as the other file-open failures. */
 			fprintf(stderr, "error: %s: %s\n",
 			        infile_name, strerror(errno));
+			rx_give_back_boards(boards, n_boards, 0);
+			return 1;
+		}
+
+		/* No writer may be the dump this replay is reading: see
+		 * output_is_the_replay(). Asked here, with the input open and
+		 * long before the first writer, so a refused run truncates
+		 * nothing, opens no board and creates no file. */
+		if (output_is_the_replay(pcapng_name, 'r') < 0 ||
+		    output_is_the_replay(pcap_name, 'q') < 0 ||
+		    output_is_the_replay(dump_name, 'd') < 0) {
+			fclose(infile);
+			infile = NULL;
 			rx_give_back_boards(boards, n_boards, 0);
 			return 1;
 		}

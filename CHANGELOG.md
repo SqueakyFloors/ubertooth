@@ -1101,6 +1101,23 @@
   now named, and a run that wrote no image is told to write a whole one, which
   is what a board left half-written by an interrupted download needs.
   [#1133](https://github.com/SqueakyFloors/ubertooth/issues/1133)
+- Fixed: `ubertooth-rx -i capture.bin -d capture.bin` emptied the capture it
+  was replaying. An output file is opened for writing, which truncates it, so
+  one name typed twice destroyed the file before a record of it was read, and
+  the command said nothing and exited 0. `-q` on the input name removed it and
+  then reported a partial record of what it had just emptied. A replay now
+  refuses an output that is the dump it is reading, before any capture file is
+  opened: `error: -d would write over the dump -i is replaying (capture.bin)`,
+  exit 1, and the capture is left as it was. That covers the other ways of
+  naming one file -- `./capture.bin`, a symbolic link, a hard link -- and a
+  shell that has pointed standard output at it, `-d - >> capture.bin`, which
+  used to read the records it was appending and never end. It does not cover a
+  destination the tool cannot see the far end of -- a pipe, or, other than on
+  Linux, a path naming an open descriptor -- nor a redirection of the whole
+  run, `ubertooth-rx -i capture.bin >> capture.bin`; ubertooth-rx(1) says so.
+  `ubertooth-btle` refuses a named destination the same way for its own replay,
+  naming its own option; it has no equivalent of the `-` case yet.
+  [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130)
 
 - Fixed: a board carrying a bootloader built from this tree could not be
   flashed over USB at all. `ubertooth-dfu` failed on the first firmware block

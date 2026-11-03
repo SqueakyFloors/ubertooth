@@ -543,7 +543,16 @@
          "source": "ubertooth-rx.md ARGUMENTS: standard output carries one stream, so only one capture can have it"},
         {"args": ["-r", "-"], "verdict": "refused",
          "error": "error: PCAPNG capture to stdout is not supported; use -q -",
-         "source": "a PcapNG writer has to seek, so - cannot be its destination; ubertooth-btle -r - refuses it in the same words, naming its own PCAP option"}
+         "source": "a PcapNG writer has to seek, so - cannot be its destination; ubertooth-btle -r - refuses it in the same words, naming its own PCAP option"},
+        {"args": ["-i", "REPLAY.bin", "-r", "REPLAY.bin"], "verdict": "refused",
+         "error_contains": "error: -r would write over the dump -i is replaying",
+         "source": "ubertooth-rx.md REPLAYING A SAVED CAPTURE: an output file that is the replay's input would empty it"},
+        {"args": ["-i", "REPLAY.bin", "-q", "REPLAY.bin"], "verdict": "refused",
+         "error_contains": "error: -q would write over the dump -i is replaying",
+         "source": "ubertooth-rx.md REPLAYING A SAVED CAPTURE"},
+        {"args": ["-i", "REPLAY.bin", "-d", "REPLAY.bin"], "verdict": "refused",
+         "error_contains": "error: -d would write over the dump -i is replaying",
+         "source": "ubertooth-rx.md REPLAYING A SAVED CAPTURE"}
       ],
       "pair_rules": [
         {"a": "-z", "b": "role:target", "verdict": "refused",

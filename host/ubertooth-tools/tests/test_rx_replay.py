@@ -106,11 +106,21 @@ ZERO_EXPECTED_NS = [
 ]
 
 
-def run(*arguments, directory):
+def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
+        close_stdout=False):
+    """One ubertooth-rx run. `stdout` takes an open file for the cases that
+    need this process's standard output pointed somewhere in particular, and
+    `close_stdout` runs it with descriptor 1 closed, as `1>&-` does."""
+    # Descriptor 1 is closed by a shell rather than in a fork handler, which
+    # Python documents as unsafe in a process that has threads.
+    command = [BINARY, *arguments]
+    if close_stdout:
+        command = ["sh", "-c", 'exec 1>&-; exec "$0" "$@"', *command]
     return subprocess.run(
-        [BINARY, *arguments],
-        capture_output=True,
-        text=True,
+        command,
+        stdout=stdout,
+        stderr=subprocess.PIPE,
+        text=text,
         timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
@@ -271,3 +281,110 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 1, result
     assert result.stdout == "", result
     assert result.stderr.startswith("error: missing.bin: "), result
+
+    # No output file may be the dump being replayed: each is opened for
+    # writing, which truncates it, so the dump would be emptied before a
+    # record of it was read. -d used to leave it 0 bytes long and exit 0 with
+    # nothing said, and -q used to report a partial record of the file it had
+    # just emptied. It is the file that is compared and not the name, so the
+    # other ways of naming one file are refused too, in the same words
+    # ubertooth-btle uses for its own replay.
+    (work / "same.bin").write_bytes(FIXTURE)
+    (work / "link.bin").symlink_to("same.bin")
+    os.link(work / "same.bin", work / "hard.bin")
+    # Every way of naming the one file against -d, which pins that it is the
+    # file being compared, and one naming against each of the other two, which
+    # pins that every writer is checked.
+    cases = [("-d", written) for written in
+             ("same.bin", "./same.bin", "link.bin", "hard.bin")]
+    cases += [("-q", "same.bin"), ("-r", "same.bin")]
+    for option, written in cases:
+        result = run("-i", "same.bin", option, written, directory=work)
+        assert result.returncode == 1, result
+        assert result.stdout == "", result
+        assert result.stderr == (
+            f"error: {option} would write over the dump -i is replaying"
+            f" ({written})\n"), result
+        assert (work / "same.bin").read_bytes() == FIXTURE, \
+            (option, written, "truncated")
+
+    # A file that is not the input is written as usual, which is what keeps
+    # the check above from refusing an ordinary run.
+    result = run("-i", "same.bin", "-d", "other.bin", directory=work)
+    assert result.returncode == 0, result
+    assert (work / "other.bin").read_bytes() == b"".join(PACKET_RECORDS), result
+
+    # A capture on "-" whose standard output the shell has pointed at the dump
+    # is the one case a name cannot catch: the run would read the records it
+    # was appending and never end. "-" is this tool's own notation for
+    # standard output, so descriptor 1 is what is compared for it.
+    for option in ("-d", "-q"):
+        with open(work / "same.bin", "ab") as appended:
+            result = run("-i", "same.bin", option, "-", directory=work,
+                         stdout=appended)
+        assert result.returncode == 1, (option, result)
+        assert result.stderr == (
+            f"error: {option} would write over the dump -i is replaying"
+            " (standard output)\n"), (option, result)
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
+
+    # Standard output closed before the run starts. The input's own open then
+    # takes descriptor 1, so standard output cannot be identified by it: a
+    # named destination must still be refused, and "-" must be left to the
+    # writer, which says it cannot write there.
+    result = run("-i", "same.bin", "-d", "same.bin", directory=work,
+                 stdout=None, close_stdout=True)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (same.bin)\n"), result
+    assert (work / "same.bin").read_bytes() == FIXTURE, result
+
+    result = run("-i", "same.bin", "-d", "-", directory=work,
+                 stdout=None, close_stdout=True)
+    assert result.returncode == 1, result
+    assert "cannot write binary dump data to stdout" in result.stderr, result
+    assert (work / "same.bin").read_bytes() == FIXTURE, result
+
+    # Identifying a destination must not touch it. A named pipe with a reader
+    # is where that shows: a tool that opened the pipe to look at it and closed
+    # it again would end the stream for the reader, and the write that followed
+    # would then block forever. So the dump arrives and the run ends.
+    os.mkfifo(work / "pipe")
+    collected = work / "collected.bin"
+    with open(collected, "wb") as sink:
+        reader = subprocess.Popen(["cat", "pipe"], cwd=work, stdout=sink)
+        result = run("-i", "same.bin", "-d", "pipe", directory=work)
+        reader.wait(timeout=RUN_TIMEOUT_S)
+    assert result.returncode == 0, result
+    assert reader.returncode == 0, reader.returncode
+    assert collected.read_bytes() == b"".join(PACKET_RECORDS), result
+
+    # Whatever kind of file the two sides share, they are one thing and the
+    # command line says two. A replay fed its own dump through a named pipe
+    # would never end, and one from and to /dev/null loses nothing but is
+    # still asking for both.
+    os.mkfifo(work / "fed")
+    feeder = subprocess.Popen(["sh", "-c", "cat same.bin > fed"], cwd=work)
+    result = run("-i", "fed", "-d", "fed", directory=work)
+    feeder.wait(timeout=RUN_TIMEOUT_S)
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (fed)\n"), result
+    result = run("-i", "/dev/null", "-d", "/dev/null", directory=work)
+    assert result.returncode == 1, result
+    assert result.stdout == "", result
+    assert result.stderr == ("error: -d would write over the dump -i is"
+                             " replaying (/dev/null)\n"), result
+
+    # Standard output somewhere else is an ordinary dump to it, not a refusal.
+    result = run("-i", "same.bin", "-d", "-", directory=work, text=False)
+    assert result.returncode == 0, result
+    assert result.stdout == b"".join(PACKET_RECORDS), len(result.stdout)
+
+    # A capture on "-" is standard output rather than a file of that name, so
+    # it is not refused for naming the input. This run fails on the input
+    # instead, which is a file called "-" that is not there.
+    result = run("-i", "-", "-d", "-", directory=work)
+    assert result.returncode == 1, result
+    assert result.stderr == "error: -: No such file or directory\n", result
