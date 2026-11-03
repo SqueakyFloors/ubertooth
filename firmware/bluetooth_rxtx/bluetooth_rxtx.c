@@ -3914,14 +3914,8 @@ static int promisc_try_csa2(u32 sighting) {
 	uint8_t site;
 	int found;
 
-	/* The search is by far the longest thing this capture does between two
-	 * packets: it hashes every one of the 65536 event counters and scores
-	 * tens of thousands of candidates. USB is answered from its interrupt
-	 * here, so the board keeps feeding the watchdog throughout and the
-	 * three-second timeout is in no danger -- but a -w read taken during
-	 * the search would name the capture's wait for a packet, and a reset
-	 * from anywhere inside it would be recorded as that wait too. This
-	 * says the search instead. */
+	/* The longest stretch this capture spends between two packets, and
+	 * nothing out here names it: see WATCHDOG_SITE_LE_CSA2. */
 	site = watchdog_mark(WATCHDOG_SITE_LE_CSA2);
 	found = le_csa2_recover(le_promisc.csa2_gap, le_promisc.csa2_gap_count,
 			btle_channel_index(channel), le.access_address, &rec);

@@ -1710,10 +1710,10 @@ MU_TEST(the_sighting_is_stamped_when_the_packet_arrived)
 /*
  * The search names itself in the watchdog's breadcrumb.
  *
- * It is the longest stretch of thread-context work the capture does, so a -w
- * read or a watchdog reset that lands in it must say "the algorithm-2 search"
- * and not the capture's wait for the next packet. The mark has to be given
- * back as well: left set, it would name the search for the rest of the
+ * It is the longest stretch the capture spends between two packets, so a -w
+ * read or a watchdog reset that lands in it must say so rather than read as
+ * "not in a wait". The mark has to be given back, and given back on every way
+ * out of the search: left set, it would name the search for the rest of the
  * capture.
  */
 MU_TEST(the_search_marks_its_own_watchdog_site)
@@ -1721,8 +1721,8 @@ MU_TEST(the_search_marks_its_own_watchdog_site)
 	char path[512];
 	char line[512];
 	FILE *f;
-	int in_function = 0, in_block = 0;
-	int marked = 0, given_back = 0, searched_while_marked = 0;
+	int in_block = 0, marked = 0;
+	int searched = 0, given_back = 0, left_without_giving_it_back = 0;
 
 	snprintf(path, sizeof(path), "%s/bluetooth_rxtx.c", FW_RXTX_DIR);
 	f = fopen(path, "r");
@@ -1731,8 +1731,7 @@ MU_TEST(the_search_marks_its_own_watchdog_site)
 	while (fgets(line, sizeof(line), f) != NULL) {
 		char *comment;
 
-		/* As above: a comment saying the site is marked is not the
-		 * mark. */
+		/* As above: a comment naming the site is not the mark. */
 		if (in_block) {
 			if (strstr(line, "*/") == NULL)
 				continue;
@@ -1746,35 +1745,34 @@ MU_TEST(the_search_marks_its_own_watchdog_site)
 			*comment = '\0';
 		}
 
-		if (strstr(line, "int promisc_try_csa2(") != NULL)
-			in_function = 1;
-		else if (line[0] == '}')
-			in_function = 0;
-
-		if (!in_function)
+		if (!marked) {
+			marked = strstr(line,
+			    "watchdog_mark(WATCHDOG_SITE_LE_CSA2)") != NULL;
 			continue;
-
-		if (strstr(line, "watchdog_mark(WATCHDOG_SITE_LE_CSA2)") != NULL)
-			marked = 1;
-		if (marked && strstr(line, "le_csa2_recover(") != NULL &&
-		    !given_back)
-			searched_while_marked = 1;
-		if (marked && strstr(line, "watchdog_mark(site)") != NULL)
+		}
+		if (given_back)
+			continue;
+		if (strstr(line, "le_csa2_recover(") != NULL)
+			searched = 1;
+		if (strstr(line, "watchdog_mark(site)") != NULL)
 			given_back = 1;
+		else if (strstr(line, "return") != NULL)
+			left_without_giving_it_back = 1;
 	}
 	fclose(f);
 
 	mu_assert(marked,
-	          "promisc_try_csa2() does not mark WATCHDOG_SITE_LE_CSA2, so "
-	          "-w names the capture's wait for a packet while the search "
-	          "runs");
-	mu_assert(searched_while_marked,
-	          "promisc_try_csa2() marks the site somewhere other than "
-	          "around le_csa2_recover(), which is the work that takes the "
-	          "time");
+	          "nothing marks WATCHDOG_SITE_LE_CSA2, so the search reads "
+	          "back as \"not in a wait\"");
+	mu_assert(searched,
+	          "the site is marked somewhere other than around "
+	          "le_csa2_recover(), which is the work that takes the time");
 	mu_assert(given_back,
-	          "promisc_try_csa2() does not put the previous site back, so "
-	          "the search would be named for the rest of the capture");
+	          "the previous site is never put back, so the search would be "
+	          "named for the rest of the capture");
+	mu_assert(!left_without_giving_it_back,
+	          "the search can be left by a return that does not put the "
+	          "previous site back");
 }
 
 /* ------------------------------------------------------------------------
