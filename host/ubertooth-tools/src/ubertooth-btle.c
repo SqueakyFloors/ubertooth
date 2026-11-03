@@ -218,24 +218,24 @@ static void replay_decode(ubertooth_t* ut, void* args)
  * for both would empty the dump before reading a record of it -- and a dump is
  * the only copy of what promiscuous mode worked out about a connection.
  *
- * The file is identified rather than the name: the device and inode numbers of
- * the open input against those of the destination, so "./x.bin" beside
- * "x.bin", a symbolic link and a hard link are all caught. A lone "-" has no
- * name to compare, and is this process's standard output, so that descriptor
- * is what gets looked at. That catches the one destination a name cannot: a
- * shell that has already pointed standard output at the dump, as in
- * `-R x.bin -d - >> x.bin`, which reads the records it is appending and never
- * ends. Anything the two share counts, a character device included, so
- * `-R /dev/null -d /dev/null` is refused as well; nothing is lost there, and
- * the alternative of comparing only regular files would let a named pipe
- * through.
+ * The file is identified rather than the name, by device and inode numbers, so
+ * "./x.bin" beside "x.bin", a symbolic link and a hard link are all caught.
+ * Anything the two share counts, a character device included, because
+ * comparing only regular files would let a named pipe through.
  *
- * A destination that cannot be stat()ed is not identified. That is the
- * ordinary case for a name that does not exist yet, and for the rest -- a
- * directory on the path that cannot be searched, a symbolic link loop -- the
- * writer is about to report the real reason itself. The same goes for a run
- * whose standard output was closed before it started, which leaves fopen()
- * holding descriptor 1: the dump writer reports that itself.
+ * A lone "-" has no name to compare and is this process's standard output, so
+ * that descriptor is what gets looked at. That catches the one destination a
+ * name cannot: a shell that has already pointed standard output at the dump,
+ * as in `-R x.bin -d - >> x.bin`, which reads the records it is appending and
+ * never ends. An input that turns out to hold descriptor 1 is not that case:
+ * standard output was closed before this run started and fopen() took the
+ * number. The dump writer reports the closed output itself, when its fdopen()
+ * of a descriptor opened for reading fails.
+ *
+ * A destination that cannot be stat()ed is not identified: a name that does
+ * not exist yet is the ordinary case, and for the rest -- a directory on the
+ * path that cannot be searched, a symbolic link loop -- the writer is about to
+ * report the real reason itself.
  *
  * Called with the input open and before any writer opens, so a refused run
  * has written nothing. Returns -1 once the refusal is printed. */

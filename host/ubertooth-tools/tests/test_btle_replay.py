@@ -263,14 +263,23 @@ with tempfile.TemporaryDirectory() as workdir:
             " (standard output)\n"), result
         assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
 
-    # Standard output pointed at another file is an ordinary dump to it: a
-    # regular file is the destination that could have collided, which the
-    # run against a pipe further down does not pin.
-    with open(work / "piped.bin", "wb") as elsewhere:
+    # Standard output pointed at a file that is not the dump is an ordinary
+    # dump to it, which is what keeps the check above off a run like
+    # `-d - > elsewhere.bin`.
+    with open(work / "elsewhere.bin", "wb") as elsewhere:
         result = run("-p", "-R", "same.bin", "-d", "-", directory=work,
                      stdout=elsewhere)
     assert result.returncode == 0, result
-    assert (work / "piped.bin").read_bytes() == FIXTURE, result
+    assert (work / "elsewhere.bin").read_bytes() == FIXTURE, result
+
+    # Whatever the two have in common counts, a character device included, so
+    # a replay of /dev/null dumping to /dev/null is refused. Nothing is lost
+    # there; comparing only regular files is what this gives up, and that
+    # would let a named pipe through.
+    result = run("-p", "-R", "/dev/null", "-d", "/dev/null", directory=work)
+    assert result.returncode == 1, result
+    assert result.stderr == ("error: -d would write over the dump -R is"
+                             " replaying (/dev/null)\n"), result
 
     # A named pipe is an ordinary destination, so nothing here may disturb it:
     # a check that opened the destination to identify it would hand the reader
@@ -281,9 +290,16 @@ with tempfile.TemporaryDirectory() as workdir:
                                "import sys; sys.stdout.buffer.write("
                                "open(sys.argv[1], 'rb').read())",
                                str(fifo)], stdout=subprocess.PIPE)
-    result = run("-p", "-R", "same.bin", "-d", str(fifo), directory=work)
-    assert result.returncode == 0, result
-    assert reader.communicate(timeout=RUN_TIMEOUT_S)[0] == FIXTURE, result
+    try:
+        result = run("-p", "-R", "same.bin", "-d", str(fifo), directory=work)
+        assert result.returncode == 0, result
+        assert reader.communicate(timeout=RUN_TIMEOUT_S)[0] == FIXTURE, result
+    finally:
+        # A regression that leaves the writer waiting for a reader would
+        # otherwise leave this process behind and hang the whole test run.
+        if reader.poll() is None:
+            reader.kill()
+            reader.wait(timeout=RUN_TIMEOUT_S)
 
     # The same read as the follow mode's dump instead. The two modes stamp
     # their packets with different clocks, which is why the mode has to be
