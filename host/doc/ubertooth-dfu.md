@@ -197,13 +197,21 @@ failure:
 
     error: detach failed: the board reset and came back in the bootloader
     note: the firmware was written, so the board holds it; it is in the bootloader rather than running it
-    note: the bootloader runs instead of the application when something asks the board into DFU again, or when its bootloader entry pin reads grounded as the board resets
+    note: the bootloader runs instead of the application when something asks the board into DFU again, when its bootloader entry pin reads grounded as the board resets, or when the board holds no whole application image to start
     note: if the expansion-header bridge is still fitted, remove it (pins 1 and 3 of P4 on an Ubertooth One), then unplug the board and plug it back in
 
 The first note appears only when `-d` had written the whole image. The second
-names the bootloader's two entry conditions, which are all there are. The
+names the bootloader's three entry conditions, which are all there are. The
 third is what to do about the one of them that repeats on every reset: the
 expansion-header bridge described under MANUALLY ENTERING BOOTLOADER.
+
+A run that wrote no image, `-r` on its own or beside `-u`, gets one more note
+after the one naming the causes, as the remedy for the third of them:
+
+    note: an interrupted download leaves the board without a whole image, so write one: -d <image> -r
+
+A board that has just taken a whole image is not in that state, so a run that
+wrote one is never told to write again.
 
 The confirming wait is spent once per detach and only after the device has
 gone, so a board that never left the bootloader is reported as promptly as

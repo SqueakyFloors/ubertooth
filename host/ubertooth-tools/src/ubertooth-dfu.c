@@ -1029,19 +1029,33 @@ int detach(struct dfu_runtime_context* runtime, libusb_device_handle* devh,
 				        "board holds it; it is in the bootloader rather "
 				        "than running it\n");
 			/* Why it is there. The bootloader runs instead of the
-			 * application in exactly two cases
+			 * application in exactly three cases
 			 * (firmware/bootloader/bootloader.cpp, main()): the word a tool
 			 * sets to ask for DFU is set in the memory that survives a
-			 * reset, or the entry pin reads grounded as the board comes up.
-			 * The bootloader clears that word on its way out, so for it to
-			 * be the cause here something has to have set it again, which is
-			 * how the note puts it. The next line is the remedy for the
-			 * other condition, which is the one that repeats on every
-			 * reset. */
+			 * reset, the entry pin reads grounded as the board comes up, or
+			 * the application region holds no image the bootloader will
+			 * start. The bootloader clears that word on its way out, so for
+			 * it to be the cause here something has to have set it again,
+			 * which is how the note puts it. The lines after it are the
+			 * remedies for the other two conditions, which are the ones that
+			 * repeat on every reset. */
 			fprintf(stderr, "note: the bootloader runs instead of the "
 			        "application when something asks the board into DFU "
-			        "again, or when its bootloader entry pin reads grounded "
-			        "as the board resets\n");
+			        "again, when its bootloader entry pin reads grounded "
+			        "as the board resets, or when the board holds no whole "
+			        "application image to start\n");
+			/* Only where this run wrote nothing: a half-written image from
+			 * an earlier download may still be in place, and writing a
+			 * whole one is what clears it. A run that did write a whole
+			 * image is not in that state, and writing it again is the one
+			 * thing that board does not need. What is known here is that
+			 * the host sent every block, not that the bootloader will start
+			 * what it sent, so a complete write of an image the bootloader
+			 * rejects is left to the condition named above. */
+			if (!runtime->download_completed)
+				fprintf(stderr, "note: an interrupted download leaves the "
+				        "board without a whole image, so write one: "
+				        "-d <image> -r\n");
 			fprintf(stderr, "note: if the expansion-header bridge is still "
 			        "fitted, remove it (pins 1 and 3 of P4 on an Ubertooth "
 			        "One), then unplug the board and plug it back in\n");
