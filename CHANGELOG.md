@@ -7,23 +7,21 @@
 The first release from this community fork, and the first since Great Scott
 Gadgets' 2020-12-R1. It builds on the hardware, the tools, and the command
 lines Project Ubertooth's authors made, and adds fixes, tests, and
-documentation for the devices and systems in use today. Features the tools
-documented but that did not run now work, a capture file carries figures a
-reader can rely on, and a board that used to need a re-plug recovers on its
-own. The host tools are built against this fork's libbtbb, which carries
-matching work in the decoders and the capture writers. The sections below
-have every change; these are the ones worth knowing about.
+documentation for the devices and systems in use today. More of what the
+pages describe now works, a capture file carries figures a reader can rely
+on, and a board that used to need a re-plug recovers on its own. The host
+tools are built against this fork's libbtbb, which carries matching work in
+the decoders and the capture writers. The sections below have every change;
+these are the ones worth knowing about.
 
 - **`ubertooth-btle -f` follows the connections current devices make.** Follow
   mode hopped with channel selection algorithm 1 only, so a connection using
   algorithm 2, which Bluetooth 5.0 devices normally use, was listened for at
   the right microsecond on the wrong channel. It now reads both ends' ChSel
-  bits and hops with the algorithm the connection chose, and it no longer
-  loses the events a connection starts with: 13676 packets across 23
-  connections in 240 seconds, where the same run on the same peer had caught
-  280 across 1.
-  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836),
-  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+  bits and hops with the algorithm the connection chose: 13676 packets across
+  23 connections in 240 seconds, where the same run on the same peer had
+  caught 280 across 1.
+  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836)
 - **Promiscuous mode finds a connection that is already running, and a
   capture can be replayed.** `-p` recovers the access address, the CRC
   starting value, and the hopping of a connection nobody saw being made,
@@ -73,10 +71,9 @@ have every change; these are the ones worth knowing about.
   [#623](https://github.com/SqueakyFloors/ubertooth/issues/623),
   [#948](https://github.com/SqueakyFloors/ubertooth/issues/948),
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
-- **Advertised options that had nothing behind them now do what their pages
-  say.** The two-board range test exchanges packets and reports the lowest
-  power level that got through in each direction, with `-n` running the test
-  rather than only starting it. `ubertooth-specan -v` reports the board, the
+- **Options the pages describe now do what they say.** The two-board range
+  test exchanges packets and reports the lowest power level that got through
+  in each direction, with `-n` running the test rather than only starting it. `ubertooth-specan -v` reports the board, the
   sweep, and a summary once a second. `ubertooth-btle -s` and `-t` each keep
   their own address instead of overwriting one another. A capture runs on the
   channel, hop mode, modulation, and channel map it was asked for, instead of
@@ -121,7 +118,7 @@ have every change; these are the ones worth knowing about.
   `-V` answers the same way in every tool, with the host tools' version,
   libbtbb and where it was loaded from, and the board's firmware revision.
   Host tools built from a checkout warn about firmware of another API version
-  and run the command anyway; a release build refuses it.
+  and run the command anyway; a release build refuses it by default.
   [#782](https://github.com/SqueakyFloors/ubertooth/issues/782),
   [#813](https://github.com/SqueakyFloors/ubertooth/issues/813),
   [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
