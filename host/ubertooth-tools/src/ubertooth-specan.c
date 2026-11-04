@@ -437,16 +437,16 @@ int main(int argc, char *argv[])
 	 * capture of a sweep has always been; the screen with no format asked
 	 * for gets one text line per sample.
 	 *
-	 * Which values mean stdout is opt_writes_to_stdout()'s to say. Any
-	 * other value is a file name, including one starting with "-", so
-	 * "-d -x" writes the file "-x" rather than silently streaming samples
-	 * to stdout and dropping a mistyped option.
+	 * Which destinations are that stream is opt_destination_is_stdout()'s
+	 * to say. Any other value is a file name, including one starting with
+	 * "-", so "-d -x" writes the file "-x" rather than silently streaming
+	 * samples to stdout and dropping a mistyped option.
 	 *
 	 * Settled here, where the rest of the command line is checked; the file
 	 * itself is opened once the board has been accepted, below. */
 	if (dump_name != NULL && format_option == 0)
 		output_mode = SPECAN_FILE;
-	if (dump_name == NULL || opt_writes_to_stdout(dump_name)) {
+	if (dump_name == NULL || opt_destination_is_stdout(dump_name)) {
 		/* The raw records are binary, so a terminal is refused the way
 		 * ubertooth-btle refuses its capture. A text format is welcome
 		 * on one. */

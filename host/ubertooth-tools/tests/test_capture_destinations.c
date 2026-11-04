@@ -425,15 +425,12 @@ static void test_standard_output_pointed_at_a_file(void)
 		              " (redirected.bin and points-at-stream)\n");
 		check_accepted("points-at-stream", "elsewhere.bin");
 		/* The same link beside a "-" the user wrote. Both reach this
-		 * stream, so both reach the file it is on, and the target has
-		 * to be recognized by its text: looking it up answers with a
-		 * device of its own on the BSDs, and the pair was missed. */
-		check_refused("-", "points-at-stream",
-		              "error: -q and -d cannot both write to one file"
-		              " (standard output and points-at-stream)\n");
-		check_refused("points-at-stream", "-",
-		              "error: -q and -d cannot both write to one file"
-		              " (points-at-stream and standard output)\n");
+		 * stream, so the pair is the one-capture-on-standard-output
+		 * rule's, which each tool states in its own words, and this
+		 * check leaves it alone rather than naming the file the stream
+		 * happens to be on. */
+		check_accepted("-", "points-at-stream");
+		check_accepted("points-at-stream", "-");
 	} else {
 		printf("skipping the link-to-the-stream case: %s\n",
 		       strerror(errno));
@@ -563,17 +560,75 @@ static void test_the_stream_beside_the_file_called_dash(void)
 	close(saved);
 }
 
-/* The boundary a destination reached through a descriptor the calling shell
- * opened sits on. The name alone does not say which file that is, and looking
- * it up gets different answers on different systems: a Linux descriptor path
- * is a symbolic link that is followed, while the BSDs serve it from a
- * filesystem of its own that reports the real file's inode number under a
- * device number of its own, so the comparison misses by the device half.
+/* A destination written as some other spelling of a descriptor path, beside
+ * the file that descriptor holds. Either the platform answers the spelling
+ * and the pair is refused, or it does not and the two are two destinations;
+ * both are pinned, because what must not happen is the third outcome, the
+ * pair taken for two files and one of them written over the other.
  *
- * Closing that means identifying each destination after it is open and before
- * it is truncated, which reaches into how every capture writer opens its file
- * and is its own piece of work. These cases pin where the comparison stands
- * today, so widening it cannot pass unnoticed. */
+ * Which of the two it is cannot be settled once and relied on: macOS answers
+ * a ".." element above the number only some of the time, the same path
+ * resolving in one run and not in the next. */
+static void check_descriptor_spelling(const char *file, const char *spelled)
+{
+	char refusal[PATH_MAX + 128], expected[PATH_MAX + 128];
+	const opt_capture_dest pair[] = {
+		{ "-q", file },
+		{ "-d", spelled },
+	};
+	int status;
+
+	refusal_for(pair, 2, &status, refusal, sizeof(refusal));
+	if (status == 0) {
+		CHECK(refusal[0] == '\0');
+		printf("note: %s is not answered as a descriptor in this run\n",
+		       spelled);
+		return;
+	}
+	snprintf(expected, sizeof(expected),
+	         "error: -q and -d cannot both write to one file (%s and %s)\n",
+	         file, spelled);
+	checks++;
+	if (strcmp(refusal, expected) != 0) {
+		fprintf(stderr, "FAIL %s beside %s\n  wanted %s  got    %s",
+		        file, spelled, expected, refusal);
+		failures++;
+	}
+}
+
+/* One of the descriptor filesystem's fixed names beside its own numbered
+ * entry for the same descriptor: one destination, so the pair is refused.
+ *
+ * Skipped where the platform does not answer the name, and where that
+ * descriptor is the null device -- two captures may share that one, since it
+ * keeps nothing and loses nothing, so there would be no refusal to read. A
+ * test run with its standard input on /dev/null is the ordinary case. */
+static void check_fixed_name(const char *name, const char *numbered, int fd)
+{
+	struct stat by_name, by_number, null;
+	char expected[PATH_MAX + 128];
+
+	if (stat(name, &by_name) != 0 || stat(numbered, &by_number) != 0 ||
+	    by_name.st_dev != by_number.st_dev ||
+	    by_name.st_ino != by_number.st_ino) {
+		printf("skipping %s, this platform does not answer it\n", name);
+		return;
+	}
+	if (fstat(fd, &by_number) == 0 && S_ISCHR(by_number.st_mode) &&
+	    stat("/dev/null", &null) == 0 && by_number.st_rdev == null.st_rdev) {
+		printf("skipping %s, it is the null device in this run\n", name);
+		return;
+	}
+	snprintf(expected, sizeof(expected),
+	         "error: -q and -d cannot both write to one file (%s and %s)\n",
+	         name, numbered);
+	check_refused(name, numbered, expected);
+}
+
+/* A destination reached through a descriptor the calling shell opened. The
+ * name says nothing about which file that is and looking it up answers
+ * differently on each system, so the descriptor itself is asked: it is
+ * already open here, which makes the answer the same everywhere. */
 static void test_descriptor_paths(void)
 {
 	char path[64];
@@ -582,6 +637,10 @@ static void test_descriptor_paths(void)
 	/* Nothing is open on this descriptor, so the path names nothing and
 	 * cannot be compared with anything. */
 	check_accepted("cap.bin", "/dev/fd/9");
+	/* A last element that is not a number at all is a file name, and so is
+	 * one carrying a sign: a descriptor number is not a count. */
+	check_accepted("cap.bin", "/dev/fd/1x");
+	check_accepted("cap.bin", "/dev/fd/-0");
 
 	make_file("held.bin", "the capture\n");
 	held = open("held.bin", O_WRONLY);
@@ -591,9 +650,6 @@ static void test_descriptor_paths(void)
 		return;
 	}
 	snprintf(path, sizeof(path), "/dev/fd/%d", held);
-#ifdef __linux__
-	/* Here the path is a symbolic link to the file, so it is followed and
-	 * the pair is refused. */
 	{
 		char expected[PATH_MAX + 128];
 
@@ -601,11 +657,85 @@ static void test_descriptor_paths(void)
 		         "error: -q and -d cannot both write to one file"
 		         " (held.bin and %s)\n", path);
 		check_refused("held.bin", path, expected);
+		snprintf(expected, sizeof(expected),
+		         "error: -q and -d cannot both write to one file"
+		         " (%s and held.bin)\n", path);
+		check_refused(path, "held.bin", expected);
+		/* A link to that descriptor path reaches the same file, and a
+		 * writer follows the link. */
+		unlink("to-held");
+		if (symlink(path, "to-held") == 0)
+			check_refused("to-held", "held.bin",
+			              "error: -q and -d cannot both write to one"
+			              " file (to-held and held.bin)\n");
+		else
+			printf("skipping the link-to-descriptor case: %s\n",
+			       strerror(errno));
 	}
-#else
-	check_accepted("held.bin", path);
-#endif
+	/* A ".." or "." element above the number is reduced by the lookup of
+	 * the directory, so a destination spelled that way is the same
+	 * descriptor wherever the writer's own open would reach it. The text
+	 * comparisons in opt_parse.c leave ".." alone on purpose; this is the
+	 * one place a lookup answers it. */
+	{
+		const char *written[] = { "/dev/fd/./%d", "/dev//fd/%d",
+		                          "/dev/fd/../fd/%d" };
+		char spelled[64];
+		size_t i;
+
+		for (i = 0; i < sizeof(written) / sizeof(written[0]); i++) {
+			snprintf(spelled, sizeof(spelled), written[i], held);
+			check_descriptor_spelling("held.bin", spelled);
+		}
+	}
+	/* A zero-padded number is the platform's to answer, not this code's:
+	 * the descriptor filesystem the BSDs mount reads it as the same
+	 * descriptor, and on Linux /dev/fd is a directory of exact names where
+	 * the path leads nowhere. Whichever this platform does, the pair must
+	 * follow it -- reading the number alone would make a destination that
+	 * cannot be created a silent redirect to standard output. */
+	{
+		char padded[64];
+		struct stat by_padded, by_path;
+
+		snprintf(padded, sizeof(padded), "/dev/fd/0%d", held);
+		if (stat(padded, &by_padded) == 0 && stat(path, &by_path) == 0 &&
+		    by_padded.st_dev == by_path.st_dev &&
+		    by_padded.st_ino == by_path.st_ino) {
+			char expected[PATH_MAX + 128];
+
+			snprintf(expected, sizeof(expected),
+			         "error: -q and -d cannot both write to one file"
+			         " (held.bin and %s)\n", padded);
+			check_refused("held.bin", padded, expected);
+		} else {
+			check_accepted("held.bin", padded);
+		}
+	}
+	/* The fixed names of the other two descriptors are resolved the same
+	 * way. Nothing writes a capture to standard error on purpose, but a
+	 * destination has to be identified whatever stream it is on, and
+	 * "/dev/stderr" beside "/dev/fd/2" is one file. Standard error is a
+	 * file of this test's own while the refusal is being captured, which is
+	 * what the two resolve to. */
+	{
+		/* Whether the platform answers a fixed name is asked of the
+		 * filesystem's own two entries, not of this test's descriptor:
+		 * standard error is a file of this test's own while a refusal
+		 * is being captured, so a guard that read the descriptor would
+		 * be asking about a different one than the case runs with. */
+		check_fixed_name("/dev/stderr", "/dev/fd/2", STDERR_FILENO);
+		/* And standard input. Nothing writes a capture to either of
+		 * these; they are identified for the same reason any
+		 * destination is. */
+		check_fixed_name("/dev/stdin", "/dev/fd/0", STDIN_FILENO);
+	}
+	/* Another file on the same descriptor path is still another file. */
+	make_file("other-held.bin", "elsewhere\n");
+	check_accepted("other-held.bin", path);
 	close(held);
+	/* With the descriptor closed the path names nothing again. */
+	check_accepted("held.bin", path);
 }
 
 /* Everything this test made, in the working directory it made for itself. */
@@ -614,6 +744,7 @@ static void clean_up(void)
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
 		"dangling.bin", "sink.bin", "redirected.bin", "-",
+		"to-held", "other-held.bin",
 		"points-at-dash", "points-at-stream", "elsewhere.bin",
 		"chain-1", "chain-2", "chain-ghost.bin", "loop",
 		"chain-end.bin", "deep.bin", "into-sub",

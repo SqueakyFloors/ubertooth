@@ -132,13 +132,38 @@ int opt_check_stdout_not_tty(const char *what);
  * /proc/self/fd/1 on Linux, with any redundant separators or "." elements
  * between names -- because a user who writes one of those means the same
  * stream, and a capture that shared it with the tool's own report would have
- * report lines in the middle of the capture data. /dev/fd/<n> for any other
+ * report lines in the middle of the capture data. So does any other spelling
+ * the platform's own descriptor filesystem answers with descriptor 1: the
+ * BSDs read a leading zero as part of the number, so "/dev/fd/01" is that
+ * stream there and nothing at all on Linux. The platform is asked rather than
+ * the spelling ruled on, so a destination that cannot be created is never
+ * taken for the stream. /dev/fd/<n> for any other
  * <n> is an ordinary file name here: it reaches whatever the caller's shell
- * opened on that descriptor, which the name alone does not say. So is a name
+ * opened on that descriptor, so the capture goes there and the tool's report
+ * stays on standard output. So is a name
  * that ends in a separator or a "." element ("/dev/stdout/."), which asks for
  * something inside a file that is not a directory.
  */
 int opt_writes_to_stdout(const char *filename);
+
+/*
+ * Whether a writer given this capture destination would write to this
+ * process's standard output: every value above, and a symbolic link whose
+ * chain ends at one of the names for descriptor 1. A writer writes through a
+ * link, so such a destination reaches the stream and the capture owns it --
+ * the lines the run still owes the user go to standard error, a terminal
+ * behind the link is refused, and no second capture may have the stream.
+ *
+ * This is the question a tool asks about where a capture is going. Ask
+ * opt_writes_to_stdout() instead only about the value the user wrote: what to
+ * call the destination in a message, and whether a failed run may remove the
+ * file it named.
+ *
+ * Neither is a pure test of the text: both look the filesystem up, so neither
+ * is settled until the value is known, and both are asked before the capture
+ * takes the stream rather than after.
+ */
+int opt_destination_is_stdout(const char *value);
 
 /*
  * The same refusal for a destination that may or may not be standard output:
@@ -182,20 +207,52 @@ typedef struct {
  * able to hold such a value that the tool's own rule does not reach would
  * fall between the two gates.
  *
+ * A destination reached through a descriptor the calling shell opened
+ * ("/dev/fd/3") is one of these too, on every platform: the descriptor is
+ * already open here, so it is asked which file it holds rather than the path
+ * being looked up, which answers differently on Linux and the BSDs.
+ *
  * Some pairs that are one file cannot be told apart from the names alone and
  * are not refused; ubertooth(7), OPTION VALUES lists them for the user. They
  * all wait on the destination being identified after it is open and before it
- * is truncated, which reaches into how every writer opens its file. The one a
- * caller will not find there: on the BSDs a destination reached through a
- * descriptor the calling shell opened ("/dev/fd/3") is a device of its own,
- * where Linux makes it a symbolic link that is followed and caught.
+ * is truncated, which reaches into how every writer opens its file.
  */
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
                                  size_t count);
 
 /*
+ * No capture over the dump a replay is reading. Every writer opens its
+ * destination for writing, which truncates it, so a run given one file for
+ * both its input and an output empties the dump before a record of it is
+ * read -- and a dump of a Classic capture holds the only copy of what the
+ * board sent, which no capture file keeps. A destination the shell has
+ * pointed at the dump instead ("-d /dev/fd/3 3>>cap.bin") is worse: the
+ * replay reads the records it is appending and never ends.
+ *
+ * Pass the open input, how the user names the option that opened it ("-i",
+ * "-R"), and every capture destination of the run. Returns 0, or prints one
+ * "error: " line naming the destination option and returns -1.
+ *
+ * The file is identified rather than the name, from the open input against
+ * the destination (opt_parse.c says how each kind is answered), so two
+ * spellings of one path, a symbolic link, a hard link, a shell that has
+ * pointed standard output at the dump, and a shell descriptor are all caught.
+ * Anything the two share counts, whatever kind of file it is: a named pipe on
+ * both sides would feed the replay its own records forever, and a character
+ * device on both sides loses nothing but is still a command line that says
+ * two things and means one.
+ *
+ * Call it with the input open and before any writer opens, so a refused run
+ * has created and truncated nothing.
+ */
+int opt_check_destinations_not_input(FILE *input, const char *input_option,
+                                     const opt_capture_dest *destinations,
+                                     size_t count);
+
+/*
  * Where a capture option's value says to write, standard output being any
- * value opt_writes_to_stdout() recognizes (ubertooth(7), OPTION VALUES).
+ * destination opt_destination_is_stdout() recognizes (ubertooth(7), OPTION
+ * VALUES).
  *
  * opt_capture_path() is for a writer that opens a file name, as libbtbb's
  * PCAP writers do: it returns the name to open, which the caller frees. A

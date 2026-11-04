@@ -1079,7 +1079,31 @@
   device's address. A name is now printed only where the device's own answer
   carried it, and a line whose name could not be read says `[unknown]`.
   [#1172](https://github.com/SqueakyFloors/ubertooth/issues/1172)
-
+- Fixed: a capture destination that reached standard output by a name the
+  tools did not recognize kept the stream to itself only by accident. A
+  symbolic link pointing at `/dev/stdout` got the tool's own report lines
+  mixed into the capture, and a terminal behind such a link was not refused.
+  A destination that is a link to that stream is now the stream, so the
+  report goes to standard error and the capture arrives whole. The same
+  holds for any spelling the system itself answers with that descriptor,
+  `/dev/fd/01` on the BSDs included.
+  [#1165](https://github.com/SqueakyFloors/ubertooth/issues/1165)
+- Fixed: `ubertooth-rx` and `ubertooth-btle` silently destroyed a capture when
+  two capture options were given one file name. `-q coll.bin -d coll.bin`
+  exited 0 with one format in the file and no sign the other had been asked
+  for; it is now refused with `error: -q and -d cannot both write to
+  coll.bin`, before either file is opened. Every pair of `-r`, `-q`/`-c`, and
+  `-d` is checked, as it already was in `ubertooth-follow`.
+  [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149)
+- Fixed: a replay whose capture was pointed at its own dump through a
+  descriptor the calling shell opened read the records it was appending and
+  never ended, filling the dump with its own output. `ubertooth-rx -i cap.bin
+  -d /dev/fd/3 3>>cap.bin` and the `ubertooth-btle -R` version of it are now
+  refused with the file left as it was. The descriptor is asked which file it
+  holds, so the answer is the same on Linux and macOS, and so is every
+  spelling that reaches it: a symbolic link to one of those, the fixed names
+  `/dev/stderr` and `/dev/stdin`, and, on the BSDs, `/dev/fd/03`.
+  [#1146](https://github.com/SqueakyFloors/ubertooth/issues/1146)
 - Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.
   Where the board could not put its answer to the page on the air, it still
   printed the pager's address and `Peripheral started` and told the host it

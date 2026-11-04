@@ -332,9 +332,10 @@ static int same_path_text(const char *first, const char *second)
  * turned up as the text of something else -- the target readlink() read, for
  * instance -- is the ordinary file of that name.
  *
- * The names above are compared as text, not followed: that answers a
- * different question -- where /dev/stdout points at this moment -- rather than
- * which descriptor the user named. */
+ * The names above are compared as text and not followed, because following
+ * one answers a different question: where /dev/stdout points at this moment,
+ * rather than which descriptor the user named. Any other spelling is left to
+ * the descriptor filesystem itself, below. */
 static int names_descriptor_one(const char *name)
 {
 	size_t i;
@@ -347,6 +348,223 @@ static int names_descriptor_one(const char *name)
 	return 0;
 }
 
+/* Whether a path names descriptor 1, by its fixed names above or by any other
+ * spelling this platform's own descriptor filesystem answers with that
+ * descriptor. The BSDs read a leading zero as part of the number, so
+ * "/dev/fd/01" is descriptor 1 there and a capture given it writes to
+ * standard output; left out, it would have had the tool's report lines mixed
+ * into it and would not have been refused at a terminal. */
+static int named_descriptor(const char *path);
+
+static int path_is_stdout(const char *path)
+{
+	return named_descriptor(path) == STDOUT_FILENO;
+}
+
+/* The last element of a path, which is the name a writer would create. */
+static const char *final_name(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash != NULL ? slash + 1 : path;
+}
+
+/* The directory a path's last element sits in, as a path to look up. */
+static int directory_of(const char *path, char *out, size_t size)
+{
+	const char *slash = strrchr(path, '/');
+
+	if (slash == NULL)
+		return (size_t)snprintf(out, size, ".") < size;
+	if (slash == path)
+		return (size_t)snprintf(out, size, "/") < size;
+	return (size_t)snprintf(out, size, "%.*s", (int)(slash - path), path) <
+	       size;
+}
+
+/* Whether <path> is a spelling of <directory>'s own entry for descriptor
+ * <fd>, which is what says this platform answers that spelling -- and, since
+ * a closed descriptor has no entry, that the descriptor is open here, so a
+ * path naming a closed one is not taken for the file that descriptor number
+ * held in some earlier process.
+ *
+ * The path is compared with the canonical entry, <directory>/<fd>, and not
+ * with the descriptor itself: on the BSDs that filesystem answers for an
+ * anonymous pipe with an inode number of its own, so stat() of the path and
+ * fstat() of the descriptor disagree for the very destination a capture on
+ * standard output usually has -- the receiving end of a pipe. Two paths
+ * through one filesystem agree on both platforms.
+ *
+ * Which file the descriptor holds is a different question, and fstat() is
+ * what answers it: see path_file(). */
+static int descriptor_entry(const char *path, const char *directory, int fd)
+{
+	char canonical[PATH_MAX];
+	struct stat named, entry;
+
+	if ((size_t)snprintf(canonical, sizeof(canonical), "%s/%d", directory,
+	                     fd) >= sizeof(canonical))
+		return 0;
+	return stat(path, &named) == 0 && stat(canonical, &entry) == 0 &&
+	       named.st_dev == entry.st_dev && named.st_ino == entry.st_ino;
+}
+
+/* The descriptor a path of the form <directory>/<number> names, where
+ * <directory> is given as its elements, or -1 when the path is not one of
+ * those.
+ *
+ * Which number it is comes from the text, and whether the path really is
+ * that descriptor comes from the system, rather than the spelling being ruled
+ * on, because the platforms differ: the descriptor filesystem the BSDs mount
+ * on /dev/fd reads a leading zero as part of the number, so "/dev/fd/01" is
+ * descriptor 1 there and opening it writes to that stream, while on Linux
+ * /dev/fd is a directory of exact names and "/dev/fd/01" is a path that
+ * cannot be created. Reading the number alone would make the second of those
+ * a silent redirect to standard output.
+ *
+ * The directory is looked up rather than compared as text, so the ".."
+ * elements and the symbolic links above the number are reduced by the system
+ * that will resolve them anyway: "/dev/fd/../fd/3" is descriptor 3 wherever
+ * the writer's own open would reach it. The text comparisons elsewhere in
+ * this file deliberately leave ".." alone, because the element above a
+ * symbolic link is not the directory the text suggests; here the lookup
+ * answers that question instead of guessing at it.
+ *
+ * The lookup is also what keeps an ordinary file whose name ends in a number
+ * a file. Without it, "-d out/1" with standard output redirected to that very
+ * file would read as descriptor 1 and the capture would be written through
+ * the stream rather than to the name the user gave.
+ *
+ * One spelling is not settled for good by any of this: macOS answers a ".."
+ * element above the number only most of the time, the same path resolving in
+ * one run and not in the next, about one run in two hundred. A run that
+ * cannot resolve it hands the name to the writer, which is right when the
+ * writer cannot open it either and leaves the report on standard output when
+ * the writer can. Nothing short of opening the destination closes that, and
+ * opening one to look at it is what costs a named pipe its reader. */
+static int descriptor_in(const char *path, const char *directory)
+{
+	char holding[PATH_MAX];
+	struct stat named_directory, the_directory;
+	int fd;
+
+	if (ends_inside_a_name(path))
+		return -1;
+	/* A sign is not a descriptor number, as it is not a count anywhere
+	 * else: opt_parse_int() would read "-0" as 0. */
+	if (final_name(path)[0] == '-' ||
+	    opt_parse_int(final_name(path), 0, INT_MAX, &fd) < 0)
+		return -1;
+	if (!directory_of(path, holding, sizeof(holding)))
+		return -1;
+	if (stat(holding, &named_directory) != 0 ||
+	    stat(directory, &the_directory) != 0)
+		return -1;
+	if (named_directory.st_dev != the_directory.st_dev ||
+	    named_directory.st_ino != the_directory.st_ino)
+		return -1;
+	return descriptor_entry(path, directory, fd) ? fd : -1;
+}
+
+/* The descriptor a path names through one of the directories that hold this
+ * process's descriptors, or -1 for any other path. Separate from the test
+ * above so that the two can call each other's work without recursion. */
+/* The directories that hold this process's descriptors, most portable first.
+ *
+ * /proc/self/fd is behind the conditional for the reason stdout_paths is: on a
+ * platform with no /proc this path names nothing, and reading it as a
+ * descriptor there would answer for a file the writer could not create. On an
+ * ordinary Linux it is never reached, because /dev/fd is a symbolic link to
+ * it and the directory lookup below resolves both to one directory; it is
+ * here for a Linux that has the one and not the other. */
+static const char *const descriptor_directories[] = {
+	"/dev/fd",
+#ifdef __linux__
+	"/proc/self/fd",
+#endif
+};
+
+static int descriptor_number(const char *path)
+{
+	size_t i;
+	int fd;
+
+	if (path == NULL)
+		return -1;
+	for (i = 0; i < sizeof(descriptor_directories) /
+	                sizeof(descriptor_directories[0]); i++) {
+		fd = descriptor_in(path, descriptor_directories[i]);
+		if (fd >= 0)
+			return fd;
+	}
+	return -1;
+}
+
+/* Whether <path> is any of those directories' own entry for <fd>. */
+static int descriptor_entry_anywhere(const char *path, int fd)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(descriptor_directories) /
+	                sizeof(descriptor_directories[0]); i++)
+		if (descriptor_entry(path, descriptor_directories[i], fd))
+			return 1;
+	return 0;
+}
+
+/* Which of this process's own descriptors a path names, or -1 for a path that
+ * names a file instead.
+ *
+ * This is what identifies a destination the calling shell opened, as
+ * "-d /dev/fd/3 3>>cap.bin" does: the descriptor is already open here, so
+ * asking it which file it holds costs nothing and opens nothing. Looking the
+ * path up instead gets a different answer on each system -- a Linux
+ * descriptor path is a symbolic link that stat() follows, while the BSDs
+ * serve it from a filesystem of their own that reports the real file's inode
+ * number under a device number of its own -- and probing it with an open() of
+ * our own would cost a named pipe its reader and a serial line its modem
+ * lines.
+ *
+ * "/dev/stdout" is descriptor 1 by the same rule, and "/dev/stdin" and
+ * "/dev/stderr" name theirs. Those two are not standard output and never
+ * become it, but a destination has to be identified whatever stream it is
+ * on. */
+static int named_descriptor(const char *path)
+{
+	/* The other two fixed names on the descriptor filesystem. They are not
+	 * standard output, so they are not in stdout_paths and a capture given
+	 * one of them leaves the tool's report where it was -- but a
+	 * destination has to be identified whatever it is, and
+	 * "-d /dev/stderr 2>>cap.bin" reaches a replay's own dump as surely as
+	 * "/dev/fd/3" does. They are checked against the system like a number,
+	 * so a platform that does not answer the name leaves it a file. */
+	static const struct {
+		const char *path;
+		int fd;
+	} fixed[] = {
+		{ "/dev/stdin", STDIN_FILENO },
+		{ "/dev/stderr", STDERR_FILENO },
+	};
+	size_t i;
+	int fd;
+
+	if (path == NULL)
+		return -1;
+	/* The fixed names of descriptor 1, which are not a directory and a
+	 * number and so are recognized as text. Asked first because it is the
+	 * cheapest answer and the commonest one. */
+	if (names_descriptor_one(path))
+		return STDOUT_FILENO;
+	fd = descriptor_number(path);
+	if (fd >= 0)
+		return fd;
+	for (i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++)
+		if (same_path_text(path, fixed[i].path) &&
+		    descriptor_entry_anywhere(path, fixed[i].fd))
+			return fixed[i].fd;
+	return -1;
+}
+
 int opt_writes_to_stdout(const char *filename)
 {
 	if (filename == NULL)
@@ -355,12 +573,12 @@ int opt_writes_to_stdout(const char *filename)
 	 * so it stays an ordinary file. */
 	if (strcmp(filename, "-") == 0)
 		return 1;
-	return names_descriptor_one(filename);
+	return path_is_stdout(filename);
 }
 
 int opt_check_capture_destination(const char *filename, const char *what)
 {
-	if (opt_writes_to_stdout(filename))
+	if (opt_destination_is_stdout(filename))
 		return opt_check_stdout_not_tty(what);
 	return 0;
 }
@@ -385,7 +603,10 @@ int opt_check_capture_destination(const char *filename, const char *what)
  * any other name this cannot resolve, rather than handing back a path that is
  * itself still a link: an answer that is not the end of the chain would be
  * read as one. stat() follows the whole chain anyway wherever its end
- * exists, so only a chain that long AND dangling goes unseen. */
+ * exists, so only a chain that long AND dangling goes unseen.
+ *
+ * A chain that reaches a path naming one of this process's descriptors ends
+ * there, because a descriptor is not a name to follow: see the loop below. */
 #define CAPTURE_LINK_HOPS 16
 
 static int link_target(const char *name, char *out, size_t size)
@@ -401,6 +622,16 @@ static int link_target(const char *name, char *out, size_t size)
 		return 0;
 
 	for (hops = 0; ; hops++) {
+		/* A path naming one of this process's descriptors is the end of
+		 * the chain. What it reaches is a descriptor rather than a
+		 * name, and the descriptor itself is what path_file() asks. On
+		 * Linux these paths are symbolic links, so following them any
+		 * further walks into the real file's path -- or into the
+		 * "pipe:[...]" text that is no path at all -- and a destination
+		 * that reaches standard output would stop being recognized as
+		 * that stream. */
+		if (named_descriptor(current) >= 0)
+			break;
 		/* Not a link, so this is the end of the chain and the answer. */
 		if (lstat(current, &info) != 0 || !S_ISLNK(info.st_mode))
 			break;
@@ -443,25 +674,27 @@ static int link_target(const char *name, char *out, size_t size)
 	return (size_t)snprintf(out, size, "%s", current) < size;
 }
 
-/* The last element of a path, which is the name a writer would create. */
-static const char *final_name(const char *path)
+int opt_destination_is_stdout(const char *value)
 {
-	const char *slash = strrchr(path, '/');
+	char target[PATH_MAX];
 
-	return slash != NULL ? slash + 1 : path;
-}
-
-/* The directory a path's last element sits in, as a path to look up. */
-static int directory_of(const char *path, char *out, size_t size)
-{
-	const char *slash = strrchr(path, '/');
-
-	if (slash == NULL)
-		return (size_t)snprintf(out, size, ".") < size;
-	if (slash == path)
-		return (size_t)snprintf(out, size, "/") < size;
-	return (size_t)snprintf(out, size, "%.*s", (int)(slash - path), path) <
-	       size;
+	if (opt_writes_to_stdout(value))
+		return 1;
+	if (value == NULL)
+		return 0;
+	/* A writer writes through a symbolic link, so a link whose chain ends
+	 * at one of the names for descriptor 1 reaches that stream as surely
+	 * as the name itself does. The capture then owns the stream: the lines
+	 * the run still owes the user move to standard error, and a terminal
+	 * behind the link is refused.
+	 *
+	 * opt_writes_to_stdout() stays a test of the value alone, because that
+	 * is the question in the two places where the two differ: what to call
+	 * the destination in a message, which is the name the user wrote, and
+	 * whether a failed run may remove the file, where the link is the
+	 * user's choice of where the capture goes. */
+	return link_target(value, target, sizeof(target)) &&
+	       path_is_stdout(target);
 }
 
 /* Whether two destinations are one entry of one directory: the same last
@@ -497,18 +730,21 @@ static int same_directory_entry(const char *first, const char *second)
  * destination a writer would create, which is why a matched pair of them is
  * refused here rather than left to the writer's own open.
  *
- * A path that names descriptor 1 has no file of its own to look up, so the
- * descriptor is what to ask.
+ * A path that names one of this process's descriptors has no file of its own
+ * to look up, so the descriptor is what to ask: see named_descriptor().
  *
  * Looking a name up costs it nothing; opening one to learn more would, because
  * an open blocks until a reader arrives on a named pipe and lowers a serial
  * device's modem lines when it is closed, so no destination is opened here. */
 static int path_file(const char *path, struct stat *where)
 {
+	int fd;
+
 	if (path == NULL)
 		return -1;
-	if (names_descriptor_one(path))
-		return fstat(STDOUT_FILENO, where) == 0 ? 0 : -1;
+	fd = named_descriptor(path);
+	if (fd >= 0)
+		return fstat(fd, where) == 0 ? 0 : -1;
 	return stat(path, where) == 0 ? 0 : -1;
 }
 
@@ -539,7 +775,7 @@ static int destination_file(const char *name, struct stat *where)
  * descriptor 1 mean the stream either way. */
 static int names_the_stream(const char *value, const char *path, int resolved)
 {
-	return resolved ? names_descriptor_one(path)
+	return resolved ? path_is_stdout(path)
 	                : opt_writes_to_stdout(value);
 }
 
@@ -550,6 +786,18 @@ static int written_file(const char *value, const char *path, int resolved,
 {
 	return resolved ? path_file(path, where)
 	                : destination_file(value, where);
+}
+
+/* The same question asked of a destination on its own: which file a writer
+ * given this value would write to, following a symbolic link's chain to its
+ * end as the writer does. */
+static int written_destination(const char *value, struct stat *where)
+{
+	char target[PATH_MAX];
+	int linked = !opt_writes_to_stdout(value) &&
+	             link_target(value, target, sizeof(target));
+
+	return written_file(value, linked ? target : value, linked, where);
 }
 
 /* Whether two capture destinations are one file. */
@@ -661,11 +909,13 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 			/* Two captures that both ask for standard output
 			 * belong to the one-capture-on-standard-output rule,
 			 * which refuses the second however the two are
-			 * spelled. One of them beside a file name is this
-			 * check's, because the shell may have pointed the
-			 * stream at that very file. */
-			if (opt_writes_to_stdout(first) &&
-			    opt_writes_to_stdout(second))
+			 * spelled -- a symbolic link to that stream included,
+			 * so the two gates agree on what reaches it. One of
+			 * them beside a file name is this check's, because the
+			 * shell may have pointed the stream at that very
+			 * file. */
+			if (opt_destination_is_stdout(first) &&
+			    opt_destination_is_stdout(second))
 				continue;
 			if (!same_destination(first, second))
 				continue;
@@ -689,6 +939,42 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
 				        destination_text(second));
 			return -1;
 		}
+	}
+	return 0;
+}
+
+int opt_check_destinations_not_input(FILE *input, const char *input_option,
+                                    const opt_capture_dest *destinations,
+                                    size_t count)
+{
+	struct stat input_file, output_file;
+	size_t i;
+
+	if (input == NULL || destinations == NULL || input_option == NULL)
+		return 0;
+	if (fstat(fileno(input), &input_file) != 0)
+		return 0;
+	for (i = 0; i < count; i++) {
+		const char *name = destinations[i].name;
+
+		if (name == NULL || name[0] == '\0')
+			continue;
+		/* The replay's input holding descriptor 1 means standard output
+		 * was closed before this process started and the input's own
+		 * open took the number. There is then no standard output to
+		 * write a capture to, and the writer is about to say so. */
+		if (opt_destination_is_stdout(name) &&
+		    fileno(input) == STDOUT_FILENO)
+			continue;
+		if (written_destination(name, &output_file) != 0)
+			continue;
+		if (input_file.st_dev != output_file.st_dev ||
+		    input_file.st_ino != output_file.st_ino)
+			continue;
+		fprintf(stderr, "error: %s would write over the dump %s is"
+		        " replaying (%s)\n", destinations[i].option,
+		        input_option, destination_text(name));
+		return -1;
 	}
 	return 0;
 }
@@ -785,7 +1071,7 @@ char *opt_capture_path(const char *filename, const char *what, int *saved_fd)
 	*saved_fd = -1;
 	if (filename == NULL)
 		return NULL;
-	if (!opt_writes_to_stdout(filename))
+	if (!opt_destination_is_stdout(filename))
 		return copy_name(filename);
 
 	*saved_fd = take_stdout(what);
@@ -827,6 +1113,13 @@ void opt_discard_capture_file(const char *filename)
 
 	if (filename == NULL || opt_writes_to_stdout(filename))
 		return;
+	/* A destination that names one of this process's descriptors has no
+	 * file of its own to take away, and the entry it does name cannot be
+	 * removed: on the BSDs lstat() reports one as a regular file, so an
+	 * unlink() would be attempted and refused, and the warning would be
+	 * about the descriptor filesystem rather than about the capture. */
+	if (named_descriptor(filename) >= 0)
+		return;
 
 	/* lstat(), not stat(): what a symbolic link names was the user's choice
 	 * of where the capture goes, and removing the link would take that
@@ -852,7 +1145,7 @@ FILE *opt_open_dump_file(const char *filename, const char *what)
 
 	if (filename == NULL)
 		return NULL;
-	if (!opt_writes_to_stdout(filename)) {
+	if (!opt_destination_is_stdout(filename)) {
 		stream = fopen(filename, "w");
 		if (stream == NULL)
 			fprintf(stderr, "error: %s: %s\n", filename, strerror(errno));

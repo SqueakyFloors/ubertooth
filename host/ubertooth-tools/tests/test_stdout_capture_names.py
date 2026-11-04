@@ -7,6 +7,9 @@ same descriptor, with or without a redundant separator or ``.`` element, so
 each has to behave the same way: the capture arrives on descriptor 1 on its
 own, and a terminal there is refused.
 
+A symbolic link whose chain ends at one of those names reaches the stream as
+well, because a writer writes through a link, so it is treated the same way.
+
 The names next to those stay ordinary file names, and that boundary is pinned
 here too: ``/dev/fd/<n>`` for any other ``<n>`` reaches whatever the caller's
 shell opened on that descriptor, a relative ``dev/stdout`` is a file in the
@@ -141,6 +144,22 @@ def run_to_file(arguments, directory, target, extra_fds=()):
     return result.returncode, result.stderr.decode()
 
 
+def run_to_pipe(arguments, directory):
+    """Run the tool with a pipe on standard output; returns (status, out, err).
+
+    This is how a capture on that stream is actually used, and it is not the
+    same as a file for the question these cases ask: on the BSDs the
+    descriptor filesystem answers for an anonymous pipe with an inode number
+    of its own, so a stat() of /dev/fd/1 and an fstat() of descriptor 1
+    disagree there.
+    """
+    result = subprocess.run(
+        [RX, *arguments], cwd=directory, env=ENVIRONMENT,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, timeout=RUN_TIMEOUT_S, check=False)
+    return result.returncode, result.stdout, result.stderr.decode()
+
+
 def run_to_tty(binary, arguments, directory):
     """Run the tool with a terminal on standard output.
 
@@ -250,6 +269,169 @@ with tempfile.TemporaryDirectory() as workdir:
               "-d %s -z prints the address it found on standard error" % name,
               errors)
 
+    # A spelling of descriptor 1 that only the platform's own descriptor
+    # filesystem answers: the BSDs read a leading zero as part of the number,
+    # so "/dev/fd/01" is that stream there, while on Linux /dev/fd holds exact
+    # names and the path leads nowhere. Whichever this platform does, the tool
+    # has to follow it -- reading the number alone would leave a capture given
+    # it with the report mixed in, and unrefused at a terminal.
+    padded = "/dev/fd/01"
+    try:
+        # The filesystem's own two entries, not this process's descriptor:
+        # whether the spelling is answered is a property of the platform, and
+        # the descriptor the case below runs with is the child's, not this
+        # one's.
+        reaches_stdout = (os.stat(padded).st_ino
+                          == os.stat("/dev/fd/1").st_ino)
+    except OSError:
+        reaches_stdout = False
+    if not reaches_stdout:
+        print("skipping %s, this platform does not answer it" % padded)
+    else:
+        status, errors = run_to_file(["-i", "full.bin", "-d", padded, "-z"],
+                                     work, work / "padded.bin")
+        captured = (work / "padded.bin").read_bytes()
+        check(status == 0, "-d %s exits 0" % padded, errors)
+        check(captured == EXPECTED_DUMP,
+              "-d %s writes the dump and nothing else to descriptor 1"
+              % padded, "%d bytes, expected %d" % (len(captured),
+                                                   len(EXPECTED_DUMP)))
+        check("5A:3C:96" in errors,
+              "-d %s prints the address it found on standard error" % padded,
+              errors)
+        outcome = run_to_tty(RX, ["-i", "full.bin", "-d", padded], work)
+        if outcome is None:
+            print("skipping the %s terminal case, no pty available" % padded)
+        else:
+            status, errors, written = outcome
+            check(status == 1, "-d %s at a terminal exits 1" % padded,
+                  str(status))
+            check("error: stdout is a tty, refusing to write binary dump data"
+                  " to it" in errors,
+                  "-d %s at a terminal says why" % padded, errors)
+            check(written == b"",
+                  "-d %s writes nothing to the terminal" % padded,
+                  repr(written[:60]))
+
+    # Every spelling again with a pipe on standard output rather than a file,
+    # because that is how a capture on the stream is used and the two are not
+    # the same question: the descriptor filesystem answers for an anonymous
+    # pipe with an inode number of its own on the BSDs, so a spelling checked
+    # against the descriptor instead of against that filesystem's own entry is
+    # recognized over a file and missed over a pipe -- with the report then
+    # interleaved into the capture, which is the thing being fixed.
+    piped = list(STDOUT_NAMES) + ["/dev/./stdout"]
+    for name in piped:
+        status, captured, errors = run_to_pipe(
+            ["-i", "full.bin", "-d", name, "-z"], work)
+        check(status == 0, "-d %s -z into a pipe exits 0" % name, errors)
+        check(captured == EXPECTED_DUMP,
+              "-d %s -z writes the dump and nothing else into the pipe" % name,
+              "%d bytes, expected %d" % (len(captured), len(EXPECTED_DUMP)))
+        check("5A:3C:96" in errors,
+              "-d %s -z prints the address on standard error over a pipe"
+              % name, errors)
+
+    # A ".." element above the number is the system's to resolve, and macOS
+    # answers it only some of the time: the same path stats and opens in one
+    # run and is ENOENT in the next. Either outcome is safe and both are
+    # pinned here, because what must not happen is the third one -- the
+    # destination taken for a file and the capture written to the stream with
+    # the report mixed in.
+    status, captured, errors = run_to_pipe(
+        ["-i", "full.bin", "-d", "/dev/fd/../fd/1", "-z"], work)
+    if status == 0:
+        check(captured == EXPECTED_DUMP,
+              "-d /dev/fd/../fd/1 writes only the dump into the pipe",
+              "%d bytes, expected %d" % (len(captured), len(EXPECTED_DUMP)))
+        check("5A:3C:96" in errors,
+              "-d /dev/fd/../fd/1 prints the address on standard error",
+              errors)
+    else:
+        check(status == 1, "-d /dev/fd/../fd/1 exits 1 where it is not"
+              " resolved", str(status))
+        check(captured == b"", "-d /dev/fd/../fd/1 writes nothing into the"
+              " pipe where it is not resolved", repr(captured[:60]))
+        check(errors.startswith("error: /dev/fd/../fd/1: "),
+              "-d /dev/fd/../fd/1 says why, quoting the name", errors)
+
+    # An ordinary file whose name ends in a number is a file, even where the
+    # shell has pointed standard output at that very file: the user named a
+    # file, not a descriptor, and a capture written through the stream instead
+    # would land at the stream's own offset rather than in the named file.
+    (work / "out").mkdir()
+    status, errors = run_to_file(["-i", "full.bin", "-d", "out/1"], work,
+                                 work / "out" / "1")
+    check(status == 0, "-d out/1 with standard output on it exits 0", errors)
+    check(b"systime=" in (work / "out" / "1").read_bytes(),
+          "-d out/1 is a file name, so the report is still on standard output")
+
+    # A symbolic link pointing at one of those names reaches the same stream,
+    # because a writer writes through a link. So the capture owns descriptor 1
+    # the same way: the dump arrives there whole, and the survey results, which
+    # are what the user asked the run for, come out on standard error.
+    paths = [name for name in STDOUT_NAMES if name != "-"]
+    for name in paths:
+        link = "link-%d" % paths.index(name)
+        (work / link).symlink_to(name)
+        target = work / ("linked-%d.bin" % paths.index(name))
+        status, errors = run_to_file(["-i", "full.bin", "-d", link, "-z"],
+                                     work, target)
+        captured = target.read_bytes()
+        check(status == 0, "-d <link to %s> exits 0" % name, errors)
+        check(captured == EXPECTED_DUMP,
+              "-d <link to %s> writes the dump and nothing else to"
+              " descriptor 1" % name,
+              "%d bytes, expected %d" % (len(captured), len(EXPECTED_DUMP)))
+        check("5A:3C:96" in errors,
+              "-d <link to %s> prints the address it found on standard error"
+              % name, errors)
+
+    # A chain of links reaches it too, since the writer's own open follows the
+    # whole chain.
+    (work / "chain-1").symlink_to("/dev/stdout")
+    (work / "chain-2").symlink_to("chain-1")
+    status, errors = run_to_file(["-i", "full.bin", "-d", "chain-2", "-z"],
+                                 work, work / "chained.bin")
+    check(status == 0, "-d <chain of links to the stream> exits 0", errors)
+    check((work / "chained.bin").read_bytes() == EXPECTED_DUMP,
+          "-d <chain of links> writes only the dump to descriptor 1")
+    check("5A:3C:96" in errors,
+          "-d <chain of links> prints the address on standard error", errors)
+
+    # A link to the stream beside a "-" is the one pair the stream cannot
+    # carry, so it gets the one-capture-on-standard-output refusal rather than
+    # a line about two captures of one file.
+    status, errors = run_to_file(
+        ["-i", "full.bin", "-q", "link-0", "-d", "-"], work,
+        work / "linkpair.out")
+    check(status == 1, "-q <link to the stream> -d - exits 1", str(status))
+    check(errors == "error: -q and -d cannot both write to standard output\n",
+          "-q <link to the stream> -d - names the pair that clashed", errors)
+    check((work / "linkpair.out").read_bytes() == b"",
+          "-q <link to the stream> -d - writes nothing to descriptor 1")
+
+    # -r through such a link is refused with the line that says to use -q,
+    # rather than the writer reporting the stream's own device node as a file
+    # that already exists.
+    status, errors = run_to_file(["-i", "full.bin", "-r", "link-0"], work,
+                                 work / "linkpcapng.out")
+    check(status == 1, "-r <link to the stream> exits 1", str(status))
+    check(errors == "error: PCAPNG capture to stdout is not supported;"
+                    " use -q -\n",
+          "-r <link to the stream> says what to use instead", errors)
+
+    # A link pointing at an ordinary file is an ordinary destination: the
+    # capture goes through it and the report stays on standard output.
+    (work / "to-file").symlink_to("through-link.bin")
+    status, errors = run_to_file(["-i", "full.bin", "-d", "to-file"], work,
+                                 work / "tofile.out")
+    check(status == 0, "-d <link to a file> exits 0", errors)
+    check((work / "through-link.bin").read_bytes() == EXPECTED_DUMP,
+          "-d <link to a file> writes the dump through the link")
+    check(b"systime=" in (work / "tofile.out").read_bytes(),
+          "-d <link to a file> leaves the report on standard output")
+
     # /dev/fd/<n> for any other <n> is an ordinary file name. The capture goes
     # to whatever that descriptor is, and standard output is left alone, so
     # the report is still printed there.
@@ -352,6 +534,18 @@ with tempfile.TemporaryDirectory() as workdir:
               "follow names the pair that clashed", result.stderr.decode())
         check(result.stdout == b"",
               "follow writes nothing to standard output when it refuses")
+        result = subprocess.run(
+            [FOLLOW, "-l", "5a3c96", "-u", "0f", "-q", "link-0", "-d", "-"],
+            cwd=work, env=ENVIRONMENT, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=RUN_TIMEOUT_S, check=False)
+        check(result.returncode == 1,
+              "follow refuses -q <link to the stream> -d -",
+              str(result.returncode))
+        check(b"error: -q and -d cannot both write to standard output"
+              in result.stderr,
+              "follow names the pair that clashed for a link",
+              result.stderr.decode())
 
     # A terminal is refused for every spelling, before anything is written to
     # it, and the refusal names what would have gone there.
@@ -374,6 +568,22 @@ with tempfile.TemporaryDirectory() as workdir:
         else:
             continue
         break
+
+    # A terminal behind such a link is refused too, which is what keeps a
+    # binary capture off a user's screen when the stream was named indirectly.
+    outcome = run_to_tty(RX, ["-i", "full.bin", "-d", "link-0"], work)
+    if outcome is None:
+        print("skipping the link-at-a-terminal case, no pty available")
+    else:
+        status, errors, written = outcome
+        check(status == 1, "-d <link to the stream> at a terminal exits 1",
+              str(status))
+        check("error: stdout is a tty, refusing to write binary dump data"
+              " to it" in errors,
+              "-d <link to the stream> at a terminal says why", errors)
+        check(written == b"",
+              "-d <link to the stream> writes nothing to the terminal",
+              repr(written[:60]))
 
     # The same refusal reaches the other tools that share these helpers, with
     # no board and no replay: it is a command-line check.

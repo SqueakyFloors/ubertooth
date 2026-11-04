@@ -81,8 +81,9 @@ text after it: `error: unrecognized option '-Z'` and
 `error: option '-d' requires a value`.
 
 `-` means standard output as the whole value of `-d`, and so does a path that
-names this process's descriptor 1, such as `/dev/stdout` or `/dev/fd/1`
-(ubertooth(7), OPTION VALUES). Any other value is a
+names this process's descriptor 1, such as `/dev/stdout` or `/dev/fd/1`, and a
+symbolic link pointing at one of those (ubertooth(7), OPTION VALUES). Any
+other value is a
 file name, including one that starts with `-`: `-d -x` writes the file `-x`, and
 a forgotten file name such as `-d -v` writes a file called `-v` rather than
 streaming samples to the terminal and dropping the `-v`.

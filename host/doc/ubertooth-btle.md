@@ -363,9 +363,8 @@ Logging:
  - `-r <output.pcapng>` :
    Log to PcapNG (preferred). PcapNG output cannot be streamed to stdout because
    the writer must seek while finalizing the file, so a value that names that
-   stream is rejected, `-r -` and `-r /dev/stdout` alike. A symbolic link that
-   happens to point there is a file name like any other and is refused by the
-   writer instead, as a file that already exists.
+   stream is rejected, `-r -`, `-r /dev/stdout`, and a symbolic link pointing
+   there alike.
  - `-q <output.pcap|->` :
    Log to PCAP with `DLT_BLUETOOTH_LE_LL_WITH_PHDR`. Use `-` to stream binary
    PCAP to stdout.
@@ -396,12 +395,21 @@ Logging:
 
 `-` means standard output as the whole value of `-q`, `-c` or `-d`, and so
 does a path that names this process's descriptor 1, such as `/dev/stdout` or
-`/dev/fd/1` (ubertooth(7), OPTION VALUES). Standard output carries one stream,
+`/dev/fd/1`, and a symbolic link pointing at one of those (ubertooth(7),
+OPTION VALUES). Standard output carries one stream,
 so only one capture can have it: `-d` together with `-q` or `-c` is refused,
 however each of the two was spelled, naming the PCAP option written --
 `error: -q and -d cannot both write to standard output` -- as it is in
 ubertooth-rx(1). The one that asked second would otherwise write to
 `/dev/null` without a word.
+
+No two capture options may be one file either: each writer opens its own
+destination for writing, which truncates what another has put there, so
+`-q collision.pcap -d collision.pcap` is refused with
+`error: -q and -d cannot both write to collision.pcap`, before either is
+opened and with the file left as it was. Every pair of `-r`, `-q`/`-c`, and
+`-d` is checked, and the file is identified rather than the name
+(ubertooth(7), OPTION VALUES).
 
 The times in a logged capture follow the board's capture clock, which starts
 over every 429.50 s in the `-f` and `-n` modes and every 327.68 s in
@@ -586,8 +594,10 @@ it was read. `error: -d would write over the dump -R is replaying
 compared and not the name, so `./promisc.bin`, a symbolic link to it and a
 hard link to it are all refused, and so is a `-d -`, `-q -` or `-c -` whose
 standard output the shell has already pointed at the dump. Naming that same
-standard output as `/dev/stdout` or `/dev/fd/1` is not recognized on macOS and
-the BSDs, where those entries do not lead back to the open file. What the
+standard output as `/dev/stdout` or `/dev/fd/1` is caught as well, and so is a
+destination reached through a descriptor the calling shell opened,
+`-d /dev/fd/3` beside `3>>promisc.bin`: the descriptor is asked which file it
+holds, rather than the path being looked up. What the
 check cannot cover at all is a redirection of the whole run,
 `ubertooth-btle -p -R promisc.bin > promisc.bin`: the shell has emptied the
 file before ubertooth-btle(1) starts, as it would for any command.

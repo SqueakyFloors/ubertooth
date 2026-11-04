@@ -150,36 +150,45 @@ capture to stdout. A capture destination that names the same descriptor by
 path -- `/dev/stdout` or `/dev/fd/1`, and `/proc/self/fd/1` on Linux, with any
 redundant `/` or `.` between
 the names in it -- is that stream too, so the capture owns it and the tool's
-own report lines stay out of it. `/dev/fd/N` for any other `N` is an ordinary
-file name: it reaches whatever the calling shell opened on that descriptor,
-which the name alone does not say.
+own report lines stay out of it, and so is a symbolic link whose chain ends at
+one of those names, because a writer writes through a link. Any other spelling
+the system itself answers with descriptor 1 counts as well: the BSDs read a
+leading zero as part of the number, so `/dev/fd/01` is that stream there and
+names nothing at all on Linux. `/dev/fd/N` for
+any other `N` is not that stream: it reaches whatever the calling shell opened
+on that descriptor, so the capture goes there and the report stays on standard
+output. `/dev/stdin` and `/dev/stderr` are the same -- not standard output, but
+still identified as the descriptor they name, so the check below sees one of
+them beside the file that descriptor is on. A descriptor the shell has pointed
+at standard output itself (`-d /dev/fd/3 3>&1`) is one place a capture and the
+tool's own report do still share the stream, and the report interleaves into
+the capture: write `-` or `/dev/stdout` to hand the capture that stream.
 No option reads its input from a lone `-`: for those it is
 a file name like any other, and there is no such file. Any other value is a
 file name too, including one that starts with `-`, so a forgotten file name
 writes a file rather than guessing. A destination whose writer seeks back over
 what it has written cannot be `-` at all, which a pipe does not allow: the
 PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse that value and say what
-to use instead. `ubertooth-follow(1)` refuses every value that names the
-stream there, `/dev/stdout` included, when it reads `-r`; ubertooth-rx(1) and
-ubertooth-btle(1) still refuse only a lone `-`. Those options read values, so
-a symbolic link pointing at the stream is a file name to them, and the writer
-reports it as a name that already exists once the device is open. The check
-below does follow such a link, so one named beside another destination on that
-stream is still caught. Standard output carries one stream, so two capture options cannot
+to use instead. The PcapNG option refuses every destination that reaches
+standard output, a link to it included, while the command line is read, rather
+than leaving the writer to report the stream's own device entry as a name that
+already exists. Another unseekable destination -- a named pipe, or a
+descriptor the shell opened on one -- is still the writer's to turn down. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
 report there. A file cannot be shared between two capture options either:
 each writer opens its own destination for writing, which truncates whatever
 another has put there, so a run whose destinations are one file is refused
 before any of them is opened, naming both options. The file is identified
-rather than the name, so a second spelling of one path, a link, and a `-`
-beside a file name the shell has pointed standard output at are all caught,
-while `/dev/null` twice is not, since nothing is kept there. Some pairs that
+rather than the name, so a second spelling of one path, a link, a hard link, a
+`-` beside a file name the shell has pointed standard output at, and a
+`/dev/fd/N` beside the file that descriptor holds are all caught, while
+`/dev/null` twice is not, since nothing is kept there. Some pairs that
 are one file cannot be told apart from the names alone and are not refused:
 a symbolic link whose target is not there yet and more than sixteen links
 away, two names whose directory does not exist yet, and two names a
 case-folding filesystem would make one file while neither is there yet. Each
-is caught once the file exists. ubertooth-follow(1) makes this check;
-ubertooth-rx(1) and ubertooth-btle(1) do not yet.
+is caught once the file exists. ubertooth-rx(1), ubertooth-btle(1), and
+ubertooth-follow(1) all make this check.
 
 Options can be written together behind one dash (`-f -n` is `-fn`), so a stray
 dash inside such a word is a letter the tools do not have. The refusal names

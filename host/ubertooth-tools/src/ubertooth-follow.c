@@ -297,14 +297,15 @@ int main(int argc, char *argv[])
 			 * as a file name. The PCAP writer does not seek: -q
 			 * takes it.
 			 *
-			 * Every spelling is refused, not just a lone "-", so
-			 * that "/dev/stdout" is answered on the command line
-			 * too. Left to the writer it would only fail after the
+			 * Every destination that reaches the stream is refused,
+			 * not just a lone "-": "/dev/stdout" and a symbolic
+			 * link to it are answered on the command line too. Left
+			 * to the writer one of those would only fail after the
 			 * device was open, and the failure would be a confusing
 			 * one: the stream's own device node already exists, so
 			 * the writer's refusal to overwrite a file is what the
 			 * user would be told. */
-			if (opt_writes_to_stdout(optarg)) {
+			if (opt_destination_is_stdout(optarg)) {
 				fputs("error: PCAPNG capture to stdout is not supported;"
 				      " use -q -\n", stderr);
 				return 1;
@@ -379,8 +380,11 @@ int main(int argc, char *argv[])
 	remote_target = have_target || have_lap_uap;
 
 	/* Standard output carries one stream, so only one capture can have it:
-	 * a PCAP file and a packet dump interleaved there would be neither. */
-	if (opt_writes_to_stdout(pcap_name) && opt_writes_to_stdout(dump_name)) {
+	 * a PCAP file and a packet dump interleaved there would be neither.
+	 * However each of the two was spelled, a symbolic link to that stream
+	 * included. */
+	if (opt_destination_is_stdout(pcap_name) &&
+	    opt_destination_is_stdout(dump_name)) {
 		fputs("error: -q and -d cannot both write to standard output\n",
 		      stderr);
 		return 1;
@@ -451,8 +455,8 @@ int main(int argc, char *argv[])
 	 * command line already says. Known before the stream is actually taken
 	 * over, because the lines that have to go to standard error instead --
 	 * the AFH map -a reports -- are written before that. */
-	capture_took_stdout = opt_writes_to_stdout(pcap_name)
-	                      || opt_writes_to_stdout(dump_name);
+	capture_took_stdout = opt_destination_is_stdout(pcap_name)
+	                      || opt_destination_is_stdout(dump_name);
 
 	/* The files this run will write, for the failure paths that have to
 	 * remove them again: see follow_discard_files(). */
