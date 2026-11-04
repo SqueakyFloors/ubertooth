@@ -807,6 +807,16 @@ Behavior the tools share.
 
 #### Fixes
 
+- Fixed: the per-packet times in a capture written while following a piconet
+  did not measure the run. A 15-second follow wrote records spanning 191.3 s,
+  and a record's time could come out before that of the record ahead of it, so
+  a reader of the file saw time run backwards. Following puts the board's clock
+  on the piconet's, which moves it by however far the two were apart, and the
+  move was read as time passing. It is now taken out, so the records track the
+  run. A move of a couple of seconds or less is left in them: the host's own
+  measure of the time between two packets is only that good, so looking for a
+  move that small would as often land on the wrong packet.
+  [#1182](https://github.com/SqueakyFloors/ubertooth/issues/1182)
 - Fixed: a per-packet line reported `s=0`, and a `snr=` worked out from it, for
   a packet whose level the board could not measure. The dBm scale stops rising
   at the top of the radio's range, so that one figure stood for every signal

@@ -172,6 +172,24 @@ typedef struct {
 	 * how many periods have gone by. */
 	uint8_t clk100ns_counted;
 
+	/* The 100 ns ticks this capture has asked the board to move its clock
+	 * by and has not yet seen in a reading. A piconet follow asks for one:
+	 * the board is put on the piconet's clock so that it hops with it,
+	 * which moves the clock by whatever the two were apart, in either
+	 * direction, and that is not time passing. Zero on a capture that has
+	 * no move outstanding, which is every capture that follows nothing, and
+	 * zero for a move too small to tell from the host clock's own error:
+	 * such a move is left in the times, where it is worth less than the
+	 * precision finding it would cost. A capture that asks for a second
+	 * move before the first is found adds the two, both of them being
+	 * waiting to show in one reading. */
+	int64_t clk100ns_pending_move;
+
+	/* The ticks of the moves already found, taken out of the reconstructed
+	 * times so that they measure time passing rather than where the clock
+	 * was put. Signed: the clock is as often moved back as forward. */
+	int64_t clk100ns_moved;
+
 	/* Whether the capture's anchor may still move to the next packet's
 	 * clock reading, and its period count baseline to that packet's count.
 	 * Set by the first packet and cleared by the second, so either can only

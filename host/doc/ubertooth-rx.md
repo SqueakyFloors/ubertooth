@@ -620,6 +620,26 @@ clock's 327.68 s period: a quiet gap lost a clock wrap, or the host clock was
 stepped forwards`. Both causes look the same from here, which is why the
 message names each.
 
+Following a piconet moves that clock. The board is put on the piconet's clock
+so that it hops with it, which moves it by however far the two were apart, in
+either direction, and that is not time passing. A live capture takes the move
+out. The amount is known, so what has to be found is only which packet is the
+first on the moved clock, and the gap the host's own clock measured says which:
+of the two amounts a packet's reading could stand for, with the move and
+without it, only one is near that gap. The one gap that spans the move is
+therefore measured on the host clock, which is good to a packet's latency
+rather than to 100 ns, and every other gap is still the board clock's. So the
+record times of a follow track the run. A follow also trims the board clock's
+phase, by up to 312.5 µs each time, and corrects its rate to the piconet's,
+which can reach 320 PPM per correction; neither is accounted for here, so a
+long follow's times carry whatever those come to.
+
+One move is taken out for each time the board is put on a clock, and a move
+smaller than a couple of seconds is left in the times: the host's measure of a
+gap is only that good, so looking for a move that small would as often land on
+the wrong packet. A replay takes no move out at all, there being no board to
+have moved and no host measure of the gaps to find it with.
+
 Where the records carry no count at all, which here is a capture's first
 period, a live capture takes the periods in a quiet gap from the host's own
 clock instead. A replay cannot: the host time a record carries is only a whole

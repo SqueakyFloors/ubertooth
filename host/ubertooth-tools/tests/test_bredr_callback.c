@@ -61,6 +61,9 @@ static struct {
 	int drifts;
 	int16_t drift_ppm_sent;
 	int hopping_restarts;
+	/* The clock offset the last hopping request carried, which is what the
+	 * board's clock moves by and what the capture has to take out. */
+	int hopping_offset;
 	int symbol_captures;
 	int channels_set;
 	int pcap_writes;
@@ -100,6 +103,10 @@ static int find_ac_misses[sizeof(next_packets) / sizeof(next_packets[0])];
  * a negative value is how the real ones say the board refused the request. */
 static int rx_syms_result;
 static int set_channel_result;
+
+/* What the faked hopping request reports: a negative value is how the real one
+ * says the request did not go out. */
+static int hopping_result;
 
 /* The channel this capture asked for, which run_callback() puts on the handle
  * the way a tool does beside its own channel request. */
@@ -182,9 +189,10 @@ void cmd_fix_clock_drift(struct libusb_device_handle* devh, int16_t ppm)
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
                       int clk100ns_offset)
 {
-	(void)devh; (void)clkn_offset; (void)clk100ns_offset;
+	(void)devh; (void)clk100ns_offset;
 	seen.hopping_restarts++;
-	return 0;
+	seen.hopping_offset = clkn_offset;
+	return hopping_result;
 }
 
 /* Asking the board for a plain symbol capture is how the callback takes it off
@@ -497,6 +505,7 @@ static void reset_state(void)
 	survey_piconet = NULL;
 	drop_clock_result = 1;
 	rx_syms_result = 0;
+	hopping_result = 0;
 	set_channel_result = 0;
 	capture_channel = 0;
 	stated_uap = 0;
@@ -1745,9 +1754,13 @@ MU_TEST(a_follow_records_its_own_piconets_uap_and_asks_no_survey)
 MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 {
 	btbb_piconet* pn = btbb_piconet_new();
+	/* The offset the library recovered, in CLKN ticks: how far the board's
+	 * clock is from the piconet's, and so how far it is about to move. */
+	const int offset = 0x1234567;
 
 	reset_state();
 	btbb_init_piconet(pn, 0x123456);
+	btbb_piconet_set_clk_offset(pn, offset);
 	/* An offset right on the tune time: the trim block has nothing to
 	 * correct, so the packet reaches the decoder, which is where the
 	 * library reports what it made of the piconet. */
@@ -1761,6 +1774,38 @@ MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 	mu_assert_int_eq(1, seen.hopping_restarts);
 	mu_assert_int_eq(0, seen.symbol_captures);
 	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	/* The request carries the offset the library recovered, and the capture
+	 * is left with that much of a move of the board's clock outstanding, in
+	 * 100 ns ticks. Reading the move as time passing is what used to stretch
+	 * a follow capture's record times past the length of its run. */
+	mu_assert_int_eq(offset, seen.hopping_offset);
+	mu_assert_int_eq((int64_t) offset * CLK100NS_PER_CLKN,
+	                 last_ut.clk100ns_pending_move);
+
+	btbb_piconet_unref(pn);
+}
+
+/* A hopping request that did not go out moves nothing, so the capture writes
+ * down no move to find. One written down for a request the board never got
+ * would be looked for in readings that never carry it, and a later
+ * discontinuity taken for it. */
+MU_TEST(a_refused_hopping_request_leaves_no_move_to_find)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	btbb_piconet_set_clk_offset(pn, 0x1234567);
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	hopping_result = -7;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(1, seen.hopping_restarts);
+	mu_assert_int_eq(0, last_ut.clk100ns_pending_move);
 
 	btbb_piconet_unref(pn);
 }
@@ -2429,6 +2474,7 @@ int main(void)
 	MU_RUN(a_survey_records_no_reference_uap_until_one_is_settled);
 	MU_RUN(a_follow_records_its_own_piconets_uap_and_asks_no_survey);
 	MU_RUN(a_recovered_clock_puts_the_board_on_its_offset);
+	MU_RUN(a_refused_hopping_request_leaves_no_move_to_find);
 	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
 	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);
 	MU_RUN(a_replay_warns_but_sends_no_request_when_the_clock_is_lost);
