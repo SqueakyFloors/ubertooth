@@ -106,20 +106,10 @@ static int part_refused(const struct bl_update_ops *ops, void *context,
 	return 0;
 }
 
-/*
- * Take the vector table away again after a read-back the part refused.
- *
- * That failure is the one write failure which leaves a bootloader the board
- * would start: all four sectors have been programmed by the time the region is
- * read back, so address 0 holds a vector table whose checksum adds up, in
- * front of code the part has just declined to confirm. Erasing that one sector
- * puts the region into the state every other interruption leaves: the boot ROM
- * refuses it and starts its own serial programmer, which is recoverable.
- *
- * A part that will not erase it either is reported as the read-back failure it
- * is: there is nothing further this code can do, and the failure to report is
- * still the read-back.
- */
+/* Take the vector table away again after a read-back the part refused, which
+ * is the last step of the write order bl_update.h describes. A part that
+ * refuses this prepare or this erase leaves nothing further to try, and the
+ * failure to report is still the read-back. */
 static void erase_vector_sector(const struct bl_update_ops *ops, void *context)
 {
 	if (ops->prepare(context, BL_UPDATE_FIRST_SECTOR,

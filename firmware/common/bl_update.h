@@ -139,9 +139,10 @@ int bl_update_check(const uint8_t *payload, size_t length,
  * A read-back the part refuses is the one failure that happens after sector 0
  * has been programmed, so the last step erases that sector again rather than
  * leaving a board starting a bootloader the part has just declined to
- * confirm. The board then comes up in the serial programmer, like any other
- * failed update, and the result is still
- * UBERTOOTH_BL_UPDATE_READ_BACK_FAILED.
+ * confirm. A part that takes that erase comes up in the serial programmer
+ * like any other failed update; a part that refuses the prepare or the erase
+ * as well is left as it was, which is the one case this cannot put right. The
+ * result is UBERTOOTH_BL_UPDATE_READ_BACK_FAILED either way.
  *
  * Programming sector 0 first would give that guarantee only while the erase
  * and that one sector ran: from the moment a filled-in checksum reached flash
