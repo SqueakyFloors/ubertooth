@@ -993,10 +993,10 @@ void opt_warn_stdout_is_input(FILE *input, const char *input_option)
 		return;
 	if (fstat(fileno(input), &input_file) != 0)
 		return;
-	/* Which file the decode lands in. destination_file() answers that for
-	 * a capture option's value, and "-" is the value that means standard
-	 * output, so it fstat()s descriptor 1 -- the same lookup the check
-	 * above uses, rather than a second one of its own. */
+	/* Which file the decode lands in. "-" is the capture option value that
+	 * means standard output, so destination_file() answers it by fstat()ing
+	 * descriptor 1 -- the lookup opt_check_destinations_not_input() already
+	 * uses for such a value, rather than a second one of its own. */
 	if (destination_file("-", &output_file) != 0)
 		return;
 	/* Only a regular file holds records a decode can spoil. A pipe, a
@@ -1007,10 +1007,9 @@ void opt_warn_stdout_is_input(FILE *input, const char *input_option)
 	if (input_file.st_dev != output_file.st_dev ||
 	    input_file.st_ino != output_file.st_ino)
 		return;
-	/* "is lost" rather than "will be corrupted", because which of the two
-	 * happened depends on the redirection the shell set up and the user
-	 * gets one line for both: ">" emptied the file before this process
-	 * started, and ">>" leaves the decode among the records. */
+	/* "lost" covers both redirections: a truncating one emptied the file
+	 * before this process started, an appending one leaves the decode
+	 * among the records. */
 	fprintf(stderr, "warning: the decode is going to the dump %s is"
 	        " replaying, so the capture is lost\n", input_option);
 }
