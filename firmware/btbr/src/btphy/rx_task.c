@@ -357,9 +357,12 @@ static int rx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 
 	if (!pkt)
 	{
-		/* rx_prepare() did not run: either it belonged to an attempt
-		 * that was never armed, or the mode was reset between the two.
-		 * Nothing is listening and there is no packet to report. */
+		/* rx_prepare() did not run, so nothing is listening and there
+		 * is no packet to report. Both tasks of a receive carry the
+		 * same attempt number and only btphy_init() resets the task,
+		 * so this cannot happen as the image stands; it is two
+		 * instructions against a reset arriving between the two tasks,
+		 * which clears the packet and leaves them on the scheduler. */
 		return 0;
 	}
 

@@ -15,16 +15,21 @@ typedef int (*rx_task_cb_t)(msg_t *msg, void *arg, int time_offset);
  * On -1 nothing is listening and the callback is never reached, because the
  * tasks that would reach it are the ones that were refused. Every caller asks
  * for its next slot from that callback, so a caller that carried on would sit
- * with no task left to run and wait forever. Either go back through the path
- * that opens the next window, where there is one, or report the session over.
+ * with no task left to run and wait forever. A caller must therefore either go
+ * back through the path that opens its next window, where it has one, or report
+ * the session over.
  *
  * Nothing is left held on -1, so a caller has only its own state to put back:
  * the packet buffer belongs to the slot task that did not run.
  *
- * Asking again in the same slot does not help. One of the frames asked for is
- * the one that was refused, and a frame is emptied only by running, so a
- * second ask from the same slot clock interrupt is refused too. That is what
- * bounds the refusal: one report, then the caller acts on it. */
+ * A caller that recovers by opening another window asks for a different frame,
+ * so that ask can succeed and usually does. What stops a refusal from going
+ * round for ever is that every such path reaches its own deadline or its own
+ * refusal, and both of those report the session over.
+ *
+ * The reason reported is the one that caller's own deadline uses. The host
+ * protocol has three reasons -- success, timeout and paged -- and none of them
+ * means "the scheduler was full". */
 int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void*cbarg, unsigned flags);
 void rx_task_reset(void);
 #endif

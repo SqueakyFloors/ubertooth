@@ -228,9 +228,7 @@ static void paging_schedule(unsigned delay)
 	   RX in the 2nd half of the same slot */
 	/* This window is what carries the page train on: paging_rx_cb() is
 	 * where the next page message is scheduled from. With no window there
-	 * is nothing left to run, so the page is over; the reason is the one
-	 * the deadline above uses, because the host's three reasons have no
-	 * word for a full scheduler (rx_task.h). */
+	 * is nothing left to run, so the page is over (rx_task.h). */
 	if (rx_task_schedule(delay+2,
 		paging_rx_cb, PAGING_1ST_CALLBACK,	// ID rx callback
 		0			// no payload for an ID packet

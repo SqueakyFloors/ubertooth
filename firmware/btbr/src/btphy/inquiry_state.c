@@ -66,6 +66,14 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 	}
 	else
 	{
+		/* The device this found goes on the queue before anything below
+		 * can end the inquiry: the host reads this queue in order and
+		 * stops at the report that the board is idle, so a device
+		 * queued behind one is never read. */
+		if (btctl_tx_enqueue(msg))
+		{
+			DIE("txq full in inquiry\n");
+		}
 		if (pkt->bb_hdr.type == BB_TYPE_FHS)
 		{
 			/* Schedule rx EFHS for next RX slot. No window for the
@@ -82,10 +90,6 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 		{
 			/* Schedule normal inquiry */
 			inquiry_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
-		}
-		if (btctl_tx_enqueue(msg))
-		{
-			DIE("txq full in inquiry\n");
 		}
 	}
 	return 0;
@@ -107,9 +111,8 @@ static void inquiry_schedule(unsigned delay)
 
 	/* Schedule rx fhs. This window is what carries the inquiry on:
 	 * inquiry_rx_cb() is where the next sweep is scheduled from. With no
-	 * window there is nothing left to run, so the inquiry is over; the
-	 * reason is the one the deadline above uses, because the host's three
-	 * reasons have no word for a full scheduler (rx_task.h). */
+	 * window there is nothing left to run, so the inquiry is over
+	 * (rx_task.h). */
 	if (rx_task_schedule(delay+2,
 		inquiry_rx_cb, NULL,	// fhs rx callback
 		1<<RX_F_PAYLOAD		// wait for payload

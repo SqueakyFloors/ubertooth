@@ -99,10 +99,9 @@ static void monitor2_state_schedule_rx(unsigned skip_slots)
 	unsigned delay = 2*skip_slots + (1&(RX_PREPARE_IDX - (btphy.peripheral_clkn&1)));
 
 	/* Schedule rx: */
-	/* A slot the scheduler had no room for ends the follow (rx_task.h).
-	 * Every slot of it is opened here, so there is nothing else left to
-	 * run; the reason is the one the scan states use, because the host's
-	 * three reasons have no word for a full scheduler. */
+	/* Every slot of the follow is opened here, so a slot the scheduler had
+	 * no room for leaves nothing to run and the follow is over
+	 * (rx_task.h). */
 	if (rx_task_schedule(delay,
 		monitor2_rx_cb, NULL,	// ID rx callback
 		(1<<RX_F_PAYLOAD)	// wait for header 
