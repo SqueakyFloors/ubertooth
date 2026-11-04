@@ -1176,11 +1176,11 @@
   board came back in DFU, which is also what a board whose bootloader entry
   pin is bridged does without ever starting the updater, so a run that
   installed nothing read like one that worked. The command now reads the
-  bootloader region back and says what the board holds: an installed
-  bootloader is reported with its hash, and a region that is still the one the
-  board had before the run is an error and exit 1. A board that cannot say
-  which bootloader it has is not refused for it; the run says the check could
-  not be made and claims nothing.
+  bootloader region before the write and again afterwards, and says what the
+  board holds: an installed bootloader is reported with the hash
+  `ubertooth-util -B` will give, and a region that did not change and is not
+  the bootloader the image carries is an error and exit 1. Where the two reads
+  cannot settle it, the run says so and claims nothing either way.
   [#1128](https://github.com/SqueakyFloors/ubertooth/issues/1128)
 
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes

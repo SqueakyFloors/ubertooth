@@ -346,41 +346,30 @@ region through the part's own In-Application Programming commands, reads it
 back, and resets into DFU, where this command waits for it. That leaves the
 application region holding the updater, which is why the second line above is
 part of the procedure. Before anything is written, this command prints the
-CRC32 the installed bootloader will report, and reads the hash of the
-bootloader the board has at that moment; `ubertooth-util -B` on the third line
-prints what the board actually has, so the two can be compared.
+CRC32 the installed bootloader will report, and reads the bootloader region
+back as it stands; `ubertooth-util -B` on the third line prints what the board
+actually has, so the two can be compared.
 
-Once the board is back in DFU the command reads the region back and compares
-it with those two numbers, because a board in DFU is also what an updater that
-never ran leaves behind: a bootloader whose entry pin reads grounded stays in
-DFU instead of starting the image, so nothing is installed and the board looks
-no different on the bus. A region that now hashes to the image's number is
-reported as installed. A region that still hashes to what the board gave
-before the run is an `error: ` and status 1, because nothing was installed.
+Once the board is back in DFU the command reads the region again, because a
+board in DFU is also what an updater that never ran leaves behind: a bootloader
+whose entry pin reads grounded stays in DFU instead of starting the image, so
+nothing is installed and the board looks no different on the bus. A region that
+now holds the bootloader the image carries is reported as installed. A region
+that did not change and is not that bootloader is an `error: ` and status 1,
+because nothing was installed.
 
-A board that cannot say which bootloader it has is not refused on that ground.
-Firmware built before the request stalls it, and a board that was already in
-DFU when the command started had no application to ask; the run then says the
-check could not be made, claims nothing about the region, and sends you to
-`ubertooth-util -B`, which is also what it does when the region will not read
-back.
-
-The comparison is made in three steps, because the part covers the lowest 512
-bytes of the address map with either the user flash or its own boot ROM and the
-bootloader does not choose which. The whole region hashing to the image's
-number is the board holding that bootloader. Failing that, the whole region
-hashing to exactly what the board reported before the run is nothing installed,
-and that is the `error: `. Failing both, a region whose bytes above those 512
-are the image's is an update that worked with the boot ROM reading back over
-them, and is reported as installed.
-
-The order matters: the vector table and the version block both live in those
-512 bytes, so two builds of one bootloader can differ only there, and for such
-a pair a board that installed nothing already has the image's bytes above them.
-Asking the provable question first refuses that board. What is left -- a region
-that is neither bootloader whole and not what the board had, as a write that
-stopped part way would leave it -- is a `warning: ` and status 0. Only a region
-that is provably unchanged is refused.
+Both reads go through the bootloader the same way, so a region that did not
+change is provable. The one thing they cannot settle is the lowest 512 bytes:
+the part covers them with either the user flash or its own boot ROM, the
+bootloader does not choose which, and the vector table and the version block
+both live there, so two builds of one bootloader can differ only inside them.
+Where the answer is in those bytes -- the region did not change, and above them
+it matches the image -- the board either already had this bootloader or has
+another build of it and installed nothing. That is a `warning: ` and status 0,
+not a guess either way. So is a region that changed into neither bootloader
+whole, as a write that stopped part way would leave it, and a region that will
+not read back at all. In each case the run claims nothing and sends you to
+`ubertooth-util -B`.
 
 Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table
@@ -546,7 +535,7 @@ or create, an image it refuses, a selected board that is missing or that
 something else is using, a bootloader that will not answer or will not become
 idle, a transfer that failed both its attempts, a reset that left the board in
 DFU or brought it straight back into the bootloader, a bootloader update that
-left the region holding the bootloader the board already had, and a
+left the region unchanged and not the bootloader it was asked to install, and a
 verification after the reset that did not end in the image's own name and
 revision. That last one includes a board that did not come back on USB at all:
 the write had completed by then, but the command cannot say the board runs
@@ -597,8 +586,8 @@ command spent its time on.
 The errors this tool prints itself are one line each beginning `error: `, for
 example `error: detach failed: the board is still in DFU`,
 `error: upload failed: block 164 was not read`,
-`error: no bootloader was installed: the region still holds the one the board
-reported before this run (CRC32:0x...), not the one bl_update.dfu carries
+`error: no bootloader was installed: the region still holds the bootloader it
+held before this run (CRC32:0x...), not the one bl_update.dfu carries
 (CRC32:0x...)`,
 `error: firmware update failed after 2 attempt(s): ...` and
 `error: could not read the DFU state: the board's firmware does not support it

@@ -108,12 +108,11 @@ static struct {
 	int get_state_rc;       /* < 0: GETSTATE fails with this instead */
 	int get_state_rc_after_detach; /* ...from the reset onwards */
 	int get_state_calls;
-	/* The bootloader region the board holds, which the blocks below the
-	 * application region read back and which cmd_get_bootloader_info_quiet()
-	 * hashes, so the two answers about it always agree as a board's do. */
+	/* The bootloader region the board holds, as the flash has it: the blocks
+	 * below the application region read it back, and an application's
+	 * bootloader report hashes it, so the two answers always agree as a
+	 * board's do. */
 	uint8_t bl_region[UBERTOOTH_BOOTLOADER_REGION_LENGTH];
-	int bl_info_rc;         /* < 0: the application will not report it */
-	int bl_info_calls;
 	/* The board starts the updater image after the reset and it installs the
 	 * region it carries. A board whose bootloader entry pin is bridged does
 	 * not: it comes back in DFU with the region untouched. */
@@ -135,6 +134,7 @@ static struct {
 	int upload_fail_block;  /* this block fails to read, or -1 */
 	int upload_fail_rc;
 	int upload_fail_once;   /* ...and then reads normally */
+	int upload_fail_after_detach; /* ...and only once the board has reset */
 	int dnload_calls;
 	int dnload_rc;          /* < 0: block writes fail with this */
 	int dnload_fail_after;  /* ...from this many blocks written on */
@@ -384,12 +384,24 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			mu_assert(fake.reads_the_bootloader_region,
 			          "UPLOAD asked for a block inside the bootloader");
 			if (fake.upload_fail_block >= 0 &&
-			    value == fake.upload_fail_block) {
+			    value == fake.upload_fail_block &&
+			    (!fake.upload_fail_after_detach || fake.detach_calls > 0)) {
 				if (fake.upload_fail_once)
 					fake.upload_fail_block = -1;
 				return fake.upload_fail_rc;
 			}
 			memcpy(data, fake.bl_region + address, length);
+			/* The part's boot ROM over the window, which is what a
+			 * read-back of those bytes shows when the map is set that way.
+			 * The bootloader never sets it, so every read-back of this
+			 * board shows the same thing, before the write and after. */
+			if (fake.bl_region_reads_rom_head &&
+			    address < UBERTOOTH_BL_MEMMAP_WINDOW) {
+				uint32_t covered = UBERTOOTH_BL_MEMMAP_WINDOW - address;
+
+				memset(data, 0x5a,
+				       covered < length ? covered : length);
+			}
 			fake.state = STATE_DFU_IDLE;
 			return length;
 		}
@@ -468,13 +480,6 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			for (i = 0; i < sizeof(fake.bl_region); i++)
 				fake.bl_region[i] =
 					ubertooth_bl_update_byte(payload, i, checksum);
-			/* The part's boot ROM over the window, which is what a
-			 * read-back of those bytes shows when the map is set that
-			 * way: the region above them is still the installed
-			 * bootloader. */
-			if (fake.bl_region_reads_rom_head)
-				memset(fake.bl_region, 0x5a,
-				       UBERTOOTH_BL_MEMMAP_WINDOW);
 			/* A block above the window left as it was, so the region
 			 * holds neither bootloader whole. */
 			if (fake.bl_region_part_written)
@@ -590,22 +595,6 @@ int cmd_get_part_id(struct libusb_device_handle *devh, u32 *part_id)
 	if (fake.part_id_rc < 0)
 		return fake.part_id_rc;
 	*part_id = fake.part_id;
-	return 0;
-}
-
-/* The bootloader report, read from the application before it leaves for DFU:
- * the hash of the region the board holds. A case that sets bl_info_rc has a
- * board that will not answer, which is firmware built before the request. */
-int cmd_get_bootloader_info_quiet(struct libusb_device_handle *devh,
-                                  struct ubertooth_bootloader_info *info)
-{
-	(void)devh;
-	fake.bl_info_calls++;
-	memset(info, 0, sizeof(*info));
-	if (fake.bl_info_rc < 0)
-		return fake.bl_info_rc;
-	info->crc32 = ~dfu_image_crc32(fake.bl_region, sizeof(fake.bl_region));
-	info->version_result = UBERTOOTH_BL_VERSION_NO_MAGIC;
 	return 0;
 }
 
@@ -3090,9 +3079,10 @@ MU_TEST(an_update_that_leaves_the_board_in_dfu_is_a_success)
 	         "Bootloader installed: ubertooth-util -B will report "
 	         "CRC32:0x%08x.", (unsigned)updater_image_crc32());
 	mu_assert(strstr(r.out, line) != NULL, r.out);
-	/* The same line written out, because it is the one ubertooth-dfu(1)
-	 * shows: the hash follows from the bytes build_installable_region()
-	 * writes, so a change to the test region has to reach the page too. */
+	/* The same line again as a literal, which is what the doc-example-lines
+	 * check reads to pin the sample in ubertooth-dfu(1): the hash follows
+	 * from the bytes build_installable_region() writes, so a change to the
+	 * test region has to reach the page too. */
 	mu_assert(strcmp(line, "Bootloader installed: ubertooth-util -B will "
 	                 "report CRC32:0x7c52e323.") == 0, line);
 	mu_assert(strstr(r.out, expected) != NULL,
@@ -3107,10 +3097,11 @@ MU_TEST(an_update_that_leaves_the_board_in_dfu_is_a_success)
 	/* It really waited for the board rather than assuming it. */
 	mu_assert(strstr(r.err, "return to DFU") != NULL,
 	          "the run did not wait for the board to come back in DFU");
-	/* The region was read back rather than assumed: 16 KiB in 256-byte
-	 * blocks, on top of the writes. */
-	mu_assert_int_eq(1, fake.bl_info_calls);
-	mu_assert_int_eq((int)(BOOTLOADER_SIZE / BLOCK_SIZE), fake.upload_calls);
+	/* The region was read rather than assumed, twice: once before the write
+	 * and once after, 16 KiB in 256-byte blocks each time. Both go through
+	 * the bootloader, which is what makes an unchanged region provable. */
+	mu_assert_int_eq(2 * (int)(BOOTLOADER_SIZE / BLOCK_SIZE),
+	                 fake.upload_calls);
 }
 
 /*
@@ -3149,19 +3140,19 @@ MU_TEST(an_update_whose_updater_never_ran_fails_and_says_nothing_was_installed)
 }
 
 /*
- * A board that cannot report the bootloader it has -- firmware older than the
- * request, or a board already in DFU when the command started, which has no
- * application to ask -- leaves the comparison with nothing to compare against.
- * That must not be read as a failure: a false refusal on the one write a user
- * cannot undo over USB would be worse than the quiet success. So the run says
- * the check could not be made, keeps the wording it had, and ends 0.
+ * A board whose region will not read back before the write leaves the
+ * comparison with nothing to compare against. That must not be read as a
+ * failure: a false refusal on the one write a user cannot undo over USB would
+ * be worse than the quiet success. So the run says the check could not be
+ * made, keeps the wording it had, and ends 0.
  */
-MU_TEST(a_board_that_cannot_report_its_bootloader_is_neither_refused_nor_claimed)
+MU_TEST(a_region_unreadable_before_the_write_is_neither_refused_nor_claimed)
 {
 	struct run_result r;
 
-	board_that_installs_the_bootloader();
-	fake.bl_info_rc = LIBUSB_ERROR_PIPE;
+	board_whose_entry_pin_is_bridged();
+	fake.upload_fail_block = 0;
+	fake.upload_fail_rc = LIBUSB_ERROR_IO;
 	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
@@ -3170,7 +3161,7 @@ MU_TEST(a_board_that_cannot_report_its_bootloader_is_neither_refused_nor_claimed
 	 * command. */
 	mu_assert(strstr(r.err, "note: whether the bootloader was installed "
 	          "could not be checked") != NULL, r.err);
-	mu_assert(strstr(r.err, "did not report the bootloader it had") != NULL,
+	mu_assert(strstr(r.err, "could not be read before the write") != NULL,
 	          r.err);
 	/* No claim either way, and the reader is sent to the tool that can
 	 * answer. */
@@ -3180,13 +3171,12 @@ MU_TEST(a_board_that_cannot_report_its_bootloader_is_neither_refused_nor_claimed
 	mu_assert(strstr(r.out, "ubertooth-util -B") != NULL,
 	          "the run did not say how to check which bootloader the board "
 	          "ended up with");
-	/* Nothing to compare against, so the region is not read back at all. */
-	mu_assert_int_eq(0, fake.upload_calls);
 }
 
-/* The same, for a region the board will not read back: the blocks are the
- * only thing that can answer once the board is in DFU, so a read that fails
- * leaves the check unmade rather than failing the command. */
+/* The same, for a region that read before the write and will not read after
+ * it: the blocks are the only thing that can answer once the board is in DFU,
+ * so a read that fails leaves the check unmade rather than failing the
+ * command. */
 MU_TEST(a_region_that_will_not_read_back_leaves_the_check_unmade)
 {
 	struct run_result r;
@@ -3194,6 +3184,7 @@ MU_TEST(a_region_that_will_not_read_back_leaves_the_check_unmade)
 	board_that_installs_the_bootloader();
 	fake.upload_fail_block = 0;
 	fake.upload_fail_rc = LIBUSB_ERROR_IO;
+	fake.upload_fail_after_detach = 1;
 	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
@@ -3253,20 +3244,48 @@ MU_TEST(a_region_holding_neither_bootloader_warns_rather_than_refusing)
 }
 
 /*
- * The refusal is asked before the above-window comparison, and it has to be.
- * The vector table and the version block both live in the window, so two
- * bootloaders can differ only there -- a rebuild that stamps a new version is
- * exactly that pair -- and on a board that installed nothing the region above
- * the window is then already the image's. Were the comparisons the other way
- * round, that board would be told the bootloader was installed.
+ * The one case the region cannot settle, and it is not claimed either way. The
+ * vector table and the version block both live in the window, so two builds of
+ * one bootloader can differ only there -- a rebuild that stamps a new version
+ * is exactly that pair. A board holding such a build with its entry pin
+ * bridged has an unchanged region that is the image's above the window, which
+ * is also what a board already carrying the image's bootloader has when a DFU
+ * read-back shows boot ROM over the window. So the run warns and ends 0: it
+ * neither refuses a board that may already have what was asked for nor tells
+ * one that installed nothing that it worked.
  */
-MU_TEST(a_bootloader_differing_only_inside_the_window_is_still_refused)
+MU_TEST(a_bootloader_differing_only_inside_the_window_is_not_claimed)
 {
 	struct run_result r;
 
 	board_whose_entry_pin_is_bridged();
 	write_updater_image(UPDATER_PAYLOAD);
 	board_holds_a_bootloader_differing_only_in_the_window();
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert(strstr(r.err, "warning: whether the bootloader was installed "
+	          "could not be checked") != NULL, r.err);
+	mu_assert(strstr(r.err, "the region did not change") != NULL, r.err);
+	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
+	          "the run claimed a bootloader it could not tell apart");
+	mu_assert(strstr(r.out, "ubertooth-util -B") != NULL, r.out);
+}
+
+/*
+ * The refusal under the other memory map. A board whose entry pin is bridged
+ * never runs the updater, and its bootloader differs from the image's above
+ * the window as two different bootloaders do, so both halves of the refusal
+ * are read off the board even when a DFU read-back shows boot ROM over the
+ * window. This is what makes the refusal independent of how the map is set.
+ */
+MU_TEST(an_updater_that_never_ran_is_refused_through_the_boot_rom_window)
+{
+	struct run_result r;
+
+	board_whose_entry_pin_is_bridged();
+	fake.bl_region_reads_rom_head = 1;
+	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "error: no bootloader was installed") != NULL,
@@ -3358,6 +3377,7 @@ MU_TEST(a_read_back_block_that_stalls_once_is_read_again_and_still_checked)
 	fake.upload_fail_block = 3;
 	fake.upload_fail_rc = LIBUSB_ERROR_PIPE;
 	fake.upload_fail_once = 1;
+	fake.upload_fail_after_detach = 1;
 	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
@@ -3365,9 +3385,10 @@ MU_TEST(a_read_back_block_that_stalls_once_is_read_again_and_still_checked)
 	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
 	mu_assert(strstr(r.err, "could not be read back") == NULL,
 	          "a stall on one block was not retried");
-	/* The retry starts again at block zero, so the four blocks up to the one
-	 * that stalled are read twice. */
-	mu_assert_int_eq((int)(BOOTLOADER_SIZE / BLOCK_SIZE) + 4,
+	/* The retry starts again at block zero, so on top of the two whole
+	 * read-backs the three blocks up to the one that stalled, and that
+	 * block, are read a second time. */
+	mu_assert_int_eq(2 * (int)(BOOTLOADER_SIZE / BLOCK_SIZE) + 4,
 	                 fake.upload_calls);
 }
 
@@ -3418,6 +3439,7 @@ MU_TEST(an_update_whose_board_stays_away_fails_and_says_to_leave_it_powered)
 	struct run_result r;
 
 	board_in_application(PART_ID_128K, 128 * 1024);
+	fake.reads_the_bootloader_region = 1;
 	/* It reset, ran the updater, and never enumerated again. */
 	fake.detach_drops_off_bus = 1;
 	write_updater_image(UPDATER_PAYLOAD);
@@ -3651,12 +3673,13 @@ int main(void)
 	MU_RUN(a_read_back_failing_part_way_finishes_its_row_of_dots_first);
 	MU_RUN(an_update_that_leaves_the_board_in_dfu_is_a_success);
 	MU_RUN(an_update_whose_updater_never_ran_fails_and_says_nothing_was_installed);
-	MU_RUN(a_board_that_cannot_report_its_bootloader_is_neither_refused_nor_claimed);
+	MU_RUN(a_region_unreadable_before_the_write_is_neither_refused_nor_claimed);
 	MU_RUN(a_region_that_will_not_read_back_leaves_the_check_unmade);
 	MU_RUN(an_installed_bootloader_is_confirmed_through_the_boot_rom_window);
 	MU_RUN(a_region_holding_neither_bootloader_warns_rather_than_refusing);
 	MU_RUN(a_read_back_block_that_stalls_once_is_read_again_and_still_checked);
-	MU_RUN(a_bootloader_differing_only_inside_the_window_is_still_refused);
+	MU_RUN(a_bootloader_differing_only_inside_the_window_is_not_claimed);
+	MU_RUN(an_updater_that_never_ran_is_refused_through_the_boot_rom_window);
 	MU_RUN(a_board_that_already_holds_the_image_bootloader_is_not_refused);
 	MU_RUN(a_board_that_will_not_become_idle_leaves_the_check_unmade_quietly);
 	MU_RUN(a_dfu_interface_that_will_not_claim_leaves_the_check_unmade);
