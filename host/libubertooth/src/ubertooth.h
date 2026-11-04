@@ -172,17 +172,17 @@ typedef struct {
 	 * how many periods have gone by. */
 	uint8_t clk100ns_counted;
 
-	/* Whether this capture has put the board's clock somewhere of its own
-	 * choosing, so the clock is no longer a measure of time passing. A
-	 * piconet follow does: the board is put on the piconet's clock so that
-	 * it hops with it, which moves the clock by whatever the two were
-	 * apart, in either direction. Set once such a request has gone out and
-	 * left set, because nothing puts the clock back. */
-	uint8_t clk100ns_host_moves_the_clock;
+	/* The 100 ns ticks this capture has asked the board to move its clock
+	 * by and has not yet seen in a reading. A piconet follow asks for one:
+	 * the board is put on the piconet's clock so that it hops with it,
+	 * which moves the clock by whatever the two were apart, in either
+	 * direction, and that is not time passing. Zero on a capture that has
+	 * no move outstanding, which is every capture that follows nothing. */
+	int64_t clk100ns_pending_move;
 
-	/* The ticks of those moves, taken out of the reconstructed times so
-	 * that they measure time passing rather than where the clock was put.
-	 * Signed: the clock is as often moved back as forward. */
+	/* The ticks of the moves already found, taken out of the reconstructed
+	 * times so that they measure time passing rather than where the clock
+	 * was put. Signed: the clock is as often moved back as forward. */
 	int64_t clk100ns_moved;
 
 	/* Whether the capture's anchor may still move to the next packet's

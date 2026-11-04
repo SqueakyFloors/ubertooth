@@ -93,10 +93,10 @@ static volatile uint32_t T0TC;
  * set their own host times and clear this. */
 static int host_time_follows_the_clock = 1;
 
-/* Whether the capture is one that has put the board's clock somewhere of its
- * own choosing, as a piconet follow does. Only those captures weigh a
- * packet's reading against the gap the host saw once they are under way. */
-static int the_host_moves_the_clock = 0;
+/* The move of the board's clock the capture is waiting for, in 100 ns ticks,
+ * as a piconet follow leaves outstanding. Zero for a capture that asked for
+ * none, which is every capture that follows nothing. */
+static int64_t the_pending_move = 0;
 
 /* The reconstructed time of a packet captured at this clock value, with the
  * count it carries given outright: the firmware can send one that does not
@@ -161,7 +161,7 @@ static void start_live_capture(ubertooth_t* ut, uint64_t period)
 	memset(ut, 0, sizeof(*ut));
 	ut->clk100ns_period = period;
 	ut->fifo = fifo_init();
-	ut->clk100ns_host_moves_the_clock = the_host_moves_the_clock;
+	ut->clk100ns_pending_move = the_pending_move;
 	infile = NULL;
 	host_time_follows_the_clock = 0;
 }
@@ -1159,12 +1159,12 @@ static uint8_t count_at(uint64_t ticks)
 }
 
 /* Captures records live, as capture_records() does, from a capture that has
- * put the board's clock on a piconet's. Counted, because that is a Classic
- * capture: every record carries the period count the firmware stamps it with
- * at its own clock value. */
+ * asked the board to move its clock by move_ticks and not yet seen the move.
+ * Counted, because that is a Classic capture: every record carries the period
+ * count the firmware stamps it with at its own clock value. */
 static void capture_a_follow(ubertooth_t* ut, int records,
                              const uint64_t ticks[], const uint64_t arrived_ns[],
-                             uint64_t times[])
+                             int64_t move_ticks, uint64_t times[])
 {
 	uint8_t counts[16];
 	int record;
@@ -1174,10 +1174,10 @@ static void capture_a_follow(ubertooth_t* ut, int records,
 	for (record = 0; record < records; record++)
 		counts[record] = count_at(ticks[record]);
 
-	the_host_moves_the_clock = 1;
+	the_pending_move = move_ticks;
 	capture_records(ut, CLK100NS_PERIOD, records, ticks, arrived_ns, counts,
 	                times);
-	the_host_moves_the_clock = 0;
+	the_pending_move = 0;
 }
 
 /* A packet every ten seconds, on a board clock that starts at first_ticks and
@@ -1207,7 +1207,7 @@ static void follow_moving_the_clock(ubertooth_t* ut, int records,
 		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS;
 	}
 
-	capture_a_follow(ut, records, ticks, arrived_ns, times);
+	capture_a_follow(ut, records, ticks, arrived_ns, -move_ticks, times);
 }
 
 /* How long the records of a run ten seconds a packet apart should span. */
@@ -1296,49 +1296,22 @@ MU_TEST(a_follow_the_clock_kept_up_with_keeps_the_boards_times)
 		                     (record % 2 ? 100000000ull : 0);
 	}
 
-	capture_a_follow(&ut, 4, ticks, arrived_ns, times);
+	capture_a_follow(&ut, 4, ticks, arrived_ns,
+	                 -(int64_t) MOVE_BACK_TICKS, times);
 
 	for (record = 1; record < 4; record++)
 		mu_assert_int_eq(TEN_SECOND_NS,
 		                 times[record] - times[record - 1]);
 }
 
-/* The control: a capture that left the board's clock alone. That clock free
- * runs, so its readings are a measure of time passing and its records track
- * the run, as they did before any of this. */
-MU_TEST(a_capture_that_did_not_move_its_clock_tracks_its_run)
-{
-	ubertooth_t ut;
-	uint64_t ticks[12];
-	uint64_t arrived_ns[12];
-	uint8_t counts[12];
-	uint64_t times[12];
-	uint64_t first = 20ull * CLK100NS_PERIOD + 2 * ONE_SECOND_TICKS;
-	int record;
-
-	for (record = 0; record < 12; record++) {
-		ticks[record] = first + (uint64_t) record * TEN_SECOND_TICKS;
-		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS;
-		counts[record] = count_at(ticks[record]);
-	}
-
-	capture_records(&ut, CLK100NS_PERIOD, 12, ticks, arrived_ns, counts,
-	                times);
-
-	mu_assert_int_eq(run_of(12), times[11] - times[0]);
-	for (record = 1; record < 12; record++)
-		mu_assert_int_eq(TEN_SECOND_NS,
-		                 times[record] - times[record - 1]);
-}
-
-/* Only a capture that moved its own clock weighs a reading against the gap
- * the host saw. Fed the readings of the moved-clock case above, a capture that
- * moved nothing reads the jump as time passing - which is all it has to go on,
- * and what every capture did before. So the rule reaches no further than the
- * captures that need it: here the records come to 10 s across a 110-second
- * run, the clock having been read as going back a period and then forward
- * again. */
-MU_TEST(only_a_capture_that_moved_its_clock_weighs_the_host_clock)
+/* The control: a capture with no move outstanding. Its clock free runs, so its
+ * readings are the only authority, and it is not examined this way at all. Fed
+ * the very readings of the moved-clock case above, it reads the jump as time
+ * passing - which is all a capture that asked for no move has to go on, and
+ * what every capture did before. So the rule reaches no further than the one
+ * event it is for: here the records come to 10 s across a 110-second run, the
+ * clock having been read as going back a period and then forward again. */
+MU_TEST(a_capture_with_no_move_outstanding_reads_the_clock)
 {
 	ubertooth_t ut;
 	uint64_t ticks[12];
@@ -2396,8 +2369,7 @@ int main(void)
 	MU_RUN(a_follow_that_moves_the_clock_back_still_spans_its_run);
 	MU_RUN(a_follow_that_moves_the_clock_forward_still_spans_its_run);
 	MU_RUN(a_follow_the_clock_kept_up_with_keeps_the_boards_times);
-	MU_RUN(a_capture_that_did_not_move_its_clock_tracks_its_run);
-	MU_RUN(only_a_capture_that_moved_its_clock_weighs_the_host_clock);
+	MU_RUN(a_capture_with_no_move_outstanding_reads_the_clock);
 	MU_RUN(a_host_clock_that_steps_does_not_move_live_times);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);

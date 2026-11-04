@@ -296,7 +296,7 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
 	ut->clk100ns_upper = 0;
 	ut->clk100ns_started = 0;
 	ut->clk100ns_counted = 0;
-	ut->clk100ns_host_moves_the_clock = 0;
+	ut->clk100ns_pending_move = 0;
 	ut->clk100ns_moved = 0;
 	ut->last_arrival_ns = 0;
 	ut->clk100ns_anchor_open = 0;
@@ -460,59 +460,85 @@ static uint64_t wraps_the_gap_accounts_for( const ubertooth_t* ut,
 	return (uint64_t) wraps;
 }
 
-/* Takes out of the reconstruction what the host moved the board's clock by,
- * once the readings show the move has happened.
+/* Whether the move the capture is waiting for is the one that happened between
+ * the last packet and this one.
  *
- * A piconet follow puts the board on the piconet's clock, so that it hops
- * with it (UBERTOOTH_START_HOPPING, sent from cb_br_rx() below). That moves
- * the clock by however far the two were apart - any amount, in either
- * direction - and the move is not time passing. Read as time it stretched a
- * capture's record times by up to the clock's whole period either way: a
- * 15-second follow on the bench wrote records spanning 191.3 s, and a
- * 25-second one 137.4 s, beside systime columns that had both runs right. It
- * is not a rate error, so there is no factor to correct: each capture is out
- * by whatever its own piconet's clock happened to be away from the board's.
+ * A piconet follow puts the board on the piconet's clock, so that it hops with
+ * it (UBERTOOTH_START_HOPPING, sent from cb_rx() below). The amount is known
+ * exactly - the firmware adds the offset the request carried to CLKN once, at
+ * its next tick - but which packet is the first on the moved clock is not: the
+ * request goes out asynchronously, so a packet or two can still be stamped on
+ * the clock the board had. What tells the two apart is the gap the host's own
+ * clock saw: of the two amounts this packet's reading could stand for, with
+ * the move and without it, only one is near that gap, and they are a whole
+ * move apart.
  *
- * Which packet is the first on the moved clock is not something the host can
- * know: the request goes out asynchronously and the firmware applies it at its
- * next CLKN tick, so a packet or two can be stamped in between. What does show
- * it is that such a packet's reading cannot account for the gap the host's own
- * clock saw before it. So the move is found rather than predicted, and what is
- * taken out is the whole disagreement: the capture re-anchors on this packet's
- * reading, and the one gap that spans the move is measured on the host clock
- * instead of the board's. Every other gap keeps the board clock's precision,
- * which is the point of using it.
- *
- * The period count is re-based here too. A move backwards makes the count
- * read backwards, which the counted branch above rightly declines to believe,
- * but it also leaves the baseline on the clock the capture no longer has:
- * every later count would read backwards from it as well, and the periods
- * after the move would stop being counted.
- *
- * Only a capture that moved its own clock is examined this way, and only
- * where the host measured the gap, which is a live capture. The cost of
- * reading a packet wrongly as the move is a period, and the packet after it
- * re-anchors back, so it is one packet's time either way - the same cost the
- * counted path already carries for a count latched a period from its own
- * reading. */
-static void take_out_a_move_of_the_clock( ubertooth_t* ut, uint64_t upper_before,
-                                          uint32_t clk100ns, uint8_t periods,
-                                          uint64_t since_last_ns )
+ * The amount this packet's reading stands for is read as a difference in CLKN,
+ * from the period count and the reading together, so that a move in either
+ * direction reads as the signed amount it is. The byte's own wrap costs
+ * nothing, and the half of its range kept for backwards differences covers
+ * every move a follow can ask for: the offset is under 2^27 CLKN ticks, which
+ * is half what the count and the reading hold between them. */
+static int the_move_landed_on_this_packet( const ubertooth_t* ut,
+                                           uint32_t clk100ns, uint8_t periods,
+                                           uint8_t count_before,
+                                           uint64_t since_last_ns )
 {
-	/* What this capture's reconstruction claims passed since the last
-	 * packet: the periods it counted, plus the change in the reading. */
+	uint8_t stepped = (uint8_t) (periods - count_before);
+	int64_t moved = (stepped < 128) ? (int64_t) stepped :
+	                                  (int64_t) stepped - 256;
+	int64_t reading = moved * (int64_t) ut->clk100ns_period +
+	                  (int64_t) clk100ns - (int64_t) ut->last_clk100ns;
+	int64_t gap = (int64_t) (since_last_ns / 100);
+	int64_t without = reading - gap;
+	int64_t with = reading - ut->clk100ns_pending_move - gap;
+
+	return llabs( with ) < llabs( without );
+}
+
+/* Takes out of the reconstruction the move the host asked for, on the packet
+ * the test above found it on.
+ *
+ * Read as time passing, such a move stretched a capture's record times by up
+ * to the clock's whole period either way, and sent individual times backwards
+ * where the clock was moved back: a 15-second follow on the bench wrote records
+ * spanning 191.3 s, and a 25-second one 137.4 s, beside systime columns that
+ * had both runs right. It is not a rate error, so there is no factor to
+ * correct: each capture is out by whatever its own piconet's clock happened to
+ * be away from the board's.
+ *
+ * What is taken out is the whole disagreement between what the reconstruction
+ * made of this packet and the gap the host saw, rather than the amount asked
+ * for. The two differ: the reconstruction declines a period count that reads
+ * backwards, so a move backwards shows in it only as far as the reading
+ * itself went, and taking out more than it holds would leave the capture a
+ * period adrift. So the capture re-anchors on this packet: the one gap that
+ * spans the move is measured on the host clock, and every other gap keeps the
+ * board clock's precision, which is the point of using it.
+ *
+ * The period count is re-based here too. A move backwards makes the count read
+ * backwards, which the counted branch above rightly declines to believe, but it
+ * also leaves the baseline on the clock the capture no longer has: every later
+ * count would read backwards from it as well, and the periods after the move
+ * would stop being counted.
+ *
+ * One move is taken out per request. A packet read wrongly as the move costs
+ * that packet's time and the real move's, which is the whole of what a wrong
+ * reading here can cost; nothing else in the capture is second-guessed. */
+static void take_out_the_move_of_the_clock( ubertooth_t* ut,
+                                            uint64_t upper_before,
+                                            uint32_t clk100ns, uint8_t periods,
+                                            uint64_t since_last_ns )
+{
+	/* What this capture's reconstruction made of this packet: the periods
+	 * it counted, plus the change in the reading. */
 	int64_t claim = (int64_t) (ut->clk100ns_upper - upper_before) *
 	                (int64_t) ut->clk100ns_period +
 	                (int64_t) clk100ns - (int64_t) ut->last_clk100ns;
-	int64_t gap = (int64_t) (since_last_ns / 100);
-	int64_t apart = claim - gap;
-	int64_t slack = (int64_t) (CLK100NS_WRAP_SLACK_NS / 100);
 
-	if (apart > -slack && apart < slack)
-		return;
-
-	ut->clk100ns_moved += apart;
+	ut->clk100ns_moved += claim - (int64_t) (since_last_ns / 100);
 	ut->last_clkn_high = periods;
+	ut->clk100ns_pending_move = 0;
 }
 
 static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
@@ -523,6 +549,10 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 	 * reconstruction makes of this packet's reading can be compared with
 	 * the gap the host saw. */
 	uint64_t upper_before = ut->clk100ns_upper;
+	/* The period count the capture was counting from before this packet,
+	 * which the counted branch below moves on. The test for a move of the
+	 * clock reads the two together, so it needs the baseline as it stood. */
+	uint8_t count_before = ut->last_clkn_high;
 	/* How many times the clock stamping this packet has started over, as
 	 * the packet itself reports it: clkn_high is the byte of CLKN directly
 	 * above the 20 bits CLK100NS counts through, so it is that clock's
@@ -667,17 +697,21 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 		}
 	}
 
-	/* Not between the capture's first two packets: there the anchor above
-	 * is already weighing this packet's reading against the gap, and both
-	 * taking the disagreement out here and moving the anchor would count
-	 * it twice. A clock the host moves is moved well into a capture
-	 * anyway - a follow has to recover the piconet's clock first - or
-	 * before the stream starts, as ubertooth-follow does, where the
-	 * capture is anchored on the moved clock to begin with. */
-	if (ut->clk100ns_host_moves_the_clock && !anchor_open &&
-	    the_host_measured_the_gap( ut, arrival_ns ))
-		take_out_a_move_of_the_clock( ut, upper_before, clk100ns,
-		                              periods, since_last_ns );
+	/* A move of the clock this capture asked for and has not yet seen. Only
+	 * where the host measured the gap, which is a live capture, that gap
+	 * being what finds the move; and not between the capture's first two
+	 * packets, where the anchor above is already weighing this packet's
+	 * reading against the gap and would count the disagreement twice. A
+	 * move is asked for well into a capture anyway - a follow has to
+	 * recover the piconet's clock first - or before the stream starts, as
+	 * ubertooth-follow does, where the capture is anchored on the moved
+	 * clock to begin with. */
+	if (ut->clk100ns_pending_move != 0 && !anchor_open &&
+	    the_host_measured_the_gap( ut, arrival_ns ) &&
+	    the_move_landed_on_this_packet( ut, clk100ns, periods, count_before,
+	                                    since_last_ns ))
+		take_out_the_move_of_the_clock( ut, upper_before, clk100ns,
+		                                periods, since_last_ns );
 
 	ut->last_clk100ns = clk100ns;
 	ut->last_arrival_ns = arrival_ns;
@@ -2119,12 +2153,17 @@ void cb_rx(ubertooth_t* ut, void* args)
 		 * piconet from here on; a replay has no board to put anywhere,
 		 * but the library is following either way. */
 		if (infile == NULL) {
-			cmd_start_hopping(ut->devh,
-			                  btbb_piconet_get_clk_offset(pn), 0);
+			int offset = btbb_piconet_get_clk_offset(pn);
+
+			cmd_start_hopping(ut->devh, offset, 0);
 			/* The board's clock is about to move to the piconet's,
-			 * which is not time passing: see
-			 * take_out_a_move_of_the_clock() above. */
-			ut->clk100ns_host_moves_the_clock = 1;
+			 * which is not time passing: the firmware adds this
+			 * offset to CLKN once, at its next tick. Taken out of
+			 * the capture's times by
+			 * take_out_the_move_of_the_clock() above, which needs
+			 * the amount to find the packet it landed on. */
+			ut->clk100ns_pending_move = (int64_t) offset *
+			                            CLK100NS_PER_CLKN;
 		}
 		ut->br_calibrated = 0;
 		ut->br_following = 1;

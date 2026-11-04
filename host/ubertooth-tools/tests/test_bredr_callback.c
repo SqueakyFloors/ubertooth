@@ -61,6 +61,9 @@ static struct {
 	int drifts;
 	int16_t drift_ppm_sent;
 	int hopping_restarts;
+	/* The clock offset the last hopping request carried, which is what the
+	 * board's clock moves by and what the capture has to take out. */
+	int hopping_offset;
 	int symbol_captures;
 	int channels_set;
 	int pcap_writes;
@@ -182,8 +185,9 @@ void cmd_fix_clock_drift(struct libusb_device_handle* devh, int16_t ppm)
 int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
                       int clk100ns_offset)
 {
-	(void)devh; (void)clkn_offset; (void)clk100ns_offset;
+	(void)devh; (void)clk100ns_offset;
 	seen.hopping_restarts++;
+	seen.hopping_offset = clkn_offset;
 	return 0;
 }
 
@@ -1745,9 +1749,13 @@ MU_TEST(a_follow_records_its_own_piconets_uap_and_asks_no_survey)
 MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 {
 	btbb_piconet* pn = btbb_piconet_new();
+	/* The offset the library recovered, in CLKN ticks: how far the board's
+	 * clock is from the piconet's, and so how far it is about to move. */
+	const int offset = 0x1234567;
 
 	reset_state();
 	btbb_init_piconet(pn, 0x123456);
+	btbb_piconet_set_clk_offset(pn, offset);
 	/* An offset right on the tune time: the trim block has nothing to
 	 * correct, so the packet reaches the decoder, which is where the
 	 * library reports what it made of the piconet. */
@@ -1761,6 +1769,14 @@ MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 	mu_assert_int_eq(1, seen.hopping_restarts);
 	mu_assert_int_eq(0, seen.symbol_captures);
 	mu_assert_int_eq(0, stderr_lines_with("warning: "));
+
+	/* The request carries the offset the library recovered, and the capture
+	 * is left with that much of a move of the board's clock outstanding, in
+	 * 100 ns ticks. Reading the move as time passing is what used to stretch
+	 * a follow capture's record times past the length of its run. */
+	mu_assert_int_eq(offset, seen.hopping_offset);
+	mu_assert_int_eq((int64_t) offset * CLK100NS_PER_CLKN,
+	                 last_ut.clk100ns_pending_move);
 
 	btbb_piconet_unref(pn);
 }
