@@ -3777,8 +3777,8 @@ Fixes with no visible change in normal use.
 - A bootloader update whose read-back the part refuses erases the sector
   holding the vector table again, so the board comes up in the part's serial
   programmer, which a serial adapter recovers, instead of starting a
-  bootloader the part declined to confirm, unless the part refuses that erase
-  too. A refused write of that sector is put right the same way.
+  bootloader the part declined to confirm. A part that refuses that erase as
+  well is left as it was.
   [#1127](https://github.com/SqueakyFloors/ubertooth/issues/1127)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_

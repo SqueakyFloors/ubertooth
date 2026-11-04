@@ -158,9 +158,14 @@ static int fake_program(void *context, uint32_t address, const uint8_t *ram,
 	if (sector < BL_UPDATE_SECTOR_COUNT && !part.prepared[sector])
 		part.programmed_without_prepare = 1;
 	if ((int)sector == part.fail_program_sector) {
-		if (part.partial_program_bytes != 0)
+		if (part.partial_program_bytes != 0) {
 			memcpy(part.flash + address, ram,
 			       part.partial_program_bytes);
+			/* A part that wrote some of the sector has used its
+			 * preparation up, as one that wrote all of it does. */
+			if (sector < BL_UPDATE_SECTOR_COUNT)
+				part.prepared[sector] = 0;
+		}
 		return -1;
 	}
 	memcpy(part.flash + address, ram, length);
@@ -826,17 +831,49 @@ MU_TEST(a_refused_write_of_the_vector_table_takes_it_away_again)
 	struct bl_update_report report;
 	unsigned i;
 
+	uint8_t first_byte;
+
 	build_good_payload();
 	reset_part();
+	first_byte = ubertooth_bl_update_byte(
+		payload, 0, ubertooth_bl_update_vector_checksum(payload));
 	part.fail_program_sector = (int)BL_UPDATE_FIRST_SECTOR;
 	part.partial_program_bytes = 256;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
 	for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS * 4; i++)
 		mu_assert_int_eq(0xff, part.flash[i]);
+	/* The sector that was refused is not counted as written. */
+	mu_assert_int_eq(3, report.sectors_written);
+	mu_assert_int_eq(0, report.sectors_verified);
 	mu_assert(strstr(part.log,
 	                 "program 0x0000 4096\nprepare 0-0\nerase 0-0\n") != NULL,
 	          "the vector table's sector was not prepared and erased after "
 	          "its own write was refused");
+	mu_assert_int_eq(0, part.programmed_without_prepare);
+
+	/* A part that refuses that erase as well leaves the partial write where
+	 * it is, and the run still reports the write. */
+	build_good_payload();
+	reset_part();
+	part.fail_program_sector = (int)BL_UPDATE_FIRST_SECTOR;
+	part.partial_program_bytes = 256;
+	part.fail_erase_at = 2;  /* the region erase runs; this one does not */
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
+	mu_assert_int_eq(first_byte, part.flash[0]);
+
+	/* And a part that refuses the prepare for it. */
+	build_good_payload();
+	reset_part();
+	part.fail_program_sector = (int)BL_UPDATE_FIRST_SECTOR;
+	part.partial_program_bytes = 256;
+	/* One prepare for the region, one before each of the four programs, and
+	 * then the one this failure is about. */
+	part.fail_prepare_at = 6;
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
+	mu_assert_int_eq(6, part.prepare_calls);
+	mu_assert(strstr(part.log, "erase 0-0\n") == NULL,
+	          "a sector the part would not prepare was erased anyway");
+	mu_assert_int_eq(first_byte, part.flash[0]);
 
 	/* A refused program of any other sector is left alone: sector 0 is
 	 * written last, so it still holds the erase. */
