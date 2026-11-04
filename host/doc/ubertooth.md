@@ -169,10 +169,11 @@ file name too, including one that starts with `-`, so a forgotten file name
 writes a file rather than guessing. A destination whose writer seeks back over
 what it has written cannot be `-` at all, which a pipe does not allow: the
 PcapNG captures (`-r`) and `ubertooth-dfu -u` refuse that value and say what
-to use instead. The PcapNG option refuses every destination that reaches the
-stream, a link to it included, while the command line is read, rather than
-leaving the writer to report the stream's own device entry as a name that
-already exists. Standard output carries one stream, so two capture options cannot
+to use instead. The PcapNG option refuses every destination that reaches
+standard output, a link to it included, while the command line is read, rather
+than leaving the writer to report the stream's own device entry as a name that
+already exists. Another unseekable destination -- a named pipe, or a
+descriptor the shell opened on one -- is still the writer's to turn down. Standard output carries one stream, so two capture options cannot
 both have it, and the tool whose capture has it prints none of its own packet
 report there. A file cannot be shared between two capture options either:
 each writer opens its own destination for writing, which truncates whatever

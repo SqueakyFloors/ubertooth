@@ -1101,10 +1101,9 @@
   -d /dev/fd/3 3>>cap.bin` and the `ubertooth-btle -R` version of it are now
   refused with the file left as it was. The descriptor is asked which file it
   holds, so the answer is the same on Linux and macOS, and so is every
-  spelling that reaches it: `/dev/fd/03`, a symbolic link to one of those,
-  and the fixed names `/dev/stderr` and `/dev/stdin`.
+  spelling that reaches it: a symbolic link to one of those, the fixed names
+  `/dev/stderr` and `/dev/stdin`, and, on the BSDs, `/dev/fd/03`.
   [#1146](https://github.com/SqueakyFloors/ubertooth/issues/1146)
-
 - Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.
   Where the board could not put its answer to the page on the air, it still
   printed the pager's address and `Peripheral started` and told the host it

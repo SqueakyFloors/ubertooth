@@ -336,8 +336,6 @@ static int same_path_text(const char *first, const char *second)
  * one answers a different question: where /dev/stdout points at this moment,
  * rather than which descriptor the user named. Any other spelling is left to
  * the descriptor filesystem itself, below. */
-static int descriptor_number(const char *path);
-
 static int names_descriptor_one(const char *name)
 {
 	size_t i;
@@ -347,13 +345,41 @@ static int names_descriptor_one(const char *name)
 	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
 		if (same_path_text(name, stdout_paths[i]))
 			return 1;
-	/* Any other spelling this platform's own descriptor filesystem answers
-	 * with descriptor 1 is that stream too. The BSDs read a leading zero as
-	 * part of the number, so "/dev/fd/01" is descriptor 1 there and a
-	 * capture given it writes to standard output; left out, it would have
-	 * had the tool's report lines mixed into it and would not have been
-	 * refused at a terminal. */
-	return descriptor_number(name) == STDOUT_FILENO;
+	return 0;
+}
+
+/* Whether a path names descriptor 1, by its fixed names above or by any other
+ * spelling this platform's own descriptor filesystem answers with that
+ * descriptor. The BSDs read a leading zero as part of the number, so
+ * "/dev/fd/01" is descriptor 1 there and a capture given it writes to
+ * standard output; left out, it would have had the tool's report lines mixed
+ * into it and would not have been refused at a terminal. */
+static int named_descriptor(const char *path);
+
+static int path_is_stdout(const char *path)
+{
+	return named_descriptor(path) == STDOUT_FILENO;
+}
+
+/* The last element of a path, which is the name a writer would create. */
+static const char *final_name(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+
+	return slash != NULL ? slash + 1 : path;
+}
+
+/* The directory a path's last element sits in, as a path to look up. */
+static int directory_of(const char *path, char *out, size_t size)
+{
+	const char *slash = strrchr(path, '/');
+
+	if (slash == NULL)
+		return (size_t)snprintf(out, size, ".") < size;
+	if (slash == path)
+		return (size_t)snprintf(out, size, "/") < size;
+	return (size_t)snprintf(out, size, "%.*s", (int)(slash - path), path) <
+	       size;
 }
 
 /* Whether <path> is a spelling of <directory>'s own entry for descriptor
@@ -407,10 +433,15 @@ static int descriptor_entry(const char *path, const char *directory, int fd)
  * The lookup is also what keeps an ordinary file whose name ends in a number
  * a file. Without it, "-d out/1" with standard output redirected to that very
  * file would read as descriptor 1 and the capture would be written through
- * the stream rather than to the name the user gave. */
-static const char *final_name(const char *path);
-static int directory_of(const char *path, char *out, size_t size);
-
+ * the stream rather than to the name the user gave.
+ *
+ * One spelling is not settled for good by any of this: macOS answers a ".."
+ * element above the number only most of the time, the same path resolving in
+ * one run and not in the next, about one run in two hundred. A run that
+ * cannot resolve it hands the name to the writer, which is right when the
+ * writer cannot open it either and leaves the report on standard output when
+ * the writer can. Nothing short of opening the destination closes that, and
+ * opening one to look at it is what costs a named pipe its reader. */
 static int descriptor_in(const char *path, const char *directory)
 {
 	char holding[PATH_MAX];
@@ -438,22 +469,47 @@ static int descriptor_in(const char *path, const char *directory)
 /* The descriptor a path names through one of the directories that hold this
  * process's descriptors, or -1 for any other path. Separate from the test
  * above so that the two can call each other's work without recursion. */
+/* The directories that hold this process's descriptors, most portable first.
+ *
+ * /proc/self/fd is behind the conditional for the reason stdout_paths is: on a
+ * platform with no /proc this path names nothing, and reading it as a
+ * descriptor there would answer for a file the writer could not create. On an
+ * ordinary Linux it is never reached, because /dev/fd is a symbolic link to
+ * it and the directory lookup below resolves both to one directory; it is
+ * here for a Linux that has the one and not the other. */
+static const char *const descriptor_directories[] = {
+	"/dev/fd",
+#ifdef __linux__
+	"/proc/self/fd",
+#endif
+};
+
 static int descriptor_number(const char *path)
 {
+	size_t i;
 	int fd;
 
 	if (path == NULL)
 		return -1;
-	fd = descriptor_in(path, "/dev/fd");
-#ifdef __linux__
-	/* Behind the conditional for the reason stdout_paths is: on a platform
-	 * with no /proc this path names nothing, and reading it as a
-	 * descriptor there would answer for a file the writer could not
-	 * create. */
-	if (fd < 0)
-		fd = descriptor_in(path, "/proc/self/fd");
-#endif
-	return fd;
+	for (i = 0; i < sizeof(descriptor_directories) /
+	                sizeof(descriptor_directories[0]); i++) {
+		fd = descriptor_in(path, descriptor_directories[i]);
+		if (fd >= 0)
+			return fd;
+	}
+	return -1;
+}
+
+/* Whether <path> is any of those directories' own entry for <fd>. */
+static int descriptor_entry_anywhere(const char *path, int fd)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(descriptor_directories) /
+	                sizeof(descriptor_directories[0]); i++)
+		if (descriptor_entry(path, descriptor_directories[i], fd))
+			return 1;
+	return 0;
 }
 
 /* Which of this process's own descriptors a path names, or -1 for a path that
@@ -494,16 +550,17 @@ static int named_descriptor(const char *path)
 
 	if (path == NULL)
 		return -1;
+	/* The fixed names of descriptor 1, which are not a directory and a
+	 * number and so are recognized as text. Asked first because it is the
+	 * cheapest answer and the commonest one. */
+	if (names_descriptor_one(path))
+		return STDOUT_FILENO;
 	fd = descriptor_number(path);
 	if (fd >= 0)
 		return fd;
-	/* The fixed names of descriptor 1, which are not a directory and a
-	 * number and so are recognized as text. */
-	if (names_descriptor_one(path))
-		return STDOUT_FILENO;
 	for (i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++)
 		if (same_path_text(path, fixed[i].path) &&
-		    descriptor_entry(path, "/dev/fd", fixed[i].fd))
+		    descriptor_entry_anywhere(path, fixed[i].fd))
 			return fixed[i].fd;
 	return -1;
 }
@@ -516,7 +573,7 @@ int opt_writes_to_stdout(const char *filename)
 	 * so it stays an ordinary file. */
 	if (strcmp(filename, "-") == 0)
 		return 1;
-	return names_descriptor_one(filename);
+	return path_is_stdout(filename);
 }
 
 int opt_check_capture_destination(const char *filename, const char *what)
@@ -637,28 +694,7 @@ int opt_destination_is_stdout(const char *value)
 	 * whether a failed run may remove the file, where the link is the
 	 * user's choice of where the capture goes. */
 	return link_target(value, target, sizeof(target)) &&
-	       names_descriptor_one(target);
-}
-
-/* The last element of a path, which is the name a writer would create. */
-static const char *final_name(const char *path)
-{
-	const char *slash = strrchr(path, '/');
-
-	return slash != NULL ? slash + 1 : path;
-}
-
-/* The directory a path's last element sits in, as a path to look up. */
-static int directory_of(const char *path, char *out, size_t size)
-{
-	const char *slash = strrchr(path, '/');
-
-	if (slash == NULL)
-		return (size_t)snprintf(out, size, ".") < size;
-	if (slash == path)
-		return (size_t)snprintf(out, size, "/") < size;
-	return (size_t)snprintf(out, size, "%.*s", (int)(slash - path), path) <
-	       size;
+	       path_is_stdout(target);
 }
 
 /* Whether two destinations are one entry of one directory: the same last
@@ -739,7 +775,7 @@ static int destination_file(const char *name, struct stat *where)
  * descriptor 1 mean the stream either way. */
 static int names_the_stream(const char *value, const char *path, int resolved)
 {
-	return resolved ? names_descriptor_one(path)
+	return resolved ? path_is_stdout(path)
 	                : opt_writes_to_stdout(value);
 }
 

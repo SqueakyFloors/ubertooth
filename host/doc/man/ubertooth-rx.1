@@ -101,7 +101,7 @@ Timeout in seconds\. If not specified will run indefinitely\. Suggested values f
 Output options:
 .TP
 \fB\-r <file\.pcapng>\fR
-Capture packets to PcapNG\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so a value that names that stream is refused, \fB\-r \-\fR, \fB\-r /dev/stdout\fR, and a symbolic link pointing there alike: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR
+Capture packets to PcapNG\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so a value that names that stream is refused, \fB\-r \-\fR, \fB\-r /dev/stdout\fR, and a symbolic link pointing there alike: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR\. Another destination that cannot be seeked, such as a named pipe, is turned down by the writer instead
 .TP
 \fB\-q <file\.pcap>\fR
 Capture packets to PCAP\. \fB\-q \-\fR writes the capture to standard output; see CAPTURING TO STANDARD OUTPUT

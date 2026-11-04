@@ -391,6 +391,19 @@ with tempfile.TemporaryDirectory() as workdir:
         assert refusal.encode() not in written, "refused, but wrote as well"
     (work / "same.bin").write_bytes(FIXTURE)
 
+    # A run that fails after its capture file was created takes that file
+    # away again -- but a descriptor path has no file of its own to take, and
+    # the entry it names cannot be removed. On the BSDs that entry looks like
+    # a regular file, so an unlink() would be attempted, refused, and reported
+    # as a warning about the capture. Here the dump is on such a path and the
+    # PCAP names a directory, which the writer cannot create, so the run fails
+    # with both destinations already decided.
+    with open(work / "bydescriptor.bin", "wb") as held:
+        result = run("-i", "same.bin", "-d", "/dev/fd/%d" % held.fileno(),
+                     "-q", ".", directory=work, pass_fds=(held.fileno(),))
+    assert result.returncode == 1, result
+    assert result.stderr == "error: .: Is a directory\n", result.stderr
+
     # Another file on such a descriptor is another destination, which is what
     # keeps the check above from refusing an ordinary run.
     with open(work / "bydescriptor.bin", "wb") as other:

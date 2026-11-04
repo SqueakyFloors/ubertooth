@@ -132,7 +132,9 @@ Output options:
    Capture packets to PcapNG. A PcapNG writer seeks back over what it has
    written, which standard output cannot do, so a value that names that stream
    is refused, `-r -`, `-r /dev/stdout`, and a symbolic link pointing there
-   alike: `error: PCAPNG capture to stdout is not supported; use -q -`
+   alike: `error: PCAPNG capture to stdout is not supported; use -q -`.
+   Another destination that cannot be seeked, such as a named pipe, is turned
+   down by the writer instead
  - `-q <file.pcap>` :
    Capture packets to PCAP. `-q -` writes the capture to standard output; see
    CAPTURING TO STANDARD OUTPUT
