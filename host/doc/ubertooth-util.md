@@ -246,8 +246,8 @@ Radio options:
  - `-z [-128..127]` :
    get/set squelch level (a signed RSSI threshold; values above 0 are relative
    to the average RSSI) for an RX capture. The firmware puts it back to the
-   default -120 dBm when a capture ends, so set it in the same step as the
-   capture it is meant for, or once that capture is running; it does not carry
+   default -120 dBm whenever the board leaves a mode, so set it in the same
+   step as the capture it is meant for, or once that capture is running; it does not carry
    into the next mode. See [SQUELCH][]. `-z` cannot be combined with a mode
    option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`), which would reset it
    before the mode started.
@@ -857,15 +857,17 @@ is the behavior to work with:
 
 - Or set it once the capture is running: `-z` works on a board that is in a
   mode and takes effect immediately. Bare `-z` reads back what the running
-  capture is using. `ubertooth-btle`'s promiscuous mode is the exception: it
-  idles the radio between the two halves of its hunt for an access address, so
-  a value set while it runs lasts until the half it was set in ends.
+  capture is using. Two tools put it back mid-run: `ubertooth-btle`'s
+  promiscuous mode idles the radio at the end of each half of its loop, and the
+  squelch gates only the half that hunts for an access address, so a value set
+  there lasts until that half ends; and `ubertooth-afh -t` stops the board
+  between its detection and its monitoring phase, which drops the value for the
+  second.
 
-- Set it again for each capture. `-z` reads -120 dBm again once the board has
-  left the mode the value was set for, which is what a capture ending does and
-  what one run's mode being replaced by another's does. A mode change a running
-  capture makes itself does not take the value with it: see "A mode start a
-  running capture absorbs" in CARRY-OVER BETWEEN RUNS.
+- Set it again for each capture: `-z` reads -120 dBm again once the board has
+  left the mode the value was set for. A mode change a running capture makes
+  itself keeps it — see "A mode start a running capture absorbs" in CARRY-OVER
+  BETWEEN RUNS.
 
 `-z` together with one of `ubertooth-util`'s own mode options is refused
 rather than quietly dropped, because each of those modes leaves whatever was
@@ -921,13 +923,10 @@ it is gating never stopped.
 A single run reaches that reset on its own: `ubertooth-rx` and
 `ubertooth-follow` change mode in the middle of a capture — into follow once a
 piconet's clock is recovered, and back to the plain capture when the follow is
-given up — which is why the squelch a run was given carries across those
-switches. Starting a tool on a board another run left streaming is different.
-Each of the five reads the board's mode first and, if it is in one, stops it
-and waits for the board to say it has ended; the board does its full reset on
-that exit, so the capture begins on an idle board, at -120 dBm. Only a board
-that does not stop, or whose mode cannot be read, leaves a fresh run's own
-request to be absorbed.
+given up — so the squelch they were given carries across the switch. A fresh
+run does not reach it: each of the five stops a board it finds in a mode and
+waits for it, so its capture opens at -120 dBm. Only a board that will not
+stop, or whose mode cannot be read, has its own request absorbed.
 
 Re-sending the mode a board is already running is not a mode start, and resets
 nothing. That is what lets a tool restate its mode mid-session without losing
