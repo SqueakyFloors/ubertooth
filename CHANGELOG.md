@@ -73,9 +73,10 @@ these are the ones worth knowing about.
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
 - **Options the pages describe now do what they say.** The two-board range
   test exchanges packets and reports the lowest power level that got through
-  in each direction, with `-n` running the test rather than only starting it. `ubertooth-specan -v` reports the board, the
-  sweep, and a summary once a second. `ubertooth-btle -s` and `-t` each keep
-  their own address instead of overwriting one another. A capture runs on the
+  in each direction, with `-n` running the test rather than only starting it.
+  `ubertooth-specan -v` reports the board, the sweep, and a summary once a
+  second. `ubertooth-btle -s` and `-t` each keep their own address instead of
+  overwriting one another. A capture runs on the
   channel, hop mode, modulation, and channel map it was asked for, instead of
   inheriting what an interrupted run left on the board.
   [#649](https://github.com/SqueakyFloors/ubertooth/issues/649),
