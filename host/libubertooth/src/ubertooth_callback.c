@@ -143,6 +143,17 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
 	       : NOISE_ABSENT;
 }
 
+/* Whether this packet's level is at the top of the radio's scale, where the
+ * dBm figure is no measurement of the packet but only "at least this loud".
+ *
+ * The raw reading rather than the dBm figure, because the scale stops rising
+ * at RSSI_CEILING_RAW: every reading from there up gives the same figure, so
+ * the figure cannot say which of them it came from. */
+static int signal_is_at_the_ceiling( const usb_pkt_rx *rx )
+{
+	return record_signal_rssi( rx ) >= RSSI_CEILING_RAW;
+}
+
 /* Room for a dBm figure or the word that stands for a missing one. */
 #define RSSI_FIELD_LEN 8
 
@@ -161,10 +172,7 @@ static void format_signal_noise_and_snr( const usb_pkt_rx *rx,
                                          char snr[RSSI_FIELD_LEN] )
 {
 	int8_t sig, noise;
-	/* The raw reading rather than the dBm figure, because the scale stops
-	 * rising at RSSI_CEILING_RAW: the figure there is the end of the scale
-	 * and says nothing about how much louder the packet was. */
-	int measured = record_signal_rssi( rx ) < RSSI_CEILING_RAW;
+	int measured = !signal_is_at_the_ceiling( rx );
 
 	determine_signal_and_noise( rx, &sig, &noise );
 
@@ -1452,12 +1460,28 @@ void cb_btle(ubertooth_t* ut, void* args)
 
 	uint64_t ts_diff_ns = ns_since_the_last_packet( ut, nowns );
 	FILE* out = ubertooth_result_stream(ut);
-	/* `sig`, so this line and the capture record above report one level for
-	 * one packet. What a reader wants beside a packet is how loud that
-	 * packet was. */
-	fprintf(out, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
+	/* The level, or the word that says the board had none to give. `sig`
+	 * rather than a figure of this line's own, so this line and the capture
+	 * record above report one level for one packet: what a reader wants
+	 * beside a packet is how loud that packet was.
+	 *
+	 * A reading at the top of the radio's scale is not a level the board
+	 * measured, only "at least this loud", and printed as a number it read
+	 * like one -- 0 dBm, a milliwatt at the antenna, which is about what a
+	 * peer transmits. Low-energy receive turns the amplifier and high-gain
+	 * mode on, so an advertiser a few tens of centimeters away reaches it.
+	 * The capture record keeps the figure either way, a record having no way
+	 * to say a level was not measured. */
+	char level[RSSI_FIELD_LEN];
+
+	if (signal_is_at_the_ceiling( rx ))
+		snprintf(level, sizeof(level), "none");
+	else
+		snprintf(level, sizeof(level), "%d", sig);
+
+	fprintf(out, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%s\n",
 	        systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
-	        ts_diff_ns / 1000000.0, sig);
+	        ts_diff_ns / 1000000.0, level);
 
 	/* The bytes of the packet itself: the PDU header, the payload the
 	 * decoder found and the CRC, after the four-byte access address. Never

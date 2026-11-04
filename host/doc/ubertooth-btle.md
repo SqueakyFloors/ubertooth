@@ -714,8 +714,20 @@ and the strongest reading the board took around the packet where it does not --
 a promiscuous record, or one from a board older than the figure. It is the same
 number the signal field of a `-q` or `-r` capture carries for that packet, so a
 dump and a capture of one run agree. A `-c` PPI capture carries the board's raw
-counts instead, which are not dBm. The model has ends, so `rssi=0` means "at
-least this loud" and `rssi=-120` means "no louder than this".
+counts instead, which are not dBm.
+
+The model has ends. Above the top of it the radio reports the same reading for
+every level, so there is no figure for how loud such a packet was, and the
+column reads `rssi=none` rather than a number the board did not measure. That
+is the word the Basic Rate `s=` and `n=` columns of ubertooth-rx(1) already use
+for a level the board does not have. An advertiser a few tens of centimeters
+away reaches it easily, low-energy receive turning the board's amplifier and
+high-gain mode on, so it is a common reading rather than a corner case. At the
+bottom, `rssi=-120` means "no louder than this".
+
+A `-q` or `-r` capture records the figure for such a packet regardless, as a
+Basic Rate capture does: a record has no way to say that a level was not
+measured. So a capture file reads 0 dBm where the screen reads `none`.
 
 Earlier releases printed the weakest reading the board reports for the packet
 instead, through a rougher approximation. That figure ran far below the
@@ -787,7 +799,7 @@ it, so there is no unread block for the next one to go over.
 
 A receiver being driven harder than the radio can measure is the one capture
 problem this tool does not report, and it is worth knowing how it looks. It is
-the `rssi=0` case above -- the level the model has no number above -- on
+the `rssi=none` case above -- the level the model has no number above -- on
 packet after packet rather than on one. Beyond that point the radio is also
 past where it demodulates reliably, so packets start arriving with bits wrong,
 and closer still none arrives at all and the capture simply goes quiet. Put
