@@ -7,6 +7,9 @@ same descriptor, with or without a redundant separator or ``.`` element, so
 each has to behave the same way: the capture arrives on descriptor 1 on its
 own, and a terminal there is refused.
 
+A symbolic link whose chain ends at one of those names reaches the stream as
+well, because a writer writes through a link, so it is treated the same way.
+
 The names next to those stay ordinary file names, and that boundary is pinned
 here too: ``/dev/fd/<n>`` for any other ``<n>`` reaches whatever the caller's
 shell opened on that descriptor, a relative ``dev/stdout`` is a file in the
@@ -250,6 +253,72 @@ with tempfile.TemporaryDirectory() as workdir:
               "-d %s -z prints the address it found on standard error" % name,
               errors)
 
+    # A symbolic link pointing at one of those names reaches the same stream,
+    # because a writer writes through a link. So the capture owns descriptor 1
+    # the same way: the dump arrives there whole, and the survey results, which
+    # are what the user asked the run for, come out on standard error.
+    paths = [name for name in STDOUT_NAMES if name != "-"]
+    for name in paths:
+        link = "link-%d" % paths.index(name)
+        (work / link).symlink_to(name)
+        target = work / ("linked-%d.bin" % paths.index(name))
+        status, errors = run_to_file(["-i", "full.bin", "-d", link, "-z"],
+                                     work, target)
+        captured = target.read_bytes()
+        check(status == 0, "-d <link to %s> exits 0" % name, errors)
+        check(captured == EXPECTED_DUMP,
+              "-d <link to %s> writes the dump and nothing else to"
+              " descriptor 1" % name,
+              "%d bytes, expected %d" % (len(captured), len(EXPECTED_DUMP)))
+        check("5A:3C:96" in errors,
+              "-d <link to %s> prints the address it found on standard error"
+              % name, errors)
+
+    # A chain of links reaches it too, since the writer's own open follows the
+    # whole chain.
+    (work / "chain-1").symlink_to("/dev/stdout")
+    (work / "chain-2").symlink_to("chain-1")
+    status, errors = run_to_file(["-i", "full.bin", "-d", "chain-2", "-z"],
+                                 work, work / "chained.bin")
+    check(status == 0, "-d <chain of links to the stream> exits 0", errors)
+    check((work / "chained.bin").read_bytes() == EXPECTED_DUMP,
+          "-d <chain of links> writes only the dump to descriptor 1")
+    check("5A:3C:96" in errors,
+          "-d <chain of links> prints the address on standard error", errors)
+
+    # A link to the stream beside a "-" is the one pair the stream cannot
+    # carry, so it gets the one-capture-on-standard-output refusal rather than
+    # a line about two captures of one file.
+    status, errors = run_to_file(
+        ["-i", "full.bin", "-q", "link-0", "-d", "-"], work,
+        work / "linkpair.out")
+    check(status == 1, "-q <link to the stream> -d - exits 1", str(status))
+    check(errors == "error: -q and -d cannot both write to standard output\n",
+          "-q <link to the stream> -d - names the pair that clashed", errors)
+    check((work / "linkpair.out").read_bytes() == b"",
+          "-q <link to the stream> -d - writes nothing to descriptor 1")
+
+    # -r through such a link is refused with the line that says to use -q,
+    # rather than the writer reporting the stream's own device node as a file
+    # that already exists.
+    status, errors = run_to_file(["-i", "full.bin", "-r", "link-0"], work,
+                                 work / "linkpcapng.out")
+    check(status == 1, "-r <link to the stream> exits 1", str(status))
+    check(errors == "error: PCAPNG capture to stdout is not supported;"
+                    " use -q -\n",
+          "-r <link to the stream> says what to use instead", errors)
+
+    # A link pointing at an ordinary file is an ordinary destination: the
+    # capture goes through it and the report stays on standard output.
+    (work / "to-file").symlink_to("through-link.bin")
+    status, errors = run_to_file(["-i", "full.bin", "-d", "to-file"], work,
+                                 work / "tofile.out")
+    check(status == 0, "-d <link to a file> exits 0", errors)
+    check((work / "through-link.bin").read_bytes() == EXPECTED_DUMP,
+          "-d <link to a file> writes the dump through the link")
+    check(b"systime=" in (work / "tofile.out").read_bytes(),
+          "-d <link to a file> leaves the report on standard output")
+
     # /dev/fd/<n> for any other <n> is an ordinary file name. The capture goes
     # to whatever that descriptor is, and standard output is left alone, so
     # the report is still printed there.
@@ -374,6 +443,22 @@ with tempfile.TemporaryDirectory() as workdir:
         else:
             continue
         break
+
+    # A terminal behind such a link is refused too, which is what keeps a
+    # binary capture off a user's screen when the stream was named indirectly.
+    outcome = run_to_tty(RX, ["-i", "full.bin", "-d", "link-0"], work)
+    if outcome is None:
+        print("skipping the link-at-a-terminal case, no pty available")
+    else:
+        status, errors, written = outcome
+        check(status == 1, "-d <link to the stream> at a terminal exits 1",
+              str(status))
+        check("error: stdout is a tty, refusing to write binary dump data"
+              " to it" in errors,
+              "-d <link to the stream> at a terminal says why", errors)
+        check(written == b"",
+              "-d <link to the stream> writes nothing to the terminal",
+              repr(written[:60]))
 
     # The same refusal reaches the other tools that share these helpers, with
     # no board and no replay: it is a command-line check.

@@ -91,7 +91,8 @@ COMPATIBILITY.md for the comparison.
  - `-r <filename>` :
    capture packets to a PCAPNG file. A PcapNG writer seeks back over what it
    has written, which standard output cannot do, so a value that names that
-   stream is refused, `-r -` and `-r /dev/stdout` alike:
+   stream is refused, `-r -`, `-r /dev/stdout`, and a symbolic link pointing
+   there alike:
    `error: PCAPNG capture to stdout is not supported; use -q -`. A symbolic
    link that happens to point there is a file name like any other and is
    refused by the writer instead, as a file that already exists
@@ -335,7 +336,8 @@ with its one line:
 
 `-` means standard output as the whole value of `-q` or `-d`, and so does a
 path that names this process's descriptor 1, such as `/dev/stdout` or
-`/dev/fd/1` (ubertooth(7), OPTION VALUES). Any other value is a file name,
+`/dev/fd/1`, and a symbolic link pointing at one of those (ubertooth(7),
+OPTION VALUES). Any other value is a file name,
 including one that starts with `-`: `-q -x` writes the file `-x`. Standard
 output carries one stream, so `-q` and `-d` cannot both have it in one
 command: `error: -q and -d cannot both write to standard output`. `-r` is not
@@ -347,8 +349,10 @@ destination for writing, which truncates whatever another has put there, so no
 two of them may name one file: `error: -q and -d cannot both write to
 capture.pcap`, exit 1, with the file left as it was. The file is identified
 rather than the name, so two spellings of one path, a symbolic link, a hard
-link, `-q -` beside a `-d` naming the file the shell has pointed standard
-output at, and a link pointing at that stream are all caught. `-` is the
+link, a `/dev/fd/N` beside the file that descriptor holds, and `-q -` beside a
+`-d` naming the file the shell has pointed standard output at are all caught.
+Two destinations that both reach that stream, however each was spelled, get
+the one-capture-on-standard-output refusal above instead. `-` is the
 stream and `./-` is an ordinary file of that name, so `-q - -d ./-` is two
 destinations unless the shell really has pointed standard output at that file.
 

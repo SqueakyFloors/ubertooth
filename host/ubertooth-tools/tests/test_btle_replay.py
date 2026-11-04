@@ -98,9 +98,11 @@ FIXTURE = b"".join(RECORDS)
 PARAMETER_LINES = ["LE Promisc - " + line for _, _, line in PROMISC_PARAMETERS]
 
 
-def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
+def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
+        pass_fds=()):
     """One ubertooth-btle run. `stdout` takes an open file for the cases that
-    need this process's standard output pointed somewhere in particular."""
+    need this process's standard output pointed somewhere in particular, and
+    `pass_fds` hands the run a descriptor the way a shell's `3>>file` does."""
     return subprocess.run(
         [BINARY, *arguments],
         stdout=stdout,
@@ -109,6 +111,7 @@ def run(*arguments, directory, text=True, stdout=subprocess.PIPE):
         timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
+        pass_fds=tuple(pass_fds),
         # A replay opens no device; the switch keeps it that way if one of
         # these runs ever reaches device selection. LC_ALL, because a case
         # below compares a strerror() string and glibc translates those.
@@ -270,6 +273,57 @@ with tempfile.TemporaryDirectory() as workdir:
             f"error: -{letter} would write over the dump -R is replaying"
             " (standard output)\n"), result
         assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
+
+    # A destination reached through a descriptor the calling shell opened, as
+    # `-d /dev/fd/3 3>>same.bin` does. No name says which file that is, and
+    # the run would read the records it was appending and never end, so the
+    # descriptor itself is asked which file it holds. A link to that path is
+    # the same destination, since the writer follows it.
+    for option, letter in (("-d", "d"), ("-q", "q"), ("-r", "r")):
+        with open(work / "same.bin", "ab") as appended:
+            path = "/dev/fd/%d" % appended.fileno()
+            (work / "to-fd").unlink(missing_ok=True)
+            (work / "to-fd").symlink_to(path)
+            for written in (path, "to-fd"):
+                result = run("-p", "-R", "same.bin", option, written,
+                             directory=work, pass_fds=(appended.fileno(),))
+                assert result.returncode == 1, (option, written, result)
+                assert result.stdout == "", (option, written, result)
+                assert result.stderr == (
+                    f"error: -{letter} would write over the dump -R is"
+                    f" replaying ({written})\n"), (option, written, result)
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, "grew")
+
+    # Another file on such a descriptor is another destination, which is what
+    # keeps the check above from refusing an ordinary run.
+    with open(work / "bydescriptor.bin", "wb") as other:
+        result = run("-p", "-R", "same.bin", "-d",
+                     "/dev/fd/%d" % other.fileno(), directory=work,
+                     pass_fds=(other.fileno(),))
+    assert result.returncode == 0, result
+    assert (work / "bydescriptor.bin").read_bytes() == FIXTURE, result
+
+    # Two capture options given one name are one file as well, and that is
+    # refused while the command line is read: each writer opens its own
+    # destination for writing, which truncates what the other put there, so a
+    # run given one name twice would keep one format and lose the rest.
+    known = b"neither capture wrote over this\n"
+    for first, second in (("-q", "-d"), ("-c", "-d"), ("-r", "-q"),
+                          ("-r", "-c"), ("-r", "-d")):
+        (work / "coll.bin").write_bytes(known)
+        result = run("-p", "-R", "same.bin", first, "coll.bin", second,
+                     "coll.bin", directory=work)
+        assert result.returncode == 1, (first, second, result)
+        assert result.stdout == "", (first, second, result)
+        # -r is read before the pair it clashes with, whichever order the two
+        # were written in, so the message names them in the order the tool
+        # holds them rather than the order on the command line.
+        assert result.stderr in (
+            f"error: {first} and {second} cannot both write to coll.bin\n",
+            f"error: {second} and {first} cannot both write to coll.bin\n",
+        ), (first, second, result)
+        assert (work / "coll.bin").read_bytes() == known, (first, second,
+                                                           "truncated")
 
     # Standard output pointed at a file that is not the dump is an ordinary
     # dump to it, which is what keeps the check above off a run like

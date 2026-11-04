@@ -131,10 +131,8 @@ Output options:
  - `-r <file.pcapng>` :
    Capture packets to PcapNG. A PcapNG writer seeks back over what it has
    written, which standard output cannot do, so a value that names that stream
-   is refused, `-r -` and `-r /dev/stdout` alike:
-   `error: PCAPNG capture to stdout is not supported; use -q -`. A symbolic
-   link that happens to point there is a file name like any other and is
-   refused by the writer instead, as a file that already exists
+   is refused, `-r -`, `-r /dev/stdout`, and a symbolic link pointing there
+   alike: `error: PCAPNG capture to stdout is not supported; use -q -`
  - `-q <file.pcap>` :
    Capture packets to PCAP. `-q -` writes the capture to standard output; see
    CAPTURING TO STANDARD OUTPUT
@@ -572,11 +570,11 @@ refused as well, although nothing there could be lost.
 A refusal naming `-` reads `(standard output)` where the destination would
 otherwise be quoted, because that is what `-` means.
 
-Some destinations are not covered. ubertooth-rx(1) cannot see the far end of a
-pipe, `-d - | cat >> capture.bin`, and on systems other than Linux it cannot
-see through the paths that name an open descriptor: `-d /dev/stdout` and
-`-d /dev/fd/3` beside `3>>capture.bin` are served there by a filesystem of
-their own, where on Linux they are symbolic links it follows.
+A destination reached through a descriptor the calling shell opened is
+caught too, on every system: `-d /dev/fd/3` beside `3>>capture.bin` is the
+file that descriptor holds, which ubertooth-rx(1) asks the descriptor rather
+than the path. What it cannot see is the far end of a pipe,
+`-d - | cat >> capture.bin`.
 
 A redirection of the whole run is a different matter, because the capture is
 then not a destination ubertooth-rx(1) was given at all. With
@@ -683,10 +681,19 @@ capture that ran keeps its file, however little arrived.
 
 `-` means standard output as the whole value of `-q` or `-d`, and so does a
 path that names this process's descriptor 1, such as `/dev/stdout` or
-`/dev/fd/1` (ubertooth(7), OPTION VALUES). Any other value is a file name,
-including one that starts with `-`: `-q -x` writes the file `-x`. Standard
-output carries one stream, so `-q` and `-d` cannot both have it in one
-command: `error: -q and -d cannot both write to standard output`.
+`/dev/fd/1`, and a symbolic link pointing at one of those (ubertooth(7),
+OPTION VALUES). Any other value is a file name, including one that starts with
+`-`: `-q -x` writes the file `-x`. Standard output carries one stream, so `-q`
+and `-d` cannot both have it in one command:
+`error: -q and -d cannot both write to standard output`.
+
+No two capture options may be one file either: each writer opens its own
+destination for writing, which truncates what another has put there, so
+`-q collision.pcap -d collision.pcap` is refused with
+`error: -q and -d cannot both write to collision.pcap`, before either is
+opened and with the file left as it was. Every pair of `-r`, `-q`, and `-d` is
+checked, and the file is identified rather than the name (ubertooth(7),
+OPTION VALUES).
 
 ## WHAT A CAPTURE RECORD HOLDS
 

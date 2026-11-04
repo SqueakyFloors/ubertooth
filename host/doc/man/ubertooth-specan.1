@@ -66,7 +66,7 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 An option the tool does not know, and an option whose value is missing, are refused the same way, as one \fBerror:\fR line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR and \fBerror: option '\-d' requires a value\fR\.
 .P
-\fB\-\fR means standard output as the whole value of \fB\-d\fR, and so does a path that names this process's descriptor 1, such as \fB/dev/stdout\fR or \fB/dev/fd/1\fR (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-d \-x\fR writes the file \fB\-x\fR, and a forgotten file name such as \fB\-d \-v\fR writes a file called \fB\-v\fR rather than streaming samples to the terminal and dropping the \fB\-v\fR\.
+\fB\-\fR means standard output as the whole value of \fB\-d\fR, and so does a path that names this process's descriptor 1, such as \fB/dev/stdout\fR or \fB/dev/fd/1\fR, and a symbolic link pointing at one of those (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-d \-x\fR writes the file \fB\-x\fR, and a forgotten file name such as \fB\-d \-v\fR writes a file called \fB\-v\fR rather than streaming samples to the terminal and dropping the \fB\-v\fR\.
 .P
 \fB\-d\fR chooses where the samples go and \fB\-g\fR or \fB\-G\fR how they are written, so the two do separate jobs and go together, in either order: \fB\-g \-d out\.dat\fR writes the gnuplot text into \fBout\.dat\fR, and \fB\-d out\.bin\fR on its own writes the raw records\. \fB\-d\fR used to create the file and leave it empty while a later \fB\-g\fR took the samples to the screen instead\.
 .P

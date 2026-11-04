@@ -107,10 +107,11 @@ ZERO_EXPECTED_NS = [
 
 
 def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
-        close_stdout=False):
+        close_stdout=False, pass_fds=()):
     """One ubertooth-rx run. `stdout` takes an open file for the cases that
-    need this process's standard output pointed somewhere in particular, and
-    `close_stdout` runs it with descriptor 1 closed, as `1>&-` does."""
+    need this process's standard output pointed somewhere in particular,
+    `close_stdout` runs it with descriptor 1 closed, as `1>&-` does, and
+    `pass_fds` hands the run a descriptor the way a shell's `3>>file` does."""
     # Descriptor 1 is closed by a shell rather than in a fork handler, which
     # Python documents as unsafe in a process that has threads.
     command = [BINARY, *arguments]
@@ -124,6 +125,7 @@ def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
         timeout=RUN_TIMEOUT_S,
         check=False,
         cwd=directory,
+        pass_fds=tuple(pass_fds),
         # A replay opens no device; the switch keeps it that way if one of
         # these runs ever reaches device selection. LC_ALL, because a case
         # below compares a strerror() string and glibc translates those.
@@ -308,6 +310,23 @@ with tempfile.TemporaryDirectory() as workdir:
         assert (work / "same.bin").read_bytes() == FIXTURE, \
             (option, written, "truncated")
 
+    # Two capture options given one name are one file as well, and that is
+    # refused while the command line is read: each writer opens its own
+    # destination for writing, which truncates what the other put there, so a
+    # run given one name twice would keep one format and lose the rest.
+    known = b"neither capture wrote over this\n"
+    for first, second in (("-q", "-d"), ("-r", "-q"), ("-r", "-d")):
+        (work / "coll.bin").write_bytes(known)
+        result = run("-i", "same.bin", first, "coll.bin", second, "coll.bin",
+                     directory=work)
+        assert result.returncode == 1, (first, second, result)
+        assert result.stdout == "", (first, second, result)
+        assert result.stderr == (f"error: {first} and {second} cannot both"
+                                 " write to coll.bin\n"), (first, second,
+                                                           result)
+        assert (work / "coll.bin").read_bytes() == known, (first, second,
+                                                           "truncated")
+
     # A file that is not the input is written as usual, which is what keeps
     # the check above from refusing an ordinary run.
     result = run("-i", "same.bin", "-d", "other.bin", directory=work)
@@ -327,6 +346,36 @@ with tempfile.TemporaryDirectory() as workdir:
             f"error: {option} would write over the dump -i is replaying"
             " (standard output)\n"), (option, result)
         assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
+
+    # A destination reached through a descriptor the calling shell opened, as
+    # `-d /dev/fd/3 3>>same.bin` does. No name says which file that is, and the
+    # run would read the records it was appending and never end, so the
+    # descriptor itself is asked which file it holds. A link to that path is
+    # the same destination, since the writer follows it.
+    for option in ("-d", "-q", "-r"):
+        with open(work / "same.bin", "ab") as appended:
+            path = "/dev/fd/%d" % appended.fileno()
+            (work / "to-fd").unlink(missing_ok=True)
+            (work / "to-fd").symlink_to(path)
+            for written in (path, "to-fd"):
+                result = run("-i", "same.bin", option, written,
+                             directory=work,
+                             pass_fds=(appended.fileno(),))
+                assert result.returncode == 1, (option, written, result)
+                assert result.stdout == "", (option, written, result)
+                assert result.stderr == (
+                    f"error: {option} would write over the dump -i is"
+                    f" replaying ({written})\n"), (option, written, result)
+        assert (work / "same.bin").read_bytes() == FIXTURE, (option, "grew")
+
+    # Another file on such a descriptor is another destination, which is what
+    # keeps the check above from refusing an ordinary run.
+    with open(work / "bydescriptor.bin", "wb") as other:
+        result = run("-i", "same.bin", "-d", "/dev/fd/%d" % other.fileno(),
+                     directory=work, pass_fds=(other.fileno(),))
+    assert result.returncode == 0, result
+    assert (work / "bydescriptor.bin").read_bytes() == \
+        b"".join(PACKET_RECORDS), result
 
     # Standard output closed before the run starts. The input's own open then
     # takes descriptor 1, so standard output cannot be identified by it: a

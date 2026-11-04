@@ -425,15 +425,12 @@ static void test_standard_output_pointed_at_a_file(void)
 		              " (redirected.bin and points-at-stream)\n");
 		check_accepted("points-at-stream", "elsewhere.bin");
 		/* The same link beside a "-" the user wrote. Both reach this
-		 * stream, so both reach the file it is on, and the target has
-		 * to be recognized by its text: looking it up answers with a
-		 * device of its own on the BSDs, and the pair was missed. */
-		check_refused("-", "points-at-stream",
-		              "error: -q and -d cannot both write to one file"
-		              " (standard output and points-at-stream)\n");
-		check_refused("points-at-stream", "-",
-		              "error: -q and -d cannot both write to one file"
-		              " (points-at-stream and standard output)\n");
+		 * stream, so the pair is the one-capture-on-standard-output
+		 * rule's, which each tool states in its own words, and this
+		 * check leaves it alone rather than naming the file the stream
+		 * happens to be on. */
+		check_accepted("-", "points-at-stream");
+		check_accepted("points-at-stream", "-");
 	} else {
 		printf("skipping the link-to-the-stream case: %s\n",
 		       strerror(errno));
@@ -563,17 +560,10 @@ static void test_the_stream_beside_the_file_called_dash(void)
 	close(saved);
 }
 
-/* The boundary a destination reached through a descriptor the calling shell
- * opened sits on. The name alone does not say which file that is, and looking
- * it up gets different answers on different systems: a Linux descriptor path
- * is a symbolic link that is followed, while the BSDs serve it from a
- * filesystem of its own that reports the real file's inode number under a
- * device number of its own, so the comparison misses by the device half.
- *
- * Closing that means identifying each destination after it is open and before
- * it is truncated, which reaches into how every capture writer opens its file
- * and is its own piece of work. These cases pin where the comparison stands
- * today, so widening it cannot pass unnoticed. */
+/* A destination reached through a descriptor the calling shell opened. The
+ * name says nothing about which file that is and looking it up answers
+ * differently on each system, so the descriptor itself is asked: it is
+ * already open here, which makes the answer the same everywhere. */
 static void test_descriptor_paths(void)
 {
 	char path[64];
@@ -582,6 +572,10 @@ static void test_descriptor_paths(void)
 	/* Nothing is open on this descriptor, so the path names nothing and
 	 * cannot be compared with anything. */
 	check_accepted("cap.bin", "/dev/fd/9");
+	/* A number the descriptor filesystem has no entry for is a file name,
+	 * whatever it reads as. */
+	check_accepted("cap.bin", "/dev/fd/007");
+	check_accepted("cap.bin", "/dev/fd/1x");
 
 	make_file("held.bin", "the capture\n");
 	held = open("held.bin", O_WRONLY);
@@ -591,9 +585,6 @@ static void test_descriptor_paths(void)
 		return;
 	}
 	snprintf(path, sizeof(path), "/dev/fd/%d", held);
-#ifdef __linux__
-	/* Here the path is a symbolic link to the file, so it is followed and
-	 * the pair is refused. */
 	{
 		char expected[PATH_MAX + 128];
 
@@ -601,11 +592,27 @@ static void test_descriptor_paths(void)
 		         "error: -q and -d cannot both write to one file"
 		         " (held.bin and %s)\n", path);
 		check_refused("held.bin", path, expected);
+		snprintf(expected, sizeof(expected),
+		         "error: -q and -d cannot both write to one file"
+		         " (%s and held.bin)\n", path);
+		check_refused(path, "held.bin", expected);
+		/* A link to that descriptor path reaches the same file, and a
+		 * writer follows the link. */
+		unlink("to-held");
+		if (symlink(path, "to-held") == 0)
+			check_refused("to-held", "held.bin",
+			              "error: -q and -d cannot both write to one"
+			              " file (to-held and held.bin)\n");
+		else
+			printf("skipping the link-to-descriptor case: %s\n",
+			       strerror(errno));
 	}
-#else
-	check_accepted("held.bin", path);
-#endif
+	/* Another file on the same descriptor path is still another file. */
+	make_file("other-held.bin", "elsewhere\n");
+	check_accepted("other-held.bin", path);
 	close(held);
+	/* With the descriptor closed the path names nothing again. */
+	check_accepted("held.bin", path);
 }
 
 /* Everything this test made, in the working directory it made for itself. */
@@ -614,6 +621,7 @@ static void clean_up(void)
 	static const char *const made[] = {
 		"real.bin", "link.bin", "hard.bin", "other.bin", "held.bin",
 		"dangling.bin", "sink.bin", "redirected.bin", "-",
+		"to-held", "other-held.bin",
 		"points-at-dash", "points-at-stream", "elsewhere.bin",
 		"chain-1", "chain-2", "chain-ghost.bin", "loop",
 		"chain-end.bin", "deep.bin", "into-sub",

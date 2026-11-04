@@ -213,57 +213,6 @@ static void replay_decode(ubertooth_t* ut, void* args)
 	cb_btle(ut, args);
 }
 
-/* Refuses an output file that is the dump a replay is reading. Every writer
- * here opens its file for writing, which truncates it, so a run given one file
- * for both would empty the dump before reading a record of it -- and a dump is
- * the only copy of what promiscuous mode worked out about a connection.
- *
- * The file is identified rather than the name, by device and inode numbers, so
- * "./x.bin" beside "x.bin", a symbolic link and a hard link are all caught.
- * Anything the two share counts, a character device included, because
- * comparing only regular files would let a named pipe through.
- *
- * A lone "-" has no name to compare and is this process's standard output, so
- * that descriptor is what gets looked at. That catches the one destination a
- * name cannot: a shell that has already pointed standard output at the dump,
- * as in `-R x.bin -d - >> x.bin`, which reads the records it is appending and
- * never ends. An input that turns out to hold descriptor 1 is not that case:
- * standard output was closed before this run started and fopen() took the
- * number. The dump writer reports the closed output itself, when its fdopen()
- * of a descriptor opened for reading fails.
- *
- * A destination that cannot be stat()ed is not identified: a name that does
- * not exist yet is the ordinary case, and for the rest -- a directory on the
- * path that cannot be searched, a symbolic link loop -- the writer is about to
- * report the real reason itself.
- *
- * Called with the input open and before any writer opens, so a refused run
- * has written nothing. Returns -1 once the refusal is printed. */
-static int output_is_the_replay(const char* output_name, char option)
-{
-	struct stat input_file, output_file;
-	int to_stdout = opt_writes_to_stdout(output_name);
-
-	if (infile == NULL || output_name == NULL)
-		return 0;
-	if (fstat(fileno(infile), &input_file) != 0)
-		return 0;
-	if (to_stdout) {
-		if (fileno(infile) == fileno(stdout) ||
-		    fstat(fileno(stdout), &output_file) != 0)
-			return 0;
-	} else if (stat(output_name, &output_file) != 0) {
-		return 0;
-	}
-	if (input_file.st_dev != output_file.st_dev ||
-	    input_file.st_ino != output_file.st_ino)
-		return 0;
-	fprintf(stderr, "error: -%c would write over the dump -R is replaying"
-	        " (%s)\n", option,
-	        to_stdout ? "standard output" : output_name);
-	return -1;
-}
-
 /* How much of the decode could not be read, in one line after the packets it
  * summarizes. Says nothing when every packet decoded.
  *
@@ -408,10 +357,11 @@ int main(int argc, char *argv[])
 		 * first of the two given wins, as before. */
 		case 'r':
 			/* A PcapNG writer seeks, which standard output does not
-			 * allow, so every spelling of that stream is refused
-			 * here; ubertooth-rx says why the command line is the
-			 * place for it. */
-			if (opt_writes_to_stdout(optarg)) {
+			 * allow, so every destination that reaches that stream
+			 * is refused here, a symbolic link to it included;
+			 * ubertooth-rx says why the command line is the place
+			 * for it. */
+			if (opt_destination_is_stdout(optarg)) {
 				fprintf(stderr, "error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
 				return 1;
 			}
@@ -599,7 +549,8 @@ int main(int argc, char *argv[])
 	 * -v to describe here either. Refused rather than accepted and ignored.
 	 * -r refuses that stream outright, so only -q, -c and -d reach this. */
 	if (do_verbose &&
-	    (opt_writes_to_stdout(pcap_name) || opt_writes_to_stdout(dump_name))) {
+	    (opt_destination_is_stdout(pcap_name) ||
+	     opt_destination_is_stdout(dump_name))) {
 		fprintf(stderr, "error: -v does not go with a capture on standard"
 		        " output: a run that hands the capture that stream prints"
 		        " no packets to describe\n");
@@ -611,12 +562,34 @@ int main(int argc, char *argv[])
 	 * neither, and the one that asked second would write to /dev/null
 	 * without a word. -q and -c share a writer, so the clash is between
 	 * whichever of those two was taken and -d. ubertooth-rx refuses the
-	 * same pair. */
-	if (opt_writes_to_stdout(pcap_name) && opt_writes_to_stdout(dump_name)) {
+	 * same pair. However each of the two was spelled, a symbolic link to
+	 * that stream included. */
+	if (opt_destination_is_stdout(pcap_name) &&
+	    opt_destination_is_stdout(dump_name)) {
 		fprintf(stderr, "error: -%c and -d cannot both write to standard"
 		        " output\n", pcap_ppi ? 'c' : 'q');
 		return 1;
 	}
+
+	/* Every capture destination of this run, as the user named them, for
+	 * the two checks that compare destinations with each other and with
+	 * the replay's input. -q and -c share one writer, so whichever of the
+	 * two was taken appears here under its own letter. */
+	const opt_capture_dest destinations[] = {
+		{ "-r", pcapng_name },
+		{ pcap_ppi ? "-c" : "-q", pcap_name },
+		{ "-d", dump_name },
+	};
+	const size_t n_destinations = sizeof(destinations) /
+	                              sizeof(destinations[0]);
+
+	/* One file per capture: each writer opens its own destination for
+	 * writing, which truncates what another has put there, so a run given
+	 * one name twice would keep one format and lose the rest. Asked here,
+	 * with the rest of the command line, so a refused run creates and
+	 * truncates nothing. */
+	if (opt_check_destinations_differ(destinations, n_destinations) < 0)
+		return 1;
 
 	/* A replay needs the mode its dump was recorded with, because the
 	 * record does not say which clock stamped it: the low-energy engine
@@ -777,12 +750,12 @@ int main(int argc, char *argv[])
 	 * straight to stdout.
 	 *
 	 * No writer may be the dump a replay is reading: see
-	 * output_is_the_replay(). Checked here rather than while the command
-	 * line is read, because it takes the open input to identify, and still
-	 * before the first writer opens, so a refused run truncates nothing. */
-	if (output_is_the_replay(pcapng_name, 'r') < 0 ||
-	    output_is_the_replay(pcap_name, pcap_ppi ? 'c' : 'q') < 0 ||
-	    output_is_the_replay(dump_name, 'd') < 0)
+	 * opt_check_destinations_not_input(). Checked here rather than while
+	 * the command line is read, because it takes the open input to
+	 * identify, and still before the first writer opens, so a refused run
+	 * truncates nothing. */
+	if (opt_check_destinations_not_input(infile, "-R", destinations,
+	                                    n_destinations) < 0)
 		return release_handle(ut, 1);
 	if (pcapng_name != NULL) {
 		if (lell_pcapng_create_file(pcapng_name, "Ubertooth",
@@ -830,7 +803,7 @@ int main(int argc, char *argv[])
 		dumpfile = opt_open_dump_file(dump_name, "binary dump data");
 		if (dumpfile == NULL)
 			return release_handle(ut, 1);
-		if (opt_writes_to_stdout(dump_name)) {
+		if (opt_destination_is_stdout(dump_name)) {
 			/* The dump has standard output, which is /dev/null for
 			 * this process from here on: the lines that answer an
 			 * option go to standard error instead, and the callback
