@@ -147,6 +147,12 @@ knowing about.
   hand; ubertooth-dfu(1), UPDATING THE BOOTLOADER has the procedure, the
   refusals, and the one window that needs the programming entry pin too.
   [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
+- `ubertooth-dfu --update-bootloader` now leaves a board that already has the
+  bootloader the image carries alone. It asks the running firmware for the hash
+  `ubertooth-util -B` reports and writes nothing when it matches the image's,
+  so the board keeps the firmware the updater image would have replaced.
+  `--force` writes without asking.
+  [#1123](https://github.com/SqueakyFloors/ubertooth/issues/1123)
 
 - The board's generic radio mode is reachable from the command line, as an
   **experimental** feature. It demodulates with whatever CC2400 configuration

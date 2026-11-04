@@ -223,6 +223,14 @@ int cmd_get_radio_timeouts(struct libusb_device_handle* devh,
  * request, since a tool asking for this has nothing else to offer. */
 int cmd_get_bootloader_info(struct libusb_device_handle* devh,
                             struct ubertooth_bootloader_info *info);
+/* The same read without a report of its own: it returns 0, or a negative
+ * error, and prints nothing. For a caller whose command carries on, and
+ * succeeds, when the board will not answer: ubertooth-dfu asks this before
+ * --update-bootloader writes, to leave a board that already has the
+ * bootloader alone, and a board that cannot say gets the write it asked for.
+ * An `error: ` line there would belong to a command that failed. */
+int cmd_get_bootloader_info_quiet(struct libusb_device_handle* devh,
+                                  struct ubertooth_bootloader_info *info);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
 /* Read the firmware revision string / compile info string into a buffer of

@@ -326,9 +326,18 @@ Major modes:
    waiting in the bootloader to start the application it already has
  - `--update-bootloader` :
    Install the bootloader carried by the `bl_update` image given with `-d`
-   (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and it resets the board,
-   so `-r` alongside it changes nothing. The board is left in DFU, not running
-   an application
+   (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and a board it writes it
+   resets, so `-r` alongside it changes nothing. A board that already has that
+   bootloader is left alone, still running its firmware and not reset; a board
+   that is written is left in DFU, not running an application
+ - `--force` :
+   With `--update-bootloader`, write without asking the board which bootloader
+   it has. It overrides the host's comparison and nothing else: the image
+   makes the same comparison on the board, so a region that already matches is
+   still not programmed. What it costs is the application region, which the
+   updater replaces either way. On any other command line it is an error,
+   because nothing else this tool does asks the board anything before it
+   writes
 
 Miscellaneous:
 
@@ -366,6 +375,35 @@ part of the procedure. Before anything is written, this command prints the
 CRC32 the installed bootloader will report, and reads the bootloader region
 back as it stands; `ubertooth-util -B` on the third line prints what the board
 actually has, so the two can be compared.
+
+A board that already has the bootloader the image carries is left alone. The
+running application is asked which bootloader it has, through the same request
+`ubertooth-util -B` answers, before the board is asked for DFU:
+
+    The board already has this bootloader: ubertooth-util -B reports CRC32:0x7c52e323.
+    Nothing was written, and the board is still running its firmware.
+
+It is the hashes that are compared and not the versions, because two builds of
+one bootloader can carry the same version. Leaving the board alone saves more
+than the write to the bootloader region: the updater goes into the application
+region, so a run that went ahead would cost the board its firmware and leave
+it to be written again, for a bootloader that was already there.
+
+`--force` skips the question and writes. It is not a way to program a region
+that already matches, because the image compares the region on the board too
+and declines; what it costs is the application region. It is there for a run
+that wants the write made and the region read back whatever the board reports.
+
+The question is not asked in three cases, and each of them says so rather than
+leaving it to be noticed. A board adopted in the bootloader has no application
+to ask, so the run prints a `note: ` and writes as before. `-u` in the same
+command asks for a read-back, which an early end would leave undone, so that
+too is a `note: ` and a write. And a board whose firmware predates the request
+cannot answer, nor can one whose read fails; the run says so as a `warning: `
+and installs the bootloader, which is what was asked for. Skipping a write on
+a comparison that was never made would leave an old bootloader in place and
+report the board current. (`--force` is the fourth, and says nothing: it is
+the user turning the question off.)
 
 Once the board is back in DFU the command reads the region again, because a
 board in DFU is also what an updater that never ran leaves behind: a bootloader
@@ -413,8 +451,9 @@ debug interface, CRP3 shuts serial programming as well, NO_ISP turns the
 programming entry pin into an ordinary input, none of them can be undone from
 outside the part, and a board that took one cannot report that it did.
 
-A board already running the bootloader the image carries is not programmed
-again: the image compares the region first and returns to DFU.
+The image makes the same comparison on the board, so a bootloader region that
+already holds what the image carries is not programmed again, `--force` or
+not: the image compares the region first and returns to DFU.
 
 The image is what does the writing, so it writes whenever a board runs it:
 `ubertooth-dfu -d bl_update.dfu -r`, with no `--update-bootloader`, programs
@@ -548,8 +587,9 @@ the name, so it is still reported alongside `-h`.
 0 when the command did what was asked, including `-h`: the image written and,
 with `-r`, verified on the board that came back; the dump complete and in
 place; the signed `<file>.dfu` written; the board out of the bootloader; the
-bootloader installed, or a bootloader update whose outcome the board could not
-be made to show.
+bootloader installed, a board that already had the bootloader it was asked to
+install, or a bootloader update whose outcome the board could not be made to
+show.
 
 1 for everything else, and there is no other status. That covers a command
 line the tool will not take or that has nothing to do, a file it cannot read
@@ -591,11 +631,19 @@ that instead, because a run that wrote nothing should not read as one that did:
 
     The bootloader region holds this bootloader: ubertooth-util -B will report CRC32:0x7c52e323.
 
-A run that could not read the region back prints the second line alone, and
-names `ubertooth-util -B` in it. Nothing else is ever written to standard
-output: the dump of `-u` goes to the file it names, and the signed image of
-`-s` to `<file>.dfu`, and a run that only writes firmware or resets the board
-says nothing there at all.
+A run that could not read the region back prints the `The board is in DFU`
+line alone, and names `ubertooth-util -B` in it.
+
+A board that already had that bootloader when the command started is not
+written at all, and says so without mentioning DFU, because it never went
+there:
+
+    The board already has this bootloader: ubertooth-util -B reports CRC32:0x7c52e323.
+    Nothing was written, and the board is still running its firmware.
+
+Nothing else is ever written to standard output: the dump of `-u` goes to the
+file it names, and the signed image of `-s` to `<file>.dfu`, and a run that
+only writes firmware or resets the board says nothing there at all.
 
 Everything else is on standard error, so a script reading that one line is not
 fed the progress of a flash that takes a few seconds:
@@ -615,9 +663,12 @@ command spent its time on.
 The errors this tool prints itself are one line each beginning `error: `, for
 example `error: detach failed: the board is still in DFU`,
 `error: upload failed: block 164 was not read`,
-`error: no bootloader was installed: the region still holds the bootloader it
-held before this run (CRC32:0x...), not the one bl_update.dfu carries
-(CRC32:0x...)`,
+`error: no bootloader was installed: the region read back as 0x... both before
+and after this run, and that is not the bootloader bl_update.dfu carries,
+which would report CRC32:0x...`,
+`error: --force goes with --update-bootloader, whose check against the
+bootloader the board already has it overrides; nothing else this tool does
+asks the board before writing`,
 `error: the bootloader region holds neither bootloader: ... so the write did
 not finish`,
 `error: firmware update failed after 2 attempt(s): ...` and
@@ -627,14 +678,18 @@ board refused, and it comes without the firmware API version note described
 in ubertooth(7): the bootloader this tool talks to runs no application
 firmware to have a version. Lines beginning `warning: ` are the ones
 about a part this host cannot identify, about an image built for another
-API version, and about a bootloader region that did not change and holds what
+API version, about a board that could not say which bootloader it has, so a
+bootloader update could not tell whether it already had the one asked for, and
+about a bootloader region that did not change and holds what
 the image carries except in the lowest 512 bytes, which is the one outcome of
 an update that cannot be told apart. Lines beginning
 `note: ` say more about something the command has just reported: today a board
 that came back in the bootloader, a board waiting in the bootloader that a
 selection could not name, a board that never came back from a bootloader
 update and may be in the part's serial programmer, a bootloader update that
-installed nothing, and one whose result could not be read back.
+installed nothing, one whose result could not be read back, and a bootloader
+update with `-u` alongside it, which is not asked whether the board already
+has the bootloader.
 libubertooth's own lines read the same way, including the ones it ends up
 printing for a libusb failure nothing could name (`error: Input/Output Error
 (libusb -1)`) and for a selection that found nothing (`error: no Ubertooth
