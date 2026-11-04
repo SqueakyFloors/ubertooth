@@ -487,11 +487,21 @@ MU_TEST(a_reset_between_the_slot_and_its_report_owes_nothing)
 
 	reset_state(1);
 	btctl_pkt_tx_enqueue(pkt_message(3));
+	ll.loc_arqn = 1;
 	ll_prepare_tx(&ll, &tx);
 	ll_reset(&ll);
 
 	ll_tx_done(&ll, 0);
 
+	/* The slot the reset interrupted owes the next one nothing: it is a
+	 * POLL, with no repeat of the message that is gone and no
+	 * acknowledgment of a packet this link no longer has. */
+	ll_prepare_tx(&ll, &tx);
+	mu_assert(tx.hdr->type == BB_TYPE_POLL,
+		"tx.hdr->type == BB_TYPE_POLL");
+	mu_assert(tx.fmt == NULL, "no repeat of the message the reset freed");
+	mu_assert(!(tx.hdr->flags & (1<<BTHDR_ARQN)),
+		"the reset link acknowledged a packet it no longer has");
 	mu_assert(ll.pkt_slots_left == 0, "ll.pkt_slots_left == 0");
 	mu_assert(ll.cur_pkt_msg == NULL, "ll.cur_pkt_msg == NULL");
 }

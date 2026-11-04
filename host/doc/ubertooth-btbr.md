@@ -281,9 +281,9 @@ the way to make one easy for a receiver to catch; the packet is not
 retransmitted on the peer's say-so, so a peer that ignores it costs nothing. A
 transmit slot the board could not put on the air does not count against
 `<count>`: the packet goes out in the next transmit slot instead, 1250 us
-later, so the count asked for is the count delivered, and a run that loses a
-slot that way holds the link for that one slot longer.
-What is bounded is the air slots the run occupies, 400 of them, so the count
+later, so `<count>` of them reach the air, and a run that loses a slot that
+way holds the link for that one slot longer.
+What is bounded is the air slots the run asks for, 400 of them, so the count
 allowed depends on how many slots one packet of the format fills: 400 of a
 one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or `ev4`,
 and 80 of a five-slot `dh5`. The board's own data and link-manager traffic

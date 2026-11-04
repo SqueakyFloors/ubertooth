@@ -135,10 +135,12 @@ void btphy_set_mode(btphy_mode_t mode, uint32_t lap, uint8_t uap)
 
 void btphy_cancel_clkn_delay(void) { }
 
-/* The clock the pager wrote into each FHS it sent, oldest first. */
-#define FHS_SENT_MAX 8
-static uint32_t fhs_sent_clk27_2[FHS_SENT_MAX];
-static unsigned fhs_sent_count;
+/* The clock the pager wrote into each page response it composed, oldest
+ * first. A page response the radio did not put on the air is counted here
+ * too: this is what the pager asked for, not what reached the peer. */
+#define FHS_COMPOSED_MAX 8
+static uint32_t fhs_composed_clk27_2[FHS_COMPOSED_MAX];
+static unsigned fhs_composed_count;
 
 /* The clock the paged device is told by the FHS it receives. */
 static uint32_t fhs_rx_clk27_2;
@@ -158,9 +160,9 @@ void bbpkt_fhs_prepare_payload(uint8_t *data, uint64_t parity, uint32_t lap,
 void bbpkt_fhs_finalize_payload(uint8_t *fhs_data, uint32_t clk27_2)
 {
 	(void)fhs_data;
-	if (fhs_sent_count < FHS_SENT_MAX)
-		fhs_sent_clk27_2[fhs_sent_count] = clk27_2;
-	fhs_sent_count++;
+	if (fhs_composed_count < FHS_COMPOSED_MAX)
+		fhs_composed_clk27_2[fhs_composed_count] = clk27_2;
+	fhs_composed_count++;
 }
 
 void bbpkt_decode_fhs(uint8_t *data, fhs_info_t *info)
@@ -572,7 +574,7 @@ static void air_reset(void)
 	air_callback_lateness = 0;
 	air_tx_drop_nth = 0;
 	air_tx_prepared = 0;
-	fhs_sent_count = 0;
+	fhs_composed_count = 0;
 	fhs_rx_clk27_2 = 0;
 	scan_arm_refused = 0;
 	tdma_refused = 0;
@@ -789,7 +791,7 @@ static void check_pager_timing(unsigned half)
 	mu_assert_int_eq(0, fhs->clkn & 2);
 	mu_assert_int_eq(chan_of_phase(pager_page_phase(half)+1), fhs->chan);
 	/* It says which tick it went out in, in units of four. */
-	mu_assert_int_eq(fhs->clkn >> 2, fhs_sent_clk27_2[0]);
+	mu_assert_int_eq(fhs->clkn >> 2, fhs_composed_clk27_2[0]);
 	/* Nothing acknowledged it, so no connection came up on this side. */
 	mu_assert_int_eq(0, central_started);
 
@@ -798,7 +800,7 @@ static void check_pager_timing(unsigned half)
 	 * the pager gives up. What follows is the page train starting again,
 	 * two page messages a tick apart, past the bound. */
 	last = air_nth(pager_log, pager_log_count, AIR_TX, 6);
-	mu_assert_int_eq(4, fhs_sent_count);
+	mu_assert_int_eq(4, fhs_composed_count);
 	mu_assert_int_eq(12, last->tick - fhs->tick);
 	mu_assert(last->tick - answer->tick <= PAGE_RESP_TO_TICKS,
 		"a page response falls outside pagerespTO");
@@ -1255,8 +1257,8 @@ MU_TEST(pager_a_dropped_page_response_does_not_start_a_connection)
 
 	/* The page response was composed four times, for the whole of
 	 * pagerespTO, as check_pager_timing() pins for a page nothing answers
-	 * at all. */
-	mu_assert_int_eq(4, (int)fhs_sent_count);
+	 * at all. Three of them reached the air. */
+	mu_assert_int_eq(4, (int)fhs_composed_count);
 
 	/* Three of those reached the air: the first put nothing there, so the
 	 * third transmit logged is the repeat 1.25 ms after it. */
