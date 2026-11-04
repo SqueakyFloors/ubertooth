@@ -74,10 +74,14 @@ static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3);
  * its own phase for every window it opens, so a phase left standing here is
  * one behind for the rest of the attempt, with every later transmit going out
  * on the frequency the device's previous window used and nothing in the
- * attempt to close the gap. An inquirer's phase is one of 32 guesses it sweeps
- * rather than a counter anyone shares, so a phase left standing there costs it
- * only the guess it skips, but the rate is still one step per transmit and
- * that is where it is kept. */
+ * attempt to close the gap. An inquirer's phase is one of 32 guesses it
+ * sweeps, with nothing at the other end to keep level with, so a phase left
+ * standing there repeats the guess just made and puts the rest of the sweep a
+ * slot later. One step per transmit is the rate either way.
+ *
+ * The substate is read here, before a caller is told its transmit is over,
+ * because this is the substate the transmit belonged to; the one in force
+ * after the caller has had its say need not be. */
 static void tx_advance_hop_phase(void)
 {
 	if (btphy.mode == BT_MODE_INQUIRY || btphy.mode == BT_MODE_PAGING_RESPONSE)
@@ -178,11 +182,10 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 		 * receive nor its next transmit and the link stops forever.
 		 *
 		 * An inquiry or a page response has already moved its hop
-		 * phase on for this transmit, which is where the other end's
-		 * phase is too, and there is no way to put a phase back. The
-		 * packet is lost either way and the retransmission the
-		 * protocol does covers it, so the phase is left where it
-		 * is. */
+		 * phase on for this transmit, and there is no way to put a
+		 * phase back. The packet is lost either way and the
+		 * retransmission the protocol does covers it, so the phase is
+		 * left where it is. */
 		cprintf("TX: cannot schedule end of transmission, packet not sent\n");
 
 		/* The radio is tuned with its synthesizer strobed on by now.
@@ -337,13 +340,10 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 
 		/* The phase this transmit was to have moved. tx_prepare() is
 		 * what normally moves it, and no task of this transmit will
-		 * ever run, so it is moved here instead: this is the only
-		 * not-sent path that would otherwise leave it short.
-		 *
-		 * Before the completion is reported, not after: the substate
-		 * this reads is the one the transmit belonged to, and the
-		 * callback is where a caller gives a page up and moves the
-		 * board to another one. */
+		 * ever run, so it is moved here: this is the only not-sent
+		 * path that would otherwise leave it short. Before the
+		 * completion below, for the reason tx_advance_hop_phase()
+		 * gives. */
 		tx_advance_hop_phase();
 
 		/* Release the packet before reporting it, the order

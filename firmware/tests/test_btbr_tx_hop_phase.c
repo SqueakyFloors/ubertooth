@@ -2,23 +2,17 @@
  * Unit tests for the hop phase a BR/EDR transmit moves:
  * firmware/btbr/src/btphy/tx_task.c.
  *
- * Two substates sweep a phase of their own. An inquirer moves it once per
- * transmit, and a pager moves its page-response phase before each FHS it
- * sends. In the page response the paged device moves its own phase once for
- * every window it opens, so the pair only meet while both move at the same
- * rate: a phase left standing for one transmit stays one behind for the rest
- * of the attempt, and every transmit after it goes out on the frequency the
- * device's previous window used. An inquirer's phase is one of 32 guesses it
- * sweeps rather than a counter anyone shares, so nothing there has to be kept
- * level with it; what it does share with the page response is the rate, one
- * step per transmit.
+ * Two substates sweep a phase of their own, one step per transmit: the
+ * inquiry, and the pager's page response. tx_advance_hop_phase() has why the
+ * step belongs to the transmit rather than to the packet that may or may not
+ * come of it, and why the page response is the one that has to stay level with
+ * the device at the other end.
  *
- * So the phase belongs to the attempt rather than to the packet, and it has to
- * move once per transmit whichever way that transmit ends -- on the air, or
- * dropped because the scheduler was full or the radio was not ready. These
- * tests pin that for each of the four, and pin that the substates which answer
- * a scan, and a connection, are left alone: those transmit on a phase they
- * were given rather than on one they sweep.
+ * These tests pin that step for each of the four ways a transmit can end -- on
+ * the air, or dropped because the scheduler was full in one of two places or
+ * the radio was not ready -- and pin that the substates which answer a scan,
+ * and a connection, are left alone: those transmit on a phase they were given
+ * rather than on one they sweep.
  *
  * tx_task.c is included into this translation unit, which is how its slot
  * tasks can be reached at all: they are static. The scheduler underneath is
@@ -414,13 +408,13 @@ MU_TEST(test_a_refused_page_response_still_moves_the_phase)
 /* ---- the phase moves before the caller is told, not after ---- */
 
 /*
- * Which substate the transmit belonged to is read before the caller is told,
- * not after. A refusal is reported from the caller's own call rather than from
- * a slot, and the callback is where a caller gives a page up and moves the
- * board to another substate: a page the board has run out of patience with
- * goes back to paging, and one that succeeds becomes a connection. Read the
- * substate after that and the phase of the attempt just abandoned is judged by
- * the substate that replaced it.
+ * The substate the step is judged by is the one the transmit belonged to. A
+ * refusal is reported from the caller's own call rather than from a slot, and
+ * a caller is free to leave the substate from that callback -- a page given up
+ * goes back to paging, one that succeeds becomes a connection -- so a step
+ * taken after the callback would be judged by whatever replaced it. No caller
+ * in the firmware does leave it there today; this pins the order so that one
+ * written later cannot quietly cost the attempt its phase.
  */
 static void give_the_page_up(int sent, void *arg)
 {
@@ -568,6 +562,16 @@ MU_TEST(test_a_refused_page_leaves_the_phase_alone)
 	mu_assert_int_eq(0, (int)hop_state.x);
 }
 
+/* The paged device's own page response is the one that must not be touched
+ * here at all: the receive task already moves its phase for every window it
+ * opens, so a step taken for its transmits as well would move it twice per
+ * window. */
+MU_TEST(test_a_refused_answer_to_a_page_leaves_the_phase_alone)
+{
+	a_dropped_transmit_leaves_the_phase_alone(BT_MODE_PERIPHERAL_PAGE_RESPONSE);
+	mu_assert_int_eq(0, (int)hop_state.x);
+}
+
 int main(void)
 {
 	printf("BR/EDR transmit tests: the hop phase a transmit moves\n");
@@ -583,5 +587,6 @@ int main(void)
 	MU_RUN(test_a_refused_transmit_on_a_connection_leaves_the_phase_alone);
 	MU_RUN(test_a_refused_inquiry_answer_leaves_the_phase_alone);
 	MU_RUN(test_a_refused_page_leaves_the_phase_alone);
+	MU_RUN(test_a_refused_answer_to_a_page_leaves_the_phase_alone);
 	return mu_report();
 }
