@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
 
-    ubertooth-ducky [-q [uuid]] [-b] [-A <37|38|39>] [-a <BD_ADDR>] [-s]
+    ubertooth-ducky [-q [uuid]] [-b] [-A 37|38|39] [-a <BD_ADDR>] [-s]
     [-U <index|serial>]
     ubertooth-ducky [-U <index|serial>] -V
     ubertooth-ducky -h
