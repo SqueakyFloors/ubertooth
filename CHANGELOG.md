@@ -1119,6 +1119,17 @@ knowing about.
   to give a file name instead.
   [#1170](https://github.com/SqueakyFloors/ubertooth/issues/1170)
 
+- Fixed: `ubertooth-btle` reported `rssi=0` for a packet whose level the board
+  could not measure. The dBm scale stops rising at the top of the radio's
+  range, so that one figure stands for every level from there up. 0 dBm is a
+  milliwatt at the antenna, about what a peer transmits, and an advertiser a few
+  tens of centimeters away reaches it, low-energy receive turning the board's
+  amplifier and high-gain mode on. Such a packet now reads `rssi=none`, the
+  word the Basic Rate `s=` and `n=` columns already use for a level the board
+  does not have. A capture file still records the figure, as a Basic Rate
+  capture does.
+  [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194)
+
 - Fixed: a per-packet line reported `s=0`, and a `snr=` worked out from it, for
   a packet whose level the board could not measure. The dBm scale stops rising
   at the top of the radio's range, so that one figure stood for every signal

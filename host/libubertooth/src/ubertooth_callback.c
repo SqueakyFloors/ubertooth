@@ -143,8 +143,31 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
 	       : NOISE_ABSENT;
 }
 
+/* Whether this packet's level is at the top of the radio's scale, where the
+ * dBm figure is no measurement of the packet but only "at least this loud".
+ *
+ * The raw reading rather than the dBm figure, because the scale stops rising
+ * at RSSI_CEILING_RAW: every reading from there up gives the same figure, so
+ * the figure cannot say which of them it came from. */
+static int signal_is_at_the_ceiling( const usb_pkt_rx *rx )
+{
+	return record_signal_rssi( rx ) >= RSSI_CEILING_RAW;
+}
+
 /* Room for a dBm figure or the word that stands for a missing one. */
 #define RSSI_FIELD_LEN 8
+
+/* A level column: the figure, or `none` where the board has no level to give.
+ * Shared by every such column, so that the words they print cannot drift
+ * apart -- which is how the low-energy column came to say 0 dBm long after the
+ * Basic Rate ones stopped. */
+static void format_level( char field[RSSI_FIELD_LEN], int dbm, int have_it )
+{
+	if (have_it)
+		snprintf(field, RSSI_FIELD_LEN, "%d", dbm);
+	else
+		snprintf(field, RSSI_FIELD_LEN, "none");
+}
 
 /* The three level columns of a per-packet line: the packet's power, the
  * background estimate, and the ratio between them. Each is a figure or the
@@ -161,27 +184,13 @@ static void format_signal_noise_and_snr( const usb_pkt_rx *rx,
                                          char snr[RSSI_FIELD_LEN] )
 {
 	int8_t sig, noise;
-	/* The raw reading rather than the dBm figure, because the scale stops
-	 * rising at RSSI_CEILING_RAW: the figure there is the end of the scale
-	 * and says nothing about how much louder the packet was. */
-	int measured = record_signal_rssi( rx ) < RSSI_CEILING_RAW;
+	int measured = !signal_is_at_the_ceiling( rx );
 
 	determine_signal_and_noise( rx, &sig, &noise );
 
-	if (measured)
-		snprintf(s, RSSI_FIELD_LEN, "%d", sig);
-	else
-		snprintf(s, RSSI_FIELD_LEN, "none");
-
-	if (noise == NOISE_ABSENT)
-		snprintf(n, RSSI_FIELD_LEN, "none");
-	else
-		snprintf(n, RSSI_FIELD_LEN, "%d", noise);
-
-	if (measured && noise != NOISE_ABSENT)
-		snprintf(snr, RSSI_FIELD_LEN, "%d", sig - noise);
-	else
-		snprintf(snr, RSSI_FIELD_LEN, "none");
+	format_level( s, sig, measured );
+	format_level( n, noise, noise != NOISE_ABSENT );
+	format_level( snr, sig - noise, measured && noise != NOISE_ABSENT );
 }
 
 static uint64_t clock_ns( clockid_t clock_id )
@@ -1453,11 +1462,16 @@ void cb_btle(ubertooth_t* ut, void* args)
 	uint64_t ts_diff_ns = ns_since_the_last_packet( ut, nowns );
 	FILE* out = ubertooth_result_stream(ut);
 	/* `sig`, so this line and the capture record above report one level for
-	 * one packet. What a reader wants beside a packet is how loud that
-	 * packet was. */
-	fprintf(out, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%d\n",
+	 * one packet, and the word where that level is no measurement of the
+	 * packet (signal_is_at_the_ceiling() above). The record keeps the figure
+	 * either way, having no way to say a level was not measured. */
+	char level[RSSI_FIELD_LEN];
+
+	format_level( level, sig, !signal_is_at_the_ceiling( rx ) );
+
+	fprintf(out, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%s\n",
 	        systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),
-	        ts_diff_ns / 1000000.0, sig);
+	        ts_diff_ns / 1000000.0, level);
 
 	/* The bytes of the packet itself: the PDU header, the payload the
 	 * decoder found and the CRC, after the four-byte access address. Never

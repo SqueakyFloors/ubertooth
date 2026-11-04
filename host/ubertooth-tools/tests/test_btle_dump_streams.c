@@ -628,6 +628,93 @@ MU_TEST(the_dump_reports_the_level_the_capture_records)
 	ubertooth_free(ut);
 }
 
+/* A packet whose level the radio could not measure prints no figure. The dBm
+ * scale stops rising at the top of the radio's range, so one figure stands for
+ * every level from there up and says no more than "at least this loud"; printed
+ * as a number it read like a measurement, and 0 dBm is a milliwatt at the
+ * antenna, about what a peer transmits. Low-energy receive turns the amplifier
+ * and high-gain mode on, so a close advertiser reaches it.
+ *
+ * The capture file still records the figure, as a Basic Rate capture does: a
+ * record has no way to say a level was not measured. So the two disagree here
+ * on purpose, which is the one case where they do.
+ */
+MU_TEST(a_level_the_radio_could_not_measure_prints_no_figure)
+{
+	ubertooth_t* ut = ubertooth_init();
+	btle_options opts = { .allowed_access_address_errors = 32 };
+	usb_pkt_rx rx = advertisement_with_an_unreadable_field();
+	char dir[] = "/tmp/ubertooth-btle-ceiling-XXXXXX";
+	char capture[sizeof(dir) + 16];
+	char out[8192] = "";
+	char err[2048] = "";
+	int recorded;
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	mu_assert_fatal(mkdtemp(dir) != NULL, "a directory to write in");
+	snprintf(capture, sizeof(capture), "%s/capture.pcap", dir);
+	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
+	                "a capture file");
+
+	/* RSSI_CEILING_RAW, the first raw reading the dBm scale has no figure
+	 * above. A literal, because that constant is private to
+	 * ubertooth_callback.c and this test links the library rather than
+	 * including it: a change to the constant has to reach these two cases. */
+	rx.rssi_avg = 35;
+	rx.rssi_max = 35;
+	rx.status |= SIGNAL_VALID;
+	rx.channel = 78;
+
+	fifo_push(ut->fifo, &rx, 0);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+	lell_pcap_close(ut->h_pcap_le);
+	ut->h_pcap_le = NULL;
+
+	mu_assert(strstr(out, "rssi=none") != NULL, out);
+	/* No number, so nothing a reader could take for a measurement. */
+	mu_assert_int_eq(INT_MIN, printed_level(out));
+
+	recorded = captured_level(capture, 39);
+	mu_assert(recorded != INT_MIN,
+	          "the capture holds a record to read a level from");
+	mu_assert_int_eq(0, recorded);
+
+	unlink(capture);
+	rmdir(dir);
+	ubertooth_free(ut);
+}
+
+/* One raw count below the ceiling is a level the radio did measure, so it is
+ * printed, and the capture agrees with it. This is what keeps the case above
+ * from being read as "a loud packet prints nothing". */
+MU_TEST(the_loudest_measured_level_is_still_printed)
+{
+	ubertooth_t* ut = ubertooth_init();
+	btle_options opts = { .allowed_access_address_errors = 32 };
+	usb_pkt_rx rx = advertisement_with_an_unreadable_field();
+	char out[8192] = "";
+	char err[2048] = "";
+
+	mu_assert_fatal(ut != NULL, "a handle");
+	/* One raw count below RSSI_CEILING_RAW; see the case above. */
+	rx.rssi_avg = 34;
+	rx.rssi_max = 34;
+	rx.status |= SIGNAL_VALID;
+	rx.channel = 78;
+
+	fifo_push(ut->fifo, &rx, 0);
+	capture_output();
+	cb_btle(ut, &opts);
+	release_output(out, sizeof(out), NULL, err, sizeof(err));
+
+	mu_assert(strstr(out, "rssi=none") == NULL, out);
+	mu_assert_int_eq(-5, printed_level(out));
+
+	ubertooth_free(ut);
+}
+
 /* The gap the dump reports is the one the capture's own times have, so it
  * holds the whole of a quiet gap however many times the clock started over
  * inside it.
@@ -791,6 +878,8 @@ int main(void)
 	MU_RUN(the_promiscuous_report_follows_the_tools_report_stream);
 	MU_RUN(a_promiscuous_report_is_dumped_and_comes_back_on_a_replay);
 	MU_RUN(the_dump_reports_the_level_the_capture_records);
+	MU_RUN(a_level_the_radio_could_not_measure_prints_no_figure);
+	MU_RUN(the_loudest_measured_level_is_still_printed);
 	MU_RUN(a_quiet_gap_longer_than_a_period_is_reported_whole);
 	MU_RUN(the_ego_gap_holds_a_quiet_period_too);
 	return mu_report();
