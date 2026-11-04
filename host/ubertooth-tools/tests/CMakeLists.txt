@@ -1440,8 +1440,10 @@ if(LIBBLUETOOTH_FOUND)
 
 	add_test(NAME follow-main COMMAND test-follow-main)
 	# Every adapter and board call is faked and the faked receive ends the
-	# capture loop after two turns, so a run takes milliseconds; a regression
-	# that waits on an adapter or a board should fail instead of hanging.
+	# capture loop after two turns, so the only waiting a run does is the
+	# tool's own pause between AFH map reads, 200ms a time: about a second in
+	# all. A regression that waits on an adapter or a board should fail
+	# instead of hanging.
 	set_tests_properties(follow-main PROPERTIES TIMEOUT 10)
 endif()
 

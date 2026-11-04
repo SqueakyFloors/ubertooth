@@ -106,8 +106,11 @@ static struct {
 	int connect_fails;
 	int connect_errno;
 	int connect_keeps_errno;
-	/* An errno left behind by an earlier call, set by the fake hci_devinfo()
-	 * so a later failure that sets none has something stale to report. */
+	/* An errno left behind by a call that succeeded, so a later failure
+	 * that sets none has something stale it could report by mistake. The
+	 * fakes that leave it are the ones immediately before each call whose
+	 * reason the tool prints: opening the adapter, reading its settings,
+	 * the page, starting the poll thread, and the first clock read. */
 	int dirty_errno;
 	int connects;         /* ubertooth_connect_select(): the board opened */
 	/* The address the page was sent to, as the tool spelled it. */
@@ -119,6 +122,38 @@ static struct {
 	int blocks_to_end;    /* ...before the fake ends the capture */
 	uint8_t afh_mode;     /* what the target reports for AFH */
 	uint8_t afh_map[AFH_MAP_BYTES];
+	/* The map read itself: whether it fails, the errno it leaves behind (0
+	 * for a failure that leaves none), and how many times the tool asked.
+	 * The count is what says a retry is bounded and that a failed read is
+	 * not retried at all. */
+	int afh_read_fails;
+	int afh_read_errno;
+	int afh_reads;
+	/* Reads after the first to answer with a usable map, for the case where
+	 * a map that has not settled settles. 0 leaves every read the same. */
+	int afh_settles_on_read;
+	uint8_t afh_settled_map[AFH_MAP_BYTES];
+	/* The connection handle and the adapter the map was read on, which is
+	 * the whole question this tool got wrong: a read on handle 0 is a read
+	 * on a connection that was never made. -1 until a read happens. */
+	int afh_read_handle;
+	int afh_read_sock;
+	/* The map the board was given, so a case can check it is the one the
+	 * target reported. */
+	uint8_t board_map[AFH_MAP_BYTES];
+	/* The link to the target being dropped, and on which handle. -1 until
+	 * it happens. */
+	int disconnects;
+	int disconnected_handle;
+	/* The two clock reads, which have nothing to follow behind them: each
+	 * can be made to fail, with the errno it leaves. */
+	int clock_read_fails;
+	int clock_offset_read_fails;
+	int clock_read_errno;
+	/* The adapter's own address, and its settings, which the tool reads
+	 * before it pages: each can be made to fail. */
+	int bd_addr_fails;
+	int devinfo_fails;
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
@@ -175,6 +210,20 @@ static void reset_fake(void)
 	/* A target using AFH on every channel, so -a reaches the map set. */
 	fake.afh_mode = FOLLOW_AFH_MODE_ON;
 	memset(fake.afh_map, 0xff, sizeof(fake.afh_map));
+	fake.afh_read_handle = -1;
+	fake.afh_read_sock = -1;
+	fake.disconnected_handle = -1;
+}
+
+/* Writes a map with the lowest `channels` channels in use and the rest off,
+ * for the cases either side of the 20 channels AFH needs. */
+static void afh_map_bits(uint8_t* map, int channels)
+{
+	int channel;
+
+	memset(map, 0, AFH_MAP_BYTES);
+	for (channel = 0; channel < channels; channel++)
+		map[channel / 8] |= 1 << (channel % 8);
 }
 
 /* ---- faked BlueZ -------------------------------------------------------- */
@@ -209,12 +258,22 @@ int hci_open_dev(int dev_id)
 		        strerror(errno));
 		exit(1);
 	}
+	/* Last, because a successful open() may set errno of its own: this is
+	 * where a stale one comes from for the two adapter reads that follow. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return fake.dev_fd;
 }
 
 int hci_devinfo(int dev_id, struct hci_dev_info* di)
 {
 	(void)dev_id;
+	if (fake.devinfo_fails) {
+		/* The settings are left as the tool declared them, and errno as
+		 * the adapter open left it: this failure sets none of its own,
+		 * which is the case the tool has to clear errno for. */
+		return -1;
+	}
 	memset(di, 0, sizeof(*di));
 	di->pkt_type = 0xffff;
 	/* This is the last call before the page, so it is where a stale errno
@@ -224,6 +283,10 @@ int hci_devinfo(int dev_id, struct hci_dev_info* di)
 		errno = fake.dirty_errno;
 	return 0;
 }
+
+/* The remote ACL handle the page hands back. Not 0, so a read made on a
+ * handle nothing filled in is distinguishable from a read on this one. */
+#define FAKE_ACL_HANDLE 42
 
 int hci_create_connection(int dd, const bdaddr_t* bdaddr, uint16_t ptype,
                           uint16_t clkoffset, uint8_t rswitch,
@@ -246,16 +309,26 @@ int hci_create_connection(int dd, const bdaddr_t* bdaddr, uint16_t ptype,
 			errno = fake.connect_errno;
 		return -1;
 	}
-	*handle = 42;
+	*handle = FAKE_ACL_HANDLE;
+	/* A BlueZ call that succeeds can leave an errno behind, which is what
+	 * makes clearing it the caller's job before each call whose errno it
+	 * reports. The page is the last adapter call before the map and clock
+	 * reads, so this is where a stale one would come from for them. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return 0;
 }
 
 int hci_disconnect(int dd, uint16_t handle, uint8_t reason, int to)
 {
 	(void)dd;
-	(void)handle;
 	(void)reason;
 	(void)to;
+	/* Counted, with the handle it was given, so a case can check the link
+	 * the tool made to the target is dropped and not left for the
+	 * controller to time out. */
+	fake.disconnects++;
+	fake.disconnected_handle = handle;
 	return 0;
 }
 
@@ -265,8 +338,27 @@ int hci_read_afh_map(int dd, uint16_t handle, uint8_t* mode, uint8_t* map,
 	(void)dd;
 	(void)handle;
 	(void)to;
+	fake.afh_reads++;
+	/* Kept so a case can check the read went to the connection the tool
+	 * made, on the adapter it opened. */
+	fake.afh_read_handle = handle;
+	fake.afh_read_sock = dd;
+	if (fake.afh_read_fails) {
+		/* mode and map are left alone, as a failed BlueZ call leaves
+		 * them. So is errno when the case asked for none: a real call
+		 * that fails without setting one leaves whatever was already
+		 * there, which is what makes clearing it beforehand the tool's
+		 * job. */
+		if (fake.afh_read_errno != 0)
+			errno = fake.afh_read_errno;
+		return -1;
+	}
 	*mode = fake.afh_mode;
-	memcpy(map, fake.afh_map, sizeof(fake.afh_map));
+	if (fake.afh_settles_on_read != 0 &&
+	    fake.afh_reads >= fake.afh_settles_on_read)
+		memcpy(map, fake.afh_settled_map, sizeof(fake.afh_settled_map));
+	else
+		memcpy(map, fake.afh_map, sizeof(fake.afh_map));
 	return 0;
 }
 
@@ -277,8 +369,18 @@ int hci_read_clock(int dd, uint16_t handle, uint8_t which, uint32_t* clock,
 	(void)handle;
 	(void)which;
 	(void)to;
+	if (fake.clock_read_fails) {
+		/* errno left alone when the case asked for none, as above. */
+		if (fake.clock_read_errno != 0)
+			errno = fake.clock_read_errno;
+		return -1;
+	}
 	*clock = 1000;
 	*accuracy = 0;
+	/* This read succeeding is where a stale errno would come from for the
+	 * clock offset read, which is the next call. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return 0;
 }
 
@@ -287,6 +389,12 @@ int hci_read_clock_offset(int dd, uint16_t handle, uint16_t* clkoffset, int to)
 	(void)dd;
 	(void)handle;
 	(void)to;
+	if (fake.clock_offset_read_fails) {
+		/* errno left alone when the case asked for none, as above. */
+		if (fake.clock_read_errno != 0)
+			errno = fake.clock_read_errno;
+		return -1;
+	}
 	*clkoffset = 0;
 	return 0;
 }
@@ -300,6 +408,11 @@ int hci_read_bd_addr(int dd, bdaddr_t* bdaddr, int to)
 
 	(void)dd;
 	(void)to;
+	if (fake.bd_addr_fails) {
+		/* The address is left alone, and so is errno: a failure that
+		 * sets none is the case the tool has to clear it for. */
+		return -1;
+	}
 	memcpy(bdaddr->b, own, sizeof(own));
 	return 0;
 }
@@ -376,7 +489,10 @@ int cmd_set_clock_quiet(struct libusb_device_handle* devh, uint32_t clkn)
 int cmd_set_afh_map(struct libusb_device_handle* devh, uint8_t* map)
 {
 	(void)devh;
-	(void)map;
+	/* Kept, so a case can check which map reached the board and not merely
+	 * that one did: the map the target reported last is the only one that
+	 * may be followed. */
+	memcpy(fake.board_map, map, sizeof(fake.board_map));
 	record('m');
 	return 0;
 }
@@ -419,6 +535,11 @@ int ubertooth_bulk_thread_start()
 {
 	record('p');
 	fake.thread_starts++;
+	/* The last call before the clock reads, and the library work it stands
+	 * for can leave an errno behind, so this is where a stale one would
+	 * come from for them. Same reasoning as the page above. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return fake.thread_start_rc;
 }
 
@@ -1379,6 +1500,383 @@ MU_TEST(the_usb_delay_is_given_to_the_board_in_clock_ticks)
 	mu_assert_int_eq(1010, fake.clkn_offset);
 }
 
+/* A read that fails says nothing about the mode byte or the map, so there is
+ * nothing to follow and nothing to print: the run stops with one "error: "
+ * line and no map anywhere. The read is not tried again either -- a map that
+ * was never read is not a transient one -- and the board is never opened,
+ * because -a is settled before it is. */
+MU_TEST(a_failed_afh_map_read_stops_the_run)
+{
+	char expected[128];
+	struct run_result r;
+
+	reset_fake();
+	fake.afh_read_fails = 1;
+	fake.afh_read_errno = EIO;
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "error: AFH map read failed: %s\n", strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	/* One report of the failure, and nothing on standard output: the map
+	 * is what -a prints there, and there is no map. */
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strstr(r.err, "AFH map: 0x") == NULL, r.err);
+	mu_assert_int_eq(1, fake.afh_reads);
+	/* The read went to the connection the tool made, not to handle 0. */
+	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
+	mu_assert_int_eq(fake.dev_fd, fake.afh_read_sock);
+	/* No board was opened and nothing was asked of one, so no map reached
+	 * the board. The adapter handle went back, and so did the link to the
+	 * target, rather than being left for the controller to time out. */
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(1, fake.disconnects);
+	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.disconnected_handle);
+
+	/* The same failure leaving no errno behind says what it knows rather
+	 * than reporting "Undefined error: 0" as the reason, or the errno an
+	 * earlier call left behind, which the faked hci_devinfo() puts there. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.afh_read_fails = 1;
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: AFH map read failed: no reason given\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/* An AFH hop sequence uses at least 20 channels, so a map with fewer is not
+ * one the remote can be hopping on. It may not have settled yet, so it is read
+ * again a bounded number of times, each pause saying why; still too few and
+ * the run stops rather than following a hop sequence that would receive
+ * nothing. The two other sides of the same line: a map that settles on a later
+ * read is followed, and a map with exactly 20 channels is accepted. */
+MU_TEST(a_map_with_too_few_channels_is_refused)
+{
+	char expected[192];
+	char map_line[AFH_MAP_LINE_LEN];
+	struct run_result r;
+
+	reset_fake();
+	afh_map_bits(fake.afh_map, FOLLOW_AFH_MIN_USED_CHANNELS - 1);
+	r = RUN(WHOLE_TARGET, "-a");
+	/* Built from the same macros the tool counts against, plurals included,
+	 * so the expected line follows a changed bound or attempt count
+	 * instead of having to be edited after it. */
+	snprintf(expected, sizeof(expected),
+	         "error: the remote device reports AFH on but only %d channel%s in "
+	         "use after %d read%s, and AFH needs at least %d\n",
+	         FOLLOW_AFH_MIN_USED_CHANNELS - 1,
+	         FOLLOW_AFH_MIN_USED_CHANNELS - 1 == 1 ? "" : "s",
+	         FOLLOW_AFH_READ_ATTEMPTS,
+	         FOLLOW_AFH_READ_ATTEMPTS == 1 ? "" : "s",
+	         FOLLOW_AFH_MIN_USED_CHANNELS);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	/* Bounded: three reads, and so two pauses, each announced. */
+	mu_assert_int_eq(FOLLOW_AFH_READ_ATTEMPTS, fake.afh_reads);
+	mu_assert_int_eq(FOLLOW_AFH_READ_ATTEMPTS - 1,
+	                 occurrences(r.err,
+	                             "AFH map not usable yet, reading it again\n"));
+	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+
+	/* A map that has not settled on the first read and has on the second is
+	 * what the retry is for: the second answer is the one that reaches the
+	 * board, after one pause, and the run does not go on reading. */
+	reset_fake();
+	afh_map_bits(fake.afh_map, FOLLOW_AFH_MIN_USED_CHANNELS - 1);
+	afh_map_bits(fake.afh_settled_map, FOLLOW_AFH_CHANNELS);
+	fake.afh_settles_on_read = 2;
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "AFH map read: %d of %d channels in use\n",
+	         FOLLOW_AFH_CHANNELS, FOLLOW_AFH_CHANNELS);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(2, fake.afh_reads);
+	mu_assert_int_eq(1, occurrences(r.err,
+	                 "AFH map not usable yet, reading it again\n"));
+	mu_assert_int_eq(0, occurrences(r.err, "error: "));
+	/* The settled map, byte for byte, and not the one that was refused.
+	 * The message names the map the board actually got, so a failure says
+	 * which one reached it. */
+	afh_map_line(fake.board_map, map_line, sizeof(map_line));
+	mu_assert(memcmp(fake.board_map, fake.afh_settled_map,
+	                 sizeof(fake.board_map)) == 0, map_line);
+	mu_assert(strstr(r.out, map_line) != NULL, r.out);
+
+	/* Exactly the minimum is a map, read once and applied. */
+	reset_fake();
+	afh_map_bits(fake.afh_map, FOLLOW_AFH_MIN_USED_CHANNELS);
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "AFH map read: %d of %d channels in use\n",
+	         FOLLOW_AFH_MIN_USED_CHANNELS, FOLLOW_AFH_CHANNELS);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, fake.afh_reads);
+	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
+	mu_assert_int_eq(fake.dev_fd, fake.afh_read_sock);
+	afh_map_line(fake.board_map, map_line, sizeof(map_line));
+	mu_assert(memcmp(fake.board_map, fake.afh_map,
+	                 sizeof(fake.board_map)) == 0, map_line);
+	mu_assert(strstr(r.out, map_line) != NULL, r.out);
+}
+
+/* AFH on with not one channel in use is the other transient the retry is for,
+ * and it has its own report: a map of nothing is not a hop sequence either, so
+ * the run stops rather than handing the board a map that would receive
+ * nothing. */
+MU_TEST(an_empty_afh_map_is_refused)
+{
+	char expected[192];
+	struct run_result r;
+
+	reset_fake();
+	afh_map_bits(fake.afh_map, 0);
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "error: the remote device reports AFH on but an empty channel "
+	         "map (0 of %d channels) after %d read%s\n",
+	         FOLLOW_AFH_CHANNELS, FOLLOW_AFH_READ_ATTEMPTS,
+	         FOLLOW_AFH_READ_ATTEMPTS == 1 ? "" : "s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(FOLLOW_AFH_READ_ATTEMPTS, fake.afh_reads);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+}
+
+/* A remote that reports AFH off has answered: it is not hopping adaptively,
+ * so there is no map to follow and following it without one is right. The
+ * board's map is cleared rather than set, which is what a follow with no map
+ * owes a board an earlier run left a map on. */
+MU_TEST(a_remote_not_using_afh_is_followed_without_a_map)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.afh_mode = FOLLOW_AFH_MODE_OFF;
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "the remote device is not using AFH; "
+	          "following without it\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+	/* No map was reported, because there is none. */
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+	mu_assert_int_eq(1, fake.afh_reads);
+	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
+	/* The same order as a follow without -a, the clear included and last:
+	 * a clear sent before the mode start would be the thing the mode start
+	 * throws away. */
+	mu_assert(strcmp(fake.calls, "akipdhc") == 0, fake.calls);
+}
+
+/* A mode byte that is neither off nor on is not an answer this tool can act
+ * on: it cannot tell "not hopping adaptively" from "hopping on a map we did
+ * not get". It is named and refused, and not read again, because a mode the
+ * controller reported is not a transient. */
+MU_TEST(an_afh_mode_that_is_neither_off_nor_on_is_refused)
+{
+	char expected[192];
+	struct run_result r;
+
+	reset_fake();
+	fake.afh_mode = FOLLOW_AFH_MODE_ON + 1;
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "error: the remote device reported AFH mode 0x%02x, which is "
+	         "neither off (0x%02x) nor on (0x%02x)\n",
+	         FOLLOW_AFH_MODE_ON + 1, FOLLOW_AFH_MODE_OFF,
+	         FOLLOW_AFH_MODE_ON);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(1, fake.afh_reads);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+}
+
+/* The two adapter reads before the page: its own address, which a run with no
+ * target follows, and its settings, which say what packet types the page may
+ * ask for. Each names what failed and stops, and names a reason only when the
+ * failure left one, rather than one belonging to the call before it. Neither
+ * failure sets an errno of its own and the faked adapter open leaves one
+ * behind, so a reason in either line could only be that stale one. */
+MU_TEST(an_adapter_read_that_fails_stops_the_run)
+{
+	struct run_result r;
+
+	/* The adapter's own address, read only when no target was named. -w
+	 * names the default, to give the run an argument without changing what
+	 * it does. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.bd_addr_fails = 1;
+	r = RUN("-w", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: reading the address of hci0 failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(0, fake.disconnects);
+
+	/* The adapter's settings, read only when there is a target to page. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.devinfo_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: reading the settings of hci0 failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	/* No page was made, so there is no link to drop. */
+	mu_assert_int_eq(0, fake.disconnects);
+}
+
+/* Without a clock there is nothing to follow, so a clock read that fails
+ * stops the command rather than hopping on whatever the clock held. Both
+ * reads are checked: the adapter's own clock, and the target's offset from it.
+ * These are the last two failures before the board is told to hop, and the
+ * only ones that happen with the receive thread already running, so they are
+ * also what says that thread and the board are given back. */
+MU_TEST(a_clock_read_that_fails_stops_the_follow)
+{
+	char expected[160];
+	struct run_result r;
+
+	reset_fake();
+	fake.clock_read_fails = 1;
+	fake.clock_read_errno = EIO;
+	r = RUN(WHOLE_TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: reading the clock of hci0 failed: %s\n", strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	/* The board was never told to hop, and the thread, the board, and the
+	 * link to the target all went back. */
+	mu_assert_int_eq(-1, call_at('h'));
+	mu_assert_int_eq(1, fake.thread_stops);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(1, fake.disconnects);
+
+	/* The target's offset, which is read only when there is a link to read
+	 * it over. */
+	reset_fake();
+	fake.clock_offset_read_fails = 1;
+	fake.clock_read_errno = EIO;
+	r = RUN(WHOLE_TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: reading the clock offset of the target failed: %s\n",
+	         strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert_int_eq(-1, call_at('h'));
+	mu_assert_int_eq(1, fake.thread_stops);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(1, fake.disconnects);
+
+	/* Either read failing without leaving an errno behind says what it
+	 * knows and stops there, rather than reporting "Undefined error: 0" as
+	 * the cause or a reason left behind by an earlier call. The faked
+	 * hci_devinfo() leaves one behind to make sure it is not the one
+	 * reported. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.clock_read_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: reading the clock of hci0 failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.clock_offset_read_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: reading the clock offset of the target "
+	          "failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+
+	/* A run with no target follows the local adapter's own address, so it
+	 * has no link, there is no offset to read, and the offset read's
+	 * failure cannot reach it. (-w names the default, to give the run an
+	 * argument without changing what it does.) */
+	reset_fake();
+	fake.clock_offset_read_fails = 1;
+	r = RUN("-w", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+	mu_assert(call_at('h') >= 0, fake.calls);
+	mu_assert_int_eq(0, fake.disconnects);
+}
+
+/* The map is read over a connection to the target, so -a without an address
+ * to connect to has no handle to read on. It is refused with the rest of the
+ * command line: no adapter is opened, no target is paged, no read is attempted
+ * on a handle that does not exist, and no board is touched. */
+MU_TEST(a_without_a_target_address_reads_no_map)
+{
+	const char* refusal =
+		"error: -a reads the AFH map over a Bluetooth connection to the "
+		"target, so it needs the whole target address: give "
+		"-t xx:xx:xx:xx:xx:xx\n";
+	struct run_result r;
+
+	/* -l and -u are four of the six bytes of an address: a piconet to
+	 * follow, but not a device to connect to. */
+	reset_fake();
+	r = RUN(TARGET, "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, refusal) == 0, r.err);
+	mu_assert_int_eq(0, fake.afh_reads);
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	/* With no target at all the tool follows the local adapter's own
+	 * address. There is no remote device on that path, so no connection
+	 * and no map: the same refusal, by the other command line that reaches
+	 * it. */
+	reset_fake();
+	r = RUN("-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, refusal) == 0, r.err);
+	mu_assert_int_eq(0, fake.afh_reads);
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -1396,6 +1894,14 @@ int main(void)
 	MU_RUN(the_nap_changes_only_the_address_that_is_paged);
 	MU_RUN(a_uap_the_tool_was_given_is_kept_for_the_callback);
 	MU_RUN(the_afh_map_is_printed_beside_a_capture_on_standard_output);
+	MU_RUN(a_failed_afh_map_read_stops_the_run);
+	MU_RUN(a_map_with_too_few_channels_is_refused);
+	MU_RUN(an_empty_afh_map_is_refused);
+	MU_RUN(a_remote_not_using_afh_is_followed_without_a_map);
+	MU_RUN(an_afh_mode_that_is_neither_off_nor_on_is_refused);
+	MU_RUN(an_adapter_read_that_fails_stops_the_run);
+	MU_RUN(a_clock_read_that_fails_stops_the_follow);
+	MU_RUN(a_without_a_target_address_reads_no_map);
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
 	MU_RUN(a_refused_address_set_exits_1);

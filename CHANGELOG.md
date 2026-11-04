@@ -3297,6 +3297,9 @@ knowing about.
 
 Fixes with no visible change in normal use.
 
+- `ubertooth-follow` no longer borrows an earlier call's error number when it
+  reports a failed adapter or clock read.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
 - The pinned library no longer races when more than one thread decodes at the
   same time.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)

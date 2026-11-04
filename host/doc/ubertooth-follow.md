@@ -172,6 +172,12 @@ the line is then the reason alone, without the advice. A page that fails
 without leaving a reason behind drops the `: <reason>` from whichever of the
 two lines it is.
 
+The map is read as soon as the connection is up, which is the earliest the
+tool can read it and the latest it can act on it before the follow starts. A
+controller that has not yet settled on a hop sequence for a link it has only
+just made answers that AFH is off, so that is the common answer against a
+freshly paged target, and the follow goes ahead without a map.
+
 The map that comes back is used only when it could be a hop sequence at all:
 
  - a failed read stops the command (`error: AFH map read failed: ...`), rather
@@ -179,19 +185,23 @@ The map that comes back is used only when it could be a hop sequence at all:
    does not work on a controller that does not implement
    HCI_Read_AFH_Channel_Map; run without `-a` on one of those;
  - a reply of AFH off is followed without it:
-   `the remote device is not using AFH; following without it`. Nothing is sent
-   to the board in that case: starting the follow resets its hop mode and AFH
-   map, so a map left by an earlier run cannot make it hop adaptively anyway.
-   An accepted map is applied once the follow has started, for the same reason
-   (see ubertooth-util(1), CARRY-OVER BETWEEN RUNS);
+   `the remote device is not using AFH; following without it`. The board is
+   then told to clear its map, as a follow without `-a` does: a board left
+   streaming by a follow that was killed is still in the same mode, so it
+   takes this run's mode request as a re-sync of the old one and keeps the map
+   that run set. An accepted map is applied after the follow has started
+   rather than before, because a mode start that does begin afresh forgets a
+   map set first (see ubertooth-util(1), CARRY-OVER BETWEEN RUNS);
  - a map with fewer than the 20 channels AFH requires, or none at all, is read
    again — three reads in total, 200ms apart — in case it has not settled. If
    it still reports too few, the command stops and says so;
  - a mode byte that is neither off nor on is refused and printed.
 
-Nothing is set on the Ubertooth until the map has been accepted, so a refused
-`-a` leaves the board alone, and the connection the tool made to the target is
-dropped on the way out.
+A refused `-a` never reaches the Ubertooth: the map is read before any board is
+opened, so the board is left alone and the connection the tool made to the
+target is dropped on the way out. The only AFH request a run without an
+accepted map makes is the map clear above, from a follow that goes ahead
+without one.
 
 ## EXAMPLES
 

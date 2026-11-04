@@ -81,6 +81,23 @@ static int afh_hci_read(void* ctx, uint8_t* mode, uint8_t* map)
 	return r;
 }
 
+/* The system reason for the failure that has just happened, as ": <reason>",
+ * or an empty string when the call left no errno behind.
+ *
+ * BlueZ does not promise an errno for every way a call can fail, and
+ * strerror(0) reads "Undefined error: 0", which names nothing and reads like a
+ * cause. The caller clears errno before the call, so 0 here means this failure
+ * set none rather than that an earlier call's is still standing. */
+static const char* follow_errno_reason(char* buf, size_t len)
+{
+	if (buf == NULL || len == 0)
+		return "";
+	buf[0] = '\0';
+	if (errno != 0)
+		snprintf(buf, len, ": %s", strerror(errno));
+	return buf;
+}
+
 static void afh_hci_wait(void* ctx __attribute__((unused)))
 {
 	/* Each read waits up to a second for the controller, so say what the
@@ -234,6 +251,9 @@ int main(int argc, char *argv[])
 	int capture_took_stdout = 0;
 	uint32_t clock = 0;
 	uint16_t accuracy = 0, handle = 0, offset = 0;
+	/* Holds the ": <reason>" of whichever HCI call has just failed, built
+	 * by follow_errno_reason(). */
+	char reason[128] = { 0 };
 	bdaddr_t bdaddr = { { 0 } };
 	btbb_piconet *pn = NULL;
 	struct hci_dev_info di;
@@ -486,20 +506,14 @@ int main(int argc, char *argv[])
 	/* A named adapter that does not exist, or one that cannot be opened,
 	 * used to go unnoticed until a later HCI call worked on fd -1.
 	 *
-	 * Each call clears errno first and gives a reason only if there is one,
-	 * the way ubertooth-scan reports the same two failures: BlueZ does not
-	 * promise an errno for every way these can fail, so a leftover one from
-	 * an earlier call would be reported as this failure's cause, and a
-	 * failure that set none would read "Undefined error: 0". */
+	 * Each call clears errno first and names a reason only if there is one,
+	 * the way ubertooth-scan reports the same two failures: see
+	 * follow_errno_reason(). */
 	errno = 0;
 	dev_id = hci_devid(bt_dev);
 	if (dev_id < 0) {
-		if (errno != 0)
-			fprintf(stderr, "error: Bluetooth device %s not found: %s\n",
-			        bt_dev, strerror(errno));
-		else
-			fprintf(stderr, "error: Bluetooth device %s not found\n",
-			        bt_dev);
+		fprintf(stderr, "error: Bluetooth device %s not found%s\n",
+		        bt_dev, follow_errno_reason(reason, sizeof(reason)));
 		ubertooth_close(ut); /* nothing is open on it yet; harmless */
 		ubertooth_free(ut);
 		return 1;
@@ -507,12 +521,8 @@ int main(int argc, char *argv[])
 	errno = 0;
 	sock = hci_open_dev(dev_id);
 	if (sock < 0) {
-		if (errno != 0)
-			fprintf(stderr, "error: cannot open Bluetooth device %s: %s\n",
-			        bt_dev, strerror(errno));
-		else
-			fprintf(stderr, "error: cannot open Bluetooth device %s\n",
-			        bt_dev);
+		fprintf(stderr, "error: cannot open Bluetooth device %s%s\n",
+		        bt_dev, follow_errno_reason(reason, sizeof(reason)));
 		ubertooth_close(ut); /* nothing is open on it yet; harmless */
 		ubertooth_free(ut);
 		return 1;
@@ -555,9 +565,11 @@ int main(int argc, char *argv[])
 		 * interrupt it, so a controller that never answers hangs instead
 		 * of failing. Every read here gives it a second, as the clock
 		 * offset read already did. */
+		errno = 0;
 		if (hci_read_bd_addr(sock, &bdaddr, HCI_TIMEOUT_MS) < 0) {
-			fprintf(stderr, "error: reading the address of %s failed: %s\n",
-			        bt_dev, strerror(errno));
+			fprintf(stderr, "error: reading the address of %s failed%s\n",
+			        bt_dev,
+			        follow_errno_reason(reason, sizeof(reason)));
 			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
@@ -586,9 +598,11 @@ int main(int argc, char *argv[])
 			        "Address: %s\n", addr);
 		str2ba(addr, &bdaddr);
 
+		errno = 0;
 		if (hci_devinfo(dev_id, &di) < 0) {
-			fprintf(stderr, "error: reading the settings of %s failed: %s\n",
-			        bt_dev, strerror(errno));
+			fprintf(stderr, "error: reading the settings of %s failed%s\n",
+			        bt_dev,
+			        follow_errno_reason(reason, sizeof(reason)));
 			follow_release_board(ut, sock, handle, cc, &files);
 			return 1;
 		}
@@ -616,11 +630,7 @@ int main(int argc, char *argv[])
 		if (hci_create_connection(sock, &bdaddr,
 					htobs(di.pkt_type & ACL_PTYPE_MASK),
 					0, 0x01, &handle, 25000) < 0) {
-			char reason[128] = { 0 };
-
-			if (errno != 0)
-				snprintf(reason, sizeof(reason), ": %s",
-				         strerror(errno));
+			follow_errno_reason(reason, sizeof(reason));
 			if (have_target)
 				fprintf(stderr, "error: connecting to %s "
 				        "failed%s\n", addr, reason);
@@ -894,12 +904,19 @@ int main(int argc, char *argv[])
 
 	/* Read clocks here to ensure clock is closest to real value. Without a
 	 * clock there is nothing to follow, so a failed read stops the command
-	 * rather than hopping from an uninitialised one. The receive thread is
+	 * rather than hopping from an uninitialized one. The receive thread is
 	 * already running and the link to the target is up by now, so both
-	 * failures leave through follow_cleanup(). */
+	 * failures leave through follow_cleanup().
+	 *
+	 * Each read clears errno first and gives a reason only if there is one,
+	 * as the adapter failures further up do: BlueZ does not promise an errno
+	 * for every way a read can fail, so a leftover one from an earlier call
+	 * would be reported as this failure's cause, and a failure that set none
+	 * would read "Undefined error: 0". */
+	errno = 0;
 	if (hci_read_clock(sock, 0, 0, &clock, &accuracy, HCI_TIMEOUT_MS) < 0) {
-		fprintf(stderr, "error: reading the clock of %s failed: %s\n",
-		        bt_dev, strerror(errno));
+		fprintf(stderr, "error: reading the clock of %s failed%s\n",
+		        bt_dev, follow_errno_reason(reason, sizeof(reason)));
 		follow_cleanup(ut, sock, handle, cc, &files);
 		return 1;
 	}
@@ -908,10 +925,12 @@ int main(int argc, char *argv[])
 	 * does the same with the clock offset it prints. */
 	clock = btohl(clock);
 	if (cc) {
+		errno = 0;
 		if (hci_read_clock_offset(sock, handle, &offset,
 		                         HCI_TIMEOUT_MS) < 0) {
 			fprintf(stderr, "error: reading the clock offset of the "
-			        "target failed: %s\n", strerror(errno));
+			        "target failed%s\n",
+			        follow_errno_reason(reason, sizeof(reason)));
 			follow_cleanup(ut, sock, handle, cc, &files);
 			return 1;
 		}
