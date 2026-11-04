@@ -183,7 +183,10 @@ paged, or when the paged device's acknowledgment does not reach the pager.
 A page the board could not answer on the air at all costs the attempt nothing:
 no connection is reported, the board says on its console that the answer was
 not sent, and the scan goes on to the pager's next attempt. `inquiry_scan`
-does the same with an inquiry response it could not send.
+does the same with an inquiry response it could not send, and `page` with its
+own page response: a page response that did not reach the air cannot have been
+acknowledged, so nothing that arrives in the window after it is taken for an
+acknowledgment, and the board repeats the page response instead.
 
 A word that is none of these is refused, and the prompt stays up; see
 DIAGNOSTICS.
@@ -270,7 +273,9 @@ CRC it may have, which the board adds:
 `<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
 many times to transmit the packet, one transmit slot after another, which is
 the way to make one easy for a receiver to catch; the packet is not
-retransmitted on the peer's say-so, so a peer that ignores it costs nothing.
+retransmitted on the peer's say-so, so a peer that ignores it costs nothing. A
+slot the board could not put on the air does not count against it: the packet
+still goes out `<count>` times, in the slot after.
 What is bounded is the air slots the run occupies, 400 of them, so the count
 allowed depends on how many slots one packet of the format fills: 400 of a
 one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or `ev4`,

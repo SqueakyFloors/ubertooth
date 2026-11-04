@@ -380,6 +380,122 @@ MU_TEST(a_format_the_device_does_not_know_drops_the_packet)
 	mu_assert(tx.fmt == NULL, "nothing goes out with no format");
 }
 
+/* ---- a slot that put nothing on the air ---- */
+
+/*
+ * A chosen packet asked for with a repeat of N reaches the peer N times even
+ * when one of its slots puts nothing on the air. The slot is composed before
+ * the radio is asked for it, so its repeat is counted as spent up front; the
+ * transmit task then reports that nothing went out, and the repeat goes back
+ * to the link. Without that the packet goes out N-1 times and nobody is told.
+ */
+MU_TEST(a_slot_that_was_not_sent_gives_its_repeat_back)
+{
+	ll_tx_t tx;
+	msg_t *msg;
+	unsigned slot;
+
+	reset_state(1);
+	msg = pkt_message(3);
+	btctl_pkt_tx_enqueue(msg);
+
+	/* The first slot goes out; the second does not. */
+	ll_prepare_tx(&ll, &tx);
+	ll_tx_done(&ll, 1);
+	mu_assert(ll.pkt_slots_left == 2, "two of the three repeats are left");
+
+	ll_prepare_tx(&ll, &tx);
+	mu_assert(tx.fmt == &chosen_format, "the second slot took the packet");
+	ll_tx_done(&ll, 0);
+	mu_assert(ll.pkt_slots_left == 2,
+		"the repeat the slot did not put on the air is still owed");
+
+	/* So three slots still reach the air, and only then is the message
+	 * let go of. */
+	for (slot = 0; slot < 2; slot++)
+	{
+		ll_prepare_tx(&ll, &tx);
+		mu_assert(tx.fmt == &chosen_format,
+			"a repeat that was owed went out");
+		mu_assert(!was_freed(msg), "the message is still held");
+		ll_tx_done(&ll, 1);
+	}
+
+	ll_prepare_tx(&ll, &tx);
+	mu_assert(was_freed(msg), "the message is freed after the last slot");
+	mu_assert(tx.hdr->type == BB_TYPE_POLL,
+		"tx.hdr->type == BB_TYPE_POLL");
+}
+
+/*
+ * The acknowledgment a slot was carrying survives the same way. Every packet
+ * carries the link's ARQN, and ll_prepare_tx() clears it on the understanding
+ * that the peer will read it: a slot that put nothing on the air leaves the
+ * peer unacknowledged, so it repeats the packet it just sent and the link
+ * loses a slot. The next transmit slot carries the acknowledgment instead.
+ */
+MU_TEST(a_slot_that_was_not_sent_gives_its_acknowledgment_back)
+{
+	ll_tx_t tx;
+
+	reset_state(1);
+	ll.loc_arqn = 1;
+
+	ll_prepare_tx(&ll, &tx);
+	mu_assert(tx.hdr->flags & (1<<BTHDR_ARQN),
+		"the slot carried the acknowledgment");
+	ll_tx_done(&ll, 0);
+	mu_assert(ll.loc_arqn == 1,
+		"the acknowledgment the slot did not deliver is still owed");
+
+	ll_prepare_tx(&ll, &tx);
+	mu_assert(tx.hdr->flags & (1<<BTHDR_ARQN),
+		"so the next slot carries it");
+	ll_tx_done(&ll, 1);
+	mu_assert(ll.loc_arqn == 0,
+		"and a slot that did go out spends it");
+}
+
+/*
+ * A slot with nothing to acknowledge does not invent an acknowledgment when
+ * it fails to go out: the peer would read it as an acknowledgment of a packet
+ * this board never had, and free a message it may never have delivered.
+ */
+MU_TEST(a_slot_with_nothing_to_acknowledge_stays_that_way)
+{
+	ll_tx_t tx;
+
+	reset_state(1);
+	ll.loc_arqn = 0;
+
+	ll_prepare_tx(&ll, &tx);
+	ll_tx_done(&ll, 0);
+
+	mu_assert(ll.loc_arqn == 0, "ll.loc_arqn == 0");
+}
+
+/*
+ * A link reset between the slot and the report has freed the chosen packet's
+ * message and counted its slots out, so there is nothing left to owe a repeat
+ * to. The report still arrives -- the transmit task is already holding the
+ * slot by then -- and must leave the count where the reset put it, or the
+ * next connection would start owing a repeat of a message that is gone.
+ */
+MU_TEST(a_reset_between_the_slot_and_its_report_owes_nothing)
+{
+	ll_tx_t tx;
+
+	reset_state(1);
+	btctl_pkt_tx_enqueue(pkt_message(3));
+	ll_prepare_tx(&ll, &tx);
+	ll_reset(&ll);
+
+	ll_tx_done(&ll, 0);
+
+	mu_assert(ll.pkt_slots_left == 0, "ll.pkt_slots_left == 0");
+	mu_assert(ll.cur_pkt_msg == NULL, "ll.cur_pkt_msg == NULL");
+}
+
 MU_TEST(a_reset_frees_both_held_messages)
 {
 	ll_tx_t tx;
@@ -418,6 +534,10 @@ int main(void)
 	MU_RUN(a_multi_slot_format_is_told_its_own_data_length);
 	MU_RUN(a_packet_for_another_transport_is_dropped);
 	MU_RUN(a_format_the_device_does_not_know_drops_the_packet);
+	MU_RUN(a_slot_that_was_not_sent_gives_its_repeat_back);
+	MU_RUN(a_slot_that_was_not_sent_gives_its_acknowledgment_back);
+	MU_RUN(a_slot_with_nothing_to_acknowledge_stays_that_way);
+	MU_RUN(a_reset_between_the_slot_and_its_report_owes_nothing);
 	MU_RUN(a_reset_frees_both_held_messages);
 	return mu_report();
 }

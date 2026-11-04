@@ -52,6 +52,15 @@ static struct {
 	uint8_t paged_uap;
 	bbhdr_t fhs_hdr;
 	uint8_t fhs_data[20];
+	/* The page response (FHS) this board last handed to the transmit task.
+	 * `pending` is set from the moment it is handed over until the
+	 * transmit reports itself, and `sent` says whether that report was of
+	 * a packet that went on the air. `unanswerable` is set when no window
+	 * could be opened for its acknowledgment, which ends the page from the
+	 * transmit's own report; see paging_fhs_unanswerable(). */
+	int fhs_pending;
+	int fhs_sent;
+	int fhs_unanswerable;
 } paging_state;
 
 static int paging_canceled(void)
@@ -70,6 +79,58 @@ static int page_response_timeout_exceeded(uint32_t clkn)
 }
 
 static void paging_schedule(unsigned delay);
+
+/* The page response's transmit is over, and `sent` says whether it went on
+ * the air (tx_task.h). paging_rx_ack_cb() is what reads the flag. */
+static void paging_fhs_done_cb(int sent, void *arg)
+{
+	paging_state.fhs_pending = 0;
+	paging_state.fhs_sent = sent;
+
+	if (!paging_state.fhs_unanswerable)
+		return;
+	paging_state.fhs_unanswerable = 0;
+	if (paging_canceled())
+		return;
+
+	/* Nothing is left to hear an acknowledgment, so the page is over. It
+	 * is reported here, rather than where the window was refused, because
+	 * the transmit task holds one packet at a time and this report is what
+	 * frees the host to ask for something else: a page asked for while the
+	 * page response was still held would hand over a second packet and
+	 * stop the firmware with "already got pkt". By now the transmit task
+	 * has given the page response back.
+	 *
+	 * The reason is the one the page's own deadline uses (rx_task.h). */
+	btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+}
+
+/* No window could be opened for the acknowledgment of the page response just
+ * handed over, so the page has nothing left to wait for. Leave the report to
+ * the transmit's own completion, which runs once the page response has been
+ * given back; if the scheduler had no room for the transmit at all it has
+ * reported itself already, and there is nothing to wait for. */
+static void paging_fhs_unanswerable(void)
+{
+	if (paging_state.fhs_pending)
+	{
+		paging_state.fhs_unanswerable = 1;
+		return;
+	}
+	btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+}
+
+/* Hand the page response to the transmit task for the slot `delay` reaches,
+ * with the clock that slot starts in written into its payload. */
+static void paging_send_fhs(unsigned delay)
+{
+	bbpkt_fhs_finalize_payload(paging_state.fhs_data,
+				(btphy.central_clkn+delay+1)>>2);
+	paging_state.fhs_pending = 1;
+	paging_state.fhs_sent = 0;
+	tx_task_schedule(delay, paging_fhs_done_cb, NULL,
+			&paging_state.fhs_hdr, paging_state.fhs_data);
+}
 
 /* Timeframe:
  * usec                 0                                625                      1250              1875
@@ -91,7 +152,17 @@ static int paging_rx_ack_cb(msg_t *msg, void *arg, int time_offset)
 	}
 	pkt = (btctl_rx_pkt_t *)h->data;
 
-	if (BBPKT_HAS_PKT(pkt))
+	/* An ID packet is a bare access code with no payload and no address,
+	 * so the only thing that makes a packet in this window the
+	 * acknowledgment of this board's page response is that the page
+	 * response went out. One the radio did not put on the air left the
+	 * paged device with neither the piconet clock nor its transport
+	 * address, so it cannot be answering: whatever arrived is something
+	 * else on the air, and a connection started on it would be one only
+	 * this end believes in, carrying nothing until link supervision ends
+	 * it a second later. Treat it as the empty window below does, which
+	 * repeats the page response while pagerespTO allows. */
+	if (BBPKT_HAS_PKT(pkt) && paging_state.fhs_sent)
 	{
 		cprintf("ID(3)\n");
 		central_state_init();
@@ -107,21 +178,14 @@ static int paging_rx_ack_cb(msg_t *msg, void *arg, int time_offset)
 		}else{
 			/* Retry sending FHS; no need to tune to the same x-1 channel since `Peripheral Page Response` Hopping sequence
 			   advance `N` only when Central's clock1 reaches 0. */
-			bbpkt_fhs_finalize_payload(paging_state.fhs_data, (btphy.central_clkn+delay+1)>>2);
-			tx_task_schedule(delay, NULL, NULL, &paging_state.fhs_hdr, paging_state.fhs_data);
+			paging_send_fhs(delay);
 			/* No window for the acknowledgment leaves this repeat
-			 * with nothing to wait for, and the page cannot start
-			 * again from here: the FHS above is still held by the
-			 * transmit task until the slot that sends it ends, so
-			 * paging_schedule()'s own transmit would stop the
-			 * firmware with "already got pkt". Report the page
-			 * over instead, on the reason its deadline uses
-			 * (rx_task.h). The FHS still goes out, and a paged
-			 * device that gets no acknowledgment window gives up
-			 * on its own pagerespTO. */
+			 * with nothing to wait for, so the page is over. The
+			 * FHS still goes out, and a paged device that gets no
+			 * acknowledgment window gives up on its own
+			 * pagerespTO. */
 			if (rx_task_schedule(delay+2, paging_rx_ack_cb, NULL, 0) < 0)
-				btctl_set_state(BTCTL_STATE_STANDBY,
-						BTCTL_REASON_TIMEOUT);
+				paging_fhs_unanswerable();
 		}
 	}
 	msg_free(msg);
@@ -152,30 +216,19 @@ static int paging_rx_cb(msg_t *msg, void *arg, int time_offset)
 
 		btphy_set_mode_no_ap(BT_MODE_PAGING_RESPONSE);
 		hop_freeze_clock(btphy.central_clkn);
-		
-		/* Write clk27_2 in fhs payload
-		 * Will tx at (clkn+1) */
-		bbpkt_fhs_finalize_payload(paging_state.fhs_data, (btphy.central_clkn+delay+1)>>2);
 
-		/* Schedule tx Central's page response (FHS): */
-		tx_task_schedule(delay, 	// must schedule tx_prepare now to start tx in next clkn
-			NULL, NULL,
-			/* skip 4 bytes of sw */
-			&paging_state.fhs_hdr, paging_state.fhs_data);
+		/* Schedule tx Central's page response (FHS), which must be
+		 * scheduled now to start tx in next clkn. */
+		paging_send_fhs(delay);
 
 		/* Schedule rx Peripheral's ID(3) page response. No window for
-		 * it leaves the FHS just scheduled unanswerable, and the page
-		 * cannot start again from here: that FHS is still held by the
-		 * transmit task until the slot that sends it ends, so
-		 * paging_schedule()'s own transmit would stop the firmware
-		 * with "already got pkt". Report the page over instead, on the
-		 * reason its deadline uses (rx_task.h). */
+		 * it leaves the FHS just scheduled unanswerable, so the page
+		 * is over. */
 		if (rx_task_schedule(delay+2,
 			paging_rx_ack_cb, NULL,	// ID rx callback
 			0			// no payload
 			) < 0)
-			btctl_set_state(BTCTL_STATE_STANDBY,
-					BTCTL_REASON_TIMEOUT);
+			paging_fhs_unanswerable();
 	}
 	else
 	{
@@ -289,6 +342,9 @@ void paging_state_setup(uint32_t lap, uint8_t uap)
 	btphy_set_mode(BT_MODE_PAGING, lap, uap);
 	paging_state.paged_lap = lap;
 	paging_state.paged_uap = uap;
+	paging_state.fhs_pending = 0;
+	paging_state.fhs_sent = 0;
+	paging_state.fhs_unanswerable = 0;
 
 	/* A simple Header for our fhs */ 
 	paging_state.fhs_hdr.lt_addr = 0;		//  This seems right

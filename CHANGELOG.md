@@ -1403,6 +1403,46 @@ Behavior the tools share.
   `bdaddr` and a malformed EIR on standard error rather than standard output.
   [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
 
+- Fixed: `ubertooth-btbr`'s `page` reported a connection when its own page
+  response never went on the air. The packet that acknowledges a page response
+  is a bare access code with nothing in it to say who sent it, so the only
+  thing that makes one an answer to this board is that the page response went
+  out. Where the board could not put it there, any other board answering a
+  page nearby was taken for the paged device, and `page` printed `ID(3)`,
+  `Central started`, and told the host it was connected to a device that had
+  heard nothing, until link supervision ended the connection a second later.
+  The board now repeats the page response instead, for as long as the page
+  response timeout allows, and then goes back to paging. This is the pager's
+  half of the `page_scan` fix above.
+  [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168)
+
+- Fixed: a `btbr` transmit slot that put nothing on the air cost the link a
+  repeat and an acknowledgment. The slot is composed before the radio is asked
+  for it, so a `tx` asked for with a count of N went out N-1 times when one of
+  its slots was dropped, and the peer, left unacknowledged for the packet it
+  had just sent, repeated that packet and cost the link another slot. The
+  transmit task now reports whether the slot reached the air, and both the
+  repeat and the acknowledgment go back to the link for the next transmit slot
+  to carry.
+  [#1166](https://github.com/SqueakyFloors/ubertooth/issues/1166)
+
+- Fixed: a `btbr` `page` could run on with nothing to show for it. A transmit
+  slot the board had no room left to compose at all did not move its hopping
+  on, while the device being paged moved its own on for the window it had
+  opened. The two stayed one frequency apart for the rest of the attempt, so
+  every packet after that went out where the paged device had just stopped
+  listening, and the page found nothing until the train started again. A
+  dropped slot now moves the hopping on as a slot that went out does, in an
+  `inquiry` sweep as well as in a page.
+  [#1191](https://github.com/SqueakyFloors/ubertooth/issues/1191)
+
+- A `page` the board has to give up on because it has no slot left to listen
+  for the acknowledgment now says so once its page response has gone out,
+  rather than while the radio still holds it. A new `page` asked for in that
+  gap, up to a couple of slots of it, would have stopped the board.
+  [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168)
+
+
 ### ubertooth-specan
 
 #### New features
