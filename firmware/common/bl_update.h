@@ -86,7 +86,10 @@ struct bl_update_report {
 	 * carries none -- which is a refusal, so this is 0 only then. */
 	uint16_t bootloader_version;
 	/* How many of the four sectors were programmed, and how many read back
-	 * as written. Both are 0 for a run that refused before writing. */
+	 * as written. Both are 0 for a run that refused before writing. A
+	 * failed read-back erases sector 0 again, so a run that reports
+	 * UBERTOOTH_BL_UPDATE_READ_BACK_FAILED counts that sector as written
+	 * although the region no longer holds it. */
 	unsigned sectors_written;
 	unsigned sectors_verified;
 };
@@ -122,7 +125,8 @@ int bl_update_check(const uint8_t *payload, size_t length,
  *   2. program sectors 1, 2 and 3, preparing each immediately before its
  *      program, as the ROM requires;
  *   3. program sector 0, which is where the vector table is;
- *   4. read all four back and compare them with what was sent.
+ *   4. read all four back and compare them with what was sent, and erase
+ *      sector 0 again if that comparison fails.
  *
  * The region is emptied before any of it is programmed, and the sector
  * holding the vector table is the last one written. Both are for the same
@@ -134,6 +138,21 @@ int bl_update_check(const uint8_t *payload, size_t length,
  * single program of sector 0, which is the window the application's own
  * download has had all along (host/ubertooth-tools/src/ubertooth-dfu.c,
  * download(), writes the application's first block last for this reason).
+ *
+ * The read-back is the one failure reported after sector 0 is in flash, so it
+ * is the one that would leave a board starting a bootloader nothing has
+ * confirmed. Step 4 erases that sector again instead, which is the state
+ * every other interruption leaves. The program of sector 0 takes the same
+ * erase as a precaution: every error the ROM documents for a copy to flash
+ * (bad or unmapped address, bad count, a sector not prepared, busy) is a
+ * refusal made before a word is written, so the sector should hold the erase
+ * already, but one code answers for the whole 4 KiB and this costs one erase
+ * of a sector that is erased anyway.
+ *
+ * Both failures report what went wrong as before,
+ * UBERTOOTH_BL_UPDATE_READ_BACK_FAILED or UBERTOOTH_BL_UPDATE_WRITE_FAILED. A
+ * part that refuses that prepare or that erase as well is left as it was,
+ * which is the one case this cannot put right.
  *
  * Programming sector 0 first would give that guarantee only while the erase
  * and that one sector ran: from the moment a filled-in checksum reached flash

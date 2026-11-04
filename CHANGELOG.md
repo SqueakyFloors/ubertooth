@@ -3788,6 +3788,12 @@ Fixes with no visible change in normal use.
   connection to time it, which cost the capture its place and left it waiting
   for the search to run again.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- A bootloader update whose read-back the part refuses erases the sector
+  holding the vector table again, so the board comes up in the part's serial
+  programmer, which a serial adapter recovers, instead of starting a
+  bootloader the part declined to confirm. A part that refuses that erase as
+  well is left as it was.
+  [#1127](https://github.com/SqueakyFloors/ubertooth/issues/1127)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 

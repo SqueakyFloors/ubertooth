@@ -106,6 +106,19 @@ static int part_refused(const struct bl_update_ops *ops, void *context,
 	return 0;
 }
 
+/* Take the vector table away again after a failure reported once sector 0 may
+ * hold part of it, which is the recovery the write order in bl_update.h
+ * describes. A part that refuses this prepare or this erase leaves nothing
+ * further to try, and the failure to report is the one that brought us here. */
+static void erase_vector_sector(const struct bl_update_ops *ops, void *context)
+{
+	if (ops->prepare(context, BL_UPDATE_FIRST_SECTOR,
+	                 BL_UPDATE_FIRST_SECTOR) != 0)
+		return;
+	(void)ops->erase(context, BL_UPDATE_FIRST_SECTOR,
+	                 BL_UPDATE_FIRST_SECTOR);
+}
+
 int bl_update_run(const struct bl_update_ops *ops, void *context,
                   const uint8_t *payload, size_t length,
                   uintptr_t region, uint8_t *buffer,
@@ -155,6 +168,15 @@ int bl_update_run(const struct bl_update_ops *ops, void *context,
 		}
 		if (ops->program(context, address, buffer,
 		                 BL_UPDATE_SECTOR_LENGTH) != 0) {
+			/* A precaution, not a case the ROM documents: every
+			 * error it gives for a copy to flash is a refusal made
+			 * before a word is written, so this sector should still
+			 * hold the erase. But one code answers for the whole
+			 * 4 KiB, and the vector table is in the first 32 bytes
+			 * of it, so an erase of a sector that is erased anyway
+			 * is the cheaper side to be on. */
+			if (this_sector == BL_UPDATE_FIRST_SECTOR)
+				erase_vector_sector(ops, context);
 			report->result = UBERTOOTH_BL_UPDATE_WRITE_FAILED;
 			return report->result;
 		}
@@ -171,6 +193,7 @@ int bl_update_run(const struct bl_update_ops *ops, void *context,
 		bl_update_sector(payload, sector, buffer);
 		if (ops->verify(context, address, buffer,
 		                BL_UPDATE_SECTOR_LENGTH) != 0) {
+			erase_vector_sector(ops, context);
 			report->result = UBERTOOTH_BL_UPDATE_READ_BACK_FAILED;
 			return report->result;
 		}
