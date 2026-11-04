@@ -355,8 +355,9 @@ board in DFU is also what an updater that never ran leaves behind: a bootloader
 whose entry pin reads grounded stays in DFU instead of starting the image, so
 nothing is installed and the board looks no different on the bus. A region that
 now holds the bootloader the image carries is reported as installed. A region
-that did not change and is not that bootloader is an `error: ` and status 1,
-because nothing was installed.
+that provably does not is an `error: ` and status 1: either it did not change
+at all, so nothing was installed, or it changed into neither bootloader, so the
+write did not finish.
 
 Both reads go through the bootloader the same way, so a region that did not
 change is provable. What they cannot settle is the lowest 512 bytes: the part
@@ -369,9 +370,9 @@ that is both a board which already had this bootloader and one which has
 another build of it and installed nothing. Installing a bootloader that differs
 from the one on the board only in those bytes is therefore the case this check
 cannot confirm or refuse; `ubertooth-util -B` after writing firmware again
-answers it. A region that changed into neither bootloader whole, as a write
-that stopped part way would leave it, and a region that will not read back are
-reported the same way.
+answers it. A region that will not read back, before the write or after it, is
+reported the same way, except that a region which reads afterwards and holds
+the image's bootloader is confirmed whether or not the earlier read worked.
 
 Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table
@@ -528,16 +529,17 @@ the name, so it is still reported alongside `-h`.
 0 when the command did what was asked, including `-h`: the image written and,
 with `-r`, verified on the board that came back; the dump complete and in
 place; the signed `<file>.dfu` written; the board out of the bootloader; the
-bootloader installed, or a bootloader update whose result could not be read
-back from the board.
+bootloader installed, or a bootloader update whose outcome the board could not
+be made to show.
 
 1 for everything else, and there is no other status. That covers a command
 line the tool will not take or that has nothing to do, a file it cannot read
 or create, an image it refuses, a selected board that is missing or that
 something else is using, a bootloader that will not answer or will not become
 idle, a transfer that failed both its attempts, a reset that left the board in
-DFU or brought it straight back into the bootloader, a bootloader update that
-left the region unchanged and not the bootloader it was asked to install, and a
+DFU or brought it straight back into the bootloader, a bootloader update whose
+region is provably not the bootloader it was asked to install -- whether
+because it did not change at all or because it changed into neither -- and a
 verification after the reset that did not end in the image's own name and
 revision. That last one includes a board that did not come back on USB at all:
 the write had completed by then, but the command cannot say the board runs
@@ -591,6 +593,8 @@ example `error: detach failed: the board is still in DFU`,
 `error: no bootloader was installed: the region still holds the bootloader it
 held before this run (CRC32:0x...), not the one bl_update.dfu carries
 (CRC32:0x...)`,
+`error: the bootloader region holds neither bootloader: ... so the write did
+not finish`,
 `error: firmware update failed after 2 attempt(s): ...` and
 `error: could not read the DFU state: the board's firmware does not support it
 (stalled, libusb -9)`. That last one is the shared wording for a request the
@@ -598,8 +602,9 @@ board refused, and it comes without the firmware API version note described
 in ubertooth(7): the bootloader this tool talks to runs no application
 firmware to have a version. Lines beginning `warning: ` are the ones
 about a part this host cannot identify, about an image built for another
-API version, and about a bootloader region that reads back as neither the
-bootloader the board had nor the one the image carries. Lines beginning
+API version, and about a bootloader region that did not change and holds what
+the image carries except in the lowest 512 bytes, which is the one outcome of
+an update that cannot be told apart. Lines beginning
 `note: ` say more about something the command has just reported: today a board
 that came back in the bootloader, a board waiting in the bootloader that a
 selection could not name, a board that never came back from a bootloader

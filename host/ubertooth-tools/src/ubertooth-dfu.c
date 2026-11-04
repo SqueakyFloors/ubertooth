@@ -2127,7 +2127,7 @@ static int read_bootloader_region(libusb_device_handle *devh,
  * Returns one of the three below, having said what it found.
  */
 #define BL_INSTALL_CONFIRMED 0 /* the region now holds the image's bootloader */
-#define BL_INSTALL_UNCHANGED 1 /* it is what it was: nothing was installed */
+#define BL_INSTALL_FAILED 1    /* it provably does not: the run has to fail */
 #define BL_INSTALL_UNKNOWN 2   /* the comparison could not be made */
 
 /* One wording for a check that could not be made, so every reason reads the
@@ -2153,12 +2153,6 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	char stage[96];
 	int rv;
 
-	if (!runtime->bl_crc32_before_read)
-		/* Without the baseline there is nothing to compare an unchanged
-		 * region against, so the run can confirm an install but cannot
-		 * refuse one. */
-		return bootloader_check_unmade("the bootloader region could not be "
-		                               "read before the write", 0);
 	rv = open_matching_dfu(runtime, identity, (void **)&devh);
 	if (rv != 1)
 		/* Nothing was opened on any answer but 1, so there is no handle to
@@ -2191,6 +2185,14 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	 * it was already there. */
 	if (board.crc32 == image->region_crc32)
 		return BL_INSTALL_CONFIRMED;
+	/* Everything below compares the two read-backs, so it needs the one
+	 * taken before the write. Confirming did not: the comparison above is
+	 * against the image alone, which is why it is asked first. */
+	if (!runtime->bl_crc32_before_read)
+		return bootloader_check_unmade("the bootloader region could not be "
+		                               "read before the write, so a region "
+		                               "that changed could not be told from "
+		                               "one that did not", 0);
 	if (board.crc32 == runtime->bl_crc32_before) {
 		/* The same bytes answered both read-backs, so the region did not
 		 * change. Whether that means nothing was installed depends on what
@@ -2239,26 +2241,34 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 		        "region holds the updater image, so write your firmware "
 		        "again (ubertooth-dfu -d bluetooth_rxtx.dfu -r)\n");
 		fflush(stderr);
-		return BL_INSTALL_UNCHANGED;
+		return BL_INSTALL_FAILED;
 	}
 	/* The region changed, and above the window it is the image's bootloader:
 	 * the window is where the two differ, which is the boot ROM reading back
 	 * over it. An update that worked. */
 	if (board.crc32_above_window == image->region_crc32_above_window)
 		return BL_INSTALL_CONFIRMED;
-	/* A warning rather than a note: the region changed and is neither
-	 * bootloader whole, so something is worth looking at, but it is not
-	 * proof that nothing was installed -- a write that stopped part way
-	 * reads like this, and that is a board to look at rather than a command
-	 * to fail. */
-	fprintf(stderr, "warning: whether the bootloader was installed could not "
-	        "be checked: the region reads back as CRC32:0x%08x, which is "
-	        "neither the hash it had before this run (CRC32:0x%08x) nor the "
-	        "one %s carries (CRC32:0x%08x)\n",
+	/* The region changed into neither bootloader, above the window as well
+	 * as whole, which a write that stopped part way leaves. Nothing about
+	 * this is uncertain: the region provably is not the bootloader the
+	 * command was asked to install, so the command failed. */
+	runtime->leave_in_dfu = 1;
+	fprintf(stderr, "error: the bootloader region holds neither bootloader: "
+	        "it reads back as CRC32:0x%08x, which is neither the hash it had "
+	        "before this run (CRC32:0x%08x) nor the one %s carries "
+	        "(CRC32:0x%08x), so the write did not finish\n",
 	        (unsigned)board.crc32, (unsigned)runtime->bl_crc32_before,
 	        runtime->download_name, (unsigned)image->region_crc32);
+	/* The region is erased whole and the sector holding the vector table is
+	 * programmed last, so a region in this state usually has no table the
+	 * boot ROM will start and the board falls to its serial programmer. The
+	 * man page's recovery section is where that is written out. */
+	fprintf(stderr, "note: the board may not start this bootloader, and a "
+	        "board that does not comes up in the part's serial programmer, "
+	        "which needs a serial In-System Programming adapter; see "
+	        "ubertooth-dfu(1), UPDATING THE BOOTLOADER\n");
 	fflush(stderr);
-	return BL_INSTALL_UNKNOWN;
+	return BL_INSTALL_FAILED;
 }
 
 /* How a claim failure names the board: by the -U string, which is all this
@@ -2820,7 +2830,7 @@ int main(int argc, char **argv) {
 		 * before anything is called a success. */
 		r = check_installed_bootloader(&runtime, &selected_identity,
 		                               &update_image);
-		if (r == BL_INSTALL_UNCHANGED) {
+		if (r == BL_INSTALL_FAILED) {
 			exit_status = 1;
 			goto cleanup;
 		}

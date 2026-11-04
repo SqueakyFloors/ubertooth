@@ -135,6 +135,7 @@ static struct {
 	int upload_fail_rc;
 	int upload_fail_once;   /* ...and then reads normally */
 	int upload_fail_after_detach; /* ...and only once the board has reset */
+	int upload_fail_before_detach; /* ...or only until it has */
 	int dnload_calls;
 	int dnload_rc;          /* < 0: block writes fail with this */
 	int dnload_fail_after;  /* ...from this many blocks written on */
@@ -385,7 +386,9 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 			          "UPLOAD asked for a block inside the bootloader");
 			if (fake.upload_fail_block >= 0 &&
 			    value == fake.upload_fail_block &&
-			    (!fake.upload_fail_after_detach || fake.detach_calls > 0)) {
+			    (!fake.upload_fail_after_detach || fake.detach_calls > 0) &&
+			    (!fake.upload_fail_before_detach ||
+			     fake.detach_calls == 0)) {
 				if (fake.upload_fail_once)
 					fake.upload_fail_block = -1;
 				return fake.upload_fail_rc;
@@ -3149,8 +3152,11 @@ MU_TEST(a_region_unreadable_before_the_write_is_neither_refused_nor_claimed)
 	struct run_result r;
 
 	board_whose_entry_pin_is_bridged();
+	/* Only the read before the write fails, so the run reaches the one
+	 * comparison that needs the earlier read with nothing to make it. */
 	fake.upload_fail_block = 0;
 	fake.upload_fail_rc = LIBUSB_ERROR_IO;
+	fake.upload_fail_before_detach = 1;
 	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
@@ -3218,13 +3224,12 @@ MU_TEST(an_installed_bootloader_is_confirmed_through_the_boot_rom_window)
 }
 
 /*
- * A region that holds neither bootloader whole, as a write that stopped part
- * way would leave it. That is not the refusal: only a region that is exactly
- * what it was before the run is provably one that nothing was installed into.
- * So this is a warning and the run still ends 0, saying nothing about an
- * installed bootloader.
+ * A region that holds neither bootloader, above the window as well as whole,
+ * which a write that stopped part way leaves. Nothing about that is uncertain:
+ * the region provably is not the bootloader the command was asked to install,
+ * so the run fails and names the serial programmer such a board comes up in.
  */
-MU_TEST(a_region_holding_neither_bootloader_warns_rather_than_refusing)
+MU_TEST(a_region_holding_neither_bootloader_is_a_failed_install)
 {
 	struct run_result r;
 
@@ -3232,13 +3237,41 @@ MU_TEST(a_region_holding_neither_bootloader_warns_rather_than_refusing)
 	fake.bl_region_part_written = 1;
 	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: the bootloader region holds neither "
+	          "bootloader") != NULL, r.err);
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert(strstr(r.err, "neither the hash") != NULL, r.err);
+	/* The one state USB cannot reach, so the failure names the adapter that
+	 * recovers a board from it. */
+	mu_assert(strstr(r.err, "serial programmer") != NULL,
+	          "the failure did not name the part's serial programmer");
+	mu_assert(r.out[0] == '\0', r.out);
+}
+
+/*
+ * A board whose region did not read before the write can still be confirmed,
+ * because that comparison is against the image alone. Only telling a region
+ * that changed from one that did not needs the earlier read, so the run says
+ * the check could not be made and ends 0 when the region is something else.
+ */
+MU_TEST(an_install_is_confirmed_with_no_read_before_the_write)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	/* Only the read before the write fails: block 0 reads once the board has
+	 * reset, which is the read-back that confirms it. */
+	fake.upload_fail_block = 0;
+	fake.upload_fail_rc = LIBUSB_ERROR_IO;
+	fake.upload_fail_before_detach = 1;
+	write_updater_image(UPDATER_PAYLOAD);
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, error_lines(r.err));
-	mu_assert(strstr(r.err, "warning: whether the bootloader was installed "
-	          "could not be checked") != NULL, r.err);
-	mu_assert(strstr(r.err, "neither the hash") != NULL, r.err);
-	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
-	          "the run claimed a bootloader the region does not hold");
+	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+	mu_assert(strstr(r.err, "could not be checked") == NULL,
+	          "a confirmation was demoted for want of the earlier read");
 }
 
 /*
@@ -3674,7 +3707,8 @@ int main(void)
 	MU_RUN(a_region_unreadable_before_the_write_is_neither_refused_nor_claimed);
 	MU_RUN(a_region_that_will_not_read_back_leaves_the_check_unmade);
 	MU_RUN(an_installed_bootloader_is_confirmed_through_the_boot_rom_window);
-	MU_RUN(a_region_holding_neither_bootloader_warns_rather_than_refusing);
+	MU_RUN(a_region_holding_neither_bootloader_is_a_failed_install);
+	MU_RUN(an_install_is_confirmed_with_no_read_before_the_write);
 	MU_RUN(a_read_back_block_that_stalls_once_is_read_again_and_still_checked);
 	MU_RUN(a_bootloader_differing_only_inside_the_window_is_not_claimed);
 	MU_RUN(an_updater_that_never_ran_is_refused_through_the_boot_rom_window);

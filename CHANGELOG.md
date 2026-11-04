@@ -1178,9 +1178,10 @@
   installed nothing read like one that worked. The command now reads the
   bootloader region before the write and again afterwards, and says what the
   board holds: an installed bootloader is reported with the hash
-  `ubertooth-util -B` will give, and a region that did not change and is not
-  the bootloader the image carries is an error and exit 1. Where the two reads
-  cannot settle it, the run says so and claims nothing either way.
+  `ubertooth-util -B` will give, and a region that provably is not the one
+  asked for is an error and exit 1, whether it did not change at all or changed
+  into neither bootloader. Where the reads cannot settle it, the run says so
+  and claims nothing either way.
   [#1128](https://github.com/SqueakyFloors/ubertooth/issues/1128)
 
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
