@@ -143,7 +143,7 @@ difference.
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
 `error: sync word must be 8 hex digits (got cb87)` or
-`error: a generic payload must be hex digits, two per byte, 1 to 50 bytes
+`error: a generic payload must be hex digits, two per byte, 1 to 32 bytes
 (got 010)`.
 
 A command line has to name one of the two transmits, and a command line that
