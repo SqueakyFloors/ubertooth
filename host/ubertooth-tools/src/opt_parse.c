@@ -335,6 +335,8 @@ static int same_path_text(const char *first, const char *second)
  * The names above are compared as text, not followed: that answers a
  * different question -- where /dev/stdout points at this moment -- rather than
  * which descriptor the user named. */
+static int descriptor_number(const char *path);
+
 static int names_descriptor_one(const char *name)
 {
 	size_t i;
@@ -344,25 +346,42 @@ static int names_descriptor_one(const char *name)
 	for (i = 0; i < sizeof(stdout_paths) / sizeof(stdout_paths[0]); i++)
 		if (same_path_text(name, stdout_paths[i]))
 			return 1;
-	return 0;
+	/* Any other spelling this platform's own descriptor filesystem answers
+	 * with descriptor 1 is that stream too. The BSDs read a leading zero as
+	 * part of the number, so "/dev/fd/01" is descriptor 1 there and a
+	 * capture given it writes to standard output; left out, it would have
+	 * had the tool's report lines mixed into it and would not have been
+	 * refused at a terminal. */
+	return descriptor_number(name) == STDOUT_FILENO;
 }
 
 /* The descriptor a path of the form <directory>/<number> names, where
  * <directory> is given as its elements, or -1 when the path is not one of
- * those. The number must be written plainly: "007" is a name the descriptor
- * filesystem has no entry for, so reading it as descriptor 7 would answer for
- * a file that nothing would be written to.
+ * those.
  *
- * The descriptor is asked whether it is open, because a path naming a closed
- * one names nothing at all, and the caller must not take it for the file that
- * descriptor number held in some earlier process. */
+ * Two things have to hold, and the system is asked both rather than the
+ * spelling being ruled on. The descriptor must be open here, because a path
+ * naming a closed one names nothing, and it must not be taken for the file
+ * that descriptor number held in some earlier process. And the path itself
+ * must lead to that descriptor's file, which is what tells a real descriptor
+ * path from a file that merely looks like one -- and, more to the point, from
+ * a spelling this platform does not answer: the descriptor filesystem the
+ * BSDs mount on /dev/fd reads a leading zero as part of the number, so
+ * "/dev/fd/01" is descriptor 1 there and opening it writes to that stream,
+ * while on Linux /dev/fd is a directory of exact names and "/dev/fd/01" is a
+ * path that cannot be created. Reading the number alone would make the second
+ * of those a silent redirect to standard output.
+ *
+ * The inode number is what is compared, not the device number as well,
+ * because that is the half the BSDs answer with a device of their own; see
+ * named_descriptor(). */
 static int descriptor_in(const char *path, const char *const *directory,
                          size_t elements)
 {
 	const char *at = path, *element;
 	size_t length = 0, i;
 	char number[16];
-	struct stat info;
+	struct stat held, named;
 	int fd;
 
 	if (path[0] != '/' || ends_inside_a_name(path))
@@ -380,11 +399,37 @@ static int descriptor_in(const char *path, const char *const *directory,
 	number[length] = '\0';
 	if (next_component(&at, &length) != NULL)
 		return -1;
-	if (number[0] == '0' && number[1] != '\0')
-		return -1;
 	if (opt_parse_int(number, 0, INT_MAX, &fd) < 0)
 		return -1;
-	return fstat(fd, &info) == 0 ? fd : -1;
+	if (fstat(fd, &held) != 0 || stat(path, &named) != 0)
+		return -1;
+	return held.st_ino == named.st_ino ? fd : -1;
+}
+
+/* The descriptor a path names through one of the directories that hold this
+ * process's descriptors, or -1 for any other path. Separate from the test
+ * above so that the two can call each other's work without recursion. */
+static int descriptor_number(const char *path)
+{
+	static const char *const dev_fd[] = { "dev", "fd" };
+#ifdef __linux__
+	/* Behind the conditional for the reason stdout_paths is: on a platform
+	 * with no /proc this path names nothing, and reading it as a
+	 * descriptor there would answer for a file the writer could not
+	 * create. */
+	static const char *const proc_self_fd[] = { "proc", "self", "fd" };
+#endif
+	int fd;
+
+	if (path == NULL)
+		return -1;
+	fd = descriptor_in(path, dev_fd, sizeof(dev_fd) / sizeof(dev_fd[0]));
+#ifdef __linux__
+	if (fd < 0)
+		fd = descriptor_in(path, proc_self_fd,
+		                   sizeof(proc_self_fd) / sizeof(proc_self_fd[0]));
+#endif
+	return fd;
 }
 
 /* Which of this process's own descriptors a path names, or -1 for a path that
@@ -406,27 +451,13 @@ static int descriptor_in(const char *path, const char *const *directory,
  * names one means the device file. */
 static int named_descriptor(const char *path)
 {
-	static const char *const dev_fd[] = { "dev", "fd" };
-#ifdef __linux__
-	/* Behind the conditional for the reason stdout_paths is: on a platform
-	 * with no /proc this path names nothing, and reading it as a
-	 * descriptor there would answer for a file the writer could not
-	 * create. */
-	static const char *const proc_self_fd[] = { "proc", "self", "fd" };
-#endif
-	int fd;
+	int fd = descriptor_number(path);
 
-	if (path == NULL)
-		return -1;
-	if (names_descriptor_one(path))
-		return STDOUT_FILENO;
-	fd = descriptor_in(path, dev_fd, sizeof(dev_fd) / sizeof(dev_fd[0]));
-#ifdef __linux__
-	if (fd < 0)
-		fd = descriptor_in(path, proc_self_fd,
-		                   sizeof(proc_self_fd) / sizeof(proc_self_fd[0]));
-#endif
-	return fd;
+	if (fd >= 0)
+		return fd;
+	/* The fixed names of descriptor 1, which are not a directory and a
+	 * number and so are recognized as text. */
+	return names_descriptor_one(path) ? STDOUT_FILENO : -1;
 }
 
 int opt_writes_to_stdout(const char *filename)

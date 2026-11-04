@@ -93,9 +93,7 @@ COMPATIBILITY.md for the comparison.
    has written, which standard output cannot do, so a value that names that
    stream is refused, `-r -`, `-r /dev/stdout`, and a symbolic link pointing
    there alike:
-   `error: PCAPNG capture to stdout is not supported; use -q -`. A symbolic
-   link that happens to point there is a file name like any other and is
-   refused by the writer instead, as a file that already exists
+   `error: PCAPNG capture to stdout is not supported; use -q -`
  - `-q <filename>` :
    capture packets to a PCAP file. `-q -` writes the capture to standard
    output; see CAPTURING TO STANDARD OUTPUT

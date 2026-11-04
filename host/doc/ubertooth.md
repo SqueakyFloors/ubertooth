@@ -151,7 +151,10 @@ path -- `/dev/stdout` or `/dev/fd/1`, and `/proc/self/fd/1` on Linux, with any
 redundant `/` or `.` between
 the names in it -- is that stream too, so the capture owns it and the tool's
 own report lines stay out of it, and so is a symbolic link whose chain ends at
-one of those names, because a writer writes through a link. `/dev/fd/N` for
+one of those names, because a writer writes through a link. Any other spelling
+the system itself answers with descriptor 1 counts as well: the BSDs read a
+leading zero as part of the number, so `/dev/fd/01` is that stream there and
+names nothing at all on Linux. `/dev/fd/N` for
 any other `N` is not that stream: it reaches whatever the calling shell opened
 on that descriptor, so the capture goes there and the report stays on standard
 output.

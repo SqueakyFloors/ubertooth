@@ -253,6 +253,45 @@ with tempfile.TemporaryDirectory() as workdir:
               "-d %s -z prints the address it found on standard error" % name,
               errors)
 
+    # A spelling of descriptor 1 that only the platform's own descriptor
+    # filesystem answers: the BSDs read a leading zero as part of the number,
+    # so "/dev/fd/01" is that stream there, while on Linux /dev/fd holds exact
+    # names and the path leads nowhere. Whichever this platform does, the tool
+    # has to follow it -- reading the number alone would leave a capture given
+    # it with the report mixed in, and unrefused at a terminal.
+    padded = "/dev/fd/01"
+    try:
+        reaches_stdout = os.stat(padded).st_ino == os.fstat(1).st_ino
+    except OSError:
+        reaches_stdout = False
+    if not reaches_stdout:
+        print("skipping %s, this platform does not answer it" % padded)
+    else:
+        status, errors = run_to_file(["-i", "full.bin", "-d", padded, "-z"],
+                                     work, work / "padded.bin")
+        captured = (work / "padded.bin").read_bytes()
+        check(status == 0, "-d %s exits 0" % padded, errors)
+        check(captured == EXPECTED_DUMP,
+              "-d %s writes the dump and nothing else to descriptor 1"
+              % padded, "%d bytes, expected %d" % (len(captured),
+                                                   len(EXPECTED_DUMP)))
+        check("5A:3C:96" in errors,
+              "-d %s prints the address it found on standard error" % padded,
+              errors)
+        outcome = run_to_tty(RX, ["-i", "full.bin", "-d", padded], work)
+        if outcome is None:
+            print("skipping the %s terminal case, no pty available" % padded)
+        else:
+            status, errors, written = outcome
+            check(status == 1, "-d %s at a terminal exits 1" % padded,
+                  str(status))
+            check("error: stdout is a tty, refusing to write binary dump data"
+                  " to it" in errors,
+                  "-d %s at a terminal says why" % padded, errors)
+            check(written == b"",
+                  "-d %s writes nothing to the terminal" % padded,
+                  repr(written[:60]))
+
     # A symbolic link pointing at one of those names reaches the same stream,
     # because a writer writes through a link. So the capture owns descriptor 1
     # the same way: the dump arrives there whole, and the survey results, which

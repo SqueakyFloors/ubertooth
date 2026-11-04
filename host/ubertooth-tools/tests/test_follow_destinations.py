@@ -152,16 +152,21 @@ with tempfile.TemporaryDirectory() as work:
         check(output == b"", "-r %s writes nothing to standard output" % named,
               repr(output[:60]))
 
-    # A link pointing at that stream is a file name, not a value naming it,
-    # and this option reads values: it is the writer that turns it down, as a
-    # file that already exists. Pinned so the boundary cannot move unnoticed.
+    # A link pointing at that stream reaches it, because a writer writes
+    # through a link, so this option turns it down on the command line too
+    # rather than leaving the writer to call the stream's own device entry a
+    # file that already exists.
     link = work / "link-to-stream"
     if link.is_symlink():
         link.unlink()
     link.symlink_to("/dev/stdout")
-    status, output, errors = run(["-r", str(link), "-q", "cap.pcap"], work)
-    check("PCAPNG capture to stdout" not in errors,
-          "-r <a link to the stream> is a file name to this option", errors)
+    status, output, errors = run(["-r", str(link), "-q", "linked.pcap"], work)
+    check(status == 1, "-r <a link to the stream> exits 1", str(status))
+    check(errors == "error: PCAPNG capture to stdout is not supported;"
+                    " use -q -\n",
+          "-r <a link to the stream> says what to use instead", errors)
+    check(not (work / "linked.pcap").exists(),
+          "-r <a link to the stream> creates no capture")
 
 for line in failures:
     print(line)

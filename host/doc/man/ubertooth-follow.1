@@ -58,7 +58,7 @@ select an Ubertooth by enumeration index or serial number; see ubertooth(7), SEL
 print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
 .TP
 \fB\-r <filename>\fR
-capture packets to a PCAPNG file\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so a value that names that stream is refused, \fB\-r \-\fR, \fB\-r /dev/stdout\fR, and a symbolic link pointing there alike: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR\. A symbolic link that happens to point there is a file name like any other and is refused by the writer instead, as a file that already exists
+capture packets to a PCAPNG file\. A PcapNG writer seeks back over what it has written, which standard output cannot do, so a value that names that stream is refused, \fB\-r \-\fR, \fB\-r /dev/stdout\fR, and a symbolic link pointing there alike: \fBerror: PCAPNG capture to stdout is not supported; use \-q \-\fR
 .TP
 \fB\-q <filename>\fR
 capture packets to a PCAP file\. \fB\-q \-\fR writes the capture to standard output; see CAPTURING TO STANDARD OUTPUT

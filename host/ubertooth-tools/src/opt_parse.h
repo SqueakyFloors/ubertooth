@@ -132,9 +132,15 @@ int opt_check_stdout_not_tty(const char *what);
  * /proc/self/fd/1 on Linux, with any redundant separators or "." elements
  * between names -- because a user who writes one of those means the same
  * stream, and a capture that shared it with the tool's own report would have
- * report lines in the middle of the capture data. /dev/fd/<n> for any other
+ * report lines in the middle of the capture data. So does any other spelling
+ * the platform's own descriptor filesystem answers with descriptor 1: the
+ * BSDs read a leading zero as part of the number, so "/dev/fd/01" is that
+ * stream there and nothing at all on Linux. The platform is asked rather than
+ * the spelling ruled on, so a destination that cannot be created is never
+ * taken for the stream. /dev/fd/<n> for any other
  * <n> is an ordinary file name here: it reaches whatever the caller's shell
- * opened on that descriptor, which the name alone does not say. So is a name
+ * opened on that descriptor, so the capture goes there and the tool's report
+ * stays on standard output. So is a name
  * that ends in a separator or a "." element ("/dev/stdout/."), which asks for
  * something inside a file that is not a directory.
  */

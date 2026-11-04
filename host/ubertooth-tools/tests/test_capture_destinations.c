@@ -572,9 +572,7 @@ static void test_descriptor_paths(void)
 	/* Nothing is open on this descriptor, so the path names nothing and
 	 * cannot be compared with anything. */
 	check_accepted("cap.bin", "/dev/fd/9");
-	/* A number the descriptor filesystem has no entry for is a file name,
-	 * whatever it reads as. */
-	check_accepted("cap.bin", "/dev/fd/007");
+	/* A last element that is not a number at all is a file name. */
 	check_accepted("cap.bin", "/dev/fd/1x");
 
 	make_file("held.bin", "the capture\n");
@@ -606,6 +604,29 @@ static void test_descriptor_paths(void)
 		else
 			printf("skipping the link-to-descriptor case: %s\n",
 			       strerror(errno));
+	}
+	/* A zero-padded number is the platform's to answer, not this code's:
+	 * the descriptor filesystem the BSDs mount reads it as the same
+	 * descriptor, and on Linux /dev/fd is a directory of exact names where
+	 * the path leads nowhere. Whichever this platform does, the pair must
+	 * follow it -- reading the number alone would make a destination that
+	 * cannot be created a silent redirect to standard output. */
+	{
+		char padded[64];
+		struct stat by_padded, by_path;
+
+		snprintf(padded, sizeof(padded), "/dev/fd/0%d", held);
+		if (stat(padded, &by_padded) == 0 && stat(path, &by_path) == 0 &&
+		    by_padded.st_ino == by_path.st_ino) {
+			char expected[PATH_MAX + 128];
+
+			snprintf(expected, sizeof(expected),
+			         "error: -q and -d cannot both write to one file"
+			         " (held.bin and %s)\n", padded);
+			check_refused("held.bin", padded, expected);
+		} else {
+			check_accepted("held.bin", padded);
+		}
 	}
 	/* Another file on the same descriptor path is still another file. */
 	make_file("other-held.bin", "elsewhere\n");
