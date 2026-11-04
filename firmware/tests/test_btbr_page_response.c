@@ -102,6 +102,14 @@ static btctl_reason_t btctl_last_reason;
  * that rule for a test to see it. */
 static unsigned state_reports;
 
+/* The harness tick, one slot clock period, which air_run() moves on. It lives
+ * up here because the state report below is stamped with it. */
+static uint32_t air_tick;
+
+/* The tick the last state report went out in, so a test can place the report
+ * against what was on the air by then. */
+static uint32_t state_report_tick;
+
 void btctl_set_state(btctl_state_t state, btctl_reason_t reason)
 {
 	if (!(btctl.state == BTCTL_STATE_STANDBY
@@ -109,6 +117,7 @@ void btctl_set_state(btctl_state_t state, btctl_reason_t reason)
 		state_reports++;
 	btctl.state = state;
 	btctl_last_reason = reason;
+	state_report_tick = air_tick;
 }
 
 /*
@@ -126,10 +135,12 @@ void btphy_set_mode(btphy_mode_t mode, uint32_t lap, uint8_t uap)
 
 void btphy_cancel_clkn_delay(void) { }
 
-/* The clock the pager wrote into each FHS it sent, oldest first. */
-#define FHS_SENT_MAX 8
-static uint32_t fhs_sent_clk27_2[FHS_SENT_MAX];
-static unsigned fhs_sent_count;
+/* The clock the pager wrote into each page response it composed, oldest
+ * first. A page response the radio did not put on the air is counted here
+ * too: this is what the pager asked for, not what reached the peer. */
+#define FHS_COMPOSED_MAX 8
+static uint32_t fhs_composed_clk27_2[FHS_COMPOSED_MAX];
+static unsigned fhs_composed_count;
 
 /* The clock the paged device is told by the FHS it receives. */
 static uint32_t fhs_rx_clk27_2;
@@ -149,9 +160,9 @@ void bbpkt_fhs_prepare_payload(uint8_t *data, uint64_t parity, uint32_t lap,
 void bbpkt_fhs_finalize_payload(uint8_t *fhs_data, uint32_t clk27_2)
 {
 	(void)fhs_data;
-	if (fhs_sent_count < FHS_SENT_MAX)
-		fhs_sent_clk27_2[fhs_sent_count] = clk27_2;
-	fhs_sent_count++;
+	if (fhs_composed_count < FHS_COMPOSED_MAX)
+		fhs_composed_clk27_2[fhs_composed_count] = clk27_2;
+	fhs_composed_count++;
 }
 
 void bbpkt_decode_fhs(uint8_t *data, fhs_info_t *info)
@@ -232,12 +243,14 @@ struct pending {
 #define PENDING_MAX 96
 static struct pending pending[PENDING_MAX];
 static unsigned pending_count;
-static uint32_t air_tick;
 
 /* Which window of the role being run the air puts a packet into, counted from
  * its first; 0 for none. A whole FHS rather than a bare access code when asked
- * for. */
+ * for. A second window can be named as well, for the pager's case of an
+ * answer to its page message and then something in the window where the
+ * acknowledgment would be. */
 static unsigned air_deliver_window;
+static unsigned air_deliver_window_also;
 static unsigned air_window_count;
 static int air_deliver_payload;
 
@@ -445,7 +458,8 @@ static uint8_t chan_of_phase(uint8_t x)
 static void air_window_packet(btctl_rx_pkt_t *pkt)
 {
 	air_window_count++;
-	if (air_window_count != air_deliver_window)
+	if (air_window_count != air_deliver_window &&
+	    air_window_count != air_deliver_window_also)
 		return;
 	pkt->flags |= 1<<BBPKT_F_HAS_PKT;
 	if (air_deliver_payload) {
@@ -553,12 +567,14 @@ static void air_reset(void)
 	pending_count = 0;
 	air_tick = 0;
 	air_deliver_window = 0;
+	air_deliver_window_also = 0;
 	air_window_count = 0;
 	air_deliver_payload = 0;
+	state_report_tick = 0;
 	air_callback_lateness = 0;
 	air_tx_drop_nth = 0;
 	air_tx_prepared = 0;
-	fhs_sent_count = 0;
+	fhs_composed_count = 0;
 	fhs_rx_clk27_2 = 0;
 	scan_arm_refused = 0;
 	tdma_refused = 0;
@@ -775,7 +791,7 @@ static void check_pager_timing(unsigned half)
 	mu_assert_int_eq(0, fhs->clkn & 2);
 	mu_assert_int_eq(chan_of_phase(pager_page_phase(half)+1), fhs->chan);
 	/* It says which tick it went out in, in units of four. */
-	mu_assert_int_eq(fhs->clkn >> 2, fhs_sent_clk27_2[0]);
+	mu_assert_int_eq(fhs->clkn >> 2, fhs_composed_clk27_2[0]);
 	/* Nothing acknowledged it, so no connection came up on this side. */
 	mu_assert_int_eq(0, central_started);
 
@@ -784,7 +800,7 @@ static void check_pager_timing(unsigned half)
 	 * the pager gives up. What follows is the page train starting again,
 	 * two page messages a tick apart, past the bound. */
 	last = air_nth(pager_log, pager_log_count, AIR_TX, 6);
-	mu_assert_int_eq(4, fhs_sent_count);
+	mu_assert_int_eq(4, fhs_composed_count);
 	mu_assert_int_eq(12, last->tick - fhs->tick);
 	mu_assert(last->tick - answer->tick <= PAGE_RESP_TO_TICKS,
 		"a page response falls outside pagerespTO");
@@ -1185,6 +1201,80 @@ MU_TEST(pager_an_acknowledgment_window_that_cannot_be_armed_ends_the_page)
 	mu_assert(rx_arms_refused > 0, "no receive window was refused");
 	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
 	mu_assert_int_eq(BTCTL_REASON_TIMEOUT, btctl_last_reason);
+
+	/* And it said so only once the page response had gone on the air,
+	 * which is when the transmit task gives the packet back. A report
+	 * while the packet was still held leaves the host free to ask for
+	 * another page in that gap, and the second packet would stop the
+	 * firmware. The page response's own completion is what waits for
+	 * that. */
+	mu_assert(state_report_tick
+			> air_nth(air_log, air_count, AIR_TX, 3)->tick,
+		"the page was reported over while the page response was still "
+		"held by the transmit task");
+}
+
+/*
+ * The page response this board sends is what gives the paged device the
+ * piconet clock and its transport address, and the acknowledgment that comes
+ * back is a bare access code: no payload, no address, nothing that says who
+ * sent it. So the only thing that makes a packet in that window an
+ * acknowledgment of this board's page response is that the page response went
+ * out. A transmit the board gave up on -- the radio not tuned in time, or no
+ * room in the slot the end of the transmission needed -- puts nothing on the
+ * air, and the transmit task says so.
+ *
+ * With the page response dropped, anything else answering a page on the air
+ * lands in that window, and a connection started on it would be one only this
+ * end believes in: it carries nothing until link supervision ends it a second
+ * later. The board repeats the page response instead, which is what it does
+ * for an empty window, and the page attempt still has most of its 45 seconds.
+ */
+MU_TEST(pager_a_dropped_page_response_does_not_start_a_connection)
+{
+	const struct air_event *page1, *repeat, *train;
+
+	/* run_pager() delivers into one window and resets the harness, so the
+	 * pager is started here instead. */
+	air_reset();
+	btphy.central_clkn = PAGER_CLKN_START;
+	btphy.my_lap = PAGER_LAP;
+	btphy.my_uap = PAGER_UAP;
+	/* The answer to the first page message, and then a packet in the
+	 * window where the acknowledgment would be. */
+	air_deliver_window = 1;
+	air_deliver_window_also = 2;
+	/* The page response is the third transmit of the run: the two page
+	 * messages come first. */
+	air_tx_drop_nth = 3;
+
+	paging_state_setup(PAGED_LAP, PAGED_UAP);
+	air_run(RUN_TICKS);
+
+	/* No connection: central_state_init() is what prints `Central started`
+	 * and reports CONNECTED to the host, and it was not reached. */
+	mu_assert_int_eq(0, (int)central_started);
+
+	/* The page response was composed four times, for the whole of
+	 * pagerespTO, as check_pager_timing() pins for a page nothing answers
+	 * at all. Three of them reached the air. */
+	mu_assert_int_eq(4, (int)fhs_composed_count);
+
+	/* Three of those reached the air: the first put nothing there, so the
+	 * third transmit logged is the repeat 1.25 ms after it. */
+	page1 = air_nth(air_log, air_count, AIR_TX, 1);
+	repeat = air_nth(air_log, air_count, AIR_TX, 3);
+	mu_assert_int_eq(8, repeat->tick - page1->tick);
+
+	/* And then the train starts again, as it does when nothing answers. */
+	train = air_nth(air_log, air_count, AIR_TX, 6);
+	mu_assert_int_eq(20, train->tick - page1->tick);
+	mu_assert_int_eq(BTCTL_STATE_PAGE, btctl.state);
+	mu_assert_int_eq(BT_MODE_PAGING, btphy.mode);
+	/* One report, the page the host asked for. Repeating the page response
+	 * and starting the train again are both inside that page, so neither
+	 * says anything to the host. */
+	mu_assert_int_eq(1, (int)state_reports);
 }
 
 /*
@@ -1413,17 +1503,31 @@ MU_TEST(prepare_model_matches_the_task_files)
 					"btphy_cur_clkn()+1"),
 		"rx_prepare() no longer tunes for the tick after the prepare");
 
+	read_function(FW_BTBR_DIR "/src/btphy/tx_task.c",
+			"tx_advance_hop_phase", body, sizeof(body));
+	mu_assert(contains_identifier(body, "BT_MODE_PAGING_RESPONSE"),
+		"the transmit task no longer singles out the central page response");
+	mu_assert(!contains_identifier(body, "BT_MODE_PERIPHERAL_PAGE_RESPONSE"),
+		"the transmit task now advances the phase for the paged device too");
+	mu_assert(calls_identifier(body, "hop_increment"),
+		"the transmit task no longer advances the phase");
+
 	read_function(FW_BTBR_DIR "/src/btphy/tx_task.c", "tx_prepare",
 			body, sizeof(body));
-	mu_assert(contains_identifier(body, "BT_MODE_PAGING_RESPONSE"),
-		"tx_prepare() no longer singles out the central page response");
-	mu_assert(!contains_identifier(body, "BT_MODE_PERIPHERAL_PAGE_RESPONSE"),
-		"tx_prepare() now advances the phase for the paged device too");
-	mu_assert(calls_identifier(body, "hop_increment"),
+	mu_assert(calls_identifier(body, "tx_advance_hop_phase"),
 		"tx_prepare() no longer advances the phase");
 	mu_assert(is_assignment_of(body, "uint32_t tx_clkn",
 					"btphy_cur_clkn()+1"),
 		"tx_prepare() no longer tunes for the tick after the prepare");
+
+	/* The phase belongs to the attempt, so a transmit the scheduler would
+	 * not take has to move it as well: no task of that transmit runs, and
+	 * the window the paged device opens for it moves its phase either
+	 * way. */
+	read_function(FW_BTBR_DIR "/src/btphy/tx_task.c",
+			"tx_task_schedule_fmt", body, sizeof(body));
+	mu_assert(calls_identifier(body, "tx_advance_hop_phase"),
+		"a transmit the scheduler refused no longer advances the phase");
 }
 
 int main(void)
@@ -1439,6 +1543,7 @@ int main(void)
 	MU_RUN(paged_a_dropped_acknowledgment_does_not_start_a_connection);
 	MU_RUN(paged_a_scan_window_that_cannot_be_armed_ends_the_scan);
 	MU_RUN(pager_an_acknowledgment_window_that_cannot_be_armed_ends_the_page);
+	MU_RUN(pager_a_dropped_page_response_does_not_start_a_connection);
 	MU_RUN(pager_a_page_the_scheduler_cannot_start_is_reported_as_over);
 	MU_RUN(pager_resumes_the_page_train_after_a_dead_connection);
 	MU_RUN(pager_resume_keeps_the_deadline_of_the_attempt);

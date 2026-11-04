@@ -176,8 +176,9 @@ static int ll_prepare_pkt_tx(link_layer_t *ll, ll_tx_t *tx)
 	btctl_tx_pkt_req_t *req;
 	uint8_t air_type;
 
-	/* The packet held from the last slot has been transmitted by now, so
-	 * a packet with no slots left is finished with. */
+	/* Every slot the packet was given has now gone on the air -- a slot
+	 * that did not put it there gave its repeat back through ll_tx_done()
+	 * -- so a packet with no slots left is finished with. */
 	if (ll->cur_pkt_msg != NULL && ll->pkt_slots_left == 0)
 	{
 		msg_free(ll->cur_pkt_msg);
@@ -228,20 +229,21 @@ static int ll_prepare_pkt_tx(link_layer_t *ll, ll_tx_t *tx)
 	if (tx->fmt->length_kind == BB_LEN_NEGOTIATED)
 		tx->data_bytes = req->data_size - tx->fmt->voice_bytes;
 	ll->pkt_slots_left--;
+	ll->tx_slot_repeat = 1;
 
 	return 1;
 }
 
 /* Compose the next transmit slot.
  *
- * This runs before the radio is asked for the slot, and nothing tells it
- * afterwards whether the slot went out. So a slot the board could not put on
- * the air costs an ACL message nothing -- the message is held until the peer
- * acknowledges it, and the peer acknowledges nothing it did not hear -- but it
- * costs a packet the host chose one repeat, because ll_prepare_pkt_tx() has
- * already counted that repeat as spent, and it costs the acknowledgment this
- * slot was carrying, because set_flags below clears loc_arqn. The peer repeats
- * what went unacknowledged, so the link recovers at the cost of a slot. */
+ * This runs before the radio is asked for the slot, so what it takes out of
+ * the link's state is taken on the expectation that the packet goes out. An
+ * ACL message costs nothing if it does not -- the message is held until the
+ * peer acknowledges it, and the peer acknowledges nothing it did not hear --
+ * but the acknowledgment cleared at set_flags below and the repeat
+ * ll_prepare_pkt_tx() counted as spent would both be gone. The transmit task
+ * reports whether the slot reached the air, and ll_tx_done() puts those two
+ * back when it did not. */
 void ll_prepare_tx(link_layer_t *ll, ll_tx_t *tx)
 {
 	btctl_hdr_t *btctl_hdr;
@@ -249,6 +251,8 @@ void ll_prepare_tx(link_layer_t *ll, ll_tx_t *tx)
 
 	tx->fmt = NULL;
 	tx->data_bytes = 0;
+	ll->tx_slot_arqn = 0;
+	ll->tx_slot_repeat = 0;
 
 	/* A chosen packet goes out only while no ACL message is waiting to be
 	 * acknowledged. Every packet carries the link's SEQN, and the peer's
@@ -301,7 +305,37 @@ set_flags:
 		(ll->loc_arqn<<BTHDR_ARQN)
 		 | (ll->loc_seqn<<BTHDR_SEQN)
 		 | (1<<BTHDR_FLOW);
+	ll->tx_slot_arqn = ll->loc_arqn;
 	ll->loc_arqn = 0;
+}
+
+/* The transmit task has finished with the slot ll_prepare_tx() composed.
+ * `sent` is 0 when the slot ended with nothing on the air: the radio was not
+ * ready in time, or the scheduler had no room for a slot the transmit needed
+ * (see tx_task.h).
+ *
+ * Nothing the slot was carrying reached the peer, so the acknowledgment it
+ * carried and the repeat it spent go back to the link and the next transmit
+ * slot carries them instead. Without that, a packet the host asked to repeat
+ * N times would go out N-1 times, and the peer would get no acknowledgment
+ * for the packet it had just sent and repeat it, costing the link a slot.
+ *
+ * A slot that did go out costs both, which is what the protocol expects.
+ *
+ * A link that was reset between the slot and this report owes nothing: the
+ * message a repeat would belong to has been freed, which is why ll_reset()
+ * clears what the slot was carrying. */
+void ll_tx_done(link_layer_t *ll, int sent)
+{
+	if (!sent)
+	{
+		if (ll->tx_slot_arqn)
+			ll->loc_arqn = 1;
+		if (ll->tx_slot_repeat)
+			ll->pkt_slots_left++;
+	}
+	ll->tx_slot_arqn = 0;
+	ll->tx_slot_repeat = 0;
 }
 
 void ll_reset(link_layer_t *ll)
@@ -318,6 +352,8 @@ void ll_reset(link_layer_t *ll)
 		ll->cur_pkt_msg = NULL;
 	}
 	ll->pkt_slots_left = 0;
+	ll->tx_slot_arqn = 0;
+	ll->tx_slot_repeat = 0;
 }
 
 void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr)

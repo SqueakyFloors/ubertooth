@@ -31,6 +31,14 @@ typedef struct {
 	bbhdr_t pkt_hdr;
 	msg_t *cur_pkt_msg;
 	uint16_t pkt_slots_left;
+
+	/* What the transmit slot ll_prepare_tx() last composed is carrying
+	 * that the link cannot get back by itself: the acknowledgment taken
+	 * out of loc_arqn, and whether the slot spent one of a chosen
+	 * packet's repeats. ll_tx_done() puts them back when the slot put
+	 * nothing on the air. */
+	uint8_t tx_slot_arqn;
+	uint8_t tx_slot_repeat;
 } link_layer_t;
 
 /* What the link layer hands the transmit task for one slot. */
@@ -49,5 +57,6 @@ void ll_init(link_layer_t *ll, uint8_t is_central, uint8_t lt_addr);
 void ll_reset(link_layer_t *ll);
 int ll_process_rx(link_layer_t *ll, msg_t *msg);
 void ll_prepare_tx(link_layer_t *ll, ll_tx_t *tx);
+void ll_tx_done(link_layer_t *ll, int sent);
 
 #endif

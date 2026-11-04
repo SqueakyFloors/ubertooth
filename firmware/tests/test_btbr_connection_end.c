@@ -110,6 +110,9 @@ static void *armed_rx_arg;
 static tx_task_cb_t armed_tx_cb;
 static void *armed_tx_arg;
 static unsigned tx_count;
+/* The link layer's flags in the header of the transmit last armed, which is
+ * where the acknowledgment it owes the peer goes. */
+static uint8_t armed_tx_flags;
 
 int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 			unsigned flags)
@@ -124,15 +127,18 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void *cbarg,
 			bbhdr_t *hdr, uint8_t *data,
 			const bbcodec_types_t *fmt, unsigned data_bytes)
 {
-	(void)delay; (void)hdr; (void)data; (void)fmt; (void)data_bytes;
+	(void)delay; (void)data; (void)fmt; (void)data_bytes;
 	armed_tx_cb = cb;
 	armed_tx_arg = cbarg;
+	armed_tx_flags = hdr ? hdr->flags : 0;
 	tx_count++;
 }
 
 /* The completion the transmit task reports when a transmit's slots are over.
- * These tests are about what link supervision does, so the packet goes out. */
+ * Most of these tests are about what link supervision does, so the packet
+ * goes out; the last two report a slot that put nothing on the air. */
 #define TX_SENT	1
+#define TX_NOT_SENT	0
 
 /* The air layout of a format the host asked for. Nothing here enqueues such a
  * packet, so the link layer never asks; the real one lives in codec.c, which
@@ -173,19 +179,25 @@ static void reset_state(void)
 	armed_rx_arg = NULL;
 	armed_tx_cb = NULL;
 	armed_tx_arg = NULL;
+	armed_tx_flags = 0;
 	tx_count = 0;
 }
 
 /* Run the transmit callback the connection armed, which is what schedules its
  * next receive window. */
-static void run_tx_done(void)
+static void run_tx_done_opt(int sent)
 {
 	tx_task_cb_t cb = armed_tx_cb;
 
 	if (cb == NULL)
 		die("the connection armed no transmit\n");
 	armed_tx_cb = NULL;
-	cb(TX_SENT, armed_tx_arg);
+	cb(sent, armed_tx_arg);
+}
+
+static void run_tx_done(void)
+{
+	run_tx_done_opt(TX_SENT);
 }
 
 /* Hand the connection's receive window one packet, or nothing at all.
@@ -220,6 +232,22 @@ static void run_window(uint8_t flags, uint8_t type)
 static void run_packet_window(void)
 {
 	run_window((1<<BBPKT_F_HAS_PKT)|(1<<BBPKT_F_HAS_HDR), BB_TYPE_POLL);
+}
+
+/* A packet of the peer's carrying a checksum, under the sequence number the
+ * link is not expecting. The link layer owes the peer an acknowledgment for
+ * it, and hands the packet to nobody, so this is the cheapest way to put an
+ * acknowledgment in the next transmit slot. */
+static void run_crc_window(void)
+{
+	run_window((1<<BBPKT_F_HAS_PKT)|(1<<BBPKT_F_HAS_HDR)|
+			(1<<BBPKT_F_HAS_CRC), BB_TYPE_DH1);
+}
+
+/* A window that heard nothing, inside the supervision timeout. */
+static void run_silent_window(void)
+{
+	run_window(0, BB_TYPE_NULL);
 }
 
 /* A window that heard nothing, with the clock moved past the supervision
@@ -302,11 +330,67 @@ MU_TEST(a_peripheral_connection_that_carried_nothing_goes_back_to_page_scan)
 		"the board went to standby instead of back to page scan");
 }
 
+/* ---- a slot that put nothing on the air ---- */
+
+/*
+ * Both connection state machines have to tell the link layer when a transmit
+ * slot ended with nothing on the air, or the acknowledgment that slot was
+ * carrying is lost: the peer then gets no acknowledgment for the packet it
+ * just sent and repeats it, costing the link a slot. test_btbr_tx_queue.c
+ * pins what the link layer does with the report; these two pin that the
+ * report reaches it at all.
+ *
+ * The acknowledgment is read back off the air, from the link layer's flags in
+ * the header of the transmit armed next.
+ */
+MU_TEST(a_central_slot_that_was_not_sent_keeps_its_acknowledgment)
+{
+	reset_state();
+	central_state_init();
+	run_tx_done();
+
+	/* A packet the link owes an acknowledgment for, so the transmit it
+	 * arms carries one. */
+	run_crc_window();
+	mu_assert(armed_tx_flags & (1<<BTHDR_ARQN),
+		"the slot after the packet carried no acknowledgment");
+
+	/* That slot put nothing on the air, so the acknowledgment never
+	 * reached the peer and the next slot has to carry it instead. */
+	run_tx_done_opt(TX_NOT_SENT);
+	run_silent_window();
+
+	mu_assert(armed_tx_flags & (1<<BTHDR_ARQN),
+		"the acknowledgment was lost with the slot that did not go "
+		"on the air");
+}
+
+MU_TEST(a_peripheral_slot_that_was_not_sent_keeps_its_acknowledgment)
+{
+	reset_state();
+	peripheral_state_init(PEER_BDADDR, LT_ADDR);
+
+	run_crc_window();
+	mu_assert(armed_tx_flags & (1<<BTHDR_ARQN),
+		"the slot after the packet carried no acknowledgment");
+
+	run_tx_done_opt(TX_NOT_SENT);
+	/* A peripheral transmits only when it has something to answer, so
+	 * this is a POLL rather than a silent window. */
+	run_packet_window();
+
+	mu_assert(armed_tx_flags & (1<<BTHDR_ARQN),
+		"the acknowledgment was lost with the slot that did not go "
+		"on the air");
+}
+
 int main(void)
 {
 	MU_RUN(a_central_connection_that_carried_a_packet_ends_in_standby);
 	MU_RUN(a_central_connection_that_carried_nothing_goes_back_to_paging);
 	MU_RUN(a_peripheral_connection_that_carried_a_packet_ends_in_standby);
 	MU_RUN(a_peripheral_connection_that_carried_nothing_goes_back_to_page_scan);
+	MU_RUN(a_central_slot_that_was_not_sent_keeps_its_acknowledgment);
+	MU_RUN(a_peripheral_slot_that_was_not_sent_keeps_its_acknowledgment);
 	return mu_report();
 }

@@ -60,6 +60,34 @@ static struct {
 
 static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3);
 
+/* Move the hop phase on by the one transmit that is about to happen, or that
+ * was about to.
+ *
+ * An inquirer sweeps its phase once per transmit, and a pager advances its
+ * response phase before each FHS it sends. The substates that answer a scan do
+ * not advance here: their answers go out in the slot that pairs with the one
+ * they listened in, on the phase they heard.
+ *
+ * The phase belongs to the attempt rather than to the packet, so it moves once
+ * per transmit whether that packet reaches the air or not. For the page
+ * response that is what keeps the two ends together: the paged device advances
+ * its own phase for every window it opens, so a phase left standing here is
+ * one behind for the rest of the attempt, with every later transmit going out
+ * on the frequency the device's previous window used and nothing in the
+ * attempt to close the gap. An inquirer's phase is one of 32 guesses it
+ * sweeps, with nothing at the other end to keep level with, so a phase left
+ * standing there repeats the guess just made and puts the rest of the sweep a
+ * slot later. One step per transmit is the rate either way.
+ *
+ * The substate is read here, before a caller is told its transmit is over,
+ * because this is the substate the transmit belonged to; the one in force
+ * after the caller has had its say need not be. */
+static void tx_advance_hop_phase(void)
+{
+	if (btphy.mode == BT_MODE_INQUIRY || btphy.mode == BT_MODE_PAGING_RESPONSE)
+		hop_increment();
+}
+
 static void tx_fifo_cb(void *arg)
 {
 	unsigned len;
@@ -90,13 +118,7 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 	uint8_t chan, nslots = 1;
 	uint32_t tx_clkn = btphy_cur_clkn()+1;
 
-	/* An inquirer sweeps its phase once per transmit, and a pager advances
-	 * its response phase before each FHS it sends. The substates that
-	 * answer a scan do not advance here: their answers go out in the slot
-	 * that pairs with the one they listened in, on the phase they
-	 * heard. */
-	if (btphy.mode == BT_MODE_INQUIRY || btphy.mode == BT_MODE_PAGING_RESPONSE)
-		hop_increment();
+	tx_advance_hop_phase();
 
 	/* Hop & prepare TX (SFSON) */
 	chan = hop_channel(tx_clkn);
@@ -159,10 +181,11 @@ static int tx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 		 * it: unreported, the caller schedules neither its next
 		 * receive nor its next transmit and the link stops forever.
 		 *
-		 * An inquiry or a page response has advanced its hop phase
-		 * above, and there is no way to put a phase back. The packet
-		 * is lost either way and the retransmission the protocol does
-		 * covers it, so the phase is left where it is. */
+		 * An inquiry or a page response has already moved its hop
+		 * phase on for this transmit, and there is no way to put a
+		 * phase back. The packet is lost either way and the
+		 * retransmission the protocol does covers it, so the phase is
+		 * left where it is. */
 		cprintf("TX: cannot schedule end of transmission, packet not sent\n");
 
 		/* The radio is tuned with its synthesizer strobed on by now.
@@ -314,6 +337,14 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 	if (placed <= 0)
 	{
 		cprintf("TX: cannot schedule transmit, packet not sent\n");
+
+		/* The phase this transmit was to have moved. tx_prepare() is
+		 * what normally moves it, and no task of this transmit will
+		 * ever run, so it is moved here: this is the only not-sent
+		 * path that would otherwise leave it short. Before the
+		 * completion below, for the reason tx_advance_hop_phase()
+		 * gives. */
+		tx_advance_hop_phase();
 
 		/* Release the packet before reporting it, the order
 		 * tx_finalize() uses: the caller may hand the next packet over

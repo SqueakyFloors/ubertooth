@@ -185,6 +185,14 @@ no connection is reported, the board says on its console that the answer was
 not sent, and the scan goes on to the pager's next attempt. `inquiry_scan`
 does the same with an inquiry response it could not send.
 
+`page` holds to the same rule on its own side. The packet the paged device
+sends to acknowledge a page response is a bare access code with nothing in it
+to say who sent it, so a page response that did not reach the air cannot have
+been acknowledged: nothing arriving in the window after it is taken for an
+acknowledgment, and no connection is reported. The board repeats the page
+response, as it does when the window is empty, and goes back to paging once
+the page response timeout is up.
+
 A word that is none of these is refused, and the prompt stays up; see
 DIAGNOSTICS.
 
@@ -270,8 +278,12 @@ CRC it may have, which the board adds:
 `<length>` defaults to the format's maximum, `<count>` to 1. `<count>` is how
 many times to transmit the packet, one transmit slot after another, which is
 the way to make one easy for a receiver to catch; the packet is not
-retransmitted on the peer's say-so, so a peer that ignores it costs nothing.
-What is bounded is the air slots the run occupies, 400 of them, so the count
+retransmitted on the peer's say-so, so a peer that ignores it costs nothing. A
+transmit slot the board could not put on the air does not count against
+`<count>`: the packet goes out in the next transmit slot instead, 1250 us
+later, so `<count>` of them reach the air, and a run that loses a slot that
+way holds the link for that one slot longer.
+What is bounded is the air slots the run asks for, 400 of them, so the count
 allowed depends on how many slots one packet of the format fills: 400 of a
 one-slot format such as `dm1` or `ev3`, 133 of a three-slot `dh3` or `ev4`,
 and 80 of a five-slot `dh5`. The board's own data and link-manager traffic
