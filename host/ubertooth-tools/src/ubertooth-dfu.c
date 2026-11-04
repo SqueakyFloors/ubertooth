@@ -2126,7 +2126,7 @@ static int read_bootloader_region(libusb_device_handle *devh,
 #define BL_INSTALL_CONFIRMED 0 /* the region now holds the image's bootloader */
 #define BL_INSTALL_FAILED 1    /* it provably does not: the run has to fail */
 #define BL_INSTALL_UNKNOWN 2   /* the comparison could not be made */
-#define BL_INSTALL_ALREADY_HELD 3 /* it held it before the run: nothing wrote */
+#define BL_INSTALL_HELD 3      /* it holds it, but not provably from this run */
 
 /* One wording for a check that could not be made, so every reason reads the
  * same way: a note, because nothing has gone wrong with the command, and the
@@ -2182,14 +2182,17 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	         (unsigned)runtime->bl_crc32_before, (unsigned)image->region_crc32);
 	log_dfu_stage(stage);
 	/* The whole region is the image's bootloader, which needs nothing said
-	 * about the window. Whether this run put it there is a second question,
-	 * and the earlier read answers it: a region that did not change was
-	 * already right and nothing was written, which is a different thing to
-	 * tell the user than an install. */
+	 * about the window. Whether this run installed it is a second question,
+	 * and only a region that is shown to have changed answers it yes: one
+	 * that did not change was already right, and one with no earlier read to
+	 * compare against cannot say. Both of those are reported as a board that
+	 * holds the bootloader rather than as an install, because a run that
+	 * wrote nothing reading as one that did is what this whole check is
+	 * about. */
 	if (board.crc32 == image->region_crc32)
 		return runtime->bl_crc32_before_read &&
-		       board.crc32 == runtime->bl_crc32_before ?
-		       BL_INSTALL_ALREADY_HELD : BL_INSTALL_CONFIRMED;
+		       board.crc32 != runtime->bl_crc32_before ?
+		       BL_INSTALL_CONFIRMED : BL_INSTALL_HELD;
 	/* Everything below compares the two read-backs, so it needs the one
 	 * taken before the write. Confirming did not: the comparison above is
 	 * against the image alone, which is why it is asked first. */
@@ -2223,9 +2226,15 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 		/* Unchanged, and provably not the bootloader the image carries. The
 		 * one refusal, and both halves of it are read off the board. */
 		runtime->leave_in_dfu = 1;
+		/* The read-back values are printed as plain numbers, not in the
+		 * CRC32: notation `ubertooth-util -B` uses: where the boot ROM is
+		 * mapped over the window they hash 512 bytes of ROM, so they are
+		 * not numbers that tool will ever print. Only the image's hash is,
+		 * and it keeps the notation. */
 		fprintf(stderr, "error: no bootloader was installed: the region "
-		        "still holds the bootloader it held before this run "
-		        "(CRC32:0x%08x), not the one %s carries (CRC32:0x%08x)\n",
+		        "read back as 0x%08x both before and after this run, and "
+		        "that is not the bootloader %s carries, which would report "
+		        "CRC32:0x%08x\n",
 		        (unsigned)board.crc32, runtime->download_name,
 		        (unsigned)image->region_crc32);
 		/* The two ways the write is skipped. The pin is the one that repeats
@@ -2259,9 +2268,9 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	 * command was asked to install, so the command failed. */
 	runtime->leave_in_dfu = 1;
 	fprintf(stderr, "error: the bootloader region holds neither bootloader: "
-	        "it reads back as CRC32:0x%08x, which is neither the hash it had "
-	        "before this run (CRC32:0x%08x) nor the one %s carries "
-	        "(CRC32:0x%08x), so the write did not finish\n",
+	        "it read back as 0x%08x where it was 0x%08x before this run, and "
+	        "it is not the bootloader %s carries, which would report "
+	        "CRC32:0x%08x, so the write did not finish\n",
 	        (unsigned)board.crc32, (unsigned)runtime->bl_crc32_before,
 	        runtime->download_name, (unsigned)image->region_crc32);
 	/* The region is erased whole and the sector holding the vector table is
@@ -2840,15 +2849,13 @@ int main(int argc, char **argv) {
 		 * that was read, and what the user has to do next. A run that could
 		 * not read the region says neither more nor less than it used to,
 		 * and sends the reader to `ubertooth-util -B` for the answer. */
-		if (r == BL_INSTALL_ALREADY_HELD)
-			/* The region was already this bootloader and did not change, so
-			 * saying it was installed would read as a run that did
-			 * something. It still needs its firmware back, because the
-			 * application region holds the updater either way. */
-			printf("The bootloader region already held this bootloader, so "
-			       "nothing was written: ubertooth-util -B will report "
-			       "CRC32:0x%08x.\nThe board is in DFU. Write your firmware "
-			       "again (ubertooth-dfu -d bluetooth_rxtx.dfu -r).\n",
+		if (r == BL_INSTALL_HELD)
+			/* The board has what was asked for, which is the result, but
+			 * this run is not shown to have put it there. */
+			printf("The bootloader region holds this bootloader: "
+			       "ubertooth-util -B will report CRC32:0x%08x.\nThe board "
+			       "is in DFU. Write your firmware again (ubertooth-dfu -d "
+			       "bluetooth_rxtx.dfu -r).\n",
 			       (unsigned)update_image.region_crc32);
 		else if (r == BL_INSTALL_CONFIRMED)
 			/* "will report", not "reports": on the path where the boot ROM

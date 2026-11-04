@@ -3241,7 +3241,7 @@ MU_TEST(a_region_holding_neither_bootloader_is_a_failed_install)
 	mu_assert(strstr(r.err, "error: the bootloader region holds neither "
 	          "bootloader") != NULL, r.err);
 	mu_assert_int_eq(1, error_lines(r.err));
-	mu_assert(strstr(r.err, "neither the hash") != NULL, r.err);
+	mu_assert(strstr(r.err, "the write did not finish") != NULL, r.err);
 	/* The one state USB cannot reach, so the failure names the adapter that
 	 * recovers a board from it. */
 	mu_assert(strstr(r.err, "serial programmer") != NULL,
@@ -3269,9 +3269,14 @@ MU_TEST(an_install_is_confirmed_with_no_read_before_the_write)
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, error_lines(r.err));
-	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+	mu_assert(strstr(r.out, "The bootloader region holds this bootloader")
+	          != NULL, r.out);
 	mu_assert(strstr(r.err, "could not be checked") == NULL,
-	          "a confirmation was demoted for want of the earlier read");
+	          "the region was reported unread when it had been read");
+	/* Not "installed": with no earlier read there is nothing to show this
+	 * run changed the region. */
+	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
+	          "an unproven install was reported as one");
 }
 
 /*
@@ -3345,17 +3350,16 @@ MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, error_lines(r.err));
 	/* Not refused -- the board has what was asked for -- and not called an
-	 * install either, because the region did not change and this run wrote
-	 * nothing into it. */
-	snprintf(line, sizeof(line), "The bootloader region already held this "
-	         "bootloader, so nothing was written: ubertooth-util -B will "
-	         "report CRC32:0x%08x.", (unsigned)updater_image_crc32());
+	 * install either, because the region did not change. */
+	snprintf(line, sizeof(line), "The bootloader region holds this "
+	         "bootloader: ubertooth-util -B will report CRC32:0x%08x.",
+	         (unsigned)updater_image_crc32());
 	mu_assert(strstr(r.out, line) != NULL, r.out);
 	/* The literal the doc-example-lines check reads, as in the success case
 	 * above. */
-	mu_assert(strcmp(line, "The bootloader region already held this "
-	                 "bootloader, so nothing was written: ubertooth-util -B "
-	                 "will report CRC32:0x7c52e323.") == 0, line);
+	mu_assert(strcmp(line, "The bootloader region holds this bootloader: "
+	                 "ubertooth-util -B will report CRC32:0x7c52e323.") == 0,
+	          line);
 	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
 	          "a run that wrote nothing was reported as an install");
 }
