@@ -368,6 +368,29 @@ with tempfile.TemporaryDirectory() as workdir:
                     f" replaying ({written})\n"), (option, written, result)
         assert (work / "same.bin").read_bytes() == FIXTURE, (option, "grew")
 
+    # The fixed name of standard error is resolved the same way. Nothing
+    # writes a dump there on purpose, but a destination has to be identified
+    # whatever stream it is on, and `-d /dev/stderr 2>>same.bin` reaches the
+    # input as surely as a descriptor path does. The one line the shell's own
+    # redirection appends is the refusal itself, which no command can prevent.
+    refusal = ("error: -d would write over the dump -i is replaying"
+               " (/dev/stderr)\n")
+    with open(work / "same.bin", "ab") as appended:
+        result = subprocess.run(
+            [BINARY, "-i", "same.bin", "-d", "/dev/stderr"],
+            stdout=subprocess.PIPE, stderr=appended, cwd=work,
+            timeout=RUN_TIMEOUT_S, check=False,
+            env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C"))
+    written = (work / "same.bin").read_bytes()
+    if written == FIXTURE + refusal.encode():
+        assert result.returncode == 1, result
+    else:
+        # A platform whose /dev/stderr does not lead back to the open file
+        # leaves it an ordinary destination; the dump then goes there.
+        assert written.startswith(FIXTURE), written[:40]
+        assert refusal.encode() not in written, "refused, but wrote as well"
+    (work / "same.bin").write_bytes(FIXTURE)
+
     # Another file on such a descriptor is another destination, which is what
     # keeps the check above from refusing an ordinary run.
     with open(work / "bydescriptor.bin", "wb") as other:

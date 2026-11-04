@@ -157,7 +157,9 @@ leading zero as part of the number, so `/dev/fd/01` is that stream there and
 names nothing at all on Linux. `/dev/fd/N` for
 any other `N` is not that stream: it reaches whatever the calling shell opened
 on that descriptor, so the capture goes there and the report stays on standard
-output.
+output. `/dev/stdin` and `/dev/stderr` are the same -- not standard output, but
+still identified as the descriptor they name, so the check below sees one of
+them beside the file that descriptor is on.
 No option reads its input from a lone `-`: for those it is
 a file name like any other, and there is no such file. Any other value is a
 file name too, including one that starts with `-`, so a forgotten file name

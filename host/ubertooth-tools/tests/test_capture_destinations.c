@@ -628,6 +628,25 @@ static void test_descriptor_paths(void)
 			check_accepted("held.bin", padded);
 		}
 	}
+	/* The fixed names of the other two descriptors are resolved the same
+	 * way. Nothing writes a capture to standard error on purpose, but a
+	 * destination has to be identified whatever stream it is on, and
+	 * "/dev/stderr" beside "/dev/fd/2" is one file. Standard error is a
+	 * file of this test's own while the refusal is being captured, which is
+	 * what the two resolve to. */
+	{
+		struct stat by_name, by_number;
+
+		if (stat("/dev/stderr", &by_name) == 0 &&
+		    fstat(STDERR_FILENO, &by_number) == 0 &&
+		    by_name.st_ino == by_number.st_ino)
+			check_refused("/dev/stderr", "/dev/fd/2",
+			              "error: -q and -d cannot both write to one"
+			              " file (/dev/stderr and /dev/fd/2)\n");
+		else
+			printf("skipping /dev/stderr, this platform does not"
+			       " answer it\n");
+	}
 	/* Another file on the same descriptor path is still another file. */
 	make_file("other-held.bin", "elsewhere\n");
 	check_accepted("other-held.bin", path);

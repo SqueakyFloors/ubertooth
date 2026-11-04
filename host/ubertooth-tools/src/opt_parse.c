@@ -355,33 +355,41 @@ static int names_descriptor_one(const char *name)
 	return descriptor_number(name) == STDOUT_FILENO;
 }
 
-/* The descriptor a path of the form <directory>/<number> names, where
- * <directory> is given as its elements, or -1 when the path is not one of
- * those.
- *
- * Two things have to hold, and the system is asked both rather than the
- * spelling being ruled on. The descriptor must be open here, because a path
- * naming a closed one names nothing, and it must not be taken for the file
- * that descriptor number held in some earlier process. And the path itself
- * must lead to that descriptor's file, which is what tells a real descriptor
- * path from a file that merely looks like one -- and, more to the point, from
- * a spelling this platform does not answer: the descriptor filesystem the
- * BSDs mount on /dev/fd reads a leading zero as part of the number, so
- * "/dev/fd/01" is descriptor 1 there and opening it writes to that stream,
- * while on Linux /dev/fd is a directory of exact names and "/dev/fd/01" is a
- * path that cannot be created. Reading the number alone would make the second
- * of those a silent redirect to standard output.
+/* Whether <path> leads to the file descriptor <fd> holds, which is what tells
+ * a real descriptor path from a file that merely looks like one -- and, more
+ * to the point, from a spelling this platform does not answer. Both have to
+ * be true: the descriptor must be open here, so a path naming a closed one is
+ * not taken for the file that descriptor number held in some earlier process,
+ * and the path must lead to its file.
  *
  * The inode number is what is compared, not the device number as well,
  * because that is the half the BSDs answer with a device of their own; see
  * named_descriptor(). */
+static int descriptor_holds(const char *path, int fd)
+{
+	struct stat held, named;
+
+	return fstat(fd, &held) == 0 && stat(path, &named) == 0 &&
+	       held.st_ino == named.st_ino;
+}
+
+/* The descriptor a path of the form <directory>/<number> names, where
+ * <directory> is given as its elements, or -1 when the path is not one of
+ * those.
+ *
+ * The number is parsed and then handed to the system, rather than the
+ * spelling being ruled on, because the platforms differ: the descriptor
+ * filesystem the BSDs mount on /dev/fd reads a leading zero as part of the
+ * number, so "/dev/fd/01" is descriptor 1 there and opening it writes to that
+ * stream, while on Linux /dev/fd is a directory of exact names and
+ * "/dev/fd/01" is a path that cannot be created. Reading the number alone
+ * would make the second of those a silent redirect to standard output. */
 static int descriptor_in(const char *path, const char *const *directory,
                          size_t elements)
 {
 	const char *at = path, *element;
 	size_t length = 0, i;
 	char number[16];
-	struct stat held, named;
 	int fd;
 
 	if (path[0] != '/' || ends_inside_a_name(path))
@@ -401,9 +409,7 @@ static int descriptor_in(const char *path, const char *const *directory,
 		return -1;
 	if (opt_parse_int(number, 0, INT_MAX, &fd) < 0)
 		return -1;
-	if (fstat(fd, &held) != 0 || stat(path, &named) != 0)
-		return -1;
-	return held.st_ino == named.st_ino ? fd : -1;
+	return descriptor_holds(path, fd) ? fd : -1;
 }
 
 /* The descriptor a path names through one of the directories that hold this
@@ -445,19 +451,43 @@ static int descriptor_number(const char *path)
  * our own would cost a named pipe its reader and a serial line its modem
  * lines.
  *
- * "/dev/stdout" is descriptor 1 by the same rule. "/dev/stdin" and
- * "/dev/stderr" are not read here: this answers for a capture destination,
- * and nothing writes a capture to either of those on purpose, so a user who
- * names one means the device file. */
+ * "/dev/stdout" is descriptor 1 by the same rule, and "/dev/stdin" and
+ * "/dev/stderr" name theirs. Those two are not standard output and never
+ * become it, but a destination has to be identified whatever stream it is
+ * on. */
 static int named_descriptor(const char *path)
 {
-	int fd = descriptor_number(path);
+	/* The other two fixed names on the descriptor filesystem. They are not
+	 * standard output, so they are not in stdout_paths and a capture given
+	 * one of them leaves the tool's report where it was -- but a
+	 * destination has to be identified whatever it is, and
+	 * "-d /dev/stderr 2>>cap.bin" reaches a replay's own dump as surely as
+	 * "/dev/fd/3" does. They are checked against the system like a number,
+	 * so a platform that does not answer the name leaves it a file. */
+	static const struct {
+		const char *path;
+		int fd;
+	} fixed[] = {
+		{ "/dev/stdin", STDIN_FILENO },
+		{ "/dev/stderr", STDERR_FILENO },
+	};
+	size_t i;
+	int fd;
 
+	if (path == NULL)
+		return -1;
+	fd = descriptor_number(path);
 	if (fd >= 0)
 		return fd;
 	/* The fixed names of descriptor 1, which are not a directory and a
 	 * number and so are recognized as text. */
-	return names_descriptor_one(path) ? STDOUT_FILENO : -1;
+	if (names_descriptor_one(path))
+		return STDOUT_FILENO;
+	for (i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++)
+		if (same_path_text(path, fixed[i].path) &&
+		    descriptor_holds(path, fixed[i].fd))
+			return fixed[i].fd;
+	return -1;
 }
 
 int opt_writes_to_stdout(const char *filename)
