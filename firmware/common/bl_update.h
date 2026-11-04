@@ -86,7 +86,10 @@ struct bl_update_report {
 	 * carries none -- which is a refusal, so this is 0 only then. */
 	uint16_t bootloader_version;
 	/* How many of the four sectors were programmed, and how many read back
-	 * as written. Both are 0 for a run that refused before writing. */
+	 * as written. Both are 0 for a run that refused before writing. A
+	 * failed read-back erases sector 0 again, so a run that reports
+	 * UBERTOOTH_BL_UPDATE_READ_BACK_FAILED counts that sector as written
+	 * although the region no longer holds it. */
 	unsigned sectors_written;
 	unsigned sectors_verified;
 };

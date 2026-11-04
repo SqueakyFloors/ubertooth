@@ -738,7 +738,6 @@ MU_TEST(a_failed_read_back_takes_the_vector_table_away_again)
 
 	for (failed_at = 0; failed_at <= (int)BL_UPDATE_LAST_SECTOR;
 	     failed_at++) {
-		uint32_t sum = 0;
 		unsigned i;
 
 		build_good_payload();
@@ -746,14 +745,10 @@ MU_TEST(a_failed_read_back_takes_the_vector_table_away_again)
 		part.fail_verify_sector = failed_at;
 		mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED,
 		                 run(&report));
+		/* Erased flash where the checked words of the vector table
+		 * belong, which cannot add up to zero, so the ROM refuses it. */
 		for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS * 4; i++)
 			mu_assert_int_eq(0xff, part.flash[i]);
-		for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS; i++)
-			sum += read_le32(part.flash + i * 4);
-		mu_assert(sum != 0,
-		          "a region the part would not read back was left with a "
-		          "vector table that adds up, so the board would start a "
-		          "bootloader the read-back did not confirm");
 	}
 
 	/* Flash that held different bytes than were sent, rather than a part
