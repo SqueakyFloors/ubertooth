@@ -705,10 +705,10 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
       `timeout --preserve-status 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu1.pcap`
       and record: whether the page succeeded, how long until packets appear,
       and how much of the piconet's traffic the capture holds. Count the
-      packets that decoded, not the records written: a clock out by a slot or
-      two still records every access code it matches, so a record count in the
-      hundreds is no evidence the follow is working (`ubertooth-follow.md`,
-      THE -w DELAY). Compare against a 60-second
+      packets that decoded, not the records written: a board hopping on a wrong
+      clock still records every access code it happens to match, so a record
+      count in the hundreds is no evidence the follow is working
+      (`ubertooth-follow.md`, THE -w DELAY). Compare against a 60-second
       `ubertooth-rx -l <lap> -u <uap> -t 60`. A follow runs until it is
       interrupted, so every run here needs a `timeout` or a Ctrl-C of its own.
       `--preserve-status` is what makes the exit status the tool's own; plain
@@ -734,7 +734,7 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
       compensates for it. Sweep `-w` from 0 to 8 on this host, equal legs, and
       record the packets that decoded at each: the right value belongs to the
       machine and need not be the default. Expect a narrow useful range, and
-      expect the best value to vary from run to run
+      expect the capture at the best value to vary from run to run
 - [ ] With the piconet held to a reduced AFH map, run
       `timeout --preserve-status 60 ubertooth-follow -U <serial> -t <whole address> -a -q afh.pcap`
       and record the `AFH map: 0x...` line beside the map the devices are
