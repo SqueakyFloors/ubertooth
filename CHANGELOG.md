@@ -240,73 +240,11 @@ Behavior the tools share.
 
 #### The command line and option values
 
-- **Script-visible change:** every tool now refuses a command line that says
-  two things and means one, with its one `error: ` line and before it opens a
-  board: an option given a value twice (`-l 446688 -l aabbcc`), two major
-  modes (`ubertooth-ego -f -r`), two modulations for one capture
-  (`ubertooth-dump -c -l`), two output formats for one sweep
-  (`ubertooth-specan -g -G`), and the same channel written two ways
-  (`ubertooth-util -c 2440 -C 24`). One of the two used to win and the other
-  was dropped silently. `ubertooth-util -c 2426 -c` still sets the channel and
-  reads it back. `ubertooth-debug -r` takes the whole register list in one
-  value, `-r %main,0x02-0x05`, where a second `-r` used to replace the first
-  one's registers without a word. The tools that said it their own way now say
-  that same line: `ubertooth-btbr` used to say `give -U once`, and
-  `ubertooth-follow` `give -t once`, `give -l once` and `give -u once`.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- Every tool now answers a mistyped command line the same way: the last four
-  leaving it to the option parser, `ubertooth-debug`, `ubertooth-dfu`,
-  `ubertooth-follow` and `ubertooth-scan`, report it themselves.
-  `ubertooth-rx` and `ubertooth-dfu` also prefix the refusals they were
-  missing one on.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- **Script-visible change:** after an error, tools print only the error; run
-  `-h` for the usage text. A tool that needs arguments and is run with none
-  still prints it, on standard error.
-  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
-- A stray dash after an option is named with the word it was written in:
-  `ubertooth-util -v-` reads `error: unrecognized option '-' in '-v-'`. It
-  used to be blamed on `--`, which nobody typed, or on the next word, so
-  `ubertooth-util -v- -h` complained about `-h`. Every tool reported it that
-  way.
-  [#501](https://github.com/SqueakyFloors/ubertooth/issues/501)
-- A command line with a dash in more than one word names the word that is
-  actually wrong. `ubertooth-util -v- -Ufoo-` read `error: unrecognized option
-  '-' in '-Ufoo-'`, a word with nothing wrong in it -- the dash there is part
-  of `-U`'s value -- and now reads `'-v-'`, the word the tools stopped on.
-  [#790](https://github.com/SqueakyFloors/ubertooth/issues/790)
-- A value that is not a Bluetooth address reads the same way from every option
-  that takes one, naming the address it sets: `error: target address must be
-  xx:xx:xx:xx:xx:xx (got <word>)`. Three tools worded it three ways, and
-  `ubertooth-btle` had a second wording for a bad hex digit and called the
-  mask of `-t` and `-s` a `MAC mask` beside it.
-  [#541](https://github.com/SqueakyFloors/ubertooth/issues/541)
-- A refused command line no longer creates or truncates an output file. Every
-  file option (`ubertooth-btle -r`/`-q`/`-c`, `ubertooth-follow` and
-  `ubertooth-rx -r`/`-q`/`-d`, `ubertooth-dump -d`, `ubertooth-specan -d`,
-  `ubertooth-dfu -s`/`-u`) opens its file only once the whole command line has
-  been accepted, and `Ignoring extra capture file` goes to standard error so it
-  cannot land in a capture written to stdout.
-  [#193](https://github.com/SqueakyFloors/ubertooth/issues/193)
-- `ubertooth-rx -u` without `-l`, `ubertooth-tx` without both, and more than
-  one of `ubertooth-btle`'s `-f`, `-n` and `-p` are refused while the command
-  line is read, before a device is opened, whatever boards are attached.
-  [#236](https://github.com/SqueakyFloors/ubertooth/issues/236)
-- Every `ubertooth-*` tool now refuses a word that is not an option, including
-  a bare `-`, before opening a device (`error: unexpected argument '<word>'`),
-  so a typo such as `- v` is no longer dropped while the rest of the command
-  runs. `-h` and `-V` now end the command only after the whole command line
-  has parsed, so a mistake written alongside them is still reported.
-  `ubertooth-btle -q -`, `-c -` and `-r -` still mean stdin/stdout.
-  [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
-- Option values are now parsed the same way by every tool: a whole decimal
-  number in range, a lower address part (LAP) of exactly 6 hex digits, an
-  upper address part (UAP) of 2, an access address of 1 to 8, and a Bluetooth
-  address as `xx:xx:xx:xx:xx:xx`. Values that used to be read as 0 or
-  truncated, such as `ubertooth-rx -c abc` or `-l zz3344`, are refused before
-  the device is opened. `ubertooth-btle -k` and `ubertooth-ducky -q` also take
-  their value as the next word.
-  [#155](https://github.com/SqueakyFloors/ubertooth/issues/155)
+- The command-line handling has been thoroughly revamped so every tool behaves
+  consistently and as expected: invalid arguments and combinations are rejected
+  before a board is opened, and an option and its value may be separated by a
+  space.
+  ([#155](https://github.com/SqueakyFloors/ubertooth/issues/155), [#193](https://github.com/SqueakyFloors/ubertooth/issues/193), [#236](https://github.com/SqueakyFloors/ubertooth/issues/236), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#501](https://github.com/SqueakyFloors/ubertooth/issues/501), [#541](https://github.com/SqueakyFloors/ubertooth/issues/541), [#790](https://github.com/SqueakyFloors/ubertooth/issues/790))
 
 #### Output streams, messages, and exit status
 
