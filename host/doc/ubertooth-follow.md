@@ -179,11 +179,13 @@ The map that comes back is used only when it could be a hop sequence at all:
    does not work on a controller that does not implement
    HCI_Read_AFH_Channel_Map; run without `-a` on one of those;
  - a reply of AFH off is followed without it:
-   `the remote device is not using AFH; following without it`. Nothing is sent
-   to the board in that case: starting the follow resets its hop mode and AFH
-   map, so a map left by an earlier run cannot make it hop adaptively anyway.
-   An accepted map is applied once the follow has started, for the same reason
-   (see ubertooth-util(1), CARRY-OVER BETWEEN RUNS);
+   `the remote device is not using AFH; following without it`. The board is
+   then told to clear its map, as a follow without `-a` is: a board left
+   streaming by a follow that was killed is still in the same mode, so it
+   takes this run's mode request as a re-sync of the old one and keeps the map
+   that run set. An accepted map is applied after the follow has started
+   rather than before, because a mode start that does begin afresh forgets a
+   map set first (see ubertooth-util(1), CARRY-OVER BETWEEN RUNS);
  - a map with fewer than the 20 channels AFH requires, or none at all, is read
    again — three reads in total, 200ms apart — in case it has not settled. If
    it still reports too few, the command stops and says so;
