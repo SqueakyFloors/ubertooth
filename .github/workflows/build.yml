@@ -834,6 +834,12 @@ jobs:
       # tree carries. Before this step the rule was kept by review, and the
       # samples that went stale were found two bumps later. It reads files:
       # no build, no network, a second or two.
+      #
+      # The gate is the doc-api-version workflow, which has no path filter and
+      # so runs on a documentation-only branch, where this job does not. This
+      # step stays because of the runner it is on: the macOS leg is the one
+      # scan of the real tree with the BSD tools, and the check is sed, grep,
+      # awk and xargs, which the two platforms disagree about.
       timeout-minutes: 2
       run: tools/check-doc-api-version.sh
 

@@ -109,6 +109,11 @@ or non-trivial operational documentation changes:
   and `manpages.yml`, which cannot read another workflow's env, may name one,
   and both must name the pinned repository. A job that wants the library reads
   the pin instead of writing a repository.
+  `doc-api-version` is its own workflow with no path filter for the same kind
+  of reason: it reads the documentation, so a documentation-only change is the
+  one it most needs to see, and that is the change `Build` skips. It runs on
+  the push to `main` as well, which `Build` does not for a change under
+  `docs/`, `.kiro/` or any `*.md`.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -155,10 +160,13 @@ Speed matters. Do not wait for every job.
   builds and runs the packaging tool; changes to `install.sh` need both
   `install-sh` jobs; changes under `host/doc` need the `Man pages` workflow,
   which `gh pr checks` prints under its job name, `refresh`.
-  `issue-references`, `api-version`, `libbtbb-pin`, `scripts (ubuntu-24.04)`
+  `issue-references`, `api-version`, `libbtbb-pin`, `doc-api-version`,
+  `scripts (ubuntu-24.04)`
   and `scripts (macos-26)` gate every change they run on, whatever the change
   touches: they take seconds to a minute, need nothing built, and a red one
-  means the change itself broke the rule they check. A full-tier failure is
+  means the change itself broke the rule they check. `doc-api-version` is not
+  in the rule on `main` yet, only the maintainer can add it there, and it
+  gates all the same: do not merge past a red one. A full-tier failure is
   followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
@@ -211,7 +219,8 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   places that state the requirement rather than illustrate output. A version a
   sample is making a point about -- `2020-12-R1`'s 1.07, say -- is a fixed
   number and stays.
-- The `scripts` jobs run `tools/check-doc-api-version.sh`, which asks all of
+- The `doc-api-version` CI job runs `tools/check-doc-api-version.sh`, which
+  asks all of
   that: no documentation file writes `API:` followed by a digit except the
   shapes its allowlist names; `TEST_PLAN.md` and `COMPATIBILITY.md` -- which
   are excused because they state the requirement -- carry the version this
@@ -221,7 +230,10 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   that wording, so a version the section mentions for another reason is left
   alone -- which is why the sentence has to be there in so many words, and
   dropping it is a failure rather than a pass. Run it before pushing; it reads
-  files and takes a second.
+  files and takes a second. That job is its own workflow with no path filter,
+  so it runs on a documentation-only branch and on the push to `main`, which
+  is what the check is for; the `scripts` jobs run it as well, for the one
+  scan of the real tree with the BSD tools.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base. It
   cannot judge whether a change breaks an older host tool, so it asks what is
