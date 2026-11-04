@@ -122,7 +122,8 @@ int bl_update_check(const uint8_t *payload, size_t length,
  *   2. program sectors 1, 2 and 3, preparing each immediately before its
  *      program, as the ROM requires;
  *   3. program sector 0, which is where the vector table is;
- *   4. read all four back and compare them with what was sent.
+ *   4. read all four back and compare them with what was sent, and erase
+ *      sector 0 again if that comparison fails.
  *
  * The region is emptied before any of it is programmed, and the sector
  * holding the vector table is the last one written. Both are for the same
@@ -134,6 +135,13 @@ int bl_update_check(const uint8_t *payload, size_t length,
  * single program of sector 0, which is the window the application's own
  * download has had all along (host/ubertooth-tools/src/ubertooth-dfu.c,
  * download(), writes the application's first block last for this reason).
+ *
+ * A read-back the part refuses is the one failure that happens after sector 0
+ * has been programmed, so the last step erases that sector again rather than
+ * leaving a board starting a bootloader the part has just declined to
+ * confirm. The board then comes up in the serial programmer, like any other
+ * failed update, and the result is still
+ * UBERTOOTH_BL_UPDATE_READ_BACK_FAILED.
  *
  * Programming sector 0 first would give that guarantee only while the erase
  * and that one sector ran: from the moment a filled-in checksum reached flash

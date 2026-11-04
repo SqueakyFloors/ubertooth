@@ -71,6 +71,8 @@ struct fake_part {
 	int fail_prepare_at;  /* 1-based call number to fail, 0 for none */
 	int prepare_calls;
 	int fail_erase;
+	int fail_erase_at;  /* 1-based call number to fail, 0 for none */
+	int erase_calls;
 	int fail_program_sector; /* 0-based sector to fail, -1 for none */
 	int fail_verify_sector;
 	/* Bytes of flash to corrupt after programming, so the read-back has
@@ -129,7 +131,8 @@ static int fake_erase(void *context, uint32_t first, uint32_t last)
 
 	(void)context;
 	note("erase %u-%u\n", first, last);
-	if (part.fail_erase)
+	part.erase_calls++;
+	if (part.fail_erase || part.fail_erase_at == part.erase_calls)
 		return -1;
 	for (s = first; s <= last && s < BL_UPDATE_SECTOR_COUNT; s++) {
 		if (!part.prepared[s])
@@ -721,6 +724,84 @@ MU_TEST(a_region_that_reads_back_wrong_is_a_failure)
 	mu_assert_int_eq(1, report.sectors_verified);
 }
 
+/*
+ * A read-back failure is the one failure that comes after sector 0 is
+ * programmed, so it is the one that would otherwise leave the board starting a
+ * bootloader the part declined to confirm. The sector holding the vector table
+ * is erased again, which is the state every other interrupted update leaves:
+ * the boot ROM refuses it and starts its serial programmer.
+ */
+MU_TEST(a_failed_read_back_takes_the_vector_table_away_again)
+{
+	struct bl_update_report report;
+	int failed_at;
+
+	for (failed_at = 0; failed_at <= (int)BL_UPDATE_LAST_SECTOR;
+	     failed_at++) {
+		uint32_t sum = 0;
+		unsigned i;
+
+		build_good_payload();
+		reset_part();
+		part.fail_verify_sector = failed_at;
+		mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED,
+		                 run(&report));
+		for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS * 4; i++)
+			mu_assert_int_eq(0xff, part.flash[i]);
+		for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS; i++)
+			sum += read_le32(part.flash + i * 4);
+		mu_assert(sum != 0,
+		          "a region the part would not read back was left with a "
+		          "vector table that adds up, so the board would start a "
+		          "bootloader the read-back did not confirm");
+	}
+
+	/* Flash that held different bytes than were sent, rather than a part
+	 * that refused the comparison, leaves the same state. */
+	build_good_payload();
+	reset_part();
+	part.corrupt_offset = BL_UPDATE_SECTOR_LENGTH + 0x40;
+	part.corrupt_length = 4;
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED, run(&report));
+	mu_assert_int_eq(0xff, part.flash[0]);
+	/* The erase is prepared first, as the ROM requires, and covers that one
+	 * sector. */
+	mu_assert(strstr(part.log, "verify 0x1000 4096\nprepare 0-0\nerase 0-0\n")
+	          != NULL,
+	          "the vector table's sector was not prepared and erased after "
+	          "the read-back failed");
+	mu_assert_int_eq(0, part.programmed_without_prepare);
+}
+
+/* The part may refuse that erase too. Nothing more can be done then, and the
+ * failure the run reports is still the read-back. */
+MU_TEST(a_part_that_will_not_erase_again_still_reports_the_read_back)
+{
+	struct bl_update_report report;
+
+	build_good_payload();
+	reset_part();
+	part.fail_verify_sector = 0;
+	part.fail_erase_at = 2;  /* the region erase runs; this one does not */
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED, run(&report));
+	mu_assert_int_eq(4, report.sectors_written);
+	mu_assert_int_eq(0, report.sectors_verified);
+	mu_assert(strstr(part.log, "erase 0-0\n") != NULL,
+	          "the vector table's sector was not erased after the read-back "
+	          "failed");
+
+	/* And a part that will not prepare it is the same. */
+	build_good_payload();
+	reset_part();
+	part.fail_verify_sector = 0;
+	/* One prepare for the region, one before each of the four programs, and
+	 * then the one this failure is about. */
+	part.fail_prepare_at = 6;
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED, run(&report));
+	mu_assert(strstr(part.log, "erase 0-0\n") == NULL,
+	          "a sector the part would not prepare was erased anyway");
+}
+
 MU_TEST(a_run_with_no_buffer_writes_nothing)
 {
 	struct bl_update_report report;
@@ -1095,6 +1176,8 @@ int main(void)
 	MU_RUN(an_erase_the_part_refuses_stops_the_run);
 	MU_RUN(a_program_the_part_refuses_stops_the_run);
 	MU_RUN(a_region_that_reads_back_wrong_is_a_failure);
+	MU_RUN(a_failed_read_back_takes_the_vector_table_away_again);
+	MU_RUN(a_part_that_will_not_erase_again_still_reports_the_read_back);
 	MU_RUN(a_run_with_no_buffer_writes_nothing);
 	MU_RUN(every_result_has_its_own_phrase);
 	MU_RUN(the_linker_script_places_the_payload_where_the_header_says);

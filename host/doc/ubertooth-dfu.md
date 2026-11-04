@@ -435,11 +435,14 @@ Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table
 is programmed last, so an interruption leaves erased flash where that table
 belongs: the boot ROM refuses it and starts its own serial programmer, which
-the adapter reaches. The exception is a loss of power inside the single 4 KiB
-program that writes the vector table, which leaves a checksum the boot ROM
-accepts in front of code that was never finished; recovering a board from that
-needs the entry pin held as well as the adapter. Nothing here narrows that
-window.
+the adapter reaches. A read-back the part will not confirm is the one failure
+that happens after that sector is written, so the image erases it again and
+the board comes up in the serial programmer as well, rather than starting a
+bootloader the part declined to confirm. The exception is a loss of power
+inside the single 4 KiB program that writes the vector table, which leaves a
+checksum the boot ROM accepts in front of code that was never finished;
+recovering a board from that needs the entry pin held as well as the adapter.
+Nothing here narrows that window.
 
 Both the host and the image check the bootloader over the same bytes before
 any of it is programmed: that it is the whole 16 KiB region, that it carries a
