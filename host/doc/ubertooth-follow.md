@@ -58,10 +58,8 @@ above says which one the tool is holding you to.
 
 The capture is gated by the board's squelch, which this tool does not set: it
 is the default -120 dBm unless `ubertooth-util -z` set another value while the
-board was idle. The firmware resets it when the board leaves a mode, so a
-value set for an earlier capture is gone — unless this run is absorbed by a
-Classic symbol capture still streaming on the board, which keeps the squelch
-that run was using. See ubertooth-util(1), SQUELCH.
+board was idle, and the firmware resets it on every mode change, so it never
+carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
 
 Requires BlueZ (Linux only). The clock and AFH-map reads this tool is built
 around are not reachable from macOS's public Bluetooth APIs, so it is not

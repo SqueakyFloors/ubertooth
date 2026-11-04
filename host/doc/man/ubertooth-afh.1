@@ -15,7 +15,7 @@ Classic Bluetooth piconets commonly make use of Adaptive Frequency Hopping (AFH)
 .P
 At a minimum you must provide UAP and LAP\. See ubertooth\-rx(1) for a method for sniffing these over the air and details on where else to find them\. By default the tool will only print the AFH map when it is updated\. By providing the \fB\-r\fR flag, the AFH map will be printed out in binary form once per second\.
 .P
-The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle\. The firmware resets it when the board leaves a mode, so a value set for an earlier capture is gone \(em unless this run is absorbed by a Classic symbol capture still streaming on the board, which keeps the squelch that run was using\. See ubertooth\-util(1), SQUELCH\.
+The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .SH "OPTIONS"
 .TP
 \fB\-l <LAP>\fR

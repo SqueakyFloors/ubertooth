@@ -143,7 +143,7 @@ start LED spectrum analyzer\. The threshold is \-N dBm, so a larger N lights the
 initiate continuous transmit test
 .TP
 \fB\-z [\-128\.\.127]\fR
-get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for an RX capture\. The firmware puts it back to the default \-120 dBm whenever the board leaves a mode, so set it in the same step as the capture it is meant for, or once that capture is running\. See \fISQUELCH\fR, which covers the one kind of mode start that keeps it\. \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR), which would reset it before the mode started\.
+get/set squelch level (a signed RSSI threshold; values above 0 are relative to the average RSSI) for an RX capture\. The firmware puts it back to the default \-120 dBm whenever the board leaves a mode, so set it in the same step as the capture it is meant for, or once that capture is running; it does not carry into the next mode\. See \fISQUELCH\fR\. \fB\-z\fR cannot be combined with a mode option (\fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR, \fB\-i\fR), which would reset it before the mode started\.
 .P
 Range test:
 .TP
@@ -527,7 +527,7 @@ Note that the range test transmits the Cortex M3 microcontroller's serial number
 .SH "SQUELCH"
 \fB\-z\fR writes the squelch to the board\. It gates the carrier\-sense trigger of the Classic Bluetooth symbol capture (\fBubertooth\-rx\fR, \fBubertooth\-dump\fR, \fBubertooth\-scan\fR, \fBubertooth\-follow\fR, \fBubertooth\-afh\fR) and of the BLE promiscuous mode of \fBubertooth\-btle\fR; at the default \-120 dBm nothing is squelched\. No other tool sets or reports it\.
 .P
-It lasts for one mode, not until the board is reset: the firmware runs its idle reset whenever it leaves a mode, before the next one starts, and that puts the squelch back to \-120 dBm along with the LEDs and the channel\. So a value set for one capture does not reach a later one the board left a mode for\. That is deliberate \(em a squelch left behind would quietly change every capture that followed \(em and it is the behavior to work with:
+It lasts for one mode, not until the board is reset: the firmware runs its idle reset whenever it leaves a mode, before the next one starts, and that puts the squelch back to \-120 dBm along with the LEDs and the channel\. So a value set for one capture never reaches a later one\. That is deliberate \(em a squelch left behind would quietly change every capture that followed \(em and it is the behavior to work with:
 .IP "\(bu" 4
 Set it while the board is idle, then start the capture\. A mode entered from idle keeps the value, because no mode is being left:
 .IP "" 4
@@ -540,16 +540,14 @@ Set it while the board is idle, then start the capture\. A mode entered from idl
 .IP "\(bu" 4
 Or set it once the capture is running: \fB\-z\fR works on a board that is in a mode and takes effect immediately\. Bare \fB\-z\fR reads back what the running capture is using\.
 .IP "\(bu" 4
-Set it again for each capture\. \fB\-z\fR reads \-120 dBm again once the board has left the mode the value was set for: when that capture ends, and when any mode other than another Classic symbol capture replaces it\.
-.IP "\(bu" 4
-Expect it to be kept in one case\. A board a Classic symbol capture was killed on goes on streaming, and a run of \fBubertooth\-rx\fR, \fBubertooth\-dump\fR, \fBubertooth\-scan\fR, \fBubertooth\-follow\fR or \fBubertooth\-afh\fR against it is absorbed by that stream rather than starting after a reset, so it captures at the squelch the killed run was using\. Read it back with bare \fB\-z\fR and set the value this capture needs\. See CARRY\-OVER BETWEEN RUNS\.
+Set it again for each capture\. After a capture ends, or as soon as one mode replaces another, \fB\-z\fR reads \-120 dBm again\.
 .IP "" 0
 .P
 \fB\-z\fR together with one of \fBubertooth\-util\fR's own mode options is refused rather than quietly dropped, because each of those modes leaves whatever was running first and the reset would discard the value before the mode started\.
 .SH "CARRY\-OVER BETWEEN RUNS"
 One rule covers what a board holds from one command to the next:
 .IP "\(bu" 4
-\fBEvery mode start resets the mode state, hop mode and AFH channel map the mode before it left\.\fR A capture hops the way the mode that started it asks, and no other way: \fBubertooth\-rx\fR after an \fBubertooth\-afh\fR hops across the whole channel set, not on the map that run found\. It also holds for a board the earlier tool was killed on and left streaming, as long as the new run asks for a different mode\. A run that asks for the mode already streaming is a re\-send, which the board takes as a re\-sync of the run already going, and it resets nothing: see "Re\-sending the mode a board is already running" below, and the \fBubertooth\-ego\fR exception after that\. The modulation goes with it, back to Classic, and so do the squelch, the LEDs and the access code \fBubertooth\-ego \-a\fR sets, as above; the power amplifier level set with \fB\-a\fR does not\. One kind of mode start puts back less than that: see "A mode start a running capture absorbs" below\.
+\fBEvery mode start resets the mode state, hop mode and AFH channel map the mode before it left\.\fR A capture hops the way the mode that started it asks, and no other way: \fBubertooth\-rx\fR after an \fBubertooth\-afh\fR hops across the whole channel set, not on the map that run found\. It also holds for a board the earlier tool was killed on and left streaming, as long as the new run asks for a different mode\. A run that asks for the mode already streaming is a re\-send, which the board takes as a re\-sync of the run already going, and it resets nothing: see "Re\-sending the mode a board is already running" below, and the \fBubertooth\-ego\fR exception after that\. The squelch and the LEDs go with it, as above, and so do the modulation, which goes back to Classic, and the access code \fBubertooth\-ego \-a\fR sets; the power amplifier level set with \fB\-a\fR does not\. One kind of mode start keeps the squelch instead, which the tools go out of their way to avoid: see "A mode start a running capture absorbs" below\.
 .IP "\(bu" 4
 \fBA channel, a band sweep, a modulation, an access code or an AFH channel map stated after the mode request is kept\.\fR It belongs to the mode that is starting, so the reset above leaves it alone, whatever the board was doing before\. That is where a tool states what its capture needs \(em \fBubertooth\-rx\fR, \fBubertooth\-scan\fR, \fBubertooth\-dump\fR, \fBubertooth\-btle\fR, \fBubertooth\-ducky\fR, \fBubertooth\-ego\fR and \fBubertooth\-follow\fR all do \(em and it is kept only for that mode: a setting stated for a run the host has moved on from is dropped rather than carried into whatever starts next\.
 .IP "\(bu" 4
@@ -558,7 +556,16 @@ One rule covers what a board holds from one command to the next:
 .P
 What is set on an idle board is for the capture that follows, as the squelch is: no mode is being left, so there is nothing to reset\. What a mode left behind, on the other hand, never decides how the next one captures\.
 .P
-A mode start a running capture absorbs puts back less than one the board leaves a mode for\. The three Classic symbol capture modes \(em the plain symbol capture, Bluetooth follow and AFH detection, which \fBubertooth\-rx\fR, \fBubertooth\-dump\fR, \fBubertooth\-scan\fR, \fBubertooth\-follow\fR and \fBubertooth\-afh\fR ask for between them \(em stream from the same loop, so a request for a different one of them, arriving while that loop is running, never stops it: the receive carries on under the new mode's name\. Such a start puts back the hop mode, the AFH channel map and the modulation, and nothing else\. The squelch and the LEDs stay as the earlier run left them\. That is the board one of those tools leaves behind when it is killed mid\-capture, so a capture started on it runs at whatever squelch the killed run was using, unless it sets its own\.
+A mode start a running capture absorbs puts back less than one the board leaves a mode for\. The three Classic symbol capture modes \(em the plain symbol capture, Bluetooth follow, and AFH detection, which \fBubertooth\-rx\fR, \fBubertooth\-dump\fR, \fBubertooth\-scan\fR, \fBubertooth\-follow\fR, and \fBubertooth\-afh\fR ask for between them \(em stream from the same loop, so a request for a different one of them, arriving while that loop is running, never stops it: the receive carries on under the new mode's name\. The board puts back the hop mode, the AFH channel map, and the modulation, but not the squelch, because the receive it is gating never stopped\.
+.P
+Those five tools do not leave it to that\. Each stops a board it finds still in a mode and waits for it to say it has stopped before asking for its own, which is a mode start the dispatch sees and resets in full\. So a board a killed run left streaming is stopped first, and the squelch is back to \-120 dBm for the capture that follows\. What reaches the narrower reset is a board that will not stop inside the wait, which the run warns about:
+.IP "" 4
+.nf
+warning: it has not stopped after 1000 ms; this capture may open with a packet or two of the earlier run's
+.fi
+.IP "" 0
+.P
+and a program that drives the board over USB without stopping it first\.
 .P
 Re\-sending the mode a board is already running is not a mode start, and resets nothing\. That is what lets a tool restate its mode mid\-session without losing what it is capturing on, as \fBubertooth\-follow\fR does each time it re\-syncs its clock\. A tool cannot tell the board which of the two it is doing, so one that wants a clean map after a restart says what it wants of the map once its mode is running, rather than before it starts\. The channel a capture needs goes the same way round, and for the same reason it is stated after the mode request\.
 .P

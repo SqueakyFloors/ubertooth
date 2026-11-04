@@ -247,10 +247,10 @@ Radio options:
    get/set squelch level (a signed RSSI threshold; values above 0 are relative
    to the average RSSI) for an RX capture. The firmware puts it back to the
    default -120 dBm whenever the board leaves a mode, so set it in the same
-   step as the capture it is meant for, or once that capture is running. See
-   [SQUELCH][], which covers the one kind of mode start that keeps it. `-z`
-   cannot be combined with a mode option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`,
-   `-i`), which would reset it before the mode started.
+   step as the capture it is meant for, or once that capture is running; it
+   does not carry into the next mode. See [SQUELCH][]. `-z` cannot be combined
+   with a mode option (`-q`, `-n`, `-e`, `-t`, `-x`, `-I`, `-i`), which would
+   reset it before the mode started.
 
 Range test:
 
@@ -845,9 +845,9 @@ squelched. No other tool sets or reports it.
 It lasts for one mode, not until the board is reset: the firmware runs its
 idle reset whenever it leaves a mode, before the next one starts, and that
 puts the squelch back to -120 dBm along with the LEDs and the channel. So a
-value set for one capture does not reach a later one the board left a mode
-for. That is deliberate — a squelch left behind would quietly change every
-capture that followed — and it is the behavior to work with:
+value set for one capture never reaches a later one. That is deliberate — a
+squelch left behind would quietly change every capture that followed — and it
+is the behavior to work with:
 
 - Set it while the board is idle, then start the capture. A mode entered from
   idle keeps the value, because no mode is being left:
@@ -859,16 +859,8 @@ capture that followed — and it is the behavior to work with:
   mode and takes effect immediately. Bare `-z` reads back what the running
   capture is using.
 
-- Set it again for each capture. `-z` reads -120 dBm again once the board has
-  left the mode the value was set for: when that capture ends, and when any
-  mode other than another Classic symbol capture replaces it.
-
-- Expect it to be kept in one case. A board a Classic symbol capture was
-  killed on goes on streaming, and a run of `ubertooth-rx`, `ubertooth-dump`,
-  `ubertooth-scan`, `ubertooth-follow` or `ubertooth-afh` against it is
-  absorbed by that stream rather than starting after a reset, so it captures
-  at the squelch the killed run was using. Read it back with bare `-z` and set
-  the value this capture needs. See CARRY-OVER BETWEEN RUNS.
+- Set it again for each capture. After a capture ends, or as soon as one mode
+  replaces another, `-z` reads -120 dBm again.
 
 `-z` together with one of `ubertooth-util`'s own mode options is refused
 rather than quietly dropped, because each of those modes leaves whatever was
@@ -886,11 +878,12 @@ One rule covers what a board holds from one command to the next:
   asks for a different mode. A run that asks for the mode already streaming
   is a re-send, which the board takes as a re-sync of the run already going,
   and it resets nothing: see "Re-sending the mode a board is already running"
-  below, and the `ubertooth-ego` exception after that. The modulation goes
-  with it, back to Classic, and so do the squelch, the LEDs and the access
-  code `ubertooth-ego -a` sets, as above; the power amplifier level set with
-  `-a` does not. One kind of mode start puts back less than that: see "A mode
-  start a running capture absorbs" below.
+  below, and the `ubertooth-ego` exception after that. The squelch and the
+  LEDs go with it, as above, and so do the modulation, which goes back to
+  Classic, and the access code `ubertooth-ego -a` sets; the power amplifier
+  level set with `-a` does not. One kind of mode start keeps the squelch
+  instead, which the tools go out of their way to avoid: see "A mode start a
+  running capture absorbs" below.
 - **A channel, a band sweep, a modulation, an access code or an AFH channel
   map stated after the mode request is kept.** It belongs to the mode that is
   starting, so the reset above leaves it alone, whatever the board was doing
@@ -913,15 +906,24 @@ behind, on the other hand, never decides how the next one captures.
 
 A mode start a running capture absorbs puts back less than one the board
 leaves a mode for. The three Classic symbol capture modes — the plain symbol
-capture, Bluetooth follow and AFH detection, which `ubertooth-rx`,
-`ubertooth-dump`, `ubertooth-scan`, `ubertooth-follow` and `ubertooth-afh` ask
+capture, Bluetooth follow, and AFH detection, which `ubertooth-rx`,
+`ubertooth-dump`, `ubertooth-scan`, `ubertooth-follow`, and `ubertooth-afh` ask
 for between them — stream from the same loop, so a request for a different one
 of them, arriving while that loop is running, never stops it: the receive
-carries on under the new mode's name. Such a start puts back the hop mode, the
-AFH channel map and the modulation, and nothing else. The squelch and the LEDs
-stay as the earlier run left them. That is the board one of those tools leaves
-behind when it is killed mid-capture, so a capture started on it runs at
-whatever squelch the killed run was using, unless it sets its own.
+carries on under the new mode's name. The board puts back the hop mode, the
+AFH channel map, and the modulation, but not the squelch, because the receive
+it is gating never stopped.
+
+Those five tools do not leave it to that. Each stops a board it finds still in
+a mode and waits for it to say it has stopped before asking for its own, which
+is a mode start the dispatch sees and resets in full. So a board a killed run
+left streaming is stopped first, and the squelch is back to -120 dBm for the
+capture that follows. What reaches the narrower reset is a board that will not
+stop inside the wait, which the run warns about:
+
+    warning: it has not stopped after 1000 ms; this capture may open with a packet or two of the earlier run's
+
+and a program that drives the board over USB without stopping it first.
 
 Re-sending the mode a board is already running is not a mode start, and resets
 nothing. That is what lets a tool restate its mode mid-session without losing

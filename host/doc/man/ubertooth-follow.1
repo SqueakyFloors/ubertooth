@@ -37,7 +37,7 @@ warning: the clock being followed was not this piconet's; searching for its cloc
 .P
 If that UAP is in fact wrong, nothing of the piconet will decode, and the line above says which one the tool is holding you to\.
 .P
-The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle\. The firmware resets it when the board leaves a mode, so a value set for an earlier capture is gone \(em unless this run is absorbed by a Classic symbol capture still streaming on the board, which keeps the squelch that run was using\. See ubertooth\-util(1), SQUELCH\.
+The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it on every mode change, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .P
 Requires BlueZ (Linux only)\. The clock and AFH\-map reads this tool is built around are not reachable from macOS's public Bluetooth APIs, so it is not built there and no macOS version is planned\. \fBubertooth\-rx \-l <LAP>\fR recovers the addresses and the clock from the air without an adapter, which takes it hops of the piconet and some of a capture, and against a link heard rarely may not get there at all: see ubertooth\-rx(1), THE CLOCK SEARCH\. Reading the clock through an adapter, as this tool does, is immediate and exact\. See COMPATIBILITY\.md for the comparison\.
 .SH "OPTIONS"
