@@ -630,8 +630,9 @@ without it, only one is near that gap. The one gap that spans the move is
 therefore measured on the host clock, which is good to a packet's latency
 rather than to 100 ns, and every other gap is still the board clock's. So the
 record times of a follow track the run. A follow also trims the board clock's
-phase and corrects its rate to the piconet's, which this does not account for;
-both come to well under a millisecond over a run.
+phase, by up to 312.5 µs each time, and corrects its rate to the piconet's,
+which can reach 320 PPM per correction; neither is accounted for here, so a
+long follow's times carry whatever those come to.
 
 One move is taken out for each time the board is put on a clock, and a move
 smaller than a couple of seconds is left in the times: the host's measure of a

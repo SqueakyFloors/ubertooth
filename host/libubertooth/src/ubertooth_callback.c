@@ -477,27 +477,39 @@ static uint64_t wraps_the_gap_accounts_for( const ubertooth_t* ut,
  * from the period count and the reading together, so that a move in either
  * direction reads as the signed amount it is. The byte's own wrap costs
  * nothing, and the half of its range kept for backwards differences covers
- * every move a follow can ask for: the offset is under 2^27 CLKN ticks, which
- * is half what the count and the reading hold between them. */
+ * every move a follow can ask for, note_a_move_of_the_clock() above having
+ * reduced the amount into that same range.
+ *
+ * What the test takes as the measure of the gap can itself be out by a period,
+ * for reasons that have nothing to do with the move: a count that reads
+ * backwards is declined, and a packet caught as the count ticks over carries
+ * one a period from its own reading. So a move within a period or two of
+ * 327.68 s can be found on such a packet instead of the right one. That costs
+ * that packet's time and the move's, the same as any other wrong reading here,
+ * and the slack below is what keeps the much commoner small case out. */
 /* Records a move of the board's clock the capture has asked for, so that the
  * reconstruction can find it and take it out.
  *
  * offset is in CLKN ticks, as the request carries it, and comes from the
  * decoder as a plain signed difference between two clocks. It is reduced into
- * the range the records can express: a packet states its clock as a period
- * count and a reading, 256 periods between them, and an amount past half of
- * that is the same reading reached the short way round. The firmware's own
- * CLKN wraps within that range too, so this is where the two agree.
+ * the range a record can state: a packet gives its clock as a period count and
+ * a reading, 256 periods between them, and an amount past half of that is the
+ * same reading reached the short way round. That 2^28 ticks of CLKN is also
+ * the modulus the decoder works the offset out in, so the two agree on which
+ * way round a given amount is. The firmware's own clkn counts further, to
+ * 2^32, but nothing outside it ever sees those top bits.
  *
- * A move no larger than the slack is not recorded at all. The host's measure
- * of a gap is only good to about that much, so such a move cannot be told from
- * ordinary error in that measure: looking for it would as often find it on a
- * packet stamped before the board moved at all, which costs that packet's time
- * and leaves the real move in the capture. A move that small is worth less
- * than the precision finding it would cost, so it stays in the times. */
+ * A move no larger than the slack is not recorded at all. Looking for it would
+ * as often find it on a packet stamped before the board moved, which costs
+ * that packet's time and clears the move, leaving the real one in the capture.
+ * A move that small is worth less than the precision finding it would cost, so
+ * it stays in the times. */
 static void note_a_move_of_the_clock( ubertooth_t* ut, int offset )
 {
-	int64_t window = 256 * (int64_t) ut->clk100ns_period;
+	/* The range a record states its clock in, which is the clock CLKN
+	 * drives and not whatever the current mode stamps with: a mode that
+	 * stamps from timer1 sends no period count and never asks for a move. */
+	int64_t window = 256 * (int64_t) CLK100NS_PERIOD;
 	int64_t move = ut->clk100ns_pending_move +
 	               (int64_t) offset * CLK100NS_PER_CLKN;
 
@@ -2193,14 +2205,17 @@ void cb_rx(ubertooth_t* ut, void* args)
 		if (infile == NULL) {
 			int offset = btbb_piconet_get_clk_offset(pn);
 
-			cmd_start_hopping(ut->devh, offset, 0);
-			/* The board's clock is about to move to the piconet's,
-			 * which is not time passing: the firmware adds this
-			 * offset to CLKN once, at its next tick. Taken out of
-			 * the capture's times by
-			 * take_out_the_move_of_the_clock() above, which needs
-			 * the amount to find the packet it landed on. */
-			note_a_move_of_the_clock( ut, offset );
+			/* The board's clock moves to the piconet's, which is not
+			 * time passing: the firmware adds this offset to CLKN
+			 * once, at its next tick. Taken out of the capture's
+			 * times by take_out_the_move_of_the_clock() above,
+			 * which needs the amount to find the packet it landed
+			 * on. Only a request that went out moves anything: a
+			 * move written down for one that did not would be
+			 * looked for in readings that never carry it, and a
+			 * later discontinuity taken for it. */
+			if (cmd_start_hopping(ut->devh, offset, 0) >= 0)
+				note_a_move_of_the_clock( ut, offset );
 		}
 		ut->br_calibrated = 0;
 		ut->br_following = 1;

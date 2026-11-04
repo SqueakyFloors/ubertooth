@@ -1138,12 +1138,11 @@ MU_TEST(a_wrap_a_backlog_hid_still_counts)
 	              10 * ONE_SECOND_TICKS);
 }
 
-/* How far apart the board's clock and the piconet's were in the follow cases
+/* How far apart the board's clock and the piconet's are in the follow cases
  * below: the amount the board's clock moves when it is put on the piconet's,
- * which is not time passing. Two values, because the move can go either way
- * and its size is whatever those two clocks happened to be apart - a bench
- * follow of 15 s wrote records spanning 191.3 s and one of 25 s spanning
- * 137.4 s, which is this move and not any rate error. */
+ * which is not time passing. Two values, because the move can go either way,
+ * and round numbers, because the size is whatever those two clocks happened to
+ * be apart and no particular value is the interesting one. */
 #define MOVE_BACK_TICKS    1000000000ull /* 100 s */
 #define MOVE_FORWARD_TICKS 1124000000ull /* 112.4 s */
 
@@ -1355,15 +1354,36 @@ MU_TEST(a_move_too_small_to_find_is_not_looked_for)
 	 * second, which is inside what the host's measure of a gap is good
 	 * for. */
 	const int64_t window = 256 * (int64_t) CLK100NS_PERIOD;
-	const int small = ONE_SECOND_TICKS / (10 * CLK100NS_PER_CLKN);
+	/* The move the slack comes to, in the CLKN ticks a request carries, and
+	 * one tick either side of it. */
+	const int at_the_bound = (int) (CLK100NS_WRAP_SLACK_NS / 100 /
+	                                CLK100NS_PER_CLKN);
 
 	memset(&ut, 0, sizeof(ut));
 	ut.clk100ns_period = CLK100NS_PERIOD;
 
-	note_a_move_of_the_clock(&ut, small);
+	/* A tenth of a second, well inside what the host's measure of a gap is
+	 * good for, is not written down. */
+	note_a_move_of_the_clock(&ut, ONE_SECOND_TICKS / (10 * CLK100NS_PER_CLKN));
 	mu_assert_int_eq(0, ut.clk100ns_pending_move);
 
+	/* Nor is a move of exactly the slack, which is the bound itself. */
+	note_a_move_of_the_clock(&ut, at_the_bound);
+	mu_assert_int_eq(0, ut.clk100ns_pending_move);
+	note_a_move_of_the_clock(&ut, -at_the_bound);
+	mu_assert_int_eq(0, ut.clk100ns_pending_move);
+
+	/* One tick past it is, in either direction. */
+	note_a_move_of_the_clock(&ut, at_the_bound + 1);
+	mu_assert_int_eq((int64_t) (at_the_bound + 1) * CLK100NS_PER_CLKN,
+	                 ut.clk100ns_pending_move);
+	ut.clk100ns_pending_move = 0;
+	note_a_move_of_the_clock(&ut, -(at_the_bound + 1));
+	mu_assert_int_eq(-(int64_t) (at_the_bound + 1) * CLK100NS_PER_CLKN,
+	                 ut.clk100ns_pending_move);
+
 	/* A move worth finding is written down as the ticks it is. */
+	ut.clk100ns_pending_move = 0;
 	note_a_move_of_the_clock(&ut, 1000000);
 	mu_assert_int_eq(1000000ll * CLK100NS_PER_CLKN, ut.clk100ns_pending_move);
 
@@ -1421,6 +1441,46 @@ MU_TEST(a_later_jump_is_not_taken_as_a_second_move)
 	mu_assert_int_eq(TEN_SECOND_NS - 100 * (int64_t) MOVE_BACK_TICKS,
 	                 (int64_t) (times[8] - times[7]));
 	mu_assert_int_eq(0, ut.clk100ns_pending_move);
+}
+
+/* A move too small to look for stays in the capture's times, and no packet is
+ * read as carrying it. The clock here really does move back a tenth of a
+ * second, which is inside what the host's measure of a gap is good for, so the
+ * capture asks for nothing to be found: the records report the move as the
+ * clock reported it, and the gap that spans it is a tenth of a second short.
+ *
+ * What this rules out is the opposite: looking for such a move, finding it on
+ * whichever packet the host's own measure happened to be out on, and so
+ * costing that packet its time while leaving the move in the capture anyway. */
+MU_TEST(a_move_too_small_to_find_stays_in_the_times)
+{
+	ubertooth_t ut;
+	uint64_t ticks[8];
+	uint64_t arrived_ns[8];
+	uint64_t times[8];
+	const uint64_t small = ONE_SECOND_TICKS / 10;
+	uint64_t first = 20ull * CLK100NS_PERIOD + 200 * ONE_SECOND_TICKS;
+	int record;
+
+	memset(&ut, 0, sizeof(ut));
+	ut.clk100ns_period = CLK100NS_PERIOD;
+	note_a_move_of_the_clock(&ut, (int) (small / CLK100NS_PER_CLKN));
+	mu_assert_int_eq(0, ut.clk100ns_pending_move);
+
+	for (record = 0; record < 8; record++) {
+		ticks[record] = first + (uint64_t) record * TEN_SECOND_TICKS;
+		if (record >= 3)
+			ticks[record] -= small;
+		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS;
+	}
+
+	capture_a_follow(&ut, 8, ticks, arrived_ns, 0, times);
+
+	/* Every gap is the board clock's, including the one the move is in. */
+	for (record = 1; record < 8; record++)
+		mu_assert_int_eq(record == 3 ? TEN_SECOND_NS - 100 * small :
+		                               TEN_SECOND_NS,
+		                 times[record] - times[record - 1]);
 }
 
 /* The same as capture_records(), with whatever the library wrote to standard
@@ -2459,6 +2519,7 @@ int main(void)
 	MU_RUN(a_follow_the_clock_kept_up_with_keeps_the_boards_times);
 	MU_RUN(a_capture_with_no_move_outstanding_reads_the_clock);
 	MU_RUN(a_move_too_small_to_find_is_not_looked_for);
+	MU_RUN(a_move_too_small_to_find_stays_in_the_times);
 	MU_RUN(a_later_jump_is_not_taken_as_a_second_move);
 	MU_RUN(a_host_clock_that_steps_does_not_move_live_times);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);

@@ -104,6 +104,10 @@ static int find_ac_misses[sizeof(next_packets) / sizeof(next_packets[0])];
 static int rx_syms_result;
 static int set_channel_result;
 
+/* What the faked hopping request reports: a negative value is how the real one
+ * says the request did not go out. */
+static int hopping_result;
+
 /* The channel this capture asked for, which run_callback() puts on the handle
  * the way a tool does beside its own channel request. */
 static uint16_t capture_channel;
@@ -188,7 +192,7 @@ int cmd_start_hopping(struct libusb_device_handle* devh, int clkn_offset,
 	(void)devh; (void)clk100ns_offset;
 	seen.hopping_restarts++;
 	seen.hopping_offset = clkn_offset;
-	return 0;
+	return hopping_result;
 }
 
 /* Asking the board for a plain symbol capture is how the callback takes it off
@@ -501,6 +505,7 @@ static void reset_state(void)
 	survey_piconet = NULL;
 	drop_clock_result = 1;
 	rx_syms_result = 0;
+	hopping_result = 0;
 	set_channel_result = 0;
 	capture_channel = 0;
 	stated_uap = 0;
@@ -1781,6 +1786,30 @@ MU_TEST(a_recovered_clock_puts_the_board_on_its_offset)
 	btbb_piconet_unref(pn);
 }
 
+/* A hopping request that did not go out moves nothing, so the capture writes
+ * down no move to find. One written down for a request the board never got
+ * would be looked for in readings that never carry it, and a later
+ * discontinuity taken for it. */
+MU_TEST(a_refused_hopping_request_leaves_no_move_to_find)
+{
+	btbb_piconet* pn = btbb_piconet_new();
+
+	reset_state();
+	btbb_init_piconet(pn, 0x123456);
+	btbb_piconet_set_clk_offset(pn, 0x1234567);
+	fill_packet(&next_packets[0], clk100ns_for_clk_offset(CLK_TUNE_TIME, 2),
+	            0, 10);
+	next_count = 1;
+	process_packet_result = -1;
+	hopping_result = -7;
+	run_callback(cb_rx, pn);
+
+	mu_assert_int_eq(1, seen.hopping_restarts);
+	mu_assert_int_eq(0, last_ut.clk100ns_pending_move);
+
+	btbb_piconet_unref(pn);
+}
+
 MU_TEST(a_lost_clock_warns_once_and_takes_the_board_off_the_offset)
 {
 	btbb_piconet* pn = btbb_piconet_new();
@@ -2445,6 +2474,7 @@ int main(void)
 	MU_RUN(a_survey_records_no_reference_uap_until_one_is_settled);
 	MU_RUN(a_follow_records_its_own_piconets_uap_and_asks_no_survey);
 	MU_RUN(a_recovered_clock_puts_the_board_on_its_offset);
+	MU_RUN(a_refused_hopping_request_leaves_no_move_to_find);
 	MU_RUN(a_lost_clock_warns_once_and_takes_the_board_off_the_offset);
 	MU_RUN(a_board_that_refused_the_request_is_still_hopping_on_the_lost_offset);
 	MU_RUN(a_replay_warns_but_sends_no_request_when_the_clock_is_lost);
