@@ -28,35 +28,36 @@ are the ones worth knowing about.
   capture can be replayed.** `-p` recovers the access address, the CRC
   starting value, and the hopping of a connection nobody saw being made,
   algorithm 2 connections included, and it reports a connection interval only
-  when the gaps it measured support one. `-d <file>` saves the records the
-  board sent and `-R <file>` decodes them again with no board and no
-  connection, which is the only way to keep what promiscuous mode works out
-  about a connection: those figures arrive in records a capture file has no
-  field for.
+  when the gaps it measured support one. The mode is still experimental, and
+  the search needs tens of returns to the channel it listens on, so a lock
+  takes seconds at a short connection interval and minutes at a long one.
+  `-d <file>` saves the records the board sent and `-R <file>` decodes them
+  again with no board and no connection.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025),
   [#1129](https://github.com/SqueakyFloors/ubertooth/pull/1129)
 - **Classic sniffing copes with a piconet that adapts its hopping.** Every
   controller on a modern bench moves its traffic off busy channels, even when
   the whole band is allowed. `ubertooth-rx -l <lap> -u <uap>` now scores its
   clock candidates on the hops they explain, so it locks onto such a piconet
-  instead of searching for the whole capture: one board went from 1.8 packets
-  of the piconet a second to 25.4 once it locked. `ubertooth-afh` reports the
-  map a piconet is really using, 79 of 79 channels on a link using all of
-  them, where the old threshold settled on 5. And because a board hears one
-  1 MHz channel at a time, `ubertooth-rx` reads up to eight boards in one run
-  and shares the channels and the address part they find.
+  instead of searching for as long as the capture runs: one board went from
+  1.8 packets of the piconet a second to 25.4 once it locked. `ubertooth-afh`
+  reports the map a piconet is really using, 79 of 79 channels on a link
+  using all of them, where the old threshold settled on 5. And because a
+  board hears one 1 MHz channel at a time, `ubertooth-rx` reads up to eight
+  boards in one run and shares the channels and the address part they find.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968),
   [#963](https://github.com/SqueakyFloors/ubertooth/issues/963),
   [#1063](https://github.com/SqueakyFloors/ubertooth/pull/1063)
-- **A capture file says what the board really heard.** Every record carries
-  the packet's own signal level and an estimate of the background beside it,
-  so a quiet packet after a loud one no longer reads as loud and Wireshark no
-  longer shows `Invalid Noise Power`. A Classic record carries the header the
+- **A capture file says what the board really heard.** A record carries the
+  packet's own signal level, and the board's estimate of the background on
+  that channel where it has one, so a quiet packet after a loud one no longer
+  reads as loud; where there is nothing to estimate from, the record says so
+  rather than offering a figure. A Classic record carries the header the
   packet really sent, and a survey's records carry the upper address part the
-  run recovered. A low-energy payload arrives whole, up to the 251 bytes Data
-  Length Extension allows, where it used to be cut at 50 with nothing to say
-  so. Packets the board had to drop are counted and reported, and the Classic
-  packet types that reported no payload at all now decode theirs.
+  run recovered. A long low-energy payload arrives whole, where it used to be
+  cut at 50 bytes with nothing to say so. Packets the board had to drop are
+  counted and reported, and the Classic packet types that reported no payload
+  at all now decode theirs.
   [#909](https://github.com/SqueakyFloors/ubertooth/issues/909),
   [#284](https://github.com/SqueakyFloors/ubertooth/issues/284),
   [libbtbb issue 28](https://github.com/SqueakyFloors/libbtbb/issues/28)
@@ -67,8 +68,7 @@ are the ones worth knowing about.
   puts one on the air whole. A connection to a real Classic device outlives
   its first 30 seconds now that the board answers the peer's link manager
   requests, and two Ubertooths page each other, connect, and carry traffic,
-  which needs both boards turned down with `ubertooth-util -a 0` so neither
-  overloads the other's receiver.
+  with both boards turned down so neither overloads the other's receiver.
   [#623](https://github.com/SqueakyFloors/ubertooth/issues/623),
   [#948](https://github.com/SqueakyFloors/ubertooth/issues/948),
   [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
@@ -85,15 +85,15 @@ are the ones worth knowing about.
   [#872](https://github.com/SqueakyFloors/ubertooth/issues/872)
 - **A board keeps answering the host, and recovers itself when it does not.**
   Opening a board by serial number used to end about one live capture in
-  twenty: a ten-minute capture now runs to its end where it had died in 3.5
-  to 12 seconds. Radio and USB waits are bounded and counted, a board that
-  stops answering resets itself within three seconds and says where it died,
-  and `ubertooth-util -U <index> -r` recovers one from the host instead of a
-  re-plug. The firmware has room for its stack, about 11 KB where it had
-  about 730 bytes, and an overflow is caught where it happens rather than
-  showing up later as wrong data. A capture also says when its receiver is
-  being driven harder than the radio can measure, which used to look exactly
-  like a quiet channel.
+  twenty: a ten-minute capture now runs to its end where it had died in
+  seconds. Radio and USB waits are bounded and counted, a board whose firmware
+  stops making progress usually resets itself within about three seconds and
+  says where it died, and `ubertooth-util -U <index> -r` recovers one from
+  the host instead of a re-plug. The firmware has room for its stack, about
+  11 KB where it had about 730 bytes, and an overflow is caught where it
+  happens rather than showing up later as wrong data. A capture also says when
+  its receiver is being driven harder than the radio can measure, which used
+  to look exactly like a quiet channel.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505),
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509),
   [#1073](https://github.com/SqueakyFloors/ubertooth/pull/1073)
@@ -113,26 +113,26 @@ are the ones worth knowing about.
   everything else to standard error, a failure is one `error:` line and a
   non-zero exit status, and a request the board refused is named rather than
   passing for a run that found nothing. A lone `-` means standard output for
-  the capture formats that can stream, as `ubertooth(7)` always said, so a
-  capture can be piped into another program; a PcapNG capture, whose writer
-  seeks back over what it has written, refuses that value and says what to use
-  instead. `-V` answers the same way in every tool, with the host tools'
-  version, libbtbb and where it was loaded from, and the board's firmware
-  revision. Host tools built from a checkout warn about firmware of another
-  API version and run the command anyway; a release build refuses it.
+  the capture formats that can stream, as `ubertooth(7)` says, so a capture
+  can be piped into another program; a PcapNG capture, whose writer seeks back
+  over what it has written, refuses that value and says what to use instead.
+  `-V` answers the same way in every tool, with the host tools' version,
+  libbtbb and where it was loaded from, and the board's firmware revision.
+  Host tools built from a checkout warn about firmware of another API version
+  and run the command anyway; a release build refuses it.
   [#782](https://github.com/SqueakyFloors/ubertooth/issues/782),
   [#813](https://github.com/SqueakyFloors/ubertooth/issues/813),
   [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
 - **Documentation that matches the code, including where a feature does not
-  work.** There is a man page for every tool and `ubertooth(7)` for what they
-  share, a README catalog saying what each tool needs, and "How Bluetooth
-  sniffing works" ([docs/concepts.md](docs/concepts.md)) for the ideas behind
-  them, each with its Bluetooth Core specification section. A one-page guide
-  covers Ubertooth with Wireshark end to end, `COMPATIBILITY.md` records the
-  platforms and toolchains, and the README says plainly what this hardware
-  cannot do, such as BLE on the 1M PHY only. Where a tool accepts an option
-  nothing acts on, it says so at run time and its page has a "Known broken
-  features" section.
+  work.** Every tool has a man page now: upstream's pages and `ubertooth(7)`
+  have grown with the tools, and the tools that had none have one. There is a
+  README catalog saying what each tool needs, and "How Bluetooth sniffing
+  works" ([docs/concepts.md](docs/concepts.md)) for the ideas behind them. A
+  one-page guide covers Ubertooth with Wireshark end to end,
+  `COMPATIBILITY.md` records the platforms and toolchains, and the README says
+  plainly what this hardware cannot do, such as BLE on the 1M PHY only.
+  Where a tool accepts an option nothing acts on, it says so at run time and
+  its page has a "Known broken features" section.
   [#785](https://github.com/SqueakyFloors/ubertooth/issues/785),
   [#895](https://github.com/SqueakyFloors/ubertooth/issues/895),
   [#891](https://github.com/SqueakyFloors/ubertooth/issues/891)
@@ -143,9 +143,7 @@ are the ones worth knowing about.
   specification's own published sample data, and libbtbb's decoders and
   capture writers are fuzzed. CI builds and tests on Linux and macOS, packages
   every shipped image, and asks `ubertooth-dfu` whether it would flash the
-  result. A change to the firmware, the radio, or a capture path is run on a
-  real board before it merges, and where a run was not possible its pull
-  request says so.
+  result.
   [#482](https://github.com/SqueakyFloors/ubertooth/issues/482),
   [#809](https://github.com/SqueakyFloors/ubertooth/issues/809),
   [libbtbb issue 93](https://github.com/SqueakyFloors/libbtbb/issues/93)
