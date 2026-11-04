@@ -118,11 +118,16 @@ static struct {
 	struct name_answer answers[4];
 	int name_reads;
 	bdaddr_t name_asked; /* the address of the last Remote Name Request */
-	/* The request the tool sent, so that it is the Remote Name Request and
+	/* The request the tool sent, so that it is the Remote Name Request,
+	 * with the parameters a real controller needs to page the device, and
 	 * the event it waits for is that request's completion. */
 	uint16_t name_ogf;
 	uint16_t name_ocf;
 	int name_event;
+	int name_clen;
+	uint8_t name_pscan_rep_mode;
+	uint16_t name_clock_offset;
+	int other_requests;  /* requests on any other path, which are refused */
 	/* Milliseconds the last name read was given. A zero timeout is BlueZ's
 	 * "no deadline", which is what used to hold the tool forever on a
 	 * device that answered the page and then said nothing. */
@@ -313,7 +318,7 @@ int hci_create_connection(int dd, const bdaddr_t* ba, uint16_t ptype,
  * reported as a value rather than left out. */
 int hci_send_req(int dd, struct hci_request* rq, int to)
 {
-	const remote_name_req_cp* cp = rq->cparam;
+	const remote_name_req_cp* cp;
 	struct name_answer answer;
 	evt_remote_name_req_complete event;
 	int length;
@@ -323,6 +328,20 @@ int hci_send_req(int dd, struct hci_request* rq, int to)
 	fake.name_ogf = rq->ogf;
 	fake.name_ocf = rq->ocf;
 	fake.name_event = rq->event;
+	fake.name_clen = rq->clen;
+	/* Only the Remote Name Request is answered here. A request on some
+	 * other path would be read as one by the cast below, so it is counted
+	 * and refused instead: the case that grows it then sees an unanswered
+	 * request rather than a plausible wrong answer. */
+	if (rq->ogf != OGF_LINK_CTL || rq->ocf != OCF_REMOTE_NAME_REQ
+	    || rq->clen != REMOTE_NAME_REQ_CP_SIZE) {
+		fake.other_requests++;
+		errno = EINVAL;
+		return -1;
+	}
+	cp = rq->cparam;
+	fake.name_pscan_rep_mode = cp->pscan_rep_mode;
+	fake.name_clock_offset = cp->clock_offset;
 	bacpy(&fake.name_asked, &cp->bdaddr);
 
 	/* Scripted per read, in the order the tool makes them; reads past the
@@ -950,10 +969,17 @@ MU_TEST(each_address_gets_its_own_name)
 	          r.out);
 	mu_assert_int_eq(2, fake.name_reads);
 	/* The tool asked for the name itself: the Remote Name Request, waiting
-	 * for that request's own completing event. */
+	 * for that request's own completing event, with the parameters a real
+	 * controller needs. R2 is the page scan repetition mode to ask for
+	 * without the inquiry result's own value to hand, and it is what lets
+	 * the controller page the device at all, so it is pinned here. */
 	mu_assert_int_eq(OGF_LINK_CTL, fake.name_ogf);
 	mu_assert_int_eq(OCF_REMOTE_NAME_REQ, fake.name_ocf);
 	mu_assert_int_eq(EVT_REMOTE_NAME_REQ_COMPLETE, fake.name_event);
+	mu_assert_int_eq(REMOTE_NAME_REQ_CP_SIZE, fake.name_clen);
+	mu_assert_int_eq(0x02, fake.name_pscan_rep_mode);
+	mu_assert_int_eq(0, fake.name_clock_offset);
+	mu_assert_int_eq(0, fake.other_requests);
 
 	/* And the other way round: the device whose read succeeds comes first,
 	 * so its name is the one an unguarded read could carry into the next
@@ -995,6 +1021,28 @@ MU_TEST(a_name_answered_for_another_device_is_not_printed)
 	/* The device that answered for itself still gets its own name. */
 	mu_assert(strstr(r.out, "12:12:12:12:12:12\tthe second device\n") != NULL,
 	          r.out);
+
+	/* The same answer inside the report of -x, where a read that gave no
+	 * name is a failure of what -x asked for: the Device Name line is left
+	 * out and the run exits 1, as the report's other failed reads do. The
+	 * device's own line above the report still reads "[unknown]", since
+	 * that line is a result either way. */
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.afh_mode = FOLLOW_AFH_MODE_ON;
+	fake.answers[0].from = "F0:F0:F0:F0:F0:F0";
+	fake.answers[0].name = "another device";
+	fake.answers[1].from = "F0:F0:F0:F0:F0:F0";
+	fake.answers[1].name = "another device";
+	r = RUN("-s", "-x", "-t", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.out, "11:11:11:11:11:11\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "Device Name") == NULL, r.out);
+	mu_assert(strstr(r.out, "another device") == NULL, r.out);
+	mu_assert(strstr(r.err, "error: reading the device name failed\n") != NULL,
+	          r.err);
+	/* The rest of the report is still there. */
+	mu_assert(strstr(r.out, "\tClock offset: 0x0000\n") != NULL, r.out);
 }
 
 /* What an answer carried is all that is read out of it. An answer that stops
@@ -1007,18 +1055,41 @@ MU_TEST(only_the_name_an_answer_carried_is_printed)
 	char expected[128];
 	struct run_result r;
 
-	/* The Status byte and the BD_ADDR and nothing else, which is what some
-	 * controllers send for a request they could not complete. */
+	/* A whole answer with a name in it, and then one that says the request
+	 * succeeded and stops after the Status and the BD_ADDR. This is the
+	 * order the failure came in: an answer that brings no name is where a
+	 * read of a buffer nobody cleared gives up the name before it. */
 	reset_fake();
-	fake.inquiry_responses = 1;
-	fake.answers[0].bytes = 7;
+	fake.inquiry_responses = 2;
+	fake.answers[0].name = "the first device";
+	fake.answers[1].bytes = 7;
 	r = RUN("-s", "-t", "5");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strstr(r.out, "11:11:11:11:11:11\t[unknown]\n") != NULL, r.out);
-	mu_assert(strstr(r.out, "a nearby device") == NULL, r.out);
+	mu_assert(strstr(r.out, "11:11:11:11:11:11\tthe first device\n") != NULL,
+	          r.out);
+	mu_assert(strstr(r.out, "12:12:12:12:12:12\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.out, "12:12:12:12:12:12\tthe first device") == NULL,
+	          r.out);
 	mu_assert(strstr(r.err, "warning: the adapter's answer to the name read "
-	          "of 11:11:11:11:11:11 carried no name (7 bytes)\n") != NULL,
-	          r.err);
+	          "of 12:12:12:12:12:12 says the request succeeded but carried "
+	          "no name (7 bytes)\n") != NULL, r.err);
+
+	/* An answer that stops after the Status and says the request failed is
+	 * reported as a failed read, not as an answer with no name in it: that
+	 * is the ordinary outcome for a device that has gone out of range, and
+	 * it is what some controllers send for it. */
+	reset_fake();
+	fake.inquiry_responses = 1;
+	fake.answers[0].status = 0x04; /* page timeout */
+	fake.answers[0].bytes = 7;
+	r = RUN("-s", "-t", "5");
+	snprintf(expected, sizeof(expected),
+	         "note: reading the name of 11:11:11:11:11:11 failed: %s\n",
+	         strerror(EIO));
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.out, "11:11:11:11:11:11\t[unknown]\n") != NULL, r.out);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert(strstr(r.err, "carried no name") == NULL, r.err);
 
 	/* An answer that stops part-way through the name: the name is the five
 	 * bytes it brought, and nothing behind them. */

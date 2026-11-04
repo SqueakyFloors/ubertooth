@@ -103,7 +103,7 @@ does Classic, but only the parts Apple exposes:
 | Choose and open a local adapter (`-b hciN`) | both tools | `hci_devid()`, `hci_open_dev()`, `hci_devinfo()` | only the default controller, `+defaultController`, with no choice of adapter; its address is there (`-addressAsString`), its LMP features are not |
 | Inquiry | `ubertooth-scan -s` | `hci_inquiry()` | yes, `IOBluetoothDeviceInquiry` |
 | Connect / disconnect | `ubertooth-scan -x`, `ubertooth-follow` | `hci_create_connection()`, `hci_disconnect()` | yes, `-openConnection:`, `-closeConnection` |
-| Remote name | `ubertooth-scan` | `hci_read_remote_name()` | yes, `-remoteNameRequest:` |
+| Remote name, bound to the address it was asked of | `ubertooth-scan` | `hci_send_req()` with `OCF_REMOTE_NAME_REQ`, reading the completing event so that the name can be held against the address asked about; `hci_read_remote_name()` returns the name alone | yes, `-remoteNameRequest:`, which answers on the `IOBluetoothDevice` the request was made of, so the binding is there |
 | Remote version, LMP features | `ubertooth-scan -x` | `hci_read_remote_version()`, `hci_read_remote_features()`, `hci_read_remote_ext_features()` | **no** |
 | Clock offset | `ubertooth-scan -x`, `ubertooth-follow` | `hci_read_clock_offset()` | only `-getClockOffset`, whose value its own documentation calls meaningful only for a device seen during an inquiry; the read itself cannot be asked for |
 | The adapter's own clock, which with that offset gives the piconet's CLKN | `ubertooth-follow` | `hci_read_clock()` | **no** |

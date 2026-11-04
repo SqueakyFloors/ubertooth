@@ -139,6 +139,14 @@ static int read_remote_name(int dd, const bdaddr_t* bdaddr, size_t len,
 	char asked[19] = { 0 };
 	char answered[19] = { 0 };
 
+	/* A buffer with no room in it cannot be given even an empty name, so
+	 * there is nothing to read for: refused before the request goes out,
+	 * rather than clamping the copy below into a negative length. */
+	if (len == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
 	/* Nothing an earlier read left behind can be printed as this device's
 	 * name: every byte the event does not fill reads as the end of the
 	 * name. */
@@ -168,19 +176,26 @@ static int read_remote_name(int dd, const bdaddr_t* bdaddr, size_t len,
 	if (hci_send_req(dd, &rq, to) < 0)
 		return -1;
 
-	/* hci_send_req() leaves rlen at the number of bytes the event carried. */
-	if (rq.rlen < 0 || (size_t)rq.rlen <= header) {
-		ba2str(bdaddr, asked);
-		fprintf(stderr, "warning: the adapter's answer to the name read "
-		        "of %s carried no name (%d bytes)\n", asked, rq.rlen);
-		errno = 0;
-		return -1;
-	}
-
+	/* Status first, and no length test in front of it: the buffer was
+	 * cleared, so a non-zero Status can only be a byte the event brought.
+	 * An answer that stops right after it is still an answer saying the
+	 * request failed, which is the ordinary outcome for a device that has
+	 * gone out of range, and it reads better as that than as an answer with
+	 * no name in it. */
 	if (reply.status != 0) {
 		/* The errno BlueZ leaves for a request the remote device
 		 * answered with a failure status. */
 		errno = EIO;
+		return -1;
+	}
+
+	/* hci_send_req() leaves rlen at the number of bytes the event carried. */
+	if (rq.rlen < 0 || (size_t)rq.rlen <= header) {
+		ba2str(bdaddr, asked);
+		fprintf(stderr, "warning: the adapter's answer to the name read "
+		        "of %s says the request succeeded but carried no name "
+		        "(%d bytes)\n", asked, rq.rlen);
+		errno = 0;
 		return -1;
 	}
 
@@ -197,10 +212,13 @@ static int read_remote_name(int dd, const bdaddr_t* bdaddr, size_t len,
 		return -1;
 	}
 
+	/* Bounded by all three of what the event brought, what the field can
+	 * hold, and what the caller has room for, with a byte left for the
+	 * terminator. */
 	carried = (size_t)rq.rlen - header;
 	if (carried > sizeof(reply.name))
 		carried = sizeof(reply.name);
-	if (carried > len - 1)
+	if (carried + 1 > len)
 		carried = len - 1;
 	memcpy(name, reply.name, carried);
 	name[carried] = '\0';
