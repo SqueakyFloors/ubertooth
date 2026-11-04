@@ -1114,7 +1114,10 @@
   Even the scan's own one-minute deadline was never reached, because that is
   checked when the next window is opened and no window was being opened, so
   the session never ended and the user had to stop it. The board now says the
-  scan could not be armed and reports the session over.
+  scan could not be armed and reports the session over. `monitor` had a second
+  version of it, on the slot that starts following a connection it has just
+  seen being made: it kept the address it decoded but lost the follow in
+  silence, and now reports that too.
   [#1167](https://github.com/SqueakyFloors/ubertooth/issues/1167)
 
 - Fixed: when the `btbr` image's radio had not tuned in time for a transmit

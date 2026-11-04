@@ -272,14 +272,11 @@ static void page_scan_schedule(void)
 	/* Back to the scan substate, which every path here comes from: an
 	 * answer that led nowhere leaves the response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
+	/* A window the scheduler had no room for ends the scan (scan_task.h).
+	 * The reason is the one the deadline above uses, because the host's
+	 * three reasons have no word for a full scheduler. */
 	if (scan_task_schedule(page_scan_rx_id_cb, NULL) < 0)
-	{
-		/* Nothing is listening and nothing is left to report a window,
-		 * so the scan is over. It ends on the reason its own deadline
-		 * uses: the host's reasons have no word for a scheduler with
-		 * no room, and the scan task prints what was refused. */
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
-	}
 }
 
 /* Go back to scanning after a connection that carried no packet.

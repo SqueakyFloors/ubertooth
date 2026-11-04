@@ -95,11 +95,35 @@ static unsigned host_messages;
 static unsigned fhs_sent_to_host;
 static unsigned fhs_queued_at;
 
-/* Whether the scheduler has room for what the watcher asks for next. A slot
- * holds four tasks and refuses the fifth; what a real full slot does to a real
- * arm is pinned in test_btbr_scan_schedule.c, and what is left to say here is
- * which way this state machine goes when it is told. */
-static int sched_refuses;
+/*
+ * How many tasks each of the next few slots already holds. A slot takes four
+ * and refuses the fifth, which is the refusal under test.
+ *
+ * Both arms the watcher makes go through this: the slot that starts the follow
+ * and the slot of the next watching window. Both ask for the slot after the
+ * one the watcher is standing in, so filling that one slot refuses both, and
+ * the test shows that rather than assuming it. What a real full slot does to a
+ * real arm is pinned in test_btbr_scan_schedule.c, which uses the firmware's
+ * own scheduler.
+ */
+#define NUM_SLOTS_MODELED 4
+static uint8_t slot_items[NUM_SLOTS_MODELED];
+
+static int room_in_slot(uint8_t frame_offset)
+{
+	uint8_t slot = frame_offset & (NUM_SLOTS_MODELED - 1);
+
+	if (slot_items[slot] >= TDMASCHED_NUM_CB)
+		return -1;
+	slot_items[slot]++;
+	return 0;
+}
+
+/* Fill the slot `frame_offset` ahead, so the next arm for it is refused. */
+static void fill_a_slot(uint8_t frame_offset)
+{
+	slot_items[frame_offset & (NUM_SLOTS_MODELED - 1)] = TDMASCHED_NUM_CB;
+}
 
 /* The state the board last reported to the host. */
 static btctl_state_t reported_state;
@@ -190,12 +214,9 @@ static unsigned scan_arms_asked;
 int scan_task_schedule(scan_task_cb_t cb, void *cbarg)
 {
 	scan_arms_asked++;
-	/* A window is armed in the slot after the one the caller is standing
-	 * in, which is the slot the follow arm asks for as well, and a slot is
-	 * only emptied by running. So the same full slot refuses both: the
-	 * switch below covers the window arm too, as the firmware's own
-	 * scheduler would. */
-	if (sched_refuses)
+	/* The real one puts its window in the slot after the one the caller is
+	 * standing in. */
+	if (room_in_slot(1) < 0)
 		return -1;
 	armed_scan_cb = cb;
 	armed_scan_arg = cbarg;
@@ -228,8 +249,8 @@ void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void *cbarg,
 	transmits_armed++;
 }
 
-/* The scheduler, as the same switch: what the watcher asks for through it is
- * the slot that starts the follow. */
+/* What the watcher asks the scheduler for directly is the slot that starts the
+ * follow. */
 static unsigned slot_tasks_armed;
 static tdma_sched_cb *armed_slot_task;
 
@@ -242,7 +263,7 @@ int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb, uint8_t p1,
 	(void)p3;
 	(void)prio;
 
-	if (sched_refuses)
+	if (room_in_slot(frame_offset) < 0)
 		return -1;
 	armed_slot_task = cb;
 	slot_tasks_armed++;
@@ -270,7 +291,9 @@ static void a_watcher(void)
 	armed_slot_task = NULL;
 	follows_started = 0;
 	fhs_sent_to_host = 0;
-	sched_refuses = 0;
+	host_messages = 0;
+	fhs_queued_at = 0;
+	memset(slot_items, 0, sizeof(slot_items));
 	reported_state = BTCTL_STATE_STANDBY;
 	console_len = 0;
 	console[0] = '\0';
@@ -356,7 +379,8 @@ MU_TEST(a_follow_that_cannot_be_armed_ends_the_session)
 {
 	a_watcher();
 	a_page_arrives();
-	sched_refuses = 1;
+	/* The slot both of the watcher's arms ask for. */
+	fill_a_slot(1);
 
 	the_page_response_arrives();
 
@@ -378,7 +402,8 @@ MU_TEST(a_follow_that_cannot_be_armed_says_so_on_the_console)
 {
 	a_watcher();
 	a_page_arrives();
-	sched_refuses = 1;
+	/* The slot both of the watcher's arms ask for. */
+	fill_a_slot(1);
 
 	the_page_response_arrives();
 
@@ -395,7 +420,8 @@ MU_TEST(a_follow_that_cannot_be_armed_still_reports_the_fhs)
 {
 	a_watcher();
 	a_page_arrives();
-	sched_refuses = 1;
+	/* The slot both of the watcher's arms ask for. */
+	fill_a_slot(1);
 
 	the_page_response_arrives();
 

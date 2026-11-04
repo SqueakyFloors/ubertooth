@@ -98,16 +98,14 @@ static void scan_wait(void)
 			/* Wait one more slot */
 			if (tdma_schedule(1, scan_wait_more, 0, 0, 0, -3) < 0)
 			{
-				/* The next slot of this window cannot be
-				 * armed, so the window is over. End it as a
-				 * window that heard nothing, which is the
-				 * report every caller already acts on, rather
-				 * than leave the scan with no task left to run
-				 * and the caller waiting forever. The caller
-				 * asks for its next window from that report
-				 * and is refused in turn -- it asks for this
-				 * same slot, and a slot is only emptied by
-				 * running -- so the session ends there. */
+				/* The window cannot listen another slot, so
+				 * end it as one that heard nothing: that is
+				 * the report every caller already acts on,
+				 * where leaving the scan with no task to run
+				 * would keep the caller waiting forever. The
+				 * caller asks for its next window from that
+				 * report and is refused in turn, so the
+				 * session ends there (scan_task.h). */
 				cprintf("scan: cannot wait another slot\n");
 				scan_finalize();
 			}
@@ -176,7 +174,10 @@ int scan_task_schedule(scan_task_cb_t cb, void*cbarg)
 {
 	/* The callback is stored before the window is scheduled, because the
 	 * slot clock interrupt can run scan_start() the moment it is on the
-	 * scheduler, and scan_finalize() stops the firmware without one. */
+	 * scheduler, and scan_finalize() stops the firmware without one. A
+	 * refusal below leaves it set, which reaches nobody: scan_finalize()
+	 * is only ever reached from scan_start(), and that is the task that
+	 * was refused. */
 	scan_task.cb = cb;
 	scan_task.cb_arg = cbarg;
 
@@ -185,10 +186,6 @@ int scan_task_schedule(scan_task_cb_t cb, void*cbarg)
 
 	if (tdma_schedule(1, scan_start, 0, 0, 0, -3) < 0)
 	{
-		/* scan_start() is the only task that reaches the callback, so
-		 * with nothing armed there is nothing left to report the scan:
-		 * a page scan or inquiry scan would go quiet and never say
-		 * why. The caller ends its session on this. */
 		cprintf("scan: cannot schedule scan\n");
 		return -1;
 	}
