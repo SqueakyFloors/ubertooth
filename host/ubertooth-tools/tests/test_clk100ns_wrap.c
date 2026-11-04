@@ -93,6 +93,11 @@ static volatile uint32_t T0TC;
  * set their own host times and clear this. */
 static int host_time_follows_the_clock = 1;
 
+/* Whether the capture is one that has put the board's clock somewhere of its
+ * own choosing, as a piconet follow does. Only those captures weigh a
+ * packet's reading against the gap the host saw once they are under way. */
+static int the_host_moves_the_clock = 0;
+
 /* The reconstructed time of a packet captured at this clock value, with the
  * count it carries given outright: the firmware can send one that does not
  * match its own clock reading, because the two are latched by separate reads
@@ -156,6 +161,7 @@ static void start_live_capture(ubertooth_t* ut, uint64_t period)
 	memset(ut, 0, sizeof(*ut));
 	ut->clk100ns_period = period;
 	ut->fifo = fifo_init();
+	ut->clk100ns_host_moves_the_clock = the_host_moves_the_clock;
 	infile = NULL;
 	host_time_follows_the_clock = 0;
 }
@@ -1130,6 +1136,230 @@ MU_TEST(a_wrap_a_backlog_hid_still_counts)
 	a_live_gap_of(CLK100NS_PERIOD,
 	              CLK100NS_PERIOD - 6 * ONE_SECOND_TICKS,
 	              10 * ONE_SECOND_TICKS);
+}
+
+/* How far apart the board's clock and the piconet's were in the follow cases
+ * below: the amount the board's clock moves when it is put on the piconet's,
+ * which is not time passing. Two values, because the move can go either way
+ * and its size is whatever those two clocks happened to be apart - a bench
+ * follow of 15 s wrote records spanning 191.3 s and one of 25 s spanning
+ * 137.4 s, which is this move and not any rate error. */
+#define MOVE_BACK_TICKS    1000000000ull /* 100 s */
+#define MOVE_FORWARD_TICKS 1124000000ull /* 112.4 s */
+
+/* A packet every ten seconds, which is what the follow cases capture. */
+#define TEN_SECOND_TICKS (10ull * ONE_SECOND_TICKS)
+/* The same ten seconds as nanoseconds, which is what a record time is in. */
+#define TEN_SECOND_NS    (100ull * TEN_SECOND_TICKS)
+
+/* The period count a board stamps a packet with at this clock value. */
+static uint8_t count_at(uint64_t ticks)
+{
+	return (uint8_t) ((ticks / CLK100NS_PERIOD) & 0xff);
+}
+
+/* Captures records live, as capture_records() does, from a capture that has
+ * put the board's clock on a piconet's. Counted, because that is a Classic
+ * capture: every record carries the period count the firmware stamps it with
+ * at its own clock value. */
+static void capture_a_follow(ubertooth_t* ut, int records,
+                             const uint64_t ticks[], const uint64_t arrived_ns[],
+                             uint64_t times[])
+{
+	uint8_t counts[16];
+	int record;
+
+	mu_assert_fatal(records <= (int) (sizeof(counts) / sizeof(counts[0])),
+	                "more records than the counts array holds");
+	for (record = 0; record < records; record++)
+		counts[record] = count_at(ticks[record]);
+
+	the_host_moves_the_clock = 1;
+	capture_records(ut, CLK100NS_PERIOD, records, ticks, arrived_ns, counts,
+	                times);
+	the_host_moves_the_clock = 0;
+}
+
+/* A packet every ten seconds, on a board clock that starts at first_ticks and
+ * is moved by move_ticks between the third packet and the fourth. The records
+ * come back in times[].
+ *
+ * move_ticks is subtracted, so a positive value moves the clock back: that is
+ * what reads as a forward jump of the capture's own reconstruction once the
+ * period count has dropped with it. */
+static void follow_moving_the_clock(ubertooth_t* ut, int records,
+                                    uint64_t first_ticks, int64_t move_ticks,
+                                    uint64_t times[])
+{
+	uint64_t ticks[16];
+	uint64_t arrived_ns[16];
+	int record;
+
+	mu_assert_fatal(records <= (int) (sizeof(ticks) / sizeof(ticks[0])),
+	                "more records than the ticks array holds");
+	for (record = 0; record < records; record++) {
+		int64_t at = (int64_t) (first_ticks +
+		                        (uint64_t) record * TEN_SECOND_TICKS);
+
+		if (record >= 3)
+			at -= move_ticks;
+		ticks[record] = (uint64_t) at;
+		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS;
+	}
+
+	capture_a_follow(ut, records, ticks, arrived_ns, times);
+}
+
+/* How long the records of a run ten seconds a packet apart should span. */
+static uint64_t run_of(int records)
+{
+	return (uint64_t) (records - 1) * TEN_SECOND_NS;
+}
+
+/* A follow puts the board on the piconet's clock, which moves that clock by
+ * however far the two were apart. Read as time passing it stretched the
+ * records of every follow capture: here the clock is moved back 100 s part way
+ * through a 110-second run, which used to put 227.68 s into every record after
+ * it - the move read the short way round the clock's period, the period count
+ * having dropped with it.
+ *
+ * What the records have to span is the run, and every ten-second gap in it
+ * has to be ten seconds. The gap that spans the move is the one the host's own
+ * clock measures; every other gap is still the board clock's.
+ *
+ * The move also takes the period count back with it, so from there the count
+ * reads backwards from the one the capture had been counting from and the
+ * counted path rightly declines to believe it. The baseline moves to the clock
+ * the capture now has, which is what lets the next wrap be counted - the run
+ * here is long enough to reach one - rather than every later count reading
+ * backwards too and the periods going uncounted for the rest of the capture. */
+MU_TEST(a_follow_that_moves_the_clock_back_still_spans_its_run)
+{
+	ubertooth_t ut;
+	uint64_t times[12];
+	/* Low in a period, so moving the clock back 100 s takes the period
+	 * count back with it, and ten packets ten seconds apart then carry it
+	 * over the end of that period again. */
+	uint64_t first = 20ull * CLK100NS_PERIOD + 2 * ONE_SECOND_TICKS;
+	int record;
+
+	follow_moving_the_clock(&ut, 12, first, MOVE_BACK_TICKS, times);
+
+	mu_assert_int_eq(run_of(12), times[11] - times[0]);
+	for (record = 1; record < 12; record++)
+		mu_assert_int_eq(TEN_SECOND_NS,
+		                 times[record] - times[record - 1]);
+	/* The one wrap the run crossed after the move, counted from the
+	 * baseline the move left. */
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+}
+
+/* The move goes the other way as often: the piconet's clock can be ahead of
+ * the board's. Here it is 112.4 s ahead, which carries the period count up
+ * with it, and the records still span the run. */
+MU_TEST(a_follow_that_moves_the_clock_forward_still_spans_its_run)
+{
+	ubertooth_t ut;
+	uint64_t times[12];
+	/* High in a period, so moving the clock on 112.4 s takes the period
+	 * count into the next one. */
+	uint64_t first = 20ull * CLK100NS_PERIOD + 220 * ONE_SECOND_TICKS;
+
+	follow_moving_the_clock(&ut, 12, first,
+	                        -(int64_t) MOVE_FORWARD_TICKS, times);
+
+	mu_assert_int_eq(1, ut.clk100ns_upper);
+
+	mu_assert_int_eq(run_of(12), times[11] - times[0]);
+	mu_assert_int_eq(TEN_SECOND_NS, times[3] - times[2]);
+}
+
+/* A follow whose board clock was never really moved keeps the board clock's
+ * precision. The host's measure of each gap is only good to a packet's
+ * latency, so a capture that took its times from it would be that much out
+ * every time; the readings are believed unless they and the host disagree by
+ * more than that, and here they agree to within a tenth of a second. */
+MU_TEST(a_follow_the_clock_kept_up_with_keeps_the_boards_times)
+{
+	ubertooth_t ut;
+	uint64_t ticks[4];
+	uint64_t arrived_ns[4];
+	uint64_t times[4];
+	int record;
+
+	for (record = 0; record < 4; record++) {
+		ticks[record] = 20ull * CLK100NS_PERIOD +
+		                (uint64_t) record * TEN_SECOND_TICKS;
+		/* Each arrival a tenth of a second from where the board's
+		 * clock puts it, in whichever direction. */
+		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS +
+		                     (record % 2 ? 100000000ull : 0);
+	}
+
+	capture_a_follow(&ut, 4, ticks, arrived_ns, times);
+
+	for (record = 1; record < 4; record++)
+		mu_assert_int_eq(TEN_SECOND_NS,
+		                 times[record] - times[record - 1]);
+}
+
+/* The control: a capture that left the board's clock alone. That clock free
+ * runs, so its readings are a measure of time passing and its records track
+ * the run, as they did before any of this. */
+MU_TEST(a_capture_that_did_not_move_its_clock_tracks_its_run)
+{
+	ubertooth_t ut;
+	uint64_t ticks[12];
+	uint64_t arrived_ns[12];
+	uint8_t counts[12];
+	uint64_t times[12];
+	uint64_t first = 20ull * CLK100NS_PERIOD + 2 * ONE_SECOND_TICKS;
+	int record;
+
+	for (record = 0; record < 12; record++) {
+		ticks[record] = first + (uint64_t) record * TEN_SECOND_TICKS;
+		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS;
+		counts[record] = count_at(ticks[record]);
+	}
+
+	capture_records(&ut, CLK100NS_PERIOD, 12, ticks, arrived_ns, counts,
+	                times);
+
+	mu_assert_int_eq(run_of(12), times[11] - times[0]);
+	for (record = 1; record < 12; record++)
+		mu_assert_int_eq(TEN_SECOND_NS,
+		                 times[record] - times[record - 1]);
+}
+
+/* Only a capture that moved its own clock weighs a reading against the gap
+ * the host saw. Fed the readings of the moved-clock case above, a capture that
+ * moved nothing reads the jump as time passing - which is all it has to go on,
+ * and what every capture did before. So the rule reaches no further than the
+ * captures that need it: here the records come to 10 s across a 110-second
+ * run, the clock having been read as going back a period and then forward
+ * again. */
+MU_TEST(only_a_capture_that_moved_its_clock_weighs_the_host_clock)
+{
+	ubertooth_t ut;
+	uint64_t ticks[12];
+	uint64_t arrived_ns[12];
+	uint8_t counts[12];
+	uint64_t times[12];
+	uint64_t first = 20ull * CLK100NS_PERIOD + 2 * ONE_SECOND_TICKS;
+	int record;
+
+	for (record = 0; record < 12; record++) {
+		ticks[record] = first + (uint64_t) record * TEN_SECOND_TICKS;
+		if (record >= 3)
+			ticks[record] -= MOVE_BACK_TICKS;
+		arrived_ns[record] = (uint64_t) record * TEN_SECOND_NS;
+		counts[record] = count_at(ticks[record]);
+	}
+
+	capture_records(&ut, CLK100NS_PERIOD, 12, ticks, arrived_ns, counts,
+	                times);
+
+	mu_assert_int_eq(TEN_SECOND_NS, times[11] - times[0]);
 }
 
 /* The same as capture_records(), with whatever the library wrote to standard
@@ -2163,6 +2393,11 @@ int main(void)
 	MU_RUN(a_long_quiet_gap_at_the_start_is_not_a_leftover_record);
 	MU_RUN(a_stray_record_further_into_a_live_capture_adds_nothing);
 	MU_RUN(a_record_more_than_half_a_period_out_is_still_a_wrap);
+	MU_RUN(a_follow_that_moves_the_clock_back_still_spans_its_run);
+	MU_RUN(a_follow_that_moves_the_clock_forward_still_spans_its_run);
+	MU_RUN(a_follow_the_clock_kept_up_with_keeps_the_boards_times);
+	MU_RUN(a_capture_that_did_not_move_its_clock_tracks_its_run);
+	MU_RUN(only_a_capture_that_moved_its_clock_weighs_the_host_clock);
 	MU_RUN(a_host_clock_that_steps_does_not_move_live_times);
 	MU_RUN(a_stalled_host_anchors_the_capture_where_the_record_arrived);
 	MU_RUN(a_prompt_host_anchors_the_capture_where_it_always_did);
