@@ -439,11 +439,11 @@ the adapter reaches. A read-back the part will not confirm is the one failure
 reported once that sector is in flash, so the image erases it again: a board
 whose part takes that erase comes up in the serial programmer as well, rather
 than starting a bootloader nothing has confirmed. A part that refuses the
-erase too is left as it was. The exception is a loss of power
-inside the single 4 KiB program that writes the vector table, which leaves a
-checksum the boot ROM accepts in front of code that was never finished;
-recovering a board from that needs the entry pin held as well as the adapter.
-Nothing here narrows that window.
+erase too is left as it was. The exception is a loss of power inside the single
+4 KiB program that writes the vector table, which leaves a checksum the boot
+ROM accepts in front of code that was never finished; recovering a board from
+that needs the entry pin held as well as the adapter. Nothing here narrows that
+window.
 
 Both the host and the image check the bootloader over the same bytes before
 any of it is programmed: that it is the whole 16 KiB region, that it carries a
