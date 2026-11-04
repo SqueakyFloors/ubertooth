@@ -2,27 +2,39 @@
 
 ## SYNOPSIS
 
-To update firmware, run:
+    ubertooth-dfu [-d <firmware.dfu>] [-u <output.bin>] [-r] [-s <file.bin>]
+    [-U <index|serial>]
+    ubertooth-dfu --update-bootloader -d <bl_update.dfu> [-U <index|serial>]
+    ubertooth-dfu [-U <index|serial>] -V
+    ubertooth-dfu -h
 
-    ubertooth-dfu -d bluetooth_rxtx.dfu -r
+Those are the useful forms rather than every accepted command line: the first
+needs at least one of `-d`, `-u`, `-r`, and `-s`, since a command line with no
+function in it is refused (see [ARGUMENTS][]), and `-V` and `-h` are taken
+beside anything.
 
 ## DESCRIPTION
 
 ubertooth-dfu(1) is a utility for updating firmware on Ubertooth. It can
-also download the currently running firmware from the device.
+also download the currently running firmware from the device. To update
+firmware, run:
+
+    ubertooth-dfu -d bluetooth_rxtx.dfu -r
 
 Running the upload or download command automatically resets the device
 into the firmware update bootloader. The USB ID of the Ubertooth will
 change in the bootloader, and this may cause problems when attempting to
 update firmware from inside a VM.
 
-The application-to-DFU transition checks the device command, closes the
-application handle without sending a conflicting stop command, and follows
-the selected device by its physical USB bus/port path. If DFU does not appear,
-the tool makes two bounded five-second entry attempts when the application
-device is available again. Flushed monotonic stage timing identifies time spent
-in entry, programming, reset, and cleanup. It refuses to choose between
-multiple devices already in DFU mode.
+Getting a board from its application into DFU is bounded at every step. A
+board that refuses the request to enter DFU ends the command there. The
+application handle is then closed without the stop command that would conflict
+with the request just made, and the board is followed by its physical USB bus
+and port path rather than by an index, so the device found in DFU is the one
+that was asked. If none appears and the application device is back, it is
+asked once more: two attempts in all, each waiting up to five seconds. Two
+boards already in DFU are never chosen between. Each step is timed and named
+on standard error, so a run shows where its time went (see [DIAGNOSTICS][]).
 
 A board that is already waiting in the bootloader is written by a command with
 no `-U` at all, which takes the one board in DFU mode. The bootloader has no
@@ -275,7 +287,10 @@ too large to be an image (`error: <file> is <n> bytes; an Ubertooth image is
 at most 507920`). `-d` takes at most 507920 bytes, which is the flash above
 the bootloader on the largest part this host knows plus the 16-byte suffix,
 and `-s` takes 507904, the same less the suffix it adds, so the file it writes
-is one `-d` still accepts. Either refusal ends the command with exit status 1
+is one `-d` still accepts. `-s` names its own limit, and names what the limit
+is on, because the file it reads is the firmware rather than a whole image:
+`error: <file> is <n> bytes; the firmware in an Ubertooth image is at most
+507904`. Either refusal ends the command with exit status 1
 before any device is opened, and with `-s` before the output file is created.
 
 A command that gives both `-s` and `-d` checks both files it only reads before

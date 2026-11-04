@@ -570,7 +570,7 @@ rule rather than a list of kinds, which is why `-i /dev/null -d /dev/null` is
 refused as well, although nothing there could be lost.
 
 A refusal naming `-` reads `(standard output)` where the destination would
-otherwise be quoted, because that is what `-` means.
+otherwise be the file name, because that is what `-` means.
 
 A destination reached through a descriptor the calling shell opened is
 caught too, on every system: `-d /dev/fd/3` beside `3>>capture.bin` is the
@@ -755,7 +755,8 @@ truncates, so `ubertooth-rx -q - >> capture.pcap` loses what the file held.
 
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is
 refused: `error: stdout is a tty, refusing to write binary capture data to
-it`, exit 1. Redirect or pipe standard output instead.
+it` for `-q -`, and `binary dump data` in the same line for `-d -`, exit 1
+either way. Redirect or pipe standard output instead.
 
 ## GAPS IN A CAPTURE
 

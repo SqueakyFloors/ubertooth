@@ -288,7 +288,7 @@ None of the files this run writes (\fB\-r\fR, \fB\-q\fR, \fB\-d\fR) may be the c
 .P
 It is the file that is compared and not the name, so \fB\./capture\.bin\fR, a symbolic link to it and a hard link to it are all refused, as is a \fB\-d \-\fR whose standard output the shell has pointed at the capture\. A destination that is the same thing as the input is refused whatever kind of file it is: one rule rather than a list of kinds, which is why \fB\-i /dev/null \-d /dev/null\fR is refused as well, although nothing there could be lost\.
 .P
-A refusal naming \fB\-\fR reads \fB(standard output)\fR where the destination would otherwise be quoted, because that is what \fB\-\fR means\.
+A refusal naming \fB\-\fR reads \fB(standard output)\fR where the destination would otherwise be the file name, because that is what \fB\-\fR means\.
 .P
 A destination reached through a descriptor the calling shell opened is caught too, on every system: \fB\-d /dev/fd/3\fR beside \fB3>>capture\.bin\fR is the file that descriptor holds, which ubertooth\-rx(1) asks the descriptor rather than the path\. What it cannot see is the far end of a pipe, \fB\-d \- | cat >> capture\.bin\fR\.
 .P
@@ -346,7 +346,7 @@ What the run works out still arrives, on standard error: the UAP the decoder rec
 .P
 Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-rx \-q \- >> capture\.pcap\fR loses what the file held\.
 .P
-Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
+Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR for \fB\-q \-\fR, and \fBbinary dump data\fR in the same line for \fB\-d \-\fR, exit 1 either way\. Redirect or pipe standard output instead\.
 .SH "GAPS IN A CAPTURE"
 A capture that is losing packets says so\. The board holds captured packets in a queue until this tool reads them, and a queue with no room left loses the next packet\. The first time it happens the capture warns \fBwarning: the recording board's packet queue filled up and it dropped at least one packet; this capture has a gap\fR, and when the capture ends it says how many such gaps there were: \fBwarning: the capture has 3 gaps where the board's queue filled up and it dropped packets\fR\. The count is of gaps, not of lost packets: one full queue can swallow several packets, and the board sends no number\. Nothing says which packets are missing, so a capture with gaps is complete only between them\. The board reports a gap on the first packet that gets through after it, so a capture that ends in the moment after a gap does not report that last one\.
 .P
