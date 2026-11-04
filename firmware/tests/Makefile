@@ -576,9 +576,9 @@ $(BINDIR)/test_btbr_tx_schedule_set: test_btbr_tx_schedule_set.c minunit.h \
 # Which hop phase a transmit moves, on every path a transmit can end on.
 # Built the same way as the transmit tests above, and for the same reasons:
 # tx_task.c is included into the test because its slot tasks are static, and
-# the real tdma_sched.c with it, so a full slot is a real full slot. The hop
-# sequence is the real one here, because the phase counter it moves is what
-# the test reads.
+# the real tdma_sched.c with it, so a full slot is a real full slot. The
+# channel a phase selects is faked, but hop_increment() is the firmware's own
+# inline, because the counter it moves is what the test reads.
 $(BINDIR)/test_btbr_tx_hop_phase: test_btbr_tx_hop_phase.c minunit.h \
 		stubs-btbr-rx/ubertooth.h stubs-btbr-rx/ubtbr/system.h \
 		stubs-btbr/ubtbr/debug.h \

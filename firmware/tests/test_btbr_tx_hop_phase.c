@@ -4,11 +4,14 @@
  *
  * Two substates sweep a phase of their own. An inquirer moves it once per
  * transmit, and a pager moves its page-response phase before each FHS it
- * sends. The device at the other end moves its own phase once for every window
- * it opens, so the pair only meet while both move at the same rate: a phase
- * left standing for one transmit stays one behind for the rest of the attempt,
- * and every transmit after it goes out on the frequency the other end's
- * previous window used.
+ * sends. In the page response the paged device moves its own phase once for
+ * every window it opens, so the pair only meet while both move at the same
+ * rate: a phase left standing for one transmit stays one behind for the rest
+ * of the attempt, and every transmit after it goes out on the frequency the
+ * device's previous window used. An inquirer's phase is one of 32 guesses it
+ * sweeps rather than a counter anyone shares, so nothing there has to be kept
+ * level with it; what it does share with the page response is the rate, one
+ * step per transmit.
  *
  * So the phase belongs to the attempt rather than to the packet, and it has to
  * move once per transmit whichever way that transmit ends -- on the air, or
@@ -275,10 +278,14 @@ static void a_full_slot_for_the_end_of_transmission(void) { fill_a_slot(2); }
 /* ---- the phase at the other end ---- */
 
 /*
- * The device being paged or inquired moves its own phase once for every window
- * it opens, which is what the receive task does in the peripheral's page
- * response. A test asks whether a transmit kept the two ends level by opening
- * one window per transmit here and then comparing the counters.
+ * The paged device moves its own phase once for every window it opens, which
+ * is what the receive task does in the peripheral's page response. A page
+ * response test asks whether a transmit kept the two ends level by opening one
+ * window per transmit here and then comparing the counters.
+ *
+ * There is no counterpart for an inquiry: an inquiry-scanning device holds one
+ * frequency for 1.28 seconds while the inquirer sweeps its 32 guesses, so the
+ * inquiry tests below read the phase itself and not an agreement with anyone.
  */
 static uint8_t peer_phase;
 
@@ -350,11 +357,10 @@ MU_TEST(test_an_inquiry_transmit_that_goes_out_moves_the_phase_once)
 {
 	a_board(BT_MODE_INQUIRY);
 
-	one_transmit_of_an_attempt();
+	one_transmit();
 
 	mu_assert_int_eq(1, (int)fake_stx_strobes);
 	mu_assert_int_eq(1, (int)hop_state.x);
-	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
 }
 
 MU_TEST(test_a_page_response_that_goes_out_moves_the_phase_once)
@@ -373,23 +379,26 @@ MU_TEST(test_a_page_response_that_goes_out_moves_the_phase_once)
 /*
  * The regression. Not one task of the transmit was placed, so the slot task
  * that normally moves the phase never ran -- and the phase still has to move,
- * because the other end's window opened regardless.
+ * because the transmit it belongs to has been and gone.
  */
 MU_TEST(test_a_refused_inquiry_transmit_still_moves_the_phase)
 {
 	a_board(BT_MODE_INQUIRY);
 	a_full_slot_for_the_whole_transmit();
 
-	one_transmit_of_an_attempt();
+	one_transmit();
 
 	/* Nothing went out, and the radio was never even tuned. */
 	mu_assert_int_eq(0, (int)fake_stx_strobes);
 	mu_assert_int_eq(0, (int)tunes);
 	/* The caller was still told, and the phase still moved. */
 	mu_assert_int_eq(1, (int)completions);
-	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
+	mu_assert_int_eq(1, (int)hop_state.x);
 }
 
+/* And in the page response, where the paged device's window moved its phase
+ * whether this packet arrived or not, so the two are level only if this one
+ * moved as well. */
 MU_TEST(test_a_refused_page_response_still_moves_the_phase)
 {
 	a_board(BT_MODE_PAGING_RESPONSE);
@@ -399,6 +408,40 @@ MU_TEST(test_a_refused_page_response_still_moves_the_phase)
 
 	mu_assert_int_eq(0, (int)fake_stx_strobes);
 	mu_assert_int_eq(1, (int)completions);
+	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
+}
+
+/* ---- the phase moves before the caller is told, not after ---- */
+
+/*
+ * Which substate the transmit belonged to is read before the caller is told,
+ * not after. A refusal is reported from the caller's own call rather than from
+ * a slot, and the callback is where a caller gives a page up and moves the
+ * board to another substate: a page the board has run out of patience with
+ * goes back to paging, and one that succeeds becomes a connection. Read the
+ * substate after that and the phase of the attempt just abandoned is judged by
+ * the substate that replaced it.
+ */
+static void give_the_page_up(int sent, void *arg)
+{
+	(void)sent;
+	(void)arg;
+	completions++;
+	btphy.mode = BT_MODE_CENTRAL;
+}
+
+MU_TEST(test_the_substate_is_read_before_the_caller_is_told)
+{
+	a_board(BT_MODE_PAGING_RESPONSE);
+	a_full_slot_for_the_whole_transmit();
+	a_peer_window();
+
+	tx_task_schedule(0, give_the_page_up, &a_header, &a_header, some_data);
+
+	mu_assert_int_eq(1, (int)completions);
+	mu_assert_int_eq(0, (int)fake_stx_strobes);
+	/* The transmit was the page response's, so its phase moved, whatever
+	 * the board went on to do. */
 	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
 }
 
@@ -447,12 +490,11 @@ MU_TEST(test_a_transmit_with_no_start_moves_the_phase_once)
 	a_board(BT_MODE_INQUIRY);
 	a_full_slot_for_the_start_of_transmission();
 
-	one_transmit_of_an_attempt();
+	one_transmit();
 
 	mu_assert_int_eq(0, (int)fake_stx_strobes);
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert_int_eq(1, (int)hop_state.x);
-	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
 }
 
 /*
@@ -465,12 +507,11 @@ MU_TEST(test_a_transmit_with_no_end_moves_the_phase_once)
 	a_board(BT_MODE_INQUIRY);
 	a_full_slot_for_the_end_of_transmission();
 
-	one_transmit_of_an_attempt();
+	one_transmit();
 
 	mu_assert_int_eq(0, (int)fake_stx_strobes);
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert_int_eq(1, (int)hop_state.x);
-	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
 }
 
 /*
@@ -483,12 +524,11 @@ MU_TEST(test_an_untuned_transmit_moves_the_phase_once)
 	a_board(BT_MODE_INQUIRY);
 	fake_fs_locked = 0;
 
-	one_transmit_of_an_attempt();
+	one_transmit();
 
 	mu_assert_int_eq(0, (int)fake_stx_strobes);
 	mu_assert_int_eq(1, (int)completions);
 	mu_assert_int_eq(1, (int)hop_state.x);
-	mu_assert_int_eq((int)peer_phase, (int)hop_state.x);
 }
 
 /* ---- the substates that sweep no phase of their own ---- */
@@ -535,6 +575,7 @@ int main(void)
 	MU_RUN(test_a_page_response_that_goes_out_moves_the_phase_once);
 	MU_RUN(test_a_refused_inquiry_transmit_still_moves_the_phase);
 	MU_RUN(test_a_refused_page_response_still_moves_the_phase);
+	MU_RUN(test_the_substate_is_read_before_the_caller_is_told);
 	MU_RUN(test_an_attempt_stays_level_with_the_other_end);
 	MU_RUN(test_a_transmit_with_no_start_moves_the_phase_once);
 	MU_RUN(test_a_transmit_with_no_end_moves_the_phase_once);

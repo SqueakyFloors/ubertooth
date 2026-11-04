@@ -68,13 +68,16 @@ static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3);
  * not advance here: their answers go out in the slot that pairs with the one
  * they listened in, on the phase they heard.
  *
- * For those two substates the phase belongs to the attempt rather than to the
- * packet, so it moves once per transmit whether that packet reaches the air or
- * not. The other end advances its own phase for the window it opened either
- * way, and the two phases only stay level while both move together: a phase
- * left standing puts every later transmit of the attempt on the frequency the
- * other end's previous window used, and nothing in the attempt closes that gap
- * again. */
+ * The phase belongs to the attempt rather than to the packet, so it moves once
+ * per transmit whether that packet reaches the air or not. For the page
+ * response that is what keeps the two ends together: the paged device advances
+ * its own phase for every window it opens, so a phase left standing here is
+ * one behind for the rest of the attempt, with every later transmit going out
+ * on the frequency the device's previous window used and nothing in the
+ * attempt to close the gap. An inquirer's phase is one of 32 guesses it sweeps
+ * rather than a counter anyone shares, so a phase left standing there costs it
+ * only the guess it skips, but the rate is still one step per transmit and
+ * that is where it is kept. */
 static void tx_advance_hop_phase(void)
 {
 	if (btphy.mode == BT_MODE_INQUIRY || btphy.mode == BT_MODE_PAGING_RESPONSE)
@@ -335,11 +338,12 @@ void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void*cbarg,
 		/* The phase this transmit was to have moved. tx_prepare() is
 		 * what normally moves it, and no task of this transmit will
 		 * ever run, so it is moved here instead: this is the only
-		 * not-sent path that would otherwise leave the phase short of
-		 * the other end's, and a phase short by one stays short for
-		 * the rest of the attempt. It is moved before the completion
-		 * is reported, because the caller may hand the next packet
-		 * over from its callback and that one hops from here. */
+		 * not-sent path that would otherwise leave it short.
+		 *
+		 * Before the completion is reported, not after: the substate
+		 * this reads is the one the transmit belonged to, and the
+		 * callback is where a caller gives a page up and moves the
+		 * board to another one. */
 		tx_advance_hop_phase();
 
 		/* Release the packet before reporting it, the order
