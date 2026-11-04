@@ -232,6 +232,16 @@ static int ll_prepare_pkt_tx(link_layer_t *ll, ll_tx_t *tx)
 	return 1;
 }
 
+/* Compose the next transmit slot.
+ *
+ * This runs before the radio is asked for the slot, and nothing tells it
+ * afterwards whether the slot went out. So a slot the board could not put on
+ * the air costs an ACL message nothing -- the message is held until the peer
+ * acknowledges it, and the peer acknowledges nothing it did not hear -- but it
+ * costs a packet the host chose one repeat, because ll_prepare_pkt_tx() has
+ * already counted that repeat as spent, and it costs the acknowledgment this
+ * slot was carrying, because set_flags below clears loc_arqn. The peer repeats
+ * what went unacknowledged, so the link recovers at the cost of a slot. */
 void ll_prepare_tx(link_layer_t *ll, ll_tx_t *tx)
 {
 	btctl_hdr_t *btctl_hdr;

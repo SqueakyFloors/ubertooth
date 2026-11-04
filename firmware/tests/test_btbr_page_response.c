@@ -186,6 +186,15 @@ struct air_event {
 static struct air_event air_log[AIR_MAX];
 static unsigned air_count;
 
+/* Which transmit of the run, counted from 1, puts nothing on the air: 0 for
+ * none. This is a radio that was not ready in time: the transmit is prepared,
+ * the slot runs, and the report comes at the end of it saying nothing went
+ * out. The two other not-sent paths report earlier, when the scheduler refuses
+ * a slot the transmit needs, and are covered by test_btbr_tx_schedule.c and
+ * test_btbr_tx_schedule_set.c against the real scheduler. */
+static unsigned air_tx_drop_nth;
+static unsigned air_tx_prepared;
+
 /*
  * A transmit and a receive each take two ticks: a prepare tick that tunes the
  * radio, and the tick after it in which the packet goes out or the window
@@ -208,6 +217,7 @@ struct pending {
 	tdma_sched_cb *tdma_cb;
 	void *arg;
 	uint32_t clkn;		/* what rx_prepare() stamps on the packet */
+	int sent;		/* whether this transmit reached the air */
 };
 
 #define PENDING_MAX 96
@@ -393,21 +403,27 @@ static void air_dispatch_one(struct pending *p)
 	btctl_rx_pkt_t *pkt;
 	uint32_t clkn;
 	uint8_t chan;
+	int sent;
 
 	switch (p->what) {
 	case P_TX_PREPARE:
 		clkn = btphy_cur_clkn()+1;
 		chan = air_prepare(AIR_TX);
-		air_record(AIR_TX, air_tick+1, chan, clkn);
+		sent = ++air_tx_prepared != air_tx_drop_nth;
+		/* A transmit the board gave up on put nothing on the air, so
+		 * it leaves no entry in the log. */
+		if (sent)
+			air_record(AIR_TX, air_tick+1, chan, clkn);
 		/* tx_finalize(), where a transmit callback runs, is a tick
 		 * after the packet has gone out. */
 		next = pending_add(P_TX_DONE, air_tick+2);
 		next->tx_cb = p->tx_cb;
 		next->arg = p->arg;
+		next->sent = sent;
 		break;
 	case P_TX_DONE:
 		if (p->tx_cb)
-			p->tx_cb(p->arg);
+			p->tx_cb(p->sent, p->arg);
 		break;
 	case P_RX_PREPARE:
 		clkn = btphy_cur_clkn()+1;
@@ -478,6 +494,8 @@ static void air_reset(void)
 	air_window_count = 0;
 	air_deliver_payload = 0;
 	air_callback_lateness = 0;
+	air_tx_drop_nth = 0;
+	air_tx_prepared = 0;
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
 	btctl_last_reason = BTCTL_REASON_SUCCESS;
@@ -580,17 +598,19 @@ static unsigned paged_half;
  * `payload` it is a whole page response carrying `clk27_2`; without, it is a
  * bare access code, which is all that is left of a packet whose checksum fails.
  * Every window's callback runs `lateness` ticks after the window, as a board's
- * does when the decode runs on past it.
+ * does when the decode runs on past it. `drop_tx_nth` is the transmit of the
+ * run, counted from 1, that puts nothing on the air; 0 for none.
  */
 static void run_paged_opt(uint8_t scan_phase, unsigned half,
 			unsigned fhs_window, uint32_t clk27_2,
-			unsigned lateness, int payload)
+			unsigned lateness, int payload, unsigned drop_tx_nth)
 {
 	scan_task_cb_t cb;
 	void *arg;
 
 	air_reset();
 	air_callback_lateness = lateness;
+	air_tx_drop_nth = drop_tx_nth;
 	btphy.my_lap = PAGED_LAP;
 	btphy.my_uap = PAGED_UAP;
 	/* A scan listens on the frequency its own CLKN16-12 selects, so this is
@@ -629,7 +649,7 @@ static void run_paged_opt(uint8_t scan_phase, unsigned half,
 static void run_paged(uint8_t scan_phase, unsigned half, unsigned fhs_window,
 			uint32_t clk27_2)
 {
-	run_paged_opt(scan_phase, half, fhs_window, clk27_2, 0, 1);
+	run_paged_opt(scan_phase, half, fhs_window, clk27_2, 0, 1, 0);
 }
 
 /* A paged event's tick on the pager's time: ticks since the page it heard, plus
@@ -949,6 +969,10 @@ MU_TEST(paged_completes_on_a_later_repeat)
 		"the connection took the wrong address from the FHS");
 	mu_assert_int_eq(18, paged_air_tick(ack));
 	mu_assert_int_eq(ack_window->chan, ack->chan);
+	/* Both transmits went on the air: the answer to the page message and
+	 * the acknowledgment. This is the counterpart of the dropped
+	 * acknowledgment below, which logs only the first. */
+	mu_assert_int_eq(2, (int)air_tally(paged_log, paged_log_count, AIR_TX));
 }
 
 /*
@@ -963,7 +987,7 @@ MU_TEST(paged_a_decode_one_tick_late_keeps_the_windows_in_place)
 	unsigned i;
 	static const uint32_t window_tick[] = { 4, 7, 12, 15 };
 
-	run_paged_opt(0, 1, 0, 0, 1, 1);
+	run_paged_opt(0, 1, 0, 0, 1, 1, 0);
 
 	mu_assert_int_eq(ARRAY_LEN(window_tick), air_window_count);
 	for (i = 0; i < ARRAY_LEN(window_tick); i++)
@@ -984,12 +1008,57 @@ MU_TEST(paged_a_late_decode_ends_the_page_response)
 {
 	/* A bare access code in the first window -- all that is left of a
 	 * packet whose checksum fails -- decoded two ticks late. */
-	run_paged_opt(0, 1, 1, 0, 2, 0);
+	run_paged_opt(0, 1, 1, 0, 2, 0, 0);
 
 	mu_assert_int_eq(1, air_window_count);
 	mu_assert_int_eq(0, peripheral_started);
 	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
 	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
+	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
+}
+
+/* ---- an answer that never went on the air ---- */
+
+/*
+ * The paged device answers the page response with a bare ID packet, and the
+ * pager treats that acknowledgment as the connection being up. A transmit the
+ * board gave up on -- the radio not tuned in time, or no room in the slot the
+ * end of the transmission needed -- puts nothing on the air, and the transmit
+ * task says so. The pager heard nothing, so it is still paging or has given
+ * up; a connection reported here would be one only this end believes in,
+ * carrying no traffic until link supervision ends it a second later.
+ *
+ * The board goes back to scanning instead, which is where every other answer
+ * that led nowhere goes, and the page attempt still has most of its minute to
+ * run.
+ */
+MU_TEST(paged_a_dropped_acknowledgment_does_not_start_a_connection)
+{
+	const struct air_event *fhs;
+
+	run_pager(1);
+	fhs = air_nth(pager_log, pager_log_count, AIR_TX, 3);
+
+	/* The second of the paged device's transmits is the acknowledgment;
+	 * the first is its answer to the page message. */
+	run_paged_opt(pager_page_phase(1), 1, 1, fhs->clkn >> 2, 0, 1, 2);
+
+	/* The page response did arrive and was decoded, so the only thing
+	 * missing is the acknowledgment. */
+	mu_assert_int_eq(1, air_window_count);
+	/* Which put nothing on the air: the answer is the only transmit
+	 * logged. */
+	mu_assert_int_eq(1, (int)air_tally(paged_log, paged_log_count, AIR_TX));
+
+	/* No connection: peripheral_state_init() is what prints `Peripheral
+	 * started` and reports CONNECTED to the host, and it was not
+	 * reached. The board is still in the page scan the host asked for. */
+	mu_assert_int_eq(0, peripheral_started);
+	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
+
+	/* And scanning again, on the scan substate rather than left on the
+	 * page response's. */
+	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
 }
 
@@ -1214,6 +1283,7 @@ int main(void)
 	MU_RUN(paged_completes_on_a_later_repeat);
 	MU_RUN(paged_a_decode_one_tick_late_keeps_the_windows_in_place);
 	MU_RUN(paged_a_late_decode_ends_the_page_response);
+	MU_RUN(paged_a_dropped_acknowledgment_does_not_start_a_connection);
 	MU_RUN(pager_resumes_the_page_train_after_a_dead_connection);
 	MU_RUN(pager_resume_keeps_the_deadline_of_the_attempt);
 	MU_RUN(paged_resumes_the_scan_after_a_dead_connection);
