@@ -98,6 +98,8 @@ error: connecting to 00:00:33:44:55:66 failed: Host is down; \-l and \-u give fo
 .P
 The line offers \fB\-t\fR because it is the only way to take the guess out of the picture and is what \fB\-a\fR needs, not because the guess is why the page failed\. Give the target as \fB\-t\fR and the connection is made to the address as it is, so the line is then the reason alone, without the advice\. A page that fails without leaving a reason behind drops the \fB: <reason>\fR from whichever of the two lines it is\.
 .P
+The map is read as soon as the connection is up, which is the earliest the tool can read it and the latest it can act on it before the follow starts\. A controller that has not yet settled on a hop sequence for a link it has only just made answers that AFH is off, so that is the common answer against a freshly paged target, and the follow goes ahead without a map\.
+.P
 The map that comes back is used only when it could be a hop sequence at all:
 .IP "\(bu" 4
 a failed read stops the command (\fBerror: AFH map read failed: \|\.\|\.\|\.\fR), rather than following with whatever the map happened to contain\. \fB\-a\fR therefore does not work on a controller that does not implement HCI_Read_AFH_Channel_Map; run without \fB\-a\fR on one of those;

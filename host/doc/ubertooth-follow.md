@@ -172,6 +172,12 @@ the line is then the reason alone, without the advice. A page that fails
 without leaving a reason behind drops the `: <reason>` from whichever of the
 two lines it is.
 
+The map is read as soon as the connection is up, which is the earliest the
+tool can read it and the latest it can act on it before the follow starts. A
+controller that has not yet settled on a hop sequence for a link it has only
+just made answers that AFH is off, so that is the common answer against a
+freshly paged target, and the follow goes ahead without a map.
+
 The map that comes back is used only when it could be a hop sequence at all:
 
  - a failed read stops the command (`error: AFH map read failed: ...`), rather
