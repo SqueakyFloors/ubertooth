@@ -106,10 +106,10 @@ static int part_refused(const struct bl_update_ops *ops, void *context,
 	return 0;
 }
 
-/* Take the vector table away again after a read-back the part refused, which
- * is the last step of the write order bl_update.h describes. A part that
- * refuses this prepare or this erase leaves nothing further to try, and the
- * failure to report is still the read-back. */
+/* Take the vector table away again after a failure that comes once sector 0
+ * has been written, which is the recovery the write order in bl_update.h
+ * describes. A part that refuses this prepare or this erase leaves nothing
+ * further to try, and the failure to report is the one that brought us here. */
 static void erase_vector_sector(const struct bl_update_ops *ops, void *context)
 {
 	if (ops->prepare(context, BL_UPDATE_FIRST_SECTOR,
@@ -168,6 +168,15 @@ int bl_update_run(const struct bl_update_ops *ops, void *context,
 		}
 		if (ops->program(context, address, buffer,
 		                 BL_UPDATE_SECTOR_LENGTH) != 0) {
+			/* A refused program of this one sector is the other way
+			 * a vector table could be left behind: the ROM reports
+			 * one code for the whole 4 KiB, and a failure it
+			 * reports after writing part of the sector would leave
+			 * a checksum that adds up in front of code that is not
+			 * all there. The erase costs nothing on a part that
+			 * wrote nothing. */
+			if (this_sector == BL_UPDATE_FIRST_SECTOR)
+				erase_vector_sector(ops, context);
 			report->result = UBERTOOTH_BL_UPDATE_WRITE_FAILED;
 			return report->result;
 		}

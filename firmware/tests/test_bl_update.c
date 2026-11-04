@@ -70,7 +70,6 @@ struct fake_part {
 	int top_sector_present;
 	int fail_prepare_at;  /* 1-based call number to fail, 0 for none */
 	int prepare_calls;
-	int fail_erase;
 	int fail_erase_at;  /* 1-based call number to fail, 0 for none */
 	int erase_calls;
 	int fail_program_sector; /* 0-based sector to fail, -1 for none */
@@ -79,6 +78,10 @@ struct fake_part {
 	 * something to catch: a length of 0 corrupts nothing. */
 	uint32_t corrupt_offset;
 	uint32_t corrupt_length;
+	/* Bytes a refused program leaves in flash anyway: the ROM answers for
+	 * the whole sector, so a part may report a failure with some of it
+	 * written. 0 models a part that wrote nothing. */
+	uint32_t partial_program_bytes;
 	int programmed_without_prepare;
 };
 
@@ -132,7 +135,7 @@ static int fake_erase(void *context, uint32_t first, uint32_t last)
 	(void)context;
 	note("erase %u-%u\n", first, last);
 	part.erase_calls++;
-	if (part.fail_erase || part.fail_erase_at == part.erase_calls)
+	if (part.fail_erase_at == part.erase_calls)
 		return -1;
 	for (s = first; s <= last && s < BL_UPDATE_SECTOR_COUNT; s++) {
 		if (!part.prepared[s])
@@ -154,8 +157,12 @@ static int fake_program(void *context, uint32_t address, const uint8_t *ram,
 	note("program 0x%04x %u\n", address, length);
 	if (sector < BL_UPDATE_SECTOR_COUNT && !part.prepared[sector])
 		part.programmed_without_prepare = 1;
-	if ((int)sector == part.fail_program_sector)
+	if ((int)sector == part.fail_program_sector) {
+		if (part.partial_program_bytes != 0)
+			memcpy(part.flash + address, ram,
+			       part.partial_program_bytes);
 		return -1;
+	}
 	memcpy(part.flash + address, ram, length);
 	if (sector < BL_UPDATE_SECTOR_COUNT)
 		part.prepared[sector] = 0;
@@ -631,7 +638,7 @@ MU_TEST(an_erase_the_part_refuses_stops_the_run)
 
 	build_good_payload();
 	reset_part();
-	part.fail_erase = 1;
+	part.fail_erase_at = 1;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_ERASE_FAILED, run(&report));
 	mu_assert_int_eq(0, report.sectors_written);
 	mu_assert(strstr(part.log, "program") == NULL,
@@ -693,7 +700,7 @@ MU_TEST(an_interrupted_write_leaves_a_refused_vector_table)
 	/* The same after a refused erase, where nothing was written at all. */
 	build_good_payload();
 	reset_part();
-	part.fail_erase = 1;
+	part.fail_erase_at = 1;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_ERASE_FAILED, run(&report));
 }
 
@@ -774,8 +781,14 @@ MU_TEST(a_part_that_will_not_erase_again_still_reports_the_read_back)
 {
 	struct bl_update_report report;
 
+	uint8_t first_byte;
+
 	build_good_payload();
 	reset_part();
+	/* The first byte of the region as it is programmed, which is still
+	 * there when the part refuses to take it away. */
+	first_byte = ubertooth_bl_update_byte(
+		payload, 0, ubertooth_bl_update_vector_checksum(payload));
 	part.fail_verify_sector = 0;
 	part.fail_erase_at = 2;  /* the region erase runs; this one does not */
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED, run(&report));
@@ -784,6 +797,8 @@ MU_TEST(a_part_that_will_not_erase_again_still_reports_the_read_back)
 	mu_assert(strstr(part.log, "erase 0-0\n") != NULL,
 	          "the vector table's sector was not erased after the read-back "
 	          "failed");
+	/* The region is left as it was, which is what the docs promise. */
+	mu_assert_int_eq(first_byte, part.flash[0]);
 
 	/* And a part that will not prepare it is the same. */
 	build_good_payload();
@@ -793,8 +808,45 @@ MU_TEST(a_part_that_will_not_erase_again_still_reports_the_read_back)
 	 * then the one this failure is about. */
 	part.fail_prepare_at = 6;
 	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_READ_BACK_FAILED, run(&report));
+	mu_assert_int_eq(6, part.prepare_calls);
 	mu_assert(strstr(part.log, "erase 0-0\n") == NULL,
 	          "a sector the part would not prepare was erased anyway");
+	mu_assert_int_eq(first_byte, part.flash[0]);
+}
+
+/*
+ * The other failure reported once the vector table is in flash: the program of
+ * that sector itself. The ROM answers one code for the whole 4 KiB, so a part
+ * may refuse it with the first of the sector written -- and the vector table
+ * is in the first 32 bytes, so that is enough for the ROM to start what is
+ * there. The sector is erased again for the same reason as a failed read-back.
+ */
+MU_TEST(a_refused_write_of_the_vector_table_takes_it_away_again)
+{
+	struct bl_update_report report;
+	unsigned i;
+
+	build_good_payload();
+	reset_part();
+	part.fail_program_sector = (int)BL_UPDATE_FIRST_SECTOR;
+	part.partial_program_bytes = 256;
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
+	for (i = 0; i < UBERTOOTH_BL_UPDATE_CHECKED_WORDS * 4; i++)
+		mu_assert_int_eq(0xff, part.flash[i]);
+	mu_assert(strstr(part.log,
+	                 "program 0x0000 4096\nprepare 0-0\nerase 0-0\n") != NULL,
+	          "the vector table's sector was not prepared and erased after "
+	          "its own write was refused");
+
+	/* A refused program of any other sector is left alone: sector 0 is
+	 * written last, so it still holds the erase. */
+	build_good_payload();
+	reset_part();
+	part.fail_program_sector = 2;
+	part.partial_program_bytes = 256;
+	mu_assert_int_eq(UBERTOOTH_BL_UPDATE_WRITE_FAILED, run(&report));
+	mu_assert(strstr(part.log, "erase 0-0\n") == NULL,
+	          "sector 0 was erased for a failure that never reached it");
 }
 
 MU_TEST(a_run_with_no_buffer_writes_nothing)
@@ -1173,6 +1225,7 @@ int main(void)
 	MU_RUN(a_region_that_reads_back_wrong_is_a_failure);
 	MU_RUN(a_failed_read_back_takes_the_vector_table_away_again);
 	MU_RUN(a_part_that_will_not_erase_again_still_reports_the_read_back);
+	MU_RUN(a_refused_write_of_the_vector_table_takes_it_away_again);
 	MU_RUN(a_run_with_no_buffer_writes_nothing);
 	MU_RUN(every_result_has_its_own_phrase);
 	MU_RUN(the_linker_script_places_the_payload_where_the_header_says);
