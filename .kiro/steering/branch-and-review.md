@@ -39,7 +39,7 @@ the stricter requirement.
   repository change do not require a PR.
 - The PR description MUST summarize user impact and scope, validation results,
   each independent agent-review verdict, and whether the merge is low-stakes or
-  requires maintainer approval.
+  requires maintainer approval. `pr-and-comments.md` has the layout.
 - Direct merges are exceptions only for emergency recovery or when GitHub PRs
   are unavailable. The merge commit and reason MUST be recorded on the issue.
   MUST NOT manufacture retrospective PRs for changes already merged.
@@ -80,36 +80,30 @@ or non-trivial operational documentation changes:
 
 ## CI results
 
-- CI has two tiers. Pull requests and pushes to `main` run the minimal tier:
-  host and firmware on `ubuntu-24.04` and `macos-26`. The `install-sh` jobs run
-  on every push to `main` but on a PR only when `install.sh` changes; the
-  `Man pages` job the same way, when anything under `host/doc` changes. The
-  weekly schedule, a published release, and a manual run run the full matrix.
-  `issue-references` and the two `scripts` jobs run on both tiers and need
-  nothing built. `image-revision` and `dfu-package` run on both tiers too,
-  after the firmware job, on the images that job built: `image-revision` is the
-  only check that reads a built image's firmware info block the way
-  `ubertooth-dfu` reads it, rather than comparing the magic bytes, and
-  `dfu-package` the only one that packages an image into the `.dfu` users flash
-  and asks the tool whether it would accept it. `api-version` runs on pull
-  requests and pushes to `main` only, because it compares a branch with `main`
-  and on the other triggers there is no branch to compare.
-  `host-installed-libubertooth` runs with the host jobs, on both tiers and on
-  `ubuntu-24.04` alone, in about a minute: it installs libubertooth and then
-  configures, builds and tests `host/ubertooth-tools` on its own, which is the
-  other supported way to build the tools and the only run that reaches the
-  test directory's `else()` branches. What it covers is which include
-  directory a target is given, which is the same on every platform, so it has
-  no Mac leg. `libbtbb-pin` is its
-  own workflow with no path filter, so it runs on every change, documentation
-  included: two of the files that have to agree on the pin are
-  `COMPATIBILITY.md` and the build guides. It also runs
-  `tools/check-workflow-libbtbb.sh`, which refuses a workflow file naming a
-  libbtbb repository of its own: only `build.yml`, where the pin is decided,
-  and `manpages.yml`, which cannot read another workflow's env, may name one,
-  and both must name the pinned repository. A job that wants the library reads
-  the pin instead of writing a repository.
-  A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
+- `CONTRIBUTING.md`, "The checks a pull request has to pass", is the
+  inventory: every check, the runners each uses, the path filters, and what a
+  documentation-only change runs. Do not repeat it here. What it leaves out:
+  - CI has two tiers. Pull requests and pushes to `main` run the minimal
+    tier; the weekly schedule, a published release, and a manual run run the
+    full matrix.
+  - `image-revision` and `dfu-package` run after the firmware job, on the
+    images it built, and they are the only checks that handle an image the way
+    `ubertooth-dfu` does: `image-revision` reads its firmware info block
+    rather than comparing the magic bytes, and `dfu-package` packages it into
+    the `.dfu` users flash and asks the tool whether it would accept it.
+  - `host-installed-libubertooth` installs libubertooth and then configures,
+    builds, and tests `host/ubertooth-tools` against it, which is the other
+    supported way to build the tools and the only run that reaches the test
+    directory's `else()` branches. What it covers -- which include directory a
+    target is given -- is the same on every platform, so it has no Mac leg.
+  - `api-version` runs on pull requests and pushes to `main` only: it compares
+    a branch with `main`, and the other triggers have no branch to compare.
+  - `libbtbb pin` also runs `tools/check-workflow-libbtbb.sh`, which refuses a
+    workflow file naming a libbtbb repository of its own. Only `build.yml`,
+    where the pin is decided, and `manpages.yml`, which cannot read another
+    workflow's env, may name one, and both must name the pinned repository. A
+    job that wants the library reads the pin instead of naming a repository.
+- A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
   `gh workflow run build.yml` and `gh workflow run install-sh.yml`. The run on
@@ -127,24 +121,34 @@ or non-trivial operational documentation changes:
 Speed matters. Do not wait for every job.
 
 - **Almost no CI wait** for changes limited to documentation or agent rules
-  (`*.md`, `.kiro/steering/`). The required checks still have to report,
-  because they are required on `main`, but a documentation-only branch builds
-  nothing: the three build jobs are skipped and their names come from stand-in
-  jobs that take seconds on Linux. The whole set is green about a minute after
-  the run starts. A change under `host/doc` also waits for `Man pages`, which
-  is what catches a page left unrefreshed; that one is not required, but it is
-  the check such a change exists to satisfy.
-- **Eleven of them are required on `main`** and GitHub will refuse the merge
-  until each has reported green or skipped: both `host` legs, both `firmware`
-  legs, both `scripts` legs, `issue-references`, `image-revision`,
-  `api-version`, `dfu-package`, `libbtbb-pin`. The rule does not apply to the
-  repository owner, which is there for the one case where the maintainer has
-  looked at a red check and decided to merge anyway. **Never use `--admin`**:
-  a check the maintainer has allowed to be red is the maintainer's merge, not
-  yours. Say on the PR why you think it should not block, and leave it.
+  (`*.md`, `.kiro/steering/`). The required checks still have to report, but a
+  documentation-only branch builds nothing, so the whole set is green about a
+  minute after the run starts. A change under `host/doc` also waits for
+  `Man pages`, which is what catches a page left unrefreshed; that one is not
+  required, but it is the check such a change exists to satisfy.
+- **Twelve checks are required on `main`** and GitHub refuses the merge until
+  each has reported green or skipped. `CONTRIBUTING.md` names them, under
+  "They are required". The rule does not apply to the repository owner, which
+  is there for the one case where the maintainer has looked at a red check and
+  decided to merge anyway. **Never use `--admin`** except under the macOS
+  delay rule below: a check the maintainer has allowed to be red is the
+  maintainer's merge, not yours. Say on the PR why you think it should not
+  block, and leave it.
   A PR whose last run predates the stand-in jobs reports a skipped matrix job
   under its bare name and sits blocked on the leg names; a rebase onto `main`
   and a fresh run clears it.
+- **A macOS leg pending more than 7 minutes may be merged past.** The macOS
+  runners queue far longer than the rest, so the maintainer's standing
+  direction is: once every Linux and platform-independent required check has
+  passed, and the only unfinished required checks left are `macos-26` legs --
+  or `image-revision` or `dfu-package` waiting on `firmware (macos-26)` --
+  that have been queued or running for more than 7 minutes, merge with
+  `gh pr merge <PR> --squash --admin --match-head-commit <sha>`. Say on the PR
+  which macOS checks were still pending and for how long. Then watch those
+  legs of `main`'s push run, and file an issue at once if one fails. A macOS
+  leg that has COMPLETED with a failure still blocks: fix it or ask. The
+  release candidate is held to the full run, macOS included, before it is
+  named. This is the only case where `--admin` is allowed.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. A change under `host/` also needs `host-installed-libubertooth`,
@@ -159,8 +163,6 @@ Speed matters. Do not wait for every job.
   `scripts (ubuntu-24.04)` and `scripts (macos-26)` gate every change they run
   on, whatever the change touches: they take seconds to a minute, need nothing
   built, and a red one means the change itself broke the rule they check.
-  `doc-api-version` gates too, though it is not in the rule on `main` yet
-  (`CONTRIBUTING.md` says why): do not merge past a red one.
   A full-tier failure is followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long
@@ -198,35 +200,27 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   number only refuses boards that are fine.
 - A PR MUST bump the minor version when the change really does break an older
   host tool: a request removed or renumbered, a reply or record layout an
-  older host would misread. Say in the PR why it breaks one. Such a PR also
-  updates `CHANGELOG.md`, `COMPATIBILITY.md`, `TEST_PLAN.md` and the pinned
-  strings in the tests, and it is the maintainer who merges it. The number is
-  BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Take the value after
-  whatever `main` carries, re-checking after a rebase.
-- That list is the whole list, because **sample output** writes the version as
-  `API:<version>` rather than a number, in the man pages, the README, `docs/`
-  and the CHANGELOG alike. Keep it that way: pinning a real value in a sample
-  means every bump has one more place to chase, and the ones that went stale
-  were found by review rather than by any check. What a bump does update is
-  `TEST_PLAN.md`'s expected `API:` string, `COMPATIBILITY.md`'s firmware row,
-  the pinned strings in the tests and the CHANGELOG's reflash note -- the
-  places that state the requirement rather than illustrate output. A version a
-  sample is making a point about -- `2020-12-R1`'s 1.07, say -- is a fixed
-  number and stays.
+  older host would misread. Say in the PR why it breaks one; a bump that
+  follows this rule needs no maintainer decision (maintainer, 2026-10-30). The
+  number is BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Take the
+  value after whatever `main` carries, re-checking after a rebase.
+- A bump updates `TEST_PLAN.md`'s expected `API:` string,
+  `COMPATIBILITY.md`'s firmware row, the pinned strings in the tests, and the
+  CHANGELOG's reflash note -- the places that state the requirement -- and
+  nothing else. **Sample output** writes the version as `API:<version>` rather
+  than a number, in the man pages, the README, `docs/` and the CHANGELOG
+  alike: keep it that way, so a bump has one place to change instead of one
+  more to chase. A version a sample is making a point about --
+  `2020-12-R1`'s 1.07, say -- is a fixed number and stays.
 - The `doc-api-version` CI job runs `tools/check-doc-api-version.sh`, which
   asks all of that: no documentation file writes `API:` followed by a digit
-  except the shapes its allowlist names; `TEST_PLAN.md` and `COMPATIBILITY.md`
-  -- which are excused because they state the requirement -- carry the version
-  this tree carries; and the CHANGELOG's **top section** says, in those words,
-  "the firmware API version is now `<this tree's>`". Only the top section is
-  read, so an earlier release's note keeps the version it shipped, and only
-  that wording, so a version the section mentions for another reason is left
-  alone -- which is why the sentence has to be there in so many words, and
-  dropping it is a failure rather than a pass. Run it before pushing; it reads
-  files and takes a second. That job is its own workflow with no path filter,
-  so it runs on a documentation-only branch and on the push to `main`, which
-  is what the check is for; the `scripts` job's macOS leg runs it as well, for
-  the one scan of the real tree with the BSD tools.
+  except in the forms its allowlist names, and `TEST_PLAN.md`,
+  `COMPATIBILITY.md` and the CHANGELOG's **top section** carry the version
+  this tree carries. The CHANGELOG sentence is read in those words, "the
+  firmware API version is now `<version>`", so dropping it is a failure
+  rather than a pass; only the top section is read, so an earlier release's
+  note keeps the version it shipped. Run it before pushing; it reads files and
+  takes a second.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base. It
   cannot judge whether a change breaks an older host tool, so it asks what is
@@ -235,39 +229,30 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   firmware interface file must leave it alone; and only a release takes a
   major version. Run it before pushing if you are bumping: a value that was
   free when the branch was cut may not be free now.
-- To decide whether a branch changes the firmware interface, that check
-  compares the **content** of a list of files, whole-line comments and blank
-  lines not counted: the sources compiled into the two run-time images,
-  their own Makefiles and linker scripts, and the interface header
-  (`tools/check-api-version.sh --list-watched` prints the list). In
-  `firmware/common.mk` it compares only the lines that set one of a listed set
-  of compile flags -- the board define, `-DTX_ENABLE`, `-fpack-struct` and the
-  rest of the list in the script -- and ignores every other line of that file.
-  A watched name counts as a whole name and only where the line sets it: an
-  assignment to that exact name, a `-D` or `-U` flag naming it, or a
-  conditional on it. A line that merely uses one, such as the link command
-  that passes `$(LINKER_SCRIPT)` to the linker, and a longer name that begins
-  with a watched one, such as `LINKER_SCRIPT_DIRS`, do not count.
-  It is an approximation, so it is not the rule, the paragraph above is. All
-  it decides is whether a branch is ALLOWED to bump: a change to a watched
-  file the host cannot observe now costs nothing, because a branch that takes
-  no new version passes either way, and the interface header's BTBR and BTCTL
-  half is watched like the rest, since `btbr` reports this same version.
-- The one false red left is the other direction: a change that breaks an older
-  host tool from a file the check does not watch. Its bump is then refused as
-  though the branch were host-only. Do NOT edit the watched list to suit one
-  branch: say on the PR what changed and why an older host tool would misread
-  it, and leave it for the maintainer to merge red.
+  - It decides whether a branch changes the firmware interface by comparing
+    the **content** of a watched list of files, blank lines and whole-line
+    comments not counted: the sources compiled into the two run-time images,
+    their own Makefiles and linker scripts, and the interface header.
+    `tools/check-api-version.sh --list-watched` prints the list, and the
+    script's own comments say which lines of `firmware/common.mk` count. That
+    is an approximation of the rule above, not the rule, and all it decides is
+    whether a branch is ALLOWED to bump.
+  - The one false red left is the other direction: a change that breaks an
+    older host tool from a file the check does not watch has its bump refused
+    as though the branch were host-only. Do NOT edit the watched list to suit
+    one branch: say on the PR what changed and why an older host tool would
+    misread it, and leave it for the maintainer to merge red.
 - A release moves it to the next major version to mark the break in
   host/firmware pairing; the first fork release takes `0x0200` (2.00). That is
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).
   The check knows about it: one major up **from the merge base**, with the
   minor digits at `00`, above `main`, and with `CHANGELOG.md`,
   `COMPATIBILITY.md` and `TEST_PLAN.md` moving with it, is allowed with no
-  firmware change, so the release's own PR is not refused. **No other branch may take a major version**, whether or not it
-  changes the firmware: a board accepts only the exact value, so a `0x0200`
-  typed in place of `0x0135` would refuse every user's board until it was
-  reflashed, and it burns the value the release reserves.
+  firmware change, so the release's own PR is not refused. **No other branch
+  may take a major version**, whether or not it changes the firmware: a board
+  accepts only the exact value, so a `0x0200` typed in place of `0x0135` would
+  refuse every user's board until it was reflashed, and it burns the value the
+  release reserves.
 - On a pull request the job runs **`main`'s copy** of
   `tools/check-api-version.sh`, not the branch's, so a branch cannot edit the
   check that gates it. A branch's own changes to the script are reviewed and
@@ -411,9 +396,13 @@ label and one line saying what to decide, when it:
 - asks a design or behavior question the issue or the maintainer has not
   already answered, or picks between real alternatives;
 - adds, removes, or changes an option, a feature, or a default;
-- changes the firmware API version, or a dependency such as the libbtbb pin;
+- changes a dependency, other than moving the libbtbb pin to a commit of this
+  project's libbtbb fork, which merges itself like any other change once CI is
+  green (maintainer, 2026-11-03);
 - touches the bootloader or the flash layout, the USB protocol, or firmware API
-  policy;
+  policy. A firmware API version bump that follows "Firmware API version"
+  above is not a maintainer question (maintainer, 2026-10-30): say in the PR
+  why an older host tool would misread the firmware, and merge;
 - is large firmware rework (the USB stack, interrupt or SPI atomicity, radio
   timing);
 - adds tooling or process: a script under `tools/`, a CI job or workflow, a new
@@ -423,7 +412,8 @@ label and one line saying what to decide, when it:
 
 If classification is uncertain, MUST treat it as requiring maintainer review.
 A red required check is never a maintainer question: fix it, or wait for the
-fix. Never use `--admin`, and never change branch protection.
+fix. Never use `--admin` outside the macOS delay rule above, and never change
+branch protection.
 
 Some questions are settled for every change and MUST NOT be asked again: a bad
 or meaningless request is an error, never silently accepted; the least
