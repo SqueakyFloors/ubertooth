@@ -185,12 +185,11 @@ centimeters away is loud enough to reach it. The screen prints `s=none
 snr=none` for such a packet rather than a figure the board did not measure, and
 the ratio goes the same way as the level it would rest on. A record whose level
 comes from its strongest reading of the packet, which is what a dump older than
-the per-packet figure holds, is judged on that reading. More distance
-between the boards, or an attenuator in front of the antenna, brings the level
-back into the range the board can measure; a capture whose packets are nearly
-all up there is the case A RECEIVER THAT CANNOT HEAR describes. A capture
-record still carries the figure, because a record has no way to say that the
-level was not measured, so Wireshark shows those packets at 0 dBm.
+the per-packet figure holds, is judged on that reading. A capture whose packets
+are nearly all up there is the case A RECEIVER THAT CANNOT HEAR describes,
+which says what to do about it. A capture record still carries the figure,
+because a record has no way to say that the level was not measured, so
+Wireshark shows those packets at 0 dBm.
 
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at

@@ -113,16 +113,6 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  * safe one to write there. */
 #define NOISE_ABSENT INT8_MAX
 
-/* What the board reports for this packet: the packet's own power, measured,
- * and an estimate of the background on its channel where the mode it came
- * from has one.
- *
- * Both figures are the board's, one record at a time. The signal used to be
- * worked out here instead, as the loudest reading in the last ten records of
- * the packet's channel, which reported the loudest of ten packets rather than
- * this one -- a quiet packet arriving after a loud one read as loud as the
- * loud one, in the capture file as well as on screen.
- */
 /* The reading the packet's own power comes from.
  *
  * A record that does not say its average is this packet's power is one from a
@@ -134,21 +124,16 @@ static int8_t record_signal_rssi( const usb_pkt_rx *rx )
 	return (rx->status & SIGNAL_VALID) ? rx->rssi_avg : rx->rssi_max;
 }
 
-/* Whether that reading is at the top of the scale, where
- * cc2400_rssi_to_dbm() stops rising. There one figure, 0 dBm, stands for
- * everything from about -26 dBm upward, so it says no more than "at least this
- * loud". A peer a few tens of centimeters away pins the front end there, and
- * 0 dBm is a milliwatt at the antenna, about what that peer transmits, so the
- * figure would read as a measurement no receiver beside it could have taken.
+/* What the board reports for this packet: the packet's own power, measured,
+ * and an estimate of the background on its channel where the mode it came
+ * from has one.
  *
- * The per-packet lines print the word for an absent figure instead. The
- * capture writers are given the figure as before: a record has no way to say
- * "not measured". */
-static int signal_is_at_the_ceiling( const usb_pkt_rx *rx )
-{
-	return record_signal_rssi( rx ) >= RSSI_CEILING_RAW;
-}
-
+ * Both figures are the board's, one record at a time. The signal used to be
+ * worked out here instead, as the loudest reading in the last ten records of
+ * the packet's channel, which reported the loudest of ten packets rather than
+ * this one -- a quiet packet arriving after a loud one read as loud as the
+ * loud one, in the capture file as well as on screen.
+ */
 static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
                                         int8_t *noise )
 {
@@ -165,19 +150,23 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
  * background estimate, and the ratio between them. Each is a figure or the
  * word `none`, because neither level is always one the board has: a mode with
  * no background estimate has no noise figure, and a reading at the ceiling is
- * no measurement of the packet. The ratio needs both, so it goes whenever
- * either does.
+ * no measurement of the packet, only "at least this loud". The ratio needs
+ * both, so it goes whenever either does.
  *
- * `sig` and `noise` are what determine_signal_and_noise() made of the record;
- * whether the level is a measurement is a property of the record it came
- * from. */
-static void format_signal_noise_and_snr( const usb_pkt_rx *rx, int8_t sig,
-                                         int8_t noise,
+ * The figures are taken from the record here, so the level printed and the
+ * judgment of whether it is a measurement always rest on the same reading. */
+static void format_signal_noise_and_snr( const usb_pkt_rx *rx,
                                          char s[RSSI_FIELD_LEN],
                                          char n[RSSI_FIELD_LEN],
                                          char snr[RSSI_FIELD_LEN] )
 {
-	int measured = !signal_is_at_the_ceiling( rx );
+	int8_t sig, noise;
+	/* The raw reading rather than the dBm figure, because the scale stops
+	 * rising at RSSI_CEILING_RAW: the figure there is the end of the scale
+	 * and says nothing about how much louder the packet was. */
+	int measured = record_signal_rssi( rx ) < RSSI_CEILING_RAW;
+
+	determine_signal_and_noise( rx, &sig, &noise );
 
 	if (measured)
 		snprintf(s, RSSI_FIELD_LEN, "%d", sig);
@@ -989,8 +978,6 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 {
 	btbb_packet* pkt = NULL;
-	int8_t signal_level;
-	int8_t noise_level;
 	char signal_text[RSSI_FIELD_LEN], noise_text[RSSI_FIELD_LEN];
 	char snr_text[RSSI_FIELD_LEN];
 	int offset;
@@ -1011,9 +998,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	determine_signal_and_noise( rx, &signal_level, &noise_level );
-	format_signal_noise_and_snr( rx, signal_level, noise_level, signal_text,
-	                             noise_text, snr_text );
+	format_signal_noise_and_snr( rx, signal_text, noise_text, snr_text );
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
@@ -1855,8 +1840,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 	char signal_text[RSSI_FIELD_LEN], noise_text[RSSI_FIELD_LEN];
 	char snr_text[RSSI_FIELD_LEN];
 	determine_signal_and_noise( rx, &signal_level, &noise_level );
-	format_signal_noise_and_snr( rx, signal_level, noise_level, signal_text,
-	                             noise_text, snr_text );
+	format_signal_noise_and_snr( rx, signal_text, noise_text, snr_text );
 
 	/* Look for packets with specified LAP, if given. Otherwise
 	 * search for any packet. */
