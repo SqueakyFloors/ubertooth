@@ -246,10 +246,10 @@ to capture.
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
    packets from the start. On this project's bench the first record arrived
-   within a second or two of the command where the board could hear the
-   piconet well, and a few seconds in where the signal was weak, which is a
-   wait for a packet to arrive rather than for the tool. No part of it is
-   clock acquisition. A run that prints none has one of five causes: the
+   between half a second and four and a half seconds after the command across
+   the runs recorded, and that wait is for a packet of the piconet to arrive
+   rather than for the tool: no part of it is clock acquisition. A run that
+   prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear the piconet, the `-u`
    given is wrong, the clock the board was given is off by enough to put it on
    the wrong channel, which is what `-w` adjusts for, or the target is not the
@@ -271,8 +271,9 @@ to capture.
    `timeout` reports 124 for a run it ended; `timeout --preserve-status` gives
    the tool's own status instead.
 
-5. Find the `-w` this machine needs, if the run prints packets and decodes
-   little of what it prints. `-w` pays for the host's own delay between
+5. Find the `-w` this machine needs, if the run prints packets and almost none
+   of their headers pass, and the `-u` is not the cause (step 4 describes the
+   `-u` that looks the same). `-w` pays for the host's own delay between
    reading the clock and the board starting to hop, and the default is not the
    right value on every machine. It is worth doing once per machine and keeping
    the answer; see THE -w DELAY below.
@@ -297,45 +298,52 @@ kernel, and the board's clock has to be moved on by that much to stay with the
 piconet. `-w` is how much: a whole number of 625us Bluetooth timeslots, 5 by
 default.
 
-The delay `-w` pays for is the host's own, so the value that suits one machine
-is no guide to another and the default does not suit every machine. Sweep it
-over a piconet that is carrying steady traffic, a few values either side of the
-default, each leg the same length. Sweep in the form you will capture in, with
-`-t` or without: a page is part of the delay being paid for, so a value found
-one way need not hold for the other.
+The delay is the host's own, so the value that suits one machine is no guide to
+another and the default does not suit every machine. Sweep it over a piconet
+that is carrying steady traffic, a few values either side of the default, each
+leg the same length. Sweep in the form you will capture in, with `-t` or
+without: the two take the clock by different routes, so a value found one way
+need not hold for the other.
 
     d=$(mktemp -d)
     for w in 0 1 2 3 4 5 6 7 8; do
       timeout 25 ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w $w -r "$d/w$w.pcapng"
+      tshark -r "$d/w$w.pcapng" -V |
+        grep -c 'Incorrect Packet Header or HEC'
     done
 
 Count the headers that passed, not the records written. A board hopping on a
 clock that is wrong still matches the piconet's access code now and then, and
 it records every match, so a bad value can write hundreds of records and get
-nothing out of any of them. In Wireshark the records worth having are the
-frames not marked `Incorrect Packet Header or HEC`; `tshark -V` prints that
-warning twice per frame, so halve a count of it. Do not sweep by the packet
-detail the run printed: that needs the payload as well as the header, and an
-enhanced data rate payload is not basic rate and never decodes, so on a link
-carrying EDR every value would read as zero (see WHAT A FOLLOW DOES NOT CAPTURE
-below).
+nothing out of any of them. The loop above prints, for each leg, how many times
+Wireshark marked a header bad. That warning appears twice per frame, so halve
+it for the records that failed and take those from the records the leg wrote.
+Do not count the packet detail the run printed instead: that needs the payload
+as well as the header, which an enhanced data rate payload never reaches, so on
+a link carrying EDR every value would read as zero.
 
 Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
 three or four times as many records, the extra ones matched with an error
 allowed, which is how a bad value comes to look like a working capture.
 
+Throw away any leg where the piconet went quiet, and any leg that printed the
+warning that the clock being followed was not this piconet's (see DESCRIPTION
+above): the first reads as a clean zero and the second is no longer a reading
+of `-w` at all. Confirm from the devices themselves that each leg had traffic
+to capture.
+
 A sweep on this project's bench, 25-second legs on one Classic piconet with
-everything but `-w` held the same, decoded 6166 packets at `-w 2`, 3976 at
-`-w 3`, 19 at the default of 5, and none at all at 0 or 6. So the useful range
-is narrow, and on that host it was three slots away from the default.
+everything but `-w` held the same, came out at 6169 headers at `-w 2`, 3976 at
+`-w 3`, 28 at the default of 5, 3 at 0, and none at 6 or 8. Those legs followed
+the local device's own piconet, with no target named. So the useful range is
+narrow, and on that host it was three slots away from the default.
 
 The best value repeats; what it captures does not. Two shorter passes on the
 same bench put `-w 2` ahead again, and of three legs at it, one decoded almost
 every record it wrote and the other two a small part of theirs. No value of
-`-w` took that variation out. So sweep for the best value, and expect the
-capture at it to vary from run to run. How much of a piconet a follow holds
-turns on `-w` more than on anything else, and the bench cannot yet put a steady
-figure on it.
+`-w` took that variation out. So `-w` decides whether a follow decodes anything
+at all, and how much it then holds is not steady: expect the capture at the
+best value to vary from run to run.
 
 ## WHAT A FOLLOW DOES NOT CAPTURE
 

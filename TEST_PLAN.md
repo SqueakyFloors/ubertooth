@@ -701,13 +701,16 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
 - [ ] Find the piconet with `ubertooth-rx -U <serial> -z -t 30` and confirm its
       LAP, and the UAP against the leading device's real address (a short
       survey's UAP is a guess and can be wrong)
-- [ ] Sweep `-w` on this host **before** the runs below, because the rest of
-      this section measures nothing at a value that is wrong: equal legs at
-      `-w` 0 to 8 with `-e 0`, each writing a capture of its own, recording for
-      each leg the records whose header passed (`ubertooth-follow.md`, THE -w
-      DELAY, has the loop and the count). Record the best value and use it for
-      every run below. Expect a narrow useful range, expect it not to be the
-      default, and expect the capture at the best value to vary from run to run
+- [ ] Sweep `-w` on this host **before** the capture runs below, because a
+      wrong value makes every one of them read as a follow that captured
+      nothing: equal legs at `-w` 0 to 8 with `-e 0`, each writing a capture of
+      its own, recording for each leg the records whose header passed
+      (`ubertooth-follow.md`, THE -w DELAY, has the loop and the `tshark`
+      count). Sweep in the `-t` form, which the runs below mostly use, and
+      sweep again in the `-l`/`-u` form if its run decodes little at the value
+      found. Discard any leg where the piconet went quiet or the clock warning
+      appeared. Expect a narrow useful range, expect it not to be the default,
+      and expect the capture at the best value to vary from run to run
 - [ ] Run
       `timeout --preserve-status 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -w <swept value> -q lu1.pcap`
       and record: whether the page succeeded, how long until packets appear,

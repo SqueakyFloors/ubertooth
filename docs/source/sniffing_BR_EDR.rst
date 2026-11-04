@@ -185,10 +185,11 @@ device; there is none on macOS, so the tool is not built there.
 #. **Find the right delay for this machine** with ``-w``, if the run prints
    packets and decodes little of what it prints. ``-w`` pays for the host's own
    delay between reading the clock and the board starting to hop, and its
-   default of 5 does not suit every machine. Sweep it
-   once and keep the answer: on this project's bench a 25-second capture
-   decoded 6166 packets at ``-w 2`` and 19 at the default of 5. The ``-w``
-   section of
+   default of 5 does not suit every machine. "Decoded" here means the packet's
+   header passed its check, which is what a wrong ``-w`` spoils while the
+   record is still written. Sweep ``-w`` and keep the answer: on this project's
+   bench a 25-second capture got 6169 good headers at ``-w 2`` and 28 at the
+   default of 5. The ``-w`` section of
    `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__
    says how to sweep it and how to read the result.
 
