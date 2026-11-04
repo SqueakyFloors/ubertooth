@@ -157,6 +157,18 @@ static int signal_is_at_the_ceiling( const usb_pkt_rx *rx )
 /* Room for a dBm figure or the word that stands for a missing one. */
 #define RSSI_FIELD_LEN 8
 
+/* A level column: the figure, or `none` where the board has no level to give.
+ * Shared by every such column, so that the words they print cannot drift
+ * apart -- which is how the low-energy column came to say 0 dBm long after the
+ * Basic Rate ones stopped. */
+static void format_level( char field[RSSI_FIELD_LEN], int dbm, int have_it )
+{
+	if (have_it)
+		snprintf(field, RSSI_FIELD_LEN, "%d", dbm);
+	else
+		snprintf(field, RSSI_FIELD_LEN, "none");
+}
+
 /* The three level columns of a per-packet line: the packet's power, the
  * background estimate, and the ratio between them. Each is a figure or the
  * word `none`, because neither level is always one the board has: a mode with
@@ -176,20 +188,9 @@ static void format_signal_noise_and_snr( const usb_pkt_rx *rx,
 
 	determine_signal_and_noise( rx, &sig, &noise );
 
-	if (measured)
-		snprintf(s, RSSI_FIELD_LEN, "%d", sig);
-	else
-		snprintf(s, RSSI_FIELD_LEN, "none");
-
-	if (noise == NOISE_ABSENT)
-		snprintf(n, RSSI_FIELD_LEN, "none");
-	else
-		snprintf(n, RSSI_FIELD_LEN, "%d", noise);
-
-	if (measured && noise != NOISE_ABSENT)
-		snprintf(snr, RSSI_FIELD_LEN, "%d", sig - noise);
-	else
-		snprintf(snr, RSSI_FIELD_LEN, "none");
+	format_level( s, sig, measured );
+	format_level( n, noise, noise != NOISE_ABSENT );
+	format_level( snr, sig - noise, measured && noise != NOISE_ABSENT );
 }
 
 static uint64_t clock_ns( clockid_t clock_id )
@@ -1460,24 +1461,13 @@ void cb_btle(ubertooth_t* ut, void* args)
 
 	uint64_t ts_diff_ns = ns_since_the_last_packet( ut, nowns );
 	FILE* out = ubertooth_result_stream(ut);
-	/* The level, or the word that says the board had none to give. `sig`
-	 * rather than a figure of this line's own, so this line and the capture
-	 * record above report one level for one packet: what a reader wants
-	 * beside a packet is how loud that packet was.
-	 *
-	 * A reading at the top of the radio's scale is not a level the board
-	 * measured, only "at least this loud", and printed as a number it read
-	 * like one -- 0 dBm, a milliwatt at the antenna, which is about what a
-	 * peer transmits. Low-energy receive turns the amplifier and high-gain
-	 * mode on, so an advertiser a few tens of centimeters away reaches it.
-	 * The capture record keeps the figure either way, a record having no way
-	 * to say a level was not measured. */
+	/* `sig`, so this line and the capture record above report one level for
+	 * one packet, and the word where that level is no measurement of the
+	 * packet (signal_is_at_the_ceiling() above). The record keeps the figure
+	 * either way, having no way to say a level was not measured. */
 	char level[RSSI_FIELD_LEN];
 
-	if (signal_is_at_the_ceiling( rx ))
-		snprintf(level, sizeof(level), "none");
-	else
-		snprintf(level, sizeof(level), "%d", sig);
+	format_level( level, sig, !signal_is_at_the_ceiling( rx ) );
 
 	fprintf(out, "systime=%u freq=%d addr=%08x delta_t=%.03f ms rssi=%s\n",
 	        systime, rx->channel + BT_FREQ_MIN, lell_get_access_address(pkt),

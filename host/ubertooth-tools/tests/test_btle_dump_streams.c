@@ -656,10 +656,12 @@ MU_TEST(a_level_the_radio_could_not_measure_prints_no_figure)
 	mu_assert_fatal(lell_pcap_create_file(capture, &ut->h_pcap_le) == 0,
 	                "a capture file");
 
-	/* The first raw reading the scale has no figure above. */
+	/* RSSI_CEILING_RAW, the first raw reading the dBm scale has no figure
+	 * above. A literal, because that constant is private to
+	 * ubertooth_callback.c and this test links the library rather than
+	 * including it: a change to the constant has to reach these two cases. */
 	rx.rssi_avg = 35;
 	rx.rssi_max = 35;
-	rx.rssi_min = -40;
 	rx.status |= SIGNAL_VALID;
 	rx.channel = 78;
 
@@ -696,6 +698,7 @@ MU_TEST(the_loudest_measured_level_is_still_printed)
 	char err[2048] = "";
 
 	mu_assert_fatal(ut != NULL, "a handle");
+	/* One raw count below RSSI_CEILING_RAW; see the case above. */
 	rx.rssi_avg = 34;
 	rx.rssi_max = 34;
 	rx.status |= SIGNAL_VALID;
