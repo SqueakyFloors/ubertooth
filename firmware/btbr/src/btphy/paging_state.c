@@ -110,12 +110,18 @@ static int paging_rx_ack_cb(msg_t *msg, void *arg, int time_offset)
 			bbpkt_fhs_finalize_payload(paging_state.fhs_data, (btphy.central_clkn+delay+1)>>2);
 			tx_task_schedule(delay, NULL, NULL, &paging_state.fhs_hdr, paging_state.fhs_data);
 			/* No window for the acknowledgment leaves this repeat
-			 * with nothing to wait for, so go back to the page
-			 * train, which is what the deadline above does
-			 * (rx_task.h). The page attempt keeps its own 45
-			 * seconds. */
+			 * with nothing to wait for, and the page cannot start
+			 * again from here: the FHS above is still held by the
+			 * transmit task until the slot that sends it ends, so
+			 * paging_schedule()'s own transmit would stop the
+			 * firmware with "already got pkt". Report the page
+			 * over instead, on the reason its deadline uses
+			 * (rx_task.h). The FHS still goes out, and a paged
+			 * device that gets no acknowledgment window gives up
+			 * on its own pagerespTO. */
 			if (rx_task_schedule(delay+2, paging_rx_ack_cb, NULL, 0) < 0)
-				paging_schedule(delay);
+				btctl_set_state(BTCTL_STATE_STANDBY,
+						BTCTL_REASON_TIMEOUT);
 		}
 	}
 	msg_free(msg);
@@ -158,14 +164,18 @@ static int paging_rx_cb(msg_t *msg, void *arg, int time_offset)
 			&paging_state.fhs_hdr, paging_state.fhs_data);
 
 		/* Schedule rx Peripheral's ID(3) page response. No window for
-		 * it leaves the FHS just scheduled unanswerable, so go back to
-		 * the page train rather than leave the page with nothing left
-		 * to run (rx_task.h). */
+		 * it leaves the FHS just scheduled unanswerable, and the page
+		 * cannot start again from here: that FHS is still held by the
+		 * transmit task until the slot that sends it ends, so
+		 * paging_schedule()'s own transmit would stop the firmware
+		 * with "already got pkt". Report the page over instead, on the
+		 * reason its deadline uses (rx_task.h). */
 		if (rx_task_schedule(delay+2,
 			paging_rx_ack_cb, NULL,	// ID rx callback
 			0			// no payload
 			) < 0)
-			paging_schedule(delay);
+			btctl_set_state(BTCTL_STATE_STANDBY,
+					BTCTL_REASON_TIMEOUT);
 	}
 	else
 	{

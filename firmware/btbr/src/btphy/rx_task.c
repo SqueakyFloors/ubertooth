@@ -93,12 +93,23 @@ static struct {
 	uint8_t rx_done;
 	uint8_t slot_num;
 	uint8_t rx_raw;
-	/* Whether rx_task_schedule() got the whole receive onto the scheduler.
-	 * The two tasks of a receive go on it together, so a receive that lost
-	 * the second of them leaves the first standing in the slot before, and
-	 * a task cannot be taken back off; rx_prepare() does nothing while
-	 * this is clear. */
-	uint8_t armed;
+	/* Which attempt at scheduling a receive the slot tasks belong to.
+	 *
+	 * The two tasks of a receive go on the scheduler together, so an
+	 * attempt that lost the second of them leaves the first standing in
+	 * the slot before, and a task cannot be taken back off. The scheduler
+	 * copies this number into every item of the set, so rx_prepare() can
+	 * compare the number it was given against the one that is armed: a
+	 * task left over from a refused attempt carries a number that is never
+	 * armed and does nothing.
+	 *
+	 * A flag would not do. The caller's recovery can schedule its next
+	 * receive in the same slot clock interrupt, before the leftover task
+	 * runs, and the leftover would then take that receive's turn: tuning
+	 * the radio and taking a packet buffer a slot early, and leaving the
+	 * real task with nothing to do. */
+	uint16_t attempts;
+	uint16_t armed_attempt;
 } rx_task; 
 
 static int rx_decode(uint8_t p1, uint8_t p2, uint16_t p3);
@@ -228,17 +239,16 @@ static int rx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 	uint32_t rx_clkn = btphy_cur_clkn()+1;
 	btctl_rx_pkt_t *pkt;
 
-	if (!rx_task.armed)
+	if (p3 != rx_task.armed_attempt)
 	{
-		/* rx_task_schedule() could not get the whole receive onto the
-		 * scheduler, and has already said so and told its caller. The
-		 * slot that would have listened is not there, so there is
-		 * nothing to prepare for: tuning the radio and taking a packet
-		 * buffer here would leave both held with nothing left to run
-		 * that gives them back. */
+		/* This task is left over from an attempt rx_task_schedule()
+		 * could not finish placing, and it has already said so and
+		 * told its caller. The slot that would have listened is not on
+		 * the scheduler, so there is nothing to prepare for: tuning
+		 * the radio and taking a packet buffer here would leave both
+		 * held with nothing left to run that gives them back. */
 		return 0;
 	}
-	rx_task.armed = 0;
 
 	/* A paged device advances its response phase once per central transmit
 	 * slot, and every window it waits for the FHS in is one such slot. */
@@ -344,6 +354,14 @@ static int rx_data_hdr_callback(void)
 static int rx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	btctl_rx_pkt_t *pkt = rx_task.rx_pkt;
+
+	if (!pkt)
+	{
+		/* rx_prepare() did not run: either it belonged to an attempt
+		 * that was never armed, or the mode was reset between the two.
+		 * Nothing is listening and there is no packet to report. */
+		return 0;
+	}
 
 	if ((cc2400_get(FSMSTATE) & 0x1f) != STATE_STROBE_RX)
 	{
@@ -455,7 +473,10 @@ _Static_assert(ARRAY_SIZE(rx_sched_set) == 2 * RX_SCHED_ITEMS + 1,
 
 void rx_task_reset(void)
 {
-	rx_task.armed = 0;
+	/* Nothing on the scheduler is armed any more. The slot tasks of a
+	 * receive in flight are left standing, and the number they carry is
+	 * no longer the armed one, so they do nothing. */
+	rx_task.armed_attempt = 0;
 	if (rx_task.rx_msg)
 	{
 		msg_free(rx_task.rx_msg);
@@ -482,15 +503,24 @@ int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void*cbarg, unsigned flags
 	 * set is a receive that will not happen: rx_execute() is what listens
 	 * and what ends in rx_finalize(), and that is the only path to the
 	 * caller's callback. The rx_prepare() a partial placement leaves
-	 * standing cannot be taken back off, so it is told to do nothing
-	 * instead (`armed` above). Nothing is held either way: the packet
-	 * buffer is rx_prepare()'s to take. */
-	if (tdma_schedule_set(delay, rx_sched_set, 0) < RX_SCHED_ITEMS)
+	 * standing cannot be taken back off, so it is given a number that is
+	 * never armed and does nothing (`attempts` above). Nothing is held
+	 * either way: the packet buffer is rx_prepare()'s to take.
+	 *
+	 * The number advances on every attempt, refused or not, so a refused
+	 * attempt's number is not handed out again to a later one. */
+	/* Zero is the number nothing carries, so it is skipped on the wrap: a
+	 * connection asks for a receive every slot pair, which reaches 65536
+	 * in well under a minute. */
+	if (++rx_task.attempts == 0)
+		rx_task.attempts = 1;
+	if (tdma_schedule_set(delay, rx_sched_set, rx_task.attempts)
+			< RX_SCHED_ITEMS)
 	{
 		cprintf("RX: cannot schedule receive\n");
 		return -1;
 	}
-	rx_task.armed = 1;
+	rx_task.armed_attempt = rx_task.attempts;
 
 	return 0;
 }

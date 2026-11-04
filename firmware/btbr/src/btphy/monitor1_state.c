@@ -147,10 +147,12 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 
 		/* Schedule rx FHS. A window the scheduler had no room for
 		 * leaves nothing to wait for, so go back to watching, which is
-		 * where every answer that led nowhere goes (rx_task.h). The
-		 * ID(2) above has been scheduled and goes out either way; a
-		 * central that gets no answer to its page response pages
-		 * again. */
+		 * where every answer that led nowhere goes (rx_task.h). This
+		 * is the path pagerespTO already takes in the same position,
+		 * so it costs nothing new: the ID(2) scheduled above is still
+		 * pending and goes out on whatever hop inputs the scan leaves,
+		 * which does not matter for an answer this board has given up
+		 * on. */
 		if (rx_task_schedule(delay+2,
 			monitor1_rx_fhs_cb, NULL,	// ID rx callback
 			1<<RX_F_PAYLOAD			// FHS packet has payload

@@ -271,22 +271,54 @@ static void air_record(enum air_kind kind, uint32_t tick, uint8_t chan,
 	e->clkn = clkn;
 }
 
+/* Whether the transmit task is still holding a packet with a header of its
+ * own, which in this image is a page response or an inquiry response. The real
+ * task holds one at a time and stops the firmware when a second is handed over
+ * before the first slot has ended, so the model has to do the same: a recovery
+ * path that schedules a transmit while the page response is still held would
+ * otherwise look harmless here and halt a board. */
+static int tx_pkt_held;
+
+/* Whether a packet with a header has been handed over at all, so a test can
+ * say "refuse the window that follows the page response" without counting
+ * calls. */
+static int tx_pkt_ever_held;
+
 void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void *cbarg,
 			bbhdr_t *hdr, uint8_t *data)
 {
-	struct pending *p = pending_add(P_TX_PREPARE, air_tick+delay);
+	struct pending *p;
 
-	(void)hdr;
+	if (tx_pkt_held)
+		die("txs: already got pkt\n");
+	if (hdr) {
+		tx_pkt_held = 1;
+		tx_pkt_ever_held = 1;
+	}
+	p = pending_add(P_TX_PREPARE, air_tick+delay);
 	(void)data;
 	p->tx_cb = cb;
 	p->arg = cbarg;
 }
 
+/* Whether the scheduler has room for the next receive. A slot holds four tasks
+ * and refuses the fifth, which is what the real receive task reports as -1;
+ * test_btbr_rx_schedule.c drives that through the firmware's own scheduler.
+ * Here it is a switch keyed on the page response still being held, which is
+ * the one window whose refusal has nowhere safe to recover to. */
+static int rx_arm_refused_while_pkt_held;
+static unsigned rx_arms_refused;
+
 int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 			unsigned flags)
 {
-	struct pending *p = pending_add(P_RX_PREPARE, air_tick+delay);
+	struct pending *p;
 
+	if (rx_arm_refused_while_pkt_held && tx_pkt_held) {
+		rx_arms_refused++;
+		return -1;
+	}
+	p = pending_add(P_RX_PREPARE, air_tick+delay);
 	(void)flags;
 	p->rx_cb = cb;
 	p->arg = cbarg;
@@ -433,6 +465,9 @@ static void air_dispatch_one(struct pending *p)
 		next->sent = sent;
 		break;
 	case P_TX_DONE:
+		/* tx_finalize() gives the packet back before it reports, so
+		 * the callback may hand the next one over. */
+		tx_pkt_held = 0;
 		if (p->tx_cb)
 			p->tx_cb(p->sent, p->arg);
 		break;
@@ -510,6 +545,10 @@ static void air_reset(void)
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
 	scan_arm_refused = 0;
+	tx_pkt_held = 0;
+	tx_pkt_ever_held = 0;
+	rx_arm_refused_while_pkt_held = 0;
+	rx_arms_refused = 0;
 	scans_armed = 0;
 	btctl_last_reason = BTCTL_REASON_SUCCESS;
 	central_started = 0;
@@ -1099,6 +1138,37 @@ MU_TEST(paged_a_scan_window_that_cannot_be_armed_ends_the_scan)
 	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
 }
 
+/*
+ * The pager's window for the acknowledgment can be refused the same way, and
+ * that one has nowhere safe to recover to. The page response is still held by
+ * the transmit task until the slot that sends it ends, so going back to the
+ * page train from here would hand a second packet over and stop the firmware
+ * with "already got pkt" -- which is what this test's transmit model does, so
+ * a recovery that did that would fail here rather than on a board. The page
+ * reports itself over instead, and the host sees it stop.
+ */
+MU_TEST(pager_an_acknowledgment_window_that_cannot_be_armed_ends_the_page)
+{
+	/* run_pager() resets the harness, which clears the switch, so the
+	 * pager is started here instead. */
+	air_reset();
+	btphy.central_clkn = PAGER_CLKN_START;
+	btphy.my_lap = PAGER_LAP;
+	btphy.my_uap = PAGER_UAP;
+	air_deliver_window = 1;
+	rx_arm_refused_while_pkt_held = 1;
+	paging_state_setup(PAGED_LAP, PAGED_UAP);
+	air_run(RUN_TICKS);
+
+	/* It did get as far as its page response, so the refused window is the
+	 * one this is about. */
+	mu_assert(tx_pkt_ever_held,
+		"the pager never got as far as its page response");
+	mu_assert(rx_arms_refused > 0, "no receive window was refused");
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
+	mu_assert_int_eq(BTCTL_REASON_TIMEOUT, btctl_last_reason);
+}
+
 /* ---- a connection that carries no packet goes back to what it came from ---- */
 
 /*
@@ -1322,6 +1392,7 @@ int main(void)
 	MU_RUN(paged_a_late_decode_ends_the_page_response);
 	MU_RUN(paged_a_dropped_acknowledgment_does_not_start_a_connection);
 	MU_RUN(paged_a_scan_window_that_cannot_be_armed_ends_the_scan);
+	MU_RUN(pager_an_acknowledgment_window_that_cannot_be_armed_ends_the_page);
 	MU_RUN(pager_resumes_the_page_train_after_a_dead_connection);
 	MU_RUN(pager_resume_keeps_the_deadline_of_the_attempt);
 	MU_RUN(paged_resumes_the_scan_after_a_dead_connection);

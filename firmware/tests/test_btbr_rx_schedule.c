@@ -463,6 +463,49 @@ MU_TEST(a_half_placed_receive_is_refused_and_prepares_nothing)
 }
 
 /*
+ * The case the number exists for, and a flag would get wrong. A caller's
+ * recovery can ask for its next receive in the same slot clock interrupt as
+ * the refusal, before the leftover task of the refused attempt has run. That
+ * leftover must not take the new receive's turn: if it did, it would tune the
+ * radio and take a packet buffer a slot early, the real task would find
+ * nothing to do, and the receive would listen in the wrong slot.
+ *
+ * Here frame 2 is full, so the first attempt places only its first task, in
+ * frame 1. The second attempt asks for frame 3, which is empty, and both of
+ * its tasks are placed; the leftover in frame 1 then runs first.
+ */
+MU_TEST(a_leftover_task_does_not_take_the_next_receives_turn)
+{
+	int first = 1, second = 2;
+
+	a_board();
+	fill_a_slot(2, TDMASCHED_NUM_CB);
+
+	mu_assert_int_eq(-1, rx_task_schedule(1, count_report, &first, 0));
+	/* The recovery, from the same interrupt: nothing has run yet. */
+	mu_assert_int_eq(0, rx_task_schedule(3, count_report, &second, 0));
+
+	/* Run as far as the frame the leftover is standing in -- a frame
+	 * offset is counted from the one the scheduler is standing in, so that
+	 * is the second slot from here. It holds only the leftover, and it
+	 * comes before anything of the second attempt, so nothing may have
+	 * been touched yet. */
+	some_slots(2);
+	mu_assert_int_eq(0, (int)fake_tunes);
+	mu_assert_int_eq(0, (int)msgs_taken);
+
+	some_slots(2 * TDMASCHED_NUM_FRAMES);
+
+	/* One receive happened, it was the second one, and it tuned once. */
+	mu_assert_int_eq(1, reports);
+	mu_assert(last_report_arg == &second,
+		"the leftover task took the next receive's turn");
+	mu_assert_int_eq(1, (int)fake_tunes);
+	mu_assert_int_eq(1, (int)msgs_taken);
+	mu_assert_int_eq(1, (int)msgs_freed);
+}
+
+/*
  * A refused receive holds no packet buffer, so the next one the caller asks
  * for is taken. Without that, the sanity check at the top of
  * rx_task_schedule() would stop the firmware with "rx_schedule: rx_msg!=0".
@@ -560,6 +603,7 @@ int main(void)
 	MU_RUN(a_refused_receive_is_reported_to_the_caller);
 	MU_RUN(a_refused_receive_leaves_nothing_armed);
 	MU_RUN(a_half_placed_receive_is_refused_and_prepares_nothing);
+	MU_RUN(a_leftover_task_does_not_take_the_next_receives_turn);
 	MU_RUN(a_refused_receive_holds_nothing_so_the_next_one_is_taken);
 	MU_RUN(a_decode_that_cannot_continue_ends_the_receive);
 	MU_RUN(an_abandoned_decode_does_not_finalize_a_part_decoded_payload);
