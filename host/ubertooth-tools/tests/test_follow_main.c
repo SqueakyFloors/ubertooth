@@ -293,6 +293,12 @@ int hci_create_connection(int dd, const bdaddr_t* bdaddr, uint16_t ptype,
 		return -1;
 	}
 	*handle = FAKE_ACL_HANDLE;
+	/* A BlueZ call that succeeds can leave an errno behind, which is what
+	 * makes clearing it the caller's job before each call whose errno it
+	 * reports. The page is the last adapter call before the map and clock
+	 * reads, so this is where a stale one would come from for them. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return 0;
 }
 
@@ -322,9 +328,12 @@ int hci_read_afh_map(int dd, uint16_t handle, uint8_t* mode, uint8_t* map,
 	fake.afh_read_sock = dd;
 	if (fake.afh_read_fails) {
 		/* mode and map are left alone, as a failed BlueZ call leaves
-		 * them. The tool clears errno before the call, so 0 here is a
-		 * failure that left none. */
-		errno = fake.afh_read_errno;
+		 * them. So is errno when the case asked for none: a real call
+		 * that fails without setting one leaves whatever was already
+		 * there, which is what makes clearing it beforehand the tool's
+		 * job. */
+		if (fake.afh_read_errno != 0)
+			errno = fake.afh_read_errno;
 		return -1;
 	}
 	*mode = fake.afh_mode;
@@ -344,7 +353,9 @@ int hci_read_clock(int dd, uint16_t handle, uint8_t which, uint32_t* clock,
 	(void)which;
 	(void)to;
 	if (fake.clock_read_fails) {
-		errno = fake.clock_read_errno;
+		/* errno left alone when the case asked for none, as above. */
+		if (fake.clock_read_errno != 0)
+			errno = fake.clock_read_errno;
 		return -1;
 	}
 	*clock = 1000;
@@ -358,7 +369,9 @@ int hci_read_clock_offset(int dd, uint16_t handle, uint16_t* clkoffset, int to)
 	(void)handle;
 	(void)to;
 	if (fake.clock_offset_read_fails) {
-		errno = fake.clock_read_errno;
+		/* errno left alone when the case asked for none, as above. */
+		if (fake.clock_read_errno != 0)
+			errno = fake.clock_read_errno;
 		return -1;
 	}
 	*clkoffset = 0;
@@ -496,6 +509,11 @@ int ubertooth_bulk_thread_start()
 {
 	record('p');
 	fake.thread_starts++;
+	/* The last call before the clock reads, and the library work it stands
+	 * for can leave an errno behind, so this is where a stale one would
+	 * come from for them. Same reasoning as the page above. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return fake.thread_start_rc;
 }
 
@@ -1493,8 +1511,10 @@ MU_TEST(a_failed_afh_map_read_stops_the_run)
 	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.disconnected_handle);
 
 	/* The same failure leaving no errno behind says what it knows rather
-	 * than reporting "Undefined error: 0" as the reason. */
+	 * than reporting "Undefined error: 0" as the reason, or the errno an
+	 * earlier call left behind, which the faked hci_devinfo() puts there. */
 	reset_fake();
+	fake.dirty_errno = EPERM;
 	fake.afh_read_fails = 1;
 	r = RUN(WHOLE_TARGET, "-a");
 	mu_assert_int_eq(1, r.rc);
@@ -1560,10 +1580,13 @@ MU_TEST(a_map_with_too_few_channels_is_refused)
 	mu_assert_int_eq(2, fake.afh_reads);
 	mu_assert_int_eq(1, occurrences(r.err,
 	                 "AFH map not usable yet, reading it again\n"));
-	/* The settled map, byte for byte, and not the one that was refused. */
+	mu_assert_int_eq(0, occurrences(r.err, "error: "));
+	/* The settled map, byte for byte, and not the one that was refused.
+	 * The message names the map the board actually got, so a failure says
+	 * which one reached it. */
+	afh_map_line(fake.board_map, map_line, sizeof(map_line));
 	mu_assert(memcmp(fake.board_map, fake.afh_settled_map,
-	                 sizeof(fake.board_map)) == 0, fake.calls);
-	afh_map_line(fake.afh_settled_map, map_line, sizeof(map_line));
+	                 sizeof(fake.board_map)) == 0, map_line);
 	mu_assert(strstr(r.out, map_line) != NULL, r.out);
 
 	/* Exactly the minimum is a map, read once and applied. */
@@ -1578,9 +1601,9 @@ MU_TEST(a_map_with_too_few_channels_is_refused)
 	mu_assert_int_eq(1, fake.afh_reads);
 	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
 	mu_assert_int_eq(fake.dev_fd, fake.afh_read_sock);
+	afh_map_line(fake.board_map, map_line, sizeof(map_line));
 	mu_assert(memcmp(fake.board_map, fake.afh_map,
-	                 sizeof(fake.board_map)) == 0, fake.calls);
-	afh_map_line(fake.afh_map, map_line, sizeof(map_line));
+	                 sizeof(fake.board_map)) == 0, map_line);
 	mu_assert(strstr(r.out, map_line) != NULL, r.out);
 }
 
@@ -1708,6 +1731,29 @@ MU_TEST(a_clock_read_that_fails_stops_the_follow)
 	mu_assert_int_eq(1, fake.stops);
 	mu_assert_int_eq(1, fake.dev_fd_closed);
 	mu_assert_int_eq(1, fake.disconnects);
+
+	/* Either read failing without leaving an errno behind says what it
+	 * knows and stops there, rather than reporting "Undefined error: 0" as
+	 * the cause or a reason left behind by an earlier call. The faked
+	 * hci_devinfo() leaves one behind to make sure it is not the one
+	 * reported. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.clock_read_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: reading the clock of hci0 failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.clock_offset_read_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: reading the clock offset of the target "
+	          "failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
 
 	/* A run with no target follows the local adapter's own address, so it
 	 * has no link, there is no offset to read, and the offset read's

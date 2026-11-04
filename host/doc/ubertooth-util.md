@@ -875,21 +875,11 @@ One rule covers what a board holds from one command to the next:
   and no other way: `ubertooth-rx` after an `ubertooth-afh` hops across the
   whole channel set, not on the map that run found. It holds when the earlier
   tool was killed and left the board streaming too, as long as the new run
-  asks for a different mode.
-- **How much else goes back depends on whether the board was idle.** A mode
-  start on an idle board resets the squelch and the LEDs, as above, and so do
-  the modulation, which goes back to Classic, and the access code `ubertooth-ego
-  -a` sets; the power amplifier level set with `-a` does not. A mode request
-  that a running stream absorbs puts back the hop mode, the AFH map and the
-  modulation only, and leaves the squelch and the LEDs as the earlier run had
-  them.
-- **A run that asks for the mode already streaming is a re-sync of that run,
-  and puts nothing back.** The board cannot tell it from the earlier run
-  re-synchronising, so only what the repeated request sets for itself applies.
-  A second `ubertooth-afh` empties the map, because its own request does,
-  while a second `ubertooth-follow` inherits the map the first was hopping on
-  — which is why a follow with no map of its own clears the board's map rather
-  than leaving that to the mode start.
+  asks for a different mode: a run that asks for the mode already streaming is
+  a re-send rather than a mode start, and resets nothing (see below). The
+  squelch and the LEDs go with it, as above, and so do the modulation, which
+  goes back to Classic, and the access code `ubertooth-ego -a` sets; the power
+  amplifier level set with `-a` does not.
 - **A channel, a band sweep, a modulation, an access code or an AFH channel
   map stated after the mode request is kept.** It belongs to the mode that is
   starting, so the reset above leaves it alone, whatever the board was doing

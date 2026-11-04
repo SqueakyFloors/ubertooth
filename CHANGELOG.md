@@ -3286,6 +3286,11 @@ knowing about.
 
 Fixes with no visible change in normal use.
 
+- `ubertooth-follow` names the real reason a clock read failed. The two reads
+  reported whatever error number was left over from an earlier call, so a
+  controller that failed without setting one was reported with a borrowed
+  cause, or as `Undefined error: 0`. They now say only what they know.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
 - The pinned library no longer races when more than one thread decodes at the
   same time.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
