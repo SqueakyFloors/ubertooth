@@ -1107,6 +1107,19 @@
   reported as a dropped packet too, where it used to be dropped in silence.
   [#1151](https://github.com/SqueakyFloors/ubertooth/issues/1151)
 
+- Fixed: a `btbr` `page_scan`, `inquiry_scan`, or `monitor` could go quiet and
+  never come back. Each of them listens by asking the scheduler for the next
+  slot, and a slot already holding four tasks refuses it; the board said only
+  `tdma_schedule bucket overflow` and then had nothing left to run at all.
+  Even the scan's own one-minute deadline was never reached, because that is
+  checked when the next window is opened and no window was being opened, so
+  the session never ended and the user had to stop it. The board now says the
+  scan could not be armed and reports the session over. `monitor` had a second
+  version of it, on the slot that starts following a connection it has just
+  seen being made: it kept the address it decoded but lost the follow in
+  silence, and now reports that too.
+  [#1167](https://github.com/SqueakyFloors/ubertooth/issues/1167)
+
 - Fixed: when the `btbr` image's radio had not tuned in time for a transmit
   slot, the board said only `TX: RF not FS_ON`, and then spent the next slot
   waiting for an end of transmission that could not come, counting a radio

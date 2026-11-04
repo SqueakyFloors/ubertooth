@@ -48,7 +48,7 @@ struct {
 	uint8_t second_reading;
 } page_scan_state;
 
-static void page_scan_schedule(unsigned delay);
+static void page_scan_schedule(void);
 static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset);
 
 /* Open a window for the central's page response, the FHS packet, at the next
@@ -80,7 +80,7 @@ static void page_scan_fhs_schedule(void)
 				page_scan_state.clkn_answer,
 				PAGE_RESP_TO_TICKS))
 	{
-		page_scan_schedule(0);
+		page_scan_schedule();
 		return;
 	}
 	rx_task_schedule(delay,
@@ -120,7 +120,7 @@ static void page_scan_fhs_missed(uint32_t window_clkn)
 	 * normal: that is where a one-slot packet's decode ends. */
 	if (btphy.peripheral_clkn-window_clkn >= 2)
 	{
-		page_scan_schedule(0);
+		page_scan_schedule();
 		return;
 	}
 	/* The other reading of the page, as the one tick the two differ by. */
@@ -150,7 +150,7 @@ static void page_scan_tx_cb(int sent, void *arg)
 		 * the host's view of the board as the page scan it asked
 		 * for. */
 		cprintf("page answer not sent, scanning again\n");
-		page_scan_schedule(0);
+		page_scan_schedule();
 		return;
 	}
 	/* Twelve digits, so the address can be copied into page or l2ping. */
@@ -186,7 +186,7 @@ static int page_scan_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 			 * packet also reaches here several ticks late, which
 			 * is too late to re-read the page. */
 			cprintf("(bad type %d)", pkt->bb_hdr.type);
-			page_scan_schedule(0);
+			page_scan_schedule();
 			goto end;
 		}
 		// Parse fhs to get bdaddr/clkn/ltaddr
@@ -257,11 +257,11 @@ static void page_scan_rx_id_cb(int sw_detected, void *arg)
 	}
 	else
 	{
-		page_scan_schedule(0);
+		page_scan_schedule();
 	}
 }
 
-static void page_scan_schedule(unsigned delay)
+static void page_scan_schedule(void)
 {
 	if (clkn_elapsed(CENTRAL_CLKN, page_scan_state.clkn_start, PAGE_SCAN_MAX_TICKS))
 	{
@@ -272,7 +272,11 @@ static void page_scan_schedule(unsigned delay)
 	/* Back to the scan substate, which every path here comes from: an
 	 * answer that led nowhere leaves the response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
-	scan_task_schedule(delay, page_scan_rx_id_cb, NULL);
+	/* A window the scheduler had no room for ends the scan (scan_task.h).
+	 * The reason is the one the deadline above uses, because the host's
+	 * three reasons have no word for a full scheduler. */
+	if (scan_task_schedule(page_scan_rx_id_cb, NULL) < 0)
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 }
 
 /* Go back to scanning after a connection that carried no packet.
@@ -299,7 +303,7 @@ void page_scan_state_resume(void)
 	 * would be a change to the page response's timing. */
 	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
 	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_TIMEOUT);
-	page_scan_schedule(0);
+	page_scan_schedule();
 }
 
 /*
@@ -310,5 +314,5 @@ void page_scan_state_setup(void)
 	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
 	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_SUCCESS);
 	page_scan_state.clkn_start = CENTRAL_CLKN+1;
-	page_scan_schedule(1);
+	page_scan_schedule();
 }

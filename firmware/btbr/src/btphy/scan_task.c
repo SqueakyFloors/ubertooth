@@ -96,7 +96,19 @@ static void scan_wait(void)
 		else
 		{
 			/* Wait one more slot */
-			tdma_schedule(1, scan_wait_more, 0, 0, 0, -3);
+			if (tdma_schedule(1, scan_wait_more, 0, 0, 0, -3) < 0)
+			{
+				/* The window cannot listen another slot, so
+				 * end it as one that heard nothing: that is
+				 * the report every caller already acts on,
+				 * where leaving the scan with no task to run
+				 * would keep the caller waiting forever. The
+				 * caller asks for its next window from that
+				 * report and is refused in turn, so the
+				 * session ends there (scan_task.h). */
+				cprintf("scan: cannot wait another slot\n");
+				scan_finalize();
+			}
 		}
 	}
 }
@@ -158,13 +170,25 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 	return 0; 
 }
 
-void scan_task_schedule(unsigned delay, scan_task_cb_t cb, void*cbarg)
+int scan_task_schedule(scan_task_cb_t cb, void*cbarg)
 {
+	/* The callback is stored before the window is scheduled, because the
+	 * slot clock interrupt can run scan_start() the moment it is on the
+	 * scheduler, and scan_finalize() stops the firmware without one. A
+	 * refusal below leaves it set, which reaches nobody: scan_finalize()
+	 * is only ever reached from scan_start(), and that is the task that
+	 * was refused. */
 	scan_task.cb = cb;
 	scan_task.cb_arg = cbarg;
 
 	/* FIXME: We RX only ~250usec in a 312.5usec timeslot.
 	 * Therefore we might get unlucky and never receive the Central ID. */
 
-	tdma_schedule(1, scan_start, 0, 0, 0, -3);
+	if (tdma_schedule(1, scan_start, 0, 0, 0, -3) < 0)
+	{
+		cprintf("scan: cannot schedule scan\n");
+		return -1;
+	}
+
+	return 0;
 }
