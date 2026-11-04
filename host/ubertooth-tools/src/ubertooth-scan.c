@@ -22,6 +22,7 @@
  */
 
 #include <errno.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -100,6 +101,128 @@ static void report_failure(const char* what)
 		fprintf(stderr, "error: %s: %s\n", what, strerror(errno));
 	else
 		fprintf(stderr, "error: %s\n", what);
+}
+
+/* Read one remote device's name into name, which is len bytes, and hand back
+ * only a name the adapter said is that device's. Returns 0 and a
+ * NUL-terminated name, or -1 with errno as the call left it where there is
+ * one, and 0 where there is nothing to report as the reason.
+ *
+ * BlueZ's own hci_read_remote_name() cannot promise that much, which is why
+ * the request goes out from here. It reads the Remote Name Request Complete
+ * event into a buffer it never clears, and hci_send_req() copies only the
+ * bytes the event carried; a controller whose answer is shorter than the
+ * fixed-length event the spec defines therefore leaves the rest of that buffer
+ * holding whatever the previous call at the same stack address left behind,
+ * which is the name of the device read just before. The name is read out of
+ * that buffer to its first NUL, so the caller is handed the earlier device's
+ * name with nothing to tell it from this device's, and a scan printed one
+ * device's name on another device's line.
+ *
+ * Read here instead: the buffer is cleared first, the event has to be long
+ * enough to carry the fields read out of it, its Status has to say the request
+ * succeeded, its BD_ADDR has to be the address asked about, and the name comes
+ * from the bytes that actually arrived. The address check is belt and braces
+ * on BlueZ 5.72, whose hci_send_req() skips a Remote Name Request Complete for
+ * another address, but it costs one comparison and it is the thing the caller
+ * needs to be true. */
+static int read_remote_name(int dd, const bdaddr_t* bdaddr, size_t len,
+                            char* name, int to)
+{
+	evt_remote_name_req_complete reply;
+	remote_name_req_cp cp;
+	struct hci_request rq;
+	/* Where the name starts in the event, and so the shortest event that
+	 * carries the two fields checked below. */
+	const size_t header = offsetof(evt_remote_name_req_complete, name);
+	size_t carried;
+	char asked[19] = { 0 };
+	char answered[19] = { 0 };
+
+	/* A buffer with no room in it cannot be given even an empty name, so
+	 * there is nothing to read for: refused before the request goes out,
+	 * rather than clamping the copy below into a negative length. */
+	if (len == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	/* Nothing an earlier read left behind can be printed as this device's
+	 * name: every byte the event does not fill reads as the end of the
+	 * name. */
+	memset(&reply, 0, sizeof(reply));
+	memset(name, 0, len);
+
+	memset(&cp, 0, sizeof(cp));
+	bacpy(&cp.bdaddr, bdaddr);
+	/* R2, the page scan repetition mode BlueZ's own call asks for: the one
+	 * to use without the inquiry result's own value to hand. */
+	cp.pscan_rep_mode = 0x02;
+	cp.clock_offset = 0x0000;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LINK_CTL;
+	rq.ocf = OCF_REMOTE_NAME_REQ;
+	rq.cparam = &cp;
+	rq.clen = REMOTE_NAME_REQ_CP_SIZE;
+	rq.event = EVT_REMOTE_NAME_REQ_COMPLETE;
+	rq.rparam = &reply;
+	rq.rlen = EVT_REMOTE_NAME_REQ_COMPLETE_SIZE;
+
+	/* Cleared for the reason the reads in extra_info() clear it: BlueZ does
+	 * not promise an errno for every way its calls can fail, so a leftover
+	 * one would be reported as this failure's cause. */
+	errno = 0;
+	if (hci_send_req(dd, &rq, to) < 0)
+		return -1;
+
+	/* Status first, and no length test in front of it: the buffer was
+	 * cleared, so a non-zero Status can only be a byte the event brought.
+	 * An answer that stops right after it is still an answer saying the
+	 * request failed, which is the ordinary outcome for a device that has
+	 * gone out of range, and it reads better as that than as an answer with
+	 * no name in it. */
+	if (reply.status != 0) {
+		/* The errno BlueZ leaves for a request the remote device
+		 * answered with a failure status. */
+		errno = EIO;
+		return -1;
+	}
+
+	/* hci_send_req() leaves rlen at the number of bytes the event carried. */
+	if (rq.rlen < 0 || (size_t)rq.rlen <= header) {
+		ba2str(bdaddr, asked);
+		fprintf(stderr, "warning: the adapter's answer to the name read "
+		        "of %s says the request succeeded but carried no name "
+		        "(%d bytes)\n", asked, rq.rlen);
+		errno = 0;
+		return -1;
+	}
+
+	if (bacmp(&reply.bdaddr, bdaddr) != 0) {
+		ba2str(bdaddr, asked);
+		ba2str(&reply.bdaddr, answered);
+		/* Said out loud, because the name in this event is a real name
+		 * and printing it against the address asked about is how one
+		 * device's name came out on another device's line. */
+		fprintf(stderr, "warning: the adapter answered the name read "
+		        "of %s with the name of %s, so %s has no name to "
+		        "report\n", asked, answered, asked);
+		errno = 0;
+		return -1;
+	}
+
+	/* Bounded by all three of what the event brought, what the field can
+	 * hold, and what the caller has room for, with a byte left for the
+	 * terminator. */
+	carried = (size_t)rq.rlen - header;
+	if (carried > sizeof(reply.name))
+		carried = sizeof(reply.name);
+	if (carried + 1 > len)
+		carried = len - 1;
+	memcpy(name, reply.name, carried);
+	name[carried] = '\0';
+	return 0;
 }
 
 
@@ -202,8 +325,8 @@ int extra_info(int dd, int dev_id, bdaddr_t* bdaddr, int whole_address)
 	 * line missing from the report with nothing on standard error used to
 	 * look like a device that has no name or no version. */
 	errno = 0;
-	if (hci_read_remote_name(dd, bdaddr, sizeof(name), name,
-	                         REMOTE_NAME_TIMEOUT_MS) == 0) {
+	if (read_remote_name(dd, bdaddr, sizeof(name), name,
+	                     REMOTE_NAME_TIMEOUT_MS) == 0) {
 		printf("\tDevice Name: %s\n", name);
 	} else {
 		report_failure("reading the device name failed");
@@ -341,14 +464,13 @@ int print_name_and_class(int dev_handle, int dev_id, bdaddr_t *bdaddr,
 						  char* printable_addr, uint8_t extended,
 						  int whole_address)
 {
-	/* A remote name is 248 bytes and BlueZ writes at most one less than the
-	 * length it is given, so 249 is what holds the longest name: the same
-	 * size extra_info() reads it into. */
+	/* A remote name is at most 248 bytes, so 249 holds the longest one with
+	 * its terminator: the same size extra_info() reads it into. */
 	char name[249] = { 0 };
 
 	errno = 0;
-	if (hci_read_remote_name(dev_handle, bdaddr, sizeof(name), name,
-	                         REMOTE_NAME_TIMEOUT_MS) < 0) {
+	if (read_remote_name(dev_handle, bdaddr, sizeof(name), name,
+	                     REMOTE_NAME_TIMEOUT_MS) < 0) {
 		/* A device that will not give its name is still a result, so
 		 * the line is printed and the run's status is unaffected. The
 		 * reason goes to standard error, because "[unknown]" on its own
