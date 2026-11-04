@@ -543,11 +543,13 @@ Or set it once the capture is running: \fB\-z\fR works on a board that is in a m
 Set it again for each capture\. After a capture ends, or as soon as one mode replaces another, \fB\-z\fR reads \-120 dBm again\.
 .IP "" 0
 .P
+A value does carry across the mode changes a single run makes\. \fBubertooth\-rx\fR entering follow mode once it has a piconet's clock keeps the squelch the run started with, and so does \fBubertooth\-follow\fR giving a follow up and going back to the plain capture\. See "A mode start a running capture absorbs" in CARRY\-OVER BETWEEN RUNS\.
+.P
 \fB\-z\fR together with one of \fBubertooth\-util\fR's own mode options is refused rather than quietly dropped, because each of those modes leaves whatever was running first and the reset would discard the value before the mode started\.
 .SH "CARRY\-OVER BETWEEN RUNS"
 One rule covers what a board holds from one command to the next:
 .IP "\(bu" 4
-\fBEvery mode start resets the mode state, hop mode and AFH channel map the mode before it left\.\fR A capture hops the way the mode that started it asks, and no other way: \fBubertooth\-rx\fR after an \fBubertooth\-afh\fR hops across the whole channel set, not on the map that run found\. It also holds for a board the earlier tool was killed on and left streaming, as long as the new run asks for a different mode\. A run that asks for the mode already streaming is a re\-send, which the board takes as a re\-sync of the run already going, and it resets nothing: see "Re\-sending the mode a board is already running" below, and the \fBubertooth\-ego\fR exception after that\. The squelch and the LEDs go with it, as above, and so do the modulation, which goes back to Classic, and the access code \fBubertooth\-ego \-a\fR sets; the power amplifier level set with \fB\-a\fR does not\. One kind of mode start keeps the squelch instead, which the tools go out of their way to avoid: see "A mode start a running capture absorbs" below\.
+\fBEvery mode start resets the mode state, hop mode and AFH channel map the mode before it left\.\fR A capture hops the way the mode that started it asks, and no other way: \fBubertooth\-rx\fR after an \fBubertooth\-afh\fR hops across the whole channel set, not on the map that run found\. It also holds for a board the earlier tool was killed on and left streaming, as long as the new run asks for a different mode\. A run that asks for the mode already streaming is a re\-send, which the board takes as a re\-sync of the run already going, and it resets nothing: see "Re\-sending the mode a board is already running" below, and the \fBubertooth\-ego\fR exception after that\. The squelch and the LEDs go with it, as above, and so do the modulation, which goes back to Classic, and the access code \fBubertooth\-ego \-a\fR sets; the power amplifier level set with \fB\-a\fR does not\. One kind of mode start keeps the squelch instead: see "A mode start a running capture absorbs" below\.
 .IP "\(bu" 4
 \fBA channel, a band sweep, a modulation, an access code or an AFH channel map stated after the mode request is kept\.\fR It belongs to the mode that is starting, so the reset above leaves it alone, whatever the board was doing before\. That is where a tool states what its capture needs \(em \fBubertooth\-rx\fR, \fBubertooth\-scan\fR, \fBubertooth\-dump\fR, \fBubertooth\-btle\fR, \fBubertooth\-ducky\fR, \fBubertooth\-ego\fR and \fBubertooth\-follow\fR all do \(em and it is kept only for that mode: a setting stated for a run the host has moved on from is dropped rather than carried into whatever starts next\.
 .IP "\(bu" 4
@@ -558,14 +560,9 @@ What is set on an idle board is for the capture that follows, as the squelch is:
 .P
 A mode start a running capture absorbs puts back less than one the board leaves a mode for\. The three Classic symbol capture modes \(em the plain symbol capture, Bluetooth follow, and AFH detection, which \fBubertooth\-rx\fR, \fBubertooth\-dump\fR, \fBubertooth\-scan\fR, \fBubertooth\-follow\fR, and \fBubertooth\-afh\fR ask for between them \(em stream from the same loop, so a request for a different one of them, arriving while that loop is running, never stops it: the receive carries on under the new mode's name\. The board puts back the hop mode, the AFH channel map, and the modulation, but not the squelch, because the receive it is gating never stopped\.
 .P
-Those five tools do not leave it to that\. Each stops a board it finds still in a mode and waits for it to say it has stopped before asking for its own, which is a mode start the dispatch sees and resets in full\. So a board a killed run left streaming is stopped first, and the squelch is back to \-120 dBm for the capture that follows\. What reaches the narrower reset is a board that will not stop inside the wait, which the run warns about:
-.IP "" 4
-.nf
-warning: it has not stopped after 1000 ms; this capture may open with a packet or two of the earlier run's
-.fi
-.IP "" 0
+A single run reaches that reset on its own\. \fBubertooth\-rx\fR and \fBubertooth\-follow\fR change mode in the middle of a capture \(em into follow once a piconet's clock is recovered, and back to the plain capture when the follow is given up \(em and each of those starts is absorbed, which is why the squelch a run was given carries across them\.
 .P
-and a program that drives the board over USB without stopping it first\.
+Starting a tool on a board another run left streaming is not one of those\. Each of the five reads the board's mode first and, if it is in one, stops it and waits for the board to say it has ended\. The board does its full reset on that exit, so the capture begins on an idle board, at \-120 dBm\. Only a board that does not stop leaves a fresh run's own request to be absorbed\.
 .P
 Re\-sending the mode a board is already running is not a mode start, and resets nothing\. That is what lets a tool restate its mode mid\-session without losing what it is capturing on, as \fBubertooth\-follow\fR does each time it re\-syncs its clock\. A tool cannot tell the board which of the two it is doing, so one that wants a clean map after a restart says what it wants of the map once its mode is running, rather than before it starts\. The channel a capture needs goes the same way round, and for the same reason it is stated after the mode request\.
 .P

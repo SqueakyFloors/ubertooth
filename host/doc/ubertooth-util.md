@@ -862,6 +862,12 @@ is the behavior to work with:
 - Set it again for each capture. After a capture ends, or as soon as one mode
   replaces another, `-z` reads -120 dBm again.
 
+A value does carry across the mode changes a single run makes. `ubertooth-rx`
+entering follow mode once it has a piconet's clock keeps the squelch the run
+started with, and so does `ubertooth-follow` giving a follow up and going back
+to the plain capture. See "A mode start a running capture absorbs" in
+CARRY-OVER BETWEEN RUNS.
+
 `-z` together with one of `ubertooth-util`'s own mode options is refused
 rather than quietly dropped, because each of those modes leaves whatever was
 running first and the reset would discard the value before the mode started.
@@ -882,8 +888,7 @@ One rule covers what a board holds from one command to the next:
   LEDs go with it, as above, and so do the modulation, which goes back to
   Classic, and the access code `ubertooth-ego -a` sets; the power amplifier
   level set with `-a` does not. One kind of mode start keeps the squelch
-  instead, which the tools go out of their way to avoid: see "A mode start a
-  running capture absorbs" below.
+  instead: see "A mode start a running capture absorbs" below.
 - **A channel, a band sweep, a modulation, an access code or an AFH channel
   map stated after the mode request is kept.** It belongs to the mode that is
   starting, so the reset above leaves it alone, whatever the board was doing
@@ -914,16 +919,17 @@ carries on under the new mode's name. The board puts back the hop mode, the
 AFH channel map, and the modulation, but not the squelch, because the receive
 it is gating never stopped.
 
-Those five tools do not leave it to that. Each stops a board it finds still in
-a mode and waits for it to say it has stopped before asking for its own, which
-is a mode start the dispatch sees and resets in full. So a board a killed run
-left streaming is stopped first, and the squelch is back to -120 dBm for the
-capture that follows. What reaches the narrower reset is a board that will not
-stop inside the wait, which the run warns about:
+A single run reaches that reset on its own. `ubertooth-rx` and
+`ubertooth-follow` change mode in the middle of a capture — into follow once a
+piconet's clock is recovered, and back to the plain capture when the follow is
+given up — and each of those starts is absorbed, which is why the squelch a
+run was given carries across them.
 
-    warning: it has not stopped after 1000 ms; this capture may open with a packet or two of the earlier run's
-
-and a program that drives the board over USB without stopping it first.
+Starting a tool on a board another run left streaming is not one of those.
+Each of the five reads the board's mode first and, if it is in one, stops it
+and waits for the board to say it has ended. The board does its full reset on
+that exit, so the capture begins on an idle board, at -120 dBm. Only a board
+that does not stop leaves a fresh run's own request to be absorbed.
 
 Re-sending the mode a board is already running is not a mode start, and resets
 nothing. That is what lets a tool restate its mode mid-session without losing
