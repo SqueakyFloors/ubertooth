@@ -876,10 +876,10 @@ MU_TEST(a_read_back_with_reset_writes_the_dump_and_detaches)
 /*
  * The dump is written through a temporary file that is renamed over the name
  * given, and a retry rewinds it to block zero, neither of which standard
- * output allows. So every spelling of that stream is refused while the command
- * line is read: a path such as /dev/stdout reaches the same descriptor as a
- * lone "-", and taking it for a file name left the run to fail at the rename,
- * after the board had already been talked to.
+ * output allows. Only the lone "-" used to be recognized, so /dev/stdout was
+ * taken for a file name and the user got an errno about creating the temporary
+ * file beside it, which says nothing about what to write instead. Every name
+ * of that stream now gets the same line, while the command line is read.
  */
 MU_TEST(a_read_back_to_standard_output_is_refused_however_it_is_spelled)
 {
@@ -901,24 +901,39 @@ MU_TEST(a_read_back_to_standard_output_is_refused_however_it_is_spelled)
 		                 "give a file name") != NULL, r.err);
 		mu_assert_int_eq(1, error_lines(r.err));
 		mu_assert(r.out[0] == '\0', r.out);
-		/* Before any device is opened, so no board is left in its
-		 * bootloader by a command line that was never going to work. */
+		/* cli-output.md: a command-line problem is reported before any
+		 * device is opened. The errno this used to give came before the
+		 * device too, so these two pin the rule rather than the change. */
 		mu_assert_int_eq(0, fake.opens);
 		mu_assert_int_eq(0, fake.detach_calls);
 	}
 }
 
-/* The last element of a path being "-" makes it a file of that name, not the
- * stream, so the refusal above must not take one for the other. */
-MU_TEST(a_read_back_to_a_file_named_dash_is_written)
+/* How many bytes <path> holds, or -1 for a file that is not there. */
+static long file_length(const char *path)
 {
-	char path[sizeof(dump_path)];
-	const char *slash = strrchr(dump_path, '/');
-	struct run_result r;
 	unsigned char buffer[BLOCK_SIZE];
-	FILE *file;
+	FILE *file = fopen(path, "rb");
 	long length = 0;
 	size_t got;
+
+	if (file == NULL)
+		return -1;
+	while ((got = fread(buffer, 1, sizeof(buffer), file)) > 0)
+		length += (long)got;
+	fclose(file);
+	return length;
+}
+
+/* "-" as the last element of a path is a file of that name, not the stream, so
+ * the refusal above must not take one for the other. Both spellings: the
+ * absolute path, and the "./-" the pages tell a user to write for a file
+ * called "-". */
+MU_TEST(a_read_back_to_a_file_named_dash_is_written)
+{
+	char here[PATH_MAX], path[sizeof(dump_path)];
+	const char *slash = strrchr(dump_path, '/');
+	struct run_result r;
 
 	mu_assert(slash != NULL, "the dump path has no directory");
 	snprintf(path, sizeof(path), "%.*s/-", (int)(slash - dump_path),
@@ -927,15 +942,27 @@ MU_TEST(a_read_back_to_a_file_named_dash_is_written)
 	board_in_dfu();
 	r = RUN("-u", path, "-r");
 	mu_assert_int_eq(0, r.rc);
-	file = fopen(path, "rb");
-	mu_assert(file != NULL, "the dump was not written");
-	if (file != NULL) {
-		while ((got = fread(buffer, 1, sizeof(buffer), file)) > 0)
-			length += (long)got;
-		fclose(file);
-	}
-	mu_assert_int_eq(DUMP_LENGTH, length);
+	mu_assert_int_eq(DUMP_LENGTH, file_length(path));
 	unlink(path);
+
+	/* "./-" from the directory the dump goes in, so the file of that name
+	 * is created there and not wherever the tests were started. */
+	if (getcwd(here, sizeof(here)) == NULL) {
+		mu_assert(0, "cannot read the working directory");
+		return;
+	}
+	snprintf(path, sizeof(path), "%.*s", (int)(slash - dump_path), dump_path);
+	if (chdir(path) != 0) {
+		mu_assert(0, "cannot enter the dump directory");
+		return;
+	}
+	unlink("-");
+	board_in_dfu();
+	r = RUN("-u", "./-", "-r");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(DUMP_LENGTH, file_length("-"));
+	unlink("-");
+	mu_assert_int_eq(0, chdir(here));
 }
 
 /* ---- a bootloader that stops answering --------------------------------- */

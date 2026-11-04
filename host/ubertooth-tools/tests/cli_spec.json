@@ -387,7 +387,7 @@
          "source": "ubertooth-dfu.md OPTIONS, -u: the dump is written through a temporary file and rewound if the read is retried, and a pipe allows neither"},
         {"args": ["-u", "/dev/stdout"], "verdict": "refused",
          "error": "error: -u cannot write the read-back to stdout; give a file name",
-         "source": "ubertooth-dfu.md OPTIONS, -u: every spelling of the stream is refused while the command line is read, because each reaches the descriptor the temporary file cannot be renamed over, and the rename would fail only after the board had been talked to"},
+         "source": "ubertooth-dfu.md OPTIONS, -u: the names of descriptor 1 ask for the same stream as the lone '-' and are refused in the same words while the command line is read, rather than being taken for a file name and answered with an errno about the temporary file"},
         {"args": ["-u", "OUT.bin"], "verdict": "device",
          "error_contains": "error: unable to open selected application device",
          "source": "ubertooth-dfu.md DIAGNOSTICS: as for -r; the read-back reaches the same failure, and standard output stays empty"}

@@ -2371,10 +2371,16 @@ int main(int argc, char **argv) {
 			 * renamed over the name given, and a retry rewinds it to block
 			 * zero: neither is possible on a pipe, so a value naming
 			 * standard output is refused here rather than taken as a file
-			 * name. Every spelling of that stream, not just a lone "-":
-			 * a path such as /dev/stdout reaches the same descriptor, and
-			 * left to the rename it would fail only after the board had
-			 * been talked to. */
+			 * name. The names of descriptor 1 are refused as well as the
+			 * lone "-", because they ask for the same stream: creating the
+			 * temporary file beside one of them failed with an errno about
+			 * a file, which says nothing about what to write instead.
+			 *
+			 * opt_writes_to_stdout(), not opt_destination_is_stdout(): the
+			 * dump is renamed over the name the user wrote, so a symbolic
+			 * link to that stream is replaced rather than written through.
+			 * That makes this a question about the value, which is the one
+			 * the first helper answers. */
 			if (opt_writes_to_stdout(optarg)) {
 				fputs("error: -u cannot write the read-back to stdout; "
 				      "give a file name\n", stderr);
