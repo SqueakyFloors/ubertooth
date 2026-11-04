@@ -1230,6 +1230,14 @@ these are the ones worth knowing about.
 
 ### Reliability fixes
 
+- Fixed: a per-packet line reported `s=0`, and a `snr=` worked out from it, for
+  a packet whose level the board could not measure. The dBm scale stops rising
+  at the top of the radio's range, so that one figure stood for every signal
+  from about -26 dBm upward, which a Classic peer a few tens of centimeters
+  away reaches. Such a packet now reads `s=none snr=none`, the convention the
+  noise field already uses for a figure the board does not have.
+  [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162)
+
 - Fixed: `ubertooth-scan` could print one device's name against another
   device's address. A name is now printed only where the device's own answer
   carried it, and a line whose name could not be read says `[unknown]`.

@@ -121,8 +121,10 @@ board's estimate of the background on its channel, and the screen shows the two
 as `s=` and `n=` with `snr=` the difference. Where the board has admitted no quiet
 reading since it last started counting there is no estimate: the capture's
 noise-power-valid flag stays clear, Wireshark shows the field as `Invalid Noise
-Power`, and the screen prints `n=none snr=none`. ubertooth-rx(1) describes both
-figures and what the estimate rests on.
+Power`, and the screen prints `n=none snr=none`. A packet whose level is at the
+top of the receiver's range is not measured either, and the screen prints
+`s=none snr=none` for it. ubertooth-rx(1) describes both figures, what the
+estimate rests on, and where the dBm scale ends.
 
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at

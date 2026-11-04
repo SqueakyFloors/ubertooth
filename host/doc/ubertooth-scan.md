@@ -113,8 +113,10 @@ missing. Its channel map is still printed.
 `s=` is the packet's own power and `n=` the board's estimate of the background
 on that channel, both in dBm, with `snr=` the difference. A channel the board
 never heard both loud and quiet in one receive window leaves it with no
-estimate, and the line reads `n=none snr=none`; ubertooth-rx(1) describes both
-figures and what the estimate rests on.
+estimate, and the line reads `n=none snr=none`. A packet whose level is at the
+top of the receiver's range is not measured either, and the line reads
+`s=none snr=none`; ubertooth-rx(1) describes both figures, what the estimate
+rests on, and where the dBm scale ends.
 
 The name on a device's line is read from the device itself, and that read waits
 25 seconds for an answer. A device that does not answer in that time has

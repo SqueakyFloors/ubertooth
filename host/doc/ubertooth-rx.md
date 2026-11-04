@@ -177,6 +177,19 @@ own window admitted none still carries the figure if an earlier window since
 the last reset did: the estimate belongs to the channel over that stretch, not
 to one window.
 
+The signal figure has a limit of its own. The board reports power on a raw
+scale, and the dBm figure stops rising at the top of it: one figure, 0 dBm,
+stands for every reading from about -26 dBm upward, which says no more than
+that the packet was at least that loud. A Classic peer a few tens of
+centimeters away is loud enough to reach it. The screen prints `s=none
+snr=none` for such a packet rather than a figure the board did not measure, and
+the ratio goes the same way as the level it would rest on. More distance
+between the boards, or an attenuator in front of the antenna, brings the level
+back into the range the board can measure; a capture whose packets are nearly
+all up there is the case A RECEIVER THAT CANNOT HEAR describes. A capture
+record still carries the figure, because a record has no way to say that the
+level was not measured, so Wireshark shows those packets at 0 dBm.
+
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at
 the same moment, is what the signal figure describes, and the packet is then
@@ -827,7 +840,8 @@ distance or more attenuation between the two, or turn the transmit power down.
 
 A receiver held at the top of the scale is what gets reported, not one loud
 packet: a short packet from a board a few centimeters away still decodes, so
-the decision is taken over a block of records.
+the decision is taken over a block of records. A lone packet up there gets no
+warning; its own line reports no level, as `s=none snr=none`.
 
 The warning goes on the records the board sends, which this tool gets for
 every block of air whether or not a packet was in it, so it arrives even while
