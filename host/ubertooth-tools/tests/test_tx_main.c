@@ -546,6 +546,51 @@ MU_TEST(a_generic_transmit_defaults_to_one_packet_at_2402)
 	mu_assert_int_eq(1UL, fake.generic_syncword);
 }
 
+/* The ends of each option's range reach the request as they were written. The
+ * top end is the one worth pinning: the payload is a whole FIFO load and the
+ * count is the largest number the request's 16-bit field holds, so a value
+ * narrowed on the way would arrive as a different burst rather than as an
+ * error. */
+MU_TEST(a_generic_transmit_carries_the_ends_of_each_range)
+{
+	/* 32 bytes, which is GENERIC_TX_FRAMED_PAYLOAD. */
+	char* top[] = { "ubertooth-tx", "-g",
+	                "000102030405060708090a0b0c0d0e0f"
+	                "101112131415161718191a1b1c1d1e1f",
+	                "-a", "cb876543", "-c", "2480", "-n", "65535", NULL };
+	char* bottom[] = { "ubertooth-tx", "-g", "00", "-a", "cb876543",
+	                   "-c", "2402", "-n", "1", NULL };
+	struct run r;
+	uint8_t expected[GENERIC_TX_FRAMED_PAYLOAD];
+	unsigned i;
+
+	for (i = 0; i < sizeof(expected); i++)
+		expected[i] = (uint8_t)i;
+
+	reset();
+	fake.connect_rc = 0;
+	fake.keep_running = 1;
+	run_main(&r, 9, top);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.generic_packets);
+	mu_assert_int_eq(65535, fake.generic_count);
+	mu_assert_int_eq(BT_FREQ_MAX, fake.generic_channel);
+	mu_assert_int_eq((int)sizeof(expected), (int)fake.generic_len);
+	mu_assert(memcmp(fake.generic_payload, expected, sizeof(expected)) == 0,
+	          "a whole FIFO load of payload reaches the request");
+	mu_assert(r.err[0] == '\0', r.err);
+
+	reset();
+	fake.connect_rc = 0;
+	fake.keep_running = 1;
+	run_main(&r, 9, bottom);
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(1, fake.generic_count);
+	mu_assert_int_eq(BT_FREQ_MIN, fake.generic_channel);
+	mu_assert_int_eq(1, (int)fake.generic_len);
+	mu_assert(r.err[0] == '\0', r.err);
+}
+
 /* A board that will not answer either request is a failed run, and nothing is
  * transmitted when the power level could not be read: that level is part of
  * the request. */
@@ -839,6 +884,7 @@ int main(void)
 	MU_RUN(half_an_address_reads_the_same_either_way);
 	MU_RUN(a_generic_transmit_sends_one_request_for_the_burst);
 	MU_RUN(a_generic_transmit_defaults_to_one_packet_at_2402);
+	MU_RUN(a_generic_transmit_carries_the_ends_of_each_range);
 	MU_RUN(a_refused_generic_request_exits_one);
 	MU_RUN(a_stopped_generic_transmit_stops_the_board);
 	MU_RUN(a_board_that_never_finishes_the_burst_exits_one);
