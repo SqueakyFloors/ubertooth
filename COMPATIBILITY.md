@@ -320,13 +320,16 @@ firmware flashing), not radio capture.
    only Ubuntu 24.04 and macOS 26, so the minimum versions are exercised by the
    weekly run, not on every PR. Pin explicit versions (not `-latest`) so the
    record is reproducible, and test the **minimum and the newest** of each
-   dimension. Three narrower workflows cover one thing each on their own
+   dimension. Four narrower workflows cover one thing each on their own
    triggers: `install-sh.yml` (Ubuntu 24.04, macOS 15 and a `fedora:latest`
    container, when `install.sh` changes; the Fedora leg installs nothing
    beforehand, so the script's own `dnf` package list is what it uses),
    `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
    filter at all, since the files that must agree on the pin include this one
-   and the build guides) and `manpages.yml` (Ubuntu 24.04, when `host/doc`
+   and the build guides), `doc-api-version.yml` (Ubuntu 24.04, on every change
+   with no path filter either, since what it reads is every tracked
+   documentation file and `build.yml` skips a documentation-only change) and
+   `manpages.yml` (Ubuntu 24.04, when `host/doc`
    changes), which installs the pinned ronn-ng and fails if the committed man
    pages no longer match their Markdown. One job in `build.yml` builds the
    host tools a second way: `host-installed-libubertooth` (Ubuntu 24.04, when

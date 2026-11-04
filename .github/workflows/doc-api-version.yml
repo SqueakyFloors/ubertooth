@@ -15,14 +15,6 @@ name: Doc API version
 # same reason libbtbb-pin.yml has none. It takes a second or two and builds
 # nothing.
 #
-# build.yml's `scripts` job still runs the same check on both of its runners.
-# That job does not run on a documentation-only branch, so it is not a second
-# gate on the change this workflow exists to catch; what the macOS leg adds is
-# this one scan of the real tree with the BSD tools, which no Linux job can
-# make. tools/check-doc-api-version-selftest.sh stays there too: it is what
-# shows the check still refuses a pinned version, and it only matters on a
-# branch that changes the check, which is never a documentation-only branch.
-#
 # The job name below is in the gating set in
 # .kiro/steering/branch-and-review.md; keep the two the same.
 on:

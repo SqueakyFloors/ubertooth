@@ -40,16 +40,14 @@ not.
 
 ## The checks a pull request has to pass
 
-Everything below runs from `.github/workflows/`, on every pull request that
-touches code:
+Everything below runs from `.github/workflows/`, on every pull request:
 
 | Workflow / job | What it is for |
 | --- | --- |
 | `Build` / `host` | Builds the host tools and runs the host test suite, a strict-C-standard build, and a smoke test of each binary |
 | `Build` / `firmware` | Builds the ARM firmware images and the bootloader, runs the firmware test suite, and checks that a flag or linker-script change rebuilds the images. The ToorCon 13 badge (`firmware/tc13badge`, a Renesas R8C part) is not among the images built: nothing here has that toolchain, so the test suite compiles its C for syntax only and the rest of a change to it is checked by reading the source |
 | `Build` / `host-installed-libubertooth` | Builds the tools against an installed libubertooth instead of the copy in the build tree, so what a packager ships keeps working |
-| `Build` / `scripts` | shellcheck, a self-test of each `tools/check-*.sh` that proves the check still catches what it is for, and the two checks that need nothing built: that the documentation does not pin the firmware API version, and that the list of libbtbb entry points the tools call is still the list libbtbb has |
-| `Doc API version` / `doc-api-version` | The same documentation check again, on its own and with no path filter, because `Build` skips a documentation-only change and that is the change this check is about: no sample pins the firmware API version, and `TEST_PLAN.md`, `COMPATIBILITY.md` and the CHANGELOG's top section state the version the tree carries |
+| `Build` / `scripts` | shellcheck, a self-test of each `tools/check-*.sh` that proves the check still catches what it is for, that the list of libbtbb entry points the tools call is still the list libbtbb has, and, on the macOS leg alone, the documentation API version check below run once over the real tree with the BSD tools |
 | `Build` / `issue-references` | No issue or pull request number in source, tests or build files: the reason for a line belongs in its comment, the link in the commit message or the pull request |
 | `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
 | `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
@@ -57,6 +55,7 @@ touches code:
 | `install.sh` / `install-sh` | Runs the installer end to end, on Ubuntu, macOS and a Fedora container (on a pull request, only when `install.sh` or its own workflow file changes). The Fedora leg installs nothing beforehand, so the script's own `dnf` package list is what the run uses |
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` changes) |
+| `Doc API version` / `doc-api-version` | No documentation sample pins the firmware API version, and `TEST_PLAN.md`, `COMPATIBILITY.md` and the CHANGELOG's top section state the version the tree carries. It is the gate for that rule, because it has no path filter and `Build` skips a documentation-only change |
 
 On a pull request, `firmware` and `scripts` run on one Ubuntu and one macOS
 runner, `install-sh` on those two and in a Fedora container, and `host` runs
@@ -75,9 +74,8 @@ under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
 `host-installed-libubertooth`, `firmware` and `scripts`; `image-revision` and
 `dfu-package` skip with the firmware job they read. The cheap Linux checks
 (`issue-references`, `api-version`, `libbtbb-pin` and `doc-api-version`) run
-as they always do,
-and `Man pages` runs whenever `host/doc/` changes, which is where the man page
-sources live.
+as they always do, and `Man pages` runs whenever `host/doc/` changes, which is
+where the man page sources live.
 `install.sh` asks for its own two paths and is not reached.
 
 One man page is an exception. `host/doc/ubertooth-btbr.md` states the
@@ -89,9 +87,8 @@ branch that changes only that page still runs the `host` jobs. `firmware` and
 `libbtbb pin` has no path filter at all, because the commit it checks is
 written down in `COMPATIBILITY.md` and the build guides as well as in the
 build files. `Doc API version` has none for the same kind of reason: what it
-reads is the documentation, so a documentation-only change is the one it most
-needs to see, and `Build` is the workflow that skips those. It is the only
-check a documentation-only branch runs that reads documentation at all, and it
+reads is every tracked documentation file, so a documentation-only change is
+the one it most needs to see, and `Build` is the workflow that skips those. It
 runs on the push to `main` as well, which `Build` does not for a change under
 `docs/`, `.kiro/` or any `*.md`.
 
