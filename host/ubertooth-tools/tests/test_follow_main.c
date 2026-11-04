@@ -119,6 +119,13 @@ static struct {
 	int blocks_to_end;    /* ...before the fake ends the capture */
 	uint8_t afh_mode;     /* what the target reports for AFH */
 	uint8_t afh_map[AFH_MAP_BYTES];
+	/* The map read itself: whether it fails, the errno it leaves behind (0
+	 * for a failure that leaves none), and how many times the tool asked.
+	 * The count is what says a retry is bounded and that a failed read is
+	 * not retried at all. */
+	int afh_read_fails;
+	int afh_read_errno;
+	int afh_reads;
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
@@ -175,6 +182,17 @@ static void reset_fake(void)
 	/* A target using AFH on every channel, so -a reaches the map set. */
 	fake.afh_mode = FOLLOW_AFH_MODE_ON;
 	memset(fake.afh_map, 0xff, sizeof(fake.afh_map));
+}
+
+/* Has the target report a map with the lowest `channels` channels in use and
+ * the rest off, for the cases either side of the 20 channels AFH needs. */
+static void afh_map_with(int channels)
+{
+	int channel;
+
+	memset(fake.afh_map, 0, sizeof(fake.afh_map));
+	for (channel = 0; channel < channels; channel++)
+		fake.afh_map[channel / 8] |= 1 << (channel % 8);
 }
 
 /* ---- faked BlueZ -------------------------------------------------------- */
@@ -265,6 +283,15 @@ int hci_read_afh_map(int dd, uint16_t handle, uint8_t* mode, uint8_t* map,
 	(void)dd;
 	(void)handle;
 	(void)to;
+	fake.afh_reads++;
+	if (fake.afh_read_fails) {
+		/* mode and map are left exactly as the tool declared them, so a
+		 * run that looked at either would be looking at its own
+		 * uninitialised state. The tool clears errno before the call, so
+		 * 0 here is a failure that left none. */
+		errno = fake.afh_read_errno;
+		return -1;
+	}
 	*mode = fake.afh_mode;
 	memcpy(map, fake.afh_map, sizeof(fake.afh_map));
 	return 0;
@@ -1379,6 +1406,167 @@ MU_TEST(the_usb_delay_is_given_to_the_board_in_clock_ticks)
 	mu_assert_int_eq(1010, fake.clkn_offset);
 }
 
+/* A read that fails leaves the mode byte and the map undefined, so there is
+ * nothing to follow and nothing to print: the run stops with one "error: "
+ * line and no map anywhere. The read is not tried again either -- a map that
+ * was never read is not a transient one -- and the board is never opened,
+ * because -a is settled before it is. */
+MU_TEST(a_failed_afh_map_read_stops_the_run)
+{
+	char expected[128];
+	struct run_result r;
+
+	reset_fake();
+	fake.afh_read_fails = 1;
+	fake.afh_read_errno = EIO;
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "error: AFH map read failed: %s\n", strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	/* Neither stream carries a map, so nothing undefined was printed. */
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+	mu_assert(strstr(r.err, "AFH map: 0x") == NULL, r.err);
+	mu_assert_int_eq(1, fake.afh_reads);
+	/* No board was opened and nothing was asked of one, so no map reached
+	 * the board; the adapter and the link to the target went back. */
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+
+	/* The same failure leaving no errno behind says what it knows rather
+	 * than reporting "Undefined error: 0" as the reason. */
+	reset_fake();
+	fake.afh_read_fails = 1;
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: AFH map read failed: no reason given\n") != NULL, r.err);
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+}
+
+/* An AFH hop sequence uses at least 20 channels, so a map with fewer is not
+ * one the remote can be hopping on. It may not have settled yet, so it is read
+ * again a bounded number of times, each pause saying why; still too few and
+ * the run stops rather than following a hop sequence that would receive
+ * nothing. A map with exactly 20 is accepted, which is the other side of the
+ * same line. */
+MU_TEST(a_map_with_too_few_channels_is_refused)
+{
+	struct run_result r;
+
+	reset_fake();
+	afh_map_with(FOLLOW_AFH_MIN_USED_CHANNELS - 1);
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: the remote device reports AFH on but only 19 channels "
+	          "in use after 3 reads, and AFH needs at least 20\n") != NULL,
+	          r.err);
+	/* Bounded: three reads, and so two pauses, each announced. */
+	mu_assert_int_eq(FOLLOW_AFH_READ_ATTEMPTS, fake.afh_reads);
+	mu_assert_int_eq(FOLLOW_AFH_READ_ATTEMPTS - 1,
+	                 occurrences(r.err,
+	                             "AFH map not usable yet, reading it again\n"));
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+
+	/* Exactly the minimum is a map, read once and applied. */
+	reset_fake();
+	afh_map_with(FOLLOW_AFH_MIN_USED_CHANNELS);
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "AFH map read: 20 of 79 channels in use\n") != NULL,
+	          r.err);
+	mu_assert_int_eq(1, fake.afh_reads);
+	mu_assert(strstr(r.out, "AFH map: 0x") != NULL, r.out);
+	mu_assert(call_at('m') >= 0, fake.calls);
+}
+
+/* A remote that reports AFH off has answered: it is not hopping adaptively,
+ * so there is no map to follow and following it without one is right. The
+ * board's map is cleared rather than set, which is what a follow with no map
+ * owes a board an earlier run left a map on. */
+MU_TEST(a_remote_not_using_afh_is_followed_without_a_map)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.afh_mode = FOLLOW_AFH_MODE_OFF;
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "the remote device is not using AFH; "
+	          "following without it\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+	/* No map was reported, because there is none. */
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+	mu_assert_int_eq(1, fake.afh_reads);
+	mu_assert(call_at('c') >= 0, fake.calls);
+	mu_assert_int_eq(-1, call_at('m'));
+}
+
+/* A mode byte that is neither off nor on is not an answer this tool can act
+ * on: it cannot tell "not hopping adaptively" from "hopping on a map we did
+ * not get". It is named and refused, and not read again, because a mode the
+ * controller reported is not a transient. */
+MU_TEST(an_afh_mode_that_is_neither_off_nor_on_is_refused)
+{
+	struct run_result r;
+
+	reset_fake();
+	fake.afh_mode = 0x02;
+	r = RUN(WHOLE_TARGET, "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: the remote device reported AFH mode 0x02, which is "
+	          "neither off (0x00) nor on (0x01)\n") != NULL, r.err);
+	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
+	mu_assert_int_eq(1, fake.afh_reads);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+}
+
+/* The map is read over a connection to the target, so -a without an address
+ * to connect to has no handle to read on. It is refused with the rest of the
+ * command line: no adapter is opened, no target is paged, no read is attempted
+ * on a handle that does not exist, and no board is touched. */
+MU_TEST(a_without_a_target_address_reads_no_map)
+{
+	const char* refusal =
+		"error: -a reads the AFH map over a Bluetooth connection to the "
+		"target, so it needs the whole target address: give "
+		"-t xx:xx:xx:xx:xx:xx\n";
+	struct run_result r;
+
+	/* -l and -u are four of the six bytes of an address: a piconet to
+	 * follow, but not a device to connect to. */
+	reset_fake();
+	r = RUN(TARGET, "-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, refusal) == 0, r.err);
+	mu_assert_int_eq(0, fake.afh_reads);
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+
+	/* With no target at all the tool would otherwise follow the local
+	 * adapter's own address, where there is no remote device and so no map:
+	 * that is the path that used to read on an uninitialised handle. */
+	reset_fake();
+	r = RUN("-a");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert(strcmp(r.err, refusal) == 0, r.err);
+	mu_assert_int_eq(0, fake.afh_reads);
+	mu_assert_int_eq(-1, fake.dev_fd);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+}
+
 int main(void)
 {
 	/* This binary does not link libubertooth: the fakes above are the whole
@@ -1396,6 +1584,11 @@ int main(void)
 	MU_RUN(the_nap_changes_only_the_address_that_is_paged);
 	MU_RUN(a_uap_the_tool_was_given_is_kept_for_the_callback);
 	MU_RUN(the_afh_map_is_printed_beside_a_capture_on_standard_output);
+	MU_RUN(a_failed_afh_map_read_stops_the_run);
+	MU_RUN(a_map_with_too_few_channels_is_refused);
+	MU_RUN(a_remote_not_using_afh_is_followed_without_a_map);
+	MU_RUN(an_afh_mode_that_is_neither_off_nor_on_is_refused);
+	MU_RUN(a_without_a_target_address_reads_no_map);
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);
 	MU_RUN(a_refused_address_set_exits_1);
