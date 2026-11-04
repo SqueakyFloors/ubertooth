@@ -205,8 +205,8 @@ package records no commit for the comparison to use.
 ### Firmware API version: exact match, bumped for a breaking change
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
 reported as the USB `bcdDevice`) is exactly their own. A release build refuses
-any other. Three tools check no version at all, because each has to work on
-whatever firmware a board is carrying: `ubertooth-dfu`, which is the way back
+any other. Three tools have to work on whatever firmware a board is carrying,
+so they do not check the version: `ubertooth-dfu`, which is the way back
 from a board that does not match; `ubertooth-util`, whose only exception is
 `-I`, which checks the version itself before it drives a mode; and
 `ubertooth-debug`, which checks which of this tree's two images a board runs
@@ -324,10 +324,13 @@ so and names it.
    configure with `-DREQUIRE_ALL=ON`.
 2. **CI matrix = the "tested" column** — the "Tested / known-good" entries above
    must mirror the pinned full-tier CI matrix in `.github/workflows/build.yml`,
-   which runs weekly, on a published release, or manually. A pull request runs
-   a smaller tier: Ubuntu 22.04, Ubuntu 24.04, and macOS 26 for the host
-   tools, and Ubuntu 24.04 and macOS 26 for the firmware. The `scripts` job
-   runs those same two on either tier. So the
+   which runs weekly, on a published release, or manually. A pull request that
+   changes the code a job covers runs a smaller tier: Ubuntu 22.04, Ubuntu
+   24.04, and macOS 26 for the host tools, and Ubuntu 24.04 and macOS 26 for
+   the firmware. The `scripts` job runs those same two on either tier. A pull
+   request that leaves a job's code alone, a documentation-only one included,
+   gets stand-ins reporting under the same names instead, so nothing is built
+   on either platform. Either way the
    minimum versions are exercised by the weekly run, not on every pull
    request. Pin explicit versions (not `-latest`) so the
    record is reproducible, and test the **minimum and the newest** of each
