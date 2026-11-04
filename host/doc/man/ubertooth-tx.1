@@ -66,7 +66,7 @@ Two boards a few centimeters apart at level 7 are too loud for each other: a rec
 .P
 \fB\-h\fR and \fB\-V\fR end the command only once the whole command line has parsed, so a stray word or a bad option value is reported even alongside them\. Both answer on standard output, so a command line with both prints both, the usage text last; the order they were written in makes no difference\.
 .P
-An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: sync word must be 8 hex digits (got cb87)\fR or \fBerror: a generic payload must be hex digits, two per byte, 1 to 50 bytes (got 010)\fR\.
+An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: sync word must be 8 hex digits (got cb87)\fR or \fBerror: a generic payload must be hex digits, two per byte, 1 to 32 bytes (got 010)\fR\.
 .P
 A command line has to name one of the two transmits, and a command line that names neither is refused before any device is opened, so the message never depends on which boards are attached: \fBerror: nothing to do: give \-g to transmit a generic packet, or \-l and \-u to retransmit to a piconet\fR\.
 .P
