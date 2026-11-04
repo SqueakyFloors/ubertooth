@@ -1,0 +1,43 @@
+name: Doc API version
+
+# The one check whose whole subject is documentation: it reads every tracked
+# Markdown, reStructuredText and roff page and refuses a firmware API version
+# pinned into a sample, and it asks whether TEST_PLAN.md, COMPATIBILITY.md and
+# the CHANGELOG's top section state the version this tree carries.
+#
+# Its own workflow, with no path filter on a pull request or on a push to
+# main, as libbtbb-pin.yml has none: build.yml skips a change whose every file
+# is documentation, which left the one check that reads documentation as the
+# one check such a change never ran. It takes a second or two and builds
+# nothing.
+#
+# The job name below is in the gating set in
+# .kiro/steering/branch-and-review.md; keep the two the same.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Same cancellation rule as build.yml: only an older run of the same pull
+# request is canceled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  doc-api-version:
+    runs-on: ubuntu-24.04
+    # A checkout and a few greps over eighty-odd files.
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check the documentation does not pin the API version
+      # Sample output writes the version as API:<version>, so that a bump has
+      # one place to change; TEST_PLAN.md and COMPATIBILITY.md carry the real
+      # number, so this also asks whether those two, and the CHANGELOG's top
+      # section, are at the version the tree carries. It reads files: no
+      # build, no network.
+      timeout-minutes: 2
+      run: tools/check-doc-api-version.sh
