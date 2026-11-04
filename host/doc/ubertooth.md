@@ -139,12 +139,15 @@ same. Where the value is optional, the next word
 is taken as the value only when it is a valid value, so an option never
 swallows the option after it: `-c -b` reads the channel and then the board ID,
 while `-z -90` sets the squelch to -90 dBm. The `ubertooth-*` tools written in
-C take single-letter options only, and refuse a long one with `error:
+C take single-letter options only, apart from ubertooth-dfu(1), whose
+`--update-bootloader` and `--force` are words because of what they do; a long
+option no tool knows is refused with `error:
 unrecognized option '--bogus': the tools take single-letter options`, and so
-does ubertooth-btbr(1). The long options of the two tools that have them --
-`btle-extcap.py`, whose are Wireshark's, and ubertooth-specan-ui(1) `--wifi`
-and `--padding` -- take `--name value` or `--name=value`, never attached
-without the `=`. A lone `-` as the value of
+does ubertooth-btbr(1). The long options that take a value belong to two
+tools -- `btle-extcap.py`, whose are Wireshark's, and ubertooth-specan-ui(1)
+`--wifi` and `--padding` -- and are written `--name value` or `--name=value`,
+never attached without the `=`. ubertooth-dfu(1)'s two take no value and have
+to be written out in full. A lone `-` as the value of
 a file option means standard output, so `ubertooth-btle -q -` writes the
 capture to stdout. A capture destination that names the same descriptor by
 path -- `/dev/stdout` or `/dev/fd/1`, and `/proc/self/fd/1` on Linux, with any

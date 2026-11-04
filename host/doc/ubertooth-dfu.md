@@ -326,10 +326,10 @@ Major modes:
    waiting in the bootloader to start the application it already has
  - `--update-bootloader` :
    Install the bootloader carried by the `bl_update` image given with `-d`
-   (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and it resets the board,
-   so `-r` alongside it changes nothing. A board that already has that
-   bootloader is left alone, still running its firmware; a board that is
-   written is left in DFU, not running an application
+   (see [UPDATING THE BOOTLOADER][]). It needs `-d`, and a board it writes it
+   resets, so `-r` alongside it changes nothing. A board that already has that
+   bootloader is left alone, still running its firmware and not reset; a board
+   that is written is left in DFU, not running an application
  - `--force` :
    With `--update-bootloader`, write without asking the board which bootloader
    it has. It overrides the host's comparison and nothing else: the image
@@ -394,14 +394,16 @@ that already matches, because the image compares the region on the board too
 and declines; what it costs is the application region. It is there for a run
 that wants the write made and the region read back whatever the board reports.
 
-The question is not asked in three cases. A board adopted in the bootloader
-has no application to ask, so it is written as before. `-u` in the same
-command asks for a read-back, which an early end would leave undone, so the
-run says so as a `note: ` and writes. And a board whose firmware predates the
-request cannot answer, nor can one whose read fails; the run says so as a
-`warning: ` and installs the bootloader, which is what was asked for. Skipping
-a write on a comparison that was never made would leave an old bootloader in
-place and report the board current.
+The question is not asked in three cases, and each of them says so rather than
+leaving it to be noticed. A board adopted in the bootloader has no application
+to ask, so the run prints a `note: ` and writes as before. `-u` in the same
+command asks for a read-back, which an early end would leave undone, so that
+too is a `note: ` and a write. And a board whose firmware predates the request
+cannot answer, nor can one whose read fails; the run says so as a `warning: `
+and installs the bootloader, which is what was asked for. Skipping a write on
+a comparison that was never made would leave an old bootloader in place and
+report the board current. (`--force` is the fourth, and says nothing: it is
+the user turning the question off.)
 
 Once the board is back in DFU the command reads the region again, because a
 board in DFU is also what an updater that never ran leaves behind: a bootloader
@@ -665,7 +667,8 @@ example `error: detach failed: the board is still in DFU`,
 and after this run, and that is not the bootloader bl_update.dfu carries,
 which would report CRC32:0x...`,
 `error: --force goes with --update-bootloader, whose check against the
-bootloader the board already has it overrides`,
+bootloader the board already has it overrides; nothing else this tool does
+asks the board before writing`,
 `error: the bootloader region holds neither bootloader: ... so the write did
 not finish`,
 `error: firmware update failed after 2 attempt(s): ...` and

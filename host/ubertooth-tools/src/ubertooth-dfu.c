@@ -716,9 +716,12 @@ static int bootloader_already_installed(struct dfu_runtime_context *runtime,
 			      "was not checked; the bootloader will be written\n",
 			      stderr);
 		else
+			/* "error", not "usb_error": a reply too short to hold the hash
+			 * reads as the library's own code rather than a libusb one, and
+			 * every other usb_error= in this tool is libusb's. */
 			fprintf(stderr, "warning: the bootloader this board has could "
-			        "not be read (usb_error=%d), so whether it already "
-			        "holds this one was not checked; the bootloader will be "
+			        "not be read (error=%d), so whether it already holds "
+			        "this one was not checked; the bootloader will be "
 			        "written\n", rv);
 		fflush(stderr);
 		return 0;
@@ -2756,10 +2759,13 @@ int main(int argc, char **argv) {
 	    !(functions & FUNC_UPLOAD)) {
 		runtime.bl_crc32_wanted = update_image.region_crc32;
 		runtime.bl_crc32_wanted_known = 1;
-	} else if ((functions & FUNC_UPDATE_BL) && (functions & FUNC_UPLOAD)) {
+	} else if ((functions & FUNC_UPDATE_BL) && (functions & FUNC_UPLOAD) &&
+	           !force) {
 		/* Said rather than left to be noticed: the whole point of the
 		 * check is that this board may not need writing, so a run that
-		 * does not make it has to say so. Progress, so standard error. */
+		 * does not make it has to say so. Progress, so standard error.
+		 * Not under --force, which is the user turning the check off
+		 * themselves, and would make this line blame the wrong option. */
 		fputs("note: -u asks for a read-back, so the board is not asked "
 		      "which bootloader it has first; the bootloader will be "
 		      "written\n", stderr);
@@ -2856,6 +2862,16 @@ int main(int argc, char **argv) {
 		    download_refused_for_part(&runtime) != 0) {
 			exit_status = 1;
 			goto cleanup;
+		}
+		/* Nor is there an application to ask which bootloader the board
+		 * has, so --update-bootloader writes without the comparison. Said
+		 * for the same reason the -u note is: this board may not have
+		 * needed writing, and the run cannot find out. */
+		if (runtime.bl_crc32_wanted_known) {
+			fputs("note: a board already in DFU has no application to ask "
+			      "which bootloader it has, so the bootloader will be "
+			      "written\n", stderr);
+			fflush(stderr);
 		}
 	}
 

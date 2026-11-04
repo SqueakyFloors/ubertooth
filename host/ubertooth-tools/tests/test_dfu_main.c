@@ -3585,6 +3585,34 @@ MU_TEST(a_read_back_asked_for_alongside_the_update_is_still_read)
 }
 
 /*
+ * A board the command finds already in the bootloader has no application to
+ * ask, so it is written as before. This is the one path where a board that
+ * already has the bootloader still loses its firmware, so the run says the
+ * question was not asked.
+ */
+MU_TEST(a_board_adopted_in_dfu_is_written_and_says_it_was_not_asked)
+{
+	struct run_result r;
+
+	board_in_dfu();
+	fake.detach_returns_to_dfu = 1;
+	fake.updater_installs = 1;
+	fake.reads_the_bootloader_region = 1;
+	write_updater_image(UPDATER_PAYLOAD);
+	board_already_holds_the_image_bootloader();
+	/* No -U: a board already in DFU is adopted only by an unselected run. */
+	r = RUN("-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert_int_eq(0, fake.bl_info_calls);
+	mu_assert(strstr(r.err, "note: a board already in DFU has no application "
+	          "to ask which bootloader it has") != NULL, r.err);
+	mu_assert(fake.dnload_calls > 0, "the board was not written");
+	mu_assert(strstr(r.out, "already has this bootloader") == NULL,
+	          "a board with no application was reported as asked");
+}
+
+/*
  * The hash is what decides it, not the version. Two builds of a bootloader can
  * carry the same version -- the version block sits inside the lowest 512
  * bytes, with the vector table -- so a board whose region differs above those
@@ -3638,8 +3666,8 @@ MU_TEST(a_board_that_cannot_report_its_bootloader_is_written_with_a_warning)
 }
 
 /* A report that fails for any other reason is the same answer, and the line
- * carries the libusb code as every other unreadable request in this tool
- * does. */
+ * carries the code the read returned. Not called a libusb code: a reply too
+ * short to hold the hash comes back as the library's own. */
 MU_TEST(a_bootloader_report_that_fails_warns_and_writes)
 {
 	struct run_result r;
@@ -3652,8 +3680,8 @@ MU_TEST(a_bootloader_report_that_fails_warns_and_writes)
 	mu_assert_int_eq(0, error_lines(r.err));
 	mu_assert(strstr(r.err, "warning: the bootloader this board has could "
 	          "not be read") != NULL, r.err);
-	mu_assert(strstr(r.err, "usb_error=") != NULL,
-	          "the warning did not carry the libusb code");
+	mu_assert(strstr(r.err, "error=") != NULL,
+	          "the warning did not carry the code the read returned");
 	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
 }
 
@@ -4059,6 +4087,7 @@ int main(void)
 	MU_RUN(a_board_that_already_holds_the_image_bootloader_is_not_refused);
 	MU_RUN(a_board_that_already_has_this_bootloader_is_left_alone);
 	MU_RUN(a_read_back_asked_for_alongside_the_update_is_still_read);
+	MU_RUN(a_board_adopted_in_dfu_is_written_and_says_it_was_not_asked);
 	MU_RUN(a_board_sharing_only_the_version_is_written);
 	MU_RUN(a_board_that_cannot_report_its_bootloader_is_written_with_a_warning);
 	MU_RUN(a_bootloader_report_that_fails_warns_and_writes);
