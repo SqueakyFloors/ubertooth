@@ -5,14 +5,14 @@
 ### Highlights
 
 The first release from this community fork, and the first since Great Scott
-Gadgets' 2020-12-R1. The hardware, the tools, and their command lines are the
-ones Project Ubertooth's authors built; the work here went into making what
-they advertise hold up on a bench today. Features that had no working path
-now have one, a capture file carries figures a reader can rely on, and a
-board that used to need a re-plug recovers on its own. The host tools are
-built against this fork's libbtbb, which carries matching work in the
-decoders and the capture writers. The sections below have every change; these
-are the ones worth knowing about.
+Gadgets' 2020-12-R1. It builds on the hardware, the tools, and the command
+lines Project Ubertooth's authors made, and adds fixes, tests, and
+documentation for the devices and systems in use today. Features the tools
+documented but that did not run now work, a capture file carries figures a
+reader can rely on, and a board that used to need a re-plug recovers on its
+own. The host tools are built against this fork's libbtbb, which carries
+matching work in the decoders and the capture writers. The sections below
+have every change; these are the ones worth knowing about.
 
 - **`ubertooth-btle -f` follows the connections current devices make.** Follow
   mode hopped with channel selection algorithm 1 only, so a connection using
@@ -38,9 +38,10 @@ are the ones worth knowing about.
 - **Classic sniffing copes with a piconet that adapts its hopping.** Every
   controller on a modern bench moves its traffic off busy channels, even when
   the whole band is allowed. `ubertooth-rx -l <lap> -u <uap>` now scores its
-  clock candidates on the hops they explain, so it locks onto such a piconet
-  instead of searching for as long as the capture runs: one board went from
-  1.8 packets of the piconet a second to 25.4 once it locked. `ubertooth-afh`
+  clock candidates on the hops they explain, so it can lock onto such a
+  piconet once it has heard enough of them, where it used to search for as
+  long as the capture ran and confirm nothing: one board went from 1.8 packets
+  of the piconet a second to 25.4 once it locked. `ubertooth-afh`
   reports the map a piconet is really using, 79 of 79 channels on a link
   using all of them, where the old threshold settled on 5. And because a
   board hears one 1 MHz channel at a time, `ubertooth-rx` reads up to eight
@@ -97,15 +98,16 @@ are the ones worth knowing about.
   [#505](https://github.com/SqueakyFloors/ubertooth/issues/505),
   [#509](https://github.com/SqueakyFloors/ubertooth/issues/509),
   [#1073](https://github.com/SqueakyFloors/ubertooth/pull/1073)
-- **Firmware you can install, identify, and get back from.** Every image
-  carries an info block, so `ubertooth-dfu` names the image and revision it is
-  about to write and refuses a file that is not an Ubertooth image or is too
-  large for the board, and `ubertooth-util -v` names the image a board is
+- **Firmware you can install, identify, and get back from.** Each firmware
+  image carries an info block, so `ubertooth-dfu` names the image and revision
+  it is about to write and refuses a file that is not an Ubertooth image or is
+  too large for the board, and `ubertooth-util -v` names the image a board is
   running. A download interrupted part way leaves a board waiting in DFU
   rather than starting an image that is not all there, and one more
   `ubertooth-dfu -d` recovers it over USB. A new bootloader installs over USB
-  with `ubertooth-dfu --update-bootloader`, and `ubertooth-util -B` reports
-  which bootloader a board has.
+  with `ubertooth-dfu --update-bootloader`, and because the bootloader now
+  carries a version block of its own, `ubertooth-util -B` reports which
+  bootloader a board has.
   [#242](https://github.com/SqueakyFloors/ubertooth/issues/242),
   [#1064](https://github.com/SqueakyFloors/ubertooth/issues/1064),
   [#1062](https://github.com/SqueakyFloors/ubertooth/issues/1062)
