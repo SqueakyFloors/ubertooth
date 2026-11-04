@@ -51,9 +51,10 @@ with the addresses.
 This tool's `-z` is survey mode, not a squelch: only `ubertooth-util -z` sets
 the receive squelch. The capture runs at whatever squelch the board holds when
 the mode starts, the default -120 dBm unless `ubertooth-util -z` set another
-value while the board was idle. The firmware resets the squelch on every mode
-change, so a value set for an earlier capture is already gone; set it again
-before this command, or while it is running. See ubertooth-util(1), SQUELCH.
+value while the board was idle. The firmware resets the squelch whenever the
+board leaves a mode, so a value set for an earlier capture is already gone;
+set it again before this command, or while it is running. See
+ubertooth-util(1), SQUELCH.
 
 ## EXAMPLES
 
