@@ -2,13 +2,14 @@
 
 ## SYNOPSIS
 
-    ubertooth-dfu -d <firmware.dfu> [-r] [-s <file.bin>] [-U <index|serial>]
+    ubertooth-dfu [-d <firmware.dfu>] [-u <output.bin>] [-r] [-s <file.bin>]
+    [-U <index|serial>]
     ubertooth-dfu --update-bootloader -d <bl_update.dfu> [-U <index|serial>]
-    ubertooth-dfu -u <output.bin> [-r] [-s <file.bin>] [-U <index|serial>]
-    ubertooth-dfu -r [-s <file.bin>] [-U <index|serial>]
-    ubertooth-dfu -s <file.bin>
     ubertooth-dfu [-U <index|serial>] -V
     ubertooth-dfu -h
+
+The first form needs at least one of `-d`, `-u`, `-r`, and `-s`; a command
+line with no function in it is refused (see [ARGUMENTS][]).
 
 ## DESCRIPTION
 
@@ -24,15 +25,16 @@ change in the bootloader, and this may cause problems when attempting to
 update firmware from inside a VM.
 
 Getting a board from its application into DFU is bounded at every step. The
-tool asks the board into DFU, then closes the application handle, without
-sending the stop command that would conflict with the request it has just
-made. It follows that board by its physical USB bus and port path rather than
-by an index, so the device it finds in DFU is the one it asked. If no DFU
-device appears and the application device is back, it asks again: two
-attempts, each waiting up to five seconds. It never chooses for you between
-two boards that were already in DFU. Each step is timed and named on standard
-error, so a run shows where it spent its time -- entering DFU, programming,
-resetting, and cleaning up (see [DIAGNOSTICS][]).
+tool asks the board into DFU, and a board that refuses that request ends the
+command there. It then closes the application handle, without sending the stop
+command that would conflict with the request it has just made, and it follows
+that board by its physical USB bus and port path rather than by an index, so
+the device it finds in DFU is the one it asked. If no DFU device appears and
+the application device is back, it asks once more: two attempts in all, each
+waiting up to five seconds. It never chooses for you between two boards that
+were already in DFU. Each step is timed and named on standard error, so a run
+shows where it spent its time -- entering DFU, programming, resetting, and
+cleaning up (see [DIAGNOSTICS][]).
 
 A board that is already waiting in the bootloader is written by a command with
 no `-U` at all, which takes the one board in DFU mode. The bootloader has no
