@@ -2,6 +2,191 @@
 
 ## 2020-12-R1+modern1
 
+### Highlights
+
+The first release from this community fork, and the first since Great Scott
+Gadgets' 2020-12-R1. The hardware, the tools, and their command lines are the
+ones Project Ubertooth's authors built. The work in this release went into
+making what they advertise hold up on a bench today: features that had no
+working path now have one, a capture file carries figures a reader can rely
+on, and a board that used to need a re-plug recovers on its own. The host
+tools are built against this fork's libbtbb, which carries matching work in
+the decoders and the capture writers. The sections below have every change.
+These are the ones worth knowing about.
+
+- **`ubertooth-btle -f` follows the connections current devices make.** Follow
+  mode hopped with channel selection algorithm 1 only, so a connection using
+  algorithm 2, which nearly every Bluetooth 5.0 device asks for, was listened
+  for at the right microsecond on the wrong channel, and about one connection
+  event in ten reached the user. Follow mode now reads both ends' ChSel bits
+  and hops with the algorithm the connection chose. Keeping up with a
+  connection was fixed alongside it: on one board, the same 240 seconds
+  against the same peer captured 13676 packets across 23 connections where it
+  had captured 280 across 1.
+  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836),
+  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
+- **Promiscuous mode finds a connection that is already running, and
+  `ubertooth-btle` can replay what it captured.** `-p` recovers the access
+  address, the CRC starting value, and the hopping of a connection nobody saw
+  being made, algorithm 2 connections included, and it reports a connection
+  interval only when the gaps it measured support one. `-d <file>` saves the
+  records the board sent and `-R <file>` decodes them again with no board and
+  no connection, which is the only way to keep what promiscuous mode works out
+  about a connection: those figures arrive in records a capture file has no
+  field for.
+  [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025),
+  [#865](https://github.com/SqueakyFloors/ubertooth/issues/865),
+  [#1129](https://github.com/SqueakyFloors/ubertooth/pull/1129)
+- **Classic sniffing copes with a piconet that adapts its hopping.** Every
+  controller on a modern bench moves its traffic off busy channels, even when
+  the whole band is allowed. `ubertooth-rx -l <lap> -u <uap>` now scores its
+  clock candidates on the hops they explain, so it locks onto such a piconet
+  instead of printing candidate counts for the whole capture: one board went
+  from 1.8 packets of the piconet a second to 25.4 once it locked, on a clock
+  within 10 ms of the peers' own. `ubertooth-afh` counts packets rather than
+  seconds before it prunes a channel, so it reports the map a piconet is
+  really using: 79 of 79 channels on a link using all of them, where the old
+  threshold settled on 5. A board hears one 1 MHz channel at a time, so
+  `ubertooth-rx` now reads up to eight boards in one run and shares what they
+  find, instead of waiting on the one packet in 79 a single board hears.
+  Lower address part (LAP), upper address part (UAP), and adaptive frequency
+  hopping (AFH) are explained in [docs/concepts.md](docs/concepts.md).
+  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968),
+  [#963](https://github.com/SqueakyFloors/ubertooth/issues/963),
+  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
+- **A capture file says what the board really heard.** Every record now
+  carries the packet's own signal level and an estimate of the background
+  beside it, so a quiet packet after a loud one no longer reads as loud, and
+  Wireshark stops showing `Invalid Noise Power`; `ubertooth-rx` prints both
+  with a signal-to-noise ratio that means something. A Classic record carries
+  the header the packet really sent instead of 18 zero bits, and a survey's
+  records carry the upper address part the run recovered. A low-energy payload
+  longer than 50 bytes arrives whole, up to the 251 bytes Data Length
+  Extension allows. Packets the board dropped for a full queue are counted and
+  reported, where a capture with holes in it used to read as a quiet bench,
+  and the Classic packet types that reported no payload at all now decode
+  theirs.
+  [#909](https://github.com/SqueakyFloors/ubertooth/issues/909),
+  [#826](https://github.com/SqueakyFloors/ubertooth/issues/826),
+  [#924](https://github.com/SqueakyFloors/ubertooth/issues/924),
+  [#284](https://github.com/SqueakyFloors/ubertooth/issues/284),
+  [#786](https://github.com/SqueakyFloors/ubertooth/issues/786),
+  [libbtbb issue 28](https://github.com/SqueakyFloors/libbtbb/issues/28)
+- **The `btbr` image and `ubertooth-btbr` are usable.** The tool starts rather
+  than hanging when a board carries the capture image, names that firmware and
+  the one to flash, takes `-U <index|serial>` like every other tool, and lists
+  the boards it can see. A board receives a Classic payload of any length the
+  specification allows and puts one on the air whole. A connection to a real
+  Classic device outlives its first 30 seconds now that the board answers the
+  peer's link manager requests, and two Ubertooths page each other, connect,
+  and carry traffic, which needs both boards turned down with
+  `ubertooth-util -a 0` so neither overloads the other's receiver.
+  [#623](https://github.com/SqueakyFloors/ubertooth/issues/623),
+  [#642](https://github.com/SqueakyFloors/ubertooth/issues/642),
+  [#667](https://github.com/SqueakyFloors/ubertooth/issues/667),
+  [#748](https://github.com/SqueakyFloors/ubertooth/issues/748),
+  [#948](https://github.com/SqueakyFloors/ubertooth/issues/948),
+  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
+- **Advertised options that had nothing behind them now do what their pages
+  say.** The two-board range test exchanges packets and reports the lowest
+  power level that got through in each direction, with `-n` running the test
+  rather than only starting it. `ubertooth-specan -v` reports the board, the
+  sweep, and a summary once a second. `ubertooth-btle -s` and `-t` keep two
+  addresses rather than overwriting one another. A capture runs on the
+  channel, hop mode, modulation, and channel map it was asked for, instead of
+  inheriting what an interrupted run left on the board.
+  [#649](https://github.com/SqueakyFloors/ubertooth/issues/649),
+  [#686](https://github.com/SqueakyFloors/ubertooth/issues/686),
+  [#510](https://github.com/SqueakyFloors/ubertooth/issues/510),
+  [#776](https://github.com/SqueakyFloors/ubertooth/issues/776),
+  [#872](https://github.com/SqueakyFloors/ubertooth/issues/872),
+  [#543](https://github.com/SqueakyFloors/ubertooth/issues/543)
+- **A board keeps answering the host, and recovers itself when it does not.**
+  Matching a board by serial number used to end about one live capture in
+  twenty, because the board read its serial from inside the request handler:
+  a ten-minute capture now runs to its end with more than a thousand serial
+  reads arriving during it, where it had died in 3.5 to 12 seconds. Radio and
+  USB waits are bounded and counted, a board that stops answering resets
+  itself within three seconds and says where it died, and
+  `ubertooth-util -U <index> -r` recovers one from the host instead of a
+  re-plug. The firmware has room for its stack, about 11 KB where it had
+  about 730 bytes, and an overflow is caught and reported rather than
+  corrupting memory quietly. A capture also says when its receiver is being
+  driven harder than the radio can measure, which used to look exactly like a
+  quiet channel.
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505),
+  [#509](https://github.com/SqueakyFloors/ubertooth/issues/509),
+  [#731](https://github.com/SqueakyFloors/ubertooth/issues/731),
+  [#906](https://github.com/SqueakyFloors/ubertooth/pull/906),
+  [#956](https://github.com/SqueakyFloors/ubertooth/pull/956),
+  [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040)
+- **Firmware you can install, identify, and get back from.** Every image
+  carries an info block, so `ubertooth-dfu` names the image and revision it is
+  about to write, refuses a file that is not an Ubertooth image or is too
+  large for the board, and `ubertooth-util -v` names the image a board is
+  running. A download interrupted part way leaves a board waiting in DFU
+  rather than starting an image that is not all there, and one more
+  `ubertooth-dfu -d` recovers it over USB. A new bootloader installs over USB
+  with `ubertooth-dfu --update-bootloader`, and `ubertooth-util -B` reports
+  which bootloader a board has.
+  [#473](https://github.com/SqueakyFloors/ubertooth/issues/473),
+  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242),
+  [#1064](https://github.com/SqueakyFloors/ubertooth/issues/1064),
+  [#1062](https://github.com/SqueakyFloors/ubertooth/issues/1062)
+- **One command line across every tool.** Results go to standard output and
+  everything else to standard error, a failure is one `error:` line and a
+  non-zero exit status, and a request the board refused is named instead of
+  passing for a run that found nothing. A lone `-` means standard output for
+  every capture option that takes a file name, as `ubertooth(7)` always said,
+  so a capture can be piped into another program. `-V` answers the same way
+  everywhere, with the host tools' version, libbtbb and where it was loaded
+  from, and the board's firmware revision. Host tools built from a checkout
+  warn about firmware of another API version and run the command anyway; a
+  release build still refuses it.
+  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481),
+  [#782](https://github.com/SqueakyFloors/ubertooth/issues/782),
+  [#813](https://github.com/SqueakyFloors/ubertooth/issues/813),
+  [#636](https://github.com/SqueakyFloors/ubertooth/issues/636)
+- **Documentation that matches the code, including where a feature does not
+  work.** There is a man page for every tool and `ubertooth(7)` for what they
+  share, a README catalog saying what each tool needs, and "How Bluetooth
+  sniffing works" ([docs/concepts.md](docs/concepts.md)) for the ideas behind
+  them, each with its Bluetooth Core specification section. A one-page guide
+  covers Ubertooth with Wireshark end to end, `COMPATIBILITY.md` records the
+  platforms and toolchains, and the README says plainly what this hardware
+  cannot do, such as BLE on the 1M PHY only. Where a tool accepts an option
+  nothing acts on, it says so at run time and its page has a "Known broken
+  features" section.
+  [#785](https://github.com/SqueakyFloors/ubertooth/issues/785),
+  [#895](https://github.com/SqueakyFloors/ubertooth/issues/895),
+  [#550](https://github.com/SqueakyFloors/ubertooth/issues/550),
+  [#891](https://github.com/SqueakyFloors/ubertooth/issues/891),
+  [#984](https://github.com/SqueakyFloors/ubertooth/issues/984)
+- **Tests, and a board in the loop.** The firmware has unit tests of its own,
+  64 test programs, and the host has 140 tests that `ctest` runs, among them a
+  contract matrix that pins each tool's output streams, messages, and exit
+  status. Both firmware images' hop selection is checked against the Core
+  specification's own published sample data, and libbtbb's decoders and
+  capture writers are fuzzed. CI builds and tests on Linux and macOS, packages
+  every shipped image, and asks `ubertooth-dfu` whether it would flash the
+  result. A change to the firmware, the radio, or a capture path was run on a
+  real board before it merged.
+  [#482](https://github.com/SqueakyFloors/ubertooth/issues/482),
+  [#513](https://github.com/SqueakyFloors/ubertooth/issues/513),
+  [#587](https://github.com/SqueakyFloors/ubertooth/issues/587),
+  [#809](https://github.com/SqueakyFloors/ubertooth/issues/809),
+  [libbtbb issue 93](https://github.com/SqueakyFloors/libbtbb/issues/93)
+- **It builds and installs on current systems.** Current toolchains and Python
+  3 throughout, with `install.sh` for Debian and Ubuntu, Fedora, and macOS.
+  `install.sh --uninstall` removes exactly the files the script installed.
+  libubertooth installs beside libbtbb with a pkg-config file and a CMake
+  package config, so another project can build against it with
+  `pkg-config --cflags --libs libubertooth` or `find_package(libubertooth)`.
+  [#852](https://github.com/SqueakyFloors/ubertooth/issues/852),
+  [#1044](https://github.com/SqueakyFloors/ubertooth/issues/1044),
+  [#1084](https://github.com/SqueakyFloors/ubertooth/issues/1084),
+  [#1108](https://github.com/SqueakyFloors/ubertooth/pull/1108)
+
 ### New features
 
 - The note about a board in the DFU bootloader now names what reaches it,

@@ -131,8 +131,13 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Write the release notes in ``tools/RELEASENOTES``, which
       ``tools/ubertooth-release.sh`` copies to the top level of the archive,
-      and put them on the GitHub release page as well. This fork has no wiki
-      and no mailing list.
+      and put them on the GitHub release page as well. Start from the
+      Highlights section at the top of the release's ``CHANGELOG.md`` entry,
+      which is kept as the one draft of what this release is worth reading
+      about, and add what only release notes carry: the libbtbb version the
+      tools need, the firmware API version and that every board has to be
+      reflashed, and where to get help. This fork has no wiki and no mailing
+      list.
 
     * Write or update the build instructions in :doc:`build_guide` as needed
     
