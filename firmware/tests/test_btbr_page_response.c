@@ -282,7 +282,7 @@ void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void *cbarg,
 	p->arg = cbarg;
 }
 
-void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
+int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 			unsigned flags)
 {
 	struct pending *p = pending_add(P_RX_PREPARE, air_tick+delay);
@@ -290,6 +290,7 @@ void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 	(void)flags;
 	p->rx_cb = cb;
 	p->arg = cbarg;
+	return 0;
 }
 
 void tx_task_reset(void) { }

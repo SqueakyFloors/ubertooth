@@ -99,10 +99,15 @@ static void monitor2_state_schedule_rx(unsigned skip_slots)
 	unsigned delay = 2*skip_slots + (1&(RX_PREPARE_IDX - (btphy.peripheral_clkn&1)));
 
 	/* Schedule rx: */
-	rx_task_schedule(delay,
+	/* A slot the scheduler had no room for ends the follow (rx_task.h).
+	 * Every slot of it is opened here, so there is nothing else left to
+	 * run; the reason is the one the scan states use, because the host's
+	 * three reasons have no word for a full scheduler. */
+	if (rx_task_schedule(delay,
 		monitor2_rx_cb, NULL,	// ID rx callback
 		(1<<RX_F_PAYLOAD)	// wait for header 
-		|(1<<RX_F_RAW));	// ignore size and crc in payload
+		|(1<<RX_F_RAW)) < 0)	// ignore size and crc in payload
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 }
 
 void monitor2_state_init(uint64_t central_bdaddr)

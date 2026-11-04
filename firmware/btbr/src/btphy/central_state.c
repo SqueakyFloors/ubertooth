@@ -92,10 +92,20 @@ static void central_state_schedule_rx(unsigned skip_slots)
 	unsigned delay = 4*skip_slots+(3&(RX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 
 	/* Schedule rx: */
-	rx_task_schedule(delay,
+	/* A slot the scheduler had no room for ends the connection (rx_task.h).
+	 * Every slot of it is opened here, so there is nothing else left to
+	 * run, and a connection whose next slot never came is over whatever
+	 * the host is told; the reason is the one link supervision uses,
+	 * because the host's three reasons have no word for a full
+	 * scheduler. */
+	if (rx_task_schedule(delay,
 		central_rx_cb, NULL,	// ID rx callback
 		1<<RX_F_PAYLOAD		// wait for header
-	);
+	) < 0)
+	{
+		ll_reset(&central_state.ll);
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+	}
 }
 
 static void tx_done_cb(int sent, void* arg)

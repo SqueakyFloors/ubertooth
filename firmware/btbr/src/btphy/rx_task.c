@@ -20,6 +20,7 @@
  * Boston, MA 02110-1301, USA.
  */
 #include <string.h>
+#include <ubtbr/defines.h>
 #include <ubtbr/cfg.h>
 #include <ubtbr/debug.h>
 #include <ubtbr/rf.h>
@@ -92,6 +93,12 @@ static struct {
 	uint8_t rx_done;
 	uint8_t slot_num;
 	uint8_t rx_raw;
+	/* Whether rx_task_schedule() got the whole receive onto the scheduler.
+	 * The two tasks of a receive go on it together, so a receive that lost
+	 * the second of them leaves the first standing in the slot before, and
+	 * a task cannot be taken back off; rx_prepare() does nothing while
+	 * this is clear. */
+	uint8_t armed;
 } rx_task; 
 
 static int rx_decode(uint8_t p1, uint8_t p2, uint16_t p3);
@@ -189,12 +196,49 @@ static void rx_finalize(void)
 	rx_task.pkt_cb(msg, rx_task.cb_arg, rx_task.pkt_time-RF_EXPECTED_RX_CLKN_OFFSET);
 }
 
+/* Put the rest of a multi-slot decode in the next slot, and end the receive
+ * where the scheduler has no room for it.
+ *
+ * A decode that is never continued is the costliest way a receive can be lost:
+ * rx_finalize() is what gives the packet buffer back and reaches the caller's
+ * callback, so without it the packet is lost in silence, rx_msg stays held,
+ * and the next receive the state machine asks for stops the firmware with
+ * "rx_schedule: rx_msg!=0".
+ *
+ * So the receive ends here instead, reported the way a receive that produced
+ * nothing is reported: the header flag comes back off the packet, which is
+ * what every reader keys on, and which also keeps rx_finalize() out of
+ * bbcodec_decode_finalize() -- that stops the firmware when it is handed a
+ * part-decoded payload. The decoded header itself is left alone, as
+ * rx_data_hdr_callback() leaves it. */
+static void rx_schedule_decode(void)
+{
+	if (tdma_schedule(1, rx_decode, 0, 0, 0, 0) == 0)
+		return;
+
+	cprintf("RX: cannot schedule rest of decode, packet lost\n");
+	rx_task.rx_pkt->flags &= ~((1<<BBPKT_F_HAS_HDR)|(1<<BBPKT_F_HAS_CRC));
+	rx_finalize();
+}
+
 // -1
 static int rx_prepare(uint8_t p1, uint8_t p2, uint16_t p3)
 {
 	uint8_t chan;
 	uint32_t rx_clkn = btphy_cur_clkn()+1;
 	btctl_rx_pkt_t *pkt;
+
+	if (!rx_task.armed)
+	{
+		/* rx_task_schedule() could not get the whole receive onto the
+		 * scheduler, and has already said so and told its caller. The
+		 * slot that would have listened is not there, so there is
+		 * nothing to prepare for: tuning the radio and taking a packet
+		 * buffer here would leave both held with nothing left to run
+		 * that gives them back. */
+		return 0;
+	}
+	rx_task.armed = 0;
 
 	/* A paged device advances its response phase once per central transmit
 	 * slot, and every window it waits for the FHS in is one such slot. */
@@ -335,7 +379,7 @@ static int rx_execute(uint8_t p1, uint8_t p2, uint16_t p3)
 					rx_task.slot_num = rx_task.codec.t->nslots*2-1;
 
 					/* Schedule next decode */
-					tdma_schedule(1, rx_decode, 0, 0, 0, 0);
+					rx_schedule_decode();
 					return 0;
 				}
 			}
@@ -391,7 +435,7 @@ static int rx_decode(uint8_t p1, uint8_t p2, uint16_t p3)
 	else
 	{
 		/* Schedule one more decode */
-		tdma_schedule(1, rx_decode, 0, 0, 0, 0);
+		rx_schedule_decode();
 	}
 	return 0;
 }
@@ -402,8 +446,16 @@ const struct tdma_sched_item rx_sched_set[] = {				// clk1_0
 	SCHED_END_SET()
 };
 
+/* How many slot tasks a receive puts on the scheduler: the two above. Each
+ * item of the set is followed by an end-of-frame marker and the set by an
+ * end-of-set one, so an item added without changing this stops the build. */
+#define RX_SCHED_ITEMS	2
+_Static_assert(ARRAY_SIZE(rx_sched_set) == 2 * RX_SCHED_ITEMS + 1,
+	"RX_SCHED_ITEMS does not match rx_sched_set");
+
 void rx_task_reset(void)
 {
+	rx_task.armed = 0;
 	if (rx_task.rx_msg)
 	{
 		msg_free(rx_task.rx_msg);
@@ -412,7 +464,7 @@ void rx_task_reset(void)
 	}
 }
 
-void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void*cbarg, unsigned flags)
+int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void*cbarg, unsigned flags)
 {
 	/* Sanity check */
 	if (rx_task.rx_msg)
@@ -426,5 +478,19 @@ void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void*cbarg, unsigned flag
 	/* Receive raw bursts for monitor state */
 	rx_task.rx_raw = flags & (1<<RX_F_RAW);
 
-	tdma_schedule_set(delay, rx_sched_set, 0);
+	/* A receive needs both of its tasks, so anything short of the whole
+	 * set is a receive that will not happen: rx_execute() is what listens
+	 * and what ends in rx_finalize(), and that is the only path to the
+	 * caller's callback. The rx_prepare() a partial placement leaves
+	 * standing cannot be taken back off, so it is told to do nothing
+	 * instead (`armed` above). Nothing is held either way: the packet
+	 * buffer is rx_prepare()'s to take. */
+	if (tdma_schedule_set(delay, rx_sched_set, 0) < RX_SCHED_ITEMS)
+	{
+		cprintf("RX: cannot schedule receive\n");
+		return -1;
+	}
+	rx_task.armed = 1;
+
+	return 0;
 }

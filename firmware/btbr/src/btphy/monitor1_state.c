@@ -145,11 +145,17 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 			NULL, NULL,	// no tx callback
 			NULL, NULL); 	// no header / no payload
 
-		/* Schedule rx FHS */
-		rx_task_schedule(delay+2,
+		/* Schedule rx FHS. A window the scheduler had no room for
+		 * leaves nothing to wait for, so go back to watching, which is
+		 * where every answer that led nowhere goes (rx_task.h). The
+		 * ID(2) above has been scheduled and goes out either way; a
+		 * central that gets no answer to its page response pages
+		 * again. */
+		if (rx_task_schedule(delay+2,
 			monitor1_rx_fhs_cb, NULL,	// ID rx callback
 			1<<RX_F_PAYLOAD			// FHS packet has payload
-			);
+			) < 0)
+			monitor1_schedule();
 	}
 	else
 	{

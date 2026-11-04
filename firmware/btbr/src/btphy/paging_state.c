@@ -109,7 +109,13 @@ static int paging_rx_ack_cb(msg_t *msg, void *arg, int time_offset)
 			   advance `N` only when Central's clock1 reaches 0. */
 			bbpkt_fhs_finalize_payload(paging_state.fhs_data, (btphy.central_clkn+delay+1)>>2);
 			tx_task_schedule(delay, NULL, NULL, &paging_state.fhs_hdr, paging_state.fhs_data);
-			rx_task_schedule(delay+2, paging_rx_ack_cb, NULL, 0);
+			/* No window for the acknowledgment leaves this repeat
+			 * with nothing to wait for, so go back to the page
+			 * train, which is what the deadline above does
+			 * (rx_task.h). The page attempt keeps its own 45
+			 * seconds. */
+			if (rx_task_schedule(delay+2, paging_rx_ack_cb, NULL, 0) < 0)
+				paging_schedule(delay);
 		}
 	}
 	msg_free(msg);
@@ -151,20 +157,29 @@ static int paging_rx_cb(msg_t *msg, void *arg, int time_offset)
 			/* skip 4 bytes of sw */
 			&paging_state.fhs_hdr, paging_state.fhs_data);
 
-		/* Schedule rx Peripheral's ID(3) page response: */
-		rx_task_schedule(delay+2,
+		/* Schedule rx Peripheral's ID(3) page response. No window for
+		 * it leaves the FHS just scheduled unanswerable, so go back to
+		 * the page train rather than leave the page with nothing left
+		 * to run (rx_task.h). */
+		if (rx_task_schedule(delay+2,
 			paging_rx_ack_cb, NULL,	// ID rx callback
 			0			// no payload
-			);
+			) < 0)
+			paging_schedule(delay);
 	}
 	else
 	{
 		if (arg == PAGING_1ST_CALLBACK){
 			/* Schedule rx ID(2): this listens for ID(2) in the second clock of the Central slot */
-			rx_task_schedule(0,
+			/* No window for the second half of the slot: go on to
+			 * the next page message, which is what this path does
+			 * once both halves have been listened in
+			 * (rx_task.h). */
+			if (rx_task_schedule(0,
 				paging_rx_cb, PAGING_2ND_CALLBACK,	// ID rx callback
 				0			// no payload for an ID packet
-				);
+				) < 0)
+				paging_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 		}else{
 			/* schedule tx in next slot */
 			paging_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
@@ -201,10 +216,16 @@ static void paging_schedule(unsigned delay)
 	/* Schedule RX ID(2) in the `1st half of the Central's TX slot` + 625uS. 
 	   If ID(2) fails to arrive, paging_rx_cb will schedule another consequtive
 	   RX in the 2nd half of the same slot */
-	rx_task_schedule(delay+2,
+	/* This window is what carries the page train on: paging_rx_cb() is
+	 * where the next page message is scheduled from. With no window there
+	 * is nothing left to run, so the page is over; the reason is the one
+	 * the deadline above uses, because the host's three reasons have no
+	 * word for a full scheduler (rx_task.h). */
+	if (rx_task_schedule(delay+2,
 		paging_rx_cb, PAGING_1ST_CALLBACK,	// ID rx callback
 		0			// no payload for an ID packet
-	);
+	) < 0)
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 }
 
 /* Pick the page train up again after a connection that carried no packet.
@@ -277,6 +298,17 @@ void paging_state_setup(uint32_t lap, uint8_t uap)
 		0 // No eir
 		);
 
-	tdma_schedule(2, paging_start_sync, 0,0,0,-3);
+	/* This is the whole page: paging_start_sync() is what reads the clock
+	 * and starts the train. Nothing of it runs if the scheduler had no
+	 * room, so the board is told to stay in standby rather than report a
+	 * page that is not happening. The reason is the one the page's own
+	 * deadline uses, because the host's three reasons have no word for a
+	 * full scheduler. */
+	if (tdma_schedule(2, paging_start_sync, 0,0,0,-3) < 0)
+	{
+		cprintf("page: cannot schedule start\n");
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+		return;
+	}
 	btctl_set_state(BTCTL_STATE_PAGE, BTCTL_REASON_SUCCESS);
 }

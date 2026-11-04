@@ -68,11 +68,15 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 	{
 		if (pkt->bb_hdr.type == BB_TYPE_FHS)
 		{
-			/* Schedule rx EFHS for next RX slot*/
-			rx_task_schedule(2,
+			/* Schedule rx EFHS for next RX slot. No window for the
+			 * extended response leaves nothing to wait for, so go
+			 * on with the inquiry, which is what this path does
+			 * for any other packet (rx_task.h). */
+			if (rx_task_schedule(2,
 				inquiry_rx_cb, NULL,	// efhs rx callback
 				1<<RX_F_PAYLOAD		// wait for payload
-			);
+			) < 0)
+				inquiry_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 		}
 		else
 		{
@@ -101,11 +105,16 @@ static void inquiry_schedule(unsigned delay)
 		NULL, NULL,
 		NULL, NULL); // No packet / no payload
 
-	/* Schedule rx fhs: */
-	rx_task_schedule(delay+2,
+	/* Schedule rx fhs. This window is what carries the inquiry on:
+	 * inquiry_rx_cb() is where the next sweep is scheduled from. With no
+	 * window there is nothing left to run, so the inquiry is over; the
+	 * reason is the one the deadline above uses, because the host's three
+	 * reasons have no word for a full scheduler (rx_task.h). */
+	if (rx_task_schedule(delay+2,
 		inquiry_rx_cb, NULL,	// fhs rx callback
 		1<<RX_F_PAYLOAD		// wait for payload
-		);
+		) < 0)
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 }
 
 /* dummy tick handler to start TX'ing with a proper clock */
@@ -129,6 +138,17 @@ void inquiry_state_setup(void)
 	/* Init only with the lap, DCI(0) is used as UAP */
 	btphy_set_mode(BT_MODE_INQUIRY, GIAC, 0);
 
-	tdma_schedule(2, inquiry_start_sync, 0,0,0,-3);
+	/* This is the whole inquiry: inquiry_start_sync() is what reads the
+	 * clock and starts the sweep. Nothing of it runs if the scheduler had
+	 * no room, so the board is told to stay in standby rather than report
+	 * an inquiry that is not happening. The reason is the one the
+	 * inquiry's own deadline uses, because the host's three reasons have
+	 * no word for a full scheduler. */
+	if (tdma_schedule(2, inquiry_start_sync, 0,0,0,-3) < 0)
+	{
+		cprintf("inquiry: cannot schedule start\n");
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+		return;
+	}
 	btctl_set_state(BTCTL_STATE_INQUIRY, BTCTL_REASON_SUCCESS);
 }
