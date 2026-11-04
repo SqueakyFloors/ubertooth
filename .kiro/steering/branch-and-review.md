@@ -283,9 +283,8 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
 
 Each release section has three buckets, and every change goes in exactly one:
 
-- **Main sections** (New features, Reliability fixes, Build and compatibility,
-  Documentation): what a user sees change in normal use — a wedge or a hang,
-  wrong data, a new or changed option, a message or an exit code.
+- **Main sections**: what a user sees change in normal use — a wedge or a
+  hang, wrong data, a new or changed option, a message or an exit code.
 - **"Under the hood"**, the last section of the release: real fixes with no
   visible change in normal use — firmware bounds, retries, buffer limits,
   resources given back, edge cases only stress testing or odd hardware reaches.
@@ -295,6 +294,34 @@ Each release section has three buckets, and every change goes in exactly one:
   tools and images, `btbr` and `ubertooth-btbr` included, do get entries.
 
 When unsure which bucket a change belongs in, ask rather than guessing.
+
+The main sections of a release are grouped so that a user of one tool can read
+what changed for it, in this order:
+
+1. **Highlights**: the largest wins of the release.
+2. **Stability and lockups**: a board or a tool that stopped answering,
+   wedged, reset itself, or crashed, and the reporting that makes those
+   visible.
+3. **Across all tools**: behavior the tools share — the command line and
+   option values, output streams and exit status, choosing a board and what it
+   is running, capture destinations and what a capture reports, capture
+   timestamps, starting and stopping a capture.
+4. **One section per tool**, in the README tool catalog's order, each with
+   `New features` before `Fixes`.
+5. **Firmware** (`bluetooth_rxtx`, `btbr`, the bootloader), then
+   **Libraries** (libubertooth, libbtbb).
+6. **Build and compatibility**, **Documentation**, **Under the hood**.
+
+So a new bullet goes under its tool, or under "Across all tools" when the
+behavior is shared, or under the firmware image, library, or build section it
+belongs to. A bullet that spans two or three tools goes under the tool it is
+mostly about, named in its first words, rather than being repeated.
+
+- MUST phrase a bug fix as a fix: say what was wrong and that it is fixed
+  ("Fixed: AUX1, DV, EV3, EV4, and EV5 payloads did not decode; they now
+  do."), not as though it were a new feature.
+- MUST use American spelling in the fork's own entries. Leave the upstream
+  release sections as upstream wrote them.
 
 Within a bucket:
 
