@@ -109,7 +109,9 @@ COMPATIBILITY.md for the comparison.
  - `-b <hciN>` :
    local Bluetooth device to use (default: hci0).
  - `-w <timeslots>` :
-   USB delay in 625us timeslots (default: 5).
+   USB delay in 625us timeslots (default: 5). The right value belongs to the
+   machine, not to the piconet, and the default is not it on every machine;
+   see THE -w DELAY below.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -141,8 +143,7 @@ target's own address before it will make one: `-a` without `-t` is refused
 before any file is created or device opened, with
 `error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give -t xx:xx:xx:xx:xx:xx`.
 That is a requirement of the command line rather than of the air interface, as
-the next paragraph explains; whether it should stay is
-[issue #316](https://github.com/SqueakyFloors/ubertooth/issues/316).
+the next paragraph explains.
 
 A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
 the two most significant bytes zero, because ordinary piconet traffic does not
@@ -244,7 +245,11 @@ to capture.
    the board as the clock to hop on, and starts capturing. Unlike
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
-   packets from the start. A run that prints none has one of five causes: the
+   packets from the start. On this project's bench the first record arrived
+   between a third of a second and four and a half seconds after the command
+   across the runs recorded, and that wait is for a packet of the piconet to
+   arrive rather than for the tool: a follow that is working spends none of it
+   acquiring a clock. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear the piconet, the `-u`
    given is wrong, the clock the board was given is off by enough to put it on
    the wrong channel, which is what `-w` adjusts for, or the target is not the
@@ -266,14 +271,81 @@ to capture.
    `timeout` reports 124 for a run it ended; `timeout --preserve-status` gives
    the tool's own status instead.
 
-5. Add `-a` once the capture works without it, if the piconet uses AFH and the
+5. Find the `-w` this machine needs, if the run prints packets and almost none
+   of their headers pass, and the `-u` is not the cause (step 4 describes the
+   `-u` that looks the same). `-w` pays for the host's own delay between
+   reading the clock and the board starting to hop, and the default is not the
+   right value on every machine. It is worth doing once per machine and keeping
+   the answer; see THE -w DELAY below.
+
+       ubertooth-follow -t 11:22:33:44:55:66 -w <value the sweep found> -q capture.pcap
+
+6. Add `-a` once the capture works without it, if the piconet uses AFH and the
    follow is patchy (see AFH above). It needs `-t`:
 
        ubertooth-follow -t 11:22:33:44:55:66 -a -q capture.pcap
 
-6. Open `capture.pcap` in Wireshark, which has dissected this format since
+7. Open `capture.pcap` in Wireshark, which has dissected this format since
    2.2. ubertooth-rx(1) describes the per-packet report the run printed, and
    the project documentation describes the capture format.
+
+## THE -w DELAY
+
+A follow is handed the piconet's clock, so it has nothing to search for. But
+between reading that clock through the local Bluetooth device and the board
+starting to hop, the host spends time of its own on the USB transfers and the
+kernel, and the board's clock has to be moved on by that much to stay with the
+piconet. `-w` is how much: a whole number of 625us Bluetooth timeslots, 5 by
+default.
+
+The delay is the host's own, so the value that suits one machine is no guide to
+another and the default does not suit every machine. Sweep it over a piconet
+that is carrying steady traffic, a few values either side of the default, each
+leg the same length. Sweep in the form you will capture in, with `-t` or
+without: the two take the clock by different routes, so a value found one way
+need not hold for the other.
+
+    d=$(mktemp -d)
+    for w in 0 1 2 3 4 5 6 7 8; do
+      cap="$d/w$w.pcapng"
+      timeout 25 ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w $w -r "$cap"
+      records=$(tshark -r "$cap" | wc -l)
+      bad=$(tshark -r "$cap" -V | grep -c 'Incorrect Packet Header or HEC')
+      echo "w=$w $((records - bad / 2)) of $records headers passed"
+    done
+
+The count that matters is the headers that passed, not the records written. A
+board hopping on a clock that is wrong still matches the piconet's access code
+now and then, and it records every match, so a bad value can write hundreds of
+records and get nothing out of any of them. Wireshark marks a bad header
+`Incorrect Packet Header or HEC` and `tshark -V` prints that twice per frame,
+which is the halving above. Do not count the packet detail the run printed
+instead: that needs the payload as well as the header, which an enhanced data
+rate payload never reaches, so on a link carrying EDR every value would read as
+zero.
+
+Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
+three or four times as many records, the extra ones matched with an error
+allowed, which is how a bad value comes to look like a working capture.
+
+Throw away any leg where the piconet went quiet, and any leg that printed the
+warning that the clock being followed was not this piconet's (see DESCRIPTION
+above): the first reads as a clean zero and the second is no longer a reading
+of `-w` at all. Confirm from the devices themselves that each leg had traffic
+to capture.
+
+A sweep on this project's bench, 25-second legs on one Classic piconet with
+everything but `-w` held the same, came out at 6169 headers at `-w 2`, 3976 at
+`-w 3`, 28 at the default of 5, 3 at 0, and none at 6 or 8. Those legs followed
+the local device's own piconet, with no target named. So the useful range is
+narrow, and on that host it was three slots away from the default.
+
+The best value repeats; what it captures does not. Two shorter passes on the
+same bench put `-w 2` ahead again, and of three legs at it, one decoded almost
+every record it wrote and the other two a small part of theirs. No value of
+`-w` took that variation out. So `-w` decides whether a follow decodes anything
+at all, and how much it then holds is not steady: expect the capture at the
+best value to vary from run to run.
 
 ## WHAT A FOLLOW DOES NOT CAPTURE
 
