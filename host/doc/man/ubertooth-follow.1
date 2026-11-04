@@ -109,7 +109,7 @@ a map with fewer than the 20 channels AFH requires, or none at all, is read agai
 a mode byte that is neither off nor on is refused and printed\.
 .IP "" 0
 .P
-A refused \fB\-a\fR never reaches the Ubertooth: the map is read before any board is opened, so the board is left alone and the connection the tool made to the target is dropped on the way out\. The only request a run without an accepted map sends is the map clear above, from a follow that goes ahead without one\.
+A refused \fB\-a\fR never reaches the Ubertooth: the map is read before any board is opened, so the board is left alone and the connection the tool made to the target is dropped on the way out\. The only AFH request a run without an accepted map makes is the map clear above, from a follow that goes ahead without one\.
 .SH "EXAMPLES"
 Follow a target whose address you know, writing a PCAP:
 .IP "" 4

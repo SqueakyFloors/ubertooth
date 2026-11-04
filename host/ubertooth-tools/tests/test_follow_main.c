@@ -147,6 +147,10 @@ static struct {
 	int clock_read_fails;
 	int clock_offset_read_fails;
 	int clock_read_errno;
+	/* The adapter's own address, and its settings, which the tool reads
+	 * before it pages: each can be made to fail. */
+	int bd_addr_fails;
+	int devinfo_fails;
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
@@ -243,6 +247,10 @@ int hci_open_dev(int dev_id)
 		errno = fake.open_errno;
 		return -1;
 	}
+	/* Opening the adapter succeeding is where a stale errno would come from
+	 * for the two reads that follow it. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	fake.dev_fd = open("/dev/null", O_RDONLY);
 	if (fake.dev_fd < 0) {
 		/* Say the fixture broke, rather than letting the tool report a
@@ -257,6 +265,13 @@ int hci_open_dev(int dev_id)
 int hci_devinfo(int dev_id, struct hci_dev_info* di)
 {
 	(void)dev_id;
+	if (fake.devinfo_fails) {
+		/* The settings are left as the tool declared them, and errno as
+		 * an earlier call left it: dirty_errno below is what puts one
+		 * there, and this call is the only one that can be made to fail
+		 * without setting one of its own. */
+		return -1;
+	}
 	memset(di, 0, sizeof(*di));
 	di->pkt_type = 0xffff;
 	/* This is the last call before the page, so it is where a stale errno
@@ -360,6 +375,10 @@ int hci_read_clock(int dd, uint16_t handle, uint8_t which, uint32_t* clock,
 	}
 	*clock = 1000;
 	*accuracy = 0;
+	/* This read succeeding is where a stale errno would come from for the
+	 * clock offset read, which is the next call. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return 0;
 }
 
@@ -387,6 +406,11 @@ int hci_read_bd_addr(int dd, bdaddr_t* bdaddr, int to)
 
 	(void)dd;
 	(void)to;
+	if (fake.bd_addr_fails) {
+		/* The address is left alone, and so is errno: a failure that
+		 * sets none is the case the tool has to clear it for. */
+		return -1;
+	}
 	memcpy(bdaddr->b, own, sizeof(own));
 	return 0;
 }
@@ -1686,6 +1710,44 @@ MU_TEST(an_afh_mode_that_is_neither_off_nor_on_is_refused)
 	mu_assert_int_eq(1, fake.dev_fd_closed);
 }
 
+/* The two adapter reads before the page: its own address, which a run with no
+ * target follows, and its settings, which say what packet types the page may
+ * ask for. Each names what failed and stops, and names a reason only when the
+ * failure left one, rather than one belonging to the call before it. The
+ * faked hci_open_dev() leaves an errno behind here, so a reported reason could
+ * only be that one. */
+MU_TEST(an_adapter_read_that_fails_stops_the_run)
+{
+	struct run_result r;
+
+	/* The adapter's own address, read only when no target was named. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.bd_addr_fails = 1;
+	r = RUN("-w", "5");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: reading the address of hci0 failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(0, fake.disconnects);
+
+	/* The adapter's settings, read only when there is a target to page. */
+	reset_fake();
+	fake.dirty_errno = EPERM;
+	fake.devinfo_fails = 1;
+	r = RUN(WHOLE_TARGET);
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err,
+	          "error: reading the settings of hci0 failed\n") != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	/* No page was made, so there is no link to drop. */
+	mu_assert_int_eq(0, fake.disconnects);
+}
+
 /* Without a clock there is nothing to follow, so a clock read that fails
  * stops the command rather than hopping on whatever the clock held. Both
  * reads are checked: the adapter's own clock, and the target's offset from it.
@@ -1829,6 +1891,7 @@ int main(void)
 	MU_RUN(an_empty_afh_map_is_refused);
 	MU_RUN(a_remote_not_using_afh_is_followed_without_a_map);
 	MU_RUN(an_afh_mode_that_is_neither_off_nor_on_is_refused);
+	MU_RUN(an_adapter_read_that_fails_stops_the_run);
 	MU_RUN(a_clock_read_that_fails_stops_the_follow);
 	MU_RUN(a_without_a_target_address_reads_no_map);
 	MU_RUN(half_a_lap_uap_pair_is_refused);

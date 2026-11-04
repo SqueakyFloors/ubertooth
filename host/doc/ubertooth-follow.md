@@ -193,8 +193,9 @@ The map that comes back is used only when it could be a hop sequence at all:
 
 A refused `-a` never reaches the Ubertooth: the map is read before any board is
 opened, so the board is left alone and the connection the tool made to the
-target is dropped on the way out. The only request a run without an accepted
-map sends is the map clear above, from a follow that goes ahead without one.
+target is dropped on the way out. The only AFH request a run without an
+accepted map makes is the map clear above, from a follow that goes ahead
+without one.
 
 ## EXAMPLES
 
