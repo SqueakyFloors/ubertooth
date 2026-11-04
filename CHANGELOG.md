@@ -1112,6 +1112,13 @@ knowing about.
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-rx -i cap.bin >> cap.bin` wrote its decode into the
+  capture it was replaying and said nothing, leaving a file no later replay
+  could read. A replay whose standard output is the dump it is reading now
+  says so in one `warning: ` line and carries on, exit status unchanged;
+  `ubertooth-btle -R` too.
+  [#1148](https://github.com/SqueakyFloors/ubertooth/issues/1148)
+
 - Fixed: `ubertooth-dfu -u /dev/stdout` answered with an errno about a file,
   `error: /dev/stdout: Operation not permitted`, because only the lone `-`
   counted as standard output. The names of that stream are now refused while

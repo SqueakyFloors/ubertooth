@@ -597,10 +597,18 @@ standard output the shell has already pointed at the dump. Naming that same
 standard output as `/dev/stdout` or `/dev/fd/1` is caught as well, and so is a
 destination reached through a descriptor the calling shell opened,
 `-d /dev/fd/3` beside `3>>promisc.bin`: the descriptor is asked which file it
-holds, rather than the path being looked up. What the
-check cannot cover at all is a redirection of the whole run,
-`ubertooth-btle -p -R promisc.bin > promisc.bin`: the shell has emptied the
-file before ubertooth-btle(1) starts, as it would for any command.
+holds, rather than the path being looked up.
+
+A redirection of the whole run names no capture option, so there is nothing
+to refuse: the shell has already opened the file and pointed standard output
+at it. What the decode would land in is said instead. With
+`ubertooth-btle -p -R promisc.bin > promisc.bin` the shell empties the file
+before ubertooth-btle(1) starts, as it would for any command; with `>>` the
+decode is appended to the records, which leaves the file unreadable as a dump.
+Either way the run prints `warning: the decode is going to the dump -R is
+replaying, so the capture is lost` on standard error and goes on, and its exit
+status is the one it would have had anyway. Only a regular file on standard
+output is compared, since a pipe or a terminal holds no records to spoil.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

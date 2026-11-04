@@ -979,6 +979,41 @@ int opt_check_destinations_not_input(FILE *input, const char *input_option,
 	return 0;
 }
 
+void opt_warn_stdout_is_input(FILE *input, const char *input_option)
+{
+	struct stat input_file, output_file;
+
+	if (input == NULL || input_option == NULL)
+		return;
+	/* The input holding descriptor 1 means standard output was closed
+	 * before this process started and the input's own open took the
+	 * number. The decode has nowhere to go, so nothing reaches the dump
+	 * and there is nothing to warn about. */
+	if (fileno(input) == STDOUT_FILENO)
+		return;
+	if (fstat(fileno(input), &input_file) != 0)
+		return;
+	/* Which file the decode lands in. "-" is the capture option value that
+	 * means standard output, so destination_file() answers it by fstat()ing
+	 * descriptor 1 -- the lookup opt_check_destinations_not_input() already
+	 * uses for such a value, rather than a second one of its own. */
+	if (destination_file("-", &output_file) != 0)
+		return;
+	/* Only a regular file holds records a decode can spoil. A pipe, a
+	 * terminal, or the null device on descriptor 1 cannot be the dump the
+	 * replay is reading in any case, and saying so would be noise. */
+	if (!S_ISREG(output_file.st_mode))
+		return;
+	if (input_file.st_dev != output_file.st_dev ||
+	    input_file.st_ino != output_file.st_ino)
+		return;
+	/* "lost" covers both redirections: a truncating one emptied the file
+	 * before this process started, an appending one leaves the decode
+	 * among the records. */
+	fprintf(stderr, "warning: the decode is going to the dump %s is"
+	        " replaying, so the capture is lost\n", input_option);
+}
+
 /* Hand the real standard output to a capture and send this process's own
  * standard output to /dev/null for the rest of the run, so that nothing the
  * tool prints can land in the middle of the capture stream. Returns the

@@ -573,9 +573,8 @@ None of the files this run writes (`-r`, `-q`, `-d`) may be the capture the
 replay is reading: each is opened for writing, which truncates it, so the
 capture would be emptied before a record of it was read. `error: -d would
 write over the dump -i is replaying (capture.bin)`, exit 1, with the file left
-as it was. ubertooth-btle(1) refuses a named destination the same way for its
-own replay, in the same words, naming its own option; it has no equivalent of
-the `-` case below yet.
+as it was. ubertooth-btle(1) refuses a destination the same way for its own
+replay, in the same words, naming its own option.
 
 It is the file that is compared and not the name, so `./capture.bin`, a
 symbolic link to it and a hard link to it are all refused, as is a `-d -`
@@ -594,11 +593,16 @@ than the path. What it cannot see is the far end of a pipe,
 `-d - | cat >> capture.bin`.
 
 A redirection of the whole run is a different matter, because the capture is
-then not a destination ubertooth-rx(1) was given at all. With
-`ubertooth-rx -i capture.bin > capture.bin` the shell has emptied the file
-before ubertooth-rx(1) starts, which no command can prevent. With `>>` the
-decode is appended to the capture instead, which corrupts it as a record
-stream; that is not checked for.
+then not a destination ubertooth-rx(1) was given at all: the shell has already
+opened the file and pointed standard output at it, so there is nothing left to
+refuse. What the decode would land in is said instead. With
+`ubertooth-rx -i capture.bin > capture.bin` the shell empties the file before
+ubertooth-rx(1) starts, which no command can prevent; with `>>` the decode is
+appended to the records, which leaves the file unreadable as a capture. Either
+way the run prints `warning: the decode is going to the dump -i is replaying,
+so the capture is lost` on standard error and goes on, and its exit status is
+the one it would have had anyway. Only a regular file on standard output is
+compared, since a pipe or a terminal holds no records to spoil.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a
