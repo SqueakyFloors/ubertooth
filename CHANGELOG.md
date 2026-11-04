@@ -1230,6 +1230,13 @@ these are the ones worth knowing about.
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-dfu -u /dev/stdout` answered with an errno about a file,
+  `error: /dev/stdout: Operation not permitted`, because only the lone `-`
+  counted as standard output. The names of that stream are now refused while
+  the command line is read, with the line the lone `-` already got, which says
+  to give a file name instead.
+  [#1170](https://github.com/SqueakyFloors/ubertooth/issues/1170)
+
 - Fixed: a per-packet line reported `s=0`, and a `snr=` worked out from it, for
   a packet whose level the board could not measure. The dBm scale stops rising
   at the top of the radio's range, so that one figure stood for every signal
