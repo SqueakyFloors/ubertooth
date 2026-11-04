@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -122,6 +123,39 @@ def run(*arguments, directory, text=True, stdout=subprocess.PIPE,
         # below compares a strerror() string and glibc translates those.
         env=dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1", LC_ALL="C"),
     )
+
+
+def drain(fd):
+    """Read a pseudo terminal until the writing end is gone."""
+    try:
+        while os.read(fd, 4096):
+            pass
+    except OSError:  # the last writer closed its end
+        pass
+
+
+def on_a_terminal(*arguments, directory):
+    """One run with standard output on a terminal, or None where no pseudo
+    terminal can be had. The terminal is read while the run goes on, because
+    a write to a pseudo terminal nobody is reading stops once its buffer is
+    full -- about a kilobyte on macOS -- which would hang the run rather than
+    fail it."""
+    if pty is None:
+        print("skipping the tty case, no pty module")
+        return None
+    try:
+        reader, terminal = pty.openpty()
+    except OSError:  # a sandbox with no pseudo terminal to allocate
+        print("skipping the tty case, no pty available")
+        return None
+    reading = threading.Thread(target=drain, args=(reader,), daemon=True)
+    reading.start()
+    try:
+        return run(*arguments, directory=directory, stdout=terminal)
+    finally:
+        os.close(terminal)
+        reading.join(timeout=RUN_TIMEOUT_S)
+        os.close(reader)
 
 
 def packet_lines(output):
@@ -290,8 +324,8 @@ with tempfile.TemporaryDirectory() as workdir:
     # the case nothing can prevent. The replay then reads an empty file, which
     # is a clean end of file, so this case also pins that the warning leaves
     # the exit status alone.
-    expected = ("warning: the decode is being written into the dump -R is"
-                " replaying, which will corrupt it\n")
+    expected = ("warning: the decode is going to the dump -R is replaying,"
+                " so the capture is lost\n")
     with open(work / "same.bin", "wb") as truncated:
         result = run("-p", "-R", "same.bin", directory=work,
                      stdout=truncated)
@@ -326,20 +360,10 @@ with tempfile.TemporaryDirectory() as workdir:
     result = run("-p", "-R", "same.bin", directory=work)
     assert result.returncode == 0, result
     assert result.stderr == "", result
-    if pty is not None:
-        try:
-            pty_fd, tty_fd = pty.openpty()
-        except OSError:  # a sandbox with no pty to allocate
-            print("skipping the tty case, no pty available")
-        else:
-            try:
-                result = run("-p", "-R", "same.bin", directory=work,
-                             stdout=tty_fd)
-            finally:
-                os.close(tty_fd)
-                os.close(pty_fd)
-            assert result.returncode == 0, result
-            assert result.stderr == "", result
+    result = on_a_terminal("-p", "-R", "same.bin", directory=work)
+    if result is not None:
+        assert result.returncode == 0, result
+        assert result.stderr == "", result
 
     # A destination reached through a descriptor the calling shell opened, as
     # `-d /dev/fd/3 3>>same.bin` does. No name says which file that is, and

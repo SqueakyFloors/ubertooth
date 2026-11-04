@@ -985,17 +985,18 @@ void opt_warn_stdout_is_input(FILE *input, const char *input_option)
 
 	if (input == NULL || input_option == NULL)
 		return;
-	if (fstat(fileno(input), &input_file) != 0)
-		return;
 	/* The input holding descriptor 1 means standard output was closed
 	 * before this process started and the input's own open took the
-	 * number. The decode has nowhere to go, so nothing is written into the
-	 * dump and there is nothing to warn about. */
+	 * number. The decode has nowhere to go, so nothing reaches the dump
+	 * and there is nothing to warn about. */
 	if (fileno(input) == STDOUT_FILENO)
 		return;
-	/* Which file the decode lands in: the same question the check above
-	 * asks of a capture destination, asked of the stream, so "-" and its
-	 * fstat() of descriptor 1 is the destination to look up. */
+	if (fstat(fileno(input), &input_file) != 0)
+		return;
+	/* Which file the decode lands in. destination_file() answers that for
+	 * a capture option's value, and "-" is the value that means standard
+	 * output, so it fstat()s descriptor 1 -- the same lookup the check
+	 * above uses, rather than a second one of its own. */
 	if (destination_file("-", &output_file) != 0)
 		return;
 	/* Only a regular file holds records a decode can spoil. A pipe, a
@@ -1006,8 +1007,12 @@ void opt_warn_stdout_is_input(FILE *input, const char *input_option)
 	if (input_file.st_dev != output_file.st_dev ||
 	    input_file.st_ino != output_file.st_ino)
 		return;
-	fprintf(stderr, "warning: the decode is being written into the dump %s"
-	        " is replaying, which will corrupt it\n", input_option);
+	/* "is lost" rather than "will be corrupted", because which of the two
+	 * happened depends on the redirection the shell set up and the user
+	 * gets one line for both: ">" emptied the file before this process
+	 * started, and ">>" leaves the decode among the records. */
+	fprintf(stderr, "warning: the decode is going to the dump %s is"
+	        " replaying, so the capture is lost\n", input_option);
 }
 
 /* Hand the real standard output to a capture and send this process's own

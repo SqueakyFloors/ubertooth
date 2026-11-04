@@ -598,10 +598,10 @@ refuse. What the decode would land in is said instead. With
 `ubertooth-rx -i capture.bin > capture.bin` the shell empties the file before
 ubertooth-rx(1) starts, which no command can prevent; with `>>` the decode is
 appended to the records, which leaves the file unreadable as a capture. Either
-way the run prints `warning: the decode is being written into the dump -i is
-replaying, which will corrupt it` on standard error and goes on, and its exit
-status is the one it would have had anyway. Only a regular file on standard
-output is compared, since a pipe or a terminal holds no records to spoil.
+way the run prints `warning: the decode is going to the dump -i is replaying,
+so the capture is lost` on standard error and goes on, and its exit status is
+the one it would have had anyway. Only a regular file on standard output is
+compared, since a pipe or a terminal holds no records to spoil.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a

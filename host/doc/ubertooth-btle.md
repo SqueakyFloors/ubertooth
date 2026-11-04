@@ -605,11 +605,10 @@ at it. What the decode would land in is said instead. With
 `ubertooth-btle -p -R promisc.bin > promisc.bin` the shell empties the file
 before ubertooth-btle(1) starts, as it would for any command; with `>>` the
 decode is appended to the records, which leaves the file unreadable as a dump.
-Either way the run prints `warning: the decode is being written into the dump
--R is replaying, which will corrupt it` on standard error and goes on, and its
-exit status is the one it would have had anyway. Only a regular file on
-standard output is compared, since a pipe or a terminal holds no records to
-spoil.
+Either way the run prints `warning: the decode is going to the dump -R is
+replaying, so the capture is lost` on standard error and goes on, and its exit
+status is the one it would have had anyway. Only a regular file on standard
+output is compared, since a pipe or a terminal holds no records to spoil.
 
 The times reported are the recorded ones, not the time of the replay. The
 `systime` of each packet line is the host time stored with that record, a
