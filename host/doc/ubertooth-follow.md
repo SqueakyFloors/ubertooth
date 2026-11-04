@@ -208,6 +208,96 @@ above). Use `-t` for a real target:
 
     ubertooth-follow -l 445566 -u 33 -q capture.pcap
 
+## A FOLLOW FROM START TO FINISH
+
+What a run looks like, from not knowing the target to a capture file. It needs
+a Linux machine with a working local Bluetooth device, an Ubertooth carrying
+`bluetooth_rxtx`, and a piconet that is carrying traffic throughout: a phone
+streaming audio to a headset will do. A piconet that goes quiet leaves nothing
+to capture.
+
+1. Check the local Bluetooth device is there and up. With none,
+   `ubertooth-follow` stops before it opens the board, naming the device it
+   looked for. `hciconfig hci0 up` brings one up.
+
+2. Survey for the piconets around you, thirty seconds to start with and longer
+   in a crowded room. Each line is a LAP the board heard, with a UAP where it
+   has worked one out. That UAP is a guess from the packets the board decoded
+   and a short survey can get it wrong, so give the survey time, or take the
+   address from the device itself:
+
+       ubertooth-rx -z -t 30
+
+3. Point the follow at the piconet the target leads: `-t` with its whole
+   address if you know it, or `-l` and `-u` with the four bytes the survey
+   reported. Either way the tool names the target on standard error before it
+   opens the board, so a run against the wrong piconet shows before any packet
+   does: `-t` prints a `Target` line with the address and the LAP and UAP taken
+   from it, and `-l` with `-u` prints the address the page will use, carrying
+   `00:00` in place of the two bytes they do not name.
+
+       ubertooth-follow -t 11:22:33:44:55:66 -q capture.pcap
+       ubertooth-follow -l 445566 -u 33 -q capture.pcap
+
+4. Watch what the run prints. The tool pages the target through the local
+   Bluetooth device, reads the clock of the connection it gets, hands that to
+   the board as the clock to hop on, and starts capturing. Unlike
+   ubertooth-rx(1), it does not search the air for a clock: it is given one, so
+   there is no acquisition to wait for and a follow that is working prints
+   packets from the start. A run that prints none has one of five causes: the
+   piconet is not transmitting, the board cannot hear the piconet, the `-u`
+   given is wrong, the clock the board was given is off by enough to put it on
+   the wrong channel, which is what `-w` adjusts for, or the target is not the
+   Central of the piconet. The last of those finds nothing at all rather than
+   part of the traffic: every packet in a piconet carries the Central's access
+   code and hops on the Central's clock, so a follow keyed on a Peripheral's
+   address is listening for a piconet that is not there.
+
+   A wrong `-u` silences a run by putting the board on the wrong channels. The
+   hop sequence is built from the LAP and the low four bits of the UAP, so a
+   `-u` wrong in any of those four bits hops differently from the piconet and
+   meets it only now and then. A `-u` wrong only in its top four bits leaves
+   the hop sequence alone: such a run prints packets and decodes none of them,
+   which is the case DESCRIPTION above describes. A wrong `-u` can also stop
+   the page, and then the run exits 1 with the reason.
+
+   The run ends when you interrupt it (Ctrl-C), with exit status 0 and the
+   capture written, so give it a length with `timeout` when you script one.
+   `timeout` reports 124 for a run it ended; `timeout --preserve-status` gives
+   the tool's own status instead.
+
+5. Add `-a` once the capture works without it, if the piconet uses AFH and the
+   follow is patchy (see AFH above). It needs `-t`:
+
+       ubertooth-follow -t 11:22:33:44:55:66 -a -q capture.pcap
+
+6. Open `capture.pcap` in Wireshark, which has dissected this format since
+   2.2. ubertooth-rx(1) describes the per-packet report the run printed, and
+   the project documentation describes the capture format.
+
+## WHAT A FOLLOW DOES NOT CAPTURE
+
+A capture holds the basic rate packets of one piconet, decoded as far as they
+can be without the link's keys. Three things are not in it however well the
+follow goes:
+
+ - **Enhanced data rate payloads.** The board's radio demodulates Gaussian
+   frequency-shift keying at 1 Mbit/s, which is basic rate. An enhanced data
+   rate packet starts at basic rate, so its access code and header are decoded
+   and the packet appears in the capture; its payload is sent in a phase-shift
+   keying the radio cannot demodulate, and that part is missing.
+ - **The contents of an encrypted link.** Encryption covers the payload, and
+   the keys are agreed during pairing, which has usually happened long before a
+   follow starts. The capture holds the packets, their headers and their
+   timing; what the devices said to each other stays unreadable.
+ - **Any piconet but the one named.** A follow hops with one piconet's
+   sequence, so traffic from everything else around it is off-channel almost
+   all of the time. Capture a second piconet with a second board, not with a
+   second filter.
+
+Packets lost for other reasons are reported while the run goes; see GAPS IN A
+CAPTURE below.
+
 ## ARGUMENTS
 
 `ubertooth-follow` takes options only. A word that is not an option, including a
@@ -288,9 +378,9 @@ for a pipe into another program. Either way the capture owns standard output
 for the whole run, so the per-packet report is not printed; the packets
 themselves are in the capture.
 
-What the tool is following, the clock the decoder recovers, the notes and the
-failures are on standard error and still arrive, and so is the `AFH map:`
-line of `-a`, which is the answer to that option.
+What the tool is following, the notes and the failures are on standard error
+and still arrive, and so is the `AFH map:` line of `-a`, which is the answer to
+that option.
 
 Redirect standard output to a new file or a pipe, not to one being appended
 to: on Linux the capture is opened again through `/proc/self/fd`, which

@@ -3035,6 +3035,13 @@
   can end without a clock.
   [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
 
+- `ubertooth-follow(1)` and the sniffing guide walk a follow through from not
+  knowing the target to a capture file in Wireshark, including what a follow
+  that has not locked on looks like and why. Both now say plainly what a
+  capture cannot hold: enhanced data rate payloads, which the radio cannot
+  demodulate, and the contents of an encrypted link.
+  [#518](https://github.com/SqueakyFloors/ubertooth/issues/518)
+
 - The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
   `-h`, which all three accept and every other tool's usage text lists, and
   `ubertooth-util`'s `-t` line spells "initiate".

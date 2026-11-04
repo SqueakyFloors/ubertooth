@@ -143,6 +143,64 @@ See the man pages in ``host/doc/`` (`ubertooth-rx.md <https://github.com/Squeaky
 `ubertooth-scan.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-scan.md>`__, `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__) for all options.
 
 
+Following with help from a local Bluetooth device
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``ubertooth-rx`` above recovers the piconet's clock from the air alone, which
+takes a piconet that keeps transmitting and can take a while.
+``ubertooth-follow`` shortens that: it pages the target through a local
+Bluetooth device, reads the clock offset of the connection it gets, and hands
+that to the board. It needs Linux with BlueZ and a working local Bluetooth
+device; there is none on macOS, so the tool is not built there.
+
+#. **Check the local Bluetooth device.** With none, ``ubertooth-follow`` stops
+   before it opens the board:
+
+	.. code-block:: sh
+
+		hciconfig hci0 up
+
+#. **Survey** for the piconet as above, so you have its LAP and UAP:
+
+	.. code-block:: sh
+
+		ubertooth-rx -z -t 30
+
+#. **Follow the piconet**, by the whole address of the device that leads it if
+   you know it, or by the four bytes the survey reported:
+
+	.. code-block:: sh
+
+		ubertooth-follow -t 22:44:66:88:aa:bb -q capture.pcap
+		ubertooth-follow -l 88aabb -u 66 -q capture.pcap
+
+   The two are the same follow. ``-t`` pages the address as given; ``-l`` and
+   ``-u`` are four of the six bytes, so the tool pages ``00:00`` in place of
+   the NAP, as described above. Either way the board is given the same LAP and
+   UAP, which is all the ordinary traffic of an established piconet carries.
+
+   Neither form stops on its own. Interrupt the run with Ctrl-C when you have
+   the capture you wanted, or give it a length with ``timeout``.
+
+#. **Add the AFH map** with ``-a`` if the piconet uses AFH and the follow is
+   patchy. It reads the map over a connection it
+   makes to the target, so it needs ``-t``; the AFH section of
+   `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__
+   says what that map is, what it is not, and why the option is experimental.
+
+	.. code-block:: sh
+
+		ubertooth-follow -t 22:44:66:88:aa:bb -a -q capture.pcap
+
+A follow captures the piconet's basic rate packets. EDR payloads are sent in a
+modulation the radio cannot demodulate, so such a packet
+arrives with its header and without its payload, and the contents of an
+encrypted link stay unreadable whatever the capture holds.
+`ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__
+has the whole procedure, what a follow that has not locked on looks like, and
+what it cannot capture.
+
+
 .. _finding-the-nap:
 
 Finding the NAP
