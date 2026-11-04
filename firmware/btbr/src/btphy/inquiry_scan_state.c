@@ -39,7 +39,7 @@ static struct {
 	uint8_t fhs_data[20];
 } inquiry_scan_state;
 
-static void inquiry_scan_schedule(unsigned delay);
+static void inquiry_scan_schedule(void);
 
 static int inquiry_scan_canceled(void)
 {
@@ -52,7 +52,7 @@ static void tx_eir_cb(int sent, void *arg)
 	 * answer to the inquiry is over and the next thing to do is listen for
 	 * another one. The inquirer sweeps the band repeatedly, so it asks
 	 * again. */
-	inquiry_scan_schedule(1);
+	inquiry_scan_schedule();
 }
 
 static void tx_fhs_cb(int sent, void *arg)
@@ -66,7 +66,7 @@ static void tx_fhs_cb(int sent, void *arg)
 		 * an inquirer that has heard nothing from this board and is
 		 * not listening for a second packet. Go back to scanning. */
 		cprintf("inquiry response not sent, scanning again\n");
-		inquiry_scan_schedule(1);
+		inquiry_scan_schedule();
 		return;
 	}
 	eir_pkt = btctl_get_eir();
@@ -78,7 +78,7 @@ static void tx_fhs_cb(int sent, void *arg)
 	}
 	else
 	{
-		inquiry_scan_schedule(1);
+		inquiry_scan_schedule();
 	}
 }
 
@@ -116,11 +116,11 @@ static void inquiry_scan_rx_cb(int sw_detected, void *arg)
 	}
 	else
 	{
-		inquiry_scan_schedule(0); // do it again
+		inquiry_scan_schedule(); // do it again
 	}
 }
 
-static void inquiry_scan_schedule(unsigned delay)
+static void inquiry_scan_schedule(void)
 {
 	if (clkn_elapsed(CENTRAL_CLKN, inquiry_scan_state.clkn_start, INQ_SCAN_MAX_TICKS))
 	{
@@ -131,7 +131,13 @@ static void inquiry_scan_schedule(unsigned delay)
 	/* Back to the scan substate, which every path here comes from: a
 	 * finished response leaves the response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_INQUIRY_SCAN);
-	scan_task_schedule(delay, inquiry_scan_rx_cb, NULL);
+	if (scan_task_schedule(inquiry_scan_rx_cb, NULL) < 0)
+	{
+		/* No window is armed and nothing is left to report one, so the
+		 * scan is over. It ends on the reason its own deadline uses;
+		 * the console line above says which it was. */
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+	}
 }
 
 /*
@@ -161,5 +167,5 @@ void inquiry_scan_state_setup(void)
 		);
 
 	inquiry_scan_state.clkn_start = CENTRAL_CLKN+1;
-	inquiry_scan_schedule(1);
+	inquiry_scan_schedule();
 }

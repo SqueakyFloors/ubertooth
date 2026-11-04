@@ -126,13 +126,20 @@ void bbpkt_fhs_finalize_payload(uint8_t *fhs_data, uint32_t clk27_2)
 static scan_task_cb_t armed_scan_cb;
 static void *armed_scan_arg;
 static unsigned scans_armed;
+/* Whether the scheduler has room for the next scan window. A slot holds four
+ * tasks and refuses the fifth, which is what the real scan task reports as
+ * -1; test_btbr_scan_schedule.c drives that through the firmware's own
+ * scheduler. Here it is a switch, so a test can say which arm is refused. */
+static int scan_arm_refused;
 
-void scan_task_schedule(unsigned delay, scan_task_cb_t cb, void *cbarg)
+int scan_task_schedule(scan_task_cb_t cb, void *cbarg)
 {
-	(void)delay;
+	if (scan_arm_refused)
+		return -1;
 	armed_scan_cb = cb;
 	armed_scan_arg = cbarg;
 	scans_armed++;
+	return 0;
 }
 
 static tx_task_cb_t armed_tx_cb;
@@ -286,6 +293,31 @@ MU_TEST(a_dropped_fhs_says_so_on_the_console)
 	mu_assert(strstr(console, "not sent") != NULL, console);
 }
 
+/* ---- a scan window the scheduler has no room for ---- */
+
+/*
+ * A slot holds four tasks and refuses the fifth, so the slot a scan window
+ * would be armed in can be full, and the scan task reports that back. An
+ * inquiry scan that was not told would sit in the state the host asked for
+ * with no task left to run: listening to nothing forever and never saying
+ * why. It ends the session instead.
+ */
+MU_TEST(a_scan_window_that_cannot_be_armed_ends_the_scan)
+{
+	an_inquiry_scan(1);
+	an_inquiry_arrives();
+	scan_arm_refused = 1;
+
+	the_transmit_ends(0);
+
+	mu_assert_int_eq(0, (int)scans_armed);
+	mu_assert(armed_scan_cb == NULL,
+		"a window was armed after the scheduler refused it");
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
+
+	scan_arm_refused = 0;
+}
+
 /*
  * A dropped extended inquiry response is a different matter: the answer the
  * inquirer was listening for has already gone out, and there is nothing after
@@ -313,5 +345,6 @@ int main(void)
 	MU_RUN(a_dropped_fhs_sends_no_extended_inquiry_response);
 	MU_RUN(a_dropped_fhs_says_so_on_the_console);
 	MU_RUN(a_dropped_extended_inquiry_response_goes_back_to_scanning);
+	MU_RUN(a_scan_window_that_cannot_be_armed_ends_the_scan);
 	return mu_report();
 }

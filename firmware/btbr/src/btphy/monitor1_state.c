@@ -39,7 +39,7 @@ struct {
 	uint32_t clkn_start;
 } monitor1_state;
 
-static void monitor1_schedule(unsigned delay);
+static void monitor1_schedule(void);
 
 static int monitor1_canceled(void)
 {
@@ -79,7 +79,7 @@ static int monitor1_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 			 * with nothing left to run, which would wait
 			 * forever. */
 			cprintf("(bad type %d)", pkt->bb_hdr.type);
-			monitor1_schedule(0);
+			monitor1_schedule();
 			goto end;
 		}
 		// Parse fhs to get bdaddr/clkn/ltaddr
@@ -91,7 +91,16 @@ static int monitor1_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 				 + (btphy.peripheral_clkn-pkt->clkn);
 		
 		// Start hopping in next timeslot
-		tdma_schedule(1, start_monitor2, 0, 0, 0, -3);
+		if (tdma_schedule(1, start_monitor2, 0, 0, 0, -3) < 0)
+		{
+			/* The slot that would start following the connection is
+			 * full, so nothing of the follow is armed. Go back to
+			 * watching for a page rather than leave the board with
+			 * nothing left to run. The FHS below still goes to the
+			 * host: this leg did decode it. */
+			cprintf("monitor: cannot schedule follow\n");
+			monitor1_schedule();
+		}
 
 		// Send FHS to host
 		btctl_tx_enqueue(msg);
@@ -100,7 +109,7 @@ static int monitor1_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 	else{
 		if (BBPKT_HAS_HDR(pkt) && pkt->bb_hdr.type)
 			console_putc('0'+pkt->bb_hdr.type);
-		monitor1_schedule(0);
+		monitor1_schedule();
 	}
 end:
 	msg_free(msg);
@@ -141,11 +150,11 @@ static void monitor1_rx_id_cb(int sw_detected, void *arg)
 	}
 	else
 	{
-		monitor1_schedule(0);
+		monitor1_schedule();
 	}
 }
 
-static void monitor1_schedule(unsigned delay)
+static void monitor1_schedule(void)
 {
 	if (clkn_elapsed(CENTRAL_CLKN, monitor1_state.clkn_start, PAGE_SCAN_MAX_TICKS))
 	{
@@ -156,7 +165,13 @@ static void monitor1_schedule(unsigned delay)
 	/* Back to the scan substate: an answer that led nowhere leaves the
 	 * response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
-	scan_task_schedule(delay, monitor1_rx_id_cb, NULL);
+	if (scan_task_schedule(monitor1_rx_id_cb, NULL) < 0)
+	{
+		/* No window is armed and nothing is left to report one, so
+		 * watching is over. It ends on the reason its own deadline
+		 * uses; the console line above says which it was. */
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+	}
 }
 
 /*
@@ -173,5 +188,5 @@ void monitor1_state_setup(uint64_t peripheral_bdaddr)
 	btphy_set_mode(BT_MODE_PAGE_SCAN, btphy.my_lap, btphy.my_uap);
 	btctl_set_state(BTCTL_STATE_PAGE_SCAN, BTCTL_REASON_SUCCESS);
 	monitor1_state.clkn_start = CENTRAL_CLKN+1;
-	monitor1_schedule(1);
+	monitor1_schedule();
 }

@@ -96,7 +96,18 @@ static void scan_wait(void)
 		else
 		{
 			/* Wait one more slot */
-			tdma_schedule(1, scan_wait_more, 0, 0, 0, -3);
+			if (tdma_schedule(1, scan_wait_more, 0, 0, 0, -3) < 0)
+			{
+				/* The next slot of this window cannot be
+				 * armed, so this window is over. End it with
+				 * no packet, which is what the window reports
+				 * when it hears nothing and every caller
+				 * already handles, rather than leave the scan
+				 * with no task left to run and the caller
+				 * waiting forever. */
+				cprintf("scan: cannot wait another slot\n");
+				scan_finalize();
+			}
 		}
 	}
 }
@@ -158,13 +169,26 @@ static int scan_start(uint8_t p1, uint8_t p2, uint16_t p3)
 	return 0; 
 }
 
-void scan_task_schedule(unsigned delay, scan_task_cb_t cb, void*cbarg)
+int scan_task_schedule(scan_task_cb_t cb, void*cbarg)
 {
+	/* The callback is stored before the window is scheduled, because the
+	 * slot clock interrupt can run scan_start() the moment it is on the
+	 * scheduler, and scan_finalize() stops the firmware without one. */
 	scan_task.cb = cb;
 	scan_task.cb_arg = cbarg;
 
 	/* FIXME: We RX only ~250usec in a 312.5usec timeslot.
 	 * Therefore we might get unlucky and never receive the Central ID. */
 
-	tdma_schedule(1, scan_start, 0, 0, 0, -3);
+	if (tdma_schedule(1, scan_start, 0, 0, 0, -3) < 0)
+	{
+		/* scan_start() is the only task that reaches the callback, so
+		 * with nothing armed there is nothing left to report the scan:
+		 * a page scan or inquiry scan would go quiet and never say
+		 * why. The caller ends its session on this. */
+		cprintf("scan: cannot schedule scan\n");
+		return -1;
+	}
+
+	return 0;
 }

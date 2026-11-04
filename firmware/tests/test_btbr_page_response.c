@@ -308,11 +308,21 @@ int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb, uint8_t p1,
 	return 0;
 }
 
-void scan_task_schedule(unsigned delay, scan_task_cb_t cb, void *cbarg)
+/* Whether the scheduler has room for the next scan window. A slot holds four
+ * tasks and refuses the fifth, which is what the real scan task reports as
+ * -1; test_btbr_scan_schedule.c drives that through the firmware's own
+ * scheduler. Here it is a switch, so a test can say which arm is refused. */
+static int scan_arm_refused;
+static unsigned scans_armed;
+
+int scan_task_schedule(scan_task_cb_t cb, void *cbarg)
 {
-	(void)delay;
+	if (scan_arm_refused)
+		return -1;
 	scan_cb = cb;
 	scan_cb_arg = cbarg;
+	scans_armed++;
+	return 0;
 }
 
 /*
@@ -1062,6 +1072,33 @@ MU_TEST(paged_a_dropped_acknowledgment_does_not_start_a_connection)
 	mu_assert(scan_cb != NULL, "the board stopped with nothing left to run");
 }
 
+/*
+ * A slot holds four tasks and refuses the fifth, so the slot a scan window
+ * would be armed in can be full, and the scan task reports that back. A page
+ * scan that was not told would sit in the state the host asked for with no
+ * task left to run: listening to nothing forever and never saying why. It ends
+ * the session instead, so the host sees the scan stop.
+ */
+MU_TEST(paged_a_scan_window_that_cannot_be_armed_ends_the_scan)
+{
+	air_reset();
+	btphy.my_lap = PAGED_LAP;
+	btphy.my_uap = PAGED_UAP;
+	btphy.central_clkn = 0;
+	scan_cb = NULL;
+	scans_armed = 0;
+	scan_arm_refused = 1;
+
+	page_scan_state_setup();
+
+	mu_assert_int_eq(0, (int)scans_armed);
+	mu_assert(scan_cb == NULL,
+		"a window was armed after the scheduler refused it");
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
+
+	scan_arm_refused = 0;
+}
+
 /* ---- a connection that carries no packet goes back to what it came from ---- */
 
 /*
@@ -1284,6 +1321,7 @@ int main(void)
 	MU_RUN(paged_a_decode_one_tick_late_keeps_the_windows_in_place);
 	MU_RUN(paged_a_late_decode_ends_the_page_response);
 	MU_RUN(paged_a_dropped_acknowledgment_does_not_start_a_connection);
+	MU_RUN(paged_a_scan_window_that_cannot_be_armed_ends_the_scan);
 	MU_RUN(pager_resumes_the_page_train_after_a_dead_connection);
 	MU_RUN(pager_resume_keeps_the_deadline_of_the_attempt);
 	MU_RUN(paged_resumes_the_scan_after_a_dead_connection);

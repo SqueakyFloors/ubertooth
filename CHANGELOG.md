@@ -1107,6 +1107,15 @@
   reported as a dropped packet too, where it used to be dropped in silence.
   [#1151](https://github.com/SqueakyFloors/ubertooth/issues/1151)
 
+- Fixed: a `btbr` page scan, inquiry scan, or page watch could go quiet and
+  never say why. Every one of them listens by asking the scheduler for the
+  next slot, and a slot already holding four tasks refuses it; the board said
+  only `tdma_schedule bucket overflow` and stayed in the state the user asked
+  for with nothing left to listen with, until the scan's own minute ran out.
+  The scan now says it could not be armed and the session ends, so the user
+  sees it stop rather than waiting out a scan that is not running.
+  [#1167](https://github.com/SqueakyFloors/ubertooth/issues/1167)
+
 - Fixed: when the `btbr` image's radio had not tuned in time for a transmit
   slot, the board said only `TX: RF not FS_ON`, and then spent the next slot
   waiting for an end of transmission that could not come, counting a radio
