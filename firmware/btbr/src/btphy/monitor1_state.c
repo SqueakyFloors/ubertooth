@@ -90,20 +90,26 @@ static int monitor1_rx_fhs_cb(msg_t *msg, void *arg, int time_offset)
 		btphy.peripheral_clkn = (monitor1_state.fhs_info.clk27_2<<2)
 				 + (btphy.peripheral_clkn-pkt->clkn);
 		
+		/* Send FHS to host. It goes on the queue before anything below
+		 * can end the session: the host reads this queue in order and
+		 * stops at the report that the board is idle, so an FHS queued
+		 * behind one is never read. */
+		btctl_tx_enqueue(msg);
+
 		// Start hopping in next timeslot
 		if (tdma_schedule(1, start_monitor2, 0, 0, 0, -3) < 0)
 		{
 			/* The slot that would start following the connection is
-			 * full, so nothing of the follow is armed. Go back to
-			 * watching for a page rather than leave the board with
-			 * nothing left to run. The FHS below still goes to the
-			 * host: this leg did decode it. */
+			 * full, so no part of the follow is armed. Go back
+			 * through the path that opens the next watching window,
+			 * which reports the session as over when it cannot open
+			 * one -- and it cannot, because the window it asks for
+			 * is the same slot that was just refused and a slot is
+			 * only emptied by running. Either way the board does
+			 * not sit here with nothing left to run. */
 			cprintf("monitor: cannot schedule follow\n");
 			monitor1_schedule();
 		}
-
-		// Send FHS to host
-		btctl_tx_enqueue(msg);
 		goto end_nofree;
 	}
 	else{
@@ -165,13 +171,11 @@ static void monitor1_schedule(void)
 	/* Back to the scan substate: an answer that led nowhere leaves the
 	 * response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
+	/* Nothing listening and nothing left to report a window ends the watch,
+	 * on the reason its own deadline uses; the scan task prints what was
+	 * refused. */
 	if (scan_task_schedule(monitor1_rx_id_cb, NULL) < 0)
-	{
-		/* No window is armed and nothing is left to report one, so
-		 * watching is over. It ends on the reason its own deadline
-		 * uses; the console line above says which it was. */
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
-	}
 }
 
 /*

@@ -508,6 +508,8 @@ static void air_reset(void)
 	air_tx_prepared = 0;
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
+	scan_arm_refused = 0;
+	scans_armed = 0;
 	btctl_last_reason = BTCTL_REASON_SUCCESS;
 	central_started = 0;
 	peripheral_started = 0;
@@ -1086,7 +1088,6 @@ MU_TEST(paged_a_scan_window_that_cannot_be_armed_ends_the_scan)
 	btphy.my_uap = PAGED_UAP;
 	btphy.central_clkn = 0;
 	scan_cb = NULL;
-	scans_armed = 0;
 	scan_arm_refused = 1;
 
 	page_scan_state_setup();
@@ -1095,8 +1096,6 @@ MU_TEST(paged_a_scan_window_that_cannot_be_armed_ends_the_scan)
 	mu_assert(scan_cb == NULL,
 		"a window was armed after the scheduler refused it");
 	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
-
-	scan_arm_refused = 0;
 }
 
 /* ---- a connection that carries no packet goes back to what it came from ---- */

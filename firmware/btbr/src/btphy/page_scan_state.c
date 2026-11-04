@@ -274,10 +274,10 @@ static void page_scan_schedule(void)
 	btphy_set_mode_no_ap(BT_MODE_PAGE_SCAN);
 	if (scan_task_schedule(page_scan_rx_id_cb, NULL) < 0)
 	{
-		/* No window is armed and nothing is left to report one, so the
-		 * scan is over. It ends on the reason its own deadline uses:
-		 * the host's reasons have no word for a full scheduler, and
-		 * the board's console line says which it was. */
+		/* Nothing is listening and nothing is left to report a window,
+		 * so the scan is over. It ends on the reason its own deadline
+		 * uses: the host's reasons have no word for a scheduler with
+		 * no room, and the scan task prints what was refused. */
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 	}
 }

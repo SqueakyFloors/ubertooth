@@ -131,13 +131,11 @@ static void inquiry_scan_schedule(void)
 	/* Back to the scan substate, which every path here comes from: a
 	 * finished response leaves the response substate behind. */
 	btphy_set_mode_no_ap(BT_MODE_INQUIRY_SCAN);
+	/* Nothing listening and nothing left to report a window ends the scan,
+	 * on the reason its own deadline uses; the scan task prints what was
+	 * refused. */
 	if (scan_task_schedule(inquiry_scan_rx_cb, NULL) < 0)
-	{
-		/* No window is armed and nothing is left to report one, so the
-		 * scan is over. It ends on the reason its own deadline uses;
-		 * the console line above says which it was. */
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
-	}
 }
 
 /*

@@ -187,6 +187,7 @@ static void an_inquiry_scan(int with_an_eir)
 	transmits_armed = 0;
 	memset(transmit_type, 0, sizeof(transmit_type));
 	reported_state = BTCTL_STATE_STANDBY;
+	scan_arm_refused = 0;
 	console_len = 0;
 	console[0] = '\0';
 
@@ -314,8 +315,6 @@ MU_TEST(a_scan_window_that_cannot_be_armed_ends_the_scan)
 	mu_assert(armed_scan_cb == NULL,
 		"a window was armed after the scheduler refused it");
 	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
-
-	scan_arm_refused = 0;
 }
 
 /*

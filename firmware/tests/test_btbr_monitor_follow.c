@@ -1,14 +1,16 @@
 /*
- * Unit tests for what the BR/EDR image's page watcher does when the scheduler
+ * Unit tests for what `btbr`'s `monitor` command does when the scheduler
  * cannot take the slot that starts following a connection:
  * firmware/btbr/src/btphy/monitor1_state.c.
  *
- * The watcher listens for a page, reads the central's page response, and then
- * asks for the next slot to start following the connection the two devices are
- * making. A slot holds four tasks and refuses the fifth, and a refusal there
- * used to be thrown away: nothing of the follow was armed, nothing was left
- * listening, and the board sat in the state the user asked for until the
- * watcher's own minute ran out. It now goes back to watching for a page.
+ * It listens for a page, reads the central's page response, and then asks for
+ * the next slot to start following the connection the two devices are making.
+ * A slot holds four tasks and refuses the fifth, and a refusal there used to
+ * be thrown away: no part of the follow was armed, nothing was left
+ * listening, and the board stayed in the state the host asked for with no
+ * task to run and no deadline left to reach. It now goes back through the
+ * path that opens the next watching window, which reports the session over
+ * when it cannot open one.
  *
  * The state machine is included into this translation unit, which is how its
  * slot task and callbacks can be reached at all: they are static. Everything
@@ -86,21 +88,35 @@ void __attribute__((noreturn)) die(char *fmt, ...)
 	abort();
 }
 
+/* What the board put on the queue to the host, in order: the host reads it in
+ * order and stops at the report that the board is idle, so an FHS queued
+ * behind one is never read. `fhs_queued_at` says where the FHS fell. */
+static unsigned host_messages;
+static unsigned fhs_sent_to_host;
+static unsigned fhs_queued_at;
+
+/* Whether the scheduler has room for what the watcher asks for next. A slot
+ * holds four tasks and refuses the fifth; what a real full slot does to a real
+ * arm is pinned in test_btbr_scan_schedule.c, and what is left to say here is
+ * which way this state machine goes when it is told. */
+static int sched_refuses;
+
 /* The state the board last reported to the host. */
 static btctl_state_t reported_state;
 
 void btctl_set_state(btctl_state_t state, btctl_reason_t reason)
 {
 	(void)reason;
+	/* The firmware sends no report for standby to standby. */
+	if (!(btctl.state == BTCTL_STATE_STANDBY
+			&& state == BTCTL_STATE_STANDBY))
+		host_messages++;
 	btctl.state = state;
 	reported_state = state;
 }
 
-/* The message queue to the host, which is where a decoded FHS goes. The one
- * the watcher sends is counted and released here, so the memory pool lasts
- * the run. */
-static unsigned fhs_sent_to_host;
-
+/* The queue itself. The one message the watcher sends is released here, so the
+ * memory pool lasts the run. */
 void msg_queue_init(msg_queue_t *q) { (void)q; }
 
 msg_t *msg_dequeue(msg_queue_t *q) { (void)q; return NULL; }
@@ -108,7 +124,9 @@ msg_t *msg_dequeue(msg_queue_t *q) { (void)q; return NULL; }
 int msg_enqueue(msg_queue_t *q, msg_t *msg)
 {
 	(void)q;
+	host_messages++;
 	fhs_sent_to_host++;
+	fhs_queued_at = host_messages;
 	msg_free(msg);
 	return 0;
 }
@@ -167,8 +185,18 @@ static scan_task_cb_t armed_scan_cb;
 static void *armed_scan_arg;
 static unsigned scans_armed;
 
+static unsigned scan_arms_asked;
+
 int scan_task_schedule(scan_task_cb_t cb, void *cbarg)
 {
+	scan_arms_asked++;
+	/* A window is armed in the slot after the one the caller is standing
+	 * in, which is the slot the follow arm asks for as well, and a slot is
+	 * only emptied by running. So the same full slot refuses both: the
+	 * switch below covers the window arm too, as the firmware's own
+	 * scheduler would. */
+	if (sched_refuses)
+		return -1;
 	armed_scan_cb = cb;
 	armed_scan_arg = cbarg;
 	scans_armed++;
@@ -200,12 +228,8 @@ void tx_task_schedule(unsigned delay, tx_task_cb_t cb, void *cbarg,
 	transmits_armed++;
 }
 
-/*
- * The scheduler, as a switch: `sched_refuses` makes the next arm the refusal a
- * full slot gives. What the watcher asks for is the slot that starts the
- * follow, and nothing else here goes through it.
- */
-static int sched_refuses;
+/* The scheduler, as the same switch: what the watcher asks for through it is
+ * the slot that starts the follow. */
 static unsigned slot_tasks_armed;
 static tdma_sched_cb *armed_slot_task;
 
@@ -239,6 +263,7 @@ static void a_watcher(void)
 	armed_scan_cb = NULL;
 	armed_scan_arg = NULL;
 	scans_armed = 0;
+	scan_arms_asked = 0;
 	armed_rx_cb = NULL;
 	transmits_armed = 0;
 	slot_tasks_armed = 0;
@@ -263,8 +288,15 @@ static void a_page_arrives(void)
 	scan_task_cb_t cb = armed_scan_cb;
 	void *arg = armed_scan_arg;
 
+	/* The counters start again from the page, so what a case reads is what
+	 * the answer to this page did rather than what setting the watcher up
+	 * did. */
 	armed_scan_cb = NULL;
 	scans_armed = 0;
+	scan_arms_asked = 0;
+	host_messages = 0;
+	fhs_sent_to_host = 0;
+	fhs_queued_at = 0;
 	cb(1, arg);
 	if (armed_rx_cb == NULL)
 		die("the watcher opened no window for the page response\n");
@@ -314,10 +346,13 @@ MU_TEST(a_page_response_starts_the_follow)
 
 /*
  * The slot that would start the follow is full, so no part of the follow is
- * armed. The board goes back to watching for a page rather than sitting in
- * the state the host asked for with nothing left to run.
+ * armed. The watcher goes back through the path that opens its next watching
+ * window, and that path reports the session over when it cannot open one --
+ * which it cannot here, because the window it asks for is the same slot that
+ * was just refused. Either way the board is not left sitting in the state the
+ * host asked for with nothing to run.
  */
-MU_TEST(a_follow_that_cannot_be_armed_goes_back_to_watching)
+MU_TEST(a_follow_that_cannot_be_armed_ends_the_session)
 {
 	a_watcher();
 	a_page_arrives();
@@ -327,13 +362,16 @@ MU_TEST(a_follow_that_cannot_be_armed_goes_back_to_watching)
 
 	mu_assert_int_eq(0, (int)slot_tasks_armed);
 	mu_assert_int_eq(0, (int)follows_started);
-	/* Watching again, on the scan substate rather than left on the page
-	 * response's. */
-	mu_assert_int_eq(1, (int)scans_armed);
-	mu_assert(armed_scan_cb != NULL,
-		"the board stopped with nothing left to run");
+	/* It did try to watch again, on the scan substate rather than left on
+	 * the page response's. */
+	mu_assert_int_eq(1, (int)scan_arms_asked);
 	mu_assert_int_eq(BT_MODE_PAGE_SCAN, btphy.mode);
-	mu_assert_int_eq(BTCTL_STATE_PAGE_SCAN, btctl.state);
+	/* And having been refused that too, it says the session is over
+	 * instead of waiting for a window that is not coming. */
+	mu_assert_int_eq(0, (int)scans_armed);
+	mu_assert(armed_scan_cb == NULL,
+		"a window was armed after the scheduler refused it");
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
 }
 
 MU_TEST(a_follow_that_cannot_be_armed_says_so_on_the_console)
@@ -347,8 +385,12 @@ MU_TEST(a_follow_that_cannot_be_armed_says_so_on_the_console)
 	mu_assert(strstr(console, "cannot schedule follow") != NULL, console);
 }
 
-/* The FHS was decoded, so it still goes to the host: what was lost is the
- * follow, not the packet. */
+/*
+ * The FHS was decoded, so it still reaches the host: what was lost is the
+ * follow, not the packet. It has to be queued before the report that the
+ * session is over, because the host reads this queue in order and stops at
+ * that report.
+ */
 MU_TEST(a_follow_that_cannot_be_armed_still_reports_the_fhs)
 {
 	a_watcher();
@@ -358,13 +400,15 @@ MU_TEST(a_follow_that_cannot_be_armed_still_reports_the_fhs)
 	the_page_response_arrives();
 
 	mu_assert_int_eq(1, (int)fhs_sent_to_host);
+	mu_assert_int_eq(1, (int)fhs_queued_at);
+	mu_assert_int_eq(2, (int)host_messages);
 }
 
 int main(void)
 {
 	printf("BR/EDR page watcher tests: no slot for the follow\n");
 	MU_RUN(a_page_response_starts_the_follow);
-	MU_RUN(a_follow_that_cannot_be_armed_goes_back_to_watching);
+	MU_RUN(a_follow_that_cannot_be_armed_ends_the_session);
 	MU_RUN(a_follow_that_cannot_be_armed_says_so_on_the_console);
 	MU_RUN(a_follow_that_cannot_be_armed_still_reports_the_fhs);
 	return mu_report();

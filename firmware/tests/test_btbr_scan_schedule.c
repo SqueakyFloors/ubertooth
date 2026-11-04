@@ -2,8 +2,7 @@
  * Unit tests for what the BR/EDR image's scan task does when the scheduler
  * cannot take its next listening slot: firmware/btbr/src/btphy/scan_task.c.
  *
- * A page scan, an inquiry scan and the promiscuous page watcher all listen
- * through this one task. It puts one slot task on the scheduler at a time, and
+ * `page_scan`, `inquiry_scan` and `monitor` all listen through this one task. It puts one slot task on the scheduler at a time, and
  * that task is the only thing that ever reaches the caller's callback. The
  * scheduler takes four tasks per slot and refuses the fifth, so an arm can be
  * refused -- and a caller that was not told would sit in its scan state with

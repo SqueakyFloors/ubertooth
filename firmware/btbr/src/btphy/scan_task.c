@@ -99,12 +99,15 @@ static void scan_wait(void)
 			if (tdma_schedule(1, scan_wait_more, 0, 0, 0, -3) < 0)
 			{
 				/* The next slot of this window cannot be
-				 * armed, so this window is over. End it with
-				 * no packet, which is what the window reports
-				 * when it hears nothing and every caller
-				 * already handles, rather than leave the scan
-				 * with no task left to run and the caller
-				 * waiting forever. */
+				 * armed, so the window is over. End it as a
+				 * window that heard nothing, which is the
+				 * report every caller already acts on, rather
+				 * than leave the scan with no task left to run
+				 * and the caller waiting forever. The caller
+				 * asks for its next window from that report
+				 * and is refused in turn -- it asks for this
+				 * same slot, and a slot is only emptied by
+				 * running -- so the session ends there. */
 				cprintf("scan: cannot wait another slot\n");
 				scan_finalize();
 			}
