@@ -247,9 +247,9 @@ to capture.
    there is no acquisition to wait for and a follow that is working prints
    packets from the start. On this project's bench the first record arrived
    within a second or two of the command where the board could hear the
-   piconet well, and a few seconds in where the signal was weak. None of that
-   time is spent searching: it is the page, the clock read, and opening the
-   board. A run that prints none has one of five causes: the
+   piconet well, and a few seconds in where the signal was weak, which is a
+   wait for a packet to arrive rather than for the tool. No part of it is
+   clock acquisition. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear the piconet, the `-u`
    given is wrong, the clock the board was given is off by enough to put it on
    the wrong channel, which is what `-w` adjusts for, or the target is not the
@@ -297,45 +297,45 @@ kernel, and the board's clock has to be moved on by that much to stay with the
 piconet. `-w` is how much: a whole number of 625us Bluetooth timeslots, 5 by
 default.
 
-That delay is a property of the machine rather than of the piconet, so find the
-value once on yours and keep it. Sweep a few values either side of the default
-over a piconet that is carrying steady traffic, each leg the same length:
+The delay `-w` pays for is the host's own, so the value that suits one machine
+is no guide to another and the default does not suit every machine. Sweep it
+over a piconet that is carrying steady traffic, a few values either side of the
+default, each leg the same length. Sweep in the form you will capture in, with
+`-t` or without: a page is part of the delay being paid for, so a value found
+one way need not hold for the other.
 
     d=$(mktemp -d)
     for w in 0 1 2 3 4 5 6 7 8; do
       timeout 25 ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w $w -r "$d/w$w.pcapng"
     done
 
-Judge the sweep by the packets that decoded, not by how many the run printed.
-A board hopping on a clock that is wrong still matches the piconet's access
-code now and then, and it writes a record for every match while few or none of
-those records' headers pass their header error check. So a wrong value can
-print hundreds of lines and decode a handful, which reads like a capture that
-is working. The packets that decoded are the ones whose fields and payload the
-run printed; an enhanced data rate packet never reaches that, however right the
-clock, because its payload is not basic rate (see WHAT A FOLLOW DOES NOT
-CAPTURE below).
+Count the headers that passed, not the records written. A board hopping on a
+clock that is wrong still matches the piconet's access code now and then, and
+it records every match, so a bad value can write hundreds of records and get
+nothing out of any of them. In Wireshark the records worth having are the
+frames not marked `Incorrect Packet Header or HEC`; `tshark -V` prints that
+warning twice per frame, so halve a count of it. Do not sweep by the packet
+detail the run printed: that needs the payload as well as the header, and an
+enhanced data rate payload is not basic rate and never decodes, so on a link
+carrying EDR every value would read as zero (see WHAT A FOLLOW DOES NOT CAPTURE
+below).
 
 Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
-three or four times as many records, and the extra ones are matches the board
-made with an error allowed, so they say nothing about whether the clock is
-right. That is what makes a bad value look like a working capture.
+three or four times as many records, the extra ones matched with an error
+allowed, which is how a bad value comes to look like a working capture.
 
 A sweep on this project's bench, 25-second legs on one Classic piconet with
 everything but `-w` held the same, decoded 6166 packets at `-w 2`, 3976 at
 `-w 3`, 19 at the default of 5, and none at all at 0 or 6. So the useful range
 is narrow, and on that host it was three slots away from the default.
 
-That is also as much as can honestly be said about how much of a piconet a
-follow holds: the answer is decided by `-w` rather than by anything about the
-piconet, and it is not steady even at the best value. Two further passes on the
-same bench put `-w 2` ahead again, matching 3123 and 3284 access codes where
-every other value tried matched between 74 and 330, so the value itself
-repeats. How much of what it matched decoded did not: of three legs at `-w 2`,
-one decoded almost every record it wrote and the other two a small part. The
-clock the board is given is out by less than a slot as well, and `-w` moves in
-whole slots, so no value of it takes that part out. Sweep for the best value,
-and expect the capture at it to vary from run to run.
+The best value repeats; what it captures does not. Two shorter passes on the
+same bench put `-w 2` ahead again, and of three legs at it, one decoded almost
+every record it wrote and the other two a small part of theirs. No value of
+`-w` took that variation out. So sweep for the best value, and expect the
+capture at it to vary from run to run. How much of a piconet a follow holds
+turns on `-w` more than on anything else, and the bench cannot yet put a steady
+figure on it.
 
 ## WHAT A FOLLOW DOES NOT CAPTURE
 

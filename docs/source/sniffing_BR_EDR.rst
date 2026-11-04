@@ -185,7 +185,7 @@ device; there is none on macOS, so the tool is not built there.
 #. **Find the right delay for this machine** with ``-w``, if the run prints
    packets and decodes little of what it prints. ``-w`` pays for the host's own
    delay between reading the clock and the board starting to hop, and its
-   default of 5 is the right value on some machines and not others. Sweep it
+   default of 5 does not suit every machine. Sweep it
    once and keep the answer: on this project's bench a 25-second capture
    decoded 6166 packets at ``-w 2`` and 19 at the default of 5. The ``-w``
    section of

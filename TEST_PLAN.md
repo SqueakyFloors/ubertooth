@@ -701,20 +701,27 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
 - [ ] Find the piconet with `ubertooth-rx -U <serial> -z -t 30` and confirm its
       LAP, and the UAP against the leading device's real address (a short
       survey's UAP is a guess and can be wrong)
+- [ ] Sweep `-w` on this host **before** the runs below, because the rest of
+      this section measures nothing at a value that is wrong: equal legs at
+      `-w` 0 to 8 with `-e 0`, each writing a capture of its own, recording for
+      each leg the records whose header passed (`ubertooth-follow.md`, THE -w
+      DELAY, has the loop and the count). Record the best value and use it for
+      every run below. Expect a narrow useful range, expect it not to be the
+      default, and expect the capture at the best value to vary from run to run
 - [ ] Run
-      `timeout --preserve-status 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -q lu1.pcap`
+      `timeout --preserve-status 60 ubertooth-follow -U <serial> -l <lap> -u <uap> -w <swept value> -q lu1.pcap`
       and record: whether the page succeeded, how long until packets appear,
       and how much of the piconet's traffic the capture holds. Count the
-      packets that decoded, not the records written: a board hopping on a wrong
-      clock still records every access code it happens to match, so a record
-      count in the hundreds is no evidence the follow is working
-      (`ubertooth-follow.md`, THE -w DELAY). Compare against a 60-second
+      records whose header passed, not the records written: a board hopping on
+      a wrong clock still records every access code it happens to match, so a
+      record count in the hundreds is no evidence the follow is working.
+      Compare against the same count from a 60-second
       `ubertooth-rx -l <lap> -u <uap> -t 60`. A follow runs until it is
       interrupted, so every run here needs a `timeout` or a Ctrl-C of its own.
       `--preserve-status` is what makes the exit status the tool's own; plain
       `timeout` reports 124 for every run it ended
 - [ ] Run
-      `timeout --preserve-status 60 ubertooth-follow -U <serial> -t <whole address> -q t1.pcap`
+      `timeout --preserve-status 60 ubertooth-follow -U <serial> -t <whole address> -w <swept value> -q t1.pcap`
       and record the same three things. Both forms name one piconet, so a
       difference between them is the page, not the follow. Run the pair twice,
       alternating, as `lu2.pcap` and `t2.pcap`, so a one-off paging failure
@@ -731,10 +738,8 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
       the capture starts streaming rather than after
       ([issue #503](https://github.com/SqueakyFloors/ubertooth/issues/503)) —
       the reset-to-hop gap is error in the followed clock, and `-w` is what
-      compensates for it. Sweep `-w` from 0 to 8 on this host, equal legs, and
-      record the packets that decoded at each: the right value belongs to the
-      machine and need not be the default. Expect a narrow useful range, and
-      expect the capture at the best value to vary from run to run
+      compensates for it. Record whether `-w 0` locks on as well as the swept
+      value does
 - [ ] With the piconet held to a reduced AFH map, run
       `timeout --preserve-status 60 ubertooth-follow -U <serial> -t <whole address> -a -q afh.pcap`
       and record the `AFH map: 0x...` line beside the map the devices are
