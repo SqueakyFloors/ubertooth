@@ -138,6 +138,15 @@ static struct {
 	/* The map the board was given, so a case can check it is the one the
 	 * target reported. */
 	uint8_t board_map[AFH_MAP_BYTES];
+	/* The link to the target being dropped, and on which handle. -1 until
+	 * it happens. */
+	int disconnects;
+	int disconnected_handle;
+	/* The two clock reads, which have nothing to follow behind them: each
+	 * can be made to fail, with the errno it leaves. */
+	int clock_read_fails;
+	int clock_offset_read_fails;
+	int clock_read_errno;
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
@@ -196,6 +205,7 @@ static void reset_fake(void)
 	memset(fake.afh_map, 0xff, sizeof(fake.afh_map));
 	fake.afh_read_handle = -1;
 	fake.afh_read_sock = -1;
+	fake.disconnected_handle = -1;
 }
 
 /* Writes a map with the lowest `channels` channels in use and the rest off,
@@ -289,9 +299,13 @@ int hci_create_connection(int dd, const bdaddr_t* bdaddr, uint16_t ptype,
 int hci_disconnect(int dd, uint16_t handle, uint8_t reason, int to)
 {
 	(void)dd;
-	(void)handle;
 	(void)reason;
 	(void)to;
+	/* Counted, with the handle it was given, so a case can check the link
+	 * the tool made to the target is dropped and not left for the
+	 * controller to time out. */
+	fake.disconnects++;
+	fake.disconnected_handle = handle;
 	return 0;
 }
 
@@ -329,6 +343,10 @@ int hci_read_clock(int dd, uint16_t handle, uint8_t which, uint32_t* clock,
 	(void)handle;
 	(void)which;
 	(void)to;
+	if (fake.clock_read_fails) {
+		errno = fake.clock_read_errno;
+		return -1;
+	}
 	*clock = 1000;
 	*accuracy = 0;
 	return 0;
@@ -339,6 +357,10 @@ int hci_read_clock_offset(int dd, uint16_t handle, uint16_t* clkoffset, int to)
 	(void)dd;
 	(void)handle;
 	(void)to;
+	if (fake.clock_offset_read_fails) {
+		errno = fake.clock_read_errno;
+		return -1;
+	}
 	*clkoffset = 0;
 	return 0;
 }
@@ -1462,10 +1484,13 @@ MU_TEST(a_failed_afh_map_read_stops_the_run)
 	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
 	mu_assert_int_eq(fake.dev_fd, fake.afh_read_sock);
 	/* No board was opened and nothing was asked of one, so no map reached
-	 * the board; the adapter and the link to the target went back. */
+	 * the board. The adapter handle went back, and so did the link to the
+	 * target, rather than being left for the controller to time out. */
 	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(1, fake.disconnects);
+	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.disconnected_handle);
 
 	/* The same failure leaving no errno behind says what it knows rather
 	 * than reporting "Undefined error: 0" as the reason. */
@@ -1605,8 +1630,10 @@ MU_TEST(a_remote_not_using_afh_is_followed_without_a_map)
 	mu_assert(strstr(r.out, "AFH map") == NULL, r.out);
 	mu_assert_int_eq(1, fake.afh_reads);
 	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
-	mu_assert(call_at('c') >= 0, fake.calls);
-	mu_assert_int_eq(-1, call_at('m'));
+	/* The same order as a follow without -a, the clear included and last:
+	 * a clear sent before the mode start would be the thing the mode start
+	 * throws away. */
+	mu_assert(strcmp(fake.calls, "akipdhc") == 0, fake.calls);
 }
 
 /* A mode byte that is neither off nor on is not an answer this tool can act
@@ -1615,21 +1642,84 @@ MU_TEST(a_remote_not_using_afh_is_followed_without_a_map)
  * controller reported is not a transient. */
 MU_TEST(an_afh_mode_that_is_neither_off_nor_on_is_refused)
 {
+	char expected[192];
 	struct run_result r;
 
 	reset_fake();
-	fake.afh_mode = 0x02;
+	fake.afh_mode = FOLLOW_AFH_MODE_ON + 1;
 	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "error: the remote device reported AFH mode 0x%02x, which is "
+	         "neither off (0x%02x) nor on (0x%02x)\n",
+	         FOLLOW_AFH_MODE_ON + 1, FOLLOW_AFH_MODE_OFF,
+	         FOLLOW_AFH_MODE_ON);
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err,
-	          "error: the remote device reported AFH mode 0x02, which is "
-	          "neither off (0x00) nor on (0x01)\n") != NULL, r.err);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
 	mu_assert_int_eq(1, occurrences(r.err, "error: "));
 	mu_assert(r.out[0] == '\0', r.out);
 	mu_assert_int_eq(1, fake.afh_reads);
 	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(1, fake.dev_fd_closed);
+}
+
+/* Without a clock there is nothing to follow, so a clock read that fails
+ * stops the command rather than hopping on whatever the clock held. Both
+ * reads are checked: the adapter's own clock, and the target's offset from it.
+ * These are the last two failures before the board is told to hop, and the
+ * only ones that happen with the receive thread already running, so they are
+ * also what says that thread and the board are given back. */
+MU_TEST(a_clock_read_that_fails_stops_the_follow)
+{
+	char expected[160];
+	struct run_result r;
+
+	reset_fake();
+	fake.clock_read_fails = 1;
+	fake.clock_read_errno = EIO;
+	r = RUN(WHOLE_TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: reading the clock of hci0 failed: %s\n", strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	/* The board was never told to hop, and the thread, the board and the
+	 * link to the target all went back. */
+	mu_assert_int_eq(-1, call_at('h'));
+	mu_assert_int_eq(1, fake.thread_stops);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(1, fake.disconnects);
+
+	/* The target's offset, which is read only when there is a link to read
+	 * it over. */
+	reset_fake();
+	fake.clock_offset_read_fails = 1;
+	fake.clock_read_errno = EIO;
+	r = RUN(WHOLE_TARGET);
+	snprintf(expected, sizeof(expected),
+	         "error: reading the clock offset of the target failed: %s\n",
+	         strerror(EIO));
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert_int_eq(-1, call_at('h'));
+	mu_assert_int_eq(1, fake.thread_stops);
+	mu_assert_int_eq(1, fake.stops);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
+	mu_assert_int_eq(1, fake.disconnects);
+
+	/* A run with no target follows the local adapter's own address, so it
+	 * has no link, there is no offset to read, and the offset read's
+	 * failure cannot reach it. (-w names the default, to give the run an
+	 * argument without changing what it does.) */
+	reset_fake();
+	fake.clock_offset_read_fails = 1;
+	r = RUN("-w", "5");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strstr(r.err, "error: ") == NULL, r.err);
+	mu_assert(call_at('h') >= 0, fake.calls);
+	mu_assert_int_eq(0, fake.disconnects);
 }
 
 /* The map is read over a connection to the target, so -a without an address
@@ -1693,6 +1783,7 @@ int main(void)
 	MU_RUN(an_empty_afh_map_is_refused);
 	MU_RUN(a_remote_not_using_afh_is_followed_without_a_map);
 	MU_RUN(an_afh_mode_that_is_neither_off_nor_on_is_refused);
+	MU_RUN(a_clock_read_that_fails_stops_the_follow);
 	MU_RUN(a_without_a_target_address_reads_no_map);
 	MU_RUN(half_a_lap_uap_pair_is_refused);
 	MU_RUN(a_failed_page_to_the_guessed_address_asks_for_t);

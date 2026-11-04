@@ -180,7 +180,7 @@ The map that comes back is used only when it could be a hop sequence at all:
    HCI_Read_AFH_Channel_Map; run without `-a` on one of those;
  - a reply of AFH off is followed without it:
    `the remote device is not using AFH; following without it`. The board is
-   then told to clear its map, as a follow without `-a` is: a board left
+   then told to clear its map, as a follow without `-a` does: a board left
    streaming by a follow that was killed is still in the same mode, so it
    takes this run's mode request as a re-sync of the old one and keeps the map
    that run set. An accepted map is applied after the follow has started
@@ -191,9 +191,10 @@ The map that comes back is used only when it could be a hop sequence at all:
    it still reports too few, the command stops and says so;
  - a mode byte that is neither off nor on is refused and printed.
 
-Nothing is set on the Ubertooth until the map has been accepted, so a refused
-`-a` leaves the board alone, and the connection the tool made to the target is
-dropped on the way out.
+A refused `-a` never reaches the Ubertooth: the map is read before any board is
+opened, so the board is left alone and the connection the tool made to the
+target is dropped on the way out. The only request a run without an accepted
+map sends is the map clear above, from a follow that goes ahead without one.
 
 ## EXAMPLES
 
