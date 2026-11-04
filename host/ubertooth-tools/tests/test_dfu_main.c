@@ -129,6 +129,10 @@ static struct {
 	 * which only --update-bootloader does. Every other case is held to
 	 * reading from the application region upwards. */
 	int reads_the_bootloader_region;
+	/* The application's bootloader report, which is where the run finds out
+	 * whether the board already has the bootloader the image carries. */
+	int bl_info_calls;
+	int bl_info_rc;         /* < 0: the report read fails with this */
 
 	int upload_calls;
 	int upload_fail_block;  /* this block fails to read, or -1 */
@@ -598,6 +602,29 @@ int cmd_get_part_id(struct libusb_device_handle *devh, u32 *part_id)
 	if (fake.part_id_rc < 0)
 		return fake.part_id_rc;
 	*part_id = fake.part_id;
+	return 0;
+}
+
+/* The bootloader the board has, read from the application: the same request
+ * `ubertooth-util -B` makes, and what --update-bootloader compares the image
+ * against before it writes anything.
+ *
+ * The hash is taken over fake.bl_region as the flash holds it, with no window
+ * allowed for: the application maps the user flash over those bytes, which is
+ * the whole reason this is read here rather than from the DFU read-back. */
+int cmd_get_bootloader_info(struct libusb_device_handle *devh,
+                            struct ubertooth_bootloader_info *info)
+{
+	(void)devh;
+	fake.bl_info_calls++;
+	if (fake.bl_info_rc < 0)
+		return fake.bl_info_rc;
+	memset(info, 0, sizeof(*info));
+	info->crc32 = ~dfu_image_crc32(fake.bl_region, sizeof(fake.bl_region));
+	info->version_result = ubertooth_bl_version_parse(
+		fake.bl_region + UBERTOOTH_BL_VERSION_OFFSET,
+		sizeof(fake.bl_region) - UBERTOOTH_BL_VERSION_OFFSET,
+		&info->version);
 	return 0;
 }
 
@@ -3197,6 +3224,9 @@ MU_TEST(an_update_that_leaves_the_board_in_dfu_is_a_success)
 	 * the bootloader, which is what makes an unchanged region provable. */
 	mu_assert_int_eq(2 * (int)(BOOTLOADER_SIZE / BLOCK_SIZE),
 	                 fake.upload_calls);
+	/* The board was asked which bootloader it had before any of that, and
+	 * it was a different one, so the write went ahead. */
+	mu_assert_int_eq(1, fake.bl_info_calls);
 }
 
 /*
@@ -3431,6 +3461,10 @@ MU_TEST(an_updater_that_never_ran_is_refused_through_the_boot_rom_window)
  * window, so the run reports it rather than refusing: the board has what was
  * asked for, and refusing would be the false refusal this check is written to
  * avoid.
+ *
+ * --force is what gets the run this far. Without it the board is asked what
+ * bootloader it has before anything is written, and a run that gets this
+ * answer stops there.
  */
 MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 {
@@ -3440,7 +3474,8 @@ MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 	board_whose_entry_pin_is_bridged();
 	write_updater_image(UPDATER_PAYLOAD);
 	board_already_holds_the_image_bootloader();
-	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader",
+	        "--force");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, error_lines(r.err));
 	/* Not refused -- the board has what was asked for -- and not called an
@@ -3456,6 +3491,189 @@ MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 	          line);
 	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
 	          "a run that wrote nothing was reported as an install");
+	/* --force wrote without asking the board what it had. */
+	mu_assert_int_eq(0, fake.bl_info_calls);
+	mu_assert(fake.dnload_calls > 0, "--force wrote nothing");
+}
+
+/*
+ * A board that already has the bootloader the image carries is left alone
+ * entirely: the application is asked which bootloader it has -- the request
+ * `ubertooth-util -B` makes -- before the board is asked for DFU, and a run
+ * whose answer matches writes nothing at all.
+ *
+ * What that saves is not only the write to the bootloader region. The updater
+ * goes into the application region, so a run that went ahead would cost the
+ * board its firmware and leave the user reflashing it, for a bootloader that
+ * was already there.
+ */
+MU_TEST(a_board_that_already_has_this_bootloader_is_left_alone)
+{
+	struct run_result r;
+	char line[128];
+
+	board_in_application(PART_ID_128K, 128 * 1024);
+	write_updater_image(UPDATER_PAYLOAD);
+	board_already_holds_the_image_bootloader();
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	/* Asked once, of the application, and nothing done about it. */
+	mu_assert_int_eq(1, fake.bl_info_calls);
+	mu_assert_int_eq(0, fake.flash_calls);
+	mu_assert_int_eq(0, fake.dnload_calls);
+	mu_assert_int_eq(0, fake.detach_calls);
+	mu_assert_int_eq(0, fake.upload_calls);
+	/* The result, so standard output: what the board has, and that it still
+	 * has its firmware -- which is what tells this apart from an update that
+	 * ran. */
+	snprintf(line, sizeof(line), "The board already has this bootloader: "
+	         "ubertooth-util -B reports CRC32:0x%08x.",
+	         (unsigned)updater_image_crc32());
+	mu_assert(strstr(r.out, line) != NULL, r.out);
+	/* The same line as a literal, which is what the doc-example-lines check
+	 * reads to pin the sample in ubertooth-dfu(1). */
+	mu_assert(strcmp(line, "The board already has this bootloader: "
+	                 "ubertooth-util -B reports CRC32:0x7c52e323.") == 0,
+	          line);
+	mu_assert(strstr(r.out, "Nothing was written, and the board is still "
+	          "running its firmware. Give --force to write it anyway.")
+	          != NULL, r.out);
+	/* Nothing about DFU or writing firmware again: the board never left its
+	 * application. */
+	mu_assert(strstr(r.out, "DFU") == NULL, r.out);
+}
+
+/*
+ * `-u` alongside asks for a dump of the firmware the updater is about to
+ * replace, which is a reasonable thing to want. Leaving the board alone would
+ * end the run before the board reached DFU, and the dump would never be read,
+ * so the check is not made at all on such a command line and the run does
+ * everything it was asked.
+ */
+MU_TEST(a_read_back_asked_for_alongside_the_update_is_still_read)
+{
+	struct run_result r;
+	int content_ok;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	board_already_holds_the_image_bootloader();
+	remove_dump();
+	r = RUN("-U", "0", "-u", dump_path, "-d", sized_image_path,
+	        "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	/* The board was never asked what bootloader it had, so nothing was
+	 * skipped on the strength of the answer. */
+	mu_assert_int_eq(0, fake.bl_info_calls);
+	mu_assert(strstr(r.out, "already has this bootloader") == NULL,
+	          "the run ended early and left the read-back undone");
+	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
+	mu_assert(content_ok, "the dump is not the region it read");
+	remove_dump();
+}
+
+/*
+ * The hash is what decides it, not the version. Two builds of a bootloader can
+ * carry the same version -- the version block sits inside the lowest 512
+ * bytes, with the vector table -- so a board whose region differs above those
+ * bytes is written even though it reports the version the image carries.
+ */
+MU_TEST(a_board_sharing_only_the_version_is_written)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	board_already_holds_the_image_bootloader();
+	/* One byte above the window, so the version block is untouched. */
+	fake.bl_region[UBERTOOTH_BL_MEMMAP_WINDOW] ^= 0xffu;
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert_int_eq(1, fake.bl_info_calls);
+	mu_assert(strstr(r.out, "already has this bootloader") == NULL,
+	          "a board with another build of the bootloader was left alone");
+	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+}
+
+/*
+ * Firmware older than the bootloader report cannot answer the question, and
+ * that must not be read as "already current": the user asked for the
+ * bootloader to be installed, so it is, and the run says why it could not
+ * check first. A warning, because nothing has gone wrong with the command.
+ */
+MU_TEST(a_board_that_cannot_report_its_bootloader_is_written_with_a_warning)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	/* The one board a skipped check could get wrong: it does hold the
+	 * image's bootloader, and it cannot say so. */
+	board_already_holds_the_image_bootloader();
+	fake.bl_info_rc = LIBUSB_ERROR_PIPE;
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert(strstr(r.err, "warning: this board's firmware does not report "
+	          "which bootloader it has") != NULL, r.err);
+	mu_assert(strstr(r.err, "the bootloader will be written") != NULL,
+	          r.err);
+	mu_assert(fake.dnload_calls > 0,
+	          "a board that could not be asked was not written");
+	mu_assert(strstr(r.out, "already has this bootloader") == NULL,
+	          "a board that could not be asked was called current");
+}
+
+/* A report that fails for any other reason is the same answer, and the line
+ * carries the libusb code as every other unreadable request in this tool
+ * does. */
+MU_TEST(a_bootloader_report_that_fails_warns_and_writes)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	fake.bl_info_rc = LIBUSB_ERROR_TIMEOUT;
+	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert_int_eq(0, error_lines(r.err));
+	mu_assert(strstr(r.err, "warning: the bootloader this board has could "
+	          "not be read") != NULL, r.err);
+	mu_assert(strstr(r.err, "usb_error=") != NULL,
+	          "the warning did not carry the libusb code");
+	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+}
+
+/*
+ * --force overrides one check, the one --update-bootloader makes before it
+ * writes. On any other command line it asks for nothing, and taking it
+ * quietly there would read as permission for something.
+ */
+MU_TEST(force_without_the_update_option_is_refused_before_any_board)
+{
+	struct run_result r;
+
+	board_that_installs_the_bootloader();
+	write_updater_image(UPDATER_PAYLOAD);
+	r = RUN("--force");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: --force goes with --update-bootloader")
+	          != NULL, r.err);
+	mu_assert_int_eq(1, error_lines(r.err));
+	mu_assert(r.out[0] == '\0', r.out);
+	/* The error describes the command line, so no usage text follows it. */
+	mu_assert(strstr(r.err, "Usage:") == NULL, r.err);
+	/* Not even alongside an image to write: an ordinary firmware write has
+	 * no check for --force to override. */
+	r = RUN("-U", "0", "-d", sized_image_path, "--force");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, "error: --force goes with --update-bootloader")
+	          != NULL, r.err);
+	mu_assert_int_eq(0, fake.flash_calls);
+	mu_assert_int_eq(0, fake.dnload_calls);
 }
 
 /*
@@ -3827,6 +4045,12 @@ int main(void)
 	MU_RUN(a_bootloader_differing_only_inside_the_window_is_not_claimed);
 	MU_RUN(an_updater_that_never_ran_is_refused_through_the_boot_rom_window);
 	MU_RUN(a_board_that_already_holds_the_image_bootloader_is_not_refused);
+	MU_RUN(a_board_that_already_has_this_bootloader_is_left_alone);
+	MU_RUN(a_read_back_asked_for_alongside_the_update_is_still_read);
+	MU_RUN(a_board_sharing_only_the_version_is_written);
+	MU_RUN(a_board_that_cannot_report_its_bootloader_is_written_with_a_warning);
+	MU_RUN(a_bootloader_report_that_fails_warns_and_writes);
+	MU_RUN(force_without_the_update_option_is_refused_before_any_board);
 	MU_RUN(a_board_that_will_not_become_idle_leaves_the_check_unmade_quietly);
 	MU_RUN(a_dfu_interface_that_will_not_claim_leaves_the_check_unmade);
 	MU_RUN(an_update_writes_the_whole_image_with_the_vector_table_last);

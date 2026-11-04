@@ -564,6 +564,17 @@ struct dfu_runtime_context {
 	 * bootloader, which is what makes an unchanged region provable. */
 	uint32_t bl_crc32_before;
 	int bl_crc32_before_read;
+	/* --update-bootloader: the hash the image installs, so the board can be
+	 * asked whether it already has that bootloader before anything is
+	 * written. Zero when there is nothing to compare, which is every run
+	 * without the option and a run given --force. */
+	uint32_t bl_crc32_wanted;
+	int bl_crc32_wanted_known;
+	/* The board answered with that same hash, so the write has nothing to
+	 * do. Asked once, and the answer ends the run successfully with the
+	 * board still running its application. */
+	int bl_already_installed;
+	int bl_install_checked;
 	/* Set when the run has said no bootloader was installed, so cleanup
 	 * leaves the board in DFU instead of resetting it into the updater
 	 * image, which would start the write the run just reported did not
@@ -657,6 +668,76 @@ static int download_refused_for_part(struct dfu_runtime_context *runtime)
 	return 0;
 }
 
+/*
+ * Does the board already have the bootloader the image carries?
+ *
+ * Asked of the running application, through the request `ubertooth-util -B`
+ * uses, so the number compared is the one that tool prints. The board's own
+ * firmware reads the region with the user flash mapped over the lowest bytes
+ * of the address map, which a read-back over DFU may not show
+ * (bl_update_file.h), so this is the one reading of the region that needs
+ * nothing allowed for.
+ *
+ * It is the hash that is compared and not the version: two builds of a
+ * bootloader can carry the same version, and the hash covers the whole 16 KiB.
+ *
+ * Returns 1 when there is nothing to write, having said so. A board that will
+ * not answer -- firmware older than the request, or a read that fails -- warns
+ * and lets the write go ahead: installing the bootloader is what the user
+ * asked for, and skipping it on a comparison that was never made would leave
+ * an old bootloader in place while reporting the board current. Says its piece
+ * once, however many entry attempts the transition makes.
+ */
+static int bootloader_already_installed(struct dfu_runtime_context *runtime,
+                                        libusb_device_handle *devh)
+{
+	struct ubertooth_bootloader_info info;
+	char stage[96];
+	int rv;
+
+	if (!runtime->bl_crc32_wanted_known)
+		return 0;
+	if (runtime->bl_install_checked)
+		return runtime->bl_already_installed;
+	runtime->bl_install_checked = 1;
+	rv = cmd_get_bootloader_info(devh, &info);
+	if (rv != 0) {
+		/* A warning rather than an error: nothing has gone wrong with the
+		 * command, and the write it lets through is the one that was asked
+		 * for. LIBUSB_ERROR_PIPE is firmware built before the request,
+		 * which is worth telling apart because a user who updates their
+		 * firmware first gets the check. */
+		if (rv == LIBUSB_ERROR_PIPE)
+			fputs("warning: this board's firmware does not report which "
+			      "bootloader it has, so whether it already holds this one "
+			      "was not checked; the bootloader will be written\n",
+			      stderr);
+		else
+			fprintf(stderr, "warning: the bootloader this board has could "
+			        "not be read (usb_error=%d), so whether it already "
+			        "holds this one was not checked; the bootloader will be "
+			        "written\n", rv);
+		fflush(stderr);
+		return 0;
+	}
+	snprintf(stage, sizeof(stage), "bootloader on the board: 0x%08x "
+	         "(image: 0x%08x)", (unsigned)info.crc32,
+	         (unsigned)runtime->bl_crc32_wanted);
+	log_dfu_stage(stage);
+	if (info.crc32 != runtime->bl_crc32_wanted)
+		return 0;
+	runtime->bl_already_installed = 1;
+	/* The result, so standard output, and the whole result: the board has
+	 * the bootloader that was asked for. Nothing was written, so unlike an
+	 * update that ran it still has its firmware and needs nothing further. */
+	printf("The board already has this bootloader: ubertooth-util -B reports "
+	       "CRC32:0x%08x.\nNothing was written, and the board is still "
+	       "running its firmware. Give --force to write it anyway.\n",
+	       (unsigned)info.crc32);
+	fflush(stdout);
+	return 1;
+}
+
 static int open_application(void *context, const char *selector, void **handle,
                             struct dfu_usb_identity *identity)
 {
@@ -678,6 +759,18 @@ static int open_application(void *context, const char *selector, void **handle,
 		ubertooth_stop(ut);
 		ubertooth_free(ut);
 		return result;
+	}
+	/* --update-bootloader on a board that already has the bootloader the
+	 * image carries has nothing to do, and this is the only moment it can be
+	 * asked: the request belongs to the application, and the board is about
+	 * to be asked to leave it. Asked before anything else this function
+	 * reads, so a run that ends here reports only that. */
+	if (bootloader_already_installed(runtime, ut->devh)) {
+		log_dfu_stage("the board already has this bootloader: nothing to "
+		              "write");
+		ubertooth_stop(ut);
+		ubertooth_free(ut);
+		return LIBUSB_ERROR_INVALID_PARAM;
 	}
 	/* Both transfers need the part ID, which says how much flash there is:
 	 * what a read-back may ask the bootloader for, and what a download may
@@ -1853,8 +1946,12 @@ static void usage(FILE *file)
 	fputs("\t-d <filename> download - write DFU file to device\n", file);
 	fputs("\t-r reset Ubertooth after other operations complete\n", file);
 	fputs("\t--update-bootloader install the bootloader carried by the\n", file);
-	fputs("\t              bl_update image given with -d; the board is left\n", file);
-	fputs("\t              in DFU, so write your firmware again afterwards\n", file);
+	fputs("\t              bl_update image given with -d; a board that\n", file);
+	fputs("\t              already has it is left alone, and a board that\n", file);
+	fputs("\t              is written is left in DFU, so write your\n", file);
+	fputs("\t              firmware again afterwards\n", file);
+	fputs("\t--force       with --update-bootloader, write the bootloader\n", file);
+	fputs("\t              even when the board already has it\n", file);
 	fputs("\n", file);
 	fputs("Miscellaneous:\n", file);
 	fputs("\t-s <filename> add DFU suffix to binary firmware file\n", file);
@@ -1910,15 +2007,16 @@ static int plan_upload(struct dfu_runtime_context *runtime)
 #define FUNC_UPDATE_BL (1<<4)
 
 /*
- * --update-bootloader, the one option in these tools that is a word rather
- * than a letter. It is a word because it writes the one region of flash a
- * later run cannot rewrite, and a letter is too easy to reach for by
- * accident.
+ * The two options in these tools that are words rather than letters.
+ * --update-bootloader is a word because it writes the one region of flash a
+ * later run cannot rewrite, and a letter is too easy to reach for by accident;
+ * --force, which overrides the one check that can hold that write back, is a
+ * word for the same reason and so that it reads as belonging to it.
  *
  * getopt does not take long options, and the getopt the tools carry for
  * platforms without a GNU one does not answer getopt_long the way glibc does,
- * so the word is taken out of the command line here instead, before getopt
- * sees it. The word has no value of its own, it has to be written out in
+ * so each word is taken out of the command line here instead, before getopt
+ * sees it. Neither word has a value of its own, each has to be written out in
  * full, and anything else beginning with "--" still reaches getopt and is
  * reported by opt_report_bad_option() with the whole word quoted, as it
  * always was.
@@ -1936,8 +2034,9 @@ static int plan_upload(struct dfu_runtime_context *runtime)
  * refused as the stray argument it is.
  */
 #define OPT_UPDATE_BOOTLOADER_WORD "--update-bootloader"
+#define OPT_FORCE_WORD "--force"
 
-static int take_update_bootloader_word(int *argc, char *argv[])
+static int take_long_word(int *argc, char *argv[], const char *word)
 {
 	int found = 0;
 	int from, to;
@@ -1949,7 +2048,7 @@ static int take_update_bootloader_word(int *argc, char *argv[])
 				argv[to++] = argv[from++];
 			break;
 		}
-		if (strcmp(argv[from], OPT_UPDATE_BOOTLOADER_WORD) == 0) {
+		if (strcmp(argv[from], word) == 0) {
 			found = 1;
 			continue;
 		}
@@ -2324,6 +2423,10 @@ int main(int argc, char **argv) {
 	struct ubertooth_fw_info image_info = {0};
 	unsigned long download_image_size = 0;
 	uint8_t functions = 0;
+	/* --force: write the bootloader without asking the board whether it
+	 * already has it. It overrides a check rather than doing work of its
+	 * own, so it is not one of the functions above. */
+	int force = 0;
 	int interface_claimed = 0;
 	int exit_status = 0;
 	int opt;
@@ -2343,11 +2446,12 @@ int main(int argc, char **argv) {
 	 * cannot be given different letters. */
 	const char options[] = ":hVd:u:s:rU:";
 	/* Taken out of the command line before getopt reads it: see
-	 * take_update_bootloader_word(). The board has to run the image for
-	 * anything to happen, so this is a reset as well; -r alongside it says
-	 * the same thing twice and changes nothing. */
-	if (take_update_bootloader_word(&argc, argv))
+	 * take_long_word(). The board has to run the image for anything to
+	 * happen, so --update-bootloader is a reset as well; -r alongside it
+	 * says the same thing twice and changes nothing. */
+	if (take_long_word(&argc, argv, OPT_UPDATE_BOOTLOADER_WORD))
 		functions |= FUNC_UPDATE_BL | FUNC_RESET;
+	force = take_long_word(&argc, argv, OPT_FORCE_WORD);
 	opterr = 0;
 	while ((opt=getopt(argc, argv, options)) != EOF) {
 		/* No option may be given a value twice: see opt_check_once(). */
@@ -2441,6 +2545,19 @@ int main(int argc, char **argv) {
 		usage(stdout);
 	if (do_version || first_exit_option == 'h')
 		goto end_without_device;
+
+	/* --force overrides one check, the one --update-bootloader makes against
+	 * the bootloader the board already has, so on its own it asks for
+	 * nothing. An ordinary firmware write has no such check to override, and
+	 * taking the word quietly there would read as permission for something.
+	 */
+	if (force && !(functions & FUNC_UPDATE_BL)) {
+		fputs("error: --force goes with --update-bootloader, which it lets "
+		      "write a bootloader the board already has; nothing else this "
+		      "tool does asks the board before writing\n", stderr);
+		exit_status = 1;
+		goto end_without_device;
+	}
 
 	/* The updater is written like any other image, so there has to be one
 	 * to write. Refused here, before any device is opened, like every other
@@ -2617,6 +2734,20 @@ int main(int argc, char **argv) {
 	 * application for its part ID; a bare reset has nothing to bound. */
 	runtime.want_part_id = (functions & (FUNC_UPLOAD|FUNC_DOWNLOAD)) != 0;
 	runtime.expect_return_to_dfu = (functions & FUNC_UPDATE_BL) != 0;
+	/* What the board is asked to compare itself against, so a board that
+	 * already has this bootloader is left alone. --force leaves it unset,
+	 * which is what makes the comparison not happen at all rather than
+	 * happen and be ignored.
+	 *
+	 * So does -u in the same command, which is a reasonable thing to ask
+	 * for: a dump of the firmware the updater is about to replace. Ending
+	 * the run before the board enters DFU would leave that read-back undone,
+	 * and a command that reports success must have done what was asked. */
+	if ((functions & FUNC_UPDATE_BL) && !force &&
+	    !(functions & FUNC_UPLOAD)) {
+		runtime.bl_crc32_wanted = update_image.region_crc32;
+		runtime.bl_crc32_wanted_known = 1;
+	}
 	runtime.upload_name = upfile_name;
 	if (functions & FUNC_DOWNLOAD) {
 		runtime.download_name = downfile_name;
@@ -2664,6 +2795,12 @@ int main(int argc, char **argv) {
 		r = dfu_transition_run(&TRANSITION_OPS, &runtime, ubertooth_device,
 		                       &config, &transition_handle, &report);
 		if (r != DFU_TRANSITION_OK) {
+			/* The board already had the bootloader the image carries, so
+			 * the transition stopped before asking it for DFU. It is still
+			 * running its firmware and has what was asked for, which is
+			 * this run's result and not a failure. */
+			if (runtime.bl_already_installed)
+				goto cleanup;
 			/* An image refused for the attached part has already said so,
 			 * and the board never left its application, so the transition's
 			 * own line would only report a device that would not open. */
