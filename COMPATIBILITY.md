@@ -327,11 +327,11 @@ firmware flashing), not radio capture.
    `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
    filter at all, since the files that must agree on the pin include this one
    and the build guides), `doc-api-version.yml` (Ubuntu 24.04, on every change
-   with no path filter either, since what it reads is every tracked
-   documentation file and `build.yml` skips a documentation-only change) and
-   `manpages.yml` (Ubuntu 24.04, when `host/doc`
-   changes), which installs the pinned ronn-ng and fails if the committed man
-   pages no longer match their Markdown. One job in `build.yml` builds the
+   with no path filter either, since `build.yml` skips a documentation-only
+   change and documentation is what it reads) and `manpages.yml` (Ubuntu 24.04,
+   when `host/doc` changes), which installs the pinned ronn-ng and fails if the
+   committed man pages no longer match their Markdown. One job in `build.yml`
+   builds the
    host tools a second way: `host-installed-libubertooth` (Ubuntu 24.04, when
    the host changed) installs libubertooth and then configures, builds and
    tests `host/ubertooth-tools` on its own, which is what `FindUBERTOOTH.cmake`

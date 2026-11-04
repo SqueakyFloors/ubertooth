@@ -40,7 +40,8 @@ not.
 
 ## The checks a pull request has to pass
 
-Everything below runs from `.github/workflows/`, on every pull request:
+Everything below runs from `.github/workflows/`; each row says when, and the
+two paragraphs after the table say what a documentation-only change runs:
 
 | Workflow / job | What it is for |
 | --- | --- |

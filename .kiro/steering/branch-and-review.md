@@ -109,8 +109,6 @@ or non-trivial operational documentation changes:
   and `manpages.yml`, which cannot read another workflow's env, may name one,
   and both must name the pinned repository. A job that wants the library reads
   the pin instead of writing a repository.
-  `doc-api-version` is its own workflow with no path filter for the same kind
-  of reason, described under "Firmware API version" below.
   A branch with no open PR gets no CI; open a PR (a draft is enough) to get a
   run.
 - Before cutting a release, run the full tier manually and wait for it:
@@ -161,8 +159,8 @@ Speed matters. Do not wait for every job.
   `scripts (ubuntu-24.04)` and `scripts (macos-26)` gate every change they run
   on, whatever the change touches: they take seconds to a minute, need nothing
   built, and a red one means the change itself broke the rule they check.
-  `doc-api-version` is not in the rule on `main` yet, only the maintainer can
-  add it there, and it gates all the same: do not merge past a red one.
+  `doc-api-version` gates too, though it is not in the rule on `main` yet
+  (`CONTRIBUTING.md` says why): do not merge past a red one.
   A full-tier failure is followed up on `main`.
 - **Time budget**: wait at most 10 minutes for the gating set once the run has
   started. Poll every 30 seconds (`gh pr checks <PR>`) rather than one long

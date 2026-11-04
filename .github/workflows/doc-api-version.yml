@@ -5,14 +5,10 @@ name: Doc API version
 # pinned into a sample, and it asks whether TEST_PLAN.md, COMPATIBILITY.md and
 # the CHANGELOG's top section state the version this tree carries.
 #
-# Its own workflow, rather than a job in build.yml, because of what it reads
-# and when that needs reading. build.yml's `changes` job skips the `scripts`
-# job for a branch whose every changed file is documentation, so the check
-# that reads documentation was the one check a documentation-only branch never
-# ran; and build.yml's push trigger ignores `**.md`, `docs/` and `.kiro/`, so
-# such a change was not checked on the merge to main either. This workflow has
-# no path filter at all, on a pull request or on a push to main, which is the
-# same reason libbtbb-pin.yml has none. It takes a second or two and builds
+# Its own workflow, with no path filter on a pull request or on a push to
+# main, as libbtbb-pin.yml has none: build.yml skips a change whose every file
+# is documentation, which left the one check that reads documentation as the
+# one check such a change never ran. It takes a second or two and builds
 # nothing.
 #
 # The job name below is in the gating set in

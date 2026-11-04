@@ -827,7 +827,7 @@ jobs:
       timeout-minutes: 3
       run: tools/check-issue-references-selftest.sh
 
-    - name: Check the documentation does not pin the API version
+    - name: Check the documentation does not pin the API version (BSD tools)
       # Sample output writes the version as API:<version>, so that a bump has
       # one place to change; TEST_PLAN.md and COMPATIBILITY.md carry the real
       # number, so this also asks whether those two are at the version the
@@ -841,7 +841,7 @@ jobs:
       # of the real tree with the BSD tools. The check is sed, grep, awk and
       # xargs, which the two platforms disagree about. So the Mac leg only,
       # the way the shellcheck step above takes the Linux leg only.
-      if: runner.os != 'Linux'
+      if: runner.os == 'macOS'
       timeout-minutes: 2
       run: tools/check-doc-api-version.sh
 
