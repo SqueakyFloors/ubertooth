@@ -106,8 +106,11 @@ static struct {
 	int connect_fails;
 	int connect_errno;
 	int connect_keeps_errno;
-	/* An errno left behind by an earlier call, set by the fake hci_devinfo()
-	 * so a later failure that sets none has something stale to report. */
+	/* An errno left behind by a call that succeeded, so a later failure
+	 * that sets none has something stale it could report by mistake. The
+	 * fakes that leave it are the ones immediately before each call whose
+	 * reason the tool prints: opening the adapter, reading its settings,
+	 * the page, starting the poll thread, and the first clock read. */
 	int dirty_errno;
 	int connects;         /* ubertooth_connect_select(): the board opened */
 	/* The address the page was sent to, as the tool spelled it. */
@@ -247,10 +250,6 @@ int hci_open_dev(int dev_id)
 		errno = fake.open_errno;
 		return -1;
 	}
-	/* Opening the adapter succeeding is where a stale errno would come from
-	 * for the two reads that follow it. */
-	if (fake.dirty_errno != 0)
-		errno = fake.dirty_errno;
 	fake.dev_fd = open("/dev/null", O_RDONLY);
 	if (fake.dev_fd < 0) {
 		/* Say the fixture broke, rather than letting the tool report a
@@ -259,6 +258,10 @@ int hci_open_dev(int dev_id)
 		        strerror(errno));
 		exit(1);
 	}
+	/* Last, because a successful open() may set errno of its own: this is
+	 * where a stale one comes from for the two adapter reads that follow. */
+	if (fake.dirty_errno != 0)
+		errno = fake.dirty_errno;
 	return fake.dev_fd;
 }
 
@@ -267,9 +270,8 @@ int hci_devinfo(int dev_id, struct hci_dev_info* di)
 	(void)dev_id;
 	if (fake.devinfo_fails) {
 		/* The settings are left as the tool declared them, and errno as
-		 * an earlier call left it: dirty_errno below is what puts one
-		 * there, and this call is the only one that can be made to fail
-		 * without setting one of its own. */
+		 * the adapter open left it: this failure sets none of its own,
+		 * which is the case the tool has to clear errno for. */
 		return -1;
 	}
 	memset(di, 0, sizeof(*di));
@@ -1713,14 +1715,16 @@ MU_TEST(an_afh_mode_that_is_neither_off_nor_on_is_refused)
 /* The two adapter reads before the page: its own address, which a run with no
  * target follows, and its settings, which say what packet types the page may
  * ask for. Each names what failed and stops, and names a reason only when the
- * failure left one, rather than one belonging to the call before it. The
- * faked hci_open_dev() leaves an errno behind here, so a reported reason could
- * only be that one. */
+ * failure left one, rather than one belonging to the call before it. Neither
+ * failure sets an errno of its own and the faked adapter open leaves one
+ * behind, so a reason in either line could only be that stale one. */
 MU_TEST(an_adapter_read_that_fails_stops_the_run)
 {
 	struct run_result r;
 
-	/* The adapter's own address, read only when no target was named. */
+	/* The adapter's own address, read only when no target was named. -w
+	 * names the default, to give the run an argument without changing what
+	 * it does. */
 	reset_fake();
 	fake.dirty_errno = EPERM;
 	fake.bd_addr_fails = 1;
@@ -1729,6 +1733,8 @@ MU_TEST(an_adapter_read_that_fails_stops_the_run)
 	mu_assert(strstr(r.err,
 	          "error: reading the address of hci0 failed\n") != NULL, r.err);
 	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(1, fake.dev_fd_closed);
 	mu_assert_int_eq(0, fake.disconnects);
@@ -1742,6 +1748,8 @@ MU_TEST(an_adapter_read_that_fails_stops_the_run)
 	mu_assert(strstr(r.err,
 	          "error: reading the settings of hci0 failed\n") != NULL, r.err);
 	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(0, fake.connects);
 	mu_assert(fake.calls[0] == '\0', fake.calls);
 	mu_assert_int_eq(1, fake.dev_fd_closed);
 	/* No page was made, so there is no link to drop. */
@@ -1768,7 +1776,7 @@ MU_TEST(a_clock_read_that_fails_stops_the_follow)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, expected) != NULL, r.err);
 	mu_assert_int_eq(1, occurrences(r.err, "error: "));
-	/* The board was never told to hop, and the thread, the board and the
+	/* The board was never told to hop, and the thread, the board, and the
 	 * link to the target all went back. */
 	mu_assert_int_eq(-1, call_at('h'));
 	mu_assert_int_eq(1, fake.thread_stops);
