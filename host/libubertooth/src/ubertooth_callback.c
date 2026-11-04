@@ -113,6 +113,17 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
  * safe one to write there. */
 #define NOISE_ABSENT INT8_MAX
 
+/* The reading the packet's own power comes from.
+ *
+ * A record that does not say its average is this packet's power is one from a
+ * board or a `.dump` file older than the measurement, where the field held the
+ * board's running average for the channel. Its strongest reading of the packet
+ * is the nearest thing to the packet's own level that such a record carries. */
+static int8_t record_signal_rssi( const usb_pkt_rx *rx )
+{
+	return (rx->status & SIGNAL_VALID) ? rx->rssi_avg : rx->rssi_max;
+}
+
 /* What the board reports for this packet: the packet's own power, measured,
  * and an estimate of the background on its channel where the mode it came
  * from has one.
@@ -126,13 +137,7 @@ static int8_t cc2400_rssi_to_dbm( const int8_t rssi )
 static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
                                         int8_t *noise )
 {
-	/* A record that does not say its average is this packet's power is one
-	 * from a board or a `.dump` file older than the measurement, where the
-	 * field held the board's running average for the channel. Its strongest
-	 * reading of the packet is the nearest thing to the packet's own level
-	 * that such a record carries. */
-	*sig = cc2400_rssi_to_dbm( (rx->status & SIGNAL_VALID) ? rx->rssi_avg
-	                                                       : rx->rssi_max );
+	*sig = cc2400_rssi_to_dbm( record_signal_rssi( rx ) );
 	*noise = (rx->status & NOISE_ESTIMATE)
 	       ? cc2400_rssi_to_dbm( (int8_t) rx->rssi_noise )
 	       : NOISE_ABSENT;
@@ -141,20 +146,42 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
 /* Room for a dBm figure or the word that stands for a missing one. */
 #define RSSI_FIELD_LEN 8
 
-/* The noise column and the signal-to-noise ratio beside it, as the per-packet
- * lines print them. A mode with no background estimate leaves both absent
- * rather than printing a figure derived from the packet itself. */
-static void format_noise_and_snr( int8_t sig, int8_t noise,
-                                  char n[RSSI_FIELD_LEN],
-                                  char snr[RSSI_FIELD_LEN] )
+/* The three level columns of a per-packet line: the packet's power, the
+ * background estimate, and the ratio between them. Each is a figure or the
+ * word `none`, because neither level is always one the board has: a mode with
+ * no background estimate has no noise figure, and a reading at the ceiling is
+ * no measurement of the packet, only "at least this loud". The ratio needs
+ * both, so it goes whenever either does.
+ *
+ * The figures are taken from the record here, so the level printed and the
+ * judgment of whether it is a measurement always rest on the same reading. */
+static void format_signal_noise_and_snr( const usb_pkt_rx *rx,
+                                         char s[RSSI_FIELD_LEN],
+                                         char n[RSSI_FIELD_LEN],
+                                         char snr[RSSI_FIELD_LEN] )
 {
-	if (noise == NOISE_ABSENT) {
+	int8_t sig, noise;
+	/* The raw reading rather than the dBm figure, because the scale stops
+	 * rising at RSSI_CEILING_RAW: the figure there is the end of the scale
+	 * and says nothing about how much louder the packet was. */
+	int measured = record_signal_rssi( rx ) < RSSI_CEILING_RAW;
+
+	determine_signal_and_noise( rx, &sig, &noise );
+
+	if (measured)
+		snprintf(s, RSSI_FIELD_LEN, "%d", sig);
+	else
+		snprintf(s, RSSI_FIELD_LEN, "none");
+
+	if (noise == NOISE_ABSENT)
 		snprintf(n, RSSI_FIELD_LEN, "none");
-		snprintf(snr, RSSI_FIELD_LEN, "none");
-	} else {
+	else
 		snprintf(n, RSSI_FIELD_LEN, "%d", noise);
+
+	if (measured && noise != NOISE_ABSENT)
 		snprintf(snr, RSSI_FIELD_LEN, "%d", sig - noise);
-	}
+	else
+		snprintf(snr, RSSI_FIELD_LEN, "none");
 }
 
 static uint64_t clock_ns( clockid_t clock_id )
@@ -951,9 +978,8 @@ void ubertooth_report_capture_losses(ubertooth_t* ut)
 void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 {
 	btbb_packet* pkt = NULL;
-	int8_t signal_level;
-	int8_t noise_level;
-	char noise_text[RSSI_FIELD_LEN], snr_text[RSSI_FIELD_LEN];
+	char signal_text[RSSI_FIELD_LEN], noise_text[RSSI_FIELD_LEN];
+	char snr_text[RSSI_FIELD_LEN];
 	int offset;
 	uint32_t clkn;
 
@@ -972,8 +998,7 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	if (rx->channel > (NUM_BREDR_CHANNELS-1))
 		goto out;
 
-	determine_signal_and_noise( rx, &signal_level, &noise_level );
-	format_noise_and_snr( signal_level, noise_level, noise_text, snr_text );
+	format_signal_noise_and_snr( rx, signal_text, noise_text, snr_text );
 
 	/* Pass packet-pointer-pointer so that
 	 * packet can be created in libbtbb. */
@@ -993,14 +1018,14 @@ void cb_scan(ubertooth_t* ut, void* args __attribute__((unused)))
 	systime = ubertooth_packet_systime( arrival_ns );
 
 	fprintf(ubertooth_result_stream(ut),
-	        "systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%d n=%s snr=%s\n",
+	        "systime=%u ch=%2d LAP=%06x err=%u clk100ns=%u clk1=%u s=%s n=%s snr=%s\n",
 	        systime,
 	        btbb_packet_get_channel(pkt),
 	        btbb_packet_get_lap(pkt),
 	        btbb_packet_get_ac_errors(pkt),
 	        rx->clk100ns,
 	        btbb_packet_get_clkn(pkt),
-	        signal_level,
+	        signal_text,
 	        noise_text,
 	        snr_text);
 
@@ -1812,9 +1837,10 @@ void cb_rx(ubertooth_t* ut, void* args)
 	uint64_t nowns = now_ns_from_clk100ns( ut, rx, arrival_ns );
 
 	int8_t signal_level, noise_level;
-	char noise_text[RSSI_FIELD_LEN], snr_text[RSSI_FIELD_LEN];
+	char signal_text[RSSI_FIELD_LEN], noise_text[RSSI_FIELD_LEN];
+	char snr_text[RSSI_FIELD_LEN];
 	determine_signal_and_noise( rx, &signal_level, &noise_level );
-	format_noise_and_snr( signal_level, noise_level, noise_text, snr_text );
+	format_signal_noise_and_snr( rx, signal_text, noise_text, snr_text );
 
 	/* Look for packets with specified LAP, if given. Otherwise
 	 * search for any packet. */
@@ -1843,14 +1869,14 @@ void cb_rx(ubertooth_t* ut, void* args)
 	                     rx->channel, clkn);
 
 	fprintf(ubertooth_result_stream(ut),
-	        "systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%d n=%s snr=%s\n",
+	        "systime=%u ch=%2d LAP=%06x err=%u clkn=%u clk_offset=%u s=%s n=%s snr=%s\n",
 	        systime,
 	        btbb_packet_get_channel(pkt),
 	        btbb_packet_get_lap(pkt),
 	        btbb_packet_get_ac_errors(pkt),
 	        clkn,
 	        clk_offset,
-	        signal_level,
+	        signal_text,
 	        noise_text,
 	        snr_text
 	);

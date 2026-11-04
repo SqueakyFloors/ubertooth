@@ -77,7 +77,7 @@ AFH map: 0x0123456789abcdef1234
 .P
 A piconet whose UAP the capture worked out carries that byte in its address and its name beside it, read through the adapter as a \fB\-s\fR result's name is\. A piconet whose UAP was not worked out reads \fB??:??:??:<LAP>\fR and gets no name and no \fB\-x\fR report: there is no address to page with four of the six bytes missing\. Its channel map is still printed\.
 .P
-\fBs=\fR is the packet's own power and \fBn=\fR the board's estimate of the background on that channel, both in dBm, with \fBsnr=\fR the difference\. A channel the board never heard both loud and quiet in one receive window leaves it with no estimate, and the line reads \fBn=none snr=none\fR; ubertooth\-rx(1) describes both figures and what the estimate rests on\.
+\fBs=\fR is the packet's own power and \fBn=\fR the board's estimate of the background on that channel, both in dBm, with \fBsnr=\fR the difference\. A channel the board never heard both loud and quiet in one receive window leaves it with no estimate, and the line reads \fBn=none snr=none\fR\. A packet whose level is at the top of the receiver's range is not measured either, and the line reads \fBs=none snr=none\fR; ubertooth\-rx(1) describes both figures, what the estimate rests on, and where the dBm scale ends\.
 .P
 The name on a device's line is read from the device itself, and that read waits 25 seconds for an answer\. A device that does not answer in that time has \fB[unknown]\fR on its line, with a \fBnote:\fR on standard error saying why, and the scan goes on to the next result\. Earlier releases gave that read no deadline, so a device that answered the page and then said nothing held the run there: the results so far printed, and nothing after them\.
 .P

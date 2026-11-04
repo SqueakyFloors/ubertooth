@@ -199,10 +199,11 @@ with tempfile.TemporaryDirectory() as workdir:
     # The signal figure beside a packet, at the two readings where the dBm
     # scale ends. The board reports power on a raw scale the tool turns into
     # dBm, and that conversion stops rising at raw 35: one below it still has
-    # a figure of its own, and at it and above the tool can only say 0 dBm.
-    # The boundary is where the overload warning is taken from as well, so a
-    # change to either has to be deliberate.
-    for raw, dbm in ((34, -5), (35, 0), (36, 0)):
+    # a figure of its own, and at it and above the reading says only "at least
+    # this loud", so the line reports no level and no ratio rather than the end
+    # of the scale. The boundary is where the overload warning is taken from as
+    # well, so a change to either has to be deliberate.
+    for raw, level in ((34, "-5"), (35, "none"), (36, "none")):
         header = struct.pack("<BBBBIbbbB2x", BR_PACKET, 0x80, CHANNELS[0], 0,
                              CLOCKS[0], raw, raw - 6, raw, 50)
         symbols = [0] * PREAMBLE_AT + access_code_symbols(LAP)
@@ -215,7 +216,7 @@ with tempfile.TemporaryDirectory() as workdir:
             struct.pack(">I", BASE_TIME) + header + data)
         result = run("-i", "level.bin", directory=work)
         assert result.returncode == 0, result
-        assert f" s={dbm} " in result.stdout, (raw, dbm, result)
+        assert f" s={level} " in result.stdout, (raw, level, result)
 
     # A capture written during the replay is stamped from the first record's
     # host time, not the wall clock: the first packet, which is that record,
