@@ -177,7 +177,12 @@ typedef struct {
 	 * the board is put on the piconet's clock so that it hops with it,
 	 * which moves the clock by whatever the two were apart, in either
 	 * direction, and that is not time passing. Zero on a capture that has
-	 * no move outstanding, which is every capture that follows nothing. */
+	 * no move outstanding, which is every capture that follows nothing, and
+	 * zero for a move too small to tell from the host clock's own error:
+	 * such a move is left in the times, where it is worth less than the
+	 * precision finding it would cost. A capture that asks for a second
+	 * move before the first is found adds the two, both of them being
+	 * waiting to show in one reading. */
 	int64_t clk100ns_pending_move;
 
 	/* The ticks of the moves already found, taken out of the reconstructed

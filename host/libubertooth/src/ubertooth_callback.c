@@ -479,6 +479,39 @@ static uint64_t wraps_the_gap_accounts_for( const ubertooth_t* ut,
  * nothing, and the half of its range kept for backwards differences covers
  * every move a follow can ask for: the offset is under 2^27 CLKN ticks, which
  * is half what the count and the reading hold between them. */
+/* Records a move of the board's clock the capture has asked for, so that the
+ * reconstruction can find it and take it out.
+ *
+ * offset is in CLKN ticks, as the request carries it, and comes from the
+ * decoder as a plain signed difference between two clocks. It is reduced into
+ * the range the records can express: a packet states its clock as a period
+ * count and a reading, 256 periods between them, and an amount past half of
+ * that is the same reading reached the short way round. The firmware's own
+ * CLKN wraps within that range too, so this is where the two agree.
+ *
+ * A move no larger than the slack is not recorded at all. The host's measure
+ * of a gap is only good to about that much, so such a move cannot be told from
+ * ordinary error in that measure: looking for it would as often find it on a
+ * packet stamped before the board moved at all, which costs that packet's time
+ * and leaves the real move in the capture. A move that small is worth less
+ * than the precision finding it would cost, so it stays in the times. */
+static void note_a_move_of_the_clock( ubertooth_t* ut, int offset )
+{
+	int64_t window = 256 * (int64_t) ut->clk100ns_period;
+	int64_t move = ut->clk100ns_pending_move +
+	               (int64_t) offset * CLK100NS_PER_CLKN;
+
+	move %= window;
+	if (move > window / 2)
+		move -= window;
+	else if (move < -window / 2)
+		move += window;
+
+	ut->clk100ns_pending_move =
+	        (llabs( move ) > (int64_t) (CLK100NS_WRAP_SLACK_NS / 100)) ?
+	        move : 0;
+}
+
 static int the_move_landed_on_this_packet( const ubertooth_t* ut,
                                            uint32_t clk100ns, uint8_t periods,
                                            uint8_t count_before,
@@ -500,12 +533,10 @@ static int the_move_landed_on_this_packet( const ubertooth_t* ut,
  * the test above found it on.
  *
  * Read as time passing, such a move stretched a capture's record times by up
- * to the clock's whole period either way, and sent individual times backwards
- * where the clock was moved back: a 15-second follow on the bench wrote records
- * spanning 191.3 s, and a 25-second one 137.4 s, beside systime columns that
- * had both runs right. It is not a rate error, so there is no factor to
- * correct: each capture is out by whatever its own piconet's clock happened to
- * be away from the board's.
+ * to the clock's whole period, and sent individual times backwards where the
+ * reading dropped. It is not a rate error, so there is no factor to correct:
+ * each capture is out by whatever its own piconet's clock happened to be away
+ * from the board's.
  *
  * What is taken out is the whole disagreement between what the reconstruction
  * made of this packet and the gap the host saw, rather than the amount asked
@@ -699,10 +730,17 @@ static void track_clk100ns( ubertooth_t* ut, const usb_pkt_rx* rx,
 
 	/* A move of the clock this capture asked for and has not yet seen. Only
 	 * where the host measured the gap, which is a live capture, that gap
-	 * being what finds the move; and not between the capture's first two
-	 * packets, where the anchor above is already weighing this packet's
-	 * reading against the gap and would count the disagreement twice. A
-	 * move is asked for well into a capture anyway - a follow has to
+	 * being what finds the move.
+	 *
+	 * Not between the capture's first two packets, where this packet's
+	 * reading may be the capture's own anchor: the branches above may have
+	 * moved the anchor and the count baseline onto it already, and taking
+	 * the same disagreement out here as well would count it twice. A move
+	 * larger than a period is what reaches that, so it is the large moves
+	 * that would be doubled. What a move landing there costs instead is
+	 * itself: a move wider than a period moves the anchor, which absorbs
+	 * it, and a narrower one stays in the times. Neither is reachable in
+	 * practice. A move is asked for well into a capture - a follow has to
 	 * recover the piconet's clock first - or before the stream starts, as
 	 * ubertooth-follow does, where the capture is anchored on the moved
 	 * clock to begin with. */
@@ -2162,8 +2200,7 @@ void cb_rx(ubertooth_t* ut, void* args)
 			 * the capture's times by
 			 * take_out_the_move_of_the_clock() above, which needs
 			 * the amount to find the packet it landed on. */
-			ut->clk100ns_pending_move = (int64_t) offset *
-			                            CLK100NS_PER_CLKN;
+			note_a_move_of_the_clock( ut, offset );
 		}
 		ut->br_calibrated = 0;
 		ut->br_following = 1;
