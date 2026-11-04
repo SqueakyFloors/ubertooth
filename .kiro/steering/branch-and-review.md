@@ -302,29 +302,29 @@ what changed for it, in this order:
 2. **Stability and lockups**: a board or a tool that stopped answering,
    wedged, reset itself, or crashed, and the reporting that makes those
    visible.
-3. **Across all tools**: behavior the tools share — the command line and
-   option values, output streams and exit status, choosing a board and what it
-   is running, capture destinations and what a capture reports, capture
-   timestamps, starting and stopping a capture.
+3. **Across all tools**: behavior the tools share, under the headings
+   `The command line and option values`; `Output streams, messages, and exit
+   status`; `Choosing a board, and what it is running`; `Captures:
+   destinations, files, and what a capture reports`; `Capture timestamps`;
+   `Starting and stopping a capture`; and `Generic radio mode`.
 4. **One section per tool**, in the README tool catalog's order, each with
    `New features` before `Fixes`.
-5. **Firmware** (`bluetooth_rxtx`, `btbr`, the bootloader), then
-   **Libraries** (libubertooth, libbtbb).
-6. **Build and compatibility**, **Documentation**, **Under the hood**.
+5. **Firmware** (`bluetooth_rxtx`, `btbr`, and the bootloader), then
+   **Libraries** (libubertooth, and libbtbb).
+6. **Build and compatibility**, **Documentation**, and **Under the hood**.
 
 So a new bullet goes under its tool, or under "Across all tools" when the
 behavior is shared, or under the firmware image, library, or build section it
 belongs to. A bullet that spans two or three tools goes under the tool it is
 mostly about, named in its first words, rather than being repeated.
 
+Within a bucket:
+
 - MUST phrase a bug fix as a fix: say what was wrong and that it is fixed
   ("Fixed: AUX1, DV, EV3, EV4, and EV5 payloads did not decode; they now
   do."), not as though it were a new feature.
 - MUST use American spelling in the fork's own entries. Leave the upstream
   release sections as upstream wrote them.
-
-Within a bucket:
-
 - MUST describe user-facing impact concisely, normally in one bullet of one to
   three short lines.
 - MUST keep implementation history, detailed validation evidence, diagnostics,

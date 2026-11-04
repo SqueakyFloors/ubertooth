@@ -17,8 +17,9 @@ The largest wins of the release. The sections below have the detail.
 - Two Ubertooths running `ubertooth-btbr` page each other, connect, and carry
   traffic, and a connection to a real Classic device lasts as long as the peer
   keeps it.
-- `ubertooth-afh` reports the channel map a piconet is really using, and the
-  two-board range test reports a result every run.
+- `ubertooth-afh` reports the channel map a piconet is really using.
+- The two-board range test (`ubertooth-util -e`, `-n`, and `-m`) reports a
+  result every run.
 - A capture runs on the channel, the band sweep, and the AFH map its command
   line asked for, whatever the board was doing before.
 - A capture says what it lost, and when its receiver is being driven harder
@@ -40,9 +41,8 @@ The largest wins of the release. The sections below have the detail.
 
 ### Stability and lockups
 
-A board or a tool that stopped answering, wedged, reset
-itself, or crashed, and the reporting that makes those
-visible.
+A board or a tool that stopped answering, wedged, reset itself, or crashed,
+and the reporting that makes those visible.
 
 - `ubertooth-util -w` counts one more wait that gave up: the short lead a
   packet is given to reach the radio's FIFO before the firmware reads it out.
@@ -226,6 +226,13 @@ visible.
   waits about a tenth of a second for the host to read it and is then dropped,
   and the board keeps answering commands while it waits.
   [#282](https://github.com/SqueakyFloors/ubertooth/issues/282)
+- The low-energy capture engine changes its timer's match-enable register, its
+  buffer pool and the buffer a finished packet is handed over from with
+  interrupts held off, so the connection-event timer can no longer cut into any
+  of the three. Each was read, altered and written back in steps the timer
+  could land between, which could lose a buffer or a timer match.
+  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
+  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 
 ### Across all tools
 
@@ -961,6 +968,26 @@ Behavior the tools share.
   A capture nobody has stopped still gets all three attempts.
   [#844](https://github.com/SqueakyFloors/ubertooth/issues/844)
 
+#### Generic radio mode
+
+- The board's generic radio mode is reachable from the command line, as an
+  **experimental** feature. It demodulates with whatever CC2400 configuration
+  the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
+  is not Bluetooth can be captured without new firmware, and one packet can be
+  transmitted the same way. ubertooth(7), GENERIC RADIO MODE is the worked
+  example of both.
+  `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
+  could only read before; `ubertooth-dump -g` starts the capture; and
+  `ubertooth-tx -g <payload> -a <syncword> [-n <count>]` transmits packets,
+  which is the one transmitter whose framing is known, so two boards set to
+  the same framing are how the packet-framing receive is checked. Both halves
+  of the receive work: the raw symbol stream, and the packet framing where the
+  radio matches a sync word and the board sends one record per detection.
+  What goes on the air carries the radio's CRC, and each record says what the
+  radio made of it, so a payload with a bit error in it is no longer read as a
+  payload. Expect the options and the output to change.
+  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+
 ### ubertooth-btle
 
 #### New features
@@ -987,17 +1014,6 @@ Behavior the tools share.
   the map moved an event to a channel the follow did not predict; `-f` still
   captures the whole of a connection it can see being made.
   [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
-- A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
-  packet whose data did not match its own length fields used to put a line
-  reading `Error: attempt to read past end of buffer` on standard error, which
-  is where Wireshark looks for the reason a capture failed, so a capture that
-  worked perfectly was reported as an error and a board unplugged mid-capture
-  never reached the user. `ubertooth-btle` now says how many such packets there
-  were in one line where the decoded packets went -- `note: 312 packets held
-  data that could not be decoded; -v describes each one` -- and `-v` asks for
-  each one's detail as the run goes. Nothing about a malformed packet is called
-  an error any more, and the packets themselves are recorded as they arrived.
-  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 - **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
   address, so `-s A -t B` advertises from A and follows B, which is what it
   reads like. They shared one address, so whichever option was written last
@@ -1060,6 +1076,17 @@ Behavior the tools share.
 
 #### Fixes
 
+- A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
+  packet whose data did not match its own length fields used to put a line
+  reading `Error: attempt to read past end of buffer` on standard error, which
+  is where Wireshark looks for the reason a capture failed, so a capture that
+  worked perfectly was reported as an error and a board unplugged mid-capture
+  never reached the user. `ubertooth-btle` now says how many such packets there
+  were in one line where the decoded packets went -- `note: 312 packets held
+  data that could not be decoded; -v describes each one` -- and `-v` asks for
+  each one's detail as the run goes. Nothing about a malformed packet is called
+  an error any more, and the packets themselves are recorded as they arrived.
+  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
 - Fixed: `ubertooth-btle -p -R promisc.bin -d - >> promisc.bin` read the
   records it was appending and never ended, growing the dump until a `ulimit`
   stopped it, with nothing said. A replay compared the name it was given
@@ -1773,11 +1800,6 @@ Behavior the tools share.
   (`bt> 12:14:53 RX FHS: ...`). A session at a terminal is unchanged: the
   terminal's line editor still draws the prompt.
   [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
-- `ubertooth-btbr` no longer reports standard output gone when the reader
-  left before any packet was printed: nothing had been written to that
-  stream, so nothing asked for was lost and the session ends as it otherwise
-  would. The prompt used to be written there, which is what noticed.
-  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
 - **Script-visible change:** `ubertooth-btbr` prints what `?` and
   `? <command>` list on standard error, with the prompt, so a capture holds
   packets alone whatever the user types during it. Typing `?` with the capture
@@ -1793,6 +1815,11 @@ Behavior the tools share.
 
 #### Fixes
 
+- `ubertooth-btbr` no longer reports standard output gone when the reader
+  left before any packet was printed: nothing had been written to that
+  stream, so nothing asked for was lost and the session ends as it otherwise
+  would. The prompt used to be written there, which is what noticed.
+  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
 - Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.
   Where the board could not put its answer to the page on the air, it still
   printed the pager's address and `Peripheral started` and told the host it
@@ -2129,23 +2156,6 @@ Behavior the tools share.
 
 #### New features
 
-- The board's generic radio mode is reachable from the command line, as an
-  **experimental** feature. It demodulates with whatever CC2400 configuration
-  the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
-  is not Bluetooth can be captured without new firmware, and one packet can be
-  transmitted the same way. ubertooth(7), GENERIC RADIO MODE is the worked
-  example of both.
-  `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
-  could only read before; `ubertooth-dump -g` starts the capture; and
-  `ubertooth-tx -g <payload> -a <syncword> [-n <count>]` transmits packets,
-  which is the one transmitter whose framing is known, so two boards set to
-  the same framing are how the packet-framing receive is checked. Both halves
-  of the receive work: the raw symbol stream, and the packet framing where the
-  radio matches a sync word and the board sends one record per detection.
-  What goes on the air carries the radio's CRC, and each record says what the
-  radio made of it, so a payload with a bit error in it is no longer read as a
-  payload. Expect the options and the output to change.
-  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
 - **Script-visible change:** `ubertooth-dump` refuses a terminal on standard
   output, with or without `-d -`, instead of filling it with the binary symbol
   stream: `error: stdout is a tty, refusing to write binary dump data to it`.
@@ -2804,10 +2814,11 @@ Behavior the tools share.
 - The release improves the bootloader and the flashing path, and a board runs
   this firmware on the bootloader it already carries: nothing here asks for a
   new bootloader, and an image is written over USB the same way either way.
-  Installing a bootloader built from this tree needs a 3.3 V serial programmer
-  on the ISP connector or a JTAG probe, as docs/source/programming.rst
-  describes, so what follows is what a board gains only once it has been
-  programmed that way. Everything else in the release works whatever
+  A bootloader built from this tree is installed with
+  `ubertooth-dfu --update-bootloader`, as above, or with a 3.3 V serial
+  programmer on the ISP connector or a JTAG probe, as
+  docs/source/programming.rst describes; what follows is what a board gains
+  once it carries one. Everything else in the release works whatever
   bootloader a board carries; without one from this tree these are
   unavailable:
   - recovery over USB from an interrupted or incomplete firmware download. An
@@ -3368,13 +3379,6 @@ Fixes with no visible change in normal use.
   really arrives with, and sends each answer under the request's own
   transaction number so the peer can match it.
   [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
-- The low-energy capture engine changes its timer's match-enable register, its
-  buffer pool and the buffer a finished packet is handed over from with
-  interrupts held off, so the connection-event timer can no longer cut into any
-  of the three. Each was read, altered and written back in steps the timer
-  could land between, which could lose a buffer or a timer match.
-  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
 - The LED that marks a packet in a low-energy capture is timed by a counter of
   its own rather than by the timer the radio's own deadlines live on, so the
   capture loop no longer writes that timer to light an LED. The blink is the
