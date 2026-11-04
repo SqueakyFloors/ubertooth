@@ -96,8 +96,17 @@ void mem_pool_free(void *p) { free(p); }
  * reason of its own, so the host can tell it from one just starting. */
 static btctl_reason_t btctl_last_reason;
 
+/* How many state reports reached the host. btctl.c sends nothing for a standby
+ * that follows a standby, so a refusal reported from standby would not reach
+ * the host at all and its command would wait forever: the model has to carry
+ * that rule for a test to see it. */
+static unsigned state_reports;
+
 void btctl_set_state(btctl_state_t state, btctl_reason_t reason)
 {
+	if (!(btctl.state == BTCTL_STATE_STANDBY
+			&& state == BTCTL_STATE_STANDBY))
+		state_reports++;
 	btctl.state = state;
 	btctl_last_reason = reason;
 }
@@ -328,15 +337,22 @@ int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 void tx_task_reset(void) { }
 void rx_task_reset(void) { }
 
+/* Whether the scheduler has room for a plain slot task. The one that starts a
+ * page is the only one this file reaches. */
+static int tdma_refused;
+
 int tdma_schedule(uint8_t frame_offset, tdma_sched_cb *cb, uint8_t p1,
 			uint8_t p2, uint16_t p3, int16_t prio)
 {
-	struct pending *p = pending_add(P_TDMA, air_tick+frame_offset);
+	struct pending *p;
 
 	(void)p1;
 	(void)p2;
 	(void)p3;
 	(void)prio;
+	if (tdma_refused)
+		return -1;
+	p = pending_add(P_TDMA, air_tick+frame_offset);
 	p->tdma_cb = cb;
 	return 0;
 }
@@ -545,6 +561,8 @@ static void air_reset(void)
 	fhs_sent_count = 0;
 	fhs_rx_clk27_2 = 0;
 	scan_arm_refused = 0;
+	tdma_refused = 0;
+	state_reports = 0;
 	tx_pkt_held = 0;
 	tx_pkt_ever_held = 0;
 	rx_arm_refused_while_pkt_held = 0;
@@ -1169,6 +1187,34 @@ MU_TEST(pager_an_acknowledgment_window_that_cannot_be_armed_ends_the_page)
 	mu_assert_int_eq(BTCTL_REASON_TIMEOUT, btctl_last_reason);
 }
 
+/*
+ * A page the scheduler has no room to start at all. paging_start_sync() is the
+ * whole of it -- it reads the clock and starts the train -- so nothing happens,
+ * and the board has to say so rather than leave the host's command waiting on
+ * a page that is not running.
+ *
+ * What makes this worth a test of its own is the order. The host is only told
+ * about a state it was told it had left, so a standby reported straight from
+ * standby reaches nobody; the page has to be reported first.
+ */
+MU_TEST(pager_a_page_the_scheduler_cannot_start_is_reported_as_over)
+{
+	air_reset();
+	btphy.central_clkn = PAGER_CLKN_START;
+	btphy.my_lap = PAGER_LAP;
+	btphy.my_uap = PAGER_UAP;
+	tdma_refused = 1;
+
+	paging_state_setup(PAGED_LAP, PAGED_UAP);
+
+	/* Two reports: the page, then the page being over. */
+	mu_assert_int_eq(2, (int)state_reports);
+	mu_assert_int_eq(BTCTL_STATE_STANDBY, btctl.state);
+	mu_assert_int_eq(BTCTL_REASON_TIMEOUT, btctl_last_reason);
+	/* And nothing of the page is left on the scheduler. */
+	mu_assert_int_eq(0, (int)pending_count);
+}
+
 /* ---- a connection that carries no packet goes back to what it came from ---- */
 
 /*
@@ -1393,6 +1439,7 @@ int main(void)
 	MU_RUN(paged_a_dropped_acknowledgment_does_not_start_a_connection);
 	MU_RUN(paged_a_scan_window_that_cannot_be_armed_ends_the_scan);
 	MU_RUN(pager_an_acknowledgment_window_that_cannot_be_armed_ends_the_page);
+	MU_RUN(pager_a_page_the_scheduler_cannot_start_is_reported_as_over);
 	MU_RUN(pager_resumes_the_page_train_after_a_dead_connection);
 	MU_RUN(pager_resume_keeps_the_deadline_of_the_attempt);
 	MU_RUN(paged_resumes_the_scan_after_a_dead_connection);
