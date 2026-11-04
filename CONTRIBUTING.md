@@ -49,6 +49,7 @@ touches code:
 | `Build` / `firmware` | Builds the ARM firmware images and the bootloader, runs the firmware test suite, and checks that a flag or linker-script change rebuilds the images. The ToorCon 13 badge (`firmware/tc13badge`, a Renesas R8C part) is not among the images built: nothing here has that toolchain, so the test suite compiles its C for syntax only and the rest of a change to it is checked by reading the source |
 | `Build` / `host-installed-libubertooth` | Builds the tools against an installed libubertooth instead of the copy in the build tree, so what a packager ships keeps working |
 | `Build` / `scripts` | shellcheck, a self-test of each `tools/check-*.sh` that proves the check still catches what it is for, and the two checks that need nothing built: that the documentation does not pin the firmware API version, and that the list of libbtbb entry points the tools call is still the list libbtbb has |
+| `Doc API version` / `doc-api-version` | The same documentation check again, on its own and with no path filter, because `Build` skips a documentation-only change and that is the change this check is about: no sample pins the firmware API version, and `TEST_PLAN.md`, `COMPATIBILITY.md` and the CHANGELOG's top section state the version the tree carries |
 | `Build` / `issue-references` | No issue or pull request number in source, tests or build files: the reason for a line belongs in its comment, the link in the commit message or the pull request |
 | `Build` / `image-revision` | Every shipped firmware image carries a readable revision |
 | `Build` / `api-version` | The firmware API version against `main`, using `main`'s copy of the check |
@@ -73,7 +74,8 @@ reports. The `changes` job sees that each changed file is a Markdown file,
 under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
 `host-installed-libubertooth`, `firmware` and `scripts`; `image-revision` and
 `dfu-package` skip with the firmware job they read. The cheap Linux checks
-(`issue-references`, `api-version` and `libbtbb-pin`) run as they always do,
+(`issue-references`, `api-version`, `libbtbb-pin` and `doc-api-version`) run
+as they always do,
 and `Man pages` runs whenever `host/doc/` changes, which is where the man page
 sources live.
 `install.sh` asks for its own two paths and is not reached.
@@ -86,7 +88,12 @@ branch that changes only that page still runs the `host` jobs. `firmware` and
 
 `libbtbb pin` has no path filter at all, because the commit it checks is
 written down in `COMPATIBILITY.md` and the build guides as well as in the
-build files.
+build files. `Doc API version` has none for the same kind of reason: what it
+reads is the documentation, so a documentation-only change is the one it most
+needs to see, and `Build` is the workflow that skips those. It is the only
+check a documentation-only branch runs that reads documentation at all, and it
+runs on the push to `main` as well, which `Build` does not for a change under
+`docs/`, `.kiro/` or any `*.md`.
 
 The skipped names are reported by stand-in jobs (`host-skipped`,
 `firmware-skipped`, `scripts-skipped`), one per leg of the pull-request
@@ -116,8 +123,12 @@ both `firmware` legs, both `scripts` legs, `issue-references`,
 request with one of them red, or with one still to report, cannot be merged.
 `install-sh` and `refresh` are not required, because each runs only when its
 own paths change and a required check that does not run leaves a pull request
-pending forever. The third host leg, `host (ubuntu-22.04)`, and
-`host-installed-libubertooth` report like the rest but do not gate a merge.
+pending forever. That reason does not apply to `doc-api-version`, which has no
+path filter and reports on every pull request: it belongs in the required set
+and only the maintainer can put it there. The project's own rules treat it as
+gating meanwhile, so do not merge past a red one. The third host leg,
+`host (ubuntu-22.04)`, and `host-installed-libubertooth` report like the rest
+but do not gate a merge.
 
 The rule is not strict, so a branch need not be up to date with `main` to
 merge, and it requires no reviews: the project's own rules say who reviews
