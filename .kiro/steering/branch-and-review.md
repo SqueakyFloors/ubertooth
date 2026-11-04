@@ -139,12 +139,31 @@ Speed matters. Do not wait for every job.
   legs, both `scripts` legs, `issue-references`, `image-revision`,
   `api-version`, `dfu-package`, `libbtbb-pin`. The rule does not apply to the
   repository owner, which is there for the one case where the maintainer has
-  looked at a red check and decided to merge anyway. **Never use `--admin`**:
-  a check the maintainer has allowed to be red is the maintainer's merge, not
-  yours. Say on the PR why you think it should not block, and leave it.
+  looked at a red check and decided to merge anyway.
   A PR whose last run predates the stand-in jobs reports a skipped matrix job
   under its bare name and sits blocked on the leg names; a rebase onto `main`
   and a fresh run clears it.
+- **A slow macOS leg stops blocking after 7 minutes** (maintainer,
+  2026-11-04). The macOS arm64 pool queues for half an hour or more when
+  several branches are building, and a job there is sometimes never given a
+  runner at all. So once every Linux and platform-independent check in the
+  required set has passed, a PR whose only unfinished required checks are
+  `macos-26` legs, or `dfu-package` or `image-revision` waiting on
+  `firmware (macos-26)`, and those have been queued or running more than
+  7 minutes, is merged with
+  `gh pr merge <N> --squash --admin --match-head-commit <sha>`, keeping its
+  `Closes #N` line in the squash message. A macOS leg that has **completed
+  with a failure still blocks**: fix it, or say why it should not block and
+  leave the PR open. Say on the PR which macOS checks were still pending and
+  for how long. When `main`'s push run finishes its macOS legs afterwards,
+  read them, and open an issue for any failure. **Otherwise never use
+  `--admin`**: a check the maintainer has allowed to be red is the
+  maintainer's merge, not yours. Say on the PR why you think it should not
+  block, and leave it. Never change branch protection either.
+- **The release candidate waits for the whole run.** The commit on `main` a
+  release candidate is cut from needs one complete green CI run, macOS legs
+  included, before it is called. The 7-minute rule keeps ordinary work
+  moving; it does not decide what ships.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. A change under `host/` also needs `host-installed-libubertooth`,
@@ -396,7 +415,8 @@ label and one line saying what to decide, when it:
 
 If classification is uncertain, MUST treat it as requiring maintainer review.
 A red required check is never a maintainer question: fix it, or wait for the
-fix. Never use `--admin`, and never change branch protection.
+fix. Never use `--admin` outside the macOS delay exception in "Time budget and
+the good-enough call", and never change branch protection.
 
 Some questions are settled for every change and MUST NOT be asked again: a bad
 or meaningless request is an error, never silently accepted; the least

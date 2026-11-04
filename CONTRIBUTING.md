@@ -137,6 +137,15 @@ maintainer's call and the maintainer's merge. Never reach for `--admin`**: if
 a required check is red and you believe it should not block, say so on the
 pull request and leave it.
 
+There is one standing exception, and a red check is not it. The macOS runner
+pool queues for half an hour or more, and sometimes never starts a job at all.
+So when every other required check has passed and the only unfinished ones are
+`macos-26` legs that have waited more than 7 minutes, the merge goes through
+with `--admin`, with a note on the pull request saying which legs were pending
+and for how long, and the macOS legs of `main`'s own run are read afterwards.
+A macOS leg that has finished and failed still blocks. A release candidate is
+cut only from a commit with a complete green run, macOS included.
+
 What the rule does not fix is that GitHub reads workflow files from the branch
 under review, so a branch can still weaken an `if:` condition, drop a step or
 delete a job, and its own run will not complain. The `api-version` job fetches
