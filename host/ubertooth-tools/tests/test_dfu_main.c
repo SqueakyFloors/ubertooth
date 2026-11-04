@@ -607,13 +607,15 @@ int cmd_get_part_id(struct libusb_device_handle *devh, u32 *part_id)
 
 /* The bootloader the board has, read from the application: the same request
  * `ubertooth-util -B` makes, and what --update-bootloader compares the image
- * against before it writes anything.
+ * against before it writes anything. The quiet form, because this run carries
+ * on and succeeds when the board will not answer; test_control_reads.c pins
+ * that it prints nothing.
  *
  * The hash is taken over fake.bl_region as the flash holds it, with no window
  * allowed for: the application maps the user flash over those bytes, which is
  * the whole reason this is read here rather than from the DFU read-back. */
-int cmd_get_bootloader_info(struct libusb_device_handle *devh,
-                            struct ubertooth_bootloader_info *info)
+int cmd_get_bootloader_info_quiet(struct libusb_device_handle *devh,
+                                  struct ubertooth_bootloader_info *info)
 {
 	(void)devh;
 	fake.bl_info_calls++;
@@ -3536,9 +3538,13 @@ MU_TEST(a_board_that_already_has_this_bootloader_is_left_alone)
 	mu_assert(strcmp(line, "The board already has this bootloader: "
 	                 "ubertooth-util -B reports CRC32:0x7c52e323.") == 0,
 	          line);
+	/* --force is not offered: the image declines a region that already
+	 * matches, so taking that advice would cost the application region and
+	 * change no bootloader. */
 	mu_assert(strstr(r.out, "Nothing was written, and the board is still "
-	          "running its firmware. Give --force to write it anyway.")
-	          != NULL, r.out);
+	          "running its firmware.") != NULL, r.out);
+	mu_assert(strstr(r.out, "--force") == NULL,
+	          "the run offered --force, which would write for nothing");
 	/* Nothing about DFU or writing firmware again: the board never left its
 	 * application. */
 	mu_assert(strstr(r.out, "DFU") == NULL, r.out);
@@ -3567,6 +3573,10 @@ MU_TEST(a_read_back_asked_for_alongside_the_update_is_still_read)
 	/* The board was never asked what bootloader it had, so nothing was
 	 * skipped on the strength of the answer. */
 	mu_assert_int_eq(0, fake.bl_info_calls);
+	/* Said rather than left to be noticed: this board may not have needed
+	 * writing, and the run did not find out. */
+	mu_assert(strstr(r.err, "note: -u asks for a read-back, so the board is "
+	          "not asked which bootloader it has first") != NULL, r.err);
 	mu_assert(strstr(r.out, "already has this bootloader") == NULL,
 	          "the run ended early and left the read-back undone");
 	mu_assert_int_eq(DUMP_LENGTH, dump_length_and_content(&content_ok));
@@ -3660,8 +3670,9 @@ MU_TEST(force_without_the_update_option_is_refused_before_any_board)
 	write_updater_image(UPDATER_PAYLOAD);
 	r = RUN("--force");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: --force goes with --update-bootloader")
-	          != NULL, r.err);
+	mu_assert(strstr(r.err, "error: --force goes with --update-bootloader, "
+	          "whose check against the bootloader the board already has it "
+	          "overrides") != NULL, r.err);
 	mu_assert_int_eq(1, error_lines(r.err));
 	mu_assert(r.out[0] == '\0', r.out);
 	/* The error describes the command line, so no usage text follows it. */
@@ -3670,8 +3681,9 @@ MU_TEST(force_without_the_update_option_is_refused_before_any_board)
 	 * no check for --force to override. */
 	r = RUN("-U", "0", "-d", sized_image_path, "--force");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: --force goes with --update-bootloader")
-	          != NULL, r.err);
+	mu_assert(strstr(r.err, "error: --force goes with --update-bootloader, "
+	          "whose check against the bootloader the board already has it "
+	          "overrides") != NULL, r.err);
 	mu_assert_int_eq(0, fake.flash_calls);
 	mu_assert_int_eq(0, fake.dnload_calls);
 }

@@ -328,6 +328,13 @@ static void poll_watchdog(void)
 	cmd_get_watchdog_quiet(NULL, &info);
 }
 
+static void poll_bootloader_info(void)
+{
+	struct ubertooth_bootloader_info info;
+
+	cmd_get_bootloader_info_quiet(NULL, &info);
+}
+
 static void set_channel_quiet(void) { cmd_set_channel_quiet(NULL, 2441); }
 static void set_channel(void) { cmd_set_channel(NULL, 2441); }
 static void set_bdaddr_quiet(void) { cmd_set_bdaddr_quiet(NULL, 0x112233); }
@@ -624,6 +631,45 @@ MU_TEST(the_bootloader_report_reads_the_hash_and_the_block)
 	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_bootloader_info(NULL, &info));
 	mu_assert_int_eq(0, info.crc32);
+}
+
+/*
+ * The quiet form of the same read. ubertooth-dfu asks it before
+ * --update-bootloader writes, to leave a board that already has the
+ * bootloader alone, and a board that will not answer gets the write it asked
+ * for -- so that run succeeds, and nothing under it may print an `error: `
+ * line. Firmware built before the request stalls it, which is the answer this
+ * is most often given.
+ */
+MU_TEST(the_quiet_bootloader_report_reports_nothing)
+{
+	struct ubertooth_bootloader_info info;
+	char text[512];
+
+	script(UBERTOOTH_BL_REPORT_LENGTH, 0);
+	fake.reply[0] = 0xb4; fake.reply[1] = 0xe1;
+	fake.reply[2] = 0x2f; fake.reply[3] = 0x9d;
+	mu_assert_int_eq(0, cmd_get_bootloader_info_quiet(NULL, &info));
+	mu_assert_int_eq(0x9d2fe1b4, info.crc32);
+
+	/* A stalled request, a timed-out one and a short reply: all silent. */
+	script(LIBUSB_ERROR_PIPE, 0);
+	run_captured(poll_bootloader_info, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(LIBUSB_ERROR_TIMEOUT, 0);
+	run_captured(poll_bootloader_info, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+	script(UBERTOOTH_BL_REPORT_LENGTH - 1, 0);
+	run_captured(poll_bootloader_info, text, sizeof(text));
+	mu_assert(text[0] == '\0', text);
+
+	/* And the error is returned, so the caller can say what it makes of it. */
+	script(LIBUSB_ERROR_PIPE, 0);
+	mu_assert_int_eq(LIBUSB_ERROR_PIPE,
+	                 cmd_get_bootloader_info_quiet(NULL, &info));
+	script(UBERTOOTH_BL_REPORT_LENGTH - 1, 0);
+	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
+	                 cmd_get_bootloader_info_quiet(NULL, &info));
 }
 
 /* ---- the library writes nothing to standard output --------------------- */
@@ -972,6 +1018,7 @@ int main(void)
 	MU_RUN(watchdog_state_needs_the_whole_reply);
 	MU_RUN(radio_timeouts_are_read_little_endian);
 	MU_RUN(the_bootloader_report_reads_the_hash_and_the_block);
+	MU_RUN(the_quiet_bootloader_report_reports_nothing);
 	MU_RUN(the_polled_reads_report_nothing);
 	MU_RUN(short_reply_message_names_the_read_and_the_counts);
 	MU_RUN(the_quiet_set_forms_report_nothing);

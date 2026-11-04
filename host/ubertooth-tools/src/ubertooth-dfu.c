@@ -700,7 +700,10 @@ static int bootloader_already_installed(struct dfu_runtime_context *runtime,
 	if (runtime->bl_install_checked)
 		return runtime->bl_already_installed;
 	runtime->bl_install_checked = 1;
-	rv = cmd_get_bootloader_info(devh, &info);
+	/* The quiet form: this run carries on, and succeeds, when the board will
+	 * not answer, so the reporting form's `error: ` line would belong to a
+	 * command that had not failed. */
+	rv = cmd_get_bootloader_info_quiet(devh, &info);
 	if (rv != 0) {
 		/* A warning rather than an error: nothing has gone wrong with the
 		 * command, and the write it lets through is the one that was asked
@@ -729,10 +732,15 @@ static int bootloader_already_installed(struct dfu_runtime_context *runtime,
 	runtime->bl_already_installed = 1;
 	/* The result, so standard output, and the whole result: the board has
 	 * the bootloader that was asked for. Nothing was written, so unlike an
-	 * update that ran it still has its firmware and needs nothing further. */
+	 * update that ran it still has its firmware and needs nothing further.
+	 *
+	 * --force is not offered here. It writes the updater image, and the
+	 * image makes this same comparison on the board and declines to program
+	 * a region that already matches, so following that advice would cost
+	 * the application region and change no bootloader. */
 	printf("The board already has this bootloader: ubertooth-util -B reports "
 	       "CRC32:0x%08x.\nNothing was written, and the board is still "
-	       "running its firmware. Give --force to write it anyway.\n",
+	       "running its firmware.\n",
 	       (unsigned)info.crc32);
 	fflush(stdout);
 	return 1;
@@ -1950,8 +1958,8 @@ static void usage(FILE *file)
 	fputs("\t              already has it is left alone, and a board that\n", file);
 	fputs("\t              is written is left in DFU, so write your\n", file);
 	fputs("\t              firmware again afterwards\n", file);
-	fputs("\t--force       with --update-bootloader, write the bootloader\n", file);
-	fputs("\t              even when the board already has it\n", file);
+	fputs("\t--force       with --update-bootloader, write without asking\n", file);
+	fputs("\t              the board which bootloader it has\n", file);
 	fputs("\n", file);
 	fputs("Miscellaneous:\n", file);
 	fputs("\t-s <filename> add DFU suffix to binary firmware file\n", file);
@@ -2552,9 +2560,10 @@ int main(int argc, char **argv) {
 	 * taking the word quietly there would read as permission for something.
 	 */
 	if (force && !(functions & FUNC_UPDATE_BL)) {
-		fputs("error: --force goes with --update-bootloader, which it lets "
-		      "write a bootloader the board already has; nothing else this "
-		      "tool does asks the board before writing\n", stderr);
+		fputs("error: --force goes with --update-bootloader, whose check "
+		      "against the bootloader the board already has it overrides; "
+		      "nothing else this tool does asks the board before writing\n",
+		      stderr);
 		exit_status = 1;
 		goto end_without_device;
 	}
@@ -2747,6 +2756,14 @@ int main(int argc, char **argv) {
 	    !(functions & FUNC_UPLOAD)) {
 		runtime.bl_crc32_wanted = update_image.region_crc32;
 		runtime.bl_crc32_wanted_known = 1;
+	} else if ((functions & FUNC_UPDATE_BL) && (functions & FUNC_UPLOAD)) {
+		/* Said rather than left to be noticed: the whole point of the
+		 * check is that this board may not need writing, so a run that
+		 * does not make it has to say so. Progress, so standard error. */
+		fputs("note: -u asks for a read-back, so the board is not asked "
+		      "which bootloader it has first; the bootloader will be "
+		      "written\n", stderr);
+		fflush(stderr);
 	}
 	runtime.upload_name = upfile_name;
 	if (functions & FUNC_DOWNLOAD) {
@@ -3110,7 +3127,11 @@ cleanup:
 		}
 	}
 	close_dfu_device(devh, interface_claimed);
-	exit_dfu_context(dfu_context, (functions & FUNC_RESET) != 0);
+	/* A run that left the board alone reset nothing, whatever -r asked for,
+	 * so the macOS workaround for a libusb teardown after a device reset
+	 * does not apply to it. */
+	exit_dfu_context(dfu_context, (functions & FUNC_RESET) != 0 &&
+	                 !runtime.bl_already_installed);
 	log_dfu_stage("operation finished");
 	return exit_status;
 

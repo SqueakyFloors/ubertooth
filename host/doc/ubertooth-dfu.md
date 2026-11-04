@@ -331,9 +331,13 @@ Major modes:
    bootloader is left alone, still running its firmware; a board that is
    written is left in DFU, not running an application
  - `--force` :
-   With `--update-bootloader`, write the bootloader even when the board
-   already has it. On any other command line it is an error, because nothing
-   else this tool does asks the board anything before it writes
+   With `--update-bootloader`, write without asking the board which bootloader
+   it has. It overrides the host's comparison and nothing else: the image
+   makes the same comparison on the board, so a region that already matches is
+   still not programmed. What it costs is the application region, which the
+   updater replaces either way. On any other command line it is an error,
+   because nothing else this tool does asks the board anything before it
+   writes
 
 Miscellaneous:
 
@@ -377,20 +381,27 @@ running application is asked which bootloader it has, through the same request
 `ubertooth-util -B` answers, before the board is asked for DFU:
 
     The board already has this bootloader: ubertooth-util -B reports CRC32:0x7c52e323.
-    Nothing was written, and the board is still running its firmware. Give --force to write it anyway.
+    Nothing was written, and the board is still running its firmware.
 
 It is the hashes that are compared and not the versions, because two builds of
-one bootloader can carry the same version. `--force` writes without asking.
-Leaving the board alone saves more than the write to the bootloader region:
-the updater goes into the application region, so a run that went ahead would
-cost the board its firmware and leave it to be written again, for a bootloader
-that was already there.
+one bootloader can carry the same version. Leaving the board alone saves more
+than the write to the bootloader region: the updater goes into the application
+region, so a run that went ahead would cost the board its firmware and leave
+it to be written again, for a bootloader that was already there.
 
-A board whose firmware predates that request cannot answer, and nor can one
-whose read fails. The run then says so as a `warning: ` and installs the
-bootloader, which is what was asked for; skipping the write on a comparison
-that was never made would leave an old bootloader in place and report the
-board current.
+`--force` skips the question and writes. It is not a way to program a region
+that already matches, because the image compares the region on the board too
+and declines; what it costs is the application region. It is there for a run
+that wants the write made and the region read back whatever the board reports.
+
+The question is not asked in three cases. A board adopted in the bootloader
+has no application to ask, so it is written as before. `-u` in the same
+command asks for a read-back, which an early end would leave undone, so the
+run says so as a `note: ` and writes. And a board whose firmware predates the
+request cannot answer, nor can one whose read fails; the run says so as a
+`warning: ` and installs the bootloader, which is what was asked for. Skipping
+a write on a comparison that was never made would leave an old bootloader in
+place and report the board current.
 
 Once the board is back in DFU the command reads the region again, because a
 board in DFU is also what an updater that never ran leaves behind: a bootloader
@@ -439,8 +450,8 @@ programming entry pin into an ordinary input, none of them can be undone from
 outside the part, and a board that took one cannot report that it did.
 
 The image makes the same comparison on the board, so a bootloader region that
-already holds what the image carries is not programmed again even under
-`--force`: the image compares the region first and returns to DFU.
+already holds what the image carries is not programmed again, `--force` or
+not: the image compares the region first and returns to DFU.
 
 The image is what does the writing, so it writes whenever a board runs it:
 `ubertooth-dfu -d bl_update.dfu -r`, with no `--update-bootloader`, programs
@@ -626,7 +637,7 @@ written at all, and says so without mentioning DFU, because it never went
 there:
 
     The board already has this bootloader: ubertooth-util -B reports CRC32:0x7c52e323.
-    Nothing was written, and the board is still running its firmware. Give --force to write it anyway.
+    Nothing was written, and the board is still running its firmware.
 
 Nothing else is ever written to standard output: the dump of `-u` goes to the
 file it names, and the signed image of `-s` to `<file>.dfu`, and a run that
@@ -653,8 +664,8 @@ example `error: detach failed: the board is still in DFU`,
 `error: no bootloader was installed: the region read back as 0x... both before
 and after this run, and that is not the bootloader bl_update.dfu carries,
 which would report CRC32:0x...`,
-`error: --force goes with --update-bootloader, which it lets write a bootloader
-the board already has`,
+`error: --force goes with --update-bootloader, whose check against the
+bootloader the board already has it overrides`,
 `error: the bootloader region holds neither bootloader: ... so the write did
 not finish`,
 `error: firmware update failed after 2 attempt(s): ...` and
@@ -673,7 +684,9 @@ an update that cannot be told apart. Lines beginning
 that came back in the bootloader, a board waiting in the bootloader that a
 selection could not name, a board that never came back from a bootloader
 update and may be in the part's serial programmer, a bootloader update that
-installed nothing, and one whose result could not be read back.
+installed nothing, one whose result could not be read back, and a bootloader
+update with `-u` alongside it, which is not asked whether the board already
+has the bootloader.
 libubertooth's own lines read the same way, including the ones it ends up
 printing for a libusb failure nothing could name (`error: Input/Output Error
 (libusb -1)`) and for a selection that found nothing (`error: no Ubertooth
