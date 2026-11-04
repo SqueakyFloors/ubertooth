@@ -315,7 +315,9 @@ Major modes:
    Download - write DFU file to device
  - `-u <output.bin>` :
    Upload - read the application flash region, as much of it as the part has,
-   into a raw file (see [READING FLASH BACK][]). A lone `-` is refused
+   into a raw file (see [READING FLASH BACK][]). Every spelling of standard
+   output is refused while the command line is read, `-u -` and
+   `-u /dev/stdout` alike
    (`error: -u cannot write the read-back to stdout; give a file name`): the
    dump is written through a temporary file and rewound if the read has to be
    retried, and a pipe allows neither

@@ -2369,9 +2369,13 @@ int main(int argc, char **argv) {
 		case 'u':
 			/* The read-back is written through a temporary file that is
 			 * renamed over the name given, and a retry rewinds it to block
-			 * zero: neither is possible on a pipe, so a lone "-" is refused
-			 * here rather than taken as the file name "-". */
-			if (strcmp(optarg, "-") == 0) {
+			 * zero: neither is possible on a pipe, so a value naming
+			 * standard output is refused here rather than taken as a file
+			 * name. Every spelling of that stream, not just a lone "-":
+			 * a path such as /dev/stdout reaches the same descriptor, and
+			 * left to the rename it would fail only after the board had
+			 * been talked to. */
+			if (opt_writes_to_stdout(optarg)) {
 				fputs("error: -u cannot write the read-back to stdout; "
 				      "give a file name\n", stderr);
 				exit_status = 1;

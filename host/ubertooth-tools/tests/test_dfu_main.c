@@ -871,6 +871,73 @@ MU_TEST(a_read_back_with_reset_writes_the_dump_and_detaches)
 	remove_dump();
 }
 
+/* ---- a destination that is standard output ----------------------------- */
+
+/*
+ * The dump is written through a temporary file that is renamed over the name
+ * given, and a retry rewinds it to block zero, neither of which standard
+ * output allows. So every spelling of that stream is refused while the command
+ * line is read: a path such as /dev/stdout reaches the same descriptor as a
+ * lone "-", and taking it for a file name left the run to fail at the rename,
+ * after the board had already been talked to.
+ */
+MU_TEST(a_read_back_to_standard_output_is_refused_however_it_is_spelled)
+{
+	static const char *const stream[] = {
+		"-", "/dev/stdout", "/dev/./stdout", "/dev/fd/1", "//dev//fd//1",
+#ifdef __linux__
+		"/proc/self/fd/1",
+#endif
+	};
+	struct run_result r;
+	size_t i;
+
+	for (i = 0; i < sizeof(stream) / sizeof(stream[0]); i++) {
+		board_in_dfu();
+		r = RUN("-u", stream[i], "-r");
+		mu_assert_int_eq(1, r.rc);
+		mu_assert(strstr(r.err,
+		                 "error: -u cannot write the read-back to stdout; "
+		                 "give a file name") != NULL, r.err);
+		mu_assert_int_eq(1, error_lines(r.err));
+		mu_assert(r.out[0] == '\0', r.out);
+		/* Before any device is opened, so no board is left in its
+		 * bootloader by a command line that was never going to work. */
+		mu_assert_int_eq(0, fake.opens);
+		mu_assert_int_eq(0, fake.detach_calls);
+	}
+}
+
+/* The last element of a path being "-" makes it a file of that name, not the
+ * stream, so the refusal above must not take one for the other. */
+MU_TEST(a_read_back_to_a_file_named_dash_is_written)
+{
+	char path[sizeof(dump_path)];
+	const char *slash = strrchr(dump_path, '/');
+	struct run_result r;
+	unsigned char buffer[BLOCK_SIZE];
+	FILE *file;
+	long length = 0;
+	size_t got;
+
+	mu_assert(slash != NULL, "the dump path has no directory");
+	snprintf(path, sizeof(path), "%.*s/-", (int)(slash - dump_path),
+	         dump_path);
+	unlink(path);
+	board_in_dfu();
+	r = RUN("-u", path, "-r");
+	mu_assert_int_eq(0, r.rc);
+	file = fopen(path, "rb");
+	mu_assert(file != NULL, "the dump was not written");
+	if (file != NULL) {
+		while ((got = fread(buffer, 1, sizeof(buffer), file)) > 0)
+			length += (long)got;
+		fclose(file);
+	}
+	mu_assert_int_eq(DUMP_LENGTH, length);
+	unlink(path);
+}
+
 /* ---- a bootloader that stops answering --------------------------------- */
 
 /* The state read failing used to loop forever, one error line per attempt. */
@@ -3648,6 +3715,8 @@ int main(void)
 
 	MU_RUN(a_dfu_board_in_use_goes_through_the_shared_report_and_is_left_alone);
 	MU_RUN(a_read_back_with_reset_writes_the_dump_and_detaches);
+	MU_RUN(a_read_back_to_standard_output_is_refused_however_it_is_spelled);
+	MU_RUN(a_read_back_to_a_file_named_dash_is_written);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_the_read_back);
 	MU_RUN(a_bootloader_that_never_reports_its_state_ends_a_bare_reset);
 	MU_RUN(a_state_this_host_cannot_drive_ends_the_command);
