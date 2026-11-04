@@ -24,7 +24,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_promisc_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue test_btbr_tx_untuned test_btbr_tx_schedule test_btbr_tx_schedule_set test_btbr_inquiry_response test_btbr_scan_schedule
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_promisc_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue test_btbr_tx_untuned test_btbr_tx_schedule test_btbr_tx_schedule_set test_btbr_inquiry_response test_btbr_scan_schedule test_btbr_monitor_follow
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -513,6 +513,22 @@ $(BINDIR)/test_btbr_tx_schedule: test_btbr_tx_schedule.c minunit.h \
 		-Wno-unused-parameter -Wno-address-of-packed-member \
 		-o $@ test_btbr_tx_schedule.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
+
+# What the page watcher does when the slot that starts following a connection
+# is full. monitor1_state.c is included into the test (see its header comment),
+# because its slot task and callbacks are static; everything under it is faked,
+# so no other firmware source is linked.
+$(BINDIR)/test_btbr_monitor_follow: test_btbr_monitor_follow.c minunit.h \
+		stubs-btbr/ubtbr/debug.h stubs-btbr-rx/ubtbr/system.h \
+		$(FW_BTBR)/src/btphy/monitor1_state.c \
+		$(FW_BTBR)/include/ubtbr/monitor_state.h \
+		$(FW_BTBR)/include/ubtbr/scan_task.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# The slot tasks take three parameters they do not read, which the state
+# machine and the fakes standing in for the tasks both carry.
+	$(CC) $(CFLAGS) -Istubs-btbr -Istubs-btbr-rx -I$(FW_BTBR)/include \
+		$(CPPFLAGS) -Wno-unused-parameter \
+		-o $@ test_btbr_monitor_follow.c
 
 # What the scan task does when the scheduler cannot take its next listening
 # slot. Built like the two tests above, and for the same reasons: scan_task.c
