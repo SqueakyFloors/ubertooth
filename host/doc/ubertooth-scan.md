@@ -123,6 +123,18 @@ scan goes on to the next result. Earlier releases gave that read no deadline,
 so a device that answered the page and then said nothing held the run there:
 the results so far printed, and nothing after them.
 
+A name is printed only where the device's own answer carried it. The scan sends
+the name request and reads the completing event itself, so it can hold the
+answer against what was asked: the answer has to say the request succeeded, it
+has to carry the address the name was asked of, and the name is taken from the
+bytes the answer actually brought. An answer carrying a different address gets
+a `warning:` on standard error naming that address, and one that stops before
+the name gets a `warning:` saying how short it was; the device's line reads
+`[unknown]` either way and the scan goes on. Earlier releases read the name
+through the library, which hands back a name with nothing to say whose it is,
+and a device whose own read had failed could have its name printed beside a
+later device's address, with nothing in the output to show it.
+
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
 manufacturer, its features, its clock offset, and its channel map as an `AFH
@@ -258,8 +270,8 @@ of the paged device's address, a page uses only the LAP and the UAP, as the
 access code, as the input that selects the page hopping sequence, and as the
 seed of the header error check and CRC of the FHS packet the pager sends
 (Bluetooth Core, Vol 2, Part B 1.3, 6.4.6, 7.1, and Table 2.3). A page teaches
-the controller no NAP, so it reports back the address it was given and BlueZ's
-own check on the name reply matches. The one way the guess itself can stop the
+the controller no NAP, so it reports back the address it was given, which is what
+the check on the name answer compares. The one way the guess itself can stop the
 connection is by matching the local Bluetooth device's own address, which a
 controller refuses to page.
 What a real controller makes of the guess has not been measured on this

@@ -1075,6 +1075,11 @@
 
 ### Reliability fixes
 
+- Fixed: `ubertooth-scan` could print one device's name against another
+  device's address. A name is now printed only where the device's own answer
+  carried it, and a line whose name could not be read says `[unknown]`.
+  [#1172](https://github.com/SqueakyFloors/ubertooth/issues/1172)
+
 - Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.
   Where the board could not put its answer to the page on the air, it still
   printed the pager's address and `Peripheral started` and told the host it
