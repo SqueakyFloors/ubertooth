@@ -109,7 +109,9 @@ COMPATIBILITY.md for the comparison.
  - `-b <hciN>` :
    local Bluetooth device to use (default: hci0).
  - `-w <timeslots>` :
-   USB delay in 625us timeslots (default: 5).
+   USB delay in 625us timeslots (default: 5). The right value belongs to the
+   machine, not to the piconet, and the default is not it on every machine;
+   see THE -w DELAY below.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
@@ -141,8 +143,7 @@ target's own address before it will make one: `-a` without `-t` is refused
 before any file is created or device opened, with
 `error: -a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give -t xx:xx:xx:xx:xx:xx`.
 That is a requirement of the command line rather than of the air interface, as
-the next paragraph explains; whether it should stay is
-[issue #316](https://github.com/SqueakyFloors/ubertooth/issues/316).
+the next paragraph explains.
 
 A follow keyed on `-l` and `-u` instead connects to `00:00:<UAP>:<LAP>`, with
 the two most significant bytes zero, because ordinary piconet traffic does not
@@ -244,7 +245,10 @@ to capture.
    the board as the clock to hop on, and starts capturing. Unlike
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
-   packets from the start. A run that prints none has one of five causes: the
+   packets from the start. On this project's bench the first record arrived
+   between 0.6 and 4.4 seconds after the command started, over six runs, which
+   is the page, the clock read, and opening the board rather than anything
+   being searched for. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear the piconet, the `-u`
    given is wrong, the clock the board was given is off by enough to put it on
    the wrong channel, which is what `-w` adjusts for, or the target is not the
@@ -266,14 +270,72 @@ to capture.
    `timeout` reports 124 for a run it ended; `timeout --preserve-status` gives
    the tool's own status instead.
 
-5. Add `-a` once the capture works without it, if the piconet uses AFH and the
+5. Find the `-w` this machine needs, if the run prints packets and decodes
+   little of what it prints. `-w` pays for the host's own delay between
+   reading the clock and the board starting to hop, and the default is not the
+   right value on every machine. It is worth doing once per machine and keeping
+   the answer; see THE -w DELAY below.
+
+       ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w 2 -q capture.pcap
+
+6. Add `-a` once the capture works without it, if the piconet uses AFH and the
    follow is patchy (see AFH above). It needs `-t`:
 
        ubertooth-follow -t 11:22:33:44:55:66 -a -q capture.pcap
 
-6. Open `capture.pcap` in Wireshark, which has dissected this format since
+7. Open `capture.pcap` in Wireshark, which has dissected this format since
    2.2. ubertooth-rx(1) describes the per-packet report the run printed, and
    the project documentation describes the capture format.
+
+## THE -w DELAY
+
+A follow is handed the piconet's clock, so it has nothing to search for. But
+between reading that clock through the local Bluetooth device and the board
+starting to hop, the host spends time of its own on the USB transfers and the
+kernel, and the board's clock has to be moved on by that much to stay with the
+piconet. `-w` is how much: a whole number of 625us Bluetooth timeslots, 5 by
+default.
+
+That delay is a property of the machine rather than of the piconet, so find the
+value once on yours and keep it. Sweep a few values either side of the default
+over a piconet that is carrying steady traffic, each leg the same length:
+
+    for w in 0 1 2 3 4 5 6 7 8; do
+      timeout 25 ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w $w -r w$w.pcapng
+    done
+
+Judge the sweep by the packets that decoded whole, not by the number of lines
+the run printed. A `-w` out by whole slots puts the board on the wrong channels
+and the capture is nearly empty. A `-w` out by part of a slot leaves the board
+on the right channels, so the run matches the piconet's access code and records
+every match, and none of those records' headers pass their header error check:
+a packet's channel comes from the top of the clock and the whitening of its
+header from the bottom, so the two go wrong at different scales. The printed
+count stays in the hundreds either way. The packets that decoded are the ones
+whose details the run printed; in Wireshark they are the frames without
+`Incorrect Packet Header or HEC`.
+
+Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
+about four times as many records, the extra ones undecoded, which makes a bad
+value look like a working capture.
+
+A sweep on this project's bench, 25-second legs on one Classic piconet with
+everything but `-w` held the same, decoded 6166 packets at `-w 2`, 3976 at
+`-w 3`, 19 at the default of 5, and none at all at 0 or 6. So the useful range
+is narrow, and on that host it was three slots away from the default.
+
+How much of a piconet a follow captures, measured on the same bench: counting
+every record written, a follow wrote 477 where a passive `ubertooth-rx` of the
+same piconet wrote 521 over a minute each; counting the packets that decoded
+whole, 6166 in 25 seconds at `-w 2` against 19 at the default.
+
+Finding the value does not make a follow reliable. Repeating the sweep, `-w 2`
+was dependably the value that landed the board on that piconet's channels --
+three legs matched 3123, 3284 and 6188 access codes where every other value
+matched between 74 and 361 -- and yet only one of those three legs decoded most
+of what it matched. The clock the board is given is out by less than a slot as
+well, and `-w` moves in whole slots, so no value of it takes that part out.
+Sweep for the best value and expect the capture at it to vary from run to run.
 
 ## WHAT A FOLLOW DOES NOT CAPTURE
 

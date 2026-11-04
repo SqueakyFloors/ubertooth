@@ -76,7 +76,7 @@ enable AFH (adaptive frequency hopping); experimental, and needs \fB\-t\fR\. See
 local Bluetooth device to use (default: hci0)\.
 .TP
 \fB\-w <timeslots>\fR
-USB delay in 625us timeslots (default: 5)\.
+USB delay in 625us timeslots (default: 5)\. The right value belongs to the machine, not to the piconet, and the default is not it on every machine; see THE \-w DELAY below\.
 .TP
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
@@ -87,7 +87,7 @@ The board has one reading of the channel to work from, so both figures are of wh
 .SH "AFH"
 \fB\-a\fR is experimental\. It makes the local BlueZ device connect to the target and asks the local controller for the AFH channel map of \fIthat\fR link, then follows the piconet keyed on the target's LAP/UAP\. The two are the same hop sequence only when the target is the Central of the piconet you want to follow, which \fBubertooth\-follow\fR cannot check\. Treat a capture made with \fB\-a\fR accordingly\.
 .P
-\fB\-a\fR reads the map over a connection to the target, and the tool asks for the target's own address before it will make one: \fB\-a\fR without \fB\-t\fR is refused before any file is created or device opened, with \fBerror: \-a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give \-t xx:xx:xx:xx:xx:xx\fR\. That is a requirement of the command line rather than of the air interface, as the next paragraph explains; whether it should stay is issue #316 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/316\fR\.
+\fB\-a\fR reads the map over a connection to the target, and the tool asks for the target's own address before it will make one: \fB\-a\fR without \fB\-t\fR is refused before any file is created or device opened, with \fBerror: \-a reads the AFH map over a Bluetooth connection to the target, so it needs the whole target address: give \-t xx:xx:xx:xx:xx:xx\fR\. That is a requirement of the command line rather than of the air interface, as the next paragraph explains\.
 .P
 A follow keyed on \fB\-l\fR and \fB\-u\fR instead connects to \fB00:00:<UAP>:<LAP>\fR, with the two most significant bytes zero, because ordinary piconet traffic does not carry them\. That guess is not what decides whether the page reaches the target: of the target's address, a page uses only the LAP and the UAP, as the access code, as the input that selects the page hopping sequence, and as the seed of the header error check and CRC of the FHS packet the pager sends (Bluetooth Core, Vol 2, Part B 1\.3, 6\.4\.6, 7\.1, and Table 2\.3), and the AFH map and clock offset reads that follow the page are keyed on the connection handle rather than on an address\. So a page that fails here has an ordinary cause: the target is out of range, it is not accepting connections, or the \fB\-u\fR given is wrong\. The one way the guess itself can stop the page is by matching the local Bluetooth device's own address, which a controller refuses to page\. What a real controller makes of the guessed NAP has not been measured on this project's bench (issue #699 \fIhttps://github\.com/SqueakyFloors/ubertooth/issues/699\fR)\. When the page does fail, the command stops, saying what to do about it:
 .IP "" 4
@@ -153,12 +153,20 @@ ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
 .IP "" 0
 
 .IP "4." 4
-Watch what the run prints\. The tool pages the target through the local Bluetooth device, reads the clock of the connection it gets, hands that to the board as the clock to hop on, and starts capturing\. Unlike ubertooth\-rx(1), it does not search the air for a clock: it is given one, so there is no acquisition to wait for and a follow that is working prints packets from the start\. A run that prints none has one of five causes: the piconet is not transmitting, the board cannot hear the piconet, the \fB\-u\fR given is wrong, the clock the board was given is off by enough to put it on the wrong channel, which is what \fB\-w\fR adjusts for, or the target is not the Central of the piconet\. The last of those finds nothing at all rather than part of the traffic: every packet in a piconet carries the Central's access code and hops on the Central's clock, so a follow keyed on a Peripheral's address is listening for a piconet that is not there\.
+Watch what the run prints\. The tool pages the target through the local Bluetooth device, reads the clock of the connection it gets, hands that to the board as the clock to hop on, and starts capturing\. Unlike ubertooth\-rx(1), it does not search the air for a clock: it is given one, so there is no acquisition to wait for and a follow that is working prints packets from the start\. On this project's bench the first record arrived between 0\.6 and 4\.4 seconds after the command started, over six runs, which is the page, the clock read, and opening the board rather than anything being searched for\. A run that prints none has one of five causes: the piconet is not transmitting, the board cannot hear the piconet, the \fB\-u\fR given is wrong, the clock the board was given is off by enough to put it on the wrong channel, which is what \fB\-w\fR adjusts for, or the target is not the Central of the piconet\. The last of those finds nothing at all rather than part of the traffic: every packet in a piconet carries the Central's access code and hops on the Central's clock, so a follow keyed on a Peripheral's address is listening for a piconet that is not there\.
 .IP
 A wrong \fB\-u\fR silences a run by putting the board on the wrong channels\. The hop sequence is built from the LAP and the low four bits of the UAP, so a \fB\-u\fR wrong in any of those four bits hops differently from the piconet and meets it only now and then\. A \fB\-u\fR wrong only in its top four bits leaves the hop sequence alone: such a run prints packets and decodes none of them, which is the case DESCRIPTION above describes\. A wrong \fB\-u\fR can also stop the page, and then the run exits 1 with the reason\.
 .IP
 The run ends when you interrupt it (Ctrl\-C), with exit status 0 and the capture written, so give it a length with \fBtimeout\fR when you script one\. \fBtimeout\fR reports 124 for a run it ended; \fBtimeout \-\-preserve\-status\fR gives the tool's own status instead\.
 .IP "5." 4
+Find the \fB\-w\fR this machine needs, if the run prints packets and decodes little of what it prints\. \fB\-w\fR pays for the host's own delay between reading the clock and the board starting to hop, and the default is not the right value on every machine\. It is worth doing once per machine and keeping the answer; see THE \-w DELAY below\.
+.IP "" 4
+.nf
+ubertooth\-follow \-t 11:22:33:44:55:66 \-e 0 \-w 2 \-q capture\.pcap
+.fi
+.IP "" 0
+
+.IP "6." 4
 Add \fB\-a\fR once the capture works without it, if the piconet uses AFH and the follow is patchy (see AFH above)\. It needs \fB\-t\fR:
 .IP "" 4
 .nf
@@ -166,9 +174,30 @@ ubertooth\-follow \-t 11:22:33:44:55:66 \-a \-q capture\.pcap
 .fi
 .IP "" 0
 
-.IP "6." 4
+.IP "7." 4
 Open \fBcapture\.pcap\fR in Wireshark, which has dissected this format since 2\.2\. ubertooth\-rx(1) describes the per\-packet report the run printed, and the project documentation describes the capture format\.
 .IP "" 0
+.SH "THE \-w DELAY"
+A follow is handed the piconet's clock, so it has nothing to search for\. But between reading that clock through the local Bluetooth device and the board starting to hop, the host spends time of its own on the USB transfers and the kernel, and the board's clock has to be moved on by that much to stay with the piconet\. \fB\-w\fR is how much: a whole number of 625us Bluetooth timeslots, 5 by default\.
+.P
+That delay is a property of the machine rather than of the piconet, so find the value once on yours and keep it\. Sweep a few values either side of the default over a piconet that is carrying steady traffic, each leg the same length:
+.IP "" 4
+.nf
+for w in 0 1 2 3 4 5 6 7 8; do
+  timeout 25 ubertooth\-follow \-t 11:22:33:44:55:66 \-e 0 \-w $w \-r w$w\.pcapng
+done
+.fi
+.IP "" 0
+.P
+Judge the sweep by the packets that decoded whole, not by the number of lines the run printed\. A \fB\-w\fR out by whole slots puts the board on the wrong channels and the capture is nearly empty\. A \fB\-w\fR out by part of a slot leaves the board on the right channels, so the run matches the piconet's access code and records every match, and none of those records' headers pass their header error check: a packet's channel comes from the top of the clock and the whitening of its header from the bottom, so the two go wrong at different scales\. The printed count stays in the hundreds either way\. The packets that decoded are the ones whose details the run printed; in Wireshark they are the frames without \fBIncorrect Packet Header or HEC\fR\.
+.P
+Sweep with \fB\-e 0\fR, exact access codes only\. At the default \fB\-e 2\fR a run writes about four times as many records, the extra ones undecoded, which makes a bad value look like a working capture\.
+.P
+A sweep on this project's bench, 25\-second legs on one Classic piconet with everything but \fB\-w\fR held the same, decoded 6166 packets at \fB\-w 2\fR, 3976 at \fB\-w 3\fR, 19 at the default of 5, and none at all at 0 or 6\. So the useful range is narrow, and on that host it was three slots away from the default\.
+.P
+How much of a piconet a follow captures, measured on the same bench: counting every record written, a follow wrote 477 where a passive \fBubertooth\-rx\fR of the same piconet wrote 521 over a minute each; counting the packets that decoded whole, 6166 in 25 seconds at \fB\-w 2\fR against 19 at the default\.
+.P
+Finding the value does not make a follow reliable\. Repeating the sweep, \fB\-w 2\fR was dependably the value that landed the board on that piconet's channels \-\- three legs matched 3123, 3284 and 6188 access codes where every other value matched between 74 and 361 \-\- and yet only one of those three legs decoded most of what it matched\. The clock the board is given is out by less than a slot as well, and \fB\-w\fR moves in whole slots, so no value of it takes that part out\. Sweep for the best value and expect the capture at it to vary from run to run\.
 .SH "WHAT A FOLLOW DOES NOT CAPTURE"
 A capture holds the basic rate packets of one piconet, decoded as far as they can be without the link's keys\. Three things are not in it however well the follow goes:
 .IP "\(bu" 4

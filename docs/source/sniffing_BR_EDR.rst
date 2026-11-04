@@ -182,6 +182,19 @@ device; there is none on macOS, so the tool is not built there.
    Neither form stops on its own. Interrupt the run with Ctrl-C when you have
    the capture you wanted, or give it a length with ``timeout``.
 
+#. **Find the ``-w`` this machine needs** if the run prints packets and decodes
+   little of them. ``-w`` pays for the host's own delay between reading the
+   clock and the board starting to hop, and its default is the right value on
+   some machines and not others. Sweep it once and keep the answer: on this
+   project's bench a 25-second capture decoded 6166 packets at ``-w 2`` and 19
+   at the default. The ``-w`` section of
+   `ubertooth-follow.md <https://github.com/SqueakyFloors/ubertooth/blob/main/host/doc/ubertooth-follow.md>`__
+   says how to read the sweep.
+
+	.. code-block:: sh
+
+		ubertooth-follow -t 22:44:66:88:aa:bb -e 0 -w 2 -q capture.pcap
+
 #. **Add the AFH map** with ``-a`` if the piconet uses AFH and the follow is
    patchy. It reads the map over a connection it
    makes to the target, so it needs ``-t``; the AFH section of
