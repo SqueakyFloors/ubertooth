@@ -18,6 +18,11 @@ import tempfile
 import time
 from pathlib import Path
 
+try:
+    import pty
+except ImportError:  # no pty module on this platform
+    pty = None
+
 BINARY = sys.argv[1]
 
 RECORD_LEN = 68                 # host time + usb_pkt_rx
@@ -273,6 +278,68 @@ with tempfile.TemporaryDirectory() as workdir:
             f"error: -{letter} would write over the dump -R is replaying"
             " (standard output)\n"), result
         assert (work / "same.bin").read_bytes() == FIXTURE, (option, result)
+
+    # The same redirection with no capture option at all. What goes to
+    # standard output is then the decode, which the shell has pointed at the
+    # dump: the text lands among the records, and a later replay of the file
+    # reports a partial record. The shell opened the file before this process
+    # started, so there is nothing left to refuse; the run says what is
+    # happening and carries on.
+    #
+    # With ">" the shell has emptied the dump before the run starts, which is
+    # the case nothing can prevent. The replay then reads an empty file, which
+    # is a clean end of file, so this case also pins that the warning leaves
+    # the exit status alone.
+    expected = ("warning: the decode is being written into the dump -R is"
+                " replaying, which will corrupt it\n")
+    with open(work / "same.bin", "wb") as truncated:
+        result = run("-p", "-R", "same.bin", directory=work,
+                     stdout=truncated)
+    assert result.returncode == 0, result
+    assert result.stderr == expected, result
+
+    # With ">>" the records are still there and the decode lands after them.
+    # How much of it reaches the file before the replay has read to the end is
+    # the buffering's business, so only the warning and the growth are pinned.
+    (work / "same.bin").write_bytes(FIXTURE)
+    with open(work / "same.bin", "ab") as appended:
+        result = run("-p", "-R", "same.bin", directory=work, stdout=appended)
+    assert result.stderr.startswith(expected), result
+    written = (work / "same.bin").read_bytes()
+    assert written.startswith(FIXTURE) and len(written) > len(FIXTURE), \
+        len(written)
+    (work / "same.bin").write_bytes(FIXTURE)
+
+    # Standard output pointed at another file is an ordinary replay: the
+    # comparison is of the file, so only the dump itself is warned about.
+    with open(work / "elsewhere.txt", "ab") as elsewhere:
+        result = run("-p", "-R", "same.bin", directory=work,
+                     stdout=elsewhere)
+    assert result.returncode == 0, result
+    assert result.stderr == "", result
+    assert len(packet_lines((work / "elsewhere.txt").read_text())) == 1, \
+        result
+
+    # A pipe and a terminal keep no records to spoil, so neither is warned
+    # about. A pipe is what every other run in this test uses; the terminal
+    # needs one of its own.
+    result = run("-p", "-R", "same.bin", directory=work)
+    assert result.returncode == 0, result
+    assert result.stderr == "", result
+    if pty is not None:
+        try:
+            pty_fd, tty_fd = pty.openpty()
+        except OSError:  # a sandbox with no pty to allocate
+            print("skipping the tty case, no pty available")
+        else:
+            try:
+                result = run("-p", "-R", "same.bin", directory=work,
+                             stdout=tty_fd)
+            finally:
+                os.close(tty_fd)
+                os.close(pty_fd)
+            assert result.returncode == 0, result
+            assert result.stderr == "", result
 
     # A destination reached through a descriptor the calling shell opened, as
     # `-d /dev/fd/3 3>>same.bin` does. No name says which file that is, and

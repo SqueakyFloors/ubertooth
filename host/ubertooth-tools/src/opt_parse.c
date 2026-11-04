@@ -979,6 +979,37 @@ int opt_check_destinations_not_input(FILE *input, const char *input_option,
 	return 0;
 }
 
+void opt_warn_stdout_is_input(FILE *input, const char *input_option)
+{
+	struct stat input_file, output_file;
+
+	if (input == NULL || input_option == NULL)
+		return;
+	if (fstat(fileno(input), &input_file) != 0)
+		return;
+	/* The input holding descriptor 1 means standard output was closed
+	 * before this process started and the input's own open took the
+	 * number. The decode has nowhere to go, so nothing is written into the
+	 * dump and there is nothing to warn about. */
+	if (fileno(input) == STDOUT_FILENO)
+		return;
+	/* Which file the decode lands in: the same question the check above
+	 * asks of a capture destination, asked of the stream, so "-" and its
+	 * fstat() of descriptor 1 is the destination to look up. */
+	if (destination_file("-", &output_file) != 0)
+		return;
+	/* Only a regular file holds records a decode can spoil. A pipe, a
+	 * terminal, or the null device on descriptor 1 cannot be the dump the
+	 * replay is reading in any case, and saying so would be noise. */
+	if (!S_ISREG(output_file.st_mode))
+		return;
+	if (input_file.st_dev != output_file.st_dev ||
+	    input_file.st_ino != output_file.st_ino)
+		return;
+	fprintf(stderr, "warning: the decode is being written into the dump %s"
+	        " is replaying, which will corrupt it\n", input_option);
+}
+
 /* Hand the real standard output to a capture and send this process's own
  * standard output to /dev/null for the rest of the run, so that nothing the
  * tool prints can land in the middle of the capture stream. Returns the

@@ -1090,6 +1090,11 @@ int main(int argc, char* argv[])
 			rx_give_back_boards(boards, n_boards, 0);
 			return 1;
 		}
+
+		/* The shell may also have pointed this run's standard output at
+		 * the dump, which no option names and nothing can refuse: see
+		 * opt_warn_stdout_is_input(). */
+		opt_warn_stdout_is_input(infile, "-i");
 	}
 	/* Stop on Ctrl-C from here on, before the board is opened: a signal
 	 * that arrives while one is being found would otherwise be discarded.

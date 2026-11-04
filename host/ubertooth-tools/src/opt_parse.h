@@ -250,6 +250,28 @@ int opt_check_destinations_not_input(FILE *input, const char *input_option,
                                      size_t count);
 
 /*
+ * Say so when the decode is going into the dump being replayed. The check
+ * above answers for a capture the user named; this one answers for the
+ * decode, which no option names: "ubertooth-rx -i cap.bin >> cap.bin" writes
+ * text into the record stream it is reading, and the dump is then no longer
+ * readable as one.
+ *
+ * The shell has already opened the file and pointed standard output at it, so
+ * there is nothing left to refuse -- the redirection is the user's, and it is
+ * also what they asked for. One "warning: " line on standard error is what
+ * this does instead; the run goes on and its exit status is unchanged.
+ *
+ * Pass the open input and how the user names the option that opened it ("-i",
+ * "-R"). Only a regular file on descriptor 1 is compared, because that is the
+ * one a decode can corrupt: a pipe or a terminal keeps no records to spoil.
+ *
+ * Call it with the input open and before a capture takes standard output,
+ * next to the check above, so the descriptor still holds the stream the
+ * decode will be written to.
+ */
+void opt_warn_stdout_is_input(FILE *input, const char *input_option);
+
+/*
  * Where a capture option's value says to write, standard output being any
  * destination opt_destination_is_stdout() recognizes (ubertooth(7), OPTION
  * VALUES).
