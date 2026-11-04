@@ -246,10 +246,10 @@ to capture.
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
    packets from the start. On this project's bench the first record arrived
-   between half a second and four and a half seconds after the command across
-   the runs recorded, and that wait is for a packet of the piconet to arrive
-   rather than for the tool: no part of it is clock acquisition. A run that
-   prints none has one of five causes: the
+   between a third of a second and four and a half seconds after the command
+   across the runs recorded, and that wait is for a packet of the piconet to
+   arrive rather than for the tool: a follow that is working spends none of it
+   acquiring a clock. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear the piconet, the `-u`
    given is wrong, the clock the board was given is off by enough to put it on
    the wrong channel, which is what `-w` adjusts for, or the target is not the
@@ -307,20 +307,22 @@ need not hold for the other.
 
     d=$(mktemp -d)
     for w in 0 1 2 3 4 5 6 7 8; do
-      timeout 25 ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w $w -r "$d/w$w.pcapng"
-      tshark -r "$d/w$w.pcapng" -V |
-        grep -c 'Incorrect Packet Header or HEC'
+      cap="$d/w$w.pcapng"
+      timeout 25 ubertooth-follow -t 11:22:33:44:55:66 -e 0 -w $w -r "$cap"
+      records=$(tshark -r "$cap" | wc -l)
+      bad=$(tshark -r "$cap" -V | grep -c 'Incorrect Packet Header or HEC')
+      echo "w=$w $((records - bad / 2)) of $records headers passed"
     done
 
-Count the headers that passed, not the records written. A board hopping on a
-clock that is wrong still matches the piconet's access code now and then, and
-it records every match, so a bad value can write hundreds of records and get
-nothing out of any of them. The loop above prints, for each leg, how many times
-Wireshark marked a header bad. That warning appears twice per frame, so halve
-it for the records that failed and take those from the records the leg wrote.
-Do not count the packet detail the run printed instead: that needs the payload
-as well as the header, which an enhanced data rate payload never reaches, so on
-a link carrying EDR every value would read as zero.
+The count that matters is the headers that passed, not the records written. A
+board hopping on a clock that is wrong still matches the piconet's access code
+now and then, and it records every match, so a bad value can write hundreds of
+records and get nothing out of any of them. Wireshark marks a bad header
+`Incorrect Packet Header or HEC` and `tshark -V` prints that twice per frame,
+which is the halving above. Do not count the packet detail the run printed
+instead: that needs the payload as well as the header, which an enhanced data
+rate payload never reaches, so on a link carrying EDR every value would read as
+zero.
 
 Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
 three or four times as many records, the extra ones matched with an error
