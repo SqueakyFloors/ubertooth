@@ -873,8 +873,12 @@ One rule covers what a board holds from one command to the next:
 - **Every mode start resets the mode state, hop mode and AFH channel map the
   mode before it left.** A capture hops the way the mode that started it asks,
   and no other way: `ubertooth-rx` after an `ubertooth-afh` hops across the
-  whole channel set, not on the map that run found. This holds even when the
-  earlier tool was killed and left the board streaming. The squelch and the
+  whole channel set, not on the map that run found. It holds when the earlier
+  tool was killed and left the board streaming too, as long as the new run
+  asks for a different mode; a run that asks for the mode already streaming
+  is taken as a re-sync of the old one, and then the map and hop mode stay as
+  they were. That is why `ubertooth-follow` without a map clears the board's
+  map rather than relying on the start to do it. The squelch and the
   LEDs go with it, as above, and so do the modulation, which goes back to
   Classic, and the access code `ubertooth-ego -a` sets; the power amplifier
   level set with `-a` does not.

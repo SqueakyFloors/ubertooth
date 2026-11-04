@@ -135,6 +135,9 @@ static struct {
 	 * on a connection that was never made. -1 until a read happens. */
 	int afh_read_handle;
 	int afh_read_sock;
+	/* The map the board was given, so a case can check it is the one the
+	 * target reported. */
+	uint8_t board_map[AFH_MAP_BYTES];
 	uint64_t bdaddr;      /* the address the board was told to follow */
 	/* Every device call in order, one letter each: a set the target's
 	 * address, k set the board's clock, i submitted the receive transfer,
@@ -425,7 +428,10 @@ int cmd_set_clock_quiet(struct libusb_device_handle* devh, uint32_t clkn)
 int cmd_set_afh_map(struct libusb_device_handle* devh, uint8_t* map)
 {
 	(void)devh;
-	(void)map;
+	/* Kept, so a case can check which map reached the board and not merely
+	 * that one did: the map the target reported last is the only one that
+	 * may be followed. */
+	memcpy(fake.board_map, map, sizeof(fake.board_map));
 	record('m');
 	return 0;
 }
@@ -1482,15 +1488,22 @@ MU_TEST(a_failed_afh_map_read_stops_the_run)
 MU_TEST(a_map_with_too_few_channels_is_refused)
 {
 	char expected[192];
+	char map_line[AFH_MAP_LINE_LEN];
 	struct run_result r;
 
 	reset_fake();
 	afh_map_bits(fake.afh_map, FOLLOW_AFH_MIN_USED_CHANNELS - 1);
 	r = RUN(WHOLE_TARGET, "-a");
+	/* Built from the same macros the tool counts against, plurals included,
+	 * so the expected line follows a changed bound or attempt count
+	 * instead of having to be edited after it. */
 	snprintf(expected, sizeof(expected),
-	         "error: the remote device reports AFH on but only %d channels in "
-	         "use after %d reads, and AFH needs at least %d\n",
-	         FOLLOW_AFH_MIN_USED_CHANNELS - 1, FOLLOW_AFH_READ_ATTEMPTS,
+	         "error: the remote device reports AFH on but only %d channel%s in "
+	         "use after %d read%s, and AFH needs at least %d\n",
+	         FOLLOW_AFH_MIN_USED_CHANNELS - 1,
+	         FOLLOW_AFH_MIN_USED_CHANNELS - 1 == 1 ? "" : "s",
+	         FOLLOW_AFH_READ_ATTEMPTS,
+	         FOLLOW_AFH_READ_ATTEMPTS == 1 ? "" : "s",
 	         FOLLOW_AFH_MIN_USED_CHANNELS);
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, expected) != NULL, r.err);
@@ -1507,8 +1520,8 @@ MU_TEST(a_map_with_too_few_channels_is_refused)
 	mu_assert_int_eq(1, fake.dev_fd_closed);
 
 	/* A map that has not settled on the first read and has on the second is
-	 * what the retry is for: the second answer is the one that is followed,
-	 * after one pause, and the run does not go on reading. */
+	 * what the retry is for: the second answer is the one that reaches the
+	 * board, after one pause, and the run does not go on reading. */
 	reset_fake();
 	afh_map_bits(fake.afh_map, FOLLOW_AFH_MIN_USED_CHANNELS - 1);
 	afh_map_bits(fake.afh_settled_map, FOLLOW_AFH_CHANNELS);
@@ -1522,7 +1535,11 @@ MU_TEST(a_map_with_too_few_channels_is_refused)
 	mu_assert_int_eq(2, fake.afh_reads);
 	mu_assert_int_eq(1, occurrences(r.err,
 	                 "AFH map not usable yet, reading it again\n"));
-	mu_assert(call_at('m') >= 0, fake.calls);
+	/* The settled map, byte for byte, and not the one that was refused. */
+	mu_assert(memcmp(fake.board_map, fake.afh_settled_map,
+	                 sizeof(fake.board_map)) == 0, fake.calls);
+	afh_map_line(fake.afh_settled_map, map_line, sizeof(map_line));
+	mu_assert(strstr(r.out, map_line) != NULL, r.out);
 
 	/* Exactly the minimum is a map, read once and applied. */
 	reset_fake();
@@ -1536,8 +1553,37 @@ MU_TEST(a_map_with_too_few_channels_is_refused)
 	mu_assert_int_eq(1, fake.afh_reads);
 	mu_assert_int_eq(FAKE_ACL_HANDLE, fake.afh_read_handle);
 	mu_assert_int_eq(fake.dev_fd, fake.afh_read_sock);
-	mu_assert(strstr(r.out, "AFH map: 0x") != NULL, r.out);
-	mu_assert(call_at('m') >= 0, fake.calls);
+	mu_assert(memcmp(fake.board_map, fake.afh_map,
+	                 sizeof(fake.board_map)) == 0, fake.calls);
+	afh_map_line(fake.afh_map, map_line, sizeof(map_line));
+	mu_assert(strstr(r.out, map_line) != NULL, r.out);
+}
+
+/* AFH on with not one channel in use is the other transient the retry is for,
+ * and it has its own report: a map of nothing is not a hop sequence either, so
+ * the run stops rather than handing the board a map that would receive
+ * nothing. */
+MU_TEST(an_empty_afh_map_is_refused)
+{
+	char expected[192];
+	struct run_result r;
+
+	reset_fake();
+	afh_map_bits(fake.afh_map, 0);
+	r = RUN(WHOLE_TARGET, "-a");
+	snprintf(expected, sizeof(expected),
+	         "error: the remote device reports AFH on but an empty channel "
+	         "map (0 of %d channels) after %d read%s\n",
+	         FOLLOW_AFH_CHANNELS, FOLLOW_AFH_READ_ATTEMPTS,
+	         FOLLOW_AFH_READ_ATTEMPTS == 1 ? "" : "s");
+	mu_assert_int_eq(1, r.rc);
+	mu_assert(strstr(r.err, expected) != NULL, r.err);
+	mu_assert_int_eq(1, occurrences(r.err, "error: "));
+	mu_assert(r.out[0] == '\0', r.out);
+	mu_assert_int_eq(FOLLOW_AFH_READ_ATTEMPTS, fake.afh_reads);
+	mu_assert_int_eq(0, fake.connects);
+	mu_assert(fake.calls[0] == '\0', fake.calls);
+	mu_assert_int_eq(1, fake.dev_fd_closed);
 }
 
 /* A remote that reports AFH off has answered: it is not hopping adaptively,
@@ -1644,6 +1690,7 @@ int main(void)
 	MU_RUN(the_afh_map_is_printed_beside_a_capture_on_standard_output);
 	MU_RUN(a_failed_afh_map_read_stops_the_run);
 	MU_RUN(a_map_with_too_few_channels_is_refused);
+	MU_RUN(an_empty_afh_map_is_refused);
 	MU_RUN(a_remote_not_using_afh_is_followed_without_a_map);
 	MU_RUN(an_afh_mode_that_is_neither_off_nor_on_is_refused);
 	MU_RUN(a_without_a_target_address_reads_no_map);
