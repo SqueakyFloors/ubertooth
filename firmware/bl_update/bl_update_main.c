@@ -36,9 +36,11 @@
  * It has no USB of its own on purpose. The host already made every check this
  * makes, over the same bytes, before it wrote this image to the board
  * (host/ubertooth-tools/src/bl_update_file.c), and it reads the result
- * afterwards from the bootloader report the next application answers
- * (ubertooth-util -B). A USB stack here would be a second implementation of
- * the one path in the tree that must not have a second implementation.
+ * afterwards out of the region itself: the bootloader hands those blocks back
+ * over DFU, before the write and after it, and any application reports the
+ * region's hash (ubertooth-util -B). A USB stack here would be a second
+ * implementation of the one path in the tree that must not have a second
+ * implementation.
  *
  * It says nothing on the board either, beyond lighting the LEDs while it
  * writes. There is nothing a blink could add that the hash the host already

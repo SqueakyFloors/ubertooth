@@ -45,6 +45,15 @@
  * `ubertooth-util -B` after the update prints the same value.
  */
 
+/*
+ * The part maps either the user flash or its boot ROM over the lowest bytes of
+ * the address map (firmware/common/lpc17.h, MEMMAP), and the window is this
+ * long. The bootloader never writes that register, so a region read back over
+ * DFU may or may not show the flash over these bytes, and the hash below that
+ * skips them is the one that compares either way.
+ */
+#define UBERTOOTH_BL_MEMMAP_WINDOW 512
+
 struct bl_update_file {
 	/* An enum ubertooth_bl_update_result. UBERTOOTH_BL_UPDATE_OK is a file
 	 * worth writing; everything negative is a refusal. */
@@ -60,6 +69,11 @@ struct bl_update_file {
 	 * programmed, with the vector checksum filled in. Only meaningful when
 	 * result is UBERTOOTH_BL_UPDATE_OK. */
 	uint32_t region_crc32;
+	/* The same hash over the region above UBERTOOTH_BL_MEMMAP_WINDOW, which
+	 * is the part of the region a read-back over DFU shows whichever way the
+	 * part's memory map happens to be set. No board reports this one, so it
+	 * compares only against another read-back. */
+	uint32_t region_crc32_above_window;
 };
 
 /*

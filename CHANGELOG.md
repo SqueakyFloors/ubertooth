@@ -1191,6 +1191,19 @@
   `-r /dev/stdout` now answers with the line that says to use `-q` instead.
   [#1157](https://github.com/SqueakyFloors/ubertooth/issues/1157)
 
+- Fixed: `ubertooth-dfu --update-bootloader` reported success whenever the
+  board came back in DFU, which is also what a board whose bootloader entry
+  pin is bridged does without ever starting the updater, so a run that
+  installed nothing read like one that worked. The command now reads the
+  bootloader region before the write and again afterwards, and says what the
+  board holds: an installed bootloader is reported with the hash
+  `ubertooth-util -B` will give, a region that already held it says nothing was
+  written, and a region that provably is not the one asked for is an error and
+  exit 1, whether it did not change at all or changed into neither bootloader.
+  Where the reads cannot settle it, the run says so and claims nothing either
+  way.
+  [#1128](https://github.com/SqueakyFloors/ubertooth/issues/1128)
+
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
   saying why named two of the three reasons the bootloader runs. All three are
   now named, and a run that wrote no image is told to write a whole one, which

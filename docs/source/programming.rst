@@ -6,7 +6,7 @@ This page describes how to load compiled firmware onto an Ubertooth One. Other p
 
 There are three ways to program an Ubertooth board: the USB bootloader, the ISP bootloader, and JTAG.
 
-A bootloader cannot replace itself over USB, because it accepts writes only from address 0x4000, where the application region starts, and reads back only from there as well. ``ubertooth-dfu --update-bootloader`` installs one from the ``bl_update`` image instead, which carries the bootloader as an ordinary application and programs the region once the board runs it. See ubertooth-dfu(1), UPDATING THE BOOTLOADER; keep a serial adapter to hand, because that is what recovers a board from an interrupted write.
+A bootloader cannot replace itself over USB, because it accepts writes only from address 0x4000, where the application region starts. It will read its own region back, which is how a bootloader update is checked. ``ubertooth-dfu --update-bootloader`` installs one from the ``bl_update`` image instead, which carries the bootloader as an ordinary application and programs the region once the board runs it. See ubertooth-dfu(1), UPDATING THE BOOTLOADER; keep a serial adapter to hand, because that is what recovers a board from an interrupted write.
 
 
 
