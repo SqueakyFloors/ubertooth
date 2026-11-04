@@ -161,7 +161,7 @@ ubertooth\-util \-B
 .P
 \fBbl_update\.dfu\fR is an ordinary firmware image, built by \fBmake \-C firmware bl_update\fR, that carries the 16 KiB of bootloader region to install\. This command writes it like any image and resets the board; the image programs the region through the part's own In\-Application Programming commands, reads it back, and resets into DFU, where this command waits for it\. That leaves the application region holding the updater, which is why the second line above is part of the procedure\. Before anything is written, this command prints the CRC32 the installed bootloader will report, and reads the bootloader region back as it stands; \fBubertooth\-util \-B\fR on the third line prints what the board actually has, so the two can be compared\.
 .P
-Once the board is back in DFU the command reads the region again, because a board in DFU is also what an updater that never ran leaves behind: a bootloader whose entry pin reads grounded stays in DFU instead of starting the image, so nothing is installed and the board looks no different on the bus\. A region that now holds the bootloader the image carries is reported as installed\. A region that provably does not is an \fBerror:\fR and status 1: either it did not change at all, so nothing was installed, or it changed into neither bootloader, so the write did not finish\.
+Once the board is back in DFU the command reads the region again, because a board in DFU is also what an updater that never ran leaves behind: a bootloader whose entry pin reads grounded stays in DFU instead of starting the image, so nothing is installed and the board looks no different on the bus\. A region that now holds the bootloader the image carries is reported as installed, or, if it held it before the run as well, as a region nothing was written into\. A region that provably does not hold it is an \fBerror:\fR and status 1: either it did not change at all, so nothing was installed, or it changed into neither bootloader, so the write did not finish\.
 .P
 Both reads go through the bootloader the same way, so a region that did not change is provable\. What they cannot settle is the lowest 512 bytes: the part covers them with either the user flash or its own boot ROM and the bootloader does not choose which, while the vector table and the version block both live there, so two builds of one bootloader can differ only inside them\. A run whose answer lies in those bytes \-\- the region did not change, and above them it matches the image \-\- is a \fBwarning:\fR and status 0 rather than a guess, because that is both a board which already had this bootloader and one which has another build of it and installed nothing\. Installing a bootloader that differs from the one on the board only in those bytes is therefore the case this check cannot confirm or refuse; \fBubertooth\-util \-B\fR after writing firmware again answers it\. A region that will not read back, before the write or after it, is reported the same way, except that a region which reads afterwards and holds the image's bootloader is confirmed whether or not the earlier read worked\.
 .P
@@ -245,6 +245,13 @@ That is the revision the board reported once it was running the new firmware, so
 .nf
 Bootloader installed: ubertooth\-util \-B will report CRC32:0x7c52e323\.
 The board is in DFU\. Write your firmware again (ubertooth\-dfu \-d bluetooth_rxtx\.dfu \-r)\.
+.fi
+.IP "" 0
+.P
+A region that already held that bootloader and did not change says so instead, because this run wrote nothing into it:
+.IP "" 4
+.nf
+The bootloader region already held this bootloader, so nothing was written: ubertooth\-util \-B will report CRC32:0x7c52e323\.
 .fi
 .IP "" 0
 .P

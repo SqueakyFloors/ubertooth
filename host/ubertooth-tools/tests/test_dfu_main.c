@@ -3336,6 +3336,7 @@ MU_TEST(an_updater_that_never_ran_is_refused_through_the_boot_rom_window)
 MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 {
 	struct run_result r;
+	char line[128];
 
 	board_whose_entry_pin_is_bridged();
 	write_updater_image(UPDATER_PAYLOAD);
@@ -3343,7 +3344,20 @@ MU_TEST(a_board_that_already_holds_the_image_bootloader_is_not_refused)
 	r = RUN("-U", "0", "-d", sized_image_path, "--update-bootloader");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(0, error_lines(r.err));
-	mu_assert(strstr(r.out, "Bootloader installed") != NULL, r.out);
+	/* Not refused -- the board has what was asked for -- and not called an
+	 * install either, because the region did not change and this run wrote
+	 * nothing into it. */
+	snprintf(line, sizeof(line), "The bootloader region already held this "
+	         "bootloader, so nothing was written: ubertooth-util -B will "
+	         "report CRC32:0x%08x.", (unsigned)updater_image_crc32());
+	mu_assert(strstr(r.out, line) != NULL, r.out);
+	/* The literal the doc-example-lines check reads, as in the success case
+	 * above. */
+	mu_assert(strcmp(line, "The bootloader region already held this "
+	                 "bootloader, so nothing was written: ubertooth-util -B "
+	                 "will report CRC32:0x7c52e323.") == 0, line);
+	mu_assert(strstr(r.out, "Bootloader installed") == NULL,
+	          "a run that wrote nothing was reported as an install");
 }
 
 /*

@@ -354,10 +354,11 @@ Once the board is back in DFU the command reads the region again, because a
 board in DFU is also what an updater that never ran leaves behind: a bootloader
 whose entry pin reads grounded stays in DFU instead of starting the image, so
 nothing is installed and the board looks no different on the bus. A region that
-now holds the bootloader the image carries is reported as installed. A region
-that provably does not is an `error: ` and status 1: either it did not change
-at all, so nothing was installed, or it changed into neither bootloader, so the
-write did not finish.
+now holds the bootloader the image carries is reported as installed, or, if it
+held it before the run as well, as a region nothing was written into. A region
+that provably does not hold it is an `error: ` and status 1: either it did not
+change at all, so nothing was installed, or it changed into neither bootloader,
+so the write did not finish.
 
 Both reads go through the bootloader the same way, so a region that did not
 change is provable. What they cannot settle is the lowest 512 bytes: the part
@@ -565,6 +566,11 @@ holds and what to do next:
 
     Bootloader installed: ubertooth-util -B will report CRC32:0x7c52e323.
     The board is in DFU. Write your firmware again (ubertooth-dfu -d bluetooth_rxtx.dfu -r).
+
+A region that already held that bootloader and did not change says so instead,
+because this run wrote nothing into it:
+
+    The bootloader region already held this bootloader, so nothing was written: ubertooth-util -B will report CRC32:0x7c52e323.
 
 A run that could not read the region back prints the second line alone, and
 names `ubertooth-util -B` in it. Nothing else is ever written to standard
