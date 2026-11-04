@@ -1269,6 +1269,10 @@ MU_TEST(pager_a_dropped_page_response_does_not_start_a_connection)
 	mu_assert_int_eq(20, train->tick - page1->tick);
 	mu_assert_int_eq(BTCTL_STATE_PAGE, btctl.state);
 	mu_assert_int_eq(BT_MODE_PAGING, btphy.mode);
+	/* One report, the page the host asked for. Repeating the page response
+	 * and starting the train again are both inside that page, so neither
+	 * says anything to the host. */
+	mu_assert_int_eq(1, (int)state_reports);
 }
 
 /*

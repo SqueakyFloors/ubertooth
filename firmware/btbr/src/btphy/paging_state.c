@@ -120,6 +120,15 @@ static void paging_fhs_unanswerable(void)
 	btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 }
 
+/* Forget the page response an earlier page attempt was in the middle of, so
+ * no flag of one attempt is read by the next. */
+static void paging_fhs_forget(void)
+{
+	paging_state.fhs_pending = 0;
+	paging_state.fhs_sent = 0;
+	paging_state.fhs_unanswerable = 0;
+}
+
 /* Hand the page response to the transmit task for the slot `delay` reaches,
  * with the clock that slot starts in written into its payload. */
 static void paging_send_fhs(unsigned delay)
@@ -309,6 +318,7 @@ void paging_state_resume(void)
 	 * own address; the page train needs the paged device's back. */
 	btphy_set_mode(BT_MODE_PAGING, paging_state.paged_lap,
 			paging_state.paged_uap);
+	paging_fhs_forget();
 	btctl_set_state(BTCTL_STATE_PAGE, BTCTL_REASON_TIMEOUT);
 	paging_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 }
@@ -342,9 +352,7 @@ void paging_state_setup(uint32_t lap, uint8_t uap)
 	btphy_set_mode(BT_MODE_PAGING, lap, uap);
 	paging_state.paged_lap = lap;
 	paging_state.paged_uap = uap;
-	paging_state.fhs_pending = 0;
-	paging_state.fhs_sent = 0;
-	paging_state.fhs_unanswerable = 0;
+	paging_fhs_forget();
 
 	/* A simple Header for our fhs */ 
 	paging_state.fhs_hdr.lt_addr = 0;		//  This seems right

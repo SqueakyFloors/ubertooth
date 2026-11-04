@@ -320,17 +320,18 @@ set_flags:
  * N times would go out N-1 times, and the peer would get no acknowledgment
  * for the packet it had just sent and repeat it, costing the link a slot.
  *
- * A slot that did go out costs both, which is what the protocol expects. */
+ * A slot that did go out costs both, which is what the protocol expects.
+ *
+ * A link that was reset between the slot and this report owes nothing: the
+ * message a repeat would belong to has been freed, which is why ll_reset()
+ * clears what the slot was carrying. */
 void ll_tx_done(link_layer_t *ll, int sent)
 {
 	if (!sent)
 	{
 		if (ll->tx_slot_arqn)
 			ll->loc_arqn = 1;
-		/* Only while the message is still there to repeat: a link that
-		 * was reset between the slot and this report has freed it and
-		 * counted its slots out. */
-		if (ll->tx_slot_repeat && ll->cur_pkt_msg != NULL)
+		if (ll->tx_slot_repeat)
 			ll->pkt_slots_left++;
 	}
 	ll->tx_slot_arqn = 0;
