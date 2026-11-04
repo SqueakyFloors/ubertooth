@@ -356,28 +356,31 @@ static int names_descriptor_one(const char *name)
 	return descriptor_number(name) == STDOUT_FILENO;
 }
 
-/* Whether <path> leads to the file descriptor <fd> holds, which is what tells
- * a real descriptor path from a file that merely looks like one -- and, more
- * to the point, from a spelling this platform does not answer. Both have to
- * be true: the descriptor must be open here, so a path naming a closed one is
- * not taken for the file that descriptor number held in some earlier process,
- * and the path must lead to its file.
+/* Whether <path> is a spelling of <directory>'s own entry for descriptor
+ * <fd>, which is what says this platform answers that spelling -- and, since
+ * a closed descriptor has no entry, that the descriptor is open here, so a
+ * path naming a closed one is not taken for the file that descriptor number
+ * held in some earlier process.
  *
- * The inode number is what is compared, not the device number as well,
- * because that is the half the BSDs answer with a device of their own; see
- * named_descriptor(). */
-static int descriptor_holds(const char *path, int fd)
+ * The path is compared with the canonical entry, <directory>/<fd>, and not
+ * with the descriptor itself: on the BSDs that filesystem answers for an
+ * anonymous pipe with an inode number of its own, so stat() of the path and
+ * fstat() of the descriptor disagree for the very destination a capture on
+ * standard output usually has -- the receiving end of a pipe. Two paths
+ * through one filesystem agree on both platforms.
+ *
+ * Which file the descriptor holds is a different question, and fstat() is
+ * what answers it: see path_file(). */
+static int descriptor_entry(const char *path, const char *directory, int fd)
 {
-	struct stat held, named;
+	char canonical[PATH_MAX];
+	struct stat named, entry;
 
-	if (fstat(fd, &held) != 0 || stat(path, &named) != 0)
+	if ((size_t)snprintf(canonical, sizeof(canonical), "%s/%d", directory,
+	                     fd) >= sizeof(canonical))
 		return 0;
-	/* The kind of file as well as the inode number, so that a path which
-	 * merely happens to share an inode number with the descriptor's file
-	 * -- on a system with no descriptor filesystem at all, where such a
-	 * path could be an ordinary file someone made -- is not taken for it. */
-	return held.st_ino == named.st_ino &&
-	       (held.st_mode & S_IFMT) == (named.st_mode & S_IFMT);
+	return stat(path, &named) == 0 && stat(canonical, &entry) == 0 &&
+	       named.st_dev == entry.st_dev && named.st_ino == entry.st_ino;
 }
 
 /* The descriptor a path of the form <directory>/<number> names, where
@@ -399,7 +402,12 @@ static int descriptor_holds(const char *path, int fd)
  * the writer's own open would reach it. The text comparisons elsewhere in
  * this file deliberately leave ".." alone, because the element above a
  * symbolic link is not the directory the text suggests; here the lookup
- * answers that question instead of guessing at it. */
+ * answers that question instead of guessing at it.
+ *
+ * The lookup is also what keeps an ordinary file whose name ends in a number
+ * a file. Without it, "-d out/1" with standard output redirected to that very
+ * file would read as descriptor 1 and the capture would be written through
+ * the stream rather than to the name the user gave. */
 static const char *final_name(const char *path);
 static int directory_of(const char *path, char *out, size_t size);
 
@@ -411,7 +419,10 @@ static int descriptor_in(const char *path, const char *directory)
 
 	if (ends_inside_a_name(path))
 		return -1;
-	if (opt_parse_int(final_name(path), 0, INT_MAX, &fd) < 0)
+	/* A sign is not a descriptor number, as it is not a count anywhere
+	 * else: opt_parse_int() would read "-0" as 0. */
+	if (final_name(path)[0] == '-' ||
+	    opt_parse_int(final_name(path), 0, INT_MAX, &fd) < 0)
 		return -1;
 	if (!directory_of(path, holding, sizeof(holding)))
 		return -1;
@@ -421,7 +432,7 @@ static int descriptor_in(const char *path, const char *directory)
 	if (named_directory.st_dev != the_directory.st_dev ||
 	    named_directory.st_ino != the_directory.st_ino)
 		return -1;
-	return descriptor_holds(path, fd) ? fd : -1;
+	return descriptor_entry(path, directory, fd) ? fd : -1;
 }
 
 /* The descriptor a path names through one of the directories that hold this
@@ -492,7 +503,7 @@ static int named_descriptor(const char *path)
 		return STDOUT_FILENO;
 	for (i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++)
 		if (same_path_text(path, fixed[i].path) &&
-		    descriptor_holds(path, fixed[i].fd))
+		    descriptor_entry(path, "/dev/fd", fixed[i].fd))
 			return fixed[i].fd;
 	return -1;
 }
@@ -1065,6 +1076,13 @@ void opt_discard_capture_file(const char *filename)
 	int failed;
 
 	if (filename == NULL || opt_writes_to_stdout(filename))
+		return;
+	/* A destination that names one of this process's descriptors has no
+	 * file of its own to take away, and the entry it does name cannot be
+	 * removed: on the BSDs lstat() reports one as a regular file, so an
+	 * unlink() would be attempted and refused, and the warning would be
+	 * about the descriptor filesystem rather than about the capture. */
+	if (named_descriptor(filename) >= 0)
 		return;
 
 	/* lstat(), not stat(): what a symbolic link names was the user's choice

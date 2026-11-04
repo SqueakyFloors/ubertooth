@@ -560,6 +560,71 @@ static void test_the_stream_beside_the_file_called_dash(void)
 	close(saved);
 }
 
+/* A destination written as some other spelling of a descriptor path, beside
+ * the file that descriptor holds. Either the platform answers the spelling
+ * and the pair is refused, or it does not and the two are two destinations;
+ * both are pinned, because what must not happen is the third outcome, the
+ * pair taken for two files and one of them written over the other.
+ *
+ * Which of the two it is cannot be settled once and relied on: macOS answers
+ * a ".." element above the number only some of the time, the same path
+ * resolving in one run and not in the next. */
+static void check_descriptor_spelling(const char *file, const char *spelled)
+{
+	char refusal[PATH_MAX + 128], expected[PATH_MAX + 128];
+	const opt_capture_dest pair[] = {
+		{ "-q", file },
+		{ "-d", spelled },
+	};
+	int status;
+
+	refusal_for(pair, 2, &status, refusal, sizeof(refusal));
+	if (status == 0) {
+		CHECK(refusal[0] == '\0');
+		printf("note: %s is not answered as a descriptor in this run\n",
+		       spelled);
+		return;
+	}
+	snprintf(expected, sizeof(expected),
+	         "error: -q and -d cannot both write to one file (%s and %s)\n",
+	         file, spelled);
+	checks++;
+	if (strcmp(refusal, expected) != 0) {
+		fprintf(stderr, "FAIL %s beside %s\n  wanted %s  got    %s",
+		        file, spelled, expected, refusal);
+		failures++;
+	}
+}
+
+/* One of the descriptor filesystem's fixed names beside its own numbered
+ * entry for the same descriptor: one destination, so the pair is refused.
+ *
+ * Skipped where the platform does not answer the name, and where that
+ * descriptor is the null device -- two captures may share that one, since it
+ * keeps nothing and loses nothing, so there would be no refusal to read. A
+ * test run with its standard input on /dev/null is the ordinary case. */
+static void check_fixed_name(const char *name, const char *numbered, int fd)
+{
+	struct stat by_name, by_number, null;
+	char expected[PATH_MAX + 128];
+
+	if (stat(name, &by_name) != 0 || stat(numbered, &by_number) != 0 ||
+	    by_name.st_dev != by_number.st_dev ||
+	    by_name.st_ino != by_number.st_ino) {
+		printf("skipping %s, this platform does not answer it\n", name);
+		return;
+	}
+	if (fstat(fd, &by_number) == 0 && S_ISCHR(by_number.st_mode) &&
+	    stat("/dev/null", &null) == 0 && by_number.st_rdev == null.st_rdev) {
+		printf("skipping %s, it is the null device in this run\n", name);
+		return;
+	}
+	snprintf(expected, sizeof(expected),
+	         "error: -q and -d cannot both write to one file (%s and %s)\n",
+	         name, numbered);
+	check_refused(name, numbered, expected);
+}
+
 /* A destination reached through a descriptor the calling shell opened. The
  * name says nothing about which file that is and looking it up answers
  * differently on each system, so the descriptor itself is asked: it is
@@ -572,8 +637,10 @@ static void test_descriptor_paths(void)
 	/* Nothing is open on this descriptor, so the path names nothing and
 	 * cannot be compared with anything. */
 	check_accepted("cap.bin", "/dev/fd/9");
-	/* A last element that is not a number at all is a file name. */
+	/* A last element that is not a number at all is a file name, and so is
+	 * one carrying a sign: a descriptor number is not a count. */
 	check_accepted("cap.bin", "/dev/fd/1x");
+	check_accepted("cap.bin", "/dev/fd/-0");
 
 	make_file("held.bin", "the capture\n");
 	held = open("held.bin", O_WRONLY);
@@ -611,26 +678,14 @@ static void test_descriptor_paths(void)
 	 * comparisons in opt_parse.c leave ".." alone on purpose; this is the
 	 * one place a lookup answers it. */
 	{
-		const char *shapes[] = { "/dev/fd/./%d", "/dev//fd/%d",
-		                         "/dev/fd/../fd/%d" };
-		char spelled[64], expected[PATH_MAX + 128];
-		struct stat by_spelling, by_path;
+		const char *written[] = { "/dev/fd/./%d", "/dev//fd/%d",
+		                          "/dev/fd/../fd/%d" };
+		char spelled[64];
 		size_t i;
 
-		for (i = 0; i < sizeof(shapes) / sizeof(shapes[0]); i++) {
-			snprintf(spelled, sizeof(spelled), shapes[i], held);
-			if (stat(spelled, &by_spelling) != 0 ||
-			    stat(path, &by_path) != 0 ||
-			    by_spelling.st_ino != by_path.st_ino) {
-				printf("skipping %s, this platform does not"
-				       " answer it\n", spelled);
-				check_accepted("held.bin", spelled);
-				continue;
-			}
-			snprintf(expected, sizeof(expected),
-			         "error: -q and -d cannot both write to one file"
-			         " (held.bin and %s)\n", spelled);
-			check_refused("held.bin", spelled, expected);
+		for (i = 0; i < sizeof(written) / sizeof(written[0]); i++) {
+			snprintf(spelled, sizeof(spelled), written[i], held);
+			check_descriptor_spelling("held.bin", spelled);
 		}
 	}
 	/* A zero-padded number is the platform's to answer, not this code's:
@@ -645,6 +700,7 @@ static void test_descriptor_paths(void)
 
 		snprintf(padded, sizeof(padded), "/dev/fd/0%d", held);
 		if (stat(padded, &by_padded) == 0 && stat(path, &by_path) == 0 &&
+		    by_padded.st_dev == by_path.st_dev &&
 		    by_padded.st_ino == by_path.st_ino) {
 			char expected[PATH_MAX + 128];
 
@@ -663,29 +719,16 @@ static void test_descriptor_paths(void)
 	 * file of this test's own while the refusal is being captured, which is
 	 * what the two resolve to. */
 	{
-		struct stat by_name, by_number;
-
-		if (stat("/dev/stderr", &by_name) == 0 &&
-		    fstat(STDERR_FILENO, &by_number) == 0 &&
-		    by_name.st_ino == by_number.st_ino)
-			check_refused("/dev/stderr", "/dev/fd/2",
-			              "error: -q and -d cannot both write to one"
-			              " file (/dev/stderr and /dev/fd/2)\n");
-		else
-			printf("skipping /dev/stderr, this platform does not"
-			       " answer it\n");
-		/* And standard input, which is this test's own descriptor 0.
-		 * Nothing writes a capture there either; it is identified for
-		 * the same reason. */
-		if (stat("/dev/stdin", &by_name) == 0 &&
-		    fstat(STDIN_FILENO, &by_number) == 0 &&
-		    by_name.st_ino == by_number.st_ino)
-			check_refused("/dev/stdin", "/dev/fd/0",
-			              "error: -q and -d cannot both write to one"
-			              " file (/dev/stdin and /dev/fd/0)\n");
-		else
-			printf("skipping /dev/stdin, this platform does not"
-			       " answer it\n");
+		/* Whether the platform answers a fixed name is asked of the
+		 * filesystem's own two entries, not of this test's descriptor:
+		 * standard error is a file of this test's own while a refusal
+		 * is being captured, so a guard that read the descriptor would
+		 * be asking about a different one than the case runs with. */
+		check_fixed_name("/dev/stderr", "/dev/fd/2", STDERR_FILENO);
+		/* And standard input. Nothing writes a capture to either of
+		 * these; they are identified for the same reason any
+		 * destination is. */
+		check_fixed_name("/dev/stdin", "/dev/fd/0", STDIN_FILENO);
 	}
 	/* Another file on the same descriptor path is still another file. */
 	make_file("other-held.bin", "elsewhere\n");
