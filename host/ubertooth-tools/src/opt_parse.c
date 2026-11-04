@@ -332,9 +332,10 @@ static int same_path_text(const char *first, const char *second)
  * turned up as the text of something else -- the target readlink() read, for
  * instance -- is the ordinary file of that name.
  *
- * The names above are compared as text, not followed: that answers a
- * different question -- where /dev/stdout points at this moment -- rather than
- * which descriptor the user named. */
+ * The names above are compared as text and not followed, because following
+ * one answers a different question: where /dev/stdout points at this moment,
+ * rather than which descriptor the user named. Any other spelling is left to
+ * the descriptor filesystem itself, below. */
 static int descriptor_number(const char *path);
 
 static int names_descriptor_one(const char *name)
@@ -369,45 +370,56 @@ static int descriptor_holds(const char *path, int fd)
 {
 	struct stat held, named;
 
-	return fstat(fd, &held) == 0 && stat(path, &named) == 0 &&
-	       held.st_ino == named.st_ino;
+	if (fstat(fd, &held) != 0 || stat(path, &named) != 0)
+		return 0;
+	/* The kind of file as well as the inode number, so that a path which
+	 * merely happens to share an inode number with the descriptor's file
+	 * -- on a system with no descriptor filesystem at all, where such a
+	 * path could be an ordinary file someone made -- is not taken for it. */
+	return held.st_ino == named.st_ino &&
+	       (held.st_mode & S_IFMT) == (named.st_mode & S_IFMT);
 }
 
 /* The descriptor a path of the form <directory>/<number> names, where
  * <directory> is given as its elements, or -1 when the path is not one of
  * those.
  *
- * The number is parsed and then handed to the system, rather than the
- * spelling being ruled on, because the platforms differ: the descriptor
- * filesystem the BSDs mount on /dev/fd reads a leading zero as part of the
- * number, so "/dev/fd/01" is descriptor 1 there and opening it writes to that
- * stream, while on Linux /dev/fd is a directory of exact names and
- * "/dev/fd/01" is a path that cannot be created. Reading the number alone
- * would make the second of those a silent redirect to standard output. */
-static int descriptor_in(const char *path, const char *const *directory,
-                         size_t elements)
+ * Which number it is comes from the text, and whether the path really is
+ * that descriptor comes from the system, rather than the spelling being ruled
+ * on, because the platforms differ: the descriptor filesystem the BSDs mount
+ * on /dev/fd reads a leading zero as part of the number, so "/dev/fd/01" is
+ * descriptor 1 there and opening it writes to that stream, while on Linux
+ * /dev/fd is a directory of exact names and "/dev/fd/01" is a path that
+ * cannot be created. Reading the number alone would make the second of those
+ * a silent redirect to standard output.
+ *
+ * The directory is looked up rather than compared as text, so the ".."
+ * elements and the symbolic links above the number are reduced by the system
+ * that will resolve them anyway: "/dev/fd/../fd/3" is descriptor 3 wherever
+ * the writer's own open would reach it. The text comparisons elsewhere in
+ * this file deliberately leave ".." alone, because the element above a
+ * symbolic link is not the directory the text suggests; here the lookup
+ * answers that question instead of guessing at it. */
+static const char *final_name(const char *path);
+static int directory_of(const char *path, char *out, size_t size);
+
+static int descriptor_in(const char *path, const char *directory)
 {
-	const char *at = path, *element;
-	size_t length = 0, i;
-	char number[16];
+	char holding[PATH_MAX];
+	struct stat named_directory, the_directory;
 	int fd;
 
-	if (path[0] != '/' || ends_inside_a_name(path))
+	if (ends_inside_a_name(path))
 		return -1;
-	for (i = 0; i < elements; i++) {
-		element = next_component(&at, &length);
-		if (element == NULL || length != strlen(directory[i]) ||
-		    memcmp(element, directory[i], length) != 0)
-			return -1;
-	}
-	element = next_component(&at, &length);
-	if (element == NULL || length >= sizeof(number))
+	if (opt_parse_int(final_name(path), 0, INT_MAX, &fd) < 0)
 		return -1;
-	memcpy(number, element, length);
-	number[length] = '\0';
-	if (next_component(&at, &length) != NULL)
+	if (!directory_of(path, holding, sizeof(holding)))
 		return -1;
-	if (opt_parse_int(number, 0, INT_MAX, &fd) < 0)
+	if (stat(holding, &named_directory) != 0 ||
+	    stat(directory, &the_directory) != 0)
+		return -1;
+	if (named_directory.st_dev != the_directory.st_dev ||
+	    named_directory.st_ino != the_directory.st_ino)
 		return -1;
 	return descriptor_holds(path, fd) ? fd : -1;
 }
@@ -417,23 +429,18 @@ static int descriptor_in(const char *path, const char *const *directory,
  * above so that the two can call each other's work without recursion. */
 static int descriptor_number(const char *path)
 {
-	static const char *const dev_fd[] = { "dev", "fd" };
+	int fd;
+
+	if (path == NULL)
+		return -1;
+	fd = descriptor_in(path, "/dev/fd");
 #ifdef __linux__
 	/* Behind the conditional for the reason stdout_paths is: on a platform
 	 * with no /proc this path names nothing, and reading it as a
 	 * descriptor there would answer for a file the writer could not
 	 * create. */
-	static const char *const proc_self_fd[] = { "proc", "self", "fd" };
-#endif
-	int fd;
-
-	if (path == NULL)
-		return -1;
-	fd = descriptor_in(path, dev_fd, sizeof(dev_fd) / sizeof(dev_fd[0]));
-#ifdef __linux__
 	if (fd < 0)
-		fd = descriptor_in(path, proc_self_fd,
-		                   sizeof(proc_self_fd) / sizeof(proc_self_fd[0]));
+		fd = descriptor_in(path, "/proc/self/fd");
 #endif
 	return fd;
 }

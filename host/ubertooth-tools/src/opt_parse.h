@@ -158,6 +158,10 @@ int opt_writes_to_stdout(const char *filename);
  * opt_writes_to_stdout() instead only about the value the user wrote: what to
  * call the destination in a message, and whether a failed run may remove the
  * file it named.
+ *
+ * Neither is a pure test of the text: both look the filesystem up, so neither
+ * is settled until the value is known, and both are asked before the capture
+ * takes the stream rather than after.
  */
 int opt_destination_is_stdout(const char *value);
 

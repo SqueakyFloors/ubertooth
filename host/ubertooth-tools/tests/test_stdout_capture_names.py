@@ -460,6 +460,18 @@ with tempfile.TemporaryDirectory() as workdir:
               "follow names the pair that clashed", result.stderr.decode())
         check(result.stdout == b"",
               "follow writes nothing to standard output when it refuses")
+        result = subprocess.run(
+            [FOLLOW, "-l", "5a3c96", "-u", "0f", "-q", "link-0", "-d", "-"],
+            cwd=work, env=ENVIRONMENT, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=RUN_TIMEOUT_S, check=False)
+        check(result.returncode == 1,
+              "follow refuses -q <link to the stream> -d -",
+              str(result.returncode))
+        check(b"error: -q and -d cannot both write to standard output"
+              in result.stderr,
+              "follow names the pair that clashed for a link",
+              result.stderr.decode())
 
     # A terminal is refused for every spelling, before anything is written to
     # it, and the refusal names what would have gone there.

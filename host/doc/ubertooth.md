@@ -159,7 +159,10 @@ any other `N` is not that stream: it reaches whatever the calling shell opened
 on that descriptor, so the capture goes there and the report stays on standard
 output. `/dev/stdin` and `/dev/stderr` are the same -- not standard output, but
 still identified as the descriptor they name, so the check below sees one of
-them beside the file that descriptor is on.
+them beside the file that descriptor is on. A descriptor the shell has pointed
+at standard output itself (`-d /dev/fd/3 3>&1`) is one place a capture and the
+tool's own report do still share the stream, and the report interleaves into
+the capture: write `-` or `/dev/stdout` to hand the capture that stream.
 No option reads its input from a lone `-`: for those it is
 a file name like any other, and there is no such file. Any other value is a
 file name too, including one that starts with `-`, so a forgotten file name

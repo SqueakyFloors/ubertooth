@@ -605,6 +605,34 @@ static void test_descriptor_paths(void)
 			printf("skipping the link-to-descriptor case: %s\n",
 			       strerror(errno));
 	}
+	/* A ".." or "." element above the number is reduced by the lookup of
+	 * the directory, so a destination spelled that way is the same
+	 * descriptor wherever the writer's own open would reach it. The text
+	 * comparisons in opt_parse.c leave ".." alone on purpose; this is the
+	 * one place a lookup answers it. */
+	{
+		const char *shapes[] = { "/dev/fd/./%d", "/dev//fd/%d",
+		                         "/dev/fd/../fd/%d" };
+		char spelled[64], expected[PATH_MAX + 128];
+		struct stat by_spelling, by_path;
+		size_t i;
+
+		for (i = 0; i < sizeof(shapes) / sizeof(shapes[0]); i++) {
+			snprintf(spelled, sizeof(spelled), shapes[i], held);
+			if (stat(spelled, &by_spelling) != 0 ||
+			    stat(path, &by_path) != 0 ||
+			    by_spelling.st_ino != by_path.st_ino) {
+				printf("skipping %s, this platform does not"
+				       " answer it\n", spelled);
+				check_accepted("held.bin", spelled);
+				continue;
+			}
+			snprintf(expected, sizeof(expected),
+			         "error: -q and -d cannot both write to one file"
+			         " (held.bin and %s)\n", spelled);
+			check_refused("held.bin", spelled, expected);
+		}
+	}
 	/* A zero-padded number is the platform's to answer, not this code's:
 	 * the descriptor filesystem the BSDs mount reads it as the same
 	 * descriptor, and on Linux /dev/fd is a directory of exact names where
@@ -645,6 +673,18 @@ static void test_descriptor_paths(void)
 			              " file (/dev/stderr and /dev/fd/2)\n");
 		else
 			printf("skipping /dev/stderr, this platform does not"
+			       " answer it\n");
+		/* And standard input, which is this test's own descriptor 0.
+		 * Nothing writes a capture there either; it is identified for
+		 * the same reason. */
+		if (stat("/dev/stdin", &by_name) == 0 &&
+		    fstat(STDIN_FILENO, &by_number) == 0 &&
+		    by_name.st_ino == by_number.st_ino)
+			check_refused("/dev/stdin", "/dev/fd/0",
+			              "error: -q and -d cannot both write to one"
+			              " file (/dev/stdin and /dev/fd/0)\n");
+		else
+			printf("skipping /dev/stdin, this platform does not"
 			       " answer it\n");
 	}
 	/* Another file on the same descriptor path is still another file. */

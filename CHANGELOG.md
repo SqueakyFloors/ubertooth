@@ -1084,7 +1084,9 @@
   symbolic link pointing at `/dev/stdout` got the tool's own report lines
   mixed into the capture, and a terminal behind such a link was not refused.
   A destination that is a link to that stream is now the stream, so the
-  report goes to standard error and the capture arrives whole.
+  report goes to standard error and the capture arrives whole. The same
+  holds for any spelling the system itself answers with that descriptor,
+  `/dev/fd/01` and `/dev/fd/../fd/1` included.
   [#1165](https://github.com/SqueakyFloors/ubertooth/issues/1165)
 - Fixed: `ubertooth-rx` and `ubertooth-btle` silently destroyed a capture when
   two capture options were given one file name. `-q coll.bin -d coll.bin`
@@ -1098,7 +1100,9 @@
   never ended, filling the dump with its own output. `ubertooth-rx -i cap.bin
   -d /dev/fd/3 3>>cap.bin` and the `ubertooth-btle -R` version of it are now
   refused with the file left as it was. The descriptor is asked which file it
-  holds, so the answer is the same on Linux and macOS.
+  holds, so the answer is the same on Linux and macOS, and so is every
+  spelling that reaches it: `/dev/fd/03`, `/dev/fd/../fd/3`, a symbolic link
+  to one of those, and the fixed names `/dev/stderr` and `/dev/stdin`.
   [#1146](https://github.com/SqueakyFloors/ubertooth/issues/1146)
 
 - Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.

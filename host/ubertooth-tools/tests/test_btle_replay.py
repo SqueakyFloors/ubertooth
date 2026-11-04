@@ -303,6 +303,27 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert (work / "bydescriptor.bin").read_bytes() == FIXTURE, result
 
+    # A symbolic link to that stream reaches it, so a capture given one owns
+    # standard output here too: the records arrive whole and the parameter
+    # lines move to standard error. Beside a "-" it is the pair the stream
+    # cannot carry, and gets the one-capture refusal rather than a line about
+    # two captures of one file.
+    (work / "to-stream").unlink(missing_ok=True)
+    (work / "to-stream").symlink_to("/dev/stdout")
+    result = run("-p", "-R", "full.bin", "-d", "to-stream", directory=work,
+                 text=False)
+    assert result.returncode == 0, result
+    assert result.stdout == FIXTURE, len(result.stdout)
+    for line in PARAMETER_LINES:
+        assert line.encode() in result.stderr, (line, result.stderr[:400])
+    for option, letter in (("-q", "q"), ("-c", "c")):
+        result = run("-p", "-R", "full.bin", option, "-", "-d", "to-stream",
+                     directory=work)
+        assert result.returncode == 1, (option, result)
+        assert result.stdout == "", (option, result)
+        assert result.stderr == (f"error: -{letter} and -d cannot both write"
+                                 " to standard output\n"), (option, result)
+
     # Two capture options given one name are one file as well, and that is
     # refused while the command line is read: each writer opens its own
     # destination for writing, which truncates what the other put there, so a
