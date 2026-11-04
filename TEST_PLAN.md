@@ -628,10 +628,13 @@ is left in when a mode stops.
 - [ ] Look at the `s=` and `n=` columns: `s=` is the packet's own power and
       `n=` the board's estimate of the background on that channel, with `snr=`
       the difference. `n=none snr=none` is normal, on any record whose channel
-      the board has not heard both loud and quiet lately. The fault to report is
-      `n=` sitting at one value across hundreds of records on many channels, or
-      every record reading `n=none` over a capture long enough to visit many
-      channels
+      the board has not heard both loud and quiet lately. `s=none snr=none` is
+      normal too, on a packet loud enough to reach the top of the receiver's
+      range: a device within a meter or so of the board does it. The fault to
+      report is `n=` sitting at one value across hundreds of records on many
+      channels, every record reading `n=none` over a capture long enough to
+      visit many channels, or every record reading `s=none` with the nearest
+      device well away from the board
 
 ### 5b. Paging
 *Requires: the board carrying the `btbr` image*

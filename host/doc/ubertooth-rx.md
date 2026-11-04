@@ -183,7 +183,9 @@ stands for every reading from about -26 dBm upward, which says no more than
 that the packet was at least that loud. A Classic peer a few tens of
 centimeters away is loud enough to reach it. The screen prints `s=none
 snr=none` for such a packet rather than a figure the board did not measure, and
-the ratio goes the same way as the level it would rest on. More distance
+the ratio goes the same way as the level it would rest on. A record whose level
+comes from its strongest reading of the packet, which is what a dump older than
+the per-packet figure holds, is judged on that reading. More distance
 between the boards, or an attenuator in front of the antenna, brings the level
 back into the range the board can measure; a capture whose packets are nearly
 all up there is the case A RECEIVER THAT CANNOT HEAR describes. A capture

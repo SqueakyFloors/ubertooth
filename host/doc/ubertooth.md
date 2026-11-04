@@ -648,9 +648,12 @@ the signal was at the top of the receiver's range`, one per block of
 records judged to be there.
 
 The signal figure a record carries comes from the radio on a scale that runs
-out: above a certain reading the host can only say "at least this loud", which
-it reports as 0 dBm, and a receiver held there is also past where it
-demodulates reliably. Every receive that captures turns the board's amplifier
+out: above a certain reading the host can only say "at least this loud", and a
+receiver held there is also past where it demodulates reliably. A Basic Rate
+packet line says as much, printing `s=none snr=none` in place of a figure the
+board did not measure; see ubertooth-rx(1). A capture record still holds 0 dBm
+for such a packet, because a record has no way to say the level was not
+measured, and so does the `rssi=` column of a low-energy line. Every receive that captures turns the board's amplifier
 on and the Basic Rate and low-energy ones turn its high-gain mode on too,
 which is what makes the near end of a bench reach it. On the bench this
 measures as two separate regimes rather than
@@ -665,9 +668,9 @@ and loud enough will do it too, and the board cannot say what is deafening
 it -- only that something is.
 
 One packet at the top of the scale is not this, and is not reported: a short
-packet from a board a few centimeters away arrives with `rssi=0` and a valid
-CRC. What is reported is a receiver held there, which is judged over a block
-of records rather than one.
+packet from a board a few centimeters away arrives up there with a valid CRC.
+What is reported is a receiver held there, which is judged over a block of
+records rather than one.
 
 Only the captures whose records are samples of the air report it, and that is
 the point rather than a limitation. The Basic Rate stream sends a record for

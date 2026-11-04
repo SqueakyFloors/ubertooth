@@ -71,6 +71,9 @@ static struct {
 	uint32_t pcapng_reflap;
 	uint8_t pcap_refuap;
 	uint8_t pcapng_refuap;
+	/* The level the last record was written with, which a reader of the
+	 * file sees whatever the screen said about it. */
+	int8_t pcap_sigdbm;
 	/* How often the survey was asked for a piconet. */
 	int survey_lookups;
 	uint16_t channel_set;
@@ -201,10 +204,11 @@ int btbb_pcap_append_packet(btbb_pcap_handle* h, const uint64_t ns,
                             const uint32_t reflap, const uint8_t refuap,
                             const btbb_packet* pkt)
 {
-	(void)h; (void)ns; (void)sigdbm; (void)noisedbm; (void)pkt;
+	(void)h; (void)ns; (void)noisedbm; (void)pkt;
 	seen.pcap_writes++;
 	seen.pcap_reflap = reflap;
 	seen.pcap_refuap = refuap;
+	seen.pcap_sigdbm = sigdbm;
 	return pcap_write_result;
 }
 
@@ -753,17 +757,33 @@ MU_TEST(the_noise_and_snr_columns_are_absent_where_there_is_no_estimate)
 	mu_assert(strcmp(snr, "none") == 0, "and so is the ratio from it");
 }
 
+/* The columns a record comes out as, with the figures taken from the record
+ * the way the callbacks take them, so that a figure and the judgment of
+ * whether it is a measurement cannot disagree here and agree in a capture. */
+static void columns_of(const usb_pkt_rx* rx, char s[RSSI_FIELD_LEN],
+                       char n[RSSI_FIELD_LEN], char snr[RSSI_FIELD_LEN])
+{
+	int8_t sig, noise;
+
+	determine_signal_and_noise(rx, &sig, &noise);
+	format_signal_noise_and_snr(rx, sig, noise, s, n, snr);
+}
+
 MU_TEST(the_level_and_snr_columns_are_absent_at_the_top_of_the_scale)
 {
 	usb_pkt_rx rx;
 	char s[RSSI_FIELD_LEN], n[RSSI_FIELD_LEN], snr[RSSI_FIELD_LEN];
 
-	/* The last raw code the scale still rises on. Its figure is a reading,
-	 * so it prints, and so does the ratio from it. */
+	/* The last raw code the scale still rises on, which is -5 dBm against a
+	 * background of -90. Its figure is a reading, so it prints, and so does
+	 * the ratio from it. */
 	fill_packet(&rx, 40000, 0, 3);
+	rx.rssi_noise = (uint8_t)(int8_t) -38;
+	rx.status |= NOISE_ESTIMATE;
 	rx.rssi_avg = RSSI_CEILING_RAW - 1;
-	format_signal_noise_and_snr(&rx, -5, -90, s, n, snr);
+	columns_of(&rx, s, n, snr);
 	mu_assert(strcmp(s, "-5") == 0, "a reading below the top prints");
+	mu_assert(strcmp(n, "-90") == 0, "beside the background");
 	mu_assert(strcmp(snr, "85") == 0, "and the ratio from it prints");
 
 	/* The first code the scale does not rise on: 0 dBm there stands for
@@ -771,7 +791,7 @@ MU_TEST(the_level_and_snr_columns_are_absent_at_the_top_of_the_scale)
 	 * this packet, so the level and the ratio are absent. The background
 	 * the board did measure is still reported. */
 	rx.rssi_avg = RSSI_CEILING_RAW;
-	format_signal_noise_and_snr(&rx, 0, -90, s, n, snr);
+	columns_of(&rx, s, n, snr);
 	mu_assert(strcmp(s, "none") == 0, "a level at the top of the scale is absent");
 	mu_assert(strcmp(n, "-90") == 0, "the background is still the figure");
 	mu_assert(strcmp(snr, "none") == 0, "and no ratio is worked out from it");
@@ -779,7 +799,7 @@ MU_TEST(the_level_and_snr_columns_are_absent_at_the_top_of_the_scale)
 	/* Every louder reading maps to the same figure and is reported the same
 	 * way. */
 	rx.rssi_avg = INT8_MAX;
-	format_signal_noise_and_snr(&rx, 0, -90, s, n, snr);
+	columns_of(&rx, s, n, snr);
 	mu_assert(strcmp(s, "none") == 0, "and so is every reading above it");
 	mu_assert(strcmp(snr, "none") == 0, "with no ratio either");
 
@@ -788,7 +808,7 @@ MU_TEST(the_level_and_snr_columns_are_absent_at_the_top_of_the_scale)
 	rx.status &= (uint8_t) ~SIGNAL_VALID;
 	rx.rssi_avg = -40;
 	rx.rssi_max = RSSI_CEILING_RAW;
-	format_signal_noise_and_snr(&rx, 0, -90, s, n, snr);
+	columns_of(&rx, s, n, snr);
 	mu_assert(strcmp(s, "none") == 0,
 	          "an older record is judged on the reading its level comes from");
 }
@@ -915,6 +935,7 @@ MU_TEST(a_printed_line_reports_no_level_at_the_top_of_the_scale)
 	unsigned i;
 
 	reset_state();
+	capture_files = 1;
 	for (i = 0; i < 2; i++) {
 		fill_packet(&next_packets[i], 40000 + 1000 * i, 0, 10);
 		next_packets[i].rssi_avg = (i == 0) ? -40 : RSSI_CEILING_RAW;
@@ -927,6 +948,10 @@ MU_TEST(a_printed_line_reports_no_level_at_the_top_of_the_scale)
 
 	mu_assert(strcmp(lines, expected) == 0,
 	          "a level the board could not measure is reported as none");
+	/* The capture file keeps the figure: a record has no way to say that
+	 * the level was not measured, so a reader sees 0 dBm for that packet. */
+	mu_assert_int_eq(2, seen.pcap_writes);
+	mu_assert_int_eq(0, (int)seen.pcap_sigdbm);
 }
 
 /* ---- which channels AFH detection marks used ---------------------------- */

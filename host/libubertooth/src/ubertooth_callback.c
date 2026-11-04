@@ -144,7 +144,7 @@ static int8_t record_signal_rssi( const usb_pkt_rx *rx )
  * The per-packet lines print the word for an absent figure instead. The
  * capture writers are given the figure as before: a record has no way to say
  * "not measured". */
-static int signal_is_unmeasurable( const usb_pkt_rx *rx )
+static int signal_is_at_the_ceiling( const usb_pkt_rx *rx )
 {
 	return record_signal_rssi( rx ) >= RSSI_CEILING_RAW;
 }
@@ -163,11 +163,10 @@ static void determine_signal_and_noise( const usb_pkt_rx *rx, int8_t *sig,
 
 /* The three level columns of a per-packet line: the packet's power, the
  * background estimate, and the ratio between them. Each is a figure or the
- * word `none`, because neither level is always a measurement. A mode with no
- * background estimate prints no noise figure and no ratio, rather than a ratio
- * worked out from the packet itself; a packet whose level is at the top of the
- * receiver's range prints no level and no ratio, rather than the end of the
- * scale and a ratio carrying the same error.
+ * word `none`, because neither level is always one the board has: a mode with
+ * no background estimate has no noise figure, and a reading at the ceiling is
+ * no measurement of the packet. The ratio needs both, so it goes whenever
+ * either does.
  *
  * `sig` and `noise` are what determine_signal_and_noise() made of the record;
  * whether the level is a measurement is a property of the record it came
@@ -178,7 +177,7 @@ static void format_signal_noise_and_snr( const usb_pkt_rx *rx, int8_t sig,
                                          char n[RSSI_FIELD_LEN],
                                          char snr[RSSI_FIELD_LEN] )
 {
-	int measured = !signal_is_unmeasurable( rx );
+	int measured = !signal_is_at_the_ceiling( rx );
 
 	if (measured)
 		snprintf(s, RSSI_FIELD_LEN, "%d", sig);
