@@ -308,17 +308,18 @@ void paging_state_setup(uint32_t lap, uint8_t uap)
 		0 // No eir
 		);
 
-	/* This is the whole page: paging_start_sync() is what reads the clock
-	 * and starts the train. Nothing of it runs if the scheduler had no
-	 * room, so the board is told to stay in standby rather than report a
-	 * page that is not happening. The reason is the one the page's own
-	 * deadline uses, because the host's three reasons have no word for a
-	 * full scheduler. */
+	btctl_set_state(BTCTL_STATE_PAGE, BTCTL_REASON_SUCCESS);
+
+	/* paging_start_sync() is what reads the clock and starts the train, so
+	 * a page the scheduler had no room for does not happen at all. Say so
+	 * and go back to standby, on the reason the page's own deadline uses:
+	 * the host's three reasons have no word for a full scheduler. The page
+	 * is reported first because the host is only told about a state it was
+	 * told it had left -- a standby that follows a standby sends nothing,
+	 * and the host's command would wait forever. */
 	if (tdma_schedule(2, paging_start_sync, 0,0,0,-3) < 0)
 	{
 		cprintf("page: cannot schedule start\n");
 		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
-		return;
 	}
-	btctl_set_state(BTCTL_STATE_PAGE, BTCTL_REASON_SUCCESS);
 }
