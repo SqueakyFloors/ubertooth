@@ -1154,10 +1154,9 @@
   `ubertooth-rx -z -d /dev/stdout` printed no survey addresses and
   `ubertooth-btle -p -d /dev/stdout` none of the connection parameters it
   recovered. Those lines now go to standard error for every name of that
-  stream, as they already did for `-`. The two tools also answer
-  `-r /dev/stdout` with the line that says to use `-q` instead, and refuse a
-  pair of capture options asking for the stream however each was spelled,
-  before either capture is opened.
+  stream, as they already did for `-`. Two capture options that both name it
+  are refused however each was spelled, before either is opened, and
+  `-r /dev/stdout` now answers with the line that says to use `-q` instead.
   [#1157](https://github.com/SqueakyFloors/ubertooth/issues/1157)
 
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes

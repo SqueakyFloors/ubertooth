@@ -407,12 +407,10 @@ int main(int argc, char *argv[])
 		 * the filesystem alone. -q and -c share one PCAP handle, so the
 		 * first of the two given wins, as before. */
 		case 'r':
-			/* Every spelling of standard output is refused, not just
-			 * a lone "-": a PcapNG writer seeks back over what it
-			 * has written, which that stream does not allow. Left to
-			 * the writer, "/dev/stdout" would fail only after the
-			 * device was open, with the stream's own device node
-			 * reported as a file that already exists. */
+			/* A PcapNG writer seeks, which standard output does not
+			 * allow, so every spelling of that stream is refused
+			 * here; ubertooth-rx says why the command line is the
+			 * place for it. */
 			if (opt_writes_to_stdout(optarg)) {
 				fprintf(stderr, "error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
 				return 1;

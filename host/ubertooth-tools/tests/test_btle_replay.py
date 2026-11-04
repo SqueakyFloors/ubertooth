@@ -386,10 +386,10 @@ with tempfile.TemporaryDirectory() as workdir:
                                  " describe\n"), (name, result)
 
     # A PcapNG writer seeks back over what it has written, which that stream
-    # does not allow, so -r refuses it by whichever name it was given rather
-    # than leaving the writer to report the device node as a file that is
-    # already there.
-    for name in STDOUT_NAMES:
+    # does not allow, so -r refuses it by name rather than leaving the writer
+    # to report the device node as a file that is already there. The whole set
+    # of spellings is pinned in test_stdout_capture_names.py.
+    for name in ("-", "/dev/stdout"):
         result = run("-p", "-R", "full.bin", "-r", name, directory=work)
         assert result.returncode == 1, (name, result)
         assert result.stdout == "", (name, result)
