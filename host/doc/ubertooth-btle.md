@@ -362,7 +362,10 @@ Logging:
 
  - `-r <output.pcapng>` :
    Log to PcapNG (preferred). PcapNG output cannot be streamed to stdout because
-   the writer must seek while finalizing the file; `-r -` is rejected.
+   the writer must seek while finalizing the file, so a value that names that
+   stream is rejected, `-r -` and `-r /dev/stdout` alike. A symbolic link that
+   happens to point there is a file name like any other and is refused by the
+   writer instead, as a file that already exists.
  - `-q <output.pcap|->` :
    Log to PCAP with `DLT_BLUETOOTH_LE_LL_WITH_PHDR`. Use `-` to stream binary
    PCAP to stdout.
@@ -391,8 +394,11 @@ Logging:
    `error: stdout is a tty, refusing to write binary capture data to it`, with
    exit status 1 and before any device is opened.
 
-Standard output carries one stream, so only one capture can have it: `-d -`
-together with `-q -` or `-c -` is refused, naming the PCAP option written --
+`-` means standard output as the whole value of `-q`, `-c` or `-d`, and so
+does a path that names this process's descriptor 1, such as `/dev/stdout` or
+`/dev/fd/1` (ubertooth(7), OPTION VALUES). Standard output carries one stream,
+so only one capture can have it: `-d` together with `-q` or `-c` is refused,
+however each of the two was spelled, naming the PCAP option written --
 `error: -q and -d cannot both write to standard output` -- as it is in
 ubertooth-rx(1). The one that asked second would otherwise write to
 `/dev/null` without a word.
@@ -478,10 +484,10 @@ Miscellaneous:
    the run goes. Without it a run counts those packets and says how many there
    were in one line when it ends (DIAGNOSTICS). It needs `-f`, `-n` or `-p`,
    since there is no decode to describe otherwise, and it takes no value. A
-   capture on standard output (`-q -`, `-c -`, `-d -`) prints no packets at
-   all, so that too is refused: `error: -v does not go with a capture on
-   standard output: a run that hands the capture that stream prints no packets
-   to describe`.
+   capture on standard output, however it was named (`-q -`, `-c -`, `-d -`,
+   `-d /dev/stdout`), prints no packets at all, so that too is refused:
+   `error: -v does not go with a capture on standard output: a run that hands
+   the capture that stream prints no packets to describe`.
 
    There is one level of it, so writing it twice says what writing it once
    said (ubertooth(7), OPTION VALUES).

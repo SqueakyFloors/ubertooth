@@ -407,7 +407,11 @@ int main(int argc, char *argv[])
 		 * the filesystem alone. -q and -c share one PCAP handle, so the
 		 * first of the two given wins, as before. */
 		case 'r':
-			if (strcmp(optarg, "-") == 0) {
+			/* A PcapNG writer seeks, which standard output does not
+			 * allow, so every spelling of that stream is refused
+			 * here; ubertooth-rx says why the command line is the
+			 * place for it. */
+			if (opt_writes_to_stdout(optarg)) {
 				fprintf(stderr, "error: PCAPNG capture to stdout is not supported; use -q - or -c -\n");
 				return 1;
 			}
@@ -590,13 +594,12 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* A capture on "-" takes standard output, and this run then prints no
+	/* A capture that takes standard output leaves this run printing no
 	 * packets at all (see the capture block below), so there is nothing for
 	 * -v to describe here either. Refused rather than accepted and ignored.
-	 * -r refuses "-" outright, so only -q, -c and -d reach this. */
+	 * -r refuses that stream outright, so only -q, -c and -d reach this. */
 	if (do_verbose &&
-	    ((pcap_name != NULL && strcmp(pcap_name, "-") == 0) ||
-	     (dump_name != NULL && strcmp(dump_name, "-") == 0))) {
+	    (opt_writes_to_stdout(pcap_name) || opt_writes_to_stdout(dump_name))) {
 		fprintf(stderr, "error: -v does not go with a capture on standard"
 		        " output: a run that hands the capture that stream prints"
 		        " no packets to describe\n");
@@ -609,8 +612,7 @@ int main(int argc, char *argv[])
 	 * without a word. -q and -c share a writer, so the clash is between
 	 * whichever of those two was taken and -d. ubertooth-rx refuses the
 	 * same pair. */
-	if (pcap_name != NULL && dump_name != NULL &&
-	    strcmp(pcap_name, "-") == 0 && strcmp(dump_name, "-") == 0) {
+	if (opt_writes_to_stdout(pcap_name) && opt_writes_to_stdout(dump_name)) {
 		fprintf(stderr, "error: -%c and -d cannot both write to standard"
 		        " output\n", pcap_ppi ? 'c' : 'q');
 		return 1;
@@ -828,7 +830,7 @@ int main(int argc, char *argv[])
 		dumpfile = opt_open_dump_file(dump_name, "binary dump data");
 		if (dumpfile == NULL)
 			return release_handle(ut, 1);
-		if (strcmp(dump_name, "-") == 0) {
+		if (opt_writes_to_stdout(dump_name)) {
 			/* The dump has standard output, which is /dev/null for
 			 * this process from here on: the lines that answer an
 			 * option go to standard error instead, and the callback

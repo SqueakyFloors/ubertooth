@@ -130,8 +130,11 @@ Output options:
 
  - `-r <file.pcapng>` :
    Capture packets to PcapNG. A PcapNG writer seeks back over what it has
-   written, which standard output cannot do, so `-r -` is refused:
-   `error: PCAPNG capture to stdout is not supported; use -q -`
+   written, which standard output cannot do, so a value that names that stream
+   is refused, `-r -` and `-r /dev/stdout` alike:
+   `error: PCAPNG capture to stdout is not supported; use -q -`. A symbolic
+   link that happens to point there is a file name like any other and is
+   refused by the writer instead, as a file that already exists
  - `-q <file.pcap>` :
    Capture packets to PCAP. `-q -` writes the capture to standard output; see
    CAPTURING TO STANDARD OUTPUT
@@ -678,11 +681,12 @@ and a board that refuses one of those has the capture files removed again, so a
 refused run leaves nothing to tell apart from a capture that caught nothing. A
 capture that ran keeps its file, however little arrived.
 
-`-` means standard output only as the whole value of `-q` or `-d`
-(ubertooth(7), OPTION VALUES). Any other value is a file name, including one
-that starts with `-`: `-q -x` writes the file `-x`. Standard output carries
-one stream, so `-q -` and `-d -` in one command are refused:
-`error: -q and -d cannot both write to standard output`.
+`-` means standard output as the whole value of `-q` or `-d`, and so does a
+path that names this process's descriptor 1, such as `/dev/stdout` or
+`/dev/fd/1` (ubertooth(7), OPTION VALUES). Any other value is a file name,
+including one that starts with `-`: `-q -x` writes the file `-x`. Standard
+output carries one stream, so `-q` and `-d` cannot both have it in one
+command: `error: -q and -d cannot both write to standard output`.
 
 ## WHAT A CAPTURE RECORD HOLDS
 

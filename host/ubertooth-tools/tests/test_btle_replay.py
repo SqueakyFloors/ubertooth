@@ -40,6 +40,14 @@ CLK100NS_STEP = 1_000_000       # 0.1 s of device clock between records
 # deadline is the one that fires and says the run timed out.
 RUN_TIMEOUT_S = 30
 
+# The spellings of this process's descriptor 1 that the cases below use. A
+# capture given one of these owns the stream, whichever was written, so the
+# tool's own lines go to standard error. /proc/self/fd/1 is one of them on
+# Linux and names nothing elsewhere.
+STDOUT_NAMES = ["-", "/dev/stdout", "/dev/fd/1"]
+if sys.platform.startswith("linux"):
+    STDOUT_NAMES.append("/proc/self/fd/1")
+
 # The five parameters promiscuous mode recovers, as the state byte it sends
 # each one with, the value, and the line the tool prints for it.
 PROMISC_PARAMETERS = (
@@ -316,13 +324,20 @@ with tempfile.TemporaryDirectory() as workdir:
     assert result.returncode == 0, result
     assert pcap_records(work / "cap.pcap") == [(PACKET_TIME, 0)], result
 
-    # "-d -" hands the dump this process's standard output, so the records go
-    # there whole and the lines the tool prints move to standard error.
-    result = run("-p", "-R", "full.bin", "-d", "-", directory=work, text=False)
-    assert result.returncode == 0, result
-    assert result.stdout == FIXTURE, len(result.stdout)
-    for line in PARAMETER_LINES:
-        assert line.encode() in result.stderr, (line, result.stderr[:400])
+    # A dump on this process's standard output gets the records whole, and the
+    # lines the tool prints move to standard error. Every spelling of that
+    # stream behaves the same way, so the parameters a user came for are not
+    # lost to the null device the capture left behind. The whole set of
+    # spellings is pinned in test_stdout_capture_names.py; these are the ones
+    # that reach the report a promiscuous replay prints.
+    for name in STDOUT_NAMES:
+        result = run("-p", "-R", "full.bin", "-d", name, directory=work,
+                     text=False)
+        assert result.returncode == 0, (name, result)
+        assert result.stdout == FIXTURE, (name, len(result.stdout))
+        for line in PARAMETER_LINES:
+            assert line.encode() in result.stderr, (name, line,
+                                                    result.stderr[:400])
 
     # A run whose dump took standard output counts nothing: the decode stops
     # before the field that would be counted, so there is no note at all and
@@ -343,14 +358,44 @@ with tempfile.TemporaryDirectory() as workdir:
 
     # Standard output carries one stream, so a dump and a PCAP capture cannot
     # both have it: the one that asked second would write to /dev/null without
-    # a word. The message names the option the user wrote.
+    # a word. The message names the option the user wrote, and the pair is
+    # refused however each of the two was spelled, while the command line is
+    # read, so neither capture is created.
     for option, letter in (("-q", "q"), ("-c", "c")):
-        result = run("-p", "-R", "full.bin", option, "-", "-d", "-",
+        for first, second in (("-", "-"), ("/dev/stdout", "-"),
+                              ("-", "/dev/fd/1"),
+                              ("/dev/fd/1", "/dev/stdout")):
+            result = run("-p", "-R", "full.bin", option, first, "-d", second,
+                         directory=work)
+            assert result.returncode == 1, (first, second, result)
+            assert result.stdout == "", (first, second, result)
+            assert result.stderr == (f"error: -{letter} and -d cannot both"
+                                     " write to standard output\n"), result
+
+    # -v has nothing to describe when a capture takes standard output, because
+    # such a run prints no packets, and that holds for every spelling of the
+    # stream.
+    for name in STDOUT_NAMES:
+        result = run("-p", "-R", "full.bin", "-d", name, "-v",
                      directory=work)
-        assert result.returncode == 1, result
-        assert result.stdout == "", result
-        assert result.stderr == (f"error: -{letter} and -d cannot both write"
-                                 " to standard output\n"), result
+        assert result.returncode == 1, (name, result)
+        assert result.stdout == "", (name, result)
+        assert result.stderr == ("error: -v does not go with a capture on"
+                                 " standard output: a run that hands the"
+                                 " capture that stream prints no packets to"
+                                 " describe\n"), (name, result)
+
+    # A PcapNG writer seeks back over what it has written, which that stream
+    # does not allow, so -r refuses it by name rather than leaving the writer
+    # to report the device node as a file that is already there. The whole set
+    # of spellings is pinned in test_stdout_capture_names.py.
+    for name in ("-", "/dev/stdout"):
+        result = run("-p", "-R", "full.bin", "-r", name, directory=work)
+        assert result.returncode == 1, (name, result)
+        assert result.stdout == "", (name, result)
+        assert result.stderr == ("error: PCAPNG capture to stdout is not"
+                                 " supported; use -q - or -c -\n"), (name,
+                                                                     result)
 
     # A last record cut short: the whole records before it are replayed, the
     # leftover bytes are named, and the command ends with an error.

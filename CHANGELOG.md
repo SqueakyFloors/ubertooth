@@ -1149,6 +1149,16 @@
   names at a terminal is refused rather than filling the screen with binary.
   [#1147](https://github.com/SqueakyFloors/ubertooth/issues/1147)
 
+- Fixed: `ubertooth-rx` and `ubertooth-btle` lost the lines a run still owes
+  the user when the capture was named by path rather than by `-`, so
+  `ubertooth-rx -z -d /dev/stdout` printed no survey addresses and
+  `ubertooth-btle -p -d /dev/stdout` none of the connection parameters it
+  recovered. Those lines now go to standard error for every name of that
+  stream, as they already did for `-`. Two capture options that both name it
+  are refused however each was spelled, before either is opened, and
+  `-r /dev/stdout` now answers with the line that says to use `-q` instead.
+  [#1157](https://github.com/SqueakyFloors/ubertooth/issues/1157)
+
 - Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
   saying why named two of the three reasons the bootloader runs. All three are
   now named, and a run that wrote no image is told to write a whole one, which

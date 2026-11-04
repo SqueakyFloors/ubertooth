@@ -880,10 +880,14 @@ int main(int argc, char* argv[])
 		 * leaves the filesystem alone. */
 		case 'r':
 			/* A PcapNG writer seeks back to finish the blocks it has
-			 * written, which standard output cannot do, so a lone "-"
-			 * is refused here rather than taken as the file name "-".
-			 * The PCAP writer does not seek: -q takes it. */
-			if (strcmp(optarg, "-") == 0) {
+			 * written, which standard output cannot do, so a value
+			 * naming that stream is refused here rather than taken as
+			 * a file name -- every spelling of it, not just a lone
+			 * "-", because left to the writer "/dev/stdout" fails
+			 * only after the device is open, and the failure names
+			 * the stream's own device node as a file that already
+			 * exists. The PCAP writer does not seek: -q takes it. */
+			if (opt_writes_to_stdout(optarg)) {
 				fputs("error: PCAPNG capture to stdout is not supported;"
 				      " use -q -\n", stderr);
 				return 1;
@@ -1040,8 +1044,7 @@ int main(int argc, char* argv[])
 
 	/* Standard output carries one stream, so only one capture can have it:
 	 * a PCAP file and a packet dump interleaved there would be neither. */
-	if (pcap_name != NULL && dump_name != NULL &&
-	    strcmp(pcap_name, "-") == 0 && strcmp(dump_name, "-") == 0) {
+	if (opt_writes_to_stdout(pcap_name) && opt_writes_to_stdout(dump_name)) {
 		fputs("error: -q and -d cannot both write to standard output\n",
 		      stderr);
 		return 1;
@@ -1326,7 +1329,7 @@ int main(int argc, char* argv[])
 	}
 	if (dump_name != NULL) {
 		dumpfile = opt_open_dump_file(dump_name, "binary dump data");
-		if (dumpfile != NULL && strcmp(dump_name, "-") == 0)
+		if (dumpfile != NULL && opt_writes_to_stdout(dump_name))
 			report_stream = stderr;
 		if (dumpfile == NULL) {
 			/* The capture files are on the handle, so the close is
