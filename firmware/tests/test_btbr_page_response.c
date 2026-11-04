@@ -1503,17 +1503,31 @@ MU_TEST(prepare_model_matches_the_task_files)
 					"btphy_cur_clkn()+1"),
 		"rx_prepare() no longer tunes for the tick after the prepare");
 
+	read_function(FW_BTBR_DIR "/src/btphy/tx_task.c",
+			"tx_advance_hop_phase", body, sizeof(body));
+	mu_assert(contains_identifier(body, "BT_MODE_PAGING_RESPONSE"),
+		"the transmit task no longer singles out the central page response");
+	mu_assert(!contains_identifier(body, "BT_MODE_PERIPHERAL_PAGE_RESPONSE"),
+		"the transmit task now advances the phase for the paged device too");
+	mu_assert(calls_identifier(body, "hop_increment"),
+		"the transmit task no longer advances the phase");
+
 	read_function(FW_BTBR_DIR "/src/btphy/tx_task.c", "tx_prepare",
 			body, sizeof(body));
-	mu_assert(contains_identifier(body, "BT_MODE_PAGING_RESPONSE"),
-		"tx_prepare() no longer singles out the central page response");
-	mu_assert(!contains_identifier(body, "BT_MODE_PERIPHERAL_PAGE_RESPONSE"),
-		"tx_prepare() now advances the phase for the paged device too");
-	mu_assert(calls_identifier(body, "hop_increment"),
+	mu_assert(calls_identifier(body, "tx_advance_hop_phase"),
 		"tx_prepare() no longer advances the phase");
 	mu_assert(is_assignment_of(body, "uint32_t tx_clkn",
 					"btphy_cur_clkn()+1"),
 		"tx_prepare() no longer tunes for the tick after the prepare");
+
+	/* The phase belongs to the attempt, so a transmit the scheduler would
+	 * not take has to move it as well: no task of that transmit runs, and
+	 * the window the paged device opens for it moves its phase either
+	 * way. */
+	read_function(FW_BTBR_DIR "/src/btphy/tx_task.c",
+			"tx_task_schedule_fmt", body, sizeof(body));
+	mu_assert(calls_identifier(body, "tx_advance_hop_phase"),
+		"a transmit the scheduler refused no longer advances the phase");
 }
 
 int main(void)
