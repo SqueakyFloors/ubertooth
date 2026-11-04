@@ -24,7 +24,7 @@ HOST_DFU := ../../host/ubertooth-tools/src
 HOST_LIB := ../../host/libubertooth/src
 CPPFLAGS += -I. -I$(FW_RXTX) -I../../host/libubertooth/src
 
-TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_promisc_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue test_btbr_tx_untuned test_btbr_tx_schedule test_btbr_tx_schedule_set test_btbr_inquiry_response test_btbr_scan_schedule test_btbr_monitor_follow
+TESTS := test_minunit test_rssi test_bluetooth_hop test_identify_blink test_frend test_cc2400_wait test_cc2400_spi_atomic test_mode_dispatch test_mode_state_reset test_promisc_hop_interval test_promisc_csa2 test_le_phy_order test_le_promisc_order test_le_frag_shape test_le_frag_enqueue test_le_filter_bounds test_le_phy_logic test_le_whitening test_le_rx_byte_wait test_le_state_reset test_grmdm_rx_generic test_tx_generic_bounds test_ego_rx_bounds test_write_registers_bounds test_btbr_hop test_btbr_page_response test_btbr_connection_end test_btbr_rx_deadline test_btbr_address_print test_btbr_arithmetic test_btbr_fault_blink test_usbhw_wait test_bootloader_flash_bounds test_bootloader_app_image test_vendor_request_bounds test_vendor_request_values test_rangetest_radio test_rx_fifo_lead test_usb_queue test_btbr_usb_send test_compile_info test_reset_order test_firmware_object_paths test_fw_info test_bl_version test_bl_update test_watchdog test_latent_arithmetic test_btbr_codec_fec23 test_btbr_codec_header test_device_id test_gio6_port_zero test_gio6_port_one test_gio6_port_badge test_btbr_tx_formats test_btbr_tx_request test_btbr_tx_queue test_btbr_tx_untuned test_btbr_tx_schedule test_btbr_tx_schedule_set test_btbr_inquiry_response test_btbr_scan_schedule test_btbr_monitor_follow test_btbr_rx_schedule
 BINDIR  := bin
 # Where the ToorCon badge's generated register header is written; see the
 # $(BINDIR)/tc13badge_syntax.stamp rule at the end of this file.
@@ -571,6 +571,31 @@ $(BINDIR)/test_btbr_tx_schedule_set: test_btbr_tx_schedule_set.c minunit.h \
 		$(CPPFLAGS) -I$(FW_COMMON) -DT1TC='btphy.central_clkn' \
 		-Wno-unused-parameter -Wno-address-of-packed-member \
 		-o $@ test_btbr_tx_schedule_set.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c
+
+# What the receive task does when one of the two slots a receive needs, or the
+# slot the rest of a multi-slot decode needs, is already full. Built like the
+# transmit tests above and for the same reasons: rx_task.c is included into the
+# test because its slot tasks are static, and the real tdma_sched.c with it, so
+# a full slot is a real full slot and a refusal is the scheduler's own.
+$(BINDIR)/test_btbr_rx_schedule: test_btbr_rx_schedule.c minunit.h \
+		stubs-btbr-rx/ubertooth.h stubs-btbr-rx/ubtbr/system.h \
+		stubs-btbr/ubtbr/debug.h stubs/ubertooth.h \
+		$(FW_BTBR)/src/btphy/rx_task.c \
+		$(FW_BTBR)/src/btphy/tdma_sched.c \
+		$(FW_BTBR)/src/codec/bitstream_proc.c \
+		$(FW_BTBR)/include/ubtbr/rf.h \
+		$(FW_BTBR)/include/ubtbr/rx_task.h \
+		$(FW_BTBR)/include/ubtbr/tdma_sched.h \
+		$(FW_BTBR)/include/ubtbr/btphy.h | $(BINDIR)
+# rx_task.c carries unused locals and unused slot-task parameters of its own,
+# and takes the address of a packed field to hand the codec a size to fill in.
+# None of that is what this tests.
+	$(CC) $(CFLAGS) -Istubs-btbr-rx -Istubs-btbr -I$(FW_BTBR)/include \
+		$(CPPFLAGS) -I$(FW_COMMON) -DT1TC='btphy.central_clkn' \
+		-Wno-unused-parameter -Wno-unused-variable \
+		-Wno-unused-but-set-variable -Wno-address-of-packed-member \
+		-o $@ test_btbr_rx_schedule.c \
 		$(FW_BTBR)/src/codec/bitstream_proc.c
 
 $(BINDIR)/test_btbr_connection_end: test_btbr_connection_end.c minunit.h \

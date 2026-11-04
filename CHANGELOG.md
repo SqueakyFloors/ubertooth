@@ -1112,6 +1112,20 @@
   reported as a dropped packet too, where it used to be dropped in silence.
   [#1151](https://github.com/SqueakyFloors/ubertooth/issues/1151)
 
+- Fixed: every `btbr` mode that receives could go quiet the same way, because
+  the receive task asked the scheduler for its slots without reading the
+  answer. A connection, a page, an inquiry, a page scan, or a `monitor` follow
+  whose next receive was refused had nothing left to run, said only
+  `tdma_schedule bucket overflow`, and waited forever; a multi-slot packet
+  whose decode could not be continued was worse, because it also kept the
+  buffer it was being decoded into and the next receive stopped the firmware
+  with `rx_schedule: rx_msg!=0`. A refused receive is now reported to the mode
+  that asked for it, which goes back to listening where it can and otherwise
+  reports the session over, and a decode that cannot be continued ends the
+  receive as one that produced nothing. A `page` or an `inquiry` the scheduler
+  has no room to start at all is refused instead of being reported as running.
+  [#1174](https://github.com/SqueakyFloors/ubertooth/issues/1174)
+
 - Fixed: a `btbr` `page_scan`, `inquiry_scan`, or `monitor` could go quiet and
   never come back. Each of them listens by asking the scheduler for the next
   slot, and a slot already holding four tasks refuses it; the board said only

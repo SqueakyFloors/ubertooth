@@ -83,10 +83,14 @@ static void page_scan_fhs_schedule(void)
 		page_scan_schedule();
 		return;
 	}
-	rx_task_schedule(delay,
+	/* A window the scheduler had no room for leaves nothing to wait for, so
+	 * go back to scanning, where this path already goes when pagerespTO
+	 * leaves no repeat to wait for (rx_task.h). */
+	if (rx_task_schedule(delay,
 		page_scan_rx_fhs_cb, NULL,
 		1<<RX_F_PAYLOAD			// FHS packet has payload
-		);
+		) < 0)
+		page_scan_schedule();
 }
 
 /* The central's page response did not arrive in the window this board opened.

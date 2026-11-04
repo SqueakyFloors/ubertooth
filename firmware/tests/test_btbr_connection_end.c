@@ -111,12 +111,13 @@ static tx_task_cb_t armed_tx_cb;
 static void *armed_tx_arg;
 static unsigned tx_count;
 
-void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
+int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 			unsigned flags)
 {
 	(void)delay; (void)flags;
 	armed_rx_cb = cb;
 	armed_rx_arg = cbarg;
+	return 0;
 }
 
 void tx_task_schedule_fmt(unsigned delay, tx_task_cb_t cb, void *cbarg,

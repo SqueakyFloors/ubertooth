@@ -126,10 +126,17 @@ static void peripheral_state_schedule_rx(unsigned skip_slots)
 	unsigned delay = 4*skip_slots+(3&(RX_PREPARE_IDX-CUR_PERIPHERAL_SLOT_IDX()));
 
 	/* Schedule rx: */
-	rx_task_schedule(delay,
+	/* Every slot of the connection is opened here, so a slot the scheduler
+	 * had no room for leaves nothing to run and the connection is over
+	 * (rx_task.h), as it is for a central. */
+	if (rx_task_schedule(delay,
 		peripheral_rx_cb, NULL,	// ID rx callback
 		1<<RX_F_PAYLOAD		// wait for header
-	);
+	) < 0)
+	{
+		ll_reset(&peripheral_state.ll);
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+	}
 }
 
 void peripheral_state_init(uint64_t central_bdaddr, uint8_t lt_addr)

@@ -227,13 +227,14 @@ int scan_task_schedule(scan_task_cb_t cb, void *cbarg)
 static rx_task_cb_t armed_rx_cb;
 static void *armed_rx_arg;
 
-void rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
+int rx_task_schedule(unsigned delay, rx_task_cb_t cb, void *cbarg,
 			unsigned flags)
 {
 	(void)delay;
 	(void)flags;
 	armed_rx_cb = cb;
 	armed_rx_arg = cbarg;
+	return 0;
 }
 
 static unsigned transmits_armed;

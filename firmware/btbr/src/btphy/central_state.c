@@ -92,10 +92,19 @@ static void central_state_schedule_rx(unsigned skip_slots)
 	unsigned delay = 4*skip_slots+(3&(RX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 
 	/* Schedule rx: */
-	rx_task_schedule(delay,
+	/* Every slot of the connection is opened here, so a slot the scheduler
+	 * had no room for leaves nothing to run and the connection is over
+	 * (rx_task.h). It ends with a report rather than a retry a slot pair
+	 * later: the packet in the refused slot is lost either way, and a
+	 * scheduler that stays full would otherwise go unmentioned. */
+	if (rx_task_schedule(delay,
 		central_rx_cb, NULL,	// ID rx callback
 		1<<RX_F_PAYLOAD		// wait for header
-	);
+	) < 0)
+	{
+		ll_reset(&central_state.ll);
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+	}
 }
 
 static void tx_done_cb(int sent, void* arg)

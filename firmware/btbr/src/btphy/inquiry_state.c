@@ -66,22 +66,30 @@ static int inquiry_rx_cb(msg_t *msg, void *arg, int time_offset)
 	}
 	else
 	{
+		/* The device this found goes on the queue before anything below
+		 * can end the inquiry: the host reads this queue in order and
+		 * stops at the report that the board is idle, so a device
+		 * queued behind one is never read. */
+		if (btctl_tx_enqueue(msg))
+		{
+			DIE("txq full in inquiry\n");
+		}
 		if (pkt->bb_hdr.type == BB_TYPE_FHS)
 		{
-			/* Schedule rx EFHS for next RX slot*/
-			rx_task_schedule(2,
+			/* Schedule rx EFHS for next RX slot. No window for the
+			 * extended response leaves nothing to wait for, so go
+			 * on with the inquiry, which is what this path does
+			 * for any other packet (rx_task.h). */
+			if (rx_task_schedule(2,
 				inquiry_rx_cb, NULL,	// efhs rx callback
 				1<<RX_F_PAYLOAD		// wait for payload
-			);
+			) < 0)
+				inquiry_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
 		}
 		else
 		{
 			/* Schedule normal inquiry */
 			inquiry_schedule(3&(TX_PREPARE_IDX-CUR_CENTRAL_SLOT_IDX()));
-		}
-		if (btctl_tx_enqueue(msg))
-		{
-			DIE("txq full in inquiry\n");
 		}
 	}
 	return 0;
@@ -101,11 +109,15 @@ static void inquiry_schedule(unsigned delay)
 		NULL, NULL,
 		NULL, NULL); // No packet / no payload
 
-	/* Schedule rx fhs: */
-	rx_task_schedule(delay+2,
+	/* Schedule rx fhs. This window is what carries the inquiry on:
+	 * inquiry_rx_cb() is where the next sweep is scheduled from. With no
+	 * window there is nothing left to run, so the inquiry is over
+	 * (rx_task.h). */
+	if (rx_task_schedule(delay+2,
 		inquiry_rx_cb, NULL,	// fhs rx callback
 		1<<RX_F_PAYLOAD		// wait for payload
-		);
+		) < 0)
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
 }
 
 /* dummy tick handler to start TX'ing with a proper clock */
@@ -129,6 +141,18 @@ void inquiry_state_setup(void)
 	/* Init only with the lap, DCI(0) is used as UAP */
 	btphy_set_mode(BT_MODE_INQUIRY, GIAC, 0);
 
-	tdma_schedule(2, inquiry_start_sync, 0,0,0,-3);
 	btctl_set_state(BTCTL_STATE_INQUIRY, BTCTL_REASON_SUCCESS);
+
+	/* inquiry_start_sync() is what reads the clock and starts the sweep,
+	 * so an inquiry the scheduler had no room for does not happen at all.
+	 * Say so and go back to standby, on the reason the inquiry's own
+	 * deadline uses. The inquiry is reported first because the host is
+	 * only told about a state it was told it had left -- a standby that
+	 * follows a standby sends nothing, and the host's command would wait
+	 * forever. */
+	if (tdma_schedule(2, inquiry_start_sync, 0,0,0,-3) < 0)
+	{
+		cprintf("inquiry: cannot schedule start\n");
+		btctl_set_state(BTCTL_STATE_STANDBY, BTCTL_REASON_TIMEOUT);
+	}
 }
