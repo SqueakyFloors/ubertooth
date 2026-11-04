@@ -359,17 +359,19 @@ that did not change and is not that bootloader is an `error: ` and status 1,
 because nothing was installed.
 
 Both reads go through the bootloader the same way, so a region that did not
-change is provable. The one thing they cannot settle is the lowest 512 bytes:
-the part covers them with either the user flash or its own boot ROM, the
-bootloader does not choose which, and the vector table and the version block
-both live there, so two builds of one bootloader can differ only inside them.
-Where the answer is in those bytes -- the region did not change, and above them
-it matches the image -- the board either already had this bootloader or has
-another build of it and installed nothing. That is a `warning: ` and status 0,
-not a guess either way. So is a region that changed into neither bootloader
-whole, as a write that stopped part way would leave it, and a region that will
-not read back at all. In each case the run claims nothing and sends you to
-`ubertooth-util -B`.
+change is provable. What they cannot settle is the lowest 512 bytes: the part
+covers them with either the user flash or its own boot ROM and the bootloader
+does not choose which, while the vector table and the version block both live
+there, so two builds of one bootloader can differ only inside them. A run whose
+answer lies in those bytes -- the region did not change, and above them it
+matches the image -- is a `warning: ` and status 0 rather than a guess, because
+that is both a board which already had this bootloader and one which has
+another build of it and installed nothing. Installing a bootloader that differs
+from the one on the board only in those bytes is therefore the case this check
+cannot confirm or refuse; `ubertooth-util -B` after writing firmware again
+answers it. A region that changed into neither bootloader whole, as a write
+that stopped part way would leave it, and a region that will not read back are
+reported the same way.
 
 Have a serial adapter wired up and the programming entry pin reachable before
 you start. The region is erased whole and the sector holding the vector table

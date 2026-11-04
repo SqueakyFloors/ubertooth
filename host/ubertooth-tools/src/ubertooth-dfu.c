@@ -807,14 +807,11 @@ static void report_dfu_block_failure(const char* what, int block, int code)
 }
 
 /*
- * The three requests that drive the bootloader's state machine, each in two
- * forms: the one below that says why it failed, and a quiet one that says
- * nothing.
- *
- * An `error: ` line belongs to a command that fails, so the one caller whose
- * run carries on when the board will not answer -- the bootloader region
- * read-back of --update-bootloader -- needs requests that print nothing, not
- * just a wait that prints nothing.
+ * The three requests that drive the bootloader's state machine, in a form that
+ * says nothing when it fails. An `error: ` line belongs to a command that
+ * fails, so the one caller whose run carries on when the board will not answer
+ * -- the bootloader region read-back of --update-bootloader -- needs these
+ * rather than the reporting forms below.
  */
 static int dfu_get_state_quiet(libusb_device_handle* devh)
 {
@@ -866,53 +863,32 @@ int dfu_abort(libusb_device_handle* devh) {
 }
 
 /* The state machine of enter_dfu_mode() runs in dfu_reach_idle(); these are
- * its operations over libusb. */
-static int idle_get_state(void *context __attribute__((unused)), void *handle)
+ * its operations over libusb. A non-NULL context means the caller wants the
+ * requests to say nothing, which is DFU_IDLE_QUIET below: one table rather
+ * than two that could drift apart. */
+static const int DFU_IDLE_QUIET = 1;
+
+static int idle_get_state(void *context, void *handle)
 {
-	return dfu_get_state(handle);
+	return context != NULL ? dfu_get_state_quiet(handle)
+	                       : dfu_get_state(handle);
 }
 
-static int idle_abort(void *context __attribute__((unused)), void *handle)
+static int idle_abort(void *context, void *handle)
 {
-	return dfu_abort(handle);
+	return context != NULL ? dfu_abort_quiet(handle) : dfu_abort(handle);
 }
 
-static int idle_clear_status(void *context __attribute__((unused)),
-                             void *handle)
+static int idle_clear_status(void *context, void *handle)
 {
-	return dfu_clear_status(handle);
+	return context != NULL ? dfu_clear_status_quiet(handle)
+	                       : dfu_clear_status(handle);
 }
 
 static const struct dfu_idle_ops IDLE_OPS = {
 	.get_state = idle_get_state,
 	.abort = idle_abort,
 	.clear_status = idle_clear_status,
-	.sleep_ms = transition_sleep_ms,
-};
-
-/* The same machine over the quiet requests, for enter_dfu_mode_quiet(). */
-static int idle_get_state_quiet(void *context __attribute__((unused)),
-                                void *handle)
-{
-	return dfu_get_state_quiet(handle);
-}
-
-static int idle_abort_quiet(void *context __attribute__((unused)),
-                            void *handle)
-{
-	return dfu_abort_quiet(handle);
-}
-
-static int idle_clear_status_quiet(void *context __attribute__((unused)),
-                                   void *handle)
-{
-	return dfu_clear_status_quiet(handle);
-}
-
-static const struct dfu_idle_ops QUIET_IDLE_OPS = {
-	.get_state = idle_get_state_quiet,
-	.abort = idle_abort_quiet,
-	.clear_status = idle_clear_status_quiet,
 	.sleep_ms = transition_sleep_ms,
 };
 
@@ -927,7 +903,8 @@ static int enter_dfu_mode_quiet(libusb_device_handle* devh)
 	};
 	struct dfu_idle_report report;
 
-	return dfu_reach_idle(&QUIET_IDLE_OPS, NULL, devh, &config, &report);
+	return dfu_reach_idle(&IDLE_OPS, (void *)&DFU_IDLE_QUIET, devh, &config,
+	                      &report);
 }
 
 /* Wait, bounded, for the bootloader to be idle, so a board that answers
@@ -2138,28 +2115,14 @@ static int read_bootloader_region(libusb_device_handle *devh,
  * apart, read back here and compared with the read-back taken before the write
  * and with the hash the image installs.
  *
- * Both read-backs go through the bootloader the same way, so an unchanged
- * region is provable: equal hashes mean the same bytes answered twice. That
- * matters because the part covers the lowest 512 bytes of the address map with
- * either the user flash or its own boot ROM (NXP LPC176x/5x user manual
- * UM10360, MEMMAP) and a DFU session cannot say which -- the bootloader never
- * writes that register, and it polls USB rather than taking interrupts through
- * the vector table those bytes hold. Whichever the map shows, it shows the
- * same thing to both reads.
- *
- * The image's hash is the one number measured differently: it is computed over
- * the flash bytes, so it matches a read-back only where the window reads as
- * flash. The region above the window is compared as well, which is what
- * recognizes the image's bootloader when the window reads as boot ROM.
- *
- * Nothing is claimed that the two read-backs do not show. A refusal needs both
- * halves proved: that the region did not change, and that it is not the
- * bootloader the image carries. Where the window hides the difference -- two
- * builds of one bootloader can differ only there, since the vector table and
- * the version block both live inside it -- the run says it could not tell
- * rather than guessing, because the guess would be either a false refusal on a
- * board that already had this bootloader or a false success on one that
- * installed nothing.
+ * The constraint the branches below work around: the part covers the lowest
+ * 512 bytes of the address map with either the user flash or its own boot ROM
+ * (NXP LPC176x/5x user manual UM10360, MEMMAP), and a DFU session cannot say
+ * which, because the bootloader never writes that register and polls USB
+ * rather than taking interrupts through the vector table those bytes hold.
+ * Both read-backs happen in a DFU session, so whichever the map shows it shows
+ * to both; the image's hash is computed over the flash bytes, so it matches a
+ * read-back only where the window reads as flash.
  *
  * Returns one of the three below, having said what it found.
  */
@@ -2187,7 +2150,6 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 {
 	libusb_device_handle *devh = NULL;
 	struct region_readback board = { 0, 0 };
-	const uint32_t image_crc32 = image->region_crc32;
 	char stage[96];
 	int rv;
 
@@ -2201,8 +2163,12 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	if (rv != 1)
 		/* Nothing was opened on any answer but 1, so there is no handle to
 		 * close: find_ubertooth_dfu_device() returns 1 only once libusb has
-		 * the device open. */
-		return bootloader_check_unmade("the board in DFU could not be "
+		 * the device open. A 0 is the board not being there to open, which
+		 * carries no libusb code, so say that rather than nothing. */
+		return bootloader_check_unmade(rv == 0 ?
+		                               "the board was no longer in DFU to "
+		                               "read it from" :
+		                               "the board in DFU could not be "
 		                               "opened", rv);
 	/* Reading the region means control transfers on interface 0. */
 	rv = libusb_claim_interface(devh, 0);
@@ -2218,12 +2184,12 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 		                               "read back", rv);
 	snprintf(stage, sizeof(stage), "bootloader hash after the update: "
 	         "0x%08x (before: 0x%08x, image: 0x%08x)", (unsigned)board.crc32,
-	         (unsigned)runtime->bl_crc32_before, (unsigned)image_crc32);
+	         (unsigned)runtime->bl_crc32_before, (unsigned)image->region_crc32);
 	log_dfu_stage(stage);
 	/* The whole region is the image's bootloader, which needs nothing said
 	 * about the window: the board holds it, whether this run put it there or
 	 * it was already there. */
-	if (board.crc32 == image_crc32)
+	if (board.crc32 == image->region_crc32)
 		return BL_INSTALL_CONFIRMED;
 	if (board.crc32 == runtime->bl_crc32_before) {
 		/* The same bytes answered both read-backs, so the region did not
@@ -2243,7 +2209,7 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 			        "bytes, which a board in DFU may not read back; "
 			        "`ubertooth-util -B` after writing firmware again "
 			        "reports CRC32:0x%08x if this bootloader is installed\n",
-			        runtime->download_name, (unsigned)image_crc32);
+			        runtime->download_name, (unsigned)image->region_crc32);
 			fflush(stderr);
 			return BL_INSTALL_UNKNOWN;
 		}
@@ -2254,7 +2220,7 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 		        "still holds the bootloader it held before this run "
 		        "(CRC32:0x%08x), not the one %s carries (CRC32:0x%08x)\n",
 		        (unsigned)board.crc32, runtime->download_name,
-		        (unsigned)image_crc32);
+		        (unsigned)image->region_crc32);
 		/* The two ways the write is skipped. The pin is the one that repeats
 		 * on every reset until the bridge comes off, so it is named first;
 		 * the updater makes the same checks on the board that the host made
@@ -2290,7 +2256,7 @@ static int check_installed_bootloader(struct dfu_runtime_context *runtime,
 	        "neither the hash it had before this run (CRC32:0x%08x) nor the "
 	        "one %s carries (CRC32:0x%08x)\n",
 	        (unsigned)board.crc32, (unsigned)runtime->bl_crc32_before,
-	        runtime->download_name, (unsigned)image_crc32);
+	        runtime->download_name, (unsigned)image->region_crc32);
 	fflush(stderr);
 	return BL_INSTALL_UNKNOWN;
 }

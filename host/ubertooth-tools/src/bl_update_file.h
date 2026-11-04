@@ -69,11 +69,10 @@ struct bl_update_file {
 	 * programmed, with the vector checksum filled in. Only meaningful when
 	 * result is UBERTOOTH_BL_UPDATE_OK. */
 	uint32_t region_crc32;
-	/* The same hash over the region above UBERTOOTH_BL_MEMMAP_WINDOW. An
-	 * installed bootloader is recognized by this one, because it is the part
-	 * of the region a read-back over DFU shows whichever way the part's
-	 * memory map happens to be set. It is not a number any board reports, so
-	 * it is never printed. */
+	/* The same hash over the region above UBERTOOTH_BL_MEMMAP_WINDOW, which
+	 * is the part of the region a read-back over DFU shows whichever way the
+	 * part's memory map happens to be set. No board reports this one, so it
+	 * compares only against another read-back. */
 	uint32_t region_crc32_above_window;
 };
 

@@ -3085,8 +3085,6 @@ MU_TEST(an_update_that_leaves_the_board_in_dfu_is_a_success)
 	 * test region has to reach the page too. */
 	mu_assert(strcmp(line, "Bootloader installed: ubertooth-util -B will "
 	                 "report CRC32:0x7c52e323.") == 0, line);
-	mu_assert(strstr(r.out, expected) != NULL,
-	          "the run did not report the hash the region now holds");
 	mu_assert(strstr(r.out, "The board is in DFU.") != NULL, r.out);
 	/* Progress and the hash, so standard error. */
 	mu_assert(strstr(r.err, "Bootloader to install: version 1.02") != NULL,
