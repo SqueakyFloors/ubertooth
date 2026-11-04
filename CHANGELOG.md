@@ -4,40 +4,34 @@
 
 ### Highlights
 
-The largest wins of the release. The sections below have the detail.
+The first release from this community fork, building on Great Scott Gadgets'
+2020-12-R1. The sections below list every change; these are the ones worth
+knowing about.
 
-- `ubertooth-btle -p` recovers a connection and follows it, including one that
-  hops with channel selection algorithm 2, which is what Bluetooth 5.0 devices
-  normally use.
-- `ubertooth-btle -f` keeps up with the connection it is following, through a
-  parameter update and a channel map update, and lets go when that connection
-  really ends.
-- `ubertooth-rx -l <lap> -u <uap>` follows a piconet that adapts its hopping,
-  and finds its way back when it locks onto a wrong clock.
-- Two Ubertooths running `ubertooth-btbr` page each other, connect, and carry
-  traffic, and a connection to a real Classic device lasts as long as the peer
-  keeps it.
-- `ubertooth-afh` reports the channel map a piconet is really using.
-- The two-board range test (`ubertooth-util -e`, `-n`, and `-m`) reports a
-  result every run.
-- A capture runs on the channel, the band sweep, and the AFH map its command
-  line asked for, whatever the board was doing before.
-- A capture says what it lost, and when its receiver is being driven harder
-  than the radio can measure, instead of reading like a quiet channel.
-- Capture timestamps are the times the packets really arrived at, through the
-  capture clock's wraps and through a quiet gap, and every record carries the
-  packet's own signal level with a figure for the background beside it.
-- A board that stops answering resets itself and comes back idle, and
-  `ubertooth-util -w` says where it stopped and why.
-- A bootloader can be installed over USB, `ubertooth-util -B` says which one a
-  board has, and `ubertooth-dfu` checks an image before the board leaves its
-  application.
-- Every tool keeps its results on standard output and its diagnostics on
-  standard error, answers `-V` and `-h` alike, and refuses a command line that
-  says two things and means one. The three tools written in Python answer like
-  the rest.
-- `install.sh` installs from source on Debian, Ubuntu, Fedora, and macOS, and
-  `--uninstall` takes the install back off again.
+- **`ubertooth-btle -f` follows the connections today's devices make.** It now reads both ends' channel-selection bits and hops with algorithm 2 as well as 1, catching 13,676 packets across 23 connections where the same run caught 280 across 1.
+  ([#836](https://github.com/SqueakyFloors/ubertooth/issues/836))
+- **Promiscuous mode locks onto a connection already running, and captures replay.** `-p` recovers the access address, CRC start, and hop of a connection nobody saw set up (algorithm 2 included), and `-d`/`-R` save and re-decode the records with no board.
+  ([#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025), [#1129](https://github.com/SqueakyFloors/ubertooth/pull/1129))
+- **Classic sniffing copes with a piconet that adapts its hopping.** `ubertooth-rx -l -u` scores clock candidates by the hops they explain, so it locks onto a piconet that moves off busy channels (1.8 to 25.4 packets a second once locked), `ubertooth-afh` reports the real channel map, and one run can read up to eight boards at once.
+  ([#968](https://github.com/SqueakyFloors/ubertooth/issues/968), [#963](https://github.com/SqueakyFloors/ubertooth/issues/963), [#1063](https://github.com/SqueakyFloors/ubertooth/pull/1063))
+- **A capture file says what the board really heard.** Each record carries the packet's own signal level and a background estimate (or says it has none), the real Classic header and recovered address part, and a full-length low-energy payload; dropped packets are counted.
+  ([#909](https://github.com/SqueakyFloors/ubertooth/issues/909), [#284](https://github.com/SqueakyFloors/ubertooth/issues/284), [libbtbb issue 28](https://github.com/SqueakyFloors/libbtbb/issues/28))
+- **The `btbr` image and `ubertooth-btbr` are usable.** The tool starts and names its firmware instead of hanging, a Classic connection to a real device outlives its first 30 seconds, and two Ubertooths page each other and carry traffic.
+  ([#623](https://github.com/SqueakyFloors/ubertooth/issues/623), [#948](https://github.com/SqueakyFloors/ubertooth/issues/948), [#807](https://github.com/SqueakyFloors/ubertooth/issues/807))
+- **Options the pages describe now do what they say.** The two-board range test reports the lowest power that got through each way, `ubertooth-specan -v` summarizes once a second, `ubertooth-btle -s`/`-t` keep separate addresses, and a capture uses the settings it was asked for rather than an interrupted run's leftovers.
+  ([#649](https://github.com/SqueakyFloors/ubertooth/issues/649), [#510](https://github.com/SqueakyFloors/ubertooth/issues/510), [#872](https://github.com/SqueakyFloors/ubertooth/issues/872))
+- **A board keeps answering, and recovers itself when it does not.** Opening by serial no longer kills about one capture in twenty, radio and USB waits are bounded, a stuck board usually resets within about three seconds (or `ubertooth-util -r` recovers it from the host), and the firmware now has room for its stack.
+  ([#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#509](https://github.com/SqueakyFloors/ubertooth/issues/509), [#1073](https://github.com/SqueakyFloors/ubertooth/pull/1073))
+- **Firmware you can install, identify, and get back from.** Images carry an info block, so `ubertooth-dfu` names what it will write and refuses a bad file, an interrupted download leaves the board recoverable in DFU, and a new bootloader installs over USB with `--update-bootloader`.
+  ([#242](https://github.com/SqueakyFloors/ubertooth/issues/242), [#1064](https://github.com/SqueakyFloors/ubertooth/issues/1064), [#1062](https://github.com/SqueakyFloors/ubertooth/issues/1062))
+- **One command line across every tool.** Results go to standard output and everything else to standard error, a failure is one `error:` line and a non-zero exit, a lone `-` streams the capture (PcapNG excepted, with advice), and `-V` answers the same everywhere.
+  ([#782](https://github.com/SqueakyFloors/ubertooth/issues/782), [#813](https://github.com/SqueakyFloors/ubertooth/issues/813), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636))
+- **Documentation that matches the code, including what does not work.** Every tool has a man page, there is a README catalog and a "how sniffing works" guide, a Wireshark walkthrough, and `COMPATIBILITY.md`; an option nothing acts on says so and is listed as known-broken.
+  ([#785](https://github.com/SqueakyFloors/ubertooth/issues/785), [#895](https://github.com/SqueakyFloors/ubertooth/issues/895), [#891](https://github.com/SqueakyFloors/ubertooth/issues/891))
+- **Tests, with a board in the loop.** 64 firmware test programs and 140 host `ctest` tests, among them a contract matrix pinning each tool's streams, messages, and exit status, hop selection checked against the Core specification's sample data, fuzzed decoders, and CI across Linux and macOS.
+  ([#482](https://github.com/SqueakyFloors/ubertooth/issues/482), [#809](https://github.com/SqueakyFloors/ubertooth/issues/809), [libbtbb issue 93](https://github.com/SqueakyFloors/libbtbb/issues/93))
+- **It builds and installs on current systems.** Current toolchains and Python 3, `install.sh` for Debian and Ubuntu, Fedora, and macOS (with `--uninstall`), and libubertooth installs with a pkg-config file and a CMake package config.
+  ([#852](https://github.com/SqueakyFloors/ubertooth/issues/852), [#1044](https://github.com/SqueakyFloors/ubertooth/issues/1044), [#1108](https://github.com/SqueakyFloors/ubertooth/pull/1108))
 
 ### Stability and lockups
 
@@ -265,6 +259,38 @@ Behavior the tools share.
 - The tools are built against an updated libbtbb that names each record's logical transport (SCO, eSCO, or ACL), removes its own unfinished capture file on error, and survives a failed hash-table allocation. Credit: Hannes Ellinger ([@el-han](https://github.com/el-han)) for the per-packet signal figure, and [@orgua](https://github.com/orgua) for noting that dBm readings must be averaged in power ([upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)).
   ([#77](https://github.com/SqueakyFloors/ubertooth/issues/77), [#118](https://github.com/SqueakyFloors/ubertooth/issues/118), [#435](https://github.com/SqueakyFloors/ubertooth/issues/435), [#448](https://github.com/SqueakyFloors/ubertooth/issues/448), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#637](https://github.com/SqueakyFloors/ubertooth/issues/637), [#643](https://github.com/SqueakyFloors/ubertooth/issues/643), [#658](https://github.com/SqueakyFloors/ubertooth/issues/658), [#663](https://github.com/SqueakyFloors/ubertooth/issues/663), [#665](https://github.com/SqueakyFloors/ubertooth/issues/665), [#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#786](https://github.com/SqueakyFloors/ubertooth/issues/786), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#803](https://github.com/SqueakyFloors/ubertooth/issues/803), [#849](https://github.com/SqueakyFloors/ubertooth/issues/849), [#869](https://github.com/SqueakyFloors/ubertooth/issues/869), [#873](https://github.com/SqueakyFloors/ubertooth/issues/873), [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040), [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130), [#1147](https://github.com/SqueakyFloors/ubertooth/issues/1147), [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149), [#1157](https://github.com/SqueakyFloors/ubertooth/issues/1157))
 
+- Fixed: a capture destination that reached standard output by a name the
+  tools did not recognize kept the stream to itself only by accident. A
+  symbolic link pointing at `/dev/stdout` got the tool's own report lines
+  mixed into the capture, and a terminal behind such a link was not refused.
+  A destination that is a link to that stream is now the stream, so the
+  report goes to standard error and the capture arrives whole. The same
+  holds for any spelling the system itself answers with that descriptor,
+  `/dev/fd/01` on the BSDs included.
+  [#1165](https://github.com/SqueakyFloors/ubertooth/issues/1165)
+- Fixed: `ubertooth-rx` and `ubertooth-btle` silently destroyed a capture when
+  two capture options were given one file name. `-q coll.bin -d coll.bin`
+  exited 0 with one format in the file and no sign the other had been asked
+  for; it is now refused with `error: -q and -d cannot both write to
+  coll.bin`, before either file is opened. Every pair of `-r`, `-q`/`-c`, and
+  `-d` is checked, as it already was in `ubertooth-follow`.
+  [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149)
+- Fixed: a replay whose capture was pointed at its own dump through a
+  descriptor the calling shell opened read the records it was appending and
+  never ended, filling the dump with its own output. `ubertooth-rx -i cap.bin
+  -d /dev/fd/3 3>>cap.bin` and the `ubertooth-btle -R` version of it are now
+  refused with the file left as it was. The descriptor is asked which file it
+  holds, so the answer is the same on Linux and macOS, and so is every
+  spelling that reaches it: a symbolic link to one of those, the fixed names
+  `/dev/stderr` and `/dev/stdin`, and, on the BSDs, `/dev/fd/03`.
+  [#1146](https://github.com/SqueakyFloors/ubertooth/issues/1146)
+- Fixed: `ubertooth-rx -i cap.bin >> cap.bin` wrote its decode into the
+  capture it was replaying and said nothing, leaving a file no later replay
+  could read. A replay whose standard output is the dump it is reading now
+  says so in one `warning: ` line and carries on, exit status unchanged;
+  `ubertooth-btle -R` too.
+  [#1148](https://github.com/SqueakyFloors/ubertooth/issues/1148)
+
 #### Capture timestamps
 
 - Capture timestamps are now correct and continuous, live and on replay: they start when the capture started, no longer jump when the board's capture clock rolls over or leap by hours from a record left over from the previous mode, survive quiet gaps, and reflect when each packet actually arrived rather than when the host got to it. The per-packet `systime` and the host time a `-d` dump stores come from the same reading the capture is anchored on, so they agree.
@@ -383,6 +409,16 @@ Behavior the tools share.
 
 #### Fixes
 
+- Fixed: `ubertooth-btle` reported `rssi=0` for a packet whose level the board
+  could not measure. The dBm scale stops rising at the top of the radio's
+  range, so that one figure stands for every level from there up. 0 dBm is a
+  milliwatt at the antenna, about what a peer transmits, and an advertiser a few
+  tens of centimeters away reaches it, low-energy receive turning the board's
+  amplifier and high-gain mode on. Such a packet now reads `rssi=none`, the
+  word the Basic Rate `s=` and `n=` columns already use for a level the board
+  does not have. A capture file still records the figure, as a Basic Rate
+  capture does.
+  [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194)
 - A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
   packet whose data did not match its own length fields used to put a line
   reading `Error: attempt to read past end of buffer` on standard error, which
@@ -771,6 +807,13 @@ Behavior the tools share.
 
 #### Fixes
 
+- Fixed: a per-packet line reported `s=0`, and a `snr=` worked out from it, for
+  a packet whose level the board could not measure. The dBm scale stops rising
+  at the top of the radio's range, so that one figure stood for every signal
+  from about -26 dBm upward, which a Classic peer a few tens of centimeters
+  away reaches. Such a packet now reads `s=none snr=none`, the convention the
+  noise field already uses for a figure the board does not have.
+  [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162)
 - Fixed: `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of a
   piconet that adapts its hopping, which current controllers do, so its follow
   never started. It now finds the clock and follows.
@@ -1721,9 +1764,21 @@ Behavior the tools share.
   two, so `Signature check failed, firmware will not be updated` and `Image
   too large for the attached part, firmware will not be updated` are gone.
   [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
+- `ubertooth-dfu --update-bootloader` now leaves a board that already has the
+  bootloader the image carries alone. It asks the running firmware for the hash
+  `ubertooth-util -B` reports and writes nothing when it matches the image's,
+  so the board keeps the firmware the updater image would have replaced.
+  `--force` writes without asking.
+  [#1123](https://github.com/SqueakyFloors/ubertooth/issues/1123)
 
 #### Fixes
 
+- Fixed: `ubertooth-dfu -u /dev/stdout` answered with an errno about a file,
+  `error: /dev/stdout: Operation not permitted`, because only the lone `-`
+  counted as standard output. The names of that stream are now refused while
+  the command line is read, with the line the lone `-` already got, which says
+  to give a file name instead.
+  [#1170](https://github.com/SqueakyFloors/ubertooth/issues/1170)
 - Fixed: `ubertooth-dfu --update-bootloader` reported success whenever the
   board came back in DFU, which is also what a board whose bootloader entry
   pin is bridged does without ever starting the updater, so a run that
@@ -2608,6 +2663,9 @@ Behavior the tools share.
 
 Fixes with no visible change in normal use.
 
+- `ubertooth-follow` no longer borrows an earlier call's error number when it
+  reports a failed adapter or clock read.
+  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
 - The pinned library no longer races when more than one thread decodes at the
   same time.
   [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
@@ -3087,6 +3145,12 @@ Fixes with no visible change in normal use.
   connection to time it, which cost the capture its place and left it waiting
   for the search to run again.
   [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- A bootloader update whose read-back the part refuses erases the sector
+  holding the vector table again, so the board comes up in the part's serial
+  programmer, which a serial adapter recovers, instead of starting a
+  bootloader the part declined to confirm. A part that refuses that erase as
+  well is left as it was.
+  [#1127](https://github.com/SqueakyFloors/ubertooth/issues/1127)
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
