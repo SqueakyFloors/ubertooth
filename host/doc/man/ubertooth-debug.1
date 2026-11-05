@@ -87,9 +87,11 @@ attached board; see
 COMMON OPTIONS
 .IP \(bu 2
 \fB\fC\-h\fR :
-print the usage text on standard output and exit 0\&. It takes effect once the
-whole command line has parsed, so a bad option value, a stray word or an
-option given twice is still reported\&.
+print the usage text on standard output\&. It takes effect once the whole
+command line has parsed, so a bad option value, a stray word or a
+value\-taking option given twice is still reported\&. It exits 0, except
+beside a \fB\fC\-V\fR that could not read a board, whose status the command
+then carries\&.
 
 .SH EXAMPLES
 .PP
