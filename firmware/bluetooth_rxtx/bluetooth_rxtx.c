@@ -49,9 +49,7 @@
 #ifdef STACK_GUARD_TEST
 /*
  * A stack overflow on demand, so the guard at the bottom of the stack can be
- * shown to catch one. No shipped image defines STACK_GUARD_TEST; the bench
- * procedure is in TEST_PLAN.md. UBERTOOTH_STOP is the trigger because every
- * tool sends it as it exits.
+ * shown to catch one. No shipped image defines STACK_GUARD_TEST.
  *
  * Every word of each frame is written, so the descent cannot step over the
  * 32-byte guard, and the recursive call goes through a volatile pointer: at
@@ -77,12 +75,10 @@ overflow_the_stack(unsigned long depth)
 #endif
 
 /*
- * The build string reported by UBERTOOTH_GET_COMPILE_INFO, which is what
- * ubertooth-util -V prints: "ubertooth ", the revision, then who built it,
- * where, and when. Keep this identical to the one in
- * btbr/src/btctl/vendor_request_handler.c. The image name and revision a host
- * matches against are in the firmware info block (../common/fw_info.c), not
- * here.
+ * The build string reported by UBERTOOTH_GET_COMPILE_INFO. Keep it identical
+ * to the one in btbr/src/btctl/vendor_request_handler.c. The image name and
+ * revision a host matches against are in the firmware info block
+ * (../common/fw_info.c), not here.
  */
 const char compile_info[] =
 	"ubertooth " GIT_REVISION " (" COMPILE_BY "@" COMPILE_HOST ") " TIMESTAMP;
@@ -128,14 +124,10 @@ generic_tx_packet tx_pkt;
 /*
  * How many times to send tx_pkt, from the request's wValue.
  *
- * One request per packet does not work at the rate a host can send them: the
- * board answers no USB request while a packet is going out, and this is about
- * a millisecond of radio waits, so a request handed over in that window comes
- * back to the host as a transfer error and that packet is lost. Measured on
- * two boards, a burst of 30 requests sent as fast as the host could send them
- * had 15 of them fail that way. Carrying the count in the request instead
- * costs one transfer for the whole burst, and the host never waits on the
- * board at all.
+ * One request per packet cannot keep up: the board answers no USB request
+ * while a packet is going out, about a millisecond of radio waits, so a
+ * request handed over in that window fails and the packet is lost. Carrying
+ * the count costs one transfer for the whole burst.
  */
 volatile uint16_t tx_pkt_repeat;
 
@@ -172,46 +164,33 @@ typedef struct _le_promisc_active_aa_t {
 } le_promisc_active_aa_t;
 
 /* How many of the gaps between one connection's returns to this channel the
- * estimator keeps. It looks for the pattern they repeat, and needs two runs of
- * one pattern to see a repeat, so this is twice the longest pattern it can
- * find: sixteen gaps, so up to eight returns a trip round the channels.
- *
- * A full channel map returns once a trip. A smaller map returns about 37/U
- * times, U being the channels it uses, because the remapping spreads the
- * unused positions over the used ones: twice or three times for the maps of
- * 18 and 19 channels the connections on the bench negotiate, eight times for
- * a map of five. A map smaller than that returns too often for the pattern to
- * fit here, and then nothing is reported. */
+ * estimator keeps. It needs two runs of a pattern to see a repeat, so this is
+ * twice the longest pattern it can find: up to eight returns a trip round the
+ * channels. A map of about five channels or fewer returns more often than
+ * that -- the remapping spreads the unused positions over the used ones --
+ * and then nothing is reported. */
 #define LE_PROMISC_GAPS 16
 
 typedef struct _le_promisc_state_t {
 	// LFU cache of recently seen AA's
 	le_promisc_active_aa_t active_aa[32];
 
-	/* Recovering the connection interval.
-	 *
-	 * The mode listens on one data channel, so it sees the connection
-	 * whenever the hop sequence brings it back here -- a whole number of
-	 * connection events later. Every gap between two sightings is
-	 * therefore a whole number of connection intervals.
-	 *
-	 * The spacings between returns repeat every trip round the 37 hop
-	 * positions and add up to 37 connection events, so the gaps are kept
-	 * in the order they arrived and the estimator looks for the pattern
-	 * they repeat. The oldest falls off the end, which is how a figure
-	 * already reported stops being reported once the connection it
+	/* Recovering the connection interval. The mode listens on one data
+	 * channel, so every gap between two sightings is a whole number of
+	 * connection intervals. The spacings repeat every trip round the 37 hop
+	 * positions, so the gaps are kept in arrival order and the estimator
+	 * looks for the pattern they repeat. The oldest falls off the end,
+	 * which is how a figure stops being reported once the connection it
 	 * described has changed or gone. */
 	u32 gap[LE_PROMISC_GAPS];
 	u8 gap_count;
 	int consec_intervals;
 
 	/* When a packet of the connection was last seen on the channel being
-	 * listened to, and whether one has been. The estimator times how long
-	 * the connection takes to come back, so it must have no stamp to
-	 * measure from when a pass starts: the mode's teardown stops the
-	 * capture clock and zeroes it, so a stamp left by an earlier pass is a
-	 * reading of a clock that has since restarted, and the gap computed
-	 * from it belongs to nothing. */
+	 * listened to, and whether one has been. A pass must start with no
+	 * stamp: the mode's teardown stops and zeroes the capture clock, so a
+	 * stamp from an earlier pass reads a clock that has since restarted and
+	 * the gap computed from it belongs to nothing. */
 	u32 prev_clk;
 	/* The same moment on CLKN, which does not come round again for a
 	 * fortnight. The capture clock does every 327 s, and a gap longer than
@@ -221,24 +200,19 @@ typedef struct _le_promisc_state_t {
 
 	/* When any packet was last seen, as against prev_clk above, which is
 	 * the last one taken as the start of a connection event. The two
-	 * differ while an event is running: the peripheral's answer and any
-	 * further exchange of the same event move this and leave that alone.
-	 * Which is how a packet is told from an event -- see
-	 * promisc_recover_hop_interval(). */
+	 * differ while an event is running, which is how a packet is told from
+	 * an event -- see promisc_recover_hop_interval(). */
 	u32 last_clk;
 
 	/* The sighting on 2404 MHz that the hop increment is counted from,
 	 * which is the same kind of stamp and wants the same clearing. */
 	u32 first_ts;
 
-	/* The same gaps again, for the algorithm-2 search, which needs more of
-	 * them than the estimator above: a ring of its own rather than a
-	 * longer shared one, because the estimator's length is what bounds the
-	 * pattern it looks for.
-	 *
-	 * csa2_gap_count is how many the ring holds and sightings is how many
-	 * have arrived since the last search, which is what gives each
-	 * estimator a run of consecutive returns to work from. */
+	/* The same gaps again for the algorithm-2 search, which needs more of
+	 * them: a ring of its own, because the estimator above is bounded by
+	 * the pattern length its own ring can hold. sightings is how many have
+	 * arrived since the last search, which gives each estimator a run of
+	 * consecutive returns to work from. */
 	u32 csa2_gap[LE_CSA2_SIGHTINGS - 1];
 	u8 csa2_gap_count;
 	u16 sightings;
@@ -266,18 +240,13 @@ packet_cb_t packet_cb = NULL;
 
 /*
  * The receive buffer of a low-energy mode. The two halves of such a mode need
- * very different buffers, and share one because they never run at the same
- * time.
+ * very different buffers and share one because they never run at the same
+ * time: bt_generic_le() fills `symbols` and has returned before bt_le_sync(),
+ * which receives whole packets into `packet`, is entered. bt_promisc_le()
+ * runs the two in that order.
  *
  * It is in the other RAM bank (AHB_SRAM), which the transfer controller
- * reaches as it reaches main SRAM: bt_le_sync() receives straight into
- * `packet`.
- *
- * bt_generic_le() fills `symbols` and hands it to its data callback, which
- * searches it for an access address. It has returned before bt_le_sync() is
- * entered, and bt_le_sync() has no data callback: it receives whole packets
- * into `packet` instead. bt_promisc_le() runs the two in that order, so a
- * packet never lands on symbols still being read, or the other way round.
+ * reaches as it reaches main SRAM.
  */
 static AHB_SRAM union {
 	/* One byte per received symbol, two DMA buffers' worth: the previous
@@ -297,9 +266,8 @@ static AHB_SRAM union {
 
 /* dma_init_le() splits what it is given into a first item of LE_DMA_HEAD
  * bytes and a second of the rest, and the controller's transfer size is a
- * 12-bit field. Both bounds are checked here because the length is a constant
- * at the only call site; a transfer size that overflowed would run into the
- * burst-size bits and mis-program the controller rather than fail. */
+ * 12-bit field. A size that overflowed would run into the burst-size bits and
+ * mis-program the controller rather than fail. */
 _Static_assert(LE_RX_PDU_MAX > LE_DMA_HEAD,
                "the low-energy receive buffer is shorter than the first DMA item");
 _Static_assert(LE_RX_PDU_MAX - LE_DMA_HEAD <= 0xfff,
@@ -316,9 +284,8 @@ static int enqueue(uint8_t type, uint8_t* buf)
 	}
 
 	f->pkt_type = type;
-	/* No power figures unless the branch below puts them in, and the status
-	 * bits that would make them readable stay clear: a record comes off the
-	 * ring with whatever the last one left in it. */
+	/* A record comes off the ring with whatever the last one left in it, so
+	 * clear the power figures the branch below may not fill in. */
 	f->rssi_noise = 0;
 	f->reserved = 0;
 	if(type == SPECAN) {
@@ -332,9 +299,8 @@ static int enqueue(uint8_t type, uint8_t* buf)
 		f->rssi_max = rssi_max;
 		f->rssi_avg = rssi_get_signal();
 		f->rssi_count = rssi_count;
-		/* Only a record that carries a packet gets the power figures. The
-		 * others this builds -- a state change, a message -- carry no
-		 * packet for a signal figure to belong to. */
+		/* Only a record that carries a packet gets the power figures: a
+		 * state change or a message has no packet for one to belong to. */
 		if (type == BR_PACKET && rssi_count != 0) {
 			status |= SIGNAL_VALID;
 			if (rssi_noise_estimated()) {
@@ -370,8 +336,7 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 	f->channel = ubertooth_channel_byte(channel);
 	f->rssi_avg = 0;
 	f->rssi_count = 0;
-	/* This path takes no readings, so the record carries no noise figure and
-	 * the status bit that would make one readable stays clear. */
+	/* This path takes no readings, so no noise figure. */
 	f->rssi_noise = 0;
 	f->reserved = 0;
 
@@ -384,33 +349,26 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 }
 
 /*
- * Registers one UBERTOOTH_WRITE_REGISTERS request can write: a register
- * number and a 16-bit value each, within the buffer the request's data stage
- * lands in. The count arrives in a 16-bit field, so without this bound the
- * handler would walk a count the buffer cannot hold -- reading past it, and
- * never finishing at all in a counter narrower than the field.
+ * Registers one UBERTOOTH_WRITE_REGISTERS request can write, three bytes
+ * each. The count arrives in a 16-bit field, so without this bound the
+ * handler would walk past the buffer the data stage landed in.
  */
 #define WRITE_REGISTERS_MAX (VENDOR_REQ_DATA_LEN / 3)
 
 /*
  * The registers UBERTOOTH_READ_ALL_REGISTERS answers with: every CC2400
  * address from MAIN (0x00) through SYNCH (0x2d), the last register below the
- * command strobes. A few addresses in that run are not registers the radio
- * documents, and they are read anyway, as they always have been. Each address
- * takes three bytes of the reply, its number and the 16-bit value read from
- * it, so the length of the reply follows from the count. The
- * loop that fills the reply and the length the reply reports both come from
- * this one count, so the reply cannot claim fewer registers than it carries.
+ * command strobes, three bytes of reply each. The filling loop and the
+ * reported length both come from this one count, so the reply cannot claim
+ * fewer registers than it carries.
  */
 #define READ_ALL_REGISTERS_COUNT (SYNCH + 1)
 #define READ_ALL_REGISTERS_LEN   (READ_ALL_REGISTERS_COUNT * 3)
 
 /*
- * Forget the AFH channel map and the flag that says to hop on it.
- *
- * The map belongs to the run that found it: a channel set the host narrowed
- * down for one piconet says nothing about the next capture. used_channels is
- * the count of entries the map put in the hopping table, so it goes too.
+ * Forget the AFH channel map and the flag that says to hop on it. The map
+ * belongs to the run that found it: a channel set the host narrowed down for
+ * one piconet says nothing about the next capture.
  */
 static void clear_afh_map(void)
 {
@@ -433,14 +391,10 @@ static int streams_symbols(uint8_t m)
 }
 
 /*
- * The hopping a mode start forgets: the hop mode, a hop the clock asked for
- * and has not been served, a channel a fixed-channel hop would return to, and
- * the AFH map with its enable flag and used-channel count.
- *
- * cc2400_idle() does this for a mode start that reaches the dispatch; the two
- * callers below are the mode starts that do not, so the rule holds wherever a
- * mode starts. The channel is not part of it: one set while no mode was
- * running belongs to the mode about to start.
+ * The hopping a mode start forgets. cc2400_idle() does this for a mode start
+ * that reaches the dispatch; the two callers below are the mode starts that do
+ * not, so the rule holds wherever a mode starts. The channel is not part of
+ * it: one set while no mode was running belongs to the mode about to start.
  */
 static void forget_hop_state(void)
 {
@@ -451,51 +405,26 @@ static void forget_hop_state(void)
 }
 
 /*
- * Reset what a mode start resets, for a mode request the running stream
- * absorbs.
- *
- * Starting a mode through the dispatch always leaves the previous one first,
- * which runs cc2400_idle() and so puts the hop mode back to HOP_NONE and
- * forgets the AFH map. A request for one of the three modes above, arriving
- * while another of them runs, never gets there: the loop carries on under the
- * new mode's name. Without this it also carried on with the old mode's hop
- * mode and map, so a killed ubertooth-afh left the board streaming and the
- * next ubertooth-rx captured while hopping adaptively on the old map.
+ * Reset what a mode start resets, for a mode request the running symbol
+ * stream absorbs. Such a request never reaches the dispatch -- the loop
+ * carries on under the new mode's name -- so without this it would also carry
+ * on with the previous mode's hop mode, AFH map and modulation.
  *
  * Only state a running receive can be reset under: the radio stays tuned and
- * receiving, so the channel it is on is left alone. That channel is also the
- * one the host set for the capture it is starting, a request or two before
- * this one.
+ * receiving, so the channel it is on is left alone, and so are the
+ * per-channel power averages, which are what the radio has been hearing
+ * rather than something the mode configures. Dropping those would cost the
+ * new capture the few hundred packets the filter needs to build up again.
  *
- * The modulation is put back, which it could not be while cc2400_rx() was the
- * only thing that wrote MDMCTRL: a value set here would not have reached the
- * radio. The capture loop writes that register when the modulation changes
- * (program_stated_modulation()), so it does now, and each of the three modes
- * absorbed here reads Basic Rate packets. Without it, a killed
- * `ubertooth-dump -l` left the board demodulating low energy and the AFH
- * detection or follow absorbed here ran on that, finding little and saying
- * nothing. A tool that wants another modulation states it after its request.
+ * Call this before the request's own setup. Re-sending the mode that is
+ * already streaming resets nothing, which is what keeps a follow that
+ * re-syncs its clock mid-session -- it sends UBERTOOTH_START_HOPPING again --
+ * from throwing away the AFH map it is following on.
  *
- * The per-channel averages are left alone, unlike in the dispatch, which drops
- * them. They are not something the mode configures: they are what the radio
- * has been hearing on each channel, and the three modes here all receive the
- * same modulation over the same 79 channels. The receive never stopped, so the
- * measurement still holds -- and dropping it would cost the new capture the
- * few hundred packets the filter needs to build up again, which it would spend
- * reporting the -55 dBm an empty filter gives.
- *
- * Call this before the request's own setup, which is what the absorbed mode
- * starts from. Re-sending the mode that is already streaming resets nothing:
- * it is not a mode start, and the dispatch does not reset for one either. That
- * is what keeps a follow that re-syncs its clock mid-session -- which sends
- * UBERTOOTH_START_HOPPING again -- from throwing away the AFH map it is
- * following on.
- *
- * Which mode is streaming is `requested_mode`, not `mode`: an absorbed request
- * never reaches the dispatch, so `mode` still names the mode that entered the
- * loop, while the loop is streaming whatever the last accepted request asked
- * for. Reading `mode` here would skip the reset on a second switch back, as in
- * follow, then capture, then follow again.
+ * The test is against `requested_mode`, not `mode`: an absorbed request never
+ * reaches the dispatch, so `mode` still names the mode that entered the loop.
+ * Reading `mode` would skip the reset on a second switch back, as in follow,
+ * then capture, then follow again.
  */
 static void reset_absorbed_mode_state(uint8_t requested)
 {
@@ -515,13 +444,9 @@ static void drop_kept_settings(uint8_t requested);
  * Tune to a channel, or sweep the band, as UBERTOOTH_SET_CHANNEL asks.
  *
  * A frequency above the band's top asks for the band sweep rather than for a
- * channel, and one inside it for a fixed channel, which the hop modes read as
- * they run. The mode dispatch calls this too, to re-apply a channel the host
- * stated after its mode request; see below.
- *
- * Every frequency that reaches here is one the radio can tune: the request
- * handler refuses the rest, and the channel the dispatch re-applies is one it
- * already accepted.
+ * channel. Every frequency that reaches here is one the radio can tune: the
+ * request handler refuses the rest, and the channel the dispatch re-applies
+ * is one it already accepted.
  */
 static void set_channel_request(uint16_t requested)
 {
@@ -544,19 +469,12 @@ static void set_channel_request(uint16_t requested)
 	channel = requested_channel;
 	requested_channel = 0;
 
-	/* The carrier-sense threshold is worked out from the channel, so it is
-	 * set here, for whichever mode is running. Except in LE follow mode: the
-	 * low-energy engine (firmware/bluetooth_rxtx/le_phy.c) owns the radio
-	 * while it runs and reaches it over the same serial bus a write from
-	 * here would use, and it does not use carrier sense at all. Whatever
-	 * mode starts next sets the threshold from `channel` as it brings the
-	 * radio up (cc2400_rx()), so nothing is lost by leaving it.
-	 *
-	 * `channel` itself is written in every mode. In LE follow mode it used
-	 * to be left alone, because the mode loop of the day picked up
-	 * `requested_channel` and retuned from there; that loop went when
-	 * le_phy.c took the mode over, which left the host told its channel had
-	 * been set while the board kept the old one. */
+	/* The carrier-sense threshold follows from the channel, so set it here
+	 * for whichever mode is running -- except in LE follow mode, where the
+	 * low-energy engine (le_phy.c) owns the radio and reaches it over the
+	 * same serial bus a write from here would use, and uses no carrier
+	 * sense anyway. Whatever mode starts next sets the threshold from
+	 * `channel` as it brings the radio up (cc2400_rx()). */
 	if (mode != MODE_BT_FOLLOW_LE)
 		cs_threshold_calc_and_set(channel);
 }
@@ -565,27 +483,21 @@ static void set_channel_request(uint16_t requested)
  * What the host stated after its mode request, kept for the mode that is
  * starting.
  *
- * A mode start resets the board's mode state, so that one run cannot capture
- * with what another left behind: the hop mode, the channel, the modulation,
- * the AFH map and the E-GO access code all go back to their defaults. A tool
- * therefore states its channel -- or its band sweep, its modulation, or its
- * access code -- after the request that starts its mode, not before.
+ * A mode start resets the board's mode state -- hop mode, channel,
+ * modulation, AFH map, E-GO access code -- so that one run cannot capture
+ * with what another left behind. A tool therefore states its channel, band
+ * sweep, modulation, or access code after the request that starts its mode.
  *
- * That only worked on a board that had been left capturing symbols, where the
- * reset runs inside the request handler, while the request is answered, so
- * anything stated afterwards survives it. A board left in a mode that captures
- * no symbols -- a killed ubertooth-specan, -btle or -ego -- resets later: that
- * mode's loop notices the request, returns, and the dispatch in main() runs
- * the reset on the way out of it, by which time the channel stated straight
- * after the request has usually arrived and is thrown away. The capture then
- * ran on 2441 MHz, the channel the reset leaves behind, while the user had
- * asked for the whole band, and nothing said so.
+ * On a board left in a mode that captures no symbols the reset runs late: the
+ * mode's loop notices the request, returns, and the dispatch in main() resets
+ * on the way out, by which time the stated channel has arrived and would be
+ * thrown away. So the requests that state one of these keep a copy, and the
+ * dispatch applies it again after the reset.
  *
- * So the requests that state one of these keep a copy, and the dispatch
- * applies it again after the reset. The copy names the mode request it
- * followed, and is only applied to that mode: one left behind by a run the
- * host has moved on from is dropped rather than carried into whatever starts
- * next, which is the carry-over the reset exists to prevent.
+ * The copy names the mode request it followed and is only applied to that
+ * mode: one left behind by a run the host has moved on from is dropped rather
+ * than carried into whatever starts next, which is the carry-over the reset
+ * exists to prevent.
  */
 #define STATED_CHANNEL     (1 << 0)
 #define STATED_ACCESS_CODE (1 << 1)
@@ -606,11 +518,8 @@ static volatile uint8_t  stated_afh_map[sizeof(afh_map)];
 /*
  * Note which mode request this setting followed. A copy kept for an earlier
  * request is replaced, not added to: that request's mode is not the one
- * starting.
- *
- * Only the value is recorded, not the state it leaves behind, so applying it
- * again runs the same code the request ran -- with `mode` naming the mode that
- * has started by then, which is what a channel request reads.
+ * starting. Only the value is recorded, not the state it leaves behind, so
+ * applying it again runs the same code the request ran.
  */
 static void stated_for_starting_mode(uint8_t what)
 {
@@ -623,17 +532,14 @@ static void stated_for_starting_mode(uint8_t what)
 /*
  * Apply what was stated after the request for the mode now starting.
  *
- * Called from the dispatch after the reset, and before the mode's own setup,
- * which still wins: a follow or an AFH detection asks for its hop mode there,
- * as it has to, since the reset clears that too, and the two low-energy modes
- * set their own modulation there.
+ * Called from the dispatch after the reset and before the mode's own setup,
+ * which still wins.
  *
  * A copy for another mode is dropped, unless that mode is still the one the
- * host is waiting for -- its mode start is yet to come. The dispatch reads the
- * request once on its way in and the reset takes a while, so a second tool's
- * request and its setting can both be answered in between: the mode starting
- * here is then the first tool's, and dropping the second tool's copy would
- * leave its capture on the reset defaults.
+ * host is waiting for. The dispatch reads the request once on its way in and
+ * the reset takes a while, so a second tool's request and its setting can
+ * both be answered in between: dropping the second tool's copy would leave
+ * its capture on the reset defaults.
  */
 static void apply_stated_settings(uint8_t starting_mode)
 {
@@ -644,9 +550,7 @@ static void apply_stated_settings(uint8_t starting_mode)
 
 	if (stated_for_mode != starting_mode) {
 		/* Still pending: leave it for the mode start it was stated for.
-		 * Otherwise it belongs to a run that is over, and keeping it
-		 * would carry that run's channel into a later mode -- the
-		 * carry-over the reset exists to prevent. */
+		 * Otherwise it belongs to a run that is over. */
 		if (stated_for_mode != requested_mode)
 			stated_what = 0;
 		return;
@@ -655,12 +559,10 @@ static void apply_stated_settings(uint8_t starting_mode)
 	what = stated_what;
 	stated_what = 0;
 
-	/* A modulation is never left on an idle board. A stop is a mode request
-	 * like any other, so one answered between the stop and this -- a window
-	 * of a whole mode teardown -- would be applied here, after the reset
-	 * had put the modulation back, and a mode starting from idle runs no
-	 * reset of its own to undo it. The channel is deliberately kept across
-	 * a stop, which is what `ubertooth-util -S -c 2440` asks for. */
+	/* A modulation is never left on an idle board: a mode starting from
+	 * idle runs no reset of its own to undo it. The channel is deliberately
+	 * kept across a stop, which is what `ubertooth-util -S -c 2440` asks
+	 * for. */
 	if (starting_mode == MODE_IDLE)
 		what &= ~STATED_MODULATION;
 
@@ -677,8 +579,7 @@ static void apply_stated_settings(uint8_t starting_mode)
 		unsigned i;
 
 		/* Copied out first, because bluetooth_set_afh_map() takes a plain
-		 * pointer and the copy is volatile. It rebuilds the hop sequence
-		 * from the map, which is what the capture hops on. */
+		 * pointer and the copy is volatile. */
 		for (i = 0; i < sizeof(map); i++)
 			map[i] = stated_afh_map[i];
 		bluetooth_set_afh_map(map);
@@ -689,42 +590,23 @@ static void apply_stated_settings(uint8_t starting_mode)
  * What the host stated *before* its mode request, kept for the mode that
  * request starts.
  *
- * One setting is sent in that order rather than after the request: the jam
- * mode, which ubertooth-btle sends for -j. A mode start puts it back to no
- * jamming, so on a board left in a mode by a killed tool it was thrown away --
- * after the request carrying it had been answered -- and `ubertooth-btle -f -j`
- * followed the connection and never jammed, without saying so.
+ * Two settings are sent in that order rather than after the request: the jam
+ * mode, which ubertooth-btle sends for -j, and the E-GO capture length. A
+ * mode start puts both back to their defaults, so without a copy
+ * `ubertooth-btle -f -j` followed the connection and never jammed. The
+ * dispatch applies the copy again after the reset, as it does for the
+ * settings stated after a mode request above.
  *
- * So that request leaves a copy, and the dispatch applies it again after the
- * reset: the shape the settings stated after a mode request use above, with
- * the difference that this one names no mode, because the request that names
- * one has not arrived yet.
- *
- * The mode request that follows is as far as the copy reaches, and it is
- * dropped there whether it was used or not, so a run that stated a jam mode
- * cannot reach a later run -- the carry-over the reset exists to prevent.
- *
- * Which mode that is, the copy cannot say, because the request that names one
- * has not arrived yet, so the drop happens in both places a mode request can
- * end up. One that starts a mode reaches the dispatch, which applies the copy
- * after the reset and clears it (apply_kept_settings()). One the running loop
- * absorbs never gets there, and needs no copy either -- no reset runs, so the
- * value the host set is already in force -- so each of the requests that can
- * be absorbed drops it instead (drop_kept_settings()).
- *
- * What is left is a tool killed between the setting and its own mode request,
- * which leaves a copy for the next mode start, whatever asked for that mode.
- * The modulation used to be kept this way too and no longer is: the tools
- * state it after their mode request, as they do the channel, so its copy names
- * a mode and an orphan is dropped instead of applied. Closing it for the jam
- * mode is the same move, and waits on the jamming work.
+ * The copy names no mode, because the request that names one has not arrived
+ * yet, so it reaches exactly as far as the next mode request and is dropped
+ * there whether it was used or not. That drop happens in both places such a
+ * request can end up: the dispatch (apply_kept_settings()), and, for a
+ * request the running loop absorbs, the request itself
+ * (drop_kept_settings()). An absorbed request needs no copy -- no reset runs,
+ * so the value the host set is already in force.
  *
  * Nothing is kept while the board is idle: a mode starting from idle runs no
  * teardown, so the value the host just set already survives.
- *
- * The E-GO capture length is kept this way too: ubertooth-ego sends it before
- * its mode request, so it cannot be stated for a mode the host has not named
- * yet.
  */
 #define KEEP_JAM_MODE   (1 << 0)
 #define KEEP_CAP_LEN    (1 << 1)
@@ -748,23 +630,14 @@ static void keep_for_next_mode_start(uint8_t what)
 /*
  * Put the kept E-GO capture length back, and forget it.
  *
- * Its own function because the E-GO mode start happens in two places. One is
- * the dispatch below. The other is an E-GO request that a running E-GO loop
- * absorbs: that does the mode start's work inside the request handler,
- * ego_capture_reset() included, so the length the host stated a moment before
- * has to be put back there as well.
+ * Its own function because the E-GO mode start happens in two places: the
+ * dispatch below, and an E-GO request a running E-GO loop absorbs, which does
+ * the mode start's work -- ego_capture_reset() included -- inside the request
+ * handler.
  *
- * Only this bit is cleared. The other absorbable requests call
- * drop_kept_settings(), which throws the whole copy away so it cannot reach a
- * run the host has moved on from; the E-GO request does not, so a jam mode
- * kept by a killed `ubertooth-btle -j` survives it and lands on whatever mode
- * starts next. Nothing today sets both in one run.
- *
- * The same throwing away loses a stated length when an absorbable request for
- * the running mode arrives between the length and the E-GO request: the copy
- * is gone while the E-GO start still resets the live value. ubertooth-ego
- * sends no such request, so this needs another program driving the board, and
- * the length it gets is the mode's default rather than a stale one.
+ * Only this bit is cleared, where the other absorbable requests throw the
+ * whole copy away, so a jam mode kept by a killed `ubertooth-btle -j`
+ * survives an E-GO request. Nothing today sets both in one run.
  */
 static void apply_kept_cap_len(void)
 {
@@ -777,10 +650,8 @@ static void apply_kept_cap_len(void)
 /*
  * Drop a copy for a mode request the running loop absorbs.
  *
- * No mode start follows such a request, so the reset that would have thrown
- * the setting away does not run and the live value stands on its own. Keeping
- * the copy would leave it waiting for whatever mode starts next, which is a
- * run the host has moved on from.
+ * No mode start follows such a request, so the live value stands on its own
+ * and keeping the copy would leave it waiting for whatever mode starts next.
  */
 static void drop_kept_settings(uint8_t requested)
 {
@@ -789,14 +660,13 @@ static void drop_kept_settings(uint8_t requested)
 }
 
 /*
- * Put back what was stated before the mode request, and forget it.
+ * Put back what was stated before the mode request, and forget it. Called
+ * from the dispatch after the reset and before the mode's own setup, which
+ * still wins.
  *
- * Called from the dispatch after the reset and before the mode's own setup,
- * which still wins.
- *
- * A stop keeps nothing. It ends the run the setting was stated for, and a
- * value left on an idle board would reach the next mode whatever that mode
- * asked for, because a mode starting from idle runs no reset of its own.
+ * A stop keeps nothing: a value left on an idle board would reach the next
+ * mode whatever that mode asked for, because a mode starting from idle runs
+ * no reset of its own.
  */
 static void apply_kept_settings(uint8_t starting_mode)
 {
@@ -815,12 +685,11 @@ static void apply_kept_settings(uint8_t starting_mode)
 /*
  * Returning 0 stalls the request. `data` is the buffer the USB stack filled
  * from the request's data stage and `data_in_len` how many bytes the host
- * actually sent with it, so a case that reads `data` refuses a request
- * carrying less than it reads: that keeps a short request out, and it is also
- * what keeps a device-to-host request of the same number out, since that one
- * reaches the handler with no data stage behind it and a buffer still holding
- * the previous request's bytes. A case whose body may be empty cannot tell
- * those two apart by length, and uses `data_from_host` instead.
+ * sent with it, so a case that reads `data` must refuse a request carrying
+ * less than it reads. That keeps out both a short request and a
+ * device-to-host request of the same number, which arrives with no data stage
+ * and a buffer still holding the previous request's bytes. A case whose body
+ * may be empty cannot tell those apart by length, and uses `data_from_host`.
  */
 static int vendor_request_handler(uint8_t request, uint16_t* request_params,
                                   uint8_t* data, int data_from_host,
@@ -830,10 +699,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	size_t length; // string length
 	usb_pkt_rx* p = NULL;
 	uint16_t reg_val;
-	/* The channel a generic transmit asks for, which is a frequency and not
-	 * a register value, so it does not share reg_val above. Named apart
-	 * from the global `channel` the receives tune, which it must not
-	 * shadow. */
+	/* A frequency, not a register value, and named apart from the global
+	 * `channel` the receives tune, which it must not shadow. */
 	uint16_t tx_channel;
 	uint8_t i;
 	int32_t drift_ppm;
@@ -997,26 +864,21 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		break;
 
 	case UBERTOOTH_SET_MOD:
-		/* Only the two modulations the radio setup configures. Storing
-		 * any other value was silent: cc2400_rx() and cc2400_rx_sync()
-		 * write no modem registers for a value they do not recognize, so
-		 * the next capture ran with whatever the previous mode had left
-		 * in the radio.
-		 *
-		 * That rules out the two remaining values of enum modulations as
-		 * well. No mode implements MOD_80211_FHSS. MOD_NONE means "no
-		 * modulation", and the one mode that wants it -- spectrum
-		 * analysis -- sets it itself, so there is nothing for a request
-		 * to ask for. */
+		/* Only the two modulations the radio setup configures.
+		 * cc2400_rx() and cc2400_rx_sync() write no modem registers for
+		 * a value they do not recognize, so storing any other would
+		 * leave the next capture running on whatever the previous mode
+		 * left in the radio. That rules out the rest of enum
+		 * modulations too: no mode implements MOD_80211_FHSS, and the
+		 * one mode that wants MOD_NONE -- spectrum analysis -- sets it
+		 * itself. */
 		if (request_params[0] != MOD_BT_BASIC_RATE &&
 		    request_params[0] != MOD_BT_LOW_ENERGY)
 			return 0;
 		modulation = request_params[0];
 		/* Stated after the mode request, as the channel is, so a mode
-		 * start that is still to come keeps it; see
-		 * stated_for_starting_mode(). The radio is programmed from it
-		 * at the mode start and again by the capture loop, which is
-		 * what lets this arrive after the request. */
+		 * start still to come keeps it; see
+		 * stated_for_starting_mode(). */
 		if (requested_mode != mode) {
 			stated_modulation = request_params[0];
 			stated_for_starting_mode(STATED_MODULATION);
@@ -1031,18 +893,14 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 
 	case UBERTOOTH_SET_CHANNEL:
 		/* A frequency the synthesizer cannot reach is refused rather
-		 * than pulled up to MIN_FREQ, which is what used to happen: a
-		 * request for 2000 MHz tuned 2268 MHz instead and reported
-		 * success, so a capture came back on a frequency nobody asked
-		 * for. Anything from MIN_FREQ up is kept, including the
-		 * deliberately out-of-band frequencies the radio can reach.
+		 * than pulled up to MIN_FREQ, which would tune a frequency
+		 * nobody asked for and report success. Anything from MIN_FREQ
+		 * up is kept, including the deliberately out-of-band
+		 * frequencies the radio can reach; above MAX_FREQ means the
+		 * band sweep, which is how the host asks for it.
 		 *
-		 * Above MAX_FREQ still means the band sweep, which is how the
-		 * host asks for it (it sends 9999). Nothing is refused there.
-		 *
-		 * Before set_channel_request(), so a refused request leaves the
-		 * channel and the hop mode as it found them, and before the
-		 * channel is kept for a starting mode, so a mode does not begin
+		 * The check comes first, so a refused request leaves the
+		 * channel and the hop mode as it found them and no mode begins
 		 * on a frequency the board said it could not have.
 		 */
 		if (request_params[0] < MIN_FREQ)
@@ -1058,18 +916,14 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_SET_ISP:
 		/* Handed to the mode dispatch rather than done here, for the
 		 * reason UBERTOOTH_RESET is: the on-chip programmer takes the
-		 * board off the bus, and this transfer is not finished when this
-		 * handler returns -- its status stage is written afterwards and
-		 * waits in the endpoint 0 buffer for the host's next IN token, up
-		 * to a whole 1 ms frame away. Going away from in here threw that
-		 * packet away, so `ubertooth-util -i` reported a board that had
-		 * timed out (-7) for a request the board had accepted.
+		 * board off the bus, and this transfer is not finished when the
+		 * handler returns -- its status stage waits in the endpoint 0
+		 * buffer for the host's next IN token, up to a whole 1 ms frame
+		 * away. Leaving from in here throws that packet away, and the
+		 * host reports a timeout for a request the board accepted.
 		 *
-		 * The price is that the programmer is no longer reached from
-		 * inside the USB service pass: the running mode's loop has to
-		 * notice this and return to the dispatch, as it does for a reset
-		 * request. A loop that has stopped doing that is the wedge the
-		 * watchdog resets the board for. */
+		 * The price is that the running mode's loop has to notice this
+		 * and return to the dispatch, as it does for a reset request. */
 		requested_mode = MODE_ISP;
 		break;
 
@@ -1205,8 +1059,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	 * Start AFH detection: hop to the channels the piconet is not known to
 	 * use and stream what arrives there, from an empty map that the host
 	 * fills in with UBERTOOTH_SET_AFHMAP as packets come in. This is the
-	 * whole request the host needs; it used to send UBERTOOTH_RX_SYMBOLS on
-	 * top, which took the board straight back out of this mode.
+	 * whole request the host needs; a UBERTOOTH_RX_SYMBOLS on top of it
+	 * would take the board straight back out of this mode.
 	 */
 	case UBERTOOTH_AFH:
 		reset_absorbed_mode_state(MODE_AFH);
@@ -1233,25 +1087,17 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (data_in_len < sizeof(afh_map))
 			return 0;
 		bluetooth_set_afh_map(data);
-		/* Kept for the mode request this followed, as a channel is: a
-		 * follow states its map just after asking for the hopping
-		 * (ubertooth-follow), and on a board left in a mode that
-		 * captures nothing the teardown's clear_afh_map() runs a moment
-		 * after that request was answered. Without the copy the map
-		 * arriving next is thrown away, and the follow hops all 79
-		 * channels instead of the piconet's.
+		/* Kept for the mode request this followed, as a channel is:
+		 * ubertooth-follow states its map just after asking for the
+		 * hopping, and the teardown's clear_afh_map() can run a moment
+		 * after that request was answered, which would leave the follow
+		 * hopping all 79 channels.
 		 *
-		 * Only when the mode the host asked for is not the one running,
-		 * which is the test the channel request makes. A map sent by a
-		 * capture already in that mode -- AFH detection sends one
-		 * whenever it finds another channel -- needs no copy, and
-		 * keeping one would hand that run's map to the next capture
-		 * asking for the same mode.
-		 *
-		 * `mode` is the mode the dispatch last entered, so a request
-		 * absorbed into a streaming run still takes the copy. Nothing
-		 * reads it there: the next dispatched mode start drops a copy
-		 * that is not its own. */
+		 * Only when the mode the host asked for is not the one running.
+		 * A map sent by a capture already in that mode -- AFH detection
+		 * sends one whenever it finds another channel -- needs no copy,
+		 * and keeping one would hand that run's map to the next
+		 * capture asking for the same mode. */
 		if (requested_mode != mode) {
 			for (i = 0; i < sizeof(afh_map); i++)
 				stated_afh_map[i] = data[i];
@@ -1288,16 +1134,14 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (data_in_len < 2)
 			return 0;
 		/*
-		 * Each request adds to a running figure, and the figure is kept
-		 * within what the correction can act on: one correction every
-		 * CLKN tick is CLK_DRIFT_PPM_MAX, and nothing beyond it corrects
-		 * any faster.
+		 * Each request adds to a running figure, kept within what the
+		 * correction can act on: one correction every CLKN tick is
+		 * CLK_DRIFT_PPM_MAX, and nothing beyond it corrects any faster.
 		 *
-		 * Added in 32 bits and then stored, because the figure is 16 bits
-		 * wide: a run of requests at the largest useful value used to
-		 * walk past what it holds, and an overflowed figure comes back
-		 * with the other sign -- the board would then speed its clock up
-		 * because the host had asked it to slow down.
+		 * Added in 32 bits and then stored, because the figure is 16
+		 * bits wide: an overflowed figure comes back with the other
+		 * sign, and the board would speed its clock up because the host
+		 * had asked it to slow down.
 		 */
 		drift_ppm = (int32_t)clk_drift_ppm +
 		            (int16_t)((data[0] << 8) | (data[1] << 0));
@@ -1307,11 +1151,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 			drift_ppm = -CLK_DRIFT_PPM_MAX;
 		clk_drift_ppm = (int16_t)drift_ppm;
 
-		/* How many CLKN ticks apart the corrections go. The bound above
-		 * is where the division stops being useful, and a correction
-		 * interval of zero is how the handler below says "do not correct
-		 * at all", so the floor stands as well: between them, the fastest
-		 * this can correct is once every tick. */
+		/* How many CLKN ticks apart the corrections go. A correction
+		 * interval of zero means "do not correct at all", so the floor
+		 * of 1 stands: the fastest this can correct is once a tick. */
 		// Too slow
 		if (clk_drift_ppm < 0) {
 			clk_drift_correction = CLK_DRIFT_PPM_MAX / (uint16_t)(-clk_drift_ppm);
@@ -1435,14 +1277,12 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 #ifdef TX_ENABLE
 	case UBERTOOTH_TX_GENERIC_PACKET:
 		/*
-		 * The payload length is a byte of the request, so it is checked
-		 * before anything is copied: tx_pkt has room for DMA_SIZE
-		 * payload bytes and other globals sit behind it, and the length
-		 * reaches the radio's FIFO in tx_generic(). The length the host
-		 * declared bounds the copy too, so it cannot run past what was
-		 * sent -- which is not the same as the bytes being the host's: a
-		 * device-to-host request reaches this handler before any data
-		 * stage, with whatever the last request left in the buffer.
+		 * The payload length is a byte of the request, checked before
+		 * anything is copied: tx_pkt has room for DMA_SIZE payload
+		 * bytes with other globals behind it, and the length reaches
+		 * the radio's FIFO in tx_generic(). The length the host
+		 * declared bounds the copy as well, so it cannot run past what
+		 * was sent.
 		 */
 		if (data_in_len < TX_GENERIC_HEADER_LEN)
 			return 0;
@@ -1450,44 +1290,31 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		if (i > DMA_SIZE || data_in_len - TX_GENERIC_HEADER_LEN < i)
 			return 0;
 		/*
-		 * The channel reaches FSDIV unchanged in tx_generic(), so only
-		 * a frequency the synthesizer can reach is accepted. Taken, one
-		 * outside that range would have the transmit wait out its lock
-		 * timeout and send nothing, and leave that frequency in the
-		 * register for whatever ran next.
+		 * The channel reaches FSDIV unchanged in tx_generic(), so a
+		 * frequency outside the synthesizer's range would have the
+		 * transmit wait out its lock timeout, send nothing, and leave
+		 * that frequency in the register for whatever ran next.
 		 *
-		 * Both ends are refused, which is where this differs from
-		 * UBERTOOTH_SET_CHANNEL: there a frequency above MAX_FREQ is
-		 * how the host asks for the band sweep, and nothing here
-		 * sweeps.
+		 * Both ends are refused, unlike UBERTOOTH_SET_CHANNEL, where a
+		 * frequency above MAX_FREQ asks for the band sweep. Nothing
+		 * here sweeps.
 		 */
 		tx_channel = data[offsetof(generic_tx_packet, channel)]
 		           | ((uint16_t)data[offsetof(generic_tx_packet, channel) + 1] << 8);
 		if (tx_channel < MIN_FREQ || tx_channel > MAX_FREQ)
 			return 0;
 		/*
-		 * A burst is running, and it sends from tx_pkt: this request
-		 * would splice its payload into the packets the burst has left
-		 * and then lose the count it asked for, because the burst read
-		 * one already. Refused instead -- the stack stalls a request
-		 * the handler returns 0 for, so the host is told -- and refused
+		 * A running burst sends from tx_pkt, so a second request would
+		 * splice its payload into the packets the burst has left and
+		 * lose the count it asked for. It is refused, and refused
 		 * before the copy, or the splice has happened by the time the
-		 * refusal is decided. Nothing shipped here sends a second
-		 * request during a burst, since ubertooth-tx waits for the
-		 * board.
-		 *
-		 * This covers the request that would break the burst it lands
-		 * in, and nothing else: a register write or a power level
-		 * serviced between packets reaches the radio, changes the
-		 * packets the burst has left, and is then put back by the
-		 * restore at the end of it.
+		 * refusal is decided.
 		 */
 		if (mode == MODE_TX_GENERIC)
 			return 0;
 		memcpy(&tx_pkt, data, TX_GENERIC_HEADER_LEN + i);
-		/* wValue is how many of this packet to send. A host that leaves
-		 * it 0 gets one, which is what every host did before the field
-		 * meant anything. */
+		/* wValue is how many of this packet to send; a host that leaves
+		 * it 0 gets one. */
 		tx_pkt_repeat = request_params[0] > 0 ? request_params[0] : 1;
 		requested_mode = MODE_TX_GENERIC;
 		*data_len = 0;
@@ -1509,9 +1336,9 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		 * refused by its own length check.
 		 *
 		 * The bound is what the advertising mode can transmit, so a
-		 * program that asks for more is told here, where it can see
-		 * which request the board refused. Taking it and then dropping
-		 * out of the mode left the board quietly idle instead. */
+		 * program that asks for more is refused here, where it can see
+		 * which request the board turned down, rather than left with a
+		 * board that quietly drops out of the mode. */
 		if (!data_from_host || data_in_len > ADV_IND_MAX_DATA)
 			return 0;
 		le_adv_len = data_in_len;
@@ -1576,10 +1403,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 	case UBERTOOTH_EGO:
 		/*
 		 * Checked before anything is stored, so a refused request
-		 * leaves no mode behind for a later run to start in: asking to
-		 * interfere on a firmware built without transmit is refused
-		 * here, and ego_main() has no state machine for a mode it does
-		 * not know.
+		 * leaves no mode behind for a later run to start in: ego_main()
+		 * has no state machine for a mode it does not know.
 		 */
 		switch (request_params[0]) {
 		case EGO_FOLLOW:
@@ -1595,27 +1420,24 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 		ego_mode = request_params[0];
 
 		/*
-		 * A board left capturing by a killed ubertooth-ego absorbs this
-		 * request, the way the symbol captures absorb theirs: its loop
-		 * runs while MODE_EGO is the mode asked for, so no mode starts
-		 * and the reset the dispatch runs never does. Do that mode
-		 * start's work here instead: put the access code back to the
-		 * one ubertooth-ego(1) documents, forget the hopping, and tell
-		 * the loop to start its state machine over.
+		 * A board already in E-GO mode absorbs this request, the way
+		 * the symbol captures absorb theirs, so no mode starts and the
+		 * dispatch's reset never runs. Do that mode start's work here
+		 * instead: put the access code back to the one
+		 * ubertooth-ego(1) documents, forget the hopping, and tell the
+		 * loop to start its state machine over.
 		 *
-		 * The last of those is what makes this a mode start at all.
-		 * Without it the state machine the first run entered carried
-		 * on, and the mode stored above was never read: an
-		 * `ubertooth-ego -r` after a killed `-f` captured in follow
-		 * mode. The flag is set after the mode, because the loop reads
-		 * the mode only once it has seen the flag.
+		 * The restart flag is what makes this a mode start at all:
+		 * without it the state machine the first run entered carries
+		 * on and the mode stored above is never read. Set it after the
+		 * mode, because the loop reads the mode only once it has seen
+		 * the flag.
 		 */
 		if (mode == MODE_EGO && requested_mode == MODE_EGO) {
 			ego_capture_reset();
-			/* The length this run stated a moment ago, which the
-			 * reset has just put back to the default: the host
-			 * sends it before this request, so there is nothing
-			 * else to put it back. */
+			/* The host sends the capture length before this
+			 * request, so nothing else puts it back after the
+			 * reset above. */
 			apply_kept_cap_len();
 			forget_hop_state();
 			ego_restart = 1;
@@ -1635,9 +1457,8 @@ static int vendor_request_handler(uint8_t request, uint16_t* request_params,
 			stated_for_starting_mode(STATED_ACCESS_CODE);
 		}
 		/* The capture length comes before the mode request instead, so
-		 * it is kept rather than stated: the mode start puts it back to
-		 * the default, and without a copy `ubertooth-ego -l` would
-		 * capture at that default. */
+		 * it is kept rather than stated, or `ubertooth-ego -l` would
+		 * capture at the default the mode start puts back. */
 		if (request_params[0] == RFCAT_CAP_LEN)
 			keep_for_next_mode_start(KEEP_CAP_LEN);
 		break;
@@ -1785,10 +1606,9 @@ void DMA_IRQHandler(void) {
 			// FIXME do something better here
 			USRLED_SET;
 			/* This loop never returns and never services USB, so the
-			 * watchdog resets the board a few seconds later. The mark
-			 * is what says so afterwards: without it,
-			 * ubertooth-util -w names whatever the board was doing
-			 * before the transfer failed. */
+			 * watchdog resets the board a few seconds later. The
+			 * mark is what names this site in ubertooth-util -w
+			 * afterwards. */
 			watchdog_mark(WATCHDOG_SITE_DEBUG_DMA);
 			while (1) { }
 		}
@@ -1799,7 +1619,7 @@ void DMA_IRQHandler(void) {
  * Every mode that receives through the symbol DMA has to be listed here: the
  * buffer swap below is what makes a transfer complete for the mode loop
  * (rx_tc), so a mode left out of the list waits for a buffer that is never
- * handed over. MODE_AFH was missing while nothing ran under it.
+ * handed over.
  */
 void legacy_DMA_IRQHandler()
 {
@@ -1844,14 +1664,11 @@ void legacy_DMA_IRQHandler()
  * Put the radio and the board back to a known state.
  *
  * This decides nothing about what runs next: the main loop's dispatch owns
- * `mode` and `requested_mode`, and runs this whenever a mode is left.
- *
- * Keeping the two apart is what stops the teardown from dropping a mode
- * request that arrives while it runs. This used to end with
- * `requested_mode = MODE_IDLE`, and the LE paths call it from inside
- * bt_generic_le() and bt_le_sync() with USB interrupts enabled, so a request
- * serviced during the teardown was overwritten: the board stayed idle while
- * the host, whose vendor request had succeeded, believed the mode had started.
+ * `mode` and `requested_mode`, and runs this whenever a mode is left. Keeping
+ * the two apart is what stops the teardown from dropping a mode request that
+ * arrives while it runs -- the LE paths call it with USB interrupts enabled,
+ * so writing `requested_mode` here would leave the board idle while the host,
+ * whose request had succeeded, believed the mode had started.
  */
 static void cc2400_idle()
 {
@@ -1861,14 +1678,10 @@ static void cc2400_idle()
 	/*
 	 * Drop the manual signal overrides the mode that is ending may have
 	 * written, so the next mode starts with the radio front end a freshly
-	 * booted board has.
-	 *
-	 * Nothing used to do this. The LE PHY forces the low-noise amplifier
-	 * and mixers on (MANAND 0x7ffe, le_phy.c) and the receive paths hold
-	 * the receive gain amplifier out of reset (0x7fff), and a mode that
-	 * writes MANAND itself was unaffected -- but the two spectrum
-	 * analyzers do not, so what they measured depended on which mode had
-	 * run before them on that board.
+	 * booted board has. The LE PHY forces the low-noise amplifier and
+	 * mixers on and the receive paths hold the receive gain amplifier out
+	 * of reset; the two spectrum analyzers write MANAND at all, so without
+	 * this what they measure depends on which mode ran before them.
 	 */
 	cc2400_set(MANAND, MANAND_RESET_VALUE);
 
@@ -1896,12 +1709,10 @@ static void cc2400_idle()
 	le_adv_channel = BT_FREQ_MIN;
 
 	/*
-	 * The AFH map goes with the mode that was using it. Nothing used to
-	 * clear it, so a board that had once run AFH detection or been given a
-	 * map kept hopping on it: the next ubertooth-rx, -tx or -ducky hopped
-	 * adaptively on a channel set found for someone else's piconet, while
-	 * the host reported that it was not using AFH. A mode that wants a map
-	 * sends one once it has started.
+	 * The AFH map goes with the mode that was using it, or the next
+	 * capture would hop adaptively on a channel set found for someone
+	 * else's piconet while the host reported it was not using AFH. A mode
+	 * that wants a map sends one once it has started.
 	 */
 	clear_afh_map();
 
@@ -1936,33 +1747,19 @@ static void cc2400_idle()
  *
  * USB in this firmware is polled from whichever mode loop is running
  * (handle_usb()), and endpoint 0 -- the one control requests arrive on -- is
- * single-buffered. A loop that polls once per pass is therefore a whole pass
- * behind the host: a SETUP packet arriving while the previous transfer's
- * status packet is still in the endpoint is read back short, decodes to a
- * request this firmware does not know, and lpcusb halts the endpoint. The host
- * sees a stalled control transfer (-9). led_specan() lost one every few
- * samples that way; Bluetooth follow mode loses roughly one GET_CHANNEL in
- * twenty, because the loop's pass is short but the hop in the middle of it is
- * not.
+ * single-buffered. A loop that polls once per pass is a whole pass behind the
+ * host: a SETUP packet arriving while the previous transfer's status packet is
+ * still in the endpoint is read back short, decodes to a request this
+ * firmware does not know, and lpcusb halts the endpoint, which the host sees
+ * as a stalled control transfer.
  *
  * Passing this into the bounded radio waits keeps endpoint 0 within a few
  * microseconds of the host, and keeps it serviced between the waits'
  * bit-banged CC2400 transfers rather than inside one.
  *
- * The alternative the six interrupt-driven modes use -- enabling the USB
- * interrupt for the duration of the mode -- also works, and was measured
- * working. A control request that drives the radio (a register read or write,
- * the squelch, the channel) can then run while a loop is mid-transfer. For a
- * register transfer it waits, because cc2400_spi() masks interrupts for its
- * length; for one of the longer FIFO transfers, which are not masked, it still
- * cuts in. Polling keeps the servicing between transfers, where it has always
- * been.
- *
  * clkn is the bulk stream's keep-alive timestamp, and it stands still in the
- * modes that never start the Bluetooth clock: led_specan(), the range test and
- * the transmit test. The repeater does start it, for the timing of its reply.
- * None of these modes streams bulk packets, so there is no keep-alive to be
- * late either way. Every other caller has the clock running.
+ * modes that never start the Bluetooth clock. None of those streams bulk
+ * packets, so there is no keep-alive to be late either way.
  */
 void service_usb(void)
 {
@@ -1970,9 +1767,9 @@ void service_usb(void)
 }
 
 /* Whether the Bluetooth receive below configures the radio for this
- * modulation. The other values of enum modulations reach no modem register
- * here: the generic receive is set up by the host, and spectrum analysis uses
- * no demodulator at all. */
+ * modulation. The other values of enum modulations reach no modem register:
+ * the generic receive is set up by the host, and spectrum analysis uses no
+ * demodulator. */
 static int programs_modulation(uint8_t m)
 {
 	return m == MOD_BT_BASIC_RATE || m == MOD_BT_LOW_ENERGY;
@@ -1980,11 +1777,9 @@ static int programs_modulation(uint8_t m)
 
 /*
  * The frequency deviation the demodulator expects for one of those two, as
- * MDMCTRL holds it.
- *
- * In one place rather than in each caller, so that the capture loop -- which
- * writes this register again when the host states a modulation after its mode
- * request -- writes what the mode start would have written.
+ * MDMCTRL holds it. In one place rather than in each caller, so that the
+ * capture loop -- which writes this register again when the host states a
+ * modulation after its mode request -- writes what the mode start would have.
  */
 static u16 mdmctrl_deviation(uint8_t m)
 {
@@ -2022,11 +1817,10 @@ static void cc2400_rx()
 	 * below from ever starting -- and that loop is what services USB, so a
 	 * board stuck here answers no control request until it is re-plugged.
 	 *
-	 * No service callback: this is the setup the mode is about to stream
-	 * with, and a control request serviced here could change the channel or
-	 * the modulation between the register writes above and the receive
-	 * strobe below. The wait happens once per mode start, not once per hop,
-	 * so bounding it is enough. */
+	 * No service callback: a control request serviced here could change the
+	 * channel or the modulation between the register writes above and the
+	 * receive strobe below. This happens once per mode start, not once per
+	 * hop, so bounding it is enough. */
 	cc2400_wait_xosc_stable(NULL);
 	cc2400_strobe(SFSON);
 	cc2400_wait_fs(1, NULL);
@@ -2110,11 +1904,10 @@ static void cc2400_rx_sync(u32 sync)
 }
 
 #ifdef TX_ENABLE
-/* Polls before the wait for the radio's FIFO to empty gives up. The loop
- * compiles to five instructions, about 80 nanoseconds at 100 MHz, so this is
- * on the order of fifteen milliseconds -- far longer than the 256 microseconds
- * a full FIFO takes to go out at 1 megabit per second, and so out of reach of
- * a radio that is transmitting at all. */
+/* Polls before the wait for the radio's FIFO to empty gives up. The loop is
+ * five instructions, about 80 ns at 100 MHz, so this is some fifteen
+ * milliseconds -- far longer than the 256 us a full FIFO takes to go out at
+ * 1 Mbit/s, and so out of reach of a radio that is transmitting at all. */
 #define FIFO_EMPTY_POLLS 200000
 
 /*
@@ -2125,22 +1918,18 @@ static void cc2400_rx_sync(u32 sync)
  * anything; both callers do that before they start writing and put IOCFG back
  * when the packet is out.
  *
- * The bound is what the bare `while (!GIO6);` this replaces lacked: a radio
- * that stops draining -- the synthesizer dropped out, or the transmit strobe
- * was lost -- held the transmit loop forever, and that loop is what services
- * USB, so the board answered no control request until it was re-plugged.
+ * The bound matters because a radio that stops draining -- the synthesizer
+ * dropped out, or the transmit strobe was lost -- would hold the transmit
+ * loop forever, and that loop is what services USB.
  *
  * A caller that times out stops writing and lets the packet end there, rather
- * than carrying on the way the other bounded radio waits do: the radio still
- * holds what it was given, so the next piece would go past the end of the
- * FIFO. The packet goes out short and the receiver drops it, which is what
- * every alternative costs too, and the board keeps answering the host.
+ * than carrying on as the other bounded radio waits do: the radio still holds
+ * what it was given, so the next piece would go past the end of the FIFO. The
+ * packet goes out short and the receiver drops it, and the board keeps
+ * answering the host.
  *
  * These timeouts are not among the counts UBERTOOTH_GET_RADIO_TIMEOUTS
  * reports, so a board that keeps truncating packets reads as a quiet one.
- * Appending a shape to that reply is the way to count them -- cc2400_wait.h
- * says so -- but it changes the reply's length and the host that reads it,
- * which is more than this change needs.
  *
  * Returns 1 if the FIFO emptied, 0 if the wait timed out.
  */
@@ -2294,13 +2083,11 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 	i = 0;
 	while (len != 0)
 	{
-		// Wait for the radio to have sent what is in the FIFO. Bounded,
-		// so a radio that stops draining no longer takes the board with
-		// it; before the first piece there is nothing to drain, so GIO6
-		// already reads high and this returns at once.
-		//
-		// A wait that gives up ends the packet rather than writing the
-		// next piece past the end of a FIFO the radio has not emptied.
+		// Wait for the radio to have sent what is in the FIFO. Before
+		// the first piece there is nothing to drain, so GIO6 already
+		// reads high and this returns at once. A wait that gives up ends
+		// the packet rather than writing the next piece past the end of
+		// a FIFO the radio has not emptied.
 		if (!fifo_wait_empty())
 			break;
 		// Decide how much we should send in this iteration
@@ -2315,14 +2102,9 @@ void le_transmit(u32 aa, u8 len, u8 *data)
 		cc2400_fifo_write(tx_len, txbuf + i);
 		cc2400_strobe(STX);
 		i += tx_len;
-		// Half a FIFO for every piece after the first, which is what the
+		// Half a FIFO for every piece after the first, as the
 		// advertising path has always written. The wait above is on the
-		// FIFO being empty, so a whole FIFO would fit; the sizes are left
-		// as they were. The only way an advertising packet gets long
-		// enough to reach a second pass is advertising data longer than
-		// the buffer bt_peripheral_le() builds the packet in, which that
-		// function does not refuse and should: such a packet has already
-		// overrun that buffer by the time it arrives here.
+		// FIFO being empty, so a whole FIFO would fit.
 		fifo_space = CC2400_FIFO_SIZE / 2;
 	}
 	cc2400_wait_fsm(STATE_STROBE_FS_ON, NULL);
@@ -2379,25 +2161,16 @@ void le_jam(void) {
  * `service` is what to do between radio status polls while the synthesizer
  * settles: service_usb() from the loops that poll USB, NULL from the loops
  * that run USB off its interrupt. Those two waits are most of a hop, around
- * 300 microseconds, and in follow mode a hop happens every 625 microseconds.
- * Before this took a callback, that was the gap in endpoint 0 service that
- * stalled roughly one GET_CHANNEL in twenty (see service_usb()).
+ * 300 us, and in follow mode a hop happens every 625 us, so without the
+ * callback endpoint 0 goes unserviced for most of every slot pair (see
+ * service_usb()).
  *
- * What a request serviced inside those waits can and cannot change:
- *
- *   - The hop mode and the AFH map are read above, before the first wait, so a
- *     change to either takes effect from the next hop. That is also what keeps
- *     the map rebuild safe (see precalc()).
- *   - The channel is not. FSDIV below is written from the global, so a
- *     UBERTOOTH_SET_CHANNEL serviced inside the first wait retunes this hop to
- *     the host's channel instead of the computed one. Nothing ends up
- *     inconsistent -- the channel the board reports and the packet headers it
- *     sends are read from the same global -- and in follow mode the next hop
- *     overwrites it.
- *   - A request that writes a radio register directly, which only the
- *     developer requests behind `ubertooth-util -a` and `ubertooth-debug` do,
- *     can land between the register write and the strobe below and spoil the
- *     one hop.
+ * A request serviced inside those waits cannot disturb the hop mode or the
+ * AFH map, which are read before the first wait, and that is also what keeps
+ * the map rebuild safe (see precalc()). It can disturb the channel: FSDIV
+ * below is written from the global, so a UBERTOOTH_SET_CHANNEL retunes this
+ * hop to the host's channel. Nothing ends up inconsistent, since the channel
+ * reported and the one in the packet headers come from that same global.
  */
 void hop(void (*service)(void))
 {
@@ -2478,21 +2251,19 @@ void hop(void (*service)(void))
  *
  * `programmed` is the one cc2400_rx() wrote MDMCTRL for as the mode came up.
  * Every per-capture setting is stated after the mode request, because a mode
- * start puts it back to its default, and the channel survives that order only
- * because every hop writes FSDIV again. MDMCTRL is written once, so without
- * this a modulation stated in the same order reached the global and not the
- * radio: `ubertooth-dump -l` from an idle board dumped Basic Rate records and
- * said nothing.
+ * start puts it back to its default; the channel survives that order because
+ * every hop writes FSDIV again, but MDMCTRL is written once, so without this
+ * a modulation stated in the same order would reach the global and not the
+ * radio.
  *
  * The radio comes off the air for the write and back on afterwards, as a hop
  * does, so the demodulator starts on the new deviation rather than taking it
- * part-way through a packet. The buffer being filled goes with it: part of it
- * was received at the other deviation, and a block marked discarded is a
- * better answer than a block of two halves.
+ * part-way through a packet. The buffer being filled goes with it: a block
+ * marked discarded is a better answer than a block of two halves.
  *
  * Only between the two modulations the Bluetooth receive configures. A generic
  * receive comes into the loop with MOD_NONE and its modem registers set by the
- * host (ubertooth-debug), and those are not this function's to overwrite.
+ * host, and those are not this function's to overwrite.
  */
 static uint8_t program_stated_modulation(uint8_t programmed)
 {
@@ -2525,12 +2296,9 @@ void bt_stream_rx()
 {
 	int8_t rssi;
 	int8_t rssi_at_trigger;
-	/* The modulation MDMCTRL has been written for, so that one stated after
-	 * the mode request reaches the radio; see program_stated_modulation().
-	 * Read after cc2400_rx() rather than before, because that is what it
-	 * programmed the radio from. This mode polls USB rather than taking it
-	 * on an interrupt, so the only places the host can change it are the
-	 * service calls below. */
+	/* The modulation MDMCTRL has been written for; see
+	 * program_stated_modulation(). Read after cc2400_rx(), because that is
+	 * what it programmed the radio from. */
 	uint8_t radio_modulation;
 
 	RXLED_CLR;
@@ -2548,41 +2316,22 @@ void bt_stream_rx()
 	/*
 	 * Every mode the dispatch runs through this loop has to be listed here,
 	 * or the mode returns at once and the board streams nothing while the
-	 * dispatch sits in it. That is what MODE_AFH did: it is neither
-	 * MODE_RX_SYMBOLS nor MODE_BT_FOLLOW, so the body never ran and
-	 * ubertooth-afh's hopping mode was never what received.
-	 * test_mode_dispatch.c checks the list against the dispatch.
+	 * dispatch sits in it. test_mode_dispatch.c checks the list against the
+	 * dispatch.
 	 *
 	 * Asking for one of these modes while another is streaming is absorbed
-	 * here rather than going through the dispatch, so a mode in this list
-	 * must be one whose own vendor request sets up everything it needs:
-	 * MODE_AFH's does (hop mode, empty map, afh_enabled), as does
-	 * MODE_BT_FOLLOW's. Such a request inherits nothing else from the mode
-	 * it replaces: each of the three calls reset_absorbed_mode_state()
-	 * first, which clears the hop mode and the AFH map the way leaving a
-	 * mode would have. That is what makes a plain symbol capture, whose
-	 * request sets nothing up, stream plainly here.
+	 * here rather than going through the dispatch, so a mode in the list
+	 * must be one whose own vendor request sets up everything it needs, and
+	 * each of the three calls reset_absorbed_mode_state() first to clear
+	 * what leaving a mode would have cleared.
 	 *
-	 * MODE_RX_GENERIC reaches this loop through rx_generic(), which is where
-	 * its two receives are told apart and the symbol stream is set up, so it
-	 * is listed only while it is the mode the dispatch recorded. A
-	 * UBERTOOTH_RX_GENERIC request arriving while another mode streams
-	 * therefore ends this loop and goes through the dispatch, instead of
-	 * being absorbed here and streaming the running mode's symbols under the
-	 * new mode's name.
-	 *
-	 * The three above are kept out of the generic receive for the same
-	 * reason, and it matters more in that direction: this loop was entered
-	 * with modulation = MOD_NONE, so a request for one of them absorbed here
-	 * would stream unmodulated symbols under its name, with none of the
-	 * setup its own request is trusted to have done and no idle reset in
-	 * between.
-	 *
-	 * Re-sending the mode that is already running is absorbed, as it is for
-	 * the other three among themselves: a host that reconfigures GRMDM and
-	 * asks for MODE_RX_GENERIC again keeps the receive it has, because the
-	 * choice is made on the way in and getting back to it means leaving the
-	 * mode first.
+	 * MODE_RX_GENERIC is listed only while it is the mode the dispatch
+	 * recorded, because rx_generic() is where its two receives are told
+	 * apart and the symbol stream is set up. So a request for it from
+	 * another streaming mode ends this loop and goes through the dispatch
+	 * instead, and the other three are kept out of a generic receive, which
+	 * is entered with modulation = MOD_NONE and would stream unmodulated
+	 * symbols under their name.
 	 */
 	while ( ( requested_mode == MODE_RX_GENERIC
 	          && mode == MODE_RX_GENERIC )
@@ -2616,15 +2365,13 @@ void bt_stream_rx()
 
 			service_usb();
 
-			/* A modulation the host has just stated, which the mode
-			 * start wrote no register for. Here rather than once per
-			 * block, so the capture spends microseconds on the
-			 * modulation it was not asked for instead of a block. */
+			/* Here rather than once per block, so a capture spends
+			 * microseconds on a modulation it was not asked for
+			 * rather than a whole block. */
 			radio_modulation = program_stated_modulation(radio_modulation);
 
-			/* If timer says time to hop, do it. The hop keeps servicing
-			 * USB while the synthesizer settles; without that, endpoint 0
-			 * went unserviced for the whole retune. */
+			/* If timer says time to hop, do it. The hop keeps
+			 * servicing USB while the synthesizer settles. */
 			if (do_hop) {
 				/* A background level belongs to one channel. */
 				rssi_noise_reset();
@@ -2708,16 +2455,12 @@ static uint16_t reverse16(uint16_t data)
  */
 #ifdef TX_ENABLE
 /* How long before br_transmit()'s transmit point it stops servicing USB, in
- * T0TC's 100 ns ticks. 100 microseconds, which is longer than a typical
- * service pass, so a pass that starts just inside the margin normally finishes
- * before the transmit point.
+ * T0TC's 100 ns ticks: 100 us, longer than a typical service pass.
  *
- * It is not a guarantee: handle_usb() has no deadline of its own, and a single
- * request can be long -- UBERTOOTH_READ_ALL_REGISTERS is 46 bit-banged
- * register reads. A pass that overruns costs this packet its slot, which the
- * host sees as a gap in the transmitted stream, not as a board that stopped
- * answering. The cost of the margin itself is up to 100 microseconds of
- * spinning per packet. */
+ * It is not a guarantee, since handle_usb() has no deadline of its own and a
+ * single request can be long. A pass that overruns costs this packet its
+ * slot, which the host sees as a gap in the transmitted stream rather than as
+ * a board that stopped answering. */
 #define TX_USB_SERVICE_MARGIN 1000
 
 void br_transmit()
@@ -2759,19 +2502,16 @@ void br_transmit()
 	while ( requested_mode == MODE_TX_SYMBOLS )
 	{
 
-		/* Wait for the next pair of slots. This used to spin, so endpoint 0
-		 * went unserviced for the whole wait -- most of 625 microseconds,
-		 * far longer than the gap that stalls a control request in follow
-		 * mode.
+		/* Wait for the next pair of slots, servicing USB meanwhile, or
+		 * endpoint 0 goes unserviced for most of 625 us.
 		 *
-		 * Servicing USB here has to stop before the transmit point. T0TC
-		 * counts 100 ns ticks and wraps every 3125, so `T0TC < 2250` is the
-		 * last 87.5 microseconds of a tick, and the FIFO write below has to
-		 * land in it. So the service stops a margin ahead of 2250 and the
-		 * loop spins out the rest: a service pass that begins just inside
-		 * the margin still finishes before the transmit point. While the
-		 * slot pair has not advanced there is no deadline at all, because
-		 * the wait for T0TC starts over on the next tick. */
+		 * The service has to stop before the transmit point. T0TC counts
+		 * 100 ns ticks and wraps every 3125, so `T0TC < 2250` is the
+		 * last 87.5 us of a tick and the FIFO write below has to land in
+		 * it: the service stops a margin ahead of 2250 and the loop
+		 * spins out the rest. While the slot pair has not advanced there
+		 * is no deadline at all, because the wait for T0TC starts over
+		 * on the next tick. */
 		while ((clkn >> 1) == (clkn_saved >> 1) || T0TC < 2250) {
 			if ((clkn >> 1) == (clkn_saved >> 1)
 			    || T0TC < 2250 - TX_USB_SERVICE_MARGIN) {
@@ -2790,11 +2530,9 @@ void br_transmit()
 
 		cc2400_fifo_write(16, data);
 
-		/* The rest of this pass waits on the radio four times: the transmit
-		 * finishing, then the retune. Every wait is bounded and keeps
-		 * servicing USB, so a radio that stops advancing no longer takes the
-		 * board with it: the loop keeps coming back here and keeps answering
-		 * the host, which can then stop the mode. */
+		/* The waits below are bounded and keep servicing USB, so a radio
+		 * that stops advancing does not take the board with it: the host
+		 * can still stop the mode. */
 		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		TXLED_CLR;
 
@@ -2833,22 +2571,18 @@ static void le_set_access_address(u32 aa) {
 /*
  * reset le state, called by bt_generic_le and bt_follow_le()
  *
- * This runs when the mode's own loop starts, which is after the request that
- * asked for the mode has been answered. So every field of le_state_t is
- * cleared here except the four that carry what the host asked this capture
- * for: whether to follow connections (do_follow, set by the mode request
- * itself) and the address filter (target, target_mask, target_set, set by a
- * request of their own before it). Clearing those would throw away the
- * command line the capture was started with.
+ * This runs after the request that asked for the mode has been answered, so
+ * every field of le_state_t is cleared except the four carrying what the host
+ * asked this capture for: do_follow and the address filter (target,
+ * target_mask, target_set). Clearing those would throw away the command line
+ * the capture was started with.
  *
- * The CRC check is the odd one out -- it is a host setting too, but a
- * promiscuous capture recovers CRCInit and turns it on by itself, so it starts
- * off again here and ubertooth-btle(1) sends it after the mode request rather
- * than before.
+ * The CRC check is a host setting too, but a promiscuous capture recovers
+ * CRCInit and turns it on by itself, so it starts off again here and
+ * ubertooth-btle(1) sends it after the mode request rather than before.
  *
- * test_le_state_reset.c reads le_state_t and this function and fails if a
- * field is added to the struct without being cleared here or named there as
- * one to keep.
+ * test_le_state_reset.c fails if a field is added to the struct without being
+ * cleared here or named there as one to keep.
  */
 void reset_le() {
 	le_set_access_address(0x8e89bed6);     // advertising channel access address
@@ -2966,9 +2700,9 @@ void bt_generic_le(u8 active_mode)
 		rssi_at_trigger = INT8_MIN;
 		/* This wait has no deadline: on a quiet channel no packet ever
 		 * completes the transfer, so it can last as long as the capture
-		 * does. It feeds, because it is the mode loop's own code and runs
-		 * below every interrupt handler, exactly like the feed at the top
-		 * of the loop -- a handler that stops returning stops this too. */
+		 * does. It feeds the watchdog, as the top of the loop does,
+		 * because it is the loop's own code and runs below every
+		 * interrupt handler. */
 		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
 		while ((rx_tc == 0) && (rx_err == 0))
 		{
@@ -3040,10 +2774,9 @@ void bt_generic_le(u8 active_mode)
 	// disable USB interrupts
 	ICER0 = ICER0_ICE_USB;
 
-	// reset the radio completely. bt_promisc_le() runs this mode and
+	// Reset the radio completely. bt_promisc_le() runs this mode and
 	// bt_le_sync() in turn and starts each half from the state this leaves,
-	// so it is not only a teardown; the dispatch idles again on the way out
-	// of the mode, which is cheap and idempotent.
+	// so it is not only a teardown.
 	cc2400_idle();
 	dio_ssp_stop();
 	cs_trigger_disable();
@@ -3058,10 +2791,9 @@ void bt_generic_le(u8 active_mode)
  *
  * A connection recovered by the algorithm-2 search is followed without its
  * channel map, so the board lands on the right channel for only some of its
- * events, and a run of events it does not hear is normal rather than a sign
- * the connection has gone. It is given LE_CSA2_SILENCE_EVENTS connection
- * intervals instead -- see the arithmetic there -- so that a connection it is
- * following correctly is not thrown away and recovered again from the
+ * events and a run of unheard events is normal. It is given
+ * LE_CSA2_SILENCE_EVENTS connection intervals instead, so that a connection
+ * being followed correctly is not thrown away and recovered from the
  * beginning, which at a long interval takes many minutes.
  */
 static u32 le_silence_timeout(void)
@@ -3083,13 +2815,13 @@ static u32 le_silence_timeout(void)
  * because the DMA had filled it. The controller writes the buffer without the
  * compiler knowing, and the waits watch registers rather than the buffer, so
  * without this a load could legally be hoisted above one of them.
+ *
+ * A data barrier, not only a compiler one: the waits read the controller's
+ * registers, which are device memory, and ARMv7-M allows a read of ordinary
+ * memory to be reordered against those.
  */
 static inline void le_rx_barrier(void)
 {
-	/* A data barrier, not only a compiler one: the waits are built from
-	 * reads of the controller's registers, which are device memory, and
-	 * ARMv7-M allows a read of ordinary memory to be reordered against
-	 * those. */
 	__asm__ volatile ("dmb" ::: "memory");
 }
 
@@ -3114,15 +2846,14 @@ void bt_le_sync(u8 active_mode)
 	dma_init_le(le_rx.packet + 4, LE_RX_PDU_MAX);
 	dio_ssp_start();
 
-	/* The access address promiscuous mode is about to follow, announced
-	 * here because the queue reset above empties anything queued earlier:
-	 * this is the first point at which the host can be told, and the only
-	 * place it is told, so the line cannot arrive twice. Both ways into
-	 * the mode come through here, the host-given access address included.
+	/* The access address promiscuous mode is about to follow. Announced
+	 * here because the queue reset above empties anything queued earlier,
+	 * so this is the first point at which the host can be told and the only
+	 * place it is told, and both ways into the mode come through here.
 	 *
-	 * The clock is stopped and the channel registers are clear at this
-	 * point, so the record is stamped channel 0 at clock 0; the host
-	 * prints the state line and returns before it reads either. */
+	 * The clock is stopped and the channel registers are clear here, so the
+	 * record is stamped channel 0 at clock 0; the host prints the state
+	 * line and returns before it reads either. */
 	if (active_mode == MODE_BT_PROMISC_LE)
 		le_promisc_state(0, &le.access_address, 4);
 
@@ -3154,20 +2885,18 @@ void bt_le_sync(u8 active_mode)
 
 		/* Wait for DMA. Meanwhile keep track of RSSI. */
 		rssi_reset();
-		/* Nothing bounds this wait: following a connection, the next thing
-		 * to end it is the hop at the end of the connection interval, which
-		 * BLE allows to be as long as 4 s. It feeds for the reason the wait
-		 * in bt_generic_le() does -- it is the mode loop running, below
-		 * every interrupt handler. */
+		/* Nothing bounds this wait: following a connection, the next
+		 * thing to end it is the hop at the end of the connection
+		 * interval, which BLE allows to be as long as 4 s. It feeds the
+		 * watchdog for the reason the wait in bt_generic_le() does. */
 		site = watchdog_mark(WATCHDOG_SITE_LE_RX);
 		while ((rx_tc == 0) && (rx_err == 0) && (do_hop == 0) && requested_mode == active_mode)
 			watchdog_usb_ready();
 		watchdog_mark(site);
 
-		/* One reading for the whole packet, taken as it ends: this mode has
-		 * the radio deliver whole packets rather than polling through them,
-		 * so there is one moment at which the packet's power can be read.
-		 * rssi_reset() above has already emptied the per-packet figures. */
+		/* One reading for the whole packet, taken as it ends: this mode
+		 * has the radio deliver whole packets rather than polling
+		 * through them, so there is one moment to read its power at. */
 		rssi = (int8_t)(cc2400_get(RSSI) >> 8);
 		rssi_add(rssi);
 
@@ -3183,18 +2912,13 @@ void bt_le_sync(u8 active_mode)
 			goto rx_flush;
 
 		/* No packet. A transfer error is the only thing that can end the
-		 * wait without one, since a mode change and a hop are both handled
-		 * above, so this goes where the error has to be recovered from:
+		 * wait without one, since a mode change and a hop are handled
+		 * above, so this must go where the error is recovered from:
 		 * rx_flush drains the symbols the error left in the receiver and
-		 * arms the transfer again, which is also the one place rx_err is
-		 * cleared.
-		 *
-		 * `continue` here instead ended the capture. The next pass found
-		 * rx_err still set, left the wait at once, arrived here again, and
-		 * went round that way forever: nothing was received, the receive
-		 * path was never armed again, and the loop went on feeding the
-		 * watchdog, so the board answered the host throughout. A capture
-		 * that looked alive and recorded nothing until it was killed. */
+		 * arms the transfer again, and is the one place rx_err is
+		 * cleared. A `continue` here would leave rx_err set, so every
+		 * later pass would arrive back here and the capture would look
+		 * alive while receiving nothing. */
 		if (!rx_tc)
 			goto rx_flush;
 
@@ -3204,11 +2928,10 @@ void bt_le_sync(u8 active_mode)
 		/* The packet as the host will see it: the access address the radio
 		 * synchronized on, then the bytes the DMA put after it. */
 		u8 *p = le_rx.packet;
-		/* The DMA writes into that buffer without the compiler knowing, so
-		 * a read of it must not be moved above the wait that has just ended
-		 * because the bytes are there. The buffer itself is not volatile:
-		 * it is read a word at a time in the dewhitening below, and the
-		 * symbol half of it is read a byte at a time in a search loop. */
+		/* The DMA writes into that buffer without the compiler knowing,
+		 * so a read of it must not be moved above the wait that has just
+		 * ended because the bytes are there. The buffer is not volatile:
+		 * the dewhitening below reads it a word at a time. */
 		le_rx_barrier();
 		memcpy(p, &le.access_address, 4);
 
@@ -3217,15 +2940,12 @@ void bt_le_sync(u8 active_mode)
 		 * them, and it is what says how much more to wait for. */
 		le_dewhiten_from(p + 4, LE_DMA_HEAD, channel, 0);
 
-		/* The PDU's length field is eight bits wide, and the buffer holds
-		 * whatever it can claim, so nothing has to be refused to keep the
-		 * capture inside it. Two lengths are still refused, because waiting
-		 * for bytes is not free: the radio synchronizes on a 32-bit access
-		 * address, so noise does occasionally look like a packet, and the
-		 * longest packet takes about 2 ms to arrive -- blind time in which
-		 * the next connection event is missed.
-		 *
-		 * Which lengths those are is le_length_is_possible()'s to say. */
+		/* The buffer holds whatever the 8-bit length field can claim, so
+		 * nothing has to be refused to keep the capture inside it. Two
+		 * lengths are still refused, because waiting for bytes is not
+		 * free: noise occasionally looks like a 32-bit access address,
+		 * and the longest packet takes about 2 ms to arrive -- blind
+		 * time in which the next connection event is missed. */
 		if (!le_length_is_possible(p[5], le.crc_verify))
 			goto rx_flush;
 
@@ -3242,13 +2962,10 @@ void bt_le_sync(u8 active_mode)
 		 * meanwhile must not be left waiting for bytes the radio has
 		 * stopped sending.
 		 *
-		 * The deadline is what covers the radio stopping mid-packet while
-		 * the transfer stays armed. Nothing else ends the wait then, so
-		 * the loop spun here until the host changed mode -- and a host
-		 * that is waiting for capture data never does. The board went on
-		 * answering requests the whole time, because this mode services
-		 * USB from its interrupt, so the capture looked alive and
-		 * recorded nothing from that moment on.
+		 * The deadline is what covers the radio stopping mid-packet
+		 * while the transfer stays armed: nothing else ends the wait
+		 * then, and a host waiting for capture data never changes mode,
+		 * so the capture would look alive and record nothing.
 		 *
 		 * The time is added up step by step rather than compared against
 		 * a deadline, because the capture clock briefly runs backwards:
@@ -3438,10 +3155,8 @@ cleanup:
 
 
 /* How much of a packet the callback below decodes out of the symbol buffer:
- * the four bytes of the access address and 42 bytes of PDU, which is the count
- * it has always decoded. The buffer it writes into is DMA_SIZE (50) bytes, so
- * the last four are left as they were; what matters here is that nothing may
- * be read past the bytes this number covers. */
+ * the four bytes of the access address and 42 bytes of PDU. Nothing may be
+ * read past the bytes this number covers. */
 #define FOLLOW_LE_BYTES 46
 
 _Static_assert(FOLLOW_LE_BYTES <= DMA_SIZE,
@@ -3484,19 +3199,15 @@ int cb_follow_le() {
 			int len = idle_rxbuf[5] + 2;
 
 			/* A header claiming more than the bytes decoded above
-			 * belongs to a packet that arrived cut short. There is
-			 * neither a CRC of it to check -- reading one would
-			 * read past the buffer -- nor a record of it to send,
-			 * because what the host would get is a record claiming
-			 * bytes that were never decoded.
+			 * belongs to a packet that arrived cut short: there is
+			 * no CRC of it to check without reading past the
+			 * buffer, and a record of it would claim bytes that
+			 * were never decoded.
 			 *
-			 * This is the buffer's own bound, not the judgement
+			 * This is the buffer's own bound, not the judgment
 			 * le_length_is_possible() makes for the other capture
-			 * loop: that one asks whether a length could belong to
-			 * a packet at all, and allows a Data Length Extension
-			 * payload, which does not fit here. The arithmetic
-			 * works out to 37 payload bytes, which is the legacy
-			 * maximum, but it is the buffer that says so. */
+			 * loop, which allows a Data Length Extension payload
+			 * that does not fit here. */
 			if (4 + len + 3 > FOLLOW_LE_BYTES)
 				break;
 
@@ -3675,56 +3386,34 @@ void le_promisc_state(u8 type, void *data, unsigned len) {
  * event counter of one using algorithm 2 -- and both set the same state:
  * hop_mode, do_hop, the connection's own fields, and le.link_state.
  *
- * The order of the two ends of that matters, because TIMER0_IRQHandler() runs
- * between any two of these statements. It asks for a hop on whichever branch
- * hop_mode selects, and its low-energy branch asks for one only once
- * link_state says connected. So:
+ * The order matters, because TIMER0_IRQHandler() runs between any two of
+ * these statements. It asks for a hop on whichever branch hop_mode selects,
+ * and its low-energy branch asks only once link_state says connected. So:
  *
  *   hop_mode = HOP_BTLE   first: from here the interrupt is on a branch that
  *                         waits for the link state, so it asks for nothing
- *   do_hop = 0            then: drop a hop the mode in force until now asked
- *                         for, which the interrupt can no longer ask again
- *   the connection's fields, which either path may also set earlier: before
- *                         the link state is what matters, and earlier is safe
+ *   do_hop = 0            then: drop a hop the previous mode asked for
+ *   the connection's fields
  *   le_handoff_barrier()  then: hold all of those above the store below
- *   le.link_state = LINK_CONNECTED  last: this is what starts the hopping,
- *                         and by now there is a connection to hop
+ *   le.link_state = LINK_CONNECTED  last: this starts the hopping, and by
+ *                         now there is a connection to hop
  *
- * A host request is the one thing that still reaches this window, because the
- * vendor requests are served from the USB interrupt: a channel request landing
- * between the mode and the state leaves its own mode in force on a connected
- * link, so the follow does not hop until the next one. That is the board
- * obeying the host's last word, and no shipped tool changes channel during a
- * promiscuous follow; the order above does not try to win against it.
- *
- * Setting the state before the mode leaves a window the other way round: the
- * interrupt still sees the mode in force until now and its branch for that
- * asks for a hop on a plain clock tick, with no connection to time it. The
- * follow then takes that hop as its first one, which spends an event counter
- * and retunes immediately, so the capture starts an event away from the
- * connection and hears nothing until the search is run again.
- *
- * Which mode that window finds in force differs between the two paths, and
- * only one of them finds a hopping mode there without a host request. The
- * algorithm-2 search runs with no hopping in force, whose branch asks for
- * that hop. The algorithm-1 recovery runs with direct hopping in force, which
- * the interrupt has no branch for at all, so a hop can be asked for there
- * only once a host channel request has left the band sweep or no hopping in
- * force. Both paths are written in this order regardless, because which mode
- * is in force at a handoff is not something the handoff should have to know.
+ * Setting the state first leaves the interrupt on the previous mode's branch,
+ * which asks for a hop on a plain clock tick with no connection to time it.
+ * The follow takes that as its first hop, spends an event counter and retunes
+ * at once, so the capture starts an event away from the connection and hears
+ * nothing until the search runs again.
  */
 
 /*
  * Keeps every store before this call ahead of every store after it.
  *
- * hop_mode, do_hop and le.link_state are volatile, so those three stores keep
- * their order on their own. The connection's other fields are plain, and two
- * of them -- conn_epoch and conn_interval -- are read by TIMER0_IRQHandler(),
- * which the compiler cannot see, so without this it may move those stores
- * below the store of the link state and hand the interrupt a connection with
- * a stale epoch or interval. A compiler barrier is the whole of what this
- * needs: a core sees its own stores in program order, so an interrupt taken
- * on it cannot see them in another one.
+ * hop_mode, do_hop and le.link_state are volatile, so those three keep their
+ * order on their own. The connection's other fields are plain, and
+ * conn_epoch and conn_interval are read by TIMER0_IRQHandler(), so without
+ * this the compiler may move those stores below the store of the link state
+ * and hand the interrupt a connection with a stale epoch or interval. A
+ * compiler barrier is enough: a core sees its own stores in program order.
  */
 static inline void le_handoff_barrier(void)
 {
@@ -3732,22 +3421,18 @@ static inline void le_handoff_barrier(void)
 }
 
 /* Works the hop increment out from how long the connection takes to get from
- * 2404 MHz to 2406 MHz, and then follows it. Only channel selection algorithm
- * 1 has an increment to find. This stage is also reached only after the
- * interval stage that precedes it has settled, and on a connection hopping
- * with algorithm 2 that does not happen: algorithm 2 picks each event's
- * channel from the access address, the event counter, and the channel map, so
- * the connection's visits to one channel do not repeat on the 37-event cycle
- * the interval estimator looks for. promisc_try_csa2() takes those
- * connections, from the same sightings. */
+ * 2404 MHz to 2406 MHz, and then follows it. Only channel selection
+ * algorithm 1 has an increment to find, and only such a connection reaches
+ * here: algorithm 2 picks each event's channel from the access address, the
+ * event counter, and the channel map, so its visits to one channel do not
+ * repeat on the 37-event cycle the interval estimator looks for.
+ * promisc_try_csa2() takes those connections, from the same sightings. */
 void promisc_recover_hop_increment(u8 *packet) {
 	/* The interval the span below is divided by. The estimator hands over
 	 * nothing outside the range a connection may use, but the division is
-	 * unforgiving enough to check anyway: the LPC17xx leaves DIV_0_TRP
-	 * clear, so a zero divisor makes UDIV answer 0 rather than fault, and
-	 * hop_interval_lut[0] is 0 -- a board that has stopped hopping and
-	 * reports both numbers as zero. Nothing is reported instead; the
-	 * search below keeps cycling, so a later interval is still picked up.
+	 * checked anyway: the LPC17xx leaves DIV_0_TRP clear, so a zero divisor
+	 * makes UDIV answer 0 rather than fault, and hop_interval_lut[0] is 0 --
+	 * a board that has stopped hopping and reports both numbers as zero.
 	 */
 	if (le.conn_interval < LE_MIN_CONN_INTERVAL ||
 			le.conn_interval > LE_MAX_CONN_INTERVAL) {
@@ -3779,12 +3464,10 @@ void promisc_recover_hop_increment(u8 *packet) {
 			 * to the follow" above. */
 			hop_mode = HOP_BTLE;
 			do_hop = 0;
-			/* The table turns a number of connection events into the hop
-			 * increment that covers them, and only a dozen of its entries
-			 * are an increment a connection may use: the rest come from a
-			 * span measured against an interval that was not this
-			 * connection's. Following one of those chases a sequence no
-			 * connection uses, so the search below keeps cycling instead. */
+			/* Only a dozen of the table's entries are an increment a
+			 * connection may use; the rest come from a span measured
+			 * against an interval that was not this connection's, and
+			 * following one chases a sequence no connection uses. */
 			le.channel_increment = hop_interval_lut[channels_hopped];
 			le.interval_timer = le.conn_interval / 2;
 			le.conn_count = 0;
@@ -3832,17 +3515,15 @@ static u32 promisc_gap_back(unsigned back) {
  *
  * A connection returns to this channel at spacings that repeat every trip
  * round the 37 hop positions, and those spacings add up to 37 connection
- * events because the trip visits every position once. A full channel map
- * gives one spacing, the whole trip; a smaller map gives several, because
- * every unused position is remapped onto a used one, so this channel comes up
- * more than once a trip and at uneven spacings. Either way, one repeat of the
- * pattern is 37 events, which is the one piece of arithmetic that holds for
- * both and needs no guess about the map.
+ * events because the trip visits every position once. That holds whatever
+ * the channel map is, and needs no guess about it: a full map gives one
+ * spacing, a smaller map several, because every unused position is remapped
+ * onto a used one.
  *
- * So: find the shortest pattern the gaps just seen repeat, and take its total.
- * Nothing is reported until the gaps do repeat, which is also what keeps a
- * missed return out of the answer: a return the board did not hear makes one
- * gap the sum of two, and a run with such a gap in it does not repeat.
+ * So: find the shortest pattern the gaps repeat, and take its total. Nothing
+ * is reported until they do repeat, which is also what keeps a missed return
+ * out of the answer: it makes one gap the sum of two, and a run containing
+ * such a gap does not repeat.
  */
 static u16 promisc_interval(void) {
 	unsigned period, i;
@@ -3878,20 +3559,17 @@ static u16 promisc_interval(void) {
 		/* Nothing outside the range a connection interval may take is
 		 * one. That rules out every pattern totalling less than the
 		 * 277.5 ms a trip round 37 channels takes at the shortest
-		 * interval, which is where the figures too small to believe
-		 * came from. */
+		 * interval. */
 		if (interval < LE_MIN_CONN_INTERVAL ||
 				interval > LE_MAX_CONN_INTERVAL)
 			return 0;
 
 		/* Every gap in the pattern is a whole number of connection
 		 * events, so it has to be a whole number of this interval, and
-		 * no more events than a trip round the channels holds. A run of
-		 * gaps that is part of a longer pattern repeats too -- the last
-		 * two of 11, 7, 19, 11, 7, 19 are 19, 11 twice over -- and this
-		 * is what tells the part from the whole: a part-pattern's total
-		 * is not 37 events, so the interval it gives does not measure
-		 * its own gaps. */
+		 * no more events than a trip round the channels holds. This is
+		 * what tells a part of a longer pattern from the whole: a part
+		 * repeats too, but its total is not 37 events, so the interval
+		 * it gives does not measure its own gaps. */
 		unit = interval * LE_BASECLK;
 		for (i = 0; i < period; ++i) {
 			u32 gap = promisc_gap_back(i);
@@ -3999,20 +3677,12 @@ static int promisc_try_csa2(u32 sighting) {
 	/* Where the follow's first hop lands against the connection's real
 	 * event boundary.
 	 *
-	 * Everything that rounds here rounds early. The wait le_csa2_handoff()
-	 * returns is rounded down to the interval timer's 1.25 ms, and the
-	 * timer counts on a grid taken from conn_epoch, which is read below:
-	 * its first tick falls within 1.25 ms of that reading, so the
-	 * countdown finishes up to 0.3125 ms before the wait asked for and
-	 * never after it.
-	 *
-	 * So the hop is between about 1.6 ms early and however deep in its own
-	 * event the sighting was. That depth is the part nothing here can
-	 * bound or correct -- see LE_CSA2_SIGHTING_SPREAD -- and at the far end
-	 * of it the receiver tunes a third of the way into a 7.5 ms event and
-	 * misses the central's packet of every event the follow then hops to.
-	 * Which packets of an event this follow hears is therefore settled
-	 * here and never revisited. */
+	 * Everything that rounds here rounds early, so the hop is between
+	 * about 1.6 ms early and however deep in its own event the sighting
+	 * was. That depth is the part nothing here can bound or correct -- see
+	 * LE_CSA2_SIGHTING_SPREAD -- and at the far end of it the receiver
+	 * misses the central's packet of every event it hops to. Which packets
+	 * of an event this follow hears is settled here and never revisited. */
 	if (!le_csa2_handoff(&rec, elapsed, &handoff))
 		return 0;
 
@@ -4035,9 +3705,7 @@ static int promisc_try_csa2(u32 sighting) {
 
 	le_promisc_state(2, &le.conn_interval, 2);
 	/* The counter the follow starts on, not the one the search answered
-	 * with: the search's answer belongs to a sighting a few hundred
-	 * milliseconds old, and this is the figure a reader can line up
-	 * against the connection. */
+	 * with, which belongs to a sighting a few hundred milliseconds old. */
 	le_promisc_state(4, &le.event_counter, 2);
 
 	if (jam_mode != JAM_NONE)
@@ -4050,29 +3718,21 @@ void promisc_recover_hop_interval(u8 *packet) {
 	/*
 	 * When the packet arrived, not when this ran.
 	 *
-	 * idle_buf_clk100ns is stamped by the transfer's own interrupt, as the
-	 * four bytes after the access address come in: one byte of preamble,
-	 * four of access address, and those four, so 72 microseconds into the
-	 * packet on the 1M PHY, plus whatever a higher-priority interrupt
-	 * delays the handler by. Reading the clock here instead would be after
-	 * the whole PDU has arrived and been dewhitened and checked, which is
-	 * 2.1 ms later for the longest packet the PHY carries.
+	 * idle_buf_clk100ns is stamped by the transfer's own interrupt, 72 us
+	 * into the packet on the 1M PHY. Reading the clock here instead would
+	 * be after the whole PDU has arrived and been dewhitened and checked,
+	 * up to 2.1 ms later.
 	 *
 	 * That matters most for the last sighting before an algorithm-2
 	 * search, because the follow is anchored on it and nothing re-anchors
-	 * it afterwards: a stamp taken a packet's length late puts every hop
-	 * of that follow that far past its connection event's start and keeps
-	 * it there, so the start of every event is missed. It also keeps the
-	 * gaps a packet's length apart from the connection's own grid, which
-	 * both estimators then have to allow for.
+	 * it: a stamp a packet's length late puts every hop of that follow
+	 * that far past its event's start and keeps it there.
 	 *
 	 * The receive transfer is disarmed before the callback runs, so no
 	 * later packet can have overwritten the stamp.
 	 *
 	 * CLKN is still read here. It only has to say whether the gap is
-	 * longer than the capture clock's whole 327-second period, and the
-	 * few milliseconds between the stamp and this line cannot change
-	 * that.
+	 * longer than the capture clock's whole 327-second period.
 	 */
 	u32 cur_clk = idle_buf_clk100ns;
 	u32 cur_clkn = clkn;
@@ -4117,44 +3777,30 @@ void promisc_recover_hop_interval(u8 *packet) {
 	 * answer, or another exchange of the same event, and a packet further
 	 * away is the first of its own event.
 	 *
-	 * Both halves of that matter, and each was wrong on its own.
+	 * It is measured from the previous packet, not from the last one taken
+	 * as an event's start: an event of several exchanges runs longer than
+	 * the threshold, so part way through it a packet would be taken for
+	 * the start of the next one. And the threshold cannot be the shortest
+	 * connection interval, because at that interval one event's answer and
+	 * the next event's first packet are less than an interval apart, so
+	 * every packet after the first would read as a continuation and no
+	 * sighting would ever be recorded.
 	 *
-	 * Measuring from the last packet taken as an event's start, rather
-	 * than from the previous packet, let a busy event start events of its
-	 * own: an event of several exchanges runs longer than the threshold,
-	 * so part way through it a packet was taken for the start of the next
-	 * one, as much as a threshold's worth into the real event.
+	 * The board may still miss the packets before the one it hears, which
+	 * puts the sighting deeper into its event than this allows for; see
+	 * LE_CSA2_SIGHTING_SPREAD. The other way round, an event dense enough
+	 * to run to within LE_SAME_EVENT_GAP of the next event's start
+	 * swallows that event's first packet, which is harmless: it is a
+	 * return nobody heard, and the gap it leaves is still a whole number
+	 * of intervals.
 	 *
-	 * And the threshold cannot be the shortest connection interval. At
-	 * that interval the previous event's answer and the next event's first
-	 * packet are less than one interval apart, so with the two measured
-	 * from each other every packet after the first would read as a
-	 * continuation and no sighting would ever be recorded again -- for the
-	 * algorithm-1 route as much as this one.
+	 * The rollover is undone against the previous packet's own stamp, not
+	 * against the reading taken for the gap above, which is undone against
+	 * the start of the event before: a continuation would then look a
+	 * whole clock period away and be recorded as a sighting.
 	 *
-	 * What is left over: the board may miss the packets before the one it
-	 * hears, which puts the sighting deeper into its event than this
-	 * allows for, and the search's allowances are wide enough to take the
-	 * resulting gap for a whole number of intervals rather than refuse it.
-	 * Every older offset then shifts and the winning score falls, which is
-	 * why a wrong counter still cannot be adopted.
-	 * LE_CSA2_SIGHTING_SPREAD says the rest.
-	 *
-	 * And the other way round: an event dense enough to run to within
-	 * LE_SAME_EVENT_GAP of the next event's start swallows that event's
-	 * first packet. That one is harmless -- it is a return nobody heard,
-	 * which both estimators already allow for, and the gap it leaves is
-	 * still a whole number of intervals.
-	 *
-	 * The rollover is undone against the previous packet's own stamp here,
-	 * not against the reading taken for the gap above: that one is undone
-	 * against the start of the event before, which may be on the far side
-	 * of the wrap, and a continuation would then look a whole clock period
-	 * away and be recorded as a sighting with a gap of microseconds.
-	 *
-	 * A packet this leaves out is not lost: the capture still records it.
-	 * What is being collected here is only the timing of the connection's
-	 * returns to this channel.
+	 * A packet this leaves out is not lost -- the capture still records
+	 * it. Only the timing of the connection's returns is collected here.
 	 */
 	since_packet = cur_clk;
 	if (since_packet < le_promisc.last_clk)
@@ -4234,25 +3880,13 @@ void promisc_recover_hop_interval(u8 *packet) {
  * connection's traffic has made them, so they are masked out and the rest is
  * compared.
  *
- * The bits above those are required clear, and that is deliberate restraint
- * rather than a rule of the protocol. The more-data bit is as free as the
+ * The bits above those are required clear, which is deliberate restraint
+ * rather than a rule of the protocol: the more-data bit is as free as the
  * acknowledgment bits, and the bit above it carries constant-tone information
- * from Core 5.2 onwards. Both could be masked out too, and a connection whose
- * empty PDUs set the more-data bit would then be recovered sooner. But this
- * comparison runs before there is a CRC to check a candidate against, so every
- * bit left in it is what stands between a false synchronization on noise and a
- * CRCInit worked out from nothing -- which the mode has no way back from.
- * Widening it is a measurement for another change.
- *
- * Reading them as part of the header is what the mode did, and it meant
- * waiting for an empty PDU that happened to carry both bits clear. On a
- * connection with data flowing that is one empty PDU in a few hundred: of
- * 2666 the board heard from a 50 ms link between two development boards, ten
- * had both bits clear. So everything the mode recovers after the access
- * address -- the CRCInit, the connection interval, the hop increment, the
- * algorithm-2 search -- waited on luck, and a capture could run for minutes
- * and report nothing more. The access-address half of the mode has always
- * accepted all four headers.
+ * from Core 5.2 onwards. This comparison runs before there is a CRC to check
+ * a candidate against, so every bit left in it is what stands between a false
+ * synchronization on noise and a CRCInit worked out from nothing, which the
+ * mode has no way back from.
  */
 #define LE_EMPTY_PDU_HEADER_MASK 0xf3
 #define LE_EMPTY_PDU_HEADER 0x01
@@ -4413,12 +4047,9 @@ void bt_promisc_le() {
 		if (requested_mode != MODE_BT_PROMISC_LE)
 			break;
 
-		// bt_generic_le()'s teardown put the channel back to 2441 MHz, which
-		// is not a BLE channel; the correction at the top of this loop does
-		// not run between the two halves. Until this fork's dispatch rework
-		// that teardown also cleared requested_mode, so the break above
-		// always fired and the follow half below never ran at all -- the
-		// mode ended silently as soon as it had an access address.
+		// bt_generic_le()'s teardown put the channel back to 2441 MHz,
+		// which is not a BLE channel, and the correction at the top of
+		// this loop does not run between the two halves.
 		if ((channel & 1) == 1)
 			channel = 2440;
 
@@ -4433,14 +4064,10 @@ void bt_peripheral_le() {
 	u32 calc_crc;
 	int i;
 	/* Two header bytes, the six address bytes, the advertising data and the
-	 * three CRC bytes. A legacy ADV_IND, which is all this sends, carries
-	 * at most ADV_IND_MAX_DATA bytes of data, so that is what the buffer
-	 * has to hold.
-	 *
-	 * UBERTOOTH_LE_SET_ADV_DATA refuses anything longer, so the check below
-	 * cannot fire from a host request. It stays as the guard on this
-	 * buffer: whoever sets le_adv_data next should not be able to overrun
-	 * the record built from it. */
+	 * three CRC bytes. UBERTOOTH_LE_SET_ADV_DATA refuses data longer than
+	 * ADV_IND_MAX_DATA, so the check below cannot fire from a host request;
+	 * it stays as the guard on this buffer, so that whoever sets
+	 * le_adv_data next cannot overrun the record built from it. */
 	uint8_t adv_ind[2 + 6 + ADV_IND_MAX_DATA + 3] = { 0x00, };
 	unsigned adv_ind_len;
 
@@ -4496,18 +4123,13 @@ void bt_peripheral_le() {
  * checked out, 0 when it did not.
  *
  * It needs GRMDM to have the CRC on at this end to mean anything, which is
- * the host's doing: with it off the radio called packets carrying no CRC at
- * all good.
+ * the host's doing: with it off the radio calls packets carrying no CRC good.
  *
  * The length it can be trusted at is the full read below. STATUS_CRC_OK is
  * defined against the read position -- the next two bytes in the FIFO against
- * the CRC16 over the bytes already read out of it (see cc2400_fifo_read(),
- * where a range test that read the wrong number of bytes is what put that
- * note there) -- and this read has no length to go by, because the framing
- * carries none. A 32-byte payload is the case where the read stops where the
- * CRC is, and the case the bench measured corruption at. Eight-byte payloads
- * tracked the transmit's CRC bit as well, so the flag is not scrambled by the
- * shorter read, but nothing has caught a corrupt short packet with it. The
+ * the CRC16 over the bytes already read out of it (see cc2400_fifo_read()) --
+ * and this read has no length to go by, because the framing carries none. A
+ * 32-byte payload is the case where the read stops where the CRC is. The
  * receive records the radio's answer; the man pages say where it has been
  * checked.
  */
@@ -4526,16 +4148,14 @@ void rx_generic_sync(void) {
 	/*
 	 * Zeroed because the capture fills only the first
 	 * RX_GENERIC_SYNCWORD_LEN + RX_GENERIC_DATA_LEN bytes and the whole
-	 * buffer is sent: the tail used to be 14 bytes of whatever was on the
-	 * stack below it, read past the end of a 36-byte buffer and shipped to
-	 * the host in every record.
+	 * buffer is sent, so the tail would otherwise carry whatever was on the
+	 * stack below it.
 	 */
 	u8 buf[DMA_SIZE] = { 0 };
 	u16 reg_val;
 
 	/* The size the buffer has to be, which is not the same question as the
-	 * one above: a 36-byte buffer satisfies that assert, and a 36-byte
-	 * buffer is what sent the stack bytes. */
+	 * assert above: a 36-byte buffer satisfies that one. */
 	_Static_assert(sizeof(buf) >= DMA_SIZE,
 	               "enqueue() copies DMA_SIZE bytes out of this buffer");
 
@@ -4562,27 +4182,19 @@ void rx_generic_sync(void) {
 		HGM_SET;
 #endif
 	/*
-	 * This used to be `while (1)`, with the wait for a sync word below
-	 * spinning on the radio and USB serviced only once a packet had arrived.
-	 * So on a quiet channel -- which is every channel, until something
-	 * transmits the configured sync word -- the board answered no control
-	 * request at all and nothing could stop the mode: not even
-	 * `ubertooth-util -S`, because the loop never looked at requested_mode.
-	 * It needed a re-plug.
-	 *
-	 * Now the loop ends when the mode does, and the wait services USB while
-	 * it polls, so the request that stops the mode gets through.
+	 * The loop ends when the mode does, and the wait below services USB
+	 * while it polls: on a quiet channel -- which is every channel until
+	 * something transmits the configured sync word -- nothing else would
+	 * let the request that stops the mode through.
 	 */
 	while (requested_mode == MODE_RX_GENERIC) {
 		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
 		cc2400_strobe(SRX);
 		USRLED_CLR;
 
-		/* Wait for a packet. This one has no deadline -- nothing may be
-		 * transmitting the sync word, perhaps for hours, and that is not a
-		 * failure -- so instead of a poll bound it services USB and leaves
-		 * when the host stops the mode. The main loop's idle reset clears
-		 * the LEDs, the amplifier and the radio on the way out. */
+		/* Wait for a packet. No deadline: nothing may be transmitting
+		 * the sync word, perhaps for hours, and that is not a failure.
+		 * So it services USB and leaves when the host stops the mode. */
 		while (!(cc2400_status() & SYNC_RECEIVED)) {
 			service_usb();
 			if (requested_mode != MODE_RX_GENERIC)
@@ -4596,12 +4208,9 @@ void rx_generic_sync(void) {
 		 *
 		 * The lead is four byte times at 1 Mbit/s. This capture does
 		 * not set the modem up, so the rate is whatever the host wrote
-		 * to MDMCTRL, and the radio also has a 250 kbit/s mode; at that
-		 * rate the same wait is one byte rather than four. Still the
-		 * byte the wait exists for, with nothing to spare -- and the
-		 * record is wrong for another reason at that rate anyway, since
-		 * the read below takes about 14 us a byte and would outrun a
-		 * 32 us byte on the air for the whole record.
+		 * to MDMCTRL, and at the radio's 250 kbit/s rate the same wait
+		 * is one byte -- still the byte the wait exists for, with
+		 * nothing to spare.
 		 */
 		rx_wait_for_fifo();
 		cc2400_fifo_read(RX_GENERIC_DATA_LEN,
@@ -4618,10 +4227,7 @@ void rx_generic_sync(void) {
 void rx_generic(void) {
 	/*
 	 * Which receive the mode runs follows GRMDM's packet-mode bit, which
-	 * whatever set the radio up left there. The test used to be `&& 0x0400`,
-	 * so it asked whether GRMDM read non-zero at all: every configured
-	 * radio took the packet-mode path and the symbol stream below was dead
-	 * code. grmdm_packet_mode() is the bit test it was meant to be.
+	 * whatever set the radio up left there.
 	 */
 	if (grmdm_packet_mode(cc2400_get(GRMDM))) {
 		rx_generic_sync();
@@ -4654,10 +4260,10 @@ void tx_generic(u8 prev_mode) {
 	 *
 	 * GRMDM is the one that decides something: rx_generic() reads its
 	 * packet-mode bit to choose between the packet receive and the raw
-	 * symbol stream, and the value written below has that bit set, so a
-	 * receive entered after a transmit used to take the packet path
-	 * whatever the host had asked for. MDMCTRL, MDMTST0 and FSDIV are the
-	 * modem settings and the channel, which the same receive would
+	 * symbol stream, and the value written below has that bit set, so
+	 * without the restore a receive entered after a transmit takes the
+	 * packet path whatever the host asked for. MDMCTRL, MDMTST0 and FSDIV
+	 * are the modem settings and the channel, which that receive would
 	 * otherwise inherit from this packet.
 	 */
 	synch = cc2400_get(SYNCH);
@@ -4679,20 +4285,18 @@ void tx_generic(u8 prev_mode) {
 	cc2400_set(MDMCTRL, 0x0057);
 	cc2400_set(MDMTST0, 0x134b);
 	/*
-	 * The framing: buffered mode, packet mode, a preamble of 01010101
-	 * (field 6; field 7 received nothing at all on the bench), the whole
-	 * 32-bit sync word, and the radio's CRC. The radio adds all of it and
-	 * the generic receive programs none of it, so a board meant to read
+	 * The framing: buffered mode, packet mode, a preamble of 01010101, the
+	 * whole 32-bit sync word, and the radio's CRC. The radio adds all of it
+	 * and the generic receive programs none of it, so a board meant to read
 	 * this transmit has to be set to the same GRMDM value and sync word.
 	 *
-	 * The CRC is on because nothing else in this framing can tell a
-	 * payload with a bit error in it from a payload, and it costs no
-	 * detections. The radio reports its verdict rather than dropping the
-	 * packet, so the receive writes it down: RX_GENERIC_CRC_OFFSET.
+	 * The CRC is on because nothing else in this framing can tell a payload
+	 * with a bit error in it from a payload, and it costs no detections.
+	 * The radio reports its verdict rather than dropping the packet, so the
+	 * receive writes it down: RX_GENERIC_CRC_OFFSET.
 	 *
-	 * Packet mode is what puts the payload in the radio's FIFO for the
-	 * write loop below. It is also the bit rx_generic() reads to choose
-	 * the packet receive, which is why the restore below matters.
+	 * Packet mode is also what puts the payload in the radio's FIFO for the
+	 * write loop below.
 	 */
 	cc2400_set(GRMDM, 0x0f61 | GRMDM_CRC);
 	cc2400_set(FSDIV, tx_pkt.channel);
@@ -4728,23 +4332,16 @@ send_one:
 	 * FIFO's 32, so a single write would push the rest past the end of the
 	 * FIFO and what went on the air would be undefined.
 	 *
-	 * The wait is for the FIFO to be empty. The modem takes bytes out of it
-	 * at the air rate, so between pieces it has nothing to send for as long
-	 * as the next write takes: cc2400_fifo_write() costs about 1 us a byte,
-	 * so about 20 us for the 18 bytes a 50-byte packet has left, against
-	 * 8 us a byte on the air. Whether the radio carries a packet across
-	 * that gap, or the strobe below frames the rest as a second
+	 * The wait is for the FIFO to be empty, so the modem has nothing to
+	 * send for as long as the next write takes, about 20 us for the 18
+	 * bytes a 50-byte packet has left. Whether the radio carries a packet
+	 * across that gap, or the strobe below frames the rest as a second
 	 * transmission, is not known: an Ubertooth receiver reads one FIFO's
-	 * worth per sync word, so it cannot see the difference. The
-	 * alternative, refilling at the threshold in INT before the FIFO runs
-	 * dry, needs that measurement and a reading of what the radio asserts
-	 * its FIFO signals on, so waiting on empty is what both refill loops
-	 * do until someone has those.
+	 * worth per sync word, so it cannot see the difference.
 	 *
 	 * The length is clamped as well as chunked, because this is where a
-	 * length reaches the radio: the vendor request already refuses a longer
-	 * packet, and a write of tx_pkt.length on its own would read past
-	 * tx_pkt.data.
+	 * length reaches the radio: a write of tx_pkt.length on its own would
+	 * read past tx_pkt.data.
 	 *
 	 * A zero-length packet still strobes once: the radio sends the preamble
 	 * and sync word with no payload.
@@ -4756,10 +4353,8 @@ send_one:
 		 * been strobed to transmit, so the FIFO cannot be draining.
 		 *
 		 * A wait that gives up ends the packet here instead of writing
-		 * the rest. The radio still has what it was given, so the next
-		 * piece would go past the end of the FIFO -- which is the thing
-		 * this loop exists to avoid. Either way this packet is lost;
-		 * this way nothing is written past the FIFO to lose it. */
+		 * the rest past the end of a FIFO the radio has not emptied,
+		 * which is the thing this loop exists to avoid. */
 		if (sent != 0 && !fifo_wait_empty())
 			break;
 
@@ -4783,14 +4378,13 @@ send_one:
 	 * The next packet of the burst, if the request asked for more than one.
 	 *
 	 * Inside the register save and restore below, because the packet is
-	 * framed by registers the restore puts back: a loop around the restore
-	 * sent its second and later packets with the Bluetooth registers in
-	 * place, and a board set to this framing read one packet of thirty.
+	 * framed by registers the restore puts back: looping around the restore
+	 * would send every packet after the first with the previous mode's
+	 * registers in place.
 	 *
-	 * USB is serviced between packets, so a request that ends the mode --
-	 * ubertooth-util -S, or any other mode -- still gets through, and a
-	 * burst long enough to matter can be stopped. The main loop's own
-	 * service pass does not come round until the burst is over.
+	 * USB is serviced between packets, so a request that ends the mode
+	 * still gets through and a long burst can be stopped. The main loop's
+	 * own service pass does not come round until the burst is over.
 	 */
 	if (--left > 0) {
 		service_usb();
@@ -4843,12 +4437,9 @@ void specan()
 	cc2400_set(MDMCTRL, 0x0029); // 160 kHz frequency deviation
 	//FIXME maybe set RSSI.RSSI_FILT
 	/* Bounded: this mode services USB from its own loop below, so a radio
-	 * that never reports ready here used to leave the board enumerated and
-	 * answering no control request at all. Three of the wedges reported
-	 * against this firmware followed a specan run.
-	 *
-	 * No service callback on these two, as in cc2400_rx(): they run once,
-	 * before the loop starts. */
+	 * that never reports ready here would leave the board enumerated and
+	 * answering no control request at all. No service callback on these
+	 * two, as in cc2400_rx(): they run once, before the loop starts. */
 	cc2400_wait_xosc_stable(NULL);
 	cc2400_wait_fs_unlock();
 
@@ -4857,17 +4448,14 @@ void specan()
 			cc2400_set(FSDIV, f - 1);
 			cc2400_strobe(SFSON);
 			/* The two waits either side of a sample are where this loop
-			 * spends its time, and it only drains endpoint 0 every sixteenth
-			 * sample, so they are also where a control request stalls.
-			 * Servicing USB between their status polls is what led_specan()
-			 * does. This loop pays more for it than that one did, because it
-			 * takes a sample at every frequency step rather than cycling
-			 * three. What it costs in samples per second has not been
-			 * measured; the pass runs while the radio is settling anyway, so
-			 * the expectation is that it is small, not that it is nothing.
+			 * spends its time, and it drains endpoint 0 only every
+			 * sixteenth sample, so they are also where a control
+			 * request would stall. The pass runs while the radio is
+			 * settling, so what it costs in samples per second is
+			 * expected to be small rather than nothing.
 			 *
-			 * The bound is separate and was already here: a sample taken
-			 * without a lock is junk, which the host can see, while a wait
+			 * The bound is a separate matter: a sample taken without a
+			 * lock is junk, which the host can see, while a wait
 			 * without a bound is a board that has to be power-cycled. */
 			cc2400_wait_fs(1, service_usb);
 			cc2400_strobe(SRX);
@@ -5024,63 +4612,49 @@ int main()
 
 		/*
 		 * A mode change, and the only place one happens. Leaving a mode
-		 * always runs the idle reset, before the next mode starts: LEDs and
-		 * the Ubertooth One amplifier off, the radio quiet, the channel back
-		 * to 2441 MHz and the squelch back to -120.
+		 * always runs the idle reset before the next mode starts: LEDs and
+		 * the Ubertooth One amplifier off, the radio quiet, the channel
+		 * back to 2441 MHz and the squelch back to -120. It belongs here
+		 * rather than in a dispatch case of its own, or a mode loop that
+		 * returns for its own reason carries the old mode's LEDs,
+		 * amplifier, channel and squelch into the new mode.
 		 *
-		 * This used to be a dispatch case of its own (`case MODE_IDLE`),
-		 * which meant the reset ran only when MODE_IDLE was still the
-		 * request by the time the dispatch was reached. A mode loop that
-		 * returned for its own reason, or a second request arriving in the
-		 * handle_usb() above, carried the old mode's LEDs, amplifier,
-		 * channel and squelch straight into the new mode.
+		 * Leaving a mode also drops whatever it had queued for the host
+		 * and never got to send: those packets belong to a capture that
+		 * has ended, and clearing the queue only at a mode start would
+		 * hand them to whoever read the endpoint next. A single-shot jam
+		 * is the one mode that ends itself with a capture running, and
+		 * there the drop does take a tail the host had not collected.
 		 *
-		 * Leaving a mode also drops whatever it had queued for the host and
-		 * never got to send. Those packets belong to a capture that has
-		 * ended, and the queue only used to be cleared when a mode started,
-		 * so they were handed to whoever read the endpoint next -- before
-		 * that reader's own mode had started.
-		 *
-		 * This is the dispatch's job and not cc2400_idle()'s. That reset
-		 * runs at boot, and bt_generic_le() and bt_le_sync() call it in the
-		 * middle of a mode, so reaching it does not mean a capture has
-		 * ended. This is the one place a mode change happens.
-		 *
-		 * A single-shot jam is the one mode that ends itself while it has a
-		 * capture running, and there the drop does take whatever tail the
-		 * host had not collected yet: the cost of the guarantee, and the jam
-		 * is the last thing that run was for.
+		 * The reason this is not cc2400_idle()'s job: that reset runs at
+		 * boot, and bt_generic_le() and bt_le_sync() call it in the middle
+		 * of a mode, so reaching it does not mean a capture has ended.
 		 *
 		 * What this cannot reach is the bulk IN endpoint's two hardware
 		 * buffers. A packet already handed to them is past the queue, and
-		 * flushing them from here would reset the endpoint's data toggle and
-		 * leave the host's toggle one ahead. Resynchronizing a pipe is the
-		 * host's to do, and libubertooth does it as it starts reading, which
-		 * puts both toggles back to DATA0 together.
+		 * flushing them here would reset the endpoint's data toggle and
+		 * leave the host's one ahead. Resynchronizing a pipe is the host's
+		 * to do, and libubertooth does it as it starts reading.
 		 *
 		 * The clear runs with the USB interrupt held off because the queue
-		 * is also read from that interrupt, by the UBERTOOTH_POLL request.
-		 * Every interrupt-driven mode does disable the interrupt before it
-		 * returns, so today nothing could race this; the hold makes that a
-		 * property of this code rather than of fifteen mode functions, for
-		 * one register read.
+		 * is also read from that interrupt, by UBERTOOTH_POLL. Every
+		 * interrupt-driven mode does disable the interrupt before it
+		 * returns, so the hold makes that a property of this code rather
+		 * than of fifteen mode functions, for one register read.
 		 */
 		if (prev_mode != MODE_IDLE) {
 			cc2400_idle();
 			usb_irq = usb_irq_hold();
 			usb_queue_init();
 			/*
-			 * The per-channel averages go with the queued packets, and for
-			 * the same reason: they describe the band during a capture that
-			 * has ended. This is the one place that is true, which is why
-			 * the clear is here and not in cc2400_idle() -- that runs at
-			 * boot and in the middle of the two low-energy modes, and a
-			 * clear there would keep restarting the filter under a running
-			 * capture.
+			 * The per-channel averages go with the queued packets, and
+			 * for the same reason: they describe the band during a
+			 * capture that has ended. A clear in cc2400_idle() instead
+			 * would keep restarting the filter under a running capture.
 			 *
-			 * Inside the same hold, because the averages are read from the
-			 * USB interrupt too: a squelch set relative to them recomputes
-			 * the threshold from the handler.
+			 * Inside the same hold, because the averages are read from
+			 * the USB interrupt too: a squelch set relative to them
+			 * recomputes the threshold from the handler.
 			 */
 			rssi_iir_reset();
 			/* And what the last capture heard with its channels clear, so
@@ -5093,33 +4667,29 @@ int main()
 			 * The E-GO access code goes back to the one
 			 * ubertooth-ego(1) documents, for the reason the AFH map
 			 * is forgotten above: it belongs to the capture that
-			 * asked for it. It used to be set once at boot and kept
-			 * until the board was reset, so an `ubertooth-ego -a
-			 * 11223344` left 11223344 behind and the next run
-			 * captured with it while reporting nothing.
+			 * asked for it.
 			 */
 			ego_capture_reset();
 		}
 
 		/*
-		 * Record the new mode here rather than in each case. When each case
-		 * did it, a case that left it out kept `mode` at the previous mode,
-		 * so stopping the mode it was running found requested_mode == mode
-		 * and no reset ran at all; and an unknown request kept `mode`
-		 * unchanged forever, spinning this loop at full rate.
+		 * Record the new mode here rather than in each case: a case that
+		 * left it out would keep `mode` at the previous mode, so stopping
+		 * the mode it was running would find requested_mode == mode and
+		 * run no reset at all.
 		 *
-		 * Put back what the host stated for this mode -- before its request
-		 * or after it -- which the reset above would otherwise have thrown
+		 * Put back what the host stated for this mode, before its request
+		 * or after it, which the reset above would otherwise have thrown
 		 * away. After `mode`, because a channel request reads it, and
 		 * before the cases below, whose own setup wins.
 		 *
-		 * Both with the USB interrupt held off, as the queue clear above is,
-		 * and against the same kind of race: the two requests that state a
-		 * setting run from that interrupt. One arriving in the middle of
-		 * this would have its own copy dropped by the read-then-clear here,
-		 * or leave the channel from its request and the hop mode from the
-		 * copy. Recording `mode` inside the hold is what ends the window:
-		 * a request that arrives after it keeps nothing, because no mode
+		 * Both with the USB interrupt held off, as the queue clear above
+		 * is, and against the same kind of race: the two requests that
+		 * state a setting run from that interrupt, and one arriving in the
+		 * middle of this would have its copy dropped by the
+		 * read-then-clear, or leave the channel from its request and the
+		 * hop mode from the copy. Recording `mode` inside the hold ends
+		 * the window: a request after it keeps nothing, because no mode
 		 * start is coming for it.
 		 */
 		usb_irq = usb_irq_hold();
@@ -5158,23 +4728,22 @@ int main()
 				 * programmer again with the board left in this mode would
 				 * be a silent no-op.
 				 *
-				 * cc2400_idle() had this same write removed for being able
-				 * to swallow a request that arrived while it ran. Here
-				 * nothing can: the case services no USB, so the only
-				 * request that could be lost is one arriving during
-				 * set_isp(), which does not return. */
+				 * Writing requested_mode here cannot swallow a request,
+				 * as the same write in cc2400_idle() could: this case
+				 * services no USB, so the only request that could be
+				 * lost arrives during set_isp(), which does not
+				 * return. */
 				watchdog_unstretch();
 				requested_mode = MODE_IDLE;
 				break;
 			case MODE_AFH:
 				/*
 				 * AFH detection hops to the channels the piconet has not
-				 * been seen on, and the host narrows that down as packets
-				 * arrive. UBERTOOTH_AFH asks for the hop mode as well, which
-				 * covers a switch into AFH hopping while a stream is already
-				 * running; setting it here is what survives the teardown
-				 * above, which puts hop_mode back to HOP_NONE and forgets
-				 * the AFH map on the way out of whatever ran before.
+				 * been seen on, and the host narrows that down as
+				 * packets arrive. UBERTOOTH_AFH asks for the hop mode
+				 * too, for a switch into AFH hopping while a stream is
+				 * already running; asking again here is what survives
+				 * the teardown above.
 				 */
 				hop_mode = HOP_AFH;
 				afh_enabled = 1;
@@ -5215,12 +4784,11 @@ int main()
 				/*
 				 * The range test runs once and then stops, so it
 				 * asks for idle on its own behalf -- but only if
-				 * the host has not asked for something else
-				 * first. It now answers control requests while it
-				 * waits for the repeater's reply, so a mode or
-				 * reset request can have been accepted while it
-				 * ran; overwriting requested_mode here would
-				 * report success to the host and then drop it.
+				 * the host has not asked for something else. It
+				 * answers control requests while it waits for the
+				 * repeater's reply, so overwriting requested_mode
+				 * here would report success to the host and then
+				 * drop the mode it asked for.
 				 */
 				if (requested_mode == MODE_RANGE_TEST)
 					requested_mode = MODE_IDLE;
