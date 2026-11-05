@@ -228,11 +228,9 @@ wrote one is never told to write again.
 The confirming wait is spent once per detach and only after the device has
 gone, so a board that never left the bootloader is reported as promptly as
 before.
-The 1.5 s is measured against one board on one host, where it was back within
-630 ms of being asked to reset. A board that takes longer than the whole 1.5 s,
-behind a hub or on a loaded host, is back on the bus after the confirming
-listing has already read it as gone, and is reported as detached, which is the
-answer this check gave before it existed.
+A board that takes longer than the whole 1.5 s, behind a hub or on a loaded
+host, is back on the bus after the confirming listing has already read it as
+gone, and is reported as detached.
 
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU

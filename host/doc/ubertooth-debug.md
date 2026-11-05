@@ -11,15 +11,13 @@ ubertooth-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 
-`-w` is experimental, as the generic radio mode it exists for is: see
-ubertooth(7), GENERIC RADIO MODE for what that mode does and what it asks of
-a configuration. Expect the option and its output to change.
-
 `-w` writes registers as well as `-r` reading them. Writing the radio's
 registers by hand is how a generic capture is set up: `ubertooth-dump -g`
 demodulates with whatever configuration is in the CC2400, so `-w` puts the
-channel, data rate, sync word and framing there first. ubertooth(7), GENERIC
-RADIO MODE is the worked example.
+channel, data rate, sync word and framing there first. It is experimental, as
+the generic radio mode it exists for is, so expect the option and its output
+to change; ubertooth(7), GENERIC RADIO MODE says what that mode does, what it
+asks of a configuration, and is the worked example.
 
 Nothing here knows which values a register accepts: these are the radio's own
 registers, and the value is written as given. A configuration that does not
@@ -152,15 +150,13 @@ one item of several:
     $ ubertooth-debug -r 0x02,300
     error: register address must be 0x00-0xff (got 300 in 0x02,300)
 
-A value that cannot be read as a list at all gets one line in the same shape,
-with the reason: `error: register list must be names or addresses, single or as
-a range: unknown name (got %nosuchregister)`. The other reasons are
-`empty value`, `range with no start`, `not an octal digit` and
-`not a name, address or range`.
+A value that cannot be read as a list at all gets one line in the same form,
+naming the reason the list reader gave: `error: register list must be names or
+addresses, single or as a range: unknown name (got %nosuchregister)`.
 
 `-w` takes a list of `<reg>=<value>` pairs. A number with a leading `0x` is
-hex and every other number is decimal, so `-w 010=1` writes register ten.
-(`-r` reads a leading zero as octal, which it has always done.) The register
+hex and every other number is decimal, so `-w 010=1` writes register ten,
+while `-r` reads a leading zero as octal. The register
 is refused the way `-r`'s is, and a value outside 16 bits the same way:
 
     $ ubertooth-debug -w 0x100=1
@@ -168,12 +164,15 @@ is refused the way `-r`'s is, and a value outside 16 bits the same way:
     $ ubertooth-debug -w 0x20=0x10000
     error: register value must be 0x0000-0xffff (got 0x10000 in 0x20=0x10000)
 
-An item that is not a pair at all, a missing value, an empty item between two
-commas and a trailing comma are all refused in one line as
-`error: register write must be <reg>=<value> (got ...)`, and a `%name` the
-table does not have as
-`error: no CC2400 register is called %nosuch (in %nosuch=1)`. Nothing is
-written when any item is refused, so a configuration cannot reach the radio
+An item that is not a pair at all, or one with a missing value, is refused in
+one line as `error: register write must be <reg>=<value> (got 0x20 in
+0x20,0x21=1)`, and a `%name` the table does not have as `error: no CC2400
+register is called %nosuch (in %nosuch=1)`. A value the reader cannot split
+into items at all -- an empty `-w`, or a list ending in a comma -- names the
+list instead: `error: register write list must be <reg>=<value>[,...] (got
+an empty value)`. One `-w` carries at most 256 writes, and more is
+`error: at most 256 register writes in one -w (got more in <list>)`. Nothing
+is written when any item is refused, so a configuration cannot reach the radio
 half-applied.
 
 Either `-r` or `-w` is needed: a command line with neither is refused with
