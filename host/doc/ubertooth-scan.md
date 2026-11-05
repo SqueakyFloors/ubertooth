@@ -266,10 +266,8 @@ seed of the header error check and CRC of the FHS packet the pager sends
 the controller no NAP, so it reports back the address it was given, which is what
 the check on the name answer compares. The one way the guess itself can stop the
 connection is by matching the local Bluetooth device's own address, which a
-controller refuses to page. What a real controller makes of the guess has not
-been verified
-([#699](https://github.com/SqueakyFloors/ubertooth/issues/699)). Either
-way, a connection that cannot be made to such an address is a `note:` and the
+controller refuses to page; what a real controller makes of the guess has not
+been verified. Either way, a connection that cannot be made to such an address is a `note:` and the
 run still exits 0. Give such a device to `ubertooth-scan -s -x`, or to
 `ubertooth-follow -t`, by its whole address.
 

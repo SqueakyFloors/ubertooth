@@ -321,19 +321,18 @@ need not hold for the other.
       echo "w=$w $((records - bad / 2)) of $records headers passed"
     done
 
-The count that matters is the headers that passed, not the records written. A
-board hopping on a clock that is wrong still matches the piconet's access code
-now and then, and it records every match, so a bad value can write hundreds of
-records and get nothing out of any of them. Wireshark marks a bad header
-`Incorrect Packet Header or HEC` and `tshark -V` prints that twice per frame,
-which is the halving above. Do not count the packet detail the run printed
-instead: that needs the payload as well as the header, which an enhanced data
-rate payload never reaches, so on a link carrying EDR every value would read as
-zero.
+The count that matters is the headers that passed, not the records written: a
+board hopping on a wrong clock still matches the access code now and then and
+records every match, so a bad value can write hundreds of records and get
+nothing out of any of them. Wireshark marks a bad header `Incorrect Packet
+Header or HEC` and `tshark -V` prints that twice per frame, which is the
+halving above. Do not count the packet detail the run printed instead: that
+needs the payload too, which an enhanced data rate payload never reaches, so
+on a link carrying EDR every value would read as zero.
 
-Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
-three or four times as many records, the extra ones matched with an error
-allowed, which is how a bad value comes to look like a working capture.
+Sweep with `-e 0`, exact access codes only: at the default `-e 2` the extra
+records matched with an error allowed are how a bad value comes to look like a
+working capture.
 
 Throw away any leg where the piconet went quiet, and any leg that printed the
 warning that the clock being followed was not this piconet's (see DESCRIPTION

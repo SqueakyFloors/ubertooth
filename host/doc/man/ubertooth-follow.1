@@ -196,9 +196,9 @@ done
 .fi
 .IP "" 0
 .P
-The count that matters is the headers that passed, not the records written\. A board hopping on a clock that is wrong still matches the piconet's access code now and then, and it records every match, so a bad value can write hundreds of records and get nothing out of any of them\. Wireshark marks a bad header \fBIncorrect Packet Header or HEC\fR and \fBtshark \-V\fR prints that twice per frame, which is the halving above\. Do not count the packet detail the run printed instead: that needs the payload as well as the header, which an enhanced data rate payload never reaches, so on a link carrying EDR every value would read as zero\.
+The count that matters is the headers that passed, not the records written: a board hopping on a wrong clock still matches the access code now and then and records every match, so a bad value can write hundreds of records and get nothing out of any of them\. Wireshark marks a bad header \fBIncorrect Packet Header or HEC\fR and \fBtshark \-V\fR prints that twice per frame, which is the halving above\. Do not count the packet detail the run printed instead: that needs the payload too, which an enhanced data rate payload never reaches, so on a link carrying EDR every value would read as zero\.
 .P
-Sweep with \fB\-e 0\fR, exact access codes only\. At the default \fB\-e 2\fR a run writes three or four times as many records, the extra ones matched with an error allowed, which is how a bad value comes to look like a working capture\.
+Sweep with \fB\-e 0\fR, exact access codes only: at the default \fB\-e 2\fR the extra records matched with an error allowed are how a bad value comes to look like a working capture\.
 .P
 Throw away any leg where the piconet went quiet, and any leg that printed the warning that the clock being followed was not this piconet's (see DESCRIPTION above): the first reads as a clean zero and the second is no longer a reading of \fB\-w\fR at all\. Confirm from the devices themselves that each leg had traffic to capture\.
 .P
