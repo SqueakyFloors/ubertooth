@@ -141,10 +141,10 @@ per million.
 
 A recovered connection using all 37 channels is not captured whole either. The
 follow starts from one packet of one connection event, and where in that event
-the packet fell is where every later hop lands: on the bench the share of a
-connection's packets a recovered follow catches varied by a factor of four
-between runs of the same connection, and held steady within a run. Capturing
-from the setup with `-f` does not have that.
+the packet fell is where every later hop lands, so what share of the
+connection a recovered follow catches is settled by that first packet and
+differs from run to run. Capturing from the setup with `-f` does not have
+that.
 
 When sniffing, Ubertooth can only operate in either follow mode or
 promiscuous mode, but not both at the same time. If you are unsure which
@@ -184,10 +184,8 @@ use the special filter `none`. Example:
 
     ubertooth-btle -t none
 
-When filtering, previous versions of the firmware would still log all
-advertising packets but only follow connections based on the filter
-parameters. As of 2018-06-R1, advertising packets that do not match the
-filter are dropped.
+When filtering, advertising packets that do not match the filter are
+dropped.
 
 In all sniffing modes, Ubertooth can log data to PCAP or PcapNG with a
 variety of pseudoheaders. The recommended logging format is PcapNG
@@ -210,7 +208,7 @@ In every sniffing mode, a packet carrying a Bluetooth 4.2 Data Length
 Extension payload, up to its 251-byte maximum, is captured whole: on the
 screen, in PCAP and in PCAPNG. The board sends such a packet in several
 fixed-size records, which are put back together before anything is decoded or
-written. Older firmware cut every packet to 50 bytes.
+written.
 
 Interfering with connections is a feature for causing intentional
 interference with newly established or long-lived connections. When this
@@ -323,9 +321,7 @@ Major modes:
    go with `-f`, `-n` or `-p`. The value is one whole address and nothing
    else: a faux peripheral advertises from a single address, so the `/<bits>` mask
    and `none` that `-t` takes are refused here, each as the address it is not
-   (`error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)`). Both
-   used to be parsed and then dropped, so `-s none` advertised from
-   `00:00:00:00:00:00`.
+   (`error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)`).
 
 Interference (only with `-f` or `-p`):
 
@@ -349,14 +345,10 @@ Filtering:
    `-n` drops the advertising packets that do not. Every form of it, `-t none`
    included, is refused with `-p`, which has no device address to match
    against: `error: -t does not go with -p: promiscuous mode has no device
-   address to match a target against`. The combination used to be accepted,
-   and the board then read "a target was set" as "the host gave an access
-   address", so `-p` followed `8e89bed6` and captured nothing.
-   `-s` and `-t` are two different addresses and a command
-   can give both: `-s A -t B` advertises from A and follows B, and `-t none`
-   clears the target without touching the address `-s` was given. They shared
-   one address, so whichever of the two was written last used to set both, and
-   `-s <BD ADDR> -t none` advertised from `00:00:00:00:00:00` without a word.
+   address to match a target against`. `-s` and `-t` are two different
+   addresses and a command can give both: `-s A -t B` advertises from A and
+   follows B, and `-t none` clears the target without touching the address
+   `-s` was given.
 
 Logging:
 
@@ -417,9 +409,7 @@ promiscuous mode. A promiscuous packet carries a count of how often it has;
 the packets of the other two modes carry none, so how often it started over is
 worked out from the host's own clock instead: the time the host saw pass
 between two packets says how many periods lie between their clock readings, so
-a quiet gap keeps its time however long it was. Before, a gap longer than one
-period left every later time short by a period, since the clock then reads
-higher than it did and nothing in the capture shows it started over at all.
+a quiet gap keeps its time however long it was.
 
 The `delta_t` printed beside each packet is the gap between two of these
 times, so it too holds the whole of a quiet gap and a dump and a capture of
@@ -500,11 +490,9 @@ Miscellaneous:
    There is one level of it, so writing it twice says what writing it once
    said (ubertooth(7), OPTION VALUES).
 
-   `-v` named the CRC verify setting until `-k` took that over, which is the
-   likeliest source of a command line that writes a value here. Such a line
-   is refused as any valueless option's value is, and `-v` on its own says
-   where the setting went: `error: -v needs -f, -n or -p: there is no decode
-   for it to describe; the CRC verify setting is -k now`.
+   A value written here is refused as any valueless option's value is, and
+   `-v` without a sniffing mode reads `error: -v needs -f, -n or -p: there is
+   no decode for it to describe; the CRC verify setting is -k now`.
  - `-x <0-32>` :
    Allow n access address violations (default: 32). Filtering occurs on
    host.
@@ -737,12 +725,6 @@ A `-q` or `-r` capture records the figure for such a packet regardless, as a
 Basic Rate capture does: a record has no way to say that a level was not
 measured. So a capture file reads 0 dBm where the screen reads `none`.
 
-Earlier releases printed the weakest reading the board reports for the packet
-instead, through a rougher approximation. That figure ran far below the
-packet's own level: on the bench it reached -96 dBm where the quietest packet
-the capture recorded was -78, and a dump and a capture of the same run
-disagreed by as much as 90 dB on an individual packet.
-
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops
 answering during a capture, `error: jamming not supported by this firmware`,
@@ -827,8 +809,8 @@ the run ends: `note: 312 packets held data that could not be decoded; -v
 describes each one`, where `-v` is what asks for that description as the run
 goes. Data off the air that does not hold what its own length fields describe
 is ordinary, not a failure -- both a real packet with a corrupted byte and
-noise that decoded as a packet produce one, and a busy bench gives hundreds in
-ten seconds -- so the run says how many rather than a line per packet, and the
+noise that decoded as a packet produce one, and busy air gives many of them --
+so the run says how many rather than a line per packet, and the
 packets are recorded as they arrived. The line goes where the decoded packets
 went, because that is what it is about: a run that writes a capture file and
 shows no packets decodes nothing and says nothing, which is why a capture

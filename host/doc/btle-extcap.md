@@ -146,7 +146,7 @@ data going to the fifo instead, and nothing when a call fails.
 
 The ubertooth-btle(1) a `--capture` call runs writes its own decode of every
 packet to its standard output, which is dropped: nobody asked this call for
-it, and 8 seconds of ambient advertising is some 560 kB. Its standard error is
+it. Its standard error is
 the script's, so a ubertooth-btle(1) that fails still says why. Wireshark
 keeps the first 1024 bytes of the capture call's standard error and shows them
 for the interface when the call fails.
@@ -234,7 +234,7 @@ the answer to the call. A standard error open for reading only
 (`btle-extcap.py --bogus 2>&-`), or a pipe whose reader has left
 (`btle-extcap.py --bogus 2>&1 | true`) all go the same way. The exit
 status is then all that is left to say what happened, and it is the script's
-own: it used to be 120, from the flush the interpreter makes as it exits.
+own rather than one the interpreter's own failed flush produced.
 A child the script starts is handed the bin for that stream rather than a
 closed descriptor, for the reason the capture above is refused one.
 

@@ -66,7 +66,7 @@ That also means a recovered connection is heard less often than it speaks, so pr
 .P
 Three limits are worth knowing\. The search needs a run of about forty visits to the channel being listened on, and a connection at the longest interval the specification allows, 4 s, comes back to one channel so rarely that the board cannot time the gaps: at that interval no run is collected and nothing is recovered\. A connection whose channel map keeps less than about a third of the 37 channels is out of reach as well: too many of the visits the board hears are events the map moved to this channel, which no event counter predicts, so the search never gets a winner clear enough to adopt\. And the interval it reports is the one the board's clock measured, which at a long interval can be a unit of 1\.25 ms away from the figure the connection was given, because the two clocks differ by a few hundred parts per million\.
 .P
-A recovered connection using all 37 channels is not captured whole either\. The follow starts from one packet of one connection event, and where in that event the packet fell is where every later hop lands: on the bench the share of a connection's packets a recovered follow catches varied by a factor of four between runs of the same connection, and held steady within a run\. Capturing from the setup with \fB\-f\fR does not have that\.
+A recovered connection using all 37 channels is not captured whole either\. The follow starts from one packet of one connection event, and where in that event the packet fell is where every later hop lands, so what share of the connection a recovered follow catches is settled by that first packet and differs from run to run\. Capturing from the setup with \fB\-f\fR does not have that\.
 .P
 When sniffing, Ubertooth can only operate in either follow mode or promiscuous mode, but not both at the same time\. If you are unsure which mode to use, use follow mode\.
 .P
@@ -93,7 +93,7 @@ ubertooth\-btle \-t none
 .fi
 .IP "" 0
 .P
-When filtering, previous versions of the firmware would still log all advertising packets but only follow connections based on the filter parameters\. As of 2018\-06\-R1, advertising packets that do not match the filter are dropped\.
+When filtering, advertising packets that do not match the filter are dropped\.
 .P
 In all sniffing modes, Ubertooth can log data to PCAP or PcapNG with a variety of pseudoheaders\. The recommended logging format is PcapNG (\fB\-r\fR) or PCAP with LE Pseudoheader (\fB\-q\fR)\. For compatibility with crackle (see \fIUSING WITH CRACKLE\fR), use PCAP with PPI (\fB\-c\fR)\.
 .P
@@ -106,7 +106,7 @@ warning: the capture file has no more room for connection parameters; the packet
 .P
 once on standard error and carries on\. Start a new capture file to record more\. The format of a PcapNG capture's own options is specified in \fBdocs/source/bluetooth_captures_PCAP\.rst\fR\.
 .P
-In every sniffing mode, a packet carrying a Bluetooth 4\.2 Data Length Extension payload, up to its 251\-byte maximum, is captured whole: on the screen, in PCAP and in PCAPNG\. The board sends such a packet in several fixed\-size records, which are put back together before anything is decoded or written\. Older firmware cut every packet to 50 bytes\.
+In every sniffing mode, a packet carrying a Bluetooth 4\.2 Data Length Extension payload, up to its 251\-byte maximum, is captured whole: on the screen, in PCAP and in PCAPNG\. The board sends such a packet in several fixed\-size records, which are put back together before anything is decoded or written\.
 .P
 Interfering with connections is a feature for causing intentional interference with newly established or long\-lived connections\. When this attack succeeds, the BLE connection between the central and peripheral will be terminated\. Pair the \fB\-i\fR or \fB\-I\fR flag with \fB\-f\fR to interfere with new connections or \fB\-p\fR to interfere with long\-lived connections\. \fB\-i\fR or \fB\-I\fR (or their older spellings \fB\-j\fR and \fB\-J\fR) with neither \fB\-f\fR nor \fB\-p\fR is refused before any device is opened: there is no connection to interfere with\. This describes the feature as it is meant to work; no capture mode acts on it at the moment (see KNOWN BROKEN FEATURES)\. Note that causing intentional interference may be illegal in your jurisdiction\. Check your local laws before using this feature\.
 .P
@@ -171,7 +171,7 @@ One case it cannot see through: a board that hears exactly every second return, 
 Nothing hops until the interval is known, so a capture up to that point holds the one channel\.
 .TP
 \fB\-s <BD ADDR>\fR
-Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux peripheral advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)\fR)\. Both used to be parsed and then dropped, so \fB\-s none\fR advertised from \fB00:00:00:00:00:00\fR\.
+Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux peripheral advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)\fR)\.
 .P
 Interference (only with \fB\-f\fR or \fB\-p\fR):
 .TP
@@ -190,7 +190,7 @@ Original "jam" spelling of \fB\-I\fR; does exactly what \fB\-I\fR does
 Filtering:
 .TP
 \fB\-t <BD ADDR>\fR
-Limit connection following and interference in follow mode to the specified BD ADDR\. It is for the follow modes: \fB\-f\fR follows only a connection whose advertising or connect packets carry this address, and \fB\-n\fR drops the advertising packets that do not\. Every form of it, \fB\-t none\fR included, is refused with \fB\-p\fR, which has no device address to match against: \fBerror: \-t does not go with \-p: promiscuous mode has no device address to match a target against\fR\. The combination used to be accepted, and the board then read "a target was set" as "the host gave an access address", so \fB\-p\fR followed \fB8e89bed6\fR and captured nothing\. \fB\-s\fR and \fB\-t\fR are two different addresses and a command can give both: \fB\-s A \-t B\fR advertises from A and follows B, and \fB\-t none\fR clears the target without touching the address \fB\-s\fR was given\. They shared one address, so whichever of the two was written last used to set both, and \fB\-s <BD ADDR> \-t none\fR advertised from \fB00:00:00:00:00:00\fR without a word\.
+Limit connection following and interference in follow mode to the specified BD ADDR\. It is for the follow modes: \fB\-f\fR follows only a connection whose advertising or connect packets carry this address, and \fB\-n\fR drops the advertising packets that do not\. Every form of it, \fB\-t none\fR included, is refused with \fB\-p\fR, which has no device address to match against: \fBerror: \-t does not go with \-p: promiscuous mode has no device address to match a target against\fR\. \fB\-s\fR and \fB\-t\fR are two different addresses and a command can give both: \fB\-s A \-t B\fR advertises from A and follows B, and \fB\-t none\fR clears the target without touching the address \fB\-s\fR was given\.
 .P
 Logging:
 .TP
@@ -217,7 +217,7 @@ When stdout capture is selected, regular packet/status text is suppressed so it 
 .P
 No two capture options may be one file either: each writer opens its own destination for writing, which truncates what another has put there, so \fB\-q collision\.pcap \-d collision\.pcap\fR is refused with \fBerror: \-q and \-d cannot both write to collision\.pcap\fR, before either is opened and with the file left as it was\. Every pair of \fB\-r\fR, \fB\-q\fR/\fB\-c\fR, and \fB\-d\fR is checked, and the file is identified rather than the name (ubertooth(7), OPTION VALUES)\.
 .P
-The times in a logged capture follow the board's capture clock, which starts over every 429\.50 s in the \fB\-f\fR and \fB\-n\fR modes and every 327\.68 s in promiscuous mode\. A promiscuous packet carries a count of how often it has; the packets of the other two modes carry none, so how often it started over is worked out from the host's own clock instead: the time the host saw pass between two packets says how many periods lie between their clock readings, so a quiet gap keeps its time however long it was\. Before, a gap longer than one period left every later time short by a period, since the clock then reads higher than it did and nothing in the capture shows it started over at all\.
+The times in a logged capture follow the board's capture clock, which starts over every 429\.50 s in the \fB\-f\fR and \fB\-n\fR modes and every 327\.68 s in promiscuous mode\. A promiscuous packet carries a count of how often it has; the packets of the other two modes carry none, so how often it started over is worked out from the host's own clock instead: the time the host saw pass between two packets says how many periods lie between their clock readings, so a quiet gap keeps its time however long it was\.
 .P
 The \fBdelta_t\fR printed beside each packet is the gap between two of these times, so it too holds the whole of a quiet gap and a dump and a capture of one run agree about a packet\. The first packet of a capture reports no gap, there being nothing to measure from\.
 .P
@@ -247,7 +247,7 @@ Verbose, as in every other tool (ubertooth(7), COMMON OPTIONS): the decoder desc
 .IP
 There is one level of it, so writing it twice says what writing it once said (ubertooth(7), OPTION VALUES)\.
 .IP
-\fB\-v\fR named the CRC verify setting until \fB\-k\fR took that over, which is the likeliest source of a command line that writes a value here\. Such a line is refused as any valueless option's value is, and \fB\-v\fR on its own says where the setting went: \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
+A value written here is refused as any valueless option's value is, and \fB\-v\fR without a sniffing mode reads \fBerror: \-v needs \-f, \-n or \-p: there is no decode for it to describe; the CRC verify setting is \-k now\fR\.
 .TP
 \fB\-x <0\-32>\fR
 Allow n access address violations (default: 32)\. Filtering occurs on host\.
@@ -339,8 +339,6 @@ The model has ends\. Above the top of it the radio reports the same reading for 
 .P
 A \fB\-q\fR or \fB\-r\fR capture records the figure for such a packet regardless, as a Basic Rate capture does: a record has no way to say that a level was not measured\. So a capture file reads 0 dBm where the screen reads \fBnone\fR\.
 .P
-Earlier releases printed the weakest reading the board reports for the packet instead, through a rougher approximation\. That figure ran far below the packet's own level: on the bench it reached \-96 dBm where the quietest packet the capture recorded was \-78, and a dump and a capture of the same run disagreed by as much as 90 dB on an individual packet\.
-.P
 Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A value that is not an address reads the same way whatever is wrong with it, and names the address the option sets, so \fB\-s\fR gives \fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got <word>)\fR, including for the \fBnone\fR and \fB22:44:66:88:aa:cc/24\fR that \fB\-t\fR takes, and a bad target mask gives \fBerror: target mask must be 0\-48 (got 49)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
 .P
 A capture that is losing packets says so\. This tool reads its packets one at a time, and a reply that held part of a record cannot be read as one, so it is dropped and reported once per run: \fBwarning: a poll reply arrived with 32 of a packet's 64 bytes and was dropped; the capture is losing packets\fR\. The capture runs on and ends as it otherwise would, so the warning is the only sign\.
@@ -357,7 +355,7 @@ A receiver being driven harder than the radio can measure is the one capture pro
 .P
 ubertooth\-rx(1) does report it, with the message ubertooth(7) gives, and that is what to reach for here: this tool's board sends a record for a packet it demodulated and for nothing else, so a record at the top of the range means a packet that decoded there, which an ordinary close link produces all day\. The Basic Rate stream sends a record for every block of air instead, so on a bench where two boards hear each other and nothing decodes, running \fBubertooth\-rx\fR on the same channel is how to tell a deafened receiver from an empty one\.
 .P
-Packets whose data the decoder could not read are summed up in one line when the run ends: \fBnote: 312 packets held data that could not be decoded; \-v describes each one\fR, where \fB\-v\fR is what asks for that description as the run goes\. Data off the air that does not hold what its own length fields describe is ordinary, not a failure \-\- both a real packet with a corrupted byte and noise that decoded as a packet produce one, and a busy bench gives hundreds in ten seconds \-\- so the run says how many rather than a line per packet, and the packets are recorded as they arrived\. The line goes where the decoded packets went, because that is what it is about: a run that writes a capture file and shows no packets decodes nothing and says nothing, which is why a capture through btle\-extcap(1) leaves Wireshark's error output empty\.
+Packets whose data the decoder could not read are summed up in one line when the run ends: \fBnote: 312 packets held data that could not be decoded; \-v describes each one\fR, where \fB\-v\fR is what asks for that description as the run goes\. Data off the air that does not hold what its own length fields describe is ordinary, not a failure \-\- both a real packet with a corrupted byte and noise that decoded as a packet produce one, and busy air gives many of them \-\- so the run says how many rather than a line per packet, and the packets are recorded as they arrived\. The line goes where the decoded packets went, because that is what it is about: a run that writes a capture file and shows no packets decodes nothing and says nothing, which is why a capture through btle\-extcap(1) leaves Wireshark's error output empty\.
 .P
 A poll the board does not answer is tried again, up to three attempts, before the capture gives up: a board busy elsewhere for a moment no longer ends a capture that has been running for hours\. A board that has left the bus ends it at once\. The retry saves the capture, not the packet: the board takes a packet out of its queue as it answers the poll, so the one a timed\-out poll was carrying is gone\.
 .P

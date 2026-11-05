@@ -52,7 +52,7 @@ An option value must be a whole value in its range, or it is refused the same wa
 .P
 The optional value of \fB\-q\fR may be attached or given as the next word (\fB\-q <uuid>\fR); a following option is never taken as a value\.
 .P
-\fB\-q\fR or \fB\-b\fR is the work, so a command line with neither is refused before any device is opened: \fBerror: nothing to do: give \-q to quack, or \-b to signal the bootloader\fR\. It used to open the selected board, check its firmware, quack nothing and exit 0\.
+\fB\-q\fR or \fB\-b\fR is the work, so a command line with neither is refused before any device is opened: \fBerror: nothing to do: give \-q to quack, or \-b to signal the bootloader\fR\.
 .SH "DIAGNOSTICS"
 What \fBubertooth\-ducky\fR does happens over the air, so it writes no result: everything it prints, including the duck and the "Quacking \|\.\|\.\|\. as \|\.\|\.\|\." line, goes to standard error, and standard output stays empty\. Each error is one line starting \fBerror:\fR, for example \fBerror: cannot read the UUID 'nonsense'\fR\.
 .P

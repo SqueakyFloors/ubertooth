@@ -106,8 +106,7 @@ reset.
 
 Interference (`-i`, `-j`) transmits at the CC2400 power level set with
 `ubertooth-util -a` and leaves it unchanged. A board that has not been given a
-level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level
-jamming always used before. Sniffing does not transmit and does not change the
+level jams at 7 (0 dBm, the maximum), which is the CC2400's reset value. Sniffing does not transmit and does not change the
 level. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier
 changes the actual output after that.
 
@@ -131,24 +130,21 @@ way instead of being read as 0, for example
 
 A major mode is the work, so a command line without `-f`, `-r` or `-i` is
 refused before any device is opened: `error: nothing to do: choose a major
-mode (-f, -r or -i)`. It used to open the selected board, check its firmware,
-do nothing and exit 0.
+mode (-f, -r or -i)`.
 
 Each major mode runs until it is interrupted, so only one of them can run: two
 in one command are refused before any device is opened, naming both as they
 were spelled, `error: -r cannot be combined with -f; choose one of -f, -r, -i,
-or -j`. `-i` and `-j` are two spellings of the jamming mode, so they clash too.
-The last mode written used to be the one that ran, and the others were dropped
-without a word.
+or -j`. `-i` and `-j` are two spellings of the jamming mode, so they clash
+too.
 
 `-c` outside continuous receive is refused before any device is opened too,
 naming the mode as it was spelled: `error: -c cannot be combined with -f; only
 continuous receive (-r) uses a channel`, with no usage text after it (see
-DIAGNOSTICS). It used to be accepted and then dropped silently in those modes.
+DIAGNOSTICS).
 
 `-l` with interference is refused the same way: `error: -l cannot be combined
-with -i; only the receiving modes (-f, -r) read a capture length`. It used to
-set a firmware value the mode never reads.
+with -i; only the receiving modes (-f, -r) read a capture length`.
 
 ## DIAGNOSTICS
 
