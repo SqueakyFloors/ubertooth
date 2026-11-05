@@ -7,10 +7,10 @@
 # sample output writes the version as API:<version> rather than a number, in
 # the man pages, the README, docs/ and CHANGELOG.md alike, because every bump
 # would otherwise have one more place to chase. What a bump does update is
-# TEST_PLAN.md's expected string and COMPATIBILITY.md's firmware row, which
-# state the requirement rather than illustrate output, and a version a sample
-# is making a point about -- 2020-12-R1's 1.07 -- which is a fixed number and
-# stays.
+# validation/TEST_PLAN.md's expected string and COMPATIBILITY.md's firmware
+# row, which state the requirement rather than illustrate output, and a
+# version a sample is making a point about -- 2020-12-R1's 1.07 -- which is a
+# fixed number and stays.
 #
 # Nothing enforced that. The samples that went stale were found by a reviewer
 # two bumps later, so this script asks both halves of the rule:
@@ -18,8 +18,9 @@
 #   1. no documentation file writes API: followed by a digit, except where
 #      the allowlist below says it is deliberate;
 #   2. where it is deliberate because the document states the requirement --
-#      TEST_PLAN.md and COMPATIBILITY.md -- the value is the one this tree
-#      carries, so allowlisting those two files cannot hide a stale number;
+#      validation/TEST_PLAN.md and COMPATIBILITY.md -- the value is the one
+#      this tree carries, so allowlisting those two files cannot hide a stale
+#      number;
 #   3. the CHANGELOG's top section, which says in words what the version is
 #      now, says this tree's.
 #
@@ -122,10 +123,10 @@ grep -v '^#' > "$allowlist" <<'EOF'
 # it reports the tree's version now, and no sample writes 1.06, so nothing
 # excuses it.
 :[0-9]+:.*2020(\\)?-12(\\)?-R1 \(API:1(\\)?\.07\)
-# TEST_PLAN.md states the version a board must report, rather than
+# validation/TEST_PLAN.md states the version a board must report, rather than
 # illustrating output, so it carries the real number -- and part 2 below
 # pins that number to this tree's, which is what makes excusing the file safe.
-^TEST_PLAN\.md:[0-9]+:
+^validation/TEST_PLAN\.md:[0-9]+:
 # COMPATIBILITY.md's firmware row, for the same reason and with the same
 # backstop.
 ^COMPATIBILITY\.md:[0-9]+:
@@ -188,11 +189,11 @@ fi
 # tree's. Each is allowlisted above, so without this they could hold a version
 # two bumps old and nothing would say so -- which is how the samples went
 # stale in the first place.
-plan_versions=$(grep -o -E 'API:[0-9]+\.[0-9]+' TEST_PLAN.md |
+plan_versions=$(grep -o -E 'API:[0-9]+\.[0-9]+' validation/TEST_PLAN.md |
                 sed 's/^API://' | sort -u)
 if [ -z "$plan_versions" ]; then
     {
-        echo "error: TEST_PLAN.md states no expected API: version at all."
+        echo "error: validation/TEST_PLAN.md states no expected API: version at all."
         echo ""
         echo "       It is the plan a tester reads to confirm a board reports"
         echo "       the version this tree requires, so the line naming"
@@ -201,13 +202,13 @@ if [ -z "$plan_versions" ]; then
     problems=$((problems + 1))
 elif [ "$plan_versions" != "$version" ]; then
     {
-        echo "error: TEST_PLAN.md expects an API version this tree does not carry."
+        echo "error: validation/TEST_PLAN.md expects an API version this tree does not carry."
         echo ""
-        echo "         this tree:      $version ($header)"
-        echo "         TEST_PLAN.md:   $(printf '%s' "$plan_versions" | tr '\n' ' ')"
+        echo "         this tree:                 $version ($header)"
+        echo "         validation/TEST_PLAN.md:   $(printf '%s' "$plan_versions" | tr '\n' ' ')"
         echo ""
-        echo "       A bump moves TEST_PLAN.md's expected string with it."
-        grep -n "API:[0-9]" TEST_PLAN.md | sed 's/^/         /'
+        echo "       A bump moves validation/TEST_PLAN.md's expected string with it."
+        grep -n "API:[0-9]" validation/TEST_PLAN.md | sed 's/^/         /'
     } >&2
     problems=$((problems + 1))
 fi
@@ -344,5 +345,5 @@ if [ "$problems" -ne 0 ]; then
     exit 1
 fi
 
-echo "check-doc-api-version: $count documentation files scanned, no pinned version; TEST_PLAN.md, COMPATIBILITY.md and CHANGELOG.md are at $version."
+echo "check-doc-api-version: $count documentation files scanned, no pinned version; validation/TEST_PLAN.md, COMPATIBILITY.md and CHANGELOG.md are at $version."
 exit 0

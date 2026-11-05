@@ -144,7 +144,7 @@ new_repo() {
     git -C "$repo" config user.email "selftest@invalid"
     mkdir -p "$repo/host/libubertooth/src" "$repo/firmware/bluetooth_rxtx" \
         "$repo/firmware/common/lpcusb/target" "$repo/firmware/btbr/src" \
-        "$repo/firmware/tests"
+        "$repo/firmware/tests" "$repo/validation"
     cp "$real_header" "$repo/$header_path"
     # The real build file, so the compile-flag cases change the lines the tree
     # actually has rather than lines written to suit them.
@@ -163,7 +163,7 @@ new_repo() {
         firmware/btbr/src/btbr.c firmware/btbr/README \
         firmware/tests/test_firmware.c \
         host/libubertooth/src/ubertooth.c CHANGELOG.md COMPATIBILITY.md \
-        TEST_PLAN.md; do
+        validation/TEST_PLAN.md; do
         printf 'SEEDED = %s\n' "$f" > "$repo/$f"
     done
     commit "$repo" "the tree as main has it"
@@ -447,7 +447,7 @@ want_stdout "takes 1.32 (0x0132)"
 
 # A comment in the interface header is not the interface. Asking a typo fix
 # for a bump would be a false red, and a bump costs every user a reflash plus
-# CHANGELOG, COMPATIBILITY.md, TEST_PLAN.md and test-string churn.
+# CHANGELOG, COMPATIBILITY.md, validation/TEST_PLAN.md and test-string churn.
 new_repo 0x0131
 printf '/* a clearer word for the same thing */\n' >> "$repo/$header_path"
 commit "$repo" "reword a comment in the interface header"
@@ -852,7 +852,7 @@ new_repo 0x0131
 edit "$repo" host/libubertooth/src/ubertooth.c
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
-edit "$repo" TEST_PLAN.md
+edit "$repo" validation/TEST_PLAN.md
 set_version "$repo" 0x0200
 commit "$repo" "cut a release"
 run "a release takes the next major version" "$repo" main
@@ -866,7 +866,7 @@ want_stdout "the next major version"
 new_repo 0x0131
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
-edit "$repo" TEST_PLAN.md
+edit "$repo" validation/TEST_PLAN.md
 set_version "$repo" 0x0300
 commit "$repo" "skip a major version"
 run "two majors up is not a release bump" "$repo" main
@@ -877,7 +877,7 @@ want_stderr "changes no firmware interface file"
 new_repo 0x0131
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
-edit "$repo" TEST_PLAN.md
+edit "$repo" validation/TEST_PLAN.md
 set_version "$repo" 0x0201
 commit "$repo" "a major version with a minor digit"
 run "a major version with a minor digit is not a release bump" "$repo" main
@@ -900,7 +900,7 @@ new_repo 0x0131
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
 set_version "$repo" 0x0200
-commit "$repo" "a release that forgot TEST_PLAN.md"
+commit "$repo" "a release that forgot validation/TEST_PLAN.md"
 run "a release bump with one document missing" "$repo" main
 want_status 1
 want_stderr "changes no firmware interface file"
@@ -917,13 +917,13 @@ new_repo 0x0131
 git -C "$repo" checkout -q main
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
-edit "$repo" TEST_PLAN.md
+edit "$repo" validation/TEST_PLAN.md
 set_version "$repo" 0x0200
 commit "$repo" "main releases 2.00"
 git -C "$repo" checkout -q work
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
-edit "$repo" TEST_PLAN.md
+edit "$repo" validation/TEST_PLAN.md
 set_version "$repo" 0x0200
 commit "$repo" "a second release claiming the same value"
 run "a release cannot claim the version main released" "$repo" main
@@ -976,7 +976,7 @@ new_repo 0x0131
 edit "$repo" firmware/bluetooth_rxtx/bluetooth_rxtx.c
 edit "$repo" CHANGELOG.md
 edit "$repo" COMPATIBILITY.md
-edit "$repo" TEST_PLAN.md
+edit "$repo" validation/TEST_PLAN.md
 set_version "$repo" 0x0200
 commit "$repo" "cut a release that also changed the firmware"
 run "a release that changed the firmware is allowed the major" "$repo" main

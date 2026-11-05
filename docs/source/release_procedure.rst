@@ -64,9 +64,9 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       binary-coded decimal (``0x0200`` reads as 2.00), and the host tools
       require firmware of exactly this version, so the move means every board
       has to be reflashed after the release. Update the firmware row of
-      ``COMPATIBILITY.md``, the expected ``API:`` string in ``TEST_PLAN.md``,
-      the pinned strings in the host tests, and note the reflash in
-      ``CHANGELOG.md``.
+      ``COMPATIBILITY.md``, the expected ``API:`` string in
+      ``validation/TEST_PLAN.md``, the pinned strings in the host tests, and
+      note the reflash in ``CHANGELOG.md``.
 
     * Configure the host tools with ``-DUBERTOOTH_RELEASE=ON``. Without it the
       build works the build type out from the tree: an archive with no ``.git``

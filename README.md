@@ -296,8 +296,9 @@ from upstream, so it describes upstream rather than this fork.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers what a change to this fork needs:
 the tests to run, and the CI checks a pull request has to pass.
 
-The [validation folder](validation) describes the lab setup used for hardware
-validation and holds the validation reports from its test runs.
+The [validation folder](validation) holds the manual pre-release checklist a
+person works through on a real Ubertooth, and will hold the description of the
+validation bench and the per-release validation reports.
 
 After editing a man page source in `host/doc/`, regenerate its committed roff
 page and commit both, or the `Man pages` CI job fails:
