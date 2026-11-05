@@ -196,7 +196,8 @@ the capture mode, and no other tool can open it until it is reset or
 re-plugged. What was dumped stays written out, and libubertooth names the
 refused request on standard error.
 
-Also 1 when the board refuses the modulation `-c` or `-l` asks for, with
+Also 1 when the board refuses the modulation the run asks for, which `-g`
+leaves at the default, with
 libubertooth's own line for the refused request on standard error and nothing
 of the dump on standard output: a dump that went ahead would hold whatever
 modulation the board had been left in, and nothing in its records says which
@@ -218,9 +219,7 @@ COMMON OPTIONS.
 
 ## THE GENERIC RECEIVE
 
-Experimental: expect the options and the output to change. Both halves of it,
-the symbol stream and the packet framing, have been exercised between two
-boards.
+Experimental: expect the options and the output to change.
 
 With `-g` the board does one of two things, and which one it does comes from
 GRMDM's packet-mode bit, so the configuration decides it:

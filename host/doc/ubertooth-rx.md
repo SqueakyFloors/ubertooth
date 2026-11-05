@@ -5,7 +5,7 @@
     ubertooth-rx [-l <lap> [-u <uap>] | -z] [-c <0-78>[,...] | -s] [-e <0-5>]
     [-t <seconds>] [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
     [-U <index|serial>[,...]]
-    ubertooth-rx -i <file.bin> [-l <lap> [-u <uap>] | -z] [-e <0-5>]
+    ubertooth-rx -i <file.bin> [-l <lap> [-u <uap>] | -z] [-e <0-5>] [-s]
     [-r <file.pcapng>] [-q <file.pcap>|-] [-d <file.bin>|-]
     ubertooth-rx [-U <index|serial>] -V
     ubertooth-rx -h
@@ -32,8 +32,8 @@ attempt to recover the clock value, and if that succeeds it will follow
 that piconet.
 
 The clock search takes time, and it can end a run with no clock: it accepts
-one only while no other candidate explains the piconet's hops nearly as well,
-so a capture that cannot tell two clocks apart follows neither. The addresses
+one only while no other candidate explains the piconet's hops nearly as well.
+The addresses
 and the packets the board hears are recovered either way. See [THE CLOCK
 SEARCH][].
 
@@ -134,7 +134,7 @@ Output options:
    is refused, `-r -`, `-r /dev/stdout`, and a symbolic link pointing there
    alike: `error: PCAPNG capture to stdout is not supported; use -q -`.
    Another destination that cannot be seeked, such as a named pipe, is turned
-   down by the writer instead
+   down by the writer instead.
  - `-q <file.pcap>` :
    Capture packets to PCAP. `-q -` writes the capture to standard output; see
    CAPTURING TO STANDARD OUTPUT
@@ -176,9 +176,11 @@ window would read 5 dB low.
 
 The noise figure is an estimate, because the board cannot time the quiet
 between packets and goes by level instead: it averages the readings that sat
-more than 10 dB below the loudest taken since it last started counting. It
-starts counting again on every hop, and 25 times a second even on a fixed
-channel, so the figure describes the last few tens of milliseconds of air.
+more than 10 dB below the loudest taken so far in the receive window they
+arrived in. The readings it has admitted are kept until the estimate is
+started again, which happens on every hop and 25 times a second even on a
+fixed channel, so the figure describes the last few tens of milliseconds of
+air.
 Three things follow from that. A faded part of a packet sits that far down too
 and is counted in; quiet taken before a packet is not admitted, so a window
 whose packet arrives last contributes nothing; and the mean is over the loudest
@@ -186,7 +188,7 @@ whose packet arrives last contributes nothing; and the mean is over the loudest
 above the floor. A signal-to-noise ratio is as good as the estimate it rests
 on.
 
-Where no reading has been admitted since the last reset -- a channel heard loud
+Where no reading has been admitted since that reset -- a channel heard loud
 but never quiet, or quiet but never loud -- there is no estimate. The record
 leaves its noise-power-valid flag clear, Wireshark shows `Invalid Noise Power`,
 and the screen prints `n=none snr=none`. A record whose own window admitted
@@ -195,14 +197,19 @@ the estimate belongs to the channel over that stretch, not to one window.
 
 The signal figure has a limit of its own. The board reports power on a raw
 scale and the dBm figure stops rising at the top of it: one figure, 0 dBm,
-stands for every reading from about -26 dBm upward, which says no more than
-that the packet was at least that loud. A Classic peer a few tens of
+stands for every reading at or above that top, where the step below it is
+-5 dBm, so 0 dBm says no more than that the packet was at least that loud. A Classic peer a few tens of
 centimeters away is loud enough to reach it. The screen prints `s=none
 snr=none` for such a packet rather than a figure the board did not measure, and
 the ratio goes with the level it would have rested on. A capture record has no
 way to say the level was not
 measured, so Wireshark shows those packets at 0 dBm. A capture whose packets
-are nearly all up there is the case A RECEIVER THAT CANNOT HEAR describes.
+are nearly all up there is the case A RECEIVER THAT CANNOT HEAR describes,
+which says what to do about it.
+
+A record that states no measured figure of its own, which is what a dump
+written before the per-packet measurement holds, carries the board's strongest
+reading of the packet instead of the packet's mean.
 
 The board has one reading of the channel to work from, so both figures are of
 whatever is on it. A transmitter louder than the packet, on the same channel at
@@ -237,7 +244,9 @@ on a board another run left going are that run's.
 
 ## THE CLOCK SEARCH
 
-Following a piconet needs its clock as well as its address. The search first
+Following a piconet needs its clock as well as its address, and a capture
+that cannot tell two candidates apart follows neither; "How long it takes"
+below says what the search needs of one. The search first
 settles the low clock bits, CLK1-6, from the timing of the packets, and then
 has to pick the rest out of some two million candidates. It does that by
 predicting the channel each candidate would put the piconet on and comparing
@@ -324,11 +333,19 @@ it in 79. Every step of following a piconet waits on those sightings: the upper
 address part (UAP), the channels the piconet is using, and the clock. `-U` with
 a comma-separated list of up to eight boards reads them all in one run, and
 `-c` with a channel each spreads them across the band, so the run sees as many
-packets as it has boards (see EXAMPLES). A board named twice is refused,
-`error: board 1 is named twice`, because naming it once is what the user meant;
-the same board named once by index and once by serial is not caught there and
-fails at the second open instead. `-V` reports one board, so a list beside it
-is refused as well.
+packets as it has boards (see EXAMPLES). Each list refusal is one line:
+
+    error: board 1 is named twice
+    error: the board list has an empty entry
+    error: at most 8 boards can be given
+    error: -c names 2 channels for 4 boards; give one each or one for all
+    error: -V reports one board; name one with -U, or none to report every board attached
+
+The same board named once by index and once by serial is not caught as a
+duplicate and fails at the second open instead. `-c` has the same two list
+refusals as `-U`, naming the channel list, and a count that is neither one
+channel nor one per board is the mismatch above, because which board got which
+channel would then be a guess.
 
 Each board decodes for itself and the run prints every packet of any of them,
 on one stream, each line carrying the channel it was heard on.
@@ -340,9 +357,8 @@ the default, they do not. The recovery's own notes — the candidate counts, the
 address part each board settles on, the clock trim and the drift in PPM, and
 the warning that a clock being followed was not the piconet's — carry no board
 at all, so with several boards they interleave. Those lines come from the
-decoder and from the library underneath this tool, which print the same way for
-one board; giving them a board is tracked on
-[#783](https://github.com/SqueakyFloors/ubertooth/issues/783). The merged
+decoder and from the library underneath this tool, which print the same way
+for one board. The merged
 results at the end of the run are the run's, not a board's, and say so.
 
 What the boards pass between them is what they have worked out:
@@ -352,8 +368,8 @@ What the boards pass between them is what they have worked out:
    is on. The union is handed back to every board as it grows, so each one
    narrows its clock candidates against a map that filled as many times faster
    as there are boards, and the run reports the union when it ends. The search
-   consults the map only once it has heard the piconet on twenty channels and
-   taken the hopping for adapted; from there a fuller map predicts the adapted
+   consults the map only once the decoder has heard the piconet on enough
+   channels to take the hopping for adapted; from there a fuller map predicts the adapted
    sequence better, so more boards should reach a clock sooner than one does.
    THE CLOCK SEARCH above says what the search needs of a capture.
 
@@ -415,10 +431,12 @@ and each address is heard as many times faster as there are boards.
 Two things to know about the files. A `-r` or `-q` capture takes every board's
 packets, and each board's times are reconstructed from its own crystal, so
 records from different boards can arrive out of order and drift apart over a
-long run. `-d` is refused with a list: its records carry no board and `-i`
-replays a whole dump as one board's, which would feed one piconet from several
-unrelated clocks. `-i` reads one saved capture and so takes one board's worth
-of records; it refuses a list too.
+long run. The other two are refused with a list, because a dump's records
+carry no board and a replay reads them as one board's, which would feed one
+piconet from several unrelated clocks:
+
+    error: -d writes one dump for -i to replay as one board, so it cannot be given several boards
+    error: -i names one saved capture, so it cannot be given several boards to read
 
 Each board costs a receive transfer and a 72 MB ring buffer of its own, which
 is what the limit of eight is about. One board behaves exactly as it did
@@ -512,9 +530,8 @@ page: of the paged device's address a page uses only the LAP and the
 UAP, so the two unknown bytes have no part in it (Bluetooth Core,
 Vol 2, Part B 1.3, 6.4.6, 7.1, and Table 2.3). So
 `hcitool name 00:00:98:36:A2:B4` should
-establish a connection to the device and return its name. What a real
-controller makes of the guessed bytes has not been verified
-([#699](https://github.com/SqueakyFloors/ubertooth/issues/699)).
+establish a connection to the device and return its name; what a real
+controller makes of the guessed bytes has not been verified.
 
 This attack works against discoverable and undiscoverable devices alike.
 
@@ -535,7 +552,9 @@ was received and the packet as the Ubertooth delivered it. No device is
 needed, and the decoding options (`-l`, `-u`, `-z`, `-e`) work as they do
 on live data. `-c` and `-t` ask for a board to tune and a board to wait for,
 so a replay refuses them: `error: -c cannot be combined with -i; a replay
-reads a saved capture rather than tuning a board`, exit 1.
+reads a saved capture rather than tuning a board` and `error: -t cannot be
+combined with -i; a replay reads a saved capture rather than waiting for a
+board`, exit 1.
 
 None of the files this run writes (`-r`, `-q`, `-d`) may be the capture the
 replay is reading: each is opened for writing, which truncates it, so the
@@ -544,15 +563,12 @@ write over the dump -i is replaying (capture.bin)`, exit 1, with the file left
 as it was. ubertooth-btle(1) refuses a destination the same way for its own
 replay, in the same words, naming its own option.
 
-It is the file that is compared and not the name, so `./capture.bin`, a
-symbolic link to it, a hard link to it, and a `-d -` whose standard output the
-shell has pointed at the capture are all refused, as is a destination reached
-through a descriptor the calling shell opened (`-d /dev/fd/3` beside
-`3>>capture.bin`). Any destination that is the same file as the input is
-refused, whatever kind of file it is, which is why `-i /dev/null -d /dev/null`
-is refused as well. What cannot be seen is the far end of a pipe,
-`-d - | cat >> capture.bin`. A refusal naming `-` reads `(standard output)`
-where the destination would otherwise be the file name.
+It is the file that is compared and not the name, so another spelling of the
+path, a link to it, and a descriptor the calling shell opened all count as the
+same destination, whatever kind of file it is (ubertooth(7), OPTION VALUES).
+What cannot be seen is the far end of a pipe, `-d - | cat >> capture.bin`. A
+refusal naming `-` reads `(standard output)` where the destination would
+otherwise be the file name.
 
 A redirection of the whole run is a different matter: the shell has already
 opened the file and pointed standard output at it, so there is no destination
@@ -656,13 +672,8 @@ so it cannot be given -l or -u`.
 
 A refused command line creates and truncates nothing: `-r`, `-q` and `-d` name
 their file while the command line is read, and it is opened only once every
-check has passed. The board is opened, its firmware is checked, and the capture
-is set up as far as it can be, all before that, so a run refused for any of
-those reasons leaves no empty file behind either (see EXIT STATUS). The
-requests that start the capture itself are the one part that cannot come first,
-and a board that refuses one of those has the capture files removed again, so a
-refused run leaves nothing to tell apart from a capture that caught nothing. A
-capture that ran keeps its file, however little arrived.
+check has passed (see EXIT STATUS, which says what a run refused later leaves
+behind).
 
 `-` means standard output as the whole value of `-q` or `-d`, and so does a
 path that names this process's descriptor 1, such as `/dev/stdout` or
@@ -803,9 +814,8 @@ out, and a receiver held at the top of it is also past where it demodulates
 reliably, so a transmitter close enough to pin it is one whose packets the
 capture cannot read. The Basic Rate receive turns the board's amplifier and
 high-gain mode both on, so the near end of a bench is close enough: a
-transmitter a few centimeters away pins the receiver at any transmit power,
-while a meter of air and 20 dB of attenuation keep it well clear of the top
-even at full power. Put more distance or more attenuation between the two, or
+transmitter a few centimeters away pins the receiver at any transmit power.
+Put more distance or more attenuation between the two, or
 turn the transmit power down.
 
 A receiver held at the top of the scale is what gets reported, not one loud
