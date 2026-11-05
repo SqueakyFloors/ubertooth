@@ -269,10 +269,14 @@ done
 # The combination checks below come after, so -h beside two options that
 # cannot both run answers rather than refusing, which is what the tools do.
 if [ "$HELP" -eq 1 ]; then
-	sed -n '3,/^# Copyright/p' "$0" | sed '/^# Copyright/d; s/^#\{1,\} \{0,1\}//; s/^#$//'
+	# The help is this file's leading comment block, so the text a user
+	# reads cannot drift from the text in the source. The block starts
+	# below the shebang and the license line, and ends at the first line
+	# that is not a comment, which is where sed quits.
+	sed -n '3,${/^#/!q;p;}' "$0" | sed 's/^#\{1,\} \{0,1\}//'
 	# Printed rather than written in the comment above, so the pin itself
 	# lives in exactly one place in this script.
-	printf 'libbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
+	printf '\nlibbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \
 		"$LIBBTBB_URL" "$LIBBTBB_REF"
 	exit 0
 fi
