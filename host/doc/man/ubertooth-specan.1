@@ -21,7 +21,7 @@ Options:
 lower frequency in MHz (default 2402); the value is required when \fB\-l\fR is used
 .TP
 \fB\-u <2402\-2480>\fR
-upper frequency in MHz (default 2480); the value is required when \fB\-u\fR is used and must not be lower than the selected lower frequency
+upper frequency in MHz (default 2480); the value is required when \fB\-u\fR is used and must not be lower than the selected lower frequency, which is refused with \fBerror: lower frequency must not exceed upper frequency\fR, exit 1
 .TP
 \fB\-g\fR
 write the samples as text for feedgnuplot
@@ -68,9 +68,9 @@ An option the tool does not know, and an option whose value is missing, are refu
 .P
 \fB\-\fR means standard output as the whole value of \fB\-d\fR, and so does a path that names this process's descriptor 1, such as \fB/dev/stdout\fR or \fB/dev/fd/1\fR, and a symbolic link pointing at one of those (ubertooth(7), OPTION VALUES)\. Any other value is a file name, including one that starts with \fB\-\fR: \fB\-d \-x\fR writes the file \fB\-x\fR, and a forgotten file name such as \fB\-d \-v\fR writes a file called \fB\-v\fR rather than streaming samples to the terminal and dropping the \fB\-v\fR\.
 .P
-\fB\-d\fR chooses where the samples go and \fB\-g\fR or \fB\-G\fR how they are written, so the two do separate jobs and go together, in either order: \fB\-g \-d out\.dat\fR writes the gnuplot text into \fBout\.dat\fR, and \fB\-d out\.bin\fR on its own writes the raw records\. \fB\-d\fR used to create the file and leave it empty while a later \fB\-g\fR took the samples to the screen instead\.
+\fB\-d\fR chooses where the samples go and \fB\-g\fR or \fB\-G\fR how they are written, so the two do separate jobs and go together, in either order: \fB\-g \-d out\.dat\fR writes the gnuplot text into \fBout\.dat\fR, and \fB\-d out\.bin\fR on its own writes the raw records\.
 .P
-One sweep is written one way, so \fB\-g\fR and \fB\-G\fR in one command are refused before any device is opened: \fBerror: \-G cannot be combined with \-g; a sweep is written in one format\fR\. The second one used to be the one used\.
+One sweep is written one way, so \fB\-g\fR and \fB\-G\fR in one command are refused before any device is opened: \fBerror: \-G cannot be combined with \-g; a sweep is written in one format\fR\.
 .P
 \fB\-d \-\fR is for a pipe or a redirect when the samples are the raw records, which fill a terminal with control characters and can leave it in a strange state, so a terminal is refused before any device is opened: \fBerror: stdout is a tty, refusing to write binary samples to it\fR, with exit status 1\. ubertooth\-btle(1) refuses its binary capture to a terminal the same way\. With \fB\-g\fR or \fB\-G\fR the samples are text, and a terminal is welcome to them\.
 .P
@@ -100,7 +100,9 @@ After 1\.0 s: 12 sweeps, 948 samples, 0 out of range
 .SH "GAPS IN A CAPTURE"
 A capture that is losing packets says so\. The board holds captured packets in a queue until this tool reads them, and a queue with no room left loses the next packet\. The first time it happens the capture warns \fBwarning: the recording board's packet queue filled up and it dropped at least one packet; this capture has a gap\fR, and when the capture ends it says how many such gaps there were: \fBwarning: the capture has 3 gaps where the board's queue filled up and it dropped packets\fR\. The count is of gaps, not of lost packets: one full queue can swallow several packets, and the board sends no number\. Nothing says which packets are missing, so a capture with gaps is complete only between them\. The board reports a gap on the first packet that gets through after it, so a capture that ends in the moment after a gap does not report that last one\.
 .SH "DIAGNOSTICS"
-Standard output carries only the samples \(em whatever \fB\-d\fR has not sent to a file, as text or, with no \fB\-g\fR or \fB\-G\fR, as the raw records \(em and the usage text for \fB\-h\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened\. libubertooth's own messages read the same way, for example \fBerror: no Ubertooth devices found\fR; a refusal from it can run to more than one line, the lines after the first being its detail (see ubertooth(7))\.
+Standard output carries only the samples, the usage text for \fB\-h\fR, and the answer to \fB\-V\fR\. Without \fB\-d\fR the samples are text records; with \fB\-d\fR and no \fB\-g\fR or \fB\-G\fR they are the raw 3\-byte records, which is why that pair is refused a terminal\.
+.P
+A second value for \fB\-d\fR, \fB\-l\fR, \fB\-u\fR, or \fB\-U\fR is refused with \fBerror: option '\-l' given more than once\fR, and a second \fB\-v\fR, which takes no value, with \fBerror: \-v may be given only once\fR\. Errors, warnings and progress, including \fBUbertooth stopped\fR, go to standard error\. The errors this tool prints itself are one line starting \fBerror:\fR, for example \fBerror: /no/such/dir/samples\.bin: No such file or directory\fR for a \fB\-d\fR file that cannot be opened\. libubertooth's own messages read the same way, for example \fBerror: no Ubertooth devices found\fR; a refusal from it can run to more than one line, the lines after the first being its detail (see ubertooth(7))\.
 .P
 If the samples cannot be written, \fBubertooth\-specan\fR says so once and exits 1, rather than reporting every failed write and then exiting 0\. A write that fails while the sweep is running ends it there, since a full disk does not come back\. Every write is checked, the raw records and the text formats alike, because \fB\-d\fR sends either of them to a file:
 .IP "" 4

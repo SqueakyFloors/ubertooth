@@ -24,8 +24,10 @@ Options:
  - `-l <2402-2480>` :
    lower frequency in MHz (default 2402); the value is required when `-l` is used
  - `-u <2402-2480>` :
-   upper frequency in MHz (default 2480); the value is required when `-u` is used
-   and must not be lower than the selected lower frequency
+   upper frequency in MHz (default 2480); the value is required when `-u` is
+   used and must not be lower than the selected lower frequency, which is
+   refused with `error: lower frequency must not exceed upper frequency`,
+   exit 1
  - `-g` :
    write the samples as text for feedgnuplot
  - `-G` :
@@ -91,12 +93,11 @@ streaming samples to the terminal and dropping the `-v`.
 `-d` chooses where the samples go and `-g` or `-G` how they are written, so
 the two do separate jobs and go together, in either order: `-g -d out.dat`
 writes the gnuplot text into `out.dat`, and `-d out.bin` on its own writes the
-raw records. `-d` used to create the file and leave it empty while a later
-`-g` took the samples to the screen instead.
+raw records.
 
 One sweep is written one way, so `-g` and `-G` in one command are refused
 before any device is opened: `error: -G cannot be combined with -g; a sweep is
-written in one format`. The second one used to be the one used.
+written in one format`.
 
 `-d -` is for a pipe or a redirect when the samples are the raw records, which
 fill a terminal with control characters and can leave it in a strange state,
@@ -156,9 +157,14 @@ capture that ends in the moment after a gap does not report that last one.
 
 ## DIAGNOSTICS
 
-Standard output carries only the samples — whatever `-d` has not sent to a
-file, as text or, with no `-g` or `-G`, as the raw records — and the usage text
-for `-h`.
+Standard output carries only the samples, the usage text for `-h`, and the
+answer to `-V`. Without
+`-d` the samples are text records; with `-d` and no `-g` or `-G` they are the
+raw 3-byte records, which is why that pair is refused a terminal.
+
+A second value for `-d`, `-l`, `-u`, or `-U` is refused with `error: option
+'-l' given more than once`, and a second `-v`, which takes no value, with
+`error: -v may be given only once`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a

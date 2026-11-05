@@ -122,11 +122,6 @@ none:
       Device 0: aa1100112233445566778899aabbccdd
       Device 1: ee5500112233445566778899aabbccdd
 
-It used to open whichever board libusb handed over first, which on such a
-host reached an arbitrary one: a board flashed with `btbr` could be ignored
-in favour of one still carrying `bluetooth_rxtx`, whose write timeout then
-looked like the `btbr` board failing.
-
 A board whose serial number cannot be read is listed as `serial unreadable`
 and can still be chosen by index. Reading it means opening the board, so what
 makes it fail is an open that fails — on Linux, usually the udev rules not
@@ -143,10 +138,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `inquiry_scan` :
    answer inquiries, so nearby devices discover this board
  - `page_scan` :
-   accept a connection from a device that pages this board; a standard
-   Classic controller usually gets through in a few seconds, and another
-   Ubertooth on the same bench needs its transmit level turned down first,
-   as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this
+   accept a connection from a device that pages this board; another Ubertooth
+   nearby needs its transmit level turned down first, as does this one (see
+   TWO BOARDS CLOSE TOGETHER); a board scanning this
    way answers a small L2CAP echo request, so `l2ping` from another Ubertooth
    sees a reply (see LIMITATIONS for how small)
  - `discoverable` :
@@ -206,23 +200,21 @@ prompt. Before the prompt is up, Ctrl-C ends the tool.
 ## TWO BOARDS CLOSE TOGETHER
 
 Paging one Ubertooth from another needs both of them turned down first. At the
-transmit level the radio starts at, two boards a few centimeters apart drive
-each other's receiver far past the level it can demodulate. The page itself
-still gets through, because a page scan sits on one frequency for milliseconds
-at a time, but the short receive windows that follow it find nothing: the
-paged board comes up as a peripheral, the pager never hears the
-acknowledgment, and the connection ends a second later having carried no
-packet.
+transmit level the radio starts at, two boards close together drive each
+other's receiver past the level it can demodulate. The page itself still gets
+through, because a page scan sits on one frequency for milliseconds at a time,
+but the short receive windows that follow it find nothing: the paged board
+comes up as a peripheral, the pager never hears the acknowledgment, and the
+connection ends having carried no packet.
 
 Set both boards to the lowest level before paging one from the other:
 
     ubertooth-util -U <serial> -a 0
 
 `btbr` keeps whatever level the register holds, so this lasts until the board
-is flashed again. The lowest level is about 25 dB down from the highest
-(ubertooth-util(1), `-a`): plenty across a bench and not enough for a device
-across a room, so put it back to 7 before paging anything else. Moving the two boards apart, or putting an attenuator on one
-antenna, does the same job.
+is flashed again, so put the level back (ubertooth-util(1), `-a`) before
+paging anything further away. Moving the two boards apart, or putting an
+attenuator on one antenna, does the same job.
 
 ## MONITOR MODE
 
@@ -546,11 +538,9 @@ One open for reading only (`ubertooth-btbr --bogus 2<&0`), closed
 (`ubertooth-btbr --bogus 2>&-`), or a pipe whose reader has left
 (`ubertooth-btbr --bogus 2>&1 | true`) all go the same way: the lines are
 dropped and the exit status is the command's own. A session keeps its capture
-through it, wherever standard output is going: a warning in the middle of one
-used to end it and take the rest of the capture with it, and a refused
-command line used to exit 120 rather than 1, from the flush the interpreter
-makes as it exits. A session with that stream closed used to be refused
-before the prompt was read. A child the tool starts for `-V` is handed the
+through it, wherever standard output is going, and a session whose standard
+error is closed still reaches the prompt. A child the tool starts for `-V` is
+handed the
 bin for that stream rather than a closed descriptor, whose number the first
 file it opened would take.
 
@@ -589,12 +579,9 @@ board, and when the thread reading the board stopped on a failure.
 The last of those is a board that left the USB bus, stopped answering, or sent
 a message whose framing this tool could not follow, with the session still up:
 the thread reading it ends there, nothing restarts it, and no message arrives
-for the rest of the session. The board was power-cycled under a running
-`inquiry` when this was found, and the session reported every step correctly
-and then exited 0, so a script could not tell it from a run where every
-command worked. What
-ended that thread is said as it happens, `error: the receive thread stopped:
-<type>: ...`, and again on the way out as a `warning: `.
+for the rest of the session. What ended that thread is said as it happens,
+`error: the receive thread stopped: <type>: ...`, and again on the way out as
+a `warning: `.
 
 A single command the board refused is not that. It is reported on standard
 error (see DIAGNOSTICS), the prompt stays up, and the session goes on and
